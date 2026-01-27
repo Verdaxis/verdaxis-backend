@@ -24,11 +24,16 @@ def upgrade() -> None:
     op.execute("CREATE EXTENSION IF NOT EXISTS postgis")
 
     # Enums
-    op.execute("DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'user_role') THEN CREATE TYPE user_role AS ENUM ('BUYER', 'SUPPLIER', 'ADMIN'); END IF; END $$;")
-    op.execute("DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'org_type') THEN CREATE TYPE org_type AS ENUM ('SHIPPING_LINE', 'FUEL_SUPPLIER', 'PORT_AUTHORITY'); END IF; END $$;")
-    op.execute("DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'congestion_level') THEN CREATE TYPE congestion_level AS ENUM ('Low', 'Moderate', 'High'); END IF; END $$;")
-    op.execute("DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'fuel_type') THEN CREATE TYPE fuel_type AS ENUM ('Methanol', 'Biofuel', 'LNG', 'Ammonia', 'LSMGO'); END IF; END $$;")
-    op.execute("DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'quote_status') THEN CREATE TYPE quote_status AS ENUM ('Draft', 'Pending', 'Quoted', 'Negotiating', 'Confirmed', 'Rejected', 'Completed'); END IF; END $$;")
+    user_role = postgresql.ENUM('BUYER', 'SUPPLIER', 'ADMIN', name='user_role')
+    user_role.create(op.get_bind(), checkfirst=True)
+    org_type = postgresql.ENUM('SHIPPING_LINE', 'FUEL_SUPPLIER', 'PORT_AUTHORITY', name='org_type')
+    org_type.create(op.get_bind(), checkfirst=True)
+    congestion_level = postgresql.ENUM('Low', 'Moderate', 'High', name='congestion_level')
+    congestion_level.create(op.get_bind(), checkfirst=True)
+    fuel_type = postgresql.ENUM('Methanol', 'Biofuel', 'LNG', 'Ammonia', 'LSMGO', name='fuel_type')
+    fuel_type.create(op.get_bind(), checkfirst=True)
+    quote_status = postgresql.ENUM('Draft', 'Pending', 'Quoted', 'Negotiating', 'Confirmed', 'Rejected', 'Completed', name='quote_status')
+    quote_status.create(op.get_bind(), checkfirst=True)
 
     # Organizations
     op.create_table('organizations',
