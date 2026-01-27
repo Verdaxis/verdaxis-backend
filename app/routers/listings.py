@@ -17,7 +17,7 @@ from app.schemas.rfq import (
 )
 from app.routers.auth import get_current_user
 
-router = APIRouter(prefix="/api/listings", tags=["listings"])
+router = APIRouter(prefix="/listings", tags=["listings"])
 
 
 @router.get("", response_model=list[PublicListingResponse])
