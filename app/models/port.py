@@ -30,7 +30,7 @@ class PortIntelligence(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     port_id: Mapped[str] = mapped_column(ForeignKey("ports.id"))
-    congestion_level: Mapped[CongestionLevel | None] = mapped_column(Enum(CongestionLevel))
+    congestion_level: Mapped[CongestionLevel | None] = mapped_column(Enum(CongestionLevel, native_enum=False))
     methanol_price_avg: Mapped[float | None] = mapped_column(Numeric(10, 2))
     biofuel_price_avg: Mapped[float | None] = mapped_column(Numeric(10, 2))
     captured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
