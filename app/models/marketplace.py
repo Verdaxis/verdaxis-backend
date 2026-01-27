@@ -28,7 +28,7 @@ class InventoryItem(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     supplier_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("organizations.id"))
     port_id: Mapped[str | None] = mapped_column(ForeignKey("ports.id"))
-    fuel_type: Mapped[FuelType] = mapped_column(Enum(FuelType), nullable=False)
+    fuel_type: Mapped[FuelType] = mapped_column(Enum(FuelType, native_enum=False), nullable=False)
     product_name: Mapped[str | None] = mapped_column(String)
     
     current_stock_mt: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False)
@@ -51,7 +51,7 @@ class QuoteRequest(Base):
     vessel_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("vessels.id"))
     port_id: Mapped[str | None] = mapped_column(ForeignKey("ports.id"))
     
-    fuel_type: Mapped[FuelType] = mapped_column(Enum(FuelType), nullable=False)
+    fuel_type: Mapped[FuelType] = mapped_column(Enum(FuelType, native_enum=False), nullable=False)
     quantity_mt: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False)
     delivery_window_start: Mapped[date | None] = mapped_column(Date)
     delivery_window_end: Mapped[date | None] = mapped_column(Date)
