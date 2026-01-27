@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, func
 from typing import Optional
 from uuid import UUID
 
@@ -25,34 +25,33 @@ async def list_public_listings(
     region: Optional[str] = Query(None, description="Filter by region"),
     fuel_type: Optional[str] = Query(None, description="Filter by fuel type"),
     availability: Optional[str] = Query(None, description="Filter by availability window"),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
     """
     Get all active public listings (anonymized).
-    This endpoint is accessible to all authenticated users.
-    Supplier identity is hidden.
     """
-    query = db.query(PublicListing).filter(PublicListing.status == ListingStatus.ACTIVE)
+    query = select(PublicListing).where(PublicListing.status == ListingStatus.ACTIVE)
     
     if region:
-        query = query.filter(PublicListing.region.ilike(f"%{region}%"))
+        query = query.where(PublicListing.region.ilike(f"%{region}%"))
     if fuel_type:
-        query = query.filter(PublicListing.fuel_type.ilike(f"%{fuel_type}%"))
+        query = query.where(PublicListing.fuel_type.ilike(f"%{fuel_type}%"))
     if availability:
-        query = query.filter(PublicListing.availability_window == availability)
+        query = query.where(PublicListing.availability_window == availability)
     
-    listings = query.order_by(PublicListing.created_at.desc()).all()
+    query = query.order_by(PublicListing.created_at.desc())
+    result = await db.execute(query)
+    listings = result.scalars().all()
     return listings
 
 
 @router.get("/my", response_model=list[PublicListingSupplierResponse])
 async def list_my_listings(
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
     """
     Get all listings created by the current supplier.
-    Only accessible to SUPPLIER role.
     """
     if current_user.role != UserRole.SUPPLIER:
         raise HTTPException(
@@ -66,29 +65,45 @@ async def list_my_listings(
             detail="Supplier must belong to an organization"
         )
     
-    listings = db.query(PublicListing).filter(
+    query = select(PublicListing).where(
         PublicListing.supplier_id == current_user.organization_id
-    ).order_by(PublicListing.created_at.desc()).all()
+    ).order_by(PublicListing.created_at.desc())
     
-    # Add match count for each listing
-    result = []
+    result = await db.execute(query)
+    listings = result.scalars().all()
+    
+    # Add match count for each listing (requires separate query or eager load if not available)
+    # Since matches is a relationship, we should eager load 'matches' to avoid N+1 or async error
+    # But for now, let's keep it simple. Accessing lazy relationship in async session might fail if not loaded.
+    # We should use selectinload option.
+    # Let's fix this properly.
+    
+    # Re-query with eager load
+    from sqlalchemy.orm import selectinload
+    query = select(PublicListing).options(selectinload(PublicListing.matches)).where(
+        PublicListing.supplier_id == current_user.organization_id
+    ).order_by(PublicListing.created_at.desc())
+    
+    result = await db.execute(query)
+    listings = result.scalars().all()
+    
+    result_list = []
     for listing in listings:
         listing_dict = PublicListingSupplierResponse.model_validate(listing).model_dump()
         listing_dict["match_count"] = len(listing.matches) if listing.matches else 0
-        result.append(PublicListingSupplierResponse(**listing_dict))
+        result_list.append(PublicListingSupplierResponse(**listing_dict))
     
-    return result
+    return result_list
 
 
 @router.post("", response_model=PublicListingResponse, status_code=status.HTTP_201_CREATED)
 async def create_listing(
     listing_data: PublicListingCreate,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
     """
     Create a new public listing.
-    Only accessible to SUPPLIER role.
     """
     if current_user.role != UserRole.SUPPLIER:
         raise HTTPException(
@@ -115,8 +130,8 @@ async def create_listing(
     )
     
     db.add(new_listing)
-    db.commit()
-    db.refresh(new_listing)
+    await db.commit()
+    await db.refresh(new_listing)
     
     return new_listing
 
@@ -124,12 +139,13 @@ async def create_listing(
 @router.get("/{listing_id}", response_model=PublicListingResponse)
 async def get_listing(
     listing_id: UUID,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
     """
     Get a single listing by ID (anonymized).
     """
-    listing = db.query(PublicListing).filter(PublicListing.id == listing_id).first()
+    result = await db.execute(select(PublicListing).where(PublicListing.id == listing_id))
+    listing = result.scalars().first()
     
     if not listing:
         raise HTTPException(
@@ -145,13 +161,13 @@ async def update_listing(
     listing_id: UUID,
     update_data: PublicListingUpdate,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
     """
     Update a listing.
-    Only the supplier who created it can update.
     """
-    listing = db.query(PublicListing).filter(PublicListing.id == listing_id).first()
+    result = await db.execute(select(PublicListing).where(PublicListing.id == listing_id))
+    listing = result.scalars().first()
     
     if not listing:
         raise HTTPException(
@@ -170,8 +186,8 @@ async def update_listing(
     for field, value in update_dict.items():
         setattr(listing, field, value)
     
-    db.commit()
-    db.refresh(listing)
+    await db.commit()
+    await db.refresh(listing)
     
     return listing
 
@@ -180,13 +196,13 @@ async def update_listing(
 async def delete_listing(
     listing_id: UUID,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
     """
     Delete (deactivate) a listing.
-    Only the supplier who created it can delete.
     """
-    listing = db.query(PublicListing).filter(PublicListing.id == listing_id).first()
+    result = await db.execute(select(PublicListing).where(PublicListing.id == listing_id))
+    listing = result.scalars().first()
     
     if not listing:
         raise HTTPException(
@@ -202,30 +218,36 @@ async def delete_listing(
     
     # Soft delete by setting status to INACTIVE
     listing.status = ListingStatus.INACTIVE
-    db.commit()
+    await db.commit()
     
     return None
 
 
 @router.get("/regions/list", response_model=list[str])
-async def list_regions(db: Session = Depends(get_db)):
+async def list_regions(db: AsyncSession = Depends(get_db)):
     """
     Get list of unique regions from active listings.
     """
-    regions = db.query(PublicListing.region).filter(
+    query = select(PublicListing.region).where(
         PublicListing.status == ListingStatus.ACTIVE
-    ).distinct().all()
+    ).distinct()
     
-    return [r[0] for r in regions]
+    result = await db.execute(query)
+    regions = result.scalars().all()
+    
+    return list(regions)
 
 
 @router.get("/fuel-types/list", response_model=list[str])
-async def list_fuel_types(db: Session = Depends(get_db)):
+async def list_fuel_types(db: AsyncSession = Depends(get_db)):
     """
     Get list of unique fuel types from active listings.
     """
-    fuel_types = db.query(PublicListing.fuel_type).filter(
+    query = select(PublicListing.fuel_type).where(
         PublicListing.status == ListingStatus.ACTIVE
-    ).distinct().all()
+    ).distinct()
     
-    return [f[0] for f in fuel_types]
+    result = await db.execute(query)
+    fuel_types = result.scalars().all()
+    
+    return list(fuel_types)
