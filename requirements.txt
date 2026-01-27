@@ -8,8 +8,7 @@ pydantic
 pydantic-settings
 email-validator
 python-jose
-passlib[bcrypt]
-bcrypt==3.1.7
+passlib
 google-generativeai
 pytest
 pytest-asyncio
