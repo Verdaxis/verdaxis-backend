@@ -116,3 +116,32 @@ async def approve_user(
 async def read_users_me(current_user: Annotated[UserModel, Depends(get_current_user)]):
     return current_user
 
+@router.put("/auth/switch-role/{target_role}", response_model=Token)
+async def switch_role(
+    target_role: str,
+    current_user: Annotated[UserModel, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)]
+):
+    """
+    Allows an Admin user to temporarily switch their role for testing.
+    Returns a new token with the switched role.
+    """
+    # Only Admin can switch roles
+    if current_user.role != UserRole.ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only admins can switch roles for testing",
+        )
+    
+    # Validate target role
+    target_role_upper = target_role.upper()
+    if target_role_upper not in ["BUYER", "SUPPLIER", "ADMIN"]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid role. Must be BUYER, SUPPLIER, or ADMIN",
+        )
+    
+    # Generate a new token with the switched role
+    access_token = create_access_token(data={"sub": str(current_user.id), "role": target_role_upper})
+    
+    return {"access_token": access_token, "token_type": "bearer"}
