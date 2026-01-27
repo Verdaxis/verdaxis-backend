@@ -19,7 +19,7 @@ from app.schemas.rfq import (
 )
 from app.routers.auth import get_current_user
 
-router = APIRouter(prefix="/api/rfq", tags=["rfq"])
+router = APIRouter(prefix="/rfq", tags=["rfq"])
 
 
 @router.post("/request", response_model=RFQMatchResponse, status_code=status.HTTP_201_CREATED)
