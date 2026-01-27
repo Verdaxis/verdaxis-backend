@@ -1,5 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, or_
+from sqlalchemy.orm import selectinload
 from uuid import UUID
 from datetime import datetime
 from decimal import Decimal
@@ -26,11 +28,10 @@ router = APIRouter(prefix="/rfq", tags=["rfq"])
 async def create_rfq_request(
     request_data: RFQRequestCreate,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
     """
     Buyer requests a quote on an anonymized listing.
-    This creates an RFQMatch that de-anonymizes the parties.
     """
     if current_user.role != UserRole.BUYER:
         raise HTTPException(
@@ -51,10 +52,11 @@ async def create_rfq_request(
         )
     
     # Find the listing
-    listing = db.query(PublicListing).filter(
+    result = await db.execute(select(PublicListing).where(
         PublicListing.id == request_data.listing_id,
         PublicListing.status == ListingStatus.ACTIVE
-    ).first()
+    ))
+    listing = result.scalars().first()
     
     if not listing:
         raise HTTPException(
@@ -63,11 +65,12 @@ async def create_rfq_request(
         )
     
     # Check if buyer already has a pending match for this listing
-    existing_match = db.query(RFQMatch).filter(
+    result = await db.execute(select(RFQMatch).where(
         RFQMatch.listing_id == listing.id,
         RFQMatch.buyer_id == current_user.organization_id,
         RFQMatch.status == MatchStatus.PENDING
-    ).first()
+    ))
+    existing_match = result.scalars().first()
     
     if existing_match:
         raise HTTPException(
@@ -84,10 +87,8 @@ async def create_rfq_request(
     )
     
     db.add(rfq_match)
-    db.commit()
-    db.refresh(rfq_match)
-    
-    # TODO: Send notification to supplier (email, webhook, etc.)
+    await db.commit()
+    await db.refresh(rfq_match)
     
     return rfq_match
 
@@ -95,7 +96,7 @@ async def create_rfq_request(
 @router.get("/my-requests", response_model=list[RFQMatchDetailResponse])
 async def list_buyer_rfq_requests(
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
     """
     Get all RFQ requests made by the current buyer.
@@ -106,17 +107,26 @@ async def list_buyer_rfq_requests(
             detail="Only buyers can view their RFQ requests"
         )
     
-    matches = db.query(RFQMatch).filter(
+    # Eager load listing to access region/fuel_type
+    query = select(RFQMatch).options(selectinload(RFQMatch.listing)).where(
         RFQMatch.buyer_id == current_user.organization_id
-    ).order_by(RFQMatch.created_at.desc()).all()
+    ).order_by(RFQMatch.created_at.desc())
     
-    result = []
+    result = await db.execute(query)
+    matches = result.scalars().all()
+    
+    result_list = []
     for match in matches:
         listing = match.listing
-        supplier = db.query(Organization).filter(Organization.id == listing.supplier_id).first()
-        buyer = db.query(Organization).filter(Organization.id == match.buyer_id).first()
         
-        result.append(RFQMatchDetailResponse(
+        # Async query for supplier and buyer orgs
+        res_supplier = await db.execute(select(Organization).where(Organization.id == listing.supplier_id))
+        supplier = res_supplier.scalars().first()
+        
+        res_buyer = await db.execute(select(Organization).where(Organization.id == match.buyer_id))
+        buyer = res_buyer.scalars().first()
+        
+        result_list.append(RFQMatchDetailResponse(
             id=match.id,
             listing_id=match.listing_id,
             buyer_id=match.buyer_id,
@@ -136,13 +146,13 @@ async def list_buyer_rfq_requests(
             final_total_usd=match.final_total_usd,
         ))
     
-    return result
+    return result_list
 
 
 @router.get("/incoming", response_model=list[RFQMatchDetailResponse])
 async def list_supplier_incoming_rfqs(
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
     """
     Get all incoming RFQ requests for the current supplier.
@@ -154,22 +164,30 @@ async def list_supplier_incoming_rfqs(
         )
     
     # Get all listings owned by this supplier
-    listing_ids = db.query(PublicListing.id).filter(
+    subquery = select(PublicListing.id).where(
         PublicListing.supplier_id == current_user.organization_id
-    ).subquery()
+    )
     
-    # Get all matches for those listings
-    matches = db.query(RFQMatch).filter(
-        RFQMatch.listing_id.in_(listing_ids)
-    ).order_by(RFQMatch.created_at.desc()).all()
+    # Get all matches for those listings, eager loading listing
+    query = select(RFQMatch).options(selectinload(RFQMatch.listing)).where(
+        RFQMatch.listing_id.in_(subquery)
+    ).order_by(RFQMatch.created_at.desc())
     
-    result = []
+    result = await db.execute(query)
+    matches = result.scalars().all()
+    
+    result_list = []
     for match in matches:
         listing = match.listing
-        supplier = db.query(Organization).filter(Organization.id == listing.supplier_id).first()
-        buyer = db.query(Organization).filter(Organization.id == match.buyer_id).first()
         
-        result.append(RFQMatchDetailResponse(
+        # Async query for orgs
+        res_supplier = await db.execute(select(Organization).where(Organization.id == listing.supplier_id))
+        supplier = res_supplier.scalars().first()
+        
+        res_buyer = await db.execute(select(Organization).where(Organization.id == match.buyer_id))
+        buyer = res_buyer.scalars().first()
+        
+        result_list.append(RFQMatchDetailResponse(
             id=match.id,
             listing_id=match.listing_id,
             buyer_id=match.buyer_id,
@@ -189,7 +207,7 @@ async def list_supplier_incoming_rfqs(
             final_total_usd=match.final_total_usd,
         ))
     
-    return result
+    return result_list
 
 
 @router.put("/{match_id}/respond", response_model=RFQMatchResponse)
@@ -197,7 +215,7 @@ async def respond_to_rfq(
     match_id: UUID,
     response_data: RFQMatchUpdate,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
     """
     Supplier responds to an RFQ (accept or decline).
@@ -208,7 +226,9 @@ async def respond_to_rfq(
             detail="Only suppliers can respond to RFQs"
         )
     
-    match = db.query(RFQMatch).filter(RFQMatch.id == match_id).first()
+    # Eager load listing to check ownership
+    result = await db.execute(select(RFQMatch).options(selectinload(RFQMatch.listing)).where(RFQMatch.id == match_id))
+    match = result.scalars().first()
     
     if not match:
         raise HTTPException(
@@ -232,8 +252,8 @@ async def respond_to_rfq(
     match.status = response_data.status
     match.supplier_responded_at = datetime.utcnow()
     
-    db.commit()
-    db.refresh(match)
+    await db.commit()
+    await db.refresh(match)
     
     return match
 
@@ -243,13 +263,14 @@ async def complete_rfq(
     match_id: UUID,
     completion_data: RFQMatchComplete,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
     """
     Complete an RFQ match and calculate commission.
-    Can be done by either party after ACCEPTED status.
     """
-    match = db.query(RFQMatch).filter(RFQMatch.id == match_id).first()
+    # Eager load listing to check ownership
+    result = await db.execute(select(RFQMatch).options(selectinload(RFQMatch.listing)).where(RFQMatch.id == match_id))
+    match = result.scalars().first()
     
     if not match:
         raise HTTPException(
@@ -292,8 +313,8 @@ async def complete_rfq(
     )
     
     db.add(commission)
-    db.commit()
-    db.refresh(match)
+    await db.commit()
+    await db.refresh(match)
     
     return match
 
@@ -303,7 +324,7 @@ async def complete_rfq(
 @router.get("/admin/commissions", response_model=list[CommissionResponse])
 async def list_all_commissions(
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
     """
     List all commissions (Admin only).
@@ -314,14 +335,15 @@ async def list_all_commissions(
             detail="Admin access required"
         )
     
-    commissions = db.query(Commission).order_by(Commission.created_at.desc()).all()
+    result = await db.execute(select(Commission).order_by(Commission.created_at.desc()))
+    commissions = result.scalars().all()
     return commissions
 
 
 @router.get("/admin/commissions/summary", response_model=CommissionSummary)
 async def get_commission_summary(
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
     """
     Get commission summary stats (Admin only).
@@ -334,20 +356,26 @@ async def get_commission_summary(
     
     from sqlalchemy import func
     
-    pending = db.query(
+    query_pending = select(
         func.count(Commission.id),
         func.coalesce(func.sum(Commission.amount_usd), 0)
-    ).filter(Commission.status == CommissionStatus.PENDING).first()
+    ).where(Commission.status == CommissionStatus.PENDING)
+    res_pending = await db.execute(query_pending)
+    pending = res_pending.one()
     
-    invoiced = db.query(
+    query_invoiced = select(
         func.count(Commission.id),
         func.coalesce(func.sum(Commission.amount_usd), 0)
-    ).filter(Commission.status == CommissionStatus.INVOICED).first()
+    ).where(Commission.status == CommissionStatus.INVOICED)
+    res_invoiced = await db.execute(query_invoiced)
+    invoiced = res_invoiced.one()
     
-    paid = db.query(
+    query_paid = select(
         func.count(Commission.id),
         func.coalesce(func.sum(Commission.amount_usd), 0)
-    ).filter(Commission.status == CommissionStatus.PAID).first()
+    ).where(Commission.status == CommissionStatus.PAID)
+    res_paid = await db.execute(query_paid)
+    paid = res_paid.one()
     
     return CommissionSummary(
         pending_count=pending[0],
@@ -364,7 +392,7 @@ async def update_commission(
     commission_id: UUID,
     update_data: CommissionUpdate,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
     """
     Update commission status (Admin only).
@@ -375,7 +403,8 @@ async def update_commission(
             detail="Admin access required"
         )
     
-    commission = db.query(Commission).filter(Commission.id == commission_id).first()
+    result = await db.execute(select(Commission).where(Commission.id == commission_id))
+    commission = result.scalars().first()
     
     if not commission:
         raise HTTPException(
@@ -387,7 +416,7 @@ async def update_commission(
     for field, value in update_dict.items():
         setattr(commission, field, value)
     
-    db.commit()
-    db.refresh(commission)
+    await db.commit()
+    await db.refresh(commission)
     
     return commission
