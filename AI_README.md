@@ -54,3 +54,21 @@ Verdaxis is a maritime platform designed to modernize fuel procurement and compl
 - **VPS Host**: 144.126.151.136
 - **User**: verdaxis-prod
 - **Command**: `ssh verdaxis-prod@144.126.151.136`
+- **Backend API**: http://144.126.151.136:8000/
+- **Swagger Docs**: http://144.126.151.136:8000/docs
+
+## Test Credentials
+
+| Role         | Email              | Password    |
+| ------------ | ------------------ | ----------- |
+| **Admin**    | admin@verdaxis.com | ***REMOVED***    |
+| **Buyer**    | buyer@demo.com     | buyer123    |
+| **Supplier** | supplier@demo.com  | supplier123 |
+
+### Authentication Endpoints
+
+- `POST /api/auth/login` - Login and get JWT token
+- `POST /api/auth/register` - Register new user (status: PENDING by default)
+- `GET /api/auth/me` - Get current user info
+- `PUT /api/auth/approve/{user_id}` - Admin approves pending user
+- `PUT /api/auth/switch-role/{BUYER|SUPPLIER|ADMIN}` - Admin switches role for testing
