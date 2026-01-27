@@ -8,6 +8,8 @@ from app.routers.quotes import router as quotes_router
 from app.routers.inventory import router as inventory_router
 from app.routers.compliance import router as compliance_router
 from app.routers.ai import router as ai_router
+from app.routers.listings import router as listings_router
+from app.routers.rfq import router as rfq_router
 
 app = FastAPI(
     title="Verdaxis Intelligence Cockpit",
@@ -31,6 +33,8 @@ app.include_router(quotes_router, prefix=settings.API_V1_STR)
 app.include_router(inventory_router, prefix=settings.API_V1_STR)
 app.include_router(compliance_router, prefix=settings.API_V1_STR)
 app.include_router(ai_router, prefix=settings.API_V1_STR)
+app.include_router(listings_router, prefix=settings.API_V1_STR)
+app.include_router(rfq_router, prefix=settings.API_V1_STR)
 
 @app.get("/")
 
