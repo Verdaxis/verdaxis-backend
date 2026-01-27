@@ -48,3 +48,9 @@ Verdaxis is a maritime platform designed to modernize fuel procurement and compl
   - Analyzing market trends from text.
   - Optimizing fuel procurement strategies.
   - Summarizing compliance reports.
+
+## Deployment Access
+
+- **VPS Host**: 144.126.151.136
+- **User**: verdaxis-prod
+- **Command**: `ssh verdaxis-prod@144.126.151.136`

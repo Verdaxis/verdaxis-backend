@@ -11,6 +11,11 @@ class UserRole(str, enum.Enum):
     SUPPLIER = "SUPPLIER"
     ADMIN = "ADMIN"
 
+class UserStatus(str, enum.Enum):
+    PENDING = "PENDING"
+    APPROVED = "APPROVED"
+    REJECTED = "REJECTED"
+
 class OrgType(str, enum.Enum):
     SHIPPING_LINE = "SHIPPING_LINE"
     FUEL_SUPPLIER = "FUEL_SUPPLIER"
@@ -39,6 +44,7 @@ class User(Base):
     first_name: Mapped[str | None] = mapped_column(String)
     last_name: Mapped[str | None] = mapped_column(String)
     role: Mapped[UserRole] = mapped_column(Enum(UserRole, native_enum=False), nullable=False)
+    status: Mapped[UserStatus] = mapped_column(Enum(UserStatus, native_enum=False), default=UserStatus.PENDING)
     organization_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("organizations.id"))
     last_login: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
