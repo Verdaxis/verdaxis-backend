@@ -56,7 +56,7 @@ class QuoteRequest(Base):
     delivery_window_start: Mapped[date | None] = mapped_column(Date)
     delivery_window_end: Mapped[date | None] = mapped_column(Date)
     
-    status: Mapped[QuoteStatus] = mapped_column(Enum(QuoteStatus), default=QuoteStatus.Pending)
+    status: Mapped[QuoteStatus] = mapped_column(Enum(QuoteStatus, native_enum=False), default=QuoteStatus.Pending)
     
     awarded_supplier_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("organizations.id"))
     final_price_usd: Mapped[float | None] = mapped_column(Numeric(12, 2))
