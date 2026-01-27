@@ -3,10 +3,10 @@ import asyncio
 import httpx
 from uuid import uuid4
 
-BASE_URL = "http://localhost:8000"
+BASE_URL = "http://144.126.151.136:8000"
 
-# User Data
-SUPPLIER_EMAIL = f"supplier_{uuid4()}@test.com"
+# User Data - Randomize to avoid collisions on repeated runs
+SUPPLIER_EMAIL = f"remote_sup_{uuid4()}@test.com"
 SUPPLIER_PASSWORD = "password123"
 ADMIN_EMAIL = "admin@verdaxis.com" # Assuming this user exists or we need to creaet it differently? 
 # Actually, for test simplicity, I'll rely on the seed data or create an admin if not exists.
@@ -16,7 +16,7 @@ ADMIN_EMAIL = "admin@verdaxis.com" # Assuming this user exists or we need to cre
 # OR I can just manually insert an admin into DB. 
 # Better: I'll register a user with ADMIN role first (since my register endpoint allows passing role).
 
-# Seeded Admin
+# Seeded Admin (Must exist on remote DB)
 ADMIN_EMAIL_TEST = "admin@verdaxis.com"
 ADMIN_PASSWORD = "admin123" 
 

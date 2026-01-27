@@ -31,7 +31,7 @@ def upgrade() -> None:
     op.alter_column('ports', 'location',
                existing_type=geoalchemy2.types.Geography(geometry_type='POINT', srid=4326, dimension=2, from_text='ST_GeogFromText', name='geography', _spatial_index_reflected=True),
                nullable=False)
-    op.add_column('users', sa.Column('status', sa.Enum('PENDING', 'APPROVED', 'REJECTED', name='userstatus', native_enum=False), nullable=False))
+    op.add_column('users', sa.Column('status', sa.Enum('PENDING', 'APPROVED', 'REJECTED', name='userstatus', native_enum=False), nullable=False, server_default='APPROVED'))
     # ### end Alembic commands ###
 
 
