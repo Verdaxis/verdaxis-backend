@@ -3,7 +3,7 @@ import logging
 import uuid
 from sqlalchemy import select
 from app.database import AsyncSessionLocal
-from app.models.user import User, UserRole, Organization, OrgType
+from app.models.user import User, UserRole, Organization, OrgType, UserStatus
 from app.models.port import Port
 from app.core.security import get_password_hash
 
@@ -43,7 +43,8 @@ async def seed():
             last_name="Buyer",
             password_hash=get_password_hash("buyer123"),
             role=UserRole.BUYER,
-            organization_id=buyer_org.id
+            organization_id=buyer_org.id,
+            status=UserStatus.APPROVED
         )
 
         supplier_user = User(
@@ -52,11 +53,22 @@ async def seed():
             last_name="Supplier",
             password_hash=get_password_hash("supplier123"),
             role=UserRole.SUPPLIER,
-            organization_id=supplier_org.id
+            organization_id=supplier_org.id,
+            status=UserStatus.APPROVED
+        )
+
+        admin_user = User(
+            email="admin@verdaxis.com",
+            first_name="Admin",
+            last_name="Verdaxis",
+            password_hash=get_password_hash("admin123"),
+            role=UserRole.ADMIN,
+            status=UserStatus.APPROVED
         )
         
         db.add(buyer_user)
         db.add(supplier_user)
+        db.add(admin_user)
         
         # Seed some Ports
         rotterdam = Port(
@@ -64,6 +76,7 @@ async def seed():
             name="Rotterdam",
             country="Netherlands",
             timezone="Europe/Amsterdam",
+            location="POINT(4.47917 51.9225)",
             is_active=True
         )
         singapore = Port(
@@ -71,6 +84,7 @@ async def seed():
             name="Singapore",
             country="Singapore",
             timezone="Asia/Singapore",
+            location="POINT(103.8198 1.3521)",
             is_active=True
         )
         
@@ -81,6 +95,7 @@ async def seed():
         logger.info("Seeding complete!")
         logger.info(f"Buyer: buyer@demo.com / buyer123")
         logger.info(f"Supplier: supplier@demo.com / supplier123")
+        logger.info(f"Admin: admin@verdaxis.com / admin123")
 
 if __name__ == "__main__":
     asyncio.run(seed())

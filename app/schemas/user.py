@@ -3,6 +3,11 @@ from uuid import UUID
 from typing import Optional
 from enum import Enum
 
+class UserStatus(str, Enum):
+    PENDING = "PENDING"
+    APPROVED = "APPROVED"
+    REJECTED = "REJECTED"
+
 class UserRole(str, Enum):
     BUYER = "BUYER"
     SUPPLIER = "SUPPLIER"
@@ -20,6 +25,7 @@ class UserCreate(UserBase):
 
 class UserResponse(UserBase):
     id: UUID
+    status: UserStatus
     organization_id: Optional[UUID] = None
     
     class Config:
