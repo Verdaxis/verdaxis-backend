@@ -24,8 +24,8 @@ async def get_ledger(
 
 @router.post("/compliance/verify")
 async def verify_document(
-    file: UploadFile = File(...),
-    current_user: Annotated[User, Depends(get_current_user)]
+    current_user: Annotated[User, Depends(get_current_user)],
+    file: UploadFile = File(...)
 ):
     # 1. Upload to Cloud Storage (Mocked for now)
     # file_url = await upload_to_s3(file)
