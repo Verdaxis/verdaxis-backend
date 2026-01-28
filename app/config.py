@@ -18,9 +18,11 @@ class Settings(BaseSettings):
         return f"postgresql+asyncpg://{self.DATABASE_USER}:{self.DATABASE_PASSWORD}@{self.DATABASE_HOST}:{self.DATABASE_PORT}/{self.DATABASE_NAME}"
 
     # Security
-    JWT_SECRET: str
-    JWT_ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24  # 24 hours
+    AUTHENTIK_DOMAIN: str = "http://localhost:9000"
+    AUTHENTIK_CLIENT_ID: str = "verdaxis-client-id" # Will be updated after Authentik setup
+    JWT_SECRET: str = "***REMOVED***" # Kept for local impersonation tokens
+    JWT_ALGORITHM: str = "RS256"
+    API_AUDIENCE: str = "verdaxis-client-id"
 
     # Gemini AI
     GEMINI_API_KEY: Optional[str] = None
