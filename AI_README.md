@@ -72,3 +72,104 @@ Verdaxis is a maritime platform designed to modernize fuel procurement and compl
 - `GET /api/auth/me` - Get current user info
 - `PUT /api/auth/approve/{user_id}` - Admin approves pending user
 - `PUT /api/auth/switch-role/{BUYER|SUPPLIER|ADMIN}` - Admin switches role for testing
+
+---
+
+## Git Workflow
+
+### Branches
+
+- **`main`**: Development branch. All active development happens here.
+- **`prod`**: Production branch. Stable releases only.
+
+### Commands (Local)
+
+```bash
+# Push to main (development)
+git add -A && git commit -m "your message" && git push origin main
+
+# Deploy to production
+git checkout prod
+git merge main
+git push origin prod
+git checkout main
+```
+
+### Commands (Server)
+
+```bash
+# SSH to server
+ssh verdaxis-prod@144.126.151.136
+
+# Pull latest and restart
+cd ~/verdaxis-backend
+git pull origin main
+docker compose down && docker compose up -d --build
+```
+
+---
+
+## Deployment
+
+### One-Command Deploy (from local)
+
+```bash
+# From Verdaxis root directory
+./scripts/push-deploy.sh                 # Deploy both frontend and backend
+./scripts/push-deploy.sh --backend-only  # Deploy backend only
+./scripts/push-deploy.sh --with-tests    # Run tests before deploying
+```
+
+### Manual Server Deploy
+
+```bash
+# SSH to server
+ssh verdaxis-prod@144.126.151.136
+
+# Deploy backend
+cd ~/verdaxis-backend && bash scripts/deploy.sh
+```
+
+### Docker Commands (on server)
+
+```bash
+docker compose up -d --build    # Start/rebuild containers
+docker compose down             # Stop containers
+docker compose logs -f backend  # View backend logs
+docker exec -it verdaxis-backend bash  # Shell into container
+```
+
+---
+
+## Testing
+
+### Run All Tests
+
+```bash
+# Activate virtual environment
+source venv/bin/activate
+
+# Run all tests
+pytest tests/ -v
+
+# Run unit tests only (no Docker required)
+pytest tests/unit/ -v
+
+# Run integration tests (requires Docker backend running)
+pytest tests/integration/ -v
+```
+
+### Test Structure
+
+| Directory            | Purpose                                             |
+| -------------------- | --------------------------------------------------- |
+| `tests/unit/`        | Unit tests for isolated functions (security, utils) |
+| `tests/integration/` | API endpoint tests against running Docker backend   |
+| `tests/conftest.py`  | Pytest fixtures and configuration                   |
+
+### Running Tests Against Remote
+
+```bash
+# Test against production server
+TEST_API_URL=http://144.126.151.136:8000 pytest tests/integration/ -v
+```
