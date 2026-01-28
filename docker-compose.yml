@@ -1,4 +1,4 @@
-version: '3.8'
+version: "3.8"
 
 services:
   postgres:
@@ -17,6 +17,91 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    networks:
+      - verdaxis-net
+
+  redis:
+    image: docker.io/library/redis:alpine
+    container_name: verdaxis-redis
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping | grep PONG"]
+      start_period: 20s
+      interval: 30s
+      retries: 5
+      timeout: 3s
+    volumes:
+      - redis_data:/data
+    networks:
+      - verdaxis-net
+
+  authentik_db:
+    image: docker.io/library/postgres:16-alpine
+    container_name: verdaxis-authentik-db
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -d $${POSTGRES_DB} -U $${POSTGRES_USER}"]
+      start_period: 20s
+      interval: 30s
+      retries: 5
+      timeout: 5s
+    volumes:
+      - authentik_database:/var/lib/postgresql/data
+    environment:
+      POSTGRES_PASSWORD: ${AUTHENTIK_POSTGRES_PASSWORD}
+      POSTGRES_USER: ${AUTHENTIK_POSTGRES_USER}
+      POSTGRES_DB: ${AUTHENTIK_POSTGRES_DB}
+    networks:
+      - verdaxis-net
+
+  authentik_server:
+    image: ghcr.io/goauthentik/server:2024.12.3
+    container_name: verdaxis-authentik-server
+    restart: unless-stopped
+    command: server
+    environment:
+      AUTHENTIK_REDIS__HOST: redis
+      AUTHENTIK_POSTGRES__HOST: authentik_db
+      AUTHENTIK_POSTGRES__USER: ${AUTHENTIK_POSTGRES_USER}
+      AUTHENTIK_POSTGRES__NAME: ${AUTHENTIK_POSTGRES_DB}
+      AUTHENTIK_POSTGRES__PASSWORD: ${AUTHENTIK_POSTGRES_PASSWORD}
+      AUTHENTIK_SECRET_KEY: ${AUTHENTIK_SECRET_KEY}
+    volumes:
+      - ./authentik-media:/media
+      - ./authentik-custom-templates:/templates
+    ports:
+      - "${AUTHENTIK_PORT_HTTP:-9000}:9000"
+      - "${AUTHENTIK_PORT_HTTPS:-9443}:9443"
+    depends_on:
+      authentik_db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - verdaxis-net
+
+  authentik_worker:
+    image: ghcr.io/goauthentik/server:2024.12.3
+    container_name: verdaxis-authentik-worker
+    restart: unless-stopped
+    command: worker
+    environment:
+      AUTHENTIK_REDIS__HOST: redis
+      AUTHENTIK_POSTGRES__HOST: authentik_db
+      AUTHENTIK_POSTGRES__USER: ${AUTHENTIK_POSTGRES_USER}
+      AUTHENTIK_POSTGRES__NAME: ${AUTHENTIK_POSTGRES_DB}
+      AUTHENTIK_POSTGRES__PASSWORD: ${AUTHENTIK_POSTGRES_PASSWORD}
+      AUTHENTIK_SECRET_KEY: ${AUTHENTIK_SECRET_KEY}
+    # user: root # Only usually needed to correct permissions, we can omit unless issues
+    volumes:
+      - ./authentik-media:/media
+      - ./authentik-custom-templates:/templates
+    depends_on:
+      authentik_db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - verdaxis-net
 
   backend:
     build:
@@ -29,9 +114,19 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      authentik_server:
+        condition: service_started
     volumes:
       - .:/app
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    networks:
+      - verdaxis-net
 
 volumes:
   postgres_data:
+  authentik_database:
+  redis_data:
+
+networks:
+  verdaxis-net:
+    driver: bridge

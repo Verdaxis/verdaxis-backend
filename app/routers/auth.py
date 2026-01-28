@@ -2,86 +2,13 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from app.database import get_db
-from app.models.user import User as UserModel
-from app.schemas.user import LoginRequest, Token, UserResponse
-from app.core.security import verify_password, get_password_hash
+from app.models.user import User as UserModel, UserStatus, UserRole
+from app.schemas.user import UserResponse, Token
 from app.core.auth import create_access_token, get_current_user
 from typing import Annotated
-from app.models.user import UserStatus, UserRole
-from app.schemas.user import UserCreate
 from uuid import UUID
 
 router = APIRouter()
-
-
-@router.post("/auth/login", response_model=Token)
-async def login(
-    login_data: LoginRequest,
-    db: Annotated[AsyncSession, Depends(get_db)]
-):
-    # Find user by email
-    stmt = select(UserModel).where(UserModel.email == login_data.email)
-    result = await db.execute(stmt)
-    user = result.scalar_one_or_none()
-    
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect email or password",
-        )
-    
-    # Verify password
-    if not verify_password(login_data.password, user.password_hash):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect email or password",
-        )
-
-    # Check verification status
-    if user.status != UserStatus.APPROVED:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=f"Account is {user.status.value}. Please wait for admin approval.",
-        )
-        
-    # Generate Token
-    access_token = create_access_token(data={"sub": str(user.id), "role": user.role.value})
-    
-    return {"access_token": access_token, "token_type": "bearer"}
-
-@router.post("/auth/register", response_model=UserResponse)
-async def register(
-    user_data: UserCreate,
-    db: Annotated[AsyncSession, Depends(get_db)]
-):
-    # Check if user already exists
-    stmt = select(UserModel).where(UserModel.email == user_data.email)
-    result = await db.execute(stmt)
-    existing_user = result.scalar_one_or_none()
-    
-    if existing_user:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Email already registered",
-        )
-    
-    # Create new user
-    hashed_password = get_password_hash(user_data.password)
-    new_user = UserModel(
-        email=user_data.email,
-        password_hash=hashed_password,
-        first_name=user_data.first_name,
-        last_name=user_data.last_name,
-        role=user_data.role,
-        organization_id=user_data.organization_id,
-        status=UserStatus.PENDING # Default to PENDING
-    )
-    
-    db.add(new_user)
-    await db.commit()
-    await db.refresh(new_user)
-    
-    return new_user
 
 @router.put("/auth/approve/{user_id}", response_model=UserResponse)
 async def approve_user(
@@ -142,6 +69,7 @@ async def switch_role(
         )
     
     # Generate a new token with the switched role
+    # This uses our local HS256 minting
     access_token = create_access_token(data={"sub": str(current_user.id), "role": target_role_upper})
     
     return {"access_token": access_token, "token_type": "bearer"}
