@@ -65,33 +65,24 @@ async def list_my_listings(
             detail="Supplier must belong to an organization"
         )
     
-    query = select(PublicListing).where(
-        PublicListing.supplier_id == current_user.organization_id
-    ).order_by(PublicListing.created_at.desc())
-    
-    result = await db.execute(query)
-    listings = result.scalars().all()
-    
-    # Add match count for each listing (requires separate query or eager load if not available)
-    # Since matches is a relationship, we should eager load 'matches' to avoid N+1 or async error
-    # But for now, let's keep it simple. Accessing lazy relationship in async session might fail if not loaded.
-    # We should use selectinload option.
-    # Let's fix this properly.
-    
-    # Re-query with eager load
+    # Eager load 'matches' to avoid N+1 or async error when calculating match_count
     from sqlalchemy.orm import selectinload
-    query = select(PublicListing).options(selectinload(PublicListing.matches)).where(
-        PublicListing.supplier_id == current_user.organization_id
-    ).order_by(PublicListing.created_at.desc())
+    query = (
+        select(PublicListing)
+        .options(selectinload(PublicListing.matches))
+        .where(PublicListing.supplier_id == current_user.organization_id)
+        .order_by(PublicListing.created_at.desc())
+    )
     
     result = await db.execute(query)
     listings = result.scalars().all()
     
     result_list = []
     for listing in listings:
-        listing_dict = PublicListingSupplierResponse.model_validate(listing).model_dump()
-        listing_dict["match_count"] = len(listing.matches) if listing.matches else 0
-        result_list.append(PublicListingSupplierResponse(**listing_dict))
+        # Use from_orm (model_validate) and then inject match_count
+        item = PublicListingSupplierResponse.model_validate(listing)
+        item.match_count = len(listing.matches)
+        result_list.append(item)
     
     return result_list
 

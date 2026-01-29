@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, or_
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import selectinload, joinedload
 from uuid import UUID
 from datetime import datetime
 from decimal import Decimal
@@ -107,10 +107,16 @@ async def list_buyer_rfq_requests(
             detail="Only buyers can view their RFQ requests"
         )
     
-    # Eager load listing to access region/fuel_type
-    query = select(RFQMatch).options(selectinload(RFQMatch.listing)).where(
-        RFQMatch.buyer_id == current_user.organization_id
-    ).order_by(RFQMatch.created_at.desc())
+    # Eager load listing, listing.supplier, and buyer to avoid N+1 queries
+    query = (
+        select(RFQMatch)
+        .options(
+            joinedload(RFQMatch.listing).joinedload(PublicListing.supplier),
+            joinedload(RFQMatch.buyer)
+        )
+        .where(RFQMatch.buyer_id == current_user.organization_id)
+        .order_by(RFQMatch.created_at.desc())
+    )
     
     result = await db.execute(query)
     matches = result.scalars().all()
@@ -118,13 +124,8 @@ async def list_buyer_rfq_requests(
     result_list = []
     for match in matches:
         listing = match.listing
-        
-        # Async query for supplier and buyer orgs
-        res_supplier = await db.execute(select(Organization).where(Organization.id == listing.supplier_id))
-        supplier = res_supplier.scalars().first()
-        
-        res_buyer = await db.execute(select(Organization).where(Organization.id == match.buyer_id))
-        buyer = res_buyer.scalars().first()
+        supplier = listing.supplier
+        buyer = match.buyer
         
         result_list.append(RFQMatchDetailResponse(
             id=match.id,
@@ -168,10 +169,16 @@ async def list_supplier_incoming_rfqs(
         PublicListing.supplier_id == current_user.organization_id
     )
     
-    # Get all matches for those listings, eager loading listing
-    query = select(RFQMatch).options(selectinload(RFQMatch.listing)).where(
-        RFQMatch.listing_id.in_(subquery)
-    ).order_by(RFQMatch.created_at.desc())
+    # Eager load listing, listing.supplier (redundant but safe), and buyer
+    query = (
+        select(RFQMatch)
+        .options(
+            joinedload(RFQMatch.listing).joinedload(PublicListing.supplier),
+            joinedload(RFQMatch.buyer)
+        )
+        .where(RFQMatch.listing_id.in_(subquery))
+        .order_by(RFQMatch.created_at.desc())
+    )
     
     result = await db.execute(query)
     matches = result.scalars().all()
@@ -179,13 +186,8 @@ async def list_supplier_incoming_rfqs(
     result_list = []
     for match in matches:
         listing = match.listing
-        
-        # Async query for orgs
-        res_supplier = await db.execute(select(Organization).where(Organization.id == listing.supplier_id))
-        supplier = res_supplier.scalars().first()
-        
-        res_buyer = await db.execute(select(Organization).where(Organization.id == match.buyer_id))
-        buyer = res_buyer.scalars().first()
+        supplier = listing.supplier
+        buyer = match.buyer
         
         result_list.append(RFQMatchDetailResponse(
             id=match.id,
