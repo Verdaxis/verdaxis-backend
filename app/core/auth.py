@@ -110,6 +110,29 @@ async def get_current_user(
     Validates token and returns the user.
     Provisions the user in the local DB if they don't exist (JIT).
     """
+    # 0. Check for Dev Bypass
+    if settings.ENABLE_AUTH_BYPASS:
+        # Return a mock Dev Admin user
+        # We need to ensure this user exists in the DB so that relationships work
+        email = "dev@admin.com"
+        stmt = select(User).where(User.email == email)
+        result = await db.execute(stmt)
+        user = result.scalar_one_or_none()
+        
+        if user is None:
+            user = User(
+                email=email,
+                first_name="Dev",
+                last_name="Admin",
+                password_hash="bypass_managed",
+                role=UserRole.ADMIN,
+                status=UserStatus.APPROVED
+            )
+            db.add(user)
+            await db.commit()
+            await db.refresh(user)
+        return user
+
     payload = await verify_token(token)
     email: str = payload.get("email")
     if email is None:
