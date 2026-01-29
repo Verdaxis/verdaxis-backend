@@ -69,3 +69,21 @@ class QuoteRequest(Base):
     supplier = relationship("Organization", foreign_keys=[awarded_supplier_id])
     vessel = relationship("Vessel")
     port = relationship("Port")
+    offers = relationship("QuoteOffer", back_populates="request")
+
+class QuoteOffer(Base):
+    __tablename__ = "quote_offers"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    request_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("quote_requests.id"), nullable=False)
+    supplier_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organizations.id"), nullable=False)
+    
+    price_per_mt_usd: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False)
+    valid_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    terms_and_conditions: Mapped[str | None] = mapped_column(String)
+    
+    is_accepted: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+    request = relationship("QuoteRequest", back_populates="offers")
+    supplier = relationship("Organization")

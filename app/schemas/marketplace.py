@@ -1,5 +1,5 @@
 from pydantic import BaseModel, condecimal
-from typing import Optional
+from typing import Optional, List
 from enum import Enum
 from datetime import datetime, date
 from uuid import UUID
@@ -61,6 +61,24 @@ class QuoteUpdate(BaseModel):
     final_price_per_mt: Optional[float] = None
     awarded_supplier_id: Optional[UUID] = None
 
+class QuoteOfferBase(BaseModel):
+    price_per_mt_usd: float
+    valid_until: Optional[datetime] = None
+    terms_and_conditions: Optional[str] = None
+
+class QuoteOfferCreate(QuoteOfferBase):
+    pass
+
+class QuoteOfferResponse(QuoteOfferBase):
+    id: UUID
+    request_id: UUID
+    supplier_id: UUID
+    is_accepted: bool
+    created_at: datetime
+    
+    class Config:
+        from_attributes = True
+
 class QuoteResponse(QuoteBase):
     id: UUID
     buyer_id: Optional[UUID] = None
@@ -71,6 +89,8 @@ class QuoteResponse(QuoteBase):
     final_price_per_mt: Optional[float] = None
     created_at: datetime
     updated_at: datetime
+    
+    offers: List[QuoteOfferResponse] = []
 
     class Config:
         from_attributes = True

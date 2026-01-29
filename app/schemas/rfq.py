@@ -111,6 +111,18 @@ class PublicListingSupplierResponse(PublicListingResponse):
     match_count: int = 0
 
 
+class AggregatedListingResponse(BaseModel):
+    """
+    Aggregated view for buyers: filtered by region and fuel type.
+    """
+    region: str
+    fuel_type: str
+    min_price: Decimal
+    max_price: Decimal
+    total_quantity: Decimal
+    listing_count: int
+
+
 # ============== RFQ Match Schemas ==============
 
 class RFQRequestCreate(BaseModel):

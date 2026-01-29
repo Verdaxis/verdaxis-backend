@@ -16,11 +16,15 @@ class VesselBase(BaseModel):
     fueleu_status: Optional[str] = None
     
     # In a real app, this would come from PostGIS, here simplified
+    # In a real app, this would come from PostGIS, here simplified
     current_location: Optional[str] = None 
+    previous_location: Optional[str] = None
 
     # Virtual fields
     lat: Optional[float] = None
     lng: Optional[float] = None
+    prev_lat: Optional[float] = None
+    prev_lng: Optional[float] = None
 
 class VesselCreate(VesselBase):
     organization_id: Optional[str] = None
