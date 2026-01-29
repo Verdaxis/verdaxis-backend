@@ -1,4 +1,5 @@
 from pydantic_settings import BaseSettings
+from pydantic import model_validator
 from typing import Optional
 
 class Settings(BaseSettings):
@@ -7,15 +8,21 @@ class Settings(BaseSettings):
     API_V1_STR: str = "/api"
     
     # Database
-    DATABASE_HOST: str
+    DATABASE_HOST: str = "localhost"
     DATABASE_PORT: int = 5432
-    DATABASE_NAME: str
-    DATABASE_USER: str
-    DATABASE_PASSWORD: str
+    DATABASE_NAME: str = "verdaxis"
+    DATABASE_USER: str = "postgres"
+    DATABASE_PASSWORD: str = "postgres"
     
-    @property
-    def DATABASE_URL(self) -> str:
-        return f"postgresql+asyncpg://{self.DATABASE_USER}:{self.DATABASE_PASSWORD}@{self.DATABASE_HOST}:{self.DATABASE_PORT}/{self.DATABASE_NAME}"
+    # Helper to allow overriding the URL (e.g. for testing with sqlite)
+    # The actual DATABASE_URL used by the app
+    DATABASE_URL: Optional[str] = None
+
+    @model_validator(mode='after')
+    def assemble_db_connection(self) -> 'Settings':
+        if self.DATABASE_URL is None:
+            self.DATABASE_URL = f"postgresql+asyncpg://{self.DATABASE_USER}:{self.DATABASE_PASSWORD}@{self.DATABASE_HOST}:{self.DATABASE_PORT}/{self.DATABASE_NAME}"
+        return self
 
     # Security
     AUTHENTIK_DOMAIN: str = "http://localhost:9000"
