@@ -14,6 +14,7 @@ from app.schemas.rfq import (
     PublicListingSupplierResponse,
     AvailabilityWindow,
     FuelGrade,
+    AggregatedListingResponse,
 )
 from app.routers.auth import get_current_user
 
@@ -43,6 +44,45 @@ async def list_public_listings(
     result = await db.execute(query)
     listings = result.scalars().all()
     return listings
+
+
+@router.get("/aggregated", response_model=list[AggregatedListingResponse])
+async def list_aggregated_listings(
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Get listings aggregated by region and fuel type.
+    """
+    query = (
+        select(
+            PublicListing.region,
+            PublicListing.fuel_type,
+            func.min(PublicListing.price_per_mt_usd).label("min_price"),
+            func.max(PublicListing.price_per_mt_usd).label("max_price"),
+            func.sum(PublicListing.quantity_mt).label("total_quantity"),
+            func.count(PublicListing.id).label("listing_count"),
+        )
+        .where(PublicListing.status == ListingStatus.ACTIVE)
+        .group_by(PublicListing.region, PublicListing.fuel_type)
+        .order_by(PublicListing.region, PublicListing.fuel_type)
+    )
+    
+    result = await db.execute(query)
+    # Result rows are keyed by column name or index
+    rows = result.all()
+    
+    aggregated_data = []
+    for row in rows:
+        aggregated_data.append(AggregatedListingResponse(
+            region=row.region,
+            fuel_type=row.fuel_type,
+            min_price=row.min_price,
+            max_price=row.max_price,
+            total_quantity=row.total_quantity,
+            listing_count=row.listing_count
+        ))
+        
+    return aggregated_data
 
 
 @router.get("/my", response_model=list[PublicListingSupplierResponse])

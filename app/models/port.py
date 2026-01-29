@@ -53,6 +53,7 @@ class Vessel(Base):
     fueleu_status: Mapped[str | None] = mapped_column(String)
 
     current_location: Mapped[Geography | None] = mapped_column(Geography(geometry_type='POINT', srid=4326))
+    previous_location: Mapped[Geography | None] = mapped_column(Geography(geometry_type='POINT', srid=4326))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
     organization = relationship("Organization", back_populates="vessels")
