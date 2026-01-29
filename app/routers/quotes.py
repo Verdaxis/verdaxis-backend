@@ -38,8 +38,9 @@ async def create_quote(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user)]
 ):
+    print(f"DEBUG: User: {current_user.email}, Role: {current_user.role} ({type(current_user.role)}), Expected: {UserRole.BUYER} ({type(UserRole.BUYER)})")
     if current_user.role != UserRole.BUYER:
-         raise HTTPException(status_code=403, detail="Only buyers can create RFQs")
+         raise HTTPException(status_code=403, detail=f"Only buyers can create RFQs. You are {current_user.role}")
 
     db_quote = QuoteRequest(
         **quote.model_dump(),
@@ -49,7 +50,12 @@ async def create_quote(
     
     db.add(db_quote)
     await db.commit()
-    await db.refresh(db_quote)
+    
+    # Reload with relationships to satisfy Pydantic response model
+    stmt = select(QuoteRequest).options(selectinload(QuoteRequest.offers)).where(QuoteRequest.id == db_quote.id)
+    result = await db.execute(stmt)
+    db_quote = result.scalar_one()
+    
     return db_quote
 
 @router.patch("/quotes/{quote_id}", response_model=QuoteResponse)
@@ -138,12 +144,18 @@ async def accept_offer(
     # Update Quote Status
     quote.status = QuoteStatus.Confirmed
     quote.awarded_supplier_id = selected_offer.supplier_id
-    quote.final_price_usd = selected_offer.price_per_mt_usd * float(quote.quantity_mt) # Approx total
+    quote.final_price_usd = selected_offer.price_per_mt_usd * quote.quantity_mt # Approx total
     quote.final_price_per_mt = selected_offer.price_per_mt_usd
     
     # Mark offer as accepted
     selected_offer.is_accepted = True
     
     await db.commit()
-    await db.refresh(quote)
+    await db.commit()
+    
+    # Reload with relationships
+    stmt = select(QuoteRequest).options(selectinload(QuoteRequest.offers)).where(QuoteRequest.id == quote.id)
+    result = await db.execute(stmt)
+    quote = result.scalar_one()
+    
     return quote
