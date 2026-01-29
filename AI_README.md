@@ -85,61 +85,46 @@ Verdaxis is a maritime platform designed to modernize fuel procurement and compl
 ### Commands (Local)
 
 ```bash
-# Push to main (development)
+# Push to main (development) - TRIGGERS AUTOMATIC DEPLOYMENT
 git add -A && git commit -m "your message" && git push origin main
-
-# Deploy to production
-git checkout prod
-git merge main
-git push origin prod
-git checkout main
 ```
 
-### Commands (Server)
+> **Note**: The `prod` branch is currently mirrored from `main` logic. Deployment happens from `main`.
+
+### Manual Server Access (Debugging Only)
 
 ```bash
 # SSH to server
 ssh verdaxis-prod@144.126.151.136
 
-# Pull latest and restart
-cd ~/verdaxis-backend
-git pull origin main
-docker compose down && docker compose up -d --build
+# Check logs
+docker compose logs -f backend
 ```
 
 ---
 
 ## Deployment
 
-### One-Command Deploy (from local)
+### Automated Deployment (CI/CD)
+
+The project is configured with **GitHub Actions**.
+
+- **Trigger**: Push to `main`.
+- **Process**:
+  1.  Runs `pytest` unit tests.
+  2.  If tests pass, connects to VPS via SSH.
+  3.  Executes `git pull` and `docker compose up -d --build`.
+
+### Monitoring
+
+Check the [GitHub Actions](https://github.com/jonathanjie/verdaxis-backend/actions) tab for build status.
+
+On the server, you can still view logs manually:
 
 ```bash
-# From Verdaxis root directory
-./scripts/push-deploy.sh                 # Deploy both frontend and backend
-./scripts/push-deploy.sh --backend-only  # Deploy backend only
-./scripts/push-deploy.sh --with-tests    # Run tests before deploying
-```
-
-### Manual Server Deploy
-
-```bash
-# SSH to server
 ssh verdaxis-prod@144.126.151.136
-
-# Deploy backend
-cd ~/verdaxis-backend && bash scripts/deploy.sh
+docker compose logs -f backend
 ```
-
-### Docker Commands (on server)
-
-```bash
-docker compose up -d --build    # Start/rebuild containers
-docker compose down             # Stop containers
-docker compose logs -f backend  # View backend logs
-docker exec -it verdaxis-backend bash  # Shell into container
-```
-
----
 
 ## Testing
 

@@ -1,5 +1,3 @@
-version: "3.8"
-
 services:
   postgres:
     image: postgis/postgis:15-3.3
@@ -60,11 +58,16 @@ services:
     command: server
     environment:
       AUTHENTIK_REDIS__HOST: redis
-      AUTHENTIK_POSTGRES__HOST: authentik_db
+      AUTHENTIK_POSTGRES__HOST: verdaxis-authentik-db
+      AUTHENTIK_POSTGRESQL__HOST: verdaxis-authentik-db
       AUTHENTIK_POSTGRES__USER: ${AUTHENTIK_POSTGRES_USER}
+      AUTHENTIK_POSTGRESQL__USER: ${AUTHENTIK_POSTGRES_USER}
       AUTHENTIK_POSTGRES__NAME: ${AUTHENTIK_POSTGRES_DB}
+      AUTHENTIK_POSTGRESQL__NAME: ${AUTHENTIK_POSTGRES_DB}
       AUTHENTIK_POSTGRES__PASSWORD: ${AUTHENTIK_POSTGRES_PASSWORD}
+      AUTHENTIK_POSTGRESQL__PASSWORD: ${AUTHENTIK_POSTGRES_PASSWORD}
       AUTHENTIK_SECRET_KEY: ${AUTHENTIK_SECRET_KEY}
+      AUTHENTIK_LOG_LEVEL: debug
     volumes:
       - ./authentik-media:/media
       - ./authentik-custom-templates:/templates
@@ -86,12 +89,17 @@ services:
     command: worker
     environment:
       AUTHENTIK_REDIS__HOST: redis
-      AUTHENTIK_POSTGRES__HOST: authentik_db
+      AUTHENTIK_POSTGRES__HOST: verdaxis-authentik-db
+      AUTHENTIK_POSTGRESQL__HOST: verdaxis-authentik-db
       AUTHENTIK_POSTGRES__USER: ${AUTHENTIK_POSTGRES_USER}
+      AUTHENTIK_POSTGRESQL__USER: ${AUTHENTIK_POSTGRES_USER}
       AUTHENTIK_POSTGRES__NAME: ${AUTHENTIK_POSTGRES_DB}
+      AUTHENTIK_POSTGRESQL__NAME: ${AUTHENTIK_POSTGRES_DB}
       AUTHENTIK_POSTGRES__PASSWORD: ${AUTHENTIK_POSTGRES_PASSWORD}
+      AUTHENTIK_POSTGRESQL__PASSWORD: ${AUTHENTIK_POSTGRES_PASSWORD}
       AUTHENTIK_SECRET_KEY: ${AUTHENTIK_SECRET_KEY}
-    # user: root # Only usually needed to correct permissions, we can omit unless issues
+      AUTHENTIK_LOG_LEVEL: debug
+    # user: root
     volumes:
       - ./authentik-media:/media
       - ./authentik-custom-templates:/templates

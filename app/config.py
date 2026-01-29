@@ -27,6 +27,10 @@ class Settings(BaseSettings):
     # Security
     AUTHENTIK_DOMAIN: str = "http://localhost:9000"
     AUTHENTIK_CLIENT_ID: str = "verdaxis-client-id" # Will be updated after Authentik setup
+    
+    # Dev/Test Auth Bypass
+    ENABLE_AUTH_BYPASS: bool = False
+    
     JWT_SECRET: str = "***REMOVED***" # Kept for local impersonation tokens
     JWT_ALGORITHM: str = "RS256"
     API_AUDIENCE: str = "verdaxis-client-id"
