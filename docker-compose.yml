@@ -68,7 +68,9 @@ services:
       AUTHENTIK_POSTGRESQL__PASSWORD: ${AUTHENTIK_POSTGRES_PASSWORD}
       AUTHENTIK_SECRET_KEY: ${AUTHENTIK_SECRET_KEY}
       AUTHENTIK_LOG_LEVEL: debug
-      AUTHENTIK_CSRF__TRUSTED_ORIGINS: "http://144.126.151.136:5173,http://144.126.151.136,http://localhost:5173"
+      AUTHENTIK_SECRET_KEY: ${AUTHENTIK_SECRET_KEY}
+      AUTHENTIK_LOG_LEVEL: debug
+      AUTHENTIK_CSRF__TRUSTED_ORIGINS: "http://144.126.151.136:5173"
     volumes:
       - ./authentik-media:/media
       - ./authentik-custom-templates:/templates
@@ -100,7 +102,9 @@ services:
       AUTHENTIK_POSTGRESQL__PASSWORD: ${AUTHENTIK_POSTGRES_PASSWORD}
       AUTHENTIK_SECRET_KEY: ${AUTHENTIK_SECRET_KEY}
       AUTHENTIK_LOG_LEVEL: debug
-      AUTHENTIK_CSRF__TRUSTED_ORIGINS: "http://144.126.151.136:5173,http://144.126.151.136,http://localhost:5173"
+      AUTHENTIK_SECRET_KEY: ${AUTHENTIK_SECRET_KEY}
+      AUTHENTIK_LOG_LEVEL: debug
+      AUTHENTIK_CSRF__TRUSTED_ORIGINS: "http://144.126.151.136:5173"
     # user: root
     volumes:
       - ./authentik-media:/media
