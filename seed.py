@@ -97,7 +97,8 @@ async def seed():
             ("ESALG", "Algeciras", "Spain", "Europe/Madrid", "POINT(-5.45 36.13)", CongestionLevel.Low, 640, 770),
             ("PAPAN", "Panama City", "Panama", "America/Panama", "POINT(-79.52 8.98)", CongestionLevel.High, 670, 800),
             ("KRBUS", "Busan", "South Korea", "Asia/Seoul", "POINT(129.04 35.10)", CongestionLevel.Moderate, 610, 740),
-            ("USLGB", "Long Beach", "USA", "America/Los_Angeles", "POINT(-118.19 33.77)", CongestionLevel.Moderate, 590, 720)
+            ("USLGB", "Long Beach", "USA", "America/Los_Angeles", "POINT(-118.19 33.77)", CongestionLevel.Moderate, 590, 720),
+            ("BEANR", "Antwerp-Bruges", "Belgium", "Europe/Brussels", "POINT(4.4 51.2)", CongestionLevel.Low, 645, 775)
         ]
         
         ports = []
@@ -177,15 +178,17 @@ async def seed():
         # --- Listings & Inventory ---
         listings_data = [
             (supplier_orgs[0], "Singapore", "Biofuel", FuelGrade.BIO, 5000, 780, AvailabilityWindow.SPOT),
-            (supplier_orgs[0], "ARA", "Methanol", FuelGrade.GREEN, 3000, 550, AvailabilityWindow.Q1_2026),
+            (supplier_orgs[0], "Rotterdam", "Methanol", FuelGrade.GREEN, 3000, 550, AvailabilityWindow.Q1_2026),
             (supplier_orgs[1], "Shanghai", "LSMGO", FuelGrade.CONVENTIONAL, 10000, 620, AvailabilityWindow.SPOT),
             (supplier_orgs[1], "Busan", "LSMGO", FuelGrade.CONVENTIONAL, 8000, 615, AvailabilityWindow.SPOT),
-            (supplier_orgs[2], "ARA", "LNG", FuelGrade.BIO, 2000, 1250, AvailabilityWindow.SPOT),
+            (supplier_orgs[2], "Antwerp-Bruges", "LNG", FuelGrade.BIO, 2000, 1250, AvailabilityWindow.SPOT),
             (supplier_orgs[2], "Houston", "Ammonia", FuelGrade.GREEN, 5000, 900, AvailabilityWindow.FORWARD_2027),
             (supplier_orgs[3], "UAE", "Ammonia", FuelGrade.GREEN, 10000, 850, AvailabilityWindow.Q2_2026),
             (supplier_orgs[3], "Singapore", "Ammonia", FuelGrade.GREEN, 5000, 880, AvailabilityWindow.SPOT),
-            (supplier_orgs[4], "ARA", "Methanol", FuelGrade.GREEN, 15000, 540, AvailabilityWindow.Q4_2025),
-            (supplier_orgs[4], "Algeciras", "Biofuel", FuelGrade.BIO, 7000, 760, AvailabilityWindow.SPOT)
+            (supplier_orgs[4], "Amsterdam-Rotterdam-Antwerp", "Methanol", FuelGrade.GREEN, 15000, 540, AvailabilityWindow.Q4_2025),
+            (supplier_orgs[4], "Algeciras", "Biofuel", FuelGrade.BIO, 7000, 760, AvailabilityWindow.SPOT),
+            (supplier_orgs[0], "Antwerp-Bruges", "Methanol", FuelGrade.GREEN, 4000, 560, AvailabilityWindow.SPOT),
+            (supplier_orgs[1], "Busan", "Biofuel", FuelGrade.BIO, 6000, 790, AvailabilityWindow.Q1_2026)
         ]
         
         created_listings = []
