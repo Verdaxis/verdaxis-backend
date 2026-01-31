@@ -38,6 +38,9 @@ app.include_router(ai_router, prefix=settings.API_V1_STR)
 app.include_router(listings_router, prefix=settings.API_V1_STR)
 app.include_router(rfq_router, prefix=settings.API_V1_STR)
 
+from app.routers import dashboard
+app.include_router(dashboard.router, prefix=settings.API_V1_STR)
+
 @app.get("/")
 
 async def root():
