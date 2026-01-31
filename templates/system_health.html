@@ -1,0 +1,49 @@
+{% extends "sqladmin/base.html" %} {% block content %}
+<div class="col-12">
+  <div class="card">
+    <div class="card-header">
+      <h3 class="card-title">System Health</h3>
+    </div>
+    <div class="card-body">
+      <div class="row">
+        <div class="col-md-3">
+          <div class="alert alert-info">
+            <h5>CPU Usage</h5>
+            <h2>{{ cpu_usage }}%</h2>
+          </div>
+        </div>
+        <div class="col-md-3">
+          <div class="alert alert-success">
+            <h5>Memory Usage</h5>
+            <h2>{{ memory_usage }}%</h2>
+          </div>
+        </div>
+        <div class="col-md-3">
+          <div class="alert alert-warning">
+            <h5>Disk Usage</h5>
+            <h2>{{ disk_usage }}%</h2>
+          </div>
+        </div>
+        <div class="col-md-3">
+          <div class="alert alert-primary">
+            <h5>Uptime</h5>
+            <h2>{{ uptime }}</h2>
+          </div>
+        </div>
+      </div>
+
+      <hr />
+
+      <h4>System Logs</h4>
+      <div
+        class="bg-dark text-light p-3 rounded"
+        style="height: 400px; overflow-y: scroll; font-family: monospace"
+      >
+        {% for log in logs %}
+        <div>{{ log }}</div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

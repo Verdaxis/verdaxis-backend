@@ -9,13 +9,13 @@ See README for more details:
 https://github.com/google-gemini/deprecated-generative-ai-python/blob/main/README.md
 
   import google.generativeai as genai
-INFO:     Started server process [68382]
+INFO:     Started server process [71386]
 INFO:     Waiting for application startup.
 INFO:     Application startup complete.
 INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
-INFO:     127.0.0.1:54111 - "GET /api/dashboard/health HTTP/1.1" 200 OK
-INFO:     127.0.0.1:54113 - "GET /api/dashboard/logs?lines=5 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62970 - "HEAD /admin HTTP/1.1" 307 Temporary Redirect
+INFO:     127.0.0.1:62972 - "HEAD /admin/health HTTP/1.1" 302 Found
 INFO:     Shutting down
 INFO:     Waiting for application shutdown.
 INFO:     Application shutdown complete.
-INFO:     Finished server process [68382]
+INFO:     Finished server process [71386]

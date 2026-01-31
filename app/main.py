@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.routers.auth_simple import router as auth_router
+from app.admin import setup_admin
 
 
 from app.routers.ports import router as ports_router
@@ -18,6 +19,9 @@ app = FastAPI(
     description="Maritime intelligence and procurement platform backend",
     version="1.0.0",
 )
+
+# Setup Admin
+setup_admin(app)
 
 # CORS Configuration
 app.add_middleware(
