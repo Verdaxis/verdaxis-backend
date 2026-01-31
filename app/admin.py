@@ -12,6 +12,10 @@ import psutil
 import time
 import os
 
+from starlette.templating import Jinja2Templates
+
+templates = Jinja2Templates(directory="templates")
+
 class SystemHealthView(BaseView):
     name = "System Health"
     icon = "fa-solid fa-heart-pulse"
@@ -44,7 +48,7 @@ class SystemHealthView(BaseView):
              logs = ["Log file not found"]
 
 
-        return await request.templates.TemplateResponse(
+        return templates.TemplateResponse(
             "system_health.html",
             {
                 "request": request,
