@@ -1,0 +1,15 @@
+postgres_data
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+env
+venv
+.env
+.git
+.gitignore
+.github
+.pytest_cache
+*.db
+*.sqlite3
