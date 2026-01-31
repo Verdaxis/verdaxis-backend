@@ -12,9 +12,11 @@ import psutil
 import time
 import os
 
+import sqladmin
 from starlette.templating import Jinja2Templates
 
-templates = Jinja2Templates(directory="templates")
+sqladmin_path = os.path.dirname(sqladmin.__file__)
+templates = Jinja2Templates(directory=["templates", os.path.join(sqladmin_path, "templates")])
 
 from sqlalchemy import text
 
