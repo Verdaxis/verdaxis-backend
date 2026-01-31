@@ -17,3 +17,4 @@ python-multipart
 aiosqlite
 psutil==5.9.4
 sqladmin>=0.14.0
+itsdangerous>=2.0.0
