@@ -3,10 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.routers.auth_simple import router as auth_router
 
-# ... previous imports ...
 
-# app.include_router(auth_router, prefix=settings.API_V1_STR) # Replaced
-app.include_router(auth_router, prefix=settings.API_V1_STR)
 from app.routers.ports import router as ports_router
 from app.routers.vessels import router as vessels_router
 from app.routers.quotes import router as quotes_router
