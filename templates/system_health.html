@@ -1,49 +1,211 @@
-{% extends "sqladmin/base.html" %} {% block content %}
-<div class="col-12">
-  <div class="card">
-    <div class="card-header">
-      <h3 class="card-title">System Health</h3>
-    </div>
-    <div class="card-body">
-      <div class="row">
-        <div class="col-md-3">
-          <div class="alert alert-info">
-            <h5>CPU Usage</h5>
-            <h2>{{ cpu_usage }}%</h2>
-          </div>
-        </div>
-        <div class="col-md-3">
-          <div class="alert alert-success">
-            <h5>Memory Usage</h5>
-            <h2>{{ memory_usage }}%</h2>
-          </div>
-        </div>
-        <div class="col-md-3">
-          <div class="alert alert-warning">
-            <h5>Disk Usage</h5>
-            <h2>{{ disk_usage }}%</h2>
-          </div>
-        </div>
-        <div class="col-md-3">
-          <div class="alert alert-primary">
-            <h5>Uptime</h5>
-            <h2>{{ uptime }}</h2>
-          </div>
-        </div>
-      </div>
+{% extends 'sqladmin/layout.html' %} 
 
-      <hr />
+{% block content %}
+<style>
+    :root {
+        --bg-color: #0d1117; /* GitHub Dark Dimmed equivalent or User Ref black */
+        --card-bg: #161b22;
+        --text-primary: #c9d1d9;
+        --text-secondary: #8b949e;
+        --accent-green: #238636;
+        --accent-blue: #58a6ff;
+        --border-color: #30363d;
+        --terminal-bg: #0d1117;
+        --terminal-text: #3fb950; /* Hacker green */
+    }
 
-      <h4>System Logs</h4>
-      <div
-        class="bg-dark text-light p-3 rounded"
-        style="height: 400px; overflow-y: scroll; font-family: monospace"
-      >
-        {% for log in logs %}
-        <div>{{ log }}</div>
-        {% endfor %}
-      </div>
+    body, .content-wrapper, .main-content {
+        background-color: var(--bg-color) !important;
+        color: var(--text-primary) !important;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+    
+    .dashboard-container {
+        padding: 20px;
+    }
+
+    .header-title {
+        color: var(--text-primary);
+        font-size: 1.5rem;
+        font-weight: 600;
+        margin-bottom: 20px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    /* Grid Layout */
+    .stats-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+        gap: 15px;
+        margin-bottom: 25px;
+    }
+
+    /* Cards */
+    .stat-card {
+        background-color: var(--card-bg);
+        border: 1px solid var(--border-color);
+        border-radius: 6px;
+        padding: 20px;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .stat-label {
+        font-size: 0.85rem;
+        color: var(--text-secondary);
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        margin-bottom: 10px;
+    }
+
+    .stat-value {
+        font-size: 1.8rem;
+        font-weight: 700;
+        color: var(--text-primary);
+    }
+
+    .stat-sub {
+        font-size: 0.8rem;
+        color: var(--text-secondary);
+        margin-top: 5px;
+    }
+
+    /* Status Indicators */
+    .status-indicator {
+        display: inline-block;
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        margin-right: 8px;
+    }
+    .status-ok { background-color: var(--accent-green); box-shadow: 0 0 8px var(--accent-green); }
+    .status-err { background-color: #f85149; box-shadow: 0 0 8px #f85149; }
+
+    /* Terminal Section */
+    .console-container {
+        display: grid;
+        grid-template-columns: 250px 1fr;
+        gap: 20px;
+        height: 600px;
+    }
+
+    .sidebar-card {
+        background-color: var(--card-bg);
+        border: 1px solid var(--border-color);
+        border-radius: 6px;
+        padding: 20px;
+    }
+
+    .console-card {
+        background-color: var(--terminal-bg);
+        border: 1px solid var(--border-color);
+        border-radius: 6px;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+    }
+
+    .console-header {
+        background-color: var(--card-bg);
+        padding: 10px 15px;
+        border-bottom: 1px solid var(--border-color);
+        font-size: 0.9rem;
+        display: flex;
+        align-items: center;
+    }
+
+    .console-body {
+        padding: 15px;
+        flex-grow: 1;
+        overflow-y: auto;
+        font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+        font-size: 0.8rem;
+        color: var(--terminal-text);
+        line-height: 1.4;
+    }
+
+    .log-line {
+        white-space: pre-wrap;
+        word-break: break-all;
+        margin-bottom: 4px;
+        border-bottom: 1px solid rgba(48, 54, 61, 0.3);
+        padding-bottom: 2px;
+    }
+    .log-timestamp { color: #8b949e; margin-right: 10px; }
+    .log-level-info { color: #58a6ff; }
+    .log-level-warn { color: #d29922; }
+    .log-level-error { color: #f85149; }
+
+</style>
+
+<div class="dashboard-container">
+    <div class="header-title">
+        <div><span style="color: #f778ba;">Verdaxis</span>.Admin <span style="font-size: 0.9rem; color: #8b949e; font-weight: 400;">System Monitor</span></div>
+        <button onclick="window.location.reload()" style="background: var(--card-bg); border: 1px solid var(--border-color); color: var(--text-primary); padding: 5px 12px; border-radius: 4px; cursor: pointer;">Refresh</button>
     </div>
-  </div>
+
+    <!-- Top Stats Row -->
+    <div class="stats-grid">
+        <div class="stat-card">
+            <div class="stat-label">System Uptime</div>
+            <div class="stat-value">{{ stats.uptime }}</div>
+            <div class="stat-sub">Since last reboot</div>
+        </div>
+
+        <div class="stat-card">
+            <div class="stat-label">Health Status</div>
+            <div class="stat-value">
+                <span class="status-indicator {% if stats.db_status == 'OK' %}status-ok{% else %}status-err{% endif %}"></span>
+                HEALTHY
+            </div>
+            <div class="stat-sub">Services Operational</div>
+        </div>
+
+        <div class="stat-card">
+            <div class="stat-label">CPU / RAM</div>
+            <div class="stat-value">{{ stats.cpu }}% <span style="font-size: 1rem; color: var(--text-secondary);">/ {{ stats.memory.percent }}%</span></div>
+            <div class="stat-sub">Mem: {{ stats.memory.used_gb }}GB / {{ stats.memory.total_gb }}GB</div>
+        </div>
+
+        <div class="stat-card">
+            <div class="stat-label">Database & Storage</div>
+            <div class="stat-value" style="color: {% if stats.db_status == 'OK' %}var(--accent-green){% else %}#f85149{% endif %};">
+                {{ stats.db_status }}
+            </div>
+            <div class="stat-sub">Disk Free: {{ stats.disk.free_gb }}GB ({{ 100 - stats.disk.percent }}%)</div>
+        </div>
+    </div>
+
+    <!-- Bottom Log Section -->
+    <div class="console-container">
+        <!-- Sidebar -->
+        <div class="sidebar-card">
+            <div class="stat-label" style="margin-bottom: 20px;">Background Jobs</div>
+            <div style="text-align: center; color: var(--text-secondary); margin-top: 50px;">
+                No active jobs.
+            </div>
+        </div>
+
+        <!-- Terminal -->
+        <div class="console-card">
+            <div class="console-header">
+                <span class="status-indicator status-ok" style="width: 8px; height: 8px;"></span> Live Logs &bull; verdaxis.log
+            </div>
+            <div class="console-body" id="logConsole">
+                {% for log in logs %}
+                    <div class="log-line">{{ log }}</div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
 </div>
+
+<script>
+    // Auto-scroll logs to bottom
+    const consoleBody = document.getElementById('logConsole');
+    consoleBody.scrollTop = consoleBody.scrollHeight;
+</script>
+
 {% endblock %}

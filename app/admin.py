@@ -16,32 +16,45 @@ from starlette.templating import Jinja2Templates
 
 templates = Jinja2Templates(directory="templates")
 
+from sqlalchemy import text
+
 class SystemHealthView(BaseView):
     name = "System Health"
     icon = "fa-solid fa-heart-pulse"
 
+    async def check_db(self):
+        try:
+            async with engine.connect() as conn:
+                await conn.execute(text("SELECT 1"))
+            return True
+        except Exception:
+            return False
+
     @expose("/health", methods=["GET"])
     async def health_page(self, request):
+        # System Stats
         cpu = psutil.cpu_percent()
-        mem = psutil.virtual_memory().percent
-        disk = psutil.disk_usage('/').percent
-        uptime = time.time() - psutil.boot_time()
+        mem = psutil.virtual_memory()
+        disk = psutil.disk_usage('/')
         
-        # Format uptime
-        days = int(uptime // (24 * 3600))
-        uptime = uptime % (24 * 3600)
-        hours = int(uptime // 3600)
-        uptime %= 3600
-        minutes = int(uptime // 60)
+        # Uptime
+        uptime_seconds = time.time() - psutil.boot_time()
+        days = int(uptime_seconds // (24 * 3600))
+        hours = int((uptime_seconds % (24 * 3600)) // 3600)
+        minutes = int((uptime_seconds % 3600) // 60)
         uptime_str = f"{days}d {hours}h {minutes}m"
 
-        # Get logs
+        # DB Status
+        db_status = "OK" if await self.check_db() else "Error"
+
+        # Logs
         logs = []
-        log_file_path = "verdaxis.log"  # Or your actual log file
+        log_file_path = "verdaxis.log"
         if os.path.exists(log_file_path):
             try:
                 with open(log_file_path, "r") as f:
-                    logs = [line.strip() for line in f.readlines()[-50:]]
+                    # Get last 100 lines for terminal feel
+                    logs = [line.strip() for line in f.readlines()[-100:]]
             except:
                 logs = ["Error reading log file"]
         else:
@@ -52,10 +65,21 @@ class SystemHealthView(BaseView):
             "system_health.html",
             {
                 "request": request,
-                "cpu_usage": cpu,
-                "memory_usage": mem,
-                "disk_usage": disk,
-                "uptime": uptime_str,
+                "stats": {
+                    "cpu": cpu,
+                    "memory": {
+                        "percent": mem.percent,
+                        "used_gb": round(mem.used / (1024**3), 1),
+                        "total_gb": round(mem.total / (1024**3), 1)
+                    },
+                    "disk": {
+                        "percent": disk.percent,
+                        "free_gb": round(disk.free / (1024**3), 1),
+                        "total_gb": round(disk.total / (1024**3), 1)
+                    },
+                    "uptime": uptime_str,
+                    "db_status": db_status
+                },
                 "logs": logs
             }
         )
