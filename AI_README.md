@@ -46,13 +46,13 @@ Verdaxis is a maritime platform designed to modernize fuel procurement and compl
 - **Protocol**: Simple JWT (HS256).
 - **Implementation**:
   - `app/core/security.py`: Handles `bcrypt` password hashing and JWT generation.
-  - `app/routers/auth_simple.py`: Endpoints for Login and Registration.
+  - `app/routers/auth_simple.py`: **Source of Truth** for auth endpoints.
 - **Trust Model**: Backend generates and signs JWTs itself using `SECRET_KEY`. No external dependencies (Authentik) for runtime validation.
-- **User Storage**: Users are created directly in Postgres via `/auth/register` with hashed passwords.
+- **User Storage**: Users are created directly in Postgres via `/api/auth/register` with hashed passwords.
 
 ### Legacy / Disabled Configs
 
-- **Authentik**: Previous RS256 trust model is deprecated.
+- **Authentik**: Integration is DEPRECATED. Do not use.
 - **Auth Bypass**: Code remains in `app/core/config.py` but is generally unused in favor of standard dev accounts.
 
 ## AI Integration
@@ -85,7 +85,6 @@ Verdaxis is a maritime platform designed to modernize fuel procurement and compl
 - `POST /api/auth/register` - Register new user (status: PENDING by default)
 - `GET /api/auth/me` - Get current user info
 - `PUT /api/auth/me` - Update profile (First Name, Last Name, Role)
-- `PUT /api/auth/approve/{user_id}` - Admin approves pending user
 - `PUT /api/auth/approve/{user_id}` - Admin approves pending user
 - `PUT /api/auth/switch-role/{BUYER|SUPPLIER|ADMIN}` - Admin switches role for testing
 
