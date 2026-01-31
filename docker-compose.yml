@@ -130,11 +130,8 @@ services:
     container_name: verdaxis-frontend
     restart: always
     ports:
-      - "5173:5173"
+      - "5173:80"
     env_file: ../verdaxis-frontend/.env
-    volumes:
-      - ../verdaxis-frontend:/app
-      - /app/node_modules
     networks:
       - verdaxis-net
 
