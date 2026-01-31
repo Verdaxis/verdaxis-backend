@@ -43,3 +43,18 @@ class Token(BaseModel):
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str
+
+class RegistrationResponse(BaseModel):
+    status: str # "created", "requires_org"
+    user: Optional[UserResponse] = None
+    registration_token: Optional[str] = None
+
+# Forward reference since OrganizationCreate is in another file, 
+# but circular imports are tricky in Pydantic. 
+# Better to define a local mixin or import if possible.
+# Actually, I'll put RegisterWithOrgRequest in auth_simple.py or organization.py to avoid circularity if OrganizationCreate needs User.
+# Or just put it here and import OrganizationCreate inside the file or use a simple dict for now if needed. 
+# Wait, organization.py imports user.py? No, organization.py imports user.py for OrgType (enum).
+# So I can import OrganizationCreate here if I'm careful or just define a nested model.
+# Simplest: Define it in auth_simple.py or a new schema file.
+# I'll stick to defining RegistrationResponse here.

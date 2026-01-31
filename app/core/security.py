@@ -21,7 +21,7 @@ def get_password_hash(password: str) -> str:
     """Hashes a password using bcrypt."""
     return pwd_context.hash(password)
 
-def create_access_token(subject: Union[str, Any], expires_delta: timedelta = None) -> str:
+def create_access_token(subject: Union[str, Any], expires_delta: timedelta = None, additional_claims: dict = None) -> str:
     """Creates a JWT access token."""
     if expires_delta:
         expire = datetime.utcnow() + expires_delta
@@ -29,5 +29,8 @@ def create_access_token(subject: Union[str, Any], expires_delta: timedelta = Non
         expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     
     to_encode = {"sub": str(subject), "exp": expire}
+    if additional_claims:
+        to_encode.update(additional_claims)
+        
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
