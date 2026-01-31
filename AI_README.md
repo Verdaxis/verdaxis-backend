@@ -43,15 +43,17 @@ Verdaxis is a maritime platform designed to modernize fuel procurement and compl
 
 ## Authentication Architecture
 
-- **Trust Model**: The backend trusts JWTs signed by Authentik (RS256). It verifies the signature against the public key but does NOT hit the Authentik API for every request.
-- **User Sync**: Users are created in the DB upon first valid login (JIT Provisioning).
-- **Profile Updates**: Since Authentik handles auth, but we handle business roles, profile updates (Name, Role) happen via `PUT /auth/me` and are stored locally in Postgres.
+- **Protocol**: Simple JWT (HS256).
+- **Implementation**:
+  - `app/core/security.py`: Handles `bcrypt` password hashing and JWT generation.
+  - `app/routers/auth_simple.py`: Endpoints for Login and Registration.
+- **Trust Model**: Backend generates and signs JWTs itself using `SECRET_KEY`. No external dependencies (Authentik) for runtime validation.
+- **User Storage**: Users are created directly in Postgres via `/auth/register` with hashed passwords.
 
-### Local Development Bypass
+### Legacy / Disabled Configs
 
-- **File**: `app/config.py` (controlled via `.env`)
-- **Setting**: `ENABLE_AUTH_BYPASS = True`
-- **Effect**: If the frontend sends a special mock token/header, the backend treats the request as coming from a pre-defined Admin user (see `app/core/auth.py`).
+- **Authentik**: Previous RS256 trust model is deprecated.
+- **Auth Bypass**: Code remains in `app/core/config.py` but is generally unused in favor of standard dev accounts.
 
 ## AI Integration
 
