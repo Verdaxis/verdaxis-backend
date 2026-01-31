@@ -134,6 +134,9 @@ services:
     env_file: ../verdaxis-frontend/.env
     networks:
       - verdaxis-net
+    depends_on:
+      - backend
+      - authentik_server
 
 volumes:
   postgres_data:
