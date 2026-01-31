@@ -41,6 +41,18 @@ Verdaxis is a maritime platform designed to modernize fuel procurement and compl
 3.  **Dependency Injection**: Use `Depends()` for DB sessions (`get_db`) and current user (`get_current_user`).
 4.  **Error Handling**: Raise `HTTPException` with clear detail strings.
 
+## Authentication Architecture
+
+- **Trust Model**: The backend trusts JWTs signed by Authentik (RS256). It verifies the signature against the public key but does NOT hit the Authentik API for every request.
+- **User Sync**: Users are created in the DB upon first valid login (JIT Provisioning).
+- **Profile Updates**: Since Authentik handles auth, but we handle business roles, profile updates (Name, Role) happen via `PUT /auth/me` and are stored locally in Postgres.
+
+### Local Development Bypass
+
+- **File**: `app/config.py` (controlled via `.env`)
+- **Setting**: `ENABLE_AUTH_BYPASS = True`
+- **Effect**: If the frontend sends a special mock token/header, the backend treats the request as coming from a pre-defined Admin user (see `app/core/auth.py`).
+
 ## AI Integration
 
 - **Router**: `app/routers/ai.py`
@@ -70,6 +82,8 @@ Verdaxis is a maritime platform designed to modernize fuel procurement and compl
 - `POST /api/auth/login` - Login and get JWT token
 - `POST /api/auth/register` - Register new user (status: PENDING by default)
 - `GET /api/auth/me` - Get current user info
+- `PUT /api/auth/me` - Update profile (First Name, Last Name, Role)
+- `PUT /api/auth/approve/{user_id}` - Admin approves pending user
 - `PUT /api/auth/approve/{user_id}` - Admin approves pending user
 - `PUT /api/auth/switch-role/{BUYER|SUPPLIER|ADMIN}` - Admin switches role for testing
 

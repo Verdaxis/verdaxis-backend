@@ -156,7 +156,7 @@ async def get_current_user(
             first_name=first_name,
             last_name=last_name,
             password_hash="sso_managed", # Placeholder, they don't use password here
-            role=UserRole.BUYER, # Default role
+            role=None, # Default to None to trigger Onboarding
             status=UserStatus.PENDING # Must be approved by Admin
         )
         db.add(new_user)
