@@ -27,6 +27,8 @@ async def list_my_vessels(
     )
     
     if current_user.role != UserRole.ADMIN:
+        if current_user.organization_id is None:
+            return []
         stmt = stmt.where(Vessel.organization_id == current_user.organization_id)
     
     result = await db.execute(stmt)
