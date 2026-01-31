@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from app.database import get_db
 from app.models.user import User as UserModel, UserStatus, UserRole
-from app.schemas.user import UserResponse, Token
+from app.schemas.user import UserResponse, Token, UserUpdate
 from app.core.auth import create_access_token, get_current_user
 from typing import Annotated
 from uuid import UUID
@@ -41,6 +41,23 @@ async def approve_user(
 
 @router.get("/auth/me", response_model=UserResponse)
 async def read_users_me(current_user: Annotated[UserModel, Depends(get_current_user)]):
+    return current_user
+
+@router.put("/auth/me", response_model=UserResponse)
+async def update_users_me(
+    user_update: UserUpdate,
+    current_user: Annotated[UserModel, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)]
+):
+    if user_update.first_name is not None:
+        current_user.first_name = user_update.first_name
+    if user_update.last_name is not None:
+        current_user.last_name = user_update.last_name
+    if user_update.role is not None:
+        current_user.role = user_update.role
+        
+    await db.commit()
+    await db.refresh(current_user)
     return current_user
 
 @router.put("/auth/switch-role/{target_role}", response_model=Token)

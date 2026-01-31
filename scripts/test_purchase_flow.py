@@ -4,8 +4,8 @@ import sys
 import datetime
 from jose import jwt
 
-# Use Remote URL
-API_URL = "http://144.126.151.136:8000/api"
+# Use Local URL
+API_URL = "http://localhost:8000/api"
 # Matches config.py default
 JWT_SECRET = "***REMOVED***" 
 JWT_ALGORITHM = "HS256"
@@ -109,9 +109,19 @@ def main():
         "valid_until": "2026-03-10T12:00:00Z",
         "terms_and_conditions": "FOB Rotterdam"
     }
-    res = requests.post(f"{API_URL}/quotes/{quote_id}/offers", json=offer_payload, headers=supplier_headers)
+    url = f"{API_URL}/quotes/{quote_id}/offers"
+    print(f"   POST {url}")
+    res = requests.post(url, json=offer_payload, headers=supplier_headers)
+    
+    if res.status_code == 404:
+        # Try with trailing slash
+        url_slash = f"{url}/"
+        print(f"   404 encountered. Retrying with {url_slash}")
+        res = requests.post(url_slash, json=offer_payload, headers=supplier_headers)
+
     if res.status_code != 200:
-        print(f"   Create Offer Failed: {res.text}")
+        print(f"   Create Offer Failed: {res.status_code} {res.text}")
+        print(f"   URL: {res.url}")
         sys.exit(1)
     offer = res.json()
     offer_id = offer["id"]
