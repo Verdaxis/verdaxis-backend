@@ -128,6 +128,10 @@ class AggregatedListingResponse(BaseModel):
 class RFQRequestCreate(BaseModel):
     """Buyer sends this to request a quote on a listing."""
     listing_id: UUID
+    """Buyer sends this to request a quote on a listing."""
+    listing_id: UUID
+    quantity_mt: Optional[Decimal] = None
+    delivery_date: Optional[date] = None
     accepted_terms: bool = Field(..., description="Must be true to proceed")
 
 
@@ -137,6 +141,9 @@ class RFQMatchResponse(BaseModel):
     listing_id: UUID
     buyer_id: UUID
     status: MatchStatus
+    status: MatchStatus
+    requested_quantity_mt: Optional[Decimal] = None
+    requested_delivery_date: Optional[date] = None
     buyer_accepted_terms_at: datetime
     created_at: datetime
 
