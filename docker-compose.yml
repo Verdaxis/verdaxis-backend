@@ -123,20 +123,20 @@ services:
     networks:
       - verdaxis-net
 
-  frontend:
-    build:
-      context: ../verdaxis-frontend
-      dockerfile: Dockerfile
-    container_name: verdaxis-frontend
-    restart: always
-    ports:
-      - "5173:80"
-    env_file: ../verdaxis-frontend/.env
-    networks:
-      - verdaxis-net
-    depends_on:
-      - backend
-      - authentik_server
+#  frontend:
+#    build:
+#      context: ../verdaxis-frontend
+#      dockerfile: Dockerfile
+#    container_name: verdaxis-frontend
+#    restart: always
+#    ports:
+#      - "5173:80"
+#    env_file: ../verdaxis-frontend/.env
+#    networks:
+#      - verdaxis-net
+#    depends_on:
+#      - backend
+#      - authentik_server
 
 volumes:
   postgres_data:
