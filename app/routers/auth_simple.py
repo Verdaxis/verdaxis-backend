@@ -125,7 +125,7 @@ async def register(user_in: UserCreate, db: AsyncSession = Depends(get_db)):
             "password_hash": hashed_pw,
             "first_name": user_in.first_name,
             "last_name": user_in.last_name,
-            "role": user_in.role,
+            "role": user_in.role.value if user_in.role else None,
             "type": "registration"
         }
         # Short expiry for registration token (e.g., 30 mins)
