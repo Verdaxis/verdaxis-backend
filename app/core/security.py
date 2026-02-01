@@ -8,8 +8,7 @@ from app.config import settings
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # JWT Configuration
-# Fallback to secrets if not in settings, but they should be
-SECRET_KEY = getattr(settings, "AUTHENTIK_SECRET_KEY", "dev-secret-key-change-me-in-prod-please")
+SECRET_KEY = settings.JWT_SECRET
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 # 1 day
 

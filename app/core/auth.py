@@ -65,7 +65,7 @@ async def get_jwks() -> Dict[str, Any]:
 
 async def verify_token(token: str) -> Dict[str, Any]:
     """
-    Verifies the JWT token against Authentik's public keys.
+    Verifies the JWT token against Authentik's public keys or local HS256.
     """
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -74,17 +74,13 @@ async def verify_token(token: str) -> Dict[str, Any]:
     )
     
     try:
-        # 1. Try Legacy/Local HS256 Token (for switch_role)
-        # We attempt this if the header alg is HS256
+        # Detect algorithm from header
         unverified_header = jwt.get_unverified_header(token)
-        if unverified_header.get("alg") == "HS256":
-             from app.config import settings # re-import to be safe
-             # We need a secret for local tokens. We'll use a fallback or the one from generic config
-             local_secret = "dev-secret-key-not-for-production" # Hardcoded backup or env
-             if hasattr(settings, "JWT_SECRET"):
-                 local_secret = settings.JWT_SECRET
-             
-             return jwt.decode(token, local_secret, algorithms=["HS256"])
+        alg = unverified_header.get("alg")
+
+        if alg == "HS256":
+            # Use the local JWT_SECRET for HS256 (from config or security)
+            return jwt.decode(token, settings.JWT_SECRET, algorithms=["HS256"])
 
         # 2. Try Authentik RS256 Token
         jwks = await get_jwks()
@@ -110,10 +106,18 @@ async def get_current_user(
     Validates token and returns the user.
     Provisions the user in the local DB if they don't exist (JIT).
     """
-    # 0. Check for Dev Bypass
-    if settings.ENABLE_AUTH_BYPASS:
+    # 0. Validate Token if present
+    payload = None
+    if token and token != "undefined" and token != "null":
+        try:
+            payload = await verify_token(token)
+        except HTTPException:
+            if not settings.ENABLE_AUTH_BYPASS:
+                raise
+
+    # 1. Check for Dev Bypass if token is missing or invalid
+    if not payload and settings.ENABLE_AUTH_BYPASS:
         # Return a mock Dev Admin user
-        # We need to ensure this user exists in the DB so that relationships work
         email = "dev@admin.com"
         stmt = select(User).where(User.email == email)
         result = await db.execute(stmt)
@@ -132,14 +136,32 @@ async def get_current_user(
             await db.commit()
             await db.refresh(user)
         return user
+    
+    if not payload:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token missing or invalid",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
-    payload = await verify_token(token)
-    email: str = payload.get("email")
+    email: str = payload.get("email") or payload.get("sub") # auth_simple uses 'sub' for user_id/email
     if email is None:
-        raise HTTPException(status_code=401, detail="Token missing email claim")
+        raise HTTPException(status_code=401, detail="Token missing email/sub claim")
+    
+    # Check if sub is a UUID (from auth_simple) or an email
+    user_id = None
+    try:
+        import uuid
+        user_id = uuid.UUID(email)
+    except (ValueError, TypeError):
+        pass
 
     # 1. Check if user exists locally
-    stmt = select(User).where(User.email == email)
+    if user_id:
+        stmt = select(User).where(User.id == user_id)
+    else:
+        stmt = select(User).where(User.email == email)
+        
     result = await db.execute(stmt)
     user = result.scalar_one_or_none()
 

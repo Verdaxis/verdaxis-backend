@@ -1,5 +1,6 @@
-/opt/homebrew/lib/python3.10/site-packages/google/rpc/__init__.py:18: UserWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html. The pkg_resources package is slated for removal as early as 2025-11-30. Refrain from using this package or pin to Setuptools<81.
-  import pkg_resources
+INFO:     Will watch for changes in these directories: ['/Users/jonathanjie/Documents/workspace/Verdaxis/verdaxis-backend']
+INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+INFO:     Started reloader process [6196] using WatchFiles
 /Users/jonathanjie/Documents/workspace/Verdaxis/verdaxis-backend/app/services/ai_service.py:1: FutureWarning: 
 
 All support for the `google.generativeai` package has ended. It will no longer be receiving 
@@ -9,13 +10,33 @@ See README for more details:
 https://github.com/google-gemini/deprecated-generative-ai-python/blob/main/README.md
 
   import google.generativeai as genai
-INFO:     Started server process [71386]
+INFO:     Started server process [6198]
 INFO:     Waiting for application startup.
 INFO:     Application startup complete.
-INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
-INFO:     127.0.0.1:62970 - "HEAD /admin HTTP/1.1" 307 Temporary Redirect
-INFO:     127.0.0.1:62972 - "HEAD /admin/health HTTP/1.1" 302 Found
+INFO:     127.0.0.1:64240 - "GET /docs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64240 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56099 - "OPTIONS /api/auth/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56101 - "OPTIONS /api/auth/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56101 - "GET /api/auth/me HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:56099 - "GET /api/auth/me HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:56182 - "OPTIONS /api/auth/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56182 - "OPTIONS /api/auth/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56185 - "GET /api/auth/me HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:56182 - "GET /api/auth/me HTTP/1.1" 401 Unauthorized
+WARNING:  WatchFiles detected changes in 'seed_test_users.py'. Reloading...
 INFO:     Shutting down
 INFO:     Waiting for application shutdown.
 INFO:     Application shutdown complete.
-INFO:     Finished server process [71386]
+INFO:     Finished server process [6198]
+/Users/jonathanjie/Documents/workspace/Verdaxis/verdaxis-backend/app/services/ai_service.py:1: FutureWarning: 
+
+All support for the `google.generativeai` package has ended. It will no longer be receiving 
+updates or bug fixes. Please switch to the `google.genai` package as soon as possible.
+See README for more details:
+
+https://github.com/google-gemini/deprecated-generative-ai-python/blob/main/README.md
+
+  import google.generativeai as genai
+INFO:     Started server process [7599]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
