@@ -13,6 +13,7 @@ from app.routers.compliance import router as compliance_router
 from app.routers.ai import router as ai_router
 from app.routers.listings import router as listings_router
 from app.routers.rfq import router as rfq_router
+from app.routers.notifications import router as notifications_router
 
 app = FastAPI(
     title="Verdaxis Intelligence Cockpit",
@@ -41,6 +42,7 @@ app.include_router(compliance_router, prefix=settings.API_V1_STR)
 app.include_router(ai_router, prefix=settings.API_V1_STR)
 app.include_router(listings_router, prefix=settings.API_V1_STR)
 app.include_router(rfq_router, prefix=settings.API_V1_STR)
+app.include_router(notifications_router, prefix=settings.API_V1_STR)
 
 from app.routers import dashboard
 app.include_router(dashboard.router, prefix=settings.API_V1_STR)

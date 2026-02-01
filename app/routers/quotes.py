@@ -4,6 +4,7 @@ from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
 from app.database import get_db
 from app.models.marketplace import QuoteRequest, QuoteStatus, QuoteOffer
+from app.models.notification import Notification, NotificationType
 from app.schemas.marketplace import QuoteCreate, QuoteUpdate, QuoteResponse, QuoteOfferCreate, QuoteOfferResponse
 from app.models.user import User, UserRole
 from app.core.auth import get_current_user
@@ -110,6 +111,21 @@ async def create_offer(
     
     db.add(db_offer)
     
+    # Notify buyer users
+    stmt = select(User).where(User.organization_id == quote_request.buyer_id)
+    result = await db.execute(stmt)
+    buyer_users = result.scalars().all()
+    
+    for user in buyer_users:
+        notification = Notification(
+            recipient_id=user.id,
+            type=NotificationType.QUOTE_OFFER,
+            title="New Quote Offer",
+            message=f"A supplier has sent an offer for your {quote_request.fuel_type} quote request.",
+            data={"quote_id": str(quote_request.id), "offer_id": str(db_offer.id)}
+        )
+        db.add(notification)
+    
     # Update quote status to Negotiating if still Pending
     if quote_request.status == QuoteStatus.Pending:
         quote_request.status = QuoteStatus.Negotiating
@@ -149,6 +165,21 @@ async def accept_offer(
     
     # Mark offer as accepted
     selected_offer.is_accepted = True
+    
+    # Notify supplier users
+    stmt = select(User).where(User.organization_id == selected_offer.supplier_id)
+    result = await db.execute(stmt)
+    supplier_users = result.scalars().all()
+    
+    for user in supplier_users:
+        notification = Notification(
+            recipient_id=user.id,
+            type=NotificationType.QUOTE_OFFER,
+            title="Offer Accepted",
+            message=f"Your offer for {quote.fuel_type} has been accepted!",
+            data={"quote_id": str(quote.id), "offer_id": str(selected_offer.id)}
+        )
+        db.add(notification)
     
     await db.commit()
     await db.commit()
