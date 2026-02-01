@@ -14,8 +14,8 @@ class ListingStatus(str, enum.Enum):
     EXPIRED = "EXPIRED"
 
 
-class MatchStatus(str, enum.Enum):
-    PENDING = "PENDING"       # Buyer sent RFQ, awaiting supplier response
+class OrderStatus(str, enum.Enum):
+    PENDING = "PENDING"       # Buyer sent Order, awaiting supplier response
     ACCEPTED = "ACCEPTED"     # Supplier accepted, negotiation can begin
     DECLINED = "DECLINED"     # Supplier declined
     COMPLETED = "COMPLETED"   # Deal completed, commission due
@@ -23,7 +23,7 @@ class MatchStatus(str, enum.Enum):
 
 
 class CommissionStatus(str, enum.Enum):
-    PENDING = "PENDING"       # Match completed, commission calculated
+    PENDING = "PENDING"       # Order completed, commission calculated
     INVOICED = "INVOICED"     # Invoice sent to parties
     PAID = "PAID"             # Payment received
 
@@ -58,13 +58,13 @@ class TierLabel(str, enum.Enum):
 class PublicListing(Base):
     """
     Anonymized fuel listing visible to all buyers.
-    Supplier identity is hidden until RFQ match is confirmed.
+    Supplier identity is hidden until Order match is confirmed.
     """
     __tablename__ = "public_listings"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     
-    # Hidden from buyers - only revealed after RFQ match
+    # Hidden from buyers - only revealed after Order match
     supplier_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organizations.id"), nullable=False)
     
     # Public fields
@@ -103,15 +103,15 @@ class PublicListing(Base):
     
     # Relationships
     supplier = relationship("Organization", back_populates="listings")
-    matches = relationship("RFQMatch", back_populates="listing")
+    orders = relationship("Order", back_populates="listing")
 
 
-class RFQMatch(Base):
+class Order(Base):
     """
     Created when a buyer requests a quote on an anonymized listing.
     This de-anonymizes the parties and tracks the match lifecycle.
     """
-    __tablename__ = "rfq_matches"
+    __tablename__ = "orders"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     
@@ -120,9 +120,9 @@ class RFQMatch(Base):
     buyer_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organizations.id"), nullable=False)
     
     # Match lifecycle
-    status: Mapped[MatchStatus] = mapped_column(
-        Enum(MatchStatus, native_enum=False), 
-        default=MatchStatus.PENDING
+    status: Mapped[OrderStatus] = mapped_column(
+        Enum(OrderStatus, native_enum=False), 
+        default=OrderStatus.PENDING
     )
 
     # Buyer specific request details
@@ -147,21 +147,21 @@ class RFQMatch(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
     
     # Relationships
-    listing = relationship("PublicListing", back_populates="matches")
+    listing = relationship("PublicListing", back_populates="orders")
     buyer = relationship("Organization", foreign_keys=[buyer_id])
-    commission = relationship("Commission", back_populates="match", uselist=False)
+    commission = relationship("Commission", back_populates="order", uselist=False)
 
 
 class Commission(Base):
     """
-    Tracks commission owed to Verdaxis from completed RFQ matches.
+    Tracks commission owed to Verdaxis from completed Orders.
     Used by Admin dashboard to monitor revenue.
     """
     __tablename__ = "commissions"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     
-    match_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("rfq_matches.id"), unique=True, nullable=False)
+    match_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("orders.id"), unique=True, nullable=False)
     
     # Financials
     amount_usd: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
@@ -181,4 +181,4 @@ class Commission(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
     
     # Relationships
-    match = relationship("RFQMatch", back_populates="commission")
+    order = relationship("Order", back_populates="commission")

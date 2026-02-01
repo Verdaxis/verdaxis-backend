@@ -5,9 +5,10 @@ from typing import Optional
 from uuid import UUID
 
 from app.database import get_db
-from app.models.rfq import PublicListing, ListingStatus
+from app.database import get_db
+from app.models.orders import PublicListing, ListingStatus
 from app.models.user import User, Organization, UserRole
-from app.schemas.rfq import (
+from app.schemas.orders import (
     PublicListingCreate,
     PublicListingUpdate,
     PublicListingResponse,
@@ -109,7 +110,7 @@ async def list_my_listings(
     from sqlalchemy.orm import selectinload
     query = (
         select(PublicListing)
-        .options(selectinload(PublicListing.matches))
+        .options(selectinload(PublicListing.orders))
         .where(PublicListing.supplier_id == current_user.organization_id)
         .order_by(PublicListing.created_at.desc())
     )
@@ -121,7 +122,7 @@ async def list_my_listings(
     for listing in listings:
         # Use from_orm (model_validate) and then inject match_count
         item = PublicListingSupplierResponse.model_validate(listing)
-        item.match_count = len(listing.matches)
+        item.match_count = len(listing.orders)
         result_list.append(item)
     
     return result_list
