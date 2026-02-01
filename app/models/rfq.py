@@ -124,6 +124,10 @@ class RFQMatch(Base):
         Enum(MatchStatus, native_enum=False), 
         default=MatchStatus.PENDING
     )
+
+    # Buyer specific request details
+    requested_quantity_mt: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    requested_delivery_date: Mapped[date | None] = mapped_column(Date)
     
     # Timestamps
     buyer_accepted_terms_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)

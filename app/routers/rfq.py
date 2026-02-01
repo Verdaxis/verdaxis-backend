@@ -91,6 +91,7 @@ async def create_rfq_request(
     )
     
     db.add(rfq_match)
+    await db.flush() # Generate ID for notification
     
     # Notify supplier users
     # Fetch all users belonging to the supplier organization
