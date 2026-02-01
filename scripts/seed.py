@@ -6,7 +6,7 @@ from app.database import AsyncSessionLocal
 from app.models.user import User, UserRole, Organization, OrgType, UserStatus
 from app.models.port import Port, Vessel, CongestionLevel, PortIntelligence
 from app.models.marketplace import InventoryItem, FuelType
-from app.models.rfq import PublicListing, FuelGrade, AvailabilityWindow, TierLabel, ListingStatus, RFQMatch, MatchStatus
+from app.models.orders import PublicListing, FuelGrade, AvailabilityWindow, TierLabel, ListingStatus, Order, OrderStatus
 from app.core.security import get_password_hash
 from decimal import Decimal
 from datetime import datetime, timedelta
@@ -20,7 +20,7 @@ async def seed():
         
         # Clean existing data to ensure fresh seed
         logger.info("Cleaning existing data...")
-        await db.execute(text("TRUNCATE TABLE inventory_items, rfq_matches, commissions, public_listings, vessels, users, organizations, ports, port_intelligence CASCADE"))
+        await db.execute(text("TRUNCATE TABLE inventory_items, orders, commissions, public_listings, vessels, users, organizations, ports, port_intelligence CASCADE"))
         await db.commit()
         
         logger.info("Creating organizations...")
@@ -211,10 +211,10 @@ async def seed():
         # --- Historical Matches ---
         # Create some completed deals
         for i in range(5):
-             db.add(RFQMatch(
+             db.add(Order(
                  listing_id=created_listings[i].id, 
                  buyer_id=buyer_orgs[i % 5].id,
-                 status=MatchStatus.COMPLETED,
+                 status=OrderStatus.COMPLETED,
                  final_quantity_mt=Decimal("2500"),
                  final_price_per_mt=Decimal("560"),
                  final_total_usd=Decimal("1400000"),

@@ -7,28 +7,27 @@ from datetime import datetime
 from decimal import Decimal
 
 from app.database import get_db
-from app.models.rfq import PublicListing, RFQMatch, Commission, ListingStatus, MatchStatus, CommissionStatus
-from app.models.rfq import PublicListing, RFQMatch, Commission, ListingStatus, MatchStatus, CommissionStatus
+from app.models.orders import PublicListing, Order, Commission, ListingStatus, OrderStatus, CommissionStatus
 from app.models.user import User, Organization, UserRole
 from app.models.notification import Notification, NotificationType
-from app.schemas.rfq import (
-    RFQRequestCreate,
-    RFQMatchResponse,
-    RFQMatchDetailResponse,
-    RFQMatchUpdate,
-    RFQMatchComplete,
+from app.schemas.orders import (
+    OrderCreate,
+    OrderResponse,
+    OrderDetailResponse,
+    OrderUpdate,
+    OrderComplete,
     CommissionResponse,
     CommissionSummary,
     CommissionUpdate,
 )
 from app.routers.auth_simple import get_current_user
 
-router = APIRouter(prefix="/rfq", tags=["rfq"])
+router = APIRouter(prefix="/orders", tags=["orders"])
 
 
-@router.post("/request", response_model=RFQMatchResponse, status_code=status.HTTP_201_CREATED)
-async def create_rfq_request(
-    request_data: RFQRequestCreate,
+@router.post("", response_model=OrderResponse, status_code=status.HTTP_201_CREATED)
+async def create_order(
+    request_data: OrderCreate,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -66,31 +65,31 @@ async def create_rfq_request(
             detail="Listing not found or no longer active"
         )
     
-    # Check if buyer already has a pending match for this listing
-    result = await db.execute(select(RFQMatch).where(
-        RFQMatch.listing_id == listing.id,
-        RFQMatch.buyer_id == current_user.organization_id,
-        RFQMatch.status == MatchStatus.PENDING
+    # Check if buyer already has a pending order for this listing
+    result = await db.execute(select(Order).where(
+        Order.listing_id == listing.id,
+        Order.buyer_id == current_user.organization_id,
+        Order.status == OrderStatus.PENDING
     ))
-    existing_match = result.scalars().first()
+    existing_order = result.scalars().first()
     
-    if existing_match:
+    if existing_order:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="You already have a pending RFQ for this listing"
+            detail="You already have a pending Order for this listing"
         )
     
-    # Create the RFQ match
-    rfq_match = RFQMatch(
+    # Create the Order
+    order = Order(
         listing_id=listing.id,
         buyer_id=current_user.organization_id,
-        status=MatchStatus.PENDING,
+        status=OrderStatus.PENDING,
         requested_quantity_mt=request_data.quantity_mt,
         requested_delivery_date=request_data.delivery_date,
         buyer_accepted_terms_at=datetime.utcnow(),
     )
     
-    db.add(rfq_match)
+    db.add(order)
     await db.flush() # Generate ID for notification
     
     # Notify supplier users
@@ -102,60 +101,60 @@ async def create_rfq_request(
     for user in supplier_users:
         notification = Notification(
             recipient_id=user.id,
-            type=NotificationType.RFQ_MATCH,
-            title="New RFQ Request",
+            type=NotificationType.ORDER_UPDATE,
+            title="New Order Request",
             message=f"A buyer has requested a quote for your {listing.fuel_type} listing in {listing.region}.",
-            data={"rfq_id": str(rfq_match.id), "listing_id": str(listing.id)}
+            data={"order_id": str(order.id), "listing_id": str(listing.id)}
         )
         db.add(notification)
 
     await db.commit()
-    await db.refresh(rfq_match)
+    await db.refresh(order)
     
-    return rfq_match
+    return order
 
 
-@router.get("/my-requests", response_model=list[RFQMatchDetailResponse])
-async def list_buyer_rfq_requests(
+@router.get("/my-requests", response_model=list[OrderDetailResponse])
+async def list_buyer_orders(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Get all RFQ requests made by the current buyer.
+    Get all Orders made by the current buyer.
     """
     if current_user.role != UserRole.BUYER:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only buyers can view their RFQ requests"
+            detail="Only buyers can view their Orders"
         )
     
     # Eager load listing, listing.supplier, and buyer to avoid N+1 queries
     query = (
-        select(RFQMatch)
+        select(Order)
         .options(
-            joinedload(RFQMatch.listing).joinedload(PublicListing.supplier),
-            joinedload(RFQMatch.buyer)
+            joinedload(Order.listing).joinedload(PublicListing.supplier),
+            joinedload(Order.buyer)
         )
-        .where(RFQMatch.buyer_id == current_user.organization_id)
-        .order_by(RFQMatch.created_at.desc())
+        .where(Order.buyer_id == current_user.organization_id)
+        .order_by(Order.created_at.desc())
     )
     
     result = await db.execute(query)
-    matches = result.scalars().all()
+    orders = result.scalars().all()
     
     result_list = []
-    for match in matches:
-        listing = match.listing
+    for order in orders:
+        listing = order.listing
         supplier = listing.supplier
-        buyer = match.buyer
+        buyer = order.buyer
         
-        result_list.append(RFQMatchDetailResponse(
-            id=match.id,
-            listing_id=match.listing_id,
-            buyer_id=match.buyer_id,
-            status=match.status,
-            buyer_accepted_terms_at=match.buyer_accepted_terms_at,
-            created_at=match.created_at,
+        result_list.append(OrderDetailResponse(
+            id=order.id,
+            listing_id=order.listing_id,
+            buyer_id=order.buyer_id,
+            status=order.status,
+            buyer_accepted_terms_at=order.buyer_accepted_terms_at,
+            created_at=order.created_at,
             region=listing.region,
             fuel_type=listing.fuel_type,
             fuel_grade=listing.fuel_grade,
@@ -164,28 +163,28 @@ async def list_buyer_rfq_requests(
             supplier_id=listing.supplier_id,
             supplier_name=supplier.name if supplier else "Unknown",
             buyer_name=buyer.name if buyer else "Unknown",
-            requested_quantity_mt=match.requested_quantity_mt,
-            requested_delivery_date=match.requested_delivery_date,
-            final_quantity_mt=match.final_quantity_mt,
-            final_price_per_mt=match.final_price_per_mt,
-            final_total_usd=match.final_total_usd,
+            requested_quantity_mt=order.requested_quantity_mt,
+            requested_delivery_date=order.requested_delivery_date,
+            final_quantity_mt=order.final_quantity_mt,
+            final_price_per_mt=order.final_price_per_mt,
+            final_total_usd=order.final_total_usd,
         ))
     
     return result_list
 
 
-@router.get("/incoming", response_model=list[RFQMatchDetailResponse])
-async def list_supplier_incoming_rfqs(
+@router.get("/incoming", response_model=list[OrderDetailResponse])
+async def list_supplier_incoming_orders(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Get all incoming RFQ requests for the current supplier.
+    Get all incoming Orders for the current supplier.
     """
     if current_user.role != UserRole.SUPPLIER:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only suppliers can view incoming RFQs"
+            detail="Only suppliers can view incoming Orders"
         )
     
     # Get all listings owned by this supplier
@@ -195,31 +194,31 @@ async def list_supplier_incoming_rfqs(
     
     # Eager load listing, listing.supplier (redundant but safe), and buyer
     query = (
-        select(RFQMatch)
+        select(Order)
         .options(
-            joinedload(RFQMatch.listing).joinedload(PublicListing.supplier),
-            joinedload(RFQMatch.buyer)
+            joinedload(Order.listing).joinedload(PublicListing.supplier),
+            joinedload(Order.buyer)
         )
-        .where(RFQMatch.listing_id.in_(subquery))
-        .order_by(RFQMatch.created_at.desc())
+        .where(Order.listing_id.in_(subquery))
+        .order_by(Order.created_at.desc())
     )
     
     result = await db.execute(query)
-    matches = result.scalars().all()
+    orders = result.scalars().all()
     
     result_list = []
-    for match in matches:
-        listing = match.listing
+    for order in orders:
+        listing = order.listing
         supplier = listing.supplier
-        buyer = match.buyer
+        buyer = order.buyer
         
-        result_list.append(RFQMatchDetailResponse(
-            id=match.id,
-            listing_id=match.listing_id,
-            buyer_id=match.buyer_id,
-            status=match.status,
-            buyer_accepted_terms_at=match.buyer_accepted_terms_at,
-            created_at=match.created_at,
+        result_list.append(OrderDetailResponse(
+            id=order.id,
+            listing_id=order.listing_id,
+            buyer_id=order.buyer_id,
+            status=order.status,
+            buyer_accepted_terms_at=order.buyer_accepted_terms_at,
+            created_at=order.created_at,
             region=listing.region,
             fuel_type=listing.fuel_type,
             fuel_grade=listing.fuel_grade,
@@ -228,140 +227,140 @@ async def list_supplier_incoming_rfqs(
             supplier_id=listing.supplier_id,
             supplier_name=supplier.name if supplier else "Unknown",
             buyer_name=buyer.name if buyer else "Unknown",
-            requested_quantity_mt=match.requested_quantity_mt,
-            requested_delivery_date=match.requested_delivery_date,
-            final_quantity_mt=match.final_quantity_mt,
-            final_price_per_mt=match.final_price_per_mt,
-            final_total_usd=match.final_total_usd,
+            requested_quantity_mt=order.requested_quantity_mt,
+            requested_delivery_date=order.requested_delivery_date,
+            final_quantity_mt=order.final_quantity_mt,
+            final_price_per_mt=order.final_price_per_mt,
+            final_total_usd=order.final_total_usd,
         ))
     
     return result_list
 
 
-@router.put("/{match_id}/respond", response_model=RFQMatchResponse)
-async def respond_to_rfq(
-    match_id: UUID,
-    response_data: RFQMatchUpdate,
+@router.put("/{order_id}/respond", response_model=OrderResponse)
+async def respond_to_order(
+    order_id: UUID,
+    response_data: OrderUpdate,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Supplier responds to an RFQ (accept or decline).
+    Supplier responds to an Order (accept or decline).
     """
     if current_user.role != UserRole.SUPPLIER:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only suppliers can respond to RFQs"
+            detail="Only suppliers can respond to Orders"
         )
     
     # Eager load listing to check ownership
-    result = await db.execute(select(RFQMatch).options(selectinload(RFQMatch.listing)).where(RFQMatch.id == match_id))
-    match = result.scalars().first()
+    result = await db.execute(select(Order).options(selectinload(Order.listing)).where(Order.id == order_id))
+    order = result.scalars().first()
     
-    if not match:
+    if not order:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="RFQ match not found"
+            detail="Order not found"
         )
     
     # Verify supplier owns the listing
-    if match.listing.supplier_id != current_user.organization_id:
+    if order.listing.supplier_id != current_user.organization_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="You can only respond to RFQs for your own listings"
+            detail="You can only respond to Orders for your own listings"
         )
     
-    if match.status != MatchStatus.PENDING:
+    if order.status != OrderStatus.PENDING:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Cannot respond to RFQ with status: {match.status}"
+            detail=f"Cannot respond to Order with status: {order.status}"
         )
     
-    match.status = response_data.status
-    match.supplier_responded_at = datetime.utcnow()
+    order.status = response_data.status
+    order.supplier_responded_at = datetime.utcnow()
 
     # Notify buyer users
-    stmt = select(User).where(User.organization_id == match.buyer_id)
+    stmt = select(User).where(User.organization_id == order.buyer_id)
     result = await db.execute(stmt)
     buyer_users = result.scalars().all()
     
-    status_msg = "accepted" if response_data.status == MatchStatus.ACCEPTED else "declined"
+    status_msg = "accepted" if response_data.status == OrderStatus.ACCEPTED else "declined"
     
     for user in buyer_users:
         notification = Notification(
             recipient_id=user.id,
-            type=NotificationType.RFQ_MATCH,
-            title=f"RFQ {status_msg.capitalize()}",
-            message=f"The supplier has {status_msg} your RFQ Request.",
-            data={"rfq_id": str(match.id)}
+            type=NotificationType.ORDER_UPDATE,
+            title=f"Order {status_msg.capitalize()}",
+            message=f"The supplier has {status_msg} your Order.",
+            data={"order_id": str(order.id)}
         )
         db.add(notification)
     
     await db.commit()
-    await db.refresh(match)
+    await db.refresh(order)
     
-    return match
+    return order
 
 
-@router.put("/{match_id}/complete", response_model=RFQMatchResponse)
-async def complete_rfq(
-    match_id: UUID,
-    completion_data: RFQMatchComplete,
+@router.put("/{order_id}/complete", response_model=OrderResponse)
+async def complete_order(
+    order_id: UUID,
+    completion_data: OrderComplete,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Complete an RFQ match and calculate commission.
+    Complete an Order match and calculate commission.
     """
     # Eager load listing to check ownership
-    result = await db.execute(select(RFQMatch).options(selectinload(RFQMatch.listing)).where(RFQMatch.id == match_id))
-    match = result.scalars().first()
+    result = await db.execute(select(Order).options(selectinload(Order.listing)).where(Order.id == order_id))
+    order = result.scalars().first()
     
-    if not match:
+    if not order:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="RFQ match not found"
+            detail="Order not found"
         )
     
     # Can be completed by buyer or supplier
-    is_buyer = match.buyer_id == current_user.organization_id
-    is_supplier = match.listing.supplier_id == current_user.organization_id
+    is_buyer = order.buyer_id == current_user.organization_id
+    is_supplier = order.listing.supplier_id == current_user.organization_id
     
     if not (is_buyer or is_supplier):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only matched parties can complete this RFQ"
+            detail="Only matched parties can complete this Order"
         )
     
-    if match.status != MatchStatus.ACCEPTED:
+    if order.status != OrderStatus.ACCEPTED:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="RFQ must be ACCEPTED before completion"
+            detail="Order must be ACCEPTED before completion"
         )
     
     # Set final deal details
-    match.final_quantity_mt = completion_data.final_quantity_mt
-    match.final_price_per_mt = completion_data.final_price_per_mt
-    match.final_total_usd = completion_data.final_quantity_mt * completion_data.final_price_per_mt
-    match.completed_at = datetime.utcnow()
-    match.status = MatchStatus.COMPLETED
+    order.final_quantity_mt = completion_data.final_quantity_mt
+    order.final_price_per_mt = completion_data.final_price_per_mt
+    order.final_total_usd = completion_data.final_quantity_mt * completion_data.final_price_per_mt
+    order.completed_at = datetime.utcnow()
+    order.status = OrderStatus.COMPLETED
     
     # Calculate commission
-    commission_amount = match.final_total_usd * (match.commission_rate_pct / 100)
-    match.commission_amount_usd = commission_amount
+    commission_amount = order.final_total_usd * (order.commission_rate_pct / 100)
+    order.commission_amount_usd = commission_amount
     
     # Create commission record
     commission = Commission(
-        match_id=match.id,
+        match_id=order.id,
         amount_usd=commission_amount,
         status=CommissionStatus.PENDING,
     )
     
     db.add(commission)
     await db.commit()
-    await db.refresh(match)
+    await db.refresh(order)
     
-    return match
+    return order
 
 
 # ============== Admin Commission Endpoints ==============

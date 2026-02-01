@@ -13,7 +13,7 @@ class ListingStatus(str, Enum):
     EXPIRED = "EXPIRED"
 
 
-class MatchStatus(str, Enum):
+class OrderStatus(str, Enum):
     PENDING = "PENDING"
     ACCEPTED = "ACCEPTED"
     DECLINED = "DECLINED"
@@ -123,11 +123,9 @@ class AggregatedListingResponse(BaseModel):
     listing_count: int
 
 
-# ============== RFQ Match Schemas ==============
+# ============== Order Schemas ==============
 
-class RFQRequestCreate(BaseModel):
-    """Buyer sends this to request a quote on a listing."""
-    listing_id: UUID
+class OrderCreate(BaseModel):
     """Buyer sends this to request a quote on a listing."""
     listing_id: UUID
     quantity_mt: Optional[Decimal] = None
@@ -135,13 +133,12 @@ class RFQRequestCreate(BaseModel):
     accepted_terms: bool = Field(..., description="Must be true to proceed")
 
 
-class RFQMatchResponse(BaseModel):
-    """Response after creating an RFQ match."""
+class OrderResponse(BaseModel):
+    """Response after creating an Order."""
     id: UUID
     listing_id: UUID
     buyer_id: UUID
-    status: MatchStatus
-    status: MatchStatus
+    status: OrderStatus
     requested_quantity_mt: Optional[Decimal] = None
     requested_delivery_date: Optional[date] = None
     buyer_accepted_terms_at: datetime
@@ -151,7 +148,7 @@ class RFQMatchResponse(BaseModel):
         from_attributes = True
 
 
-class RFQMatchDetailResponse(RFQMatchResponse):
+class OrderDetailResponse(OrderResponse):
     """
     Detailed match response with de-anonymized info.
     Only shown to the matched parties.
@@ -176,13 +173,13 @@ class RFQMatchDetailResponse(RFQMatchResponse):
     final_total_usd: Optional[Decimal] = None
 
 
-class RFQMatchUpdate(BaseModel):
-    """Used by supplier to respond to an RFQ."""
-    status: MatchStatus
+class OrderUpdate(BaseModel):
+    """Used by supplier to respond to an Order."""
+    status: OrderStatus
 
 
-class RFQMatchComplete(BaseModel):
-    """Used to complete a match and calculate commission."""
+class OrderComplete(BaseModel):
+    """Used to complete an Order and calculate commission."""
     final_quantity_mt: Decimal = Field(..., gt=0)
     final_price_per_mt: Decimal = Field(..., gt=0)
 

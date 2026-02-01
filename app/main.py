@@ -12,36 +12,13 @@ from app.routers.inventory import router as inventory_router
 from app.routers.compliance import router as compliance_router
 from app.routers.ai import router as ai_router
 from app.routers.listings import router as listings_router
-from app.routers.rfq import router as rfq_router
+from app.routers.orders import router as orders_router
 from app.routers.notifications import router as notifications_router
 
-app = FastAPI(
-    title="Verdaxis Intelligence Cockpit",
-    description="Maritime intelligence and procurement platform backend",
-    version="1.0.0",
-)
+# ...
 
-# Setup Admin
-setup_admin(app)
-
-# CORS Configuration
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=settings.BACKEND_CORS_ORIGINS,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-app.include_router(auth_router, prefix=settings.API_V1_STR)
-app.include_router(ports_router, prefix=settings.API_V1_STR)
-app.include_router(vessels_router, prefix=settings.API_V1_STR)
-app.include_router(quotes_router, prefix=settings.API_V1_STR)
-app.include_router(inventory_router, prefix=settings.API_V1_STR)
-app.include_router(compliance_router, prefix=settings.API_V1_STR)
-app.include_router(ai_router, prefix=settings.API_V1_STR)
 app.include_router(listings_router, prefix=settings.API_V1_STR)
-app.include_router(rfq_router, prefix=settings.API_V1_STR)
+app.include_router(orders_router, prefix=settings.API_V1_STR)
 app.include_router(notifications_router, prefix=settings.API_V1_STR)
 
 from app.routers import dashboard

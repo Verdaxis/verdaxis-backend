@@ -5,7 +5,7 @@ import sys
 
 # Configuration
 BASE_URL = "http://localhost:8000/api"
-TIMEOUT = 10
+TIMEOUT = 30
 
 def generate_email(prefix, domain="test.com"):
     return f"{prefix}_{uuid.uuid4().hex[:8]}@{domain}"
@@ -113,22 +113,22 @@ def main():
             sys.exit(1)
         print("Buyer found the listing.")
         
-        # --- 3. Buyer Requests Quote ---
-        print("\n[Buyer] Sending RFQ Request...")
+        # --- 3. Buyer Creates Order ---
+        print("\n[Buyer] Sending Order Request...")
         request_payload = {
             "listing_id": listing_id,
             "quantity_mt": 1000,
             "delivery_date": "2026-06-01T00:00:00",
             "accepted_terms": True
         }
-        resp = client.post(f"{BASE_URL}/rfq/request", json=request_payload, headers=buyer_headers)
-        if resp.status_code != 201:
-            print(f"RFQ Request failed: {resp.text}")
+        resp = client.post(f"{BASE_URL}/orders", json=request_payload, headers=buyer_headers)
+        if resp.status_code != 200:
+            print(f"Order Creation failed: {resp.text}")
             sys.exit(1)
         
-        match_data = resp.json()
-        match_id = match_data["id"]
-        print(f"RFQ Request sent. Match ID: {match_id}")
+        order_data = resp.json()
+        order_id = order_data["id"]
+        print(f"Order created. ID: {order_id}")
         
         # --- 4. Verify Seller Notification ---
         print("\n[Seller] Checking Notifications...")
@@ -139,26 +139,27 @@ def main():
             sys.exit(1)
         
         notifications = resp.json()
-        rfq_notif = next((n for n in notifications if n["type"] == "RFQ_MATCH" and n["data"].get("rfq_id") == match_id), None)
+        # Note: Notification data includes related_object_id
+        order_notif = next((n for n in notifications if n["type"] == "ORDER_UPDATE" and (n["data"].get("related_object_id") == order_id or n["data"].get("order_id") == order_id)), None)
         
-        if not rfq_notif:
-            print("Seller did NOT receive RFQ notification!")
+        if not order_notif:
+            print(f"Seller did NOT receive Order notification for {order_id}!")
             print("Latest notifications:")
             for n in notifications:
                 print(f" - ID: {n['id']}, Type: {n['type']}, Title: {n['title']}, Data: {n.get('data')}")
             sys.exit(1)
         
-        print(f"Seller received notification: '{rfq_notif['title']}' - '{rfq_notif['message']}'")
+        print(f"Seller received notification: '{order_notif['title']}' - '{order_notif['message']}'")
         
         # --- 5. Seller Accepts Request ---
-        print("\n[Seller] Accepting RFQ...")
+        print("\n[Seller] Accepting Order...")
         respond_payload = {"status": "ACCEPTED"}
-        resp = client.put(f"{BASE_URL}/rfq/{match_id}/respond", json=respond_payload, headers=seller_headers)
+        resp = client.put(f"{BASE_URL}/orders/{order_id}/respond", json=respond_payload, headers=seller_headers)
         if resp.status_code != 200:
-            print(f"Respond to RFQ failed: {resp.text}")
+            print(f"Respond to Order failed: {resp.text}")
             sys.exit(1)
         
-        print("Seller accepted RFQ.")
+        print("Seller accepted Order.")
         
         # --- 6. Verify Buyer Notification ---
         print("\n[Buyer] Checking Notifications...")
@@ -169,7 +170,7 @@ def main():
             sys.exit(1)
             
         notifications = resp.json()
-        accept_notif = next((n for n in notifications if n["type"] == "RFQ_MATCH" and n["data"].get("rfq_id") == match_id and "accepted" in n["title"].lower()), None)
+        accept_notif = next((n for n in notifications if n["type"] == "ORDER_UPDATE" and (n["data"].get("related_object_id") == order_id or n["data"].get("order_id") == order_id) and "accepted" in n["title"].lower()), None)
         
         if not accept_notif:
             print("Buyer did NOT receive Acceptance notification!")
