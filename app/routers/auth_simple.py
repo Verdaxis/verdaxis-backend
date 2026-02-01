@@ -91,15 +91,25 @@ async def register(user_in: UserCreate, db: AsyncSession = Depends(get_db)):
     existing_org = result_org.scalar_one_or_none()
     
     if existing_org:
+        # Helper to convert to Model Enum
+        role_enum = None
+        if user_in.role:
+            try:
+                # Ensure we use the imported UserRole from models
+                # user_in.role is a string-based enum from Schema, so .value gives the string
+                role_enum = UserRole(user_in.role.value)
+            except ValueError:
+                pass
+
         # Normal flow: Create User linked to Org
         new_user = User(
             email=user_in.email,
             password_hash=hashed_pw,
             first_name=user_in.first_name,
             last_name=user_in.last_name,
-            role=user_in.role if user_in.role else None,
+            role=role_enum,
             organization_id=existing_org.id,
-            status=UserStatus.PENDING
+            status=UserStatus.APPROVED
         )
         
         db.add(new_user)
@@ -164,14 +174,23 @@ async def register_with_org(
     await db.flush()
     
     # Create User
+    # Create User
+    role_str = payload.get("role")
+    final_role = UserRole.ADMIN # Default fallback
+    if role_str:
+        try:
+             final_role = UserRole(role_str)
+        except ValueError:
+             pass
+
     new_user = User(
         email=email,
         password_hash=payload.get("password_hash"),
         first_name=payload.get("first_name"),
         last_name=payload.get("last_name"),
-        role=UserRole.ADMIN, # Creator is Admin
+        role=final_role, 
         organization_id=new_org.id,
-        status=UserStatus.PENDING # Or APPROVED? Keeping PENDING by default
+        status=UserStatus.APPROVED # Or APPROVED? Keeping PENDING by default
     )
     
     db.add(new_user)

@@ -8,7 +8,9 @@ from decimal import Decimal
 
 from app.database import get_db
 from app.models.rfq import PublicListing, RFQMatch, Commission, ListingStatus, MatchStatus, CommissionStatus
+from app.models.rfq import PublicListing, RFQMatch, Commission, ListingStatus, MatchStatus, CommissionStatus
 from app.models.user import User, Organization, UserRole
+from app.models.notification import Notification, NotificationType
 from app.schemas.rfq import (
     RFQRequestCreate,
     RFQMatchResponse,
@@ -19,7 +21,7 @@ from app.schemas.rfq import (
     CommissionSummary,
     CommissionUpdate,
 )
-from app.routers.auth import get_current_user
+from app.routers.auth_simple import get_current_user
 
 router = APIRouter(prefix="/rfq", tags=["rfq"])
 
@@ -83,10 +85,29 @@ async def create_rfq_request(
         listing_id=listing.id,
         buyer_id=current_user.organization_id,
         status=MatchStatus.PENDING,
+        requested_quantity_mt=request_data.quantity_mt,
+        requested_delivery_date=request_data.delivery_date,
         buyer_accepted_terms_at=datetime.utcnow(),
     )
     
     db.add(rfq_match)
+    
+    # Notify supplier users
+    # Fetch all users belonging to the supplier organization
+    stmt = select(User).where(User.organization_id == listing.supplier_id)
+    result = await db.execute(stmt)
+    supplier_users = result.scalars().all()
+    
+    for user in supplier_users:
+        notification = Notification(
+            recipient_id=user.id,
+            type=NotificationType.RFQ_MATCH,
+            title="New RFQ Request",
+            message=f"A buyer has requested a quote for your {listing.fuel_type} listing in {listing.region}.",
+            data={"rfq_id": str(rfq_match.id), "listing_id": str(listing.id)}
+        )
+        db.add(notification)
+
     await db.commit()
     await db.refresh(rfq_match)
     
@@ -142,6 +163,8 @@ async def list_buyer_rfq_requests(
             supplier_id=listing.supplier_id,
             supplier_name=supplier.name if supplier else "Unknown",
             buyer_name=buyer.name if buyer else "Unknown",
+            requested_quantity_mt=match.requested_quantity_mt,
+            requested_delivery_date=match.requested_delivery_date,
             final_quantity_mt=match.final_quantity_mt,
             final_price_per_mt=match.final_price_per_mt,
             final_total_usd=match.final_total_usd,
@@ -204,6 +227,8 @@ async def list_supplier_incoming_rfqs(
             supplier_id=listing.supplier_id,
             supplier_name=supplier.name if supplier else "Unknown",
             buyer_name=buyer.name if buyer else "Unknown",
+            requested_quantity_mt=match.requested_quantity_mt,
+            requested_delivery_date=match.requested_delivery_date,
             final_quantity_mt=match.final_quantity_mt,
             final_price_per_mt=match.final_price_per_mt,
             final_total_usd=match.final_total_usd,
@@ -253,6 +278,23 @@ async def respond_to_rfq(
     
     match.status = response_data.status
     match.supplier_responded_at = datetime.utcnow()
+
+    # Notify buyer users
+    stmt = select(User).where(User.organization_id == match.buyer_id)
+    result = await db.execute(stmt)
+    buyer_users = result.scalars().all()
+    
+    status_msg = "accepted" if response_data.status == MatchStatus.ACCEPTED else "declined"
+    
+    for user in buyer_users:
+        notification = Notification(
+            recipient_id=user.id,
+            type=NotificationType.RFQ_MATCH,
+            title=f"RFQ {status_msg.capitalize()}",
+            message=f"The supplier has {status_msg} your RFQ Request.",
+            data={"rfq_id": str(match.id)}
+        )
+        db.add(notification)
     
     await db.commit()
     await db.refresh(match)

@@ -16,7 +16,7 @@ from app.schemas.rfq import (
     FuelGrade,
     AggregatedListingResponse,
 )
-from app.routers.auth import get_current_user
+from app.routers.auth_simple import get_current_user
 
 router = APIRouter(prefix="/listings", tags=["listings"])
 
