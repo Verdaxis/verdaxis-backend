@@ -39,7 +39,7 @@ def sample_user_data():
     import uuid
     unique_id = str(uuid.uuid4())[:8]
     return {
-        "email": f"test_{unique_id}@example.com",
+        "email": f"test_{unique_id}@verdaxis.com",
         "password": "securepassword123",
         "first_name": "Test",
         "last_name": "User",
