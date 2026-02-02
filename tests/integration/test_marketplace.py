@@ -28,7 +28,7 @@ async def test_inventory_publish_flow():
         # 1. Login/Get Token for Supplier
         # Using a seeded supplier from seed.py
         # Supplier 1 ID from seed.py
-        supplier_id = "00000000-0000-0000-0000-000000000003"
+        supplier_id = "00000000-0000-0000-0000-000000000s01"
         supplier_email = "supplier1@verdaxis.com"
         token = create_test_token(supplier_id, supplier_email, "SUPPLIER")
         headers = {"Authorization": f"Bearer {token}"}
@@ -78,7 +78,7 @@ async def test_direct_order_list_optimized():
     async with AsyncClient(base_url=TEST_API_URL, timeout=10.0) as client:
         # Use seeded buyer
         # Buyer 1 ID from seed.py
-        buyer_id = "00000000-0000-0000-0000-000000000001"
+        buyer_id = "00000000-0000-0000-0000-000000000b01"
         buyer_email = "buyer1@verdaxis.com"
         token = create_test_token(buyer_id, buyer_email, "BUYER")
         headers = {"Authorization": f"Bearer {token}"}
