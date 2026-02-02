@@ -83,7 +83,7 @@ async def seed():
             ))
         
         for i, org in enumerate(supplier_orgs):
-            u_id = f"00000000-0000-0000-0000-000000000s0{i+1}"
+            u_id = f"00000000-0000-0000-0000-000000000a0{i+1}"
             users.append(User(
                 id=uuid.UUID(u_id),
                 email=f"supplier{i+1}@verdaxis.com", first_name="Supplier", last_name=str(i+1),

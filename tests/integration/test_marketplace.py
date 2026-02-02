@@ -28,7 +28,7 @@ async def test_inventory_publish_flow():
         # 1. Login/Get Token for Supplier
         # Using a seeded supplier from seed.py
         # Supplier 1 ID from seed.py
-        supplier_id = "00000000-0000-0000-0000-000000000s01"
+        supplier_id = "00000000-0000-0000-0000-000000000a01"
         supplier_email = "supplier1@verdaxis.com"
         token = create_test_token(supplier_id, supplier_email, "SUPPLIER")
         headers = {"Authorization": f"Bearer {token}"}
