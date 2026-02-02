@@ -22,7 +22,7 @@ git pull origin main
 echo ""
 echo ">>> Rebuilding Docker containers..."
 docker compose down || true
-docker compose up -d --build
+docker compose up -d --build --remove-orphans
 
 # Wait for containers to be healthy
 echo ""
