@@ -9,10 +9,10 @@ from datetime import datetime, timedelta
 TEST_API_URL = os.environ.get("TEST_API_URL", "http://localhost:8000")
 JWT_SECRET = "***REMOVED***"
 
-def create_test_token(email: str, role: str) -> str:
+def create_test_token(user_id: str, email: str, role: str) -> str:
     """Create a local HS256 token for testing."""
     payload = {
-        "sub": email,
+        "sub": user_id,
         "email": email,
         "role": role,
         "exp": datetime.utcnow() + timedelta(hours=1)
@@ -26,10 +26,11 @@ async def test_inventory_publish_flow():
     """
     async with AsyncClient(base_url=TEST_API_URL, timeout=10.0) as client:
         # 1. Login/Get Token for Supplier
-        # 1. Login/Get Token for Supplier
         # Using a seeded supplier from seed.py
+        # Supplier 1 ID from seed.py
+        supplier_id = "00000000-0000-0000-0000-000000000003"
         supplier_email = "supplier1@verdaxis.com"
-        token = create_test_token(supplier_email, "SUPPLIER")
+        token = create_test_token(supplier_id, supplier_email, "SUPPLIER")
         headers = {"Authorization": f"Bearer {token}"}
 
         # 2. Add Inventory Item
@@ -76,8 +77,10 @@ async def test_direct_order_list_optimized():
     """
     async with AsyncClient(base_url=TEST_API_URL, timeout=10.0) as client:
         # Use seeded buyer
+        # Buyer 1 ID from seed.py
+        buyer_id = "00000000-0000-0000-0000-000000000001"
         buyer_email = "buyer1@verdaxis.com"
-        token = create_test_token(buyer_email, "BUYER")
+        token = create_test_token(buyer_id, buyer_email, "BUYER")
         headers = {"Authorization": f"Bearer {token}"}
 
         # Get my Direct Order requests
@@ -98,8 +101,9 @@ async def test_direct_order_list_optimized():
 async def test_unauthorized_publish():
     """Ensure buyers cannot publish inventory."""
     async with AsyncClient(base_url=TEST_API_URL, timeout=10.0) as client:
+        buyer_id = "00000000-0000-0000-0000-000000000001"
         buyer_email = "buyer1@verdaxis.com"
-        token = create_test_token(buyer_email, "BUYER")
+        token = create_test_token(buyer_id, buyer_email, "BUYER")
         headers = {"Authorization": f"Bearer {token}"}
         
         import uuid

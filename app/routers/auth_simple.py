@@ -115,7 +115,7 @@ async def register(user_in: UserCreate, db: AsyncSession = Depends(get_db)):
             last_name=user_in.last_name,
             role=role_enum,
             organization_id=existing_org.id,
-            status=UserStatus.APPROVED
+            status=UserStatus.PENDING
         )
         
         db.add(new_user)
@@ -196,7 +196,7 @@ async def register_with_org(
         last_name=payload.get("last_name"),
         role=final_role, 
         organization_id=new_org.id,
-        status=UserStatus.APPROVED # Or APPROVED? Keeping PENDING by default
+        status=UserStatus.PENDING
     )
     
     db.add(new_user)
