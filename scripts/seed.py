@@ -28,21 +28,26 @@ async def seed():
         # --- Organizations ---
         # Buyers
         buyer_orgs = [
-            Organization(name="Pacific Ocean Lines", type=OrgType.SHIPPING_LINE, country_code="SG"),
-            Organization(name="Atlantic Cargo", type=OrgType.SHIPPING_LINE, country_code="US"),
-            Organization(name="Nordic Shipping", type=OrgType.SHIPPING_LINE, country_code="NO"),
-            Organization(name="Maersk Green Ops", type=OrgType.SHIPPING_LINE, country_code="DK"),
-            Organization(name="Hapag-Lloyd Sustainability", type=OrgType.SHIPPING_LINE, country_code="DE")
+            Organization(name="Pacific Ocean Lines", type=OrgType.SHIPPING_LINE, country_code="SG", domain="pacificoceanlines.com"),
+            Organization(name="Atlantic Cargo", type=OrgType.SHIPPING_LINE, country_code="US", domain="atlanticcargo.com"),
+            Organization(name="Nordic Shipping", type=OrgType.SHIPPING_LINE, country_code="NO", domain="nordicshipping.no"),
+            Organization(name="Maersk Green Ops", type=OrgType.SHIPPING_LINE, country_code="DK", domain="maersk.com"),
+            Organization(name="Hapag-Lloyd Sustainability", type=OrgType.SHIPPING_LINE, country_code="DE", domain="hapag-lloyd.com")
         ]
         
         # Suppliers
         supplier_orgs = [
-            Organization(name="Global Energy Supply", type=OrgType.FUEL_SUPPLIER, country_code="GB"),
-            Organization(name="Eastern Bunkers", type=OrgType.FUEL_SUPPLIER, country_code="CN"),
-            Organization(name="Future Fuels Ltd", type=OrgType.FUEL_SUPPLIER, country_code="NL"),
-            Organization(name="Yara Clean Ammonia", type=OrgType.FUEL_SUPPLIER, country_code="NO"),
-            Organization(name="Shell New Energies", type=OrgType.FUEL_SUPPLIER, country_code="NL")
+            Organization(name="Global Energy Supply", type=OrgType.FUEL_SUPPLIER, country_code="GB", domain="globalenergy.com"),
+            Organization(name="Eastern Bunkers", type=OrgType.FUEL_SUPPLIER, country_code="CN", domain="easternbunkers.cn"),
+            Organization(name="Future Fuels Ltd", type=OrgType.FUEL_SUPPLIER, country_code="NL", domain="futurefuels.nl"),
+            Organization(name="Yara Clean Ammonia", type=OrgType.FUEL_SUPPLIER, country_code="NO", domain="yara.com"),
+            Organization(name="Shell New Energies", type=OrgType.FUEL_SUPPLIER, country_code="NL", domain="shell.com")
         ]
+        
+        # Add Verdaxis Org for System Users
+        verdaxis_org = Organization(name="Verdaxis Ltd", type=OrgType.FUEL_SUPPLIER, country_code="GB", domain="verdaxis.com")
+        db.add(verdaxis_org)
+        await db.flush()
         
         for o in buyer_orgs + supplier_orgs:
             db.add(o)
@@ -69,14 +74,18 @@ async def seed():
 
         # Standard Users for all Orgs
         for i, org in enumerate(buyer_orgs):
+            u_id = f"00000000-0000-0000-0000-000000000b0{i+1}"
             users.append(User(
+                id=uuid.UUID(u_id),
                 email=f"buyer{i+1}@verdaxis.com", first_name=f"Buyer", last_name=str(i+1),
                 password_hash=get_password_hash("password123"), role=UserRole.BUYER,
                 organization_id=org.id, status=UserStatus.APPROVED
             ))
         
         for i, org in enumerate(supplier_orgs):
+            u_id = f"00000000-0000-0000-0000-000000000s0{i+1}"
             users.append(User(
+                id=uuid.UUID(u_id),
                 email=f"supplier{i+1}@verdaxis.com", first_name="Supplier", last_name=str(i+1),
                 password_hash=get_password_hash("password123"), role=UserRole.SUPPLIER,
                 organization_id=org.id, status=UserStatus.APPROVED
