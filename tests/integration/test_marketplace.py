@@ -26,8 +26,9 @@ async def test_inventory_publish_flow():
     """
     async with AsyncClient(base_url=TEST_API_URL, timeout=10.0) as client:
         # 1. Login/Get Token for Supplier
+        # 1. Login/Get Token for Supplier
         # Using a seeded supplier from seed.py
-        supplier_email = "sales@globalenergy.com"
+        supplier_email = "supplier1@verdaxis.com"
         token = create_test_token(supplier_email, "SUPPLIER")
         headers = {"Authorization": f"Bearer {token}"}
 
@@ -75,7 +76,7 @@ async def test_direct_order_list_optimized():
     """
     async with AsyncClient(base_url=TEST_API_URL, timeout=10.0) as client:
         # Use seeded buyer
-        buyer_email = "manager@pacificoceanlines.com"
+        buyer_email = "buyer1@verdaxis.com"
         token = create_test_token(buyer_email, "BUYER")
         headers = {"Authorization": f"Bearer {token}"}
 
@@ -97,7 +98,7 @@ async def test_direct_order_list_optimized():
 async def test_unauthorized_publish():
     """Ensure buyers cannot publish inventory."""
     async with AsyncClient(base_url=TEST_API_URL, timeout=10.0) as client:
-        buyer_email = "manager@pacificoceanlines.com"
+        buyer_email = "buyer1@verdaxis.com"
         token = create_test_token(buyer_email, "BUYER")
         headers = {"Authorization": f"Bearer {token}"}
         
