@@ -13,7 +13,7 @@ class FuelType(str, enum.Enum):
     Ammonia = "Ammonia"
     LSMGO = "LSMGO"
 
-class QuoteStatus(str, enum.Enum):
+class DirectOrderOfferStatus(str, enum.Enum):
     Draft = "Draft"
     Pending = "Pending"
     Quoted = "Quoted"
@@ -43,8 +43,8 @@ class InventoryItem(Base):
     port = relationship("Port", back_populates="inventory_items")
     supplier = relationship("Organization")
 
-class QuoteRequest(Base):
-    __tablename__ = "quote_requests"
+class DirectOrder(Base):
+    __tablename__ = "direct_orders"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     buyer_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("organizations.id"))
@@ -56,7 +56,7 @@ class QuoteRequest(Base):
     delivery_window_start: Mapped[date | None] = mapped_column(Date)
     delivery_window_end: Mapped[date | None] = mapped_column(Date)
     
-    status: Mapped[QuoteStatus] = mapped_column(Enum(QuoteStatus, native_enum=False), default=QuoteStatus.Pending)
+    status: Mapped[DirectOrderOfferStatus] = mapped_column(Enum(DirectOrderOfferStatus, native_enum=False), default=DirectOrderOfferStatus.Pending)
     
     awarded_supplier_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("organizations.id"))
     final_price_usd: Mapped[float | None] = mapped_column(Numeric(12, 2))
@@ -69,13 +69,13 @@ class QuoteRequest(Base):
     supplier = relationship("Organization", foreign_keys=[awarded_supplier_id])
     vessel = relationship("Vessel")
     port = relationship("Port")
-    offers = relationship("QuoteOffer", back_populates="request")
+    offers = relationship("DirectOrderOffer", back_populates="order")
 
-class QuoteOffer(Base):
-    __tablename__ = "quote_offers"
+class DirectOrderOffer(Base):
+    __tablename__ = "direct_order_offers"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    request_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("quote_requests.id"), nullable=False)
+    direct_order_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("direct_orders.id"), nullable=False)
     supplier_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organizations.id"), nullable=False)
     
     price_per_mt_usd: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False)
@@ -85,5 +85,5 @@ class QuoteOffer(Base):
     is_accepted: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
-    request = relationship("QuoteRequest", back_populates="offers")
+    order = relationship("DirectOrder", back_populates="offers")
     supplier = relationship("Organization")

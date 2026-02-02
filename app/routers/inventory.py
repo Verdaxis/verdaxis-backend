@@ -53,7 +53,7 @@ async def publish_inventory_to_listing(
     """
     Publishes an internal inventory item as a PublicListing.
     """
-    from app.models.rfq import PublicListing, FuelGrade, AvailabilityWindow, TierLabel, ListingStatus
+    from app.models.orders import PublicListing, FuelGrade, AvailabilityWindow, TierLabel, ListingStatus
     
     if current_user.role != UserRole.SUPPLIER:
         raise HTTPException(status_code=403, detail="Only suppliers can publish inventory")

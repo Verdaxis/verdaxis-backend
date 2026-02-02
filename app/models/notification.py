@@ -9,8 +9,8 @@ from app.database import Base
 class NotificationType(str, enum.Enum):
     SYSTEM = "SYSTEM"
     ORDER_UPDATE = "ORDER_UPDATE"
-    QUOTE_REQUEST = "QUOTE_REQUEST"
-    QUOTE_OFFER = "QUOTE_OFFER"
+    DIRECT_ORDER = "DIRECT_ORDER"
+    DIRECT_ORDER_OFFER = "DIRECT_ORDER_OFFER"
     USER_STATUS = "USER_STATUS"
 
 class Notification(Base):

@@ -5,7 +5,7 @@ from starlette.responses import RedirectResponse
 from app.database import engine
 from app.models.user import User, Organization
 from app.models.orders import PublicListing, Order
-from app.models.marketplace import QuoteRequest, QuoteOffer
+from app.models.marketplace import DirectOrder, DirectOrderOffer
 from app.config import settings
 import psutil
 import time
@@ -54,11 +54,15 @@ def setup_admin(app):
         name_plural = "Public Listings"
         column_list = [PublicListing.id, PublicListing.fuel_type, PublicListing.price_per_mt_usd, PublicListing.region]
 
-    class QuoteRequestAdmin(ModelView, model=QuoteRequest):
-        column_list = [QuoteRequest.id, QuoteRequest.fuel_type, QuoteRequest.quantity_mt]
+    class DirectOrderAdmin(ModelView, model=DirectOrder):
+        name = "Direct Order"
+        name_plural = "Direct Orders"
+        column_list = [DirectOrder.id, DirectOrder.fuel_type, DirectOrder.quantity_mt]
     
-    class QuoteOfferAdmin(ModelView, model=QuoteOffer):
-        column_list = [QuoteOffer.id, QuoteOffer.price_per_mt_usd]
+    class DirectOrderOfferAdmin(ModelView, model=DirectOrderOffer):
+        name = "Direct Order Offer"
+        name_plural = "Direct Order Offers"
+        column_list = [DirectOrderOffer.id, DirectOrderOffer.price_per_mt_usd]
 
     class OrderAdmin(ModelView, model=Order):
         name = "Market Order"
@@ -121,7 +125,7 @@ def setup_admin(app):
     admin.add_view(OrganizationAdmin)
     admin.add_view(UserAdmin)
     admin.add_view(ListingAdmin)
-    admin.add_view(QuoteRequestAdmin)
-    admin.add_view(QuoteOfferAdmin)
+    admin.add_view(DirectOrderAdmin)
+    admin.add_view(DirectOrderOfferAdmin)
     admin.add_view(OrderAdmin)
     admin.add_view(SystemHealthView)

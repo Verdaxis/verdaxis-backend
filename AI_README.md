@@ -110,7 +110,7 @@ git add -A && git commit -m "your message" && git push origin main
 
 ```bash
 # SSH to server
-ssh verdaxis-prod@144.126.151.136
+ssh verdaxis-prod@144.126.151.136 (sudo password: Romans828)
 
 # Check logs
 docker compose logs -f backend
