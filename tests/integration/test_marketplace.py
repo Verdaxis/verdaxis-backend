@@ -69,9 +69,9 @@ async def test_inventory_publish_flow():
         assert "match_count" in my_listings[0], "match_count missing from My Listings response"
 
 @pytest.mark.asyncio
-async def test_rfq_list_optimized():
+async def test_direct_order_list_optimized():
     """
-    Test that RFQ list endpoints return organization names (optimized queries).
+    Test that Direct Order list endpoints return organization names (optimized queries).
     """
     async with AsyncClient(base_url=TEST_API_URL, timeout=10.0) as client:
         # Use seeded buyer
@@ -79,8 +79,8 @@ async def test_rfq_list_optimized():
         token = create_test_token(buyer_email, "BUYER")
         headers = {"Authorization": f"Bearer {token}"}
 
-        # Get my RFQ requests
-        resp = await client.get("/api/rfq/my-requests", headers=headers)
+        # Get my Direct Order requests
+        resp = await client.get("/api/direct-orders/my-requests", headers=headers)
         assert resp.status_code == 200
         matches = resp.json()
         
@@ -91,7 +91,7 @@ async def test_rfq_list_optimized():
             assert match["supplier_name"] != "Unknown"
             assert match["buyer_name"] != "Unknown"
         else:
-            print("No RFQs found for seeded buyer, skipping detailed name check")
+            print("No Direct Orders found for seeded buyer, skipping detailed name check")
 
 @pytest.mark.asyncio
 async def test_unauthorized_publish():
