@@ -49,7 +49,7 @@ class SystemHealthView(BaseView):
             "system_health.html",
             {
                 "request": request,
-                "admin": self.admin,
+
                 "stats": {
                     "cpu": cpu,
                     "memory": {
@@ -65,7 +65,8 @@ class SystemHealthView(BaseView):
                     "uptime": uptime_str,
                     "db_status": db_status
                 },
-                "logs": logs
+                "logs": logs,
+                "admin": self.admin
             }
         )
 
