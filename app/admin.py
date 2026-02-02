@@ -66,7 +66,8 @@ class SystemHealthView(BaseView):
                     "db_status": db_status
                 },
                 "logs": logs,
-                "admin": self.admin
+                "logs": logs,
+                "admin": request.app.state.admin
             }
         )
 
@@ -125,7 +126,7 @@ def setup_admin(app):
     admin.add_view(QuoteOfferAdmin)
     admin.add_view(OrderAdmin)
     
-    # Manual instantiation to inject admin for context
-    health_view = SystemHealthView()
-    health_view.admin = admin
-    admin.add_view(health_view)
+    admin.add_view(SystemHealthView)
+    
+    # Expose admin to app state for use in custom views
+    app.state.admin = admin
