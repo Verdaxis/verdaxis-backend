@@ -63,6 +63,12 @@ async def login(form_data: Annotated[OAuth2PasswordRequestForm, Depends()], db: 
             detail="Incorrect username or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
+        
+    if user.status != UserStatus.APPROVED:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Account is {user.status.value}. Please wait for admin approval.",
+        )
     
     access_token = create_access_token(subject=str(user.id))
     return {"access_token": access_token, "token_type": "bearer"}
