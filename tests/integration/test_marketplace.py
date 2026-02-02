@@ -80,7 +80,7 @@ async def test_direct_order_list_optimized():
         headers = {"Authorization": f"Bearer {token}"}
 
         # Get my Direct Order requests
-        resp = await client.get("/api/direct-orders/my-requests", headers=headers)
+        resp = await client.get("/api/direct-orders", headers=headers)
         assert resp.status_code == 200
         matches = resp.json()
         
