@@ -38,13 +38,13 @@ docker exec verdaxis-backend alembic upgrade head || echo "Migration failed or n
 echo ""
 echo ">>> Checking if seed data exists..."
 docker exec verdaxis-backend python -c "
-from app.database import SessionLocal
+from app.database import AsyncSessionLocal
 from app.models.user import User
 from sqlalchemy import select
 import asyncio
 
 async def check():
-    async with SessionLocal() as db:
+    async with AsyncSessionLocal() as db:
         result = await db.execute(select(User).limit(1))
         return result.scalar_one_or_none()
 
@@ -55,7 +55,7 @@ if not user:
 else:
     print('Seed data exists, skipping...')
     exit(0)
-" && echo "Seed data present" || docker exec verdaxis-backend python seed.py
+" && echo "Seed data present" || docker exec verdaxis-backend python scripts/seed.py
 
 # Health check
 echo ""
