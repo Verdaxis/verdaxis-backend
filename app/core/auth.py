@@ -11,7 +11,7 @@ from app.config import settings
 from app.models.user import User, UserRole, UserStatus
 
 # Defines the token source - frontend will send "Authorization: Bearer <token>"
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl=f"{settings.AUTHENTIK_DOMAIN}/application/o/authorize/")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl=f"{settings.API_V1_STR}/auth/login")
 
 def create_access_token(data: dict, expires_delta: Optional[Any] = None):
     # Local HS256 Token Generation (for switch_role)
@@ -27,45 +27,9 @@ def create_access_token(data: dict, expires_delta: Optional[Any] = None):
     encoded_jwt = jwt.encode(to_encode, settings.JWT_SECRET, algorithm="HS256")
     return encoded_jwt
 
-async def get_oidc_config() -> Dict[str, Any]:
-    """
-    Fetches the OpenID Connect configuration from Authentik.
-    """
-    try:
-        async with httpx.AsyncClient() as client:
-            resp = await client.get(f"{settings.AUTHENTIK_DOMAIN}/application/o/verdaxis/.well-known/openid-configuration")
-            resp.raise_for_status()
-            return resp.json()
-    except Exception as e:
-        print(f"Error fetching OIDC config: {e}")
-        # Fallback or retry implementation would go here
-        return {}
-
-async def get_jwks() -> Dict[str, Any]:
-    """
-    Fetches the JSON Web Key Set (KWKS) for signature verification.
-    """
-    try:
-        oidc_config = await get_oidc_config()
-        jwks_uri = oidc_config.get("jwks_uri")
-        if not jwks_uri:
-            # Fallback construction if OIDC config fails
-            jwks_uri = f"{settings.AUTHENTIK_DOMAIN}/application/o/verdaxis/jwks/"
-            
-        async with httpx.AsyncClient() as client:
-            resp = await client.get(jwks_uri)
-            resp.raise_for_status()
-            return resp.json()
-    except Exception as e:
-        print(f"Error fetching JWKS: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Could not verify authentication configuration"
-        )
-
 async def verify_token(token: str) -> Dict[str, Any]:
     """
-    Verifies the JWT token against Authentik's public keys or local HS256.
+    Verifies the JWT token using local HS256.
     """
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -74,26 +38,8 @@ async def verify_token(token: str) -> Dict[str, Any]:
     )
     
     try:
-        # Detect algorithm from header
-        unverified_header = jwt.get_unverified_header(token)
-        alg = unverified_header.get("alg")
-
-        if alg == "HS256":
-            # Use the local JWT_SECRET for HS256 (from config or security)
-            return jwt.decode(token, settings.JWT_SECRET, algorithms=["HS256"])
-
-        # 2. Try Authentik RS256 Token
-        jwks = await get_jwks()
-        
-        # Decode and verify
-        payload = jwt.decode(
-            token,
-            jwks,
-            algorithms=["RS256"],
-            audience=settings.AUTHENTIK_CLIENT_ID,
-            options={"verify_at_hash": False}
-        )
-        return payload
+        # Simply decode using HS256 and local secret
+        return jwt.decode(token, settings.JWT_SECRET, algorithms=["HS256"])
     except JWTError as e:
         print(f"JWT Verification Error: {e}")
         raise credentials_exception
