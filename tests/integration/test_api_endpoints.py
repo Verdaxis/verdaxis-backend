@@ -63,8 +63,8 @@ class TestAuthEndpoints:
         await client.post("/api/auth/register", json=sample_user_data)
         
         # Try to login
-        response = await client.post("/api/auth/login", json={
-            "email": sample_user_data["email"],
+        response = await client.post("/api/auth/login", data={
+            "username": sample_user_data["email"],
             "password": sample_user_data["password"]
         })
         
@@ -73,8 +73,8 @@ class TestAuthEndpoints:
     
     async def test_login_wrong_password(self, client: AsyncClient, admin_credentials):
         """Should reject login with wrong password."""
-        response = await client.post("/api/auth/login", json={
-            "email": admin_credentials["email"],
+        response = await client.post("/api/auth/login", data={
+            "username": admin_credentials["email"],
             "password": "wrongpassword"
         })
         
@@ -82,8 +82,8 @@ class TestAuthEndpoints:
     
     async def test_login_nonexistent_user(self, client: AsyncClient):
         """Should reject login for non-existent user."""
-        response = await client.post("/api/auth/login", json={
-            "email": "nonexistent@example.com",
+        response = await client.post("/api/auth/login", data={
+            "username": "nonexistent@example.com",
             "password": "anypassword"
         })
         
@@ -91,7 +91,10 @@ class TestAuthEndpoints:
     
     async def test_login_approved_admin(self, client: AsyncClient, admin_credentials):
         """Should allow login for approved admin user."""
-        response = await client.post("/api/auth/login", json=admin_credentials)
+        response = await client.post("/api/auth/login", data={
+            "username": admin_credentials["email"],
+            "password": admin_credentials["password"]
+        })
         
         assert response.status_code == 200
         data = response.json()
@@ -120,7 +123,10 @@ class TestProtectedEndpoints:
     async def test_me_with_valid_token(self, client: AsyncClient, admin_credentials):
         """Should return user info with valid token."""
         # Login first
-        login_response = await client.post("/api/auth/login", json=admin_credentials)
+        login_response = await client.post("/api/auth/login", data={
+            "username": admin_credentials["email"],
+            "password": admin_credentials["password"]
+        })
         assert login_response.status_code == 200
         token = login_response.json()["access_token"]
         
