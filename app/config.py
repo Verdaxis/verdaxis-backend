@@ -25,14 +25,13 @@ class Settings(BaseSettings):
         return self
 
     # Security
-    AUTHENTIK_DOMAIN: str = "http://localhost:9000"
-    AUTHENTIK_CLIENT_ID: str = "verdaxis-client-id" # Will be updated after Authentik setup
+    # Authentik Removed
     
     # Dev/Test Auth Bypass
     ENABLE_AUTH_BYPASS: bool = False
     
-    JWT_SECRET: str = "dev-secret-key-not-for-production" # Kept for local impersonation tokens
-    JWT_ALGORITHM: str = "RS256"
+    JWT_SECRET: str = "dev-secret-key-not-for-production" 
+    JWT_ALGORITHM: str = "HS256" # Changed to HS256 for simple auth
     API_AUDIENCE: str = "verdaxis-client-id"
 
     # Gemini AI
