@@ -357,6 +357,21 @@ async def complete_order(
     )
     
     db.add(commission)
+
+    # Update Listing Inventory
+    listing = order.listing
+    # Ensure we are using Decimal for calculation if quantity_mt is Decimal, or float if float.
+    # Models say Numeric(12, 2) which maps to Decimal in Python/SQLAlchemy usually, but let's be safe.
+    # listing.quantity_mt is mapped as Decimal in models/orders.py
+    
+    # Deduct the finalized quantity from the listing
+    listing.quantity_mt -= order.final_quantity_mt
+    
+    # Check if inventory is depleted (or negative, which shouldn't happen but good to handle)
+    if listing.quantity_mt <= 0:
+        listing.quantity_mt = Decimal(0)
+        listing.status = ListingStatus.INACTIVE
+        
     await db.commit()
     await db.refresh(order)
     
