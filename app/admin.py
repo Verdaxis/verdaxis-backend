@@ -49,7 +49,7 @@ class SystemHealthView(BaseView):
             "system_health.html",
             {
                 "request": request,
-                "admin": self._admin,
+                "admin": self.admin,
                 "stats": {
                     "cpu": cpu,
                     "memory": {
