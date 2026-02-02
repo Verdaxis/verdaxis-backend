@@ -17,60 +17,6 @@ from sqlalchemy import text
 sqladmin_path = os.path.dirname(sqladmin.__file__)
 templates = Jinja2Templates(directory=["templates", os.path.join(sqladmin_path, "templates")])
 
-class SystemHealthView(BaseView):
-    name = "System Health"
-    icon = "fa-solid fa-heart-pulse"
-
-    async def check_db(self):
-        try:
-            async with engine.connect() as conn:
-                await conn.execute(text("SELECT 1"))
-            return True
-        except Exception:
-            return False
-
-    @expose("/health", methods=["GET"])
-    async def health_page(self, request):
-        cpu = psutil.cpu_percent()
-        mem = psutil.virtual_memory()
-        disk = psutil.disk_usage('/')
-        
-        uptime_seconds = time.time() - psutil.boot_time()
-        days = int(uptime_seconds // (24 * 3600))
-        hours = int((uptime_seconds % (24 * 3600)) // 3600)
-        minutes = int((uptime_seconds % 3600) // 60)
-        uptime_str = f"{days}d {hours}h {minutes}m"
-
-        db_status = "OK" if await self.check_db() else "Error"
-
-        logs = ["Log viewing disabled in this version"]
-
-        return templates.TemplateResponse(
-            "system_health.html",
-            {
-                "request": request,
-
-                "stats": {
-                    "cpu": cpu,
-                    "memory": {
-                        "percent": mem.percent,
-                        "used_gb": round(mem.used / (1024**3), 1),
-                        "total_gb": round(mem.total / (1024**3), 1)
-                    },
-                    "disk": {
-                        "percent": disk.percent,
-                        "free_gb": round(disk.free / (1024**3), 1),
-                        "total_gb": round(disk.total / (1024**3), 1)
-                    },
-                    "uptime": uptime_str,
-                    "db_status": db_status
-                },
-                "logs": logs,
-                "logs": logs,
-                "admin": self.admin
-            }
-        )
-
 class AdminAuth(AuthenticationBackend):
     async def login(self, request: Request) -> bool:
         form = await request.form()
@@ -119,13 +65,63 @@ def setup_admin(app):
         name_plural = "Market Orders"
         column_list = [Order.id, Order.status]
 
+    class SystemHealthView(BaseView):
+        name = "System Health"
+        icon = "fa-solid fa-heart-pulse"
+
+        async def check_db(self):
+            try:
+                async with engine.connect() as conn:
+                    await conn.execute(text("SELECT 1"))
+                return True
+            except Exception:
+                return False
+
+        @expose("/health", methods=["GET"])
+        async def health_page(self, request):
+            cpu = psutil.cpu_percent()
+            mem = psutil.virtual_memory()
+            disk = psutil.disk_usage('/')
+            
+            uptime_seconds = time.time() - psutil.boot_time()
+            days = int(uptime_seconds // (24 * 3600))
+            hours = int((uptime_seconds % (24 * 3600)) // 3600)
+            minutes = int((uptime_seconds % 3600) // 60)
+            uptime_str = f"{days}d {hours}h {minutes}m"
+
+            db_status = "OK" if await self.check_db() else "Error"
+
+            logs = ["Log viewing disabled in this version"]
+
+            return templates.TemplateResponse(
+                "system_health.html",
+                {
+                    "request": request,
+
+                    "stats": {
+                        "cpu": cpu,
+                        "memory": {
+                            "percent": mem.percent,
+                            "used_gb": round(mem.used / (1024**3), 1),
+                            "total_gb": round(mem.total / (1024**3), 1)
+                        },
+                        "disk": {
+                            "percent": disk.percent,
+                            "free_gb": round(disk.free / (1024**3), 1),
+                            "total_gb": round(disk.total / (1024**3), 1)
+                        },
+                        "uptime": uptime_str,
+                        "db_status": db_status
+                    },
+                    "logs": logs,
+                    "admin": admin
+                }
+            )
+
     admin.add_view(OrganizationAdmin)
     admin.add_view(UserAdmin)
     admin.add_view(ListingAdmin)
     admin.add_view(QuoteRequestAdmin)
     admin.add_view(QuoteOfferAdmin)
     admin.add_view(OrderAdmin)
-    
-    # Inject admin instance into view class
-    SystemHealthView.admin = admin
     admin.add_view(SystemHealthView)
