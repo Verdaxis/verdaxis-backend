@@ -124,4 +124,8 @@ def setup_admin(app):
     admin.add_view(QuoteRequestAdmin)
     admin.add_view(QuoteOfferAdmin)
     admin.add_view(OrderAdmin)
-    admin.add_view(SystemHealthView)
+    
+    # Manual instantiation to inject admin for context
+    health_view = SystemHealthView()
+    health_view.admin = admin
+    admin.add_view(health_view)
