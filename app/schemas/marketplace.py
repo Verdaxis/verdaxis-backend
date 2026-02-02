@@ -11,7 +11,7 @@ class FuelType(str, Enum):
     Ammonia = "Ammonia"
     LSMGO = "LSMGO"
 
-class QuoteStatus(str, Enum):
+class DirectOrderOfferStatus(str, Enum):
     Draft = "Draft"
     Pending = "Pending"
     Quoted = "Quoted"
@@ -44,7 +44,7 @@ class InventoryResponse(InventoryBase):
         from_attributes = True
 
 # Quote Schemas
-class QuoteBase(BaseModel):
+class DirectOrderBase(BaseModel):
     vessel_id: UUID
     port_id: str
     fuel_type: FuelType
@@ -52,26 +52,26 @@ class QuoteBase(BaseModel):
     delivery_window_start: Optional[date] = None
     delivery_window_end: Optional[date] = None
 
-class QuoteCreate(QuoteBase):
+class DirectOrderCreate(DirectOrderBase):
     pass
 
-class QuoteUpdate(BaseModel):
-    status: Optional[QuoteStatus] = None
+class DirectOrderUpdate(BaseModel):
+    status: Optional[DirectOrderOfferStatus] = None
     final_price_usd: Optional[float] = None
     final_price_per_mt: Optional[float] = None
     awarded_supplier_id: Optional[UUID] = None
 
-class QuoteOfferBase(BaseModel):
+class DirectOrderOfferBase(BaseModel):
     price_per_mt_usd: float
     valid_until: Optional[datetime] = None
     terms_and_conditions: Optional[str] = None
 
-class QuoteOfferCreate(QuoteOfferBase):
+class DirectOrderOfferCreate(DirectOrderOfferBase):
     pass
 
-class QuoteOfferResponse(QuoteOfferBase):
+class DirectOrderOfferResponse(DirectOrderOfferBase):
     id: UUID
-    request_id: UUID
+    direct_order_id: UUID
     supplier_id: UUID
     is_accepted: bool
     created_at: datetime
@@ -79,10 +79,10 @@ class QuoteOfferResponse(QuoteOfferBase):
     class Config:
         from_attributes = True
 
-class QuoteResponse(QuoteBase):
+class DirectOrderResponse(DirectOrderBase):
     id: UUID
     buyer_id: Optional[UUID] = None
-    status: QuoteStatus
+    status: DirectOrderOfferStatus
     
     awarded_supplier_id: Optional[UUID] = None
     final_price_usd: Optional[float] = None
@@ -90,7 +90,7 @@ class QuoteResponse(QuoteBase):
     created_at: datetime
     updated_at: datetime
     
-    offers: List[QuoteOfferResponse] = []
+    offers: List[DirectOrderOfferResponse] = []
 
     class Config:
         from_attributes = True

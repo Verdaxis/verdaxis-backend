@@ -3,9 +3,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
 from app.database import get_db
-from app.models.marketplace import QuoteRequest, QuoteStatus, QuoteOffer
+from app.models.marketplace import DirectOrder, DirectOrderOfferStatus, DirectOrderOffer
 from app.models.notification import Notification, NotificationType
-from app.schemas.marketplace import QuoteCreate, QuoteUpdate, QuoteResponse, QuoteOfferCreate, QuoteOfferResponse
+from app.schemas.marketplace import DirectOrderCreate, DirectOrderUpdate, DirectOrderResponse, DirectOrderOfferCreate, DirectOrderOfferResponse
 from app.models.user import User, UserRole
 from app.core.auth import get_current_user
 from typing import List, Annotated
@@ -14,16 +14,16 @@ from datetime import datetime
 
 router = APIRouter()
 
-@router.get("/quotes", response_model=List[QuoteResponse])
+@router.get("/direct-orders", response_model=List[DirectOrderResponse])
 async def list_quotes(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user)]
 ):
-    stmt = select(QuoteRequest).options(selectinload(QuoteRequest.offers))
+    stmt = select(DirectOrder).options(selectinload(DirectOrder.offers))
     
     # RBAC Filtering
     if current_user.role == UserRole.BUYER:
-        stmt = stmt.where(QuoteRequest.buyer_id == current_user.organization_id)
+        stmt = stmt.where(DirectOrder.buyer_id == current_user.organization_id)
     elif current_user.role == UserRole.SUPPLIER:
         # Suppliers see requests they have offered on OR all pending requests (Marketplace)
         # Simplified for demo: Show all
@@ -33,9 +33,9 @@ async def list_quotes(
     quotes = result.scalars().all()
     return quotes
 
-@router.post("/quotes", response_model=QuoteResponse)
+@router.post("/direct-orders", response_model=DirectOrderResponse)
 async def create_quote(
-    quote: QuoteCreate,
+    quote: DirectOrderCreate,
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user)]
 ):
@@ -43,30 +43,30 @@ async def create_quote(
     if current_user.role != UserRole.BUYER:
          raise HTTPException(status_code=403, detail=f"Only buyers can create RFQs. You are {current_user.role}")
 
-    db_quote = QuoteRequest(
+    db_quote = DirectOrder(
         **quote.model_dump(),
         buyer_id=current_user.organization_id,
-        status=QuoteStatus.Pending
+        status=DirectOrderOfferStatus.Pending
     )
     
     db.add(db_quote)
     await db.commit()
     
     # Reload with relationships to satisfy Pydantic response model
-    stmt = select(QuoteRequest).options(selectinload(QuoteRequest.offers)).where(QuoteRequest.id == db_quote.id)
+    stmt = select(DirectOrder).options(selectinload(DirectOrder.offers)).where(DirectOrder.id == db_quote.id)
     result = await db.execute(stmt)
     db_quote = result.scalar_one()
     
     return db_quote
 
-@router.patch("/quotes/{quote_id}", response_model=QuoteResponse)
+@router.patch("/direct-orders/{quote_id}", response_model=DirectOrderResponse)
 async def update_quote(
     quote_id: str,
-    update_data: QuoteUpdate,
+    update_data: DirectOrderUpdate,
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user)]
 ):
-    stmt = select(QuoteRequest).where(QuoteRequest.id == uuid.UUID(quote_id))
+    stmt = select(DirectOrder).where(DirectOrder.id == uuid.UUID(quote_id))
     result = await db.execute(stmt)
     db_quote = result.scalar_one_or_none()
     
@@ -84,10 +84,10 @@ async def update_quote(
     await db.refresh(db_quote)
     return db_quote
 
-@router.post("/quotes/{quote_id}/offers", response_model=QuoteOfferResponse)
+@router.post("/direct-orders/{quote_id}/offers", response_model=DirectOrderOfferResponse)
 async def create_offer(
     quote_id: str,
-    offer: QuoteOfferCreate,
+    offer: DirectOrderOfferCreate,
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user)]
 ):
@@ -95,17 +95,17 @@ async def create_offer(
         raise HTTPException(status_code=403, detail="Only suppliers can make offers")
 
     # Verify quote exists
-    stmt = select(QuoteRequest).where(QuoteRequest.id == uuid.UUID(quote_id))
+    stmt = select(DirectOrder).where(DirectOrder.id == uuid.UUID(quote_id))
     result = await db.execute(stmt)
     quote_request = result.scalar_one_or_none()
     
     if not quote_request:
         raise HTTPException(status_code=404, detail="Quote request not found")
 
-    db_offer = QuoteOffer(
+    db_offer = DirectOrderOffer(
         **offer.model_dump(),
         id=uuid.uuid4(),
-        request_id=uuid.UUID(quote_id),
+        direct_order_id=uuid.UUID(quote_id),
         supplier_id=current_user.organization_id
     )
     
@@ -127,14 +127,14 @@ async def create_offer(
         db.add(notification)
     
     # Update quote status to Negotiating if still Pending
-    if quote_request.status == QuoteStatus.Pending:
-        quote_request.status = QuoteStatus.Negotiating
+    if quote_request.status == DirectOrderOfferStatus.Pending:
+        quote_request.status = DirectOrderOfferStatus.Negotiating
         
     await db.commit()
     await db.refresh(db_offer)
     return db_offer
 
-@router.put("/quotes/{quote_id}/accept/{offer_id}", response_model=QuoteResponse)
+@router.put("/direct-orders/{quote_id}/accept/{offer_id}", response_model=DirectOrderResponse)
 async def accept_offer(
     quote_id: str,
     offer_id: str,
@@ -142,7 +142,7 @@ async def accept_offer(
     current_user: Annotated[User, Depends(get_current_user)]
 ):
     # Load quote with offers
-    stmt = select(QuoteRequest).options(selectinload(QuoteRequest.offers)).where(QuoteRequest.id == uuid.UUID(quote_id))
+    stmt = select(DirectOrder).options(selectinload(DirectOrder.offers)).where(DirectOrder.id == uuid.UUID(quote_id))
     result = await db.execute(stmt)
     quote = result.scalar_one_or_none()
     
@@ -158,7 +158,7 @@ async def accept_offer(
         raise HTTPException(status_code=404, detail="Offer not found")
 
     # Update Quote Status
-    quote.status = QuoteStatus.Confirmed
+    quote.status = DirectOrderOfferStatus.Confirmed
     quote.awarded_supplier_id = selected_offer.supplier_id
     quote.final_price_usd = selected_offer.price_per_mt_usd * quote.quantity_mt # Approx total
     quote.final_price_per_mt = selected_offer.price_per_mt_usd
@@ -185,7 +185,7 @@ async def accept_offer(
     await db.commit()
     
     # Reload with relationships
-    stmt = select(QuoteRequest).options(selectinload(QuoteRequest.offers)).where(QuoteRequest.id == quote.id)
+    stmt = select(DirectOrder).options(selectinload(DirectOrder.offers)).where(DirectOrder.id == quote.id)
     result = await db.execute(stmt)
     quote = result.scalar_one()
     
