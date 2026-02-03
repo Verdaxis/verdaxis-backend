@@ -303,6 +303,34 @@ async def respond_to_order(
         if order.listing.quantity_mt <= 0:
             order.listing.quantity_mt = Decimal(0)
             order.listing.status = ListingStatus.INACTIVE
+            
+        # AUTO-CANCEL: Check other pending orders for this listing
+        # If any pending order requests more than the *now remaining* quantity, decline it.
+        stmt_pending = select(Order).where(
+            Order.listing_id == order.listing_id,
+            Order.status == OrderStatus.PENDING,
+            Order.id != order.id # Exclude current order
+        )
+        result_pending = await db.execute(stmt_pending)
+        pending_orders = result_pending.scalars().all()
+        
+        for pending in pending_orders:
+            if pending.requested_quantity_mt > order.listing.quantity_mt:
+                # Auto-decline
+                pending.status = OrderStatus.DECLINED
+                
+                # Notify buyer
+                stmt_buyer_users = select(User).where(User.organization_id == pending.buyer_id)
+                res_u = await db.execute(stmt_buyer_users)
+                p_buyers = res_u.scalars().all()
+                for p_user in p_buyers:
+                     db.add(Notification(
+                        recipient_id=p_user.id,
+                        type=NotificationType.ORDER_UPDATE,
+                        title="Order Auto-Declined",
+                        message=f"Your order for {pending.requested_quantity_mt} MT was declined because the available stock has dropped to {order.listing.quantity_mt} MT.",
+                        data={"order_id": str(pending.id)}
+                    ))
     
     for user in buyer_users:
         notification = Notification(
