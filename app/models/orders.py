@@ -16,9 +16,10 @@ class ListingStatus(str, enum.Enum):
 
 class OrderStatus(str, enum.Enum):
     PENDING = "PENDING"       # Buyer sent Order, awaiting supplier response
-    ACCEPTED = "ACCEPTED"     # Supplier accepted, negotiation can begin
+    CONFIRMED = "CONFIRMED"   # Supplier accepted, inventory reserved (Was ACCEPTED)
     DECLINED = "DECLINED"     # Supplier declined
-    COMPLETED = "COMPLETED"   # Deal completed, commission due
+    DELIVERED = "DELIVERED"   # Deal completed, BDN signed (Was COMPLETED)
+    PAID = "PAID"             # Payment received
     CANCELLED = "CANCELLED"   # Buyer cancelled
 
 

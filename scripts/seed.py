@@ -223,7 +223,7 @@ async def seed():
              db.add(Order(
                  listing_id=created_listings[i].id, 
                  buyer_id=buyer_orgs[i % 5].id,
-                 status=OrderStatus.COMPLETED,
+                 status=OrderStatus.DELIVERED,
                  final_quantity_mt=Decimal("2500"),
                  final_price_per_mt=Decimal("560"),
                  final_total_usd=Decimal("1400000"),
