@@ -22,6 +22,8 @@ from app.routers.auth_simple import get_current_user
 router = APIRouter(prefix="/listings", tags=["listings"])
 
 
+from sqlalchemy.orm import selectinload
+
 @router.get("", response_model=list[PublicListingResponse])
 async def list_public_listings(
     region: Optional[str] = Query(None, description="Filter by region"),
@@ -32,7 +34,7 @@ async def list_public_listings(
     """
     Get all active public listings (anonymized).
     """
-    query = select(PublicListing).where(PublicListing.status == ListingStatus.ACTIVE)
+    query = select(PublicListing).options(selectinload(PublicListing.supplier)).where(PublicListing.status == ListingStatus.ACTIVE)
     
     if region:
         query = query.where(PublicListing.region.ilike(f"%{region}%"))
@@ -107,10 +109,10 @@ async def list_my_listings(
         )
     
     # Eager load 'matches' to avoid N+1 or async error when calculating match_count
-    from sqlalchemy.orm import selectinload
+    # Also load supplier for tier_label safety
     query = (
         select(PublicListing)
-        .options(selectinload(PublicListing.orders))
+        .options(selectinload(PublicListing.orders), selectinload(PublicListing.supplier))
         .where(PublicListing.supplier_id == current_user.organization_id)
         .order_by(PublicListing.created_at.desc())
     )
@@ -157,13 +159,18 @@ async def create_listing(
         quantity_mt=listing_data.quantity_mt,
         price_per_mt_usd=listing_data.price_per_mt_usd,
         availability_window=listing_data.availability_window,
-        tier_label=listing_data.tier_label,
+        # tier_label removed from input
         certifications=listing_data.certifications,
     )
     
     db.add(new_listing)
     await db.commit()
     await db.refresh(new_listing)
+    
+    # To properly return with tier_label computed property, we need the supplier loaded
+    # Re-fetch with eager loading
+    result = await db.execute(select(PublicListing).options(selectinload(PublicListing.supplier)).where(PublicListing.id == new_listing.id))
+    new_listing = result.scalars().first()
     
     return new_listing
 
@@ -176,7 +183,7 @@ async def get_listing(
     """
     Get a single listing by ID (anonymized).
     """
-    result = await db.execute(select(PublicListing).where(PublicListing.id == listing_id))
+    result = await db.execute(select(PublicListing).options(selectinload(PublicListing.supplier)).where(PublicListing.id == listing_id))
     listing = result.scalars().first()
     
     if not listing:
