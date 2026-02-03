@@ -50,10 +50,10 @@ class AvailabilityWindow(str, Enum):
 
 
 class TierLabel(str, Enum):
-    TIER_1_PRODUCER = "Tier 1 Producer"
-    MAJOR_TRADER = "Major Trader"
-    REGIONAL_SUPPLIER = "Regional Supplier"
-    INDEPENDENT = "Independent Supplier"
+    TIER_1_PRODUCER = "TIER_1_PRODUCER"
+    MAJOR_TRADER = "MAJOR_TRADER"
+    REGIONAL_SUPPLIER = "REGIONAL_SUPPLIER"
+    INDEPENDENT = "INDEPENDENT"
 
 
 # ============== Public Listing Schemas ==============
