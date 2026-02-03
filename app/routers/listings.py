@@ -113,7 +113,10 @@ async def list_my_listings(
     query = (
         select(PublicListing)
         .options(selectinload(PublicListing.orders), selectinload(PublicListing.supplier))
-        .where(PublicListing.supplier_id == current_user.organization_id)
+        .where(
+            PublicListing.supplier_id == current_user.organization_id,
+            PublicListing.status != ListingStatus.INACTIVE
+        )
         .order_by(PublicListing.created_at.desc())
     )
     
