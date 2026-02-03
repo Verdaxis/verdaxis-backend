@@ -20,6 +20,7 @@ class OrderStatus(str, enum.Enum):
     CONFIRMED = "CONFIRMED"   # Supplier accepted, inventory reserved (Was ACCEPTED)
     DECLINED = "DECLINED"     # Supplier declined
     DELIVERED = "DELIVERED"   # Deal completed, BDN signed (Was COMPLETED)
+    COMPLETED = "COMPLETED"   # Legacy support
     PAID = "PAID"             # Payment received
     CANCELLED = "CANCELLED"   # Buyer cancelled
 
