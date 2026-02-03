@@ -18,6 +18,7 @@ class OrderStatus(str, Enum):
     CONFIRMED = "CONFIRMED"
     DECLINED = "DECLINED"
     DELIVERED = "DELIVERED"
+    COMPLETED = "COMPLETED"
     PAID = "PAID"
     CANCELLED = "CANCELLED"
 

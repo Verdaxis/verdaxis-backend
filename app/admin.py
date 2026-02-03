@@ -44,7 +44,7 @@ def setup_admin(app):
     admin = Admin(app, engine, authentication_backend=authentication_backend)
 
     class OrganizationAdmin(ModelView, model=Organization):
-        column_list = [Organization.id, Organization.name, Organization.type]
+        column_list = [Organization.id, Organization.name, Organization.type, Organization.supplier_tier]
 
     class UserAdmin(ModelView, model=User):
         column_list = [User.id, User.email, User.first_name, User.role]
