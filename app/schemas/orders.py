@@ -15,9 +15,10 @@ class ListingStatus(str, Enum):
 
 class OrderStatus(str, Enum):
     PENDING = "PENDING"
-    ACCEPTED = "ACCEPTED"
+    CONFIRMED = "CONFIRMED"
     DECLINED = "DECLINED"
-    COMPLETED = "COMPLETED"
+    DELIVERED = "DELIVERED"
+    PAID = "PAID"
     CANCELLED = "CANCELLED"
 
 

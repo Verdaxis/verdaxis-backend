@@ -1,0 +1,200 @@
+verdaxis-backend  | INFO:     62.195.105.213:56862 - "GET /api/auth/me HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     62.195.105.213:56863 - "OPTIONS /api/ports HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     62.195.105.213:56865 - "GET /api/notifications HTTP/1.1" 307 Temporary Redirect
+verdaxis-backend  | INFO:     62.195.105.213:56864 - "OPTIONS /api/ports HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     62.195.105.213:56862 - "GET /api/ports HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     62.195.105.213:56866 - "GET /api/notifications HTTP/1.1" 307 Temporary Redirect
+verdaxis-backend  | INFO:     62.195.105.213:56865 - "GET /api/notifications/ HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     62.195.105.213:56866 - "GET /api/ports HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     62.195.105.213:56867 - "OPTIONS /api/vessels HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     62.195.105.213:56869 - "OPTIONS /api/vessels HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     62.195.105.213:56865 - "GET /api/ports HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     62.195.105.213:56862 - "GET /api/notifications/ HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     62.195.105.213:56866 - "GET /api/notifications/unread-count HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     62.195.105.213:56870 - "GET /api/vessels HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     62.195.105.213:56862 - "GET /api/notifications/unread-count HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     62.195.105.213:56866 - "GET /api/vessels HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     62.195.105.213:56871 - "GET /api/vessels HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     66.132.153.131:1256 - "GET / HTTP/1.1" 200 OK
+verdaxis-backend  | WARNING:  Invalid HTTP request received.
+verdaxis-backend  | INFO:     66.132.153.131:32150 - "GET / HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     66.132.153.131:32152 - "PRI %2A HTTP/2.0" 404 Not Found
+verdaxis-backend  | WARNING:  Invalid HTTP request received.
+verdaxis-backend  | INFO:     66.132.153.131:32158 - "GET /favicon.ico HTTP/1.1" 404 Not Found
+verdaxis-backend  | INFO:     66.132.153.131:4716 - "GET / HTTP/1.1" 200 OK
+verdaxis-backend  | WARNING:  Invalid HTTP request received.
+verdaxis-backend  | INFO:     66.132.153.131:26682 - "GET /sitemap.xml HTTP/1.1" 404 Not Found
+verdaxis-backend  | WARNING:  Invalid HTTP request received.
+verdaxis-backend  | INFO:     164.92.174.223:30616 - "GET /solr/admin/info/system HTTP/1.1" 404 Not Found
+verdaxis-backend  | INFO:     164.92.161.240:12202 - "GET /v2/_catalog HTTP/1.1" 404 Not Found
+verdaxis-backend  | WARNING:  Invalid HTTP request received.
+verdaxis-backend  | INFO:     167.71.34.54:44374 - "GET /query?q=SHOW+DIAGNOSTICS HTTP/1.1" 404 Not Found
+verdaxis-backend  | INFO:     164.92.174.223:30630 - "GET /solr/admin/cores?action=STATUS&wt=json HTTP/1.1" 404 Not Found
+verdaxis-backend  | WARNING:  Invalid HTTP request received.
+verdaxis-backend  | INFO:     64.226.84.104:26192 - "GET /cgi-bin/authLogin.cgi HTTP/1.1" 404 Not Found
+verdaxis-backend  | INFO:     164.92.174.223:30640 - "GET / HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     152.42.234.128:58508 - "GET /favicon.ico HTTP/1.1" 404 Not Found
+verdaxis-backend  | INFO:     64.226.84.104:26202 - "GET / HTTP/1.1" 200 OK
+verdaxis-backend  | WARNING:  Invalid HTTP request received.
+verdaxis-backend  | INFO:     62.195.105.213:57056 - "GET /api/notifications HTTP/1.1" 307 Temporary Redirect
+verdaxis-backend  | INFO:     62.195.105.213:57056 - "GET /api/notifications/ HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     62.195.105.213:57056 - "GET /api/notifications/unread-count HTTP/1.1" 200 OK
+verdaxis-backend  | WARNING:  Invalid HTTP request received.
+verdaxis-backend  | INFO:     193.142.147.209:41192 - "POST / HTTP/1.1" 405 Method Not Allowed
+verdaxis-backend  | INFO:     185.93.89.136:35894 - "GET //.git/HEAD HTTP/1.1" 404 Not Found
+verdaxis-backend  | INFO:     198.235.24.98:65510 - "GET / HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     85.217.149.2:52010 - "'GET / HTTP/1.1" 405 Method Not Allowed
+verdaxis-backend  | INFO:     87.236.176.60:57901 - "GET / HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     147.185.132.82:57810 - "GET / HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     198.235.24.252:59408 - "GET / HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     103.203.57.20:58118 - "GET / HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     176.65.139.8:51862 - "GET / HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     204.76.203.210:54598 - "GET /openapi.json HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     68.183.8.140:46574 - "GET /.env HTTP/1.1" 404 Not Found
+verdaxis-backend  | INFO:     68.183.8.140:46590 - "GET /.git/config HTTP/1.1" 404 Not Found
+verdaxis-backend  | INFO:     139.84.143.155:33438 - "GET / HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     205.210.31.46:63040 - "GET / HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     146.70.116.183:49945 - "GET / HTTP/1.1" 200 OK
+verdaxis-backend  | WARNING:  Invalid HTTP request received.
+verdaxis-backend  | WARNING:  Invalid HTTP request received.
+verdaxis-backend  | INFO:     146.70.116.183:49959 - "GET /docs HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     146.70.116.183:49960 - "GET /openapi.json HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     198.235.24.248:59360 - "GET / HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     193.142.147.209:24256 - "POST / HTTP/1.1" 405 Method Not Allowed
+verdaxis-backend  | INFO:     64.62.197.107:9850 - "GET / HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     64.62.197.117:38453 - "GET /favicon.ico HTTP/1.1" 404 Not Found
+verdaxis-backend  | INFO:     64.62.197.112:16783 - "GET http%3A//api.ipify.org/?format=json HTTP/1.1" 404 Not Found
+verdaxis-backend  | INFO:     64.62.197.117:14151 - "CONNECT www.shadowserver.org%3A443 HTTP/1.1" 404 Not Found
+verdaxis-backend  | INFO:     62.195.105.213:62083 - "OPTIONS /api/notifications HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     62.195.105.213:62084 - "GET /api/notifications HTTP/1.1" 307 Temporary Redirect
+verdaxis-backend  | INFO:     62.195.105.213:62084 - "OPTIONS /api/notifications/ HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     62.195.105.213:62085 - "GET /api/notifications/ HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     62.195.105.213:62085 - "OPTIONS /api/notifications/unread-count HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     62.195.105.213:62086 - "GET /api/notifications/unread-count HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     62.195.105.213:62099 - "GET /api/notifications HTTP/1.1" 307 Temporary Redirect
+verdaxis-backend  | INFO:     62.195.105.213:62099 - "GET /api/notifications/ HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     62.195.105.213:62099 - "GET /api/notifications/unread-count HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     62.195.105.213:62143 - "GET /api/notifications HTTP/1.1" 307 Temporary Redirect
+verdaxis-backend  | INFO:     62.195.105.213:62143 - "GET /api/notifications/ HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     62.195.105.213:62143 - "GET /api/notifications/unread-count HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     62.195.105.213:62176 - "GET /api/notifications HTTP/1.1" 307 Temporary Redirect
+verdaxis-backend  | INFO:     62.195.105.213:62176 - "GET /api/notifications/ HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     62.195.105.213:62176 - "GET /api/notifications/unread-count HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     62.195.105.213:62208 - "GET /api/notifications HTTP/1.1" 307 Temporary Redirect
+verdaxis-backend  | INFO:     62.195.105.213:62208 - "GET /api/notifications/ HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     62.195.105.213:62208 - "GET /api/notifications/unread-count HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     62.195.105.213:62269 - "GET /api/notifications HTTP/1.1" 307 Temporary Redirect
+verdaxis-backend  | INFO:     62.195.105.213:62269 - "GET /api/notifications/ HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     62.195.105.213:62269 - "GET /api/notifications/unread-count HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     62.195.105.213:62334 - "GET /api/notifications HTTP/1.1" 307 Temporary Redirect
+verdaxis-backend  | INFO:     62.195.105.213:62334 - "GET /api/notifications/ HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     62.195.105.213:62334 - "GET /api/notifications/unread-count HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     62.195.105.213:62465 - "GET /api/notifications HTTP/1.1" 307 Temporary Redirect
+verdaxis-backend  | INFO:     62.195.105.213:62465 - "GET /api/notifications/ HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     62.195.105.213:62465 - "GET /api/notifications/unread-count HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     62.195.105.213:62527 - "GET /api/notifications HTTP/1.1" 307 Temporary Redirect
+verdaxis-backend  | INFO:     62.195.105.213:62527 - "GET /api/notifications/ HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     62.195.105.213:62527 - "GET /api/notifications/unread-count HTTP/1.1" 200 OK
+verdaxis-backend  | WARNING:  Invalid HTTP request received.
+verdaxis-backend  | WARNING:  Invalid HTTP request received.
+verdaxis-backend  | INFO:     152.32.202.244:40924 - "GET / HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     152.32.202.244:40938 - "GET /favicon.ico HTTP/1.1" 404 Not Found
+verdaxis-backend  | INFO:     152.32.202.244:40954 - "GET /robots.txt HTTP/1.1" 404 Not Found
+verdaxis-backend  | INFO:     152.32.202.244:40956 - "GET /sitemap.xml HTTP/1.1" 404 Not Found
+verdaxis-backend  | INFO:     152.32.202.244:40964 - "GET /config.json HTTP/1.1" 404 Not Found
+verdaxis-backend  | INFO:     152.32.202.244:40976 - "GET /sse HTTP/1.1" 404 Not Found
+verdaxis-backend  | INFO:     152.32.202.244:40990 - "GET /mcp HTTP/1.1" 404 Not Found
+verdaxis-backend  | INFO:     152.32.202.244:46504 - "GET /mcp-sse HTTP/1.1" 404 Not Found
+verdaxis-backend  | INFO:     194.39.246.22:50583 - "OPTIONS /api/auth/me HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     194.39.246.22:50582 - "OPTIONS /api/auth/me HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     194.39.246.22:50584 - "GET /api/auth/me HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     194.39.246.22:50584 - "OPTIONS /api/ports HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     194.39.246.22:50583 - "OPTIONS /api/notifications HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     194.39.246.22:50586 - "OPTIONS /api/ports HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     194.39.246.22:50587 - "GET /api/auth/me HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     194.39.246.22:50588 - "GET /api/ports HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     194.39.246.22:50589 - "GET /api/notifications HTTP/1.1" 307 Temporary Redirect
+verdaxis-backend  | INFO:     194.39.246.22:50590 - "GET /api/ports HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     194.39.246.22:50589 - "OPTIONS /api/notifications/ HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     194.39.246.22:50587 - "GET /api/notifications HTTP/1.1" 307 Temporary Redirect
+verdaxis-backend  | INFO:     194.39.246.22:50588 - "GET /api/notifications/ HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     194.39.246.22:50587 - "GET /api/ports HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     194.39.246.22:50590 - "OPTIONS /api/vessels HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     194.39.246.22:50591 - "OPTIONS /api/vessels HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     194.39.246.22:50592 - "GET /api/notifications/ HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     194.39.246.22:50593 - "OPTIONS /api/notifications/unread-count HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     194.39.246.22:50588 - "GET /api/vessels HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     194.39.246.22:50594 - "GET /api/vessels HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     194.39.246.22:50587 - "GET /api/notifications/unread-count HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     194.39.246.22:50588 - "GET /api/notifications/unread-count HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     194.39.246.22:50595 - "GET /api/vessels HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     194.39.246.22:50595 - "GET /api/vessels HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     194.39.246.22:50597 - "OPTIONS /api/listings?fuel_type=Methanol HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     194.39.246.22:50598 - "OPTIONS /api/listings?fuel_type=Methanol HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     194.39.246.22:50599 - "GET /api/listings?fuel_type=Methanol HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     194.39.246.22:50599 - "GET /api/listings?fuel_type=Methanol HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     194.39.246.22:50601 - "OPTIONS /api/orders HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     194.39.246.22:50602 - "POST /api/orders HTTP/1.1" 201 Created
+verdaxis-backend  | INFO:     194.39.246.22:50604 - "GET /api/notifications HTTP/1.1" 307 Temporary Redirect
+verdaxis-backend  | INFO:     194.39.246.22:50604 - "GET /api/notifications/ HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     194.39.246.22:50604 - "GET /api/notifications/unread-count HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     194.39.246.22:50609 - "POST /api/auth/login HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     194.39.246.22:50609 - "GET /api/auth/me HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     194.39.246.22:50609 - "GET /api/notifications HTTP/1.1" 307 Temporary Redirect
+verdaxis-backend  | INFO:     194.39.246.22:50609 - "OPTIONS /api/orders/incoming HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     194.39.246.22:50612 - "OPTIONS /api/orders/incoming HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     194.39.246.22:50613 - "GET /api/notifications/ HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     194.39.246.22:50614 - "GET /api/orders/incoming HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     194.39.246.22:50613 - "GET /api/orders/incoming HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     194.39.246.22:50614 - "GET /api/notifications/unread-count HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     194.39.246.22:50631 - "GET /api/notifications HTTP/1.1" 307 Temporary Redirect
+verdaxis-backend  | INFO:     194.39.246.22:50631 - "GET /api/notifications/ HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     194.39.246.22:50631 - "GET /api/notifications/unread-count HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     194.39.246.22:50654 - "GET /api/notifications HTTP/1.1" 307 Temporary Redirect
+verdaxis-backend  | INFO:     194.39.246.22:50654 - "GET /api/notifications/ HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     194.39.246.22:50654 - "GET /api/notifications/unread-count HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     194.39.246.22:50663 - "OPTIONS /api/notifications/603b510b-0f7a-40d1-857f-b828e48a324f/read HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     194.39.246.22:50664 - "PATCH /api/notifications/603b510b-0f7a-40d1-857f-b828e48a324f/read HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     194.39.246.22:50665 - "OPTIONS /api/orders/0e0adef2-a157-4a40-a7ba-09ff27be78d8/respond HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     194.39.246.22:50666 - "PUT /api/orders/0e0adef2-a157-4a40-a7ba-09ff27be78d8/respond HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     194.39.246.22:50666 - "GET /api/orders/incoming HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     194.39.246.22:50666 - "OPTIONS /api/listings/my HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     194.39.246.22:50667 - "OPTIONS /api/listings/my HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     194.39.246.22:50668 - "GET /api/listings/my HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     194.39.246.22:50668 - "GET /api/listings/my HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     194.39.246.22:50670 - "POST /api/auth/login HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     194.39.246.22:50670 - "GET /api/auth/me HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     194.39.246.22:50670 - "GET /api/notifications HTTP/1.1" 307 Temporary Redirect
+verdaxis-backend  | INFO:     194.39.246.22:50671 - "GET /api/ports HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     194.39.246.22:50670 - "GET /api/notifications/ HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     194.39.246.22:50671 - "GET /api/ports HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     194.39.246.22:50670 - "GET /api/vessels HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     194.39.246.22:50672 - "GET /api/notifications/unread-count HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     194.39.246.22:50671 - "GET /api/ports HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     194.39.246.22:50673 - "GET /api/vessels HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     194.39.246.22:50675 - "GET /api/listings?fuel_type=Methanol HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     194.39.246.22:50675 - "GET /api/listings?fuel_type=Methanol HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     194.39.246.22:50709 - "GET /api/auth/me HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     194.39.246.22:50709 - "GET /api/auth/me HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     194.39.246.22:50710 - "GET /api/ports HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     194.39.246.22:50711 - "GET /api/notifications HTTP/1.1" 307 Temporary Redirect
+verdaxis-backend  | INFO:     194.39.246.22:50709 - "GET /api/ports HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     194.39.246.22:50711 - "GET /api/notifications HTTP/1.1" 307 Temporary Redirect
+verdaxis-backend  | INFO:     194.39.246.22:50710 - "GET /api/notifications/ HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     194.39.246.22:50712 - "GET /api/vessels HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     194.39.246.22:50713 - "GET /api/ports HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     194.39.246.22:50711 - "GET /api/notifications/ HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     194.39.246.22:50709 - "GET /api/vessels HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     194.39.246.22:50710 - "GET /api/notifications/unread-count HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     194.39.246.22:50711 - "GET /api/notifications/unread-count HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     194.39.246.22:50711 - "GET /api/listings?fuel_type=Methanol HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     194.39.246.22:50710 - "GET /api/listings?fuel_type=Methanol HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     194.39.246.22:50715 - "GET /api/notifications HTTP/1.1" 307 Temporary Redirect
+verdaxis-backend  | INFO:     194.39.246.22:50715 - "GET /api/notifications/ HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     194.39.246.22:50715 - "GET /api/notifications/unread-count HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     194.39.246.22:50740 - "GET /api/notifications HTTP/1.1" 307 Temporary Redirect
+verdaxis-backend  | INFO:     194.39.246.22:50740 - "GET /api/notifications/ HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     194.39.246.22:50740 - "GET /api/notifications/unread-count HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     194.39.246.22:50749 - "GET /api/notifications HTTP/1.1" 307 Temporary Redirect
+verdaxis-backend  | INFO:     194.39.246.22:50749 - "GET /api/notifications/ HTTP/1.1" 200 OK
+verdaxis-backend  | INFO:     194.39.246.22:50749 - "GET /api/notifications/unread-count HTTP/1.1" 200 OK

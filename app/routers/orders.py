@@ -287,7 +287,7 @@ async def respond_to_order(
     status_msg = "accepted" if response_data.status == OrderStatus.ACCEPTED else "declined"
 
     # Inventory Reservation on Acceptance
-    if response_data.status == OrderStatus.ACCEPTED:
+    if response_data.status == OrderStatus.CONFIRMED:
         # Check if enough stock
         if order.listing.quantity_mt < order.requested_quantity_mt:
              raise HTTPException(
@@ -296,7 +296,6 @@ async def respond_to_order(
             )
         
         # Deduct / Reserve stock
-        # Ensure we are working with Decimals
         order.listing.quantity_mt -= order.requested_quantity_mt
         
         # Check depletion
@@ -305,21 +304,18 @@ async def respond_to_order(
             order.listing.status = ListingStatus.INACTIVE
             
         # AUTO-CANCEL: Check other pending orders for this listing
-        # If any pending order requests more than the *now remaining* quantity, decline it.
         stmt_pending = select(Order).where(
             Order.listing_id == order.listing_id,
             Order.status == OrderStatus.PENDING,
-            Order.id != order.id # Exclude current order
+            Order.id != order.id 
         )
         result_pending = await db.execute(stmt_pending)
         pending_orders = result_pending.scalars().all()
         
         for pending in pending_orders:
             if pending.requested_quantity_mt > order.listing.quantity_mt:
-                # Auto-decline
                 pending.status = OrderStatus.DECLINED
-                
-                # Notify buyer
+                # Notify buyer logic... (omitted for brevity, assume notification logic is helper or inline)
                 stmt_buyer_users = select(User).where(User.organization_id == pending.buyer_id)
                 res_u = await db.execute(stmt_buyer_users)
                 p_buyers = res_u.scalars().all()
@@ -331,6 +327,8 @@ async def respond_to_order(
                         message=f"Your order for {pending.requested_quantity_mt} MT was declined because the available stock has dropped to {order.listing.quantity_mt} MT.",
                         data={"order_id": str(pending.id)}
                     ))
+    
+    status_msg = "confirmed" if response_data.status == OrderStatus.CONFIRMED else "declined"
     
     for user in buyer_users:
         notification = Notification(
@@ -348,15 +346,15 @@ async def respond_to_order(
     return order
 
 
-@router.put("/{order_id}/complete", response_model=OrderResponse)
-async def complete_order(
+@router.put("/{order_id}/deliver", response_model=OrderResponse)
+async def deliver_order(
     order_id: UUID,
     completion_data: OrderComplete,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Complete an Order match and calculate commission.
+    Deliver an Order (was 'Complete'). Signs off on final quantity (BDN).
     """
     # Eager load listing to check ownership
     result = await db.execute(select(Order).options(selectinload(Order.listing)).where(Order.id == order_id))
@@ -368,28 +366,28 @@ async def complete_order(
             detail="Order not found"
         )
     
-    # Can be completed by buyer or supplier
+    # Can be marked delivered by buyer or supplier (usually supplier uploads BDN, buyer confirms, or vice versa)
     is_buyer = order.buyer_id == current_user.organization_id
     is_supplier = order.listing.supplier_id == current_user.organization_id
     
     if not (is_buyer or is_supplier):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only matched parties can complete this Order"
+            detail="Only matched parties can update this Order"
         )
     
-    if order.status != OrderStatus.ACCEPTED:
+    if order.status != OrderStatus.CONFIRMED:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Order must be ACCEPTED before completion"
+            detail="Order must be CONFIRMED before delivery"
         )
     
     # Set final deal details
     order.final_quantity_mt = completion_data.final_quantity_mt
     order.final_price_per_mt = completion_data.final_price_per_mt
     order.final_total_usd = completion_data.final_quantity_mt * completion_data.final_price_per_mt
-    order.completed_at = datetime.utcnow()
-    order.status = OrderStatus.COMPLETED
+    order.completed_at = datetime.utcnow() # Reuse field for delivery timestamp
+    order.status = OrderStatus.DELIVERED
     
     # Calculate commission
     commission_amount = order.final_total_usd * (order.commission_rate_pct / 100)
@@ -404,13 +402,8 @@ async def complete_order(
     
     db.add(commission)
 
-    # Update Listing Inventory
+    # Update Listing Inventory (Adjustment Logic)
     listing = order.listing
-    
-    # Inventory was already reserved (deducted) at Acceptance based on requested_quantity_mt.
-    # Now valid adjust for any difference in the final quantity.
-    # e.g., Requested 50, Final 45 -> Return 5 to inventory.
-    # e.g., Requested 50, Final 55 -> Deduct 5 more (if available).
     
     quantity_diff = order.requested_quantity_mt - order.final_quantity_mt
     
@@ -422,14 +415,67 @@ async def complete_order(
         listing.quantity_mt = Decimal(0)
         listing.status = ListingStatus.INACTIVE
     else:
-        # If it was inactive but we refunded stock, we might want to make it active again?
-        # For now, let's keep it simple. If we add stock back, we ensure it's ACTIVE if > 0.
         if listing.status == ListingStatus.INACTIVE and listing.quantity_mt > 0:
             listing.status = ListingStatus.ACTIVE
         
     await db.commit()
     await db.refresh(order)
     
+    return order
+
+
+@router.post("/{order_id}/pay", response_model=OrderResponse)
+async def mark_order_paid(
+    order_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Supplier marks the order as PAID.
+    """
+    if current_user.role != UserRole.SUPPLIER:
+         raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only suppliers can mark orders as paid"
+        )
+        
+    order = await db.get(Order, order_id)
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+        
+    # Check ownership (could use eager load above or just check here if we trust ID logic)
+    # Better to act safely
+    # Query again with listing if needed, but 'order.listing_id' helps us find listing -> supplier?
+    # Actually Order doesn't link directly to supplier_id column, it's via listing relations.
+    # Let's do a join or re-query.
+    
+    res = await db.execute(select(Order).options(selectinload(Order.listing)).where(Order.id == order_id))
+    order = res.scalars().first()
+    
+    if order.listing.supplier_id != current_user.organization_id:
+         raise HTTPException(status_code=403, detail="Not your order")
+         
+    if order.status != OrderStatus.DELIVERED:
+        raise HTTPException(status_code=400, detail="Order must be DELIVERED before payment")
+        
+    order.status = OrderStatus.PAID
+    
+    # Notify buyer
+    stmt = select(User).where(User.organization_id == order.buyer_id)
+    res = await db.execute(stmt)
+    buyer_users = res.scalars().all()
+    
+    for user in buyer_users:
+        db.add(Notification(
+            recipient_id=user.id,
+            type=NotificationType.ORDER_UPDATE,
+            title="Payment Received",
+            message=f"The supplier has confirmed payment for Order #{str(order.id)[:8]}.",
+            data={"order_id": str(order.id)}
+        ))
+        
+    await db.commit()
+    await db.refresh(order)
     return order
 
 
