@@ -284,7 +284,7 @@ async def respond_to_order(
     result = await db.execute(stmt)
     buyer_users = result.scalars().all()
     
-    status_msg = "accepted" if response_data.status == OrderStatus.ACCEPTED else "declined"
+    status_msg = "accepted" if response_data.status == OrderStatus.CONFIRMED else "declined"
 
     # Inventory Reservation on Acceptance
     if response_data.status == OrderStatus.CONFIRMED:
