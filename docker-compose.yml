@@ -54,6 +54,10 @@ services:
     build:
       context: ../verdaxis-frontend
       dockerfile: Dockerfile
+      args:
+        - VITE_API_URL=http://144.126.151.136:8000/api
+        - VITE_AUTHENTIK_URL=http://144.126.151.136:9000
+        - VITE_AUTHENTIK_CLIENT_ID=verdaxis-client-id
     container_name: verdaxis-frontend
     restart: always
     ports:
