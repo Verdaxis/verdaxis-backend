@@ -21,6 +21,14 @@ class OrgType(str, enum.Enum):
     FUEL_SUPPLIER = "FUEL_SUPPLIER"
     PORT_AUTHORITY = "PORT_AUTHORITY"
 
+
+class TierLabel(str, enum.Enum):
+    TIER_1_PRODUCER = "Tier 1 Producer"
+    MAJOR_TRADER = "Major Trader"
+    REGIONAL_SUPPLIER = "Regional Supplier"
+    INDEPENDENT = "Independent Supplier"
+
+
 class Organization(Base):
     __tablename__ = "organizations"
 
@@ -28,6 +36,7 @@ class Organization(Base):
     name: Mapped[str] = mapped_column(String, nullable=False)
     domain: Mapped[str | None] = mapped_column(String, unique=True, nullable=True)
     type: Mapped[OrgType] = mapped_column(Enum(OrgType, native_enum=False), nullable=False)
+    supplier_tier: Mapped[TierLabel] = mapped_column(Enum(TierLabel, native_enum=False), default=TierLabel.INDEPENDENT)
     tax_id: Mapped[str | None] = mapped_column(String)
     country_code: Mapped[str | None] = mapped_column(String(2))
     verification_status: Mapped[str] = mapped_column(String, default="PENDING")

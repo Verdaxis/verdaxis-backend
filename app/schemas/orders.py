@@ -69,7 +69,7 @@ class PublicListingBase(BaseModel):
 
 class PublicListingCreate(PublicListingBase):
     """Used by suppliers to create a new listing."""
-    tier_label: TierLabel = TierLabel.REGIONAL_SUPPLIER
+    pass
 
 
 class PublicListingUpdate(BaseModel):

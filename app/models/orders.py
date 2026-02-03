@@ -6,6 +6,7 @@ import enum
 from datetime import datetime, date
 from decimal import Decimal
 from app.database import Base
+from app.models.user import TierLabel
 
 
 class ListingStatus(str, enum.Enum):
@@ -49,13 +50,6 @@ class AvailabilityWindow(str, enum.Enum):
     FORWARD_2028 = "Forward 2028"
 
 
-class TierLabel(str, enum.Enum):
-    TIER_1_PRODUCER = "Tier 1 Producer"
-    MAJOR_TRADER = "Major Trader"
-    REGIONAL_SUPPLIER = "Regional Supplier"
-    INDEPENDENT = "Independent Supplier"
-
-
 class PublicListing(Base):
     """
     Anonymized fuel listing visible to all buyers.
@@ -75,16 +69,10 @@ class PublicListing(Base):
     
     quantity_mt: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     price_per_mt_usd: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
-    
+
     availability_window: Mapped[AvailabilityWindow] = mapped_column(
         Enum(AvailabilityWindow, native_enum=False), 
         default=AvailabilityWindow.SPOT
-    )
-    
-    # Anonymized label shown to buyers
-    tier_label: Mapped[TierLabel] = mapped_column(
-        Enum(TierLabel, native_enum=False), 
-        default=TierLabel.REGIONAL_SUPPLIER
     )
     
     # Certifications as JSON array: ["ISCC", "Nanolumi", "ProofOfSustainability"]
@@ -105,6 +93,12 @@ class PublicListing(Base):
     # Relationships
     supplier = relationship("Organization", back_populates="listings")
     orders = relationship("Order", back_populates="listing")
+
+    @property
+    def tier_label(self) -> TierLabel:
+        if self.supplier:
+            return self.supplier.supplier_tier
+        return TierLabel.INDEPENDENT
 
 
 class Order(Base):

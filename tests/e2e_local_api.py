@@ -88,7 +88,6 @@ def main():
             "quantity_mt": 1000,
             "price_per_mt_usd": 100.0, # Very low price to be unique/cheapest
             "availability_window": "Spot",
-            "tier_label": "Tier 1 Producer",
             "certifications": ["ISCC"]
         }
         resp = client.post(f"{BASE_URL}/listings", json=listing_payload, headers=seller_headers)
