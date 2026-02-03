@@ -285,6 +285,24 @@ async def respond_to_order(
     buyer_users = result.scalars().all()
     
     status_msg = "accepted" if response_data.status == OrderStatus.ACCEPTED else "declined"
+
+    # Inventory Reservation on Acceptance
+    if response_data.status == OrderStatus.ACCEPTED:
+        # Check if enough stock
+        if order.listing.quantity_mt < order.requested_quantity_mt:
+             raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Insufficient stock to accept this order. Requested: {order.requested_quantity_mt}, Available: {order.listing.quantity_mt}"
+            )
+        
+        # Deduct / Reserve stock
+        # Ensure we are working with Decimals
+        order.listing.quantity_mt -= order.requested_quantity_mt
+        
+        # Check depletion
+        if order.listing.quantity_mt <= 0:
+            order.listing.quantity_mt = Decimal(0)
+            order.listing.status = ListingStatus.INACTIVE
     
     for user in buyer_users:
         notification = Notification(
@@ -360,17 +378,26 @@ async def complete_order(
 
     # Update Listing Inventory
     listing = order.listing
-    # Ensure we are using Decimal for calculation if quantity_mt is Decimal, or float if float.
-    # Models say Numeric(12, 2) which maps to Decimal in Python/SQLAlchemy usually, but let's be safe.
-    # listing.quantity_mt is mapped as Decimal in models/orders.py
     
-    # Deduct the finalized quantity from the listing
-    listing.quantity_mt -= order.final_quantity_mt
+    # Inventory was already reserved (deducted) at Acceptance based on requested_quantity_mt.
+    # Now valid adjust for any difference in the final quantity.
+    # e.g., Requested 50, Final 45 -> Return 5 to inventory.
+    # e.g., Requested 50, Final 55 -> Deduct 5 more (if available).
     
+    quantity_diff = order.requested_quantity_mt - order.final_quantity_mt
+    
+    if quantity_diff != 0:
+        listing.quantity_mt += quantity_diff
+        
     # Check if inventory is depleted (or negative, which shouldn't happen but good to handle)
     if listing.quantity_mt <= 0:
         listing.quantity_mt = Decimal(0)
         listing.status = ListingStatus.INACTIVE
+    else:
+        # If it was inactive but we refunded stock, we might want to make it active again?
+        # For now, let's keep it simple. If we add stock back, we ensure it's ACTIVE if > 0.
+        if listing.status == ListingStatus.INACTIVE and listing.quantity_mt > 0:
+            listing.status = ListingStatus.ACTIVE
         
     await db.commit()
     await db.refresh(order)
