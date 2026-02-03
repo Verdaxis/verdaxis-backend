@@ -101,7 +101,6 @@ def main():
             "quantity_mt": 1000,
             "price_per_mt_usd": 100.0, # Very low price to be unique/cheapest
             "availability_window": "Spot",
-            "tier_label": "Tier 1 Producer",
             "certifications": ["ISCC"]
         }
         log(f"   Payload: {listing_payload}")
