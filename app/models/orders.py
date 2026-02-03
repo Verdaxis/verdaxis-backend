@@ -97,7 +97,7 @@ class PublicListing(Base):
 
     @property
     def tier_label(self) -> TierLabel:
-        if self.supplier:
+        if self.supplier and self.supplier.supplier_tier:
             return self.supplier.supplier_tier
         return TierLabel.INDEPENDENT
 

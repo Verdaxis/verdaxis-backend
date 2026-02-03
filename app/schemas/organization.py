@@ -18,7 +18,7 @@ class OrganizationResponse(OrganizationBase):
     id: UUID
     domain: Optional[str] = None
     verification_status: str
-    supplier_tier: TierLabel = TierLabel.INDEPENDENT
+    supplier_tier: Optional[TierLabel] = None
 
     class Config:
         from_attributes = True
