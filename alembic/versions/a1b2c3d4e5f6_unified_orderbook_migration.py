@@ -183,15 +183,15 @@ def upgrade() -> None:
         )
         SELECT
             doo.direct_order_id,  -- direct_order_id maps to BID order in orderbook_orders (same UUID)
-            do.buyer_id,
+            dord.buyer_id,
             doo.supplier_id,
             'SELLER',
-            do.quantity_mt,
+            dord.quantity_mt,
             doo.price_per_mt_usd,
             CASE WHEN doo.is_accepted THEN 'CONFIRMED' ELSE 'PENDING_CONFIRMATION' END,
             doo.created_at
         FROM direct_order_offers doo
-        JOIN direct_orders do ON doo.direct_order_id = do.id
+        JOIN direct_orders dord ON doo.direct_order_id = dord.id
         WHERE doo.is_accepted = true
     """)
 
