@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from app.database import get_db
 from app.models.marketplace import InventoryItem
-from app.schemas.marketplace import InventoryCreate, InventoryResponse
+from app.schemas.marketplace import InventoryCreate, InventoryItemUpdate, InventoryResponse
 from app.models.user import User, UserRole
 from app.core.auth import get_current_user
 from typing import List, Annotated
@@ -44,19 +44,15 @@ async def add_inventory(
     await db.refresh(db_item)
     return db_item
 
-@router.post("/inventory/{item_id}/publish", response_model=InventoryResponse)
-async def publish_inventory_to_listing(
+@router.patch("/inventory/{item_id}", response_model=InventoryResponse)
+async def update_inventory(
     item_id: UUID,
+    updates: InventoryItemUpdate,
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user)]
 ):
-    """
-    Publishes an internal inventory item as a PublicListing.
-    """
-    from app.models.orders import PublicListing, FuelGrade, AvailabilityWindow, TierLabel, ListingStatus
-    
     if current_user.role != UserRole.SUPPLIER:
-        raise HTTPException(status_code=403, detail="Only suppliers can publish inventory")
+        raise HTTPException(status_code=403, detail="Only suppliers can manage inventory")
 
     stmt = select(InventoryItem).where(
         InventoryItem.id == item_id,
@@ -64,25 +60,40 @@ async def publish_inventory_to_listing(
     )
     result = await db.execute(stmt)
     item = result.scalar_one_or_none()
-    
+
     if not item:
         raise HTTPException(status_code=404, detail="Inventory item not found")
 
-    # Create PublicListing from InventoryItem
-    # Note: We use some defaults for fields not present in inventory
-    new_listing = PublicListing(
-        supplier_id=current_user.organization_id,
-        region="Global",  # Default region, could be derived from port if available
-        fuel_type=item.fuel_type.value,
-        fuel_grade=FuelGrade.CONVENTIONAL,
-        quantity_mt=item.current_stock_mt,
-        price_per_mt_usd=item.price_per_mt_usd,
-        availability_window=AvailabilityWindow.SPOT,
-        tier_label=TierLabel.REGIONAL_SUPPLIER,
-        status=ListingStatus.ACTIVE
-    )
-    
-    db.add(new_listing)
+    update_data = updates.model_dump(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(item, field, value)
+
+    from datetime import datetime
+    item.updated_at = datetime.utcnow()
+
     await db.commit()
-    
+    await db.refresh(item)
     return item
+
+@router.delete("/inventory/{item_id}", status_code=204)
+async def delete_inventory(
+    item_id: UUID,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)]
+):
+    if current_user.role != UserRole.SUPPLIER:
+        raise HTTPException(status_code=403, detail="Only suppliers can manage inventory")
+
+    stmt = select(InventoryItem).where(
+        InventoryItem.id == item_id,
+        InventoryItem.supplier_id == current_user.organization_id
+    )
+    result = await db.execute(stmt)
+    item = result.scalar_one_or_none()
+
+    if not item:
+        raise HTTPException(status_code=404, detail="Inventory item not found")
+
+    await db.delete(item)
+    await db.commit()
+

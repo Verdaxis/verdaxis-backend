@@ -12,6 +12,11 @@ class NotificationType(str, enum.Enum):
     DIRECT_ORDER = "DIRECT_ORDER"
     DIRECT_ORDER_OFFER = "DIRECT_ORDER_OFFER"
     USER_STATUS = "USER_STATUS"
+    TRADE_INITIATED = "TRADE_INITIATED"
+    TRADE_CONFIRMED = "TRADE_CONFIRMED"
+    TRADE_DECLINED = "TRADE_DECLINED"
+    TRADE_DELIVERED = "TRADE_DELIVERED"
+    TRADE_PAID = "TRADE_PAID"
 
 class Notification(Base):
     __tablename__ = "notifications"

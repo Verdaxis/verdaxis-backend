@@ -1,6 +1,7 @@
 from app.models.user import User, Organization
 from app.models.port import Port, PortIntelligence, Vessel
-from app.models.marketplace import DirectOrder, InventoryItem
+from app.models.marketplace import InventoryItem
 from app.models.compliance import TraceabilityEvent, ComplianceLedger
-from app.models.orders import PublicListing, Order, Commission
+from app.models.orders import Commission
 from app.models.notification import Notification
+from app.models.orderbook import OrderBookOrder, Trade

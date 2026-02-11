@@ -7,13 +7,13 @@ from app.admin import setup_admin
 
 from app.routers.ports import router as ports_router
 from app.routers.vessels import router as vessels_router
-from app.routers.direct_orders import router as direct_orders_router
 from app.routers.inventory import router as inventory_router
 from app.routers.compliance import router as compliance_router
 from app.routers.ai import router as ai_router
-from app.routers.listings import router as listings_router
 from app.routers.orders import router as orders_router
 from app.routers.notifications import router as notifications_router
+from app.routers.orderbook import router as orderbook_router
+from app.routers.trades import router as trades_router
 
 app = FastAPI(
     title="Verdaxis Intelligence Cockpit",
@@ -36,13 +36,13 @@ app.add_middleware(
 app.include_router(auth_router, prefix=settings.API_V1_STR)
 app.include_router(ports_router, prefix=settings.API_V1_STR)
 app.include_router(vessels_router, prefix=settings.API_V1_STR)
-app.include_router(direct_orders_router, prefix=settings.API_V1_STR)
 app.include_router(inventory_router, prefix=settings.API_V1_STR)
 app.include_router(compliance_router, prefix=settings.API_V1_STR)
 app.include_router(ai_router, prefix=settings.API_V1_STR)
-app.include_router(listings_router, prefix=settings.API_V1_STR)
 app.include_router(orders_router, prefix=settings.API_V1_STR)
 app.include_router(notifications_router, prefix=settings.API_V1_STR)
+app.include_router(orderbook_router, prefix=settings.API_V1_STR)
+app.include_router(trades_router, prefix=settings.API_V1_STR)
 
 from app.routers import dashboard
 app.include_router(dashboard.router, prefix=settings.API_V1_STR)

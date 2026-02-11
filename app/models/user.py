@@ -44,7 +44,7 @@ class Organization(Base):
 
     users: Mapped[list["User"]] = relationship(back_populates="organization")
     vessels: Mapped[list["Vessel"]] = relationship(back_populates="organization")
-    listings: Mapped[list["PublicListing"]] = relationship(back_populates="supplier")
+    orderbook_orders: Mapped[list["OrderBookOrder"]] = relationship(back_populates="organization")
 
 class User(Base):
     __tablename__ = "users"
