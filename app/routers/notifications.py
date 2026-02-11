@@ -29,7 +29,7 @@ class NotificationResponse(BaseModel):
     class Config:
         from_attributes = True
 
-@router.get("/", response_model=List[NotificationResponse])
+@router.get("", response_model=List[NotificationResponse])
 async def get_notifications(
     skip: int = 0,
     limit: int = 50,
