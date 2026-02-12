@@ -17,6 +17,7 @@ class NotificationType(str, enum.Enum):
     TRADE_DECLINED = "TRADE_DECLINED"
     TRADE_DELIVERED = "TRADE_DELIVERED"
     TRADE_PAID = "TRADE_PAID"
+    MATCH_SUGGESTION = "MATCH_SUGGESTION"
 
 class Notification(Base):
     __tablename__ = "notifications"
