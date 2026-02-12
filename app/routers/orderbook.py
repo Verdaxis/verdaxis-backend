@@ -15,7 +15,9 @@ from app.schemas.orderbook import (
     OrderResponse,
     OrderMyResponse,
     AggregatedOrderbookResponse,
+    OrderResponseWithCI,
 )
+from app.services.ci_pricing import calculate_ci_adjusted_price
 
 router = APIRouter(prefix="/orderbook", tags=["orderbook"])
 
@@ -85,6 +87,50 @@ async def list_asks(
     result = await db.execute(query)
     orders = result.scalars().all()
     return orders
+
+
+@router.get("/with-ci", response_model=list[OrderResponseWithCI])
+async def list_orders_with_ci(
+    region: Optional[str] = Query(None),
+    fuel_type: Optional[str] = Query(None),
+    side: Optional[OrderSide] = Query(None),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    List open orders enriched with CI-adjusted pricing.
+    Orders that have carbon_intensity and energy_density populated
+    will include the ci_adjusted_price object.
+    """
+    query = (
+        select(OrderBookOrder)
+        .options(selectinload(OrderBookOrder.organization))
+        .where(OrderBookOrder.status.in_([OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED]))
+    )
+    if region:
+        query = query.where(OrderBookOrder.region.ilike(f"%{region}%"))
+    if fuel_type:
+        query = query.where(OrderBookOrder.fuel_type.ilike(f"%{fuel_type}%"))
+    if side:
+        query = query.where(OrderBookOrder.side == side)
+    query = query.order_by(OrderBookOrder.created_at.desc())
+
+    result = await db.execute(query)
+    orders = result.scalars().all()
+
+    enriched = []
+    for order in orders:
+        ci_price = None
+        if order.carbon_intensity_gco2_mj and order.energy_density_mj_kg:
+            ci_price = calculate_ci_adjusted_price(
+                base_price_per_mt=order.price_per_mt_usd,
+                carbon_intensity_gco2_mj=order.carbon_intensity_gco2_mj,
+                energy_density_mj_kg=order.energy_density_mj_kg,
+            )
+        resp = OrderResponseWithCI.model_validate(order)
+        resp.ci_adjusted_price = ci_price
+        enriched.append(resp)
+
+    return enriched
 
 
 @router.get("/my", response_model=list[OrderMyResponse])
