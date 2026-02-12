@@ -202,3 +202,26 @@ class PriceDiscoveryResponse(BaseModel):
     """Wrapper for multiple price summaries."""
     summaries: list[PriceSummary]
     generated_at: datetime
+
+
+# ============== CI-Adjusted Pricing ==============
+
+class CIAdjustedPrice(BaseModel):
+    """
+    CI-adjusted effective price for an orderbook order.
+
+    effective_price = base_price + compliance_cost_differential
+    where compliance_cost accounts for the carbon intensity gap
+    vs FuelEU Maritime reference value (91 gCO2eq/MJ for 2025).
+    """
+    base_price_per_mt: Decimal
+    carbon_intensity_gco2_mj: Decimal
+    fueleu_ghg_intensity: Decimal
+    compliance_cost_per_mt: Decimal
+    effective_price_per_mt: Decimal
+    ghg_reduction_pct: Decimal
+
+
+class OrderResponseWithCI(OrderResponse):
+    """OrderResponse enriched with CI-adjusted pricing when CI data is available."""
+    ci_adjusted_price: Optional[CIAdjustedPrice] = None
