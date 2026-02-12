@@ -6,3 +6,4 @@ from app.models.orders import Commission
 from app.models.notification import Notification
 from app.models.orderbook import OrderBookOrder, Trade
 from app.models.matchmaking import MatchSuggestion
+from app.models.producer import ProducerProject
