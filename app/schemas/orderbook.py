@@ -180,3 +180,25 @@ class AggregatedOrderbookResponse(BaseModel):
     max_price: Decimal
     total_quantity: Decimal
     order_count: int
+
+
+# ============== Price Discovery ==============
+
+class PriceSummary(BaseModel):
+    """Aggregated trade price data for a fuel_type + region pair."""
+    fuel_type: str
+    region: str
+    last_price: Optional[Decimal] = None
+    avg_price_24h: Optional[Decimal] = None
+    high_24h: Optional[Decimal] = None
+    low_24h: Optional[Decimal] = None
+    volume_24h: Decimal = Decimal("0")
+    trade_count_24h: int = 0
+    price_change_pct: Optional[Decimal] = None
+    last_trade_at: Optional[datetime] = None
+
+
+class PriceDiscoveryResponse(BaseModel):
+    """Wrapper for multiple price summaries."""
+    summaries: list[PriceSummary]
+    generated_at: datetime
