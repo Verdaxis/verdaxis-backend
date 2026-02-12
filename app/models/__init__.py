@@ -5,3 +5,4 @@ from app.models.compliance import TraceabilityEvent, ComplianceLedger
 from app.models.orders import Commission
 from app.models.notification import Notification
 from app.models.orderbook import OrderBookOrder, Trade
+from app.models.matchmaking import MatchSuggestion
