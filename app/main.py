@@ -18,6 +18,7 @@ from app.routers.price_discovery import router as price_discovery_router
 from app.routers.matchmaking import router as matchmaking_router
 from app.routers.producers import router as producers_router
 from app.routers.availability import router as availability_router
+from app.routers.demand import router as demand_router
 
 app = FastAPI(
     title="Verdaxis Intelligence Cockpit",
@@ -51,6 +52,7 @@ app.include_router(price_discovery_router, prefix=settings.API_V1_STR)
 app.include_router(matchmaking_router, prefix=settings.API_V1_STR)
 app.include_router(producers_router, prefix=settings.API_V1_STR)
 app.include_router(availability_router, prefix=settings.API_V1_STR)
+app.include_router(demand_router, prefix=settings.API_V1_STR)
 
 from app.routers import dashboard
 app.include_router(dashboard.router, prefix=settings.API_V1_STR)
