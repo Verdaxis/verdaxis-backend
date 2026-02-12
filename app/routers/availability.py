@@ -64,7 +64,7 @@ async def get_fuel_availability(
                 port_name=row.port_name,
                 lat=row.lat,
                 lng=row.lng,
-                fuel_type=str(row.fuel_type),
+                fuel_type=row.fuel_type.value if hasattr(row.fuel_type, 'value') else str(row.fuel_type),
                 total_stock_mt=total,
                 supplier_count=row.supplier_count or 0,
                 availability_level=_classify_availability(total),
