@@ -94,6 +94,14 @@ class OrderBookOrder(Base):
     certifications: Mapped[list | None] = mapped_column(JSON, default=list)
     is_verdaxis_verified: Mapped[bool] = mapped_column(Boolean, default=False)
 
+    # CI data (optional -- populated by supplier for ASK orders)
+    carbon_intensity_gco2_mj: Mapped[Decimal | None] = mapped_column(
+        Numeric(8, 2), nullable=True, comment="gCO2eq/MJ well-to-wake"
+    )
+    energy_density_mj_kg: Mapped[Decimal | None] = mapped_column(
+        Numeric(6, 2), nullable=True, comment="MJ/kg lower heating value"
+    )
+
     # Status
     status: Mapped[OrderBookStatus] = mapped_column(
         Enum(OrderBookStatus, native_enum=False),
