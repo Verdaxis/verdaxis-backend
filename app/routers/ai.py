@@ -9,7 +9,7 @@ router = APIRouter()
 @router.post("/ai/chat")
 async def chat(
     message: str = Body(..., embed=True),
-    history: List[Dict[str, str]] = Body([], embed=True),
+    history: List[Dict[str, str]] = Body(default_factory=list, embed=True),
     current_user: Annotated[User, Depends(get_current_user)] = None
 ):
     response = await chat_with_copilot(message, history)

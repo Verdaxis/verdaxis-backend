@@ -6,12 +6,12 @@ from typing import Annotated, List
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload, joinedload
+from sqlalchemy.orm import joinedload
 from uuid import UUID
 
 from app.database import get_db
 from app.routers.auth_simple import get_current_user
-from app.models.user import User, UserRole, Organization
+from app.models.user import User, UserRole
 from app.models.orderbook import (
     OrderBookOrder,
     Trade,
@@ -84,7 +84,7 @@ async def notify_org_users(
         )
 
 
-async def _load_trade(db: AsyncSession, trade_id: uuid.UUID) -> Trade:
+async def _load_trade(db: AsyncSession, trade_id: uuid.UUID, for_update: bool = False) -> Trade:
     """Reload a trade with all relationships needed for the response."""
     stmt = (
         select(Trade)
@@ -96,6 +96,8 @@ async def _load_trade(db: AsyncSession, trade_id: uuid.UUID) -> Trade:
             joinedload(Trade.ask_order),
         )
     )
+    if for_update:
+        stmt = stmt.with_for_update()
     result = await db.execute(stmt)
     trade = result.unique().scalar_one_or_none()
     if trade is None:
@@ -113,97 +115,106 @@ async def create_trade(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user)],
 ):
-    # Fetch the target order
-    stmt = (
-        select(OrderBookOrder)
-        .where(OrderBookOrder.id == payload.order_id)
-        .options(joinedload(OrderBookOrder.organization))
-    )
-    result = await db.execute(stmt)
-    order = result.unique().scalar_one_or_none()
-
-    if order is None:
-        raise HTTPException(status_code=404, detail="Order not found")
-
-    if order.status not in (OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED):
-        raise HTTPException(status_code=400, detail="Order is not available for trading")
-
-    # Determine sides
-    if order.side == OrderSide.ASK:
-        # User is the BUYER hitting a seller's ask
-        buyer_org_id = current_user.organization_id
-        seller_org_id = order.organization_id
-        initiated_by = Initiator.BUYER
-        ask_order_id = order.id
-        bid_order_id = None
-        counterparty_org_id = seller_org_id
-
-        if current_user.role != UserRole.BUYER:
-            raise HTTPException(
-                status_code=403,
-                detail="Only buyers can hit an ASK order",
-            )
-    else:
-        # order.side == BID -- User is the SELLER hitting a buyer's bid
-        buyer_org_id = order.organization_id
-        seller_org_id = current_user.organization_id
-        initiated_by = Initiator.SELLER
-        bid_order_id = order.id
-        ask_order_id = None
-        counterparty_org_id = buyer_org_id
-
-        if current_user.role != UserRole.SUPPLIER:
-            raise HTTPException(
-                status_code=403,
-                detail="Only suppliers can hit a BID order",
-            )
-
-    # Prevent self-trade
-    if order.organization_id == current_user.organization_id:
-        raise HTTPException(status_code=400, detail="Cannot trade with your own order")
-
-    # Quantity check
-    if payload.quantity_mt > order.remaining_quantity_mt:
+    if not current_user.organization_id:
         raise HTTPException(
-            status_code=400,
-            detail=f"Requested quantity ({payload.quantity_mt}) exceeds remaining ({order.remaining_quantity_mt})",
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="User must belong to an organization to trade",
         )
 
-    # Create the trade
-    trade = Trade(
-        bid_order_id=bid_order_id,
-        ask_order_id=ask_order_id,
-        buyer_id=buyer_org_id,
-        seller_id=seller_org_id,
-        initiated_by=initiated_by,
-        quantity_mt=payload.quantity_mt,
-        price_per_mt_usd=order.price_per_mt_usd,
-        status=TradeStatus.PENDING_CONFIRMATION,
-    )
-    db.add(trade)
+    async with db.begin():
+        # Lock the target order row to prevent concurrent over-fills.
+        stmt = (
+            select(OrderBookOrder)
+            .where(OrderBookOrder.id == payload.order_id)
+            .options(joinedload(OrderBookOrder.organization))
+            .with_for_update()
+        )
+        result = await db.execute(stmt)
+        order = result.unique().scalar_one_or_none()
 
-    # Update order remaining quantity and status
-    order.remaining_quantity_mt -= payload.quantity_mt
+        if order is None:
+            raise HTTPException(status_code=404, detail="Order not found")
 
-    if order.remaining_quantity_mt == Decimal("0"):
-        order.status = OrderBookStatus.FILLED
-    elif order.status == OrderBookStatus.OPEN:
-        order.status = OrderBookStatus.PARTIALLY_FILLED
+        if order.status not in (OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED):
+            raise HTTPException(status_code=400, detail="Order is not available for trading")
 
-    # Flush to get the trade id
-    await db.flush()
+        if order.expires_at and order.expires_at <= datetime.utcnow():
+            raise HTTPException(status_code=400, detail="Order has expired")
 
-    # Notify counterparty organization
-    await notify_org_users(
-        db,
-        counterparty_org_id,
-        NotificationType.ORDER_UPDATE,
-        "New Trade Request",
-        f"A new trade request for {payload.quantity_mt} MT at ${order.price_per_mt_usd}/MT has been placed.",
-        {"trade_id": str(trade.id)},
-    )
+        # Determine sides
+        if order.side == OrderSide.ASK:
+            # User is the BUYER hitting a seller's ask
+            buyer_org_id = current_user.organization_id
+            seller_org_id = order.organization_id
+            initiated_by = Initiator.BUYER
+            ask_order_id = order.id
+            bid_order_id = None
+            counterparty_org_id = seller_org_id
 
-    await db.commit()
+            if current_user.role != UserRole.BUYER:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Only buyers can hit an ASK order",
+                )
+        else:
+            # order.side == BID -- User is the SELLER hitting a buyer's bid
+            buyer_org_id = order.organization_id
+            seller_org_id = current_user.organization_id
+            initiated_by = Initiator.SELLER
+            bid_order_id = order.id
+            ask_order_id = None
+            counterparty_org_id = buyer_org_id
+
+            if current_user.role != UserRole.SUPPLIER:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Only suppliers can hit a BID order",
+                )
+
+        # Prevent self-trade
+        if order.organization_id == current_user.organization_id:
+            raise HTTPException(status_code=400, detail="Cannot trade with your own order")
+
+        # Quantity check
+        if payload.quantity_mt > order.remaining_quantity_mt:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Requested quantity ({payload.quantity_mt}) exceeds remaining ({order.remaining_quantity_mt})",
+            )
+
+        # Create the trade
+        trade = Trade(
+            bid_order_id=bid_order_id,
+            ask_order_id=ask_order_id,
+            buyer_id=buyer_org_id,
+            seller_id=seller_org_id,
+            initiated_by=initiated_by,
+            quantity_mt=payload.quantity_mt,
+            price_per_mt_usd=order.price_per_mt_usd,
+            status=TradeStatus.PENDING_CONFIRMATION,
+        )
+        db.add(trade)
+
+        # Update order remaining quantity and status
+        order.remaining_quantity_mt -= payload.quantity_mt
+
+        if order.remaining_quantity_mt == Decimal("0"):
+            order.status = OrderBookStatus.FILLED
+        elif order.status == OrderBookStatus.OPEN:
+            order.status = OrderBookStatus.PARTIALLY_FILLED
+
+        # Flush to get the trade id
+        await db.flush()
+
+        # Notify counterparty organization
+        await notify_org_users(
+            db,
+            counterparty_org_id,
+            NotificationType.ORDER_UPDATE,
+            "New Trade Request",
+            f"A new trade request for {payload.quantity_mt} MT at ${order.price_per_mt_usd}/MT has been placed.",
+            {"trade_id": str(trade.id)},
+        )
 
     # Reload with relationships for response
     loaded_trade = await _load_trade(db, trade.id)
@@ -248,7 +259,7 @@ async def confirm_trade(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user)],
 ):
-    trade = await _load_trade(db, trade_id)
+    trade = await _load_trade(db, trade_id, for_update=True)
     org_id = current_user.organization_id
 
     if trade.status != TradeStatus.PENDING_CONFIRMATION:
@@ -296,7 +307,7 @@ async def decline_trade(
     current_user: Annotated[User, Depends(get_current_user)],
 ):
     # Load trade with order relationships for quantity restore
-    trade = await _load_trade(db, trade_id)
+    trade = await _load_trade(db, trade_id, for_update=True)
     org_id = current_user.organization_id
 
     if trade.status != TradeStatus.PENDING_CONFIRMATION:
@@ -351,7 +362,7 @@ async def deliver_trade(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user)],
 ):
-    trade = await _load_trade(db, trade_id)
+    trade = await _load_trade(db, trade_id, for_update=True)
     org_id = current_user.organization_id
 
     if trade.status != TradeStatus.CONFIRMED:
@@ -360,6 +371,11 @@ async def deliver_trade(
     # Either party can mark as delivered
     if org_id not in (trade.buyer_id, trade.seller_id):
         raise HTTPException(status_code=403, detail="Not authorized for this trade")
+    if payload.final_quantity_mt > trade.quantity_mt:
+        raise HTTPException(
+            status_code=400,
+            detail="final_quantity_mt cannot exceed originally traded quantity",
+        )
 
     trade.final_quantity_mt = payload.final_quantity_mt
     trade.final_price_per_mt = payload.final_price_per_mt
@@ -398,7 +414,7 @@ async def pay_trade(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user)],
 ):
-    trade = await _load_trade(db, trade_id)
+    trade = await _load_trade(db, trade_id, for_update=True)
     org_id = current_user.organization_id
 
     if trade.status != TradeStatus.DELIVERED:
