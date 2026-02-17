@@ -9,7 +9,7 @@ import psutil
 import time
 import os
 import sqladmin
-from secrets import compare_digest
+from secrets import compare_digest, token_hex
 from starlette.templating import Jinja2Templates
 from sqlalchemy import text
 
@@ -28,7 +28,7 @@ class AdminAuth(AuthenticationBackend):
             return False
 
         if compare_digest(username or "", configured_username) and compare_digest(password or "", configured_password):
-            request.session.update({"token": "admin-token"})
+            request.session.update({"token": token_hex(32)})
             return True
         return False
 

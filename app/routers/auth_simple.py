@@ -13,7 +13,6 @@ from app.core.security import verify_password, get_password_hash, create_access_
 from pydantic import BaseModel
 import uuid
 import re
-from jose import jwt, JWTError
 
 class RegisterWithOrgRequest(BaseModel):
     registration_token: str
@@ -48,6 +47,13 @@ async def get_current_user(token: Annotated[str, Depends(oauth2_scheme)], db: As
     
     if user is None:
         raise credentials_exception
+
+    if user.status != UserStatus.APPROVED:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Account is {user.status.value}. Please wait for admin approval.",
+        )
+
     return user
 
 @router.post("/login")
