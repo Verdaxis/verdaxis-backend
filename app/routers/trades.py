@@ -6,7 +6,7 @@ from typing import Annotated, List
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import joinedload, selectinload
 from uuid import UUID
 
 from app.database import get_db
@@ -90,10 +90,10 @@ async def _load_trade(db: AsyncSession, trade_id: uuid.UUID, for_update: bool = 
         select(Trade)
         .where(Trade.id == trade_id)
         .options(
-            joinedload(Trade.buyer),
-            joinedload(Trade.seller),
-            joinedload(Trade.bid_order),
-            joinedload(Trade.ask_order),
+            selectinload(Trade.buyer),
+            selectinload(Trade.seller),
+            selectinload(Trade.bid_order),
+            selectinload(Trade.ask_order),
         )
     )
     if for_update:
@@ -125,7 +125,6 @@ async def create_trade(
     stmt = (
         select(OrderBookOrder)
         .where(OrderBookOrder.id == payload.order_id)
-        .options(joinedload(OrderBookOrder.organization))
         .with_for_update()
     )
     result = await db.execute(stmt)
