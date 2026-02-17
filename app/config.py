@@ -29,6 +29,10 @@ class Settings(BaseSettings):
     
     # Dev/Test Auth Bypass
     ENABLE_AUTH_BYPASS: bool = False
+
+    # Admin UI credentials (required to log in to /admin)
+    ADMIN_USERNAME: Optional[str] = None
+    ADMIN_PASSWORD: Optional[str] = None
     
     JWT_SECRET: str = "***REMOVED***" 
     JWT_ALGORITHM: str = "HS256" # Changed to HS256 for simple auth

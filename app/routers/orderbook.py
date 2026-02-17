@@ -291,6 +291,16 @@ async def create_order(
     """
     Place a new order. BID requires BUYER role, ASK requires SUPPLIER role.
     """
+    if (
+        order_data.delivery_window_start
+        and order_data.delivery_window_end
+        and order_data.delivery_window_start > order_data.delivery_window_end
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="delivery_window_start cannot be later than delivery_window_end",
+        )
+
     if order_data.side == OrderSide.BID and current_user.role != UserRole.BUYER:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -381,6 +391,14 @@ async def update_order(
 
     update_dict = update_data.model_dump(exclude_unset=True)
 
+    new_start = update_dict.get("delivery_window_start", order.delivery_window_start)
+    new_end = update_dict.get("delivery_window_end", order.delivery_window_end)
+    if new_start and new_end and new_start > new_end:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="delivery_window_start cannot be later than delivery_window_end",
+        )
+
     # If quantity_mt changes, recalculate remaining_quantity_mt proportionally
     if "quantity_mt" in update_dict:
         old_quantity = order.quantity_mt
@@ -394,6 +412,8 @@ async def update_order(
                 detail="New quantity cannot be less than already filled amount",
             )
         update_dict["remaining_quantity_mt"] = new_remaining
+        if new_remaining == 0:
+            update_dict["status"] = OrderBookStatus.FILLED
 
     for field, value in update_dict.items():
         setattr(order, field, value)

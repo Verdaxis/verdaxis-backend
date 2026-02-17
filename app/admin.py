@@ -9,6 +9,7 @@ import psutil
 import time
 import os
 import sqladmin
+from secrets import compare_digest
 from starlette.templating import Jinja2Templates
 from sqlalchemy import text
 
@@ -21,7 +22,12 @@ class AdminAuth(AuthenticationBackend):
         username = form.get("username")
         password = form.get("password")
 
-        if username == "admin" and password == "admin":  # TODO: Change this to real auth
+        configured_username = settings.ADMIN_USERNAME
+        configured_password = settings.ADMIN_PASSWORD
+        if not configured_username or not configured_password:
+            return False
+
+        if compare_digest(username or "", configured_username) and compare_digest(password or "", configured_password):
             request.session.update({"token": "admin-token"})
             return True
         return False
