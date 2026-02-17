@@ -1,14 +1,16 @@
 from typing import Optional, Dict, Any
+import logging
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from jose import jwt, JWTError
-import httpx
 
 from app.database import get_db
 from app.config import settings
 from app.models.user import User, UserRole, UserStatus
+
+logger = logging.getLogger(__name__)
 
 # Defines the token source - frontend will send "Authorization: Bearer <token>"
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl=f"{settings.API_V1_STR}/auth/login")
@@ -40,8 +42,8 @@ async def verify_token(token: str) -> Dict[str, Any]:
     try:
         # Simply decode using HS256 and local secret
         return jwt.decode(token, settings.JWT_SECRET, algorithms=["HS256"])
-    except JWTError as e:
-        print(f"JWT Verification Error: {e}")
+    except JWTError:
+        logger.warning("JWT verification failed")
         raise credentials_exception
 
 async def get_current_user(
@@ -90,15 +92,15 @@ async def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    email: str = payload.get("email") or payload.get("sub") # auth_simple uses 'sub' for user_id/email
-    if email is None:
+    email_or_subject: str = payload.get("email") or payload.get("sub")  # auth_simple uses 'sub' for user_id/email
+    if email_or_subject is None:
         raise HTTPException(status_code=401, detail="Token missing email/sub claim")
     
     # Check if sub is a UUID (from auth_simple) or an email
     user_id = None
     try:
         import uuid
-        user_id = uuid.UUID(email)
+        user_id = uuid.UUID(email_or_subject)
     except (ValueError, TypeError):
         pass
 
@@ -106,12 +108,21 @@ async def get_current_user(
     if user_id:
         stmt = select(User).where(User.id == user_id)
     else:
-        stmt = select(User).where(User.email == email)
+        stmt = select(User).where(User.email == email_or_subject)
         
     result = await db.execute(stmt)
     user = result.scalar_one_or_none()
 
-    # 2. JIT Provisioning
+    # If token subject is a user UUID and that user does not exist, reject.
+    # JIT provisioning only applies to identity tokens carrying an email identity.
+    if user is None and user_id is not None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token subject does not map to a valid user",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    # 2. JIT Provisioning (email-based identities only)
     if user is None:
         # Extract details from token claims
         first_name = payload.get("given_name", "")
@@ -120,7 +131,7 @@ async def get_current_user(
         # For security, new JIT users are PENDING by default
         # You might auto-approve if they match a specific domain
         new_user = User(
-            email=email,
+            email=email_or_subject,
             first_name=first_name,
             last_name=last_name,
             password_hash="sso_managed", # Placeholder, they don't use password here

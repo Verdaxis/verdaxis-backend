@@ -76,7 +76,7 @@ class OrderCreate(BaseModel):
     availability_window: AvailabilityWindow = AvailabilityWindow.SPOT
     delivery_window_start: Optional[date] = None
     delivery_window_end: Optional[date] = None
-    certifications: list[str] = []
+    certifications: list[str] = Field(default_factory=list)
     expires_at: Optional[datetime] = None
 
 
@@ -105,7 +105,7 @@ class OrderResponse(BaseModel):
     availability_window: AvailabilityWindow
     delivery_window_start: Optional[date] = None
     delivery_window_end: Optional[date] = None
-    certifications: list[str] = []
+    certifications: list[str] = Field(default_factory=list)
     is_verdaxis_verified: bool
     tier_label: TierLabel = TierLabel.INDEPENDENT
     status: OrderBookStatus

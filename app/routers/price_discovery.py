@@ -38,7 +38,7 @@ async def aggregate_trade_prices(
         TradeStatus.PAID,
     ]
 
-    stmt = (
+    aggregate_stmt = (
         select(
             OrderBookOrder.fuel_type.label("fuel_type"),
             OrderBookOrder.region.label("region"),
@@ -60,29 +60,70 @@ async def aggregate_trade_prices(
     )
 
     if fuel_type:
-        stmt = stmt.where(OrderBookOrder.fuel_type.ilike(f"%{fuel_type}%"))
+        aggregate_stmt = aggregate_stmt.where(OrderBookOrder.fuel_type.ilike(f"%{fuel_type}%"))
     if region:
-        stmt = stmt.where(OrderBookOrder.region.ilike(f"%{region}%"))
+        aggregate_stmt = aggregate_stmt.where(OrderBookOrder.region.ilike(f"%{region}%"))
 
-    stmt = stmt.group_by(OrderBookOrder.fuel_type, OrderBookOrder.region)
+    aggregate_stmt = aggregate_stmt.group_by(OrderBookOrder.fuel_type, OrderBookOrder.region)
 
-    result = await db.execute(stmt)
+    result = await db.execute(aggregate_stmt)
     rows = result.all()
+
+    latest_price_stmt = (
+        select(
+            OrderBookOrder.fuel_type.label("fuel_type"),
+            OrderBookOrder.region.label("region"),
+            Trade.price_per_mt_usd.label("last_price"),
+            Trade.created_at.label("last_trade_at"),
+            func.row_number().over(
+                partition_by=(OrderBookOrder.fuel_type, OrderBookOrder.region),
+                order_by=Trade.created_at.desc(),
+            ).label("rn"),
+        )
+        .join(
+            OrderBookOrder,
+            (Trade.ask_order_id == OrderBookOrder.id) | (Trade.bid_order_id == OrderBookOrder.id),
+        )
+        .where(
+            Trade.status.in_(valid_statuses),
+            Trade.created_at >= cutoff,
+        )
+    )
+    if fuel_type:
+        latest_price_stmt = latest_price_stmt.where(OrderBookOrder.fuel_type.ilike(f"%{fuel_type}%"))
+    if region:
+        latest_price_stmt = latest_price_stmt.where(OrderBookOrder.region.ilike(f"%{region}%"))
+
+    latest_subquery = latest_price_stmt.subquery()
+    latest_result = await db.execute(
+        select(
+            latest_subquery.c.fuel_type,
+            latest_subquery.c.region,
+            latest_subquery.c.last_price,
+            latest_subquery.c.last_trade_at,
+        ).where(latest_subquery.c.rn == 1)
+    )
+    latest_rows = latest_result.all()
+    latest_by_market = {
+        (row.fuel_type, row.region): row
+        for row in latest_rows
+    }
 
     summaries: list[PriceSummary] = []
     for row in rows:
+        latest = latest_by_market.get((row.fuel_type, row.region))
         summaries.append(
             PriceSummary(
                 fuel_type=row.fuel_type,
                 region=row.region,
-                last_price=row.high,
+                last_price=latest.last_price if latest else row.high,
                 avg_price_24h=Decimal(str(round(row.avg_price, 2))) if row.avg_price else None,
                 high_24h=row.high,
                 low_24h=row.low,
                 volume_24h=row.total_volume or Decimal("0"),
                 trade_count_24h=row.trade_count or 0,
                 price_change_pct=None,
-                last_trade_at=row.last_trade_at,
+                last_trade_at=latest.last_trade_at if latest else row.last_trade_at,
             )
         )
 

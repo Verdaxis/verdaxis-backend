@@ -6,12 +6,12 @@ from typing import Annotated, List
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload, joinedload
+from sqlalchemy.orm import joinedload, selectinload
 from uuid import UUID
 
 from app.database import get_db
 from app.routers.auth_simple import get_current_user
-from app.models.user import User, UserRole, Organization
+from app.models.user import User, UserRole
 from app.models.orderbook import (
     OrderBookOrder,
     Trade,
@@ -84,18 +84,20 @@ async def notify_org_users(
         )
 
 
-async def _load_trade(db: AsyncSession, trade_id: uuid.UUID) -> Trade:
+async def _load_trade(db: AsyncSession, trade_id: uuid.UUID, for_update: bool = False) -> Trade:
     """Reload a trade with all relationships needed for the response."""
     stmt = (
         select(Trade)
         .where(Trade.id == trade_id)
         .options(
-            joinedload(Trade.buyer),
-            joinedload(Trade.seller),
-            joinedload(Trade.bid_order),
-            joinedload(Trade.ask_order),
+            selectinload(Trade.buyer),
+            selectinload(Trade.seller),
+            selectinload(Trade.bid_order),
+            selectinload(Trade.ask_order),
         )
     )
+    if for_update:
+        stmt = stmt.with_for_update()
     result = await db.execute(stmt)
     trade = result.unique().scalar_one_or_none()
     if trade is None:
@@ -113,11 +115,17 @@ async def create_trade(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user)],
 ):
-    # Fetch the target order
+    if not current_user.organization_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="User must belong to an organization to trade",
+        )
+
+    # Lock the target order row to prevent concurrent over-fills.
     stmt = (
         select(OrderBookOrder)
         .where(OrderBookOrder.id == payload.order_id)
-        .options(joinedload(OrderBookOrder.organization))
+        .with_for_update()
     )
     result = await db.execute(stmt)
     order = result.unique().scalar_one_or_none()
@@ -127,6 +135,9 @@ async def create_trade(
 
     if order.status not in (OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED):
         raise HTTPException(status_code=400, detail="Order is not available for trading")
+
+    if order.expires_at and order.expires_at <= datetime.utcnow():
+        raise HTTPException(status_code=400, detail="Order has expired")
 
     # Determine sides
     if order.side == OrderSide.ASK:
@@ -248,7 +259,7 @@ async def confirm_trade(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user)],
 ):
-    trade = await _load_trade(db, trade_id)
+    trade = await _load_trade(db, trade_id, for_update=True)
     org_id = current_user.organization_id
 
     if trade.status != TradeStatus.PENDING_CONFIRMATION:
@@ -296,7 +307,7 @@ async def decline_trade(
     current_user: Annotated[User, Depends(get_current_user)],
 ):
     # Load trade with order relationships for quantity restore
-    trade = await _load_trade(db, trade_id)
+    trade = await _load_trade(db, trade_id, for_update=True)
     org_id = current_user.organization_id
 
     if trade.status != TradeStatus.PENDING_CONFIRMATION:
@@ -351,7 +362,7 @@ async def deliver_trade(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user)],
 ):
-    trade = await _load_trade(db, trade_id)
+    trade = await _load_trade(db, trade_id, for_update=True)
     org_id = current_user.organization_id
 
     if trade.status != TradeStatus.CONFIRMED:
@@ -360,6 +371,11 @@ async def deliver_trade(
     # Either party can mark as delivered
     if org_id not in (trade.buyer_id, trade.seller_id):
         raise HTTPException(status_code=403, detail="Not authorized for this trade")
+    if payload.final_quantity_mt > trade.quantity_mt:
+        raise HTTPException(
+            status_code=400,
+            detail="final_quantity_mt cannot exceed originally traded quantity",
+        )
 
     trade.final_quantity_mt = payload.final_quantity_mt
     trade.final_price_per_mt = payload.final_price_per_mt
@@ -398,7 +414,7 @@ async def pay_trade(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user)],
 ):
-    trade = await _load_trade(db, trade_id)
+    trade = await _load_trade(db, trade_id, for_update=True)
     org_id = current_user.organization_id
 
     if trade.status != TradeStatus.DELIVERED:
