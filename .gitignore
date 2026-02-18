@@ -44,3 +44,13 @@ env.ps1
 .DS_Store
 Thumbs.db
 backend.log
+
+# PostgreSQL data directory
+postgres_data/
+
+# Backup files
+*.bak
+
+# Ad-hoc test scripts (not proper pytest)
+test_api.py
+test_match.py
