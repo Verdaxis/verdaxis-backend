@@ -1,0 +1,16 @@
+# Dev override — enables hot-reload with efficient file watching.
+# This file is auto-loaded by `docker compose up` when present.
+# DO NOT use in production. Delete or rename to disable.
+#
+# Uses watchfiles (inotify-based) instead of StatReload (polling).
+# Only watches app source directories, not venv/postgres_data.
+services:
+  backend:
+    command: >
+      uvicorn app.main:app
+      --host 0.0.0.0
+      --port 8000
+      --reload
+      --reload-dir /app/app
+      --reload-dir /app/alembic
+      --reload-dir /app/scripts

@@ -288,3 +288,28 @@ ENABLE_AUTH_BYPASS=false        # Never true in production
 - **`main`** branch: Active development. Push triggers CI/CD deploy.
 - **`prod`** branch: Exists but currently mirrors `main`.
 - CI runs unit tests then deploys via SSH on push to `main`.
+
+## Known Gotchas (continued)
+
+15. **Never use `--reload` in production Docker.** The `docker-compose.yml` `command:` used to include `--reload`, which caused uvicorn's `StatReload` to poll all 11,243 files in the bind-mounted `/app` directory (including `venv/` with 3,267 `.py` files and `postgres_data/`). This burned 243% CPU doing nothing. The fix: production compose uses plain `uvicorn` without `--reload`; dev uses `docker-compose.override.yml` with `--reload-dir` targeting only source directories.
+
+16. **`.dockerignore` does NOT affect bind mounts.** The existing `.dockerignore` correctly excludes `venv/` and `postgres_data/` from `docker build` context, but the `volumes: - .:/app` bind mount bypasses it entirely. If using `--reload` with a bind mount, you MUST use `--reload-dir` to whitelist directories, not rely on `.dockerignore`.
+
+17. **Frontend polls `/api/notifications` even when unauthenticated.** The frontend has a polling loop that hits `GET /api/notifications` and receives `401 Unauthorized` repeatedly. This generates log noise and wastes request cycles. The frontend should check auth state before starting the polling interval, or the polling should stop after receiving a 401.
+
+18. **Server is exposed on `0.0.0.0:8000` and receives internet scanner traffic.** Random IPs probe for `/bins/`, `httpbin.org`, `/backup/`, etc. Consider restricting the backend port to `127.0.0.1:8000` in `docker-compose.yml` and letting Caddy handle external traffic exclusively.
+
+## Development with Hot Reload
+
+For local development with hot-reload, the project includes `docker-compose.override.yml`:
+
+```bash
+# Dev mode (auto-reload enabled via override):
+docker compose up -d --build
+
+# Production mode (no reload, rename override first):
+mv docker-compose.override.yml docker-compose.override.yml.dev
+docker compose up -d --build
+```
+
+The override uses `--reload-dir` to watch only `app/`, `alembic/`, and `scripts/` directories, plus `watchfiles` (inotify-based) instead of the default `StatReload` (polling). This keeps CPU near zero even in dev mode.
