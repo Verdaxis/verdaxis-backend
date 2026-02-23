@@ -1,63 +1,13 @@
 # Verdaxis Backend - Claude Code Instructions
 
+Read ARCHITECTURE.md before exploring the codebase.
+
 ## Project Overview
 
 Backend API for Verdaxis -- a maritime intelligence and procurement platform. Handles fuel procurement (order book with BID/ASK matching), compliance auditing (EU ETS, FuelEU Maritime), port intelligence with geospatial data, AI copilot via Google Gemini, and a trade lifecycle (create -> confirm -> deliver -> pay).
 
 **Repo:** `jonathanjie/verdaxis-backend`
 **Runtime:** Python 3.10+ / FastAPI / PostgreSQL 15 with PostGIS / SQLAlchemy 2 (async) / Alembic
-
-## Architecture
-
-```
-app/
-  main.py              # FastAPI app, CORS, router registration
-  config.py            # Pydantic Settings (reads .env)
-  database.py          # AsyncSession factory, Base, get_db dependency
-  admin.py             # SQLAdmin panel (User/Org CRUD + System Health page)
-  core/
-    auth.py            # get_current_user (JWT verify + JIT provisioning, legacy)
-    security.py        # bcrypt hashing, create_access_token (HS256)
-    exceptions.py      # Placeholder (empty)
-  models/              # SQLAlchemy ORM models
-    __init__.py        # Imports all models (required for Alembic autogenerate)
-    user.py            # User, Organization, UserRole, UserStatus, OrgType, TierLabel
-    port.py            # Port (PostGIS), PortIntelligence, Vessel
-    marketplace.py     # InventoryItem, FuelType enum
-    orderbook.py       # OrderBookOrder (BID/ASK), Trade, enums
-    orders.py          # Commission (legacy match_id FK + new trade_id FK)
-    matchmaking.py     # MatchSuggestion
-    notification.py    # Notification, NotificationType
-    compliance.py      # TraceabilityEvent, ComplianceLedger
-    producer.py        # ProducerProject (PostGIS location)
-  routers/             # API route handlers
-  schemas/             # Pydantic request/response models
-  services/            # Business logic
-    ai_service.py      # Google Gemini chat + document analysis (stub)
-    matchmaking.py     # Score-based BID/ASK matching (0-100 score)
-    ci_pricing.py      # Carbon intensity adjusted pricing (FuelEU ref: 91 gCO2eq/MJ)
-alembic/               # Database migrations
-scripts/               # Seed data, deploy, CSV import
-tests/
-  unit/                # Pure logic tests (no DB required)
-  integration/         # Tests against running Docker backend
-```
-
-## Tech Stack
-
-| Component      | Details                                                    |
-| -------------- | ---------------------------------------------------------- |
-| Framework      | FastAPI with async/await everywhere                        |
-| Database       | PostgreSQL 15 + PostGIS 3.3 (via `postgis/postgis` image) |
-| ORM            | SQLAlchemy 2.0 with `AsyncSession` (`asyncpg` driver)     |
-| Migrations     | Alembic (async, reads `DATABASE_URL` from Settings)        |
-| Geospatial     | GeoAlchemy2 (`Geography(POINT, 4326)`)                     |
-| Auth           | JWT HS256 (self-signed), bcrypt password hashing           |
-| AI             | Google Generative AI SDK (`gemini-pro`)                    |
-| Admin Panel    | SQLAdmin at `/admin` (session-based auth)                  |
-| Serialization  | Pydantic v2 with `from_attributes = True`                  |
-| HTTP Client    | httpx (for tests)                                          |
-| Container      | Docker Compose (postgres + redis + backend + frontend)     |
 
 ## Development Commands
 
@@ -234,6 +184,7 @@ docker exec verdaxis-backend alembic upgrade head
 8. **Role-based access control** is checked inline in route handlers (`if current_user.role != UserRole.BUYER: raise HTTPException(403, ...)`).
 9. **Router prefix pattern:** Some routers define their prefix in `APIRouter(prefix="/...")`, others rely on `@router.get("/endpoint")` path. All are mounted with `prefix=settings.API_V1_STR` (`/api`) in `main.py`.
 10. **Orderbook router: static routes before parametric.** `/bids`, `/asks`, `/my`, `/aggregated`, `/regions`, `/fuel-types`, `/with-ci` are defined before `/{order_id}` to avoid path conflicts.
+11. **After completing work, update ARCHITECTURE.md if file structure or key relationships changed.**
 
 ## Known Gotchas
 
@@ -265,6 +216,14 @@ docker exec verdaxis-backend alembic upgrade head
 
 14. **Redis container is running but unused.** `docker-compose.yml` provisions a Redis container, but no application code references Redis. It consumes memory and creates unnecessary attack surface. Should be removed or utilized.
 
+15. **Never use `--reload` in production Docker.** The `docker-compose.yml` `command:` used to include `--reload`, which caused uvicorn's `StatReload` to poll all 11,243 files in the bind-mounted `/app` directory (including `venv/` with 3,267 `.py` files and `postgres_data/`). This burned 243% CPU doing nothing. The fix: production compose uses plain `uvicorn` without `--reload`; dev uses `docker-compose.override.yml` with `--reload-dir` targeting only source directories.
+
+16. **`.dockerignore` does NOT affect bind mounts.** The existing `.dockerignore` correctly excludes `venv/` and `postgres_data/` from `docker build` context, but the `volumes: - .:/app` bind mount bypasses it entirely. If using `--reload` with a bind mount, you MUST use `--reload-dir` to whitelist directories, not rely on `.dockerignore`.
+
+17. **Frontend polls `/api/notifications` even when unauthenticated.** The frontend has a polling loop that hits `GET /api/notifications` and receives `401 Unauthorized` repeatedly. This generates log noise and wastes request cycles. The frontend should check auth state before starting the polling interval, or the polling should stop after receiving a 401.
+
+18. **Server is exposed on `0.0.0.0:8000` and receives internet scanner traffic.** Random IPs probe for `/bins/`, `httpbin.org`, `/backup/`, etc. Consider restricting the backend port to `127.0.0.1:8000` in `docker-compose.yml` and letting Caddy handle external traffic exclusively.
+
 ## Environment Variables
 
 Key variables in `.env` (loaded by `pydantic-settings`):
@@ -288,16 +247,6 @@ ENABLE_AUTH_BYPASS=false        # Never true in production
 - **`main`** branch: Active development. Push triggers CI/CD deploy.
 - **`prod`** branch: Exists but currently mirrors `main`.
 - CI runs unit tests then deploys via SSH on push to `main`.
-
-## Known Gotchas (continued)
-
-15. **Never use `--reload` in production Docker.** The `docker-compose.yml` `command:` used to include `--reload`, which caused uvicorn's `StatReload` to poll all 11,243 files in the bind-mounted `/app` directory (including `venv/` with 3,267 `.py` files and `postgres_data/`). This burned 243% CPU doing nothing. The fix: production compose uses plain `uvicorn` without `--reload`; dev uses `docker-compose.override.yml` with `--reload-dir` targeting only source directories.
-
-16. **`.dockerignore` does NOT affect bind mounts.** The existing `.dockerignore` correctly excludes `venv/` and `postgres_data/` from `docker build` context, but the `volumes: - .:/app` bind mount bypasses it entirely. If using `--reload` with a bind mount, you MUST use `--reload-dir` to whitelist directories, not rely on `.dockerignore`.
-
-17. **Frontend polls `/api/notifications` even when unauthenticated.** The frontend has a polling loop that hits `GET /api/notifications` and receives `401 Unauthorized` repeatedly. This generates log noise and wastes request cycles. The frontend should check auth state before starting the polling interval, or the polling should stop after receiving a 401.
-
-18. **Server is exposed on `0.0.0.0:8000` and receives internet scanner traffic.** Random IPs probe for `/bins/`, `httpbin.org`, `/backup/`, etc. Consider restricting the backend port to `127.0.0.1:8000` in `docker-compose.yml` and letting Caddy handle external traffic exclusively.
 
 ## Development with Hot Reload
 
