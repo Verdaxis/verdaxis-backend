@@ -368,6 +368,7 @@ async def update_order(
         select(OrderBookOrder)
         .options(selectinload(OrderBookOrder.organization))
         .where(OrderBookOrder.id == order_id)
+        .with_for_update()
     )
     order = result.scalars().first()
 
@@ -442,7 +443,7 @@ async def cancel_order(
     Cancel an own order (soft cancel by setting status to CANCELLED).
     """
     result = await db.execute(
-        select(OrderBookOrder).where(OrderBookOrder.id == order_id)
+        select(OrderBookOrder).where(OrderBookOrder.id == order_id).with_for_update()
     )
     order = result.scalars().first()
 

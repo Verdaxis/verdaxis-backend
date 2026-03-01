@@ -1,100 +1,89 @@
 """
 Unit tests for security/authentication utilities.
+Updated for PyJWT + direct bcrypt (2026-03-01).
 """
 import pytest
-from app.core.security import verify_password, get_password_hash
+from app.core.security import (
+    verify_password, get_password_hash,
+    create_access_token, create_refresh_token, decode_token,
+)
 
 
 class TestPasswordHashing:
-    """Tests for password hashing and verification."""
-    
     def test_get_password_hash_returns_hash(self):
-        """Should return a hash different from the original password."""
         password = "mysecurepassword"
         hashed = get_password_hash(password)
-        
         assert hashed != password
-        assert len(hashed) > 20  # Hashes are longer than typical passwords
-    
+        assert len(hashed) > 20
+
     def test_get_password_hash_different_each_time(self):
-        """Should return different hashes for the same password (due to salting)."""
         password = "mysecurepassword"
         hash1 = get_password_hash(password)
         hash2 = get_password_hash(password)
-        
-        # Hashes should be different due to unique salts
         assert hash1 != hash2
-    
+
     def test_verify_password_correct(self):
-        """Should return True for correct password."""
         password = "mysecurepassword"
         hashed = get_password_hash(password)
-        
         assert verify_password(password, hashed) is True
-    
+
     def test_verify_password_incorrect(self):
-        """Should return False for incorrect password."""
         password = "mysecurepassword"
-        wrong_password = "wrongpassword"
         hashed = get_password_hash(password)
-        
-        assert verify_password(wrong_password, hashed) is False
-    
+        assert verify_password("wrongpassword", hashed) is False
+
     def test_verify_password_empty_string(self):
-        """Should handle empty password comparison."""
         password = "mysecurepassword"
         hashed = get_password_hash(password)
-        
         assert verify_password("", hashed) is False
-    
+
     def test_hash_empty_password(self):
-        """Should be able to hash empty password (though not recommended)."""
         hashed = get_password_hash("")
         assert hashed is not None
         assert len(hashed) > 0
 
 
 class TestTokenCreation:
-    """Tests for JWT token creation."""
-    
-    def test_create_access_token_returns_string(self):
-        """Should return a JWT token string."""
-        from app.core.auth import create_access_token
-        
-        token = create_access_token(data={"sub": "user123", "role": "BUYER"})
-        
+    def test_create_access_token_returns_jwt(self):
+        token = create_access_token(subject="user123")
         assert isinstance(token, str)
-        assert len(token) > 0
-        # JWT format: header.payload.signature
         assert token.count('.') == 2
-    
+
     def test_create_access_token_with_custom_expiry(self):
-        """Should accept custom expiry delta."""
-        from app.core.auth import create_access_token
         from datetime import timedelta
-        
-        token = create_access_token(
-            data={"sub": "user123"},
-            expires_delta=timedelta(minutes=30)
-        )
-        
+        token = create_access_token(subject="user123", expires_delta=timedelta(minutes=30))
         assert isinstance(token, str)
         assert token.count('.') == 2
-    
+
     def test_token_contains_user_data(self):
-        """Token should contain the provided user data."""
-        from app.core.auth import create_access_token
-        from jose import jwt
-        from app.config import settings
-        
         user_id = "test-user-id-123"
-        role = "SUPPLIER"
-        
-        token = create_access_token(data={"sub": user_id, "role": role})
-        
-        # Decode without verification to check payload
-        payload = jwt.decode(token, settings.JWT_SECRET, algorithms=["HS256"])
-        
+        token = create_access_token(
+            subject=user_id,
+            additional_claims={"role": "SUPPLIER"},
+        )
+        payload = decode_token(token)
         assert payload["sub"] == user_id
-        assert payload["role"] == role
+        assert payload["role"] == "SUPPLIER"
+        assert payload["type"] == "access"
         assert "exp" in payload
+        assert "iat" in payload
+
+    def test_refresh_token_has_correct_type(self):
+        token = create_refresh_token(subject="user123")
+        payload = decode_token(token)
+        assert payload["type"] == "refresh"
+        assert "exp" in payload
+        assert "iat" in payload
+
+    def test_access_token_rejected_as_refresh(self):
+        """Access tokens should have type='access', not 'refresh'."""
+        token = create_access_token(subject="user123")
+        payload = decode_token(token)
+        assert payload["type"] == "access"
+
+    def test_expired_token_raises(self):
+        from datetime import timedelta
+        import jwt as pyjwt
+        token = create_access_token(subject="user123", expires_delta=timedelta(seconds=-1))
+        with pytest.raises(pyjwt.ExpiredSignatureError):
+            decode_token(token)

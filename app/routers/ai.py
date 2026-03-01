@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, Body
 from app.services.ai_service import chat_with_copilot
 from app.models.user import User
-from app.core.auth import get_current_user
+from app.routers.auth_simple import get_current_user
 from typing import Annotated, List, Dict
 
 router = APIRouter()

@@ -7,7 +7,7 @@ services:
       POSTGRES_USER: ${DATABASE_USER}
       POSTGRES_PASSWORD: ${DATABASE_PASSWORD}
     ports:
-      - "5433:5432"
+      - "127.0.0.1:5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -17,9 +17,13 @@ services:
       retries: 5
     networks:
       - verdaxis-net
+    deploy:
+      resources:
+        limits:
+          memory: 512M
 
   redis:
-    image: docker.io/library/redis:alpine
+    image: redis:7-alpine
     container_name: verdaxis-redis
     healthcheck:
       test: ["CMD-SHELL", "redis-cli ping | grep PONG"]
@@ -31,6 +35,10 @@ services:
       - redis_data:/data
     networks:
       - verdaxis-net
+    deploy:
+      resources:
+        limits:
+          memory: 128M
 
   backend:
     build:
@@ -39,7 +47,7 @@ services:
     container_name: verdaxis-backend
     restart: always
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     env_file: .env
     depends_on:
       postgres:
@@ -49,24 +57,10 @@ services:
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000
     networks:
       - verdaxis-net
-
-  frontend:
-    build:
-      context: ../verdaxis-frontend
-      dockerfile: Dockerfile
-      args:
-        - VITE_API_URL=http://144.126.151.136:8000/api
-        - VITE_AUTHENTIK_URL=http://144.126.151.136:9000
-        - VITE_AUTHENTIK_CLIENT_ID=verdaxis-client-id
-    container_name: verdaxis-frontend
-    restart: always
-    ports:
-      - "5173:80"
-    env_file: ../verdaxis-frontend/.env
-    networks:
-      - verdaxis-net
-    depends_on:
-      - backend
+    deploy:
+      resources:
+        limits:
+          memory: 768M
 
 volumes:
   postgres_data:

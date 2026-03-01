@@ -42,7 +42,7 @@ class AdminAuth(AuthenticationBackend):
             return False
         return True
 
-authentication_backend = AdminAuth(secret_key=settings.JWT_SECRET)
+authentication_backend = AdminAuth(secret_key=settings.ADMIN_SESSION_SECRET or settings.JWT_SECRET)
 
 def setup_admin(app):
     admin = Admin(app, engine, authentication_backend=authentication_backend)

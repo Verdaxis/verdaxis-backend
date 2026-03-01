@@ -7,9 +7,8 @@ geoalchemy2
 pydantic>=2.0.0
 pydantic-settings
 email-validator
-python-jose
-passlib
-bcrypt==4.0.1
+PyJWT>=2.8.0
+bcrypt>=4.0.0
 google-generativeai
 pytest
 pytest-asyncio
@@ -20,3 +19,5 @@ psutil==5.9.4
 sqladmin>=0.14.0
 itsdangerous>=2.0.0
 watchfiles
+slowapi>=0.1.9
+structlog>=24.0.0

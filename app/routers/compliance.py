@@ -5,7 +5,7 @@ from app.database import get_db
 from app.models.compliance import ComplianceLedger
 from app.schemas.compliance import ComplianceLedgerResponse
 from app.models.user import User
-from app.core.auth import get_current_user
+from app.routers.auth_simple import get_current_user
 from typing import List, Annotated
 from datetime import datetime
 from app.services.ai_service import analyze_document # To be implemented

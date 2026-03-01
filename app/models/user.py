@@ -3,8 +3,9 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import UUID
 import uuid
 import enum
-from datetime import datetime
+from datetime import datetime, UTC
 from app.database import Base
+
 
 class UserRole(str, enum.Enum):
     BUYER = "BUYER"
@@ -40,7 +41,7 @@ class Organization(Base):
     tax_id: Mapped[str | None] = mapped_column(String)
     country_code: Mapped[str | None] = mapped_column(String(2))
     verification_status: Mapped[str] = mapped_column(String, default="PENDING")
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
 
     users: Mapped[list["User"]] = relationship(back_populates="organization")
     vessels: Mapped[list["Vessel"]] = relationship(back_populates="organization")
@@ -58,6 +59,7 @@ class User(Base):
     status: Mapped[UserStatus] = mapped_column(Enum(UserStatus, native_enum=False), default=UserStatus.PENDING)
     organization_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("organizations.id"))
     last_login: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    password_changed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
 
     organization: Mapped["Organization"] = relationship(back_populates="users")

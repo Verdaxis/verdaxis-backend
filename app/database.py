@@ -2,14 +2,23 @@ from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sess
 from sqlalchemy.orm import DeclarativeBase
 from app.config import settings
 
-# Async Engine
+# Connection pooling only applies to non-SQLite backends (CI uses SQLite)
+pool_kwargs = {}
+if not settings.DATABASE_URL.startswith('sqlite'):
+    pool_kwargs = dict(
+        pool_size=20,
+        max_overflow=40,
+        pool_pre_ping=True,
+        pool_recycle=3600,
+    )
+
 engine = create_async_engine(
     settings.DATABASE_URL,
     echo=False,
     future=True,
+    **pool_kwargs,
 )
 
-# Async Session Factory
 AsyncSessionLocal = async_sessionmaker(
     bind=engine,
     class_=AsyncSession,
@@ -17,11 +26,9 @@ AsyncSessionLocal = async_sessionmaker(
     autoflush=False,
 )
 
-# Base Model
 class Base(DeclarativeBase):
     pass
 
-# Dependency Injection for Routes
 async def get_db():
     async with AsyncSessionLocal() as session:
         try:

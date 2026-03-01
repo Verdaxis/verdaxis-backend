@@ -18,7 +18,7 @@ from app.models.orderbook import (
 )
 from app.schemas.marketplace import InventoryCreate, InventoryItemUpdate, InventoryResponse
 from app.models.user import User, UserRole
-from app.core.auth import get_current_user
+from app.routers.auth_simple import get_current_user
 import logging
 
 logger = logging.getLogger(__name__)
@@ -97,8 +97,8 @@ async def update_inventory(
     for field, value in update_data.items():
         setattr(item, field, value)
 
-    from datetime import datetime
-    item.updated_at = datetime.utcnow()
+    from datetime import datetime, UTC
+    item.updated_at = datetime.now(UTC)
 
     await db.commit()
     await db.refresh(item)

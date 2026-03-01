@@ -4,7 +4,7 @@ from sqlalchemy.future import select
 from app.database import get_db
 from app.models.port import Vessel
 from app.schemas.vessel import VesselResponse
-from app.core.auth import get_current_user
+from app.routers.auth_simple import get_current_user
 from app.models.user import User, UserRole
 from typing import List, Annotated
 from geoalchemy2 import Geography, Geometry, functions as func
