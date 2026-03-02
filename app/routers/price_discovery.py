@@ -3,7 +3,7 @@ Public price discovery endpoint.
 Aggregates confirmed/delivered/paid trades into price summaries by fuel_type + region.
 No authentication required -- this feeds the public price ticker.
 """
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, UTC
 from decimal import Decimal
 from typing import Optional
 
@@ -11,6 +11,8 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select, func, cast, Date
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from fastapi import Request as _Request
+from app.rate_limit import limiter
 from app.database import get_db
 from app.models.orderbook import Trade, TradeStatus, OrderBookOrder
 from app.schemas.orderbook import (
@@ -36,7 +38,7 @@ async def aggregate_trade_prices(
     Derives fuel_type and region from the linked OrderBookOrder
     (via ask_order or bid_order).
     """
-    cutoff = datetime.utcnow() - timedelta(hours=hours)
+    cutoff = datetime.now(UTC) - timedelta(hours=hours)
     valid_statuses = [
         TradeStatus.CONFIRMED,
         TradeStatus.DELIVERED,
@@ -56,7 +58,7 @@ async def aggregate_trade_prices(
         )
         .join(
             OrderBookOrder,
-            (Trade.ask_order_id == OrderBookOrder.id) | (Trade.bid_order_id == OrderBookOrder.id),
+            Trade.ask_order_id == OrderBookOrder.id,
         )
         .where(
             Trade.status.in_(valid_statuses),
@@ -87,7 +89,7 @@ async def aggregate_trade_prices(
         )
         .join(
             OrderBookOrder,
-            (Trade.ask_order_id == OrderBookOrder.id) | (Trade.bid_order_id == OrderBookOrder.id),
+            Trade.ask_order_id == OrderBookOrder.id,
         )
         .where(
             Trade.status.in_(valid_statuses),
@@ -136,7 +138,9 @@ async def aggregate_trade_prices(
 
 
 @router.get("", response_model=PriceDiscoveryResponse)
+@limiter.limit("60/minute")
 async def get_price_summaries(
+    request: _Request,
     fuel_type: Optional[str] = Query(None, description="Filter by fuel type"),
     region: Optional[str] = Query(None, description="Filter by region"),
     hours: int = Query(24, ge=1, le=168, description="Lookback window in hours"),
@@ -149,7 +153,7 @@ async def get_price_summaries(
     summaries = await aggregate_trade_prices(db, fuel_type=fuel_type, region=region, hours=hours)
     return PriceDiscoveryResponse(
         summaries=summaries,
-        generated_at=datetime.utcnow(),
+        generated_at=datetime.now(UTC),
     )
 
 
@@ -183,7 +187,7 @@ async def compute_reference_prices(
         )
         .join(
             OrderBookOrder,
-            (Trade.ask_order_id == OrderBookOrder.id) | (Trade.bid_order_id == OrderBookOrder.id),
+            Trade.ask_order_id == OrderBookOrder.id,
         )
         .where(Trade.status.in_(valid_statuses))
     )
@@ -226,7 +230,9 @@ async def compute_reference_prices(
 
 
 @router.get("/reference", response_model=ReferencePriceResponse)
+@limiter.limit("30/minute")
 async def get_reference_prices(
+    request: _Request,
     fuel_type: Optional[str] = Query(None, description="Filter by fuel type"),
     region: Optional[str] = Query(None, description="Filter by region"),
     date_from: Optional[date] = Query(None, alias="from", description="Start date (inclusive), e.g. 2026-01-01"),
@@ -243,5 +249,5 @@ async def get_reference_prices(
     )
     return ReferencePriceResponse(
         prices=prices,
-        generated_at=datetime.utcnow(),
+        generated_at=datetime.now(UTC),
     )
