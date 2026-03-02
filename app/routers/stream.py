@@ -13,6 +13,9 @@ router = APIRouter(prefix="/stream", tags=["real-time"])
 async def _sse_generator(request: Request, channel: str):
     """SSE generator that yields events from the event bus."""
     queue = event_bus.subscribe(channel)
+    if queue is None:
+        yield 'event: error\ndata: {"error": "Too many connections"}\n\n'
+        return
     try:
         while True:
             if await request.is_disconnected():

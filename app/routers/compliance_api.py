@@ -162,8 +162,14 @@ async def run_compliance_scenario(
         stmt = select(Vessel).where(Vessel.id == scenario.vessel_id)
         result = await db.execute(stmt)
         vessel = result.scalar_one_or_none()
-    except (ValueError, Exception):
+    except ValueError:
         pass  # Non-UUID vessel_id or not found — use defaults
+
+    # Authorization check: don't leak cross-org vessel data
+    if vessel:
+        from app.models.user import UserRole
+        if current_user.role != UserRole.ADMIN and vessel.organization_id != current_user.organization_id:
+            vessel = None  # Fall back to defaults
 
     vessel_name = vessel.name if vessel else f"Vessel {scenario.vessel_id}"
     cii_rating = vessel.cii_rating if vessel else None

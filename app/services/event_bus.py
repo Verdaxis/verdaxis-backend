@@ -6,14 +6,18 @@ from typing import Any
 from datetime import datetime, UTC
 
 
+MAX_SUBSCRIBERS_PER_CHANNEL = 200
+
 class EventBus:
     """Singleton pub/sub for broadcasting events to SSE clients."""
 
     def __init__(self):
         self._channels: dict[str, set[asyncio.Queue]] = defaultdict(set)
 
-    def subscribe(self, channel: str) -> asyncio.Queue:
-        """Subscribe to a channel. Returns a Queue that receives events."""
+    def subscribe(self, channel: str) -> asyncio.Queue | None:
+        """Subscribe to a channel. Returns a Queue that receives events, or None if at capacity."""
+        if len(self._channels[channel]) >= MAX_SUBSCRIBERS_PER_CHANNEL:
+            return None
         queue: asyncio.Queue = asyncio.Queue(maxsize=100)
         self._channels[channel].add(queue)
         return queue
@@ -32,7 +36,7 @@ class EventBus:
             "timestamp": datetime.now(UTC).isoformat(),
         }
         dead_queues = []
-        for queue in self._channels.get(channel, set()):
+        for queue in list(self._channels.get(channel, set())):
             try:
                 queue.put_nowait(message)
             except asyncio.QueueFull:

@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, UTC
 from decimal import Decimal
 from typing import Annotated, List
 
@@ -137,7 +137,7 @@ async def create_trade(
     if order.status not in (OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED):
         raise HTTPException(status_code=400, detail="Order is not available for trading")
 
-    if order.expires_at and order.expires_at <= datetime.utcnow():
+    if order.expires_at and order.expires_at <= datetime.now(UTC):
         raise HTTPException(status_code=400, detail="Order has expired")
 
     # Determine sides
@@ -291,7 +291,7 @@ async def confirm_trade(
         initiator_org_id = trade.seller_id
 
     trade.status = TradeStatus.CONFIRMED
-    trade.confirmed_at = datetime.utcnow()
+    trade.confirmed_at = datetime.now(UTC)
 
     # Notify the initiator
     await notify_org_users(
@@ -402,7 +402,7 @@ async def deliver_trade(
     trade.final_quantity_mt = payload.final_quantity_mt
     trade.final_price_per_mt = payload.final_price_per_mt
     trade.final_total_usd = payload.final_quantity_mt * payload.final_price_per_mt
-    trade.delivered_at = datetime.utcnow()
+    trade.delivered_at = datetime.now(UTC)
     trade.status = TradeStatus.DELIVERED
 
     # Calculate commission on the trade (stored on the Trade record itself for Phase 1)
@@ -460,7 +460,7 @@ async def pay_trade(
         raise HTTPException(status_code=403, detail="Only suppliers can mark trades as paid")
 
     trade.status = TradeStatus.PAID
-    trade.paid_at = datetime.utcnow()
+    trade.paid_at = datetime.now(UTC)
 
     # Notify the buyer
     await notify_org_users(

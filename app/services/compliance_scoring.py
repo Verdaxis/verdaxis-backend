@@ -252,7 +252,7 @@ def calculate_compliance_score(
     cii = calculate_cii_score(cii_rating)
 
     # Weighted average (FuelEU 50%, ETS 30%, CII 20%)
-    overall = int(fueleu.score * 0.5 + eu_ets.score * 0.3 + cii.score * 0.2)
+    overall = round(fueleu.score * Decimal("0.5") + eu_ets.score * Decimal("0.3") + cii.score * Decimal("0.2"))
 
     # Determine status and traffic light
     if overall >= 90:

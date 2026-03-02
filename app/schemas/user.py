@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 from uuid import UUID
 from typing import Optional
 from enum import Enum
@@ -20,7 +20,7 @@ class UserBase(BaseModel):
     role: UserRole
 
 class UserCreate(UserBase):
-    password: str
+    password: str = Field(..., min_length=8)
     organization_id: Optional[UUID] = None
 
 class UserResponse(UserBase):

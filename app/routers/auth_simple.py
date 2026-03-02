@@ -343,7 +343,9 @@ async def update_users_me(
 
 
 @router.put("/me/password")
+@limiter.limit("3/minute")
 async def change_password(
+    request: _Request,
     payload: PasswordChangeRequest,
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
