@@ -3,17 +3,22 @@ Public price discovery endpoint.
 Aggregates confirmed/delivered/paid trades into price summaries by fuel_type + region.
 No authentication required -- this feeds the public price ticker.
 """
-from datetime import datetime, timedelta
+from datetime import datetime, date, timedelta
 from decimal import Decimal
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import select, func
+from sqlalchemy import select, func, cast, Date
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.models.orderbook import Trade, TradeStatus, OrderBookOrder
-from app.schemas.orderbook import PriceSummary, PriceDiscoveryResponse
+from app.schemas.orderbook import (
+    PriceSummary,
+    PriceDiscoveryResponse,
+    ReferencePriceItem,
+    ReferencePriceResponse,
+)
 
 router = APIRouter(prefix="/prices", tags=["price-discovery"])
 
@@ -144,5 +149,99 @@ async def get_price_summaries(
     summaries = await aggregate_trade_prices(db, fuel_type=fuel_type, region=region, hours=hours)
     return PriceDiscoveryResponse(
         summaries=summaries,
+        generated_at=datetime.utcnow(),
+    )
+
+
+async def compute_reference_prices(
+    db: AsyncSession,
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
+    fuel_type: Optional[str] = None,
+    region: Optional[str] = None,
+) -> list[ReferencePriceItem]:
+    """
+    Compute daily VWAP reference prices from confirmed+ trades.
+    VWAP = sum(price * quantity) / sum(quantity), grouped by fuel_type, region, date.
+    """
+    valid_statuses = [
+        TradeStatus.CONFIRMED,
+        TradeStatus.DELIVERED,
+        TradeStatus.PAID,
+    ]
+
+    trade_date = cast(Trade.created_at, Date).label("trade_date")
+
+    stmt = (
+        select(
+            OrderBookOrder.fuel_type.label("fuel_type"),
+            OrderBookOrder.region.label("region"),
+            trade_date,
+            func.sum(Trade.price_per_mt_usd * Trade.quantity_mt).label("weighted_sum"),
+            func.sum(Trade.quantity_mt).label("total_volume"),
+            func.count(Trade.id).label("trade_count"),
+        )
+        .join(
+            OrderBookOrder,
+            (Trade.ask_order_id == OrderBookOrder.id) | (Trade.bid_order_id == OrderBookOrder.id),
+        )
+        .where(Trade.status.in_(valid_statuses))
+    )
+
+    if date_from:
+        stmt = stmt.where(cast(Trade.created_at, Date) >= date_from)
+    if date_to:
+        stmt = stmt.where(cast(Trade.created_at, Date) <= date_to)
+    if fuel_type:
+        stmt = stmt.where(OrderBookOrder.fuel_type.ilike(f"%{fuel_type}%"))
+    if region:
+        stmt = stmt.where(OrderBookOrder.region.ilike(f"%{region}%"))
+
+    stmt = stmt.group_by(
+        OrderBookOrder.fuel_type,
+        OrderBookOrder.region,
+        trade_date,
+    ).order_by(trade_date.desc())
+
+    result = await db.execute(stmt)
+    rows = result.all()
+
+    items: list[ReferencePriceItem] = []
+    for row in rows:
+        total_vol = row.total_volume or Decimal("0")
+        weighted = row.weighted_sum or Decimal("0")
+        vwap = Decimal(str(round(weighted / total_vol, 2))) if total_vol > 0 else Decimal("0")
+        items.append(
+            ReferencePriceItem(
+                fuel_type=row.fuel_type,
+                region=row.region,
+                vwap_usd=vwap,
+                total_volume_mt=total_vol,
+                trade_count=row.trade_count or 0,
+                date=row.trade_date,
+            )
+        )
+
+    return items
+
+
+@router.get("/reference", response_model=ReferencePriceResponse)
+async def get_reference_prices(
+    fuel_type: Optional[str] = Query(None, description="Filter by fuel type"),
+    region: Optional[str] = Query(None, description="Filter by region"),
+    date_from: Optional[date] = Query(None, alias="from", description="Start date (inclusive), e.g. 2026-01-01"),
+    date_to: Optional[date] = Query(None, alias="to", description="End date (inclusive), e.g. 2026-03-01"),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Public endpoint: daily VWAP reference prices by fuel_type + region.
+    No auth required. Calculates Volume-Weighted Average Price from confirmed+ trades.
+    Supports date range filtering and fuel_type/region filters.
+    """
+    prices = await compute_reference_prices(
+        db, date_from=date_from, date_to=date_to, fuel_type=fuel_type, region=region
+    )
+    return ReferencePriceResponse(
+        prices=prices,
         generated_at=datetime.utcnow(),
     )

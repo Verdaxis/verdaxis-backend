@@ -204,6 +204,24 @@ class PriceDiscoveryResponse(BaseModel):
     generated_at: datetime
 
 
+# ============== Reference Price (VWAP) ==============
+
+class ReferencePriceItem(BaseModel):
+    """Daily VWAP reference price for a fuel_type + region pair."""
+    fuel_type: str
+    region: str
+    vwap_usd: Decimal
+    total_volume_mt: Decimal
+    trade_count: int
+    date: date
+
+
+class ReferencePriceResponse(BaseModel):
+    """Wrapper for VWAP reference price data."""
+    prices: list[ReferencePriceItem]
+    generated_at: datetime
+
+
 # ============== CI-Adjusted Pricing ==============
 
 class CIAdjustedPrice(BaseModel):
