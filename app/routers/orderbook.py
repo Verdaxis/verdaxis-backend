@@ -18,6 +18,7 @@ from app.schemas.orderbook import (
     OrderResponseWithCI,
 )
 from app.services.ci_pricing import calculate_ci_adjusted_price
+from app.services.event_bus import event_bus
 
 router = APIRouter(prefix="/orderbook", tags=["orderbook"])
 
@@ -340,7 +341,31 @@ async def create_order(
         new_order.certifications = order_data.certifications
 
     db.add(new_order)
+    await db.flush()  # Get the order ID without committing
+
+    # --- Match-on-insert: scan for crossing orders ---
+    matched_trades: list = []
+    from app.config import settings
+    if settings.AUTO_MATCHING_ENABLED:
+        from app.services.matching_engine import match_order
+        matched_trades = await match_order(db, new_order)
+
     await db.commit()
+
+    # Publish events for any auto-matched trades
+    if matched_trades:
+        for trade in matched_trades:
+            await event_bus.publish("trades", "trade_auto_matched", {
+                "trade_id": str(trade.id),
+                "fuel_type": new_order.fuel_type,
+                "quantity": str(trade.quantity_mt),
+                "price": str(trade.price_per_mt_usd),
+            })
+        await event_bus.publish("orderbook", "orders_matched", {
+            "order_id": str(new_order.id),
+            "matches": len(matched_trades),
+        })
+
     await db.refresh(new_order)
 
     # Re-fetch with eager loading so tier_label computed property works
@@ -350,6 +375,16 @@ async def create_order(
         .where(OrderBookOrder.id == new_order.id)
     )
     new_order = result.scalars().first()
+
+    # Emit SSE event for new order
+    await event_bus.publish("orderbook", "order_created", {
+        "id": str(new_order.id),
+        "side": new_order.side.value,
+        "fuel_type": new_order.fuel_type,
+        "region": new_order.region,
+        "price": str(new_order.price_per_mt_usd),
+        "quantity": str(new_order.remaining_quantity_mt),
+    })
 
     return new_order
 
@@ -467,5 +502,13 @@ async def cancel_order(
 
     order.status = OrderBookStatus.CANCELLED
     await db.commit()
+
+    # Emit SSE event for cancelled order
+    await event_bus.publish("orderbook", "order_cancelled", {
+        "id": str(order.id),
+        "side": order.side.value,
+        "fuel_type": order.fuel_type,
+        "region": order.region,
+    })
 
     return None

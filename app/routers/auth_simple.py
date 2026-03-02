@@ -9,7 +9,7 @@ from sqlalchemy import select
 import jwt
 from app.database import get_db
 from app.models.user import User, UserRole, UserStatus, Organization
-from app.schemas.user import UserCreate, UserResponse, UserUpdate, RegistrationResponse, Token
+from app.schemas.user import UserCreate, UserResponse, UserUpdate, RegistrationResponse, Token, PasswordChangeRequest
 from app.schemas.organization import OrganizationCreate, OrganizationResponse
 from app.core.security import (
     verify_password, get_password_hash,
@@ -340,6 +340,45 @@ async def update_users_me(
     await db.commit()
     await db.refresh(current_user)
     return current_user
+
+
+@router.put("/me/password")
+async def change_password(
+    payload: PasswordChangeRequest,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Change password. Invalidates all existing tokens via password_changed_at."""
+    if not verify_password(payload.current_password, current_user.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Current password is incorrect",
+        )
+    
+    if len(payload.new_password) < 8:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="New password must be at least 8 characters",
+        )
+    
+    from datetime import datetime, UTC
+    current_user.password_hash = get_password_hash(payload.new_password)
+    current_user.password_changed_at = datetime.now(UTC)
+    
+    await db.commit()
+    
+    # Return fresh tokens so the user stays logged in
+    access_token = create_access_token(
+        subject=str(current_user.id),
+        additional_claims={"role": current_user.role.value if current_user.role else None},
+    )
+    refresh_token = create_refresh_token(subject=str(current_user.id))
+    
+    return {
+        "message": "Password changed successfully",
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+    }
 
 # ---------------------------------------------------------------------------
 # Admin endpoints (merged from legacy auth.py)

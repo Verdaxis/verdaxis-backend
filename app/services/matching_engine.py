@@ -1,0 +1,160 @@
+"""
+Match-on-insert engine. When a new order is placed, scan for crossing orders
+and automatically create trades. Uses price-time priority (FIFO at each price level).
+"""
+from decimal import Decimal
+from datetime import datetime, UTC
+from typing import Optional
+import uuid
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models.orderbook import (
+    OrderBookOrder, Trade, OrderSide, OrderBookStatus, TradeStatus, Initiator
+)
+from app.models.notification import Notification, NotificationType
+from app.models.user import User
+
+
+async def match_order(
+    db: AsyncSession,
+    new_order: OrderBookOrder,
+) -> list[Trade]:
+    """
+    Attempt to match a newly created order against the opposite side of the book.
+
+    Rules:
+    - BID matches against ASKs where ask_price <= bid_price (same fuel_type)
+    - ASK matches against BIDs where bid_price >= ask_price (same fuel_type)
+    - Price-time priority: best price first, then oldest order first
+    - Partial fills allowed: match as much as possible
+    - Self-trade prevention: skip orders from same organization
+    - All operations within caller's transaction (no separate commit)
+
+    Returns list of Trade objects created (may be empty if no matches).
+    """
+    trades_created: list[Trade] = []
+
+    if new_order.remaining_quantity_mt <= 0:
+        return trades_created
+
+    # Determine which side to match against
+    if new_order.side == OrderSide.BID:
+        # BID: match against ASKs where ask_price <= bid_price
+        opposite_side = OrderSide.ASK
+        # Best ask = lowest price first (ascending), then oldest first
+        price_order = OrderBookOrder.price_per_mt_usd.asc()
+        price_filter = OrderBookOrder.price_per_mt_usd <= new_order.price_per_mt_usd
+    else:
+        # ASK: match against BIDs where bid_price >= ask_price
+        opposite_side = OrderSide.BID
+        # Best bid = highest price first (descending), then oldest first
+        price_order = OrderBookOrder.price_per_mt_usd.desc()
+        price_filter = OrderBookOrder.price_per_mt_usd >= new_order.price_per_mt_usd
+
+    # Find crossing orders (locked for update to prevent race conditions)
+    stmt = (
+        select(OrderBookOrder)
+        .where(
+            OrderBookOrder.side == opposite_side,
+            OrderBookOrder.fuel_type == new_order.fuel_type,
+            OrderBookOrder.status.in_([OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED]),
+            OrderBookOrder.organization_id != new_order.organization_id,  # No self-trade
+            price_filter,
+        )
+        .order_by(price_order, OrderBookOrder.created_at.asc())  # Price-time priority
+        .with_for_update()
+    )
+
+    result = await db.execute(stmt)
+    crossing_orders = result.scalars().all()
+
+    for crossing in crossing_orders:
+        if new_order.remaining_quantity_mt <= 0:
+            break
+
+        # Determine trade quantity (minimum of both remaining quantities)
+        trade_qty = min(new_order.remaining_quantity_mt, crossing.remaining_quantity_mt)
+
+        # Trade price = the resting order's price (price improvement for aggressor)
+        trade_price = crossing.price_per_mt_usd
+
+        # Determine buyer/seller
+        if new_order.side == OrderSide.BID:
+            buyer_org = new_order.organization_id
+            seller_org = crossing.organization_id
+            bid_order_id = new_order.id
+            ask_order_id = crossing.id
+            initiated_by = Initiator.BUYER
+        else:
+            buyer_org = crossing.organization_id
+            seller_org = new_order.organization_id
+            bid_order_id = crossing.id
+            ask_order_id = new_order.id
+            initiated_by = Initiator.SELLER
+
+        # Create trade (auto-confirmed since both sides agreed via price)
+        trade = Trade(
+            bid_order_id=bid_order_id,
+            ask_order_id=ask_order_id,
+            buyer_id=buyer_org,
+            seller_id=seller_org,
+            initiated_by=initiated_by,
+            quantity_mt=trade_qty,
+            price_per_mt_usd=trade_price,
+            status=TradeStatus.CONFIRMED,  # Auto-matched = auto-confirmed
+            confirmed_at=datetime.now(UTC),
+        )
+        db.add(trade)
+
+        # Update quantities
+        new_order.remaining_quantity_mt -= trade_qty
+        crossing.remaining_quantity_mt -= trade_qty
+
+        # Update order statuses
+        if new_order.remaining_quantity_mt == 0:
+            new_order.status = OrderBookStatus.FILLED
+        else:
+            new_order.status = OrderBookStatus.PARTIALLY_FILLED
+
+        if crossing.remaining_quantity_mt == 0:
+            crossing.status = OrderBookStatus.FILLED
+        else:
+            crossing.status = OrderBookStatus.PARTIALLY_FILLED
+
+        trades_created.append(trade)
+
+        # Create notifications for both parties
+        await _notify_org(
+            db, buyer_org,
+            NotificationType.TRADE_CONFIRMED,
+            "Auto-Matched Trade",
+            f"Your order was automatically matched: {trade_qty} MT of {new_order.fuel_type} at ${trade_price}/MT",
+            {"trade_id": str(trade.id), "auto_matched": True},
+        )
+
+        await _notify_org(
+            db, seller_org,
+            NotificationType.TRADE_CONFIRMED,
+            "Auto-Matched Trade",
+            f"Your order was automatically matched: {trade_qty} MT of {new_order.fuel_type} at ${trade_price}/MT",
+            {"trade_id": str(trade.id), "auto_matched": True},
+        )
+
+    return trades_created
+
+
+async def _notify_org(db: AsyncSession, org_id, notif_type, title, message, data=None):
+    """Send notification to all users in an organization."""
+    stmt = select(User).where(User.organization_id == org_id)
+    result = await db.execute(stmt)
+    users = result.scalars().all()
+    for user in users:
+        db.add(Notification(
+            recipient_id=user.id,
+            type=notif_type,
+            title=title,
+            message=message,
+            data=data or {},
+        ))

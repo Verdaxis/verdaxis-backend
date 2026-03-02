@@ -69,6 +69,9 @@ class Settings(BaseSettings):
             raise ValueError('DATABASE_PASSWORD must not be "postgres" in production')
         return v
 
+    # Order Matching Engine
+    AUTO_MATCHING_ENABLED: bool = True  # Set to False to disable match-on-insert
+
     # Gemini AI
     GEMINI_API_KEY: Optional[str] = None
     

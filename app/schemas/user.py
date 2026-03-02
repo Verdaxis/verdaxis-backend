@@ -58,3 +58,8 @@ class RegistrationResponse(BaseModel):
 # So I can import OrganizationCreate here if I'm careful or just define a nested model.
 # Simplest: Define it in auth_simple.py or a new schema file.
 # I'll stick to defining RegistrationResponse here.
+
+class PasswordChangeRequest(BaseModel):
+    current_password: str
+    new_password: str
+

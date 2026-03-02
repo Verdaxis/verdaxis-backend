@@ -22,6 +22,7 @@ from app.models.orderbook import (
 )
 from app.models.notification import Notification, NotificationType
 from app.schemas.orderbook import TradeCreate, TradeResponse, TradeDeliverPayload
+from app.services.event_bus import event_bus
 
 router = APIRouter(prefix="/trades", tags=["trades"])
 
@@ -218,6 +219,18 @@ async def create_trade(
 
     # Reload with relationships for response
     loaded_trade = await _load_trade(db, trade.id)
+
+    # Emit SSE event for new trade
+    _order = loaded_trade.ask_order or loaded_trade.bid_order
+    await event_bus.publish("trades", "trade_created", {
+        "id": str(loaded_trade.id),
+        "status": loaded_trade.status.value,
+        "quantity": str(loaded_trade.quantity_mt),
+        "price": str(loaded_trade.price_per_mt_usd),
+        "fuel_type": _order.fuel_type if _order else "",
+        "region": _order.region if _order else "",
+    })
+
     return build_trade_response(loaded_trade)
 
 
@@ -293,6 +306,15 @@ async def confirm_trade(
     await db.commit()
 
     loaded_trade = await _load_trade(db, trade.id)
+
+    # Emit SSE event for confirmed trade
+    await event_bus.publish("trades", "trade_confirmed", {
+        "id": str(loaded_trade.id),
+        "status": loaded_trade.status.value,
+        "quantity": str(loaded_trade.quantity_mt),
+        "price": str(loaded_trade.price_per_mt_usd),
+    })
+
     return build_trade_response(loaded_trade)
 
 
@@ -401,6 +423,16 @@ async def deliver_trade(
     await db.commit()
 
     loaded_trade = await _load_trade(db, trade.id)
+
+    # Emit SSE event for delivered trade
+    await event_bus.publish("trades", "trade_delivered", {
+        "id": str(loaded_trade.id),
+        "status": loaded_trade.status.value,
+        "final_quantity": str(loaded_trade.final_quantity_mt),
+        "final_price": str(loaded_trade.final_price_per_mt),
+        "final_total": str(loaded_trade.final_total_usd),
+    })
+
     return build_trade_response(loaded_trade)
 
 
@@ -443,4 +475,13 @@ async def pay_trade(
     await db.commit()
 
     loaded_trade = await _load_trade(db, trade.id)
+
+    # Emit SSE event for paid trade
+    await event_bus.publish("trades", "trade_paid", {
+        "id": str(loaded_trade.id),
+        "status": loaded_trade.status.value,
+        "quantity": str(loaded_trade.quantity_mt),
+        "price": str(loaded_trade.price_per_mt_usd),
+    })
+
     return build_trade_response(loaded_trade)
