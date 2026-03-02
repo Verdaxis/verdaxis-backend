@@ -1,152 +1,85 @@
 # Architecture
 
 > FastAPI + SQLAlchemy 2 (async) + PostgreSQL 15/PostGIS + Alembic + Pydantic v2
+> PyJWT (HS256) + bcrypt + slowapi rate limiting + structlog JSON logging
 
 ## File Map
 
 ```
 app/
-  main.py                       # FastAPI app init, CORS, mounts all routers under /api
-  config.py                     # Pydantic Settings — env vars, DB URL assembly, CORS origins
-  database.py                   # AsyncSession factory (asyncpg), Base declarative, get_db DI
-  admin.py                      # SQLAdmin panel at /admin — User/Org CRUD + System Health page
+  main.py                       # FastAPI app, CORS, structlog, request correlation IDs, rate limiter
+  config.py                     # Pydantic Settings — env vars, JWT config, OAuth, auto-matching toggle
+  database.py                   # AsyncSession factory (asyncpg), connection pooling (20/40), SQLite guard
+  admin.py                      # SQLAdmin panel at /admin
+  rate_limit.py                 # slowapi Limiter singleton (key=remote_address)
   core/
-    auth.py                     # Legacy get_current_user — JIT provisioning + auth bypass
-    security.py                 # bcrypt hashing (via passlib), HS256 JWT token creation
-    exceptions.py               # Placeholder (empty)
+    security.py                 # PyJWT + bcrypt — create_access_token, create_refresh_token, decode_token
   models/
-    __init__.py                 # Imports all models (required for Alembic autogenerate)
-    user.py                     # User, Organization, UserRole, UserStatus, OrgType, TierLabel
+    __init__.py                 # Imports all models for Alembic autogenerate
+    user.py                     # User (with password_changed_at, oauth_provider), Organization, enums
     port.py                     # Port (PostGIS), PortIntelligence, Vessel
     marketplace.py              # InventoryItem, FuelType enum
     orderbook.py                # OrderBookOrder (BID/ASK), Trade, enums (OrderSide, TradeStatus)
-    orders.py                   # Commission (legacy match_id FK + new trade_id FK)
-    matchmaking.py              # MatchSuggestion (scored BID/ASK pairs)
-    notification.py             # Notification, NotificationType
+    orders.py                   # Commission (legacy match_id + trade_id FKs)
+    matchmaking.py              # MatchSuggestion
+    notification.py             # Notification, NotificationType (11 types incl trade events)
     compliance.py               # TraceabilityEvent, ComplianceLedger
-    producer.py                 # ProducerProject (PostGIS location, GENA import)
+    producer.py                 # ProducerProject (PostGIS, GENA import)
+    audit.py                    # AuditLog (JSONB changes, indexed action/resource/timestamp)
   routers/
-    auth_simple.py              # Active auth — login, register, register-with-org, /me
-    orderbook.py                # Unified order book CRUD — list/create/update/cancel orders
-    trades.py                   # Trade lifecycle — create/confirm/decline/deliver/pay
+    auth_simple.py              # JWT auth — login, register, refresh, password change, /me, RBAC
+    oauth.py                    # [feature branch] Google + Microsoft OIDC via Authlib
+    orderbook.py                # Order book CRUD + match-on-insert auto-matching
+    trades.py                   # Trade lifecycle — create/confirm/decline/deliver/pay + SSE events
     matchmaking.py              # Match suggestions — generate, list, dismiss
-    price_discovery.py          # Public price ticker — aggregated trade prices
-    availability.py             # Public fuel availability by port (map data)
-    demand.py                   # Public anonymized BID demand signals
-    producers.py                # Public producer project list (map data)
-    notifications.py            # User notification CRUD — list, mark read
-    inventory.py                # Supplier inventory management + publish-to-ASK
-    ports.py                    # Port data with PostGIS coordinate extraction
-    vessels.py                  # Vessel data (org-scoped, admin sees all)
-    compliance.py               # Compliance ledger + document verification stub
-    ai.py                       # Gemini AI chat endpoint
-    orders.py                   # Admin commission management (legacy)
-    dashboard.py                # System health metrics (CPU, RAM, disk)
+    price_discovery.py          # Public price ticker + daily VWAP reference prices
+    stream.py                   # SSE endpoints — /stream/prices, /stream/orderbook, /stream/trades
+    compliance_api.py           # Compliance scoring — fleet scores, vessel scores, what-if scenarios
+    admin_analytics.py          # Platform analytics — overview stats + daily breakdown (ADMIN only)
+    availability.py             # Fuel availability by port
+    demand.py                   # Anonymized BID demand signals
+    producers.py                # Producer project list (map data)
+    notifications.py            # User notification CRUD
+    inventory.py                # Supplier inventory + publish-to-ASK
+    ports.py                    # Port data with PostGIS
+    vessels.py                  # Vessel data (org-scoped)
+    compliance.py               # Compliance ledger (legacy)
+    ai.py                       # Gemini AI chat proxy
+    orders.py                   # Admin commission management
+    audit.py                    # Admin audit log query
+    dashboard.py                # System health metrics
   schemas/
-    user.py                     # UserCreate, UserResponse, RegistrationResponse
-    organization.py             # OrganizationCreate, OrganizationResponse
-    orderbook.py                # Order/Trade/CI-pricing schemas, PriceSummary
-    orders.py                   # Commission schemas
-    availability.py             # PortFuelAvailability, AvailabilityLevel enum
-    demand.py                   # DemandSignal, UrgencyLevel enum
-    producer.py                 # ProducerProjectResponse
-    marketplace.py              # InventoryItem schemas
-    compliance.py               # Compliance schemas
-    port.py                     # Port schemas
-    vessel.py                   # Vessel schemas
+    user.py                     # UserCreate (min 8 chars pw), UserResponse, PasswordChangeRequest
+    organization.py             # OrganizationCreate/Response
+    orderbook.py                # Order/Trade schemas, PriceSummary, ReferencePriceItem/Response
+    [others unchanged]
   services/
+    event_bus.py                # AsyncIO pub/sub — per-channel queues, 200 subscriber cap, backpressure
+    matching_engine.py          # Match-on-insert — price-time priority, partial fills, auto-confirm
+    compliance_scoring.py       # Pure function scoring — FuelEU/ETS/CII, 9 fuels, scenario engine
+    audit_service.py            # record_audit() — async audit logging
     ai_service.py               # Gemini chat + document analysis (stub)
-    matchmaking.py              # Score-based BID/ASK matching (0-100, region groups, price gap)
-    ci_pricing.py               # Carbon intensity adjusted pricing (FuelEU ref: 91 gCO2eq/MJ)
-alembic/
-  env.py                        # Async migrations, overrides sqlalchemy.url from Settings
-  versions/                     # Migration scripts (16 revisions)
-scripts/
-  seed.py                       # Database seeder (uses legacy PublicListing/Order models)
-  seed_maersk_vessels.py        # Supplementary vessel seed data
-  import_gena_csv.py            # Import producer projects from GENA CSV
-  check_users.py                # Utility to list users
-  deploy.sh                     # Server deploy script
-  test_purchase_flow.py         # Manual end-to-end purchase test
-tests/
-  conftest.py                   # Shared fixtures — httpx client, sample data
-  unit/                         # 16 test files — pure logic, sqlite in-memory
-  integration/                  # 4 test files — against running Docker backend
-  e2e_local_api.py              # Manual local E2E test
-  e2e_remote_flow.py            # Manual remote E2E test
-templates/
-  system_health.html            # Jinja2 template for admin health dashboard
-docker-compose.yml              # postgres(PostGIS) + redis + backend + frontend
-Dockerfile                      # Python 3.11-slim, pip install, uvicorn
-.github/workflows/backend-ci.yml  # Unit tests on PR, deploy-on-push to main
-```
+    matchmaking.py              # Score-based BID/ASK matching (0-100)
+    ci_pricing.py               # Carbon intensity adjusted pricing
+  middleware/
+    rbac.py                     # require_role() factory — FastAPI dependency for role-based access
 
-## Dependency Flow
-
-```
-                    +-----------+
-                    |  main.py  |  Mounts 15 routers under /api
-                    +-----+-----+
-                          |
-            +-------------+-------------+
-            |                           |
-     +------+------+            +------+------+
-     |   routers/  |            |   admin.py  |  /admin (SQLAdmin)
-     +------+------+            +------+------+
-            |                          |
-     +------+------+            +------+------+
-     |  schemas/   |            |  database   |  AsyncSession + Base
-     +------+------+            +------+------+
-            |                          |
-     +------+------+                   |
-     |  services/  |                   |
-     +------+------+                   |
-            |                          |
-     +------+------+            +------+------+
-     |   models/   +------------+   alembic/  |  Migration autogenerate
-     +------+------+            +-------------+
-            |
-     +------+------+
-     |  config.py  |  .env -> Pydantic Settings -> DATABASE_URL, JWT_SECRET, etc.
-     +-------------+
+tests/unit/                     # 155 tests (auth, matching, compliance, events, pricing, schemas)
+tests/integration/              # Auth hardening, trade lifecycle, orderbook E2E
+alembic/versions/               # 54 migrations (latest: audit_logs, password_changed_at, oauth_provider)
 ```
 
 ## Key Patterns
 
-- **Dual auth implementations**: Active auth in `routers/auth_simple.py` (most routers). Legacy auth in `core/auth.py` (vessels, inventory, compliance, ai). Both decode HS256 JWT but differ in error handling and bypass support.
-- **Org-scoped access**: Users belong to organizations. Orders, trades, and inventory are scoped to `organization_id`. Role-based checks are inline in handlers.
-- **Trade lifecycle state machine**: `PENDING_CONFIRMATION -> CONFIRMED -> DELIVERED -> PAID`. Decline from PENDING restores order quantity. Only counterparty (non-initiator) can confirm/decline.
-- **PostGIS serialization**: Geography columns must be nulled before Pydantic serialization. Coordinates extracted via `ST_X`/`ST_Y` and set as dynamic attributes.
-- **Enum duplication**: Enums are defined separately in models and schemas (not shared).
-- **Static routes before parametric**: In orderbook router, named paths (`/bids`, `/asks`, `/my`) are defined before `/{order_id}` to avoid path conflicts.
+- **Match-on-insert:** `POST /orderbook` → `db.flush()` → `match_order()` → `db.commit()` (atomic)
+- **SSE broadcasting:** `event_bus.publish(channel, event_type, data)` → subscribers via AsyncIO queues
+- **Compliance scoring:** Pure function `calculate_compliance_score()` — no DB, 100% testable
+- **Dual-token JWT:** 15-min access + 7-day refresh, `password_changed_at` for stateless invalidation
+- **Rate limiting:** slowapi per-route (5/min login, 3/min password, 60/min prices, 30/min reference)
 
-## Entry Points
+## Revenue Streams
 
-| Entry Point | Purpose |
-|---|---|
-| `uvicorn app.main:app` | Start the API server |
-| `alembic upgrade head` | Run database migrations |
-| `python scripts/seed.py` | Seed demo data |
-| `/admin` | SQLAdmin panel (session auth) |
-| `/docs` | Swagger UI |
-| `/health` | Health check |
-
-## Run Commands
-
-```bash
-# Start all services
-docker compose up -d --build
-
-# Run backend directly (dev)
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-
-# Unit tests (no DB required)
-DATABASE_URL="sqlite+aiosqlite:///:memory:" pytest tests/unit/ -v
-
-# Integration tests (requires running Docker)
-pytest tests/integration/ -v
-
-# Migrations
-alembic upgrade head
-alembic revision --autogenerate -m "description"
-```
+1. **Transaction fees (0.5%)** — commission_amount_usd on Trade model
+2. **Compliance SaaS ($200-500/vessel/mo)** — /compliance/fleet, /compliance/scenario
+3. **Data products ($1K-5K/seat/mo)** — /prices/reference (daily VWAP)
+4. **Platform analytics** — /admin/analytics/overview, /admin/analytics/daily
