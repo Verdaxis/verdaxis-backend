@@ -1,77 +1,90 @@
-# Verdaxis Intelligence Cockpit - Backend
+# Verdaxis Exchange — Backend API
 
-The backend service for the Verdaxis platform, a maritime intelligence and procurement system. This service provides APIs for fuel procurement, compliance auditing (EU ETS, FuelEU), port intelligence, and AI-driven insights.
+Maritime fuel trading exchange platform backend.
 
-## Features
-
-- **Authentication**: User and Organization management with JWT-based auth.
-- **Port Intelligence**: Geospatial data for ports, including congestion and resource availability.
-- **Marketplace**: Bunkering quote requests, supplier negotiation, and inventory management.
-- **Compliance**: Tracking and auditing for maritime regulations (EU ETS, FuelEU).
-- **AI Integration**: Generative AI support for market analysis and decision support using Google Gemini.
-
-## Technology Stack
-
-- **Framework**: FastAPI (Python 3.10+)
-- **Database**: PostgreSQL with PostGIS extension (via `asyncpg` and `SQLAlchemy`)
-- **Migrations**: Alembic
-- **AI**: Google Generative AI SDK
-- **Geospatial**: GeoAlchemy2
-- **Containerization**: Docker & Docker Compose
-
-## Getting Started
-
-### Prerequisites
-
-- Python 3.10+
-- Docker & Docker Compose
-- PostgreSQL (if running locally without Docker)
-
-### Environment Setup
-
-1.  Copy the example environment file:
-    ```bash
-    cp .env.example .env
-    ```
-2.  Configure your variables in `.env` (Database URL, API Keys, etc.).
-
-### Running Locally
-
-**Using Docker (Recommended):**
+## Quick Start
 
 ```bash
-docker-compose up --build
+cd /home/verdaxis-prod/verdaxis-backend
+source venv/bin/activate
+uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
-**Manual Setup:**
+## API Endpoints
 
-1.  Create a virtual environment:
-    ```bash
-    python -m venv venv
-    source venv/bin/activate
-    ```
-2.  Install dependencies:
-    ```bash
-    pip install -r requirements.txt
-    ```
-3.  Run migrations:
-    ```bash
-    alembic upgrade head
-    ```
-4.  Start the server:
-    ```bash
-    uvicorn app.main:app --reload
-    ```
+### Authentication
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| POST | `/api/auth/login` | No | Login (returns access + refresh tokens) |
+| POST | `/api/auth/refresh` | No | Refresh tokens |
+| POST | `/api/auth/register` | No | Register new user |
+| GET | `/api/auth/me` | Yes | Get current user profile |
+| PUT | `/api/auth/me/password` | Yes | Change password (returns fresh tokens) |
 
-The API will be available at `http://localhost:8000`.
-API Documentation (Swagger UI) is at `http://localhost:8000/docs`.
+### Order Book
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| GET | `/api/orderbook` | No | List all open orders |
+| GET | `/api/orderbook/bids` | No | List open BIDs |
+| GET | `/api/orderbook/asks` | No | List open ASKs |
+| POST | `/api/orderbook` | Yes | Place order (auto-matches crossing orders) |
+| GET | `/api/orderbook/my` | Yes | List user's own orders |
+| DELETE | `/api/orderbook/{id}` | Yes | Cancel own order |
 
-## Project Structure
+### Trades
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| POST | `/api/trades` | Yes | Hit an order to create a trade |
+| GET | `/api/trades/my` | Yes | List user's trades |
+| PUT | `/api/trades/{id}/confirm` | Yes | Confirm trade (counterparty only) |
+| PUT | `/api/trades/{id}/decline` | Yes | Decline trade (counterparty only) |
+| PUT | `/api/trades/{id}/deliver` | Yes | Mark delivered (with final qty/price) |
+| POST | `/api/trades/{id}/pay` | Yes | Mark paid (seller only) |
 
-- `app/main.py`: Application entry point.
-- `app/models/`: Database models (SQLAlchemy).
-- `app/schemas/`: Pydantic schemas for request/response validation.
-- `app/routers/`: API route definitions.
-- `app/services/`: Business logic and external integrations.
-- `app/core/`: Core configuration and security utilities.
-- `alembic/`: Database migration scripts.
+### Price Discovery (Public)
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| GET | `/api/prices` | No | Aggregated trade prices (24h) |
+| GET | `/api/prices/reference` | No | Daily VWAP reference prices |
+
+### Compliance
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| GET | `/api/compliance/fleet` | Yes | Fleet-wide compliance summary |
+| GET | `/api/compliance/vessels/{id}/score` | Yes | Single vessel score |
+| POST | `/api/compliance/scenario` | Yes | What-if fuel mix scenario |
+| GET | `/api/compliance/fuels` | No | Fuel GHG intensity reference |
+
+### Real-Time (SSE)
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| GET | `/api/stream/prices` | No | Price update events |
+| GET | `/api/stream/orderbook` | No | Order events (created/cancelled/matched) |
+| GET | `/api/stream/trades` | No | Trade lifecycle events |
+
+### Admin (ADMIN role only)
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| GET | `/api/admin/analytics/overview` | Admin | Platform stats |
+| GET | `/api/admin/analytics/daily` | Admin | Daily breakdown |
+| GET | `/api/admin/audit-logs` | Admin | Audit trail |
+
+## Test Accounts
+
+| Email | Password | Role |
+|-------|----------|------|
+| buyer@buy.com | password | BUYER |
+| seller@sell.com | password | SUPPLIER |
+
+## Tests
+
+```bash
+ENVIRONMENT=test JWT_SECRET=test-secret-key-for-testing-minimum-32-chars \
+  python -m pytest tests/unit/ -v
+```
+
+155 tests passing.
+
+## Feature Branches
+
+- `feature/oauth-integration` — Google + Microsoft SSO (169 tests, ready for merge)
