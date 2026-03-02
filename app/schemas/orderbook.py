@@ -82,8 +82,8 @@ class OrderCreate(BaseModel):
 
 class OrderUpdate(BaseModel):
     """Optional fields for modifying open orders."""
-    quantity_mt: Optional[Decimal] = None
-    price_per_mt_usd: Optional[Decimal] = None
+    quantity_mt: Optional[Decimal] = Field(None, gt=0)
+    price_per_mt_usd: Optional[Decimal] = Field(None, gt=0)
     availability_window: Optional[AvailabilityWindow] = None
     delivery_window_start: Optional[date] = None
     delivery_window_end: Optional[date] = None
