@@ -4,6 +4,7 @@ from contextvars import ContextVar
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.sessions import SessionMiddleware
 from fastapi.responses import JSONResponse
 from slowapi.errors import RateLimitExceeded
 
@@ -28,6 +29,7 @@ from app.routers.availability import router as availability_router
 from app.routers.demand import router as demand_router
 from app.routers.audit import router as audit_router
 from app.routers.stream import router as stream_router
+from app.routers.oauth import router as oauth_router
 from app.routers.compliance_api import router as compliance_api_router
 
 # ---------------------------------------------------------------------------
@@ -73,6 +75,9 @@ async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
         status_code=429,
         content={"detail": f"Rate limit exceeded: {exc.detail}"},
     )
+
+# Session middleware — required by Authlib for OAuth CSRF state
+app.add_middleware(SessionMiddleware, secret_key=settings.JWT_SECRET)
 
 # Admin panel
 setup_admin(app)
@@ -134,6 +139,9 @@ app.include_router(demand_router, prefix=settings.API_V1_STR)
 app.include_router(audit_router, prefix=settings.API_V1_STR)
 app.include_router(stream_router, prefix=settings.API_V1_STR)
 app.include_router(compliance_api_router, prefix=settings.API_V1_STR)
+
+# OAuth SSO — no API prefix; callbacks need clean /oauth/* URLs
+app.include_router(oauth_router)
 
 from app.routers import dashboard
 app.include_router(dashboard.router, prefix=settings.API_V1_STR)

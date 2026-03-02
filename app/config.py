@@ -72,6 +72,13 @@ class Settings(BaseSettings):
     # Order Matching Engine
     AUTO_MATCHING_ENABLED: bool = True  # Set to False to disable match-on-insert
 
+    # OAuth Providers
+    GOOGLE_CLIENT_ID: str = ""
+    GOOGLE_CLIENT_SECRET: str = ""
+    MICROSOFT_CLIENT_ID: str = ""
+    MICROSOFT_CLIENT_SECRET: str = ""
+    OAUTH_REDIRECT_BASE: str = "https://api.verdaxis.exchange"
+
     # Gemini AI
     GEMINI_API_KEY: Optional[str] = None
     

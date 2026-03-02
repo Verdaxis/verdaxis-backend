@@ -52,7 +52,7 @@ class User(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     email: Mapped[str] = mapped_column(String, unique=True, nullable=False)
-    password_hash: Mapped[str] = mapped_column(String, nullable=False)
+    password_hash: Mapped[str | None] = mapped_column(String, nullable=True)
     first_name: Mapped[str | None] = mapped_column(String)
     last_name: Mapped[str | None] = mapped_column(String)
     role: Mapped[UserRole | None] = mapped_column(Enum(UserRole, native_enum=False), nullable=True)
@@ -60,6 +60,7 @@ class User(Base):
     organization_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("organizations.id"))
     last_login: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     password_changed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    oauth_provider: Mapped[str | None] = mapped_column(String(20), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
 
     organization: Mapped["Organization"] = relationship(back_populates="users")

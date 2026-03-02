@@ -27,6 +27,7 @@ class UserResponse(UserBase):
     id: UUID
     status: UserStatus
     organization_id: Optional[UUID] = None
+    oauth_provider: Optional[str] = None
     
     class Config:
         from_attributes = True

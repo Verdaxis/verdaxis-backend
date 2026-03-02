@@ -96,7 +96,7 @@ async def login(request: _Request, form_data: Annotated[OAuth2PasswordRequestFor
     result = await db.execute(stmt)
     user = result.scalar_one_or_none()
     
-    if not user or not verify_password(form_data.password, user.password_hash):
+    if not user or user.password_hash is None or not verify_password(form_data.password, user.password_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect username or password",
