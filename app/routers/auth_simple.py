@@ -7,6 +7,7 @@ from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 import jwt
+import secrets
 from app.database import get_db
 from app.models.user import User, UserRole, UserStatus, Organization
 from app.schemas.user import UserCreate, UserResponse, UserUpdate, RegistrationResponse, Token, PasswordChangeRequest
@@ -46,7 +47,7 @@ async def get_current_user(token: Annotated[str, Depends(oauth2_scheme)], db: As
             raise credentials_exception
     except jwt.PyJWTError:
         raise credentials_exception
-    
+
     try:
         user_uuid = uuid.UUID(user_id_str)
     except ValueError:
@@ -55,7 +56,7 @@ async def get_current_user(token: Annotated[str, Depends(oauth2_scheme)], db: As
     stmt = select(User).where(User.id == user_uuid)
     result = await db.execute(stmt)
     user = result.scalar_one_or_none()
-    
+
     if user is None:
         raise credentials_exception
 
@@ -95,25 +96,32 @@ async def login(request: _Request, form_data: Annotated[OAuth2PasswordRequestFor
     stmt = select(User).where(User.email == form_data.username)
     result = await db.execute(stmt)
     user = result.scalar_one_or_none()
-    
+
     if not user or not verify_password(form_data.password, user.password_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect username or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
-        
+
+    # Email must be verified before login is permitted
+    if not user.email_verified:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Please verify your email address. Check your inbox for the verification link.",
+        )
+
     if user.status != UserStatus.APPROVED:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=f"Account is {user.status.value}. Please wait for admin approval.",
         )
-    
+
     # Update last_login
     from datetime import datetime, UTC
     user.last_login = datetime.now(UTC)
     await db.commit()
-    
+
     access_token = create_access_token(
         subject=str(user.id),
         additional_claims={"role": user.role.value if user.role else None},
@@ -143,7 +151,7 @@ async def refresh_tokens(request: _Request, body: RefreshRequest, db: AsyncSessi
         raise HTTPException(status_code=401, detail="Refresh token expired. Please log in again.")
     except jwt.PyJWTError:
         raise HTTPException(status_code=401, detail="Invalid refresh token")
-    
+
     try:
         user_uuid = uuid.UUID(user_id_str)
     except ValueError:
@@ -152,10 +160,10 @@ async def refresh_tokens(request: _Request, body: RefreshRequest, db: AsyncSessi
     stmt = select(User).where(User.id == user_uuid)
     result = await db.execute(stmt)
     user = result.scalar_one_or_none()
-    
+
     if not user or user.status != UserStatus.APPROVED:
         raise HTTPException(status_code=401, detail="User not found or not active")
-    
+
     # Check password_changed_at invalidation on refresh too
     if user.password_changed_at is not None:
         token_iat = payload.get("iat")
@@ -194,23 +202,23 @@ async def register(request: _Request, user_in: UserCreate, db: AsyncSession = De
     stmt = select(User).where(User.email == user_in.email)
     result = await db.execute(stmt)
     existing_user = result.scalar_one_or_none()
-    
+
     if existing_user:
         raise HTTPException(
             status_code=400,
             detail="Email already registered"
         )
-    
+
     hashed_pw = get_password_hash(user_in.password)
-    
+
     # Extract domain from email
     email_domain = user_in.email.split('@')[1]
-    
+
     # Check if organization exists for this domain
     stmt_org = select(Organization).where(Organization.domain == email_domain)
     result_org = await db.execute(stmt_org)
     existing_org = result_org.scalar_one_or_none()
-    
+
     if existing_org:
         role_enum = None
         if user_in.role:
@@ -219,6 +227,7 @@ async def register(request: _Request, user_in: UserCreate, db: AsyncSession = De
             except ValueError:
                 pass
 
+        verification_token = secrets.token_urlsafe(32)
         new_user = User(
             email=user_in.email,
             password_hash=hashed_pw,
@@ -226,14 +235,19 @@ async def register(request: _Request, user_in: UserCreate, db: AsyncSession = De
             last_name=user_in.last_name,
             role=role_enum,
             organization_id=existing_org.id,
-            status=UserStatus.PENDING
+            status=UserStatus.PENDING,
+            email_verification_token=verification_token,
         )
-        
+
         db.add(new_user)
         await db.commit()
         await db.refresh(new_user)
+
+        from app.services.email import send_verification_email
+        await send_verification_email(new_user.email, new_user.first_name or "there", verification_token)
+
         return RegistrationResponse(status="created", user=new_user)
-    
+
     else:
         # Defer flow: Return token for org creation
         token_data = {
@@ -245,11 +259,11 @@ async def register(request: _Request, user_in: UserCreate, db: AsyncSession = De
             "type": "registration"
         }
         reg_token = create_access_token(
-            subject=user_in.email, 
+            subject=user_in.email,
             expires_delta=timedelta(minutes=30),
             additional_claims=token_data
         )
-        
+
         return RegistrationResponse(status="requires_org", registration_token=reg_token)
 
 
@@ -264,10 +278,10 @@ async def register_with_org(
              raise HTTPException(status_code=400, detail="Invalid token type")
     except jwt.PyJWTError:
         raise HTTPException(status_code=400, detail="Invalid or expired registration token")
-        
+
     email = payload.get("email")
     email_domain = email.split('@')[1]
-    
+
     stmt_org = select(Organization).where(Organization.domain == email_domain)
     result_org = await db.execute(stmt_org)
     if result_org.scalar_one_or_none():
@@ -281,10 +295,10 @@ async def register_with_org(
         country_code=request.organization.country_code,
         verification_status="PENDING"
     )
-    
+
     db.add(new_org)
     await db.flush()
-    
+
     role_str = payload.get("role")
     final_role = UserRole.BUYER
     if role_str:
@@ -295,21 +309,65 @@ async def register_with_org(
         except ValueError:
             pass
 
+    verification_token = secrets.token_urlsafe(32)
     new_user = User(
         email=email,
         password_hash=payload.get("password_hash"),
         first_name=payload.get("first_name"),
         last_name=payload.get("last_name"),
-        role=final_role, 
+        role=final_role,
         organization_id=new_org.id,
-        status=UserStatus.PENDING
+        status=UserStatus.PENDING,
+        email_verification_token=verification_token,
     )
-    
+
     db.add(new_user)
     await db.commit()
     await db.refresh(new_user)
-    
+
+    from app.services.email import send_verification_email
+    await send_verification_email(new_user.email, new_user.first_name or "there", verification_token)
+
     return new_user
+
+# ---------------------------------------------------------------------------
+# Email verification
+# ---------------------------------------------------------------------------
+
+@router.get("/verify-email")
+async def verify_email(token: str, db: AsyncSession = Depends(get_db)):
+    """Verify email address using the token sent at registration."""
+    stmt = select(User).where(User.email_verification_token == token)
+    result = await db.execute(stmt)
+    user = result.scalar_one_or_none()
+
+    if not user:
+        raise HTTPException(status_code=400, detail="Invalid or expired verification link")
+
+    user.email_verified = True
+    user.email_verification_token = None
+    await db.commit()
+
+    return {"message": "Email verified successfully", "email": user.email}
+
+
+@router.post("/resend-verification")
+async def resend_verification(
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: AsyncSession = Depends(get_db),
+):
+    """Resend the email verification link for the currently authenticated user."""
+    if current_user.email_verified:
+        raise HTTPException(status_code=400, detail="Email already verified")
+
+    new_token = secrets.token_urlsafe(32)
+    current_user.email_verification_token = new_token
+    await db.commit()
+
+    from app.services.email import send_verification_email
+    await send_verification_email(current_user.email, current_user.first_name or "there", new_token)
+
+    return {"message": "Verification email sent"}
 
 # ---------------------------------------------------------------------------
 # Profile endpoints (merged from legacy auth.py)
@@ -336,7 +394,7 @@ async def update_users_me(
                 detail="Only admins can change user roles",
             )
         current_user.role = user_update.role
-        
+
     await db.commit()
     await db.refresh(current_user)
     return current_user
@@ -356,26 +414,26 @@ async def change_password(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Current password is incorrect",
         )
-    
+
     if len(payload.new_password) < 8:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="New password must be at least 8 characters",
         )
-    
+
     from datetime import datetime, UTC
     current_user.password_hash = get_password_hash(payload.new_password)
     current_user.password_changed_at = datetime.now(UTC)
-    
+
     await db.commit()
-    
+
     # Return fresh tokens so the user stays logged in
     access_token = create_access_token(
         subject=str(current_user.id),
         additional_claims={"role": current_user.role.value if current_user.role else None},
     )
     refresh_token = create_refresh_token(subject=str(current_user.id))
-    
+
     return {
         "message": "Password changed successfully",
         "access_token": access_token,
@@ -397,14 +455,14 @@ async def approve_user(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not authorized to approve users",
         )
-        
+
     stmt = select(User).where(User.id == user_id)
     result = await db.execute(stmt)
     user_to_approve = result.scalar_one_or_none()
-    
+
     if not user_to_approve:
         raise HTTPException(status_code=404, detail="User not found")
-        
+
     user_to_approve.status = UserStatus.APPROVED
     await db.commit()
     await db.refresh(user_to_approve)
@@ -422,14 +480,14 @@ async def switch_role(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only admins can switch roles for testing",
         )
-    
+
     target_role_upper = target_role.upper()
     if target_role_upper not in ["BUYER", "SUPPLIER", "ADMIN"]:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid role. Must be BUYER, SUPPLIER, or ADMIN",
         )
-    
+
     access_token = create_access_token(
         subject=str(current_user.id),
         additional_claims={"role": target_role_upper},

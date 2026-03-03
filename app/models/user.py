@@ -1,9 +1,10 @@
-from sqlalchemy import String, ForeignKey, Enum, DateTime
+from sqlalchemy import String, ForeignKey, Enum, DateTime, Boolean, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import UUID
 import uuid
 import enum
 from datetime import datetime, UTC
+from typing import Optional
 from app.database import Base
 
 
@@ -61,5 +62,13 @@ class User(Base):
     last_login: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     password_changed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+
+    # Email verification (STORY-010a)
+    email_verified: Mapped[bool] = mapped_column(Boolean, default=False, server_default='false', nullable=False)
+    email_verification_token: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+
+    # KYC (STORY-010b)
+    kyc_status: Mapped[str] = mapped_column(String(20), default='PENDING', server_default='PENDING', nullable=False)
+    kyc_rejection_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     organization: Mapped["Organization"] = relationship(back_populates="users")

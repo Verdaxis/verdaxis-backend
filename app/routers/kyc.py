@@ -1,0 +1,156 @@
+"""KYC router — document submission and admin review."""
+from typing import Annotated
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, status
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+import uuid
+from pydantic import BaseModel
+
+from app.database import get_db
+from app.models.user import User, UserRole, UserStatus
+from app.routers.auth_simple import get_current_user
+from app.services.kyc import verify_document_with_gemini
+from app.services.email import send_kyc_approved_email, send_kyc_rejected_email
+
+router = APIRouter(prefix="/kyc", tags=["KYC"])
+
+
+class AdminRejectBody(BaseModel):
+    reason: str
+
+
+@router.post("/submit")
+async def submit_kyc(
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    passport: UploadFile = File(..., description="Passport or government-issued ID"),
+    company_doc: UploadFile = File(..., description="Company registration document"),
+):
+    """
+    Submit KYC documents for verification via Gemini Vision.
+    Both documents must pass for auto-approval.
+    """
+    passport_bytes = await passport.read()
+    company_bytes = await company_doc.read()
+
+    passport_mime = passport.content_type or "image/jpeg"
+    company_mime = company_doc.content_type or "image/jpeg"
+
+    passport_result = await verify_document_with_gemini(
+        passport_bytes, passport_mime, "passport or government-issued ID"
+    )
+    company_result = await verify_document_with_gemini(
+        company_bytes, company_mime, "company registration document"
+    )
+
+    both_passed = passport_result["passed"] and company_result["passed"]
+
+    if both_passed:
+        current_user.kyc_status = "APPROVED"
+        current_user.kyc_rejection_reason = None
+        current_user.status = UserStatus.APPROVED
+        await db.commit()
+        await send_kyc_approved_email(
+            current_user.email, current_user.first_name or "there"
+        )
+        return {
+            "kyc_status": current_user.kyc_status,
+            "message": "KYC verification successful. Your account is now active.",
+        }
+    else:
+        issues = []
+        if not passport_result["passed"]:
+            issues.append(f"Passport/ID: {', '.join(passport_result['issues']) or 'failed verification'}")
+        if not company_result["passed"]:
+            issues.append(f"Company doc: {', '.join(company_result['issues']) or 'failed verification'}")
+
+        rejection_reason = "; ".join(issues)
+        current_user.kyc_status = "REJECTED"
+        current_user.kyc_rejection_reason = rejection_reason
+        await db.commit()
+        await send_kyc_rejected_email(
+            current_user.email, current_user.first_name or "there", rejection_reason
+        )
+        return {
+            "kyc_status": current_user.kyc_status,
+            "message": "KYC verification failed. Please review the issues and resubmit.",
+            "rejection_reason": rejection_reason,
+        }
+
+
+@router.get("/status")
+async def get_kyc_status(
+    current_user: Annotated[User, Depends(get_current_user)],
+):
+    """Return the current user's email verification and KYC status."""
+    return {
+        "email_verified": current_user.email_verified,
+        "kyc_status": current_user.kyc_status,
+        "kyc_rejection_reason": current_user.kyc_rejection_reason,
+    }
+
+
+@router.put("/admin/{user_id}/approve")
+async def admin_approve_kyc(
+    user_id: uuid.UUID,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Admin: manually approve a user's KYC and activate their account."""
+    if current_user.role != UserRole.ADMIN:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required")
+
+    stmt = select(User).where(User.id == user_id)
+    result = await db.execute(stmt)
+    target = result.scalar_one_or_none()
+
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    target.kyc_status = "APPROVED"
+    target.kyc_rejection_reason = None
+    target.status = UserStatus.APPROVED
+    await db.commit()
+    await db.refresh(target)
+
+    await send_kyc_approved_email(target.email, target.first_name or "there")
+
+    return {
+        "user_id": str(target.id),
+        "kyc_status": target.kyc_status,
+        "account_status": target.status.value,
+        "message": "KYC approved and account activated.",
+    }
+
+
+@router.put("/admin/{user_id}/reject")
+async def admin_reject_kyc(
+    user_id: uuid.UUID,
+    body: AdminRejectBody,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Admin: manually reject a user's KYC with a reason."""
+    if current_user.role != UserRole.ADMIN:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required")
+
+    stmt = select(User).where(User.id == user_id)
+    result = await db.execute(stmt)
+    target = result.scalar_one_or_none()
+
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    target.kyc_status = "REJECTED"
+    target.kyc_rejection_reason = body.reason
+    await db.commit()
+    await db.refresh(target)
+
+    await send_kyc_rejected_email(target.email, target.first_name or "there", body.reason)
+
+    return {
+        "user_id": str(target.id),
+        "kyc_status": target.kyc_status,
+        "rejection_reason": target.kyc_rejection_reason,
+        "message": "KYC rejected.",
+    }

@@ -7,7 +7,7 @@ class Settings(BaseSettings):
     # Server
     PROJECT_NAME: str = "Verdaxis"
     API_V1_STR: str = "/api"
-    
+
     # Database
     DATABASE_HOST: str = "localhost"
     DATABASE_PORT: int = 5432
@@ -27,12 +27,12 @@ class Settings(BaseSettings):
 
     # Security
     ENABLE_AUTH_BYPASS: bool = False
-    
+
     # Admin UI credentials
     ADMIN_USERNAME: Optional[str] = None
     ADMIN_PASSWORD: Optional[str] = None
     ADMIN_SESSION_SECRET: Optional[str] = None
-    
+
     # JWT
     JWT_SECRET: str = "change-me-in-production"
     JWT_ALGORITHM: str = "HS256"
@@ -74,7 +74,12 @@ class Settings(BaseSettings):
 
     # Gemini AI
     GEMINI_API_KEY: Optional[str] = None
-    
+
+    # Email (Resend)
+    RESEND_API_KEY: Optional[str] = None
+    EMAIL_FROM: str = "Verdaxis <noreply@verdaxis.exchange>"
+    FRONTEND_URL: str = "https://app.verdaxis.exchange"
+
     # CORS
     BACKEND_CORS_ORIGINS: list[str] = [
         "http://localhost:5173",
