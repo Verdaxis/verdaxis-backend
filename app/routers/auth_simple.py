@@ -349,6 +349,7 @@ async def verify_email(token: str, db: AsyncSession = Depends(get_db)):
 
     user.email_verified = True
     user.email_verification_token = None
+    user.status = UserStatus.APPROVED
     await db.commit()
 
     return {"message": "Email verified successfully", "email": user.email}
