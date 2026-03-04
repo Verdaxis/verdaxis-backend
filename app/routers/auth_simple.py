@@ -24,6 +24,9 @@ class RegisterWithOrgRequest(BaseModel):
     registration_token: str
     organization: OrganizationCreate
 
+class ResendVerificationRequest(BaseModel):
+    email: str
+
 class RefreshRequest(BaseModel):
     refresh_token: str
 
@@ -368,6 +371,29 @@ async def resend_verification(
     await send_verification_email(current_user.email, current_user.first_name or "there", new_token)
 
     return {"message": "Verification email sent"}
+
+
+@router.post("/resend-verification-email")
+@limiter.limit("3/minute")
+async def resend_verification_email_public(
+    request: _Request,
+    body: ResendVerificationRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Public endpoint to resend verification email by email address. Rate limited to prevent enumeration."""
+    stmt = select(User).where(User.email == body.email)
+    result = await db.execute(stmt)
+    user = result.scalar_one_or_none()
+
+    # Always return 200 to prevent email enumeration
+    if user and not user.email_verified:
+        new_token = secrets.token_urlsafe(32)
+        user.email_verification_token = new_token
+        await db.commit()
+        from app.services.email import send_verification_email
+        await send_verification_email(user.email, user.first_name or "there", new_token)
+
+    return {"message": "If that email is registered and unverified, we've sent a new link."}
 
 # ---------------------------------------------------------------------------
 # Profile endpoints (merged from legacy auth.py)
