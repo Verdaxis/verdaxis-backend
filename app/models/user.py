@@ -71,4 +71,8 @@ class User(Base):
     kyc_status: Mapped[str] = mapped_column(String(20), default='PENDING', server_default='PENDING', nullable=False)
     kyc_rejection_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
+    # Password reset
+    password_reset_token_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    password_reset_expires: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
     organization: Mapped["Organization"] = relationship(back_populates="users")

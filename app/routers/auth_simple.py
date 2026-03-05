@@ -1,11 +1,12 @@
 from fastapi import Request as _Request
 from app.rate_limit import limiter
-from datetime import timedelta
+from datetime import datetime, timedelta, UTC
 from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+import hashlib
 import jwt
 import secrets
 from app.database import get_db
@@ -29,6 +30,13 @@ class ResendVerificationRequest(BaseModel):
 
 class RefreshRequest(BaseModel):
     refresh_token: str
+
+class ForgotPasswordRequest(BaseModel):
+    email: str
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
@@ -72,7 +80,6 @@ async def get_current_user(token: Annotated[str, Depends(oauth2_scheme)], db: As
                 detail="Token missing issued-at claim. Please log in again.",
                 headers={"WWW-Authenticate": "Bearer"},
             )
-        from datetime import datetime, UTC
         iat_dt = datetime.fromtimestamp(token_iat, tz=UTC)
         if iat_dt < user.password_changed_at:
             raise HTTPException(
@@ -121,7 +128,6 @@ async def login(request: _Request, form_data: Annotated[OAuth2PasswordRequestFor
         )
 
     # Update last_login
-    from datetime import datetime, UTC
     user.last_login = datetime.now(UTC)
     await db.commit()
 
@@ -172,7 +178,6 @@ async def refresh_tokens(request: _Request, body: RefreshRequest, db: AsyncSessi
         token_iat = payload.get("iat")
         if token_iat is None:
             raise HTTPException(status_code=401, detail="Token missing issued-at claim. Please log in again.")
-        from datetime import datetime, UTC
         iat_dt = datetime.fromtimestamp(token_iat, tz=UTC)
         if iat_dt < user.password_changed_at:
             raise HTTPException(status_code=401, detail="Password was changed. Please log in again.")
@@ -448,7 +453,6 @@ async def change_password(
             detail="New password must be at least 8 characters",
         )
 
-    from datetime import datetime, UTC
     current_user.password_hash = get_password_hash(payload.new_password)
     current_user.password_changed_at = datetime.now(UTC)
 
@@ -466,6 +470,78 @@ async def change_password(
         "access_token": access_token,
         "refresh_token": refresh_token,
     }
+
+# ---------------------------------------------------------------------------
+# Password reset (public, unauthenticated)
+# ---------------------------------------------------------------------------
+
+@router.post("/forgot-password")
+@limiter.limit("3/minute")
+async def forgot_password(
+    request: _Request,
+    body: ForgotPasswordRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Request a password reset link. Always returns 200 (no email enumeration)."""
+    safe_response = {"message": "If an account exists, a reset link has been sent."}
+
+    stmt = select(User).where(User.email == body.email)
+    result = await db.execute(stmt)
+    user = result.scalar_one_or_none()
+
+    if not user or user.status != UserStatus.APPROVED:
+        return safe_response
+
+    # Generate token, store SHA-256 hash (never store plaintext)
+    token = secrets.token_urlsafe(32)
+    token_hash = hashlib.sha256(token.encode()).hexdigest()
+
+    user.password_reset_token_hash = token_hash
+    user.password_reset_expires = datetime.now(UTC) + timedelta(hours=1)
+    await db.commit()
+
+    from app.services.email import send_password_reset_email
+    await send_password_reset_email(user.email, user.first_name or "there", token)
+
+    return safe_response
+
+
+@router.post("/reset-password")
+@limiter.limit("5/minute")
+async def reset_password(
+    request: _Request,
+    body: ResetPasswordRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Reset password using a valid token."""
+    if len(body.new_password) < 8:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Password must be at least 8 characters.",
+        )
+
+    token_hash = hashlib.sha256(body.token.encode()).hexdigest()
+
+    stmt = select(User).where(
+        User.password_reset_token_hash == token_hash,
+        User.password_reset_expires > datetime.now(UTC),
+    )
+    result = await db.execute(stmt)
+    user = result.scalar_one_or_none()
+
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired reset token.",
+        )
+
+    user.password_hash = get_password_hash(body.new_password)
+    user.password_reset_token_hash = None
+    user.password_reset_expires = None
+    user.password_changed_at = datetime.now(UTC)
+    await db.commit()
+
+    return {"message": "Password updated. You can now sign in."}
 
 # ---------------------------------------------------------------------------
 # Admin endpoints (merged from legacy auth.py)
