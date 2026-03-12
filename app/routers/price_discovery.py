@@ -5,7 +5,7 @@ No authentication required -- this feeds the public price ticker.
 """
 from datetime import datetime, date, timedelta, UTC
 from decimal import Decimal
-from typing import Optional
+from typing import Optional, Literal as _Literal
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select, func, cast, Date
@@ -237,16 +237,19 @@ async def get_reference_prices(
     region: Optional[str] = Query(None, description="Filter by region"),
     date_from: Optional[date] = Query(None, alias="from", description="Start date (inclusive), e.g. 2026-01-01"),
     date_to: Optional[date] = Query(None, alias="to", description="End date (inclusive), e.g. 2026-03-01"),
+    visibility: _Literal["internal", "external"] = Query("external", description="VWAP tier: internal (platform) or external (public benchmark)"),
     db: AsyncSession = Depends(get_db),
 ):
     """
     Public endpoint: daily VWAP reference prices by fuel_type + region.
     No auth required. Calculates Volume-Weighted Average Price from confirmed+ trades.
-    Supports date range filtering and fuel_type/region filters.
+    Supports date range filtering, fuel_type/region filters, and visibility tier.
     """
     prices = await compute_reference_prices(
         db, date_from=date_from, date_to=date_to, fuel_type=fuel_type, region=region
     )
+    for item in prices:
+        item.visibility = visibility
     return ReferencePriceResponse(
         prices=prices,
         generated_at=datetime.now(UTC),

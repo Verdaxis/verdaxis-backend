@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Optional, Literal
 from uuid import UUID
 from datetime import datetime, date
 from decimal import Decimal
@@ -215,6 +215,7 @@ class ReferencePriceItem(BaseModel):
     total_volume_mt: Decimal
     trade_count: int
     date: date
+    visibility: Literal["internal", "external"] = "external"
 
 
 class ReferencePriceResponse(BaseModel):

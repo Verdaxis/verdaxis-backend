@@ -222,3 +222,33 @@ class TestReferencePriceItemSchema:
         data = item.model_dump()
         assert data["fuel_type"] == "Ammonia"
         assert data["trade_count"] == 1
+
+
+def test_reference_price_item_has_visibility_field():
+    from app.schemas.orderbook import ReferencePriceItem
+    from decimal import Decimal
+    from datetime import date
+    item = ReferencePriceItem(
+        fuel_type="Methanol", region="ARA",
+        vwap_usd=Decimal("525.50"), total_volume_mt=Decimal("5000"),
+        trade_count=3, date=date(2026, 3, 12), visibility="internal",
+    )
+    assert item.visibility == "internal"
+
+
+def test_reference_price_item_defaults_to_external():
+    from app.schemas.orderbook import ReferencePriceItem
+    from decimal import Decimal
+    from datetime import date
+    item = ReferencePriceItem(
+        fuel_type="Methanol", region="ARA",
+        vwap_usd=Decimal("525.50"), total_volume_mt=Decimal("5000"),
+        trade_count=3, date=date(2026, 3, 12),
+    )
+    assert item.visibility == "external"
+
+
+def test_get_reference_prices_accepts_visibility_param():
+    import inspect
+    from app.routers.price_discovery import get_reference_prices
+    assert "visibility" in inspect.signature(get_reference_prices).parameters
