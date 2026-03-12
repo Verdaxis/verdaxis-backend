@@ -34,15 +34,23 @@ router = APIRouter(prefix="/trades", tags=["trades"])
 def build_trade_response(trade: Trade) -> TradeResponse:
     """Build a TradeResponse from a Trade ORM object with loaded relationships."""
     order = trade.ask_order or trade.bid_order
+
+    buyer_name = trade.buyer.name if trade.buyer else ""
+    seller_name = trade.seller.name if trade.seller else ""
+    if trade.is_anonymous:
+        buyer_name = "Anonymous"
+        seller_name = "Anonymous"
+
     return TradeResponse(
         id=trade.id,
         bid_order_id=trade.bid_order_id,
         ask_order_id=trade.ask_order_id,
         buyer_id=trade.buyer_id,
         seller_id=trade.seller_id,
-        buyer_name=trade.buyer.name if trade.buyer else "",
-        seller_name=trade.seller.name if trade.seller else "",
+        buyer_name=buyer_name,
+        seller_name=seller_name,
         initiated_by=trade.initiated_by,
+        is_anonymous=trade.is_anonymous,
         quantity_mt=trade.quantity_mt,
         price_per_mt_usd=trade.price_per_mt_usd,
         status=trade.status,

@@ -394,7 +394,7 @@ async def create_order(
     from app.config import settings
     if settings.AUTO_MATCHING_ENABLED:
         from app.services.matching_engine import match_order
-        matched_trades = await match_order(db, new_order)
+        matched_trades = await match_order(db, new_order, is_anonymous=order_data.is_anonymous)
 
     await db.commit()
 
@@ -406,6 +406,7 @@ async def create_order(
                 "fuel_type": new_order.fuel_type,
                 "quantity": str(trade.quantity_mt),
                 "price": str(trade.price_per_mt_usd),
+                "is_anonymous": trade.is_anonymous,
             })
         await event_bus.publish("orderbook", "orders_matched", {
             "order_id": str(new_order.id),

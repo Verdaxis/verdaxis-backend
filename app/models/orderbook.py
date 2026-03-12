@@ -145,6 +145,7 @@ class Trade(Base):
     buyer_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organizations.id"), nullable=False)
     seller_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organizations.id"), nullable=False)
     initiated_by: Mapped[Initiator] = mapped_column(Enum(Initiator, native_enum=False), nullable=False)
+    is_anonymous: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
 
     # Trade details
     quantity_mt: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)

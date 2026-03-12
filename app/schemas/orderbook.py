@@ -78,6 +78,7 @@ class OrderCreate(BaseModel):
     delivery_window_end: Optional[date] = None
     certifications: list[str] = Field(default_factory=list)
     expires_at: Optional[datetime] = None
+    is_anonymous: bool = False
 
 
 class OrderUpdate(BaseModel):
@@ -143,6 +144,7 @@ class TradeResponse(BaseModel):
     buyer_name: str = ""
     seller_name: str = ""
     initiated_by: Initiator
+    is_anonymous: bool = False
     quantity_mt: Decimal
     price_per_mt_usd: Decimal
     status: TradeStatus

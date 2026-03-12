@@ -20,6 +20,7 @@ from app.models.user import User
 async def match_order(
     db: AsyncSession,
     new_order: OrderBookOrder,
+    is_anonymous: bool = False,
 ) -> list[Trade]:
     """
     Attempt to match a newly created order against the opposite side of the book.
@@ -105,6 +106,7 @@ async def match_order(
             price_per_mt_usd=trade_price,
             status=TradeStatus.CONFIRMED,  # Auto-matched = auto-confirmed
             confirmed_at=datetime.now(UTC),
+            is_anonymous=is_anonymous,
         )
         db.add(trade)
 
