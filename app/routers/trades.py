@@ -3,8 +3,8 @@ from datetime import datetime, UTC
 from decimal import Decimal
 from typing import Annotated, List
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select, or_
+from fastapi import APIRouter, Depends, HTTPException, status, Query
+from sqlalchemy import select, or_, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 from uuid import UUID
@@ -22,6 +22,7 @@ from app.models.orderbook import (
 )
 from app.models.notification import Notification, NotificationType
 from app.schemas.orderbook import TradeCreate, TradeResponse, TradeDeliverPayload
+from app.schemas.pagination import PaginatedResponse
 from app.services.event_bus import event_bus
 
 router = APIRouter(prefix="/trades", tags=["trades"])
@@ -269,16 +270,25 @@ async def create_trade(
 # 2. GET /my -- List my trades (as buyer or seller)
 # ---------------------------------------------------------------------------
 
-@router.get("/my", response_model=List[TradeResponse])
+@router.get("/my", response_model=PaginatedResponse[TradeResponse])
 async def list_my_trades(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user)],
+    skip: int = Query(0, ge=0),
+    limit: int = Query(20, ge=1, le=100),
 ):
     org_id = current_user.organization_id
 
+    org_filter = or_(Trade.buyer_id == org_id, Trade.seller_id == org_id)
+
+    # Count query (same filter, no pagination)
+    count_query = select(func.count(Trade.id)).where(org_filter)
+    total = (await db.execute(count_query)).scalar()
+
+    # Data query with pagination
     stmt = (
         select(Trade)
-        .where(or_(Trade.buyer_id == org_id, Trade.seller_id == org_id))
+        .where(org_filter)
         .options(
             joinedload(Trade.buyer),
             joinedload(Trade.seller),
@@ -286,11 +296,14 @@ async def list_my_trades(
             joinedload(Trade.ask_order),
         )
         .order_by(Trade.created_at.desc())
+        .offset(skip)
+        .limit(limit)
     )
     result = await db.execute(stmt)
     trades = result.unique().scalars().all()
 
-    return [build_trade_response(t) for t in trades]
+    items = [build_trade_response(t) for t in trades]
+    return PaginatedResponse(items=items, total=total, skip=skip, limit=limit)
 
 
 # ---------------------------------------------------------------------------

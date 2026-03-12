@@ -19,6 +19,7 @@ from app.schemas.orderbook import (
     AggregatedOrderbookResponse,
     OrderResponseWithCI,
 )
+from app.schemas.pagination import PaginatedResponse
 from app.services.ci_pricing import calculate_ci_adjusted_price
 from app.services.event_bus import event_bus
 
@@ -43,37 +44,48 @@ def compute_is_crossed(side: str, price: Decimal, best_opposing_price: Optional[
 # ============== Static routes (must come before parametric /{order_id}) ==============
 
 
-@router.get("/bids", response_model=list[OrderResponse])
+@router.get("/bids", response_model=PaginatedResponse[OrderResponse])
 async def list_bids(
     product_id: Optional[UUID] = Query(None, description="Filter by product"),
     delivery_point_id: Optional[UUID] = Query(None, description="Filter by delivery point"),
     availability_window: Optional[str] = Query(None, description="Filter by availability window"),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
 ):
     """
-    List all open BID orders.
+    List all open BID orders with pagination.
     """
+    # Build shared filter conditions
+    filters = [
+        OrderBookOrder.status.in_([OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED]),
+        OrderBookOrder.side == OrderSide.BID,
+    ]
+    if product_id:
+        filters.append(OrderBookOrder.product_id == product_id)
+    if delivery_point_id:
+        filters.append(OrderBookOrder.delivery_point_id == delivery_point_id)
+    if availability_window:
+        filters.append(OrderBookOrder.availability_window == availability_window)
+
+    # Count query (same filters, no pagination)
+    count_query = select(func.count(OrderBookOrder.id)).where(*filters)
+    total = (await db.execute(count_query)).scalar()
+
+    # Data query with pagination
     query = (
         select(OrderBookOrder)
         .options(selectinload(OrderBookOrder.organization))
-        .where(
-            OrderBookOrder.status.in_([OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED]),
-            OrderBookOrder.side == OrderSide.BID,
-        )
+        .where(*filters)
+        .order_by(OrderBookOrder.created_at.desc())
+        .offset(skip)
+        .limit(limit)
     )
-
-    if product_id:
-        query = query.where(OrderBookOrder.product_id == product_id)
-    if delivery_point_id:
-        query = query.where(OrderBookOrder.delivery_point_id == delivery_point_id)
-    if availability_window:
-        query = query.where(OrderBookOrder.availability_window == availability_window)
-
-    query = query.order_by(OrderBookOrder.created_at.desc())
     result = await db.execute(query)
     orders = result.scalars().all()
 
     # Fetch best ask price (single scalar query) for crossing detection
+    # This queries ALL orders, not affected by pagination
     best_ask_result = await db.execute(
         select(func.min(OrderBookOrder.price_per_mt_usd)).where(
             OrderBookOrder.side == OrderSide.ASK,
@@ -82,45 +94,58 @@ async def list_bids(
     )
     best_ask_price = best_ask_result.scalar()
 
-    return [
+    items = [
         OrderResponse.model_validate(order, from_attributes=True).model_copy(
             update={"is_crossed": compute_is_crossed("BID", order.price_per_mt_usd, best_ask_price)}
         )
         for order in orders
     ]
 
+    return PaginatedResponse(items=items, total=total, skip=skip, limit=limit)
 
-@router.get("/asks", response_model=list[OrderResponse])
+
+@router.get("/asks", response_model=PaginatedResponse[OrderResponse])
 async def list_asks(
     product_id: Optional[UUID] = Query(None, description="Filter by product"),
     delivery_point_id: Optional[UUID] = Query(None, description="Filter by delivery point"),
     availability_window: Optional[str] = Query(None, description="Filter by availability window"),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
 ):
     """
-    List all open ASK orders.
+    List all open ASK orders with pagination.
     """
+    # Build shared filter conditions
+    filters = [
+        OrderBookOrder.status.in_([OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED]),
+        OrderBookOrder.side == OrderSide.ASK,
+    ]
+    if product_id:
+        filters.append(OrderBookOrder.product_id == product_id)
+    if delivery_point_id:
+        filters.append(OrderBookOrder.delivery_point_id == delivery_point_id)
+    if availability_window:
+        filters.append(OrderBookOrder.availability_window == availability_window)
+
+    # Count query (same filters, no pagination)
+    count_query = select(func.count(OrderBookOrder.id)).where(*filters)
+    total = (await db.execute(count_query)).scalar()
+
+    # Data query with pagination
     query = (
         select(OrderBookOrder)
         .options(selectinload(OrderBookOrder.organization))
-        .where(
-            OrderBookOrder.status.in_([OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED]),
-            OrderBookOrder.side == OrderSide.ASK,
-        )
+        .where(*filters)
+        .order_by(OrderBookOrder.created_at.desc())
+        .offset(skip)
+        .limit(limit)
     )
-
-    if product_id:
-        query = query.where(OrderBookOrder.product_id == product_id)
-    if delivery_point_id:
-        query = query.where(OrderBookOrder.delivery_point_id == delivery_point_id)
-    if availability_window:
-        query = query.where(OrderBookOrder.availability_window == availability_window)
-
-    query = query.order_by(OrderBookOrder.created_at.desc())
     result = await db.execute(query)
     orders = result.scalars().all()
 
     # Fetch best bid price (single scalar query) for crossing detection
+    # This queries ALL orders, not affected by pagination
     best_bid_result = await db.execute(
         select(func.max(OrderBookOrder.price_per_mt_usd)).where(
             OrderBookOrder.side == OrderSide.BID,
@@ -129,12 +154,14 @@ async def list_asks(
     )
     best_bid_price = best_bid_result.scalar()
 
-    return [
+    items = [
         OrderResponse.model_validate(order, from_attributes=True).model_copy(
             update={"is_crossed": compute_is_crossed("ASK", order.price_per_mt_usd, best_bid_price)}
         )
         for order in orders
     ]
+
+    return PaginatedResponse(items=items, total=total, skip=skip, limit=limit)
 
 
 @router.get("/with-ci", response_model=list[OrderResponseWithCI])
