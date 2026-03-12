@@ -3,12 +3,15 @@ Public price discovery endpoint.
 Aggregates confirmed/delivered/paid trades into price summaries by product + delivery_point.
 No authentication required -- this feeds the public price ticker.
 """
+import csv
+import io
 from datetime import datetime, date, timedelta, UTC
 from decimal import Decimal
 from typing import Optional, Literal as _Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
+from fastapi.responses import StreamingResponse
 from sqlalchemy import select, func, cast, Date
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -275,6 +278,29 @@ async def compute_reference_prices(
     return items
 
 
+_CSV_COLUMNS = ["date", "product_name", "fuel_type", "delivery_point_name",
+                "region", "vwap_usd", "volume_mt", "trade_count"]
+
+
+def _items_to_csv(items: list[ReferencePriceItem]) -> str:
+    """Serialise a list of ReferencePriceItem objects into a CSV string."""
+    buf = io.StringIO()
+    writer = csv.DictWriter(buf, fieldnames=_CSV_COLUMNS)
+    writer.writeheader()
+    for item in items:
+        writer.writerow({
+            "date": str(item.date),
+            "product_name": item.product_name or "",
+            "fuel_type": item.fuel_type or "",
+            "delivery_point_name": item.delivery_point_name or "",
+            "region": item.region or "",
+            "vwap_usd": str(item.vwap_usd),
+            "volume_mt": str(item.total_volume_mt),
+            "trade_count": str(item.trade_count),
+        })
+    return buf.getvalue()
+
+
 @router.get("/reference", response_model=ReferencePriceResponse)
 @limiter.limit("30/minute")
 async def get_reference_prices(
@@ -307,4 +333,37 @@ async def get_reference_prices(
     return ReferencePriceResponse(
         prices=prices,
         generated_at=datetime.now(UTC),
+    )
+
+
+@router.get("/reference/export")
+@limiter.limit("10/minute")
+async def export_reference_prices_csv(
+    request: _Request,
+    product_id: Optional[UUID] = Query(None, description="Filter by product ID"),
+    delivery_point_id: Optional[UUID] = Query(None, description="Filter by delivery point ID"),
+    from_date: Optional[date] = Query(None, description="Start date (inclusive), e.g. 2026-01-01"),
+    to_date: Optional[date] = Query(None, description="End date (inclusive), e.g. 2026-03-01"),
+    format: str = Query("csv", description="Export format (currently only csv is supported)"),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Export daily VWAP reference prices as a CSV download.
+    No auth required. Accepts the same filters as /reference.
+    CSV columns: date, product_name, fuel_type, delivery_point_name, region,
+                 vwap_usd, volume_mt, trade_count
+    """
+    prices = await compute_reference_prices(
+        db,
+        date_from=from_date,
+        date_to=to_date,
+        product_id=product_id,
+        delivery_point_id=delivery_point_id,
+    )
+    csv_content = _items_to_csv(prices)
+    filename = "verdaxis_reference_prices.csv"
+    return StreamingResponse(
+        iter([csv_content]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
