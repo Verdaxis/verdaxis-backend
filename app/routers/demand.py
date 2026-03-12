@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.models.orderbook import OrderBookOrder, OrderSide, OrderBookStatus
+from app.models.catalog import Product, DeliveryPoint
 from app.schemas.demand import DemandSignal, UrgencyLevel
 
 router = APIRouter(prefix="/demand", tags=["demand"])
@@ -39,12 +40,12 @@ async def get_demand_signals(
 ):
     """
     Public: anonymized demand signals from buyer bids.
-    Aggregated by fuel_type + region.
+    Aggregated by fuel_type + region via Product/DeliveryPoint joins.
     """
     stmt = (
         select(
-            OrderBookOrder.fuel_type,
-            OrderBookOrder.region,
+            Product.fuel_type.label("fuel_type"),
+            DeliveryPoint.region.label("region"),
             func.sum(OrderBookOrder.remaining_quantity_mt).label("total_volume"),
             func.max(OrderBookOrder.price_per_mt_usd).label("max_price"),
             func.count(OrderBookOrder.id).label("bid_count"),
@@ -52,17 +53,19 @@ async def get_demand_signals(
             func.min(OrderBookOrder.delivery_window_start).label("earliest_delivery_start"),
             func.max(OrderBookOrder.created_at).label("latest_created"),
         )
+        .join(Product, OrderBookOrder.product_id == Product.id)
+        .outerjoin(DeliveryPoint, OrderBookOrder.delivery_point_id == DeliveryPoint.id)
         .where(
             OrderBookOrder.side == OrderSide.BID,
             OrderBookOrder.status.in_([OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED]),
         )
-        .group_by(OrderBookOrder.fuel_type, OrderBookOrder.region)
+        .group_by(Product.fuel_type, DeliveryPoint.region)
     )
 
     if fuel_type:
-        stmt = stmt.where(OrderBookOrder.fuel_type.ilike(f"%{fuel_type}%"))
+        stmt = stmt.where(Product.fuel_type.ilike(f"%{fuel_type}%"))
     if region:
-        stmt = stmt.where(OrderBookOrder.region.ilike(f"%{region}%"))
+        stmt = stmt.where(DeliveryPoint.region.ilike(f"%{region}%"))
 
     result = await db.execute(stmt)
     rows = result.all()
@@ -75,8 +78,8 @@ async def get_demand_signals(
         )
         signals.append(
             DemandSignal(
-                fuel_type=row.fuel_type,
-                region=row.region,
+                fuel_type=row.fuel_type or "",
+                region=row.region or "",
                 volume_mt=row.total_volume,
                 max_price_per_mt=row.max_price,
                 urgency=urgency,
