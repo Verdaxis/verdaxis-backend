@@ -1,3 +1,4 @@
+import os
 import time
 import uuid as _uuid
 from contextvars import ContextVar
@@ -62,11 +63,16 @@ logger = structlog.get_logger()
 # Request correlation ID context var
 request_id_ctx: ContextVar[str] = ContextVar("request_id", default="")
 
+# SECURITY: Disable /docs and /redoc in production to prevent API schema exposure
+_docs_url = "/docs" if os.getenv("ENVIRONMENT") != "production" else None
+_redoc_url = "/redoc" if os.getenv("ENVIRONMENT") != "production" else None
 
 app = FastAPI(
     title="Verdaxis Intelligence Cockpit",
     description="Maritime intelligence and procurement platform backend",
     version="1.0.0",
+    docs_url=_docs_url,
+    redoc_url=_redoc_url,
 )
 
 # ---------------------------------------------------------------------------
