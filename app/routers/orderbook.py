@@ -394,7 +394,7 @@ async def create_order(
     from app.config import settings
     if settings.AUTO_MATCHING_ENABLED:
         from app.services.matching_engine import match_order
-        matched_trades = await match_order(db, new_order)
+        matched_trades = await match_order(db, new_order, is_anonymous=order_data.is_anonymous)
 
     await db.commit()
 
