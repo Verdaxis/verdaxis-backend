@@ -406,6 +406,7 @@ async def create_order(
                 "fuel_type": new_order.fuel_type,
                 "quantity": str(trade.quantity_mt),
                 "price": str(trade.price_per_mt_usd),
+                "is_anonymous": trade.is_anonymous,
             })
         await event_bus.publish("orderbook", "orders_matched", {
             "order_id": str(new_order.id),
