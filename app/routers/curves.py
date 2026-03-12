@@ -90,7 +90,7 @@ async def compute_forward_curve(
     # key: availability_window → {"BID": row, "ASK": row}
     windows: dict[str, dict[str, object]] = {}
     for row in rows:
-        window = str(row.availability_window)
+        window = row.availability_window.value if hasattr(row.availability_window, "value") else str(row.availability_window)
         if window not in windows:
             windows[window] = {}
         windows[window][str(row.side)] = row
