@@ -96,6 +96,22 @@ async def get_current_user(token: Annotated[str, Depends(oauth2_scheme)], db: As
 
     return user
 
+async def get_current_user_optional(
+    request: _Request,
+    db: AsyncSession = Depends(get_db),
+) -> 'User | None':
+    """Like get_current_user but returns None when no/invalid token is present."""
+    from fastapi.security.utils import get_authorization_scheme_param
+    authorization = request.headers.get('Authorization', '')
+    scheme, token = get_authorization_scheme_param(authorization)
+    if not token or scheme.lower() != 'bearer':
+        return None
+    try:
+        return await get_current_user(token=token, db=db)
+    except Exception:
+        return None
+
+
 # ---------------------------------------------------------------------------
 # Login — returns access + refresh tokens
 # ---------------------------------------------------------------------------

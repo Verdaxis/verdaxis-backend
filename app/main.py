@@ -32,6 +32,10 @@ from app.routers.compliance_api import router as compliance_api_router
 from app.routers.admin_analytics import router as admin_analytics_router
 from app.routers.kyc import router as kyc_router
 from app.routers.catalog import router as catalog_router
+from app.routers.curves import router as curves_router
+from app.routers.alerts import router as alerts_router
+from app.routers.activity import router as activity_router
+from app.routers.subscriptions import router as subscriptions_router
 
 # ---------------------------------------------------------------------------
 # Structured logging
@@ -140,6 +144,10 @@ app.include_router(compliance_api_router, prefix=settings.API_V1_STR)
 app.include_router(admin_analytics_router, prefix=settings.API_V1_STR)
 app.include_router(kyc_router, prefix=settings.API_V1_STR)
 app.include_router(catalog_router, prefix=settings.API_V1_STR)
+app.include_router(curves_router, prefix=settings.API_V1_STR)
+app.include_router(alerts_router, prefix=settings.API_V1_STR)
+app.include_router(activity_router, prefix=settings.API_V1_STR)
+app.include_router(subscriptions_router, prefix=settings.API_V1_STR)
 
 from app.routers import dashboard
 app.include_router(dashboard.router, prefix=settings.API_V1_STR)
