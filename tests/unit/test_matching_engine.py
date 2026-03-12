@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.database import Base
 from app.models.user import User, Organization, UserRole, UserStatus, OrgType
+from app.models.catalog import Product, DeliveryPoint
 from app.models.orderbook import (
     OrderBookOrder, Trade, OrderSide, OrderBookStatus, TradeStatus, Initiator,
 )
@@ -24,10 +25,17 @@ from app.services.matching_engine import match_order
 _REQUIRED_TABLES = [
     "organizations",
     "users",
+    "products",
+    "delivery_points",
     "orderbook_orders",
     "trades",
     "notifications",
 ]
+
+# Deterministic test IDs for product and delivery point
+_TEST_PRODUCT_ID = uuid.uuid5(uuid.NAMESPACE_DNS, "test:product:Methanol Green")
+_TEST_PRODUCT_2_ID = uuid.uuid5(uuid.NAMESPACE_DNS, "test:product:LNG Conventional")
+_TEST_DP_ID = uuid.uuid5(uuid.NAMESPACE_DNS, "test:dp:Singapore")
 
 
 # --------------- Fixtures ---------------
@@ -81,6 +89,52 @@ def org_seller_id():
 @pytest.fixture
 def org_seller2_id():
     return uuid.uuid4()
+
+
+@pytest.fixture
+async def test_product(db):
+    """Create a test Product record."""
+    product = Product(
+        id=_TEST_PRODUCT_ID,
+        name=f"Test Methanol {uuid.uuid4().hex[:6]}",
+        fuel_type="Methanol",
+        fuel_grade="Green",
+        unit="MT",
+        min_lot_size=200,
+    )
+    db.add(product)
+    await db.flush()
+    return product
+
+
+@pytest.fixture
+async def test_product_2(db):
+    """Create a second test Product (LNG) for cross-product tests."""
+    product = Product(
+        id=_TEST_PRODUCT_2_ID,
+        name=f"Test LNG {uuid.uuid4().hex[:6]}",
+        fuel_type="LNG",
+        fuel_grade="Conventional",
+        unit="MT",
+        min_lot_size=500,
+    )
+    db.add(product)
+    await db.flush()
+    return product
+
+
+@pytest.fixture
+async def test_dp(db):
+    """Create a test DeliveryPoint record."""
+    dp = DeliveryPoint(
+        id=_TEST_DP_ID,
+        name=f"Test Singapore {uuid.uuid4().hex[:6]}",
+        region="Asia",
+        timezone="Asia/Singapore",
+    )
+    db.add(dp)
+    await db.flush()
+    return dp
 
 
 @pytest.fixture
@@ -149,10 +203,10 @@ async def seller_org2(db, org_seller2_id):
 def _make_order(
     org_id,
     side: OrderSide,
-    fuel_type: str = "Methanol",
+    product_id: uuid.UUID = _TEST_PRODUCT_ID,
+    delivery_point_id: uuid.UUID | None = _TEST_DP_ID,
     price: Decimal = Decimal("550.00"),
     quantity: Decimal = Decimal("1000.00"),
-    region: str = "Singapore",
     created_at: datetime | None = None,
     status: OrderBookStatus = OrderBookStatus.OPEN,
 ) -> OrderBookOrder:
@@ -160,8 +214,8 @@ def _make_order(
     return OrderBookOrder(
         organization_id=org_id,
         side=side,
-        fuel_type=fuel_type,
-        region=region,
+        product_id=product_id,
+        delivery_point_id=delivery_point_id,
         quantity_mt=quantity,
         remaining_quantity_mt=quantity,
         price_per_mt_usd=price,
@@ -177,7 +231,7 @@ class TestBasicMatching:
     """Basic bid-ask crossing scenarios."""
 
     @pytest.mark.asyncio
-    async def test_bid_matches_ask_when_bid_gte_ask(self, db, buyer_org, seller_org, org_buyer_id, org_seller_id):
+    async def test_bid_matches_ask_when_bid_gte_ask(self, db, buyer_org, seller_org, org_buyer_id, org_seller_id, test_product, test_dp):
         """A BID at $560 should match an ASK at $550 (bid >= ask)."""
         ask = _make_order(org_seller_id, OrderSide.ASK, price=Decimal("550.00"))
         db.add(ask)
@@ -200,7 +254,7 @@ class TestBasicMatching:
         assert trade.ask_order_id == ask.id
 
     @pytest.mark.asyncio
-    async def test_ask_matches_bid_when_bid_gte_ask(self, db, buyer_org, seller_org, org_buyer_id, org_seller_id):
+    async def test_ask_matches_bid_when_bid_gte_ask(self, db, buyer_org, seller_org, org_buyer_id, org_seller_id, test_product, test_dp):
         """An ASK at $540 should match a BID at $550 (bid >= ask)."""
         bid = _make_order(org_buyer_id, OrderSide.BID, price=Decimal("550.00"))
         db.add(bid)
@@ -222,7 +276,7 @@ class TestBasicMatching:
         assert trade.initiated_by == Initiator.SELLER
 
     @pytest.mark.asyncio
-    async def test_exact_price_match(self, db, buyer_org, seller_org, org_buyer_id, org_seller_id):
+    async def test_exact_price_match(self, db, buyer_org, seller_org, org_buyer_id, org_seller_id, test_product, test_dp):
         """A BID at $550 should match an ASK at $550 (exact price)."""
         ask = _make_order(org_seller_id, OrderSide.ASK, price=Decimal("550.00"))
         db.add(ask)
@@ -241,13 +295,13 @@ class TestNoMatch:
     """Scenarios where no match should occur."""
 
     @pytest.mark.asyncio
-    async def test_no_match_fuel_type_differs(self, db, buyer_org, seller_org, org_buyer_id, org_seller_id):
-        """BID for Methanol should NOT match ASK for LNG."""
-        ask = _make_order(org_seller_id, OrderSide.ASK, fuel_type="LNG", price=Decimal("550.00"))
+    async def test_no_match_product_differs(self, db, buyer_org, seller_org, org_buyer_id, org_seller_id, test_product, test_product_2, test_dp):
+        """BID for Methanol should NOT match ASK for LNG (different product_id)."""
+        ask = _make_order(org_seller_id, OrderSide.ASK, product_id=_TEST_PRODUCT_2_ID, price=Decimal("550.00"))
         db.add(ask)
         await db.flush()
 
-        bid = _make_order(org_buyer_id, OrderSide.BID, fuel_type="Methanol", price=Decimal("560.00"))
+        bid = _make_order(org_buyer_id, OrderSide.BID, product_id=_TEST_PRODUCT_ID, price=Decimal("560.00"))
         db.add(bid)
         await db.flush()
 
@@ -255,7 +309,7 @@ class TestNoMatch:
         assert len(trades) == 0
 
     @pytest.mark.asyncio
-    async def test_no_match_bid_below_ask(self, db, buyer_org, seller_org, org_buyer_id, org_seller_id):
+    async def test_no_match_bid_below_ask(self, db, buyer_org, seller_org, org_buyer_id, org_seller_id, test_product, test_dp):
         """BID at $540 should NOT match ASK at $550."""
         ask = _make_order(org_seller_id, OrderSide.ASK, price=Decimal("550.00"))
         db.add(ask)
@@ -269,7 +323,7 @@ class TestNoMatch:
         assert len(trades) == 0
 
     @pytest.mark.asyncio
-    async def test_no_self_trade(self, db, buyer_org, org_buyer_id):
+    async def test_no_self_trade(self, db, buyer_org, org_buyer_id, test_product, test_dp):
         """Orders from the same organization should NOT match each other."""
         ask = _make_order(org_buyer_id, OrderSide.ASK, price=Decimal("550.00"))
         db.add(ask)
@@ -283,7 +337,7 @@ class TestNoMatch:
         assert len(trades) == 0
 
     @pytest.mark.asyncio
-    async def test_no_match_against_filled_order(self, db, buyer_org, seller_org, org_buyer_id, org_seller_id):
+    async def test_no_match_against_filled_order(self, db, buyer_org, seller_org, org_buyer_id, org_seller_id, test_product, test_dp):
         """A FILLED order should not be matched."""
         ask = _make_order(org_seller_id, OrderSide.ASK, price=Decimal("550.00"), status=OrderBookStatus.FILLED)
         db.add(ask)
@@ -297,7 +351,7 @@ class TestNoMatch:
         assert len(trades) == 0
 
     @pytest.mark.asyncio
-    async def test_no_match_against_cancelled_order(self, db, buyer_org, seller_org, org_buyer_id, org_seller_id):
+    async def test_no_match_against_cancelled_order(self, db, buyer_org, seller_org, org_buyer_id, org_seller_id, test_product, test_dp):
         """A CANCELLED order should not be matched."""
         ask = _make_order(org_seller_id, OrderSide.ASK, price=Decimal("550.00"), status=OrderBookStatus.CANCELLED)
         db.add(ask)
@@ -315,7 +369,7 @@ class TestPriceTimePriority:
     """Price-time priority ordering tests."""
 
     @pytest.mark.asyncio
-    async def test_lower_ask_matches_first_for_bid(self, db, buyer_org, seller_org, seller_org2, org_buyer_id, org_seller_id, org_seller2_id):
+    async def test_lower_ask_matches_first_for_bid(self, db, buyer_org, seller_org, seller_org2, org_buyer_id, org_seller_id, org_seller2_id, test_product, test_dp):
         """When a BID crosses multiple ASKs, the lowest-priced ASK matches first."""
         now = datetime.now(UTC)
 
@@ -340,7 +394,7 @@ class TestPriceTimePriority:
         assert trades[1].price_per_mt_usd == Decimal("550.00")
 
     @pytest.mark.asyncio
-    async def test_time_priority_at_same_price(self, db, buyer_org, seller_org, seller_org2, org_buyer_id, org_seller_id, org_seller2_id):
+    async def test_time_priority_at_same_price(self, db, buyer_org, seller_org, seller_org2, org_buyer_id, org_seller_id, org_seller2_id, test_product, test_dp):
         """When two ASKs have the same price, the older one matches first."""
         now = datetime.now(UTC)
 
@@ -363,7 +417,7 @@ class TestPriceTimePriority:
         assert trades[1].ask_order_id == ask_new.id
 
     @pytest.mark.asyncio
-    async def test_higher_bid_matches_first_for_ask(self, db, buyer_org, seller_org, seller_org2, org_buyer_id, org_seller_id, org_seller2_id):
+    async def test_higher_bid_matches_first_for_ask(self, db, buyer_org, seller_org, seller_org2, org_buyer_id, org_seller_id, org_seller2_id, test_product, test_dp):
         """When an ASK crosses multiple BIDs, the highest-priced BID matches first."""
         now = datetime.now(UTC)
 
@@ -391,7 +445,7 @@ class TestPartialFills:
     """Partial fill and multi-fill scenarios."""
 
     @pytest.mark.asyncio
-    async def test_partial_fill_bid_larger(self, db, buyer_org, seller_org, org_buyer_id, org_seller_id):
+    async def test_partial_fill_bid_larger(self, db, buyer_org, seller_org, org_buyer_id, org_seller_id, test_product, test_dp):
         """1000 MT BID matches 500 MT ASK — BID has 500 remaining."""
         ask = _make_order(org_seller_id, OrderSide.ASK, price=Decimal("550.00"), quantity=Decimal("500.00"))
         db.add(ask)
@@ -415,7 +469,7 @@ class TestPartialFills:
         assert ask.status == OrderBookStatus.FILLED
 
     @pytest.mark.asyncio
-    async def test_partial_fill_ask_larger(self, db, buyer_org, seller_org, org_buyer_id, org_seller_id):
+    async def test_partial_fill_ask_larger(self, db, buyer_org, seller_org, org_buyer_id, org_seller_id, test_product, test_dp):
         """500 MT BID matches 1000 MT ASK — ASK has 500 remaining."""
         ask = _make_order(org_seller_id, OrderSide.ASK, price=Decimal("550.00"), quantity=Decimal("1000.00"))
         db.add(ask)
@@ -439,7 +493,7 @@ class TestPartialFills:
         assert ask.status == OrderBookStatus.PARTIALLY_FILLED
 
     @pytest.mark.asyncio
-    async def test_multiple_fills(self, db, buyer_org, seller_org, seller_org2, org_buyer_id, org_seller_id, org_seller2_id):
+    async def test_multiple_fills(self, db, buyer_org, seller_org, seller_org2, org_buyer_id, org_seller_id, org_seller2_id, test_product, test_dp):
         """1000 MT BID matches 300 MT + 400 MT ASKs — BID has 300 remaining."""
         now = datetime.now(UTC)
 
@@ -471,7 +525,7 @@ class TestPartialFills:
         assert ask2.status == OrderBookStatus.FILLED
 
     @pytest.mark.asyncio
-    async def test_exact_full_fill(self, db, buyer_org, seller_org, org_buyer_id, org_seller_id):
+    async def test_exact_full_fill(self, db, buyer_org, seller_org, org_buyer_id, org_seller_id, test_product, test_dp):
         """Both orders are exactly 1000 MT — both should be FILLED."""
         ask = _make_order(org_seller_id, OrderSide.ASK, price=Decimal("550.00"), quantity=Decimal("1000.00"))
         db.add(ask)
@@ -494,7 +548,7 @@ class TestTradeDetails:
     """Verify trade object fields are set correctly."""
 
     @pytest.mark.asyncio
-    async def test_auto_confirmed_status(self, db, buyer_org, seller_org, org_buyer_id, org_seller_id):
+    async def test_auto_confirmed_status(self, db, buyer_org, seller_org, org_buyer_id, org_seller_id, test_product, test_dp):
         """Auto-matched trades should have CONFIRMED status."""
         ask = _make_order(org_seller_id, OrderSide.ASK, price=Decimal("550.00"))
         db.add(ask)
@@ -511,7 +565,7 @@ class TestTradeDetails:
         assert trades[0].confirmed_at is not None
 
     @pytest.mark.asyncio
-    async def test_initiator_buyer_when_bid_aggressor(self, db, buyer_org, seller_org, org_buyer_id, org_seller_id):
+    async def test_initiator_buyer_when_bid_aggressor(self, db, buyer_org, seller_org, org_buyer_id, org_seller_id, test_product, test_dp):
         """When a BID is the new order (aggressor), initiated_by should be BUYER."""
         ask = _make_order(org_seller_id, OrderSide.ASK, price=Decimal("550.00"))
         db.add(ask)
@@ -525,7 +579,7 @@ class TestTradeDetails:
         assert trades[0].initiated_by == Initiator.BUYER
 
     @pytest.mark.asyncio
-    async def test_initiator_seller_when_ask_aggressor(self, db, buyer_org, seller_org, org_buyer_id, org_seller_id):
+    async def test_initiator_seller_when_ask_aggressor(self, db, buyer_org, seller_org, org_buyer_id, org_seller_id, test_product, test_dp):
         """When an ASK is the new order (aggressor), initiated_by should be SELLER."""
         bid = _make_order(org_buyer_id, OrderSide.BID, price=Decimal("560.00"))
         db.add(bid)
@@ -539,7 +593,7 @@ class TestTradeDetails:
         assert trades[0].initiated_by == Initiator.SELLER
 
     @pytest.mark.asyncio
-    async def test_trade_price_is_resting_order_price(self, db, buyer_org, seller_org, org_buyer_id, org_seller_id):
+    async def test_trade_price_is_resting_order_price(self, db, buyer_org, seller_org, org_buyer_id, org_seller_id, test_product, test_dp):
         """Trade price should be the resting (passive) order's price, giving price improvement to aggressor."""
         ask = _make_order(org_seller_id, OrderSide.ASK, price=Decimal("540.00"))
         db.add(ask)
@@ -554,7 +608,7 @@ class TestTradeDetails:
         assert trades[0].price_per_mt_usd == Decimal("540.00")  # Resting ASK price
 
     @pytest.mark.asyncio
-    async def test_zero_remaining_returns_empty(self, db, buyer_org, seller_org, org_buyer_id, org_seller_id):
+    async def test_zero_remaining_returns_empty(self, db, buyer_org, seller_org, org_buyer_id, org_seller_id, test_product, test_dp):
         """An order with 0 remaining quantity should not attempt to match."""
         ask = _make_order(org_seller_id, OrderSide.ASK, price=Decimal("550.00"))
         db.add(ask)
@@ -572,7 +626,7 @@ class TestNotifications:
     """Verify notifications are created for matched trades."""
 
     @pytest.mark.asyncio
-    async def test_notifications_created_for_both_parties(self, db, buyer_org, seller_org, org_buyer_id, org_seller_id):
+    async def test_notifications_created_for_both_parties(self, db, buyer_org, seller_org, org_buyer_id, org_seller_id, test_product, test_dp):
         """Both buyer and seller orgs should receive notifications on auto-match."""
         ask = _make_order(org_seller_id, OrderSide.ASK, price=Decimal("550.00"))
         db.add(ask)
@@ -591,7 +645,7 @@ class TestNotifications:
         assert len(new_objects) >= 2  # At least one per party
 
     @pytest.mark.asyncio
-    async def test_matches_partially_filled_resting_order(self, db, buyer_org, seller_org, org_buyer_id, org_seller_id):
+    async def test_matches_partially_filled_resting_order(self, db, buyer_org, seller_org, org_buyer_id, org_seller_id, test_product, test_dp):
         """A PARTIALLY_FILLED resting order should still be matchable."""
         ask = _make_order(
             org_seller_id, OrderSide.ASK,

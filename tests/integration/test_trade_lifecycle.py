@@ -20,6 +20,10 @@ from httpx import AsyncClient
 
 TEST_API_URL = "http://localhost:8000"
 
+# Deterministic product/delivery point IDs from catalog_seed.py
+PRODUCT_BIOFUEL_BIO = "3ebf5484-430e-50b7-be68-04cdd39f8c0d"
+DP_ROTTERDAM = "1379d36c-1ca9-55b7-9c0d-5235a0ba1f36"
+
 
 @pytest.fixture
 async def client():
@@ -53,12 +57,11 @@ class TestTradeLifecycle:
         # 1. Seller creates an ASK order
         ask_data = {
             "side": "ASK",
-            "fuel_type": "B100_FAME",
-            "fuel_grade": "CONVENTIONAL",
-            "region": "Rotterdam",
+            "product_id": PRODUCT_BIOFUEL_BIO,
+            "delivery_point_id": DP_ROTTERDAM,
             "quantity_mt": 500,
             "price_per_mt_usd": 1200,
-            "availability_window": "SPOT",
+            "availability_window": "Spot",
         }
         res = await client.post("/api/orderbook", json=ask_data, headers=seller_headers)
         assert res.status_code == 201, f"ASK creation failed: {res.text}"
@@ -68,12 +71,11 @@ class TestTradeLifecycle:
         # 2. Buyer creates a BID order
         bid_data = {
             "side": "BID",
-            "fuel_type": "B100_FAME",
-            "fuel_grade": "CONVENTIONAL",
-            "region": "Rotterdam",
+            "product_id": PRODUCT_BIOFUEL_BIO,
+            "delivery_point_id": DP_ROTTERDAM,
             "quantity_mt": 200,
             "price_per_mt_usd": 1200,
-            "availability_window": "SPOT",
+            "availability_window": "Spot",
         }
         res = await client.post("/api/orderbook", json=bid_data, headers=buyer_headers)
         assert res.status_code == 201, f"BID creation failed: {res.text}"
@@ -88,7 +90,7 @@ class TestTradeLifecycle:
             "price_per_mt_usd": 1200,
         }
         res = await client.post("/api/trades", json=trade_data, headers=buyer_headers)
-        # Trade creation may require different endpoint or flow — check response
+        # Trade creation may require different endpoint or flow -- check response
         if res.status_code in (200, 201):
             trade = res.json()
             trade_id = trade.get("id")
@@ -113,7 +115,7 @@ class TestTradeLifecycle:
         res = await client.get("/api/orderbook", headers=buyer_headers)
         assert res.status_code == 200
 
-        # 8. Cleanup — cancel any remaining open orders
+        # 8. Cleanup -- cancel any remaining open orders
         for order_id in [ask_order_id, bid_order_id]:
             await client.delete(f"/api/orderbook/{order_id}", headers=seller_headers)
             await client.delete(f"/api/orderbook/{order_id}", headers=buyer_headers)

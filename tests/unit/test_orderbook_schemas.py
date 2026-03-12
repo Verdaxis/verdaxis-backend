@@ -30,26 +30,28 @@ from app.schemas.orderbook import (
 
 class TestOrderCreate:
     def test_valid_bid_order(self):
+        product_id = uuid4()
         order = OrderCreate(
             side=OrderSide.BID,
-            fuel_type="Methanol",
-            region="Singapore",
+            product_id=product_id,
             quantity_mt=Decimal("1000"),
             price_per_mt_usd=Decimal("550"),
         )
         assert order.side == OrderSide.BID
-        assert order.fuel_grade == FuelGrade.CONVENTIONAL  # default
+        assert order.product_id == product_id
+        assert order.delivery_point_id is None  # optional
         assert order.availability_window == AvailabilityWindow.SPOT  # default
         assert order.certifications == []  # default
         assert order.port_id is None
         assert order.vessel_id is None
 
     def test_valid_ask_order_with_all_fields(self):
+        product_id = uuid4()
+        dp_id = uuid4()
         order = OrderCreate(
             side=OrderSide.ASK,
-            fuel_type="Biofuel",
-            fuel_grade=FuelGrade.BIO,
-            region="ARA",
+            product_id=product_id,
+            delivery_point_id=dp_id,
             port_id="NLRTM",
             quantity_mt=Decimal("5000"),
             price_per_mt_usd=Decimal("780"),
@@ -60,7 +62,8 @@ class TestOrderCreate:
             expires_at=datetime(2026, 6, 1),
         )
         assert order.side == OrderSide.ASK
-        assert order.fuel_grade == FuelGrade.BIO
+        assert order.product_id == product_id
+        assert order.delivery_point_id == dp_id
         assert order.certifications == ["ISCC", "Nanolumi"]
         assert order.delivery_window_start == date(2026, 1, 1)
 
@@ -68,8 +71,7 @@ class TestOrderCreate:
         with pytest.raises(Exception):
             OrderCreate(
                 side=OrderSide.BID,
-                fuel_type="LNG",
-                region="Houston",
+                product_id=uuid4(),
                 quantity_mt=Decimal("0"),
                 price_per_mt_usd=Decimal("100"),
             )
@@ -78,8 +80,7 @@ class TestOrderCreate:
         with pytest.raises(Exception):
             OrderCreate(
                 side=OrderSide.ASK,
-                fuel_type="Methanol",
-                region="Singapore",
+                product_id=uuid4(),
                 quantity_mt=Decimal("-500"),
                 price_per_mt_usd=Decimal("100"),
             )
@@ -88,28 +89,16 @@ class TestOrderCreate:
         with pytest.raises(Exception):
             OrderCreate(
                 side=OrderSide.BID,
-                fuel_type="LNG",
-                region="Singapore",
+                product_id=uuid4(),
                 quantity_mt=Decimal("1000"),
                 price_per_mt_usd=Decimal("0"),
             )
 
-    def test_fuel_type_required(self):
+    def test_product_id_required(self):
+        """product_id is mandatory."""
         with pytest.raises(Exception):
             OrderCreate(
                 side=OrderSide.BID,
-                fuel_type="",
-                region="Singapore",
-                quantity_mt=Decimal("1000"),
-                price_per_mt_usd=Decimal("100"),
-            )
-
-    def test_region_required(self):
-        with pytest.raises(Exception):
-            OrderCreate(
-                side=OrderSide.ASK,
-                fuel_type="LNG",
-                region="",
                 quantity_mt=Decimal("1000"),
                 price_per_mt_usd=Decimal("100"),
             )
@@ -118,13 +107,32 @@ class TestOrderCreate:
         vid = uuid4()
         order = OrderCreate(
             side=OrderSide.BID,
-            fuel_type="Methanol",
-            region="ARA",
+            product_id=uuid4(),
             vessel_id=vid,
             quantity_mt=Decimal("500"),
             price_per_mt_usd=Decimal("600"),
         )
         assert order.vessel_id == vid
+
+    def test_delivery_point_id_optional(self):
+        order = OrderCreate(
+            side=OrderSide.ASK,
+            product_id=uuid4(),
+            quantity_mt=Decimal("1000"),
+            price_per_mt_usd=Decimal("500"),
+        )
+        assert order.delivery_point_id is None
+
+    def test_delivery_point_id_accepts_uuid(self):
+        dp_id = uuid4()
+        order = OrderCreate(
+            side=OrderSide.ASK,
+            product_id=uuid4(),
+            delivery_point_id=dp_id,
+            quantity_mt=Decimal("1000"),
+            price_per_mt_usd=Decimal("500"),
+        )
+        assert order.delivery_point_id == dp_id
 
 
 class TestOrderUpdate:
@@ -151,11 +159,14 @@ class TestOrderUpdate:
 
 class TestOrderResponse:
     def test_from_dict(self):
+        product_id = uuid4()
         resp = OrderResponse(
             id=uuid4(),
             side=OrderSide.ASK,
+            product_id=product_id,
+            product_name="Biofuel Bio",
             fuel_type="Biofuel",
-            fuel_grade=FuelGrade.BIO,
+            fuel_grade="Bio",
             region="Singapore",
             quantity_mt=Decimal("5000"),
             remaining_quantity_mt=Decimal("3000"),
@@ -168,14 +179,18 @@ class TestOrderResponse:
         )
         assert resp.remaining_quantity_mt == Decimal("3000")
         assert resp.tier_label == TierLabel.INDEPENDENT  # default
+        assert resp.product_id == product_id
+        assert resp.product_name == "Biofuel Bio"
 
     def test_my_response_extends_base(self):
         now = datetime.utcnow()
         resp = OrderMyResponse(
             id=uuid4(),
             side=OrderSide.BID,
+            product_id=uuid4(),
+            product_name="LNG Conventional",
             fuel_type="LNG",
-            fuel_grade=FuelGrade.CONVENTIONAL,
+            fuel_grade="Conventional",
             region="Houston",
             quantity_mt=Decimal("1000"),
             remaining_quantity_mt=Decimal("1000"),
@@ -224,13 +239,16 @@ class TestTradeResponse:
             status=TradeStatus.CONFIRMED,
             confirmed_at=datetime.utcnow(),
             created_at=datetime.utcnow(),
+            product_id=uuid4(),
+            product_name="Biofuel Bio",
             fuel_type="Biofuel",
-            fuel_grade=FuelGrade.BIO,
+            fuel_grade="Bio",
             region="Singapore",
         )
         assert resp.buyer_name == "Pacific Ocean Lines"
         assert resp.status == TradeStatus.CONFIRMED
         assert resp.bid_order_id is None  # not set
+        assert resp.product_name == "Biofuel Bio"
 
     def test_defaults(self):
         resp = TradeResponse(
@@ -247,6 +265,7 @@ class TestTradeResponse:
         assert resp.seller_name == ""
         assert resp.fuel_type == ""
         assert resp.region == ""
+        assert resp.product_name == ""
         assert resp.commission_rate_pct == Decimal("0.5")
         assert resp.final_quantity_mt is None
         assert resp.commission_amount_usd is None
@@ -278,8 +297,10 @@ class TestTradeDeliverPayload:
 class TestAggregatedOrderbookResponse:
     def test_aggregated_data(self):
         agg = AggregatedOrderbookResponse(
-            region="Singapore",
+            product_id=uuid4(),
+            product_name="Biofuel Bio",
             fuel_type="Biofuel",
+            region="Singapore",
             side=OrderSide.ASK,
             min_price=Decimal("750"),
             max_price=Decimal("800"),
@@ -288,6 +309,7 @@ class TestAggregatedOrderbookResponse:
         )
         assert agg.order_count == 5
         assert agg.min_price < agg.max_price
+        assert agg.product_name == "Biofuel Bio"
 
 
 class TestEnumValues:

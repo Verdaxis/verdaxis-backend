@@ -12,17 +12,29 @@ from jose import jwt
 from datetime import datetime, timedelta
 
 TEST_API_URL = os.environ.get("TEST_API_URL", "http://localhost:8000")
-JWT_SECRET = "***REMOVED***"
+from app.config import settings
+JWT_SECRET = settings.JWT_SECRET
 
 # Seeded user IDs from scripts/seed.py
-SUPPLIER_1_ID = "00000000-0000-0000-0000-000000000a01"
-SUPPLIER_1_EMAIL = "supplier1@verdaxis.com"
-SUPPLIER_2_ID = "00000000-0000-0000-0000-000000000a02"
-SUPPLIER_2_EMAIL = "supplier2@verdaxis.com"
-BUYER_1_ID = "00000000-0000-0000-0000-000000000b01"
-BUYER_1_EMAIL = "buyer1@verdaxis.com"
-BUYER_2_ID = "00000000-0000-0000-0000-000000000b02"
-BUYER_2_EMAIL = "buyer2@verdaxis.com"
+SUPPLIER_1_ID = "11785ff3-3753-4fa5-93e1-d815f5c4a4b3"
+SUPPLIER_1_EMAIL = "seller@sell.com"
+SUPPLIER_2_ID = "11785ff3-3753-4fa5-93e1-d815f5c4a4b3"
+SUPPLIER_2_EMAIL = "seller@sell.com"
+BUYER_1_ID = "37c639be-8b49-4981-8d86-c7f2ef83bec3"
+BUYER_1_EMAIL = "buyer@buy.com"
+BUYER_2_ID = "37c639be-8b49-4981-8d86-c7f2ef83bec3"
+BUYER_2_EMAIL = "buyer@buy.com"
+
+# Deterministic product/delivery point IDs from catalog_seed.py
+PRODUCT_METHANOL_GREEN = "b0f9b249-1ae4-5e02-adf5-e4964788ad8e"
+PRODUCT_LNG_CONV = "758cb4b6-463f-5431-8196-17037b4e015f"
+PRODUCT_MGO_CONV = "a7c823a5-03b0-54a7-9df3-0c78b76e6ea7"
+PRODUCT_BIOFUEL_BIO = "3ebf5484-430e-50b7-be68-04cdd39f8c0d"
+PRODUCT_AMMONIA_GREEN = "57015681-f987-556b-9711-97524da07f63"
+DP_SINGAPORE = "73835e92-820e-584b-8280-bb61c63aa28e"
+DP_ARA = "0f6b6006-61ef-5ef9-b096-71bf87d1d3d7"
+DP_HOUSTON = "a083db06-b050-56c2-a274-3897eac2fdae"
+DP_FUJAIRAH = "f4877150-d88e-5825-b154-3410dfc9f1f1"
 
 
 def create_test_token(user_id: str, email: str, role: str) -> str:
@@ -32,6 +44,7 @@ def create_test_token(user_id: str, email: str, role: str) -> str:
         "email": email,
         "role": role,
         "exp": datetime.utcnow() + timedelta(hours=1),
+        "iat": datetime.utcnow(),
     }
     return jwt.encode(payload, JWT_SECRET, algorithm="HS256")
 
@@ -83,22 +96,22 @@ class TestListOrders:
                 assert order["status"] in ("OPEN", "PARTIALLY_FILLED")
 
     @pytest.mark.asyncio
-    async def test_filter_by_region(self):
+    async def test_filter_by_product_id(self):
         async with AsyncClient(base_url=TEST_API_URL, timeout=10.0) as client:
-            resp = await client.get("/api/orderbook", params={"region": "Singapore"})
+            resp = await client.get("/api/orderbook", params={"product_id": PRODUCT_METHANOL_GREEN})
             assert resp.status_code == 200
             data = resp.json()
             for order in data:
-                assert "singapore" in order["region"].lower()
+                assert order["product_id"] == PRODUCT_METHANOL_GREEN
 
     @pytest.mark.asyncio
-    async def test_filter_by_fuel_type(self):
+    async def test_filter_by_delivery_point_id(self):
         async with AsyncClient(base_url=TEST_API_URL, timeout=10.0) as client:
-            resp = await client.get("/api/orderbook/asks", params={"fuel_type": "Biofuel"})
+            resp = await client.get("/api/orderbook/asks", params={"delivery_point_id": DP_SINGAPORE})
             assert resp.status_code == 200
             data = resp.json()
             for order in data:
-                assert "biofuel" in order["fuel_type"].lower()
+                assert order["delivery_point_id"] == DP_SINGAPORE
 
     @pytest.mark.asyncio
     async def test_filter_by_side(self):
@@ -119,7 +132,8 @@ class TestListOrders:
             if data:
                 order = data[0]
                 expected_keys = {
-                    "id", "side", "fuel_type", "fuel_grade", "region",
+                    "id", "side", "product_id", "product_name",
+                    "fuel_type", "fuel_grade", "region",
                     "quantity_mt", "remaining_quantity_mt", "price_per_mt_usd",
                     "availability_window", "certifications", "is_verdaxis_verified",
                     "tier_label", "status", "created_at",
@@ -140,8 +154,10 @@ class TestAggregatedAndMetadata:
             assert isinstance(data, list)
             if data:
                 entry = data[0]
-                assert "region" in entry
+                assert "product_id" in entry
+                assert "product_name" in entry
                 assert "fuel_type" in entry
+                assert "region" in entry
                 assert "side" in entry
                 assert "min_price" in entry
                 assert "max_price" in entry
@@ -178,9 +194,8 @@ class TestCreateOrder:
                 "/api/orderbook",
                 json={
                     "side": "ASK",
-                    "fuel_type": "Methanol",
-                    "fuel_grade": "Green",
-                    "region": "Singapore",
+                    "product_id": PRODUCT_METHANOL_GREEN,
+                    "delivery_point_id": DP_SINGAPORE,
                     "quantity_mt": "3000",
                     "price_per_mt_usd": "560",
                     "availability_window": "Spot",
@@ -193,6 +208,7 @@ class TestCreateOrder:
             assert data["side"] == "ASK"
             assert data["fuel_type"] == "Methanol"
             assert data["fuel_grade"] == "Green"
+            assert data["product_id"] == PRODUCT_METHANOL_GREEN
             assert data["status"] == "OPEN"
             assert float(data["remaining_quantity_mt"]) == 3000
             assert data["certifications"] == ["ISCC"]
@@ -204,8 +220,8 @@ class TestCreateOrder:
                 "/api/orderbook",
                 json={
                     "side": "BID",
-                    "fuel_type": "LNG",
-                    "region": "Houston",
+                    "product_id": PRODUCT_LNG_CONV,
+                    "delivery_point_id": DP_HOUSTON,
                     "quantity_mt": "2000",
                     "price_per_mt_usd": "1200",
                 },
@@ -223,8 +239,8 @@ class TestCreateOrder:
                 "/api/orderbook",
                 json={
                     "side": "ASK",
-                    "fuel_type": "LNG",
-                    "region": "Houston",
+                    "product_id": PRODUCT_LNG_CONV,
+                    "delivery_point_id": DP_HOUSTON,
                     "quantity_mt": "1000",
                     "price_per_mt_usd": "500",
                 },
@@ -239,8 +255,8 @@ class TestCreateOrder:
                 "/api/orderbook",
                 json={
                     "side": "BID",
-                    "fuel_type": "Methanol",
-                    "region": "ARA",
+                    "product_id": PRODUCT_METHANOL_GREEN,
+                    "delivery_point_id": DP_ARA,
                     "quantity_mt": "1000",
                     "price_per_mt_usd": "500",
                 },
@@ -255,8 +271,8 @@ class TestCreateOrder:
                 "/api/orderbook",
                 json={
                     "side": "BID",
-                    "fuel_type": "LNG",
-                    "region": "Singapore",
+                    "product_id": PRODUCT_LNG_CONV,
+                    "delivery_point_id": DP_SINGAPORE,
                     "quantity_mt": "1000",
                     "price_per_mt_usd": "100",
                 },
@@ -273,8 +289,8 @@ class TestMyOrders:
                 "/api/orderbook",
                 json={
                     "side": "ASK",
-                    "fuel_type": "LSMGO",
-                    "region": "ARA",
+                    "product_id": PRODUCT_MGO_CONV,
+                    "delivery_point_id": DP_ARA,
                     "quantity_mt": "500",
                     "price_per_mt_usd": "620",
                 },
@@ -312,8 +328,8 @@ class TestUpdateOrder:
                 "/api/orderbook",
                 json={
                     "side": "ASK",
-                    "fuel_type": "Ammonia",
-                    "region": "UAE",
+                    "product_id": PRODUCT_AMMONIA_GREEN,
+                    "delivery_point_id": DP_FUJAIRAH,
                     "quantity_mt": "4000",
                     "price_per_mt_usd": "900",
                 },
@@ -340,8 +356,8 @@ class TestUpdateOrder:
                 "/api/orderbook",
                 json={
                     "side": "ASK",
-                    "fuel_type": "Biofuel",
-                    "region": "Algeciras",
+                    "product_id": PRODUCT_BIOFUEL_BIO,
+                    "delivery_point_id": DP_ARA,
                     "quantity_mt": "5000",
                     "price_per_mt_usd": "760",
                 },
@@ -368,8 +384,8 @@ class TestUpdateOrder:
                 "/api/orderbook",
                 json={
                     "side": "ASK",
-                    "fuel_type": "LNG",
-                    "region": "Singapore",
+                    "product_id": PRODUCT_LNG_CONV,
+                    "delivery_point_id": DP_SINGAPORE,
                     "quantity_mt": "1000",
                     "price_per_mt_usd": "1300",
                 },
@@ -408,8 +424,8 @@ class TestCancelOrder:
                 "/api/orderbook",
                 json={
                     "side": "ASK",
-                    "fuel_type": "Methanol",
-                    "region": "ARA",
+                    "product_id": PRODUCT_METHANOL_GREEN,
+                    "delivery_point_id": DP_ARA,
                     "quantity_mt": "1000",
                     "price_per_mt_usd": "540",
                 },
@@ -438,8 +454,8 @@ class TestCancelOrder:
                 "/api/orderbook",
                 json={
                     "side": "BID",
-                    "fuel_type": "Methanol",
-                    "region": "ARA",
+                    "product_id": PRODUCT_METHANOL_GREEN,
+                    "delivery_point_id": DP_ARA,
                     "quantity_mt": "500",
                     "price_per_mt_usd": "550",
                 },
@@ -473,8 +489,8 @@ class TestCancelOrder:
                 "/api/orderbook",
                 json={
                     "side": "ASK",
-                    "fuel_type": "LSMGO",
-                    "region": "Busan",
+                    "product_id": PRODUCT_MGO_CONV,
+                    "delivery_point_id": DP_ARA,
                     "quantity_mt": "500",
                     "price_per_mt_usd": "615",
                 },

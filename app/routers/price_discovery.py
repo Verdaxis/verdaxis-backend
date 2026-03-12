@@ -1,11 +1,12 @@
 """
 Public price discovery endpoint.
-Aggregates confirmed/delivered/paid trades into price summaries by fuel_type + region.
+Aggregates confirmed/delivered/paid trades into price summaries by product + delivery_point.
 No authentication required -- this feeds the public price ticker.
 """
 from datetime import datetime, date, timedelta, UTC
 from decimal import Decimal
 from typing import Optional, Literal as _Literal
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select, func, cast, Date
@@ -15,6 +16,7 @@ from fastapi import Request as _Request
 from app.rate_limit import limiter
 from app.database import get_db
 from app.models.orderbook import Trade, TradeStatus, OrderBookOrder
+from app.models.catalog import Product, DeliveryPoint
 from app.schemas.orderbook import (
     PriceSummary,
     PriceDiscoveryResponse,
@@ -27,16 +29,17 @@ router = APIRouter(prefix="/prices", tags=["price-discovery"])
 
 async def aggregate_trade_prices(
     db: AsyncSession,
+    product_id: Optional[UUID] = None,
+    delivery_point_id: Optional[UUID] = None,
     fuel_type: Optional[str] = None,
     region: Optional[str] = None,
     hours: int = 24,
 ) -> list[PriceSummary]:
     """
     Aggregate confirmed+ trades from the last `hours` hours into
-    PriceSummary objects grouped by (fuel_type, region).
+    PriceSummary objects grouped by (product_id, delivery_point_id).
 
-    Derives fuel_type and region from the linked OrderBookOrder
-    (via ask_order or bid_order).
+    Derives product info from joined Product/DeliveryPoint tables.
     """
     cutoff = datetime.now(UTC) - timedelta(hours=hours)
     valid_statuses = [
@@ -47,8 +50,12 @@ async def aggregate_trade_prices(
 
     aggregate_stmt = (
         select(
-            OrderBookOrder.fuel_type.label("fuel_type"),
-            OrderBookOrder.region.label("region"),
+            OrderBookOrder.product_id,
+            Product.name.label("product_name"),
+            Product.fuel_type.label("fuel_type"),
+            OrderBookOrder.delivery_point_id,
+            DeliveryPoint.name.label("delivery_point_name"),
+            DeliveryPoint.region.label("region"),
             func.max(Trade.price_per_mt_usd).label("high"),
             func.min(Trade.price_per_mt_usd).label("low"),
             func.avg(Trade.price_per_mt_usd).label("avg_price"),
@@ -60,30 +67,40 @@ async def aggregate_trade_prices(
             OrderBookOrder,
             Trade.ask_order_id == OrderBookOrder.id,
         )
+        .join(Product, OrderBookOrder.product_id == Product.id)
+        .outerjoin(DeliveryPoint, OrderBookOrder.delivery_point_id == DeliveryPoint.id)
         .where(
             Trade.status.in_(valid_statuses),
             Trade.created_at >= cutoff,
         )
     )
 
+    if product_id:
+        aggregate_stmt = aggregate_stmt.where(OrderBookOrder.product_id == product_id)
+    if delivery_point_id:
+        aggregate_stmt = aggregate_stmt.where(OrderBookOrder.delivery_point_id == delivery_point_id)
     if fuel_type:
-        aggregate_stmt = aggregate_stmt.where(OrderBookOrder.fuel_type.ilike(f"%{fuel_type}%"))
+        aggregate_stmt = aggregate_stmt.where(Product.fuel_type.ilike(f"%{fuel_type}%"))
     if region:
-        aggregate_stmt = aggregate_stmt.where(OrderBookOrder.region.ilike(f"%{region}%"))
+        aggregate_stmt = aggregate_stmt.where(DeliveryPoint.region.ilike(f"%{region}%"))
 
-    aggregate_stmt = aggregate_stmt.group_by(OrderBookOrder.fuel_type, OrderBookOrder.region)
+    aggregate_stmt = aggregate_stmt.group_by(
+        OrderBookOrder.product_id, Product.name, Product.fuel_type,
+        OrderBookOrder.delivery_point_id, DeliveryPoint.name, DeliveryPoint.region,
+    )
 
     result = await db.execute(aggregate_stmt)
     rows = result.all()
 
+    # Latest price subquery
     latest_price_stmt = (
         select(
-            OrderBookOrder.fuel_type.label("fuel_type"),
-            OrderBookOrder.region.label("region"),
+            OrderBookOrder.product_id,
+            OrderBookOrder.delivery_point_id,
             Trade.price_per_mt_usd.label("last_price"),
             Trade.created_at.label("last_trade_at"),
             func.row_number().over(
-                partition_by=(OrderBookOrder.fuel_type, OrderBookOrder.region),
+                partition_by=(OrderBookOrder.product_id, OrderBookOrder.delivery_point_id),
                 order_by=Trade.created_at.desc(),
             ).label("rn"),
         )
@@ -96,33 +113,37 @@ async def aggregate_trade_prices(
             Trade.created_at >= cutoff,
         )
     )
-    if fuel_type:
-        latest_price_stmt = latest_price_stmt.where(OrderBookOrder.fuel_type.ilike(f"%{fuel_type}%"))
-    if region:
-        latest_price_stmt = latest_price_stmt.where(OrderBookOrder.region.ilike(f"%{region}%"))
+    if product_id:
+        latest_price_stmt = latest_price_stmt.where(OrderBookOrder.product_id == product_id)
+    if delivery_point_id:
+        latest_price_stmt = latest_price_stmt.where(OrderBookOrder.delivery_point_id == delivery_point_id)
 
     latest_subquery = latest_price_stmt.subquery()
     latest_result = await db.execute(
         select(
-            latest_subquery.c.fuel_type,
-            latest_subquery.c.region,
+            latest_subquery.c.product_id,
+            latest_subquery.c.delivery_point_id,
             latest_subquery.c.last_price,
             latest_subquery.c.last_trade_at,
         ).where(latest_subquery.c.rn == 1)
     )
     latest_rows = latest_result.all()
     latest_by_market = {
-        (row.fuel_type, row.region): row
+        (row.product_id, row.delivery_point_id): row
         for row in latest_rows
     }
 
     summaries: list[PriceSummary] = []
     for row in rows:
-        latest = latest_by_market.get((row.fuel_type, row.region))
+        latest = latest_by_market.get((row.product_id, row.delivery_point_id))
         summaries.append(
             PriceSummary(
-                fuel_type=row.fuel_type,
-                region=row.region,
+                product_id=row.product_id,
+                product_name=row.product_name or "",
+                fuel_type=row.fuel_type or "",
+                delivery_point_id=row.delivery_point_id,
+                delivery_point_name=row.delivery_point_name,
+                region=row.region or "",
                 last_price=latest.last_price if latest else row.high,
                 avg_price_24h=Decimal(str(round(row.avg_price, 2))) if row.avg_price else None,
                 high_24h=row.high,
@@ -141,16 +162,25 @@ async def aggregate_trade_prices(
 @limiter.limit("60/minute")
 async def get_price_summaries(
     request: _Request,
+    product_id: Optional[UUID] = Query(None, description="Filter by product ID"),
+    delivery_point_id: Optional[UUID] = Query(None, description="Filter by delivery point ID"),
     fuel_type: Optional[str] = Query(None, description="Filter by fuel type"),
     region: Optional[str] = Query(None, description="Filter by region"),
     hours: int = Query(24, ge=1, le=168, description="Lookback window in hours"),
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Public endpoint: aggregated trade prices by fuel_type + region.
+    Public endpoint: aggregated trade prices by product + delivery_point.
     No auth required. Feeds the public-site price ticker.
     """
-    summaries = await aggregate_trade_prices(db, fuel_type=fuel_type, region=region, hours=hours)
+    summaries = await aggregate_trade_prices(
+        db,
+        product_id=product_id,
+        delivery_point_id=delivery_point_id,
+        fuel_type=fuel_type,
+        region=region,
+        hours=hours,
+    )
     return PriceDiscoveryResponse(
         summaries=summaries,
         generated_at=datetime.now(UTC),
@@ -161,12 +191,14 @@ async def compute_reference_prices(
     db: AsyncSession,
     date_from: Optional[date] = None,
     date_to: Optional[date] = None,
+    product_id: Optional[UUID] = None,
+    delivery_point_id: Optional[UUID] = None,
     fuel_type: Optional[str] = None,
     region: Optional[str] = None,
 ) -> list[ReferencePriceItem]:
     """
     Compute daily VWAP reference prices from confirmed+ trades.
-    VWAP = sum(price * quantity) / sum(quantity), grouped by fuel_type, region, date.
+    VWAP = sum(price * quantity) / sum(quantity), grouped by product_id, delivery_point_id, date.
     """
     valid_statuses = [
         TradeStatus.CONFIRMED,
@@ -178,8 +210,12 @@ async def compute_reference_prices(
 
     stmt = (
         select(
-            OrderBookOrder.fuel_type.label("fuel_type"),
-            OrderBookOrder.region.label("region"),
+            OrderBookOrder.product_id,
+            Product.name.label("product_name"),
+            Product.fuel_type.label("fuel_type"),
+            OrderBookOrder.delivery_point_id,
+            DeliveryPoint.name.label("delivery_point_name"),
+            DeliveryPoint.region.label("region"),
             trade_date,
             func.sum(Trade.price_per_mt_usd * Trade.quantity_mt).label("weighted_sum"),
             func.sum(Trade.quantity_mt).label("total_volume"),
@@ -189,6 +225,8 @@ async def compute_reference_prices(
             OrderBookOrder,
             Trade.ask_order_id == OrderBookOrder.id,
         )
+        .join(Product, OrderBookOrder.product_id == Product.id)
+        .outerjoin(DeliveryPoint, OrderBookOrder.delivery_point_id == DeliveryPoint.id)
         .where(Trade.status.in_(valid_statuses))
     )
 
@@ -196,14 +234,18 @@ async def compute_reference_prices(
         stmt = stmt.where(cast(Trade.created_at, Date) >= date_from)
     if date_to:
         stmt = stmt.where(cast(Trade.created_at, Date) <= date_to)
+    if product_id:
+        stmt = stmt.where(OrderBookOrder.product_id == product_id)
+    if delivery_point_id:
+        stmt = stmt.where(OrderBookOrder.delivery_point_id == delivery_point_id)
     if fuel_type:
-        stmt = stmt.where(OrderBookOrder.fuel_type.ilike(f"%{fuel_type}%"))
+        stmt = stmt.where(Product.fuel_type.ilike(f"%{fuel_type}%"))
     if region:
-        stmt = stmt.where(OrderBookOrder.region.ilike(f"%{region}%"))
+        stmt = stmt.where(DeliveryPoint.region.ilike(f"%{region}%"))
 
     stmt = stmt.group_by(
-        OrderBookOrder.fuel_type,
-        OrderBookOrder.region,
+        OrderBookOrder.product_id, Product.name, Product.fuel_type,
+        OrderBookOrder.delivery_point_id, DeliveryPoint.name, DeliveryPoint.region,
         trade_date,
     ).order_by(trade_date.desc())
 
@@ -217,8 +259,12 @@ async def compute_reference_prices(
         vwap = Decimal(str(round(weighted / total_vol, 2))) if total_vol > 0 else Decimal("0")
         items.append(
             ReferencePriceItem(
-                fuel_type=row.fuel_type,
-                region=row.region,
+                product_id=row.product_id,
+                product_name=row.product_name or "",
+                fuel_type=row.fuel_type or "",
+                delivery_point_id=row.delivery_point_id,
+                delivery_point_name=row.delivery_point_name,
+                region=row.region or "",
                 vwap_usd=vwap,
                 total_volume_mt=total_vol,
                 trade_count=row.trade_count or 0,
@@ -233,6 +279,8 @@ async def compute_reference_prices(
 @limiter.limit("30/minute")
 async def get_reference_prices(
     request: _Request,
+    product_id: Optional[UUID] = Query(None, description="Filter by product ID"),
+    delivery_point_id: Optional[UUID] = Query(None, description="Filter by delivery point ID"),
     fuel_type: Optional[str] = Query(None, description="Filter by fuel type"),
     region: Optional[str] = Query(None, description="Filter by region"),
     date_from: Optional[date] = Query(None, alias="from", description="Start date (inclusive), e.g. 2026-01-01"),
@@ -241,12 +289,18 @@ async def get_reference_prices(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Public endpoint: daily VWAP reference prices by fuel_type + region.
+    Public endpoint: daily VWAP reference prices by product + delivery_point.
     No auth required. Calculates Volume-Weighted Average Price from confirmed+ trades.
-    Supports date range filtering, fuel_type/region filters, and visibility tier.
+    Supports date range filtering, product/delivery_point/fuel_type/region filters, and visibility tier.
     """
     prices = await compute_reference_prices(
-        db, date_from=date_from, date_to=date_to, fuel_type=fuel_type, region=region
+        db,
+        date_from=date_from,
+        date_to=date_to,
+        product_id=product_id,
+        delivery_point_id=delivery_point_id,
+        fuel_type=fuel_type,
+        region=region,
     )
     for item in prices:
         item.visibility = visibility

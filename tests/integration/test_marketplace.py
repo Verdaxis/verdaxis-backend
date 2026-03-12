@@ -7,7 +7,8 @@ from datetime import datetime, timedelta
 
 # Fixtures and helpers
 TEST_API_URL = os.environ.get("TEST_API_URL", "http://localhost:8000")
-JWT_SECRET = "***REMOVED***"
+from app.config import settings
+JWT_SECRET = settings.JWT_SECRET
 
 def create_test_token(user_id: str, email: str, role: str) -> str:
     """Create a local HS256 token for testing."""

@@ -1,7 +1,7 @@
 """
 Integration tests for the /trades endpoints.
 
-Tests the full trade lifecycle: create → confirm → deliver → pay,
+Tests the full trade lifecycle: create -> confirm -> deliver -> pay,
 plus decline, role-based access, and edge cases.
 
 Tests against a running backend (Docker or remote).
@@ -14,17 +14,28 @@ from jose import jwt
 from datetime import datetime, timedelta
 
 TEST_API_URL = os.environ.get("TEST_API_URL", "http://localhost:8000")
-JWT_SECRET = "***REMOVED***"
+from app.config import settings
+JWT_SECRET = settings.JWT_SECRET
 
 # Seeded user IDs from scripts/seed.py
-SUPPLIER_1_ID = "00000000-0000-0000-0000-000000000a01"
-SUPPLIER_1_EMAIL = "supplier1@verdaxis.com"
-SUPPLIER_2_ID = "00000000-0000-0000-0000-000000000a02"
-SUPPLIER_2_EMAIL = "supplier2@verdaxis.com"
-BUYER_1_ID = "00000000-0000-0000-0000-000000000b01"
-BUYER_1_EMAIL = "buyer1@verdaxis.com"
-BUYER_2_ID = "00000000-0000-0000-0000-000000000b02"
-BUYER_2_EMAIL = "buyer2@verdaxis.com"
+SUPPLIER_1_ID = "11785ff3-3753-4fa5-93e1-d815f5c4a4b3"
+SUPPLIER_1_EMAIL = "seller@sell.com"
+SUPPLIER_2_ID = "11785ff3-3753-4fa5-93e1-d815f5c4a4b3"
+SUPPLIER_2_EMAIL = "seller@sell.com"
+BUYER_1_ID = "37c639be-8b49-4981-8d86-c7f2ef83bec3"
+BUYER_1_EMAIL = "buyer@buy.com"
+BUYER_2_ID = "37c639be-8b49-4981-8d86-c7f2ef83bec3"
+BUYER_2_EMAIL = "buyer@buy.com"
+
+# Deterministic product/delivery point IDs from catalog_seed.py
+PRODUCT_METHANOL_GREEN = "b0f9b249-1ae4-5e02-adf5-e4964788ad8e"
+PRODUCT_LNG_CONV = "758cb4b6-463f-5431-8196-17037b4e015f"
+PRODUCT_BIOFUEL_BIO = "3ebf5484-430e-50b7-be68-04cdd39f8c0d"
+PRODUCT_AMMONIA_GREEN = "57015681-f987-556b-9711-97524da07f63"
+DP_SINGAPORE = "73835e92-820e-584b-8280-bb61c63aa28e"
+DP_ARA = "0f6b6006-61ef-5ef9-b096-71bf87d1d3d7"
+DP_HOUSTON = "a083db06-b050-56c2-a274-3897eac2fdae"
+DP_FUJAIRAH = "f4877150-d88e-5825-b154-3410dfc9f1f1"
 
 
 def create_test_token(user_id: str, email: str, role: str) -> str:
@@ -33,6 +44,7 @@ def create_test_token(user_id: str, email: str, role: str) -> str:
         "email": email,
         "role": role,
         "exp": datetime.utcnow() + timedelta(hours=1),
+        "iat": datetime.utcnow(),
     }
     return jwt.encode(payload, JWT_SECRET, algorithm="HS256")
 
@@ -49,8 +61,8 @@ async def create_ask_order(client: AsyncClient, headers=None, **overrides) -> di
     """Helper: create an ASK order and return the response dict."""
     payload = {
         "side": "ASK",
-        "fuel_type": "Methanol",
-        "region": "Singapore",
+        "product_id": PRODUCT_METHANOL_GREEN,
+        "delivery_point_id": DP_SINGAPORE,
         "quantity_mt": "5000",
         "price_per_mt_usd": "560",
         **overrides,
@@ -64,8 +76,8 @@ async def create_bid_order(client: AsyncClient, headers=None, **overrides) -> di
     """Helper: create a BID order and return the response dict."""
     payload = {
         "side": "BID",
-        "fuel_type": "LNG",
-        "region": "Houston",
+        "product_id": PRODUCT_LNG_CONV,
+        "delivery_point_id": DP_HOUSTON,
         "quantity_mt": "2000",
         "price_per_mt_usd": "1200",
         **overrides,
@@ -93,7 +105,7 @@ async def hit_order(client: AsyncClient, order_id: str, quantity: str, headers=N
 class TestCreateTrade:
     @pytest.mark.asyncio
     async def test_buyer_hits_ask_order(self):
-        """Buyer hits a supplier's ASK order → trade created as PENDING_CONFIRMATION."""
+        """Buyer hits a supplier's ASK order -> trade created as PENDING_CONFIRMATION."""
         async with AsyncClient(base_url=TEST_API_URL, timeout=10.0) as client:
             ask = await create_ask_order(client)
             resp = await hit_order(client, ask["id"], "1000", buyer_headers())
@@ -109,11 +121,11 @@ class TestCreateTrade:
             assert trade["buyer_name"] != ""
             assert trade["seller_name"] != ""
             assert trade["fuel_type"] == "Methanol"
-            assert trade["region"] == "Singapore"
+            assert trade["product_name"] == "Methanol Green"
 
     @pytest.mark.asyncio
     async def test_seller_hits_bid_order(self):
-        """Supplier hits a buyer's BID order → trade created as PENDING_CONFIRMATION."""
+        """Supplier hits a buyer's BID order -> trade created as PENDING_CONFIRMATION."""
         async with AsyncClient(base_url=TEST_API_URL, timeout=10.0) as client:
             bid = await create_bid_order(client)
             resp = await hit_order(client, bid["id"], "500", supplier_headers())
@@ -164,7 +176,7 @@ class TestCreateTrade:
         async with AsyncClient(base_url=TEST_API_URL, timeout=10.0) as client:
             ask = await create_ask_order(client, headers=supplier_headers())
             # Same supplier tries to hit (but they're SUPPLIER role, so they'd
-            # need to hit a BID as a seller — hitting ASK requires BUYER role)
+            # need to hit a BID as a seller -- hitting ASK requires BUYER role)
             resp = await hit_order(client, ask["id"], "100", supplier_headers())
             assert resp.status_code == 403
 
@@ -252,7 +264,7 @@ class TestListMyTrades:
             expected_keys = {
                 "id", "buyer_id", "seller_id", "buyer_name", "seller_name",
                 "initiated_by", "quantity_mt", "price_per_mt_usd", "status",
-                "created_at", "fuel_type", "region",
+                "created_at", "fuel_type", "region", "product_id", "product_name",
             }
             assert expected_keys.issubset(set(trade.keys())), \
                 f"Missing keys: {expected_keys - set(trade.keys())}"
@@ -380,7 +392,7 @@ class TestDeliverTrade:
     @pytest.mark.asyncio
     async def test_deliver_with_final_details(self):
         async with AsyncClient(base_url=TEST_API_URL, timeout=10.0) as client:
-            # Setup: create → hit → confirm
+            # Setup: create -> hit -> confirm
             ask = await create_ask_order(client)
             trade_resp = await hit_order(client, ask["id"], "1000", buyer_headers())
             trade_id = trade_resp.json()["id"]
@@ -447,7 +459,7 @@ class TestPayTrade:
     @pytest.mark.asyncio
     async def test_seller_marks_paid(self):
         async with AsyncClient(base_url=TEST_API_URL, timeout=10.0) as client:
-            # Full lifecycle: create → hit → confirm → deliver → pay
+            # Full lifecycle: create -> hit -> confirm -> deliver -> pay
             ask = await create_ask_order(client)
             trade_resp = await hit_order(client, ask["id"], "1000", buyer_headers())
             trade_id = trade_resp.json()["id"]
@@ -513,16 +525,15 @@ class TestFullTradeLifecycle:
     @pytest.mark.asyncio
     async def test_full_buyer_initiated_lifecycle(self):
         """
-        End-to-end: Supplier posts ASK → Buyer hits it → Seller confirms →
-        Seller delivers → Seller marks paid.
+        End-to-end: Supplier posts ASK -> Buyer hits it -> Seller confirms ->
+        Seller delivers -> Seller marks paid.
         """
         async with AsyncClient(base_url=TEST_API_URL, timeout=10.0) as client:
             # 1. Supplier creates ASK
             ask = await create_ask_order(
                 client,
-                fuel_type="Biofuel",
-                fuel_grade="Bio",
-                region="ARA",
+                product_id=PRODUCT_BIOFUEL_BIO,
+                delivery_point_id=DP_ARA,
                 quantity_mt="10000",
                 price_per_mt_usd="780",
             )
@@ -574,15 +585,15 @@ class TestFullTradeLifecycle:
     @pytest.mark.asyncio
     async def test_full_seller_initiated_lifecycle(self):
         """
-        End-to-end: Buyer posts BID → Supplier hits it → Buyer confirms →
-        Buyer delivers → Seller marks paid.
+        End-to-end: Buyer posts BID -> Supplier hits it -> Buyer confirms ->
+        Buyer delivers -> Seller marks paid.
         """
         async with AsyncClient(base_url=TEST_API_URL, timeout=10.0) as client:
             # 1. Buyer creates BID
             bid = await create_bid_order(
                 client,
-                fuel_type="Ammonia",
-                region="UAE",
+                product_id=PRODUCT_AMMONIA_GREEN,
+                delivery_point_id=DP_FUJAIRAH,
                 quantity_mt="5000",
                 price_per_mt_usd="850",
             )

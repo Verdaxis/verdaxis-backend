@@ -66,10 +66,13 @@ class OrderBookOrder(Base):
     organization_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organizations.id"), nullable=False)
     side: Mapped[OrderSide] = mapped_column(Enum(OrderSide, native_enum=False), nullable=False)
 
-    # Product
-    fuel_type: Mapped[str] = mapped_column(String(50), nullable=False)
-    fuel_grade: Mapped[FuelGrade] = mapped_column(Enum(FuelGrade, native_enum=False), default=FuelGrade.CONVENTIONAL)
-    region: Mapped[str] = mapped_column(String(50), nullable=False)
+    # Product & Delivery Point (FK references)
+    product_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("products.id"), nullable=False
+    )
+    delivery_point_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("delivery_points.id"), nullable=True
+    )
 
     # Optional location references
     port_id: Mapped[str | None] = mapped_column(String(50), nullable=True)
@@ -115,6 +118,8 @@ class OrderBookOrder(Base):
 
     # Relationships
     organization = relationship("Organization", back_populates="orderbook_orders")
+    product = relationship("Product", lazy="selectin")
+    delivery_point = relationship("DeliveryPoint", lazy="selectin")
     vessel = relationship("Vessel", foreign_keys=[vessel_id])
     bid_trades = relationship("Trade", foreign_keys="Trade.bid_order_id", back_populates="bid_order")
     ask_trades = relationship("Trade", foreign_keys="Trade.ask_order_id", back_populates="ask_order")
@@ -127,11 +132,38 @@ class OrderBookOrder(Base):
         from app.models.user import TierLabel
         return TierLabel.INDEPENDENT
 
+    # ---- Denormalized accessors for backward compatibility ----
+
+    @property
+    def fuel_type(self) -> str:
+        """Derived from product relationship."""
+        return self.product.fuel_type if self.product else ""
+
+    @property
+    def fuel_grade(self) -> str:
+        """Derived from product relationship."""
+        return self.product.fuel_grade if self.product else "Conventional"
+
+    @property
+    def region(self) -> str:
+        """Derived from delivery_point relationship."""
+        return self.delivery_point.region if self.delivery_point else ""
+
+    @property
+    def product_name(self) -> str:
+        """Derived from product relationship."""
+        return self.product.name if self.product else ""
+
+    @property
+    def delivery_point_name(self) -> str | None:
+        """Derived from delivery_point relationship."""
+        return self.delivery_point.name if self.delivery_point else None
+
 
 class Trade(Base):
     """
     Matched transaction created when one side 'hits' the other's order.
-    Replaces both the legacy Order (listing→buyer) and accepted DirectOrderOffer.
+    Replaces both the legacy Order (listing->buyer) and accepted DirectOrderOffer.
     """
     __tablename__ = "trades"
 

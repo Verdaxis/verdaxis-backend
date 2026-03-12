@@ -20,6 +20,8 @@ class TestOrderResponseWithCI:
         resp = OrderResponseWithCI(
             id=uuid4(),
             side="ASK",
+            product_id=uuid4(),
+            product_name="Methanol Green",
             fuel_type="Methanol",
             fuel_grade="Green",
             region="Singapore",
@@ -39,6 +41,8 @@ class TestOrderResponseWithCI:
         resp = OrderResponseWithCI(
             id=uuid4(),
             side="BID",
+            product_id=uuid4(),
+            product_name="LNG Conventional",
             fuel_type="LNG",
             fuel_grade="Conventional",
             region="Houston",

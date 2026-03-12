@@ -26,8 +26,8 @@ async def match_order(
     Attempt to match a newly created order against the opposite side of the book.
 
     Rules:
-    - BID matches against ASKs where ask_price <= bid_price (same fuel_type)
-    - ASK matches against BIDs where bid_price >= ask_price (same fuel_type)
+    - BID matches against ASKs where ask_price <= bid_price (same product_id + delivery_point_id)
+    - ASK matches against BIDs where bid_price >= ask_price (same product_id + delivery_point_id)
     - Price-time priority: best price first, then oldest order first
     - Partial fills allowed: match as much as possible
     - Self-trade prevention: skip orders from same organization
@@ -54,16 +54,25 @@ async def match_order(
         price_order = OrderBookOrder.price_per_mt_usd.desc()
         price_filter = OrderBookOrder.price_per_mt_usd >= new_order.price_per_mt_usd
 
+    # Build matching filters: same product_id, same delivery_point_id
+    match_filters = [
+        OrderBookOrder.side == opposite_side,
+        OrderBookOrder.product_id == new_order.product_id,
+        OrderBookOrder.status.in_([OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED]),
+        OrderBookOrder.organization_id != new_order.organization_id,  # No self-trade
+        price_filter,
+    ]
+
+    # delivery_point_id match: both NULL or both equal
+    if new_order.delivery_point_id is None:
+        match_filters.append(OrderBookOrder.delivery_point_id.is_(None))
+    else:
+        match_filters.append(OrderBookOrder.delivery_point_id == new_order.delivery_point_id)
+
     # Find crossing orders (locked for update to prevent race conditions)
     stmt = (
         select(OrderBookOrder)
-        .where(
-            OrderBookOrder.side == opposite_side,
-            OrderBookOrder.fuel_type == new_order.fuel_type,
-            OrderBookOrder.status.in_([OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED]),
-            OrderBookOrder.organization_id != new_order.organization_id,  # No self-trade
-            price_filter,
-        )
+        .where(*match_filters)
         .order_by(price_order, OrderBookOrder.created_at.asc())  # Price-time priority
         .with_for_update()
     )
@@ -127,12 +136,15 @@ async def match_order(
 
         trades_created.append(trade)
 
+        # Derive product name for notification messages
+        product_name = new_order.product_name or "fuel"
+
         # Create notifications for both parties
         await _notify_org(
             db, buyer_org,
             NotificationType.TRADE_CONFIRMED,
             "Auto-Matched Trade",
-            f"Your order was automatically matched: {trade_qty} MT of {new_order.fuel_type} at ${trade_price}/MT",
+            f"Your order was automatically matched: {trade_qty} MT of {product_name} at ${trade_price}/MT",
             {"trade_id": str(trade.id), "auto_matched": True},
         )
 
@@ -140,7 +152,7 @@ async def match_order(
             db, seller_org,
             NotificationType.TRADE_CONFIRMED,
             "Auto-Matched Trade",
-            f"Your order was automatically matched: {trade_qty} MT of {new_order.fuel_type} at ${trade_price}/MT",
+            f"Your order was automatically matched: {trade_qty} MT of {product_name} at ${trade_price}/MT",
             {"trade_id": str(trade.id), "auto_matched": True},
         )
 

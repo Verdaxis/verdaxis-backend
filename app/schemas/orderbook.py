@@ -66,9 +66,8 @@ class TierLabel(str, Enum):
 class OrderCreate(BaseModel):
     """Used by both buyers (side=BID) and suppliers (side=ASK) to place an order."""
     side: OrderSide
-    fuel_type: str = Field(..., min_length=1, max_length=50)
-    fuel_grade: FuelGrade = FuelGrade.CONVENTIONAL
-    region: str = Field(..., min_length=1, max_length=50)
+    product_id: UUID
+    delivery_point_id: Optional[UUID] = None
     port_id: Optional[str] = None
     vessel_id: Optional[UUID] = None
     quantity_mt: Decimal = Field(..., gt=0)
@@ -96,9 +95,13 @@ class OrderResponse(BaseModel):
     """Public/anonymized order for the book. organization_id is NOT included."""
     id: UUID
     side: OrderSide
-    fuel_type: str
-    fuel_grade: FuelGrade
-    region: str
+    product_id: UUID
+    product_name: str = ""
+    fuel_type: str = ""
+    fuel_grade: str = ""
+    delivery_point_id: Optional[UUID] = None
+    delivery_point_name: Optional[str] = None
+    region: str = ""
     port_id: Optional[str] = None
     quantity_mt: Decimal
     remaining_quantity_mt: Decimal
@@ -158,8 +161,12 @@ class TradeResponse(BaseModel):
     paid_at: Optional[datetime] = None
     created_at: datetime
     # Denormalized order info for display
+    product_id: Optional[UUID] = None
+    product_name: str = ""
     fuel_type: str = ""
-    fuel_grade: Optional[FuelGrade] = None
+    fuel_grade: str = ""
+    delivery_point_id: Optional[UUID] = None
+    delivery_point_name: Optional[str] = None
     region: str = ""
 
     class Config:
@@ -175,9 +182,13 @@ class TradeDeliverPayload(BaseModel):
 # ============== Aggregated Market Data ==============
 
 class AggregatedOrderbookResponse(BaseModel):
-    """Market data aggregated by region, fuel type, and side."""
-    region: str
-    fuel_type: str
+    """Market data aggregated by product and delivery point."""
+    product_id: UUID
+    product_name: str = ""
+    fuel_type: str = ""
+    delivery_point_id: Optional[UUID] = None
+    delivery_point_name: Optional[str] = None
+    region: str = ""
     side: OrderSide
     min_price: Decimal
     max_price: Decimal
@@ -188,9 +199,13 @@ class AggregatedOrderbookResponse(BaseModel):
 # ============== Price Discovery ==============
 
 class PriceSummary(BaseModel):
-    """Aggregated trade price data for a fuel_type + region pair."""
-    fuel_type: str
-    region: str
+    """Aggregated trade price data for a product + delivery_point pair."""
+    product_id: Optional[UUID] = None
+    product_name: str = ""
+    fuel_type: str = ""
+    delivery_point_id: Optional[UUID] = None
+    delivery_point_name: Optional[str] = None
+    region: str = ""
     last_price: Optional[Decimal] = None
     avg_price_24h: Optional[Decimal] = None
     high_24h: Optional[Decimal] = None
@@ -210,9 +225,13 @@ class PriceDiscoveryResponse(BaseModel):
 # ============== Reference Price (VWAP) ==============
 
 class ReferencePriceItem(BaseModel):
-    """Daily VWAP reference price for a fuel_type + region pair."""
-    fuel_type: str
-    region: str
+    """Daily VWAP reference price for a product + delivery_point pair."""
+    product_id: Optional[UUID] = None
+    product_name: str = ""
+    fuel_type: str = ""
+    delivery_point_id: Optional[UUID] = None
+    delivery_point_name: Optional[str] = None
+    region: str = ""
     vwap_usd: Decimal
     total_volume_mt: Decimal
     trade_count: int

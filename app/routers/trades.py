@@ -41,6 +41,24 @@ def build_trade_response(trade: Trade) -> TradeResponse:
         buyer_name = "Anonymous"
         seller_name = "Anonymous"
 
+    # Denormalize product/delivery_point info from the order
+    product_id = None
+    product_name = ""
+    fuel_type = ""
+    fuel_grade = ""
+    delivery_point_id = None
+    delivery_point_name = None
+    region = ""
+
+    if order:
+        product_id = order.product_id
+        product_name = order.product_name
+        fuel_type = order.fuel_type
+        fuel_grade = order.fuel_grade
+        delivery_point_id = order.delivery_point_id
+        delivery_point_name = order.delivery_point_name
+        region = order.region
+
     return TradeResponse(
         id=trade.id,
         bid_order_id=trade.bid_order_id,
@@ -63,9 +81,13 @@ def build_trade_response(trade: Trade) -> TradeResponse:
         delivered_at=trade.delivered_at,
         paid_at=trade.paid_at,
         created_at=trade.created_at,
-        fuel_type=order.fuel_type if order else "",
-        fuel_grade=order.fuel_grade if order else None,
-        region=order.region if order else "",
+        product_id=product_id,
+        product_name=product_name,
+        fuel_type=fuel_type,
+        fuel_grade=fuel_grade,
+        delivery_point_id=delivery_point_id,
+        delivery_point_name=delivery_point_name,
+        region=region,
     )
 
 
@@ -235,6 +257,7 @@ async def create_trade(
         "status": loaded_trade.status.value,
         "quantity": str(loaded_trade.quantity_mt),
         "price": str(loaded_trade.price_per_mt_usd),
+        "product_name": _order.product_name if _order else "",
         "fuel_type": _order.fuel_type if _order else "",
         "region": _order.region if _order else "",
     })

@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import selectinload, joinedload
 from typing import Optional
 from decimal import Decimal
 from uuid import UUID
@@ -10,6 +10,7 @@ from app.database import get_db
 from app.routers.auth_simple import get_current_user
 from app.models.user import User, UserRole
 from app.models.orderbook import OrderBookOrder, OrderSide, OrderBookStatus
+from app.models.catalog import Product, DeliveryPoint
 from app.schemas.orderbook import (
     OrderCreate,
     OrderUpdate,
@@ -28,7 +29,7 @@ def compute_is_crossed(side: str, price: Decimal, best_opposing_price: Optional[
     """Returns True if this order crosses the market.
 
     A BID crosses when its price >= best available ASK price (buyer willing to
-    pay at or above what sellers are asking — immediate execution possible).
+    pay at or above what sellers are asking -- immediate execution possible).
     An ASK crosses when its price <= best available BID price (seller willing
     to accept at or below what buyers are offering).
     """
@@ -44,8 +45,8 @@ def compute_is_crossed(side: str, price: Decimal, best_opposing_price: Optional[
 
 @router.get("/bids", response_model=list[OrderResponse])
 async def list_bids(
-    region: Optional[str] = Query(None, description="Filter by region"),
-    fuel_type: Optional[str] = Query(None, description="Filter by fuel type"),
+    product_id: Optional[UUID] = Query(None, description="Filter by product"),
+    delivery_point_id: Optional[UUID] = Query(None, description="Filter by delivery point"),
     availability_window: Optional[str] = Query(None, description="Filter by availability window"),
     db: AsyncSession = Depends(get_db),
 ):
@@ -61,10 +62,10 @@ async def list_bids(
         )
     )
 
-    if region:
-        query = query.where(OrderBookOrder.region.ilike(f"%{region}%"))
-    if fuel_type:
-        query = query.where(OrderBookOrder.fuel_type.ilike(f"%{fuel_type}%"))
+    if product_id:
+        query = query.where(OrderBookOrder.product_id == product_id)
+    if delivery_point_id:
+        query = query.where(OrderBookOrder.delivery_point_id == delivery_point_id)
     if availability_window:
         query = query.where(OrderBookOrder.availability_window == availability_window)
 
@@ -91,8 +92,8 @@ async def list_bids(
 
 @router.get("/asks", response_model=list[OrderResponse])
 async def list_asks(
-    region: Optional[str] = Query(None, description="Filter by region"),
-    fuel_type: Optional[str] = Query(None, description="Filter by fuel type"),
+    product_id: Optional[UUID] = Query(None, description="Filter by product"),
+    delivery_point_id: Optional[UUID] = Query(None, description="Filter by delivery point"),
     availability_window: Optional[str] = Query(None, description="Filter by availability window"),
     db: AsyncSession = Depends(get_db),
 ):
@@ -108,10 +109,10 @@ async def list_asks(
         )
     )
 
-    if region:
-        query = query.where(OrderBookOrder.region.ilike(f"%{region}%"))
-    if fuel_type:
-        query = query.where(OrderBookOrder.fuel_type.ilike(f"%{fuel_type}%"))
+    if product_id:
+        query = query.where(OrderBookOrder.product_id == product_id)
+    if delivery_point_id:
+        query = query.where(OrderBookOrder.delivery_point_id == delivery_point_id)
     if availability_window:
         query = query.where(OrderBookOrder.availability_window == availability_window)
 
@@ -138,8 +139,8 @@ async def list_asks(
 
 @router.get("/with-ci", response_model=list[OrderResponseWithCI])
 async def list_orders_with_ci(
-    region: Optional[str] = Query(None),
-    fuel_type: Optional[str] = Query(None),
+    product_id: Optional[UUID] = Query(None),
+    delivery_point_id: Optional[UUID] = Query(None),
     side: Optional[OrderSide] = Query(None),
     db: AsyncSession = Depends(get_db),
 ):
@@ -153,10 +154,10 @@ async def list_orders_with_ci(
         .options(selectinload(OrderBookOrder.organization))
         .where(OrderBookOrder.status.in_([OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED]))
     )
-    if region:
-        query = query.where(OrderBookOrder.region.ilike(f"%{region}%"))
-    if fuel_type:
-        query = query.where(OrderBookOrder.fuel_type.ilike(f"%{fuel_type}%"))
+    if product_id:
+        query = query.where(OrderBookOrder.product_id == product_id)
+    if delivery_point_id:
+        query = query.where(OrderBookOrder.delivery_point_id == delivery_point_id)
     if side:
         query = query.where(OrderBookOrder.side == side)
     query = query.order_by(OrderBookOrder.created_at.desc())
@@ -225,21 +226,31 @@ async def list_aggregated_orderbook(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Market data aggregated by region, fuel type, and side.
+    Market data aggregated by product, delivery point, and side.
     """
     query = (
         select(
-            OrderBookOrder.region,
-            OrderBookOrder.fuel_type,
+            OrderBookOrder.product_id,
+            Product.name.label("product_name"),
+            Product.fuel_type.label("fuel_type"),
+            OrderBookOrder.delivery_point_id,
+            DeliveryPoint.name.label("delivery_point_name"),
+            DeliveryPoint.region.label("region"),
             OrderBookOrder.side,
             func.min(OrderBookOrder.price_per_mt_usd).label("min_price"),
             func.max(OrderBookOrder.price_per_mt_usd).label("max_price"),
             func.sum(OrderBookOrder.remaining_quantity_mt).label("total_quantity"),
             func.count(OrderBookOrder.id).label("order_count"),
         )
+        .join(Product, OrderBookOrder.product_id == Product.id)
+        .outerjoin(DeliveryPoint, OrderBookOrder.delivery_point_id == DeliveryPoint.id)
         .where(OrderBookOrder.status == OrderBookStatus.OPEN)
-        .group_by(OrderBookOrder.region, OrderBookOrder.fuel_type, OrderBookOrder.side)
-        .order_by(OrderBookOrder.region, OrderBookOrder.fuel_type, OrderBookOrder.side)
+        .group_by(
+            OrderBookOrder.product_id, Product.name, Product.fuel_type,
+            OrderBookOrder.delivery_point_id, DeliveryPoint.name, DeliveryPoint.region,
+            OrderBookOrder.side,
+        )
+        .order_by(Product.name, DeliveryPoint.name, OrderBookOrder.side)
     )
 
     result = await db.execute(query)
@@ -249,8 +260,12 @@ async def list_aggregated_orderbook(
     for row in rows:
         aggregated_data.append(
             AggregatedOrderbookResponse(
-                region=row.region,
-                fuel_type=row.fuel_type,
+                product_id=row.product_id,
+                product_name=row.product_name or "",
+                fuel_type=row.fuel_type or "",
+                delivery_point_id=row.delivery_point_id,
+                delivery_point_name=row.delivery_point_name or "",
+                region=row.region or "",
                 side=row.side,
                 min_price=row.min_price,
                 max_price=row.max_price,
@@ -262,13 +277,29 @@ async def list_aggregated_orderbook(
     return aggregated_data
 
 
+@router.get("/products", response_model=list[str])
+async def list_active_products(db: AsyncSession = Depends(get_db)):
+    """
+    Get distinct product names from open orders.
+    """
+    query = (
+        select(Product.name)
+        .join(OrderBookOrder, OrderBookOrder.product_id == Product.id)
+        .where(OrderBookOrder.status == OrderBookStatus.OPEN)
+        .distinct()
+    )
+    result = await db.execute(query)
+    return list(result.scalars().all())
+
+
 @router.get("/regions", response_model=list[str])
 async def list_regions(db: AsyncSession = Depends(get_db)):
     """
-    Get distinct regions from open orders.
+    Get distinct regions from open orders via delivery points.
     """
     query = (
-        select(OrderBookOrder.region)
+        select(DeliveryPoint.region)
+        .join(OrderBookOrder, OrderBookOrder.delivery_point_id == DeliveryPoint.id)
         .where(OrderBookOrder.status == OrderBookStatus.OPEN)
         .distinct()
     )
@@ -280,10 +311,11 @@ async def list_regions(db: AsyncSession = Depends(get_db)):
 @router.get("/fuel-types", response_model=list[str])
 async def list_fuel_types(db: AsyncSession = Depends(get_db)):
     """
-    Get distinct fuel types from open orders.
+    Get distinct fuel types from open orders via products.
     """
     query = (
-        select(OrderBookOrder.fuel_type)
+        select(Product.fuel_type)
+        .join(OrderBookOrder, OrderBookOrder.product_id == Product.id)
         .where(OrderBookOrder.status == OrderBookStatus.OPEN)
         .distinct()
     )
@@ -297,8 +329,8 @@ async def list_fuel_types(db: AsyncSession = Depends(get_db)):
 
 @router.get("", response_model=list[OrderResponse])
 async def list_orders(
-    region: Optional[str] = Query(None, description="Filter by region"),
-    fuel_type: Optional[str] = Query(None, description="Filter by fuel type"),
+    product_id: Optional[UUID] = Query(None, description="Filter by product"),
+    delivery_point_id: Optional[UUID] = Query(None, description="Filter by delivery point"),
     side: Optional[OrderSide] = Query(None, description="Filter by side (BID or ASK)"),
     availability_window: Optional[str] = Query(None, description="Filter by availability window"),
     db: AsyncSession = Depends(get_db),
@@ -314,10 +346,10 @@ async def list_orders(
         )
     )
 
-    if region:
-        query = query.where(OrderBookOrder.region.ilike(f"%{region}%"))
-    if fuel_type:
-        query = query.where(OrderBookOrder.fuel_type.ilike(f"%{fuel_type}%"))
+    if product_id:
+        query = query.where(OrderBookOrder.product_id == product_id)
+    if delivery_point_id:
+        query = query.where(OrderBookOrder.delivery_point_id == delivery_point_id)
     if side:
         query = query.where(OrderBookOrder.side == side)
     if availability_window:
@@ -366,12 +398,33 @@ async def create_order(
             detail="User must belong to an organization",
         )
 
+    # Validate product_id exists
+    product_result = await db.execute(
+        select(Product).where(Product.id == order_data.product_id)
+    )
+    product = product_result.scalars().first()
+    if not product:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid product_id",
+        )
+
+    # Validate delivery_point_id if provided
+    if order_data.delivery_point_id:
+        dp_result = await db.execute(
+            select(DeliveryPoint).where(DeliveryPoint.id == order_data.delivery_point_id)
+        )
+        if not dp_result.scalars().first():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid delivery_point_id",
+            )
+
     new_order = OrderBookOrder(
         organization_id=current_user.organization_id,
         side=order_data.side,
-        fuel_type=order_data.fuel_type,
-        fuel_grade=order_data.fuel_grade,
-        region=order_data.region,
+        product_id=order_data.product_id,
+        delivery_point_id=order_data.delivery_point_id,
         port_id=order_data.port_id,
         vessel_id=order_data.vessel_id,
         quantity_mt=order_data.quantity_mt,
@@ -403,6 +456,7 @@ async def create_order(
         for trade in matched_trades:
             await event_bus.publish("trades", "trade_auto_matched", {
                 "trade_id": str(trade.id),
+                "product_name": new_order.product_name,
                 "fuel_type": new_order.fuel_type,
                 "quantity": str(trade.quantity_mt),
                 "price": str(trade.price_per_mt_usd),
@@ -427,6 +481,7 @@ async def create_order(
     await event_bus.publish("orderbook", "order_created", {
         "id": str(new_order.id),
         "side": new_order.side.value,
+        "product_name": new_order.product_name,
         "fuel_type": new_order.fuel_type,
         "region": new_order.region,
         "price": str(new_order.price_per_mt_usd),
@@ -554,6 +609,7 @@ async def cancel_order(
     await event_bus.publish("orderbook", "order_cancelled", {
         "id": str(order.id),
         "side": order.side.value,
+        "product_name": order.product_name,
         "fuel_type": order.fuel_type,
         "region": order.region,
     })

@@ -6,6 +6,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock
 from datetime import date, datetime
 from decimal import Decimal
+from uuid import uuid4
 
 from app.routers.price_discovery import aggregate_trade_prices, compute_reference_prices
 from app.schemas.orderbook import ReferencePriceItem
@@ -43,6 +44,28 @@ class TestAggregateFunction:
         mock_db.execute.return_value = mock_result
 
         await aggregate_trade_prices(mock_db, region="Singapore")
+        assert mock_db.execute.call_count >= 1
+
+    @pytest.mark.asyncio
+    async def test_filters_by_product_id(self):
+        mock_db = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.all.return_value = []
+        mock_db.execute.return_value = mock_result
+
+        pid = uuid4()
+        await aggregate_trade_prices(mock_db, product_id=pid)
+        assert mock_db.execute.call_count >= 1
+
+    @pytest.mark.asyncio
+    async def test_filters_by_delivery_point_id(self):
+        mock_db = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.all.return_value = []
+        mock_db.execute.return_value = mock_result
+
+        dpid = uuid4()
+        await aggregate_trade_prices(mock_db, delivery_point_id=dpid)
         assert mock_db.execute.call_count >= 1
 
 
@@ -94,6 +117,17 @@ class TestComputeReferencePrices:
         assert mock_db.execute.call_count == 1
 
     @pytest.mark.asyncio
+    async def test_filters_by_product_id(self):
+        mock_db = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.all.return_value = []
+        mock_db.execute.return_value = mock_result
+
+        pid = uuid4()
+        await compute_reference_prices(mock_db, product_id=pid)
+        assert mock_db.execute.call_count == 1
+
+    @pytest.mark.asyncio
     async def test_computes_vwap_correctly(self):
         """VWAP = sum(price * qty) / sum(qty)."""
         mock_db = AsyncMock()
@@ -102,9 +136,15 @@ class TestComputeReferencePrices:
         # Trade 1: 100 MT @ $500 = $50,000
         # Trade 2: 200 MT @ $550 = $110,000
         # VWAP = $160,000 / 300 = $533.33
+        pid = uuid4()
+        dpid = uuid4()
         mock_row = MagicMock()
+        mock_row.product_id = pid
+        mock_row.product_name = "Methanol Green"
         mock_row.fuel_type = "Methanol"
-        mock_row.region = "Singapore"
+        mock_row.delivery_point_id = dpid
+        mock_row.delivery_point_name = "Singapore"
+        mock_row.region = "Asia"
         mock_row.trade_date = date(2026, 2, 15)
         mock_row.weighted_sum = Decimal("160000.00")
         mock_row.total_volume = Decimal("300.00")
@@ -115,8 +155,12 @@ class TestComputeReferencePrices:
         prices = await compute_reference_prices(mock_db)
 
         assert len(prices) == 1
+        assert prices[0].product_id == pid
+        assert prices[0].product_name == "Methanol Green"
         assert prices[0].fuel_type == "Methanol"
-        assert prices[0].region == "Singapore"
+        assert prices[0].delivery_point_id == dpid
+        assert prices[0].delivery_point_name == "Singapore"
+        assert prices[0].region == "Asia"
         assert prices[0].vwap_usd == Decimal("533.33")
         assert prices[0].total_volume_mt == Decimal("300.00")
         assert prices[0].trade_count == 2
@@ -124,21 +168,34 @@ class TestComputeReferencePrices:
 
     @pytest.mark.asyncio
     async def test_multiple_markets_returned(self):
-        """Multiple fuel_type/region/date groups are returned."""
+        """Multiple product/delivery_point/date groups are returned."""
         mock_db = AsyncMock()
         mock_result = MagicMock()
 
+        pid1 = uuid4()
+        pid2 = uuid4()
+        dpid1 = uuid4()
+        dpid2 = uuid4()
+
         row1 = MagicMock()
+        row1.product_id = pid1
+        row1.product_name = "Methanol Green"
         row1.fuel_type = "Methanol"
-        row1.region = "Singapore"
+        row1.delivery_point_id = dpid1
+        row1.delivery_point_name = "Singapore"
+        row1.region = "Asia"
         row1.trade_date = date(2026, 2, 15)
         row1.weighted_sum = Decimal("100000.00")
         row1.total_volume = Decimal("200.00")
         row1.trade_count = 3
 
         row2 = MagicMock()
+        row2.product_id = pid2
+        row2.product_name = "Ammonia Green"
         row2.fuel_type = "Ammonia"
-        row2.region = "ARA"
+        row2.delivery_point_id = dpid2
+        row2.delivery_point_name = "ARA"
+        row2.region = "Europe"
         row2.trade_date = date(2026, 2, 15)
         row2.weighted_sum = Decimal("75000.00")
         row2.total_volume = Decimal("100.00")
@@ -161,8 +218,12 @@ class TestComputeReferencePrices:
         mock_db = AsyncMock()
         mock_result = MagicMock()
         mock_row = MagicMock()
+        mock_row.product_id = uuid4()
+        mock_row.product_name = "LNG Conventional"
         mock_row.fuel_type = "LNG"
-        mock_row.region = "Japan"
+        mock_row.delivery_point_id = uuid4()
+        mock_row.delivery_point_name = "Tokyo"
+        mock_row.region = "Asia"
         mock_row.trade_date = date(2026, 3, 1)
         mock_row.weighted_sum = Decimal("0")
         mock_row.total_volume = Decimal("0")
@@ -190,6 +251,8 @@ class TestComputeReferencePrices:
             date_to=date(2026, 2, 28),
             fuel_type="Methanol",
             region="ARA",
+            product_id=uuid4(),
+            delivery_point_id=uuid4(),
         )
         assert mock_db.execute.call_count == 1
 
@@ -198,22 +261,33 @@ class TestReferencePriceItemSchema:
     """Test the Pydantic schema for reference price items."""
 
     def test_valid_schema(self):
+        pid = uuid4()
+        dpid = uuid4()
         item = ReferencePriceItem(
+            product_id=pid,
+            product_name="Methanol Green",
             fuel_type="Methanol",
-            region="Singapore",
+            delivery_point_id=dpid,
+            delivery_point_name="Singapore",
+            region="Asia",
             vwap_usd=Decimal("533.33"),
             total_volume_mt=Decimal("300.00"),
             trade_count=2,
             date=date(2026, 2, 15),
         )
+        assert item.product_id == pid
         assert item.fuel_type == "Methanol"
         assert item.vwap_usd == Decimal("533.33")
         assert item.date == date(2026, 2, 15)
 
     def test_schema_serialization(self):
         item = ReferencePriceItem(
+            product_id=uuid4(),
+            product_name="Ammonia Green",
             fuel_type="Ammonia",
-            region="ARA",
+            delivery_point_id=uuid4(),
+            delivery_point_name="ARA",
+            region="Europe",
             vwap_usd=Decimal("750.00"),
             total_volume_mt=Decimal("100.00"),
             trade_count=1,
@@ -222,6 +296,7 @@ class TestReferencePriceItemSchema:
         data = item.model_dump()
         assert data["fuel_type"] == "Ammonia"
         assert data["trade_count"] == 1
+        assert data["product_name"] == "Ammonia Green"
 
 
 def test_reference_price_item_has_visibility_field():
@@ -229,7 +304,7 @@ def test_reference_price_item_has_visibility_field():
     from decimal import Decimal
     from datetime import date
     item = ReferencePriceItem(
-        fuel_type="Methanol", region="ARA",
+        fuel_type="Methanol", region="Europe",
         vwap_usd=Decimal("525.50"), total_volume_mt=Decimal("5000"),
         trade_count=3, date=date(2026, 3, 12), visibility="internal",
     )
@@ -241,7 +316,7 @@ def test_reference_price_item_defaults_to_external():
     from decimal import Decimal
     from datetime import date
     item = ReferencePriceItem(
-        fuel_type="Methanol", region="ARA",
+        fuel_type="Methanol", region="Europe",
         vwap_usd=Decimal("525.50"), total_volume_mt=Decimal("5000"),
         trade_count=3, date=date(2026, 3, 12),
     )
