@@ -1,0 +1,605 @@
+"""
+Unit tests for the forward curve router logic.
+Tests curve aggregation, CSV export, and schema validation using mock DB sessions.
+"""
+import pytest
+from decimal import Decimal
+from unittest.mock import AsyncMock, MagicMock, patch
+from uuid import uuid4
+
+from app.routers.curves import compute_forward_curve
+from app.schemas.curves import ForwardCurvePoint, ForwardCurveResponse
+
+
+# ---------------------------------------------------------------------------
+# Schema tests
+# ---------------------------------------------------------------------------
+
+
+class TestForwardCurvePointSchema:
+    """ForwardCurvePoint schema validation."""
+
+    def test_full_two_sided_market(self):
+        point = ForwardCurvePoint(
+            availability_window="Q2 2026",
+            best_bid=Decimal("520.00"),
+            best_ask=Decimal("530.00"),
+            mid_price=Decimal("525.00"),
+            spread=Decimal("10.00"),
+            volume_mt=Decimal("1500.00"),
+            order_count=4,
+        )
+        assert point.availability_window == "Q2 2026"
+        assert point.best_bid == Decimal("520.00")
+        assert point.best_ask == Decimal("530.00")
+        assert point.mid_price == Decimal("525.00")
+        assert point.spread == Decimal("10.00")
+        assert point.volume_mt == Decimal("1500.00")
+        assert point.order_count == 4
+
+    def test_bid_only_market(self):
+        """When only bids exist, ask/mid/spread are None."""
+        point = ForwardCurvePoint(
+            availability_window="Spot",
+            best_bid=Decimal("500.00"),
+            best_ask=None,
+            mid_price=None,
+            spread=None,
+            volume_mt=Decimal("500.00"),
+            order_count=2,
+        )
+        assert point.best_bid == Decimal("500.00")
+        assert point.best_ask is None
+        assert point.mid_price is None
+        assert point.spread is None
+
+    def test_ask_only_market(self):
+        """When only asks exist, bid/mid/spread are None."""
+        point = ForwardCurvePoint(
+            availability_window="Forward 2027",
+            best_bid=None,
+            best_ask=Decimal("610.00"),
+            mid_price=None,
+            spread=None,
+            volume_mt=Decimal("200.00"),
+            order_count=1,
+        )
+        assert point.best_ask == Decimal("610.00")
+        assert point.best_bid is None
+        assert point.mid_price is None
+
+    def test_serialization(self):
+        point = ForwardCurvePoint(
+            availability_window="Q1 2026",
+            best_bid=Decimal("480.00"),
+            best_ask=Decimal("490.00"),
+            mid_price=Decimal("485.00"),
+            spread=Decimal("10.00"),
+            volume_mt=Decimal("1000.00"),
+            order_count=3,
+        )
+        data = point.model_dump()
+        assert data["availability_window"] == "Q1 2026"
+        assert data["best_bid"] == Decimal("480.00")
+        assert data["order_count"] == 3
+
+
+class TestForwardCurveResponseSchema:
+    """ForwardCurveResponse wrapper schema."""
+
+    def test_empty_curve(self):
+        from datetime import datetime, UTC
+        resp = ForwardCurveResponse(
+            product_id=uuid4(),
+            delivery_point_id=None,
+            points=[],
+            generated_at=datetime.now(UTC),
+        )
+        assert resp.points == []
+        assert resp.delivery_point_id is None
+
+    def test_with_points(self):
+        from datetime import datetime, UTC
+        pid = uuid4()
+        point = ForwardCurvePoint(
+            availability_window="Spot",
+            best_bid=Decimal("510.00"),
+            best_ask=Decimal("515.00"),
+            mid_price=Decimal("512.50"),
+            spread=Decimal("5.00"),
+            volume_mt=Decimal("300.00"),
+            order_count=2,
+        )
+        resp = ForwardCurveResponse(
+            product_id=pid,
+            delivery_point_id=None,
+            points=[point],
+            generated_at=datetime.now(UTC),
+        )
+        assert len(resp.points) == 1
+        assert resp.product_id == pid
+
+
+# ---------------------------------------------------------------------------
+# compute_forward_curve() logic tests
+# ---------------------------------------------------------------------------
+
+
+class TestComputeForwardCurve:
+    """Test the pure aggregation logic with mock DB."""
+
+    @pytest.mark.asyncio
+    async def test_empty_orderbook_returns_empty_list(self):
+        mock_db = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.all.return_value = []
+        mock_db.execute.return_value = mock_result
+
+        points = await compute_forward_curve(mock_db, product_id=uuid4())
+        assert points == []
+
+    @pytest.mark.asyncio
+    async def test_single_bid_window_only(self):
+        """One BID in a window: best_bid set, best_ask/mid/spread None."""
+        mock_db = AsyncMock()
+        mock_result = MagicMock()
+
+        _attrs = ["availability_window", "side", "max_price", "min_price", "total_volume", "order_count"]
+        row = MagicMock(spec=_attrs)
+        row.availability_window = "Spot"
+        row.side = "BID"
+        row.max_price = Decimal("500.00")   # impl reads max_price for BID best_bid
+        row.min_price = Decimal("495.00")   # unused for BID
+        row.total_volume = Decimal("250.00")
+        row.order_count = 1
+
+        mock_result.all.return_value = [row]
+        mock_db.execute.return_value = mock_result
+
+        points = await compute_forward_curve(mock_db, product_id=uuid4())
+
+        assert len(points) == 1
+        assert points[0].availability_window == "Spot"
+        assert points[0].best_bid == Decimal("500.00")
+        assert points[0].best_ask is None
+        assert points[0].mid_price is None
+        assert points[0].spread is None
+        assert points[0].volume_mt == Decimal("250.00")
+        assert points[0].order_count == 1
+
+    @pytest.mark.asyncio
+    async def test_single_ask_window_only(self):
+        """One ASK in a window: best_ask set, best_bid/mid/spread None."""
+        mock_db = AsyncMock()
+        mock_result = MagicMock()
+
+        _attrs = ["availability_window", "side", "max_price", "min_price", "total_volume", "order_count"]
+        row = MagicMock(spec=_attrs)
+        row.availability_window = "Q3 2026"
+        row.side = "ASK"
+        row.max_price = Decimal("560.00")   # unused for ASK
+        row.min_price = Decimal("550.00")   # impl reads min_price for ASK best_ask
+        row.total_volume = Decimal("400.00")
+        row.order_count = 2
+
+        mock_result.all.return_value = [row]
+        mock_db.execute.return_value = mock_result
+
+        points = await compute_forward_curve(mock_db, product_id=uuid4())
+
+        assert len(points) == 1
+        assert points[0].best_ask == Decimal("550.00")
+        assert points[0].best_bid is None
+        assert points[0].mid_price is None
+        assert points[0].spread is None
+
+    @pytest.mark.asyncio
+    async def test_two_sided_market_computes_mid_and_spread(self):
+        """BID + ASK in same window: mid and spread computed correctly."""
+        mock_db = AsyncMock()
+        mock_result = MagicMock()
+
+        _attrs = ["availability_window", "side", "max_price", "min_price", "total_volume", "order_count"]
+        bid_row = MagicMock(spec=_attrs)
+        bid_row.availability_window = "Q2 2026"
+        bid_row.side = "BID"
+        bid_row.max_price = Decimal("520.00")   # best_bid = max BID price
+        bid_row.min_price = Decimal("510.00")   # not used
+        bid_row.total_volume = Decimal("600.00")
+        bid_row.order_count = 3
+
+        ask_row = MagicMock(spec=_attrs)
+        ask_row.availability_window = "Q2 2026"
+        ask_row.side = "ASK"
+        ask_row.max_price = Decimal("540.00")   # not used
+        ask_row.min_price = Decimal("530.00")   # best_ask = min ASK price
+        ask_row.total_volume = Decimal("400.00")
+        ask_row.order_count = 2
+
+        mock_result.all.return_value = [bid_row, ask_row]
+        mock_db.execute.return_value = mock_result
+
+        points = await compute_forward_curve(mock_db, product_id=uuid4())
+
+        assert len(points) == 1
+        p = points[0]
+        assert p.availability_window == "Q2 2026"
+        assert p.best_bid == Decimal("520.00")
+        assert p.best_ask == Decimal("530.00")
+        assert p.mid_price == Decimal("525.00")
+        assert p.spread == Decimal("10.00")
+        assert p.volume_mt == Decimal("1000.00")
+        assert p.order_count == 5
+
+    @pytest.mark.asyncio
+    async def test_multiple_windows_each_returned_as_separate_point(self):
+        """Each availability_window becomes its own ForwardCurvePoint."""
+        mock_db = AsyncMock()
+        mock_result = MagicMock()
+
+        _attrs = ["availability_window", "side", "max_price", "min_price", "total_volume", "order_count"]
+        rows = []
+        for window in ["Spot", "Q3 2026", "Forward 2027"]:
+            bid = MagicMock(spec=_attrs)
+            bid.availability_window = window
+            bid.side = "BID"
+            bid.max_price = Decimal("500.00")
+            bid.min_price = Decimal("490.00")
+            bid.total_volume = Decimal("100.00")
+            bid.order_count = 1
+            rows.append(bid)
+
+        mock_result.all.return_value = rows
+        mock_db.execute.return_value = mock_result
+
+        points = await compute_forward_curve(mock_db, product_id=uuid4())
+        assert len(points) == 3
+        windows = {p.availability_window for p in points}
+        assert windows == {"Spot", "Q3 2026", "Forward 2027"}
+
+    @pytest.mark.asyncio
+    async def test_filters_by_product_id(self):
+        """product_id is required; verify query is executed."""
+        mock_db = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.all.return_value = []
+        mock_db.execute.return_value = mock_result
+
+        pid = uuid4()
+        await compute_forward_curve(mock_db, product_id=pid)
+        assert mock_db.execute.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_filters_by_delivery_point_id(self):
+        """delivery_point_id filter is applied when provided."""
+        mock_db = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.all.return_value = []
+        mock_db.execute.return_value = mock_result
+
+        await compute_forward_curve(mock_db, product_id=uuid4(), delivery_point_id=uuid4())
+        assert mock_db.execute.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_mid_price_rounded_to_two_decimal_places(self):
+        """Mid price = (bid + ask) / 2, rounded to 2dp."""
+        mock_db = AsyncMock()
+        mock_result = MagicMock()
+
+        _attrs = ["availability_window", "side", "max_price", "min_price", "total_volume", "order_count"]
+        bid_row = MagicMock(spec=_attrs)
+        bid_row.availability_window = "Spot"
+        bid_row.side = "BID"
+        bid_row.max_price = Decimal("501.00")
+        bid_row.min_price = Decimal("498.00")
+        bid_row.total_volume = Decimal("100.00")
+        bid_row.order_count = 1
+
+        ask_row = MagicMock(spec=_attrs)
+        ask_row.availability_window = "Spot"
+        ask_row.side = "ASK"
+        ask_row.max_price = Decimal("510.00")
+        ask_row.min_price = Decimal("502.00")
+        ask_row.total_volume = Decimal("100.00")
+        ask_row.order_count = 1
+
+        mock_result.all.return_value = [bid_row, ask_row]
+        mock_db.execute.return_value = mock_result
+
+        points = await compute_forward_curve(mock_db, product_id=uuid4())
+        assert points[0].mid_price == Decimal("501.50")
+
+    @pytest.mark.asyncio
+    async def test_asymmetric_volume_and_spread(self):
+        """(501 + 504) / 2 = 502.50, spread = 3.00, combined volume."""
+        mock_db = AsyncMock()
+        mock_result = MagicMock()
+
+        _attrs = ["availability_window", "side", "max_price", "min_price", "total_volume", "order_count"]
+        bid_row = MagicMock(spec=_attrs)
+        bid_row.availability_window = "Spot"
+        bid_row.side = "BID"
+        bid_row.max_price = Decimal("501.00")   # best_bid
+        bid_row.min_price = Decimal("495.00")   # unused
+        bid_row.total_volume = Decimal("100.00")
+        bid_row.order_count = 1
+
+        ask_row = MagicMock(spec=_attrs)
+        ask_row.availability_window = "Spot"
+        ask_row.side = "ASK"
+        ask_row.max_price = Decimal("510.00")   # unused
+        ask_row.min_price = Decimal("504.00")   # best_ask
+        ask_row.total_volume = Decimal("150.00")
+        ask_row.order_count = 2
+
+        mock_result.all.return_value = [bid_row, ask_row]
+        mock_db.execute.return_value = mock_result
+
+        points = await compute_forward_curve(mock_db, product_id=uuid4())
+        assert points[0].mid_price == Decimal("502.50")
+        assert points[0].spread == Decimal("3.00")
+        assert points[0].volume_mt == Decimal("250.00")
+        assert points[0].order_count == 3
+
+
+# ---------------------------------------------------------------------------
+# CSV builder tests
+# ---------------------------------------------------------------------------
+
+
+class TestBuildCsv:
+    """Tests for the CSV builder helper."""
+
+    def test_csv_has_header_row(self):
+        from app.routers.curves import build_csv
+
+        csv_text = build_csv([])
+        first_line = csv_text.splitlines()[0]
+        assert "availability_window" in first_line
+        assert "best_bid" in first_line
+        assert "best_ask" in first_line
+        assert "mid_price" in first_line
+        assert "spread" in first_line
+        assert "volume_mt" in first_line
+        assert "order_count" in first_line
+
+    def test_csv_empty_points_has_only_header(self):
+        from app.routers.curves import build_csv
+
+        csv_text = build_csv([])
+        lines = [l for l in csv_text.splitlines() if l.strip()]
+        assert len(lines) == 1
+
+    def test_csv_one_point_produces_two_lines(self):
+        from app.routers.curves import build_csv
+
+        point = ForwardCurvePoint(
+            availability_window="Spot",
+            best_bid=Decimal("500.00"),
+            best_ask=Decimal("510.00"),
+            mid_price=Decimal("505.00"),
+            spread=Decimal("10.00"),
+            volume_mt=Decimal("300.00"),
+            order_count=2,
+        )
+        csv_text = build_csv([point])
+        lines = [l for l in csv_text.splitlines() if l.strip()]
+        assert len(lines) == 2
+        assert "Spot" in lines[1]
+        assert "500.00" in lines[1]
+
+    def test_csv_none_fields_serialized_as_empty_string(self):
+        from app.routers.curves import build_csv
+
+        point = ForwardCurvePoint(
+            availability_window="Forward 2027",
+            best_bid=None,
+            best_ask=Decimal("620.00"),
+            mid_price=None,
+            spread=None,
+            volume_mt=Decimal("100.00"),
+            order_count=1,
+        )
+        csv_text = build_csv([point])
+        data_line = csv_text.splitlines()[1]
+        assert "Forward 2027" in data_line
+        assert "620.00" in data_line
+
+    def test_csv_multiple_points(self):
+        from app.routers.curves import build_csv
+
+        points = [
+            ForwardCurvePoint(
+                availability_window="Spot",
+                best_bid=Decimal("510.00"),
+                best_ask=Decimal("520.00"),
+                mid_price=Decimal("515.00"),
+                spread=Decimal("10.00"),
+                volume_mt=Decimal("500.00"),
+                order_count=3,
+            ),
+            ForwardCurvePoint(
+                availability_window="Q1 2026",
+                best_bid=Decimal("480.00"),
+                best_ask=None,
+                mid_price=None,
+                spread=None,
+                volume_mt=Decimal("200.00"),
+                order_count=1,
+            ),
+        ]
+        csv_text = build_csv(points)
+        lines = [l for l in csv_text.splitlines() if l.strip()]
+        assert len(lines) == 3
+
+
+# ---------------------------------------------------------------------------
+# Router endpoint tests (FastAPI TestClient with dependency override)
+# ---------------------------------------------------------------------------
+
+
+class TestForwardCurveEndpoint:
+    """Integration-style tests for the /forward endpoint using DI override."""
+
+    @pytest.mark.asyncio
+    async def test_forward_requires_product_id(self):
+        from httpx import AsyncClient, ASGITransport
+        from fastapi import FastAPI
+        from app.routers.curves import router
+        from app.database import get_db
+
+        app = FastAPI()
+        app.include_router(router, prefix="/api/v1")
+
+        async def mock_db():
+            yield AsyncMock()
+        app.dependency_overrides[get_db] = mock_db
+
+        with patch("app.routers.curves.compute_forward_curve", new=AsyncMock(return_value=[])):
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                response = await client.get("/api/v1/forward")
+        assert response.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_forward_returns_200_with_product_id(self):
+        from httpx import AsyncClient, ASGITransport
+        from fastapi import FastAPI
+        from app.routers.curves import router
+        from app.database import get_db
+
+        app = FastAPI()
+        app.include_router(router, prefix="/api/v1")
+
+        async def mock_db():
+            yield AsyncMock()
+        app.dependency_overrides[get_db] = mock_db
+
+        pid = uuid4()
+        mock_point = ForwardCurvePoint(
+            availability_window="Spot",
+            best_bid=Decimal("510.00"),
+            best_ask=Decimal("520.00"),
+            mid_price=Decimal("515.00"),
+            spread=Decimal("10.00"),
+            volume_mt=Decimal("500.00"),
+            order_count=3,
+        )
+
+        with patch("app.routers.curves.compute_forward_curve", new=AsyncMock(return_value=[mock_point])):
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                response = await client.get(f"/api/v1/forward?product_id={pid}")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["product_id"] == str(pid)
+        assert len(data["points"]) == 1
+        assert data["points"][0]["availability_window"] == "Spot"
+        assert "generated_at" in data
+
+    @pytest.mark.asyncio
+    async def test_forward_accepts_optional_delivery_point_id(self):
+        from httpx import AsyncClient, ASGITransport
+        from fastapi import FastAPI
+        from app.routers.curves import router
+        from app.database import get_db
+
+        app = FastAPI()
+        app.include_router(router, prefix="/api/v1")
+
+        async def mock_db():
+            yield AsyncMock()
+        app.dependency_overrides[get_db] = mock_db
+
+        with patch("app.routers.curves.compute_forward_curve", new=AsyncMock(return_value=[])):
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                response = await client.get(
+                    f"/api/v1/forward?product_id={uuid4()}&delivery_point_id={uuid4()}"
+                )
+        assert response.status_code == 200
+
+    @pytest.mark.asyncio
+    async def test_forward_export_returns_csv_content_type(self):
+        from httpx import AsyncClient, ASGITransport
+        from fastapi import FastAPI
+        from app.routers.curves import router
+        from app.database import get_db
+
+        app = FastAPI()
+        app.include_router(router, prefix="/api/v1")
+
+        async def mock_db():
+            yield AsyncMock()
+        app.dependency_overrides[get_db] = mock_db
+
+        mock_point = ForwardCurvePoint(
+            availability_window="Q1 2026",
+            best_bid=Decimal("480.00"),
+            best_ask=Decimal("490.00"),
+            mid_price=Decimal("485.00"),
+            spread=Decimal("10.00"),
+            volume_mt=Decimal("750.00"),
+            order_count=4,
+        )
+
+        with patch("app.routers.curves.compute_forward_curve", new=AsyncMock(return_value=[mock_point])):
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                response = await client.get(f"/api/v1/forward/export?product_id={uuid4()}")
+
+        assert response.status_code == 200
+        assert "text/csv" in response.headers["content-type"]
+        assert "attachment" in response.headers["content-disposition"]
+        assert ".csv" in response.headers["content-disposition"]
+
+    @pytest.mark.asyncio
+    async def test_forward_export_csv_body_has_header_and_data(self):
+        from httpx import AsyncClient, ASGITransport
+        from fastapi import FastAPI
+        from app.routers.curves import router
+        from app.database import get_db
+
+        app = FastAPI()
+        app.include_router(router, prefix="/api/v1")
+
+        async def mock_db():
+            yield AsyncMock()
+        app.dependency_overrides[get_db] = mock_db
+
+        mock_point = ForwardCurvePoint(
+            availability_window="Q2 2026",
+            best_bid=Decimal("520.00"),
+            best_ask=Decimal("530.00"),
+            mid_price=Decimal("525.00"),
+            spread=Decimal("10.00"),
+            volume_mt=Decimal("1000.00"),
+            order_count=5,
+        )
+
+        with patch("app.routers.curves.compute_forward_curve", new=AsyncMock(return_value=[mock_point])):
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                response = await client.get(f"/api/v1/forward/export?product_id={uuid4()}")
+
+        text = response.text
+        lines = [l for l in text.splitlines() if l.strip()]
+        assert len(lines) == 2
+        assert "availability_window" in lines[0]
+        assert "Q2 2026" in lines[1]
+        assert "520.00" in lines[1]
+
+    @pytest.mark.asyncio
+    async def test_forward_export_requires_product_id(self):
+        from httpx import AsyncClient, ASGITransport
+        from fastapi import FastAPI
+        from app.routers.curves import router
+        from app.database import get_db
+
+        app = FastAPI()
+        app.include_router(router, prefix="/api/v1")
+
+        async def mock_db():
+            yield AsyncMock()
+        app.dependency_overrides[get_db] = mock_db
+
+        with patch("app.routers.curves.compute_forward_curve", new=AsyncMock(return_value=[])):
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                response = await client.get("/api/v1/forward/export")
+        assert response.status_code == 422
