@@ -111,6 +111,7 @@ class OrderResponse(BaseModel):
     status: OrderBookStatus
     expires_at: Optional[datetime] = None
     created_at: datetime
+    is_crossed: bool = False
 
     class Config:
         from_attributes = True

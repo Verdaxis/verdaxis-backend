@@ -3,6 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from sqlalchemy.orm import selectinload
 from typing import Optional
+from decimal import Decimal
 from uuid import UUID
 
 from app.database import get_db
@@ -21,6 +22,21 @@ from app.services.ci_pricing import calculate_ci_adjusted_price
 from app.services.event_bus import event_bus
 
 router = APIRouter(prefix="/orderbook", tags=["orderbook"])
+
+
+def compute_is_crossed(side: str, price: Decimal, best_opposing_price: Optional[Decimal]) -> bool:
+    """Returns True if this order crosses the market.
+
+    A BID crosses when its price >= best available ASK price (buyer willing to
+    pay at or above what sellers are asking — immediate execution possible).
+    An ASK crosses when its price <= best available BID price (seller willing
+    to accept at or below what buyers are offering).
+    """
+    if best_opposing_price is None:
+        return False
+    if side == "BID":
+        return price >= best_opposing_price
+    return price <= best_opposing_price
 
 
 # ============== Static routes (must come before parametric /{order_id}) ==============
@@ -55,7 +71,22 @@ async def list_bids(
     query = query.order_by(OrderBookOrder.created_at.desc())
     result = await db.execute(query)
     orders = result.scalars().all()
-    return orders
+
+    # Fetch best ask price (single scalar query) for crossing detection
+    best_ask_result = await db.execute(
+        select(func.min(OrderBookOrder.price_per_mt_usd)).where(
+            OrderBookOrder.side == OrderSide.ASK,
+            OrderBookOrder.status.in_([OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED]),
+        )
+    )
+    best_ask_price = best_ask_result.scalar()
+
+    return [
+        OrderResponse.model_validate(order, from_attributes=True).model_copy(
+            update={"is_crossed": compute_is_crossed("BID", order.price_per_mt_usd, best_ask_price)}
+        )
+        for order in orders
+    ]
 
 
 @router.get("/asks", response_model=list[OrderResponse])
@@ -87,7 +118,22 @@ async def list_asks(
     query = query.order_by(OrderBookOrder.created_at.desc())
     result = await db.execute(query)
     orders = result.scalars().all()
-    return orders
+
+    # Fetch best bid price (single scalar query) for crossing detection
+    best_bid_result = await db.execute(
+        select(func.max(OrderBookOrder.price_per_mt_usd)).where(
+            OrderBookOrder.side == OrderSide.BID,
+            OrderBookOrder.status.in_([OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED]),
+        )
+    )
+    best_bid_price = best_bid_result.scalar()
+
+    return [
+        OrderResponse.model_validate(order, from_attributes=True).model_copy(
+            update={"is_crossed": compute_is_crossed("ASK", order.price_per_mt_usd, best_bid_price)}
+        )
+        for order in orders
+    ]
 
 
 @router.get("/with-ci", response_model=list[OrderResponseWithCI])
