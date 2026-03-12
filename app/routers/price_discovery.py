@@ -342,6 +342,8 @@ async def export_reference_prices_csv(
     request: _Request,
     product_id: Optional[UUID] = Query(None, description="Filter by product ID"),
     delivery_point_id: Optional[UUID] = Query(None, description="Filter by delivery point ID"),
+    fuel_type: Optional[str] = Query(None, description="Filter by fuel type"),
+    region: Optional[str] = Query(None, description="Filter by region"),
     from_date: Optional[date] = Query(None, description="Start date (inclusive), e.g. 2026-01-01"),
     to_date: Optional[date] = Query(None, description="End date (inclusive), e.g. 2026-03-01"),
     format: str = Query("csv", description="Export format (currently only csv is supported)"),
@@ -359,6 +361,8 @@ async def export_reference_prices_csv(
         date_to=to_date,
         product_id=product_id,
         delivery_point_id=delivery_point_id,
+        fuel_type=fuel_type,
+        region=region,
     )
     csv_content = _items_to_csv(prices)
     filename = "verdaxis_reference_prices.csv"

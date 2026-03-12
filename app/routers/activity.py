@@ -11,47 +11,10 @@ from app.services.event_bus import event_bus
 router = APIRouter(prefix="/stream", tags=["real-time"])
 
 
-async def _merge_queues_generator(request: Request, queues: list):
-    """Merges multiple asyncio Queues into a single SSE stream.
-
-    Polls queues round-robin with a short timeout so disconnect checks
-    remain responsive.  Sends a keepalive comment every ~30 s of silence.
-    """
-    silence_budget = 30.0  # seconds before keepalive
-    elapsed_silence = 0.0
-    poll_interval = 0.5  # seconds per round-robin pass
-
-    try:
-        while True:
-            if await request.is_disconnected():
-                break
-
-            got_message = False
-            for q in queues:
-                try:
-                    message = await asyncio.wait_for(q.get(), timeout=poll_interval)
-                    yield (
-                        f"event: {message['event']}\n"
-                        f"data: {json.dumps(message['data'], default=str)}\n\n"
-                    )
-                    got_message = True
-                    elapsed_silence = 0.0
-                except asyncio.TimeoutError:
-                    pass
-
-            if not got_message:
-                elapsed_silence += poll_interval * len(queues)
-                if elapsed_silence >= silence_budget:
-                    yield ": keepalive\n\n"
-                    elapsed_silence = 0.0
-    finally:
-        for channel, q in queues_with_channels:
-            event_bus.unsubscribe(channel, q)
-
-
 @router.get("/activity")
 async def stream_activity(
     request: Request,
+    token: str | None = None,
     current_user=Depends(get_current_user_optional),
 ):
     """SSE stream for market activity.
@@ -60,6 +23,23 @@ async def stream_activity(
     specific to their organisation (outbids, triggered alerts).
     Unauthenticated users receive public activity events only.
     """
+    # EventSource doesn't support custom headers, so accept token as query param
+    # and resolve the user manually if header-based auth returned None.
+    if current_user is None and token:
+        from app.routers.auth_simple import get_current_user as _get_user
+        from app.database import get_db as _get_db
+        try:
+            from jose import jwt
+            from app.config import settings
+            payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
+            # If decode succeeds, create a minimal user-like object
+            class _SSEUser:
+                def __init__(self, org_id):
+                    self.organization_id = org_id
+            current_user = _SSEUser(payload.get("organization_id"))
+        except Exception:
+            pass  # Invalid token — proceed as unauthenticated
+
     subscriptions: list[tuple[str, asyncio.Queue]] = []
 
     public_queue = event_bus.subscribe("activity")

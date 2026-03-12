@@ -92,10 +92,10 @@ class TestForwardCurveResponseSchema:
         resp = ForwardCurveResponse(
             product_id=uuid4(),
             delivery_point_id=None,
-            points=[],
+            curve=[],
             generated_at=datetime.now(UTC),
         )
-        assert resp.points == []
+        assert resp.curve == []
         assert resp.delivery_point_id is None
 
     def test_with_points(self):
@@ -113,10 +113,10 @@ class TestForwardCurveResponseSchema:
         resp = ForwardCurveResponse(
             product_id=pid,
             delivery_point_id=None,
-            points=[point],
+            curve=[point],
             generated_at=datetime.now(UTC),
         )
-        assert len(resp.points) == 1
+        assert len(resp.curve) == 1
         assert resp.product_id == pid
 
 
@@ -457,7 +457,7 @@ class TestForwardCurveEndpoint:
 
         with patch("app.routers.curves.compute_forward_curve", new=AsyncMock(return_value=[])):
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-                response = await client.get("/api/v1/forward")
+                response = await client.get("/api/v1/curves/forward")
         assert response.status_code == 422
 
     @pytest.mark.asyncio
@@ -487,13 +487,13 @@ class TestForwardCurveEndpoint:
 
         with patch("app.routers.curves.compute_forward_curve", new=AsyncMock(return_value=[mock_point])):
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-                response = await client.get(f"/api/v1/forward?product_id={pid}")
+                response = await client.get(f"/api/v1/curves/forward?product_id={pid}")
 
         assert response.status_code == 200
         data = response.json()
         assert data["product_id"] == str(pid)
-        assert len(data["points"]) == 1
-        assert data["points"][0]["availability_window"] == "Spot"
+        assert len(data["curve"]) == 1
+        assert data["curve"][0]["availability_window"] == "Spot"
         assert "generated_at" in data
 
     @pytest.mark.asyncio
@@ -513,7 +513,7 @@ class TestForwardCurveEndpoint:
         with patch("app.routers.curves.compute_forward_curve", new=AsyncMock(return_value=[])):
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
                 response = await client.get(
-                    f"/api/v1/forward?product_id={uuid4()}&delivery_point_id={uuid4()}"
+                    f"/api/v1/curves/forward?product_id={uuid4()}&delivery_point_id={uuid4()}"
                 )
         assert response.status_code == 200
 
@@ -543,7 +543,7 @@ class TestForwardCurveEndpoint:
 
         with patch("app.routers.curves.compute_forward_curve", new=AsyncMock(return_value=[mock_point])):
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-                response = await client.get(f"/api/v1/forward/export?product_id={uuid4()}")
+                response = await client.get(f"/api/v1/curves/forward/export?product_id={uuid4()}")
 
         assert response.status_code == 200
         assert "text/csv" in response.headers["content-type"]
@@ -576,7 +576,7 @@ class TestForwardCurveEndpoint:
 
         with patch("app.routers.curves.compute_forward_curve", new=AsyncMock(return_value=[mock_point])):
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-                response = await client.get(f"/api/v1/forward/export?product_id={uuid4()}")
+                response = await client.get(f"/api/v1/curves/forward/export?product_id={uuid4()}")
 
         text = response.text
         lines = [l for l in text.splitlines() if l.strip()]
@@ -601,5 +601,5 @@ class TestForwardCurveEndpoint:
 
         with patch("app.routers.curves.compute_forward_curve", new=AsyncMock(return_value=[])):
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-                response = await client.get("/api/v1/forward/export")
+                response = await client.get("/api/v1/curves/forward/export")
         assert response.status_code == 422

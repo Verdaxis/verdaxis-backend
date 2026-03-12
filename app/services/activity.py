@@ -75,7 +75,14 @@ async def check_price_alerts(
         PriceAlert.is_active == True,
     )
     if delivery_point_id is not None:
-        query = query.where(PriceAlert.delivery_point_id == delivery_point_id)
+        # Match alerts for this specific dp OR alerts watching all delivery points (NULL)
+        from sqlalchemy import or_
+        query = query.where(
+            or_(
+                PriceAlert.delivery_point_id == delivery_point_id,
+                PriceAlert.delivery_point_id.is_(None),
+            )
+        )
 
     result = await db.execute(query)
     alerts = result.scalars().all()

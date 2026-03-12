@@ -35,7 +35,6 @@ class Subscription(Base):
         String,
         nullable=False,
         default=SubscriptionTier.FREE,
-        insert_sentinel=False,
     )
     started_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True),

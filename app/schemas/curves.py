@@ -37,5 +37,5 @@ class ForwardCurveResponse(BaseModel):
 
     product_id: UUID
     delivery_point_id: Optional[UUID] = None
-    points: list[ForwardCurvePoint]
+    curve: list[ForwardCurvePoint]
     generated_at: datetime

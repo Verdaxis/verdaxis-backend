@@ -5,8 +5,8 @@ Aggregates OPEN and PARTIALLY_FILLED orders by availability_window and side to
 produce a forward price curve: best bid, best ask, mid-price, and spread per window.
 
 Endpoints:
-  GET /forward         — JSON forward curve for a product
-  GET /forward/export  — CSV download of the same curve
+  GET /curves/forward         — JSON forward curve for a product
+  GET /curves/forward/export  — CSV download of the same curve
 """
 import csv
 import io
@@ -25,7 +25,7 @@ from app.models.orderbook import OrderBookOrder, OrderBookStatus, OrderSide
 from app.schemas.curves import ForwardCurvePoint, ForwardCurveResponse
 
 
-router = APIRouter(prefix="/forward", tags=["forward-curve"])
+router = APIRouter(prefix="/curves/forward", tags=["forward-curve"])
 
 _ACTIVE_STATUSES = [OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED]
 
@@ -176,11 +176,11 @@ async def get_forward_curve(
     For each availability_window with active orders the response includes:
     best bid, best ask, mid-price, spread, total remaining volume, and order count.
     """
-    points = await compute_forward_curve(db, product_id=product_id, delivery_point_id=delivery_point_id)
+    curve = await compute_forward_curve(db, product_id=product_id, delivery_point_id=delivery_point_id)
     return ForwardCurveResponse(
         product_id=product_id,
         delivery_point_id=delivery_point_id,
-        points=points,
+        curve=curve,
         generated_at=datetime.now(UTC),
     )
 
@@ -197,8 +197,8 @@ async def export_forward_curve(
     The response includes a Content-Disposition attachment header so browsers
     will prompt to save the file.
     """
-    points = await compute_forward_curve(db, product_id=product_id, delivery_point_id=delivery_point_id)
-    csv_text = build_csv(points)
+    curve = await compute_forward_curve(db, product_id=product_id, delivery_point_id=delivery_point_id)
+    csv_text = build_csv(curve)
     filename = f"forward_curve_{product_id}.csv"
     return StreamingResponse(
         iter([csv_text]),
