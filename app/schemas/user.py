@@ -22,11 +22,13 @@ class UserBase(BaseModel):
 class UserCreate(UserBase):
     password: str = Field(..., min_length=8)
     organization_id: Optional[UUID] = None
+    referral_code: Optional[str] = None
 
 class UserResponse(UserBase):
     id: UUID
     status: UserStatus
     organization_id: Optional[UUID] = None
+    referral_code: Optional[str] = None
     
     class Config:
         from_attributes = True

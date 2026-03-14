@@ -337,6 +337,23 @@ async def confirm_trade(
     trade.status = TradeStatus.CONFIRMED
     trade.confirmed_at = datetime.now(UTC)
 
+    # Progress referral to ACTIVE on first confirmed trade
+    from app.models.referral import Referral, ReferralStatus
+    for party_id in (trade.buyer_id, trade.seller_id):
+        party_users_stmt = select(User).where(User.organization_id == party_id)
+        party_users_result = await db.execute(party_users_stmt)
+        for party_user in party_users_result.scalars():
+            if party_user.referred_by_id:
+                ref_stmt = select(Referral).where(
+                    Referral.referred_user_id == party_user.id,
+                    Referral.status == ReferralStatus.VERIFIED,
+                )
+                ref_result = await db.execute(ref_stmt)
+                referral = ref_result.scalar_one_or_none()
+                if referral:
+                    referral.status = ReferralStatus.ACTIVE
+                    referral.activated_at = datetime.now(UTC)
+
     # Notify the initiator
     await notify_org_users(
         db,
