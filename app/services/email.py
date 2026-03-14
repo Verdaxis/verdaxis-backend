@@ -159,7 +159,7 @@ async def send_referral_invite_email(to_email: str, referrer_name: str, referral
     </p>
   </div>
 </div>"""
-    return await _send_email(to_email, f"{referrer_display} invited you to Verdaxis", html)
+    return await _send_email(to_email=to_email, subject=f"{referrer_display} invited you to Verdaxis", html=html)
 
 
 async def send_kyc_rejected_email(to_email: str, name: str, reason: str) -> bool:
