@@ -10,3 +10,4 @@ from app.models.producer import ProducerProject
 from app.models.catalog import Product, DeliveryPoint
 from app.models.subscription import Subscription, SubscriptionTier
 from app.models.alerts import PriceAlert
+from app.models.referral import Referral, ReferralStatus

@@ -4,8 +4,11 @@ from sqlalchemy.dialects.postgresql import UUID
 import uuid
 import enum
 from datetime import datetime, UTC
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 from app.database import Base
+
+if TYPE_CHECKING:
+    from app.models.referral import Referral
 
 
 class UserRole(str, enum.Enum):
@@ -75,4 +78,17 @@ class User(Base):
     password_reset_token_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     password_reset_expires: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
+    # Referrals
+    referral_code: Mapped[str | None] = mapped_column(String(10), unique=True, nullable=True)
+    referred_by_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id"), nullable=True
+    )
+
     organization: Mapped["Organization"] = relationship(back_populates="users")
+
+    referrals_made: Mapped[list["Referral"]] = relationship(
+        foreign_keys="Referral.referrer_id", back_populates="referrer"
+    )
+    referral_received: Mapped["Referral | None"] = relationship(
+        foreign_keys="Referral.referred_user_id", back_populates="referred_user", uselist=False
+    )
