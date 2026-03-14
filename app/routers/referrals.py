@@ -14,6 +14,7 @@ from app.models.user import User
 from app.rate_limit import limiter
 from app.routers.auth_simple import get_current_user
 from app.config import settings
+from app.services.email import send_referral_invite_email
 from app.schemas.referral import (
     ReferralCodeResponse,
     ReferralInviteRequest,
@@ -33,6 +34,24 @@ def _validate_code_format(code: str) -> bool:
     return bool(_CODE_PATTERN.match(code))
 
 
+async def _assign_unique_referral_code(db: AsyncSession, user: User, retries: int = 10) -> str:
+    """Generate and assign a collision-free referral code to a user."""
+    for _ in range(retries):
+        code = generate_referral_code()
+        existing = await db.execute(
+            select(User.id).where(User.referral_code == code)
+        )
+        if not existing.scalar_one_or_none():
+            user.referral_code = code
+            return code
+    raise HTTPException(status_code=500, detail="Failed to generate unique referral code")
+
+
+def _display_name(user: User) -> str:
+    """Format a user's display name with a safe fallback."""
+    return f"{user.first_name or ''} {user.last_name or ''}".strip() or "Anonymous"
+
+
 @router.get("/my-code", response_model=ReferralCodeResponse)
 async def get_my_referral_code(
     current_user: Annotated[User, Depends(get_current_user)],
@@ -43,17 +62,8 @@ async def get_my_referral_code(
         raise HTTPException(status_code=403, detail="Email must be verified to get a referral code")
 
     if not current_user.referral_code:
-        for _ in range(10):
-            code = generate_referral_code()
-            existing = await db.execute(
-                select(User.id).where(User.referral_code == code)
-            )
-            if not existing.scalar_one_or_none():
-                current_user.referral_code = code
-                await db.commit()
-                break
-        else:
-            raise HTTPException(status_code=500, detail="Failed to generate unique code")
+        await _assign_unique_referral_code(db, current_user)
+        await db.commit()
 
     return ReferralCodeResponse(
         referral_code=current_user.referral_code,
@@ -70,27 +80,31 @@ async def get_my_referrals(
     stmt = (
         select(Referral)
         .where(Referral.referrer_id == current_user.id)
+        .options(
+            selectinload(Referral.referred_user).selectinload(User.organization)
+        )
         .order_by(Referral.created_at.desc())
     )
     result = await db.execute(stmt)
     referrals = result.scalars().all()
 
-    items = []
-    for ref in referrals:
-        user_stmt = (
-            select(User)
-            .options(selectinload(User.organization))
-            .where(User.id == ref.referred_user_id)
-        )
-        user_result = await db.execute(user_stmt)
-        referred_user = user_result.scalar_one_or_none()
-
-        items.append(ReferralListItem(
-            organization_name=referred_user.organization.name if referred_user and referred_user.organization else None,
-            role=referred_user.role.value if referred_user and referred_user.role else None,
+    items = [
+        ReferralListItem(
+            organization_name=(
+                ref.referred_user.organization.name
+                if ref.referred_user and ref.referred_user.organization
+                else None
+            ),
+            role=(
+                ref.referred_user.role.value
+                if ref.referred_user and ref.referred_user.role
+                else None
+            ),
             status=ref.status.value,
             signed_up_at=ref.created_at,
-        ))
+        )
+        for ref in referrals
+    ]
 
     total = len(referrals)
     verified = sum(1 for r in referrals if r.status in (ReferralStatus.VERIFIED, ReferralStatus.ACTIVE))
@@ -107,6 +121,7 @@ async def get_leaderboard(
     db: AsyncSession = Depends(get_db),
 ):
     """Top 10 referrers platform-wide."""
+    # Step 1: aggregate counts
     stmt = (
         select(
             Referral.referrer_id,
@@ -119,24 +134,35 @@ async def get_leaderboard(
     result = await db.execute(stmt)
     rows = result.all()
 
+    if not rows:
+        return []
+
+    # Step 2: batch-fetch all 10 users in one query (fixes N+1)
+    referrer_ids = [row[0] for row in rows]
+    counts_by_id = {row[0]: row[1] for row in rows}
+
+    users_stmt = (
+        select(User)
+        .options(selectinload(User.organization))
+        .where(User.id.in_(referrer_ids))
+    )
+    users_result = await db.execute(users_stmt)
+    users_by_id = {u.id: u for u in users_result.scalars()}
+
+    # Step 3: build ranked entries preserving count order
     entries = []
-    for rank, (referrer_id, count) in enumerate(rows, 1):
-        user_stmt = (
-            select(User)
-            .options(selectinload(User.organization))
-            .where(User.id == referrer_id)
-        )
-        user_result = await db.execute(user_stmt)
-        user = user_result.scalar_one_or_none()
+    rank = 1
+    for referrer_id, count in rows:
+        user = users_by_id.get(referrer_id)
         if not user:
             continue
-
         entries.append(LeaderboardEntry(
             rank=rank,
-            user_name=f"{user.first_name or ''} {user.last_name or ''}".strip() or "Anonymous",
+            user_name=_display_name(user),
             organization_name=user.organization.name if user.organization else None,
             referral_count=count,
         ))
+        rank += 1
 
     return entries
 
@@ -153,30 +179,30 @@ async def send_referral_invite(
     if not current_user.email_verified:
         raise HTTPException(status_code=403, detail="Email must be verified to send invites")
 
+    if body.email == current_user.email:
+        raise HTTPException(status_code=400, detail="Cannot invite yourself")
+
     existing = await db.execute(
         select(User.id).where(User.email == body.email)
     )
     if existing.scalar_one_or_none():
-        raise HTTPException(status_code=400, detail="This email is already registered on Verdaxis")
-
-    if body.email == current_user.email:
-        raise HTTPException(status_code=400, detail="Cannot invite yourself")
+        # Generic message to prevent email enumeration (I-4)
+        return {"message": "Invitation processed", "email": body.email}
 
     if not current_user.referral_code:
-        current_user.referral_code = generate_referral_code()
+        await _assign_unique_referral_code(db, current_user)
         await db.commit()
 
-    from app.services.email import send_referral_invite_email
     sent = await send_referral_invite_email(
         to_email=body.email,
-        referrer_name=f"{current_user.first_name or ''} {current_user.last_name or ''}".strip(),
+        referrer_name=_display_name(current_user),
         referral_code=current_user.referral_code,
     )
 
     if not sent:
         raise HTTPException(status_code=502, detail="Failed to send invite email")
 
-    return {"message": "Invitation sent", "email": body.email}
+    return {"message": "Invitation processed", "email": body.email}
 
 
 @router.get("/resolve/{code}", response_model=ResolveCodeResponse)
@@ -199,9 +225,10 @@ async def resolve_referral_code(
     if not user:
         return ResolveCodeResponse(valid=False)
 
+    name = _display_name(user)
     return ResolveCodeResponse(
         valid=True,
         organization_name=user.organization.name if user.organization else None,
         organization_type=user.organization.type.value if user.organization and user.organization.type else None,
-        referrer_name=f"{user.first_name or ''} {user.last_name or ''}".strip() or None,
+        referrer_name=name if name != "Anonymous" else None,
     )

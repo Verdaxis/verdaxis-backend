@@ -1,6 +1,7 @@
 """Email service using Resend REST API via httpx."""
 import httpx
 import structlog
+from html import escape
 from app.config import settings
 
 logger = structlog.get_logger()
@@ -43,7 +44,7 @@ async def send_verification_email(to_email: str, name: str, token: str) -> bool:
     verify_url = f"{settings.FRONTEND_URL}/verify-email?token={token}"
     html = f"""
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-      <h2 style="color: #1a1a2e;">Welcome to Verdaxis, {name}!</h2>
+      <h2 style="color: #1a1a2e;">Welcome to Verdaxis, {escape(name)}!</h2>
       <p>Please verify your email address to continue.</p>
       <p style="margin: 24px 0;">
         <a href="{verify_url}"
@@ -77,7 +78,7 @@ async def send_password_reset_email(to_email: str, name: str, token: str) -> boo
   <div style="padding: 32px 24px;">
     <h2 style="color: #fff; font-size: 18px; margin: 0 0 12px;">Password Reset Request</h2>
     <p style="color: rgba(255,255,255,0.7); font-size: 14px; line-height: 1.6;">
-      Hi {name},<br><br>
+      Hi {escape(name)},<br><br>
       We received a request to reset your password. Click the button below to set a new password.
       This link expires in <strong style="color: #10b981;">1 hour</strong>.
     </p>
@@ -109,7 +110,7 @@ async def send_kyc_approved_email(to_email: str, name: str) -> bool:
     """Send KYC approval notification."""
     html = f"""
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-      <h2 style="color: #1a1a2e;">KYC Approved, {name}!</h2>
+      <h2 style="color: #1a1a2e;">KYC Approved, {escape(name)}!</h2>
       <p>Your identity verification has been approved. Your Verdaxis account is now fully active.</p>
       <p style="margin: 24px 0;">
         <a href="{settings.FRONTEND_URL}/login"
@@ -128,7 +129,7 @@ async def send_kyc_approved_email(to_email: str, name: str) -> bool:
 async def send_referral_invite_email(to_email: str, referrer_name: str, referral_code: str) -> bool:
     """Send a referral invite email with Verdaxis branding."""
     invite_url = f"{settings.FRONTEND_URL}/invite/{referral_code}"
-    referrer_display = referrer_name or "Someone"
+    referrer_display = escape(referrer_name) if referrer_name else "Someone"
     html = f"""\
 <div style="font-family: 'Segoe UI', Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #0F172A; border-radius: 16px; overflow: hidden;">
   <div style="background: linear-gradient(135deg, #059669, #0F172A); padding: 32px 24px; text-align: center;">
@@ -166,10 +167,10 @@ async def send_kyc_rejected_email(to_email: str, name: str, reason: str) -> bool
     """Send KYC rejection notification with reason."""
     html = f"""
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-      <h2 style="color: #1a1a2e;">KYC Verification Update, {name}</h2>
+      <h2 style="color: #1a1a2e;">KYC Verification Update, {escape(name)}</h2>
       <p>We were unable to verify your identity documents. Your KYC submission has been rejected.</p>
       <div style="background: #fff3cd; border-left: 4px solid #ffc107; padding: 12px 16px; margin: 16px 0;">
-        <strong>Reason:</strong> {reason}
+        <strong>Reason:</strong> {escape(reason)}
       </div>
       <p>Please resubmit your documents addressing the above issue.</p>
       <p style="margin: 24px 0;">

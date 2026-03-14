@@ -21,6 +21,9 @@ from app.core.security import (
 from pydantic import BaseModel
 import uuid
 
+from app.models.referral import Referral, ReferralStatus, generate_referral_code
+from app.services.email import send_verification_email, send_password_reset_email
+
 class RegisterWithOrgRequest(BaseModel):
     registration_token: str
     organization: OrganizationCreate
@@ -213,6 +216,35 @@ async def refresh_tokens(request: _Request, body: RefreshRequest, db: AsyncSessi
 # Registration
 # ---------------------------------------------------------------------------
 
+
+async def _attribute_referral(db: AsyncSession, new_user: User, referral_code: str | None):
+    """Attribute a new user to their referrer if a valid referral code is provided."""
+    if not referral_code:
+        return
+    referrer_stmt = select(User).where(User.referral_code == referral_code)
+    referrer_result = await db.execute(referrer_stmt)
+    referrer = referrer_result.scalar_one_or_none()
+    if referrer and referrer.id != new_user.id:
+        new_user.referred_by_id = referrer.id
+        db.add(Referral(
+            referrer_id=referrer.id,
+            referred_user_id=new_user.id,
+            referral_code_used=referral_code,
+        ))
+        await db.commit()
+        await db.refresh(new_user)
+
+
+async def _assign_referral_code(db: AsyncSession, user: User):
+    """Generate and assign a unique referral code to a user."""
+    for _ in range(10):
+        code = generate_referral_code()
+        existing = await db.execute(select(User.id).where(User.referral_code == code))
+        if not existing.scalar_one_or_none():
+            user.referral_code = code
+            return
+
+
 ALLOWED_REGISTRATION_ROLES = {UserRole.BUYER, UserRole.SUPPLIER}
 
 @router.post("/register", response_model=RegistrationResponse)
@@ -268,22 +300,8 @@ async def register(request: _Request, user_in: UserCreate, db: AsyncSession = De
         await db.refresh(new_user)
 
         # Referral attribution
-        if hasattr(user_in, 'referral_code') and user_in.referral_code:
-            from app.models.referral import Referral
-            referrer_stmt = select(User).where(User.referral_code == user_in.referral_code)
-            referrer_result = await db.execute(referrer_stmt)
-            referrer = referrer_result.scalar_one_or_none()
-            if referrer and referrer.id != new_user.id:
-                new_user.referred_by_id = referrer.id
-                db.add(Referral(
-                    referrer_id=referrer.id,
-                    referred_user_id=new_user.id,
-                    referral_code_used=user_in.referral_code,
-                ))
-                await db.commit()
-                await db.refresh(new_user)
+        await _attribute_referral(db, new_user, user_in.referral_code)
 
-        from app.services.email import send_verification_email
         await send_verification_email(new_user.email, new_user.first_name or "there", verification_token)
 
         return RegistrationResponse(status="created", user=new_user)
@@ -367,23 +385,8 @@ async def register_with_org(
     await db.refresh(new_user)
 
     # Referral attribution
-    ref_code = payload.get("referral_code")
-    if ref_code:
-        from app.models.referral import Referral
-        referrer_stmt = select(User).where(User.referral_code == ref_code)
-        referrer_result = await db.execute(referrer_stmt)
-        referrer = referrer_result.scalar_one_or_none()
-        if referrer and referrer.id != new_user.id:
-            new_user.referred_by_id = referrer.id
-            db.add(Referral(
-                referrer_id=referrer.id,
-                referred_user_id=new_user.id,
-                referral_code_used=ref_code,
-            ))
-            await db.commit()
-            await db.refresh(new_user)
+    await _attribute_referral(db, new_user, payload.get("referral_code"))
 
-    from app.services.email import send_verification_email
     await send_verification_email(new_user.email, new_user.first_name or "there", verification_token)
 
     return new_user
@@ -408,7 +411,6 @@ async def verify_email(token: str, db: AsyncSession = Depends(get_db)):
 
     # Progress referral status if this user was referred
     if user.referred_by_id:
-        from app.models.referral import Referral, ReferralStatus
         ref_stmt = select(Referral).where(Referral.referred_user_id == user.id)
         ref_result = await db.execute(ref_stmt)
         referral = ref_result.scalar_one_or_none()
@@ -417,13 +419,7 @@ async def verify_email(token: str, db: AsyncSession = Depends(get_db)):
             referral.verified_at = datetime.now(UTC)
 
     # Generate referral code for the newly verified user
-    from app.models.referral import generate_referral_code
-    for _ in range(10):
-        code = generate_referral_code()
-        existing_code = await db.execute(select(User.id).where(User.referral_code == code))
-        if not existing_code.scalar_one_or_none():
-            user.referral_code = code
-            break
+    await _assign_referral_code(db, user)
 
     await db.commit()
 
@@ -443,7 +439,6 @@ async def resend_verification(
     current_user.email_verification_token = new_token
     await db.commit()
 
-    from app.services.email import send_verification_email
     await send_verification_email(current_user.email, current_user.first_name or "there", new_token)
 
     return {"message": "Verification email sent"}
@@ -570,7 +565,6 @@ async def forgot_password(
     user.password_reset_expires = datetime.now(UTC) + timedelta(hours=1)
     await db.commit()
 
-    from app.services.email import send_password_reset_email
     await send_password_reset_email(user.email, user.first_name or "there", token)
 
     return safe_response
