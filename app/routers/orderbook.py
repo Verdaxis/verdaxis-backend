@@ -48,6 +48,8 @@ def compute_is_crossed(side: str, price: Decimal, best_opposing_price: Optional[
 async def list_bids(
     product_id: Optional[UUID] = Query(None, description="Filter by product"),
     delivery_point_id: Optional[UUID] = Query(None, description="Filter by delivery point"),
+    fuel_type: Optional[str] = Query(None, description="Filter by fuel type (e.g. Methanol, LNG)"),
+    region: Optional[str] = Query(None, description="Filter by region"),
     availability_window: Optional[str] = Query(None, description="Filter by availability window"),
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
@@ -61,28 +63,38 @@ async def list_bids(
         OrderBookOrder.status.in_([OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED]),
         OrderBookOrder.side == OrderSide.BID,
     ]
+    joins = []
     if product_id:
         filters.append(OrderBookOrder.product_id == product_id)
+    if fuel_type:
+        joins.append((Product, OrderBookOrder.product_id == Product.id))
+        filters.append(Product.fuel_type == fuel_type)
     if delivery_point_id:
         filters.append(OrderBookOrder.delivery_point_id == delivery_point_id)
+    if region:
+        if not any(j[0] == DeliveryPoint for j in joins):
+            joins.append((DeliveryPoint, OrderBookOrder.delivery_point_id == DeliveryPoint.id))
+        filters.append(DeliveryPoint.region == region)
     if availability_window:
         filters.append(OrderBookOrder.availability_window == availability_window)
 
     # Count query (same filters, no pagination)
-    count_query = select(func.count(OrderBookOrder.id)).where(*filters)
+    count_query = select(func.count(OrderBookOrder.id))
+    for join_target, join_cond in joins:
+        count_query = count_query.join(join_target, join_cond)
+    count_query = count_query.where(*filters)
     total = (await db.execute(count_query)).scalar()
 
     # Data query with pagination
     query = (
         select(OrderBookOrder)
         .options(selectinload(OrderBookOrder.organization))
-        .where(*filters)
-        .order_by(OrderBookOrder.created_at.desc())
-        .offset(skip)
-        .limit(limit)
     )
+    for join_target, join_cond in joins:
+        query = query.join(join_target, join_cond)
+    query = query.where(*filters).order_by(OrderBookOrder.created_at.desc()).offset(skip).limit(limit)
     result = await db.execute(query)
-    orders = result.scalars().all()
+    orders = result.unique().scalars().all()
 
     # Fetch best ask price (single scalar query) for crossing detection
     # This queries ALL orders, not affected by pagination
@@ -108,6 +120,8 @@ async def list_bids(
 async def list_asks(
     product_id: Optional[UUID] = Query(None, description="Filter by product"),
     delivery_point_id: Optional[UUID] = Query(None, description="Filter by delivery point"),
+    fuel_type: Optional[str] = Query(None, description="Filter by fuel type (e.g. Methanol, LNG)"),
+    region: Optional[str] = Query(None, description="Filter by region"),
     availability_window: Optional[str] = Query(None, description="Filter by availability window"),
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
@@ -121,28 +135,38 @@ async def list_asks(
         OrderBookOrder.status.in_([OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED]),
         OrderBookOrder.side == OrderSide.ASK,
     ]
+    joins = []
     if product_id:
         filters.append(OrderBookOrder.product_id == product_id)
+    if fuel_type:
+        joins.append((Product, OrderBookOrder.product_id == Product.id))
+        filters.append(Product.fuel_type == fuel_type)
     if delivery_point_id:
         filters.append(OrderBookOrder.delivery_point_id == delivery_point_id)
+    if region:
+        if not any(j[0] == DeliveryPoint for j in joins):
+            joins.append((DeliveryPoint, OrderBookOrder.delivery_point_id == DeliveryPoint.id))
+        filters.append(DeliveryPoint.region == region)
     if availability_window:
         filters.append(OrderBookOrder.availability_window == availability_window)
 
     # Count query (same filters, no pagination)
-    count_query = select(func.count(OrderBookOrder.id)).where(*filters)
+    count_query = select(func.count(OrderBookOrder.id))
+    for join_target, join_cond in joins:
+        count_query = count_query.join(join_target, join_cond)
+    count_query = count_query.where(*filters)
     total = (await db.execute(count_query)).scalar()
 
     # Data query with pagination
     query = (
         select(OrderBookOrder)
         .options(selectinload(OrderBookOrder.organization))
-        .where(*filters)
-        .order_by(OrderBookOrder.created_at.desc())
-        .offset(skip)
-        .limit(limit)
     )
+    for join_target, join_cond in joins:
+        query = query.join(join_target, join_cond)
+    query = query.where(*filters).order_by(OrderBookOrder.created_at.desc()).offset(skip).limit(limit)
     result = await db.execute(query)
-    orders = result.scalars().all()
+    orders = result.unique().scalars().all()
 
     # Fetch best bid price (single scalar query) for crossing detection
     # This queries ALL orders, not affected by pagination
