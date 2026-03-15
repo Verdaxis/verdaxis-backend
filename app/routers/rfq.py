@@ -377,6 +377,7 @@ async def submit_quote(
 # ---------------------------------------------------------------------------
 
 @router.post("/{rfq_id}/accept/{quote_id}", response_model=RFQQuoteResponse)
+@limiter.limit("30/minute")
 async def accept_quote(
     rfq_id: uuid.UUID,
     quote_id: uuid.UUID,
@@ -397,12 +398,14 @@ async def accept_quote(
     if rfq.status not in (RFQStatus.OPEN, RFQStatus.QUOTED):
         raise HTTPException(status_code=400, detail="RFQ is not in a quotable state")
 
-    # Find the target quote
-    target_quote = None
-    for q in rfq.quotes:
-        if q.id == quote_id:
-            target_quote = q
-            break
+    # Lock and load the target quote separately (prevents race condition)
+    quote_stmt = (
+        select(RFQQuote)
+        .where(RFQQuote.id == quote_id, RFQQuote.rfq_id == rfq_id)
+        .with_for_update()
+    )
+    quote_result = await db.execute(quote_stmt)
+    target_quote = quote_result.scalar_one_or_none()
 
     if target_quote is None:
         raise HTTPException(status_code=404, detail="Quote not found")
@@ -478,6 +481,7 @@ async def accept_quote(
 # ---------------------------------------------------------------------------
 
 @router.post("/{rfq_id}/cancel")
+@limiter.limit("30/minute")
 async def cancel_rfq(
     rfq_id: uuid.UUID,
     db: Annotated[AsyncSession, Depends(get_db)],
