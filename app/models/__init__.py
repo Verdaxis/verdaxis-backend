@@ -11,3 +11,4 @@ from app.models.catalog import Product, DeliveryPoint
 from app.models.subscription import Subscription, SubscriptionTier
 from app.models.alerts import PriceAlert
 from app.models.referral import Referral, ReferralStatus
+from app.models.rfq import RFQ, RFQQuote, RFQStatus, QuoteStatus
