@@ -33,12 +33,22 @@ class OrderSide(str, enum.Enum):
     ASK = "ASK"
 
 
+class OrderType(str, enum.Enum):
+    MARKET = "MARKET"
+    LIMIT = "LIMIT"
+    STOP = "STOP"
+    STOP_LIMIT = "STOP_LIMIT"
+    AON = "AON"
+    OCO = "OCO"
+
+
 class OrderBookStatus(str, enum.Enum):
     OPEN = "OPEN"
     PARTIALLY_FILLED = "PARTIALLY_FILLED"
     FILLED = "FILLED"
     CANCELLED = "CANCELLED"
     EXPIRED = "EXPIRED"
+    TRIGGERED = "TRIGGERED"
 
 
 class TradeStatus(str, enum.Enum):
@@ -100,6 +110,17 @@ class OrderBookOrder(Base):
     )
     energy_density_mj_kg: Mapped[Decimal | None] = mapped_column(
         Numeric(6, 2), nullable=True, comment="MJ/kg lower heating value"
+    )
+
+    # Order type and advanced order fields
+    order_type: Mapped[OrderType] = mapped_column(
+        Enum(OrderType, native_enum=False),
+        default=OrderType.LIMIT,
+        nullable=False,
+    )
+    stop_price: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
+    linked_order_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("orderbook_orders.id"), nullable=True
     )
 
     # Status

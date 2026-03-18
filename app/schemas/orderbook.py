@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from typing import Optional
 from uuid import UUID
 from datetime import datetime, date
@@ -12,12 +12,22 @@ class OrderSide(str, Enum):
     ASK = "ASK"
 
 
+class OrderType(str, Enum):
+    MARKET = "MARKET"
+    LIMIT = "LIMIT"
+    STOP = "STOP"
+    STOP_LIMIT = "STOP_LIMIT"
+    AON = "AON"
+    OCO = "OCO"
+
+
 class OrderBookStatus(str, Enum):
     OPEN = "OPEN"
     PARTIALLY_FILLED = "PARTIALLY_FILLED"
     FILLED = "FILLED"
     CANCELLED = "CANCELLED"
     EXPIRED = "EXPIRED"
+    TRIGGERED = "TRIGGERED"
 
 
 class TradeStatus(str, Enum):
@@ -78,6 +88,17 @@ class OrderCreate(BaseModel):
     delivery_window_end: Optional[date] = None
     certifications: list[str] = Field(default_factory=list)
     expires_at: Optional[datetime] = None
+    order_type: OrderType = OrderType.LIMIT
+    stop_price: Optional[Decimal] = Field(None, gt=0)
+    linked_order_id: Optional[UUID] = None
+
+    @model_validator(mode="after")
+    def stop_price_required_for_stop_orders(self) -> "OrderCreate":
+        if self.order_type in (OrderType.STOP, OrderType.STOP_LIMIT) and self.stop_price is None:
+            raise ValueError(
+                "stop_price is required when order_type is STOP or STOP_LIMIT"
+            )
+        return self
 
 
 class OrderUpdate(BaseModel):
@@ -108,6 +129,9 @@ class OrderResponse(BaseModel):
     certifications: list[str] = Field(default_factory=list)
     is_verdaxis_verified: bool
     tier_label: TierLabel = TierLabel.INDEPENDENT
+    order_type: OrderType = OrderType.LIMIT
+    stop_price: Optional[Decimal] = None
+    linked_order_id: Optional[UUID] = None
     status: OrderBookStatus
     expires_at: Optional[datetime] = None
     created_at: datetime
