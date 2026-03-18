@@ -2,16 +2,13 @@
 Match-on-insert engine. When a new order is placed, scan for crossing orders
 and automatically create trades. Uses price-time priority (FIFO at each price level).
 """
-from decimal import Decimal
 from datetime import datetime, UTC
-from typing import Optional
-import uuid
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.orderbook import (
-    OrderBookOrder, Trade, OrderSide, OrderBookStatus, TradeStatus, Initiator
+    OrderBookOrder, Trade, OrderSide, OrderBookStatus, TradeStatus, Initiator, OrderType
 )
 from app.models.notification import Notification, NotificationType
 from app.models.user import User
@@ -30,6 +27,7 @@ async def match_order(
     - Price-time priority: best price first, then oldest order first
     - Partial fills allowed: match as much as possible
     - Self-trade prevention: skip orders from same organization
+    - OCO: when a resting OCO order is fully filled, cancel its linked partner
     - All operations within caller's transaction (no separate commit)
 
     Returns list of Trade objects created (may be empty if no matches).
@@ -69,6 +67,13 @@ async def match_order(
 
     result = await db.execute(stmt)
     crossing_orders = result.scalars().all()
+
+    # AON check: total available volume across all crossing orders must cover the full order.
+    # Must be checked BEFORE any trades are executed — AON orders never partially fill.
+    if new_order.order_type == OrderType.AON:
+        available_volume = sum(o.remaining_quantity_mt for o in crossing_orders)
+        if available_volume < new_order.remaining_quantity_mt:
+            return trades_created
 
     for crossing in crossing_orders:
         if new_order.remaining_quantity_mt <= 0:
@@ -125,6 +130,13 @@ async def match_order(
 
         trades_created.append(trade)
 
+        # OCO cancel-on-fill: if a fully-filled order has a linked partner, cancel it
+        if crossing.status == OrderBookStatus.FILLED and crossing.linked_order_id:
+            await _cancel_oco_partner(db, crossing.linked_order_id)
+
+        if new_order.status == OrderBookStatus.FILLED and new_order.linked_order_id:
+            await _cancel_oco_partner(db, new_order.linked_order_id)
+
         # Create notifications for both parties
         await _notify_org(
             db, buyer_org,
@@ -143,6 +155,19 @@ async def match_order(
         )
 
     return trades_created
+
+
+async def _cancel_oco_partner(db: AsyncSession, linked_order_id) -> None:
+    """Cancel the OCO partner order if it is not already in a terminal state."""
+    _TERMINAL = {OrderBookStatus.FILLED, OrderBookStatus.CANCELLED, OrderBookStatus.EXPIRED}
+    result = await db.execute(
+        select(OrderBookOrder)
+        .where(OrderBookOrder.id == linked_order_id)
+        .with_for_update()
+    )
+    partner = result.scalars().first()
+    if partner and partner.status not in _TERMINAL:
+        partner.status = OrderBookStatus.CANCELLED
 
 
 async def _notify_org(db: AsyncSession, org_id, notif_type, title, message, data=None):
