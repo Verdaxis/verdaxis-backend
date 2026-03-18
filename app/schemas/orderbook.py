@@ -267,3 +267,37 @@ class CIAdjustedPrice(BaseModel):
 class OrderResponseWithCI(OrderResponse):
     """OrderResponse enriched with CI-adjusted pricing when CI data is available."""
     ci_adjusted_price: Optional[CIAdjustedPrice] = None
+
+
+# ============== OCO (One-Cancels-Other) ==============
+
+class OCOCreateRequest(BaseModel):
+    """
+    Request body to atomically create two linked OCO orders.
+
+    Both legs must share the same side and fuel_type. The endpoint
+    will enforce order_type=OCO and wire linked_order_id symmetrically.
+    """
+    order_a: OrderCreate
+    order_b: OrderCreate
+
+    @model_validator(mode="after")
+    def legs_must_match_side_and_fuel(self) -> "OCOCreateRequest":
+        if self.order_a.side != self.order_b.side:
+            raise ValueError(
+                "Both OCO legs must be the same side (both BID or both ASK)"
+            )
+        if self.order_a.fuel_type != self.order_b.fuel_type:
+            raise ValueError(
+                "Both OCO legs must be for the same fuel_type"
+            )
+        return self
+
+
+class OCOCreateResponse(BaseModel):
+    """Response for a successfully created OCO pair."""
+    order_a: OrderResponse
+    order_b: OrderResponse
+
+    class Config:
+        from_attributes = True

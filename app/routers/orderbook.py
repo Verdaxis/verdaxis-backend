@@ -16,9 +16,12 @@ from app.schemas.orderbook import (
     OrderMyResponse,
     AggregatedOrderbookResponse,
     OrderResponseWithCI,
+    OCOCreateRequest,
+    OCOCreateResponse,
 )
 from app.services.ci_pricing import calculate_ci_adjusted_price
 from app.services.event_bus import event_bus
+from app.services.oco import create_oco_pair, cancel_linked_order
 
 router = APIRouter(prefix="/orderbook", tags=["orderbook"])
 
@@ -244,6 +247,100 @@ async def list_fuel_types(db: AsyncSession = Depends(get_db)):
     result = await db.execute(query)
     fuel_types = result.scalars().all()
     return list(fuel_types)
+
+
+# ============== OCO endpoint (static, must come before parametric /{order_id}) ==============
+
+
+@router.post("/oco", response_model=OCOCreateResponse, status_code=status.HTTP_201_CREATED)
+async def create_oco_order(
+    oco_data: OCOCreateRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Atomically create two linked OCO (One-Cancels-Other) orders.
+
+    Both legs must share the same side and fuel_type. When one leg is filled
+    (via auto-matching) or manually cancelled, the other leg is automatically
+    cancelled.
+
+    BID pairs require BUYER role; ASK pairs require SUPPLIER role.
+    """
+    if not current_user.organization_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="User must belong to an organization",
+        )
+
+    side = oco_data.order_a.side
+    if side == OrderSide.BID and current_user.role != UserRole.BUYER:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only buyers can place BID orders",
+        )
+    if side == OrderSide.ASK and current_user.role != UserRole.SUPPLIER:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only suppliers can place ASK orders",
+        )
+
+    def _order_kwargs(od: OrderCreate) -> dict:
+        return dict(
+            side=od.side,
+            fuel_type=od.fuel_type,
+            fuel_grade=od.fuel_grade,
+            region=od.region,
+            port_id=od.port_id,
+            vessel_id=od.vessel_id,
+            quantity_mt=od.quantity_mt,
+            remaining_quantity_mt=od.quantity_mt,
+            price_per_mt_usd=od.price_per_mt_usd,
+            availability_window=od.availability_window,
+            delivery_window_start=od.delivery_window_start,
+            delivery_window_end=od.delivery_window_end,
+            certifications=od.certifications if od.side == OrderSide.ASK else [],
+            expires_at=od.expires_at,
+            stop_price=od.stop_price,
+            # order_type is forced to OCO by create_oco_pair
+        )
+
+    order_a, order_b = await create_oco_pair(
+        db=db,
+        org_id=current_user.organization_id,
+        order_a_data=_order_kwargs(oco_data.order_a),
+        order_b_data=_order_kwargs(oco_data.order_b),
+    )
+
+    await db.commit()
+    await db.refresh(order_a)
+    await db.refresh(order_b)
+
+    # Re-fetch with eager loading so tier_label computed property works
+    res_a = await db.execute(
+        select(OrderBookOrder)
+        .options(selectinload(OrderBookOrder.organization))
+        .where(OrderBookOrder.id == order_a.id)
+    )
+    res_b = await db.execute(
+        select(OrderBookOrder)
+        .options(selectinload(OrderBookOrder.organization))
+        .where(OrderBookOrder.id == order_b.id)
+    )
+    order_a = res_a.scalars().first()
+    order_b = res_b.scalars().first()
+
+    await event_bus.publish("orderbook", "oco_created", {
+        "order_a_id": str(order_a.id),
+        "order_b_id": str(order_b.id),
+        "side": order_a.side.value,
+        "fuel_type": order_a.fuel_type,
+    })
+
+    return OCOCreateResponse(
+        order_a=OrderResponse.model_validate(order_a),
+        order_b=OrderResponse.model_validate(order_b),
+    )
 
 
 # ============== List all + CRUD (parametric routes last) ==============
@@ -476,6 +573,7 @@ async def cancel_order(
 ):
     """
     Cancel an own order (soft cancel by setting status to CANCELLED).
+    For OCO orders, the linked partner order is also cancelled atomically.
     """
     result = await db.execute(
         select(OrderBookOrder).where(OrderBookOrder.id == order_id).with_for_update()
@@ -500,7 +598,8 @@ async def cancel_order(
             detail="Can only cancel orders with OPEN or PARTIALLY_FILLED status",
         )
 
-    order.status = OrderBookStatus.CANCELLED
+    # cancel_linked_order cancels the order AND its OCO partner (if any)
+    await cancel_linked_order(db, order)
     await db.commit()
 
     # Emit SSE event for cancelled order
