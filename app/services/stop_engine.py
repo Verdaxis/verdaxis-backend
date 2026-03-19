@@ -34,7 +34,8 @@ async def check_stops(
     db: AsyncSession,
     *,
     fuel_type: str,
-    last_trade_price: Decimal,
+    last_trade_price: Decimal | float,
+    _trigger_stops: bool = True,
 ) -> list[OrderBookOrder]:
     """
     Evaluate all OPEN Stop/StopLimit orders for *fuel_type* against
@@ -42,7 +43,15 @@ async def check_stops(
 
     Returns the list of orders that were triggered (already mutated in-place
     and flushed to the session; caller owns the commit).
+
+    *_trigger_stops* — internal recursion guard. When False, the secondary
+    match_order calls for triggered orders will NOT themselves invoke
+    check_stops again, preventing infinite cascading stop chains. Callers
+    outside this module should always leave this at the default (True); the
+    orderbook router passes False when calling after a primary match so that
+    stop-triggered secondary trades do not re-enter the stop evaluation loop.
     """
+    last_trade_price = Decimal(str(last_trade_price))
     # Fetch all OPEN stop-family orders for this fuel type.
     stmt = (
         select(OrderBookOrder)
