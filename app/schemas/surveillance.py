@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional
 from uuid import UUID
 from datetime import datetime
@@ -51,4 +51,4 @@ class SurveillanceEventResponse(BaseModel):
 class SurveillanceEventUpdate(BaseModel):
     """Only status and notes may be updated by reviewers."""
     status: Optional[SurveillanceStatus] = None
-    notes: Optional[str] = None
+    notes: Optional[str] = Field(None, max_length=2000)

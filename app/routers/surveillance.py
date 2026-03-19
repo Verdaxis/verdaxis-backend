@@ -34,6 +34,8 @@ async def list_events(
     type: Optional[str] = Query(None, description="Filter by surveillance type"),
     status: Optional[str] = Query(None, description="Filter by status"),
     severity: Optional[str] = Query(None, description="Filter by severity"),
+    limit: int = Query(100, ge=1, le=1000, description="Maximum number of events to return"),
+    offset: int = Query(0, ge=0, description="Number of events to skip"),
     db: AsyncSession = Depends(get_db),
     _: User = Depends(_require_surveillance_access),
 ):
@@ -50,7 +52,7 @@ async def list_events(
     if severity is not None:
         stmt = stmt.where(SurveillanceEvent.severity == severity)
 
-    stmt = stmt.order_by(SurveillanceEvent.created_at.desc())
+    stmt = stmt.order_by(SurveillanceEvent.created_at.desc()).limit(limit).offset(offset)
 
     result = await db.execute(stmt)
     return result.scalars().all()

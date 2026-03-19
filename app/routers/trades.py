@@ -217,6 +217,10 @@ async def create_trade(
 
     await db.commit()
 
+    # Run post-trade surveillance checks (wash-trading, front-running)
+    await SurveillanceEngine(db).run_post_trade_checks(trade)
+    await db.commit()
+
     # Reload with relationships for response
     loaded_trade = await _load_trade(db, trade.id)
 

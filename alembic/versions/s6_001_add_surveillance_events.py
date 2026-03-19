@@ -1,7 +1,7 @@
 """add surveillance_events table
 
 Revision ID: s6_001_surveillance_events
-Revises: s5_001_advanced_order_types
+Revises: s5_002_add_order_audit_logs
 Create Date: 2026-03-19
 
 Creates the surveillance_events table for market abuse detection.
@@ -13,7 +13,7 @@ from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
 revision = "s6_001_surveillance_events"
-down_revision = "s5_001_advanced_order_types"
+down_revision = "s5_002_add_order_audit_logs"
 branch_labels = None
 depends_on = None
 

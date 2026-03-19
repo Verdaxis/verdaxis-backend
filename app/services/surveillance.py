@@ -12,7 +12,8 @@ from __future__ import annotations
 from datetime import datetime, UTC, timedelta
 from typing import Optional
 
-from sqlalchemy import select, func, distinct
+from sqlalchemy import select, func, distinct, or_
+from sqlalchemy.orm import aliased
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.orderbook import OrderBookOrder, OrderBookStatus, Trade
@@ -76,7 +77,7 @@ class SurveillanceEngine:
                 OrderBookOrder.organization_id == cancelled_order.organization_id,
                 OrderBookOrder.fuel_type == cancelled_order.fuel_type,
                 OrderBookOrder.status == OrderBookStatus.CANCELLED,
-                OrderBookOrder.updated_at >= cutoff,
+                OrderBookOrder.created_at >= cutoff,
             )
         )
         result = await self.db.execute(stmt)
@@ -125,20 +126,47 @@ class SurveillanceEngine:
 
         cutoff = trade.created_at - timedelta(seconds=window_seconds)
 
+        # Determine the fuel_type of the triggering trade via its linked order (if any)
+        TriggerOrder = aliased(OrderBookOrder)
+        fuel_type_stmt = (
+            select(TriggerOrder.fuel_type)
+            .where(
+                or_(
+                    TriggerOrder.id == trade.bid_order_id,
+                    TriggerOrder.id == trade.ask_order_id,
+                )
+            )
+            .limit(1)
+        )
+        ft_result = await self.db.execute(fuel_type_stmt)
+        trade_fuel_type = ft_result.scalar_one_or_none()
+
+        # Preceding trades — filter by fuel_type when we can determine it
+        PrecedingOrder = aliased(OrderBookOrder)
         stmt = (
             select(Trade)
+            .outerjoin(
+                PrecedingOrder,
+                or_(
+                    PrecedingOrder.id == Trade.bid_order_id,
+                    PrecedingOrder.id == Trade.ask_order_id,
+                ),
+            )
             .where(
                 Trade.seller_id != trade.seller_id,
                 Trade.created_at >= cutoff,
                 Trade.created_at < trade.created_at,
             )
         )
+        if trade_fuel_type is not None:
+            stmt = stmt.where(PrecedingOrder.fuel_type == trade_fuel_type)
+
         result = await self.db.execute(stmt)
         preceding_trades = result.scalars().all()
 
         suspicious = [
             t for t in preceding_trades
-            if trade.quantity_mt / t.quantity_mt >= size_ratio_threshold
+            if t.quantity_mt > 0 and trade.quantity_mt / t.quantity_mt >= size_ratio_threshold
         ]
 
         if not suspicious:

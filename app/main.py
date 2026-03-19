@@ -31,6 +31,7 @@ from app.routers.stream import router as stream_router
 from app.routers.compliance_api import router as compliance_api_router
 from app.routers.admin_analytics import router as admin_analytics_router
 from app.routers.kyc import router as kyc_router
+from app.routers.surveillance import router as surveillance_router
 
 # ---------------------------------------------------------------------------
 # Structured logging
@@ -147,6 +148,9 @@ app.include_router(data_products_router, prefix=settings.API_V1_STR)
 
 from app.routers import dashboard
 app.include_router(dashboard.router, prefix=settings.API_V1_STR)
+
+from app.routers.user_dashboard import router as user_dashboard_router
+app.include_router(user_dashboard_router, prefix=settings.API_V1_STR)
 
 
 @app.get("/")
