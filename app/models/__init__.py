@@ -8,3 +8,4 @@ from app.models.orderbook import OrderBookOrder, Trade
 from app.models.matchmaking import MatchSuggestion
 from app.models.producer import ProducerProject
 from app.models.audit import AuditLog, OrderAuditLog
+from app.models.surveillance import SurveillanceEvent
