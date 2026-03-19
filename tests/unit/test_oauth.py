@@ -179,8 +179,13 @@ class TestDeleteClient:
         assert client_id not in client_ids
 
     @pytest.mark.asyncio
-    async def test_delete_client_other_owner_returns_403(self):
-        """A user cannot delete another user's client."""
+    async def test_delete_client_other_owner_returns_404(self):
+        """A user cannot delete another user's client.
+
+        Returns 404 (not 403) to prevent existence leakage — the ownership
+        check is folded into the DB query so other users' clients are
+        indistinguishable from non-existent ones.
+        """
         owner = _make_user("owner")
         attacker = _make_user("attacker")
         await _seed_user(owner)
@@ -194,7 +199,7 @@ class TestDeleteClient:
         app_attacker = _build_app(attacker)
         tc_attacker = TestClient(app_attacker)
         resp = tc_attacker.delete(f"/oauth/clients/{client_id}")
-        assert resp.status_code == 403
+        assert resp.status_code == 404
 
 
 # ---------------------------------------------------------------------------

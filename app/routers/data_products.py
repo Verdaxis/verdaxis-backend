@@ -43,14 +43,21 @@ def _resolve_tier(token: Optional[str]) -> str:
 
     - No token or invalid token: "public"
     - Valid user token (no token_kind): "free"
-    - OAuth2 client token with rate_limit_tier == "paid": "paid"
-    - OAuth2 client token with any other tier: "free"
+    - OAuth2 client token with scopes containing 'read:market' and
+      rate_limit_tier == "paid": "paid"
+    - OAuth2 client token with 'read:market' and any other tier: "free"
+    - OAuth2 client token without 'read:market' scope: treated as "public"
+      (scope enforcement for OAuth2 clients accessing data products)
     """
     payload = _decode_token_safe(token)
     if payload is None:
         return "public"
     token_kind = payload.get("token_kind")
     if token_kind == "oauth2_client":
+        # OAuth2 clients must have read:market scope to access data products
+        scopes: list[str] = payload.get("scopes", [])
+        if "read:market" not in scopes:
+            return "public"
         return payload.get("rate_limit_tier", "free")
     return "free"
 
@@ -147,6 +154,10 @@ async def get_tiered_reference_prices(
 ) -> dict[str, Any]:
     """
     Tiered reference-price endpoint.
+
+    OAuth2 client tokens must carry the 'read:market' scope; without it they
+    are treated as unauthenticated (public tier). User session tokens always
+    get the free tier. No auth is required for public (daily VWAP) access.
 
     - Public  → yesterday's daily VWAP only
     - Free    → hourly VWAP for the last 24 hours

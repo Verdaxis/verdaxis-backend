@@ -80,6 +80,9 @@ async def get_current_user(token: Annotated[str, Depends(oauth2_scheme)], db: As
         # Reject refresh tokens used as access tokens
         if payload.get("type") == "refresh":
             raise credentials_exception
+        # Reject OAuth2 client tokens — must use require_scope instead
+        if payload.get("token_kind") == "oauth2_client":
+            raise credentials_exception
         user_id_str: str = payload.get("sub")
         if user_id_str is None:
             raise credentials_exception

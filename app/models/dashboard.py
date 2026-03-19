@@ -15,7 +15,11 @@ class Dashboard(Base):
     layout: Mapped[dict | None] = mapped_column(JSON, default=dict)  # grid positions/sizes
     is_default: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+    )
 
     widgets: Mapped[list["DashboardWidget"]] = relationship(
         "DashboardWidget",

@@ -21,6 +21,24 @@ from app.schemas.dashboard import (
 router = APIRouter(prefix="/dashboards", tags=["dashboards"])
 
 
+async def _get_widget_or_404(
+    widget_id: UUID,
+    dashboard_id: UUID,
+    db: AsyncSession,
+) -> DashboardWidget:
+    """Fetch a widget belonging to the given dashboard. Raises 404 if not found."""
+    result = await db.execute(
+        select(DashboardWidget).where(
+            DashboardWidget.id == widget_id,
+            DashboardWidget.dashboard_id == dashboard_id,
+        )
+    )
+    widget = result.scalar_one_or_none()
+    if widget is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Widget not found")
+    return widget
+
+
 async def _get_user_dashboard(
     dashboard_id: UUID,
     current_user: User,
@@ -56,15 +74,8 @@ async def create_dashboard(
     )
     db.add(dashboard)
     await db.commit()
-    await db.refresh(dashboard)
-
-    # Re-fetch with widgets relationship loaded
-    result = await db.execute(
-        select(Dashboard)
-        .options(selectinload(Dashboard.widgets))
-        .where(Dashboard.id == dashboard.id)
-    )
-    return result.scalar_one()
+    await db.refresh(dashboard, attribute_names=["widgets"])
+    return dashboard
 
 
 @router.get("", response_model=list[DashboardResponse])
@@ -107,18 +118,9 @@ async def update_dashboard(
     if body.layout is not None:
         dashboard.layout = body.layout
 
-    from datetime import datetime, UTC
-    dashboard.updated_at = datetime.now(UTC)
-
     await db.commit()
-    await db.refresh(dashboard)
-
-    result = await db.execute(
-        select(Dashboard)
-        .options(selectinload(Dashboard.widgets))
-        .where(Dashboard.id == dashboard.id)
-    )
-    return result.scalar_one()
+    await db.refresh(dashboard, attribute_names=["widgets"])
+    return dashboard
 
 
 @router.delete("/{dashboard_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -167,16 +169,7 @@ async def update_widget(
     """Update a widget's config and/or position."""
     # Verify dashboard ownership
     await _get_user_dashboard(dashboard_id, current_user, db)
-
-    result = await db.execute(
-        select(DashboardWidget).where(
-            DashboardWidget.id == widget_id,
-            DashboardWidget.dashboard_id == dashboard_id,
-        )
-    )
-    widget = result.scalar_one_or_none()
-    if widget is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Widget not found")
+    widget = await _get_widget_or_404(widget_id, dashboard_id, db)
 
     if body.config is not None:
         widget.config = body.config
@@ -198,16 +191,7 @@ async def delete_widget(
     """Remove a widget from a dashboard."""
     # Verify dashboard ownership
     await _get_user_dashboard(dashboard_id, current_user, db)
-
-    result = await db.execute(
-        select(DashboardWidget).where(
-            DashboardWidget.id == widget_id,
-            DashboardWidget.dashboard_id == dashboard_id,
-        )
-    )
-    widget = result.scalar_one_or_none()
-    if widget is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Widget not found")
+    widget = await _get_widget_or_404(widget_id, dashboard_id, db)
 
     await db.delete(widget)
     await db.commit()

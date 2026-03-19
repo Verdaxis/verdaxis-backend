@@ -46,8 +46,6 @@ class SurveillanceEngine:
             related_trades=[str(trade.id)],
             description=f"Self-trade detected: org {trade.buyer_id} on both sides of trade {trade.id}",
             auto_detected=True,
-            created_at=datetime.now(UTC),
-            updated_at=datetime.now(UTC),
         )
         self.db.add(event)
         return event
@@ -99,8 +97,6 @@ class SurveillanceEngine:
             window_start=cutoff,
             window_end=datetime.now(UTC),
             auto_detected=True,
-            created_at=datetime.now(UTC),
-            updated_at=datetime.now(UTC),
         )
         self.db.add(event)
         return event
@@ -189,8 +185,6 @@ class SurveillanceEngine:
             window_start=cutoff,
             window_end=trade.created_at,
             auto_detected=True,
-            created_at=datetime.now(UTC),
-            updated_at=datetime.now(UTC),
         )
         self.db.add(event)
         return event
@@ -214,9 +208,15 @@ class SurveillanceEngine:
         """
         session_start = datetime.now(UTC) - timedelta(hours=session_hours)
 
-        # Total orders in session
-        total_stmt = (
-            select(func.count())
+        # Single query: total orders, cancelled orders, distinct price levels
+        stmt = (
+            select(
+                func.count().label("total_count"),
+                func.count().filter(
+                    OrderBookOrder.status == OrderBookStatus.CANCELLED
+                ).label("cancel_count"),
+                func.count(distinct(OrderBookOrder.price_per_mt_usd)).label("distinct_prices"),
+            )
             .select_from(OrderBookOrder)
             .where(
                 OrderBookOrder.organization_id == cancelled_order.organization_id,
@@ -224,39 +224,16 @@ class SurveillanceEngine:
                 OrderBookOrder.created_at >= session_start,
             )
         )
-        total_result = await self.db.execute(total_stmt)
-        total_count = total_result.scalar() or 0
+        result = await self.db.execute(stmt)
+        row = result.one()
+        total_count = row.total_count or 0
+        cancel_count = row.cancel_count or 0
+        distinct_prices = row.distinct_prices or 0
 
         if total_count == 0:
             return None
 
-        # Cancelled orders in session
-        cancel_stmt = (
-            select(func.count())
-            .select_from(OrderBookOrder)
-            .where(
-                OrderBookOrder.organization_id == cancelled_order.organization_id,
-                OrderBookOrder.fuel_type == cancelled_order.fuel_type,
-                OrderBookOrder.status == OrderBookStatus.CANCELLED,
-                OrderBookOrder.created_at >= session_start,
-            )
-        )
-        cancel_result = await self.db.execute(cancel_stmt)
-        cancel_count = cancel_result.scalar() or 0
-
         cancel_rate = cancel_count / total_count
-
-        # Distinct price levels
-        price_stmt = (
-            select(func.count(distinct(OrderBookOrder.price_per_mt_usd)))
-            .where(
-                OrderBookOrder.organization_id == cancelled_order.organization_id,
-                OrderBookOrder.fuel_type == cancelled_order.fuel_type,
-                OrderBookOrder.created_at >= session_start,
-            )
-        )
-        price_result = await self.db.execute(price_stmt)
-        distinct_prices = price_result.scalar() or 0
 
         if cancel_rate <= cancel_rate_threshold or distinct_prices < min_price_levels:
             return None
@@ -275,8 +252,6 @@ class SurveillanceEngine:
             window_start=session_start,
             window_end=datetime.now(UTC),
             auto_detected=True,
-            created_at=datetime.now(UTC),
-            updated_at=datetime.now(UTC),
         )
         self.db.add(event)
         return event
@@ -321,8 +296,6 @@ class SurveillanceEngine:
             window_start=window_start,
             window_end=close_time,
             auto_detected=True,
-            created_at=datetime.now(UTC),
-            updated_at=datetime.now(UTC),
         )
         self.db.add(event)
         return event

@@ -14,6 +14,7 @@ from typing import Annotated
 
 import bcrypt
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -34,6 +35,9 @@ router = APIRouter(prefix="/oauth", tags=["OAuth2"])
 
 # OAuth2 access tokens for API clients live longer than user session tokens
 _OAUTH_TOKEN_EXPIRE_MINUTES = 60
+
+# Module-level scheme reused by require_scope (avoids re-instantiating per call)
+_oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 
 
 # ---------------------------------------------------------------------------
@@ -100,13 +104,14 @@ async def delete_client(
 ):
     """Revoke an API client. Only the owner can delete their own clients."""
     result = await db.execute(
-        select(OAuthClient).where(OAuthClient.client_id == client_id)
+        select(OAuthClient).where(
+            OAuthClient.client_id == client_id,
+            OAuthClient.created_by == current_user.id,
+        )
     )
     client = result.scalar_one_or_none()
     if client is None:
         raise HTTPException(status_code=404, detail="Client not found")
-    if client.created_by != current_user.id:
-        raise HTTPException(status_code=403, detail="Not authorized to delete this client")
     await db.delete(client)
     await db.commit()
 
@@ -167,11 +172,8 @@ def require_scope(scope: str):
       the `scopes` claim.
     - User login tokens (no token_kind): pass all scope checks for backward compat.
     """
-    from fastapi.security import OAuth2PasswordBearer
 
-    oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
-
-    async def _dependency(token: Annotated[str, Depends(oauth2_scheme)]):
+    async def _dependency(token: Annotated[str, Depends(_oauth2_scheme)]):
         from app.core.security import decode_token
         try:
             payload = decode_token(token)

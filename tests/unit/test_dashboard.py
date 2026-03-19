@@ -78,7 +78,8 @@ class TestCreateDashboard:
 
         mock_db.add.assert_called()
         mock_db.commit.assert_awaited_once()
-        assert result.name == "Test Dashboard"
+        # create_dashboard now returns the created object directly (no re-fetch)
+        assert result.name == "My Dashboard"
 
 
 class TestListDashboards:

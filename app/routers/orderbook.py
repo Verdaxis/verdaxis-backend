@@ -30,6 +30,8 @@ router = APIRouter(prefix="/orderbook", tags=["orderbook"])
 
 
 # ============== Static routes (must come before parametric /{order_id}) ==============
+# NOTE: Scope enforcement for read:orders (public GET) and write:orders (POST/PUT/DELETE)
+# is deferred. These endpoints are currently open or user-auth only, not OAuth2-scoped.
 
 
 @router.get("/bids", response_model=list[OrderResponse])

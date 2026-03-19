@@ -41,6 +41,7 @@ class DashboardResponse(BaseModel):
     is_default: bool
     widgets: list[WidgetResponse] = []
     created_at: datetime
+    updated_at: datetime
 
     class Config:
         from_attributes = True
