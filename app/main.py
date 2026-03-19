@@ -138,6 +138,7 @@ app.include_router(stream_router, prefix=settings.API_V1_STR)
 app.include_router(compliance_api_router, prefix=settings.API_V1_STR)
 app.include_router(admin_analytics_router, prefix=settings.API_V1_STR)
 app.include_router(kyc_router, prefix=settings.API_V1_STR)
+app.include_router(surveillance_router, prefix=settings.API_V1_STR)
 
 from app.routers import dashboard
 app.include_router(dashboard.router, prefix=settings.API_V1_STR)

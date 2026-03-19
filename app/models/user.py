@@ -12,6 +12,7 @@ class UserRole(str, enum.Enum):
     BUYER = "BUYER"
     SUPPLIER = "SUPPLIER"
     ADMIN = "ADMIN"
+    COMPLIANCE_OFFICER = "COMPLIANCE_OFFICER"
 
 class UserStatus(str, enum.Enum):
     PENDING = "PENDING"
