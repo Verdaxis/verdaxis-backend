@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.orderbook import OrderBookOrder, OrderBookStatus, OrderType
 
-_TERMINAL_STATUSES = {OrderBookStatus.FILLED, OrderBookStatus.CANCELLED, OrderBookStatus.EXPIRED}
+_TERMINAL_STATUSES = {OrderBookStatus.FILLED, OrderBookStatus.CANCELLED, OrderBookStatus.EXPIRED, OrderBookStatus.TRIGGERED}
 
 
 async def create_oco_pair(

@@ -34,8 +34,8 @@ class OrderAuditLog(Base):
         UUID(as_uuid=True), ForeignKey("orderbook_orders.id"), nullable=False, index=True
     )
     field_changed: Mapped[str] = mapped_column(String(50), nullable=False)
-    old_value: Mapped[str] = mapped_column(String(100), nullable=False)
-    new_value: Mapped[str] = mapped_column(String(100), nullable=False)
+    old_value: Mapped[str] = mapped_column(String(500), nullable=False)
+    new_value: Mapped[str] = mapped_column(String(500), nullable=False)
     changed_by: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id"), nullable=False
     )

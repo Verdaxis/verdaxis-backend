@@ -57,7 +57,7 @@ async def match_order(
         .where(
             OrderBookOrder.side == opposite_side,
             OrderBookOrder.fuel_type == new_order.fuel_type,
-            OrderBookOrder.status.in_([OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED]),
+            OrderBookOrder.status.in_([OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED, OrderBookStatus.TRIGGERED]),
             OrderBookOrder.organization_id != new_order.organization_id,  # No self-trade
             price_filter,
         )
@@ -159,7 +159,7 @@ async def match_order(
 
 async def _cancel_oco_partner(db: AsyncSession, linked_order_id) -> None:
     """Cancel the OCO partner order if it is not already in a terminal state."""
-    _TERMINAL = {OrderBookStatus.FILLED, OrderBookStatus.CANCELLED, OrderBookStatus.EXPIRED}
+    _TERMINAL = {OrderBookStatus.FILLED, OrderBookStatus.CANCELLED, OrderBookStatus.EXPIRED, OrderBookStatus.TRIGGERED}
     result = await db.execute(
         select(OrderBookOrder)
         .where(OrderBookOrder.id == linked_order_id)

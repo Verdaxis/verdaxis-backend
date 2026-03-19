@@ -291,6 +291,10 @@ class OCOCreateRequest(BaseModel):
             raise ValueError(
                 "Both OCO legs must be for the same fuel_type"
             )
+        if self.order_a.price_per_mt_usd == self.order_b.price_per_mt_usd:
+            raise ValueError(
+                "OCO legs must have different prices — equal prices create a degenerate pair"
+            )
         return self
 
 

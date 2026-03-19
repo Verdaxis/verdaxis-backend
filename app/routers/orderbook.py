@@ -455,17 +455,18 @@ async def create_order(
         # _trigger_stops=False prevents the secondary match_order call inside check_stops
         # from cascading into another round of stop evaluation (recursion guard).
         for trade in matched_trades:
-            fuel = (
-                str(trade.bid_order.fuel_type)
-                if trade.bid_order is not None
-                else new_order.fuel_type
-            )
             await check_stops(
                 db,
-                fuel_type=fuel,
-                last_trade_price=float(trade.price_per_mt_usd),
+                fuel_type=new_order.fuel_type,
+                last_trade_price=trade.price_per_mt_usd,
                 _trigger_stops=False,
             )
+
+        # Surveillance: run post-trade checks for each auto-matched trade
+        from app.services.surveillance import SurveillanceEngine
+        _surveillance = SurveillanceEngine(db)
+        for trade in matched_trades:
+            await _surveillance.run_post_trade_checks(trade)
 
     await db.commit()
 
@@ -590,7 +591,16 @@ async def amend_order(
         from app.config import settings
         if settings.AUTO_MATCHING_ENABLED:
             from app.services.matching_engine import match_order
+            from app.services.stop_engine import check_stops
             matched_trades = await match_order(db, order)
+
+            for trade in matched_trades:
+                await check_stops(
+                    db,
+                    fuel_type=order.fuel_type,
+                    last_trade_price=trade.price_per_mt_usd,
+                    _trigger_stops=False,
+                )
 
     await db.commit()
 
@@ -754,8 +764,20 @@ async def cancel_order(
             detail="Can only cancel orders with OPEN or PARTIALLY_FILLED status",
         )
 
+    if order.status == OrderBookStatus.TRIGGERED:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot cancel a TRIGGERED order — it is already being matched",
+        )
+
     # cancel_linked_order cancels the order AND its OCO partner (if any)
     await cancel_linked_order(db, order)
+
+    # Surveillance: run post-cancel checks before committing
+    from app.services.surveillance import SurveillanceEngine
+    _surveillance = SurveillanceEngine(db)
+    await _surveillance.run_post_cancel_checks(order)
+
     await db.commit()
 
     # Emit SSE event for cancelled order
