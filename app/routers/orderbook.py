@@ -277,15 +277,20 @@ async def create_oco_order(
         )
 
     side = oco_data.order_a.side
-    if side == OrderSide.BID and current_user.role != UserRole.BUYER:
+    if current_user.role == UserRole.COMPLIANCE_OFFICER:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only buyers can place BID orders",
+            detail="Compliance officers cannot place orders",
         )
-    if side == OrderSide.ASK and current_user.role != UserRole.SUPPLIER:
+    if side == OrderSide.BID and current_user.role not in (UserRole.BUYER, UserRole.TRADER):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only suppliers can place ASK orders",
+            detail="Only buyers or traders can place BID orders",
+        )
+    if side == OrderSide.ASK and current_user.role not in (UserRole.SUPPLIER, UserRole.TRADER):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only suppliers or traders can place ASK orders",
         )
 
     def _order_kwargs(od: OrderCreate) -> dict:
@@ -402,16 +407,24 @@ async def create_order(
             detail="delivery_window_start cannot be later than delivery_window_end",
         )
 
-    if order_data.side == OrderSide.BID and current_user.role != UserRole.BUYER:
+    # COMPLIANCE_OFFICER cannot trade at all
+    if current_user.role == UserRole.COMPLIANCE_OFFICER:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only buyers can place BID orders",
+            detail="Compliance officers cannot place orders",
         )
 
-    if order_data.side == OrderSide.ASK and current_user.role != UserRole.SUPPLIER:
+    # TRADER can place both sides; BUYER BID-only; SUPPLIER ASK-only
+    if order_data.side == OrderSide.BID and current_user.role not in (UserRole.BUYER, UserRole.TRADER):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only suppliers can place ASK orders",
+            detail="Only buyers or traders can place BID orders",
+        )
+
+    if order_data.side == OrderSide.ASK and current_user.role not in (UserRole.SUPPLIER, UserRole.TRADER):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only suppliers or traders can place ASK orders",
         )
 
     if not current_user.organization_id:

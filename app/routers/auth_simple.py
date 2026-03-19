@@ -12,14 +12,41 @@ import secrets
 from app.database import get_db
 from app.models.user import User, UserRole, UserStatus, Organization
 from app.schemas.user import UserCreate, UserResponse, UserUpdate, RegistrationResponse, Token, PasswordChangeRequest
-from app.schemas.organization import OrganizationCreate, OrganizationResponse
+from app.schemas.organization import OrganizationCreate
 from app.core.security import (
     verify_password, get_password_hash,
     create_access_token, create_refresh_token, decode_token,
-    SECRET_KEY, ALGORITHM,
 )
 from pydantic import BaseModel
 import uuid
+from app.models.dashboard import Dashboard, DashboardWidget
+
+_DEFAULT_WIDGETS = [
+    {"widget_type": "orderbook"},
+    {"widget_type": "trade_tape"},
+    {"widget_type": "my_orders"},
+    {"widget_type": "compliance_score"},
+]
+
+
+async def _create_default_dashboard(db: AsyncSession, user_id: uuid.UUID) -> None:
+    """Create the default dashboard with 4 starter widgets for a new user."""
+    dashboard = Dashboard(
+        user_id=user_id,
+        name="My Dashboard",
+        layout={},
+        is_default=True,
+    )
+    db.add(dashboard)
+    await db.flush()  # Populate dashboard.id without committing
+
+    for wdef in _DEFAULT_WIDGETS:
+        db.add(DashboardWidget(
+            dashboard_id=dashboard.id,
+            widget_type=wdef["widget_type"],
+            config={},
+            position={},
+        ))
 
 class RegisterWithOrgRequest(BaseModel):
     registration_token: str
@@ -248,6 +275,10 @@ async def register(request: _Request, user_in: UserCreate, db: AsyncSession = De
         )
 
         db.add(new_user)
+        await db.flush()  # Populate new_user.id without committing
+
+        await _create_default_dashboard(db, new_user.id)
+
         await db.commit()
         await db.refresh(new_user)
 
@@ -330,6 +361,10 @@ async def register_with_org(
     )
 
     db.add(new_user)
+    await db.flush()  # Populate new_user.id without committing
+
+    await _create_default_dashboard(db, new_user.id)
+
     await db.commit()
     await db.refresh(new_user)
 
