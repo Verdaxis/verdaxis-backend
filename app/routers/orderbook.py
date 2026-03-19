@@ -9,6 +9,7 @@ from app.database import get_db
 from app.routers.auth_simple import get_current_user
 from app.models.user import User, UserRole
 from app.models.orderbook import OrderBookOrder, OrderSide, OrderBookStatus
+from app.models.audit import OrderAuditLog
 from app.schemas.orderbook import (
     OrderCreate,
     OrderUpdate,
@@ -18,6 +19,8 @@ from app.schemas.orderbook import (
     OrderResponseWithCI,
     OCOCreateRequest,
     OCOCreateResponse,
+    OrderAmendRequest,
+    OrderAuditLogResponse,
 )
 from app.services.ci_pricing import calculate_ci_adjusted_price
 from app.services.event_bus import event_bus
@@ -445,7 +448,24 @@ async def create_order(
     from app.config import settings
     if settings.AUTO_MATCHING_ENABLED:
         from app.services.matching_engine import match_order
+        from app.services.stop_engine import check_stops
         matched_trades = await match_order(db, new_order)
+
+        # After each trade, evaluate stop orders whose price condition was just crossed.
+        # _trigger_stops=False prevents the secondary match_order call inside check_stops
+        # from cascading into another round of stop evaluation (recursion guard).
+        for trade in matched_trades:
+            fuel = (
+                str(trade.bid_order.fuel_type)
+                if trade.bid_order is not None
+                else new_order.fuel_type
+            )
+            await check_stops(
+                db,
+                fuel_type=fuel,
+                last_trade_price=float(trade.price_per_mt_usd),
+                _trigger_stops=False,
+            )
 
     await db.commit()
 
@@ -484,6 +504,142 @@ async def create_order(
     })
 
     return new_order
+
+
+@router.patch("/{order_id}/amend", response_model=OrderResponse)
+async def amend_order(
+    order_id: UUID,
+    amend_data: OrderAmendRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Amend price and/or quantity on an OPEN or PARTIALLY_FILLED order.
+
+    Only the owning organization may amend. Quantity may not be reduced below
+    the already-filled amount. Each changed field is recorded in the audit log.
+    If price changes, the matching engine is re-run in case the new price
+    crosses existing resting orders.
+    """
+    result = await db.execute(
+        select(OrderBookOrder)
+        .options(selectinload(OrderBookOrder.organization))
+        .where(OrderBookOrder.id == order_id)
+        .with_for_update()
+    )
+    order = result.scalars().first()
+
+    if not order:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Order not found",
+        )
+
+    if order.organization_id != current_user.organization_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only amend your own orders",
+        )
+
+    if order.status not in (OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Only OPEN or PARTIALLY_FILLED orders can be amended",
+        )
+
+    price_changed = False
+    audit_entries: list[OrderAuditLog] = []
+
+    if amend_data.price_per_mt_usd is not None and amend_data.price_per_mt_usd != order.price_per_mt_usd:
+        audit_entries.append(OrderAuditLog(
+            order_id=order.id,
+            field_changed="price_per_mt_usd",
+            old_value=str(order.price_per_mt_usd),
+            new_value=str(amend_data.price_per_mt_usd),
+            changed_by=current_user.id,
+        ))
+        order.price_per_mt_usd = amend_data.price_per_mt_usd
+        price_changed = True
+
+    if amend_data.quantity_mt is not None and amend_data.quantity_mt != order.quantity_mt:
+        filled = order.quantity_mt - order.remaining_quantity_mt
+        new_remaining = amend_data.quantity_mt - filled
+        if new_remaining < 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="New quantity cannot be less than already filled amount",
+            )
+        audit_entries.append(OrderAuditLog(
+            order_id=order.id,
+            field_changed="quantity_mt",
+            old_value=str(order.quantity_mt),
+            new_value=str(amend_data.quantity_mt),
+            changed_by=current_user.id,
+        ))
+        order.quantity_mt = amend_data.quantity_mt
+        order.remaining_quantity_mt = new_remaining
+        if new_remaining == 0:
+            order.status = OrderBookStatus.FILLED
+
+    for entry in audit_entries:
+        db.add(entry)
+
+    # Re-run matching if price changed and order is still active
+    matched_trades: list = []
+    if price_changed and order.status in (OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED):
+        from app.config import settings
+        if settings.AUTO_MATCHING_ENABLED:
+            from app.services.matching_engine import match_order
+            matched_trades = await match_order(db, order)
+
+    await db.commit()
+
+    if matched_trades:
+        for trade in matched_trades:
+            await event_bus.publish("trades", "trade_auto_matched", {
+                "trade_id": str(trade.id),
+                "fuel_type": order.fuel_type,
+                "quantity": str(trade.quantity_mt),
+                "price": str(trade.price_per_mt_usd),
+            })
+
+    # Re-fetch with eager loading for tier_label
+    result = await db.execute(
+        select(OrderBookOrder)
+        .options(selectinload(OrderBookOrder.organization))
+        .where(OrderBookOrder.id == order.id)
+    )
+    return result.scalars().first()
+
+
+@router.get("/{order_id}/audit", response_model=list[OrderAuditLogResponse])
+async def get_order_audit_trail(
+    order_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Return the amendment history for an order.
+
+    Any authenticated user may fetch the trail (auditors, counterparties, admins).
+    The order must exist.
+    """
+    # Verify the order exists
+    order_result = await db.execute(
+        select(OrderBookOrder).where(OrderBookOrder.id == order_id)
+    )
+    if not order_result.scalars().first():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Order not found",
+        )
+
+    audit_result = await db.execute(
+        select(OrderAuditLog)
+        .where(OrderAuditLog.order_id == order_id)
+        .order_by(OrderAuditLog.changed_at.asc())
+    )
+    return audit_result.scalars().all()
 
 
 @router.put("/{order_id}", response_model=OrderResponse)

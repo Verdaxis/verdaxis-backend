@@ -301,3 +301,34 @@ class OCOCreateResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# ============== Order Amendment ==============
+
+class OrderAmendRequest(BaseModel):
+    """
+    Fields that can be amended on an open/partially-filled order.
+    At least one field must be set.
+    """
+    price_per_mt_usd: Optional[Decimal] = Field(None, gt=0)
+    quantity_mt: Optional[Decimal] = Field(None, gt=0)
+
+    @model_validator(mode="after")
+    def at_least_one_field(self) -> "OrderAmendRequest":
+        if self.price_per_mt_usd is None and self.quantity_mt is None:
+            raise ValueError("At least one of price_per_mt_usd or quantity_mt must be provided")
+        return self
+
+
+class OrderAuditLogResponse(BaseModel):
+    """One entry in an order's amendment history."""
+    id: UUID
+    order_id: UUID
+    field_changed: str
+    old_value: str
+    new_value: str
+    changed_by: UUID
+    changed_at: datetime
+
+    class Config:
+        from_attributes = True
