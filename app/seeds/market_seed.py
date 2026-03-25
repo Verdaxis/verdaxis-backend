@@ -60,33 +60,41 @@ SUPPLIER_ORGS = [
 # Pricing matrix — product name -> delivery point -> (bid_lo, bid_hi, ask_lo, ask_hi)
 # ---------------------------------------------------------------------------
 PRICING: dict[str, dict[str, tuple[float, float, float, float]]] = {
+    # Based on Ship & Bunker real market data (March 2026)
+    # Green methanol = ~2x gray methanol premium
     "Methanol Green": {
-        "ARA":       (800, 850, 860, 910),
-        "Singapore": (850, 900, 915, 960),
-        "Fujairah":  (830, 870, 885, 925),
-        "Rotterdam": (805, 850, 860, 910),
+        "ARA":       (540, 580, 595, 640),      # Gray ~$292, green premium ~2x
+        "Singapore": (1020, 1070, 1090, 1140),   # Gray ~$545, green premium ~2x
+        "Fujairah":  (640, 680, 700, 745),        # Gray ~$339, green premium ~2x
+        "Rotterdam": (545, 585, 600, 645),
     },
+    # VLSFO — real market: ROT $757, SG $894, FUJ $941
     "VLSFO Conventional": {
-        "ARA":       (480, 510, 520, 545),
-        "Singapore": (500, 530, 540, 565),
-        "Fujairah":  (490, 520, 530, 555),
+        "ARA":       (730, 755, 765, 795),
+        "Singapore": (870, 895, 905, 935),
+        "Fujairah":  (915, 940, 950, 980),
     },
+    # HVO biofuel — typically $100-200 premium over VLSFO
     "Biofuel Bio": {
-        "ARA":       (720, 755, 770, 810),
-        "Singapore": (760, 800, 815, 855),
-        "Fujairah":  (740, 775, 790, 830),
+        "ARA":       (870, 910, 925, 965),
+        "Singapore": (990, 1040, 1055, 1100),
+        "Fujairah":  (1020, 1065, 1080, 1125),
     },
+    # Green ammonia — nascent market, projected range
     "Ammonia Green": {
-        "ARA":       (580, 620, 635, 675),
-        "Singapore": (630, 670, 685, 725),
+        "ARA":       (620, 670, 690, 740),
+        "Singapore": (680, 730, 750, 800),
     },
+    # LNG bunker — real market equivalent
     "LNG Conventional": {
-        "ARA":       (850, 895, 910, 955),
-        "Singapore": (880, 925, 940, 985),
+        "ARA":       (700, 740, 755, 800),
+        "Singapore": (750, 795, 810, 855),
     },
+    # MGO — real market: ROT $1334, SG $1784, FUJ $1640
     "MGO Conventional": {
-        "ARA":       (550, 580, 590, 625),
-        "Singapore": (570, 600, 612, 645),
+        "ARA":       (1300, 1335, 1350, 1385),
+        "Singapore": (1745, 1785, 1800, 1840),
+        "Fujairah":  (1600, 1640, 1655, 1695),
     },
 }
 

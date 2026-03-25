@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, or_
 from sqlalchemy.orm import selectinload, joinedload
 from typing import Optional
 from decimal import Decimal
@@ -74,7 +74,7 @@ async def list_bids(
     if region:
         if not any(j[0] == DeliveryPoint for j in joins):
             joins.append((DeliveryPoint, OrderBookOrder.delivery_point_id == DeliveryPoint.id))
-        filters.append(DeliveryPoint.region == region)
+        filters.append(or_(DeliveryPoint.region == region, DeliveryPoint.name == region))
     if availability_window:
         filters.append(OrderBookOrder.availability_window == availability_window)
 
@@ -146,7 +146,7 @@ async def list_asks(
     if region:
         if not any(j[0] == DeliveryPoint for j in joins):
             joins.append((DeliveryPoint, OrderBookOrder.delivery_point_id == DeliveryPoint.id))
-        filters.append(DeliveryPoint.region == region)
+        filters.append(or_(DeliveryPoint.region == region, DeliveryPoint.name == region))
     if availability_window:
         filters.append(OrderBookOrder.availability_window == availability_window)
 
