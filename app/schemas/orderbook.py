@@ -115,6 +115,7 @@ class OrderResponse(BaseModel):
     status: OrderBookStatus
     expires_at: Optional[datetime] = None
     created_at: datetime
+    carbon_intensity_gco2_mj: Optional[Decimal] = None
     is_crossed: bool = False
 
     class Config:
