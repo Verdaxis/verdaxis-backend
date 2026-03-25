@@ -93,7 +93,7 @@ async def compute_forward_curve(
         window = row.availability_window.value if hasattr(row.availability_window, "value") else str(row.availability_window)
         if window not in windows:
             windows[window] = {}
-        windows[window][str(row.side)] = row
+        windows[window][row.side.value if hasattr(row.side, "value") else str(row.side)] = row
 
     points: list[ForwardCurvePoint] = []
     for window, sides in windows.items():
