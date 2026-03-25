@@ -534,6 +534,87 @@ async def seed_market_data(db: AsyncSession) -> None:
     await db.flush()
     print(f"[market_seed] Created {rfqs_created} RFQs.")
 
+
+    # ------------------------------------------------------------------
+    # Step 5: Create trades between Buy Corp and Sell Corp
+    # ------------------------------------------------------------------
+    print("[market_seed] Creating Buy Corp / Sell Corp trades...")
+
+    BUY_CORP_ID = uuid.UUID("acc3f20a-fe94-4463-9029-a55e35634eb7")
+    SELL_CORP_ID = uuid.UUID("c9c1ccbf-66fe-4a1b-b171-fe4f7ddc31a4")
+
+    # Ensure these orgs exist (they are the test accounts buyer@buy.com / seller@sell.com)
+    await db.execute(text(
+        "INSERT INTO organizations (id, name, type, verification_status) "
+        "VALUES (:id, :name, 'SHIPPING_LINE', 'APPROVED') "
+        "ON CONFLICT (id) DO NOTHING"
+    ), {"id": BUY_CORP_ID, "name": "Buy Corp"})
+    await db.execute(text(
+        "INSERT INTO organizations (id, name, type, supplier_tier, verification_status) "
+        "VALUES (:id, :name, 'FUEL_SUPPLIER', 'REGIONAL_SUPPLIER', 'APPROVED') "
+        "ON CONFLICT (id) DO NOTHING"
+    ), {"id": SELL_CORP_ID, "name": "Sell Corp"})
+    await db.flush()
+
+    demo_trades = [
+        # (fuel_type, port, qty, price, status, initiated_by, month)
+        ("Methanol Green",      "ARA",       1500, 572.50, TradeStatus.PAID,       Initiator.BUYER,  1),
+        ("VLSFO Conventional",  "Singapore", 2500, 888.00, TradeStatus.DELIVERED,  Initiator.SELLER, 1),
+        ("Biofuel Bio",         "Fujairah",  1000, 1045.75,TradeStatus.CONFIRMED,  Initiator.BUYER,  1),
+        ("MGO Conventional",    "ARA",        800, 1355.00,TradeStatus.PAID,       Initiator.SELLER, 2),
+        ("Methanol Green",      "Singapore", 2000, 1065.00,TradeStatus.DELIVERED,  Initiator.BUYER,  2),
+        ("VLSFO Conventional",  "Fujairah",  3000, 935.50, TradeStatus.PAID,       Initiator.BUYER,  2),
+        ("Biofuel Bio",         "ARA",       1200, 895.25, TradeStatus.CONFIRMED,  Initiator.SELLER, 2),
+        ("MGO Conventional",    "Singapore",  500, 1790.00,TradeStatus.DELIVERED,  Initiator.BUYER,  3),
+        ("Methanol Green",      "Fujairah",  1800, 680.00, TradeStatus.PAID,       Initiator.SELLER, 3),
+        ("VLSFO Conventional",  "ARA",       2200, 748.75, TradeStatus.CONFIRMED,  Initiator.BUYER,  3),
+    ]
+
+    bc_trades_created = 0
+    for fuel_name, port_name, qty, price, status, initiator, month in demo_trades:
+        product_id = PRODUCT_IDS[fuel_name]
+        dp_id = DELIVERY_POINT_IDS[port_name]
+        trade_qty = Decimal(str(qty))
+        trade_price = Decimal(str(price))
+
+        day = _RNG.randint(2, 25)
+        created = datetime(2026, month, day, _RNG.randint(8, 18), _RNG.randint(0, 59), tzinfo=timezone.utc)
+        confirmed = created + timedelta(hours=_RNG.randint(1, 12))
+        delivered = confirmed + timedelta(days=_RNG.randint(3, 14)) if status in (
+            TradeStatus.DELIVERED, TradeStatus.PAID
+        ) else None
+        paid = delivered + timedelta(days=_RNG.randint(7, 21)) if status == TradeStatus.PAID and delivered else None
+
+        total_usd = trade_qty * trade_price
+        commission_rate = Decimal("0.500")
+        commission_amt = (total_usd * commission_rate / Decimal("100")).quantize(Decimal("0.01"))
+
+        trade = Trade(
+            id=uuid.uuid4(),
+            bid_order_id=None,
+            ask_order_id=None,
+            buyer_id=BUY_CORP_ID,
+            seller_id=SELL_CORP_ID,
+            initiated_by=initiator,
+            quantity_mt=trade_qty,
+            price_per_mt_usd=trade_price,
+            status=status,
+            final_quantity_mt=trade_qty if status in (TradeStatus.DELIVERED, TradeStatus.PAID) else None,
+            final_price_per_mt=trade_price if status in (TradeStatus.DELIVERED, TradeStatus.PAID) else None,
+            final_total_usd=total_usd if status in (TradeStatus.DELIVERED, TradeStatus.PAID) else None,
+            commission_rate_pct=commission_rate,
+            commission_amount_usd=commission_amt if status == TradeStatus.PAID else None,
+            confirmed_at=confirmed,
+            delivered_at=delivered,
+            paid_at=paid,
+            created_at=created,
+        )
+        db.add(trade)
+        bc_trades_created += 1
+
+    await db.flush()
+    print(f"[market_seed] Created {bc_trades_created} Buy Corp / Sell Corp trades.")
+
     # ------------------------------------------------------------------
     # Commit everything
     # ------------------------------------------------------------------
