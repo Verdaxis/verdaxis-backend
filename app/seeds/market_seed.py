@@ -114,6 +114,8 @@ WINDOWS = [
     AvailabilityWindow.Q2_2026,
     AvailabilityWindow.Q3_2026,
     AvailabilityWindow.Q4_2026,
+    AvailabilityWindow.FORWARD_2027,
+    AvailabilityWindow.FORWARD_2028,
 ]
 
 QUANTITIES = [500, 1000, 1500, 2000, 2500, 3000, 3500, 4000, 4500, 5000]
@@ -336,6 +338,101 @@ async def seed_market_data(db: AsyncSession) -> None:
     print(f"[market_seed] Created {total_orders} orders + sentinel.")
 
     # ------------------------------------------------------------------
+    # Step 2b: Coverage guarantee — ensure every window has orders
+    # ------------------------------------------------------------------
+    print("[market_seed] Running coverage guarantee pass...")
+    coverage_created = 0
+    for product_name, ports in PRICING.items():
+        product_id = PRODUCT_IDS[product_name]
+        ci_lo, ci_hi, energy_density = CI_DATA[product_name]
+
+        for port_name, (bid_lo, bid_hi, ask_lo, ask_hi) in ports.items():
+            dp_id = DELIVERY_POINT_IDS[port_name]
+            key = f"{product_name}|{port_name}"
+            existing_orders = orders_by_product_port.get(key, [])
+
+            # Which windows already have at least one BID and one ASK?
+            windows_with_bid = {
+                o.availability_window for o in existing_orders
+                if o.side == OrderSide.BID
+                and o.status in (OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED)
+            }
+            windows_with_ask = {
+                o.availability_window for o in existing_orders
+                if o.side == OrderSide.ASK
+                and o.status in (OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED)
+            }
+
+            for window in WINDOWS:
+                needs_bid = window not in windows_with_bid
+                needs_ask = window not in windows_with_ask
+
+                if not needs_bid and not needs_ask:
+                    continue
+
+                # Forward windows get a slight contango premium
+                window_premium = Decimal("0")
+                if window == AvailabilityWindow.FORWARD_2027:
+                    window_premium = Decimal(str(round((ask_hi - ask_lo) * 0.3, 2)))
+                elif window == AvailabilityWindow.FORWARD_2028:
+                    window_premium = Decimal(str(round((ask_hi - ask_lo) * 0.6, 2)))
+
+                created = _rand_date(
+                    datetime(2025, 1, 1, tzinfo=timezone.utc),
+                    datetime(2025, 3, 20, tzinfo=timezone.utc),
+                )
+
+                if needs_bid:
+                    buyer = _RNG.choice(BUYER_ORGS)
+                    gap_qty = _qty()
+                    order = OrderBookOrder(
+                        id=uuid.uuid4(),
+                        organization_id=buyer["id"],
+                        side=OrderSide.BID,
+                        product_id=product_id,
+                        delivery_point_id=dp_id,
+                        quantity_mt=gap_qty,
+                        remaining_quantity_mt=gap_qty,
+                        price_per_mt_usd=_price(bid_lo, bid_hi) + window_premium,
+                        availability_window=window,
+                        status=OrderBookStatus.OPEN,
+                        created_at=created,
+                        updated_at=created,
+                    )
+                    db.add(order)
+                    all_orders.append(order)
+                    orders_by_product_port.setdefault(key, []).append(order)
+                    coverage_created += 1
+
+                if needs_ask:
+                    supplier = _RNG.choice(SUPPLIER_ORGS)
+                    ci_value = Decimal(str(round(_RNG.uniform(ci_lo, ci_hi), 2)))
+                    gap_qty = _qty()
+                    order = OrderBookOrder(
+                        id=uuid.uuid4(),
+                        organization_id=supplier["id"],
+                        side=OrderSide.ASK,
+                        product_id=product_id,
+                        delivery_point_id=dp_id,
+                        quantity_mt=gap_qty,
+                        remaining_quantity_mt=gap_qty,
+                        price_per_mt_usd=_price(ask_lo, ask_hi) + window_premium,
+                        availability_window=window,
+                        status=OrderBookStatus.OPEN,
+                        carbon_intensity_gco2_mj=ci_value,
+                        energy_density_mj_kg=Decimal(str(energy_density)),
+                        created_at=created,
+                        updated_at=created,
+                    )
+                    db.add(order)
+                    all_orders.append(order)
+                    orders_by_product_port.setdefault(key, []).append(order)
+                    coverage_created += 1
+
+    await db.flush()
+    print(f"[market_seed] Coverage pass: created {coverage_created} gap-filling orders.")
+
+    # ------------------------------------------------------------------
     # Step 3: Create trades from crossed orders
     # ------------------------------------------------------------------
     print("[market_seed] Creating trades...")
@@ -449,6 +546,91 @@ async def seed_market_data(db: AsyncSession) -> None:
 
     await db.flush()
     print(f"[market_seed] Created {trades_created} trades.")
+
+    # ------------------------------------------------------------------
+    # Step 3b: Post-trade coverage safety net
+    # Some gap-fill orders may have been consumed by trades above.
+    # Re-check and fill any windows that lost all active orders.
+    # ------------------------------------------------------------------
+    print("[market_seed] Post-trade coverage check...")
+    post_trade_created = 0
+    for product_name, ports in PRICING.items():
+        product_id = PRODUCT_IDS[product_name]
+        ci_lo, ci_hi, energy_density = CI_DATA[product_name]
+
+        for port_name, (bid_lo, bid_hi, ask_lo, ask_hi) in ports.items():
+            dp_id = DELIVERY_POINT_IDS[port_name]
+            key = f"{product_name}|{port_name}"
+            existing_orders = orders_by_product_port.get(key, [])
+
+            windows_with_bid = {
+                o.availability_window for o in existing_orders
+                if o.side == OrderSide.BID
+                and o.status in (OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED)
+            }
+            windows_with_ask = {
+                o.availability_window for o in existing_orders
+                if o.side == OrderSide.ASK
+                and o.status in (OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED)
+            }
+
+            for window in WINDOWS:
+                created = _rand_date(
+                    datetime(2025, 2, 1, tzinfo=timezone.utc),
+                    datetime(2025, 3, 20, tzinfo=timezone.utc),
+                )
+                window_premium = Decimal("0")
+                if window == AvailabilityWindow.FORWARD_2027:
+                    window_premium = Decimal(str(round((ask_hi - ask_lo) * 0.3, 2)))
+                elif window == AvailabilityWindow.FORWARD_2028:
+                    window_premium = Decimal(str(round((ask_hi - ask_lo) * 0.6, 2)))
+
+                if window not in windows_with_bid:
+                    buyer = _RNG.choice(BUYER_ORGS)
+                    gap_qty = _qty()
+                    order = OrderBookOrder(
+                        id=uuid.uuid4(),
+                        organization_id=buyer["id"],
+                        side=OrderSide.BID,
+                        product_id=product_id,
+                        delivery_point_id=dp_id,
+                        quantity_mt=gap_qty,
+                        remaining_quantity_mt=gap_qty,
+                        price_per_mt_usd=_price(bid_lo, bid_hi) + window_premium,
+                        availability_window=window,
+                        status=OrderBookStatus.OPEN,
+                        created_at=created,
+                        updated_at=created,
+                    )
+                    db.add(order)
+                    post_trade_created += 1
+
+                if window not in windows_with_ask:
+                    supplier = _RNG.choice(SUPPLIER_ORGS)
+                    ci_value = Decimal(str(round(_RNG.uniform(ci_lo, ci_hi), 2)))
+                    gap_qty = _qty()
+                    order = OrderBookOrder(
+                        id=uuid.uuid4(),
+                        organization_id=supplier["id"],
+                        side=OrderSide.ASK,
+                        product_id=product_id,
+                        delivery_point_id=dp_id,
+                        quantity_mt=gap_qty,
+                        remaining_quantity_mt=gap_qty,
+                        price_per_mt_usd=_price(ask_lo, ask_hi) + window_premium,
+                        availability_window=window,
+                        status=OrderBookStatus.OPEN,
+                        carbon_intensity_gco2_mj=Decimal(str(round(_RNG.uniform(ci_lo, ci_hi), 2))),
+                        energy_density_mj_kg=Decimal(str(energy_density)),
+                        created_at=created,
+                        updated_at=created,
+                    )
+                    db.add(order)
+                    post_trade_created += 1
+
+    if post_trade_created > 0:
+        await db.flush()
+    print(f"[market_seed] Post-trade safety net: created {post_trade_created} orders.")
 
     # ------------------------------------------------------------------
     # Step 4: Create RFQs with quotes
