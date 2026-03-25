@@ -1,3 +1,4 @@
+import asyncio
 import os
 import time
 import uuid as _uuid
@@ -41,6 +42,7 @@ from app.routers.referrals import router as referrals_router
 from app.routers.trade_tape import router as trade_tape_router
 from app.routers.rfq import router as rfq_router
 from app.routers.watchlists import router as watchlists_router
+from app.routers.news import router as news_router
 
 # ---------------------------------------------------------------------------
 # Structured logging
@@ -71,12 +73,35 @@ request_id_ctx: ContextVar[str] = ContextVar("request_id", default="")
 _docs_url = "/docs" if os.getenv("ENVIRONMENT") != "production" else None
 _redoc_url = "/redoc" if os.getenv("ENVIRONMENT") != "production" else None
 
+# ---------------------------------------------------------------------------
+# Lifespan: background news feed refresh every 15 minutes
+# ---------------------------------------------------------------------------
+from contextlib import asynccontextmanager
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    async def _news_refresh_loop():
+        from app.database import AsyncSessionLocal
+        from app.services.news_feed import refresh_news
+        while True:
+            try:
+                async with AsyncSessionLocal() as db:
+                    await refresh_news(db)
+            except Exception:
+                logger.warning("news_refresh_loop.error", exc_info=True)
+            await asyncio.sleep(900)  # 15 minutes
+
+    task = asyncio.create_task(_news_refresh_loop())
+    yield
+    task.cancel()
+
 app = FastAPI(
     title="Verdaxis Intelligence Cockpit",
     description="Maritime intelligence and procurement platform backend",
     version="1.0.0",
     docs_url=_docs_url,
     redoc_url=_redoc_url,
+    lifespan=lifespan,
 )
 
 # ---------------------------------------------------------------------------
@@ -162,6 +187,7 @@ app.include_router(referrals_router, prefix=settings.API_V1_STR)
 app.include_router(trade_tape_router, prefix=settings.API_V1_STR)
 app.include_router(watchlists_router, prefix=settings.API_V1_STR)
 app.include_router(rfq_router, prefix=settings.API_V1_STR)
+app.include_router(news_router, prefix=settings.API_V1_STR)
 
 from app.routers import dashboard
 app.include_router(dashboard.router, prefix=settings.API_V1_STR)

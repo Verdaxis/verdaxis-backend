@@ -379,6 +379,7 @@ async def submit_quote(
 @router.post("/{rfq_id}/accept/{quote_id}", response_model=RFQQuoteResponse)
 @limiter.limit("30/minute")
 async def accept_quote(
+    request: Request,
     rfq_id: uuid.UUID,
     quote_id: uuid.UUID,
     db: Annotated[AsyncSession, Depends(get_db)],
@@ -483,6 +484,7 @@ async def accept_quote(
 @router.post("/{rfq_id}/cancel")
 @limiter.limit("30/minute")
 async def cancel_rfq(
+    request: Request,
     rfq_id: uuid.UUID,
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user)],
