@@ -25,6 +25,12 @@ from app.services.event_bus import event_bus
 
 router = APIRouter(prefix="/orderbook", tags=["orderbook"])
 
+ORDERBOOK_RESPONSE_OPTIONS = (
+    selectinload(OrderBookOrder.organization),
+    selectinload(OrderBookOrder.product),
+    selectinload(OrderBookOrder.delivery_point),
+)
+
 
 def compute_is_crossed(side: str, price: Decimal, best_opposing_price: Optional[Decimal]) -> bool:
     """Returns True if this order crosses the market.
@@ -39,6 +45,71 @@ def compute_is_crossed(side: str, price: Decimal, best_opposing_price: Optional[
     if side == "BID":
         return price >= best_opposing_price
     return price <= best_opposing_price
+
+
+def _build_orderbook_filters(
+    side: OrderSide,
+    product_id: Optional[UUID],
+    delivery_point_id: Optional[UUID],
+    fuel_type: Optional[str],
+    region: Optional[str],
+    availability_window: Optional[str],
+):
+    filters = [
+        OrderBookOrder.status.in_([OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED]),
+        OrderBookOrder.side == side,
+    ]
+    joins = []
+
+    if product_id:
+        filters.append(OrderBookOrder.product_id == product_id)
+    if fuel_type:
+        joins.append((Product, OrderBookOrder.product_id == Product.id))
+        filters.append(Product.fuel_type == fuel_type)
+    if delivery_point_id:
+        filters.append(OrderBookOrder.delivery_point_id == delivery_point_id)
+    if region:
+        if not any(join_target is DeliveryPoint for join_target, _ in joins):
+            joins.append((DeliveryPoint, OrderBookOrder.delivery_point_id == DeliveryPoint.id))
+        filters.append(or_(DeliveryPoint.region == region, DeliveryPoint.name == region))
+    if availability_window:
+        filters.append(OrderBookOrder.availability_window == availability_window)
+
+    return filters, joins
+
+
+def _apply_joins(query, joins):
+    for join_target, join_cond in joins:
+        query = query.join(join_target, join_cond)
+    return query
+
+
+async def _best_opposing_price(
+    db: AsyncSession,
+    side: OrderSide,
+    product_id: Optional[UUID],
+    delivery_point_id: Optional[UUID],
+    fuel_type: Optional[str],
+    region: Optional[str],
+    availability_window: Optional[str],
+):
+    opposing_side = OrderSide.ASK if side == OrderSide.BID else OrderSide.BID
+    filters, joins = _build_orderbook_filters(
+        opposing_side,
+        product_id,
+        delivery_point_id,
+        fuel_type,
+        region,
+        availability_window,
+    )
+    price_expr = (
+        func.min(OrderBookOrder.price_per_mt_usd)
+        if side == OrderSide.BID
+        else func.max(OrderBookOrder.price_per_mt_usd)
+    )
+    query = _apply_joins(select(price_expr), joins).where(*filters)
+    result = await db.execute(query)
+    return result.scalar()
 
 
 # ============== Static routes (must come before parametric /{order_id}) ==============
@@ -58,53 +129,37 @@ async def list_bids(
     """
     List all open BID orders with pagination.
     """
-    # Build shared filter conditions
-    filters = [
-        OrderBookOrder.status.in_([OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED]),
-        OrderBookOrder.side == OrderSide.BID,
-    ]
-    joins = []
-    if product_id:
-        filters.append(OrderBookOrder.product_id == product_id)
-    if fuel_type:
-        joins.append((Product, OrderBookOrder.product_id == Product.id))
-        filters.append(Product.fuel_type == fuel_type)
-    if delivery_point_id:
-        filters.append(OrderBookOrder.delivery_point_id == delivery_point_id)
-    if region:
-        if not any(j[0] == DeliveryPoint for j in joins):
-            joins.append((DeliveryPoint, OrderBookOrder.delivery_point_id == DeliveryPoint.id))
-        filters.append(or_(DeliveryPoint.region == region, DeliveryPoint.name == region))
-    if availability_window:
-        filters.append(OrderBookOrder.availability_window == availability_window)
+    filters, joins = _build_orderbook_filters(
+        OrderSide.BID,
+        product_id,
+        delivery_point_id,
+        fuel_type,
+        region,
+        availability_window,
+    )
 
     # Count query (same filters, no pagination)
-    count_query = select(func.count(OrderBookOrder.id))
-    for join_target, join_cond in joins:
-        count_query = count_query.join(join_target, join_cond)
-    count_query = count_query.where(*filters)
+    count_query = _apply_joins(select(func.count(OrderBookOrder.id)), joins).where(*filters)
     total = (await db.execute(count_query)).scalar()
 
     # Data query with pagination
     query = (
         select(OrderBookOrder)
-        .options(selectinload(OrderBookOrder.organization))
+        .options(*ORDERBOOK_RESPONSE_OPTIONS)
     )
-    for join_target, join_cond in joins:
-        query = query.join(join_target, join_cond)
-    query = query.where(*filters).order_by(OrderBookOrder.created_at.desc()).offset(skip).limit(limit)
+    query = _apply_joins(query, joins).where(*filters).order_by(OrderBookOrder.created_at.desc()).offset(skip).limit(limit)
     result = await db.execute(query)
     orders = result.unique().scalars().all()
 
-    # Fetch best ask price (single scalar query) for crossing detection
-    # This queries ALL orders, not affected by pagination
-    best_ask_result = await db.execute(
-        select(func.min(OrderBookOrder.price_per_mt_usd)).where(
-            OrderBookOrder.side == OrderSide.ASK,
-            OrderBookOrder.status.in_([OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED]),
-        )
+    best_ask_price = await _best_opposing_price(
+        db,
+        OrderSide.BID,
+        product_id,
+        delivery_point_id,
+        fuel_type,
+        region,
+        availability_window,
     )
-    best_ask_price = best_ask_result.scalar()
 
     items = [
         OrderResponse.model_validate(order, from_attributes=True).model_copy(
@@ -130,53 +185,37 @@ async def list_asks(
     """
     List all open ASK orders with pagination.
     """
-    # Build shared filter conditions
-    filters = [
-        OrderBookOrder.status.in_([OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED]),
-        OrderBookOrder.side == OrderSide.ASK,
-    ]
-    joins = []
-    if product_id:
-        filters.append(OrderBookOrder.product_id == product_id)
-    if fuel_type:
-        joins.append((Product, OrderBookOrder.product_id == Product.id))
-        filters.append(Product.fuel_type == fuel_type)
-    if delivery_point_id:
-        filters.append(OrderBookOrder.delivery_point_id == delivery_point_id)
-    if region:
-        if not any(j[0] == DeliveryPoint for j in joins):
-            joins.append((DeliveryPoint, OrderBookOrder.delivery_point_id == DeliveryPoint.id))
-        filters.append(or_(DeliveryPoint.region == region, DeliveryPoint.name == region))
-    if availability_window:
-        filters.append(OrderBookOrder.availability_window == availability_window)
+    filters, joins = _build_orderbook_filters(
+        OrderSide.ASK,
+        product_id,
+        delivery_point_id,
+        fuel_type,
+        region,
+        availability_window,
+    )
 
     # Count query (same filters, no pagination)
-    count_query = select(func.count(OrderBookOrder.id))
-    for join_target, join_cond in joins:
-        count_query = count_query.join(join_target, join_cond)
-    count_query = count_query.where(*filters)
+    count_query = _apply_joins(select(func.count(OrderBookOrder.id)), joins).where(*filters)
     total = (await db.execute(count_query)).scalar()
 
     # Data query with pagination
     query = (
         select(OrderBookOrder)
-        .options(selectinload(OrderBookOrder.organization))
+        .options(*ORDERBOOK_RESPONSE_OPTIONS)
     )
-    for join_target, join_cond in joins:
-        query = query.join(join_target, join_cond)
-    query = query.where(*filters).order_by(OrderBookOrder.created_at.desc()).offset(skip).limit(limit)
+    query = _apply_joins(query, joins).where(*filters).order_by(OrderBookOrder.created_at.desc()).offset(skip).limit(limit)
     result = await db.execute(query)
     orders = result.unique().scalars().all()
 
-    # Fetch best bid price (single scalar query) for crossing detection
-    # This queries ALL orders, not affected by pagination
-    best_bid_result = await db.execute(
-        select(func.max(OrderBookOrder.price_per_mt_usd)).where(
-            OrderBookOrder.side == OrderSide.BID,
-            OrderBookOrder.status.in_([OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED]),
-        )
+    best_bid_price = await _best_opposing_price(
+        db,
+        OrderSide.ASK,
+        product_id,
+        delivery_point_id,
+        fuel_type,
+        region,
+        availability_window,
     )
-    best_bid_price = best_bid_result.scalar()
 
     items = [
         OrderResponse.model_validate(order, from_attributes=True).model_copy(
@@ -202,7 +241,7 @@ async def list_orders_with_ci(
     """
     query = (
         select(OrderBookOrder)
-        .options(selectinload(OrderBookOrder.organization))
+        .options(*ORDERBOOK_RESPONSE_OPTIONS)
         .where(OrderBookOrder.status.in_([OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED]))
     )
     if product_id:
@@ -250,6 +289,8 @@ async def list_my_orders(
         select(OrderBookOrder)
         .options(
             selectinload(OrderBookOrder.organization),
+            selectinload(OrderBookOrder.product),
+            selectinload(OrderBookOrder.delivery_point),
             selectinload(OrderBookOrder.bid_trades),
             selectinload(OrderBookOrder.ask_trades),
         )
@@ -391,7 +432,7 @@ async def list_orders(
     """
     query = (
         select(OrderBookOrder)
-        .options(selectinload(OrderBookOrder.organization))
+        .options(*ORDERBOOK_RESPONSE_OPTIONS)
         .where(
             OrderBookOrder.status.in_([OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED])
         )
@@ -523,7 +564,7 @@ async def create_order(
     # Re-fetch with eager loading so tier_label computed property works
     result = await db.execute(
         select(OrderBookOrder)
-        .options(selectinload(OrderBookOrder.organization))
+        .options(*ORDERBOOK_RESPONSE_OPTIONS)
         .where(OrderBookOrder.id == new_order.id)
     )
     new_order = result.scalars().first()
@@ -554,7 +595,7 @@ async def update_order(
     """
     result = await db.execute(
         select(OrderBookOrder)
-        .options(selectinload(OrderBookOrder.organization))
+        .options(*ORDERBOOK_RESPONSE_OPTIONS)
         .where(OrderBookOrder.id == order_id)
         .with_for_update()
     )
@@ -613,7 +654,7 @@ async def update_order(
     # Re-fetch with eager loading for tier_label
     result = await db.execute(
         select(OrderBookOrder)
-        .options(selectinload(OrderBookOrder.organization))
+        .options(*ORDERBOOK_RESPONSE_OPTIONS)
         .where(OrderBookOrder.id == order.id)
     )
     order = result.scalars().first()
@@ -631,7 +672,10 @@ async def cancel_order(
     Cancel an own order (soft cancel by setting status to CANCELLED).
     """
     result = await db.execute(
-        select(OrderBookOrder).where(OrderBookOrder.id == order_id).with_for_update()
+        select(OrderBookOrder)
+        .options(*ORDERBOOK_RESPONSE_OPTIONS)
+        .where(OrderBookOrder.id == order_id)
+        .with_for_update()
     )
     order = result.scalars().first()
 

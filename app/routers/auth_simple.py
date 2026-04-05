@@ -1,8 +1,9 @@
 from fastapi import Request as _Request
 from app.rate_limit import limiter
 from datetime import datetime, timedelta, UTC
+import os
 from typing import Annotated
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -16,6 +17,7 @@ from app.schemas.organization import OrganizationCreate, OrganizationResponse
 from app.core.security import (
     verify_password, get_password_hash,
     create_access_token, create_refresh_token, decode_token,
+    REFRESH_TOKEN_EXPIRE_DAYS,
     SECRET_KEY, ALGORITHM,
 )
 from pydantic import BaseModel
@@ -32,7 +34,7 @@ class ResendVerificationRequest(BaseModel):
     email: str
 
 class RefreshRequest(BaseModel):
-    refresh_token: str
+    refresh_token: str | None = None
 
 class ForgotPasswordRequest(BaseModel):
     email: str
@@ -43,7 +45,41 @@ class ResetPasswordRequest(BaseModel):
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
+REFRESH_COOKIE_NAME = "refresh_token"
+REFRESH_COOKIE_PATH = "/api/auth"
+REFRESH_COOKIE_MAX_AGE = REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60
+REFRESH_COOKIE_SECURE = os.getenv("ENVIRONMENT", "production").lower() == "production"
+REFRESH_COOKIE_SAMESITE = "lax"
+
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
+
+
+def _build_token_pair(subject: str, role: UserRole | None = None) -> tuple[str, str]:
+    access_token = create_access_token(
+        subject=subject,
+        additional_claims={"role": role.value if role else None},
+    )
+    refresh_token = create_refresh_token(subject=subject)
+    return access_token, refresh_token
+
+
+def _set_refresh_cookie(response: Response, refresh_token: str) -> None:
+    response.set_cookie(
+        key=REFRESH_COOKIE_NAME,
+        value=refresh_token,
+        httponly=True,
+        secure=REFRESH_COOKIE_SECURE,
+        samesite=REFRESH_COOKIE_SAMESITE,
+        max_age=REFRESH_COOKIE_MAX_AGE,
+        path=REFRESH_COOKIE_PATH,
+    )
+
+
+def _clear_refresh_cookie(response: Response) -> None:
+    response.delete_cookie(
+        key=REFRESH_COOKIE_NAME,
+        path=REFRESH_COOKIE_PATH,
+    )
 
 async def get_current_user(token: Annotated[str, Depends(oauth2_scheme)], db: AsyncSession = Depends(get_db)):
     credentials_exception = HTTPException(
@@ -116,12 +152,17 @@ async def get_current_user_optional(
 
 
 # ---------------------------------------------------------------------------
-# Login — returns access + refresh tokens
+# Login — returns access token in body and refresh token in both body + cookie
 # ---------------------------------------------------------------------------
 
 @router.post("/login")
 @limiter.limit("5/minute")
-async def login(request: _Request, form_data: Annotated[OAuth2PasswordRequestForm, Depends()], db: AsyncSession = Depends(get_db)):
+async def login(
+    request: _Request,
+    response: Response,
+    form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
+    db: AsyncSession = Depends(get_db),
+):
     stmt = select(User).where(User.email == form_data.username)
     result = await db.execute(stmt)
     user = result.scalar_one_or_none()
@@ -150,11 +191,8 @@ async def login(request: _Request, form_data: Annotated[OAuth2PasswordRequestFor
     user.last_login = datetime.now(UTC)
     await db.commit()
 
-    access_token = create_access_token(
-        subject=str(user.id),
-        additional_claims={"role": user.role.value if user.role else None},
-    )
-    refresh_token = create_refresh_token(subject=str(user.id))
+    access_token, refresh_token = _build_token_pair(str(user.id), user.role)
+    _set_refresh_cookie(response, refresh_token)
     return {
         "access_token": access_token,
         "refresh_token": refresh_token,
@@ -162,14 +200,28 @@ async def login(request: _Request, form_data: Annotated[OAuth2PasswordRequestFor
     }
 
 # ---------------------------------------------------------------------------
-# Refresh — exchange refresh token for new access + refresh tokens
+# Refresh — exchange refresh token from body or cookie for new access + refresh tokens
 # ---------------------------------------------------------------------------
 
 @router.post("/refresh")
 @limiter.limit("10/minute")
-async def refresh_tokens(request: _Request, body: RefreshRequest, db: AsyncSession = Depends(get_db)):
+async def refresh_tokens(
+    request: _Request,
+    response: Response,
+    body: RefreshRequest | None = None,
+    db: AsyncSession = Depends(get_db),
+):
+    refresh_token = None
+    if body and body.refresh_token:
+        refresh_token = body.refresh_token
+    else:
+        refresh_token = request.cookies.get(REFRESH_COOKIE_NAME)
+
+    if not refresh_token:
+        raise HTTPException(status_code=401, detail="Missing refresh token")
+
     try:
-        payload = decode_token(body.refresh_token)
+        payload = decode_token(refresh_token)
         if payload.get("type") != "refresh":
             raise HTTPException(status_code=401, detail="Invalid token type")
         user_id_str = payload.get("sub")
@@ -201,16 +253,19 @@ async def refresh_tokens(request: _Request, body: RefreshRequest, db: AsyncSessi
         if iat_dt < user.password_changed_at:
             raise HTTPException(status_code=401, detail="Password was changed. Please log in again.")
 
-    access_token = create_access_token(
-        subject=str(user.id),
-        additional_claims={"role": user.role.value if user.role else None},
-    )
-    refresh_token = create_refresh_token(subject=str(user.id))
+    access_token, refresh_token = _build_token_pair(str(user.id), user.role)
+    _set_refresh_cookie(response, refresh_token)
     return {
         "access_token": access_token,
         "refresh_token": refresh_token,
         "token_type": "bearer",
     }
+
+
+@router.post("/logout")
+async def logout(response: Response):
+    _clear_refresh_cookie(response)
+    return {"message": "Logged out"}
 
 # ---------------------------------------------------------------------------
 # Registration
@@ -501,6 +556,7 @@ async def update_users_me(
 @limiter.limit("3/minute")
 async def change_password(
     request: _Request,
+    response: Response,
     payload: PasswordChangeRequest,
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
@@ -524,11 +580,8 @@ async def change_password(
     await db.commit()
 
     # Return fresh tokens so the user stays logged in
-    access_token = create_access_token(
-        subject=str(current_user.id),
-        additional_claims={"role": current_user.role.value if current_user.role else None},
-    )
-    refresh_token = create_refresh_token(subject=str(current_user.id))
+    access_token, refresh_token = _build_token_pair(str(current_user.id), current_user.role)
+    _set_refresh_cookie(response, refresh_token)
 
     return {
         "message": "Password changed successfully",

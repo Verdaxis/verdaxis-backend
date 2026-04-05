@@ -156,8 +156,9 @@ docker exec verdaxis-backend alembic upgrade head
 ## Authentication
 
 - **Protocol:** JWT HS256, self-signed with `JWT_SECRET` from `.env`
-- **Token lifetime:** 24 hours (1440 minutes)
+- **Token lifetime:** 15-minute access tokens plus 7-day refresh tokens
 - **Login:** `POST /api/auth/login` uses OAuth2 `username`/`password` form fields. The `username` field contains the email address.
+- **Refresh transport:** `POST /api/auth/refresh` accepts the refresh token from either the JSON body or the HttpOnly `refresh_token` cookie scoped to `/api/auth`. Login, refresh, logout, and password change rotate or clear that cookie.
 - **Two `get_current_user` implementations exist:**
   - `app/routers/auth_simple.py` -- The active one. Used by most routers. Decodes JWT `sub` claim as user UUID.
   - `app/core/auth.py` -- Legacy. Has JIT provisioning and dev bypass logic. Used only by `vessels`, `inventory`, `compliance`, and `ai` routers.

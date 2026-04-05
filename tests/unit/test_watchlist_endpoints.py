@@ -172,11 +172,15 @@ class TestAddWatchlistEntry:
         # 1st execute: find watchlist
         wl_result = MagicMock()
         wl_result.scalar_one_or_none.return_value = wl
-        # 2nd execute: count entries
+        prod_result = MagicMock()
+        prod_result.scalar_one_or_none.return_value = MagicMock(name="Product")
+        existing_result = MagicMock()
+        existing_result.scalar_one_or_none.return_value = None
+        # 4th execute: count entries
         count_result = MagicMock()
         count_result.scalar_one.return_value = MAX_ENTRIES_PER_WATCHLIST
 
-        mock_db.execute.side_effect = [wl_result, count_result]
+        mock_db.execute.side_effect = [wl_result, prod_result, existing_result, count_result]
 
         body = WatchlistEntryAddRequest(product_id=uuid4())
 
@@ -195,12 +199,10 @@ class TestAddWatchlistEntry:
         mock_db = AsyncMock()
         wl_result = MagicMock()
         wl_result.scalar_one_or_none.return_value = wl
-        count_result = MagicMock()
-        count_result.scalar_one.return_value = 0
         prod_result = MagicMock()
         prod_result.scalar_one_or_none.return_value = None
 
-        mock_db.execute.side_effect = [wl_result, count_result, prod_result]
+        mock_db.execute.side_effect = [wl_result, prod_result]
 
         body = WatchlistEntryAddRequest(product_id=uuid4())
 
@@ -227,25 +229,19 @@ class TestAddWatchlistEntry:
         prod_mock.name = "VLSFO"
         prod_result = MagicMock()
         prod_result.scalar_one_or_none.return_value = prod_mock
+        existing_result = MagicMock()
+        existing_result.scalar_one_or_none.return_value = None
 
-        mock_db.execute.side_effect = [wl_result, count_result, prod_result]
+        mock_db.execute.side_effect = [wl_result, prod_result, existing_result, count_result]
 
         body = WatchlistEntryAddRequest(product_id=product_id)
 
-        with patch("app.routers.watchlists.WatchlistEntry") as MockEntry:
-            instance = MagicMock()
-            instance.id = uuid4()
-            instance.product_id = product_id
-            instance.delivery_point_id = None
-            instance.created_at = datetime.now(UTC)
-            MockEntry.return_value = instance
-
-            result = await add_watchlist_entry(
-                watchlist_id=wl.id, body=body, current_user=user, db=mock_db
-            )
-            assert result.product_name == "VLSFO"
-            mock_db.add.assert_called_once()
-            mock_db.commit.assert_called_once()
+        result = await add_watchlist_entry(
+            watchlist_id=wl.id, body=body, current_user=user, db=mock_db
+        )
+        assert result.product_name == "VLSFO"
+        mock_db.add.assert_called_once()
+        mock_db.commit.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_add_entry_with_delivery_point(self):
@@ -269,23 +265,17 @@ class TestAddWatchlistEntry:
         dp_mock.name = "Singapore"
         dp_result = MagicMock()
         dp_result.scalar_one_or_none.return_value = dp_mock
+        existing_result = MagicMock()
+        existing_result.scalar_one_or_none.return_value = None
 
-        mock_db.execute.side_effect = [wl_result, count_result, prod_result, dp_result]
+        mock_db.execute.side_effect = [wl_result, prod_result, dp_result, existing_result, count_result]
 
         body = WatchlistEntryAddRequest(product_id=product_id, delivery_point_id=dp_id)
 
-        with patch("app.routers.watchlists.WatchlistEntry") as MockEntry:
-            instance = MagicMock()
-            instance.id = uuid4()
-            instance.product_id = product_id
-            instance.delivery_point_id = dp_id
-            instance.created_at = datetime.now(UTC)
-            MockEntry.return_value = instance
-
-            result = await add_watchlist_entry(
-                watchlist_id=wl.id, body=body, current_user=user, db=mock_db
-            )
-            assert result.delivery_point_name == "Singapore"
+        result = await add_watchlist_entry(
+            watchlist_id=wl.id, body=body, current_user=user, db=mock_db
+        )
+        assert result.delivery_point_name == "Singapore"
 
     @pytest.mark.asyncio
     async def test_add_entry_delivery_point_not_found(self):
@@ -306,7 +296,7 @@ class TestAddWatchlistEntry:
         dp_result = MagicMock()
         dp_result.scalar_one_or_none.return_value = None
 
-        mock_db.execute.side_effect = [wl_result, count_result, prod_result, dp_result]
+        mock_db.execute.side_effect = [wl_result, prod_result, dp_result]
 
         body = WatchlistEntryAddRequest(product_id=uuid4(), delivery_point_id=uuid4())
 
@@ -316,6 +306,44 @@ class TestAddWatchlistEntry:
             )
         assert exc_info.value.status_code == 404
         assert "Delivery point" in exc_info.value.detail
+
+    @pytest.mark.asyncio
+    async def test_add_entry_is_idempotent_when_duplicate_exists(self):
+        user = make_user()
+        wl = make_watchlist(user.id)
+        product_id = uuid4()
+
+        mock_db = AsyncMock()
+        wl_result = MagicMock()
+        wl_result.scalar_one_or_none.return_value = wl
+
+        prod_mock = MagicMock()
+        prod_mock.name = "VLSFO"
+        prod_result = MagicMock()
+        prod_result.scalar_one_or_none.return_value = prod_mock
+
+        existing_entry = MagicMock(spec=WatchlistEntry)
+        existing_entry.id = uuid4()
+        existing_entry.watchlist_id = wl.id
+        existing_entry.product_id = product_id
+        existing_entry.delivery_point_id = None
+        existing_entry.created_at = datetime.now(UTC)
+
+        existing_result = MagicMock()
+        existing_result.scalar_one_or_none.return_value = existing_entry
+
+        mock_db.execute.side_effect = [wl_result, prod_result, existing_result]
+
+        body = WatchlistEntryAddRequest(product_id=product_id)
+
+        result = await add_watchlist_entry(
+            watchlist_id=wl.id, body=body, current_user=user, db=mock_db
+        )
+
+        assert result.id == existing_entry.id
+        assert result.product_name == "VLSFO"
+        mock_db.add.assert_not_called()
+        mock_db.commit.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

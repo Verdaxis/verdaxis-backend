@@ -8,10 +8,10 @@ from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
 
 from app.database import get_db
+from app.models.catalog import DeliveryPoint, Product
 from app.models.marketplace import InventoryItem, FuelType as ModelFuelType
 from app.models.orderbook import (
     AvailabilityWindow,
-    FuelGrade,
     OrderBookOrder,
     OrderBookStatus,
     OrderSide,
@@ -24,6 +24,63 @@ import logging
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+async def _resolve_catalog_product(db: AsyncSession, item: InventoryItem) -> Product | None:
+    """Map an inventory item to the most defensible active catalog product."""
+    product_name = (item.product_name or "").strip()
+    if product_name:
+        exact_stmt = select(Product).where(
+            Product.is_active.is_(True),
+            Product.name == product_name,
+        )
+        exact_result = await db.execute(exact_stmt)
+        exact_product = exact_result.scalar_one_or_none()
+        if exact_product:
+            return exact_product
+
+    raw_fuel_type = item.fuel_type.value if hasattr(item.fuel_type, "value") else str(item.fuel_type)
+    fuel_type_candidates = [raw_fuel_type]
+    if raw_fuel_type.upper() == "LSMGO":
+        fuel_type_candidates.append("MGO")
+
+    stmt = (
+        select(Product)
+        .where(
+            Product.is_active.is_(True),
+            Product.fuel_type.in_(fuel_type_candidates),
+        )
+        .order_by(Product.name)
+    )
+    result = await db.execute(stmt)
+    products = result.scalars().all()
+    if not products:
+        return None
+
+    preferred_grades = ["Green", "Bio"] if item.is_certified else ["Conventional"]
+    preferred_grades.extend(["Conventional", "Green", "Bio"])
+    for grade in preferred_grades:
+        for product in products:
+            if product.fuel_grade == grade:
+                return product
+
+    return products[0]
+
+
+async def _resolve_delivery_point(db: AsyncSession, item: InventoryItem) -> DeliveryPoint | None:
+    """Map an inventory item port to a delivery point when the names line up."""
+    port = getattr(item, "port", None)
+    port_name = getattr(port, "name", None)
+    if not port_name:
+        return None
+
+    stmt = select(DeliveryPoint).where(
+        DeliveryPoint.is_active.is_(True),
+        DeliveryPoint.name == port_name.strip(),
+    )
+    result = await db.execute(stmt)
+    return result.scalar_one_or_none()
+
 
 @router.get("/inventory", response_model=List[InventoryResponse])
 async def list_inventory(
@@ -139,7 +196,7 @@ async def publish_inventory_item(
     if not current_user.organization_id:
         raise HTTPException(status_code=400, detail="User has no organization")
 
-    stmt = select(InventoryItem).where(
+    stmt = select(InventoryItem).options(selectinload(InventoryItem.port)).where(
         InventoryItem.id == item_id,
         InventoryItem.supplier_id == current_user.organization_id,
     )
@@ -156,12 +213,17 @@ async def publish_inventory_item(
     if item.price_per_mt_usd is None:
         raise HTTPException(status_code=400, detail="Inventory item missing price")
 
+    product = await _resolve_catalog_product(db, item)
+    if not product:
+        raise HTTPException(status_code=400, detail="Unable to map inventory item to a catalog product")
+
+    delivery_point = await _resolve_delivery_point(db, item)
+
     listing = OrderBookOrder(
         organization_id=current_user.organization_id,
         side=OrderSide.ASK,
-        fuel_type=item.fuel_type.value if hasattr(item.fuel_type, "value") else str(item.fuel_type),
-        fuel_grade=FuelGrade.CONVENTIONAL,
-        region=item.port_id or "Unknown",
+        product_id=product.id,
+        delivery_point_id=delivery_point.id if delivery_point else None,
         port_id=item.port_id,
         quantity_mt=quantity,
         remaining_quantity_mt=quantity,
