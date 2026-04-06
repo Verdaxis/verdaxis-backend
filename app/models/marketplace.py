@@ -8,10 +8,10 @@ from app.database import Base
 
 class FuelType(str, enum.Enum):
     Methanol = "Methanol"
+    Ethanol = "Ethanol"
     Biofuel = "Biofuel"
-    LNG = "LNG"
     Ammonia = "Ammonia"
-    LSMGO = "LSMGO"
+    Biomethane = "Biomethane"
 
 class InventoryItem(Base):
     __tablename__ = "inventory_items"

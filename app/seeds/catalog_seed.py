@@ -27,52 +27,30 @@ def _dp_id(name: str) -> uuid.UUID:
 # Product catalog
 # ---------------------------------------------------------------------------
 PRODUCTS = [
+
+
+
+
+
     Product(
-        id=_product_id("VLSFO Conventional"),
-        name="VLSFO Conventional",
-        fuel_type="VLSFO",
-        fuel_grade="Conventional",
-        unit="MT",
-        min_lot_size=100,
-        spec_description="Very Low Sulphur Fuel Oil, max 0.5% sulphur",
-    ),
-    Product(
-        id=_product_id("VLSFO Green"),
-        name="VLSFO Green",
-        fuel_type="VLSFO",
+        id=_product_id("Ethanol Green"),
+        name="Ethanol Green",
+        fuel_type="Ethanol",
         fuel_grade="Green",
         unit="MT",
-        min_lot_size=100,
-        spec_description="VLSFO from renewable feedstock",
+        min_lot_size=200,
+        spec_description="Second-generation bioethanol from waste feedstocks",
     ),
     Product(
-        id=_product_id("MGO Conventional"),
-        name="MGO Conventional",
-        fuel_type="MGO",
-        fuel_grade="Conventional",
-        unit="MT",
-        min_lot_size=50,
-        spec_description="Marine Gas Oil, ISO 8217 DMA",
-    ),
-    Product(
-        id=_product_id("MGO Bio"),
-        name="MGO Bio",
-        fuel_type="MGO",
+        id=_product_id("Biomethane"),
+        name="Biomethane",
+        fuel_type="Biomethane",
         fuel_grade="Bio",
         unit="MT",
-        min_lot_size=50,
-        spec_description="Bio-blended Marine Gas Oil",
+        min_lot_size=200,
+        spec_description="Bio-LNG / renewable compressed biomethane for maritime use",
     ),
-    Product(
-        id=_product_id("LNG Conventional"),
-        name="LNG Conventional",
-        fuel_type="LNG",
-        fuel_grade="Conventional",
-        unit="MT",
-        min_lot_size=500,
-        spec_description="Liquefied Natural Gas for marine propulsion",
-    ),
-    Product(
+        Product(
         id=_product_id("Methanol Green"),
         name="Methanol Green",
         fuel_type="Methanol",

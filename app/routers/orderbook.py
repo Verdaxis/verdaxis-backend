@@ -96,14 +96,20 @@ async def list_bids(
     result = await db.execute(query)
     orders = result.unique().scalars().all()
 
-    # Fetch best ask price (single scalar query) for crossing detection
-    # This queries ALL orders, not affected by pagination
-    best_ask_result = await db.execute(
-        select(func.min(OrderBookOrder.price_per_mt_usd)).where(
-            OrderBookOrder.side == OrderSide.ASK,
-            OrderBookOrder.status.in_([OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED]),
-        )
+    # Fetch best ask price scoped to same fuel_type/region for crossing detection
+    best_ask_query = select(func.min(OrderBookOrder.price_per_mt_usd)).where(
+        OrderBookOrder.side == OrderSide.ASK,
+        OrderBookOrder.status.in_([OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED]),
     )
+    if fuel_type:
+        best_ask_query = best_ask_query.join(Product, OrderBookOrder.product_id == Product.id).where(
+            Product.fuel_type == fuel_type
+        )
+    if region:
+        best_ask_query = best_ask_query.join(DeliveryPoint, OrderBookOrder.delivery_point_id == DeliveryPoint.id).where(
+            or_(DeliveryPoint.region == region, DeliveryPoint.name == region)
+        )
+    best_ask_result = await db.execute(best_ask_query)
     best_ask_price = best_ask_result.scalar()
 
     items = [
@@ -168,14 +174,20 @@ async def list_asks(
     result = await db.execute(query)
     orders = result.unique().scalars().all()
 
-    # Fetch best bid price (single scalar query) for crossing detection
-    # This queries ALL orders, not affected by pagination
-    best_bid_result = await db.execute(
-        select(func.max(OrderBookOrder.price_per_mt_usd)).where(
-            OrderBookOrder.side == OrderSide.BID,
-            OrderBookOrder.status.in_([OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED]),
-        )
+    # Fetch best bid price scoped to same fuel_type/region for crossing detection
+    best_bid_query = select(func.max(OrderBookOrder.price_per_mt_usd)).where(
+        OrderBookOrder.side == OrderSide.BID,
+        OrderBookOrder.status.in_([OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED]),
     )
+    if fuel_type:
+        best_bid_query = best_bid_query.join(Product, OrderBookOrder.product_id == Product.id).where(
+            Product.fuel_type == fuel_type
+        )
+    if region:
+        best_bid_query = best_bid_query.join(DeliveryPoint, OrderBookOrder.delivery_point_id == DeliveryPoint.id).where(
+            or_(DeliveryPoint.region == region, DeliveryPoint.name == region)
+        )
+    best_bid_result = await db.execute(best_bid_query)
     best_bid_price = best_bid_result.scalar()
 
     items = [

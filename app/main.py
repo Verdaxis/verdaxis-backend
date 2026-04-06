@@ -28,6 +28,7 @@ from app.routers.matchmaking import router as matchmaking_router
 from app.routers.producers import router as producers_router
 from app.routers.availability import router as availability_router
 from app.routers.demand import router as demand_router
+from app.routers.fleet_intelligence import router as fleet_intel_router
 from app.routers.audit import router as audit_router
 from app.routers.stream import router as stream_router
 from app.routers.compliance_api import router as compliance_api_router
@@ -41,6 +42,7 @@ from app.routers.subscriptions import router as subscriptions_router
 from app.routers.referrals import router as referrals_router
 from app.routers.trade_tape import router as trade_tape_router
 from app.routers.rfq import router as rfq_router
+from app.routers.negotiations import router as negotiations_router
 from app.routers.watchlists import router as watchlists_router
 from app.routers.news import router as news_router
 
@@ -187,7 +189,9 @@ app.include_router(referrals_router, prefix=settings.API_V1_STR)
 app.include_router(trade_tape_router, prefix=settings.API_V1_STR)
 app.include_router(watchlists_router, prefix=settings.API_V1_STR)
 app.include_router(rfq_router, prefix=settings.API_V1_STR)
+app.include_router(negotiations_router, prefix=settings.API_V1_STR)
 app.include_router(news_router, prefix=settings.API_V1_STR)
+app.include_router(fleet_intel_router, prefix=settings.API_V1_STR)
 
 from app.routers import dashboard
 app.include_router(dashboard.router, prefix=settings.API_V1_STR)

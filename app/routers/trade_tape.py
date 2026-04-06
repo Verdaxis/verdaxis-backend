@@ -68,16 +68,16 @@ async def get_trade_tape(
 
     if market_hours:
         # Real-time: trades confirmed in the last 24h
-        cutoff = now - timedelta(hours=24)
+        cutoff = now - timedelta(days=7)
         confirmed_before = None
     else:
         # Delayed: trades confirmed in last 25h but only those older than 1h
-        cutoff = now - timedelta(hours=25)
+        cutoff = now - timedelta(days=7)
         confirmed_before = now - timedelta(hours=1)
 
     # Base filter: confirmed trades after cutoff
     conditions = [
-        Trade.status == TradeStatus.CONFIRMED,
+        Trade.status.in_([TradeStatus.CONFIRMED, TradeStatus.DELIVERED, TradeStatus.PAID]),
         Trade.confirmed_at >= cutoff,
     ]
     if confirmed_before is not None:
@@ -102,8 +102,9 @@ async def get_trade_tape(
         )
     if region is not None:
         from app.models.catalog import DeliveryPoint
+        from sqlalchemy import or_
         base_query = base_query.join(DeliveryPoint, OrderBookOrder.delivery_point_id == DeliveryPoint.id).where(
-            DeliveryPoint.region == region
+            or_(DeliveryPoint.region == region, DeliveryPoint.name == region)
         )
 
     # Count query

@@ -11,11 +11,11 @@ import structlog
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.models.news import NewsItem
 
 logger = structlog.get_logger()
 
-GEMINI_API_KEY = "AIzaSyASMQI2fcFRz8zrey7_16D_vlR4zT7rsMA"
 GEMINI_MODEL = "gemini-2.5-flash-lite"
 
 RSS_FEEDS = [
@@ -97,8 +97,12 @@ async def categorize_headline(title: str) -> dict:
     Falls back to defaults on any failure.
     """
     defaults = {"category": "markets", "relevance": 3, "summary": None}
+    if not settings.GEMINI_API_KEY:
+        logger.warning("news_feed.gemini_skipped", reason="GEMINI_API_KEY not configured")
+        return defaults
+
     try:
-        genai.configure(api_key=GEMINI_API_KEY)
+        genai.configure(api_key=settings.GEMINI_API_KEY)
         model = genai.GenerativeModel(GEMINI_MODEL)
         prompt = (
             "Categorize this shipping/maritime headline into exactly ONE category. "
