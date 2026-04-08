@@ -9,6 +9,8 @@ from typing import Optional
 
 import structlog
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as postgresql_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -90,6 +92,19 @@ def _extract_json(text: str) -> Optional[dict]:
     return None
 
 
+def _dedupe_fetched_items(raw_items: list[dict]) -> list[dict]:
+    """Collapse duplicate URLs within a single fetch batch before categorization."""
+    unique_items: list[dict] = []
+    seen_urls: set[str] = set()
+    for item in raw_items:
+        url = item["url"]
+        if url in seen_urls:
+            continue
+        seen_urls.add(url)
+        unique_items.append(item)
+    return unique_items
+
+
 async def categorize_headline(title: str) -> dict:
     """Call Gemini Flash Lite to categorize a shipping headline.
 
@@ -153,6 +168,8 @@ async def refresh_news(db: AsyncSession) -> int:
         logger.info("news_feed.no_items_fetched")
         return 0
 
+    raw_items = _dedupe_fetched_items(raw_items)
+
     # Get existing URLs from DB for deduplication
     urls = [item["url"] for item in raw_items]
     result = await db.execute(
@@ -171,23 +188,41 @@ async def refresh_news(db: AsyncSession) -> int:
         total_fetched=len(raw_items),
     )
 
-    inserted = 0
+    rows_to_insert = []
     for item in new_items:
         cat_result = await categorize_headline(item["title"])
-        news_item = NewsItem(
-            title=item["title"],
-            url=item["url"],
-            source=item["source"],
-            source_url=item["source_url"],
-            published_at=item["published_at"],
-            category=cat_result["category"],
-            relevance=cat_result["relevance"],
-            summary=cat_result["summary"],
-            fetched_at=datetime.now(UTC),
+        rows_to_insert.append(
+            {
+                "title": item["title"],
+                "url": item["url"],
+                "source": item["source"],
+                "source_url": item["source_url"],
+                "published_at": item["published_at"],
+                "category": cat_result["category"],
+                "relevance": cat_result["relevance"],
+                "summary": cat_result["summary"],
+                "fetched_at": datetime.now(UTC),
+            }
         )
-        db.add(news_item)
-        inserted += 1
 
+    bind = db.get_bind()
+    dialect_name = bind.dialect.name if bind is not None else ""
+    if dialect_name == "postgresql":
+        stmt = postgresql_insert(NewsItem).values(rows_to_insert)
+        stmt = stmt.on_conflict_do_nothing(index_elements=[NewsItem.url])
+    elif dialect_name == "sqlite":
+        stmt = sqlite_insert(NewsItem).values(rows_to_insert)
+        stmt = stmt.on_conflict_do_nothing(index_elements=[NewsItem.url])
+    else:
+        for row in rows_to_insert:
+            db.add(NewsItem(**row))
+        await db.commit()
+        inserted = len(rows_to_insert)
+        logger.info("news_feed.refresh_complete", inserted=inserted)
+        return inserted
+
+    result = await db.execute(stmt)
     await db.commit()
+    inserted = max(result.rowcount or 0, 0)
     logger.info("news_feed.refresh_complete", inserted=inserted)
     return inserted

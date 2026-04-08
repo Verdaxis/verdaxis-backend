@@ -21,6 +21,6 @@ def test_order_create_schema_has_is_anonymous():
     assert "is_anonymous" in OrderCreate.model_fields
 
 
-def test_order_create_schema_defaults_is_anonymous_to_false():
+def test_order_create_schema_defaults_is_anonymous_to_true():
     from app.schemas.orderbook import OrderCreate
-    assert OrderCreate.model_fields["is_anonymous"].default is False
+    assert OrderCreate.model_fields["is_anonymous"].default is True
