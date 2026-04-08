@@ -42,6 +42,9 @@ class TestOrderCreate:
         assert order.delivery_point_id is not None
         assert order.availability_window == "SPOT"  # default
         assert order.certifications == []  # default
+        assert order.certification_declared is False
+        assert order.msds_available is False
+        assert order.off_spec is False
         assert order.port_id is None
         assert order.vessel_id is None
 
@@ -57,12 +60,32 @@ class TestOrderCreate:
             price_per_mt_usd=Decimal("780"),
             availability_window="2026-Q1",
             certifications=["ISCC", "Nanolumi"],
+            certification_declared=True,
+            certification_scheme="ISCC EU",
+            specification_standard="IMPCA",
+            msds_available=True,
+            carbon_intensity_gco2_mj=Decimal("18.40"),
+            carbon_intensity_method="ISCC EU",
+            feedstock="Municipal solid waste",
+            origin="Netherlands",
+            off_spec=True,
+            off_spec_notes="Water content slightly above target",
             expires_at=datetime(2026, 6, 1),
         )
         assert order.side == OrderSide.ASK
         assert order.product_id == product_id
         assert order.delivery_point_id == dp_id
         assert order.certifications == ["ISCC", "Nanolumi"]
+        assert order.certification_declared is True
+        assert order.certification_scheme == "ISCC EU"
+        assert order.specification_standard == "IMPCA"
+        assert order.msds_available is True
+        assert order.carbon_intensity_gco2_mj == Decimal("18.40")
+        assert order.carbon_intensity_method == "ISCC EU"
+        assert order.feedstock == "Municipal solid waste"
+        assert order.origin == "Netherlands"
+        assert order.off_spec is True
+        assert order.off_spec_notes == "Water content slightly above target"
         assert order.availability_window == "2026-Q1"
 
     def test_quantity_must_be_positive(self):
@@ -159,6 +182,31 @@ class TestOrderUpdate:
         dumped = update.model_dump(exclude_unset=True)
         assert dumped["certifications"] == ["ISCC"]
 
+    def test_metadata_update(self):
+        update = OrderUpdate(
+            certification_declared=True,
+            certification_scheme="ISCC PLUS",
+            specification_standard="ASTM D5798",
+            msds_available=True,
+            carbon_intensity_gco2_mj=Decimal("12.30"),
+            carbon_intensity_method="Supplier attestation",
+            feedstock="Residue ethanol",
+            origin="Brazil",
+            off_spec=True,
+            off_spec_notes="Chloride above nominal target",
+        )
+        dumped = update.model_dump(exclude_unset=True)
+        assert dumped["certification_declared"] is True
+        assert dumped["certification_scheme"] == "ISCC PLUS"
+        assert dumped["specification_standard"] == "ASTM D5798"
+        assert dumped["msds_available"] is True
+        assert dumped["carbon_intensity_gco2_mj"] == Decimal("12.30")
+        assert dumped["carbon_intensity_method"] == "Supplier attestation"
+        assert dumped["feedstock"] == "Residue ethanol"
+        assert dumped["origin"] == "Brazil"
+        assert dumped["off_spec"] is True
+        assert dumped["off_spec_notes"] == "Chloride above nominal target"
+
 
 class TestOrderResponse:
     def test_from_dict(self):
@@ -177,6 +225,16 @@ class TestOrderResponse:
             price_per_mt_usd=Decimal("780"),
             availability_window="SPOT",
             certifications=["ISCC"],
+            certification_declared=True,
+            certification_scheme="ISCC EU",
+            specification_standard="IMPCA",
+            msds_available=True,
+            carbon_intensity_gco2_mj=Decimal("22.10"),
+            carbon_intensity_method="ISCC EU",
+            feedstock="Anaerobic digestion CO2 + green hydrogen",
+            origin="Iceland",
+            off_spec=True,
+            off_spec_notes="Cloud point under review",
             is_verdaxis_verified=True,
             status=OrderBookStatus.PARTIALLY_FILLED,
             created_at=datetime.utcnow(),
@@ -186,6 +244,16 @@ class TestOrderResponse:
         assert resp.product_id == product_id
         assert resp.product_name == "Biofuel Bio"
         assert resp.market_product == "BIO_METHANOL"
+        assert resp.certification_declared is True
+        assert resp.certification_scheme == "ISCC EU"
+        assert resp.specification_standard == "IMPCA"
+        assert resp.msds_available is True
+        assert resp.carbon_intensity_gco2_mj == Decimal("22.10")
+        assert resp.carbon_intensity_method == "ISCC EU"
+        assert resp.feedstock == "Anaerobic digestion CO2 + green hydrogen"
+        assert resp.origin == "Iceland"
+        assert resp.off_spec is True
+        assert resp.off_spec_notes == "Cloud point under review"
 
     def test_my_response_extends_base(self):
         now = datetime.utcnow()
@@ -231,6 +299,16 @@ class TestOrderResponse:
         )
 
         assert resp.market_product is None
+        assert resp.certification_declared is False
+        assert resp.certification_scheme is None
+        assert resp.specification_standard is None
+        assert resp.msds_available is False
+        assert resp.carbon_intensity_gco2_mj is None
+        assert resp.carbon_intensity_method is None
+        assert resp.feedstock is None
+        assert resp.origin is None
+        assert resp.off_spec is False
+        assert resp.off_spec_notes is None
 
 
 class TestTradeCreate:
@@ -366,3 +444,5 @@ class TestEnumValues:
         assert FuelGrade.CONVENTIONAL.value == "Conventional"
         assert FuelGrade.GREEN.value == "Green"
         assert FuelGrade.BIO.value == "Bio"
+        assert FuelGrade.E.value == "E"
+        assert FuelGrade.SYNTHETIC.value == "Synthetic"

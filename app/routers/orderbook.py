@@ -23,8 +23,22 @@ from app.schemas.pagination import PaginatedResponse
 from app.services.ci_pricing import calculate_ci_adjusted_price
 from app.services.event_bus import event_bus
 from app.services.availability_windows import normalize_availability_window
+from pydantic import BaseModel
 
 router = APIRouter(prefix="/orderbook", tags=["orderbook"])
+
+SUPPLIER_METADATA_FIELDS = (
+    "certification_declared",
+    "certification_scheme",
+    "specification_standard",
+    "msds_available",
+    "carbon_intensity_gco2_mj",
+    "carbon_intensity_method",
+    "feedstock",
+    "origin",
+    "off_spec",
+    "off_spec_notes",
+)
 
 
 def compute_is_crossed(side: str, price: Decimal, best_opposing_price: Optional[Decimal]) -> bool:
@@ -53,6 +67,17 @@ def _normalize_query_window(value: str | None) -> str | None:
         return normalize_availability_window(value)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+def _supplier_metadata_payload(source: object) -> dict[str, object]:
+    return {
+        field: getattr(source, field)
+        for field in SUPPLIER_METADATA_FIELDS
+    }
+
+
+def _supplier_metadata_fields_present(source: BaseModel) -> set[str]:
+    return set(getattr(source, "model_fields_set", set())) & set(SUPPLIER_METADATA_FIELDS)
 
 
 async def _load_best_opposing_prices(
@@ -498,6 +523,14 @@ async def create_order(
             detail="Only suppliers can place ASK orders",
         )
 
+    if order_data.side != OrderSide.ASK:
+        supplied_metadata_fields = _supplier_metadata_fields_present(order_data)
+        if supplied_metadata_fields:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Supplier metadata is only allowed for ASK orders: {', '.join(sorted(supplied_metadata_fields))}",
+            )
+
     if not current_user.organization_id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -542,6 +575,8 @@ async def create_order(
 
     if order_data.side == OrderSide.ASK:
         new_order.certifications = order_data.certifications
+        for field, value in _supplier_metadata_payload(order_data).items():
+            setattr(new_order, field, value)
 
     db.add(new_order)
     await db.flush()  # Get the order ID without committing
@@ -632,6 +667,9 @@ async def update_order(
         )
 
     update_dict = update_data.model_dump(exclude_unset=True)
+    if order.side != OrderSide.ASK:
+        for field in SUPPLIER_METADATA_FIELDS:
+            update_dict.pop(field, None)
 
     # If quantity_mt changes, recalculate remaining_quantity_mt proportionally
     if "quantity_mt" in update_dict:

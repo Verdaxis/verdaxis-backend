@@ -25,6 +25,19 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+SUPPLIER_METADATA_FIELDS = (
+    "certification_declared",
+    "certification_scheme",
+    "specification_standard",
+    "msds_available",
+    "carbon_intensity_gco2_mj",
+    "carbon_intensity_method",
+    "feedstock",
+    "origin",
+    "off_spec",
+    "off_spec_notes",
+)
+
 
 async def _resolve_catalog_product(db: AsyncSession, item: InventoryItem) -> Product | None:
     """Map an inventory item to the most defensible active catalog product."""
@@ -231,6 +244,7 @@ async def publish_inventory_item(
         availability_window=SPOT_WINDOW,
         certifications=["INVENTORY_CERTIFIED"] if item.is_certified else [],
         status=OrderBookStatus.OPEN,
+        **{field: getattr(item, field) for field in SUPPLIER_METADATA_FIELDS},
     )
     db.add(listing)
     await db.commit()
@@ -242,10 +256,25 @@ async def publish_inventory_item(
 def _listing_payload(order: OrderBookOrder, match_count: int = 0) -> dict[str, Any]:
     return {
         "id": str(order.id),
+        "product_name": order.product_name,
+        "market_product": order.market_product,
         "fuel_type": order.fuel_type,
+        "fuel_grade": order.fuel_grade,
         "quantity_mt": str(order.quantity_mt),
         "price_per_mt_usd": str(order.price_per_mt_usd),
         "region": order.region,
+        "availability_window": order.availability_window,
+        "certifications": order.certifications or [],
+        "certification_declared": order.certification_declared,
+        "certification_scheme": order.certification_scheme,
+        "specification_standard": order.specification_standard,
+        "msds_available": order.msds_available,
+        "carbon_intensity_gco2_mj": str(order.carbon_intensity_gco2_mj) if order.carbon_intensity_gco2_mj is not None else None,
+        "carbon_intensity_method": order.carbon_intensity_method,
+        "feedstock": order.feedstock,
+        "origin": order.origin,
+        "off_spec": order.off_spec,
+        "off_spec_notes": order.off_spec_notes,
         "status": order.status.value if hasattr(order.status, "value") else str(order.status),
         "match_count": match_count,
     }

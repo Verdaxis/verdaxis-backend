@@ -44,6 +44,8 @@ class FuelGrade(str, Enum):
     CONVENTIONAL = "Conventional"
     GREEN = "Green"
     BIO = "Bio"
+    E = "E"
+    SYNTHETIC = "Synthetic"
 
 
 class TierLabel(str, Enum):
@@ -71,9 +73,22 @@ class AvailabilityWindowMixin(BaseModel):
         return normalize_availability_window(value)
 
 
+class SupplierListingMetadataMixin(BaseModel):
+    certification_declared: bool = False
+    certification_scheme: Optional[str] = None
+    specification_standard: Optional[str] = None
+    msds_available: bool = False
+    carbon_intensity_gco2_mj: Optional[Decimal] = Field(None, ge=0)
+    carbon_intensity_method: Optional[str] = None
+    feedstock: Optional[str] = None
+    origin: Optional[str] = None
+    off_spec: bool = False
+    off_spec_notes: Optional[str] = None
+
+
 # ============== Order Schemas ==============
 
-class OrderCreate(AvailabilityWindowMixin):
+class OrderCreate(AvailabilityWindowMixin, SupplierListingMetadataMixin):
     """Used by both buyers (side=BID) and suppliers (side=ASK) to place an order."""
     side: OrderSide
     product_id: UUID
@@ -94,10 +109,20 @@ class OrderUpdate(AvailabilityWindowMixin):
     price_per_mt_usd: Optional[Decimal] = Field(None, gt=0)
     availability_window: Optional[AvailabilityWindowCode] = None
     certifications: Optional[list[str]] = None
+    certification_declared: Optional[bool] = None
+    certification_scheme: Optional[str] = None
+    specification_standard: Optional[str] = None
+    msds_available: Optional[bool] = None
+    carbon_intensity_gco2_mj: Optional[Decimal] = Field(None, ge=0)
+    carbon_intensity_method: Optional[str] = None
+    feedstock: Optional[str] = None
+    origin: Optional[str] = None
+    off_spec: Optional[bool] = None
+    off_spec_notes: Optional[str] = None
     expires_at: Optional[datetime] = None
 
 
-class OrderResponse(AvailabilityWindowMixin):
+class OrderResponse(AvailabilityWindowMixin, SupplierListingMetadataMixin):
     """Public/anonymized order for the book. organization_id is NOT included."""
     id: UUID
     side: OrderSide
@@ -120,7 +145,6 @@ class OrderResponse(AvailabilityWindowMixin):
     status: OrderBookStatus
     expires_at: Optional[datetime] = None
     created_at: datetime
-    carbon_intensity_gco2_mj: Optional[Decimal] = None
     is_crossed: bool = False
 
     class Config:

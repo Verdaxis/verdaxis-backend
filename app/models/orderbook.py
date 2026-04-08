@@ -1,4 +1,4 @@
-from sqlalchemy import String, ForeignKey, Enum, Numeric, DateTime, Boolean, JSON
+from sqlalchemy import String, ForeignKey, Enum, Numeric, DateTime, Boolean, JSON, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import UUID
 import uuid
@@ -13,6 +13,8 @@ class FuelGrade(str, enum.Enum):
     CONVENTIONAL = "Conventional"
     GREEN = "Green"
     BIO = "Bio"
+    E = "E"
+    SYNTHETIC = "Synthetic"
 
 
 class OrderSide(str, enum.Enum):
@@ -77,15 +79,24 @@ class OrderBookOrder(Base):
 
     # ASK-specific
     certifications: Mapped[list | None] = mapped_column(JSON, default=list)
+    certification_declared: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    certification_scheme: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    specification_standard: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    msds_available: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     is_verdaxis_verified: Mapped[bool] = mapped_column(Boolean, default=False)
 
     # CI data (optional -- populated by supplier for ASK orders)
     carbon_intensity_gco2_mj: Mapped[Decimal | None] = mapped_column(
         Numeric(8, 2), nullable=True, comment="gCO2eq/MJ well-to-wake"
     )
+    carbon_intensity_method: Mapped[str | None] = mapped_column(String(120), nullable=True)
     energy_density_mj_kg: Mapped[Decimal | None] = mapped_column(
         Numeric(6, 2), nullable=True, comment="MJ/kg lower heating value"
     )
+    feedstock: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    origin: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    off_spec: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    off_spec_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Status
     status: Mapped[OrderBookStatus] = mapped_column(

@@ -136,6 +136,9 @@ class TestListOrders:
                     "fuel_type", "fuel_grade", "region",
                     "quantity_mt", "remaining_quantity_mt", "price_per_mt_usd",
                     "availability_window", "certifications", "is_verdaxis_verified",
+                    "certification_declared", "certification_scheme", "specification_standard",
+                    "msds_available", "carbon_intensity_gco2_mj", "carbon_intensity_method",
+                    "feedstock", "origin", "off_spec", "off_spec_notes",
                     "tier_label", "status", "created_at",
                 }
                 assert expected_keys.issubset(set(order.keys())), \
@@ -200,6 +203,16 @@ class TestCreateOrder:
                     "price_per_mt_usd": "560",
                     "availability_window": "Spot",
                     "certifications": ["ISCC"],
+                    "certification_declared": True,
+                    "certification_scheme": "ISCC EU",
+                    "specification_standard": "IMPCA",
+                    "msds_available": True,
+                    "carbon_intensity_gco2_mj": "19.5",
+                    "carbon_intensity_method": "ISCC EU",
+                    "feedstock": "Biogenic CO2",
+                    "origin": "Iceland",
+                    "off_spec": True,
+                    "off_spec_notes": "Water content above nominal target",
                 },
                 headers=supplier_headers(),
             )
@@ -212,6 +225,16 @@ class TestCreateOrder:
             assert data["status"] == "OPEN"
             assert float(data["remaining_quantity_mt"]) == 3000
             assert data["certifications"] == ["ISCC"]
+            assert data["certification_declared"] is True
+            assert data["certification_scheme"] == "ISCC EU"
+            assert data["specification_standard"] == "IMPCA"
+            assert data["msds_available"] is True
+            assert data["carbon_intensity_gco2_mj"] == "19.5"
+            assert data["carbon_intensity_method"] == "ISCC EU"
+            assert data["feedstock"] == "Biogenic CO2"
+            assert data["origin"] == "Iceland"
+            assert data["off_spec"] is True
+            assert data["off_spec_notes"] == "Water content above nominal target"
 
     @pytest.mark.asyncio
     async def test_buyer_creates_bid_order(self):
