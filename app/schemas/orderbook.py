@@ -162,6 +162,16 @@ class OrderMyResponse(OrderResponse):
     trade_count: int = 0
 
 
+class SupplierListingTemplateResponse(AvailabilityWindowMixin, SupplierListingMetadataMixin):
+    """Safe supplier defaults for creating the next ASK listing."""
+    product_id: UUID
+    delivery_point_id: UUID
+    quantity_mt: Decimal
+    price_per_mt_usd: Decimal
+    availability_window: AvailabilityWindowCode
+    certifications: list[str] = Field(default_factory=list)
+
+
 # ============== Trade Schemas ==============
 
 class TradeCreate(BaseModel):

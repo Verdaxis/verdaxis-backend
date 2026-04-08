@@ -29,7 +29,7 @@ app/
   routers/
     auth_simple.py              # JWT auth — login/register, cookie-backed refresh rotation, password change, /me, RBAC
     oauth.py                    # [feature branch] Google + Microsoft OIDC via Authlib
-    orderbook.py                # Order book CRUD + match-on-insert auto-matching
+    orderbook.py                # Order/listing CRUD, supplier ASK template endpoint, certification guardrails
     trades.py                   # Trade lifecycle — create/confirm/decline/deliver/pay + SSE events
     matchmaking.py              # Match suggestions — generate, list, dismiss
     price_discovery.py          # Public price ticker + daily VWAP reference prices
@@ -51,11 +51,12 @@ app/
   schemas/
     user.py                     # UserCreate (min 8 chars pw), UserResponse, PasswordChangeRequest
     organization.py             # OrganizationCreate/Response
-    orderbook.py                # Order/Trade schemas, required delivery point, canonical availability window validation
+    orderbook.py                # Order/Trade schemas, supplier metadata pack, ASK template response, canonical availability window validation
     [others unchanged]
   services/
     event_bus.py                # AsyncIO pub/sub — per-channel queues, 200 subscriber cap, backpressure
-    matching_engine.py          # Match-on-insert — price-time priority, partial fills, auto-confirm
+    matching_engine.py          # Match-on-insert — price-time priority within canonical market identity, partial fills, auto-confirm
+    benchmarks.py               # Benchmark lookup keyed by market_product + delivery_point + availability_window
     availability_windows.py     # Canonical availability code parsing, sorting, display labels, legacy alias normalization
     compliance_scoring.py       # Pure function scoring — FuelEU/ETS/CII, 9 fuels, scenario engine
     audit_service.py            # record_audit() — async audit logging
@@ -73,12 +74,14 @@ tests/integration/              # Auth hardening, trade lifecycle, orderbook E2E
 ## Key Patterns
 
 - **Match-on-insert:** `POST /orderbook` → `db.flush()` → `match_order()` → `db.commit()` (atomic); executable matches now require exact `product + delivery_point + availability_window`
+- **Supplier ASK invariants:** ASK creation/update requires explicit `certification_declared=true` plus a non-empty `certification_scheme`; `GET /orderbook/my/latest-ask-template` returns safe defaults for the next listing and resets off-spec state
 - **SSE broadcasting:** `event_bus.publish(channel, event_type, data)` → subscribers via AsyncIO queues
 - **Compliance scoring:** Pure function `calculate_compliance_score()` — no DB, 100% testable
 - **Dual-token JWT:** 15-min access + 7-day refresh, `password_changed_at` for stateless invalidation
 - **Cookie-backed refresh:** refresh token is also rotated through an HttpOnly `refresh_token` cookie scoped to `/api/auth`, while access tokens remain bearer tokens
 - **Rate limiting:** slowapi per-route (5/min login, 3/min password, 60/min prices, 30/min reference)
 - **Availability windows:** Persist canonical codes (`SPOT`, `YYYY-MM`, `YYYY-QN`, legacy-compatible `YYYY-CAL`); UI-relative labels like `M+1` must be resolved before persistence
+- **Green-fuels market model:** Benchmarks and default matchmaking key on `market_product + delivery_point + availability_window`; supplier sustainability/compliance fields stay out of the hard market key
 
 ## Revenue Streams
 

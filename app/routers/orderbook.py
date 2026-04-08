@@ -16,6 +16,7 @@ from app.schemas.orderbook import (
     OrderUpdate,
     OrderResponse,
     OrderMyResponse,
+    SupplierListingTemplateResponse,
     AggregatedOrderbookResponse,
     OrderResponseWithCI,
 )
@@ -79,6 +80,24 @@ def _supplier_metadata_payload(source: object) -> dict[str, object]:
 
 def _supplier_metadata_fields_present(source: BaseModel) -> set[str]:
     return set(getattr(source, "model_fields_set", set())) & set(SUPPLIER_METADATA_FIELDS)
+
+
+def _require_supplier_certification(
+    *,
+    certification_declared: bool,
+    certification_scheme: str | None,
+) -> None:
+    if not certification_declared:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="ASK orders require an explicit certification declaration",
+        )
+
+    if not certification_scheme or not certification_scheme.strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="ASK orders require a certification scheme",
+        )
 
 
 async def _benchmark_payload(db: AsyncSession, order: OrderBookOrder) -> dict[str, object]:
@@ -412,6 +431,51 @@ async def list_my_orders(
     return result_list
 
 
+@router.get("/my/latest-ask-template", response_model=Optional[SupplierListingTemplateResponse])
+async def latest_supplier_listing_template(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if not current_user.organization_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="User must belong to an organization",
+        )
+
+    result = await db.execute(
+        select(OrderBookOrder)
+        .where(
+            OrderBookOrder.organization_id == current_user.organization_id,
+            OrderBookOrder.side == OrderSide.ASK,
+        )
+        .order_by(OrderBookOrder.created_at.desc())
+        .limit(1)
+    )
+    latest_ask = result.scalars().first()
+    if latest_ask is None:
+        return None
+
+    payload = SupplierListingTemplateResponse(
+        product_id=latest_ask.product_id,
+        delivery_point_id=latest_ask.delivery_point_id,
+        quantity_mt=latest_ask.quantity_mt,
+        price_per_mt_usd=latest_ask.price_per_mt_usd,
+        availability_window=latest_ask.availability_window,
+        certifications=list(latest_ask.certifications or []),
+        certification_declared=latest_ask.certification_declared,
+        certification_scheme=latest_ask.certification_scheme,
+        specification_standard=latest_ask.specification_standard,
+        msds_available=latest_ask.msds_available,
+        carbon_intensity_gco2_mj=latest_ask.carbon_intensity_gco2_mj,
+        carbon_intensity_method=latest_ask.carbon_intensity_method,
+        feedstock=latest_ask.feedstock,
+        origin=latest_ask.origin,
+        off_spec=False,
+        off_spec_notes=None,
+    )
+    return payload
+
+
 @router.get("/aggregated", response_model=list[AggregatedOrderbookResponse])
 async def list_aggregated_orderbook(
     db: AsyncSession = Depends(get_db),
@@ -581,6 +645,11 @@ async def create_order(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Supplier metadata is only allowed for ASK orders: {', '.join(sorted(supplied_metadata_fields))}",
             )
+    else:
+        _require_supplier_certification(
+            certification_declared=order_data.certification_declared,
+            certification_scheme=order_data.certification_scheme,
+        )
 
     if not current_user.organization_id:
         raise HTTPException(
@@ -721,6 +790,11 @@ async def update_order(
     if order.side != OrderSide.ASK:
         for field in SUPPLIER_METADATA_FIELDS:
             update_dict.pop(field, None)
+    else:
+        _require_supplier_certification(
+            certification_declared=bool(update_dict.get("certification_declared", order.certification_declared)),
+            certification_scheme=(update_dict.get("certification_scheme", order.certification_scheme)),
+        )
 
     # If quantity_mt changes, recalculate remaining_quantity_mt proportionally
     if "quantity_mt" in update_dict:
