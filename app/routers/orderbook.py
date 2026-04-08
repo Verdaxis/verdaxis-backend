@@ -24,6 +24,7 @@ from app.services.ci_pricing import calculate_ci_adjusted_price
 from app.services.event_bus import event_bus
 from app.services.availability_windows import normalize_availability_window
 from pydantic import BaseModel
+from app.services.benchmarks import compute_premium_discount, get_benchmark_quote
 
 router = APIRouter(prefix="/orderbook", tags=["orderbook"])
 
@@ -78,6 +79,58 @@ def _supplier_metadata_payload(source: object) -> dict[str, object]:
 
 def _supplier_metadata_fields_present(source: BaseModel) -> set[str]:
     return set(getattr(source, "model_fields_set", set())) & set(SUPPLIER_METADATA_FIELDS)
+
+
+async def _benchmark_payload(db: AsyncSession, order: OrderBookOrder) -> dict[str, object]:
+    if order.off_spec:
+        return {
+            "benchmark_price_per_mt_usd": None,
+            "premium_discount_per_mt_usd": None,
+            "benchmark_source": None,
+        }
+
+    quote = await get_benchmark_quote(
+        db,
+        market_product=order.market_product,
+        delivery_point_id=order.delivery_point_id,
+        availability_window=order.availability_window,
+    )
+    if quote is None:
+        return {
+            "benchmark_price_per_mt_usd": None,
+            "premium_discount_per_mt_usd": None,
+            "benchmark_source": None,
+        }
+
+    return {
+        "benchmark_price_per_mt_usd": quote.benchmark_price_per_mt_usd,
+        "premium_discount_per_mt_usd": compute_premium_discount(
+            listing_price_per_mt_usd=order.price_per_mt_usd,
+            benchmark_price_per_mt_usd=quote.benchmark_price_per_mt_usd,
+        ),
+        "benchmark_source": quote.source,
+    }
+
+
+async def _order_response(db: AsyncSession, order: OrderBookOrder, *, is_crossed: bool = False) -> OrderResponse:
+    payload = OrderResponse.model_validate(order, from_attributes=True).model_copy(
+        update={
+            "is_crossed": is_crossed,
+            **(await _benchmark_payload(db, order)),
+        }
+    )
+    return payload
+
+
+async def _order_my_response(db: AsyncSession, order: OrderBookOrder) -> OrderMyResponse:
+    item = OrderMyResponse.model_validate(order, from_attributes=True).model_copy(
+        update=await _benchmark_payload(db, order)
+    )
+    if order.side == OrderSide.BID:
+        item.trade_count = len(order.bid_trades)
+    else:
+        item.trade_count = len(order.ask_trades)
+    return item
 
 
 async def _load_best_opposing_prices(
@@ -190,18 +243,19 @@ async def list_bids(
 
     best_ask_prices = await _load_best_opposing_prices(db, orders, opposing_side=OrderSide.ASK)
 
-    items = [
-        OrderResponse.model_validate(order, from_attributes=True).model_copy(
-            update={
-                "is_crossed": compute_is_crossed(
+    items = []
+    for order in orders:
+        items.append(
+            await _order_response(
+                db,
+                order,
+                is_crossed=compute_is_crossed(
                     "BID",
                     order.price_per_mt_usd,
                     best_ask_prices.get(_order_key(order)),
-                )
-            }
+                ),
+            )
         )
-        for order in orders
-    ]
 
     return PaginatedResponse(items=items, total=total, skip=skip, limit=limit)
 
@@ -261,18 +315,19 @@ async def list_asks(
 
     best_bid_prices = await _load_best_opposing_prices(db, orders, opposing_side=OrderSide.BID)
 
-    items = [
-        OrderResponse.model_validate(order, from_attributes=True).model_copy(
-            update={
-                "is_crossed": compute_is_crossed(
+    items = []
+    for order in orders:
+        items.append(
+            await _order_response(
+                db,
+                order,
+                is_crossed=compute_is_crossed(
                     "ASK",
                     order.price_per_mt_usd,
                     best_bid_prices.get(_order_key(order)),
-                )
-            }
+                ),
+            )
         )
-        for order in orders
-    ]
 
     return PaginatedResponse(items=items, total=total, skip=skip, limit=limit)
 
@@ -314,7 +369,8 @@ async def list_orders_with_ci(
                 carbon_intensity_gco2_mj=order.carbon_intensity_gco2_mj,
                 energy_density_mj_kg=order.energy_density_mj_kg,
             )
-        resp = OrderResponseWithCI.model_validate(order)
+        base_resp = await _order_response(db, order)
+        resp = OrderResponseWithCI.model_validate(base_resp.model_dump())
         resp.ci_adjusted_price = ci_price
         enriched.append(resp)
 
@@ -351,12 +407,7 @@ async def list_my_orders(
 
     result_list = []
     for order in orders:
-        item = OrderMyResponse.model_validate(order)
-        if order.side == OrderSide.BID:
-            item.trade_count = len(order.bid_trades)
-        else:
-            item.trade_count = len(order.ask_trades)
-        result_list.append(item)
+        result_list.append(await _order_my_response(db, order))
 
     return result_list
 
@@ -499,7 +550,7 @@ async def list_orders(
     query = query.order_by(OrderBookOrder.created_at.desc())
     result = await db.execute(query)
     orders = result.scalars().all()
-    return orders
+    return [await _order_response(db, order) for order in orders]
 
 
 @router.post("", response_model=OrderResponse, status_code=status.HTTP_201_CREATED)
@@ -627,7 +678,7 @@ async def create_order(
         "quantity": str(new_order.remaining_quantity_mt),
     })
 
-    return new_order
+    return await _order_response(db, new_order)
 
 
 @router.put("/{order_id}", response_model=OrderResponse)
@@ -701,7 +752,7 @@ async def update_order(
     )
     order = result.scalars().first()
 
-    return order
+    return await _order_response(db, order)
 
 
 @router.delete("/{order_id}", status_code=status.HTTP_204_NO_CONTENT)

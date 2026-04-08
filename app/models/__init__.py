@@ -14,3 +14,4 @@ from app.models.referral import Referral, ReferralStatus
 from app.models.rfq import RFQ, RFQQuote, RFQStatus, QuoteStatus
 from app.models.watchlist import Watchlist, WatchlistEntry
 from app.models.news import NewsItem
+from app.models.benchmark import Benchmark

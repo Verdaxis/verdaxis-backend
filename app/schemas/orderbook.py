@@ -145,6 +145,9 @@ class OrderResponse(AvailabilityWindowMixin, SupplierListingMetadataMixin):
     status: OrderBookStatus
     expires_at: Optional[datetime] = None
     created_at: datetime
+    benchmark_price_per_mt_usd: Optional[Decimal] = None
+    premium_discount_per_mt_usd: Optional[Decimal] = None
+    benchmark_source: Optional[str] = None
     is_crossed: bool = False
 
     class Config:

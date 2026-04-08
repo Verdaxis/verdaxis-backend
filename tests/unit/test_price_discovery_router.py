@@ -9,6 +9,7 @@ from decimal import Decimal
 from uuid import uuid4
 
 from app.routers.price_discovery import aggregate_trade_prices, compute_reference_prices
+from app.services.benchmarks import compute_premium_discount, get_benchmark_quote
 from app.schemas.orderbook import ReferencePriceItem
 
 
@@ -321,6 +322,64 @@ def test_reference_price_item_defaults_to_external():
         trade_count=3, date=date(2026, 3, 12),
     )
     assert item.visibility == "external"
+
+
+class TestBenchmarks:
+    @pytest.mark.asyncio
+    async def test_benchmark_lookup_uses_market_identity_key(self):
+        mock_db = AsyncMock()
+        delivery_point_id = uuid4()
+        delivery_point = MagicMock()
+        delivery_point.id = delivery_point_id
+        delivery_point.name = "Singapore"
+        mock_db.get.return_value = delivery_point
+
+        mock_override_result = MagicMock()
+        mock_override_result.scalar_one_or_none.return_value = None
+        mock_db.execute.return_value = mock_override_result
+
+        quote = await get_benchmark_quote(
+            mock_db,
+            market_product="BIO_METHANOL",
+            delivery_point_id=delivery_point_id,
+            availability_window="SPOT",
+        )
+
+        assert quote is not None
+        assert quote.market_product == "BIO_METHANOL"
+        assert quote.delivery_point_id == delivery_point_id
+        assert quote.delivery_point_name == "Singapore"
+        assert quote.availability_window == "SPOT"
+        assert quote.benchmark_price_per_mt_usd > Decimal("0")
+
+    def test_premium_discount_computes_against_benchmark(self):
+        premium = compute_premium_discount(
+            listing_price_per_mt_usd=Decimal("612.00"),
+            benchmark_price_per_mt_usd=Decimal("630.00"),
+        )
+        assert premium == Decimal("-18.00")
+
+    @pytest.mark.asyncio
+    async def test_safe_when_no_benchmark_exists(self):
+        mock_db = AsyncMock()
+        delivery_point_id = uuid4()
+        delivery_point = MagicMock()
+        delivery_point.id = delivery_point_id
+        delivery_point.name = "Busan"
+        mock_db.get.return_value = delivery_point
+
+        mock_override_result = MagicMock()
+        mock_override_result.scalar_one_or_none.return_value = None
+        mock_db.execute.return_value = mock_override_result
+
+        quote = await get_benchmark_quote(
+            mock_db,
+            market_product="SYNTHETIC_ETHANOL",
+            delivery_point_id=delivery_point_id,
+            availability_window="SPOT",
+        )
+
+        assert quote is None
 
 
 def test_get_reference_prices_accepts_visibility_param():
