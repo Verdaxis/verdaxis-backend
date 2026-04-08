@@ -127,6 +127,11 @@ class OrderBookOrder(Base):
         return self.product.fuel_grade if self.product else "Conventional"
 
     @property
+    def market_product(self) -> str | None:
+        """Derived from product relationship."""
+        return self.product.market_product if self.product else None
+
+    @property
     def region(self) -> str:
         """Derived from delivery_point relationship."""
         return self.delivery_point.region if self.delivery_point else ""

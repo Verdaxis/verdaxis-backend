@@ -7,6 +7,7 @@ from decimal import Decimal
 class ProductResponse(BaseModel):
     id: UUID
     name: str
+    market_product: Optional[str] = None
     fuel_type: str
     fuel_grade: str
     unit: str

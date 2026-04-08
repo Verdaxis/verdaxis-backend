@@ -103,6 +103,7 @@ class OrderResponse(AvailabilityWindowMixin):
     side: OrderSide
     product_id: UUID
     product_name: str = ""
+    market_product: Optional[str] = None
     fuel_type: str = ""
     fuel_grade: str = ""
     delivery_point_id: Optional[UUID] = None
@@ -168,6 +169,7 @@ class TradeResponse(BaseModel):
     # Denormalized order info for display
     product_id: Optional[UUID] = None
     product_name: str = ""
+    market_product: Optional[str] = None
     fuel_type: str = ""
     fuel_grade: str = ""
     delivery_point_id: Optional[UUID] = None

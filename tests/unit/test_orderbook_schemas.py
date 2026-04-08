@@ -168,6 +168,7 @@ class TestOrderResponse:
             side=OrderSide.ASK,
             product_id=product_id,
             product_name="Biofuel Bio",
+            market_product="BIO_METHANOL",
             fuel_type="Biofuel",
             fuel_grade="Bio",
             region="Singapore",
@@ -184,6 +185,7 @@ class TestOrderResponse:
         assert resp.tier_label == TierLabel.INDEPENDENT  # default
         assert resp.product_id == product_id
         assert resp.product_name == "Biofuel Bio"
+        assert resp.market_product == "BIO_METHANOL"
 
     def test_my_response_extends_base(self):
         now = datetime.utcnow()
@@ -192,6 +194,7 @@ class TestOrderResponse:
             side=OrderSide.BID,
             product_id=uuid4(),
             product_name="LNG Conventional",
+            market_product="BIO_ETHANOL",
             fuel_type="LNG",
             fuel_grade="Conventional",
             region="Houston",
@@ -208,6 +211,26 @@ class TestOrderResponse:
         )
         assert resp.trade_count == 3
         assert resp.organization_id is not None
+
+    def test_market_product_defaults_to_none(self):
+        resp = OrderResponse(
+            id=uuid4(),
+            side=OrderSide.ASK,
+            product_id=uuid4(),
+            product_name="Legacy Product",
+            fuel_type="Legacy",
+            fuel_grade="Conventional",
+            region="Singapore",
+            quantity_mt=Decimal("5000"),
+            remaining_quantity_mt=Decimal("3000"),
+            price_per_mt_usd=Decimal("780"),
+            availability_window="SPOT",
+            is_verdaxis_verified=True,
+            status=OrderBookStatus.OPEN,
+            created_at=datetime.utcnow(),
+        )
+
+        assert resp.market_product is None
 
 
 class TestTradeCreate:

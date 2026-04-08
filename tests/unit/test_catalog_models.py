@@ -127,6 +127,39 @@ class TestProduct:
             await db.flush()
         await db.rollback()
 
+    @pytest.mark.parametrize(
+        ("name", "fuel_type", "fuel_grade", "expected_market_product"),
+        [
+            ("Methanol Green", "Methanol", "Green", "BIO_METHANOL"),
+            ("Ethanol Green", "Ethanol", "Green", "BIO_ETHANOL"),
+            ("e-Methanol", "Methanol", "E", "E_METHANOL"),
+            ("Synthetic Ethanol", "Ethanol", "Synthetic", "SYNTHETIC_ETHANOL"),
+        ],
+    )
+    def test_market_product_maps_supported_products(
+        self,
+        name,
+        fuel_type,
+        fuel_grade,
+        expected_market_product,
+    ):
+        product = Product(
+            name=name,
+            fuel_type=fuel_type,
+            fuel_grade=fuel_grade,
+        )
+
+        assert product.market_product == expected_market_product
+
+    def test_market_product_is_none_for_unsupported_products(self):
+        product = Product(
+            name="Ammonia Green",
+            fuel_type="Ammonia",
+            fuel_grade="Green",
+        )
+
+        assert product.market_product is None
+
 
 class TestDeliveryPoint:
     """DeliveryPoint model CRUD and constraints."""
