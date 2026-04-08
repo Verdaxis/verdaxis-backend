@@ -1,113 +1,110 @@
-"""
-Smart matchmaking service.
-
-Scores compatibility between BID and ASK orders based on:
-- Fuel type (must match -- hard filter)
-- Region (exact or fuzzy match)
-- Price overlap (bid >= ask is ideal)
-- Volume compatibility
-- Availability window compatibility
-"""
+"""Benchmark-aligned matchmaking scoring."""
 from decimal import Decimal, ROUND_HALF_UP
 
-from app.services.availability_windows import SPOT_WINDOW, normalize_availability_window
-
-# Region groupings for fuzzy matching
-REGION_GROUPS = {
-    "ARA": ["Rotterdam", "Antwerp", "Amsterdam", "ARA"],
-    "Singapore": ["Singapore"],
-    "Houston": ["Houston", "Gulf Coast"],
-    "Fujairah": ["Fujairah", "UAE"],
-    "Busan": ["Busan", "South Korea"],
-    "Shanghai": ["Shanghai", "China"],
-}
-
-
-def _region_match(bid_region: str, ask_region: str) -> tuple[bool, bool]:
-    """Returns (exact_match, fuzzy_match)."""
-    if bid_region.lower() == ask_region.lower():
-        return True, True
-
-    # Check if both belong to same region group
-    for group_regions in REGION_GROUPS.values():
-        lower_group = [r.lower() for r in group_regions]
-        if bid_region.lower() in lower_group and ask_region.lower() in lower_group:
-            return False, True
-
-    return False, False
+from app.services.availability_windows import normalize_availability_window
 
 
 def _availability_compatible(
-    bid_window: str | None,
-    ask_window: str | None,
+    target_window: str | None,
+    candidate_window: str | None,
 ) -> bool:
-    """Availability is compatible when both sides target the same canonical bucket."""
-    if not bid_window or not ask_window:
+    if not target_window or not candidate_window:
         return True
-    return normalize_availability_window(bid_window) == normalize_availability_window(ask_window)
+    return normalize_availability_window(target_window) == normalize_availability_window(candidate_window)
 
 
 def compute_match_score(
-    bid_fuel: str, ask_fuel: str,
-    bid_region: str, ask_region: str,
-    bid_price: Decimal, ask_price: Decimal,
-    bid_qty: Decimal, ask_qty: Decimal,
-    bid_availability_window: str = SPOT_WINDOW,
-    ask_availability_window: str = SPOT_WINDOW,
+    *,
+    target_market_product: str | None,
+    candidate_market_product: str | None,
+    target_delivery_point_id: str | None,
+    candidate_delivery_point_id: str | None,
+    target_price: Decimal,
+    candidate_price: Decimal,
+    target_qty: Decimal,
+    candidate_qty: Decimal,
+    target_availability_window: str | None = None,
+    candidate_availability_window: str | None = None,
+    candidate_off_spec: bool = False,
+    candidate_certification_declared: bool = False,
+    candidate_certification_scheme: str | None = None,
+    candidate_specification_standard: str | None = None,
+    candidate_msds_available: bool = False,
 ) -> tuple[Decimal, list[str]]:
-    """
-    Compute a match score (0-100) and list of match reasons.
-
-    Returns (score, reasons).
-    Score of 0 means incompatible (fuel mismatch).
-    """
+    """Score a candidate listing against the canonical benchmark market identity."""
     reasons: list[str] = []
 
-    # Hard filter: fuel type must match
-    if bid_fuel.lower() != ask_fuel.lower():
+    if candidate_off_spec:
         return Decimal("0"), []
 
-    reasons.append("fuel_type_match")
-    score = Decimal("30")  # Base score for fuel match
+    if not target_market_product or not candidate_market_product:
+        return Decimal("0"), []
 
-    # Region matching (0-25 points)
-    exact, fuzzy = _region_match(bid_region, ask_region)
-    if exact:
-        score += Decimal("25")
-        reasons.append("region_match")
-    elif fuzzy:
-        score += Decimal("15")
-        reasons.append("region_nearby")
+    if target_market_product != candidate_market_product:
+        return Decimal("0"), []
 
-    # Price overlap (0-25 points)
-    if bid_price >= ask_price:
-        score += Decimal("25")
+    if (
+        target_delivery_point_id is not None
+        and candidate_delivery_point_id is not None
+        and target_delivery_point_id != candidate_delivery_point_id
+    ):
+        return Decimal("0"), []
+
+    if not _availability_compatible(target_availability_window, candidate_availability_window):
+        return Decimal("0"), []
+
+    score = Decimal("40")
+    reasons.append("market_product_match")
+
+    if target_delivery_point_id and candidate_delivery_point_id == target_delivery_point_id:
+        score += Decimal("20")
+        reasons.append("delivery_point_match")
+    elif target_delivery_point_id is None and candidate_delivery_point_id:
+        score += Decimal("10")
+        reasons.append("delivery_point_available")
+
+    if target_availability_window and candidate_availability_window:
+        score += Decimal("10")
+        reasons.append("availability_match")
+    elif candidate_availability_window:
+        score += Decimal("5")
+        reasons.append("availability_defined")
+
+    if target_price >= candidate_price:
+        score += Decimal("20")
         reasons.append("price_overlap")
     else:
-        # Partial credit for close prices (within 5%)
-        gap_pct = (ask_price - bid_price) / ask_price * 100
+        gap_pct = (candidate_price - target_price) / candidate_price * 100
         if gap_pct <= Decimal("5"):
-            score += Decimal("15")
+            score += Decimal("10")
             reasons.append("price_close")
         elif gap_pct <= Decimal("10"):
             score += Decimal("5")
             reasons.append("price_negotiable")
 
-    # Volume compatibility (0-10 points)
-    min_qty = min(bid_qty, ask_qty)
-    max_qty = max(bid_qty, ask_qty)
+    min_qty = min(target_qty, candidate_qty)
+    max_qty = max(target_qty, candidate_qty)
     if max_qty > 0:
         ratio = min_qty / max_qty
         if ratio >= Decimal("0.5"):
             score += Decimal("10")
-            reasons.append("volume_compatible")
+            reasons.append("quantity_fit")
         elif ratio >= Decimal("0.2"):
             score += Decimal("5")
-            reasons.append("volume_partial")
+            reasons.append("quantity_partial")
 
-    # Availability window (0-10 points)
-    if _availability_compatible(bid_availability_window, ask_availability_window):
+    if (
+        candidate_certification_declared
+        and candidate_certification_scheme
+        and candidate_specification_standard
+        and candidate_msds_available
+    ):
         score += Decimal("10")
-        reasons.append("availability_match")
+        reasons.append("documentation_complete")
+    elif candidate_certification_declared and (
+        candidate_certification_scheme or candidate_msds_available or candidate_specification_standard
+    ):
+        score += Decimal("5")
+        reasons.append("documentation_partial")
 
-    return score.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP), reasons
+    return min(score, Decimal("100")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP), reasons

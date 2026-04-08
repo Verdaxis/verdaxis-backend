@@ -12,17 +12,18 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select, and_, or_
+from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.database import get_db
 from app.routers.auth_simple import get_current_user
+from app.models.catalog import Product
 from app.models.user import User, UserRole
 from app.models.orderbook import OrderBookOrder, OrderSide, OrderBookStatus
 from app.models.matchmaking import MatchSuggestion, MatchStatus
 from app.models.watchlist import Watchlist, WatchlistEntry
-from app.services.availability_windows import SPOT_WINDOW, normalize_availability_window
+from app.services.matchmaking import compute_match_score
 
 router = APIRouter(prefix="/matchmaking", tags=["matchmaking"])
 
@@ -51,20 +52,22 @@ async def list_suggestions(
 
     # 2. Fetch all watchlist entries for this user
     wl_stmt = (
-        select(WatchlistEntry)
+        select(WatchlistEntry, Product)
         .join(Watchlist, WatchlistEntry.watchlist_id == Watchlist.id)
+        .join(Product, WatchlistEntry.product_id == Product.id)
         .where(Watchlist.user_id == current_user.id)
     )
     wl_result = await db.execute(wl_stmt)
-    entries = wl_result.scalars().all()
+    entries = wl_result.all()
 
     if not entries:
         return []
 
-    # 3. Build unique (product_id, delivery_point_id) combos
-    combos: set[tuple[UUID, UUID | None]] = set()
-    for entry in entries:
-        combos.add((entry.product_id, entry.delivery_point_id))
+    # 3. Build unique (market_product, delivery_point_id) combos
+    combos: set[tuple[str, UUID | None]] = set()
+    for entry, product in entries:
+        if product.market_product:
+            combos.add((product.market_product, entry.delivery_point_id))
 
     # 4. Fetch dismissed order IDs for this org (from MatchSuggestion table)
     dismissed_stmt = select(MatchSuggestion.bid_order_id, MatchSuggestion.ask_order_id).where(
@@ -77,31 +80,17 @@ async def list_suggestions(
         dismissed_order_ids.add(bid_id)
         dismissed_order_ids.add(ask_id)
 
-    # 5. Build filter conditions from watchlist combos
-    combo_filters = []
-    for product_id, delivery_point_id in combos:
-        if delivery_point_id is not None:
-            combo_filters.append(
-                and_(
-                    OrderBookOrder.product_id == product_id,
-                    OrderBookOrder.delivery_point_id == delivery_point_id,
-                )
-            )
-        else:
-            # No location constraint — match all locations for this product
-            combo_filters.append(OrderBookOrder.product_id == product_id)
-
-    if not combo_filters:
+    if not combos:
         return []
 
-    # 6. Query opposite-side open orders matching any watchlist combo
+    # 6. Query opposite-side open orders, then filter by canonical market identity in Python.
     order_stmt = (
         select(OrderBookOrder)
         .where(
             OrderBookOrder.side == target_side,
             OrderBookOrder.status.in_([OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED]),
             OrderBookOrder.organization_id != current_user.organization_id,
-            or_(*combo_filters),
+            OrderBookOrder.off_spec.is_(False),
         )
         .options(
             selectinload(OrderBookOrder.product),
@@ -117,68 +106,40 @@ async def list_suggestions(
     if not candidates:
         return []
 
-    # 8. Score each candidate
-    #    We need a "synthetic" order from the user's side to score against.
-    #    Use the watchlist combo metadata + generous defaults.
+    # 8. Score each candidate against the matching market identity combo.
     scored = []
     for order in candidates:
-        # Find the watchlist combo that matched this order
-        order_product_id = order.product_id
-        order_dp_id = order.delivery_point_id
-
-        # Score using the order's own data against itself (perfect fuel + region match).
-        # What differentiates scores is price/volume/delivery window overlap.
-        # Since we don't have a user's bid to compare against, score based on
-        # how well the order fits the market (completeness of data).
-        score_points = 30  # Base: fuel type matched via watchlist
-        reasons = ["fuel_match"]
-
-        # Region match (if watchlist entry had a delivery point)
-        matched_with_location = any(
-            dp_id is not None and dp_id == order_dp_id
-            for pid, dp_id in combos
-            if pid == order_product_id
+        matching_combo = next(
+            (
+                combo
+                for combo in combos
+                if combo[0] == order.market_product
+                and (combo[1] is None or combo[1] == order.delivery_point_id)
+            ),
+            None,
         )
-        if matched_with_location:
-            score_points += 25
-            reasons.append("region_match")
-        elif order_dp_id is not None:
-            # Watchlist had no location but order has one — partial credit
-            score_points += 10
-            reasons.append("region_available")
+        if matching_combo is None:
+            continue
 
-        # Volume — reward larger quantities (more meaningful)
-        qty = float(order.remaining_quantity_mt or 0)
-        if qty >= 1000:
-            score_points += 10
-            reasons.append("volume_significant")
-        elif qty >= 100:
-            score_points += 5
-            reasons.append("volume_available")
-
-        # Availability window — reward prompt liquidity slightly higher
-        normalized_window = normalize_availability_window(str(order.availability_window))
-        if normalized_window == SPOT_WINDOW:
-            score_points += 10
-            reasons.append("spot_window")
-        else:
-            score_points += 5
-            reasons.append("availability_defined")
-
-        # Price available
-        if order.price_per_mt_usd and float(order.price_per_mt_usd) > 0:
-            score_points += 15
-            reasons.append("price_available")
-
-        # Certifications / green premium
-        if order.certifications:
-            score_points += 5
-            reasons.append("certified")
-
-        # Cap at 100
-        score_points = min(score_points, 100)
-
-        scored.append((order, score_points, reasons))
+        score_points, reasons = compute_match_score(
+            target_market_product=matching_combo[0],
+            candidate_market_product=order.market_product,
+            target_delivery_point_id=str(matching_combo[1]) if matching_combo[1] else None,
+            candidate_delivery_point_id=str(order.delivery_point_id) if order.delivery_point_id else None,
+            target_price=order.price_per_mt_usd,
+            candidate_price=order.price_per_mt_usd,
+            target_qty=order.remaining_quantity_mt,
+            candidate_qty=order.remaining_quantity_mt,
+            target_availability_window=None,
+            candidate_availability_window=order.availability_window,
+            candidate_off_spec=order.off_spec,
+            candidate_certification_declared=order.certification_declared,
+            candidate_certification_scheme=order.certification_scheme,
+            candidate_specification_standard=order.specification_standard,
+            candidate_msds_available=order.msds_available,
+        )
+        if score_points > 0:
+            scored.append((order, float(score_points), reasons))
 
     # 9. Sort by score descending, take top N
     scored.sort(key=lambda x: x[1], reverse=True)

@@ -1,66 +1,80 @@
-"""Unit tests for matchmaking scoring logic."""
+"""Unit tests for benchmark-aligned matchmaking scoring."""
 from decimal import Decimal
 
 from app.services.matchmaking import compute_match_score
 
 
 class TestMatchScoring:
-    def test_perfect_match(self):
-        """Same fuel, same region, overlapping price, same availability."""
+    def test_market_identity_match_scores_high_with_complete_docs(self):
         score, reasons = compute_match_score(
-            bid_fuel="Methanol", ask_fuel="Methanol",
-            bid_region="Singapore", ask_region="Singapore",
-            bid_price=Decimal("550"), ask_price=Decimal("540"),
-            bid_qty=Decimal("1000"), ask_qty=Decimal("1000"),
-            bid_availability_window="2026-Q3",
-            ask_availability_window="2026-Q3",
+            target_market_product="BIO_METHANOL",
+            candidate_market_product="BIO_METHANOL",
+            target_delivery_point_id="sg",
+            candidate_delivery_point_id="sg",
+            target_price=Decimal("550"),
+            candidate_price=Decimal("540"),
+            target_qty=Decimal("1000"),
+            candidate_qty=Decimal("1000"),
+            target_availability_window="2026-Q3",
+            candidate_availability_window="2026-Q3",
+            candidate_certification_declared=True,
+            candidate_certification_scheme="ISCC EU",
+            candidate_specification_standard="IMPCA",
+            candidate_msds_available=True,
         )
-        assert score >= Decimal("80")
-        assert "fuel_type_match" in reasons
-        assert "region_match" in reasons
-        assert "price_overlap" in reasons
+        assert score >= Decimal("85")
+        assert "market_product_match" in reasons
+        assert "delivery_point_match" in reasons
         assert "availability_match" in reasons
+        assert "price_overlap" in reasons
+        assert "documentation_complete" in reasons
 
-    def test_fuel_mismatch_scores_zero(self):
-        """Different fuels should score 0."""
+    def test_delivery_point_mismatch_scores_zero(self):
         score, reasons = compute_match_score(
-            bid_fuel="Methanol", ask_fuel="LNG",
-            bid_region="Singapore", ask_region="Singapore",
-            bid_price=Decimal("550"), ask_price=Decimal("540"),
-            bid_qty=Decimal("1000"), ask_qty=Decimal("1000"),
+            target_market_product="BIO_METHANOL",
+            candidate_market_product="BIO_METHANOL",
+            target_delivery_point_id="sg",
+            candidate_delivery_point_id="ara",
+            target_price=Decimal("550"),
+            candidate_price=Decimal("540"),
+            target_qty=Decimal("1000"),
+            candidate_qty=Decimal("1000"),
         )
         assert score == Decimal("0")
         assert reasons == []
 
-    def test_price_no_overlap(self):
-        """Bid price < ask price should reduce score but not zero if fuel+region match."""
+    def test_off_spec_listing_is_excluded_by_default(self):
         score, reasons = compute_match_score(
-            bid_fuel="Methanol", ask_fuel="Methanol",
-            bid_region="Singapore", ask_region="Singapore",
-            bid_price=Decimal("500"), ask_price=Decimal("550"),
-            bid_qty=Decimal("1000"), ask_qty=Decimal("1000"),
+            target_market_product="BIO_METHANOL",
+            candidate_market_product="BIO_METHANOL",
+            target_delivery_point_id="sg",
+            candidate_delivery_point_id="sg",
+            target_price=Decimal("550"),
+            candidate_price=Decimal("540"),
+            target_qty=Decimal("1000"),
+            candidate_qty=Decimal("1000"),
+            candidate_off_spec=True,
         )
-        assert score <= Decimal("80")
-        assert "fuel_type_match" in reasons
-        assert "price_overlap" not in reasons
+        assert score == Decimal("0")
+        assert reasons == []
 
-    def test_partial_region_match(self):
-        """ARA vs Rotterdam should count as partial match."""
+    def test_metadata_does_not_fragment_market_key_when_docs_are_incomplete(self):
         score, reasons = compute_match_score(
-            bid_fuel="Methanol", ask_fuel="Methanol",
-            bid_region="ARA", ask_region="Rotterdam",
-            bid_price=Decimal("550"), ask_price=Decimal("540"),
-            bid_qty=Decimal("1000"), ask_qty=Decimal("1000"),
+            target_market_product="BIO_METHANOL",
+            candidate_market_product="BIO_METHANOL",
+            target_delivery_point_id="sg",
+            candidate_delivery_point_id="sg",
+            target_price=Decimal("550"),
+            candidate_price=Decimal("540"),
+            target_qty=Decimal("1000"),
+            candidate_qty=Decimal("800"),
+            target_availability_window="SPOT",
+            candidate_availability_window="SPOT",
+            candidate_certification_declared=True,
+            candidate_certification_scheme=None,
+            candidate_specification_standard=None,
+            candidate_msds_available=False,
         )
         assert score > Decimal("0")
-
-    def test_different_availability_window_loses_window_credit(self):
-        score, reasons = compute_match_score(
-            bid_fuel="Methanol", ask_fuel="Methanol",
-            bid_region="Singapore", ask_region="Singapore",
-            bid_price=Decimal("550"), ask_price=Decimal("540"),
-            bid_qty=Decimal("1000"), ask_qty=Decimal("1000"),
-            bid_availability_window="2026-Q3",
-            ask_availability_window="2026-Q4",
-        )
-        assert "availability_match" not in reasons
+        assert "market_product_match" in reasons
+        assert "documentation_complete" not in reasons

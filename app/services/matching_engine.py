@@ -10,8 +10,22 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.orderbook import (
     OrderBookOrder, Trade, OrderSide, OrderBookStatus, TradeStatus, Initiator
 )
+from app.models.catalog import Product
 from app.models.notification import Notification, NotificationType
 from app.models.user import User
+
+
+async def _matching_product_ids(db: AsyncSession, product_id) -> set:
+    product = await db.get(Product, product_id)
+    if not product or not product.market_product:
+        return {product_id}
+
+    result = await db.execute(select(Product))
+    return {
+        candidate.id
+        for candidate in result.scalars().all()
+        if candidate.market_product == product.market_product
+    } or {product_id}
 
 
 async def match_order(
@@ -34,8 +48,10 @@ async def match_order(
     """
     trades_created: list[Trade] = []
 
-    if new_order.remaining_quantity_mt <= 0:
+    if new_order.remaining_quantity_mt <= 0 or new_order.off_spec:
         return trades_created
+
+    matching_product_ids = await _matching_product_ids(db, new_order.product_id)
 
     # Determine which side to match against
     if new_order.side == OrderSide.BID:
@@ -54,10 +70,11 @@ async def match_order(
     # Build matching filters: same product_id, same delivery_point_id
     match_filters = [
         OrderBookOrder.side == opposite_side,
-        OrderBookOrder.product_id == new_order.product_id,
+        OrderBookOrder.product_id.in_(matching_product_ids),
         OrderBookOrder.availability_window == new_order.availability_window,
         OrderBookOrder.status.in_([OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED]),
         OrderBookOrder.organization_id != new_order.organization_id,  # No self-trade
+        OrderBookOrder.off_spec.is_(False),
         price_filter,
     ]
 

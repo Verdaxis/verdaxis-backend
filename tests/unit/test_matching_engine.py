@@ -293,6 +293,69 @@ class TestBasicMatching:
         assert len(trades) == 1
         assert trades[0].price_per_mt_usd == Decimal("550.00")
 
+    @pytest.mark.asyncio
+    async def test_matches_on_market_product_not_raw_product_id(
+        self,
+        db,
+        buyer_org,
+        seller_org,
+        org_buyer_id,
+        org_seller_id,
+        test_dp,
+    ):
+        legacy_product = Product(
+            id=uuid.uuid5(uuid.NAMESPACE_DNS, "test:product:legacy-bio-methanol"),
+            name=f"Methanol Green {uuid.uuid4().hex[:6]}",
+            fuel_type="Methanol",
+            fuel_grade="Green",
+            unit="MT",
+            min_lot_size=200,
+        )
+        canonical_product = Product(
+            id=uuid.uuid5(uuid.NAMESPACE_DNS, "test:product:bio-methanol"),
+            name=f"Bio Methanol {uuid.uuid4().hex[:6]}",
+            fuel_type="Methanol",
+            fuel_grade="Bio",
+            unit="MT",
+            min_lot_size=200,
+        )
+        db.add_all([legacy_product, canonical_product])
+        await db.flush()
+
+        ask = _make_order(org_seller_id, OrderSide.ASK, product_id=legacy_product.id, price=Decimal("540.00"))
+        bid = _make_order(org_buyer_id, OrderSide.BID, product_id=canonical_product.id, price=Decimal("550.00"))
+        db.add_all([ask, bid])
+        await db.flush()
+
+        trades = await match_order(db, bid)
+
+        assert len(trades) == 1
+        assert trades[0].ask_order_id == ask.id
+        assert trades[0].bid_order_id == bid.id
+
+    @pytest.mark.asyncio
+    async def test_off_spec_orders_are_excluded_from_default_matching(
+        self,
+        db,
+        buyer_org,
+        seller_org,
+        org_buyer_id,
+        org_seller_id,
+        test_product,
+        test_dp,
+    ):
+        ask = _make_order(org_seller_id, OrderSide.ASK, price=Decimal("540.00"))
+        ask.off_spec = True
+        bid = _make_order(org_buyer_id, OrderSide.BID, price=Decimal("550.00"))
+        db.add_all([ask, bid])
+        await db.flush()
+
+        trades = await match_order(db, bid)
+
+        assert trades == []
+        assert ask.status == OrderBookStatus.OPEN
+        assert bid.status == OrderBookStatus.OPEN
+
 
 class TestNoMatch:
     """Scenarios where no match should occur."""
