@@ -54,6 +54,11 @@
 - **Rule:** Remove obsolete AI bootstrap docs and keep agent guidance consolidated in `CLAUDE.md`, `ARCHITECTURE.md`, and `.codesight`.
 - **Why:** Multiple overlapping AI docs drift quickly and send future sessions to stale instructions.
 
+- **Date:** 2026-04-08
+- **Trigger:** Deployment work started as a direct rollout while the user intended staging branch consolidation first.
+- **Rule:** When asked to "apply all changes on staging", merge all approved staging-side branches into `origin/staging` before deployment.
+- **Why:** Deploying before branch consolidation can leave approved fixes out of the environment and create drift between git and runtime.
+
 ## Dependencies
 
 - **Date:** 2026-02-18

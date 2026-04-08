@@ -1,9 +1,11 @@
 """Watchlist CRUD endpoints — saved product preferences per user."""
+from datetime import datetime, UTC
 from typing import Annotated
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select, func
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -23,6 +25,17 @@ router = APIRouter(prefix="/watchlists", tags=["watchlists"])
 
 MAX_WATCHLISTS_PER_USER = 10
 MAX_ENTRIES_PER_WATCHLIST = 50
+
+
+def _build_entry_response(entry: WatchlistEntry, product_name: str, delivery_point_name: str | None):
+    return WatchlistEntryResponse(
+        id=entry.id or uuid4(),
+        product_id=entry.product_id,
+        product_name=product_name,
+        delivery_point_id=entry.delivery_point_id,
+        delivery_point_name=delivery_point_name,
+        created_at=entry.created_at or datetime.now(UTC),
+    )
 
 
 @router.get("", response_model=list[WatchlistResponse])
@@ -130,17 +143,6 @@ async def add_watchlist_entry(
     if not wl:
         raise HTTPException(status_code=404, detail="Watchlist not found")
 
-    # Check entry limit
-    entry_count_stmt = select(func.count(WatchlistEntry.id)).where(
-        WatchlistEntry.watchlist_id == watchlist_id
-    )
-    count_result = await db.execute(entry_count_stmt)
-    if count_result.scalar_one() >= MAX_ENTRIES_PER_WATCHLIST:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Maximum of {MAX_ENTRIES_PER_WATCHLIST} entries per watchlist",
-        )
-
     # Validate product exists
     product = await db.execute(select(Product).where(Product.id == body.product_id))
     prod = product.scalar_one_or_none()
@@ -158,23 +160,49 @@ async def add_watchlist_entry(
             raise HTTPException(status_code=404, detail="Delivery point not found")
         dp_name = dp.name
 
+    existing_stmt = select(WatchlistEntry).where(
+        WatchlistEntry.watchlist_id == watchlist_id,
+        WatchlistEntry.product_id == body.product_id,
+    )
+    if body.delivery_point_id is None:
+        existing_stmt = existing_stmt.where(WatchlistEntry.delivery_point_id.is_(None))
+    else:
+        existing_stmt = existing_stmt.where(WatchlistEntry.delivery_point_id == body.delivery_point_id)
+
+    existing_result = await db.execute(existing_stmt)
+    existing_entry = existing_result.scalar_one_or_none()
+    if existing_entry:
+        return _build_entry_response(existing_entry, prod.name, dp_name)
+
+    # Check entry limit
+    entry_count_stmt = select(func.count(WatchlistEntry.id)).where(
+        WatchlistEntry.watchlist_id == watchlist_id
+    )
+    count_result = await db.execute(entry_count_stmt)
+    if count_result.scalar_one() >= MAX_ENTRIES_PER_WATCHLIST:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Maximum of {MAX_ENTRIES_PER_WATCHLIST} entries per watchlist",
+        )
+
     entry = WatchlistEntry(
         watchlist_id=watchlist_id,
         product_id=body.product_id,
         delivery_point_id=body.delivery_point_id,
     )
     db.add(entry)
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        existing_result = await db.execute(existing_stmt)
+        existing_entry = existing_result.scalar_one_or_none()
+        if existing_entry:
+            return _build_entry_response(existing_entry, prod.name, dp_name)
+        raise
     await db.refresh(entry)
 
-    return WatchlistEntryResponse(
-        id=entry.id,
-        product_id=entry.product_id,
-        product_name=prod.name,
-        delivery_point_id=entry.delivery_point_id,
-        delivery_point_name=dp_name,
-        created_at=entry.created_at,
-    )
+    return _build_entry_response(entry, prod.name, dp_name)
 
 
 @router.delete("/{watchlist_id}/entries/{entry_id}", status_code=204)

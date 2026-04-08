@@ -27,7 +27,7 @@ app/
     producer.py                 # ProducerProject (PostGIS, GENA import)
     audit.py                    # AuditLog (JSONB changes, indexed action/resource/timestamp)
   routers/
-    auth_simple.py              # JWT auth — login, register, refresh, password change, /me, RBAC
+    auth_simple.py              # JWT auth — login/register, cookie-backed refresh rotation, password change, /me, RBAC
     oauth.py                    # [feature branch] Google + Microsoft OIDC via Authlib
     orderbook.py                # Order book CRUD + match-on-insert auto-matching
     trades.py                   # Trade lifecycle — create/confirm/decline/deliver/pay + SSE events
@@ -76,6 +76,7 @@ tests/integration/              # Auth hardening, trade lifecycle, orderbook E2E
 - **SSE broadcasting:** `event_bus.publish(channel, event_type, data)` → subscribers via AsyncIO queues
 - **Compliance scoring:** Pure function `calculate_compliance_score()` — no DB, 100% testable
 - **Dual-token JWT:** 15-min access + 7-day refresh, `password_changed_at` for stateless invalidation
+- **Cookie-backed refresh:** refresh token is also rotated through an HttpOnly `refresh_token` cookie scoped to `/api/auth`, while access tokens remain bearer tokens
 - **Rate limiting:** slowapi per-route (5/min login, 3/min password, 60/min prices, 30/min reference)
 - **Availability windows:** Persist canonical codes (`SPOT`, `YYYY-MM`, `YYYY-QN`, legacy-compatible `YYYY-CAL`); UI-relative labels like `M+1` must be resolved before persistence
 

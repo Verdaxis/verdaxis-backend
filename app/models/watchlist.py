@@ -2,7 +2,7 @@
 import uuid
 from datetime import datetime, UTC
 
-from sqlalchemy import ForeignKey, String, DateTime
+from sqlalchemy import ForeignKey, String, DateTime, Index, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -22,6 +22,25 @@ class Watchlist(Base):
 
 class WatchlistEntry(Base):
     __tablename__ = "watchlist_entries"
+    __table_args__ = (
+        Index(
+            "uq_watchlist_entries_watchlist_product_delivery_point",
+            "watchlist_id",
+            "product_id",
+            "delivery_point_id",
+            unique=True,
+            sqlite_where=text("delivery_point_id IS NOT NULL"),
+            postgresql_where=text("delivery_point_id IS NOT NULL"),
+        ),
+        Index(
+            "uq_watchlist_entries_watchlist_product_no_delivery_point",
+            "watchlist_id",
+            "product_id",
+            unique=True,
+            sqlite_where=text("delivery_point_id IS NULL"),
+            postgresql_where=text("delivery_point_id IS NULL"),
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     watchlist_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("watchlists.id"), nullable=False)
