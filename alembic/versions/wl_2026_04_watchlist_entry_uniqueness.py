@@ -8,7 +8,7 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision = "wl_2026_04_watchlist_entry_uniqueness"
+revision = "wl_2026_04_watchlist_unique"
 down_revision = "news_2026_03"
 branch_labels = None
 depends_on = None
