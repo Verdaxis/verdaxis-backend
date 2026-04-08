@@ -60,49 +60,37 @@ SUPPLIER_ORGS = [
 # Pricing matrix — product name -> delivery point -> (bid_lo, bid_hi, ask_lo, ask_hi)
 # ---------------------------------------------------------------------------
 PRICING: dict[str, dict[str, tuple[float, float, float, float]]] = {
-    # Based on Ship & Bunker real market data (March 2026)
-    # Green methanol = ~2x gray methanol premium
-    "Methanol Green": {
-        "ARA":       (540, 580, 595, 640),      # Gray ~$292, green premium ~2x
-        "Singapore": (1020, 1070, 1090, 1140),   # Gray ~$545, green premium ~2x
-        "Fujairah":  (640, 680, 700, 745),        # Gray ~$339, green premium ~2x
+    "Bio Methanol": {
+        "ARA":       (540, 580, 595, 640),
+        "Singapore": (1020, 1070, 1090, 1140),
+        "Fujairah":  (640, 680, 700, 745),
         "Rotterdam": (545, 585, 600, 645),
     },
-
-    # Ethanol (2G bioethanol, waste-based)
-    "Ethanol Green": {
+    "e-Methanol": {
+        "ARA":       (610, 650, 665, 710),
+        "Singapore": (1090, 1140, 1160, 1210),
+        "Fujairah":  (700, 740, 760, 805),
+        "Rotterdam": (615, 655, 670, 715),
+    },
+    "Bio Ethanol": {
         "ARA":       (560, 600, 615, 655),
         "Singapore": (610, 655, 670, 715),
         "Rotterdam": (565, 605, 620, 660),
     },
-    # Biomethane (bio-LNG equivalent)
-    "Biomethane": {
-        "ARA":       (810, 850, 865, 905),
-        "Singapore": (860, 905, 920, 965),
-        "Rotterdam": (815, 855, 870, 910),
+    "Synthetic Ethanol": {
+        "ARA":       (650, 690, 705, 745),
+        "Singapore": (700, 745, 760, 810),
+        "Fujairah":  (720, 770, 785, 835),
+        "Rotterdam": (655, 695, 710, 750),
     },
-        # HVO biofuel (FAME/HVO blends)
-    "Biofuel Bio": {
-        "ARA":       (870, 910, 925, 965),
-        "Singapore": (990, 1040, 1055, 1100),
-        "Fujairah":  (1020, 1065, 1080, 1125),
-    },
-    # Green ammonia — nascent market, projected range
-    "Ammonia Green": {
-        "ARA":       (620, 670, 690, 740),
-        "Singapore": (680, 730, 750, 800),
-    },
-
-
 }
 
 # CI data ranges per product: (ci_lo, ci_hi, energy_density)
 CI_DATA: dict[str, tuple[float, float, float]] = {
-    "Ethanol Green":      (8, 18, 26.8),
-    "Biomethane":          (10, 25, 55.5),
-        "Methanol Green":     (70, 98, 19.9),
-    "Biofuel Bio":        (55, 85, 44.0),
-    "Ammonia Green":      (75, 98, 18.6),
+    "Bio Ethanol":        (8, 18, 26.8),
+    "Bio Methanol":       (25, 55, 19.9),
+    "e-Methanol":         (5, 20, 19.9),
+    "Synthetic Ethanol":  (15, 35, 26.8),
 }
 
 WINDOWS = [
@@ -318,7 +306,7 @@ async def seed_market_data(db: AsyncSession) -> None:
         id=_SENTINEL_ID,
         organization_id=BUYER_ORGS[0]["id"],
         side=OrderSide.BID,
-        product_id=PRODUCT_IDS["Methanol Green"],
+        product_id=PRODUCT_IDS["Bio Methanol"],
         delivery_point_id=DELIVERY_POINT_IDS["ARA"],
         quantity_mt=Decimal("0"),
         remaining_quantity_mt=Decimal("0"),
@@ -636,16 +624,16 @@ async def seed_market_data(db: AsyncSession) -> None:
     rfqs_created = 0
 
     rfq_configs = [
-        ("Methanol Green",  "ARA",       2000, 575.00),
-        ("Methanol Green",  "Singapore", 3000, 1065.00),
-        ("Ethanol Green",   "ARA",       2500, 630.00),
-        ("Ethanol Green",   "Singapore", 1800, None),
-        ("Biofuel Bio",     "ARA",       1500, 920.00),
-        ("Biofuel Bio",     "Singapore", 2000, None),
-        ("Ammonia Green",   "ARA",       2500, 650.00),
-        ("Biomethane",      "ARA",       1000, None),
-        ("Biomethane",      "Singapore", 1500, 890.00),
-        ("Ammonia Green",   "Singapore", 2000, 720.00),
+        ("Bio Methanol",      "ARA",       2000, 575.00),
+        ("Bio Methanol",      "Singapore", 3000, 1065.00),
+        ("Bio Ethanol",       "ARA",       2500, 630.00),
+        ("Bio Ethanol",       "Singapore", 1800, None),
+        ("Synthetic Ethanol", "ARA",       1500, 920.00),
+        ("Synthetic Ethanol", "Singapore", 2000, None),
+        ("e-Methanol",        "ARA",       2500, 650.00),
+        ("e-Methanol",        "Rotterdam", 1000, None),
+        ("e-Methanol",        "Singapore", 1500, 890.00),
+        ("Synthetic Ethanol", "Fujairah",  2000, 720.00),
     ]
 
     for i, (product_name, port_name, qty, target_price) in enumerate(rfq_configs):
@@ -737,16 +725,16 @@ async def seed_market_data(db: AsyncSession) -> None:
 
     demo_trades = [
         # (fuel_type, port, qty, price, status, initiated_by, month)
-        ("Methanol Green",  "ARA",       1500, 572.50,  TradeStatus.PAID,       Initiator.BUYER,  1),
-        ("Ethanol Green",   "Singapore", 2500, 645.00,  TradeStatus.DELIVERED,  Initiator.SELLER, 1),
-        ("Biofuel Bio",     "Fujairah",  1000, 1045.75, TradeStatus.CONFIRMED,  Initiator.BUYER,  1),
-        ("Biomethane",      "ARA",        800,  855.00, TradeStatus.PAID,       Initiator.SELLER, 2),
-        ("Methanol Green",  "Singapore", 2000, 1065.00, TradeStatus.DELIVERED,  Initiator.BUYER,  2),
-        ("Ammonia Green",   "Fujairah",  3000,  710.00, TradeStatus.PAID,       Initiator.BUYER,  2),
-        ("Biofuel Bio",     "ARA",       1200,  895.25, TradeStatus.CONFIRMED,  Initiator.SELLER, 2),
-        ("Ethanol Green",   "Singapore",  500,  670.00, TradeStatus.DELIVERED,  Initiator.BUYER,  3),
-        ("Methanol Green",  "Fujairah",  1800,  680.00, TradeStatus.PAID,       Initiator.SELLER, 3),
-        ("Biomethane",      "ARA",       2200,  860.00, TradeStatus.CONFIRMED,  Initiator.BUYER,  3),
+        ("Bio Methanol",      "ARA",       1500, 572.50,  TradeStatus.PAID,       Initiator.BUYER,  1),
+        ("Bio Ethanol",       "Singapore", 2500, 645.00,  TradeStatus.DELIVERED,  Initiator.SELLER, 1),
+        ("Synthetic Ethanol", "Fujairah",  1000, 1045.75, TradeStatus.CONFIRMED,  Initiator.BUYER,  1),
+        ("e-Methanol",        "ARA",        800,  855.00, TradeStatus.PAID,       Initiator.SELLER, 2),
+        ("Bio Methanol",      "Singapore", 2000, 1065.00, TradeStatus.DELIVERED,  Initiator.BUYER,  2),
+        ("Synthetic Ethanol", "Fujairah",  3000,  710.00, TradeStatus.PAID,       Initiator.BUYER,  2),
+        ("Synthetic Ethanol", "ARA",       1200,  895.25, TradeStatus.CONFIRMED,  Initiator.SELLER, 2),
+        ("Bio Ethanol",       "Singapore",  500,  670.00, TradeStatus.DELIVERED,  Initiator.BUYER,  3),
+        ("Bio Methanol",      "Fujairah",  1800,  680.00, TradeStatus.PAID,       Initiator.SELLER, 3),
+        ("e-Methanol",        "ARA",       2200,  860.00, TradeStatus.CONFIRMED,  Initiator.BUYER,  3),
     ]
 
     bc_trades_created = 0

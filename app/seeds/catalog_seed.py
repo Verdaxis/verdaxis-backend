@@ -27,64 +27,41 @@ def _dp_id(name: str) -> uuid.UUID:
 # Product catalog
 # ---------------------------------------------------------------------------
 PRODUCTS = [
-
-
-
-
-
     Product(
-        id=_product_id("Ethanol Green"),
-        name="Ethanol Green",
+        id=_product_id("Bio Ethanol"),
+        name="Bio Ethanol",
         fuel_type="Ethanol",
-        fuel_grade="Green",
+        fuel_grade="Bio",
         unit="MT",
         min_lot_size=200,
         spec_description="Second-generation bioethanol from waste feedstocks",
     ),
     Product(
-        id=_product_id("Biomethane"),
-        name="Biomethane",
-        fuel_type="Biomethane",
-        fuel_grade="Bio",
-        unit="MT",
-        min_lot_size=200,
-        spec_description="Bio-LNG / renewable compressed biomethane for maritime use",
-    ),
-        Product(
-        id=_product_id("Methanol Green"),
-        name="Methanol Green",
+        id=_product_id("Bio Methanol"),
+        name="Bio Methanol",
         fuel_type="Methanol",
-        fuel_grade="Green",
-        unit="MT",
-        min_lot_size=200,
-        spec_description="Green methanol from renewable sources",
-    ),
-    Product(
-        id=_product_id("Ammonia Green"),
-        name="Ammonia Green",
-        fuel_type="Ammonia",
-        fuel_grade="Green",
-        unit="MT",
-        min_lot_size=500,
-        spec_description="Green ammonia for zero-carbon propulsion",
-    ),
-    Product(
-        id=_product_id("Hydrogen Green"),
-        name="Hydrogen Green",
-        fuel_type="Hydrogen",
-        fuel_grade="Green",
-        unit="MT",
-        min_lot_size=50,
-        spec_description="Green hydrogen for fuel cell propulsion",
-    ),
-    Product(
-        id=_product_id("Biofuel Bio"),
-        name="Biofuel Bio",
-        fuel_type="Biofuel",
         fuel_grade="Bio",
         unit="MT",
-        min_lot_size=100,
-        spec_description="FAME/HVO biofuel blends",
+        min_lot_size=200,
+        spec_description="Bio-methanol produced from biogenic feedstocks for marine fuel use",
+    ),
+    Product(
+        id=_product_id("e-Methanol"),
+        name="e-Methanol",
+        fuel_type="Methanol",
+        fuel_grade="E",
+        unit="MT",
+        min_lot_size=200,
+        spec_description="Synthetic methanol produced from renewable hydrogen and captured CO2",
+    ),
+    Product(
+        id=_product_id("Synthetic Ethanol"),
+        name="Synthetic Ethanol",
+        fuel_type="Ethanol",
+        fuel_grade="Synthetic",
+        unit="MT",
+        min_lot_size=200,
+        spec_description="Synthetic ethanol produced via power-to-liquids or equivalent synthetic pathways",
     ),
 ]
 
