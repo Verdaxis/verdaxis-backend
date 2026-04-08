@@ -20,6 +20,7 @@ from app.models.orderbook import (
 )
 from app.models.notification import Notification
 from app.services.matching_engine import match_order
+from app.services.availability_windows import SPOT_WINDOW
 
 # Tables needed for our tests (avoids loading models with broken FK refs)
 _REQUIRED_TABLES = [
@@ -207,6 +208,7 @@ def _make_order(
     delivery_point_id: uuid.UUID | None = _TEST_DP_ID,
     price: Decimal = Decimal("550.00"),
     quantity: Decimal = Decimal("1000.00"),
+    availability_window: str = SPOT_WINDOW,
     created_at: datetime | None = None,
     status: OrderBookStatus = OrderBookStatus.OPEN,
 ) -> OrderBookOrder:
@@ -219,6 +221,7 @@ def _make_order(
         quantity_mt=quantity,
         remaining_quantity_mt=quantity,
         price_per_mt_usd=price,
+        availability_window=availability_window,
         status=status,
         created_at=created_at or datetime.now(UTC),
     )
@@ -316,6 +319,30 @@ class TestNoMatch:
         await db.flush()
 
         bid = _make_order(org_buyer_id, OrderSide.BID, price=Decimal("540.00"))
+        db.add(bid)
+        await db.flush()
+
+        trades = await match_order(db, bid)
+        assert len(trades) == 0
+
+    @pytest.mark.asyncio
+    async def test_no_match_when_availability_window_differs(self, db, buyer_org, seller_org, org_buyer_id, org_seller_id, test_product, test_dp):
+        """Crossing prices should not match across different availability windows."""
+        ask = _make_order(
+            org_seller_id,
+            OrderSide.ASK,
+            price=Decimal("550.00"),
+            availability_window="2026-Q3",
+        )
+        db.add(ask)
+        await db.flush()
+
+        bid = _make_order(
+            org_buyer_id,
+            OrderSide.BID,
+            price=Decimal("560.00"),
+            availability_window="2026-Q4",
+        )
         db.add(bid)
         await db.flush()
 

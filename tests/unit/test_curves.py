@@ -21,7 +21,7 @@ class TestForwardCurvePointSchema:
 
     def test_full_two_sided_market(self):
         point = ForwardCurvePoint(
-            availability_window="Q2 2026",
+            availability_window="2026-Q2",
             best_bid=Decimal("520.00"),
             best_ask=Decimal("530.00"),
             mid_price=Decimal("525.00"),
@@ -29,7 +29,7 @@ class TestForwardCurvePointSchema:
             volume_mt=Decimal("1500.00"),
             order_count=4,
         )
-        assert point.availability_window == "Q2 2026"
+        assert point.availability_window == "2026-Q2"
         assert point.best_bid == Decimal("520.00")
         assert point.best_ask == Decimal("530.00")
         assert point.mid_price == Decimal("525.00")
@@ -40,7 +40,7 @@ class TestForwardCurvePointSchema:
     def test_bid_only_market(self):
         """When only bids exist, ask/mid/spread are None."""
         point = ForwardCurvePoint(
-            availability_window="Spot",
+            availability_window="SPOT",
             best_bid=Decimal("500.00"),
             best_ask=None,
             mid_price=None,
@@ -56,7 +56,7 @@ class TestForwardCurvePointSchema:
     def test_ask_only_market(self):
         """When only asks exist, bid/mid/spread are None."""
         point = ForwardCurvePoint(
-            availability_window="Forward 2027",
+            availability_window="2027-CAL",
             best_bid=None,
             best_ask=Decimal("610.00"),
             mid_price=None,
@@ -70,7 +70,7 @@ class TestForwardCurvePointSchema:
 
     def test_serialization(self):
         point = ForwardCurvePoint(
-            availability_window="Q1 2026",
+            availability_window="2026-Q1",
             best_bid=Decimal("480.00"),
             best_ask=Decimal("490.00"),
             mid_price=Decimal("485.00"),
@@ -79,7 +79,7 @@ class TestForwardCurvePointSchema:
             order_count=3,
         )
         data = point.model_dump()
-        assert data["availability_window"] == "Q1 2026"
+        assert data["availability_window"] == "2026-Q1"
         assert data["best_bid"] == Decimal("480.00")
         assert data["order_count"] == 3
 
@@ -102,7 +102,7 @@ class TestForwardCurveResponseSchema:
         from datetime import datetime, UTC
         pid = uuid4()
         point = ForwardCurvePoint(
-            availability_window="Spot",
+            availability_window="SPOT",
             best_bid=Decimal("510.00"),
             best_ask=Decimal("515.00"),
             mid_price=Decimal("512.50"),
@@ -159,7 +159,7 @@ class TestComputeForwardCurve:
         points = await compute_forward_curve(mock_db, product_id=uuid4())
 
         assert len(points) == 1
-        assert points[0].availability_window == "Spot"
+        assert points[0].availability_window == "SPOT"
         assert points[0].best_bid == Decimal("500.00")
         assert points[0].best_ask is None
         assert points[0].mid_price is None
@@ -223,7 +223,7 @@ class TestComputeForwardCurve:
 
         assert len(points) == 1
         p = points[0]
-        assert p.availability_window == "Q2 2026"
+        assert p.availability_window == "2026-Q2"
         assert p.best_bid == Decimal("520.00")
         assert p.best_ask == Decimal("530.00")
         assert p.mid_price == Decimal("525.00")
@@ -255,7 +255,7 @@ class TestComputeForwardCurve:
         points = await compute_forward_curve(mock_db, product_id=uuid4())
         assert len(points) == 3
         windows = {p.availability_window for p in points}
-        assert windows == {"Spot", "Q3 2026", "Forward 2027"}
+        assert windows == {"SPOT", "2026-Q3", "2027-CAL"}
 
     @pytest.mark.asyncio
     async def test_filters_by_product_id(self):
@@ -374,7 +374,7 @@ class TestBuildCsv:
         from app.routers.curves import build_csv
 
         point = ForwardCurvePoint(
-            availability_window="Spot",
+            availability_window="SPOT",
             best_bid=Decimal("500.00"),
             best_ask=Decimal("510.00"),
             mid_price=Decimal("505.00"),
@@ -385,14 +385,14 @@ class TestBuildCsv:
         csv_text = build_csv([point])
         lines = [l for l in csv_text.splitlines() if l.strip()]
         assert len(lines) == 2
-        assert "Spot" in lines[1]
+        assert "SPOT" in lines[1]
         assert "500.00" in lines[1]
 
     def test_csv_none_fields_serialized_as_empty_string(self):
         from app.routers.curves import build_csv
 
         point = ForwardCurvePoint(
-            availability_window="Forward 2027",
+            availability_window="2027-CAL",
             best_bid=None,
             best_ask=Decimal("620.00"),
             mid_price=None,
@@ -402,7 +402,7 @@ class TestBuildCsv:
         )
         csv_text = build_csv([point])
         data_line = csv_text.splitlines()[1]
-        assert "Forward 2027" in data_line
+        assert "2027-CAL" in data_line
         assert "620.00" in data_line
 
     def test_csv_multiple_points(self):
@@ -410,7 +410,7 @@ class TestBuildCsv:
 
         points = [
             ForwardCurvePoint(
-                availability_window="Spot",
+                availability_window="SPOT",
                 best_bid=Decimal("510.00"),
                 best_ask=Decimal("520.00"),
                 mid_price=Decimal("515.00"),
@@ -419,7 +419,7 @@ class TestBuildCsv:
                 order_count=3,
             ),
             ForwardCurvePoint(
-                availability_window="Q1 2026",
+                availability_window="2026-Q1",
                 best_bid=Decimal("480.00"),
                 best_ask=None,
                 mid_price=None,
@@ -476,7 +476,7 @@ class TestForwardCurveEndpoint:
 
         pid = uuid4()
         mock_point = ForwardCurvePoint(
-            availability_window="Spot",
+            availability_window="SPOT",
             best_bid=Decimal("510.00"),
             best_ask=Decimal("520.00"),
             mid_price=Decimal("515.00"),
@@ -493,7 +493,7 @@ class TestForwardCurveEndpoint:
         data = response.json()
         assert data["product_id"] == str(pid)
         assert len(data["curve"]) == 1
-        assert data["curve"][0]["availability_window"] == "Spot"
+        assert data["curve"][0]["availability_window"] == "SPOT"
         assert "generated_at" in data
 
     @pytest.mark.asyncio
@@ -532,7 +532,7 @@ class TestForwardCurveEndpoint:
         app.dependency_overrides[get_db] = mock_db
 
         mock_point = ForwardCurvePoint(
-            availability_window="Q1 2026",
+            availability_window="2026-Q1",
             best_bid=Decimal("480.00"),
             best_ask=Decimal("490.00"),
             mid_price=Decimal("485.00"),
@@ -565,7 +565,7 @@ class TestForwardCurveEndpoint:
         app.dependency_overrides[get_db] = mock_db
 
         mock_point = ForwardCurvePoint(
-            availability_window="Q2 2026",
+            availability_window="2026-Q2",
             best_bid=Decimal("520.00"),
             best_ask=Decimal("530.00"),
             mid_price=Decimal("525.00"),
@@ -582,7 +582,7 @@ class TestForwardCurveEndpoint:
         lines = [l for l in text.splitlines() if l.strip()]
         assert len(lines) == 2
         assert "availability_window" in lines[0]
-        assert "Q2 2026" in lines[1]
+        assert "2026-Q2" in lines[1]
         assert "520.00" in lines[1]
 
     @pytest.mark.asyncio

@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.models.orderbook import OrderBookOrder, OrderBookStatus, OrderSide
 from app.schemas.curves import ForwardCurvePoint, ForwardCurveResponse
+from app.services.availability_windows import availability_window_sort_key, normalize_availability_window
 
 
 router = APIRouter(prefix="/curves/forward", tags=["forward-curve"])
@@ -30,22 +31,6 @@ router = APIRouter(prefix="/curves/forward", tags=["forward-curve"])
 _ACTIVE_STATUSES = [OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED]
 
 # Canonical window ordering for deterministic response ordering
-_WINDOW_ORDER = [
-    "Spot",
-    "Q1 2025", "Q2 2025", "Q3 2025", "Q4 2025",
-    "Q1 2026", "Q2 2026", "Q3 2026", "Q4 2026",
-    "Forward 2027",
-    "Forward 2028",
-]
-
-
-def _window_sort_key(window: str) -> int:
-    try:
-        return _WINDOW_ORDER.index(window)
-    except ValueError:
-        return len(_WINDOW_ORDER)
-
-
 async def compute_forward_curve(
     db: AsyncSession,
     product_id: UUID,
@@ -90,7 +75,7 @@ async def compute_forward_curve(
     # key: availability_window → {"BID": row, "ASK": row}
     windows: dict[str, dict[str, object]] = {}
     for row in rows:
-        window = row.availability_window.value if hasattr(row.availability_window, "value") else str(row.availability_window)
+        window = normalize_availability_window(str(row.availability_window))
         if window not in windows:
             windows[window] = {}
         windows[window][row.side.value if hasattr(row.side, "value") else str(row.side)] = row
@@ -129,7 +114,7 @@ async def compute_forward_curve(
             )
         )
 
-    points.sort(key=lambda p: _window_sort_key(p.availability_window))
+    points.sort(key=lambda p: availability_window_sort_key(p.availability_window))
     return points
 
 

@@ -19,7 +19,7 @@ app/
     user.py                     # User (with password_changed_at, oauth_provider), Organization, enums
     port.py                     # Port (PostGIS), PortIntelligence, Vessel
     marketplace.py              # InventoryItem, FuelType enum
-    orderbook.py                # OrderBookOrder (BID/ASK), Trade, enums (OrderSide, TradeStatus)
+    orderbook.py                # OrderBookOrder (BID/ASK), Trade, canonical availability_window strings, enums (OrderSide, TradeStatus)
     orders.py                   # Commission (legacy match_id + trade_id FKs)
     matchmaking.py              # MatchSuggestion
     notification.py             # Notification, NotificationType (11 types incl trade events)
@@ -51,11 +51,12 @@ app/
   schemas/
     user.py                     # UserCreate (min 8 chars pw), UserResponse, PasswordChangeRequest
     organization.py             # OrganizationCreate/Response
-    orderbook.py                # Order/Trade schemas, PriceSummary, ReferencePriceItem/Response
+    orderbook.py                # Order/Trade schemas, required delivery point, canonical availability window validation
     [others unchanged]
   services/
     event_bus.py                # AsyncIO pub/sub — per-channel queues, 200 subscriber cap, backpressure
     matching_engine.py          # Match-on-insert — price-time priority, partial fills, auto-confirm
+    availability_windows.py     # Canonical availability code parsing, sorting, display labels, legacy alias normalization
     compliance_scoring.py       # Pure function scoring — FuelEU/ETS/CII, 9 fuels, scenario engine
     audit_service.py            # record_audit() — async audit logging
     ai_service.py               # Gemini chat + document analysis (stub)
@@ -66,16 +67,17 @@ app/
 
 tests/unit/                     # 155 tests (auth, matching, compliance, events, pricing, schemas)
 tests/integration/              # Auth hardening, trade lifecycle, orderbook E2E
-alembic/versions/               # 54 migrations (latest: audit_logs, password_changed_at, oauth_provider)
+  alembic/versions/               # Migrations incl. canonical availability-window rewrite + defaults
 ```
 
 ## Key Patterns
 
-- **Match-on-insert:** `POST /orderbook` → `db.flush()` → `match_order()` → `db.commit()` (atomic)
+- **Match-on-insert:** `POST /orderbook` → `db.flush()` → `match_order()` → `db.commit()` (atomic); executable matches now require exact `product + delivery_point + availability_window`
 - **SSE broadcasting:** `event_bus.publish(channel, event_type, data)` → subscribers via AsyncIO queues
 - **Compliance scoring:** Pure function `calculate_compliance_score()` — no DB, 100% testable
 - **Dual-token JWT:** 15-min access + 7-day refresh, `password_changed_at` for stateless invalidation
 - **Rate limiting:** slowapi per-route (5/min login, 3/min password, 60/min prices, 30/min reference)
+- **Availability windows:** Persist canonical codes (`SPOT`, `YYYY-MM`, `YYYY-QN`, legacy-compatible `YYYY-CAL`); UI-relative labels like `M+1` must be resolved before persistence
 
 ## Revenue Streams
 

@@ -57,7 +57,7 @@ def _make_mock_trade(
     fuel_type: str = "VLSFO",
     fuel_grade: str = "Conventional",
     region: str = "ARA",
-    availability_window: str = "Spot",
+    availability_window: str = "SPOT",
 ) -> MagicMock:
     """Build a mock Trade with nested order relationships."""
     trade_id = trade_id or uuid.uuid4()
@@ -74,9 +74,7 @@ def _make_mock_trade(
     order.fuel_type = fuel_type
     order.fuel_grade = fuel_grade
     order.region = region
-    avail = MagicMock()
-    avail.value = availability_window
-    order.availability_window = avail
+    order.availability_window = availability_window
 
     trade.ask_order = order
     trade.bid_order = None
@@ -126,7 +124,7 @@ class TestBuildTapeEntry:
     def test_availability_window_from_order(self):
         trade = _make_mock_trade(availability_window="Q2 2026")
         entry = _build_tape_entry(trade)
-        assert entry.availability_window == "Q2 2026"
+        assert entry.availability_window == "2026-Q2"
 
     def test_no_order_fallback_empty_strings(self):
         trade = _make_mock_trade()
@@ -180,7 +178,7 @@ class TestTradeTapeSchemas:
             price_per_mt_usd=Decimal("750.50"),
             total_usd=Decimal("750500.00"),
             confirmed_at=datetime(2026, 3, 15, 10, 0, 0, tzinfo=timezone.utc),
-            availability_window="Spot",
+            availability_window="SPOT",
         )
         resp = TradeTapeResponse(items=[entry], total=1, market_hours=True)
         assert resp.total == 1

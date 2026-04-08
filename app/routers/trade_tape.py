@@ -12,6 +12,7 @@ from sqlalchemy.orm import joinedload
 from app.database import get_db
 from app.models.orderbook import Trade, TradeStatus, OrderBookOrder
 from app.schemas.trade_tape import TradeTapeEntry, TradeTapeResponse
+from app.services.availability_windows import normalize_availability_window
 
 router = APIRouter(prefix="/trade-tape", tags=["trade-tape"])
 
@@ -34,7 +35,7 @@ def _build_tape_entry(trade: Trade) -> TradeTapeEntry:
         fuel_type = order.fuel_type
         fuel_grade = order.fuel_grade
         region = order.region
-        availability_window = order.availability_window.value if order.availability_window else ""
+        availability_window = normalize_availability_window(str(order.availability_window)) if order.availability_window else ""
 
     return TradeTapeEntry(
         id=str(trade.id).replace("-", "")[:8],

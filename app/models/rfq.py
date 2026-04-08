@@ -9,7 +9,7 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
-from app.models.orderbook import AvailabilityWindow
+from app.services.availability_windows import SPOT_WINDOW
 
 
 class RFQStatus(str, enum.Enum):
@@ -46,9 +46,7 @@ class RFQ(Base):
     target_price_per_mt: Mapped[Decimal | None] = mapped_column(
         Numeric(10, 2), nullable=True, comment="Optional indicative price"
     )
-    availability_window: Mapped[AvailabilityWindow] = mapped_column(
-        Enum(AvailabilityWindow, native_enum=False), default=AvailabilityWindow.SPOT
-    )
+    availability_window: Mapped[str] = mapped_column(String(16), nullable=False, default=SPOT_WINDOW)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_anonymous: Mapped[bool] = mapped_column(Boolean, default=False)
     status: Mapped[RFQStatus] = mapped_column(

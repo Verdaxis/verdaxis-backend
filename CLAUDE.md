@@ -208,7 +208,7 @@ docker exec verdaxis-backend alembic upgrade head
 
 10. **Trade lifecycle is strict.** The state machine is: `PENDING_CONFIRMATION -> CONFIRMED -> DELIVERED -> PAID`. Decline from PENDING restores order quantity. Only the counterparty (non-initiator) can confirm/decline. Only the seller can mark as paid.
 
-11. **AvailabilityWindow enum values are hardcoded quarters** (Q1 2025 through Q4 2026, plus Forward 2027/2028). Q1-Q4 2025 are now historical. Needs 2027+ values added.
+11. **Availability windows are canonical strings, not a static enum.** Persist `SPOT`, `YYYY-MM`, `YYYY-QN`, and legacy-compatible `YYYY-CAL`. UI labels like `M`, `M+1`, and `Next Quarter` must be resolved to canonical codes before they hit the API.
 
 12. **`python-jose` is unmaintained.** Last release was 2022 (v3.5.0) with known CVEs. Recommend migrating to `PyJWT` or `joserfc` for JWT handling.
 

@@ -24,6 +24,7 @@ from app.schemas.rfq import (
     RFQListResponse,
 )
 from app.services.event_bus import event_bus
+from app.services.availability_windows import normalize_availability_window
 
 router = APIRouter(prefix="/rfq", tags=["rfq"])
 
@@ -112,7 +113,7 @@ async def _build_rfq_response(db: AsyncSession, rfq: RFQ, *, viewer_org_id: uuid
         delivery_point_name=delivery_point_name,
         quantity_mt=rfq.quantity_mt,
         target_price_per_mt=rfq.target_price_per_mt,
-        availability_window=rfq.availability_window.value if hasattr(rfq.availability_window, "value") else str(rfq.availability_window),
+        availability_window=normalize_availability_window(str(rfq.availability_window)),
         notes=rfq.notes,
         is_anonymous=rfq.is_anonymous,
         status=rfq.status.value,
@@ -194,12 +195,7 @@ async def create_rfq(
         expires_at=datetime.now(UTC) + timedelta(hours=payload.expires_in_hours),
     )
 
-    # Set availability_window from string
-    from app.models.orderbook import AvailabilityWindow
-    try:
-        rfq.availability_window = AvailabilityWindow(payload.availability_window)
-    except ValueError:
-        rfq.availability_window = AvailabilityWindow.SPOT
+    rfq.availability_window = normalize_availability_window(payload.availability_window)
 
     db.add(rfq)
     await db.flush()

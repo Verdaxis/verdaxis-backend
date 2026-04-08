@@ -21,11 +21,11 @@ from app.models.orderbook import (
     OrderSide,
     OrderBookStatus,
     TradeStatus,
-    AvailabilityWindow,
     Initiator,
 )
 from app.models.rfq import RFQ, RFQQuote, RFQStatus, QuoteStatus
 from app.seeds.catalog_seed import PRODUCT_IDS, DELIVERY_POINT_IDS
+from app.services.availability_windows import SPOT_WINDOW
 
 # ---------------------------------------------------------------------------
 # Deterministic seed for reproducibility
@@ -106,13 +106,13 @@ CI_DATA: dict[str, tuple[float, float, float]] = {
 }
 
 WINDOWS = [
-    AvailabilityWindow.SPOT,
-    AvailabilityWindow.Q1_2026,
-    AvailabilityWindow.Q2_2026,
-    AvailabilityWindow.Q3_2026,
-    AvailabilityWindow.Q4_2026,
-    AvailabilityWindow.FORWARD_2027,
-    AvailabilityWindow.FORWARD_2028,
+    SPOT_WINDOW,
+    "2026-Q1",
+    "2026-Q2",
+    "2026-Q3",
+    "2026-Q4",
+    "2027-CAL",
+    "2028-CAL",
 ]
 
 QUANTITIES = [500, 1000, 1500, 2000, 2500, 3000, 3500, 4000, 4500, 5000]
@@ -121,7 +121,7 @@ QUANTITIES = [500, 1000, 1500, 2000, 2500, 3000, 3500, 4000, 4500, 5000]
 RFQ_NOTES = [
     "Seeking competitive quotes for upcoming voyage refueling",
     "Annual contract renewal — need firm offers for next quarter",
-    "Spot requirement, flexible on delivery window +/- 5 days",
+    "Spot requirement, flexible on post-match scheduling details",
     "Looking for ISCC-certified supply only",
     "Fleet-wide procurement, multiple deliveries expected",
     "Urgent requirement — vessel arriving next week",
@@ -153,7 +153,7 @@ def _qty() -> Decimal:
     return Decimal(str(_RNG.choice(QUANTITIES)))
 
 
-def _window() -> AvailabilityWindow:
+def _window() -> str:
     return _RNG.choice(WINDOWS)
 
 
@@ -323,7 +323,7 @@ async def seed_market_data(db: AsyncSession) -> None:
         quantity_mt=Decimal("0"),
         remaining_quantity_mt=Decimal("0"),
         price_per_mt_usd=Decimal("0"),
-        availability_window=AvailabilityWindow.SPOT,
+        availability_window=SPOT_WINDOW,
         status=OrderBookStatus.CANCELLED,
         created_at=datetime(2020, 1, 1, tzinfo=timezone.utc),
         updated_at=datetime(2020, 1, 1, tzinfo=timezone.utc),
@@ -369,9 +369,9 @@ async def seed_market_data(db: AsyncSession) -> None:
 
                 # Forward windows get a slight contango premium
                 window_premium = Decimal("0")
-                if window == AvailabilityWindow.FORWARD_2027:
+                if window == "2027-CAL":
                     window_premium = Decimal(str(round((ask_hi - ask_lo) * 0.3, 2)))
-                elif window == AvailabilityWindow.FORWARD_2028:
+                elif window == "2028-CAL":
                     window_premium = Decimal(str(round((ask_hi - ask_lo) * 0.6, 2)))
 
                 created = _rand_date(
@@ -577,9 +577,9 @@ async def seed_market_data(db: AsyncSession) -> None:
                     datetime(2025, 3, 20, tzinfo=timezone.utc),
                 )
                 window_premium = Decimal("0")
-                if window == AvailabilityWindow.FORWARD_2027:
+                if window == "2027-CAL":
                     window_premium = Decimal(str(round((ask_hi - ask_lo) * 0.3, 2)))
-                elif window == AvailabilityWindow.FORWARD_2028:
+                elif window == "2028-CAL":
                     window_premium = Decimal(str(round((ask_hi - ask_lo) * 0.6, 2)))
 
                 if window not in windows_with_bid:

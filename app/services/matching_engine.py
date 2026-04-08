@@ -4,9 +4,6 @@ and automatically create trades. Uses price-time priority (FIFO at each price le
 """
 from decimal import Decimal
 from datetime import datetime, UTC
-from typing import Optional
-import uuid
-
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -58,6 +55,7 @@ async def match_order(
     match_filters = [
         OrderBookOrder.side == opposite_side,
         OrderBookOrder.product_id == new_order.product_id,
+        OrderBookOrder.availability_window == new_order.availability_window,
         OrderBookOrder.status.in_([OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED]),
         OrderBookOrder.organization_id != new_order.organization_id,  # No self-trade
         price_filter,

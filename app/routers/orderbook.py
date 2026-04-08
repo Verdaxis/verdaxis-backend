@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, or_
+from sqlalchemy import select, func, or_, and_
 from sqlalchemy.orm import selectinload, joinedload
 from typing import Optional
 from decimal import Decimal
@@ -22,6 +22,7 @@ from app.schemas.orderbook import (
 from app.schemas.pagination import PaginatedResponse
 from app.services.ci_pricing import calculate_ci_adjusted_price
 from app.services.event_bus import event_bus
+from app.services.availability_windows import normalize_availability_window
 
 router = APIRouter(prefix="/orderbook", tags=["orderbook"])
 
@@ -39,6 +40,71 @@ def compute_is_crossed(side: str, price: Decimal, best_opposing_price: Optional[
     if side == "BID":
         return price >= best_opposing_price
     return price <= best_opposing_price
+
+
+def _order_key(order: OrderBookOrder) -> tuple[UUID, UUID | None, str]:
+    return (order.product_id, order.delivery_point_id, normalize_availability_window(order.availability_window))
+
+
+def _normalize_query_window(value: str | None) -> str | None:
+    if value is None:
+        return None
+    try:
+        return normalize_availability_window(value)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+async def _load_best_opposing_prices(
+    db: AsyncSession,
+    orders: list[OrderBookOrder],
+    *,
+    opposing_side: OrderSide,
+) -> dict[tuple[UUID, UUID | None, str], Decimal]:
+    if not orders:
+        return {}
+
+    key_filters = []
+    for order in orders:
+        filters = [
+            OrderBookOrder.product_id == order.product_id,
+            OrderBookOrder.availability_window == normalize_availability_window(order.availability_window),
+        ]
+        if order.delivery_point_id is None:
+            filters.append(OrderBookOrder.delivery_point_id.is_(None))
+        else:
+            filters.append(OrderBookOrder.delivery_point_id == order.delivery_point_id)
+        key_filters.append(and_(*filters))
+
+    aggregate_fn = func.min if opposing_side == OrderSide.ASK else func.max
+    stmt = (
+        select(
+            OrderBookOrder.product_id,
+            OrderBookOrder.delivery_point_id,
+            OrderBookOrder.availability_window,
+            aggregate_fn(OrderBookOrder.price_per_mt_usd).label("best_price"),
+        )
+        .where(
+            OrderBookOrder.side == opposing_side,
+            OrderBookOrder.status.in_([OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED]),
+            or_(*key_filters),
+        )
+        .group_by(
+            OrderBookOrder.product_id,
+            OrderBookOrder.delivery_point_id,
+            OrderBookOrder.availability_window,
+        )
+    )
+    result = await db.execute(stmt)
+    return {
+        (
+            row.product_id,
+            row.delivery_point_id,
+            normalize_availability_window(str(row.availability_window)),
+        ): row.best_price
+        for row in result.all()
+        if row.best_price is not None
+    }
 
 
 # ============== Static routes (must come before parametric /{order_id}) ==============
@@ -75,8 +141,9 @@ async def list_bids(
         if not any(j[0] == DeliveryPoint for j in joins):
             joins.append((DeliveryPoint, OrderBookOrder.delivery_point_id == DeliveryPoint.id))
         filters.append(or_(DeliveryPoint.region == region, DeliveryPoint.name == region))
-    if availability_window:
-        filters.append(OrderBookOrder.availability_window == availability_window)
+    normalized_window = _normalize_query_window(availability_window)
+    if normalized_window:
+        filters.append(OrderBookOrder.availability_window == normalized_window)
 
     # Count query (same filters, no pagination)
     count_query = select(func.count(OrderBookOrder.id))
@@ -96,25 +163,17 @@ async def list_bids(
     result = await db.execute(query)
     orders = result.unique().scalars().all()
 
-    # Fetch best ask price scoped to same fuel_type/region for crossing detection
-    best_ask_query = select(func.min(OrderBookOrder.price_per_mt_usd)).where(
-        OrderBookOrder.side == OrderSide.ASK,
-        OrderBookOrder.status.in_([OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED]),
-    )
-    if fuel_type:
-        best_ask_query = best_ask_query.join(Product, OrderBookOrder.product_id == Product.id).where(
-            Product.fuel_type == fuel_type
-        )
-    if region:
-        best_ask_query = best_ask_query.join(DeliveryPoint, OrderBookOrder.delivery_point_id == DeliveryPoint.id).where(
-            or_(DeliveryPoint.region == region, DeliveryPoint.name == region)
-        )
-    best_ask_result = await db.execute(best_ask_query)
-    best_ask_price = best_ask_result.scalar()
+    best_ask_prices = await _load_best_opposing_prices(db, orders, opposing_side=OrderSide.ASK)
 
     items = [
         OrderResponse.model_validate(order, from_attributes=True).model_copy(
-            update={"is_crossed": compute_is_crossed("BID", order.price_per_mt_usd, best_ask_price)}
+            update={
+                "is_crossed": compute_is_crossed(
+                    "BID",
+                    order.price_per_mt_usd,
+                    best_ask_prices.get(_order_key(order)),
+                )
+            }
         )
         for order in orders
     ]
@@ -153,8 +212,9 @@ async def list_asks(
         if not any(j[0] == DeliveryPoint for j in joins):
             joins.append((DeliveryPoint, OrderBookOrder.delivery_point_id == DeliveryPoint.id))
         filters.append(or_(DeliveryPoint.region == region, DeliveryPoint.name == region))
-    if availability_window:
-        filters.append(OrderBookOrder.availability_window == availability_window)
+    normalized_window = _normalize_query_window(availability_window)
+    if normalized_window:
+        filters.append(OrderBookOrder.availability_window == normalized_window)
 
     # Count query (same filters, no pagination)
     count_query = select(func.count(OrderBookOrder.id))
@@ -174,25 +234,17 @@ async def list_asks(
     result = await db.execute(query)
     orders = result.unique().scalars().all()
 
-    # Fetch best bid price scoped to same fuel_type/region for crossing detection
-    best_bid_query = select(func.max(OrderBookOrder.price_per_mt_usd)).where(
-        OrderBookOrder.side == OrderSide.BID,
-        OrderBookOrder.status.in_([OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED]),
-    )
-    if fuel_type:
-        best_bid_query = best_bid_query.join(Product, OrderBookOrder.product_id == Product.id).where(
-            Product.fuel_type == fuel_type
-        )
-    if region:
-        best_bid_query = best_bid_query.join(DeliveryPoint, OrderBookOrder.delivery_point_id == DeliveryPoint.id).where(
-            or_(DeliveryPoint.region == region, DeliveryPoint.name == region)
-        )
-    best_bid_result = await db.execute(best_bid_query)
-    best_bid_price = best_bid_result.scalar()
+    best_bid_prices = await _load_best_opposing_prices(db, orders, opposing_side=OrderSide.BID)
 
     items = [
         OrderResponse.model_validate(order, from_attributes=True).model_copy(
-            update={"is_crossed": compute_is_crossed("ASK", order.price_per_mt_usd, best_bid_price)}
+            update={
+                "is_crossed": compute_is_crossed(
+                    "ASK",
+                    order.price_per_mt_usd,
+                    best_bid_prices.get(_order_key(order)),
+                )
+            }
         )
         for order in orders
     ]
@@ -415,8 +467,9 @@ async def list_orders(
         query = query.where(OrderBookOrder.delivery_point_id == delivery_point_id)
     if side:
         query = query.where(OrderBookOrder.side == side)
-    if availability_window:
-        query = query.where(OrderBookOrder.availability_window == availability_window)
+    normalized_window = _normalize_query_window(availability_window)
+    if normalized_window:
+        query = query.where(OrderBookOrder.availability_window == normalized_window)
 
     query = query.order_by(OrderBookOrder.created_at.desc())
     result = await db.execute(query)
@@ -433,16 +486,6 @@ async def create_order(
     """
     Place a new order. BID requires BUYER role, ASK requires SUPPLIER role.
     """
-    if (
-        order_data.delivery_window_start
-        and order_data.delivery_window_end
-        and order_data.delivery_window_start > order_data.delivery_window_end
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="delivery_window_start cannot be later than delivery_window_end",
-        )
-
     if order_data.side == OrderSide.BID and current_user.role != UserRole.BUYER:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -494,8 +537,6 @@ async def create_order(
         remaining_quantity_mt=order_data.quantity_mt,
         price_per_mt_usd=order_data.price_per_mt_usd,
         availability_window=order_data.availability_window,
-        delivery_window_start=order_data.delivery_window_start,
-        delivery_window_end=order_data.delivery_window_end,
         expires_at=order_data.expires_at,
     )
 
@@ -591,14 +632,6 @@ async def update_order(
         )
 
     update_dict = update_data.model_dump(exclude_unset=True)
-
-    new_start = update_dict.get("delivery_window_start", order.delivery_window_start)
-    new_end = update_dict.get("delivery_window_end", order.delivery_window_end)
-    if new_start and new_end and new_start > new_end:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="delivery_window_start cannot be later than delivery_window_end",
-        )
 
     # If quantity_mt changes, recalculate remaining_quantity_mt proportionally
     if "quantity_mt" in update_dict:

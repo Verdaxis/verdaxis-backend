@@ -3,33 +3,38 @@ Public demand signals endpoint for suppliers.
 Aggregates open BID orders into anonymized demand signals by fuel_type + region.
 """
 from typing import Optional, List
-from datetime import datetime
+from datetime import date
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import select, func
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.models.orderbook import OrderBookOrder, OrderSide, OrderBookStatus
 from app.models.catalog import Product, DeliveryPoint
 from app.schemas.demand import DemandSignal, UrgencyLevel
+from app.services.availability_windows import (
+    SPOT_WINDOW,
+    availability_window_display_label,
+    availability_window_sort_key,
+    normalize_availability_window,
+    window_start_date,
+)
 
 router = APIRouter(prefix="/demand", tags=["demand"])
 
 
-def _classify_urgency(availability_window: str, delivery_start) -> UrgencyLevel:
-    if availability_window == "Spot":
+def _classify_urgency(availability_window: str) -> UrgencyLevel:
+    normalized = normalize_availability_window(availability_window)
+    if normalized == SPOT_WINDOW:
         return UrgencyLevel.HIGH
-    if delivery_start:
-        days_until = (delivery_start - datetime.utcnow().date()).days
-        if days_until <= 30:
-            return UrgencyLevel.HIGH
-        elif days_until <= 90:
-            return UrgencyLevel.MEDIUM
-    # Forward deliveries
-    if "Forward" in (availability_window or ""):
-        return UrgencyLevel.LOW
-    return UrgencyLevel.MEDIUM
+
+    days_until = (window_start_date(normalized, today=date.today()) - date.today()).days
+    if days_until <= 30:
+        return UrgencyLevel.HIGH
+    if days_until <= 90:
+        return UrgencyLevel.MEDIUM
+    return UrgencyLevel.LOW
 
 
 @router.get("", response_model=List[DemandSignal])
@@ -46,12 +51,10 @@ async def get_demand_signals(
         select(
             Product.fuel_type.label("fuel_type"),
             DeliveryPoint.region.label("region"),
-            func.sum(OrderBookOrder.remaining_quantity_mt).label("total_volume"),
-            func.max(OrderBookOrder.price_per_mt_usd).label("max_price"),
-            func.count(OrderBookOrder.id).label("bid_count"),
-            func.min(OrderBookOrder.availability_window).label("earliest_window"),
-            func.min(OrderBookOrder.delivery_window_start).label("earliest_delivery_start"),
-            func.max(OrderBookOrder.created_at).label("latest_created"),
+            OrderBookOrder.remaining_quantity_mt.label("remaining_quantity_mt"),
+            OrderBookOrder.price_per_mt_usd.label("price_per_mt_usd"),
+            OrderBookOrder.availability_window.label("availability_window"),
+            OrderBookOrder.created_at.label("created_at"),
         )
         .join(Product, OrderBookOrder.product_id == Product.id)
         .outerjoin(DeliveryPoint, OrderBookOrder.delivery_point_id == DeliveryPoint.id)
@@ -59,7 +62,6 @@ async def get_demand_signals(
             OrderBookOrder.side == OrderSide.BID,
             OrderBookOrder.status.in_([OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED]),
         )
-        .group_by(Product.fuel_type, DeliveryPoint.region)
     )
 
     if fuel_type:
@@ -70,24 +72,44 @@ async def get_demand_signals(
     result = await db.execute(stmt)
     rows = result.all()
 
-    signals = []
+    groups: dict[tuple[str, str], dict[str, object]] = {}
     for row in rows:
-        urgency = _classify_urgency(
-            row.earliest_window,
-            row.earliest_delivery_start,
+        key = (row.fuel_type or "", row.region or "")
+        normalized_window = normalize_availability_window(str(row.availability_window))
+        if key not in groups:
+            groups[key] = {
+                "fuel_type": row.fuel_type or "",
+                "region": row.region or "",
+                "volume_mt": row.remaining_quantity_mt,
+                "max_price_per_mt": row.price_per_mt_usd,
+                "bid_count": 1,
+                "earliest_window": normalized_window,
+                "created_at": row.created_at,
+            }
+            continue
+
+        group = groups[key]
+        group["volume_mt"] += row.remaining_quantity_mt
+        group["max_price_per_mt"] = max(group["max_price_per_mt"], row.price_per_mt_usd)
+        group["bid_count"] += 1
+        if availability_window_sort_key(normalized_window) < availability_window_sort_key(group["earliest_window"]):
+            group["earliest_window"] = normalized_window
+        if row.created_at > group["created_at"]:
+            group["created_at"] = row.created_at
+
+    signals = [
+        DemandSignal(
+            fuel_type=group["fuel_type"],
+            region=group["region"],
+            volume_mt=group["volume_mt"],
+            max_price_per_mt=group["max_price_per_mt"],
+            urgency=_classify_urgency(group["earliest_window"]),
+            bid_count=group["bid_count"],
+            earliest_delivery=availability_window_display_label(group["earliest_window"]),
+            created_at=group["created_at"],
         )
-        signals.append(
-            DemandSignal(
-                fuel_type=row.fuel_type or "",
-                region=row.region or "",
-                volume_mt=row.total_volume,
-                max_price_per_mt=row.max_price,
-                urgency=urgency,
-                bid_count=row.bid_count,
-                earliest_delivery=row.earliest_window or "Spot",
-                created_at=row.latest_created,
-            )
-        )
+        for group in groups.values()
+    ]
 
     # Sort by urgency (HIGH first), then volume descending
     urgency_order = {UrgencyLevel.HIGH: 0, UrgencyLevel.MEDIUM: 1, UrgencyLevel.LOW: 2}

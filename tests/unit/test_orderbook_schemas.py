@@ -7,7 +7,7 @@ requiring a running database.
 import pytest
 from decimal import Decimal
 from uuid import uuid4
-from datetime import datetime, date
+from datetime import datetime
 
 from app.schemas.orderbook import (
     OrderCreate,
@@ -23,7 +23,6 @@ from app.schemas.orderbook import (
     TradeStatus,
     Initiator,
     FuelGrade,
-    AvailabilityWindow,
     TierLabel,
 )
 
@@ -34,13 +33,14 @@ class TestOrderCreate:
         order = OrderCreate(
             side=OrderSide.BID,
             product_id=product_id,
+            delivery_point_id=uuid4(),
             quantity_mt=Decimal("1000"),
             price_per_mt_usd=Decimal("550"),
         )
         assert order.side == OrderSide.BID
         assert order.product_id == product_id
-        assert order.delivery_point_id is None  # optional
-        assert order.availability_window == AvailabilityWindow.SPOT  # default
+        assert order.delivery_point_id is not None
+        assert order.availability_window == "SPOT"  # default
         assert order.certifications == []  # default
         assert order.port_id is None
         assert order.vessel_id is None
@@ -55,9 +55,7 @@ class TestOrderCreate:
             port_id="NLRTM",
             quantity_mt=Decimal("5000"),
             price_per_mt_usd=Decimal("780"),
-            availability_window=AvailabilityWindow.Q1_2026,
-            delivery_window_start=date(2026, 1, 1),
-            delivery_window_end=date(2026, 3, 31),
+            availability_window="2026-Q1",
             certifications=["ISCC", "Nanolumi"],
             expires_at=datetime(2026, 6, 1),
         )
@@ -65,13 +63,14 @@ class TestOrderCreate:
         assert order.product_id == product_id
         assert order.delivery_point_id == dp_id
         assert order.certifications == ["ISCC", "Nanolumi"]
-        assert order.delivery_window_start == date(2026, 1, 1)
+        assert order.availability_window == "2026-Q1"
 
     def test_quantity_must_be_positive(self):
         with pytest.raises(Exception):
             OrderCreate(
                 side=OrderSide.BID,
                 product_id=uuid4(),
+                delivery_point_id=uuid4(),
                 quantity_mt=Decimal("0"),
                 price_per_mt_usd=Decimal("100"),
             )
@@ -81,6 +80,7 @@ class TestOrderCreate:
             OrderCreate(
                 side=OrderSide.ASK,
                 product_id=uuid4(),
+                delivery_point_id=uuid4(),
                 quantity_mt=Decimal("-500"),
                 price_per_mt_usd=Decimal("100"),
             )
@@ -90,6 +90,7 @@ class TestOrderCreate:
             OrderCreate(
                 side=OrderSide.BID,
                 product_id=uuid4(),
+                delivery_point_id=uuid4(),
                 quantity_mt=Decimal("1000"),
                 price_per_mt_usd=Decimal("0"),
             )
@@ -99,6 +100,7 @@ class TestOrderCreate:
         with pytest.raises(Exception):
             OrderCreate(
                 side=OrderSide.BID,
+                delivery_point_id=uuid4(),
                 quantity_mt=Decimal("1000"),
                 price_per_mt_usd=Decimal("100"),
             )
@@ -108,20 +110,21 @@ class TestOrderCreate:
         order = OrderCreate(
             side=OrderSide.BID,
             product_id=uuid4(),
+            delivery_point_id=uuid4(),
             vessel_id=vid,
             quantity_mt=Decimal("500"),
             price_per_mt_usd=Decimal("600"),
         )
         assert order.vessel_id == vid
 
-    def test_delivery_point_id_optional(self):
-        order = OrderCreate(
-            side=OrderSide.ASK,
-            product_id=uuid4(),
-            quantity_mt=Decimal("1000"),
-            price_per_mt_usd=Decimal("500"),
-        )
-        assert order.delivery_point_id is None
+    def test_delivery_point_id_required(self):
+        with pytest.raises(Exception):
+            OrderCreate(
+                side=OrderSide.ASK,
+                product_id=uuid4(),
+                quantity_mt=Decimal("1000"),
+                price_per_mt_usd=Decimal("500"),
+            )
 
     def test_delivery_point_id_accepts_uuid(self):
         dp_id = uuid4()
@@ -171,7 +174,7 @@ class TestOrderResponse:
             quantity_mt=Decimal("5000"),
             remaining_quantity_mt=Decimal("3000"),
             price_per_mt_usd=Decimal("780"),
-            availability_window=AvailabilityWindow.SPOT,
+            availability_window="SPOT",
             certifications=["ISCC"],
             is_verdaxis_verified=True,
             status=OrderBookStatus.PARTIALLY_FILLED,
@@ -195,7 +198,7 @@ class TestOrderResponse:
             quantity_mt=Decimal("1000"),
             remaining_quantity_mt=Decimal("1000"),
             price_per_mt_usd=Decimal("1200"),
-            availability_window=AvailabilityWindow.SPOT,
+            availability_window="SPOT",
             is_verdaxis_verified=False,
             status=OrderBookStatus.OPEN,
             created_at=now,

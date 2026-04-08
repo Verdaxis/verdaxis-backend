@@ -6,11 +6,11 @@ Scores compatibility between BID and ASK orders based on:
 - Region (exact or fuzzy match)
 - Price overlap (bid >= ask is ideal)
 - Volume compatibility
-- Delivery window overlap
+- Availability window compatibility
 """
 from decimal import Decimal, ROUND_HALF_UP
-from datetime import date
-from typing import Optional
+
+from app.services.availability_windows import SPOT_WINDOW, normalize_availability_window
 
 # Region groupings for fuzzy matching
 REGION_GROUPS = {
@@ -37,18 +37,14 @@ def _region_match(bid_region: str, ask_region: str) -> tuple[bool, bool]:
     return False, False
 
 
-def _delivery_overlap(
-    bid_start: Optional[date], bid_end: Optional[date],
-    ask_start: Optional[date], ask_end: Optional[date],
+def _availability_compatible(
+    bid_window: str | None,
+    ask_window: str | None,
 ) -> bool:
-    """Check if delivery windows overlap."""
-    if not bid_start or not ask_start:
-        return True  # Spot/unspecified: assume compatible
-    if not bid_end:
-        bid_end = bid_start
-    if not ask_end:
-        ask_end = ask_start
-    return bid_start <= ask_end and ask_start <= bid_end
+    """Availability is compatible when both sides target the same canonical bucket."""
+    if not bid_window or not ask_window:
+        return True
+    return normalize_availability_window(bid_window) == normalize_availability_window(ask_window)
 
 
 def compute_match_score(
@@ -56,10 +52,8 @@ def compute_match_score(
     bid_region: str, ask_region: str,
     bid_price: Decimal, ask_price: Decimal,
     bid_qty: Decimal, ask_qty: Decimal,
-    bid_delivery_start: Optional[date] = None,
-    bid_delivery_end: Optional[date] = None,
-    ask_delivery_start: Optional[date] = None,
-    ask_delivery_end: Optional[date] = None,
+    bid_availability_window: str = SPOT_WINDOW,
+    ask_availability_window: str = SPOT_WINDOW,
 ) -> tuple[Decimal, list[str]]:
     """
     Compute a match score (0-100) and list of match reasons.
@@ -111,9 +105,9 @@ def compute_match_score(
             score += Decimal("5")
             reasons.append("volume_partial")
 
-    # Delivery window (0-10 points)
-    if _delivery_overlap(bid_delivery_start, bid_delivery_end, ask_delivery_start, ask_delivery_end):
+    # Availability window (0-10 points)
+    if _availability_compatible(bid_availability_window, ask_availability_window):
         score += Decimal("10")
-        reasons.append("delivery_overlap")
+        reasons.append("availability_match")
 
     return score.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP), reasons

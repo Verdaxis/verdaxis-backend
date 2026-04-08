@@ -29,7 +29,7 @@ class TestDemandSignal:
             max_price_per_mt=Decimal("1200"),
             urgency=UrgencyLevel.LOW,
             bid_count=1,
-            earliest_delivery="Forward 2027",
+            earliest_delivery="CAL 2027",
             created_at=datetime(2026, 2, 12),
         )
         assert d.urgency == UrgencyLevel.LOW

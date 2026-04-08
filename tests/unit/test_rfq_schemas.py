@@ -26,7 +26,7 @@ class TestRFQCreateRequest:
         )
         assert req.delivery_point_id is None
         assert req.target_price_per_mt is None
-        assert req.availability_window == "Spot"
+        assert req.availability_window == "SPOT"
         assert req.notes is None
         assert req.is_anonymous is False
         assert req.expires_in_hours == 24
@@ -39,7 +39,7 @@ class TestRFQCreateRequest:
             delivery_point_id=dpid,
             quantity_mt=Decimal("10000"),
             target_price_per_mt=Decimal("550.00"),
-            availability_window="Q1 2025",
+            availability_window="2025-Q1",
             notes="Need ISCC certified",
             is_anonymous=True,
             expires_in_hours=72,
@@ -216,7 +216,7 @@ class TestRFQResponse:
             product_id=pid,
             product_name="VLSFO 0.5%",
             quantity_mt=Decimal("2000"),
-            availability_window="Spot",
+            availability_window="SPOT",
             is_anonymous=False,
             status="OPEN",
             expires_at=now,
@@ -244,7 +244,7 @@ class TestRFQResponse:
             buyer_org_id=uuid4(),
             product_id=uuid4(),
             quantity_mt=Decimal("1000"),
-            availability_window="Spot",
+            availability_window="SPOT",
             is_anonymous=False,
             status="QUOTED",
             expires_at=now,
@@ -269,7 +269,7 @@ class TestRFQListResponse:
             buyer_org_id=uuid4(),
             product_id=uuid4(),
             quantity_mt=Decimal("500"),
-            availability_window="Spot",
+            availability_window="SPOT",
             is_anonymous=False,
             status="OPEN",
             expires_at=now,

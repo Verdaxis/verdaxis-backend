@@ -1,9 +1,15 @@
-from pydantic import BaseModel, Field
-from typing import Optional, Literal
+from pydantic import BaseModel, Field, field_validator
+from typing import Optional, Literal, Annotated
 from uuid import UUID
 from datetime import datetime, date
 from decimal import Decimal
 from enum import Enum
+
+from app.services.availability_windows import (
+    JSON_SCHEMA_PATTERN,
+    SPOT_WINDOW,
+    normalize_availability_window,
+)
 
 
 # Enums matching SQLAlchemy models
@@ -40,20 +46,6 @@ class FuelGrade(str, Enum):
     BIO = "Bio"
 
 
-class AvailabilityWindow(str, Enum):
-    SPOT = "Spot"
-    Q1_2025 = "Q1 2025"
-    Q2_2025 = "Q2 2025"
-    Q3_2025 = "Q3 2025"
-    Q4_2025 = "Q4 2025"
-    Q1_2026 = "Q1 2026"
-    Q2_2026 = "Q2 2026"
-    Q3_2026 = "Q3 2026"
-    Q4_2026 = "Q4 2026"
-    FORWARD_2027 = "Forward 2027"
-    FORWARD_2028 = "Forward 2028"
-
-
 class TierLabel(str, Enum):
     TIER_1_PRODUCER = "TIER_1_PRODUCER"
     MAJOR_TRADER = "MAJOR_TRADER"
@@ -61,37 +53,51 @@ class TierLabel(str, Enum):
     INDEPENDENT = "INDEPENDENT"
 
 
+AvailabilityWindowCode = Annotated[
+    str,
+    Field(
+        pattern=JSON_SCHEMA_PATTERN,
+        examples=[SPOT_WINDOW, "2026-04", "2026-Q3"],
+    ),
+]
+
+
+class AvailabilityWindowMixin(BaseModel):
+    @field_validator("availability_window", mode="before", check_fields=False)
+    @classmethod
+    def _normalize_availability_window(cls, value: str | None):
+        if value is None:
+            return value
+        return normalize_availability_window(value)
+
+
 # ============== Order Schemas ==============
 
-class OrderCreate(BaseModel):
+class OrderCreate(AvailabilityWindowMixin):
     """Used by both buyers (side=BID) and suppliers (side=ASK) to place an order."""
     side: OrderSide
     product_id: UUID
-    delivery_point_id: Optional[UUID] = None
+    delivery_point_id: UUID
     port_id: Optional[str] = None
     vessel_id: Optional[UUID] = None
     quantity_mt: Decimal = Field(..., gt=0)
     price_per_mt_usd: Decimal = Field(..., gt=0)
-    availability_window: AvailabilityWindow = AvailabilityWindow.SPOT
-    delivery_window_start: Optional[date] = None
-    delivery_window_end: Optional[date] = None
+    availability_window: AvailabilityWindowCode = SPOT_WINDOW
     certifications: list[str] = Field(default_factory=list)
     expires_at: Optional[datetime] = None
     is_anonymous: bool = True
 
 
-class OrderUpdate(BaseModel):
+class OrderUpdate(AvailabilityWindowMixin):
     """Optional fields for modifying open orders."""
     quantity_mt: Optional[Decimal] = Field(None, gt=0)
     price_per_mt_usd: Optional[Decimal] = Field(None, gt=0)
-    availability_window: Optional[AvailabilityWindow] = None
-    delivery_window_start: Optional[date] = None
-    delivery_window_end: Optional[date] = None
+    availability_window: Optional[AvailabilityWindowCode] = None
     certifications: Optional[list[str]] = None
     expires_at: Optional[datetime] = None
 
 
-class OrderResponse(BaseModel):
+class OrderResponse(AvailabilityWindowMixin):
     """Public/anonymized order for the book. organization_id is NOT included."""
     id: UUID
     side: OrderSide
@@ -106,9 +112,7 @@ class OrderResponse(BaseModel):
     quantity_mt: Decimal
     remaining_quantity_mt: Decimal
     price_per_mt_usd: Decimal
-    availability_window: AvailabilityWindow
-    delivery_window_start: Optional[date] = None
-    delivery_window_end: Optional[date] = None
+    availability_window: AvailabilityWindowCode
     certifications: list[str] = Field(default_factory=list)
     is_verdaxis_verified: bool
     tier_label: TierLabel = TierLabel.INDEPENDENT

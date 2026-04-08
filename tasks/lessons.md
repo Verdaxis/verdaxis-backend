@@ -44,6 +44,16 @@
 - **Rule:** Remove unused services from docker-compose.yml.
 - **Why:** Unused services consume memory, create attack surface, and confuse developers.
 
+- **Date:** 2026-04-08
+- **Trigger:** Orderbook timing was initially treated as delivery-window logistics instead of a matching-time availability bucket.
+- **Rule:** For the demo orderbook, model time as mandatory `availability_window` matching metadata and keep post-match delivery logistics off-platform.
+- **Why:** The product semantics are marketplace availability first; delivery scheduling belongs to later operational workflows.
+
+- **Date:** 2026-04-08
+- **Trigger:** Stale `AI_README.md` guidance was still sitting in the repo even though agent entrypoints now use `CLAUDE.md` and `.codesight`.
+- **Rule:** Remove obsolete AI bootstrap docs and keep agent guidance consolidated in `CLAUDE.md`, `ARCHITECTURE.md`, and `.codesight`.
+- **Why:** Multiple overlapping AI docs drift quickly and send future sessions to stale instructions.
+
 ## Dependencies
 
 - **Date:** 2026-02-18

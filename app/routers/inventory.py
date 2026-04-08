@@ -10,7 +10,6 @@ from sqlalchemy.orm import selectinload
 from app.database import get_db
 from app.models.marketplace import InventoryItem, FuelType as ModelFuelType
 from app.models.orderbook import (
-    AvailabilityWindow,
     FuelGrade,
     OrderBookOrder,
     OrderBookStatus,
@@ -19,6 +18,7 @@ from app.models.orderbook import (
 from app.schemas.marketplace import InventoryCreate, InventoryItemUpdate, InventoryResponse
 from app.models.user import User, UserRole
 from app.routers.auth_simple import get_current_user
+from app.services.availability_windows import SPOT_WINDOW
 import logging
 
 logger = logging.getLogger(__name__)
@@ -166,7 +166,7 @@ async def publish_inventory_item(
         quantity_mt=quantity,
         remaining_quantity_mt=quantity,
         price_per_mt_usd=Decimal(str(item.price_per_mt_usd)),
-        availability_window=AvailabilityWindow.SPOT,
+        availability_window=SPOT_WINDOW,
         certifications=["INVENTORY_CERTIFIED"] if item.is_certified else [],
         status=OrderBookStatus.OPEN,
     )
