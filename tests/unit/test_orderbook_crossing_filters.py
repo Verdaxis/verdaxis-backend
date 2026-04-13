@@ -79,6 +79,8 @@ def _make_order(
     price: str,
     quantity: str = "1000",
     window: str = "SPOT",
+    certification_scheme: str | None = "ISCC EU",
+    certification_declared: bool = True,
 ):
     return OrderBookOrder(
         organization_id=org_id,
@@ -90,6 +92,8 @@ def _make_order(
         price_per_mt_usd=Decimal(price),
         availability_window=window,
         created_at=datetime.now(UTC),
+        certification_scheme=certification_scheme,
+        certification_declared=certification_declared,
     )
 
 

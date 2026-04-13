@@ -1,17 +1,17 @@
 """Tests for the market-radar watchlist endpoints and adapters."""
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import delete
+from sqlalchemy import delete, select, func
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.database import Base
 from app.models.catalog import DeliveryPoint, Product
 from app.models.orderbook import OrderBookOrder, OrderBookStatus, OrderSide
 from app.models.user import OrgType, Organization, User, UserRole, UserStatus
-from app.models.watchlist import Watchlist, WatchlistKind, WatchlistTarget
+from app.models.watchlist import Watchlist, WatchlistEvent, WatchlistEventType, WatchlistKind, WatchlistTarget
 from fastapi import HTTPException
 
 from app.routers.watchlists import add_watchlist_entry, create_watchlist_target, delete_watchlist_target, get_market_radar, get_watchlist_events, remove_watchlist_entry
@@ -282,6 +282,87 @@ class TestMarketRadarEndpoints:
 
         assert exc_info.value.status_code == 422
         assert exc_info.value.detail == 'Invalid watchlist event cursor'
+
+    @pytest.mark.asyncio
+    async def test_market_radar_counts_only_execution_qualified_orders(self, db: AsyncSession):
+        buyer_org = await _make_org(db, 'Buyer', OrgType.SHIPPING_LINE)
+        buyer = await _make_user(db, buyer_org, UserRole.BUYER)
+        supplier_org = await _make_org(db, 'Supplier', OrgType.FUEL_SUPPLIER)
+        singapore = await _make_delivery_point(db, 'Singapore')
+        product = await _make_product(db, name='Bio Methanol', fuel_type='Methanol', fuel_grade='Bio')
+        radar = await ensure_market_radar(db, buyer.id)
+        db.add(WatchlistTarget(
+            watchlist_id=radar.id,
+            target_type='SLICE',
+            market_product_code='BIO_METHANOL',
+            delivery_point_id=singapore.id,
+            availability_window_code='SPOT',
+            snapshot_market_product='BIO_METHANOL',
+            snapshot_delivery_point_name=singapore.name,
+            snapshot_availability_window='SPOT',
+        ))
+        await _make_order(
+            db,
+            organization_id=supplier_org.id,
+            product_id=product.id,
+            delivery_point_id=singapore.id,
+            side=OrderSide.ASK,
+        )
+        unqualified = await _make_order(
+            db,
+            organization_id=supplier_org.id,
+            product_id=product.id,
+            delivery_point_id=singapore.id,
+            side=OrderSide.ASK,
+            price='1090',
+        )
+        unqualified.certification_scheme = None
+        await db.commit()
+
+        summary = await get_market_radar(current_user=buyer, db=db)
+
+        assert summary.total_slice_count == 1
+        assert summary.slices[0].active_order_count == 1
+
+    @pytest.mark.asyncio
+    async def test_get_watchlist_events_does_not_prune_old_read_events(self, db: AsyncSession):
+        buyer_org = await _make_org(db, 'Buyer', OrgType.SHIPPING_LINE)
+        buyer = await _make_user(db, buyer_org, UserRole.BUYER)
+        singapore = await _make_delivery_point(db, 'Singapore')
+        radar = await ensure_market_radar(db, buyer.id)
+        target = WatchlistTarget(
+            watchlist_id=radar.id,
+            target_type='SLICE',
+            market_product_code='BIO_METHANOL',
+            delivery_point_id=singapore.id,
+            availability_window_code='SPOT',
+            snapshot_market_product='BIO_METHANOL',
+            snapshot_delivery_point_name=singapore.name,
+            snapshot_availability_window='SPOT',
+        )
+        db.add(target)
+        await db.flush()
+        db.add(WatchlistEvent(
+            watchlist_id=radar.id,
+            watchlist_target_id=target.id,
+            event_type=WatchlistEventType.SLICE_NEW_ORDER,
+            event_payload={},
+            is_read=True,
+            created_at=datetime.now(UTC) - timedelta(days=180),
+        ))
+        await db.commit()
+
+        page = await get_watchlist_events(
+            watchlist_id=radar.id,
+            cursor=None,
+            limit=20,
+            current_user=buyer,
+            db=db,
+        )
+
+        remaining = (await db.execute(select(func.count(WatchlistEvent.id)).where(WatchlistEvent.watchlist_id == radar.id))).scalar_one()
+        assert len(page.items) == 1
+        assert remaining == 1
 
     @pytest.mark.asyncio
     async def test_delete_slice_target_removes_associated_pins(self, db: AsyncSession):

@@ -211,6 +211,9 @@ def _make_order(
     availability_window: str = SPOT_WINDOW,
     created_at: datetime | None = None,
     status: OrderBookStatus = OrderBookStatus.OPEN,
+    certification_scheme: str | None = "ISCC EU",
+    certification_declared: bool = True,
+    off_spec: bool = False,
 ) -> OrderBookOrder:
     """Helper to build an OrderBookOrder with sensible defaults."""
     return OrderBookOrder(
@@ -224,6 +227,9 @@ def _make_order(
         availability_window=availability_window,
         status=status,
         created_at=created_at or datetime.now(UTC),
+        certification_scheme=certification_scheme,
+        certification_declared=certification_declared,
+        off_spec=off_spec,
     )
 
 
@@ -232,6 +238,38 @@ def _make_order(
 
 class TestBasicMatching:
     """Basic bid-ask crossing scenarios."""
+
+    @pytest.mark.asyncio
+    async def test_certification_scheme_mismatch_prevents_matching(self, db, buyer_org, seller_org, org_buyer_id, org_seller_id, test_product, test_dp):
+        ask = _make_order(org_seller_id, OrderSide.ASK, price=Decimal("550.00"), certification_scheme="ISCC PLUS")
+        db.add(ask)
+        await db.flush()
+
+        bid = _make_order(org_buyer_id, OrderSide.BID, price=Decimal("560.00"), certification_scheme="ISCC EU")
+        db.add(bid)
+        await db.flush()
+
+        trades = await match_order(db, bid)
+
+        assert trades == []
+        assert bid.status == OrderBookStatus.OPEN
+        assert ask.status == OrderBookStatus.OPEN
+
+    @pytest.mark.asyncio
+    async def test_unqualified_new_order_does_not_match(self, db, buyer_org, seller_org, org_buyer_id, org_seller_id, test_product, test_dp):
+        ask = _make_order(org_seller_id, OrderSide.ASK, price=Decimal("550.00"))
+        db.add(ask)
+        await db.flush()
+
+        bid = _make_order(org_buyer_id, OrderSide.BID, price=Decimal("560.00"), certification_scheme=None)
+        db.add(bid)
+        await db.flush()
+
+        trades = await match_order(db, bid)
+
+        assert trades == []
+        assert bid.status == OrderBookStatus.OPEN
+        assert ask.status == OrderBookStatus.OPEN
 
     @pytest.mark.asyncio
     async def test_bid_matches_ask_when_bid_gte_ask(self, db, buyer_org, seller_org, org_buyer_id, org_seller_id, test_product, test_dp):

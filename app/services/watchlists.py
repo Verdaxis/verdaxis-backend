@@ -28,6 +28,7 @@ from app.schemas.watchlist import (
     WatchlistTargetResponse,
 )
 from app.services.availability_windows import normalize_availability_window
+from app.services.execution_policy import order_is_execution_qualified
 
 DEFAULT_WATCHLIST_NAME = "Market Radar"
 DEFAULT_EVENT_PAGE_SIZE = 20
@@ -126,7 +127,6 @@ async def _load_target_metrics(db: AsyncSession, targets: list[WatchlistTarget])
         .options(selectinload(OrderBookOrder.product))
         .where(
             OrderBookOrder.status.in_([OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED]),
-            OrderBookOrder.off_spec.is_(False),
         )
     )
     active_counts: dict[UUID, int] = defaultdict(int)
@@ -142,7 +142,7 @@ async def _load_target_metrics(db: AsyncSession, targets: list[WatchlistTarget])
     }
     for order in orders:
         market_product = order.market_product
-        if not market_product or order.delivery_point_id is None:
+        if not market_product or order.delivery_point_id is None or not order_is_execution_qualified(order):
             continue
         key = (market_product, order.delivery_point_id, normalize_availability_window(order.availability_window))
         target_id = combo_to_target.get(key)
@@ -239,14 +239,20 @@ async def build_watchlist_summary(db: AsyncSession, watchlist: Watchlist) -> Wat
         )
 
     slice_responses.sort(key=lambda item: (item.unread_event_count > 0, item.latest_event_at or datetime.min.replace(tzinfo=UTC), item.created_at), reverse=True)
+    total_slice_count = len(slice_responses)
+    latest_event_at = max([item.latest_event_at for item in slice_responses if item.latest_event_at], default=None)
+    unread_event_count = sum(slice_item.unread_event_count for slice_item in slice_responses)
+    has_more_slices = total_slice_count > MAX_SLICE_COUNT
     slice_responses = slice_responses[:MAX_SLICE_COUNT]
 
     return WatchlistSummaryResponse(
         id=watchlist.id,
         name=watchlist.name,
         kind=watchlist.kind.value if hasattr(watchlist.kind, 'value') else str(watchlist.kind),
-        unread_event_count=sum(slice_item.unread_event_count for slice_item in slice_responses),
-        latest_event_at=max([item.latest_event_at for item in slice_responses if item.latest_event_at], default=None),
+        unread_event_count=unread_event_count,
+        latest_event_at=latest_event_at,
+        total_slice_count=total_slice_count,
+        has_more_slices=has_more_slices,
         slices=slice_responses,
         created_at=watchlist.created_at,
     )

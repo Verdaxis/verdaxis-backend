@@ -12,6 +12,7 @@ from app.models.matchmaking import MatchStatus, MatchSuggestion
 from app.models.orderbook import OrderBookOrder, OrderBookStatus, OrderSide
 from app.models.user import User, UserRole
 from app.routers.auth_simple import get_current_user
+from app.services.execution_policy import order_is_execution_qualified
 from app.services.matchmaking import compute_match_score
 
 router = APIRouter(prefix="/matchmaking", tags=["matchmaking"])
@@ -46,7 +47,7 @@ async def list_suggestions(
         )
         .options(selectinload(OrderBookOrder.product), selectinload(OrderBookOrder.delivery_point))
     )
-    source_orders = (await db.execute(source_stmt)).scalars().all()
+    source_orders = [order for order in (await db.execute(source_stmt)).scalars().all() if order_is_execution_qualified(order)]
     if not source_orders:
         return []
 
@@ -75,7 +76,7 @@ async def list_suggestions(
     candidate_orders = [
         order
         for order in (await db.execute(candidate_stmt)).scalars().all()
-        if order.id not in dismissed_order_ids
+        if order.id not in dismissed_order_ids and order_is_execution_qualified(order)
     ]
     if not candidate_orders:
         return []
@@ -96,7 +97,9 @@ async def list_suggestions(
                 candidate_qty=candidate.remaining_quantity_mt,
                 target_availability_window=source_order.availability_window,
                 candidate_availability_window=candidate.availability_window,
+                target_certification_scheme=source_order.certification_scheme,
                 candidate_off_spec=candidate.off_spec,
+                candidate_side=candidate.side.value,
                 candidate_certification_declared=candidate.certification_declared,
                 candidate_certification_scheme=candidate.certification_scheme,
                 candidate_specification_standard=candidate.specification_standard,

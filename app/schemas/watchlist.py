@@ -96,6 +96,8 @@ class WatchlistSummaryResponse(BaseModel):
     kind: str
     unread_event_count: int = 0
     latest_event_at: datetime | None = None
+    total_slice_count: int = 0
+    has_more_slices: bool = False
     slices: list[WatchlistSliceResponse] = Field(default_factory=list)
     created_at: datetime
 

@@ -24,6 +24,8 @@ from app.models.notification import Notification, NotificationType
 from app.schemas.orderbook import TradeCreate, TradeResponse, TradeDeliverPayload
 from app.schemas.pagination import PaginatedResponse
 from app.services.event_bus import event_bus
+from app.services.watchlist_events import _best_slice_price, emit_order_updated
+from app.services.execution_policy import order_is_execution_qualified
 
 router = APIRouter(prefix="/trades", tags=["trades"])
 
@@ -137,6 +139,22 @@ async def _load_trade(db: AsyncSession, trade_id: uuid.UUID, for_update: bool = 
     return trade
 
 
+
+
+async def _watchlist_before_state(db: AsyncSession, order: OrderBookOrder) -> dict[str, object]:
+    return {
+        "price_per_mt_usd": order.price_per_mt_usd,
+        "remaining_quantity_mt": order.remaining_quantity_mt,
+        "status": order.status,
+        "slice_best_price_per_mt_usd": await _best_slice_price(
+            db,
+            market_product_code=order.market_product,
+            delivery_point_id=order.delivery_point_id,
+            availability_window_code=order.availability_window,
+            side=order.side,
+        ),
+    }
+
 # ---------------------------------------------------------------------------
 # 1. POST / -- Hit an order to create a trade
 # ---------------------------------------------------------------------------
@@ -170,6 +188,9 @@ async def create_trade(
 
     if order.expires_at and order.expires_at <= datetime.now(UTC):
         raise HTTPException(status_code=400, detail="Order has expired")
+
+    if not order_is_execution_qualified(order):
+        raise HTTPException(status_code=400, detail="Order is not execution-qualified")
 
     # Determine sides
     if order.side == OrderSide.ASK:
@@ -212,6 +233,8 @@ async def create_trade(
             detail=f"Requested quantity ({payload.quantity_mt}) exceeds remaining ({order.remaining_quantity_mt})",
         )
 
+    before_state = await _watchlist_before_state(db, order)
+
     # Create the trade
     trade = Trade(
         bid_order_id=bid_order_id,
@@ -235,6 +258,7 @@ async def create_trade(
 
     # Flush to get the trade id
     await db.flush()
+    await emit_order_updated(db, before=before_state, order=order)
 
     # Notify counterparty organization
     await notify_org_users(
@@ -408,6 +432,7 @@ async def decline_trade(
 
     # Restore the order's remaining quantity
     order = trade.ask_order or trade.bid_order
+    before_state = await _watchlist_before_state(db, order) if order is not None else None
     if order is not None:
         order.remaining_quantity_mt += trade.quantity_mt
 
@@ -415,6 +440,8 @@ async def decline_trade(
             order.status = OrderBookStatus.OPEN
         else:
             order.status = OrderBookStatus.PARTIALLY_FILLED
+        if before_state is not None:
+            await emit_order_updated(db, before=before_state, order=order)
 
     # Notify the initiator
     await notify_org_users(

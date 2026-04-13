@@ -162,6 +162,7 @@ class WatchlistEvent(Base):
     __tablename__ = "watchlist_events"
     __table_args__ = (
         Index("ix_watchlist_events_target_created_at", "watchlist_target_id", text("created_at DESC")),
+        Index("ix_watchlist_events_target_is_read_created", "watchlist_target_id", "is_read", text("created_at DESC")),
         Index("ix_watchlist_events_watchlist_created_at", "watchlist_id", text("created_at DESC"), text("id DESC")),
         Index("ix_watchlist_events_watchlist_is_read_created", "watchlist_id", "is_read", text("created_at DESC")),
     )

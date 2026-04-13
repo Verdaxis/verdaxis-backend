@@ -11,7 +11,7 @@ from app.database import Base
 from app.models.catalog import DeliveryPoint, Product
 from app.models.orderbook import OrderBookOrder, OrderBookStatus, OrderSide
 from app.models.user import OrgType, Organization
-from app.routers.orderbook import list_asks, list_fuel_types
+from app.routers.orderbook import list_aggregated_orderbook, list_asks, list_fuel_types, list_orders, list_orders_with_ci
 
 
 REQUIRED_TABLES = [
@@ -46,8 +46,14 @@ async def db(async_engine, setup_tables):
         autoflush=False,
     )
     async with session_factory() as session:
+        for table in ('orderbook_orders', 'products', 'delivery_points', 'organizations'):
+            await session.execute(delete(Base.metadata.tables[table]))
+        await session.commit()
         yield session
         await session.rollback()
+        for table in ('orderbook_orders', 'products', 'delivery_points', 'organizations'):
+            await session.execute(delete(Base.metadata.tables[table]))
+        await session.commit()
 
 
 async def _make_org(db: AsyncSession, name: str) -> Organization:
@@ -84,6 +90,8 @@ def _make_order(
     delivery_point_id,
     price: str,
     quantity: str = '1000',
+    certification_scheme: str | None = 'ISCC EU',
+    certification_declared: bool = True,
 ) -> OrderBookOrder:
     return OrderBookOrder(
         organization_id=org_id,
@@ -96,6 +104,8 @@ def _make_order(
         availability_window='SPOT',
         status=OrderBookStatus.OPEN,
         created_at=datetime.now(UTC),
+        certification_scheme=certification_scheme,
+        certification_declared=certification_declared,
     )
 
 
@@ -131,6 +141,7 @@ class TestMarketplaceFuelFiltering:
             fuel_type=None,
             region='Asia',
             availability_window=None,
+            include_off_spec=False,
             skip=0,
             limit=20,
             db=db,
@@ -212,6 +223,7 @@ class TestMarketplaceFuelFiltering:
             fuel_type='Methanol',
             region=singapore.name,
             availability_window='SPOT',
+            include_off_spec=False,
             skip=0,
             limit=20,
             db=db,
@@ -262,3 +274,145 @@ class TestMarketplaceFuelFiltering:
         assert result.total == 1
         assert len(result.items) == 1
         assert result.items[0].market_product == 'BIO_METHANOL'
+
+    @pytest.mark.asyncio
+    async def test_list_asks_excludes_off_spec_by_default(self, db: AsyncSession):
+        supplier = await _make_org(db, 'Supplier')
+        singapore = await _make_delivery_point(db, 'Singapore', 'Asia')
+        methanol = await _make_product(db, name='Bio Methanol', fuel_type='Methanol', fuel_grade='Bio')
+
+        open_order = _make_order(
+            org_id=supplier.id,
+            product_id=methanol.id,
+            delivery_point_id=singapore.id,
+            price='1100',
+        )
+        off_spec_order = _make_order(
+            org_id=supplier.id,
+            product_id=methanol.id,
+            delivery_point_id=singapore.id,
+            price='1095',
+        )
+        off_spec_order.off_spec = True
+        db.add_all([open_order, off_spec_order])
+        await db.commit()
+
+        result = await list_asks(
+            product_id=None,
+            delivery_point_id=None,
+            fuel_type=None,
+            market_product='BIO_METHANOL',
+            region='Asia',
+            availability_window=None,
+            include_off_spec=False,
+            skip=0,
+            limit=20,
+            db=db,
+        )
+
+        assert result.total == 1
+        assert all(item.off_spec is False for item in result.items)
+
+        await db.execute(delete(OrderBookOrder))
+        await db.execute(delete(Product))
+        await db.execute(delete(DeliveryPoint))
+        await db.execute(delete(Organization))
+        await db.commit()
+
+
+    @pytest.mark.asyncio
+    async def test_public_list_orders_excludes_off_spec_by_default(self, db: AsyncSession):
+        supplier = await _make_org(db, 'Supplier')
+        singapore = await _make_delivery_point(db, 'Singapore', 'Asia')
+        methanol = await _make_product(db, name='Bio Methanol', fuel_type='Methanol', fuel_grade='Bio')
+
+        open_order = _make_order(
+            org_id=supplier.id,
+            product_id=methanol.id,
+            delivery_point_id=singapore.id,
+            price='1100',
+        )
+        off_spec_order = _make_order(
+            org_id=supplier.id,
+            product_id=methanol.id,
+            delivery_point_id=singapore.id,
+            price='1095',
+        )
+        off_spec_order.off_spec = True
+        db.add_all([open_order, off_spec_order])
+        await db.commit()
+
+        result = await list_orders(
+            product_id=None,
+            delivery_point_id=None,
+            side=None,
+            availability_window=None,
+            include_off_spec=False,
+            db=db,
+        )
+
+        assert len(result) == 1
+        assert result[0].off_spec is False
+
+    @pytest.mark.asyncio
+    async def test_with_ci_excludes_off_spec_by_default(self, db: AsyncSession):
+        supplier = await _make_org(db, 'Supplier')
+        singapore = await _make_delivery_point(db, 'Singapore', 'Asia')
+        methanol = await _make_product(db, name='Bio Methanol', fuel_type='Methanol', fuel_grade='Bio')
+
+        open_order = _make_order(
+            org_id=supplier.id,
+            product_id=methanol.id,
+            delivery_point_id=singapore.id,
+            price='1100',
+        )
+        off_spec_order = _make_order(
+            org_id=supplier.id,
+            product_id=methanol.id,
+            delivery_point_id=singapore.id,
+            price='1095',
+        )
+        off_spec_order.off_spec = True
+        db.add_all([open_order, off_spec_order])
+        await db.commit()
+
+        result = await list_orders_with_ci(
+            product_id=None,
+            delivery_point_id=None,
+            side=None,
+            include_off_spec=False,
+            db=db,
+        )
+
+        assert len(result) == 1
+        assert result[0].off_spec is False
+
+    @pytest.mark.asyncio
+    async def test_aggregated_excludes_off_spec_by_default(self, db: AsyncSession):
+        supplier = await _make_org(db, 'Supplier')
+        singapore = await _make_delivery_point(db, 'Singapore', 'Asia')
+        methanol = await _make_product(db, name='Bio Methanol', fuel_type='Methanol', fuel_grade='Bio')
+
+        open_order = _make_order(
+            org_id=supplier.id,
+            product_id=methanol.id,
+            delivery_point_id=singapore.id,
+            price='1100',
+            quantity='1000',
+        )
+        off_spec_order = _make_order(
+            org_id=supplier.id,
+            product_id=methanol.id,
+            delivery_point_id=singapore.id,
+            price='1095',
+            quantity='400',
+        )
+        off_spec_order.off_spec = True
+        db.add_all([open_order, off_spec_order])
+        await db.commit()
+
+        result = await list_aggregated_orderbook(include_off_spec=False, db=db)
+
+        assert len(result) == 1
+        assert result[0].total_quantity == Decimal('1000')
+

@@ -27,6 +27,7 @@ from app.services.availability_windows import normalize_availability_window
 from pydantic import BaseModel
 from app.services.benchmarks import compute_premium_discount, get_benchmark_quote
 from app.services.watchlist_events import emit_order_created, emit_order_updated, emit_pin_updated, emit_slice_state_changed, _best_slice_price
+from app.services.execution_policy import normalize_certification_scheme
 
 router = APIRouter(prefix="/orderbook", tags=["orderbook"])
 
@@ -45,6 +46,8 @@ SUPPLIER_METADATA_FIELDS = (
 
 APPROVED_MARKETPLACE_FUEL_TYPES = ("Methanol", "Ethanol")
 APPROVED_MARKET_PRODUCTS = tuple(member.value for member in MarketProduct)
+EXECUTION_QUALIFIER_FIELDS = ("certification_scheme",)
+ASK_ONLY_METADATA_FIELDS = tuple(field for field in SUPPLIER_METADATA_FIELDS if field not in EXECUTION_QUALIFIER_FIELDS)
 
 
 def _ensure_join(joins: list[tuple[object, object]], target: object, condition: object) -> None:
@@ -52,17 +55,27 @@ def _ensure_join(joins: list[tuple[object, object]], target: object, condition: 
         joins.append((target, condition))
 
 
-def _apply_public_marketplace_scope(filters: list[object], joins: list[tuple[object, object]]) -> None:
+def _apply_public_marketplace_scope(
+    filters: list[object],
+    joins: list[tuple[object, object]],
+    *,
+    include_off_spec: bool = False,
+) -> None:
     _ensure_join(joins, Product, OrderBookOrder.product_id == Product.id)
     filters.append(Product.fuel_type.in_(APPROVED_MARKETPLACE_FUEL_TYPES))
+    if not include_off_spec:
+        filters.append(OrderBookOrder.off_spec.is_(False))
+    filters.append(func.length(func.trim(func.coalesce(OrderBookOrder.certification_scheme, ""))) > 0)
+    filters.append(or_(OrderBookOrder.side != OrderSide.ASK, OrderBookOrder.certification_declared.is_(True)))
 
 
-def _normalize_market_product_query(value: str | None) -> str | None:
-    if value is None or not isinstance(value, str):
+def _normalize_market_product_query(value: MarketProduct | str | None) -> str | None:
+    if value is None or not isinstance(value, (str, MarketProduct)):
         return None
-    if value not in APPROVED_MARKET_PRODUCTS:
+    normalized = value.value if isinstance(value, MarketProduct) else value
+    if normalized not in APPROVED_MARKET_PRODUCTS:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid market_product")
-    return value
+    return normalized
 
 
 def _market_product_filter_condition(market_product: str):
@@ -146,8 +159,20 @@ async def _watchlist_before_state(db: AsyncSession, order: OrderBookOrder) -> di
     }
 
 
-def _supplier_metadata_fields_present(source: BaseModel) -> set[str]:
-    return set(getattr(source, "model_fields_set", set())) & set(SUPPLIER_METADATA_FIELDS)
+def _ask_only_metadata_fields_present(source: BaseModel) -> set[str]:
+    return set(getattr(source, "model_fields_set", set())) & set(ASK_ONLY_METADATA_FIELDS)
+
+
+def _require_execution_certification_scheme(
+    *,
+    certification_scheme: str | None,
+    detail_prefix: str,
+) -> None:
+    if not certification_scheme:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"{detail_prefix} require a certification scheme",
+        )
 
 
 def _require_supplier_certification(
@@ -161,7 +186,7 @@ def _require_supplier_certification(
             detail="ASK orders require an explicit certification declaration",
         )
 
-    if not certification_scheme or not certification_scheme.strip():
+    if not certification_scheme:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="ASK orders require a certification scheme",
@@ -280,9 +305,10 @@ async def list_bids(
     product_id: Optional[UUID] = Query(None, description="Filter by product"),
     delivery_point_id: Optional[UUID] = Query(None, description="Filter by delivery point"),
     fuel_type: Optional[str] = Query(None, description="Filter by fuel type (e.g. Methanol, LNG)"),
-    market_product: Optional[str] = Query(None, description="Filter by canonical market product"),
+    market_product: Optional[MarketProduct] = Query(None, description="Filter by canonical market product"),
     region: Optional[str] = Query(None, description="Filter by region"),
     availability_window: Optional[str] = Query(None, description="Filter by availability window"),
+    include_off_spec: bool = Query(False, description="Include off-spec orders"),
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
@@ -296,7 +322,7 @@ async def list_bids(
         OrderBookOrder.side == OrderSide.BID,
     ]
     joins = []
-    _apply_public_marketplace_scope(filters, joins)
+    _apply_public_marketplace_scope(filters, joins, include_off_spec=include_off_spec)
     if product_id:
         filters.append(OrderBookOrder.product_id == product_id)
     if fuel_type:
@@ -358,9 +384,10 @@ async def list_asks(
     product_id: Optional[UUID] = Query(None, description="Filter by product"),
     delivery_point_id: Optional[UUID] = Query(None, description="Filter by delivery point"),
     fuel_type: Optional[str] = Query(None, description="Filter by fuel type (e.g. Methanol, LNG)"),
-    market_product: Optional[str] = Query(None, description="Filter by canonical market product"),
+    market_product: Optional[MarketProduct] = Query(None, description="Filter by canonical market product"),
     region: Optional[str] = Query(None, description="Filter by region"),
     availability_window: Optional[str] = Query(None, description="Filter by availability window"),
+    include_off_spec: bool = Query(False, description="Include off-spec orders"),
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
@@ -374,7 +401,7 @@ async def list_asks(
         OrderBookOrder.side == OrderSide.ASK,
     ]
     joins = []
-    _apply_public_marketplace_scope(filters, joins)
+    _apply_public_marketplace_scope(filters, joins, include_off_spec=include_off_spec)
     if product_id:
         filters.append(OrderBookOrder.product_id == product_id)
     if fuel_type:
@@ -436,28 +463,31 @@ async def list_orders_with_ci(
     product_id: Optional[UUID] = Query(None),
     delivery_point_id: Optional[UUID] = Query(None),
     side: Optional[OrderSide] = Query(None),
+    include_off_spec: bool = Query(False, description="Include off-spec orders"),
     db: AsyncSession = Depends(get_db),
 ):
     """
-    List open orders enriched with CI-adjusted pricing.
+    List executable orders enriched with CI-adjusted pricing.
     Orders that have carbon_intensity and energy_density populated
     will include the ci_adjusted_price object.
     """
-    query = (
-        select(OrderBookOrder)
-        .options(selectinload(OrderBookOrder.organization))
-        .where(OrderBookOrder.status.in_([OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED]))
-    )
+    filters = [OrderBookOrder.status.in_([OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED])]
+    joins: list[tuple[object, object]] = []
+    _apply_public_marketplace_scope(filters, joins, include_off_spec=include_off_spec)
     if product_id:
-        query = query.where(OrderBookOrder.product_id == product_id)
+        filters.append(OrderBookOrder.product_id == product_id)
     if delivery_point_id:
-        query = query.where(OrderBookOrder.delivery_point_id == delivery_point_id)
+        filters.append(OrderBookOrder.delivery_point_id == delivery_point_id)
     if side:
-        query = query.where(OrderBookOrder.side == side)
-    query = query.order_by(OrderBookOrder.created_at.desc())
+        filters.append(OrderBookOrder.side == side)
+
+    query = select(OrderBookOrder).options(selectinload(OrderBookOrder.organization))
+    for join_target, join_cond in joins:
+        query = query.join(join_target, join_cond)
+    query = query.where(*filters).order_by(OrderBookOrder.created_at.desc())
 
     result = await db.execute(query)
-    orders = result.scalars().all()
+    orders = result.unique().scalars().all()
 
     enriched = []
     for order in orders:
@@ -558,11 +588,16 @@ async def latest_supplier_listing_template(
 
 @router.get("/aggregated", response_model=list[AggregatedOrderbookResponse])
 async def list_aggregated_orderbook(
+    include_off_spec: bool = Query(False, description="Include off-spec orders"),
     db: AsyncSession = Depends(get_db),
 ):
     """
     Market data aggregated by product, delivery point, and side.
     """
+    filters = [OrderBookOrder.status == OrderBookStatus.OPEN]
+    joins = [(Product, OrderBookOrder.product_id == Product.id)]
+    _apply_public_marketplace_scope(filters, joins, include_off_spec=include_off_spec)
+
     query = (
         select(
             OrderBookOrder.product_id,
@@ -579,10 +614,7 @@ async def list_aggregated_orderbook(
         )
         .join(Product, OrderBookOrder.product_id == Product.id)
         .outerjoin(DeliveryPoint, OrderBookOrder.delivery_point_id == DeliveryPoint.id)
-        .where(
-            OrderBookOrder.status == OrderBookStatus.OPEN,
-            Product.fuel_type.in_(APPROVED_MARKETPLACE_FUEL_TYPES),
-        )
+        .where(*filters)
         .group_by(
             OrderBookOrder.product_id, Product.name, Product.fuel_type,
             OrderBookOrder.delivery_point_id, DeliveryPoint.name, DeliveryPoint.region,
@@ -626,6 +658,9 @@ async def list_active_products(db: AsyncSession = Depends(get_db)):
         .where(
             OrderBookOrder.status == OrderBookStatus.OPEN,
             Product.fuel_type.in_(APPROVED_MARKETPLACE_FUEL_TYPES),
+            OrderBookOrder.off_spec.is_(False),
+            func.length(func.trim(func.coalesce(OrderBookOrder.certification_scheme, ""))) > 0,
+            or_(OrderBookOrder.side != OrderSide.ASK, OrderBookOrder.certification_declared.is_(True)),
         )
         .distinct()
     )
@@ -645,6 +680,9 @@ async def list_regions(db: AsyncSession = Depends(get_db)):
         .where(
             OrderBookOrder.status == OrderBookStatus.OPEN,
             Product.fuel_type.in_(APPROVED_MARKETPLACE_FUEL_TYPES),
+            OrderBookOrder.off_spec.is_(False),
+            func.length(func.trim(func.coalesce(OrderBookOrder.certification_scheme, ""))) > 0,
+            or_(OrderBookOrder.side != OrderSide.ASK, OrderBookOrder.certification_declared.is_(True)),
         )
         .distinct()
     )
@@ -664,6 +702,9 @@ async def list_fuel_types(db: AsyncSession = Depends(get_db)):
         .where(
             OrderBookOrder.status == OrderBookStatus.OPEN,
             Product.fuel_type.in_(APPROVED_MARKETPLACE_FUEL_TYPES),
+            OrderBookOrder.off_spec.is_(False),
+            func.length(func.trim(func.coalesce(OrderBookOrder.certification_scheme, ""))) > 0,
+            or_(OrderBookOrder.side != OrderSide.ASK, OrderBookOrder.certification_declared.is_(True)),
         )
         .distinct()
     )
@@ -681,34 +722,33 @@ async def list_orders(
     delivery_point_id: Optional[UUID] = Query(None, description="Filter by delivery point"),
     side: Optional[OrderSide] = Query(None, description="Filter by side (BID or ASK)"),
     availability_window: Optional[str] = Query(None, description="Filter by availability window"),
+    include_off_spec: bool = Query(False, description="Include off-spec orders"),
     db: AsyncSession = Depends(get_db),
 ):
     """
-    List all open and partially filled orders (bids + asks).
+    List all open and partially filled executable orders (bids + asks).
     """
-    query = (
-        select(OrderBookOrder)
-        .join(Product, OrderBookOrder.product_id == Product.id)
-        .options(selectinload(OrderBookOrder.organization))
-        .where(
-            OrderBookOrder.status.in_([OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED]),
-            Product.fuel_type.in_(APPROVED_MARKETPLACE_FUEL_TYPES),
-        )
-    )
-
+    filters = [
+        OrderBookOrder.status.in_([OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED]),
+    ]
+    joins: list[tuple[object, object]] = []
+    _apply_public_marketplace_scope(filters, joins, include_off_spec=include_off_spec)
     if product_id:
-        query = query.where(OrderBookOrder.product_id == product_id)
+        filters.append(OrderBookOrder.product_id == product_id)
     if delivery_point_id:
-        query = query.where(OrderBookOrder.delivery_point_id == delivery_point_id)
+        filters.append(OrderBookOrder.delivery_point_id == delivery_point_id)
     if side:
-        query = query.where(OrderBookOrder.side == side)
+        filters.append(OrderBookOrder.side == side)
     normalized_window = _normalize_query_window(availability_window)
     if normalized_window:
-        query = query.where(OrderBookOrder.availability_window == normalized_window)
+        filters.append(OrderBookOrder.availability_window == normalized_window)
 
-    query = query.order_by(OrderBookOrder.created_at.desc())
+    query = select(OrderBookOrder).options(selectinload(OrderBookOrder.organization))
+    for join_target, join_cond in joins:
+        query = query.join(join_target, join_cond)
+    query = query.where(*filters).order_by(OrderBookOrder.created_at.desc())
     result = await db.execute(query)
-    orders = result.scalars().all()
+    orders = result.unique().scalars().all()
     return [await _order_response(db, order) for order in orders]
 
 
@@ -733,17 +773,23 @@ async def create_order(
             detail="Only suppliers can place ASK orders",
         )
 
+    normalized_certification_scheme = normalize_certification_scheme(order_data.certification_scheme)
+
     if order_data.side != OrderSide.ASK:
-        supplied_metadata_fields = _supplier_metadata_fields_present(order_data)
+        supplied_metadata_fields = _ask_only_metadata_fields_present(order_data)
         if supplied_metadata_fields:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Supplier metadata is only allowed for ASK orders: {', '.join(sorted(supplied_metadata_fields))}",
             )
+        _require_execution_certification_scheme(
+            certification_scheme=normalized_certification_scheme,
+            detail_prefix="BID orders",
+        )
     else:
         _require_supplier_certification(
             certification_declared=order_data.certification_declared,
-            certification_scheme=order_data.certification_scheme,
+            certification_scheme=normalized_certification_scheme,
         )
 
     if not current_user.organization_id:
@@ -786,6 +832,7 @@ async def create_order(
         price_per_mt_usd=order_data.price_per_mt_usd,
         availability_window=order_data.availability_window,
         expires_at=order_data.expires_at,
+        certification_scheme=normalized_certification_scheme,
     )
 
     if order_data.side == OrderSide.ASK:
@@ -976,13 +1023,19 @@ async def update_order(
         )
 
     update_dict = update_data.model_dump(exclude_unset=True)
+    if "certification_scheme" in update_dict:
+        update_dict["certification_scheme"] = normalize_certification_scheme(update_dict["certification_scheme"])
     if order.side != OrderSide.ASK:
-        for field in SUPPLIER_METADATA_FIELDS:
+        for field in ASK_ONLY_METADATA_FIELDS:
             update_dict.pop(field, None)
+        _require_execution_certification_scheme(
+            certification_scheme=update_dict.get("certification_scheme", order.certification_scheme),
+            detail_prefix="BID orders",
+        )
     else:
         _require_supplier_certification(
             certification_declared=bool(update_dict.get("certification_declared", order.certification_declared)),
-            certification_scheme=(update_dict.get("certification_scheme", order.certification_scheme)),
+            certification_scheme=update_dict.get("certification_scheme", order.certification_scheme),
         )
 
     # If quantity_mt changes, recalculate remaining_quantity_mt proportionally

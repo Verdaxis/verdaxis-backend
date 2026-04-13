@@ -36,6 +36,7 @@ class TestOrderCreate:
             delivery_point_id=uuid4(),
             quantity_mt=Decimal("1000"),
             price_per_mt_usd=Decimal("550"),
+            certification_scheme="ISCC EU",
         )
         assert order.side == OrderSide.BID
         assert order.product_id == product_id
@@ -96,6 +97,7 @@ class TestOrderCreate:
                 delivery_point_id=uuid4(),
                 quantity_mt=Decimal("0"),
                 price_per_mt_usd=Decimal("100"),
+                certification_scheme="ISCC EU",
             )
 
     def test_negative_quantity_rejected(self):
@@ -106,6 +108,7 @@ class TestOrderCreate:
                 delivery_point_id=uuid4(),
                 quantity_mt=Decimal("-500"),
                 price_per_mt_usd=Decimal("100"),
+                certification_scheme="ISCC EU",
             )
 
     def test_price_must_be_positive(self):
@@ -116,6 +119,7 @@ class TestOrderCreate:
                 delivery_point_id=uuid4(),
                 quantity_mt=Decimal("1000"),
                 price_per_mt_usd=Decimal("0"),
+                certification_scheme="ISCC EU",
             )
 
     def test_product_id_required(self):
@@ -126,6 +130,7 @@ class TestOrderCreate:
                 delivery_point_id=uuid4(),
                 quantity_mt=Decimal("1000"),
                 price_per_mt_usd=Decimal("100"),
+                certification_scheme="ISCC EU",
             )
 
     def test_vessel_id_accepts_uuid(self):
@@ -137,6 +142,7 @@ class TestOrderCreate:
             vessel_id=vid,
             quantity_mt=Decimal("500"),
             price_per_mt_usd=Decimal("600"),
+            certification_scheme="ISCC EU",
         )
         assert order.vessel_id == vid
 
@@ -147,7 +153,29 @@ class TestOrderCreate:
                 product_id=uuid4(),
                 quantity_mt=Decimal("1000"),
                 price_per_mt_usd=Decimal("500"),
+                certification_scheme="ISCC EU",
             )
+
+    def test_certification_scheme_is_required(self):
+        with pytest.raises(Exception):
+            OrderCreate(
+                side=OrderSide.BID,
+                product_id=uuid4(),
+                delivery_point_id=uuid4(),
+                quantity_mt=Decimal("1000"),
+                price_per_mt_usd=Decimal("500"),
+            )
+
+    def test_ask_can_omit_declaration_in_schema_but_is_checked_in_router(self):
+        order = OrderCreate(
+            side=OrderSide.ASK,
+            product_id=uuid4(),
+            delivery_point_id=uuid4(),
+            quantity_mt=Decimal("1000"),
+            price_per_mt_usd=Decimal("500"),
+            certification_scheme="ISCC EU",
+        )
+        assert order.certification_declared is False
 
     def test_delivery_point_id_accepts_uuid(self):
         dp_id = uuid4()
@@ -157,6 +185,8 @@ class TestOrderCreate:
             delivery_point_id=dp_id,
             quantity_mt=Decimal("1000"),
             price_per_mt_usd=Decimal("500"),
+            certification_declared=True,
+            certification_scheme="ISCC EU",
         )
         assert order.delivery_point_id == dp_id
 
@@ -171,6 +201,7 @@ class TestOrderUpdate:
         update = OrderUpdate(
             quantity_mt=Decimal("2000"),
             price_per_mt_usd=Decimal("600"),
+            certification_scheme="ISCC EU",
         )
         dumped = update.model_dump(exclude_unset=True)
         assert "quantity_mt" in dumped

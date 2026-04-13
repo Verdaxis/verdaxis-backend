@@ -25,7 +25,9 @@ def compute_match_score(
     candidate_qty: Decimal,
     target_availability_window: str | None = None,
     candidate_availability_window: str | None = None,
+    target_certification_scheme: str | None = None,
     candidate_off_spec: bool = False,
+    candidate_side: str | None = None,
     candidate_certification_declared: bool = False,
     candidate_certification_scheme: str | None = None,
     candidate_specification_standard: str | None = None,
@@ -52,6 +54,17 @@ def compute_match_score(
 
     if not _availability_compatible(target_availability_window, candidate_availability_window):
         return Decimal("0"), []
+
+    if target_certification_scheme:
+        normalized_target_scheme = target_certification_scheme.strip().upper()
+        normalized_candidate_scheme = (candidate_certification_scheme or "").strip().upper()
+        requires_supplier_declaration = candidate_side == "ASK"
+        if (
+            not normalized_candidate_scheme
+            or normalized_target_scheme != normalized_candidate_scheme
+            or (requires_supplier_declaration and not candidate_certification_declared)
+        ):
+            return Decimal("0"), []
 
     score = Decimal("40")
     reasons.append("market_product_match")

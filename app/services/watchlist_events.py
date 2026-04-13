@@ -17,6 +17,7 @@ from app.models.watchlist import (
     WatchlistTargetType,
 )
 from app.services.availability_windows import normalize_availability_window
+from app.services.execution_policy import order_is_execution_qualified
 
 BEST_PRICE_MOVE_THRESHOLD_PCT = Decimal('1.0')
 BENCHMARK_MOVE_THRESHOLD_PCT = Decimal('1.0')
@@ -54,7 +55,7 @@ async def _best_slice_price(
         )
     )
     orders = (await db.execute(stmt)).scalars().all()
-    prices = [candidate.price_per_mt_usd for candidate in orders if candidate.market_product == market_product_code]
+    prices = [candidate.price_per_mt_usd for candidate in orders if candidate.market_product == market_product_code and order_is_execution_qualified(candidate)]
     if not prices:
         return None
     return min(prices) if getattr(side, 'value', side) == 'ASK' else max(prices)
@@ -245,7 +246,7 @@ async def pin_targets_for_order(db: AsyncSession, order_id: UUID) -> list[Watchl
 
 
 async def emit_order_created(db: AsyncSession, order: OrderBookOrder, *, previous_best_price: Decimal | None = None) -> None:
-    if order.off_spec or order.status not in {OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED}:
+    if order.status not in {OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED} or not order_is_execution_qualified(order):
         return
     current_best_price = await _best_slice_price(
         db,

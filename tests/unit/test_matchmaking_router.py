@@ -91,6 +91,7 @@ async def _make_order(
     side: OrderSide,
     price: str,
     off_spec: bool = False,
+    certification_declared: bool | None = None,
 ) -> OrderBookOrder:
     order = OrderBookOrder(
         organization_id=organization_id,
@@ -103,7 +104,7 @@ async def _make_order(
         availability_window='SPOT',
         status=OrderBookStatus.OPEN,
         created_at=datetime.now(UTC),
-        certification_declared=True,
+        certification_declared=(side == OrderSide.ASK) if certification_declared is None else certification_declared,
         certification_scheme='ISCC EU',
         specification_standard='IMPCA',
         msds_available=True,
@@ -180,3 +181,37 @@ async def test_off_spec_candidates_are_excluded(db: AsyncSession):
     suggestions = await list_suggestions(db=db, current_user=buyer)
 
     assert suggestions == []
+
+
+@pytest.mark.asyncio
+async def test_supplier_suggestions_allow_matching_bid_without_supplier_declaration(db: AsyncSession):
+    supplier_org = await _make_org(db, 'Supplier', OrgType.FUEL_SUPPLIER)
+    buyer_org = await _make_org(db, 'Buyer', OrgType.SHIPPING_LINE)
+    supplier = await _make_user(db, supplier_org, UserRole.SUPPLIER)
+    singapore = await _make_delivery_point(db, 'Singapore')
+    product = await _make_product(db, name='Bio Methanol', fuel_type='Methanol', fuel_grade='Bio')
+
+    await _make_order(
+        db,
+        organization_id=supplier_org.id,
+        product_id=product.id,
+        delivery_point_id=singapore.id,
+        side=OrderSide.ASK,
+        price='1080',
+    )
+    bid = await _make_order(
+        db,
+        organization_id=buyer_org.id,
+        product_id=product.id,
+        delivery_point_id=singapore.id,
+        side=OrderSide.BID,
+        price='1100',
+        certification_declared=False,
+    )
+    await db.commit()
+
+    suggestions = await list_suggestions(db=db, current_user=supplier)
+
+    assert len(suggestions) == 1
+    assert suggestions[0]['bid_order_id'] == str(bid.id)
+

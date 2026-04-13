@@ -9,7 +9,7 @@ data on first run.
 """
 import random
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
 from sqlalchemy import text, select
@@ -93,15 +93,28 @@ CI_DATA: dict[str, tuple[float, float, float]] = {
     "Synthetic Ethanol":  (15, 35, 26.8),
 }
 
-WINDOWS = [
-    SPOT_WINDOW,
-    "2026-Q1",
-    "2026-Q2",
-    "2026-Q3",
-    "2026-Q4",
-    "2027-CAL",
-    "2028-CAL",
-]
+def build_seed_windows(reference_date: date | None = None, *, quarter_count: int = 6) -> list[str]:
+    current = reference_date or date.today()
+    current_quarter = ((current.month - 1) // 3) + 1
+    current_quarter_end_month = current_quarter * 3
+
+    windows = [SPOT_WINDOW]
+    for month in range(current.month, current_quarter_end_month + 1):
+        windows.append(f"{current.year}-{month:02d}")
+
+    quarter_year = current.year
+    quarter = current_quarter + 1
+    for _ in range(quarter_count):
+        if quarter > 4:
+            quarter = 1
+            quarter_year += 1
+        windows.append(f"{quarter_year}-Q{quarter}")
+        quarter += 1
+
+    return windows
+
+
+WINDOWS = build_seed_windows()
 
 QUANTITIES = [500, 1000, 1500, 2000, 2500, 3000, 3500, 4000, 4500, 5000]
 
@@ -150,6 +163,33 @@ def _rand_date(start: datetime, end: datetime) -> datetime:
     offset = _RNG.randint(0, int(delta.total_seconds()))
     return start + timedelta(seconds=offset)
 
+
+
+
+def ask_seed_metadata() -> dict[str, object]:
+    certification_scheme = _RNG.choice(["ISCC EU", "ISCC PLUS", "REDcert EU"])
+    return {
+        "certification_declared": True,
+        "certification_scheme": certification_scheme,
+        "certifications": [certification_scheme],
+        "specification_standard": _RNG.choice(["IMPCA", "ASTM D4806", "Supplier COA"]),
+        "msds_available": True,
+    }
+
+
+def _window_premium(window: str, *, ask_lo: float, ask_hi: float) -> Decimal:
+    if window == SPOT_WINDOW:
+        return Decimal("0")
+
+    try:
+        index = WINDOWS.index(window)
+    except ValueError:
+        return Decimal("0")
+
+    spread = ask_hi - ask_lo
+    step = max(index - 1, 0)
+    premium = round(spread * 0.08 * step, 2)
+    return Decimal(str(premium))
 
 # ---------------------------------------------------------------------------
 # Core seed function
@@ -269,10 +309,7 @@ async def seed_market_data(db: AsyncSession) -> None:
                     remaining = Decimal("500")
 
                 ci_value = Decimal(str(round(_RNG.uniform(ci_lo, ci_hi), 2)))
-                certs = _RNG.choices(
-                    [["ISCC"], ["RSB"], ["ISCC", "RSB"], []],
-                    weights=[30, 20, 15, 35],
-                )[0]
+                ask_metadata = ask_seed_metadata()
 
                 created = _rand_date(
                     datetime(2025, 1, 1, tzinfo=timezone.utc),
@@ -290,7 +327,11 @@ async def seed_market_data(db: AsyncSession) -> None:
                     price_per_mt_usd=_price(ask_lo, ask_hi),
                     availability_window=_window(),
                     status=status,
-                    certifications=certs,
+                    certifications=ask_metadata["certifications"],
+                    certification_declared=ask_metadata["certification_declared"],
+                    certification_scheme=ask_metadata["certification_scheme"],
+                    specification_standard=ask_metadata["specification_standard"],
+                    msds_available=ask_metadata["msds_available"],
                     is_verdaxis_verified=_RNG.random() < 0.3,
                     carbon_intensity_gco2_mj=ci_value,
                     energy_density_mj_kg=Decimal(str(energy_density)),
@@ -355,12 +396,7 @@ async def seed_market_data(db: AsyncSession) -> None:
                 if not needs_bid and not needs_ask:
                     continue
 
-                # Forward windows get a slight contango premium
-                window_premium = Decimal("0")
-                if window == "2027-CAL":
-                    window_premium = Decimal(str(round((ask_hi - ask_lo) * 0.3, 2)))
-                elif window == "2028-CAL":
-                    window_premium = Decimal(str(round((ask_hi - ask_lo) * 0.6, 2)))
+                window_premium = _window_premium(window, ask_lo=ask_lo, ask_hi=ask_hi)
 
                 created = _rand_date(
                     datetime(2025, 1, 1, tzinfo=timezone.utc),
@@ -393,6 +429,7 @@ async def seed_market_data(db: AsyncSession) -> None:
                     supplier = _RNG.choice(SUPPLIER_ORGS)
                     ci_value = Decimal(str(round(_RNG.uniform(ci_lo, ci_hi), 2)))
                     gap_qty = _qty()
+                    ask_metadata = ask_seed_metadata()
                     order = OrderBookOrder(
                         id=uuid.uuid4(),
                         organization_id=supplier["id"],
@@ -404,6 +441,11 @@ async def seed_market_data(db: AsyncSession) -> None:
                         price_per_mt_usd=_price(ask_lo, ask_hi) + window_premium,
                         availability_window=window,
                         status=OrderBookStatus.OPEN,
+                        certification_declared=ask_metadata["certification_declared"],
+                        certification_scheme=ask_metadata["certification_scheme"],
+                        certifications=ask_metadata["certifications"],
+                        specification_standard=ask_metadata["specification_standard"],
+                        msds_available=ask_metadata["msds_available"],
                         carbon_intensity_gco2_mj=ci_value,
                         energy_density_mj_kg=Decimal(str(energy_density)),
                         created_at=created,
@@ -564,11 +606,7 @@ async def seed_market_data(db: AsyncSession) -> None:
                     datetime(2025, 2, 1, tzinfo=timezone.utc),
                     datetime(2025, 3, 20, tzinfo=timezone.utc),
                 )
-                window_premium = Decimal("0")
-                if window == "2027-CAL":
-                    window_premium = Decimal(str(round((ask_hi - ask_lo) * 0.3, 2)))
-                elif window == "2028-CAL":
-                    window_premium = Decimal(str(round((ask_hi - ask_lo) * 0.6, 2)))
+                window_premium = _window_premium(window, ask_lo=ask_lo, ask_hi=ask_hi)
 
                 if window not in windows_with_bid:
                     buyer = _RNG.choice(BUYER_ORGS)
@@ -594,6 +632,7 @@ async def seed_market_data(db: AsyncSession) -> None:
                     supplier = _RNG.choice(SUPPLIER_ORGS)
                     ci_value = Decimal(str(round(_RNG.uniform(ci_lo, ci_hi), 2)))
                     gap_qty = _qty()
+                    ask_metadata = ask_seed_metadata()
                     order = OrderBookOrder(
                         id=uuid.uuid4(),
                         organization_id=supplier["id"],
@@ -605,6 +644,11 @@ async def seed_market_data(db: AsyncSession) -> None:
                         price_per_mt_usd=_price(ask_lo, ask_hi) + window_premium,
                         availability_window=window,
                         status=OrderBookStatus.OPEN,
+                        certifications=ask_metadata["certifications"],
+                        certification_declared=ask_metadata["certification_declared"],
+                        certification_scheme=ask_metadata["certification_scheme"],
+                        specification_standard=ask_metadata["specification_standard"],
+                        msds_available=ask_metadata["msds_available"],
                         carbon_intensity_gco2_mj=Decimal(str(round(_RNG.uniform(ci_lo, ci_hi), 2))),
                         energy_density_mj_kg=Decimal(str(energy_density)),
                         created_at=created,

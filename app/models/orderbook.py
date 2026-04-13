@@ -1,4 +1,4 @@
-from sqlalchemy import String, ForeignKey, Enum, Numeric, DateTime, Boolean, JSON, Text
+from sqlalchemy import String, ForeignKey, Enum, Numeric, DateTime, Boolean, JSON, Text, Index
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import UUID
 import uuid
@@ -50,6 +50,17 @@ class OrderBookOrder(Base):
     Replaces both PublicListing (ASK) and DirectOrder (BID).
     """
     __tablename__ = "orderbook_orders"
+    __table_args__ = (
+        Index(
+            "ix_orderbook_orders_active_slice_lookup",
+            "side",
+            "status",
+            "product_id",
+            "delivery_point_id",
+            "availability_window",
+            "created_at",
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     organization_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organizations.id"), nullable=False)

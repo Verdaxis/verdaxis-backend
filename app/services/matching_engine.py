@@ -4,7 +4,7 @@ and automatically create trades. Uses price-time priority (FIFO at each price le
 """
 from decimal import Decimal
 from datetime import datetime, UTC
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.orderbook import (
@@ -13,6 +13,7 @@ from app.models.orderbook import (
 from app.models.catalog import Product
 from app.models.notification import Notification, NotificationType
 from app.models.user import User
+from app.services.execution_policy import order_is_execution_qualified, orders_execution_compatible
 
 
 async def _matching_product_ids(db: AsyncSession, product_id) -> set:
@@ -48,7 +49,7 @@ async def match_order(
     """
     trades_created: list[Trade] = []
 
-    if new_order.remaining_quantity_mt <= 0 or new_order.off_spec:
+    if new_order.remaining_quantity_mt <= 0 or not order_is_execution_qualified(new_order):
         return trades_created
 
     matching_product_ids = await _matching_product_ids(db, new_order.product_id)
@@ -75,6 +76,8 @@ async def match_order(
         OrderBookOrder.status.in_([OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED]),
         OrderBookOrder.organization_id != new_order.organization_id,  # No self-trade
         OrderBookOrder.off_spec.is_(False),
+        OrderBookOrder.certification_scheme.is_not(None),
+        or_(OrderBookOrder.side != OrderSide.ASK, OrderBookOrder.certification_declared.is_(True)),
         price_filter,
     ]
 
@@ -98,6 +101,9 @@ async def match_order(
     for crossing in crossing_orders:
         if new_order.remaining_quantity_mt <= 0:
             break
+
+        if not orders_execution_compatible(new_order, crossing):
+            continue
 
         # Determine trade quantity (minimum of both remaining quantities)
         trade_qty = min(new_order.remaining_quantity_mt, crossing.remaining_quantity_mt)

@@ -37,7 +37,7 @@ from app.schemas.watchlist import (
     WatchlistTargetResponse,
 )
 from app.services.availability_windows import SPOT_WINDOW, normalize_availability_window
-from app.services.watchlist_events import prune_old_read_events, sync_target_snapshot
+from app.services.watchlist_events import sync_target_snapshot
 from app.services.watchlists import (
     build_watchlist_detail,
     build_watchlist_summary,
@@ -327,9 +327,6 @@ async def get_watchlist_events(
     watchlist = await load_watchlist_or_404(db, watchlist_id, current_user.id)
     if watchlist is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Watchlist not found")
-    deleted = await prune_old_read_events(db)
-    if deleted:
-        await db.commit()
     try:
         return await list_watchlist_events(db, watchlist.id, cursor=cursor, limit=limit)
     except ValueError as exc:

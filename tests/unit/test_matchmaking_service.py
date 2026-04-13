@@ -78,3 +78,46 @@ class TestMatchScoring:
         assert score > Decimal("0")
         assert "market_product_match" in reasons
         assert "documentation_complete" not in reasons
+
+    def test_certification_scheme_mismatch_scores_zero_when_target_requires_scheme(self):
+        score, reasons = compute_match_score(
+            target_market_product="BIO_METHANOL",
+            candidate_market_product="BIO_METHANOL",
+            target_delivery_point_id="sg",
+            candidate_delivery_point_id="sg",
+            target_price=Decimal("550"),
+            candidate_price=Decimal("540"),
+            target_qty=Decimal("1000"),
+            candidate_qty=Decimal("1000"),
+            target_availability_window="SPOT",
+            candidate_availability_window="SPOT",
+            target_certification_scheme="ISCC EU",
+            candidate_certification_declared=True,
+            candidate_certification_scheme="RSB",
+            candidate_specification_standard="IMPCA",
+            candidate_msds_available=True,
+        )
+        assert score == Decimal("0")
+        assert reasons == []
+
+
+    def test_bid_candidate_with_matching_scheme_does_not_require_supplier_declaration(self):
+        score, reasons = compute_match_score(
+            target_market_product="BIO_METHANOL",
+            candidate_market_product="BIO_METHANOL",
+            target_delivery_point_id="sg",
+            candidate_delivery_point_id="sg",
+            target_price=Decimal("550"),
+            candidate_price=Decimal("540"),
+            target_qty=Decimal("1000"),
+            candidate_qty=Decimal("1000"),
+            target_availability_window="SPOT",
+            candidate_availability_window="SPOT",
+            target_certification_scheme="ISCC EU",
+            candidate_side="BID",
+            candidate_certification_declared=False,
+            candidate_certification_scheme="ISCC EU",
+        )
+        assert score > Decimal("0")
+        assert "market_product_match" in reasons
+

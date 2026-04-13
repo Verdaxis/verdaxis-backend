@@ -64,7 +64,7 @@ async def _auth_client(session: AsyncMock):
 
     app.dependency_overrides[get_db] = override_get_db
     try:
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="https://test") as client:
             yield client
     finally:
         app.dependency_overrides.pop(get_db, None)

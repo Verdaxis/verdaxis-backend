@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from typing import Optional, Literal, Annotated
 from uuid import UUID
 from datetime import datetime, date
@@ -99,8 +99,16 @@ class OrderCreate(AvailabilityWindowMixin, SupplierListingMetadataMixin):
     price_per_mt_usd: Decimal = Field(..., gt=0)
     availability_window: AvailabilityWindowCode = SPOT_WINDOW
     certifications: list[str] = Field(default_factory=list)
+    certification_scheme: str = Field(..., min_length=1)
     expires_at: Optional[datetime] = None
     is_anonymous: bool = True
+
+    @model_validator(mode="after")
+    def validate_execution_qualifiers(self):
+        self.certification_scheme = self.certification_scheme.strip()
+        if not self.certification_scheme:
+            raise ValueError("certification_scheme is required")
+        return self
 
 
 class OrderUpdate(AvailabilityWindowMixin):
