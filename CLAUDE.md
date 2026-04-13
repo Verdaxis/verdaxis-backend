@@ -193,7 +193,7 @@ docker exec verdaxis-backend alembic upgrade head
 
 2. **Two `get_current_user` implementations.** Most routers import from `app.routers.auth_simple`. A few older routers (`vessels`, `inventory`, `compliance`, `ai`) import from `app.core.auth`. Both decode JWT but the legacy one also supports auth bypass and JIT user provisioning. Be careful which one a router uses.
 
-3. **Seed script uses legacy models.** `scripts/seed.py` imports `PublicListing`, `Order`, `ListingStatus`, `OrderStatus` from `app.models.orders` -- these are legacy pre-orderbook models. The seed script will fail if those classes have been removed. It needs updating to use the current `OrderBookOrder`/`Trade` models.
+3. **`scripts/seed.py` is now a thin runner over `app.seeds.seed_all()`.** If you need to change demo market data, update `app/seeds/catalog_seed.py` and `app/seeds/market_seed.py` rather than reintroducing ad hoc legacy seed logic in the script itself.
 
 4. **PostGIS serialization.** Never return a raw `Geography`/`Geometry` column to Pydantic. Always extract coordinates with `ST_X`/`ST_Y`, set them as attributes, and null out the geography column before returning. See `routers/ports.py` for the pattern.
 

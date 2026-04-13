@@ -75,3 +75,9 @@
 - **Trigger:** A user-facing marketplace search failed after the public fuel filter was added because the route joined `products` twice when `fuel_type` was also present.
 - **Rule:** After changing query-scope helpers, verify the live route with realistic combined filters such as `region + fuel_type + availability_window`, not just single-filter cases.
 - **Why:** SQL join bugs can hide behind passing unit tests until the exact UI query shape hits Postgres.
+
+### Verify public qualified rows after execution-policy changes
+- **Date:** 2026-04-14
+- **Trigger:** Staging looked empty even though open orders still existed, because legacy seed rows were missing execution qualifiers and the public marketplace correctly filtered them all out.
+- **Rule:** After changing execution qualification rules or cleaning up smoke-test orders, verify that live staging still has execution-qualified public rows, not just open rows in the database.
+- **Why:** A passing trade-path smoke test can still leave the public market blank if seeded/demo data no longer satisfies the marketplace contract.
