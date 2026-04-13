@@ -220,3 +220,45 @@ class TestMarketplaceFuelFiltering:
         assert result.total == 1
         assert len(result.items) == 1
         assert result.items[0].fuel_type == 'Methanol'
+
+
+    @pytest.mark.asyncio
+    async def test_list_asks_filters_by_market_product(self, db: AsyncSession):
+        supplier = await _make_org(db, 'Supplier')
+        singapore = await _make_delivery_point(db, 'Singapore', 'Asia')
+        bio_methanol = await _make_product(db, name='Bio Methanol', fuel_type='Methanol', fuel_grade='Bio')
+        e_methanol = await _make_product(db, name='e-Methanol', fuel_type='Methanol', fuel_grade='E')
+
+        db.add_all(
+            [
+                _make_order(
+                    org_id=supplier.id,
+                    product_id=bio_methanol.id,
+                    delivery_point_id=singapore.id,
+                    price='1100',
+                ),
+                _make_order(
+                    org_id=supplier.id,
+                    product_id=e_methanol.id,
+                    delivery_point_id=singapore.id,
+                    price='1115',
+                ),
+            ]
+        )
+        await db.commit()
+
+        result = await list_asks(
+            product_id=None,
+            delivery_point_id=None,
+            fuel_type=None,
+            region=singapore.name,
+            availability_window='SPOT',
+            market_product='BIO_METHANOL',
+            skip=0,
+            limit=20,
+            db=db,
+        )
+
+        assert result.total == 1
+        assert len(result.items) == 1
+        assert result.items[0].market_product == 'BIO_METHANOL'

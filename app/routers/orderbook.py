@@ -10,7 +10,7 @@ from app.database import get_db
 from app.routers.auth_simple import get_current_user
 from app.models.user import User, UserRole
 from app.models.orderbook import OrderBookOrder, OrderSide, OrderBookStatus
-from app.models.catalog import Product, DeliveryPoint
+from app.models.catalog import Product, DeliveryPoint, MarketProduct
 from app.schemas.orderbook import (
     OrderCreate,
     OrderUpdate,
@@ -44,6 +44,7 @@ SUPPLIER_METADATA_FIELDS = (
 )
 
 APPROVED_MARKETPLACE_FUEL_TYPES = ("Methanol", "Ethanol")
+APPROVED_MARKET_PRODUCTS = tuple(member.value for member in MarketProduct)
 
 
 def _ensure_join(joins: list[tuple[object, object]], target: object, condition: object) -> None:
@@ -54,6 +55,42 @@ def _ensure_join(joins: list[tuple[object, object]], target: object, condition: 
 def _apply_public_marketplace_scope(filters: list[object], joins: list[tuple[object, object]]) -> None:
     _ensure_join(joins, Product, OrderBookOrder.product_id == Product.id)
     filters.append(Product.fuel_type.in_(APPROVED_MARKETPLACE_FUEL_TYPES))
+
+
+def _normalize_market_product_query(value: str | None) -> str | None:
+    if value is None or not isinstance(value, str):
+        return None
+    if value not in APPROVED_MARKET_PRODUCTS:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid market_product")
+    return value
+
+
+def _market_product_filter_condition(market_product: str):
+    lowered_name = func.lower(Product.name)
+    lowered_type = func.lower(Product.fuel_type)
+    lowered_grade = func.lower(Product.fuel_grade)
+
+    if market_product == MarketProduct.BIO_METHANOL.value:
+        return or_(
+            lowered_name.in_(["bio methanol", "methanol green"]),
+            and_(lowered_type == "methanol", lowered_grade.in_(["bio", "green"])),
+        )
+    if market_product == MarketProduct.E_METHANOL.value:
+        return or_(
+            lowered_name == "e-methanol",
+            and_(lowered_type == "methanol", lowered_grade.in_(["e", "synthetic"])),
+        )
+    if market_product == MarketProduct.BIO_ETHANOL.value:
+        return or_(
+            lowered_name.in_(["bio ethanol", "ethanol green"]),
+            and_(lowered_type == "ethanol", lowered_grade.in_(["bio", "green"])),
+        )
+    if market_product == MarketProduct.SYNTHETIC_ETHANOL.value:
+        return or_(
+            lowered_name == "synthetic ethanol",
+            and_(lowered_type == "ethanol", lowered_grade == "synthetic"),
+        )
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid market_product")
 
 
 def compute_is_crossed(side: str, price: Decimal, best_opposing_price: Optional[Decimal]) -> bool:
@@ -243,6 +280,7 @@ async def list_bids(
     product_id: Optional[UUID] = Query(None, description="Filter by product"),
     delivery_point_id: Optional[UUID] = Query(None, description="Filter by delivery point"),
     fuel_type: Optional[str] = Query(None, description="Filter by fuel type (e.g. Methanol, LNG)"),
+    market_product: Optional[str] = Query(None, description="Filter by canonical market product"),
     region: Optional[str] = Query(None, description="Filter by region"),
     availability_window: Optional[str] = Query(None, description="Filter by availability window"),
     skip: int = Query(0, ge=0),
@@ -264,6 +302,10 @@ async def list_bids(
     if fuel_type:
         _ensure_join(joins, Product, OrderBookOrder.product_id == Product.id)
         filters.append(Product.fuel_type == fuel_type)
+    normalized_market_product = _normalize_market_product_query(market_product)
+    if normalized_market_product:
+        _ensure_join(joins, Product, OrderBookOrder.product_id == Product.id)
+        filters.append(_market_product_filter_condition(normalized_market_product))
     if delivery_point_id:
         filters.append(OrderBookOrder.delivery_point_id == delivery_point_id)
     if region:
@@ -316,6 +358,7 @@ async def list_asks(
     product_id: Optional[UUID] = Query(None, description="Filter by product"),
     delivery_point_id: Optional[UUID] = Query(None, description="Filter by delivery point"),
     fuel_type: Optional[str] = Query(None, description="Filter by fuel type (e.g. Methanol, LNG)"),
+    market_product: Optional[str] = Query(None, description="Filter by canonical market product"),
     region: Optional[str] = Query(None, description="Filter by region"),
     availability_window: Optional[str] = Query(None, description="Filter by availability window"),
     skip: int = Query(0, ge=0),
@@ -337,6 +380,10 @@ async def list_asks(
     if fuel_type:
         _ensure_join(joins, Product, OrderBookOrder.product_id == Product.id)
         filters.append(Product.fuel_type == fuel_type)
+    normalized_market_product = _normalize_market_product_query(market_product)
+    if normalized_market_product:
+        _ensure_join(joins, Product, OrderBookOrder.product_id == Product.id)
+        filters.append(_market_product_filter_condition(normalized_market_product))
     if delivery_point_id:
         filters.append(OrderBookOrder.delivery_point_id == delivery_point_id)
     if region:
