@@ -70,3 +70,8 @@
 - **Trigger:** The staging backend still served legacy marketplace rows and product naming after the green-fuels redesign because live/demo data was not fully normalized.
 - **Rule:** When changing catalog semantics, verify live seeded rows and response payloads on staging, not just schema and code paths.
 - **Why:** Backward-compatible models can keep serving stale data even when the new contracts compile and tests pass.
+### Exercise combined marketplace filters on staging
+- **Date:** 2026-04-13
+- **Trigger:** A user-facing marketplace search failed after the public fuel filter was added because the route joined `products` twice when `fuel_type` was also present.
+- **Rule:** After changing query-scope helpers, verify the live route with realistic combined filters such as `region + fuel_type + availability_window`, not just single-filter cases.
+- **Why:** SQL join bugs can hide behind passing unit tests until the exact UI query shape hits Postgres.

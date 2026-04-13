@@ -243,7 +243,7 @@ async def list_bids(
     if product_id:
         filters.append(OrderBookOrder.product_id == product_id)
     if fuel_type:
-        joins.append((Product, OrderBookOrder.product_id == Product.id))
+        _ensure_join(joins, Product, OrderBookOrder.product_id == Product.id)
         filters.append(Product.fuel_type == fuel_type)
     if delivery_point_id:
         filters.append(OrderBookOrder.delivery_point_id == delivery_point_id)
@@ -316,7 +316,7 @@ async def list_asks(
     if product_id:
         filters.append(OrderBookOrder.product_id == product_id)
     if fuel_type:
-        joins.append((Product, OrderBookOrder.product_id == Product.id))
+        _ensure_join(joins, Product, OrderBookOrder.product_id == Product.id)
         filters.append(Product.fuel_type == fuel_type)
     if delivery_point_id:
         filters.append(OrderBookOrder.delivery_point_id == delivery_point_id)

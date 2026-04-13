@@ -180,3 +180,43 @@ class TestMarketplaceFuelFiltering:
         fuel_types = await list_fuel_types(db=db)
 
         assert fuel_types == ['Ethanol', 'Methanol']
+
+    @pytest.mark.asyncio
+    async def test_list_asks_supports_combined_public_filters_without_duplicate_product_join(self, db: AsyncSession):
+        supplier = await _make_org(db, 'Supplier')
+        singapore = await _make_delivery_point(db, 'Singapore', 'Asia')
+        methanol = await _make_product(db, name='Bio Methanol', fuel_type='Methanol', fuel_grade='Bio')
+        ethanol = await _make_product(db, name='Bio Ethanol', fuel_type='Ethanol', fuel_grade='Bio')
+
+        db.add_all(
+            [
+                _make_order(
+                    org_id=supplier.id,
+                    product_id=methanol.id,
+                    delivery_point_id=singapore.id,
+                    price='1100',
+                ),
+                _make_order(
+                    org_id=supplier.id,
+                    product_id=ethanol.id,
+                    delivery_point_id=singapore.id,
+                    price='700',
+                ),
+            ]
+        )
+        await db.commit()
+
+        result = await list_asks(
+            product_id=None,
+            delivery_point_id=None,
+            fuel_type='Methanol',
+            region=singapore.name,
+            availability_window='SPOT',
+            skip=0,
+            limit=20,
+            db=db,
+        )
+
+        assert result.total == 1
+        assert len(result.items) == 1
+        assert result.items[0].fuel_type == 'Methanol'
