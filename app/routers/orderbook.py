@@ -42,6 +42,18 @@ SUPPLIER_METADATA_FIELDS = (
     "off_spec_notes",
 )
 
+APPROVED_MARKETPLACE_FUEL_TYPES = ("Methanol", "Ethanol")
+
+
+def _ensure_join(joins: list[tuple[object, object]], target: object, condition: object) -> None:
+    if not any(existing_target == target for existing_target, _ in joins):
+        joins.append((target, condition))
+
+
+def _apply_public_marketplace_scope(filters: list[object], joins: list[tuple[object, object]]) -> None:
+    _ensure_join(joins, Product, OrderBookOrder.product_id == Product.id)
+    filters.append(Product.fuel_type.in_(APPROVED_MARKETPLACE_FUEL_TYPES))
+
 
 def compute_is_crossed(side: str, price: Decimal, best_opposing_price: Optional[Decimal]) -> bool:
     """Returns True if this order crosses the market.
@@ -227,6 +239,7 @@ async def list_bids(
         OrderBookOrder.side == OrderSide.BID,
     ]
     joins = []
+    _apply_public_marketplace_scope(filters, joins)
     if product_id:
         filters.append(OrderBookOrder.product_id == product_id)
     if fuel_type:
@@ -299,6 +312,7 @@ async def list_asks(
         OrderBookOrder.side == OrderSide.ASK,
     ]
     joins = []
+    _apply_public_marketplace_scope(filters, joins)
     if product_id:
         filters.append(OrderBookOrder.product_id == product_id)
     if fuel_type:
@@ -499,7 +513,10 @@ async def list_aggregated_orderbook(
         )
         .join(Product, OrderBookOrder.product_id == Product.id)
         .outerjoin(DeliveryPoint, OrderBookOrder.delivery_point_id == DeliveryPoint.id)
-        .where(OrderBookOrder.status == OrderBookStatus.OPEN)
+        .where(
+            OrderBookOrder.status == OrderBookStatus.OPEN,
+            Product.fuel_type.in_(APPROVED_MARKETPLACE_FUEL_TYPES),
+        )
         .group_by(
             OrderBookOrder.product_id, Product.name, Product.fuel_type,
             OrderBookOrder.delivery_point_id, DeliveryPoint.name, DeliveryPoint.region,
@@ -540,7 +557,10 @@ async def list_active_products(db: AsyncSession = Depends(get_db)):
     query = (
         select(Product.name)
         .join(OrderBookOrder, OrderBookOrder.product_id == Product.id)
-        .where(OrderBookOrder.status == OrderBookStatus.OPEN)
+        .where(
+            OrderBookOrder.status == OrderBookStatus.OPEN,
+            Product.fuel_type.in_(APPROVED_MARKETPLACE_FUEL_TYPES),
+        )
         .distinct()
     )
     result = await db.execute(query)
@@ -555,7 +575,11 @@ async def list_regions(db: AsyncSession = Depends(get_db)):
     query = (
         select(DeliveryPoint.region)
         .join(OrderBookOrder, OrderBookOrder.delivery_point_id == DeliveryPoint.id)
-        .where(OrderBookOrder.status == OrderBookStatus.OPEN)
+        .join(Product, OrderBookOrder.product_id == Product.id)
+        .where(
+            OrderBookOrder.status == OrderBookStatus.OPEN,
+            Product.fuel_type.in_(APPROVED_MARKETPLACE_FUEL_TYPES),
+        )
         .distinct()
     )
     result = await db.execute(query)
@@ -571,12 +595,15 @@ async def list_fuel_types(db: AsyncSession = Depends(get_db)):
     query = (
         select(Product.fuel_type)
         .join(OrderBookOrder, OrderBookOrder.product_id == Product.id)
-        .where(OrderBookOrder.status == OrderBookStatus.OPEN)
+        .where(
+            OrderBookOrder.status == OrderBookStatus.OPEN,
+            Product.fuel_type.in_(APPROVED_MARKETPLACE_FUEL_TYPES),
+        )
         .distinct()
     )
     result = await db.execute(query)
     fuel_types = result.scalars().all()
-    return list(fuel_types)
+    return sorted(fuel_types)
 
 
 # ============== List all + CRUD (parametric routes last) ==============
@@ -595,9 +622,11 @@ async def list_orders(
     """
     query = (
         select(OrderBookOrder)
+        .join(Product, OrderBookOrder.product_id == Product.id)
         .options(selectinload(OrderBookOrder.organization))
         .where(
-            OrderBookOrder.status.in_([OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED])
+            OrderBookOrder.status.in_([OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED]),
+            Product.fuel_type.in_(APPROVED_MARKETPLACE_FUEL_TYPES),
         )
     )
 

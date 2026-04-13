@@ -65,3 +65,8 @@
 - **Trigger:** Most dependencies used unpinned >= specifiers in requirements.txt.
 - **Rule:** Pin all production dependencies to exact versions and use pip-compile for lockfiles.
 - **Why:** Unpinned deps can break silently on incompatible upstream releases.
+### Validate live data after catalog changes
+- **Date:** 2026-04-13
+- **Trigger:** The staging backend still served legacy marketplace rows and product naming after the green-fuels redesign because live/demo data was not fully normalized.
+- **Rule:** When changing catalog semantics, verify live seeded rows and response payloads on staging, not just schema and code paths.
+- **Why:** Backward-compatible models can keep serving stale data even when the new contracts compile and tests pass.
