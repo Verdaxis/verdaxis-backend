@@ -26,6 +26,7 @@ from app.services.event_bus import event_bus
 from app.services.availability_windows import normalize_availability_window
 from pydantic import BaseModel
 from app.services.benchmarks import compute_premium_discount, get_benchmark_quote
+from app.services.watchlist_events import emit_order_created, emit_order_updated, emit_pin_updated, emit_slice_state_changed, _best_slice_price
 
 router = APIRouter(prefix="/orderbook", tags=["orderbook"])
 
@@ -87,6 +88,24 @@ def _supplier_metadata_payload(source: object) -> dict[str, object]:
     return {
         field: getattr(source, field)
         for field in SUPPLIER_METADATA_FIELDS
+    }
+
+
+async def _watchlist_before_state(db: AsyncSession, order: OrderBookOrder) -> dict[str, object]:
+    return {
+        "price_per_mt_usd": order.price_per_mt_usd,
+        "remaining_quantity_mt": order.remaining_quantity_mt,
+        "status": order.status,
+        "availability_window": normalize_availability_window(order.availability_window),
+        "delivery_point_id": order.delivery_point_id,
+        "market_product": order.market_product,
+        "slice_best_price_per_mt_usd": await _best_slice_price(
+            db,
+            market_product_code=order.market_product,
+            delivery_point_id=order.delivery_point_id,
+            availability_window_code=order.availability_window,
+            side=order.side,
+        ),
     }
 
 
@@ -730,12 +749,102 @@ async def create_order(
     db.add(new_order)
     await db.flush()  # Get the order ID without committing
 
+    previous_best_price = await _best_slice_price(
+        db,
+        market_product_code=new_order.market_product,
+        delivery_point_id=new_order.delivery_point_id,
+        availability_window_code=new_order.availability_window,
+        side=new_order.side,
+    )
+    if previous_best_price == new_order.price_per_mt_usd:
+        comparison_stmt = (
+            select(OrderBookOrder)
+            .options(selectinload(OrderBookOrder.product))
+            .where(
+                OrderBookOrder.id != new_order.id,
+                OrderBookOrder.delivery_point_id == new_order.delivery_point_id,
+                OrderBookOrder.side == new_order.side,
+                OrderBookOrder.availability_window == normalize_availability_window(new_order.availability_window),
+                OrderBookOrder.status.in_([OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED]),
+                OrderBookOrder.off_spec.is_(False),
+            )
+        )
+        comparison_orders = (await db.execute(comparison_stmt)).scalars().all()
+        prices = [candidate.price_per_mt_usd for candidate in comparison_orders if candidate.market_product == new_order.market_product]
+        if prices:
+            previous_best_price = min(prices) if new_order.side == OrderSide.ASK else max(prices)
+        else:
+            previous_best_price = None
+
+    resting_side = OrderSide.ASK if new_order.side == OrderSide.BID else OrderSide.BID
+    resting_side_previous_best_price = await _best_slice_price(
+        db,
+        market_product_code=new_order.market_product,
+        delivery_point_id=new_order.delivery_point_id,
+        availability_window_code=new_order.availability_window,
+        side=resting_side,
+    )
+
     # --- Match-on-insert: scan for crossing orders ---
     matched_trades: list = []
     from app.config import settings
     if settings.AUTO_MATCHING_ENABLED:
         from app.services.matching_engine import match_order
         matched_trades = await match_order(db, new_order, is_anonymous=order_data.is_anonymous)
+
+    event_result = await db.execute(
+        select(OrderBookOrder)
+        .options(
+            selectinload(OrderBookOrder.organization),
+            selectinload(OrderBookOrder.product),
+            selectinload(OrderBookOrder.delivery_point),
+        )
+        .where(OrderBookOrder.id == new_order.id)
+    )
+    new_order = event_result.scalars().first()
+    if new_order is not None:
+        await emit_order_created(db, new_order, previous_best_price=previous_best_price)
+        if matched_trades:
+            matched_quantity_by_resting_order: dict[UUID, Decimal] = {}
+            for trade in matched_trades:
+                resting_order_id = trade.ask_order_id if new_order.side == OrderSide.BID else trade.bid_order_id
+                matched_quantity_by_resting_order[resting_order_id] = matched_quantity_by_resting_order.get(resting_order_id, Decimal('0')) + trade.quantity_mt
+
+            resting_orders_result = await db.execute(
+                select(OrderBookOrder)
+                .options(
+                    selectinload(OrderBookOrder.organization),
+                    selectinload(OrderBookOrder.product),
+                    selectinload(OrderBookOrder.delivery_point),
+                )
+                .where(OrderBookOrder.id.in_(matched_quantity_by_resting_order.keys()))
+            )
+            resting_orders = resting_orders_result.scalars().all()
+            for resting_order in resting_orders:
+                matched_quantity = matched_quantity_by_resting_order.get(resting_order.id, Decimal('0'))
+                before_remaining = resting_order.remaining_quantity_mt + matched_quantity
+                before_status = OrderBookStatus.OPEN if before_remaining == resting_order.quantity_mt else OrderBookStatus.PARTIALLY_FILLED
+                await emit_pin_updated(
+                    db,
+                    before={
+                        'price_per_mt_usd': resting_order.price_per_mt_usd,
+                        'remaining_quantity_mt': before_remaining,
+                        'status': before_status,
+                    },
+                    order=resting_order,
+                )
+
+            representative_resting_order = resting_orders[0] if resting_orders else None
+            if representative_resting_order is not None:
+                await emit_slice_state_changed(
+                    db,
+                    market_product_code=representative_resting_order.market_product,
+                    delivery_point_id=representative_resting_order.delivery_point_id,
+                    availability_window_code=representative_resting_order.availability_window,
+                    side=representative_resting_order.side,
+                    before_best_price=resting_side_previous_best_price,
+                    quiet_order_id=representative_resting_order.id,
+                )
 
     await db.commit()
 
@@ -791,7 +900,11 @@ async def update_order(
     """
     result = await db.execute(
         select(OrderBookOrder)
-        .options(selectinload(OrderBookOrder.organization))
+        .options(
+            selectinload(OrderBookOrder.organization),
+            selectinload(OrderBookOrder.product),
+            selectinload(OrderBookOrder.delivery_point),
+        )
         .where(OrderBookOrder.id == order_id)
         .with_for_update()
     )
@@ -841,8 +954,12 @@ async def update_order(
         if new_remaining == 0:
             update_dict["status"] = OrderBookStatus.FILLED
 
+    before_state = await _watchlist_before_state(db, order)
+
     for field, value in update_dict.items():
         setattr(order, field, value)
+
+    await emit_order_updated(db, before=before_state, order=order)
 
     await db.commit()
     await db.refresh(order)
@@ -868,7 +985,10 @@ async def cancel_order(
     Cancel an own order (soft cancel by setting status to CANCELLED).
     """
     result = await db.execute(
-        select(OrderBookOrder).where(OrderBookOrder.id == order_id).with_for_update()
+        select(OrderBookOrder)
+        .options(selectinload(OrderBookOrder.product), selectinload(OrderBookOrder.delivery_point))
+        .where(OrderBookOrder.id == order_id)
+        .with_for_update()
     )
     order = result.scalars().first()
 
@@ -890,7 +1010,9 @@ async def cancel_order(
             detail="Can only cancel orders with OPEN or PARTIALLY_FILLED status",
         )
 
+    before_state = await _watchlist_before_state(db, order)
     order.status = OrderBookStatus.CANCELLED
+    await emit_order_updated(db, before=before_state, order=order)
     await db.commit()
 
     # Emit SSE event for cancelled order

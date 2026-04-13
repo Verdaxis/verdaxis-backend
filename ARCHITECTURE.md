@@ -22,6 +22,7 @@ app/
     orderbook.py                # OrderBookOrder (BID/ASK), Trade, canonical availability_window strings, enums (OrderSide, TradeStatus)
     orders.py                   # Commission (legacy match_id + trade_id FKs)
     matchmaking.py              # MatchSuggestion
+    watchlist.py                 # Watchlist, typed targets, event feed for Market Radar
     notification.py             # Notification, NotificationType (11 types incl trade events)
     compliance.py               # TraceabilityEvent, ComplianceLedger
     producer.py                 # ProducerProject (PostGIS, GENA import)
@@ -62,6 +63,8 @@ app/
     audit_service.py            # record_audit() — async audit logging
     ai_service.py               # Gemini chat + document analysis (stub)
     matchmaking.py              # Score-based BID/ASK matching (0-100)
+    watchlists.py               # Market Radar helpers: default container, typed targets, slice summaries
+    watchlist_events.py         # Slice/pin event emission from order lifecycle changes
     ci_pricing.py               # Carbon intensity adjusted pricing
   middleware/
     rbac.py                     # require_role() factory — FastAPI dependency for role-based access
@@ -82,6 +85,7 @@ tests/integration/              # Auth hardening, trade lifecycle, orderbook E2E
 - **Rate limiting:** slowapi per-route (5/min login, 3/min password, 60/min prices, 30/min reference)
 - **Availability windows:** Persist canonical codes (`SPOT`, `YYYY-MM`, `YYYY-QN`, legacy-compatible `YYYY-CAL`); UI-relative labels like `M+1` must be resolved before persistence
 - **Green-fuels market model:** Benchmarks and default matchmaking key on `market_product + delivery_point + availability_window`; supplier sustainability/compliance fields stay out of the hard market key
+- **Market Radar watchlists:** Watchlists are observer-only. Typed targets store either canonical slices or pinned order snapshots, and order create/update/cancel paths emit slice/pin events without feeding core matchmaking.
 
 ## Revenue Streams
 

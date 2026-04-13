@@ -1,490 +1,352 @@
-"""Unit tests for watchlist CRUD endpoints — no DB required."""
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+"""Tests for the market-radar watchlist endpoints and adapters."""
+from datetime import UTC, datetime
+from decimal import Decimal
 from uuid import uuid4
-from datetime import datetime, UTC
 
+import pytest
+from sqlalchemy import delete
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
+from app.database import Base
+from app.models.catalog import DeliveryPoint, Product
+from app.models.orderbook import OrderBookOrder, OrderBookStatus, OrderSide
+from app.models.user import OrgType, Organization, User, UserRole, UserStatus
+from app.models.watchlist import Watchlist, WatchlistKind, WatchlistTarget
 from fastapi import HTTPException
 
-from app.routers.watchlists import (
-    list_watchlists,
-    create_watchlist,
-    add_watchlist_entry,
-    remove_watchlist_entry,
-    delete_watchlist,
-    MAX_WATCHLISTS_PER_USER,
-    MAX_ENTRIES_PER_WATCHLIST,
-)
-from app.schemas.watchlist import WatchlistCreateRequest, WatchlistEntryAddRequest
-from app.models.watchlist import Watchlist, WatchlistEntry
-from app.models.user import User, UserRole, UserStatus
+from app.routers.watchlists import add_watchlist_entry, create_watchlist_target, delete_watchlist_target, get_market_radar, get_watchlist_events, remove_watchlist_entry
+from app.schemas.watchlist import PinTargetCreate, SliceTargetCreate, WatchlistEntryAddRequest
+from app.services.watchlists import ensure_market_radar
+
+REQUIRED_TABLES = [
+    'organizations',
+    'users',
+    'products',
+    'delivery_points',
+    'orderbook_orders',
+    'watchlists',
+    'watchlist_entries',
+    'watchlist_targets',
+    'watchlist_events',
+]
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
+@pytest.fixture(scope='module')
+def async_engine():
+    return create_async_engine('sqlite+aiosqlite://', echo=False, future=True)
 
-def make_user():
-    user = MagicMock(spec=User)
-    user.id = uuid4()
-    user.role = UserRole.BUYER
-    user.status = UserStatus.APPROVED
+
+@pytest.fixture(scope='module')
+async def setup_tables(async_engine):
+    tables = [Base.metadata.tables[name] for name in REQUIRED_TABLES]
+    async with async_engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all, tables=tables)
+    yield
+    async with async_engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all, tables=tables)
+
+
+@pytest.fixture
+async def db(async_engine, setup_tables):
+    session_factory = async_sessionmaker(
+        bind=async_engine,
+        class_=AsyncSession,
+        expire_on_commit=False,
+        autoflush=False,
+    )
+    async with session_factory() as session:
+        yield session
+        for table in ('watchlist_events', 'watchlist_targets', 'watchlist_entries', 'watchlists', 'orderbook_orders', 'users', 'delivery_points', 'products', 'organizations'):
+            await session.execute(delete(Base.metadata.tables[table]))
+        await session.commit()
+
+
+async def _make_org(db: AsyncSession, name: str, org_type: OrgType) -> Organization:
+    org = Organization(name=f'{name}-{uuid4().hex[:6]}', type=org_type)
+    db.add(org)
+    await db.flush()
+    return org
+
+
+async def _make_user(db: AsyncSession, org: Organization, role: UserRole) -> User:
+    user = User(
+        email=f'{uuid4().hex[:8]}@example.com',
+        password_hash='hashed',
+        role=role,
+        status=UserStatus.APPROVED,
+        organization_id=org.id,
+    )
+    db.add(user)
+    await db.flush()
     return user
 
 
-def make_watchlist(user_id, name="My Watchlist", entries=None):
-    wl = MagicMock(spec=Watchlist)
-    wl.id = uuid4()
-    wl.user_id = user_id
-    wl.name = name
-    wl.entries = entries or []
-    wl.created_at = datetime.now(UTC)
-    return wl
+async def _make_product(db: AsyncSession, *, name: str, fuel_type: str, fuel_grade: str) -> Product:
+    product = Product(name=f'{name}-{uuid4().hex[:6]}', fuel_type=fuel_type, fuel_grade=fuel_grade)
+    db.add(product)
+    await db.flush()
+    return product
 
 
-def make_entry(watchlist_id, product_id=None, dp_id=None):
-    entry = MagicMock(spec=WatchlistEntry)
-    entry.id = uuid4()
-    entry.watchlist_id = watchlist_id
-    entry.product_id = product_id or uuid4()
-    entry.delivery_point_id = dp_id
-    entry.created_at = datetime.now(UTC)
-    return entry
+async def _make_delivery_point(db: AsyncSession, name: str) -> DeliveryPoint:
+    delivery_point = DeliveryPoint(name=f'{name}-{uuid4().hex[:6]}', region='Asia')
+    db.add(delivery_point)
+    await db.flush()
+    return delivery_point
 
 
-# ---------------------------------------------------------------------------
-# GET /watchlists — list
-# ---------------------------------------------------------------------------
+async def _make_order(
+    db: AsyncSession,
+    *,
+    organization_id,
+    product_id,
+    delivery_point_id,
+    side: OrderSide,
+    price: str = '1000',
+) -> OrderBookOrder:
+    order = OrderBookOrder(
+        organization_id=organization_id,
+        side=side,
+        product_id=product_id,
+        delivery_point_id=delivery_point_id,
+        quantity_mt=Decimal('1000'),
+        remaining_quantity_mt=Decimal('1000'),
+        price_per_mt_usd=Decimal(price),
+        availability_window='SPOT',
+        status=OrderBookStatus.OPEN,
+        created_at=datetime.now(UTC),
+        certification_declared=True,
+        certification_scheme='ISCC EU',
+        specification_standard='IMPCA',
+        msds_available=True,
+        certifications=['ISCC EU'],
+    )
+    db.add(order)
+    await db.flush()
+    await db.refresh(order, ['product', 'delivery_point'])
+    return order
 
-class TestListWatchlists:
+
+class TestMarketRadarEndpoints:
     @pytest.mark.asyncio
-    async def test_returns_empty_list(self):
-        user = make_user()
-        mock_db = AsyncMock()
-        scalars_mock = MagicMock()
-        scalars_mock.all.return_value = []
-        result_mock = MagicMock()
-        result_mock.scalars.return_value = scalars_mock
-        mock_db.execute.return_value = result_mock
+    async def test_market_radar_auto_creates_and_returns_summary(self, db: AsyncSession):
+        buyer_org = await _make_org(db, 'Buyer', OrgType.SHIPPING_LINE)
+        buyer = await _make_user(db, buyer_org, UserRole.BUYER)
+        singapore = await _make_delivery_point(db, 'Singapore')
+        product = await _make_product(db, name='Bio Methanol', fuel_type='Methanol', fuel_grade='Bio')
 
-        result = await list_watchlists(current_user=user, db=mock_db)
-        assert result == []
-
-    @pytest.mark.asyncio
-    async def test_returns_watchlists_with_entry_count(self):
-        user = make_user()
-        wl = make_watchlist(user.id, "Fuels")
-        entry = make_entry(wl.id)
-        wl.entries = [entry]
-
-        mock_db = AsyncMock()
-        # First execute: watchlists query
-        scalars_mock = MagicMock()
-        scalars_mock.all.return_value = [wl]
-        result_mock = MagicMock()
-        result_mock.scalars.return_value = scalars_mock
-
-        # Product name lookup
-        prod_result = MagicMock()
-        prod_result.all.return_value = [(entry.product_id, "VLSFO")]
-
-        mock_db.execute.side_effect = [result_mock, prod_result]
-
-        result = await list_watchlists(current_user=user, db=mock_db)
-        assert len(result) == 1
-        assert result[0].name == "Fuels"
-        assert result[0].entry_count == 1
-
-
-# ---------------------------------------------------------------------------
-# POST /watchlists — create
-# ---------------------------------------------------------------------------
-
-class TestCreateWatchlist:
-    @pytest.mark.asyncio
-    async def test_create_success(self):
-        user = make_user()
-        mock_db = AsyncMock()
-
-        count_result = MagicMock()
-        count_result.scalar_one.return_value = 0
-        mock_db.execute.return_value = count_result
-
-        body = WatchlistCreateRequest(name="My Fuels")
-
-        with patch("app.routers.watchlists.Watchlist") as MockWL:
-            instance = MagicMock()
-            instance.id = uuid4()
-            instance.name = "My Fuels"
-            instance.created_at = datetime.now(UTC)
-            MockWL.return_value = instance
-
-            result = await create_watchlist(body=body, current_user=user, db=mock_db)
-            assert result.name == "My Fuels"
-            assert result.entry_count == 0
-            mock_db.add.assert_called_once()
-            mock_db.commit.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_create_exceeds_limit(self):
-        user = make_user()
-        mock_db = AsyncMock()
-
-        count_result = MagicMock()
-        count_result.scalar_one.return_value = MAX_WATCHLISTS_PER_USER
-        mock_db.execute.return_value = count_result
-
-        body = WatchlistCreateRequest(name="Overflow")
-
-        with pytest.raises(HTTPException) as exc_info:
-            await create_watchlist(body=body, current_user=user, db=mock_db)
-        assert exc_info.value.status_code == 400
-        assert "Maximum" in exc_info.value.detail
-
-
-# ---------------------------------------------------------------------------
-# POST /watchlists/{id}/entries — add entry
-# ---------------------------------------------------------------------------
-
-class TestAddWatchlistEntry:
-    @pytest.mark.asyncio
-    async def test_add_entry_watchlist_not_found(self):
-        user = make_user()
-        mock_db = AsyncMock()
-        result_mock = MagicMock()
-        result_mock.scalar_one_or_none.return_value = None
-        mock_db.execute.return_value = result_mock
-
-        body = WatchlistEntryAddRequest(product_id=uuid4())
-
-        with pytest.raises(HTTPException) as exc_info:
-            await add_watchlist_entry(
-                watchlist_id=uuid4(), body=body, current_user=user, db=mock_db
-            )
-        assert exc_info.value.status_code == 404
-
-    @pytest.mark.asyncio
-    async def test_add_entry_exceeds_limit(self):
-        user = make_user()
-        wl = make_watchlist(user.id)
-
-        mock_db = AsyncMock()
-        # 1st execute: find watchlist
-        wl_result = MagicMock()
-        wl_result.scalar_one_or_none.return_value = wl
-        prod_result = MagicMock()
-        prod_result.scalar_one_or_none.return_value = MagicMock(name="Product")
-        existing_result = MagicMock()
-        existing_result.scalar_one_or_none.return_value = None
-        # 4th execute: count entries
-        count_result = MagicMock()
-        count_result.scalar_one.return_value = MAX_ENTRIES_PER_WATCHLIST
-
-        mock_db.execute.side_effect = [wl_result, prod_result, existing_result, count_result]
-
-        body = WatchlistEntryAddRequest(product_id=uuid4())
-
-        with pytest.raises(HTTPException) as exc_info:
-            await add_watchlist_entry(
-                watchlist_id=wl.id, body=body, current_user=user, db=mock_db
-            )
-        assert exc_info.value.status_code == 400
-        assert "Maximum" in exc_info.value.detail
-
-    @pytest.mark.asyncio
-    async def test_add_entry_product_not_found(self):
-        user = make_user()
-        wl = make_watchlist(user.id)
-
-        mock_db = AsyncMock()
-        wl_result = MagicMock()
-        wl_result.scalar_one_or_none.return_value = wl
-        prod_result = MagicMock()
-        prod_result.scalar_one_or_none.return_value = None
-
-        mock_db.execute.side_effect = [wl_result, prod_result]
-
-        body = WatchlistEntryAddRequest(product_id=uuid4())
-
-        with pytest.raises(HTTPException) as exc_info:
-            await add_watchlist_entry(
-                watchlist_id=wl.id, body=body, current_user=user, db=mock_db
-            )
-        assert exc_info.value.status_code == 404
-        assert "Product" in exc_info.value.detail
-
-    @pytest.mark.asyncio
-    async def test_add_entry_success(self):
-        user = make_user()
-        wl = make_watchlist(user.id)
-        product_id = uuid4()
-
-        mock_db = AsyncMock()
-        wl_result = MagicMock()
-        wl_result.scalar_one_or_none.return_value = wl
-        count_result = MagicMock()
-        count_result.scalar_one.return_value = 5
-
-        prod_mock = MagicMock()
-        prod_mock.name = "VLSFO"
-        prod_result = MagicMock()
-        prod_result.scalar_one_or_none.return_value = prod_mock
-        existing_result = MagicMock()
-        existing_result.scalar_one_or_none.return_value = None
-
-        mock_db.execute.side_effect = [wl_result, prod_result, existing_result, count_result]
-
-        body = WatchlistEntryAddRequest(product_id=product_id)
-
-        result = await add_watchlist_entry(
-            watchlist_id=wl.id, body=body, current_user=user, db=mock_db
+        radar = await ensure_market_radar(db, buyer.id)
+        target = WatchlistTarget(
+            watchlist_id=radar.id,
+            target_type='SLICE',
+            market_product_code=product.market_product,
+            delivery_point_id=singapore.id,
+            availability_window_code='SPOT',
+            snapshot_market_product=product.market_product,
+            snapshot_delivery_point_name=singapore.name,
+            snapshot_availability_window='SPOT',
         )
-        assert result.product_name == "VLSFO"
-        mock_db.add.assert_called_once()
-        mock_db.commit.assert_called_once()
+        db.add(target)
+        await db.commit()
+
+        summary = await get_market_radar(current_user=buyer, db=db)
+
+        assert summary.kind == WatchlistKind.RADAR_DEFAULT.value
+        assert len(summary.slices) == 1
+        assert summary.slices[0].market_product_code == 'BIO_METHANOL'
+        assert summary.slices[0].delivery_point_id == singapore.id
 
     @pytest.mark.asyncio
-    async def test_add_entry_with_delivery_point(self):
-        user = make_user()
-        wl = make_watchlist(user.id)
-        product_id = uuid4()
-        dp_id = uuid4()
-
-        mock_db = AsyncMock()
-        wl_result = MagicMock()
-        wl_result.scalar_one_or_none.return_value = wl
-        count_result = MagicMock()
-        count_result.scalar_one.return_value = 0
-
-        prod_mock = MagicMock()
-        prod_mock.name = "VLSFO"
-        prod_result = MagicMock()
-        prod_result.scalar_one_or_none.return_value = prod_mock
-
-        dp_mock = MagicMock()
-        dp_mock.name = "Singapore"
-        dp_result = MagicMock()
-        dp_result.scalar_one_or_none.return_value = dp_mock
-        existing_result = MagicMock()
-        existing_result.scalar_one_or_none.return_value = None
-
-        mock_db.execute.side_effect = [wl_result, prod_result, dp_result, existing_result, count_result]
-
-        body = WatchlistEntryAddRequest(product_id=product_id, delivery_point_id=dp_id)
-
-        result = await add_watchlist_entry(
-            watchlist_id=wl.id, body=body, current_user=user, db=mock_db
+    async def test_create_pin_target_snapshots_order_identity(self, db: AsyncSession):
+        supplier_org = await _make_org(db, 'Supplier', OrgType.FUEL_SUPPLIER)
+        supplier = await _make_user(db, supplier_org, UserRole.SUPPLIER)
+        singapore = await _make_delivery_point(db, 'Singapore')
+        product = await _make_product(db, name='Bio Methanol', fuel_type='Methanol', fuel_grade='Bio')
+        order = await _make_order(
+            db,
+            organization_id=supplier_org.id,
+            product_id=product.id,
+            delivery_point_id=singapore.id,
+            side=OrderSide.ASK,
+            price='1085',
         )
-        assert result.delivery_point_name == "Singapore"
+        radar = await ensure_market_radar(db, supplier.id)
+        await db.commit()
 
-    @pytest.mark.asyncio
-    async def test_add_entry_delivery_point_not_found(self):
-        user = make_user()
-        wl = make_watchlist(user.id)
-
-        mock_db = AsyncMock()
-        wl_result = MagicMock()
-        wl_result.scalar_one_or_none.return_value = wl
-        count_result = MagicMock()
-        count_result.scalar_one.return_value = 0
-
-        prod_mock = MagicMock()
-        prod_mock.name = "VLSFO"
-        prod_result = MagicMock()
-        prod_result.scalar_one_or_none.return_value = prod_mock
-
-        dp_result = MagicMock()
-        dp_result.scalar_one_or_none.return_value = None
-
-        mock_db.execute.side_effect = [wl_result, prod_result, dp_result]
-
-        body = WatchlistEntryAddRequest(product_id=uuid4(), delivery_point_id=uuid4())
-
-        with pytest.raises(HTTPException) as exc_info:
-            await add_watchlist_entry(
-                watchlist_id=wl.id, body=body, current_user=user, db=mock_db
-            )
-        assert exc_info.value.status_code == 404
-        assert "Delivery point" in exc_info.value.detail
-
-    @pytest.mark.asyncio
-    async def test_add_entry_is_idempotent_when_duplicate_exists(self):
-        user = make_user()
-        wl = make_watchlist(user.id)
-        product_id = uuid4()
-
-        mock_db = AsyncMock()
-        wl_result = MagicMock()
-        wl_result.scalar_one_or_none.return_value = wl
-
-        prod_mock = MagicMock()
-        prod_mock.name = "VLSFO"
-        prod_result = MagicMock()
-        prod_result.scalar_one_or_none.return_value = prod_mock
-
-        existing_entry = MagicMock(spec=WatchlistEntry)
-        existing_entry.id = uuid4()
-        existing_entry.watchlist_id = wl.id
-        existing_entry.product_id = product_id
-        existing_entry.delivery_point_id = None
-        existing_entry.created_at = datetime.now(UTC)
-
-        existing_result = MagicMock()
-        existing_result.scalar_one_or_none.return_value = existing_entry
-
-        mock_db.execute.side_effect = [wl_result, prod_result, existing_result]
-
-        body = WatchlistEntryAddRequest(product_id=product_id)
-
-        result = await add_watchlist_entry(
-            watchlist_id=wl.id, body=body, current_user=user, db=mock_db
+        response = await create_watchlist_target(
+            watchlist_id=radar.id,
+            body=PinTargetCreate(target_type='PIN', order_id=order.id),
+            current_user=supplier,
+            db=db,
         )
 
-        assert result.id == existing_entry.id
-        assert result.product_name == "VLSFO"
-        mock_db.add.assert_not_called()
-        mock_db.commit.assert_not_called()
+        assert response.target_type == 'PIN'
+        assert response.order_id == order.id
+        assert response.market_product_code == 'BIO_METHANOL'
+        assert response.snapshot_price_per_mt_usd == 1085.0
+        assert response.snapshot_delivery_point_name == singapore.name
 
-
-# ---------------------------------------------------------------------------
-# DELETE /watchlists/{id}/entries/{entry_id} — remove entry
-# ---------------------------------------------------------------------------
-
-class TestRemoveWatchlistEntry:
-    @pytest.mark.asyncio
-    async def test_remove_entry_watchlist_not_found(self):
-        user = make_user()
-        mock_db = AsyncMock()
-        result_mock = MagicMock()
-        result_mock.scalar_one_or_none.return_value = None
-        mock_db.execute.return_value = result_mock
-
-        with pytest.raises(HTTPException) as exc_info:
-            await remove_watchlist_entry(
-                watchlist_id=uuid4(), entry_id=uuid4(), current_user=user, db=mock_db
-            )
-        assert exc_info.value.status_code == 404
+        await db.refresh(radar, ['targets'])
+        assert {target.target_type.value for target in radar.targets} == {'SLICE', 'PIN'}
 
     @pytest.mark.asyncio
-    async def test_remove_entry_not_found(self):
-        user = make_user()
-        wl_id = uuid4()
+    async def test_legacy_add_entry_translates_into_market_radar_slice(self, db: AsyncSession):
+        buyer_org = await _make_org(db, 'Buyer', OrgType.SHIPPING_LINE)
+        buyer = await _make_user(db, buyer_org, UserRole.BUYER)
+        singapore = await _make_delivery_point(db, 'Singapore')
+        product = await _make_product(db, name='Bio Ethanol', fuel_type='Ethanol', fuel_grade='Bio')
+        custom_watchlist = Watchlist(user_id=buyer.id, name='Legacy Book', kind=WatchlistKind.CUSTOM)
+        db.add(custom_watchlist)
+        await db.flush()
 
-        mock_db = AsyncMock()
-        wl_result = MagicMock()
-        wl_result.scalar_one_or_none.return_value = wl_id
-        entry_result = MagicMock()
-        entry_result.scalar_one_or_none.return_value = None
+        response = await add_watchlist_entry(
+            watchlist_id=custom_watchlist.id,
+            body=WatchlistEntryAddRequest(product_id=product.id, delivery_point_id=singapore.id),
+            current_user=buyer,
+            db=db,
+        )
 
-        mock_db.execute.side_effect = [wl_result, entry_result]
-
-        with pytest.raises(HTTPException) as exc_info:
-            await remove_watchlist_entry(
-                watchlist_id=wl_id, entry_id=uuid4(), current_user=user, db=mock_db
-            )
-        assert exc_info.value.status_code == 404
-        assert "Entry" in exc_info.value.detail
+        assert response.product_id == product.id
+        radar = await ensure_market_radar(db, buyer.id)
+        await db.refresh(radar, ['targets'])
+        assert len(radar.targets) == 1
+        assert radar.targets[0].market_product_code == 'BIO_ETHANOL'
+        assert radar.targets[0].availability_window_code == 'SPOT'
 
     @pytest.mark.asyncio
-    async def test_remove_entry_success(self):
-        user = make_user()
-        wl_id = uuid4()
-        entry = make_entry(wl_id)
+    async def test_legacy_remove_entry_retracts_translated_slice(self, db: AsyncSession):
+        buyer_org = await _make_org(db, 'Buyer', OrgType.SHIPPING_LINE)
+        buyer = await _make_user(db, buyer_org, UserRole.BUYER)
+        singapore = await _make_delivery_point(db, 'Singapore')
+        product = await _make_product(db, name='Bio Ethanol', fuel_type='Ethanol', fuel_grade='Bio')
+        custom_watchlist = Watchlist(user_id=buyer.id, name='Legacy Book', kind=WatchlistKind.CUSTOM)
+        db.add(custom_watchlist)
+        await db.flush()
 
-        mock_db = AsyncMock()
-        wl_result = MagicMock()
-        wl_result.scalar_one_or_none.return_value = wl_id
-        entry_result = MagicMock()
-        entry_result.scalar_one_or_none.return_value = entry
-
-        mock_db.execute.side_effect = [wl_result, entry_result]
+        entry = await add_watchlist_entry(
+            watchlist_id=custom_watchlist.id,
+            body=WatchlistEntryAddRequest(product_id=product.id, delivery_point_id=singapore.id),
+            current_user=buyer,
+            db=db,
+        )
 
         await remove_watchlist_entry(
-            watchlist_id=wl_id, entry_id=entry.id, current_user=user, db=mock_db
+            watchlist_id=custom_watchlist.id,
+            entry_id=entry.id,
+            current_user=buyer,
+            db=db,
         )
-        mock_db.delete.assert_called_once_with(entry)
-        mock_db.commit.assert_called_once()
 
+        radar = await ensure_market_radar(db, buyer.id)
+        await db.refresh(radar, ['targets'])
+        assert radar.targets == []
 
-# ---------------------------------------------------------------------------
-# DELETE /watchlists/{id} — delete watchlist
-# ---------------------------------------------------------------------------
-
-class TestDeleteWatchlist:
     @pytest.mark.asyncio
-    async def test_delete_watchlist_not_found(self):
-        user = make_user()
-        mock_db = AsyncMock()
-        result_mock = MagicMock()
-        result_mock.scalar_one_or_none.return_value = None
-        mock_db.execute.return_value = result_mock
+    async def test_invalid_slice_window_returns_422(self, db: AsyncSession):
+        buyer_org = await _make_org(db, 'Buyer', OrgType.SHIPPING_LINE)
+        buyer = await _make_user(db, buyer_org, UserRole.BUYER)
+        singapore = await _make_delivery_point(db, 'Singapore')
+        radar = await ensure_market_radar(db, buyer.id)
+        await db.commit()
 
         with pytest.raises(HTTPException) as exc_info:
-            await delete_watchlist(
-                watchlist_id=uuid4(), current_user=user, db=mock_db
+            await create_watchlist_target(
+                watchlist_id=radar.id,
+                body=SliceTargetCreate(
+                    target_type='SLICE',
+                    market_product_code='BIO_METHANOL',
+                    delivery_point_id=singapore.id,
+                    availability_window_code='bad-window',
+                ),
+                current_user=buyer,
+                db=db,
             )
-        assert exc_info.value.status_code == 404
+
+        assert exc_info.value.status_code == 422
 
     @pytest.mark.asyncio
-    async def test_delete_watchlist_success(self):
-        user = make_user()
-        wl = make_watchlist(user.id)
+    async def test_invalid_event_cursor_returns_422(self, db: AsyncSession):
+        buyer_org = await _make_org(db, 'Buyer', OrgType.SHIPPING_LINE)
+        buyer = await _make_user(db, buyer_org, UserRole.BUYER)
+        radar = await ensure_market_radar(db, buyer.id)
+        await db.commit()
 
-        mock_db = AsyncMock()
-        result_mock = MagicMock()
-        result_mock.scalar_one_or_none.return_value = wl
-        mock_db.execute.return_value = result_mock
+        with pytest.raises(HTTPException) as exc_info:
+            await get_watchlist_events(
+                watchlist_id=radar.id,
+                cursor='not-a-valid-cursor',
+                limit=20,
+                current_user=buyer,
+                db=db,
+            )
 
-        await delete_watchlist(
-            watchlist_id=wl.id, current_user=user, db=mock_db
+        assert exc_info.value.status_code == 422
+        assert exc_info.value.detail == 'Invalid watchlist event cursor'
+
+    @pytest.mark.asyncio
+    async def test_delete_slice_target_removes_associated_pins(self, db: AsyncSession):
+        supplier_org = await _make_org(db, 'Supplier', OrgType.FUEL_SUPPLIER)
+        supplier = await _make_user(db, supplier_org, UserRole.SUPPLIER)
+        singapore = await _make_delivery_point(db, 'Singapore')
+        product = await _make_product(db, name='Bio Methanol', fuel_type='Methanol', fuel_grade='Bio')
+        order = await _make_order(
+            db,
+            organization_id=supplier_org.id,
+            product_id=product.id,
+            delivery_point_id=singapore.id,
+            side=OrderSide.ASK,
+            price='1085',
         )
-        mock_db.delete.assert_called_once_with(wl)
-        mock_db.commit.assert_called_once()
+        radar = await ensure_market_radar(db, supplier.id)
+        await db.commit()
 
+        slice_target = await create_watchlist_target(
+            watchlist_id=radar.id,
+            body=SliceTargetCreate(
+                target_type='SLICE',
+                market_product_code='BIO_METHANOL',
+                delivery_point_id=singapore.id,
+                availability_window_code='SPOT',
+            ),
+            current_user=supplier,
+            db=db,
+        )
+        await create_watchlist_target(
+            watchlist_id=radar.id,
+            body=PinTargetCreate(target_type='PIN', order_id=order.id),
+            current_user=supplier,
+            db=db,
+        )
 
-# ---------------------------------------------------------------------------
-# Schema validation
-# ---------------------------------------------------------------------------
+        await delete_watchlist_target(
+            watchlist_id=radar.id,
+            target_id=slice_target.id,
+            current_user=supplier,
+            db=db,
+        )
 
-class TestWatchlistSchemas:
-    def test_create_request_name_too_long(self):
-        from pydantic import ValidationError
-        with pytest.raises(ValidationError):
-            WatchlistCreateRequest(name="x" * 101)
+        radar = await ensure_market_radar(db, supplier.id)
+        await db.refresh(radar, ['targets'])
+        assert radar.targets == []
 
-    def test_create_request_name_empty(self):
-        from pydantic import ValidationError
-        with pytest.raises(ValidationError):
-            WatchlistCreateRequest(name="")
+    @pytest.mark.asyncio
+    async def test_duplicate_slice_target_returns_conflict(self, db: AsyncSession):
+        buyer_org = await _make_org(db, 'Buyer', OrgType.SHIPPING_LINE)
+        buyer = await _make_user(db, buyer_org, UserRole.BUYER)
+        singapore = await _make_delivery_point(db, 'Singapore')
+        await _make_product(db, name='Bio Methanol', fuel_type='Methanol', fuel_grade='Bio')
+        radar = await ensure_market_radar(db, buyer.id)
+        await db.commit()
 
-    def test_create_request_valid(self):
-        req = WatchlistCreateRequest(name="My Watchlist")
-        assert req.name == "My Watchlist"
+        body = SliceTargetCreate(
+            target_type='SLICE',
+            market_product_code='BIO_METHANOL',
+            delivery_point_id=singapore.id,
+            availability_window_code='SPOT',
+        )
+        await create_watchlist_target(watchlist_id=radar.id, body=body, current_user=buyer, db=db)
 
-    def test_entry_add_request_no_delivery_point(self):
-        pid = uuid4()
-        req = WatchlistEntryAddRequest(product_id=pid)
-        assert req.product_id == pid
-        assert req.delivery_point_id is None
+        with pytest.raises(Exception) as exc_info:
+            await create_watchlist_target(watchlist_id=radar.id, body=body, current_user=buyer, db=db)
 
-    def test_entry_add_request_with_delivery_point(self):
-        pid = uuid4()
-        dpid = uuid4()
-        req = WatchlistEntryAddRequest(product_id=pid, delivery_point_id=dpid)
-        assert req.delivery_point_id == dpid
-
-
-# ---------------------------------------------------------------------------
-# Model sanity
-# ---------------------------------------------------------------------------
-
-class TestWatchlistModel:
-    def test_tablenames(self):
-        assert Watchlist.__tablename__ == "watchlists"
-        assert WatchlistEntry.__tablename__ == "watchlist_entries"
-
-    def test_watchlist_has_entries_relationship(self):
-        assert hasattr(Watchlist, "entries")
-
-    def test_entry_has_watchlist_relationship(self):
-        assert hasattr(WatchlistEntry, "watchlist")
+        assert '409' in str(exc_info.value) or 'Duplicate watchlist target' in str(exc_info.value)

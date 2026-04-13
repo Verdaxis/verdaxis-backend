@@ -1,8 +1,182 @@
-"""Unit tests for matchmaking router."""
+"""Tests for live matchmaking suggestions built from the user's own orders."""
+from datetime import UTC, datetime
+from decimal import Decimal
+from uuid import uuid4
+
 import pytest
-from app.models.notification import NotificationType
+from sqlalchemy import delete
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
+from app.database import Base
+from app.models.catalog import DeliveryPoint, Product
+from app.models.orderbook import OrderBookOrder, OrderBookStatus, OrderSide
+from app.models.user import OrgType, Organization, User, UserRole, UserStatus
+from app.routers.matchmaking import list_suggestions
+
+REQUIRED_TABLES = [
+    'organizations',
+    'users',
+    'products',
+    'delivery_points',
+    'orderbook_orders',
+    'match_suggestions',
+]
 
 
-class TestMatchNotificationType:
-    def test_match_suggestion_type_exists(self):
-        assert NotificationType.MATCH_SUGGESTION.value == "MATCH_SUGGESTION"
+@pytest.fixture(scope='module')
+def async_engine():
+    return create_async_engine('sqlite+aiosqlite://', echo=False, future=True)
+
+
+@pytest.fixture(scope='module')
+async def setup_tables(async_engine):
+    tables = [Base.metadata.tables[name] for name in REQUIRED_TABLES]
+    async with async_engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all, tables=tables)
+    yield
+    async with async_engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all, tables=tables)
+
+
+@pytest.fixture
+async def db(async_engine, setup_tables):
+    session_factory = async_sessionmaker(bind=async_engine, class_=AsyncSession, expire_on_commit=False, autoflush=False)
+    async with session_factory() as session:
+        yield session
+        for table in ('match_suggestions', 'orderbook_orders', 'users', 'delivery_points', 'products', 'organizations'):
+            await session.execute(delete(Base.metadata.tables[table]))
+        await session.commit()
+
+
+async def _make_org(db: AsyncSession, name: str, org_type: OrgType) -> Organization:
+    org = Organization(name=f'{name}-{uuid4().hex[:6]}', type=org_type)
+    db.add(org)
+    await db.flush()
+    return org
+
+
+async def _make_user(db: AsyncSession, org: Organization, role: UserRole) -> User:
+    user = User(
+        email=f'{uuid4().hex[:8]}@example.com',
+        password_hash='hashed',
+        role=role,
+        status=UserStatus.APPROVED,
+        organization_id=org.id,
+    )
+    db.add(user)
+    await db.flush()
+    return user
+
+
+async def _make_product(db: AsyncSession, *, name: str, fuel_type: str, fuel_grade: str) -> Product:
+    product = Product(name=f'{name}-{uuid4().hex[:6]}', fuel_type=fuel_type, fuel_grade=fuel_grade)
+    db.add(product)
+    await db.flush()
+    return product
+
+
+async def _make_delivery_point(db: AsyncSession, name: str) -> DeliveryPoint:
+    delivery_point = DeliveryPoint(name=f'{name}-{uuid4().hex[:6]}', region='Asia')
+    db.add(delivery_point)
+    await db.flush()
+    return delivery_point
+
+
+async def _make_order(
+    db: AsyncSession,
+    *,
+    organization_id,
+    product_id,
+    delivery_point_id,
+    side: OrderSide,
+    price: str,
+    off_spec: bool = False,
+) -> OrderBookOrder:
+    order = OrderBookOrder(
+        organization_id=organization_id,
+        side=side,
+        product_id=product_id,
+        delivery_point_id=delivery_point_id,
+        quantity_mt=Decimal('1000'),
+        remaining_quantity_mt=Decimal('1000'),
+        price_per_mt_usd=Decimal(price),
+        availability_window='SPOT',
+        status=OrderBookStatus.OPEN,
+        created_at=datetime.now(UTC),
+        certification_declared=True,
+        certification_scheme='ISCC EU',
+        specification_standard='IMPCA',
+        msds_available=True,
+        certifications=['ISCC EU'],
+        off_spec=off_spec,
+    )
+    db.add(order)
+    await db.flush()
+    await db.refresh(order, ['product', 'delivery_point'])
+    return order
+
+
+@pytest.mark.asyncio
+async def test_buyer_suggestions_come_from_own_bid_not_watchlist_entries(db: AsyncSession):
+    buyer_org = await _make_org(db, 'Buyer', OrgType.SHIPPING_LINE)
+    supplier_org = await _make_org(db, 'Supplier', OrgType.FUEL_SUPPLIER)
+    buyer = await _make_user(db, buyer_org, UserRole.BUYER)
+    singapore = await _make_delivery_point(db, 'Singapore')
+    product = await _make_product(db, name='Bio Methanol', fuel_type='Methanol', fuel_grade='Bio')
+
+    await _make_order(
+        db,
+        organization_id=buyer_org.id,
+        product_id=product.id,
+        delivery_point_id=singapore.id,
+        side=OrderSide.BID,
+        price='1100',
+    )
+    ask = await _make_order(
+        db,
+        organization_id=supplier_org.id,
+        product_id=product.id,
+        delivery_point_id=singapore.id,
+        side=OrderSide.ASK,
+        price='1080',
+    )
+    await db.commit()
+
+    suggestions = await list_suggestions(db=db, current_user=buyer)
+
+    assert len(suggestions) == 1
+    assert suggestions[0]['ask_order_id'] == str(ask.id)
+    assert 'market_product_match' in suggestions[0]['match_reasons']
+    assert 'availability_match' in suggestions[0]['match_reasons']
+
+
+@pytest.mark.asyncio
+async def test_off_spec_candidates_are_excluded(db: AsyncSession):
+    buyer_org = await _make_org(db, 'Buyer', OrgType.SHIPPING_LINE)
+    supplier_org = await _make_org(db, 'Supplier', OrgType.FUEL_SUPPLIER)
+    buyer = await _make_user(db, buyer_org, UserRole.BUYER)
+    singapore = await _make_delivery_point(db, 'Singapore')
+    product = await _make_product(db, name='Bio Methanol', fuel_type='Methanol', fuel_grade='Bio')
+
+    await _make_order(
+        db,
+        organization_id=buyer_org.id,
+        product_id=product.id,
+        delivery_point_id=singapore.id,
+        side=OrderSide.BID,
+        price='1100',
+    )
+    await _make_order(
+        db,
+        organization_id=supplier_org.id,
+        product_id=product.id,
+        delivery_point_id=singapore.id,
+        side=OrderSide.ASK,
+        price='1080',
+        off_spec=True,
+    )
+    await db.commit()
+
+    suggestions = await list_suggestions(db=db, current_user=buyer)
+
+    assert suggestions == []

@@ -1,28 +1,17 @@
-"""
-Watchlist-driven matchmaking router.
-
-Suggestions are computed LIVE from the user's watchlist entries — no stored
-suggestion rows.  Each watchlist entry (product_id + optional delivery_point_id)
-is matched against open opposite-side orders.
-
-- GET  /matchmaking/suggestions               — live recommendations
-- PATCH /matchmaking/suggestions/{id}/dismiss  — dismiss an order (by order ID)
-"""
+"""Live matchmaking router based on the user's own active orders."""
 from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select, or_
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.database import get_db
-from app.routers.auth_simple import get_current_user
-from app.models.catalog import Product
+from app.models.matchmaking import MatchStatus, MatchSuggestion
+from app.models.orderbook import OrderBookOrder, OrderBookStatus, OrderSide
 from app.models.user import User, UserRole
-from app.models.orderbook import OrderBookOrder, OrderSide, OrderBookStatus
-from app.models.matchmaking import MatchSuggestion, MatchStatus
-from app.models.watchlist import Watchlist, WatchlistEntry
+from app.routers.auth_simple import get_current_user
 from app.services.matchmaking import compute_match_score
 
 router = APIRouter(prefix="/matchmaking", tags=["matchmaking"])
@@ -35,41 +24,32 @@ async def list_suggestions(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user)],
 ):
-    """
-    Live match suggestions based on the user's watchlist entries.
-
-    For each watchlist entry (product + optional delivery point), find open
-    opposite-side orders, score them, and return the top results.
-    """
-    # 1. Determine which side of the orderbook to show
+    """Return live match suggestions keyed off the user's own open orders."""
     if current_user.role == UserRole.BUYER:
-        target_side = OrderSide.ASK
+        source_side = OrderSide.BID
+        candidate_side = OrderSide.ASK
     elif current_user.role == UserRole.SUPPLIER:
-        target_side = OrderSide.BID
+        source_side = OrderSide.ASK
+        candidate_side = OrderSide.BID
     else:
-        # ADMIN or unknown — return empty
         return []
 
-    # 2. Fetch all watchlist entries for this user
-    wl_stmt = (
-        select(WatchlistEntry, Product)
-        .join(Watchlist, WatchlistEntry.watchlist_id == Watchlist.id)
-        .join(Product, WatchlistEntry.product_id == Product.id)
-        .where(Watchlist.user_id == current_user.id)
+    if current_user.organization_id is None:
+        return []
+
+    source_stmt = (
+        select(OrderBookOrder)
+        .where(
+            OrderBookOrder.organization_id == current_user.organization_id,
+            OrderBookOrder.side == source_side,
+            OrderBookOrder.status.in_([OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED]),
+        )
+        .options(selectinload(OrderBookOrder.product), selectinload(OrderBookOrder.delivery_point))
     )
-    wl_result = await db.execute(wl_stmt)
-    entries = wl_result.all()
-
-    if not entries:
+    source_orders = (await db.execute(source_stmt)).scalars().all()
+    if not source_orders:
         return []
 
-    # 3. Build unique (market_product, delivery_point_id) combos
-    combos: set[tuple[str, UUID | None]] = set()
-    for entry, product in entries:
-        if product.market_product:
-            combos.add((product.market_product, entry.delivery_point_id))
-
-    # 4. Fetch dismissed order IDs for this org (from MatchSuggestion table)
     dismissed_stmt = select(MatchSuggestion.bid_order_id, MatchSuggestion.ask_order_id).where(
         MatchSuggestion.recipient_org_id == current_user.organization_id,
         MatchSuggestion.status == MatchStatus.DISMISSED,
@@ -77,98 +57,81 @@ async def list_suggestions(
     dismissed_result = await db.execute(dismissed_stmt)
     dismissed_order_ids: set[UUID] = set()
     for bid_id, ask_id in dismissed_result.all():
-        dismissed_order_ids.add(bid_id)
-        dismissed_order_ids.add(ask_id)
+        if bid_id:
+            dismissed_order_ids.add(bid_id)
+        if ask_id:
+            dismissed_order_ids.add(ask_id)
 
-    if not combos:
-        return []
-
-    # 6. Query opposite-side open orders, then filter by canonical market identity in Python.
-    order_stmt = (
+    candidate_stmt = (
         select(OrderBookOrder)
         .where(
-            OrderBookOrder.side == target_side,
+            OrderBookOrder.side == candidate_side,
             OrderBookOrder.status.in_([OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED]),
             OrderBookOrder.organization_id != current_user.organization_id,
             OrderBookOrder.off_spec.is_(False),
         )
-        .options(
-            selectinload(OrderBookOrder.product),
-            selectinload(OrderBookOrder.delivery_point),
-        )
+        .options(selectinload(OrderBookOrder.product), selectinload(OrderBookOrder.delivery_point))
     )
-    order_result = await db.execute(order_stmt)
-    candidates = order_result.scalars().all()
-
-    # 7. Filter out dismissed orders
-    candidates = [c for c in candidates if c.id not in dismissed_order_ids]
-
-    if not candidates:
+    candidate_orders = [
+        order
+        for order in (await db.execute(candidate_stmt)).scalars().all()
+        if order.id not in dismissed_order_ids
+    ]
+    if not candidate_orders:
         return []
 
-    # 8. Score each candidate against the matching market identity combo.
-    scored = []
-    for order in candidates:
-        matching_combo = next(
-            (
-                combo
-                for combo in combos
-                if combo[0] == order.market_product
-                and (combo[1] is None or combo[1] == order.delivery_point_id)
-            ),
-            None,
-        )
-        if matching_combo is None:
+    best_by_candidate: dict[UUID, tuple[OrderBookOrder, OrderBookOrder, float, list[str]]] = {}
+    for source_order in source_orders:
+        if not source_order.market_product or not source_order.delivery_point_id:
             continue
+        for candidate in candidate_orders:
+            score_points, reasons = compute_match_score(
+                target_market_product=source_order.market_product,
+                candidate_market_product=candidate.market_product,
+                target_delivery_point_id=str(source_order.delivery_point_id) if source_order.delivery_point_id else None,
+                candidate_delivery_point_id=str(candidate.delivery_point_id) if candidate.delivery_point_id else None,
+                target_price=source_order.price_per_mt_usd,
+                candidate_price=candidate.price_per_mt_usd,
+                target_qty=source_order.remaining_quantity_mt,
+                candidate_qty=candidate.remaining_quantity_mt,
+                target_availability_window=source_order.availability_window,
+                candidate_availability_window=candidate.availability_window,
+                candidate_off_spec=candidate.off_spec,
+                candidate_certification_declared=candidate.certification_declared,
+                candidate_certification_scheme=candidate.certification_scheme,
+                candidate_specification_standard=candidate.specification_standard,
+                candidate_msds_available=candidate.msds_available,
+            )
+            if score_points <= 0:
+                continue
+            existing = best_by_candidate.get(candidate.id)
+            if existing is None or score_points > existing[2]:
+                best_by_candidate[candidate.id] = (source_order, candidate, float(score_points), reasons)
 
-        score_points, reasons = compute_match_score(
-            target_market_product=matching_combo[0],
-            candidate_market_product=order.market_product,
-            target_delivery_point_id=str(matching_combo[1]) if matching_combo[1] else None,
-            candidate_delivery_point_id=str(order.delivery_point_id) if order.delivery_point_id else None,
-            target_price=order.price_per_mt_usd,
-            candidate_price=order.price_per_mt_usd,
-            target_qty=order.remaining_quantity_mt,
-            candidate_qty=order.remaining_quantity_mt,
-            target_availability_window=None,
-            candidate_availability_window=order.availability_window,
-            candidate_off_spec=order.off_spec,
-            candidate_certification_declared=order.certification_declared,
-            candidate_certification_scheme=order.certification_scheme,
-            candidate_specification_standard=order.specification_standard,
-            candidate_msds_available=order.msds_available,
-        )
-        if score_points > 0:
-            scored.append((order, float(score_points), reasons))
+    ranked = sorted(best_by_candidate.values(), key=lambda item: item[2], reverse=True)[:MAX_SUGGESTIONS]
 
-    # 9. Sort by score descending, take top N
-    scored.sort(key=lambda x: x[1], reverse=True)
-    top = scored[:MAX_SUGGESTIONS]
-
-    # 10. Build response in MatchSuggestion-compatible shape
     results = []
-    for order, score, reasons in top:
-        # Construct bid/ask IDs based on which side the order is
-        if target_side == OrderSide.ASK:
-            bid_order_id = None
-            ask_order_id = order.id
-            bid_order = None
-            ask_order = order
+    for source_order, candidate, score, reasons in ranked:
+        if candidate.side == OrderSide.ASK:
+            bid_order_id = source_order.id if source_order.side == OrderSide.BID else None
+            ask_order_id = candidate.id
+            bid_order = source_order if source_order.side == OrderSide.BID else None
+            ask_order = candidate
         else:
-            bid_order_id = order.id
-            ask_order_id = None
-            bid_order = order
-            ask_order = None
+            bid_order_id = candidate.id
+            ask_order_id = source_order.id if source_order.side == OrderSide.ASK else None
+            bid_order = candidate
+            ask_order = source_order if source_order.side == OrderSide.ASK else None
 
         results.append({
-            "id": str(order.id),
+            "id": str(candidate.id),
             "bid_order_id": str(bid_order_id) if bid_order_id else None,
             "ask_order_id": str(ask_order_id) if ask_order_id else None,
             "score": score,
             "match_reasons": reasons,
             "status": "SUGGESTED",
             "recipient_org_id": str(current_user.organization_id),
-            "created_at": order.created_at.isoformat() if order.created_at else None,
+            "created_at": candidate.created_at.isoformat() if candidate.created_at else None,
             "bid_order": bid_order,
             "ask_order": ask_order,
         })
@@ -182,20 +145,11 @@ async def dismiss_suggestion(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user)],
 ):
-    """
-    Dismiss a recommendation by order ID.
-
-    Creates a DISMISSED record in MatchSuggestion so the order won't appear
-    in future live suggestions for this org.
-    """
-    # Verify the order exists
-    order_stmt = select(OrderBookOrder).where(OrderBookOrder.id == order_id)
-    order_result = await db.execute(order_stmt)
-    order = order_result.scalar_one_or_none()
+    """Dismiss a recommendation by order ID."""
+    order = (await db.execute(select(OrderBookOrder).where(OrderBookOrder.id == order_id))).scalar_one_or_none()
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
 
-    # Check if already dismissed
     existing_stmt = select(MatchSuggestion).where(
         MatchSuggestion.recipient_org_id == current_user.organization_id,
         MatchSuggestion.status == MatchStatus.DISMISSED,
@@ -204,29 +158,17 @@ async def dismiss_suggestion(
             MatchSuggestion.ask_order_id == order_id,
         ),
     )
-    existing_result = await db.execute(existing_stmt)
-    if existing_result.scalar_one_or_none():
+    if (await db.execute(existing_stmt)).scalar_one_or_none():
         return {"status": "already_dismissed"}
 
-    # Create a dismissal record
-    if order.side == OrderSide.BID:
-        dismissal = MatchSuggestion(
-            bid_order_id=order.id,
-            ask_order_id=order.id,  # Placeholder — we just need the ID for filtering
-            score=0,
-            match_reasons=[],
-            status=MatchStatus.DISMISSED,
-            recipient_org_id=current_user.organization_id,
-        )
-    else:
-        dismissal = MatchSuggestion(
-            bid_order_id=order.id,
-            ask_order_id=order.id,
-            score=0,
-            match_reasons=[],
-            status=MatchStatus.DISMISSED,
-            recipient_org_id=current_user.organization_id,
-        )
+    dismissal = MatchSuggestion(
+        bid_order_id=order.id,
+        ask_order_id=order.id,
+        score=0,
+        match_reasons=[],
+        status=MatchStatus.DISMISSED,
+        recipient_org_id=current_user.organization_id,
+    )
     db.add(dismissal)
     await db.commit()
     return {"status": "dismissed"}
