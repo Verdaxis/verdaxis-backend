@@ -7,7 +7,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import joinedload, aliased
 
 from app.database import get_db
 from app.models.orderbook import Trade, TradeStatus, OrderBookOrder
@@ -89,10 +89,13 @@ async def get_trade_tape(
     if confirmed_before is not None:
         conditions.append(Trade.confirmed_at <= confirmed_before)
 
-    # Build base query with joins for filtering
+    tape_order = aliased(OrderBookOrder)
+
+    # Join a single canonical display order per trade. Prefer the ASK order when present,
+    # otherwise fall back to the BID order. This avoids double-counting trades that have both.
     base_query = (
         select(Trade)
-        .outerjoin(OrderBookOrder, (Trade.ask_order_id == OrderBookOrder.id) | (Trade.bid_order_id == OrderBookOrder.id))
+        .outerjoin(tape_order, tape_order.id == func.coalesce(Trade.ask_order_id, Trade.bid_order_id))
         .where(*conditions)
         .options(
             joinedload(Trade.ask_order),
@@ -100,25 +103,35 @@ async def get_trade_tape(
         )
     )
 
-    # Apply optional filters via joined OrderBookOrder
-    if fuel_type is not None:
-        from app.models.catalog import Product
-        base_query = base_query.join(Product, OrderBookOrder.product_id == Product.id).where(
-            Product.fuel_type == fuel_type
-        )
-    if market_product is not None:
-        base_query = base_query.where(OrderBookOrder.market_product == market_product)
+    # Apply optional filters via the canonical display order.
+    if fuel_type is not None or market_product is not None:
+        from app.models.catalog import Product, derive_market_product
+        base_query = base_query.join(Product, tape_order.product_id == Product.id)
+        if fuel_type is not None:
+            base_query = base_query.where(Product.fuel_type == fuel_type)
+        if market_product is not None:
+            product_ids = [
+                product.id
+                for product in (await db.execute(select(Product))).scalars().all()
+                if derive_market_product(product.name, product.fuel_type, product.fuel_grade)
+                and derive_market_product(product.name, product.fuel_type, product.fuel_grade).value == market_product
+            ]
+            if not product_ids:
+                return TradeTapeResponse(items=[], total=0, market_hours=market_hours)
+            base_query = base_query.where(Product.id.in_(product_ids))
     if region is not None:
         from app.models.catalog import DeliveryPoint
         from sqlalchemy import or_
-        base_query = base_query.join(DeliveryPoint, OrderBookOrder.delivery_point_id == DeliveryPoint.id).where(
+        base_query = base_query.join(DeliveryPoint, tape_order.delivery_point_id == DeliveryPoint.id).where(
             or_(DeliveryPoint.region == region, DeliveryPoint.name == region)
         )
     if availability_window is not None:
-        base_query = base_query.where(OrderBookOrder.availability_window == normalize_availability_window(availability_window))
+        base_query = base_query.where(tape_order.availability_window == normalize_availability_window(availability_window))
 
     # Count query
-    count_stmt = select(func.count()).select_from(base_query.subquery())
+    count_stmt = select(func.count()).select_from(
+        base_query.with_only_columns(Trade.id).order_by(None).distinct().subquery()
+    )
     total = (await db.execute(count_stmt)).scalar() or 0
 
     # Data query with pagination
