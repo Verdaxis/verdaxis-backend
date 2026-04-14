@@ -36,7 +36,7 @@ def _build_tape_entry(trade: Trade) -> TradeTapeEntry:
         market_product = order.market_product
         fuel_type = order.fuel_type
         fuel_grade = order.fuel_grade
-        region = order.region
+        region = order.delivery_point_name or order.region
         availability_window = normalize_availability_window(str(order.availability_window)) if order.availability_window else ""
 
     return TradeTapeEntry(

@@ -81,3 +81,9 @@
 - **Trigger:** Staging looked empty even though open orders still existed, because legacy seed rows were missing execution qualifiers and the public marketplace correctly filtered them all out.
 - **Rule:** After changing execution qualification rules or cleaning up smoke-test orders, verify that live staging still has execution-qualified public rows, not just open rows in the database.
 - **Why:** A passing trade-path smoke test can still leave the public market blank if seeded/demo data no longer satisfies the marketplace contract.
+
+### Keep trading delivery points on the approved port list
+- **Date:** 2026-04-14
+- **Trigger:** I left legacy bucket and non-approved ports like `ARA`, `Fujairah`, and `Houston` active after the user narrowed the trading surface to six specific ports.
+- **Rule:** When the user defines an approved trading port set, update both the catalog/seed layer and the live dropdown/data sources together, and remove bucket ports like `ARA` from executable trading surfaces.
+- **Why:** Mixed port taxonomies make the marketplace, forward curve, and seeded data disagree about what a valid market slice is.

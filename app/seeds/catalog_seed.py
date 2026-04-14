@@ -71,34 +71,40 @@ PRODUCTS = [
 # ---------------------------------------------------------------------------
 DELIVERY_POINTS = [
     DeliveryPoint(
-        id=_dp_id("ARA"),
-        name="ARA",
-        region="Europe",
-        timezone="Europe/Amsterdam",
-    ),
-    DeliveryPoint(
         id=_dp_id("Singapore"),
         name="Singapore",
         region="Asia",
         timezone="Asia/Singapore",
     ),
     DeliveryPoint(
-        id=_dp_id("Fujairah"),
-        name="Fujairah",
-        region="Middle East",
-        timezone="Asia/Dubai",
+        id=_dp_id("Shanghai"),
+        name="Shanghai",
+        region="Asia",
+        timezone="Asia/Shanghai",
     ),
     DeliveryPoint(
-        id=_dp_id("Houston"),
-        name="Houston",
-        region="Americas",
-        timezone="America/Chicago",
+        id=_dp_id("Dalian"),
+        name="Dalian",
+        region="Asia",
+        timezone="Asia/Shanghai",
+    ),
+    DeliveryPoint(
+        id=_dp_id("Amsterdam"),
+        name="Amsterdam",
+        region="Europe",
+        timezone="Europe/Amsterdam",
     ),
     DeliveryPoint(
         id=_dp_id("Rotterdam"),
         name="Rotterdam",
         region="Europe",
         timezone="Europe/Amsterdam",
+    ),
+    DeliveryPoint(
+        id=_dp_id("Antwerp"),
+        name="Antwerp",
+        region="Europe",
+        timezone="Europe/Brussels",
     ),
 ]
 
@@ -111,13 +117,13 @@ DELIVERY_POINT_IDS = {dp.name: dp.id for dp in DELIVERY_POINTS}
 
 
 async def seed_catalog(db: AsyncSession) -> None:
-    """Insert all catalog records, skipping any that already exist."""
-    # Check existing products
-    existing_products = (await db.execute(select(Product.id))).scalars().all()
-    existing_product_ids = set(existing_products)
+    """Insert and normalize active catalog records."""
+    existing_products = (await db.execute(select(Product))).scalars().all()
+    existing_products_by_id = {product.id: product for product in existing_products}
 
     for p in PRODUCTS:
-        if p.id not in existing_product_ids:
+        existing = existing_products_by_id.get(p.id)
+        if existing is None:
             db.add(Product(
                 id=p.id,
                 name=p.name,
@@ -126,19 +132,39 @@ async def seed_catalog(db: AsyncSession) -> None:
                 unit=p.unit,
                 min_lot_size=p.min_lot_size,
                 spec_description=p.spec_description,
+                is_active=True,
             ))
+            continue
+        existing.name = p.name
+        existing.fuel_type = p.fuel_type
+        existing.fuel_grade = p.fuel_grade
+        existing.unit = p.unit
+        existing.min_lot_size = p.min_lot_size
+        existing.spec_description = p.spec_description
+        existing.is_active = True
 
-    # Check existing delivery points
-    existing_dps = (await db.execute(select(DeliveryPoint.id))).scalars().all()
-    existing_dp_ids = set(existing_dps)
+    existing_dps = (await db.execute(select(DeliveryPoint))).scalars().all()
+    existing_dp_by_id = {dp.id: dp for dp in existing_dps}
+    approved_dp_ids = {dp.id for dp in DELIVERY_POINTS}
 
     for dp in DELIVERY_POINTS:
-        if dp.id not in existing_dp_ids:
+        existing = existing_dp_by_id.get(dp.id)
+        if existing is None:
             db.add(DeliveryPoint(
                 id=dp.id,
                 name=dp.name,
                 region=dp.region,
                 timezone=dp.timezone,
+                is_active=True,
             ))
+            continue
+        existing.name = dp.name
+        existing.region = dp.region
+        existing.timezone = dp.timezone
+        existing.is_active = True
+
+    for existing in existing_dps:
+        if existing.id not in approved_dp_ids:
+            existing.is_active = False
 
     await db.commit()

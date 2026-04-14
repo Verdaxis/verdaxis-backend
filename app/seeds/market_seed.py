@@ -62,27 +62,36 @@ SUPPLIER_ORGS = [
 # ---------------------------------------------------------------------------
 PRICING: dict[str, dict[str, tuple[float, float, float, float]]] = {
     "Bio Methanol": {
-        "ARA":       (540, 580, 595, 640),
         "Singapore": (1020, 1070, 1090, 1140),
-        "Fujairah":  (640, 680, 700, 745),
+        "Shanghai": (980, 1035, 1050, 1105),
+        "Dalian": (955, 1005, 1025, 1075),
+        "Amsterdam": (540, 578, 595, 640),
         "Rotterdam": (545, 585, 600, 645),
+        "Antwerp": (548, 588, 603, 648),
     },
     "e-Methanol": {
-        "ARA":       (610, 650, 665, 710),
         "Singapore": (1090, 1140, 1160, 1210),
-        "Fujairah":  (700, 740, 760, 805),
+        "Shanghai": (1045, 1095, 1110, 1160),
+        "Dalian": (1020, 1070, 1085, 1135),
+        "Amsterdam": (610, 648, 665, 710),
         "Rotterdam": (615, 655, 670, 715),
+        "Antwerp": (620, 660, 675, 720),
     },
     "Bio Ethanol": {
-        "ARA":       (560, 600, 615, 655),
         "Singapore": (610, 655, 670, 715),
+        "Shanghai": (590, 635, 650, 695),
+        "Dalian": (575, 620, 635, 680),
+        "Amsterdam": (558, 598, 613, 653),
         "Rotterdam": (565, 605, 620, 660),
+        "Antwerp": (568, 608, 623, 663),
     },
     "Synthetic Ethanol": {
-        "ARA":       (650, 690, 705, 745),
         "Singapore": (700, 745, 760, 810),
-        "Fujairah":  (720, 770, 785, 835),
+        "Shanghai": (680, 725, 740, 790),
+        "Dalian": (665, 710, 725, 775),
+        "Amsterdam": (648, 688, 703, 743),
         "Rotterdam": (655, 695, 710, 750),
+        "Antwerp": (660, 700, 715, 755),
     },
 }
 
@@ -131,12 +140,12 @@ RFQ_NOTES = [
     "Urgent requirement — vessel arriving next week",
     "Testing new fuel pathway for FuelEU compliance",
     "Require full chain-of-custody documentation",
-    "Prefer suppliers with ARA barge delivery capability",
+    "Prefer suppliers with Amsterdam/Rotterdam/Antwerp delivery capability",
     "Need blending options — open to partial bio blends",
 ]
 
 QUOTE_NOTES = [
-    "Ex-tank ARA, loading within 3 days of confirmation",
+    "Ex-tank Rotterdam, loading within 3 days of confirmation",
     "Delivered by barge, ISCC certified",
     "Price valid for 48 hours",
     "Can offer in 500MT increments",
@@ -373,7 +382,7 @@ async def seed_market_data(db: AsyncSession) -> None:
         organization_id=BUYER_ORGS[0]["id"],
         side=OrderSide.BID,
         product_id=PRODUCT_IDS["Bio Methanol"],
-        delivery_point_id=DELIVERY_POINT_IDS["ARA"],
+        delivery_point_id=DELIVERY_POINT_IDS["Singapore"],
         quantity_mt=Decimal("0"),
         remaining_quantity_mt=Decimal("0"),
         price_per_mt_usd=Decimal("0"),
@@ -705,16 +714,16 @@ async def seed_market_data(db: AsyncSession) -> None:
     rfqs_created = 0
 
     rfq_configs = [
-        ("Bio Methanol",      "ARA",       2000, 575.00),
+        ("Bio Methanol",      "Amsterdam", 2000, 575.00),
         ("Bio Methanol",      "Singapore", 3000, 1065.00),
-        ("Bio Ethanol",       "ARA",       2500, 630.00),
-        ("Bio Ethanol",       "Singapore", 1800, None),
-        ("Synthetic Ethanol", "ARA",       1500, 920.00),
+        ("Bio Ethanol",       "Antwerp",   2500, 630.00),
+        ("Bio Ethanol",       "Shanghai",  1800, None),
+        ("Synthetic Ethanol", "Rotterdam", 1500, 720.00),
         ("Synthetic Ethanol", "Singapore", 2000, None),
-        ("e-Methanol",        "ARA",       2500, 650.00),
+        ("e-Methanol",        "Amsterdam", 2500, 650.00),
         ("e-Methanol",        "Rotterdam", 1000, None),
-        ("e-Methanol",        "Singapore", 1500, 890.00),
-        ("Synthetic Ethanol", "Fujairah",  2000, 720.00),
+        ("e-Methanol",        "Dalian",    1500, 890.00),
+        ("Synthetic Ethanol", "Antwerp",   2000, 720.00),
     ]
 
     for i, (product_name, port_name, qty, target_price) in enumerate(rfq_configs):
@@ -806,16 +815,16 @@ async def seed_market_data(db: AsyncSession) -> None:
 
     demo_trades = [
         # (fuel_type, port, qty, price, status, initiated_by, month)
-        ("Bio Methanol",      "ARA",       1500, 572.50,  TradeStatus.PAID,       Initiator.BUYER,  1),
+        ("Bio Methanol",      "Amsterdam", 1500, 572.50,  TradeStatus.PAID,       Initiator.BUYER,  1),
         ("Bio Ethanol",       "Singapore", 2500, 645.00,  TradeStatus.DELIVERED,  Initiator.SELLER, 1),
-        ("Synthetic Ethanol", "Fujairah",  1000, 1045.75, TradeStatus.CONFIRMED,  Initiator.BUYER,  1),
-        ("e-Methanol",        "ARA",        800,  855.00, TradeStatus.PAID,       Initiator.SELLER, 2),
+        ("Synthetic Ethanol", "Antwerp",   1000, 735.75,  TradeStatus.CONFIRMED,  Initiator.BUYER,  1),
+        ("e-Methanol",        "Rotterdam",  800,  685.00, TradeStatus.PAID,       Initiator.SELLER, 2),
         ("Bio Methanol",      "Singapore", 2000, 1065.00, TradeStatus.DELIVERED,  Initiator.BUYER,  2),
-        ("Synthetic Ethanol", "Fujairah",  3000,  710.00, TradeStatus.PAID,       Initiator.BUYER,  2),
-        ("Synthetic Ethanol", "ARA",       1200,  895.25, TradeStatus.CONFIRMED,  Initiator.SELLER, 2),
-        ("Bio Ethanol",       "Singapore",  500,  670.00, TradeStatus.DELIVERED,  Initiator.BUYER,  3),
-        ("Bio Methanol",      "Fujairah",  1800,  680.00, TradeStatus.PAID,       Initiator.SELLER, 3),
-        ("e-Methanol",        "ARA",       2200,  860.00, TradeStatus.CONFIRMED,  Initiator.BUYER,  3),
+        ("Synthetic Ethanol", "Dalian",    3000,  742.00, TradeStatus.PAID,       Initiator.BUYER,  2),
+        ("Synthetic Ethanol", "Amsterdam", 1200,  706.25, TradeStatus.CONFIRMED,  Initiator.SELLER, 2),
+        ("Bio Ethanol",       "Shanghai",   500,  670.00, TradeStatus.DELIVERED,  Initiator.BUYER,  3),
+        ("Bio Methanol",      "Antwerp",   1800,  608.00, TradeStatus.PAID,       Initiator.SELLER, 3),
+        ("e-Methanol",        "Singapore", 2200, 1180.00, TradeStatus.CONFIRMED,  Initiator.BUYER,  3),
     ]
 
     bc_trades_created = 0

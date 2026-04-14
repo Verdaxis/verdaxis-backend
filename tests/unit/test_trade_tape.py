@@ -57,7 +57,7 @@ def _make_mock_trade(
     market_product: str | None = "BIO_METHANOL",
     fuel_type: str = "VLSFO",
     fuel_grade: str = "Conventional",
-    region: str = "ARA",
+    region: str = "Amsterdam",
     availability_window: str = "SPOT",
 ) -> MagicMock:
     """Build a mock Trade with nested order relationships."""
@@ -75,7 +75,8 @@ def _make_mock_trade(
     order.market_product = market_product
     order.fuel_type = fuel_type
     order.fuel_grade = fuel_grade
-    order.region = region
+    order.region = "Europe" if region in {"Amsterdam", "Rotterdam", "Antwerp"} else "Asia"
+    order.delivery_point_name = region
     order.availability_window = availability_window
 
     trade.ask_order = order
@@ -181,7 +182,7 @@ class TestTradeTapeSchemas:
             market_product="BIO_METHANOL",
             fuel_type="VLSFO",
             fuel_grade="Conventional",
-            region="ARA",
+            region="Amsterdam",
             quantity_mt=Decimal("1000"),
             price_per_mt_usd=Decimal("750.50"),
             total_usd=Decimal("750500.00"),
