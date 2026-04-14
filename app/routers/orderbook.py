@@ -48,6 +48,13 @@ APPROVED_MARKETPLACE_FUEL_TYPES = ("Methanol", "Ethanol")
 APPROVED_MARKET_PRODUCTS = tuple(member.value for member in MarketProduct)
 EXECUTION_QUALIFIER_FIELDS = ("certification_scheme",)
 ASK_ONLY_METADATA_FIELDS = tuple(field for field in SUPPLIER_METADATA_FIELDS if field not in EXECUTION_QUALIFIER_FIELDS)
+REQUIRED_ASK_METADATA_FIELDS = (
+    "specification_standard",
+    "msds_available",
+    "carbon_intensity_gco2_mj",
+    "feedstock",
+    "origin",
+)
 
 
 def _ensure_join(joins: list[tuple[object, object]], target: object, condition: object) -> None:
@@ -67,6 +74,11 @@ def _apply_public_marketplace_scope(
         filters.append(OrderBookOrder.off_spec.is_(False))
     filters.append(func.length(func.trim(func.coalesce(OrderBookOrder.certification_scheme, ""))) > 0)
     filters.append(or_(OrderBookOrder.side != OrderSide.ASK, OrderBookOrder.certification_declared.is_(True)))
+    filters.append(or_(OrderBookOrder.side != OrderSide.ASK, func.length(func.trim(func.coalesce(OrderBookOrder.specification_standard, ""))) > 0))
+    filters.append(or_(OrderBookOrder.side != OrderSide.ASK, OrderBookOrder.msds_available.is_(True)))
+    filters.append(or_(OrderBookOrder.side != OrderSide.ASK, OrderBookOrder.carbon_intensity_gco2_mj.is_not(None)))
+    filters.append(or_(OrderBookOrder.side != OrderSide.ASK, func.length(func.trim(func.coalesce(OrderBookOrder.feedstock, ""))) > 0))
+    filters.append(or_(OrderBookOrder.side != OrderSide.ASK, func.length(func.trim(func.coalesce(OrderBookOrder.origin, ""))) > 0))
 
 
 def _normalize_market_product_query(value: MarketProduct | str | None) -> str | None:
@@ -190,6 +202,32 @@ def _require_supplier_certification(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="ASK orders require a certification scheme",
+        )
+
+
+def _require_supplier_metadata(
+    *,
+    specification_standard: str | None,
+    msds_available: bool,
+    carbon_intensity_gco2_mj: Decimal | None,
+    feedstock: str | None,
+    origin: str | None,
+) -> None:
+    missing: list[str] = []
+    if not (specification_standard or '').strip():
+        missing.append('specification_standard')
+    if not msds_available:
+        missing.append('msds_available')
+    if carbon_intensity_gco2_mj is None:
+        missing.append('carbon_intensity_gco2_mj')
+    if not (feedstock or '').strip():
+        missing.append('feedstock')
+    if not (origin or '').strip():
+        missing.append('origin')
+    if missing:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"ASK orders require supplier details: {', '.join(missing)}",
         )
 
 
@@ -791,6 +829,13 @@ async def create_order(
             certification_declared=order_data.certification_declared,
             certification_scheme=normalized_certification_scheme,
         )
+        _require_supplier_metadata(
+            specification_standard=order_data.specification_standard,
+            msds_available=order_data.msds_available,
+            carbon_intensity_gco2_mj=order_data.carbon_intensity_gco2_mj,
+            feedstock=order_data.feedstock,
+            origin=order_data.origin,
+        )
 
     if not current_user.organization_id:
         raise HTTPException(
@@ -1036,6 +1081,13 @@ async def update_order(
         _require_supplier_certification(
             certification_declared=bool(update_dict.get("certification_declared", order.certification_declared)),
             certification_scheme=update_dict.get("certification_scheme", order.certification_scheme),
+        )
+        _require_supplier_metadata(
+            specification_standard=update_dict.get("specification_standard", order.specification_standard),
+            msds_available=bool(update_dict.get("msds_available", order.msds_available)),
+            carbon_intensity_gco2_mj=update_dict.get("carbon_intensity_gco2_mj", order.carbon_intensity_gco2_mj),
+            feedstock=update_dict.get("feedstock", order.feedstock),
+            origin=update_dict.get("origin", order.origin),
         )
 
     # If quantity_mt changes, recalculate remaining_quantity_mt proportionally

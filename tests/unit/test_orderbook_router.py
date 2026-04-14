@@ -103,6 +103,30 @@ class TestCreateOrder:
         assert exc_info.value.status_code == 400
         assert "certification declaration" in exc_info.value.detail.lower()
 
+
+    @pytest.mark.asyncio
+    async def test_ask_requires_supplier_metadata_fields(self):
+        order = OrderCreate(
+            side=OrderSide.ASK,
+            product_id=uuid4(),
+            delivery_point_id=uuid4(),
+            quantity_mt=Decimal("1000"),
+            price_per_mt_usd=Decimal("550"),
+            certification_scheme="ISCC EU",
+            certification_declared=True,
+        )
+
+        with pytest.raises(HTTPException) as exc_info:
+            await create_order(
+                order_data=order,
+                current_user=_make_supplier_user(),
+                db=AsyncMock(),
+            )
+
+        assert exc_info.value.status_code == 400
+        assert "supplier details" in exc_info.value.detail.lower()
+        assert "origin" in exc_info.value.detail.lower()
+
     @pytest.mark.asyncio
     async def test_ask_requires_certification_scheme(self):
         with pytest.raises(ValidationError):

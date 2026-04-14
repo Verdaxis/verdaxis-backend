@@ -25,7 +25,8 @@ from app.models.orderbook import (
 )
 from app.models.rfq import RFQ, RFQQuote, RFQStatus, QuoteStatus
 from app.seeds.catalog_seed import PRODUCT_IDS, DELIVERY_POINT_IDS
-from app.services.availability_windows import SPOT_WINDOW
+from app.services.availability_windows import SPOT_WINDOW, normalize_availability_window
+from app.services.execution_policy import normalize_certification_scheme
 
 # ---------------------------------------------------------------------------
 # Deterministic seed for reproducibility
@@ -92,6 +93,8 @@ CI_DATA: dict[str, tuple[float, float, float]] = {
     "e-Methanol":         (5, 20, 19.9),
     "Synthetic Ethanol":  (15, 35, 26.8),
 }
+
+CERTIFICATION_SCHEMES = ("ISCC EU", "ISCC PLUS", "REDcert EU")
 
 def build_seed_windows(reference_date: date | None = None, *, quarter_count: int = 6) -> list[str]:
     current = reference_date or date.today()
@@ -166,14 +169,22 @@ def _rand_date(start: datetime, end: datetime) -> datetime:
 
 
 
+def bid_seed_metadata() -> dict[str, str]:
+    return {
+        "certification_scheme": _RNG.choice(CERTIFICATION_SCHEMES),
+    }
+
+
 def ask_seed_metadata() -> dict[str, object]:
-    certification_scheme = _RNG.choice(["ISCC EU", "ISCC PLUS", "REDcert EU"])
+    certification_scheme = _RNG.choice(CERTIFICATION_SCHEMES)
     return {
         "certification_declared": True,
         "certification_scheme": certification_scheme,
         "certifications": [certification_scheme],
         "specification_standard": _RNG.choice(["IMPCA", "ASTM D4806", "Supplier COA"]),
         "msds_available": True,
+        "feedstock": _RNG.choice(["Waste residue", "Agricultural residue", "Biogenic CO2 + green hydrogen"]),
+        "carbon_intensity_method": _RNG.choice(["ISCC lifecycle", "Producer LCA", "FuelEU dossier"]),
     }
 
 
@@ -190,6 +201,15 @@ def _window_premium(window: str, *, ask_lo: float, ask_hi: float) -> Decimal:
     step = max(index - 1, 0)
     premium = round(spread * 0.08 * step, 2)
     return Decimal(str(premium))
+
+
+def _orders_share_executable_slice(bid: OrderBookOrder, ask: OrderBookOrder) -> bool:
+    return (
+        bid.product_id == ask.product_id
+        and bid.delivery_point_id == ask.delivery_point_id
+        and normalize_availability_window(bid.availability_window) == normalize_availability_window(ask.availability_window)
+        and normalize_certification_scheme(bid.certification_scheme) == normalize_certification_scheme(ask.certification_scheme)
+    )
 
 # ---------------------------------------------------------------------------
 # Core seed function
@@ -259,6 +279,7 @@ async def seed_market_data(db: AsyncSession) -> None:
             n_bids = _RNG.randint(3, 5)
             for _ in range(n_bids):
                 buyer = _RNG.choice(BUYER_ORGS)
+                bid_metadata = bid_seed_metadata()
                 qty = _qty()
                 status = _RNG.choices(
                     [OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED],
@@ -285,6 +306,7 @@ async def seed_market_data(db: AsyncSession) -> None:
                     remaining_quantity_mt=remaining,
                     price_per_mt_usd=_price(bid_lo, bid_hi),
                     availability_window=_window(),
+                    certification_scheme=bid_metadata["certification_scheme"],
                     status=status,
                     created_at=created,
                     updated_at=created,
@@ -332,6 +354,9 @@ async def seed_market_data(db: AsyncSession) -> None:
                     certification_scheme=ask_metadata["certification_scheme"],
                     specification_standard=ask_metadata["specification_standard"],
                     msds_available=ask_metadata["msds_available"],
+                    carbon_intensity_method=ask_metadata["carbon_intensity_method"],
+                    feedstock=ask_metadata["feedstock"],
+                    origin=f"{port_name} hub",
                     is_verdaxis_verified=_RNG.random() < 0.3,
                     carbon_intensity_gco2_mj=ci_value,
                     energy_density_mj_kg=Decimal(str(energy_density)),
@@ -405,6 +430,7 @@ async def seed_market_data(db: AsyncSession) -> None:
 
                 if needs_bid:
                     buyer = _RNG.choice(BUYER_ORGS)
+                    bid_metadata = bid_seed_metadata()
                     gap_qty = _qty()
                     order = OrderBookOrder(
                         id=uuid.uuid4(),
@@ -416,6 +442,7 @@ async def seed_market_data(db: AsyncSession) -> None:
                         remaining_quantity_mt=gap_qty,
                         price_per_mt_usd=_price(bid_lo, bid_hi) + window_premium,
                         availability_window=window,
+                        certification_scheme=bid_metadata["certification_scheme"],
                         status=OrderBookStatus.OPEN,
                         created_at=created,
                         updated_at=created,
@@ -446,6 +473,9 @@ async def seed_market_data(db: AsyncSession) -> None:
                         certifications=ask_metadata["certifications"],
                         specification_standard=ask_metadata["specification_standard"],
                         msds_available=ask_metadata["msds_available"],
+                        carbon_intensity_method=ask_metadata["carbon_intensity_method"],
+                        feedstock=ask_metadata["feedstock"],
+                        origin=f"{port_name} hub",
                         carbon_intensity_gco2_mj=ci_value,
                         energy_density_mj_kg=Decimal(str(energy_density)),
                         created_at=created,
@@ -481,6 +511,8 @@ async def seed_market_data(db: AsyncSession) -> None:
         asks = [o for o in orders if o.side == OrderSide.ASK]
         for bid in bids:
             for ask in asks:
+                if not _orders_share_executable_slice(bid, ask):
+                    continue
                 if bid.price_per_mt_usd >= ask.price_per_mt_usd:
                     crossed_pairs.append((bid, ask))
                 else:
@@ -610,6 +642,7 @@ async def seed_market_data(db: AsyncSession) -> None:
 
                 if window not in windows_with_bid:
                     buyer = _RNG.choice(BUYER_ORGS)
+                    bid_metadata = bid_seed_metadata()
                     gap_qty = _qty()
                     order = OrderBookOrder(
                         id=uuid.uuid4(),
@@ -621,6 +654,7 @@ async def seed_market_data(db: AsyncSession) -> None:
                         remaining_quantity_mt=gap_qty,
                         price_per_mt_usd=_price(bid_lo, bid_hi) + window_premium,
                         availability_window=window,
+                        certification_scheme=bid_metadata["certification_scheme"],
                         status=OrderBookStatus.OPEN,
                         created_at=created,
                         updated_at=created,
@@ -650,6 +684,9 @@ async def seed_market_data(db: AsyncSession) -> None:
                         specification_standard=ask_metadata["specification_standard"],
                         msds_available=ask_metadata["msds_available"],
                         carbon_intensity_gco2_mj=Decimal(str(round(_RNG.uniform(ci_lo, ci_hi), 2))),
+                        carbon_intensity_method=ask_metadata["carbon_intensity_method"],
+                        feedstock=ask_metadata["feedstock"],
+                        origin=f"{port_name} hub",
                         energy_density_mj_kg=Decimal(str(energy_density)),
                         created_at=created,
                         updated_at=created,
