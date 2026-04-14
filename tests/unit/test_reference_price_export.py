@@ -22,7 +22,9 @@ from app.schemas.orderbook import ReferencePriceItem
 def _make_item(
     fuel_type="Methanol",
     region="Asia",
-    product_name="Methanol Green",
+    product_name="Bio Methanol",
+    market_product="BIO_METHANOL",
+    availability_window="SPOT",
     delivery_point_name="Singapore",
     vwap_usd="533.33",
     total_volume_mt="300.00",
@@ -32,9 +34,11 @@ def _make_item(
     return ReferencePriceItem(
         product_id=uuid4(),
         product_name=product_name,
+        market_product=market_product,
         fuel_type=fuel_type,
         delivery_point_id=uuid4(),
         delivery_point_name=delivery_point_name,
+        availability_window=availability_window,
         region=region,
         vwap_usd=Decimal(vwap_usd),
         total_volume_mt=Decimal(total_volume_mt),
@@ -43,7 +47,7 @@ def _make_item(
     )
 
 
-EXPECTED_HEADERS = ["date", "product_name", "fuel_type", "delivery_point_name", "region",
+EXPECTED_HEADERS = ["date", "product_name", "market_product", "availability_window", "fuel_type", "delivery_point_name", "region",
                     "vwap_usd", "volume_mt", "trade_count"]
 
 
@@ -122,10 +126,12 @@ class TestReferencePriceExport:
     @pytest.mark.asyncio
     async def test_csv_row_values_match_item(self):
         item = _make_item(
-            fuel_type="Ammonia",
+            fuel_type="Ethanol",
             region="Europe",
-            product_name="Ammonia Green",
-            delivery_point_name="ARA",
+            product_name="Synthetic Ethanol",
+            market_product="SYNTHETIC_ETHANOL",
+            availability_window="2026-Q3",
+            delivery_point_name="Rotterdam",
             vwap_usd="750.00",
             total_volume_mt="100.00",
             trade_count=1,
@@ -145,9 +151,11 @@ class TestReferencePriceExport:
         assert len(rows) == 1
         row = rows[0]
         assert row["date"] == "2026-03-01"
-        assert row["product_name"] == "Ammonia Green"
-        assert row["fuel_type"] == "Ammonia"
-        assert row["delivery_point_name"] == "ARA"
+        assert row["product_name"] == "Synthetic Ethanol"
+        assert row["market_product"] == "SYNTHETIC_ETHANOL"
+        assert row["availability_window"] == "2026-Q3"
+        assert row["fuel_type"] == "Ethanol"
+        assert row["delivery_point_name"] == "Rotterdam"
         assert row["region"] == "Europe"
         assert row["vwap_usd"] == "750.00"
         assert row["volume_mt"] == "100.00"
@@ -156,9 +164,9 @@ class TestReferencePriceExport:
     @pytest.mark.asyncio
     async def test_multiple_rows_exported(self):
         items = [
-            _make_item(fuel_type="Methanol", trade_date=date(2026, 2, 14)),
-            _make_item(fuel_type="Ammonia", trade_date=date(2026, 2, 15)),
-            _make_item(fuel_type="LNG", trade_date=date(2026, 2, 16)),
+            _make_item(fuel_type="Methanol", market_product="BIO_METHANOL", trade_date=date(2026, 2, 14)),
+            _make_item(fuel_type="Methanol", product_name="e-Methanol", market_product="E_METHANOL", trade_date=date(2026, 2, 15)),
+            _make_item(fuel_type="Ethanol", product_name="Synthetic Ethanol", market_product="SYNTHETIC_ETHANOL", trade_date=date(2026, 2, 16)),
         ]
         async with AsyncClient(
             transport=ASGITransport(app=app), base_url="http://test"
@@ -172,8 +180,8 @@ class TestReferencePriceExport:
 
         rows = list(csv.DictReader(io.StringIO(resp.text)))
         assert len(rows) == 3
-        fuel_types = {r["fuel_type"] for r in rows}
-        assert fuel_types == {"Methanol", "Ammonia", "LNG"}
+        market_products = {r["market_product"] for r in rows}
+        assert market_products == {"BIO_METHANOL", "E_METHANOL", "SYNTHETIC_ETHANOL"}
 
     @pytest.mark.asyncio
     async def test_query_params_forwarded_to_compute(self):

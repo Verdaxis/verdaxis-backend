@@ -13,10 +13,12 @@ class TestPriceSummary:
         dp_id = uuid4()
         ps = PriceSummary(
             product_id=product_id,
-            product_name="Methanol Green",
+            product_name="Bio Methanol",
+            market_product="BIO_METHANOL",
             fuel_type="Methanol",
             delivery_point_id=dp_id,
             delivery_point_name="Singapore",
+            availability_window="SPOT",
             region="Asia",
             last_price=Decimal("540.00"),
             avg_price_24h=Decimal("538.50"),
@@ -30,14 +32,18 @@ class TestPriceSummary:
         assert ps.fuel_type == "Methanol"
         assert ps.product_id == product_id
         assert ps.delivery_point_id == dp_id
-        assert ps.product_name == "Methanol Green"
+        assert ps.product_name == "Bio Methanol"
+        assert ps.market_product == "BIO_METHANOL"
+        assert ps.availability_window == "SPOT"
         assert ps.trade_count_24h == 8
         assert ps.price_change_pct == Decimal("1.25")
 
     def test_defaults_for_no_trades(self):
         ps = PriceSummary(
-            fuel_type="Ammonia",
-            region="Middle East",
+            fuel_type="Methanol",
+            market_product="E_METHANOL",
+            availability_window="2026-Q2",
+            region="Asia",
             last_price=None,
             avg_price_24h=None,
             high_24h=None,
@@ -57,10 +63,12 @@ class TestPriceDiscoveryResponse:
     def test_wraps_summaries(self):
         summary = PriceSummary(
             product_id=uuid4(),
-            product_name="Methanol Green",
+            product_name="Bio Methanol",
+            market_product="BIO_METHANOL",
             fuel_type="Methanol",
             delivery_point_id=uuid4(),
             delivery_point_name="Singapore",
+            availability_window="SPOT",
             region="Asia",
             last_price=Decimal("540"),
             avg_price_24h=Decimal("538"),

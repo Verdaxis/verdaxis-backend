@@ -40,6 +40,7 @@ _SENTINEL_ID = uuid.UUID("00000000-dead-beef-0000-aaa0e15eed01")
 # Fake organization IDs (buyers and suppliers)
 # ---------------------------------------------------------------------------
 _NS = uuid.UUID("b2c3d4e5-f6a7-8901-bcde-f12345678901")
+_SLICE_SCHEME_NS = uuid.UUID("c4d5e6f7-a8b9-4012-9abc-def123456789")
 
 BUYER_ORGS = [
     {"id": uuid.uuid5(_NS, "buyer:maersk_fuel_procurement"), "name": "Maersk Fuel Procurement"},
@@ -176,16 +177,86 @@ def _rand_date(start: datetime, end: datetime) -> datetime:
     return start + timedelta(seconds=offset)
 
 
+def _slice_certification_scheme(product_name: str, port_name: str, window: str) -> str:
+    normalized_window = normalize_availability_window(window)
+    index = uuid.uuid5(_SLICE_SCHEME_NS, f"{product_name}|{port_name}|{normalized_window}").int % len(CERTIFICATION_SCHEMES)
+    return CERTIFICATION_SCHEMES[index]
 
 
-def bid_seed_metadata() -> dict[str, str]:
+def _seed_price_for_slice(
+    side: OrderSide,
+    *,
+    bid_lo: float,
+    bid_hi: float,
+    ask_lo: float,
+    ask_hi: float,
+    window: str,
+    depth_index: int = 0,
+) -> Decimal:
+    normalized_window = normalize_availability_window(window)
+    premium = _window_premium(normalized_window, ask_lo=ask_lo, ask_hi=ask_hi)
+    best_bid = Decimal(str(round((bid_lo + bid_hi) / 2, 2))) + premium
+    natural_ask = Decimal(str(round((ask_lo + ask_hi) / 2, 2))) + premium
+    spread_floor = Decimal(str(max(round((ask_lo - bid_hi) * 0.6, 2), 12.0)))
+    ladder_step = Decimal(str(max(round((ask_hi - ask_lo) * 0.18, 2), 4.0)))
+    best_ask = max(natural_ask, best_bid + spread_floor)
+
+    price = best_bid - (ladder_step * depth_index) if side == OrderSide.BID else best_ask + (ladder_step * depth_index)
+    return price.quantize(Decimal('0.01'))
+
+
+def _recent_seed_timestamp(window: str, reference_now: datetime, *, trade: bool = False) -> datetime:
+    normalized_window = normalize_availability_window(window)
+    if normalized_window == SPOT_WINDOW:
+        min_days, max_days = (0, 2) if not trade else (0, 1)
+    elif len(normalized_window) == 7 and normalized_window[4] == '-':
+        min_days, max_days = (1, 5) if not trade else (1, 3)
+    else:
+        min_days, max_days = (3, 10) if not trade else (2, 6)
+
+    start = reference_now - timedelta(days=max_days, hours=12)
+    end = reference_now - timedelta(days=min_days)
+    if trade and min_days == 0:
+        end = reference_now - timedelta(minutes=15)
+    if end <= start:
+        end = start + timedelta(hours=1)
+    return _rand_date(start, end)
+
+
+def _clamp_trade_timeline(
+    created: datetime,
+    confirmed: datetime | None,
+    delivered: datetime | None,
+    paid: datetime | None,
+    reference_now: datetime,
+) -> tuple[datetime, datetime | None, datetime | None, datetime | None]:
+    confirmed = min(confirmed, reference_now) if confirmed else None
+    delivered = min(delivered, reference_now) if delivered else None
+    paid = min(paid, reference_now) if paid else None
+
+    if delivered and confirmed and delivered < confirmed:
+        delivered = confirmed
+    if paid and delivered and paid < delivered:
+        paid = delivered
+    elif paid and confirmed and paid < confirmed:
+        paid = confirmed
+
+    if confirmed and created > confirmed:
+        created = confirmed
+    elif created > reference_now:
+        created = reference_now
+
+    return created, confirmed, delivered, paid
+
+
+def bid_seed_metadata(certification_scheme: str | None = None) -> dict[str, str]:
     return {
-        "certification_scheme": _RNG.choice(CERTIFICATION_SCHEMES),
+        "certification_scheme": certification_scheme or _RNG.choice(CERTIFICATION_SCHEMES),
     }
 
 
-def ask_seed_metadata() -> dict[str, object]:
-    certification_scheme = _RNG.choice(CERTIFICATION_SCHEMES)
+def ask_seed_metadata(certification_scheme: str | None = None) -> dict[str, object]:
+    certification_scheme = certification_scheme or _RNG.choice(CERTIFICATION_SCHEMES)
     return {
         "certification_declared": True,
         "certification_scheme": certification_scheme,
@@ -208,7 +279,11 @@ def _window_premium(window: str, *, ask_lo: float, ask_hi: float) -> Decimal:
 
     spread = ask_hi - ask_lo
     step = max(index - 1, 0)
-    premium = round(spread * 0.08 * step, 2)
+    if len(window) == 7 and window[4] == "-":
+        premium = spread * (0.12 + (0.08 * step))
+    else:
+        premium = spread * (0.35 + (0.1 * step))
+    premium = round(premium, 2)
     return Decimal(str(premium))
 
 
@@ -240,6 +315,8 @@ async def seed_market_data(db: AsyncSession) -> None:
     # Step 0: Clear old test data (reverse FK order)
     # ------------------------------------------------------------------
     print("[market_seed] Clearing old test data...")
+    await db.execute(text("DELETE FROM watchlist_events WHERE watchlist_target_id IN (SELECT id FROM watchlist_targets WHERE order_id IS NOT NULL)"))
+    await db.execute(text("DELETE FROM watchlist_targets WHERE order_id IS NOT NULL"))
     await db.execute(text("DELETE FROM commissions"))
     await db.execute(text("DELETE FROM match_suggestions"))
     await db.execute(text("DELETE FROM rfq_quotes"))
@@ -268,6 +345,8 @@ async def seed_market_data(db: AsyncSession) -> None:
 
     await db.flush()
 
+    reference_now = datetime.now(timezone.utc)
+
     # ------------------------------------------------------------------
     # Step 2: Create orders
     # ------------------------------------------------------------------
@@ -288,7 +367,9 @@ async def seed_market_data(db: AsyncSession) -> None:
             n_bids = _RNG.randint(3, 5)
             for _ in range(n_bids):
                 buyer = _RNG.choice(BUYER_ORGS)
-                bid_metadata = bid_seed_metadata()
+                window = _window()
+                certification_scheme = _slice_certification_scheme(product_name, port_name, window)
+                bid_metadata = bid_seed_metadata(certification_scheme)
                 qty = _qty()
                 status = _RNG.choices(
                     [OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED],
@@ -300,10 +381,7 @@ async def seed_market_data(db: AsyncSession) -> None:
                 if remaining <= 0:
                     remaining = Decimal("500")
 
-                created = _rand_date(
-                    datetime(2025, 1, 1, tzinfo=timezone.utc),
-                    datetime(2025, 3, 20, tzinfo=timezone.utc),
-                )
+                created = _recent_seed_timestamp(window, reference_now)
 
                 order = OrderBookOrder(
                     id=uuid.uuid4(),
@@ -313,8 +391,8 @@ async def seed_market_data(db: AsyncSession) -> None:
                     delivery_point_id=dp_id,
                     quantity_mt=qty,
                     remaining_quantity_mt=remaining,
-                    price_per_mt_usd=_price(bid_lo, bid_hi),
-                    availability_window=_window(),
+                    price_per_mt_usd=_seed_price_for_slice(OrderSide.BID, bid_lo=bid_lo, bid_hi=bid_hi, ask_lo=ask_lo, ask_hi=ask_hi, window=window, depth_index=_RNG.randint(0, 2)),
+                    availability_window=window,
                     certification_scheme=bid_metadata["certification_scheme"],
                     status=status,
                     created_at=created,
@@ -339,13 +417,12 @@ async def seed_market_data(db: AsyncSession) -> None:
                 if remaining <= 0:
                     remaining = Decimal("500")
 
+                window = _window()
+                certification_scheme = _slice_certification_scheme(product_name, port_name, window)
                 ci_value = Decimal(str(round(_RNG.uniform(ci_lo, ci_hi), 2)))
-                ask_metadata = ask_seed_metadata()
+                ask_metadata = ask_seed_metadata(certification_scheme)
 
-                created = _rand_date(
-                    datetime(2025, 1, 1, tzinfo=timezone.utc),
-                    datetime(2025, 3, 20, tzinfo=timezone.utc),
-                )
+                created = _recent_seed_timestamp(window, reference_now)
 
                 order = OrderBookOrder(
                     id=uuid.uuid4(),
@@ -355,8 +432,8 @@ async def seed_market_data(db: AsyncSession) -> None:
                     delivery_point_id=dp_id,
                     quantity_mt=qty,
                     remaining_quantity_mt=remaining,
-                    price_per_mt_usd=_price(ask_lo, ask_hi),
-                    availability_window=_window(),
+                    price_per_mt_usd=_seed_price_for_slice(OrderSide.ASK, bid_lo=bid_lo, bid_hi=bid_hi, ask_lo=ask_lo, ask_hi=ask_hi, window=window, depth_index=_RNG.randint(0, 2)),
+                    availability_window=window,
                     status=status,
                     certifications=ask_metadata["certifications"],
                     certification_declared=ask_metadata["certification_declared"],
@@ -411,35 +488,52 @@ async def seed_market_data(db: AsyncSession) -> None:
             key = f"{product_name}|{port_name}"
             existing_orders = orders_by_product_port.get(key, [])
 
-            # Which windows already have at least one BID and one ASK?
-            windows_with_bid = {
-                o.availability_window for o in existing_orders
-                if o.side == OrderSide.BID
-                and o.status in (OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED)
-            }
-            windows_with_ask = {
-                o.availability_window for o in existing_orders
-                if o.side == OrderSide.ASK
-                and o.status in (OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED)
-            }
+            active_orders = [
+                o for o in existing_orders
+                if o.status in (OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED)
+            ]
 
             for window in WINDOWS:
-                needs_bid = window not in windows_with_bid
-                needs_ask = window not in windows_with_ask
+                anchor_bid_price = _seed_price_for_slice(
+                    OrderSide.BID,
+                    bid_lo=bid_lo,
+                    bid_hi=bid_hi,
+                    ask_lo=ask_lo,
+                    ask_hi=ask_hi,
+                    window=window,
+                    depth_index=0,
+                )
+                anchor_ask_price = _seed_price_for_slice(
+                    OrderSide.ASK,
+                    bid_lo=bid_lo,
+                    bid_hi=bid_hi,
+                    ask_lo=ask_lo,
+                    ask_hi=ask_hi,
+                    window=window,
+                    depth_index=0,
+                )
+                needs_bid = not any(
+                    o.side == OrderSide.BID
+                    and normalize_availability_window(o.availability_window) == normalize_availability_window(window)
+                    and o.price_per_mt_usd >= anchor_bid_price
+                    for o in active_orders
+                )
+                needs_ask = not any(
+                    o.side == OrderSide.ASK
+                    and normalize_availability_window(o.availability_window) == normalize_availability_window(window)
+                    and o.price_per_mt_usd <= anchor_ask_price
+                    for o in active_orders
+                )
 
                 if not needs_bid and not needs_ask:
                     continue
 
-                window_premium = _window_premium(window, ask_lo=ask_lo, ask_hi=ask_hi)
-
-                created = _rand_date(
-                    datetime(2025, 1, 1, tzinfo=timezone.utc),
-                    datetime(2025, 3, 20, tzinfo=timezone.utc),
-                )
+                created = _recent_seed_timestamp(window, reference_now)
 
                 if needs_bid:
                     buyer = _RNG.choice(BUYER_ORGS)
-                    bid_metadata = bid_seed_metadata()
+                    certification_scheme = _slice_certification_scheme(product_name, port_name, window)
+                    bid_metadata = bid_seed_metadata(certification_scheme)
                     gap_qty = _qty()
                     order = OrderBookOrder(
                         id=uuid.uuid4(),
@@ -449,7 +543,7 @@ async def seed_market_data(db: AsyncSession) -> None:
                         delivery_point_id=dp_id,
                         quantity_mt=gap_qty,
                         remaining_quantity_mt=gap_qty,
-                        price_per_mt_usd=_price(bid_lo, bid_hi) + window_premium,
+                        price_per_mt_usd=_seed_price_for_slice(OrderSide.BID, bid_lo=bid_lo, bid_hi=bid_hi, ask_lo=ask_lo, ask_hi=ask_hi, window=window, depth_index=0),
                         availability_window=window,
                         certification_scheme=bid_metadata["certification_scheme"],
                         status=OrderBookStatus.OPEN,
@@ -465,7 +559,8 @@ async def seed_market_data(db: AsyncSession) -> None:
                     supplier = _RNG.choice(SUPPLIER_ORGS)
                     ci_value = Decimal(str(round(_RNG.uniform(ci_lo, ci_hi), 2)))
                     gap_qty = _qty()
-                    ask_metadata = ask_seed_metadata()
+                    certification_scheme = _slice_certification_scheme(product_name, port_name, window)
+                    ask_metadata = ask_seed_metadata(certification_scheme)
                     order = OrderBookOrder(
                         id=uuid.uuid4(),
                         organization_id=supplier["id"],
@@ -474,7 +569,7 @@ async def seed_market_data(db: AsyncSession) -> None:
                         delivery_point_id=dp_id,
                         quantity_mt=gap_qty,
                         remaining_quantity_mt=gap_qty,
-                        price_per_mt_usd=_price(ask_lo, ask_hi) + window_premium,
+                        price_per_mt_usd=_seed_price_for_slice(OrderSide.ASK, bid_lo=bid_lo, bid_hi=bid_hi, ask_lo=ask_lo, ask_hi=ask_hi, window=window, depth_index=0),
                         availability_window=window,
                         status=OrderBookStatus.OPEN,
                         certification_declared=ask_metadata["certification_declared"],
@@ -561,15 +656,19 @@ async def seed_market_data(db: AsyncSession) -> None:
             trade_price = midpoint.quantize(Decimal("0.01"))
         status = _RNG.choices(trade_statuses, weights=trade_status_weights)[0]
 
-        created = _rand_date(
-            datetime(2025, 1, 5, tzinfo=timezone.utc),
-            datetime(2025, 3, 15, tzinfo=timezone.utc),
-        )
+        created = _recent_seed_timestamp(ask.availability_window, reference_now, trade=True)
         confirmed = created + timedelta(hours=_RNG.randint(1, 48))
         delivered = confirmed + timedelta(days=_RNG.randint(3, 21)) if status in (
             TradeStatus.DELIVERED, TradeStatus.PAID
         ) else None
         paid = delivered + timedelta(days=_RNG.randint(7, 30)) if status == TradeStatus.PAID and delivered else None
+        created, confirmed, delivered, paid = _clamp_trade_timeline(
+            created,
+            confirmed,
+            delivered,
+            paid,
+            reference_now,
+        )
 
         total_usd = trade_qty * trade_price
         commission_rate = Decimal("0.500")
@@ -631,27 +730,48 @@ async def seed_market_data(db: AsyncSession) -> None:
             key = f"{product_name}|{port_name}"
             existing_orders = orders_by_product_port.get(key, [])
 
-            windows_with_bid = {
-                o.availability_window for o in existing_orders
-                if o.side == OrderSide.BID
-                and o.status in (OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED)
-            }
-            windows_with_ask = {
-                o.availability_window for o in existing_orders
-                if o.side == OrderSide.ASK
-                and o.status in (OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED)
-            }
+            active_orders = [
+                o for o in existing_orders
+                if o.status in (OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED)
+            ]
 
             for window in WINDOWS:
-                created = _rand_date(
-                    datetime(2025, 2, 1, tzinfo=timezone.utc),
-                    datetime(2025, 3, 20, tzinfo=timezone.utc),
+                created = _recent_seed_timestamp(window, reference_now)
+                anchor_bid_price = _seed_price_for_slice(
+                    OrderSide.BID,
+                    bid_lo=bid_lo,
+                    bid_hi=bid_hi,
+                    ask_lo=ask_lo,
+                    ask_hi=ask_hi,
+                    window=window,
+                    depth_index=0,
                 )
-                window_premium = _window_premium(window, ask_lo=ask_lo, ask_hi=ask_hi)
+                anchor_ask_price = _seed_price_for_slice(
+                    OrderSide.ASK,
+                    bid_lo=bid_lo,
+                    bid_hi=bid_hi,
+                    ask_lo=ask_lo,
+                    ask_hi=ask_hi,
+                    window=window,
+                    depth_index=0,
+                )
+                needs_bid = not any(
+                    o.side == OrderSide.BID
+                    and normalize_availability_window(o.availability_window) == normalize_availability_window(window)
+                    and o.price_per_mt_usd >= anchor_bid_price
+                    for o in active_orders
+                )
+                needs_ask = not any(
+                    o.side == OrderSide.ASK
+                    and normalize_availability_window(o.availability_window) == normalize_availability_window(window)
+                    and o.price_per_mt_usd <= anchor_ask_price
+                    for o in active_orders
+                )
 
-                if window not in windows_with_bid:
+                if needs_bid:
                     buyer = _RNG.choice(BUYER_ORGS)
-                    bid_metadata = bid_seed_metadata()
+                    certification_scheme = _slice_certification_scheme(product_name, port_name, window)
+                    bid_metadata = bid_seed_metadata(certification_scheme)
                     gap_qty = _qty()
                     order = OrderBookOrder(
                         id=uuid.uuid4(),
@@ -661,7 +781,7 @@ async def seed_market_data(db: AsyncSession) -> None:
                         delivery_point_id=dp_id,
                         quantity_mt=gap_qty,
                         remaining_quantity_mt=gap_qty,
-                        price_per_mt_usd=_price(bid_lo, bid_hi) + window_premium,
+                        price_per_mt_usd=_seed_price_for_slice(OrderSide.BID, bid_lo=bid_lo, bid_hi=bid_hi, ask_lo=ask_lo, ask_hi=ask_hi, window=window, depth_index=0),
                         availability_window=window,
                         certification_scheme=bid_metadata["certification_scheme"],
                         status=OrderBookStatus.OPEN,
@@ -671,11 +791,12 @@ async def seed_market_data(db: AsyncSession) -> None:
                     db.add(order)
                     post_trade_created += 1
 
-                if window not in windows_with_ask:
+                if needs_ask:
                     supplier = _RNG.choice(SUPPLIER_ORGS)
                     ci_value = Decimal(str(round(_RNG.uniform(ci_lo, ci_hi), 2)))
                     gap_qty = _qty()
-                    ask_metadata = ask_seed_metadata()
+                    certification_scheme = _slice_certification_scheme(product_name, port_name, window)
+                    ask_metadata = ask_seed_metadata(certification_scheme)
                     order = OrderBookOrder(
                         id=uuid.uuid4(),
                         organization_id=supplier["id"],
@@ -684,7 +805,7 @@ async def seed_market_data(db: AsyncSession) -> None:
                         delivery_point_id=dp_id,
                         quantity_mt=gap_qty,
                         remaining_quantity_mt=gap_qty,
-                        price_per_mt_usd=_price(ask_lo, ask_hi) + window_premium,
+                        price_per_mt_usd=_seed_price_for_slice(OrderSide.ASK, bid_lo=bid_lo, bid_hi=bid_hi, ask_lo=ask_lo, ask_hi=ask_hi, window=window, depth_index=0),
                         availability_window=window,
                         status=OrderBookStatus.OPEN,
                         certifications=ask_metadata["certifications"],
@@ -841,6 +962,13 @@ async def seed_market_data(db: AsyncSession) -> None:
             TradeStatus.DELIVERED, TradeStatus.PAID
         ) else None
         paid = delivered + timedelta(days=_RNG.randint(7, 21)) if status == TradeStatus.PAID and delivered else None
+        created, confirmed, delivered, paid = _clamp_trade_timeline(
+            created,
+            confirmed,
+            delivered,
+            paid,
+            reference_now,
+        )
 
         total_usd = trade_qty * trade_price
         commission_rate = Decimal("0.500")

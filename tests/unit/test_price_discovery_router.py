@@ -8,6 +8,8 @@ from datetime import date, datetime
 from decimal import Decimal
 from uuid import uuid4
 
+from httpx import AsyncClient, ASGITransport
+from app.main import app
 from app.routers.price_discovery import aggregate_trade_prices, compute_reference_prices
 from app.services.benchmarks import compute_premium_discount, get_benchmark_quote
 from app.schemas.orderbook import ReferencePriceItem
@@ -68,6 +70,68 @@ class TestAggregateFunction:
         dpid = uuid4()
         await aggregate_trade_prices(mock_db, delivery_point_id=dpid)
         assert mock_db.execute.call_count >= 1
+
+    @pytest.mark.asyncio
+    @pytest.mark.asyncio
+    async def test_aggregates_on_coalesced_trade_order_id(self):
+        mock_db = AsyncMock()
+        aggregate_result = MagicMock()
+        latest_result = MagicMock()
+        aggregate_result.all.return_value = []
+        latest_result.all.return_value = []
+        mock_db.execute = AsyncMock(side_effect=[aggregate_result, latest_result])
+
+        await aggregate_trade_prices(mock_db)
+
+        aggregate_stmt = mock_db.execute.call_args_list[0].args[0]
+        assert 'coalesce(trades.ask_order_id, trades.bid_order_id)' in str(aggregate_stmt).lower()
+
+    async def test_returns_market_product_and_availability_window(self):
+        mock_db = AsyncMock()
+
+        aggregate_result = MagicMock()
+        latest_result = MagicMock()
+
+        pid = uuid4()
+        dpid = uuid4()
+
+        aggregate_row = MagicMock()
+        aggregate_row.product_id = pid
+        aggregate_row.product_name = 'Bio Methanol'
+        aggregate_row.fuel_type = 'Methanol'
+        aggregate_row.fuel_grade = 'Bio'
+        aggregate_row.delivery_point_id = dpid
+        aggregate_row.availability_window = '2026-05'
+        aggregate_row.delivery_point_name = 'Singapore'
+        aggregate_row.region = 'Asia'
+        aggregate_row.high = Decimal('1110.00')
+        aggregate_row.low = Decimal('1095.00')
+        aggregate_row.avg_price = Decimal('1102.50')
+        aggregate_row.total_volume = Decimal('250.00')
+        aggregate_row.trade_count = 3
+        aggregate_row.last_trade_at = datetime(2026, 4, 14, 12, 0, 0)
+        aggregate_result.all.return_value = [aggregate_row]
+
+        latest_row = MagicMock()
+        latest_row.product_id = pid
+        latest_row.delivery_point_id = dpid
+        latest_row.availability_window = '2026-05'
+        latest_row.last_price = Decimal('1108.00')
+        latest_row.last_trade_at = datetime(2026, 4, 14, 12, 30, 0)
+        latest_result.all.return_value = [latest_row]
+
+        mock_db.execute = AsyncMock(side_effect=[aggregate_result, latest_result])
+
+        summaries = await aggregate_trade_prices(
+            mock_db,
+            market_product='BIO_METHANOL',
+            availability_window='2026-05',
+        )
+
+        assert len(summaries) == 1
+        assert summaries[0].market_product == 'BIO_METHANOL'
+        assert summaries[0].availability_window == '2026-05'
+        assert summaries[0].last_price == Decimal('1108.00')
 
 
 class TestComputeReferencePrices:
@@ -239,6 +303,18 @@ class TestComputeReferencePrices:
         assert prices[0].total_volume_mt == Decimal("0")
 
     @pytest.mark.asyncio
+    @pytest.mark.asyncio
+    async def test_reference_prices_join_on_coalesced_trade_order_id(self):
+        mock_db = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.all.return_value = []
+        mock_db.execute.return_value = mock_result
+
+        await compute_reference_prices(mock_db)
+
+        stmt = mock_db.execute.call_args.args[0]
+        assert 'coalesce(trades.ask_order_id, trades.bid_order_id)' in str(stmt).lower()
+
     async def test_combined_filters(self):
         """All filters can be used together."""
         mock_db = AsyncMock()
@@ -256,6 +332,37 @@ class TestComputeReferencePrices:
             delivery_point_id=uuid4(),
         )
         assert mock_db.execute.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_reference_rows_include_market_product_and_window(self):
+        mock_db = AsyncMock()
+        mock_result = MagicMock()
+        row = MagicMock()
+        row.product_id = uuid4()
+        row.product_name = 'Synthetic Ethanol'
+        row.fuel_type = 'Ethanol'
+        row.fuel_grade = 'Synthetic'
+        row.delivery_point_id = uuid4()
+        row.delivery_point_name = 'Rotterdam'
+        row.availability_window = '2026-Q3'
+        row.region = 'Europe'
+        row.trade_date = date(2026, 4, 14)
+        row.weighted_sum = Decimal('200000.00')
+        row.total_volume = Decimal('200.00')
+        row.trade_count = 2
+        mock_result.all.return_value = [row]
+        mock_db.execute.return_value = mock_result
+
+        prices = await compute_reference_prices(
+            mock_db,
+            market_product='SYNTHETIC_ETHANOL',
+            availability_window='2026-Q3',
+        )
+
+        assert len(prices) == 1
+        assert prices[0].market_product == 'SYNTHETIC_ETHANOL'
+        assert prices[0].availability_window == '2026-Q3'
+        assert prices[0].delivery_point_name == 'Rotterdam'
 
 
 class TestReferencePriceItemSchema:
@@ -386,3 +493,19 @@ def test_get_reference_prices_accepts_visibility_param():
     import inspect
     from app.routers.price_discovery import get_reference_prices
     assert "visibility" in inspect.signature(get_reference_prices).parameters
+
+
+@pytest.mark.asyncio
+async def test_get_price_summaries_rejects_invalid_availability_window():
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.get('/api/prices', params={'availability_window': 'BAD-WINDOW'})
+
+    assert resp.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_get_reference_prices_rejects_invalid_market_product():
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.get('/api/prices/reference', params={'market_product': 'NOT_REAL'})
+
+    assert resp.status_code == 422

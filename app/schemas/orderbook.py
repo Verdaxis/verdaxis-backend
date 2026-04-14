@@ -140,6 +140,7 @@ class OrderResponse(AvailabilityWindowMixin, SupplierListingMetadataMixin):
     fuel_grade: str = ""
     delivery_point_id: Optional[UUID] = None
     delivery_point_name: Optional[str] = None
+    availability_window: str = "SPOT"
     region: str = ""
     port_id: Optional[str] = None
     quantity_mt: Decimal
@@ -218,6 +219,7 @@ class TradeResponse(BaseModel):
     fuel_grade: str = ""
     delivery_point_id: Optional[UUID] = None
     delivery_point_name: Optional[str] = None
+    availability_window: str = "SPOT"
     region: str = ""
 
     class Config:
@@ -239,6 +241,7 @@ class AggregatedOrderbookResponse(BaseModel):
     fuel_type: str = ""
     delivery_point_id: Optional[UUID] = None
     delivery_point_name: Optional[str] = None
+    availability_window: str = "SPOT"
     region: str = ""
     side: OrderSide
     min_price: Decimal
@@ -250,12 +253,14 @@ class AggregatedOrderbookResponse(BaseModel):
 # ============== Price Discovery ==============
 
 class PriceSummary(BaseModel):
-    """Aggregated trade price data for a product + delivery_point pair."""
+    """Aggregated trade price data for a product + delivery_point + availability window."""
     product_id: Optional[UUID] = None
     product_name: str = ""
+    market_product: Optional[str] = None
     fuel_type: str = ""
     delivery_point_id: Optional[UUID] = None
     delivery_point_name: Optional[str] = None
+    availability_window: str = "SPOT"
     region: str = ""
     last_price: Optional[Decimal] = None
     avg_price_24h: Optional[Decimal] = None
@@ -276,12 +281,14 @@ class PriceDiscoveryResponse(BaseModel):
 # ============== Reference Price (VWAP) ==============
 
 class ReferencePriceItem(BaseModel):
-    """Daily VWAP reference price for a product + delivery_point pair."""
+    """Daily VWAP reference price for a product + delivery_point + availability window."""
     product_id: Optional[UUID] = None
     product_name: str = ""
+    market_product: Optional[str] = None
     fuel_type: str = ""
     delivery_point_id: Optional[UUID] = None
     delivery_point_name: Optional[str] = None
+    availability_window: str = "SPOT"
     region: str = ""
     vwap_usd: Decimal
     total_volume_mt: Decimal
