@@ -1,0 +1,91 @@
+# Libraries
+
+- `alembic/env.py`
+  - function run_migrations_offline: () -> None
+  - function do_run_migrations: (connection) -> None
+  - function run_migrations_online: () -> None
+  - function run_async_migrations: () -> None
+- `alembic/versions/148fa1ffb191_add_notifications_table.py` — function upgrade: () -> None, function downgrade: () -> None
+- `alembic/versions/14b159f248ac_rename_quote_request_to_direct_order.py` — function upgrade: () -> None, function downgrade: () -> None
+- `alembic/versions/377c3f6f9aef_initial_schema.py` — function upgrade: () -> None, function downgrade: () -> None
+- `alembic/versions/411b38418aea_add_user_interaction_status.py` — function upgrade: () -> None, function downgrade: () -> None
+- `alembic/versions/63cbf0775d4d_add_domain_to_organization.py` — function upgrade: () -> None, function downgrade: () -> None
+- `alembic/versions/a1b2c3d4e5f6_unified_orderbook_migration.py` — function upgrade: () -> None, function downgrade: () -> None
+- `alembic/versions/alerts_2026_03_add_price_alerts.py` — function upgrade: () -> None, function downgrade: () -> None
+- `alembic/versions/anon_trade_2026_03_add_trade_is_anonymous.py` — function upgrade: () -> None, function downgrade: () -> None
+- `alembic/versions/b1c2d3e4f5g6_add_ci_fields_to_orderbook.py` — function upgrade: () -> None, function downgrade: () -> None
+- `alembic/versions/bm_2026_04_benchmarks.py` — function upgrade: () -> None, function downgrade: () -> None
+- `alembic/versions/c2d3e4f5g6h7_add_match_suggestions.py` — function upgrade: () -> None, function downgrade: () -> None
+- `alembic/versions/c315709743c2_move_supplier_tier_to_organization.py` — function upgrade: () -> None, function downgrade: () -> None
+- `alembic/versions/c31aa85e9739_make_user_role_nullable.py` — function upgrade: () -> None, function downgrade: () -> None
+- `alembic/versions/c5e4af769a3a_add_requested_quantity_and_delivery_.py` — function upgrade: () -> None, function downgrade: () -> None
+- `alembic/versions/c820b25c0e18_update_supplier_tier_values_to_match_.py` — function upgrade: () -> None, function downgrade: () -> None
+- `alembic/versions/c8a8c986fb8c_add_quoteoffer_model.py` — function upgrade: () -> None, function downgrade: () -> None
+- `alembic/versions/catalog_2026_03_add_product_and_delivery_point.py` — function upgrade: () -> None, function downgrade: () -> None
+- `alembic/versions/catalog_2026_04_green_fuels_market_products.py` — function upgrade: () -> None, function downgrade: () -> None
+- `alembic/versions/ccef95a9c9a0_add_rfq_models.py` — function upgrade: () -> None, function downgrade: () -> None
+- `alembic/versions/contracts_2026_03_add_contract_supply_demand.py` — function upgrade: () -> None, function downgrade: () -> None
+- `alembic/versions/d3e4f5g6h7i8_add_producer_projects.py` — function upgrade: () -> None, function downgrade: () -> None
+- `alembic/versions/e3b25629c526_make_supplier_tier_nullable_and_cleanup_.py` — function upgrade: () -> None, function downgrade: () -> None
+- `alembic/versions/e4f5g6h7i8j9_widen_notification_type_column.py` — function upgrade: () -> None, function downgrade: () -> None
+- `alembic/versions/f10cf6fa2019_rename_rfq_to_orders.py` — function upgrade: () -> None, function downgrade: () -> None
+- `alembic/versions/f5g6h7i8j9k0_add_password_changed_at.py` — function upgrade: () -> None, function downgrade: () -> None
+- `alembic/versions/fk_orderbook_2026_03_orderbook_product_dp_fks.py` — function upgrade: () -> None, function downgrade: () -> None
+- `alembic/versions/g6h7i8j9k0l1_add_audit_logs_table.py` — function upgrade: () -> None, function downgrade: () -> None
+- `alembic/versions/h7i8j9k0l1m2_add_email_verification_and_kyc_fields.py` — function upgrade: () -> None, function downgrade: () -> None
+- `alembic/versions/ix_2026_04_exec_watchlist_perf.py` — function upgrade: () -> None, function downgrade: () -> None
+- `alembic/versions/neg_2026_04_add_negotiations.py` — function upgrade: () -> None, function downgrade: () -> None
+- `alembic/versions/neg_2026_04b_negotiation_fixes.py` — function upgrade: () -> None, function downgrade: () -> None
+- `alembic/versions/news_2026_03_add_news_items.py` — function upgrade: () -> None, function downgrade: () -> None
+- `alembic/versions/ob_2026_04_availability_windows.py` — function upgrade: () -> None, function downgrade: () -> None
+- `alembic/versions/ob_2026_04_supplier_listing_metadata.py` — function upgrade: () -> None, function downgrade: () -> None
+- `alembic/versions/pw_reset_2026_03_add_password_reset_fields.py` — function upgrade: () -> None, function downgrade: () -> None
+- `alembic/versions/ref_2026_03_add_referrals.py` — function upgrade: () -> None, function downgrade: () -> None
+- `alembic/versions/rfq_2026_03_add_rfq_tables.py` — function upgrade: () -> None, function downgrade: () -> None
+- `alembic/versions/sub_2026_03_add_subscriptions.py` — function upgrade: () -> None, function downgrade: () -> None
+- `alembic/versions/wl_2026_03_add_watchlists.py` — function upgrade: () -> None, function downgrade: () -> None
+- `alembic/versions/wl_2026_04_market_radar.py` — function upgrade: () -> None, function downgrade: () -> None
+- `alembic/versions/wl_2026_04_watchlist_entry_uniqueness.py` — function upgrade: () -> None, function downgrade: () -> None
+- `find_buyer.py` — function check_buyers: ()
+- `fix_seller_status.py` — function fix_user: ()
+- `reset_buyer_password.py` — function reset_password: ()
+- `scripts/check_users.py` — function main: ()
+- `scripts/import_gena_csv.py` — function import_csv: (file_path, fuel_type)
+- `scripts/scrape_fleet_demand.py`
+  - function run_batch: (commands, timeout) -> str
+  - function extract_last_value: (raw) -> str
+  - function get_afi_article_url: () -> str | None
+  - function get_page_body: (url) -> str
+  - function extract_int: (text, patterns) -> int | None
+  - function scrape: ()
+- `scripts/seed.py` — function main: () -> None
+- `scripts/seed_compliance_data.py` — function add_entry: (org_key, transaction_type, amount, currency, units, description, reference_id, created_at)
+- `scripts/seed_maersk_vessels.py` — function seed_vessels: ()
+- `scripts/seed_port_inventory.py`
+  - function get_region: (port_id)
+  - function get_price_per_mt: (fuel_type, port_id)
+  - function get_methanol_price_avg: (port_id)
+  - function get_biofuel_price_avg: (port_id)
+  - function get_stock_levels: (fuel_type)
+  - function is_certified: (fuel_type)
+  - _...4 more_
+- `scripts/seed_realistic_orderbook.py`
+  - function rand_quantity: (min_lot, max_lot)
+  - function rand_price_around: (mid, spread_pct, side)
+  - function random_created_at: ()
+  - function build_order: (side, product_key, dp_key, mid, spread_pct, min_lot, max_lot)
+- `scripts/seed_trade_tape.py`
+  - function get_connection: ()
+  - function clean_existing_trades: (conn)
+  - function generate_trade_dates: (num_trades, start_date, end_date)
+  - function get_status_for_date: (trade_date, end_date)
+  - function get_price_with_drift: (product_name, min_price, max_price, trade_date, start_date, end_date)
+  - function select_product: ()
+  - _...4 more_
+- `scripts/seed_vessels_fleet.py`
+  - function get_db_connection: ()
+  - function generate_vessel_data: ()
+  - function format_geography_point: (lng, lat)
+  - function insert_vessels: (conn, vessels)
+  - function main: ()
+- `scripts/test_purchase_flow.py` — function create_local_token: (email, role, user_id), function main: ()

@@ -263,3 +263,17 @@ docker compose up -d --build
 ```
 
 The override uses `--reload-dir` to watch only `app/`, `alembic/`, and `scripts/` directories, plus `watchfiles` (inotify-based) instead of the default `StatReload` (polling). This keeps CPU near zero even in dev mode.
+<!-- codesight-local:start -->
+## Codesight Bootstrap
+
+Before exploring the tree, read:
+1. `.codesight/wiki/index.md` — 200-token catalog of all wiki articles (start here)
+2. `.codesight/wiki/overview.md` — architecture and high-impact files
+3. Load topic articles on demand: `.codesight/wiki/<topic>.md` (auth, database, payments, users, ui, etc.)
+4. `.codesight/CODESIGHT.md` — full route/schema/lib map (fallback if wiki missing)
+2. `.codesight/libs.md` if present
+3. `.codesight/routes.md` if the task touches routes or handlers
+4. `.codesight/schema.md` if the task touches models or database code
+
+Only open full source files after consulting the wiki first.
+<!-- codesight-local:end -->
