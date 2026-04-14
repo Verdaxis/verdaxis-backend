@@ -9,6 +9,7 @@ from pydantic import BaseModel
 
 class TradeTapeEntry(BaseModel):
     id: str  # shortened UUID (first 8 chars for anonymity)
+    market_product: Optional[str] = None
     fuel_type: str
     fuel_grade: str
     region: str

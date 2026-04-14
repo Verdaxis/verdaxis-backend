@@ -26,12 +26,14 @@ def _build_tape_entry(trade: Trade) -> TradeTapeEntry:
     """Build an anonymized tape entry from a Trade with loaded relationships."""
     order = trade.ask_order or trade.bid_order
 
+    market_product = None
     fuel_type = ""
     fuel_grade = ""
     region = ""
     availability_window = ""
 
     if order:
+        market_product = order.market_product
         fuel_type = order.fuel_type
         fuel_grade = order.fuel_grade
         region = order.region
@@ -39,6 +41,7 @@ def _build_tape_entry(trade: Trade) -> TradeTapeEntry:
 
     return TradeTapeEntry(
         id=str(trade.id).replace("-", "")[:8],
+        market_product=market_product,
         fuel_type=fuel_type,
         fuel_grade=fuel_grade,
         region=region,
@@ -54,7 +57,9 @@ def _build_tape_entry(trade: Trade) -> TradeTapeEntry:
 async def get_trade_tape(
     db: AsyncSession = Depends(get_db),
     fuel_type: Optional[str] = Query(None, description="Filter by fuel type"),
+    market_product: Optional[str] = Query(None, description="Filter by canonical market product"),
     region: Optional[str] = Query(None, description="Filter by region"),
+    availability_window: Optional[str] = Query(None, description="Filter by availability window"),
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
 ):
@@ -101,12 +106,16 @@ async def get_trade_tape(
         base_query = base_query.join(Product, OrderBookOrder.product_id == Product.id).where(
             Product.fuel_type == fuel_type
         )
+    if market_product is not None:
+        base_query = base_query.where(OrderBookOrder.market_product == market_product)
     if region is not None:
         from app.models.catalog import DeliveryPoint
         from sqlalchemy import or_
         base_query = base_query.join(DeliveryPoint, OrderBookOrder.delivery_point_id == DeliveryPoint.id).where(
             or_(DeliveryPoint.region == region, DeliveryPoint.name == region)
         )
+    if availability_window is not None:
+        base_query = base_query.where(OrderBookOrder.availability_window == normalize_availability_window(availability_window))
 
     # Count query
     count_stmt = select(func.count()).select_from(base_query.subquery())

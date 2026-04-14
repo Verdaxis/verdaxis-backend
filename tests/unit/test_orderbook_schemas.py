@@ -156,15 +156,15 @@ class TestOrderCreate:
                 certification_scheme="ISCC EU",
             )
 
-    def test_certification_scheme_is_required(self):
-        with pytest.raises(Exception):
-            OrderCreate(
-                side=OrderSide.BID,
-                product_id=uuid4(),
-                delivery_point_id=uuid4(),
-                quantity_mt=Decimal("1000"),
-                price_per_mt_usd=Decimal("500"),
-            )
+    def test_bid_can_omit_certification_scheme(self):
+        order = OrderCreate(
+            side=OrderSide.BID,
+            product_id=uuid4(),
+            delivery_point_id=uuid4(),
+            quantity_mt=Decimal("1000"),
+            price_per_mt_usd=Decimal("500"),
+        )
+        assert order.certification_scheme is None
 
     def test_ask_can_omit_declaration_in_schema_but_is_checked_in_router(self):
         order = OrderCreate(

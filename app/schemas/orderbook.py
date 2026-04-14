@@ -99,15 +99,14 @@ class OrderCreate(AvailabilityWindowMixin, SupplierListingMetadataMixin):
     price_per_mt_usd: Decimal = Field(..., gt=0)
     availability_window: AvailabilityWindowCode = SPOT_WINDOW
     certifications: list[str] = Field(default_factory=list)
-    certification_scheme: str = Field(..., min_length=1)
+    certification_scheme: Optional[str] = None
     expires_at: Optional[datetime] = None
     is_anonymous: bool = True
 
     @model_validator(mode="after")
     def validate_execution_qualifiers(self):
-        self.certification_scheme = self.certification_scheme.strip()
-        if not self.certification_scheme:
-            raise ValueError("certification_scheme is required")
+        if self.certification_scheme is not None:
+            self.certification_scheme = self.certification_scheme.strip() or None
         return self
 
 

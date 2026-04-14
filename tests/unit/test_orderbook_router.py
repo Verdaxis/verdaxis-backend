@@ -5,7 +5,6 @@ from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
 from fastapi import HTTPException
-from pydantic import ValidationError
 
 from app.models.user import UserRole
 from app.routers.orderbook import create_order, latest_supplier_listing_template
@@ -28,15 +27,16 @@ def _make_supplier_user():
 
 class TestCreateOrder:
     @pytest.mark.asyncio
-    async def test_bid_requires_certification_scheme(self):
-        with pytest.raises(ValidationError):
-            OrderCreate(
-                side=OrderSide.BID,
-                product_id=uuid4(),
-                delivery_point_id=uuid4(),
-                quantity_mt=Decimal("1000"),
-                price_per_mt_usd=Decimal("550"),
-            )
+    async def test_bid_can_omit_certification_scheme(self):
+        order = OrderCreate(
+            side=OrderSide.BID,
+            product_id=uuid4(),
+            delivery_point_id=uuid4(),
+            quantity_mt=Decimal("1000"),
+            price_per_mt_usd=Decimal("550"),
+        )
+
+        assert order.certification_scheme is None
 
     @pytest.mark.asyncio
     async def test_bid_rejects_supplier_metadata(self):
@@ -129,15 +129,24 @@ class TestCreateOrder:
 
     @pytest.mark.asyncio
     async def test_ask_requires_certification_scheme(self):
-        with pytest.raises(ValidationError):
-            OrderCreate(
-                side=OrderSide.ASK,
-                product_id=uuid4(),
-                delivery_point_id=uuid4(),
-                quantity_mt=Decimal("1000"),
-                price_per_mt_usd=Decimal("550"),
-                certification_declared=True,
+        order = OrderCreate(
+            side=OrderSide.ASK,
+            product_id=uuid4(),
+            delivery_point_id=uuid4(),
+            quantity_mt=Decimal("1000"),
+            price_per_mt_usd=Decimal("550"),
+            certification_declared=True,
+        )
+
+        with pytest.raises(HTTPException) as exc_info:
+            await create_order(
+                order_data=order,
+                current_user=_make_supplier_user(),
+                db=AsyncMock(),
             )
+
+        assert exc_info.value.status_code == 400
+        assert "certification scheme" in exc_info.value.detail.lower()
 
 
 class TestLatestSupplierListingTemplate:

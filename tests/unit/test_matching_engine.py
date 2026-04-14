@@ -256,7 +256,7 @@ class TestBasicMatching:
         assert ask.status == OrderBookStatus.OPEN
 
     @pytest.mark.asyncio
-    async def test_unqualified_new_order_does_not_match(self, db, buyer_org, seller_org, org_buyer_id, org_seller_id, test_product, test_dp):
+    async def test_bid_without_certification_scheme_matches_any_qualified_ask(self, db, buyer_org, seller_org, org_buyer_id, org_seller_id, test_product, test_dp):
         ask = _make_order(org_seller_id, OrderSide.ASK, price=Decimal("550.00"))
         db.add(ask)
         await db.flush()
@@ -267,9 +267,9 @@ class TestBasicMatching:
 
         trades = await match_order(db, bid)
 
-        assert trades == []
-        assert bid.status == OrderBookStatus.OPEN
-        assert ask.status == OrderBookStatus.OPEN
+        assert len(trades) == 1
+        assert bid.status == OrderBookStatus.FILLED
+        assert ask.status == OrderBookStatus.FILLED
 
     @pytest.mark.asyncio
     async def test_bid_matches_ask_when_bid_gte_ask(self, db, buyer_org, seller_org, org_buyer_id, org_seller_id, test_product, test_dp):

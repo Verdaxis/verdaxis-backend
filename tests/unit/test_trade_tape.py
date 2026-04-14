@@ -54,6 +54,7 @@ def _make_mock_trade(
     quantity: Decimal = Decimal("500.00"),
     price: Decimal = Decimal("1200.00"),
     confirmed_at: datetime | None = None,
+    market_product: str | None = "BIO_METHANOL",
     fuel_type: str = "VLSFO",
     fuel_grade: str = "Conventional",
     region: str = "ARA",
@@ -71,6 +72,7 @@ def _make_mock_trade(
 
     # Mock the related order
     order = MagicMock()
+    order.market_product = market_product
     order.fuel_type = fuel_type
     order.fuel_grade = fuel_grade
     order.region = region
@@ -110,6 +112,11 @@ class TestBuildTapeEntry:
         trade = _make_mock_trade(fuel_type="HSFO")
         entry = _build_tape_entry(trade)
         assert entry.fuel_type == "HSFO"
+
+    def test_market_product_from_order(self):
+        trade = _make_mock_trade(market_product="E_METHANOL")
+        entry = _build_tape_entry(trade)
+        assert entry.market_product == "E_METHANOL"
 
     def test_region_from_order(self):
         trade = _make_mock_trade(region="Singapore")
@@ -152,7 +159,7 @@ class TestBuildTapeEntry:
 class TestTradeTapeSchemas:
     def test_tape_entry_schema_fields(self):
         expected = {
-            "id", "fuel_type", "fuel_grade", "region",
+            "id", "market_product", "fuel_type", "fuel_grade", "region",
             "quantity_mt", "price_per_mt_usd", "total_usd",
             "confirmed_at", "availability_window",
         }
@@ -171,6 +178,7 @@ class TestTradeTapeSchemas:
     def test_tape_response_round_trip(self):
         entry = TradeTapeEntry(
             id="abcd1234",
+            market_product="BIO_METHANOL",
             fuel_type="VLSFO",
             fuel_grade="Conventional",
             region="ARA",

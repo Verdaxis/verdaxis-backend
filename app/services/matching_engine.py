@@ -76,7 +76,7 @@ async def match_order(
         OrderBookOrder.status.in_([OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED]),
         OrderBookOrder.organization_id != new_order.organization_id,  # No self-trade
         OrderBookOrder.off_spec.is_(False),
-        OrderBookOrder.certification_scheme.is_not(None),
+        or_(OrderBookOrder.side != OrderSide.ASK, OrderBookOrder.certification_scheme.is_not(None)),
         or_(OrderBookOrder.side != OrderSide.ASK, OrderBookOrder.certification_declared.is_(True)),
         price_filter,
     ]

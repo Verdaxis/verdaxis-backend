@@ -72,7 +72,7 @@ def _apply_public_marketplace_scope(
     filters.append(Product.fuel_type.in_(APPROVED_MARKETPLACE_FUEL_TYPES))
     if not include_off_spec:
         filters.append(OrderBookOrder.off_spec.is_(False))
-    filters.append(func.length(func.trim(func.coalesce(OrderBookOrder.certification_scheme, ""))) > 0)
+    filters.append(or_(OrderBookOrder.side != OrderSide.ASK, func.length(func.trim(func.coalesce(OrderBookOrder.certification_scheme, ""))) > 0))
     filters.append(or_(OrderBookOrder.side != OrderSide.ASK, OrderBookOrder.certification_declared.is_(True)))
     filters.append(or_(OrderBookOrder.side != OrderSide.ASK, func.length(func.trim(func.coalesce(OrderBookOrder.specification_standard, ""))) > 0))
     filters.append(or_(OrderBookOrder.side != OrderSide.ASK, OrderBookOrder.msds_available.is_(True)))
@@ -697,7 +697,7 @@ async def list_active_products(db: AsyncSession = Depends(get_db)):
             OrderBookOrder.status == OrderBookStatus.OPEN,
             Product.fuel_type.in_(APPROVED_MARKETPLACE_FUEL_TYPES),
             OrderBookOrder.off_spec.is_(False),
-            func.length(func.trim(func.coalesce(OrderBookOrder.certification_scheme, ""))) > 0,
+            or_(OrderBookOrder.side != OrderSide.ASK, func.length(func.trim(func.coalesce(OrderBookOrder.certification_scheme, ""))) > 0),
             or_(OrderBookOrder.side != OrderSide.ASK, OrderBookOrder.certification_declared.is_(True)),
         )
         .distinct()
@@ -719,7 +719,7 @@ async def list_regions(db: AsyncSession = Depends(get_db)):
             OrderBookOrder.status == OrderBookStatus.OPEN,
             Product.fuel_type.in_(APPROVED_MARKETPLACE_FUEL_TYPES),
             OrderBookOrder.off_spec.is_(False),
-            func.length(func.trim(func.coalesce(OrderBookOrder.certification_scheme, ""))) > 0,
+            or_(OrderBookOrder.side != OrderSide.ASK, func.length(func.trim(func.coalesce(OrderBookOrder.certification_scheme, ""))) > 0),
             or_(OrderBookOrder.side != OrderSide.ASK, OrderBookOrder.certification_declared.is_(True)),
         )
         .distinct()
@@ -741,7 +741,7 @@ async def list_fuel_types(db: AsyncSession = Depends(get_db)):
             OrderBookOrder.status == OrderBookStatus.OPEN,
             Product.fuel_type.in_(APPROVED_MARKETPLACE_FUEL_TYPES),
             OrderBookOrder.off_spec.is_(False),
-            func.length(func.trim(func.coalesce(OrderBookOrder.certification_scheme, ""))) > 0,
+            or_(OrderBookOrder.side != OrderSide.ASK, func.length(func.trim(func.coalesce(OrderBookOrder.certification_scheme, ""))) > 0),
             or_(OrderBookOrder.side != OrderSide.ASK, OrderBookOrder.certification_declared.is_(True)),
         )
         .distinct()
@@ -820,10 +820,6 @@ async def create_order(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Supplier metadata is only allowed for ASK orders: {', '.join(sorted(supplied_metadata_fields))}",
             )
-        _require_execution_certification_scheme(
-            certification_scheme=normalized_certification_scheme,
-            detail_prefix="BID orders",
-        )
     else:
         _require_supplier_certification(
             certification_declared=order_data.certification_declared,
@@ -1073,10 +1069,6 @@ async def update_order(
     if order.side != OrderSide.ASK:
         for field in ASK_ONLY_METADATA_FIELDS:
             update_dict.pop(field, None)
-        _require_execution_certification_scheme(
-            certification_scheme=update_dict.get("certification_scheme", order.certification_scheme),
-            detail_prefix="BID orders",
-        )
     else:
         _require_supplier_certification(
             certification_declared=bool(update_dict.get("certification_declared", order.certification_declared)),
