@@ -25,6 +25,7 @@ REQUIRED_TABLES = [
     'delivery_points',
     'orderbook_orders',
     'trades',
+    'live_slice_benchmarks',
     'watchlists',
     'watchlist_targets',
     'watchlist_events',
@@ -51,7 +52,7 @@ async def db(async_engine, setup_tables):
     session_factory = async_sessionmaker(bind=async_engine, class_=AsyncSession, expire_on_commit=False, autoflush=False)
     async with session_factory() as session:
         yield session
-        for table in ('watchlist_events', 'watchlist_targets', 'watchlists', 'trades', 'orderbook_orders', 'users', 'delivery_points', 'products', 'organizations'):
+        for table in ('watchlist_events', 'watchlist_targets', 'watchlists', 'live_slice_benchmarks', 'trades', 'orderbook_orders', 'users', 'delivery_points', 'products', 'organizations'):
             await session.execute(delete(Base.metadata.tables[table]))
         await session.commit()
 

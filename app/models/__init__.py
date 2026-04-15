@@ -15,3 +15,4 @@ from app.models.rfq import RFQ, RFQQuote, RFQStatus, QuoteStatus
 from app.models.watchlist import Watchlist, WatchlistEntry, WatchlistTarget, WatchlistEvent
 from app.models.news import NewsItem
 from app.models.benchmark import Benchmark
+from app.models.live_slice_benchmark import LiveSliceBenchmark

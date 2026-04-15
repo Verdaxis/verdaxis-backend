@@ -19,6 +19,7 @@ REQUIRED_TABLES = [
     'products',
     'delivery_points',
     'orderbook_orders',
+    'live_slice_benchmarks',
 ]
 
 
@@ -46,12 +47,12 @@ async def db(async_engine, setup_tables):
         autoflush=False,
     )
     async with session_factory() as session:
-        for table in ('orderbook_orders', 'products', 'delivery_points', 'organizations'):
+        for table in ('live_slice_benchmarks', 'orderbook_orders', 'products', 'delivery_points', 'organizations'):
             await session.execute(delete(Base.metadata.tables[table]))
         await session.commit()
         yield session
         await session.rollback()
-        for table in ('orderbook_orders', 'products', 'delivery_points', 'organizations'):
+        for table in ('live_slice_benchmarks', 'orderbook_orders', 'products', 'delivery_points', 'organizations'):
             await session.execute(delete(Base.metadata.tables[table]))
         await session.commit()
 

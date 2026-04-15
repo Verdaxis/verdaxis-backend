@@ -19,6 +19,7 @@ REQUIRED_TABLES = [
     "products",
     "delivery_points",
     "orderbook_orders",
+    "live_slice_benchmarks",
 ]
 
 
@@ -82,7 +83,7 @@ def _make_order(
     certification_scheme: str | None = "ISCC EU",
     certification_declared: bool = True,
 ):
-    return OrderBookOrder(
+    payload = dict(
         organization_id=org_id,
         side=side,
         product_id=product_id,
@@ -95,6 +96,15 @@ def _make_order(
         certification_scheme=certification_scheme,
         certification_declared=certification_declared,
     )
+    if side == OrderSide.ASK:
+        payload.update(
+            specification_standard='ISO 8217',
+            msds_available=True,
+            carbon_intensity_gco2_mj=Decimal('18.50'),
+            feedstock='Waste biomass',
+            origin='Singapore',
+        )
+    return OrderBookOrder(**payload)
 
 
 class TestCrossingDetectionFilters:

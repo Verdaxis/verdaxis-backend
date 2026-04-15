@@ -3,20 +3,23 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import uuid4
 
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.database import Base
 from app.models.catalog import DeliveryPoint, Product
+from app.models.live_slice_benchmark import LiveSliceBenchmark
 from app.models.orderbook import OrderBookOrder, OrderBookStatus, OrderSide
 from app.models.user import OrgType, Organization
 from app.routers.orderbook import list_asks, list_bids
+from app.services.live_benchmarks import rebuild_live_slice_benchmark
 
 REQUIRED_TABLES = [
     'organizations',
     'products',
     'delivery_points',
     'orderbook_orders',
+    'live_slice_benchmarks',
 ]
 
 
@@ -44,12 +47,12 @@ async def db(async_engine, setup_tables):
         autoflush=False,
     )
     async with session_factory() as session:
-        for table in ('orderbook_orders', 'products', 'delivery_points', 'organizations'):
+        for table in ('live_slice_benchmarks', 'orderbook_orders', 'products', 'delivery_points', 'organizations'):
             await session.execute(delete(Base.metadata.tables[table]))
         await session.commit()
         yield session
         await session.rollback()
-        for table in ('orderbook_orders', 'products', 'delivery_points', 'organizations'):
+        for table in ('live_slice_benchmarks', 'orderbook_orders', 'products', 'delivery_points', 'organizations'):
             await session.execute(delete(Base.metadata.tables[table]))
         await session.commit()
 
@@ -165,3 +168,48 @@ class TestLiveSliceBenchmarks:
         assert by_price[Decimal('1000.00')].premium_discount_per_mt_usd == Decimal('-30.00')
         assert by_price[Decimal('1040.00')].premium_discount_per_mt_usd == Decimal('10.00')
         assert all(item.benchmark_source == 'live_slice_bid_vwap' for item in result.items)
+
+    @pytest.mark.asyncio
+    async def test_rebuild_live_slice_benchmark_persists_and_removes_slice_rows(self, db: AsyncSession):
+        supplier = await _make_org(db, 'Supplier')
+        singapore = await _make_delivery_point(db, 'Singapore', 'Asia')
+        methanol = await _make_product(db, name='Bio Methanol', fuel_type='Methanol', fuel_grade='Bio')
+
+        order = _make_order(
+            org_id=supplier.id,
+            side=OrderSide.ASK,
+            product_id=methanol.id,
+            delivery_point_id=singapore.id,
+            price='1030',
+            quantity='800',
+        )
+        db.add(order)
+        await db.commit()
+
+        price = await rebuild_live_slice_benchmark(
+            db,
+            side=OrderSide.ASK,
+            market_product='BIO_METHANOL',
+            delivery_point_id=singapore.id,
+            availability_window='SPOT',
+        )
+
+        row = (await db.execute(select(LiveSliceBenchmark))).scalars().one()
+        assert price == Decimal('1030.00')
+        assert row.benchmark_price_per_mt_usd == Decimal('1030.00')
+        assert row.total_remaining_quantity_mt == Decimal('800.00')
+
+        order.status = OrderBookStatus.CANCELLED
+        await db.flush()
+
+        price = await rebuild_live_slice_benchmark(
+            db,
+            side=OrderSide.ASK,
+            market_product='BIO_METHANOL',
+            delivery_point_id=singapore.id,
+            availability_window='SPOT',
+        )
+
+        remaining = (await db.execute(select(LiveSliceBenchmark))).scalars().all()
+        assert price is None
+        assert remaining == []

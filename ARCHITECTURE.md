@@ -20,6 +20,7 @@ app/
     port.py                     # Port (PostGIS), PortIntelligence, Vessel
     marketplace.py              # InventoryItem, FuelType enum
     orderbook.py                # OrderBookOrder (BID/ASK), Trade, canonical availability_window strings, enums (OrderSide, TradeStatus)
+    live_slice_benchmark.py     # Persisted same-side slice VWAP aggregates for fast marketplace benchmark reads
     orders.py                   # Commission (legacy match_id + trade_id FKs)
     matchmaking.py              # MatchSuggestion
     watchlist.py                 # Watchlist, typed targets, event feed for Market Radar
@@ -57,7 +58,8 @@ app/
   services/
     event_bus.py                # AsyncIO pub/sub — per-channel queues, 200 subscriber cap, backpressure
     matching_engine.py          # Match-on-insert — price-time priority within canonical market identity, partial fills, auto-confirm
-    benchmarks.py               # Benchmark lookup keyed by market_product + delivery_point + availability_window
+    benchmarks.py               # External/manual benchmark lookup keyed by market_product + delivery_point + availability_window
+    live_benchmarks.py          # Persisted live same-side slice VWAP rebuilds + read-through fallback
     availability_windows.py     # Canonical availability code parsing, sorting, display labels, legacy alias normalization
     compliance_scoring.py       # Pure function scoring — FuelEU/ETS/CII, 9 fuels, scenario engine
     audit_service.py            # record_audit() — async audit logging
@@ -84,7 +86,7 @@ tests/integration/              # Auth hardening, trade lifecycle, orderbook E2E
 - **Cookie-backed refresh:** refresh token is also rotated through an HttpOnly `refresh_token` cookie scoped to `/api/auth`, while access tokens remain bearer tokens
 - **Rate limiting:** slowapi per-route (5/min login, 3/min password, 60/min prices, 30/min reference)
 - **Availability windows:** Persist canonical codes (`SPOT`, `YYYY-MM`, `YYYY-QN`, legacy-compatible `YYYY-CAL`); UI-relative labels like `M+1` must be resolved before persistence
-- **Green-fuels market model:** Benchmarks and default matchmaking key on `market_product + delivery_point + availability_window`; supplier sustainability/compliance fields stay out of the hard market key
+- **Green-fuels market model:** Matching and live slice benchmarks key on `side + market_product + delivery_point + availability_window`; supplier sustainability/compliance fields stay out of the hard market key
 - **Market Radar watchlists:** Watchlists are observer-only. Typed targets store either canonical slices or pinned order snapshots, and order create/update/cancel paths emit slice/pin events without feeding core matchmaking.
 
 ## Revenue Streams

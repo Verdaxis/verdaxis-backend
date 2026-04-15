@@ -28,6 +28,11 @@ from pydantic import BaseModel
 from app.services.benchmarks import compute_premium_discount
 from app.services.watchlist_events import emit_order_created, emit_order_updated, emit_pin_updated, emit_slice_state_changed, _best_slice_price
 from app.services.execution_policy import normalize_certification_scheme
+from app.services.live_benchmarks import (
+    LiveBenchmarkKey,
+    get_live_slice_benchmark_price,
+    rebuild_live_slice_benchmarks_for_keys,
+)
 
 router = APIRouter(prefix="/orderbook", tags=["orderbook"])
 
@@ -55,9 +60,6 @@ REQUIRED_ASK_METADATA_FIELDS = (
     "feedstock",
     "origin",
 )
-
-
-BenchmarkCacheKey = tuple[OrderSide, str, UUID, str]
 
 
 def _ensure_join(joins: list[tuple[object, object]], target: object, condition: object) -> None:
@@ -238,51 +240,23 @@ async def _live_slice_benchmark_price(
     db: AsyncSession,
     order: OrderBookOrder,
     *,
-    cache: dict[BenchmarkCacheKey, Decimal | None] | None = None,
+    cache: dict[LiveBenchmarkKey, Decimal | None] | None = None,
 ) -> Decimal | None:
-    if order.off_spec or order.delivery_point_id is None or not order.market_product:
-        return None
-
-    normalized_window = normalize_availability_window(order.availability_window)
-    key: BenchmarkCacheKey = (order.side, order.market_product, order.delivery_point_id, normalized_window)
-    if cache is not None and key in cache:
-        return cache[key]
-
-    filters = [
-        OrderBookOrder.side == order.side,
-        OrderBookOrder.delivery_point_id == order.delivery_point_id,
-        OrderBookOrder.availability_window == normalized_window,
-        OrderBookOrder.status.in_((OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED)),
-        OrderBookOrder.remaining_quantity_mt > 0,
-        _market_product_filter_condition(order.market_product),
-    ]
-    joins: list[tuple[object, object]] = []
-    _apply_public_marketplace_scope(filters, joins, include_off_spec=False)
-
-    weighted_value = func.sum(OrderBookOrder.price_per_mt_usd * OrderBookOrder.remaining_quantity_mt)
-    total_volume = func.sum(OrderBookOrder.remaining_quantity_mt)
-
-    stmt = select(weighted_value.label("weighted_value"), total_volume.label("total_volume"))
-    for join_target, join_cond in joins:
-        stmt = stmt.join(join_target, join_cond)
-    stmt = stmt.where(*filters)
-
-    result = await db.execute(stmt)
-    row = result.one()
-    benchmark_price = None
-    if row.total_volume and row.weighted_value is not None:
-        benchmark_price = (Decimal(row.weighted_value) / Decimal(row.total_volume)).quantize(Decimal("0.01"))
-
-    if cache is not None:
-        cache[key] = benchmark_price
-    return benchmark_price
+    return await get_live_slice_benchmark_price(
+        db,
+        side=order.side,
+        market_product=order.market_product,
+        delivery_point_id=order.delivery_point_id,
+        availability_window=order.availability_window,
+        cache=cache,
+    )
 
 
 async def _benchmark_payload(
     db: AsyncSession,
     order: OrderBookOrder,
     *,
-    cache: dict[BenchmarkCacheKey, Decimal | None] | None = None,
+    cache: dict[LiveBenchmarkKey, Decimal | None] | None = None,
 ) -> dict[str, object]:
     benchmark_price = await _live_slice_benchmark_price(db, order, cache=cache)
     if benchmark_price is None:
@@ -307,7 +281,7 @@ async def _order_response(
     order: OrderBookOrder,
     *,
     is_crossed: bool = False,
-    benchmark_cache: dict[BenchmarkCacheKey, Decimal | None] | None = None,
+    benchmark_cache: dict[LiveBenchmarkKey, Decimal | None] | None = None,
 ) -> OrderResponse:
     payload = OrderResponse.model_validate(order, from_attributes=True).model_copy(
         update={
@@ -322,7 +296,7 @@ async def _order_my_response(
     db: AsyncSession,
     order: OrderBookOrder,
     *,
-    benchmark_cache: dict[BenchmarkCacheKey, Decimal | None] | None = None,
+    benchmark_cache: dict[LiveBenchmarkKey, Decimal | None] | None = None,
 ) -> OrderMyResponse:
     item = OrderMyResponse.model_validate(order, from_attributes=True).model_copy(
         update=await _benchmark_payload(db, order, cache=benchmark_cache)
@@ -451,7 +425,7 @@ async def list_bids(
 
     best_ask_prices = await _load_best_opposing_prices(db, orders, opposing_side=OrderSide.ASK)
 
-    benchmark_cache: dict[BenchmarkCacheKey, Decimal | None] = {}
+    benchmark_cache: dict[LiveBenchmarkKey, Decimal | None] = {}
 
     items = []
     for order in orders:
@@ -533,7 +507,7 @@ async def list_asks(
 
     best_bid_prices = await _load_best_opposing_prices(db, orders, opposing_side=OrderSide.BID)
 
-    benchmark_cache: dict[BenchmarkCacheKey, Decimal | None] = {}
+    benchmark_cache: dict[LiveBenchmarkKey, Decimal | None] = {}
 
     items = []
     for order in orders:
@@ -584,7 +558,7 @@ async def list_orders_with_ci(
     result = await db.execute(query)
     orders = result.unique().scalars().all()
 
-    benchmark_cache: dict[BenchmarkCacheKey, Decimal | None] = {}
+    benchmark_cache: dict[LiveBenchmarkKey, Decimal | None] = {}
 
     enriched = []
     for order in orders:
@@ -631,7 +605,7 @@ async def list_my_orders(
     result = await db.execute(query)
     orders = result.scalars().all()
 
-    benchmark_cache: dict[BenchmarkCacheKey, Decimal | None] = {}
+    benchmark_cache: dict[LiveBenchmarkKey, Decimal | None] = {}
 
     result_list = []
     for order in orders:
@@ -848,7 +822,7 @@ async def list_orders(
     query = query.where(*filters).order_by(OrderBookOrder.created_at.desc())
     result = await db.execute(query)
     orders = result.unique().scalars().all()
-    benchmark_cache: dict[BenchmarkCacheKey, Decimal | None] = {}
+    benchmark_cache: dict[LiveBenchmarkKey, Decimal | None] = {}
     return [await _order_response(db, order, benchmark_cache=benchmark_cache) for order in orders]
 
 
@@ -943,6 +917,7 @@ async def create_order(
         for field, value in _supplier_metadata_payload(order_data).items():
             setattr(new_order, field, value)
 
+    new_order.product = product
     db.add(new_order)
     await db.flush()  # Get the order ID without committing
 
@@ -988,6 +963,14 @@ async def create_order(
     if settings.AUTO_MATCHING_ENABLED:
         from app.services.matching_engine import match_order
         matched_trades = await match_order(db, new_order, is_anonymous=order_data.is_anonymous)
+
+    await rebuild_live_slice_benchmarks_for_keys(
+        db,
+        [
+            (new_order.side, product.market_product, new_order.delivery_point_id, new_order.availability_window),
+            (resting_side, product.market_product, new_order.delivery_point_id, new_order.availability_window),
+        ],
+    )
 
     event_result = await db.execute(
         select(OrderBookOrder)
@@ -1161,10 +1144,23 @@ async def update_order(
             update_dict["status"] = OrderBookStatus.FILLED
 
     before_state = await _watchlist_before_state(db, order)
+    previous_benchmark_key: LiveBenchmarkKey | None = (
+        order.side,
+        order.market_product,
+        order.delivery_point_id,
+        order.availability_window,
+    )
 
     for field, value in update_dict.items():
         setattr(order, field, value)
 
+    await rebuild_live_slice_benchmarks_for_keys(
+        db,
+        [
+            previous_benchmark_key,
+            (order.side, order.market_product, order.delivery_point_id, order.availability_window),
+        ],
+    )
     await emit_order_updated(db, before=before_state, order=order)
 
     await db.commit()
@@ -1217,7 +1213,14 @@ async def cancel_order(
         )
 
     before_state = await _watchlist_before_state(db, order)
+    benchmark_key: LiveBenchmarkKey | None = (
+        order.side,
+        order.market_product,
+        order.delivery_point_id,
+        order.availability_window,
+    )
     order.status = OrderBookStatus.CANCELLED
+    await rebuild_live_slice_benchmarks_for_keys(db, [benchmark_key])
     await emit_order_updated(db, before=before_state, order=order)
     await db.commit()
 

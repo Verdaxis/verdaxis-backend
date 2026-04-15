@@ -26,6 +26,7 @@ from app.schemas.pagination import PaginatedResponse
 from app.services.event_bus import event_bus
 from app.services.watchlist_events import _best_slice_price, emit_order_updated
 from app.services.execution_policy import order_is_execution_qualified
+from app.services.live_benchmarks import rebuild_live_slice_benchmarks_for_keys
 
 router = APIRouter(prefix="/trades", tags=["trades"])
 
@@ -126,8 +127,8 @@ async def _load_trade(db: AsyncSession, trade_id: uuid.UUID, for_update: bool = 
         .options(
             selectinload(Trade.buyer),
             selectinload(Trade.seller),
-            selectinload(Trade.bid_order),
-            selectinload(Trade.ask_order),
+            selectinload(Trade.bid_order).selectinload(OrderBookOrder.product),
+            selectinload(Trade.ask_order).selectinload(OrderBookOrder.product),
         )
     )
     if for_update:
@@ -174,6 +175,7 @@ async def create_trade(
     # Lock the target order row to prevent concurrent over-fills.
     stmt = (
         select(OrderBookOrder)
+        .options(selectinload(OrderBookOrder.product))
         .where(OrderBookOrder.id == payload.order_id)
         .with_for_update()
     )
@@ -255,6 +257,11 @@ async def create_trade(
         order.status = OrderBookStatus.FILLED
     elif order.status == OrderBookStatus.OPEN:
         order.status = OrderBookStatus.PARTIALLY_FILLED
+
+    await rebuild_live_slice_benchmarks_for_keys(
+        db,
+        [(order.side, order.market_product, order.delivery_point_id, order.availability_window)],
+    )
 
     # Flush to get the trade id
     await db.flush()
@@ -440,6 +447,10 @@ async def decline_trade(
             order.status = OrderBookStatus.OPEN
         else:
             order.status = OrderBookStatus.PARTIALLY_FILLED
+        await rebuild_live_slice_benchmarks_for_keys(
+            db,
+            [(order.side, order.market_product, order.delivery_point_id, order.availability_window)],
+        )
         if before_state is not None:
             await emit_order_updated(db, before=before_state, order=order)
 
