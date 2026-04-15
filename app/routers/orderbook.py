@@ -27,7 +27,7 @@ from app.services.availability_windows import normalize_availability_window
 from pydantic import BaseModel
 from app.services.benchmarks import compute_premium_discount
 from app.services.watchlist_events import emit_order_created, emit_order_updated, emit_pin_updated, emit_slice_state_changed, _best_slice_price
-from app.services.execution_policy import normalize_certification_scheme, order_is_execution_qualified
+from app.services.execution_policy import normalize_certification_scheme
 
 router = APIRouter(prefix="/orderbook", tags=["orderbook"])
 
@@ -259,17 +259,19 @@ async def _live_slice_benchmark_price(
     joins: list[tuple[object, object]] = []
     _apply_public_marketplace_scope(filters, joins, include_off_spec=False)
 
-    stmt = select(OrderBookOrder).options(selectinload(OrderBookOrder.product))
+    weighted_value = func.sum(OrderBookOrder.price_per_mt_usd * OrderBookOrder.remaining_quantity_mt)
+    total_volume = func.sum(OrderBookOrder.remaining_quantity_mt)
+
+    stmt = select(weighted_value.label("weighted_value"), total_volume.label("total_volume"))
     for join_target, join_cond in joins:
         stmt = stmt.join(join_target, join_cond)
     stmt = stmt.where(*filters)
 
     result = await db.execute(stmt)
-    candidates = result.unique().scalars().all()
-    qualified_prices = [candidate.price_per_mt_usd for candidate in candidates if order_is_execution_qualified(candidate)]
+    row = result.one()
     benchmark_price = None
-    if qualified_prices:
-        benchmark_price = (sum(qualified_prices, Decimal("0.00")) / Decimal(len(qualified_prices))).quantize(Decimal("0.01"))
+    if row.total_volume and row.weighted_value is not None:
+        benchmark_price = (Decimal(row.weighted_value) / Decimal(row.total_volume)).quantize(Decimal("0.01"))
 
     if cache is not None:
         cache[key] = benchmark_price
@@ -296,7 +298,7 @@ async def _benchmark_payload(
             listing_price_per_mt_usd=order.price_per_mt_usd,
             benchmark_price_per_mt_usd=benchmark_price,
         ),
-        "benchmark_source": f"live_slice_{order.side.value.lower()}_avg",
+        "benchmark_source": f"live_slice_{order.side.value.lower()}_vwap",
     }
 
 

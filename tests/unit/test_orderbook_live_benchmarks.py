@@ -103,14 +103,14 @@ def _make_order(*, org_id, side: OrderSide, product_id, delivery_point_id, price
 
 class TestLiveSliceBenchmarks:
     @pytest.mark.asyncio
-    async def test_ask_benchmark_uses_same_slice_average(self, db: AsyncSession):
+    async def test_ask_benchmark_uses_same_slice_vwap(self, db: AsyncSession):
         supplier = await _make_org(db, 'Supplier')
         singapore = await _make_delivery_point(db, 'Singapore', 'Asia')
         methanol = await _make_product(db, name='Bio Methanol', fuel_type='Methanol', fuel_grade='Bio')
 
         db.add_all([
-            _make_order(org_id=supplier.id, side=OrderSide.ASK, product_id=methanol.id, delivery_point_id=singapore.id, price='1027'),
-            _make_order(org_id=supplier.id, side=OrderSide.ASK, product_id=methanol.id, delivery_point_id=singapore.id, price='1045'),
+            _make_order(org_id=supplier.id, side=OrderSide.ASK, product_id=methanol.id, delivery_point_id=singapore.id, price='1027', quantity='500'),
+            _make_order(org_id=supplier.id, side=OrderSide.ASK, product_id=methanol.id, delivery_point_id=singapore.id, price='1045', quantity='1500'),
         ])
         await db.commit()
 
@@ -128,21 +128,21 @@ class TestLiveSliceBenchmarks:
 
         assert result.total == 2
         by_price = {item.price_per_mt_usd: item for item in result.items}
-        assert by_price[Decimal('1027.00')].benchmark_price_per_mt_usd == Decimal('1036.00')
-        assert by_price[Decimal('1045.00')].benchmark_price_per_mt_usd == Decimal('1036.00')
-        assert by_price[Decimal('1027.00')].premium_discount_per_mt_usd == Decimal('-9.00')
-        assert by_price[Decimal('1045.00')].premium_discount_per_mt_usd == Decimal('9.00')
-        assert all(item.benchmark_source == 'live_slice_ask_avg' for item in result.items)
+        assert by_price[Decimal('1027.00')].benchmark_price_per_mt_usd == Decimal('1040.50')
+        assert by_price[Decimal('1045.00')].benchmark_price_per_mt_usd == Decimal('1040.50')
+        assert by_price[Decimal('1027.00')].premium_discount_per_mt_usd == Decimal('-13.50')
+        assert by_price[Decimal('1045.00')].premium_discount_per_mt_usd == Decimal('4.50')
+        assert all(item.benchmark_source == 'live_slice_ask_vwap' for item in result.items)
 
     @pytest.mark.asyncio
-    async def test_bid_benchmark_uses_same_slice_average(self, db: AsyncSession):
+    async def test_bid_benchmark_uses_same_slice_vwap(self, db: AsyncSession):
         buyer = await _make_org(db, 'Buyer')
         singapore = await _make_delivery_point(db, 'Singapore', 'Asia')
         methanol = await _make_product(db, name='Bio Methanol', fuel_type='Methanol', fuel_grade='Bio')
 
         db.add_all([
-            _make_order(org_id=buyer.id, side=OrderSide.BID, product_id=methanol.id, delivery_point_id=singapore.id, price='1000'),
-            _make_order(org_id=buyer.id, side=OrderSide.BID, product_id=methanol.id, delivery_point_id=singapore.id, price='1040'),
+            _make_order(org_id=buyer.id, side=OrderSide.BID, product_id=methanol.id, delivery_point_id=singapore.id, price='1000', quantity='500'),
+            _make_order(org_id=buyer.id, side=OrderSide.BID, product_id=methanol.id, delivery_point_id=singapore.id, price='1040', quantity='1500'),
         ])
         await db.commit()
 
@@ -160,8 +160,8 @@ class TestLiveSliceBenchmarks:
 
         assert result.total == 2
         by_price = {item.price_per_mt_usd: item for item in result.items}
-        assert by_price[Decimal('1000.00')].benchmark_price_per_mt_usd == Decimal('1020.00')
-        assert by_price[Decimal('1040.00')].benchmark_price_per_mt_usd == Decimal('1020.00')
-        assert by_price[Decimal('1000.00')].premium_discount_per_mt_usd == Decimal('-20.00')
-        assert by_price[Decimal('1040.00')].premium_discount_per_mt_usd == Decimal('20.00')
-        assert all(item.benchmark_source == 'live_slice_bid_avg' for item in result.items)
+        assert by_price[Decimal('1000.00')].benchmark_price_per_mt_usd == Decimal('1030.00')
+        assert by_price[Decimal('1040.00')].benchmark_price_per_mt_usd == Decimal('1030.00')
+        assert by_price[Decimal('1000.00')].premium_discount_per_mt_usd == Decimal('-30.00')
+        assert by_price[Decimal('1040.00')].premium_discount_per_mt_usd == Decimal('10.00')
+        assert all(item.benchmark_source == 'live_slice_bid_vwap' for item in result.items)
