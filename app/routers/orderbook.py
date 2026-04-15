@@ -25,9 +25,9 @@ from app.services.ci_pricing import calculate_ci_adjusted_price
 from app.services.event_bus import event_bus
 from app.services.availability_windows import normalize_availability_window
 from pydantic import BaseModel
-from app.services.benchmarks import compute_premium_discount, get_benchmark_quote
+from app.services.benchmarks import compute_premium_discount
 from app.services.watchlist_events import emit_order_created, emit_order_updated, emit_pin_updated, emit_slice_state_changed, _best_slice_price
-from app.services.execution_policy import normalize_certification_scheme
+from app.services.execution_policy import normalize_certification_scheme, order_is_execution_qualified
 
 router = APIRouter(prefix="/orderbook", tags=["orderbook"])
 
@@ -55,6 +55,9 @@ REQUIRED_ASK_METADATA_FIELDS = (
     "feedstock",
     "origin",
 )
+
+
+BenchmarkCacheKey = tuple[OrderSide, str, UUID, str]
 
 
 def _ensure_join(joins: list[tuple[object, object]], target: object, condition: object) -> None:
@@ -231,21 +234,56 @@ def _require_supplier_metadata(
         )
 
 
-async def _benchmark_payload(db: AsyncSession, order: OrderBookOrder) -> dict[str, object]:
-    if order.off_spec:
-        return {
-            "benchmark_price_per_mt_usd": None,
-            "premium_discount_per_mt_usd": None,
-            "benchmark_source": None,
-        }
+async def _live_slice_benchmark_price(
+    db: AsyncSession,
+    order: OrderBookOrder,
+    *,
+    cache: dict[BenchmarkCacheKey, Decimal | None] | None = None,
+) -> Decimal | None:
+    if order.off_spec or order.delivery_point_id is None or not order.market_product:
+        return None
 
-    quote = await get_benchmark_quote(
-        db,
-        market_product=order.market_product,
-        delivery_point_id=order.delivery_point_id,
-        availability_window=order.availability_window,
-    )
-    if quote is None:
+    normalized_window = normalize_availability_window(order.availability_window)
+    key: BenchmarkCacheKey = (order.side, order.market_product, order.delivery_point_id, normalized_window)
+    if cache is not None and key in cache:
+        return cache[key]
+
+    filters = [
+        OrderBookOrder.side == order.side,
+        OrderBookOrder.delivery_point_id == order.delivery_point_id,
+        OrderBookOrder.availability_window == normalized_window,
+        OrderBookOrder.status.in_((OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED)),
+        OrderBookOrder.remaining_quantity_mt > 0,
+        _market_product_filter_condition(order.market_product),
+    ]
+    joins: list[tuple[object, object]] = []
+    _apply_public_marketplace_scope(filters, joins, include_off_spec=False)
+
+    stmt = select(OrderBookOrder).options(selectinload(OrderBookOrder.product))
+    for join_target, join_cond in joins:
+        stmt = stmt.join(join_target, join_cond)
+    stmt = stmt.where(*filters)
+
+    result = await db.execute(stmt)
+    candidates = result.unique().scalars().all()
+    qualified_prices = [candidate.price_per_mt_usd for candidate in candidates if order_is_execution_qualified(candidate)]
+    benchmark_price = None
+    if qualified_prices:
+        benchmark_price = (sum(qualified_prices, Decimal("0.00")) / Decimal(len(qualified_prices))).quantize(Decimal("0.01"))
+
+    if cache is not None:
+        cache[key] = benchmark_price
+    return benchmark_price
+
+
+async def _benchmark_payload(
+    db: AsyncSession,
+    order: OrderBookOrder,
+    *,
+    cache: dict[BenchmarkCacheKey, Decimal | None] | None = None,
+) -> dict[str, object]:
+    benchmark_price = await _live_slice_benchmark_price(db, order, cache=cache)
+    if benchmark_price is None:
         return {
             "benchmark_price_per_mt_usd": None,
             "premium_discount_per_mt_usd": None,
@@ -253,28 +291,39 @@ async def _benchmark_payload(db: AsyncSession, order: OrderBookOrder) -> dict[st
         }
 
     return {
-        "benchmark_price_per_mt_usd": quote.benchmark_price_per_mt_usd,
+        "benchmark_price_per_mt_usd": benchmark_price,
         "premium_discount_per_mt_usd": compute_premium_discount(
             listing_price_per_mt_usd=order.price_per_mt_usd,
-            benchmark_price_per_mt_usd=quote.benchmark_price_per_mt_usd,
+            benchmark_price_per_mt_usd=benchmark_price,
         ),
-        "benchmark_source": quote.source,
+        "benchmark_source": f"live_slice_{order.side.value.lower()}_avg",
     }
 
 
-async def _order_response(db: AsyncSession, order: OrderBookOrder, *, is_crossed: bool = False) -> OrderResponse:
+async def _order_response(
+    db: AsyncSession,
+    order: OrderBookOrder,
+    *,
+    is_crossed: bool = False,
+    benchmark_cache: dict[BenchmarkCacheKey, Decimal | None] | None = None,
+) -> OrderResponse:
     payload = OrderResponse.model_validate(order, from_attributes=True).model_copy(
         update={
             "is_crossed": is_crossed,
-            **(await _benchmark_payload(db, order)),
+            **(await _benchmark_payload(db, order, cache=benchmark_cache)),
         }
     )
     return payload
 
 
-async def _order_my_response(db: AsyncSession, order: OrderBookOrder) -> OrderMyResponse:
+async def _order_my_response(
+    db: AsyncSession,
+    order: OrderBookOrder,
+    *,
+    benchmark_cache: dict[BenchmarkCacheKey, Decimal | None] | None = None,
+) -> OrderMyResponse:
     item = OrderMyResponse.model_validate(order, from_attributes=True).model_copy(
-        update=await _benchmark_payload(db, order)
+        update=await _benchmark_payload(db, order, cache=benchmark_cache)
     )
     if order.side == OrderSide.BID:
         item.trade_count = len(order.bid_trades)
@@ -400,6 +449,8 @@ async def list_bids(
 
     best_ask_prices = await _load_best_opposing_prices(db, orders, opposing_side=OrderSide.ASK)
 
+    benchmark_cache: dict[BenchmarkCacheKey, Decimal | None] = {}
+
     items = []
     for order in orders:
         items.append(
@@ -411,6 +462,7 @@ async def list_bids(
                     order.price_per_mt_usd,
                     best_ask_prices.get(_order_key(order)),
                 ),
+                benchmark_cache=benchmark_cache,
             )
         )
 
@@ -479,6 +531,8 @@ async def list_asks(
 
     best_bid_prices = await _load_best_opposing_prices(db, orders, opposing_side=OrderSide.BID)
 
+    benchmark_cache: dict[BenchmarkCacheKey, Decimal | None] = {}
+
     items = []
     for order in orders:
         items.append(
@@ -490,6 +544,7 @@ async def list_asks(
                     order.price_per_mt_usd,
                     best_bid_prices.get(_order_key(order)),
                 ),
+                benchmark_cache=benchmark_cache,
             )
         )
 
@@ -527,6 +582,8 @@ async def list_orders_with_ci(
     result = await db.execute(query)
     orders = result.unique().scalars().all()
 
+    benchmark_cache: dict[BenchmarkCacheKey, Decimal | None] = {}
+
     enriched = []
     for order in orders:
         ci_price = None
@@ -536,7 +593,7 @@ async def list_orders_with_ci(
                 carbon_intensity_gco2_mj=order.carbon_intensity_gco2_mj,
                 energy_density_mj_kg=order.energy_density_mj_kg,
             )
-        base_resp = await _order_response(db, order)
+        base_resp = await _order_response(db, order, benchmark_cache=benchmark_cache)
         resp = OrderResponseWithCI.model_validate(base_resp.model_dump())
         resp.ci_adjusted_price = ci_price
         enriched.append(resp)
@@ -572,9 +629,11 @@ async def list_my_orders(
     result = await db.execute(query)
     orders = result.scalars().all()
 
+    benchmark_cache: dict[BenchmarkCacheKey, Decimal | None] = {}
+
     result_list = []
     for order in orders:
-        result_list.append(await _order_my_response(db, order))
+        result_list.append(await _order_my_response(db, order, benchmark_cache=benchmark_cache))
 
     return result_list
 
@@ -787,7 +846,8 @@ async def list_orders(
     query = query.where(*filters).order_by(OrderBookOrder.created_at.desc())
     result = await db.execute(query)
     orders = result.unique().scalars().all()
-    return [await _order_response(db, order) for order in orders]
+    benchmark_cache: dict[BenchmarkCacheKey, Decimal | None] = {}
+    return [await _order_response(db, order, benchmark_cache=benchmark_cache) for order in orders]
 
 
 @router.post("", response_model=OrderResponse, status_code=status.HTTP_201_CREATED)

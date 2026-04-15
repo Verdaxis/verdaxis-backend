@@ -106,6 +106,11 @@ def _make_order(
         created_at=datetime.now(UTC),
         certification_scheme=certification_scheme,
         certification_declared=certification_declared,
+        specification_standard='ISO 8217',
+        msds_available=True,
+        carbon_intensity_gco2_mj=Decimal('18.50'),
+        feedstock='Waste biomass',
+        origin='Singapore',
     )
 
 
