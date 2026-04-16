@@ -130,8 +130,8 @@ DEMO_ACCOUNT_TRADE_CONFIGS = [
     ("Bio Methanol", "Rotterdam", SPOT_WINDOW, Decimal("750"), Decimal("602.00"), TradeStatus.PENDING_CONFIRMATION, Initiator.SELLER, 2),
     ("e-Methanol", "Singapore", "2026-06", Decimal("1500"), Decimal("1184.00"), TradeStatus.CONFIRMED, Initiator.BUYER, 4),
     ("Bio Ethanol", "Shanghai", "2026-05", Decimal("1200"), Decimal("668.00"), TradeStatus.CONFIRMED, Initiator.SELLER, 5),
-    ("Synthetic Ethanol", "Amsterdam", "2026-05", Decimal("900"), Decimal("709.50"), TradeStatus.DELIVERED, Initiator.SELLER, 8),
-    ("Bio Methanol", "Antwerp", "2026-Q3", Decimal("1800"), Decimal("608.00"), TradeStatus.PAID, Initiator.BUYER, 15),
+    ("Synthetic Ethanol", "Amsterdam", "2026-05", Decimal("900"), Decimal("709.50"), TradeStatus.CONFIRMED, Initiator.SELLER, 8),
+    ("Bio Methanol", "Antwerp", "2026-Q3", Decimal("1800"), Decimal("608.00"), TradeStatus.CONFIRMED, Initiator.BUYER, 15),
 ]
 
 def build_seed_windows(reference_date: date | None = None, *, quarter_count: int = 6) -> list[str]:

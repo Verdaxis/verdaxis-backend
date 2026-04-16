@@ -8,7 +8,28 @@ from app.database import get_db
 from app.routers.auth_simple import get_current_user
 from app.models.user import User
 from app.models.alerts import PriceAlert
+from app.models.catalog import Product
 from app.schemas.alerts import AlertCreate, AlertResponse
+
+
+def _serialize_alert(alert: PriceAlert, product: Product | None = None) -> AlertResponse:
+    resolved_product = product
+    if resolved_product is None:
+        resolved_product = getattr(alert, "product", None)
+
+    return AlertResponse(
+        id=alert.id,
+        org_id=alert.org_id,
+        product_id=alert.product_id,
+        product_name=getattr(resolved_product, "name", None),
+        market_product=getattr(resolved_product, "market_product", None),
+        delivery_point_id=alert.delivery_point_id,
+        direction=alert.direction,
+        threshold_usd=alert.threshold_usd,
+        is_active=alert.is_active,
+        triggered_at=alert.triggered_at,
+        created_at=alert.created_at,
+    )
 
 router = APIRouter(prefix="/alerts", tags=["alerts"])
 
@@ -51,7 +72,8 @@ async def create_alert(
     db.add(alert)
     await db.commit()
     await db.refresh(alert)
-    return alert
+    product = await db.get(Product, alert.product_id)
+    return _serialize_alert(alert, product)
 
 
 async def list_alerts(
@@ -65,11 +87,12 @@ async def list_alerts(
         )
 
     result = await db.execute(
-        select(PriceAlert)
+        select(PriceAlert, Product)
+        .outerjoin(Product, Product.id == PriceAlert.product_id)
         .where(PriceAlert.org_id == current_user.organization_id)
         .order_by(PriceAlert.created_at.desc())
     )
-    return result.scalars().all()
+    return [_serialize_alert(alert, product) for alert, product in result.all()]
 
 
 async def delete_alert(

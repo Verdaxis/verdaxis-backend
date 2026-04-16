@@ -6,6 +6,7 @@ from datetime import datetime
 from typing import Optional
 
 
+
 class AlertCreate(BaseModel):
     product_id: UUID
     delivery_point_id: Optional[UUID] = None
@@ -31,6 +32,8 @@ class AlertResponse(BaseModel):
     id: UUID
     org_id: UUID
     product_id: UUID
+    product_name: Optional[str] = None
+    market_product: Optional[str] = None
     delivery_point_id: Optional[UUID]
     direction: str
     threshold_usd: Decimal

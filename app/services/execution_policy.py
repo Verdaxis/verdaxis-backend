@@ -29,8 +29,26 @@ def orders_execution_compatible(left: OrderBookOrder, right: OrderBookOrder) -> 
     if not order_is_execution_qualified(left) or not order_is_execution_qualified(right):
         return False
 
-    left_scheme = normalize_certification_scheme(left.certification_scheme)
-    right_scheme = normalize_certification_scheme(right.certification_scheme)
-    if left_scheme is None or right_scheme is None:
+    bid_order = left if getattr(left, "side", None) == OrderSide.BID else right
+    ask_order = right if bid_order is left else left
+
+    ask_scheme = normalize_certification_scheme(ask_order.certification_scheme)
+    if ask_scheme is None:
         return True
-    return left_scheme == right_scheme
+
+    bid_certifications = [
+        normalized
+        for normalized in (
+            normalize_certification_scheme(value)
+            for value in getattr(bid_order, "certifications", []) or []
+        )
+        if normalized is not None
+    ]
+    if bid_certifications:
+        return ask_scheme in set(bid_certifications)
+
+    bid_scheme = normalize_certification_scheme(bid_order.certification_scheme)
+    if bid_scheme is None:
+        return True
+
+    return bid_scheme == ask_scheme

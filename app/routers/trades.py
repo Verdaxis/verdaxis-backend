@@ -41,7 +41,7 @@ def build_trade_response(trade: Trade) -> TradeResponse:
 
     buyer_name = trade.buyer.name if trade.buyer else ""
     seller_name = trade.seller.name if trade.seller else ""
-    if trade.is_anonymous:
+    if trade.is_anonymous and trade.status == TradeStatus.PENDING_CONFIRMATION:
         buyer_name = "Anonymous"
         seller_name = "Anonymous"
 

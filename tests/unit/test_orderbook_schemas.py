@@ -166,6 +166,18 @@ class TestOrderCreate:
         )
         assert order.certification_scheme is None
 
+
+    def test_certifications_are_trimmed_and_deduped(self):
+        order = OrderCreate(
+            side=OrderSide.BID,
+            product_id=uuid4(),
+            delivery_point_id=uuid4(),
+            quantity_mt=Decimal('1000'),
+            price_per_mt_usd=Decimal('550'),
+            certifications=[' ISCC EU ', 'REDcert EU', 'ISCC EU', ''],
+        )
+        assert order.certifications == ['ISCC EU', 'REDcert EU']
+
     def test_ask_can_omit_declaration_in_schema_but_is_checked_in_router(self):
         order = OrderCreate(
             side=OrderSide.ASK,

@@ -1,13 +1,14 @@
 """Unit tests for orderbook router guardrails."""
 import pytest
 from decimal import Decimal
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, Mock
 from uuid import uuid4
 
 from fastapi import HTTPException
 
 from app.models.user import UserRole
 from app.routers.orderbook import create_order, latest_supplier_listing_template
+from app.models.orderbook import OrderBookOrder
 from app.schemas.orderbook import OrderCreate, OrderSide
 
 
@@ -81,6 +82,45 @@ class TestCreateOrder:
 
         assert exc_info.value.status_code == 400
         assert "off_spec" in exc_info.value.detail
+
+
+    @pytest.mark.asyncio
+    async def test_bid_persists_certification_preferences(self):
+        product_id = uuid4()
+        delivery_point_id = uuid4()
+        product = MagicMock(id=product_id, market_product='BIO_METHANOL')
+        delivery_point = MagicMock(id=delivery_point_id)
+
+        product_result = MagicMock()
+        product_result.scalars.return_value.first.return_value = product
+        delivery_point_result = MagicMock()
+        delivery_point_result.scalars.return_value.first.return_value = delivery_point
+
+        captured: list[OrderBookOrder] = []
+        db = AsyncMock()
+        db.execute.side_effect = [product_result, delivery_point_result]
+        db.add = Mock(side_effect=lambda obj: captured.append(obj))
+        db.flush.side_effect = RuntimeError('stop-after-add')
+
+        order = OrderCreate(
+            side=OrderSide.BID,
+            product_id=product_id,
+            delivery_point_id=delivery_point_id,
+            quantity_mt=Decimal('1000'),
+            price_per_mt_usd=Decimal('550'),
+            certifications=[' ISCC EU ', 'REDcert EU', 'ISCC EU'],
+        )
+
+        with pytest.raises(RuntimeError, match='stop-after-add'):
+            await create_order(
+                order_data=order,
+                current_user=_make_buyer_user(),
+                db=db,
+            )
+
+        assert captured
+        assert captured[0].certification_scheme is None
+        assert captured[0].certifications == ['ISCC EU', 'REDcert EU']
 
     @pytest.mark.asyncio
     async def test_ask_requires_certification_declaration(self):

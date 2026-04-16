@@ -105,6 +105,15 @@ class OrderCreate(AvailabilityWindowMixin, SupplierListingMetadataMixin):
 
     @model_validator(mode="after")
     def validate_execution_qualifiers(self):
+        seen: set[str] = set()
+        normalized_certifications: list[str] = []
+        for certification in self.certifications:
+            normalized = certification.strip()
+            if not normalized or normalized in seen:
+                continue
+            seen.add(normalized)
+            normalized_certifications.append(normalized)
+        self.certifications = normalized_certifications
         if self.certification_scheme is not None:
             self.certification_scheme = self.certification_scheme.strip() or None
         return self

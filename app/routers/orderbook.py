@@ -912,8 +912,9 @@ async def create_order(
         certification_scheme=normalized_certification_scheme,
     )
 
+    new_order.certifications = list(order_data.certifications)
+
     if order_data.side == OrderSide.ASK:
-        new_order.certifications = order_data.certifications
         for field, value in _supplier_metadata_payload(order_data).items():
             setattr(new_order, field, value)
 

@@ -255,6 +255,24 @@ class TestBasicMatching:
         assert bid.status == OrderBookStatus.OPEN
         assert ask.status == OrderBookStatus.OPEN
 
+
+    @pytest.mark.asyncio
+    async def test_bid_certification_preferences_match_allowed_ask_schemes(self, db, buyer_org, seller_org, org_buyer_id, org_seller_id, test_product, test_dp):
+        ask = _make_order(org_seller_id, OrderSide.ASK, price=Decimal('550.00'), certification_scheme='REDCERT EU')
+        db.add(ask)
+        await db.flush()
+
+        bid = _make_order(org_buyer_id, OrderSide.BID, price=Decimal('560.00'), certification_scheme=None)
+        bid.certifications = ['ISCC EU', 'REDcert EU']
+        db.add(bid)
+        await db.flush()
+
+        trades = await match_order(db, bid)
+
+        assert len(trades) == 1
+        assert ask.status == OrderBookStatus.FILLED
+        assert bid.status == OrderBookStatus.FILLED
+
     @pytest.mark.asyncio
     async def test_bid_without_certification_scheme_matches_any_qualified_ask(self, db, buyer_org, seller_org, org_buyer_id, org_seller_id, test_product, test_dp):
         ask = _make_order(org_seller_id, OrderSide.ASK, price=Decimal("550.00"))
