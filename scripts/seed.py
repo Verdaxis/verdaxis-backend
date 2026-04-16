@@ -1,3 +1,4 @@
+import argparse
 import asyncio
 import logging
 
@@ -8,10 +9,21 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Seed Verdaxis catalog and market data")
+    parser.add_argument(
+        '--reset-market',
+        action='store_true',
+        help='Clear and reseed market data so the demo state is reset for a fresh recording run.',
+    )
+    return parser.parse_args()
+
+
 async def main() -> None:
+    args = parse_args()
     logger.info("Running catalog + market seeds...")
     async with AsyncSessionLocal() as db:
-        await seed_all(db)
+        await seed_all(db, force_reset_market=args.reset_market)
         await db.commit()
     logger.info("Seed complete.")
 

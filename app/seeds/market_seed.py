@@ -106,6 +106,34 @@ CI_DATA: dict[str, tuple[float, float, float]] = {
 
 CERTIFICATION_SCHEMES = ("ISCC EU", "ISCC PLUS", "REDcert EU")
 
+DEMO_BUYER_ORG_ID = uuid.UUID("acc3f20a-fe94-4463-9029-a55e35634eb7")
+DEMO_SELLER_ORG_ID = uuid.UUID("c9c1ccbf-66fe-4a1b-b171-fe4f7ddc31a4")
+
+DEMO_SLICE_DEPTH_BIDS = [
+    (0, Decimal("5000"), Decimal("5000"), Decimal("1048.00"), OrderBookStatus.OPEN),
+    (1, Decimal("3500"), Decimal("3500"), Decimal("1045.00"), OrderBookStatus.OPEN),
+    (2, Decimal("2500"), Decimal("2000"), Decimal("1041.00"), OrderBookStatus.PARTIALLY_FILLED),
+    (3, Decimal("2000"), Decimal("2000"), Decimal("1036.00"), OrderBookStatus.OPEN),
+    (4, Decimal("1500"), Decimal("1000"), Decimal("1032.00"), OrderBookStatus.PARTIALLY_FILLED),
+]
+
+DEMO_SLICE_DEPTH_ASKS = [
+    (0, Decimal("4000"), Decimal("4000"), Decimal("1056.00"), OrderBookStatus.OPEN),
+    (1, Decimal("3000"), Decimal("3000"), Decimal("1061.00"), OrderBookStatus.OPEN),
+    (2, Decimal("2500"), Decimal("1800"), Decimal("1067.00"), OrderBookStatus.PARTIALLY_FILLED),
+    (3, Decimal("2000"), Decimal("2000"), Decimal("1074.00"), OrderBookStatus.OPEN),
+    (4, Decimal("1500"), Decimal("1200"), Decimal("1082.00"), OrderBookStatus.PARTIALLY_FILLED),
+]
+
+DEMO_ACCOUNT_TRADE_CONFIGS = [
+    ("Bio Methanol", "Singapore", SPOT_WINDOW, Decimal("500"), Decimal("1056.00"), TradeStatus.PENDING_CONFIRMATION, Initiator.BUYER, 1),
+    ("Bio Methanol", "Rotterdam", SPOT_WINDOW, Decimal("750"), Decimal("602.00"), TradeStatus.PENDING_CONFIRMATION, Initiator.SELLER, 2),
+    ("e-Methanol", "Singapore", "2026-06", Decimal("1500"), Decimal("1184.00"), TradeStatus.CONFIRMED, Initiator.BUYER, 4),
+    ("Bio Ethanol", "Shanghai", "2026-05", Decimal("1200"), Decimal("668.00"), TradeStatus.CONFIRMED, Initiator.SELLER, 5),
+    ("Synthetic Ethanol", "Amsterdam", "2026-05", Decimal("900"), Decimal("709.50"), TradeStatus.DELIVERED, Initiator.SELLER, 8),
+    ("Bio Methanol", "Antwerp", "2026-Q3", Decimal("1800"), Decimal("608.00"), TradeStatus.PAID, Initiator.BUYER, 15),
+]
+
 def build_seed_windows(reference_date: date | None = None, *, quarter_count: int = 6) -> list[str]:
     current = reference_date or date.today()
     current_quarter = ((current.month - 1) // 3) + 1
@@ -295,21 +323,37 @@ def _orders_share_executable_slice(bid: OrderBookOrder, ask: OrderBookOrder) -> 
         and normalize_certification_scheme(bid.certification_scheme) == normalize_certification_scheme(ask.certification_scheme)
     )
 
+
+def _demo_trade_timestamps(
+    *,
+    reference_now: datetime,
+    status: TradeStatus,
+    days_ago: int,
+) -> tuple[datetime, datetime | None, datetime | None, datetime | None]:
+    created = reference_now - timedelta(days=days_ago, hours=3)
+    confirmed = created + timedelta(hours=6) if status in (TradeStatus.CONFIRMED, TradeStatus.DELIVERED, TradeStatus.PAID) else None
+    delivered = confirmed + timedelta(days=2) if confirmed and status in (TradeStatus.DELIVERED, TradeStatus.PAID) else None
+    paid = delivered + timedelta(days=3) if delivered and status == TradeStatus.PAID else None
+    return _clamp_trade_timeline(created, confirmed, delivered, paid, reference_now)
+
 # ---------------------------------------------------------------------------
 # Core seed function
 # ---------------------------------------------------------------------------
 
-async def seed_market_data(db: AsyncSession) -> None:
-    """Seed realistic market data. Idempotent — skips if sentinel exists."""
+async def seed_market_data(db: AsyncSession, *, force_reset: bool = False) -> None:
+    """Seed realistic market data. Idempotent unless force_reset is requested."""
 
     # Check sentinel
     existing = (await db.execute(
         select(OrderBookOrder.id).where(OrderBookOrder.id == _SENTINEL_ID)
     )).scalar_one_or_none()
 
-    if existing is not None:
+    if existing is not None and not force_reset:
         print("[market_seed] Sentinel found — already seeded, skipping.")
         return
+
+    if existing is not None and force_reset:
+        print("[market_seed] Sentinel found — force reset requested, reseeding market data.")
 
     # ------------------------------------------------------------------
     # Step 0: Clear old test data (reverse FK order)
@@ -912,63 +956,152 @@ async def seed_market_data(db: AsyncSession) -> None:
     await db.flush()
     print(f"[market_seed] Created {rfqs_created} RFQs.")
 
+    # ------------------------------------------------------------------
+    # Step 4b: Add explicit demo depth for Bio Methanol / Singapore / Spot
+    # using only non-demo organizations so the recording accounts stay clean.
+    # ------------------------------------------------------------------
+    print("[market_seed] Creating explicit Bio Methanol / Singapore / Spot depth...")
+
+    demo_depth_created = 0
+    demo_product_name = "Bio Methanol"
+    demo_port_name = "Singapore"
+    demo_product_id = PRODUCT_IDS[demo_product_name]
+    demo_delivery_point_id = DELIVERY_POINT_IDS[demo_port_name]
+    demo_certification_scheme = _slice_certification_scheme(demo_product_name, demo_port_name, SPOT_WINDOW)
+    demo_ci_lo, demo_ci_hi, demo_energy_density = CI_DATA[demo_product_name]
+
+    for org_index, quantity_mt, remaining_quantity_mt, price_per_mt_usd, status in DEMO_SLICE_DEPTH_BIDS:
+        created = reference_now - timedelta(hours=12 + demo_depth_created)
+        bid_metadata = bid_seed_metadata(demo_certification_scheme)
+        order = OrderBookOrder(
+            id=uuid.uuid4(),
+            organization_id=BUYER_ORGS[org_index % len(BUYER_ORGS)]["id"],
+            side=OrderSide.BID,
+            product_id=demo_product_id,
+            delivery_point_id=demo_delivery_point_id,
+            quantity_mt=quantity_mt,
+            remaining_quantity_mt=remaining_quantity_mt,
+            price_per_mt_usd=price_per_mt_usd,
+            availability_window=SPOT_WINDOW,
+            certification_scheme=bid_metadata["certification_scheme"],
+            status=status,
+            created_at=created,
+            updated_at=created,
+        )
+        db.add(order)
+        demo_depth_created += 1
+
+    for org_index, quantity_mt, remaining_quantity_mt, price_per_mt_usd, status in DEMO_SLICE_DEPTH_ASKS:
+        created = reference_now - timedelta(hours=12 + demo_depth_created)
+        ask_metadata = ask_seed_metadata(demo_certification_scheme)
+        order = OrderBookOrder(
+            id=uuid.uuid4(),
+            organization_id=SUPPLIER_ORGS[org_index % len(SUPPLIER_ORGS)]["id"],
+            side=OrderSide.ASK,
+            product_id=demo_product_id,
+            delivery_point_id=demo_delivery_point_id,
+            quantity_mt=quantity_mt,
+            remaining_quantity_mt=remaining_quantity_mt,
+            price_per_mt_usd=price_per_mt_usd,
+            availability_window=SPOT_WINDOW,
+            status=status,
+            certifications=ask_metadata["certifications"],
+            certification_declared=ask_metadata["certification_declared"],
+            certification_scheme=ask_metadata["certification_scheme"],
+            specification_standard=ask_metadata["specification_standard"],
+            msds_available=ask_metadata["msds_available"],
+            carbon_intensity_method=ask_metadata["carbon_intensity_method"],
+            feedstock=ask_metadata["feedstock"],
+            origin=f"{demo_port_name} hub",
+            is_verdaxis_verified=True,
+            carbon_intensity_gco2_mj=Decimal(str(round(_RNG.uniform(demo_ci_lo, demo_ci_hi), 2))),
+            energy_density_mj_kg=Decimal(str(demo_energy_density)),
+            created_at=created,
+            updated_at=created,
+        )
+        db.add(order)
+        demo_depth_created += 1
+
+    await db.flush()
+    print(f"[market_seed] Created {demo_depth_created} explicit depth orders for the demo slice.")
 
     # ------------------------------------------------------------------
-    # Step 5: Create trades between Buy Corp and Sell Corp
+    # Step 5: Create resettable demo-account trades across lifecycle states.
+    # Each trade gets linked filled BID/ASK orders so Trade History shows the
+    # product, port, and window context without leaking demo liquidity onto the
+    # public book.
     # ------------------------------------------------------------------
-    print("[market_seed] Creating Buy Corp / Sell Corp trades...")
+    print("[market_seed] Creating Buy Corp / Sell Corp demo trades...")
 
-    BUY_CORP_ID = uuid.UUID("acc3f20a-fe94-4463-9029-a55e35634eb7")
-    SELL_CORP_ID = uuid.UUID("c9c1ccbf-66fe-4a1b-b171-fe4f7ddc31a4")
-
-    # Ensure these orgs exist (they are the test accounts buyer@buy.com / seller@sell.com)
     await db.execute(text(
         "INSERT INTO organizations (id, name, type, verification_status) "
         "VALUES (:id, :name, 'SHIPPING_LINE', 'APPROVED') "
         "ON CONFLICT (id) DO NOTHING"
-    ), {"id": BUY_CORP_ID, "name": "Buy Corp"})
+    ), {"id": DEMO_BUYER_ORG_ID, "name": "Buy Corp"})
     await db.execute(text(
         "INSERT INTO organizations (id, name, type, supplier_tier, verification_status) "
         "VALUES (:id, :name, 'FUEL_SUPPLIER', 'REGIONAL_SUPPLIER', 'APPROVED') "
         "ON CONFLICT (id) DO NOTHING"
-    ), {"id": SELL_CORP_ID, "name": "Sell Corp"})
+    ), {"id": DEMO_SELLER_ORG_ID, "name": "Sell Corp"})
     await db.flush()
 
-    demo_trades = [
-        # (fuel_type, port, qty, price, status, initiated_by, month)
-        ("Bio Methanol",      "Amsterdam", 1500, 572.50,  TradeStatus.PAID,       Initiator.BUYER,  1),
-        ("Bio Ethanol",       "Singapore", 2500, 645.00,  TradeStatus.DELIVERED,  Initiator.SELLER, 1),
-        ("Synthetic Ethanol", "Antwerp",   1000, 735.75,  TradeStatus.CONFIRMED,  Initiator.BUYER,  1),
-        ("e-Methanol",        "Rotterdam",  800,  685.00, TradeStatus.PAID,       Initiator.SELLER, 2),
-        ("Bio Methanol",      "Singapore", 2000, 1065.00, TradeStatus.DELIVERED,  Initiator.BUYER,  2),
-        ("Synthetic Ethanol", "Dalian",    3000,  742.00, TradeStatus.PAID,       Initiator.BUYER,  2),
-        ("Synthetic Ethanol", "Amsterdam", 1200,  706.25, TradeStatus.CONFIRMED,  Initiator.SELLER, 2),
-        ("Bio Ethanol",       "Shanghai",   500,  670.00, TradeStatus.DELIVERED,  Initiator.BUYER,  3),
-        ("Bio Methanol",      "Antwerp",   1800,  608.00, TradeStatus.PAID,       Initiator.SELLER, 3),
-        ("e-Methanol",        "Singapore", 2200, 1180.00, TradeStatus.CONFIRMED,  Initiator.BUYER,  3),
-    ]
-
-    bc_trades_created = 0
-    for fuel_name, port_name, qty, price, status, initiator, month in demo_trades:
+    demo_trades_created = 0
+    for fuel_name, port_name, availability_window, trade_qty, trade_price, status, initiator, days_ago in DEMO_ACCOUNT_TRADE_CONFIGS:
         product_id = PRODUCT_IDS[fuel_name]
         dp_id = DELIVERY_POINT_IDS[port_name]
-        trade_qty = Decimal(str(qty))
-        trade_price = Decimal(str(price))
-
-        day = _RNG.randint(2, 25)
-        created = datetime(2026, month, day, _RNG.randint(8, 18), _RNG.randint(0, 59), tzinfo=timezone.utc)
-        confirmed = created + timedelta(hours=_RNG.randint(1, 12))
-        delivered = confirmed + timedelta(days=_RNG.randint(3, 14)) if status in (
-            TradeStatus.DELIVERED, TradeStatus.PAID
-        ) else None
-        paid = delivered + timedelta(days=_RNG.randint(7, 21)) if status == TradeStatus.PAID and delivered else None
-        created, confirmed, delivered, paid = _clamp_trade_timeline(
-            created,
-            confirmed,
-            delivered,
-            paid,
-            reference_now,
+        certification_scheme = _slice_certification_scheme(fuel_name, port_name, availability_window)
+        ci_lo, ci_hi, energy_density = CI_DATA[fuel_name]
+        bid_created_at, confirmed_at, delivered_at, paid_at = _demo_trade_timestamps(
+            reference_now=reference_now,
+            status=status,
+            days_ago=days_ago,
         )
+        order_created_at = bid_created_at - timedelta(hours=2)
+
+        ask_metadata = ask_seed_metadata(certification_scheme)
+        bid_order = OrderBookOrder(
+            id=uuid.uuid4(),
+            organization_id=DEMO_BUYER_ORG_ID,
+            side=OrderSide.BID,
+            product_id=product_id,
+            delivery_point_id=dp_id,
+            quantity_mt=trade_qty,
+            remaining_quantity_mt=Decimal("0"),
+            price_per_mt_usd=trade_price,
+            availability_window=availability_window,
+            certification_scheme=certification_scheme,
+            status=OrderBookStatus.FILLED,
+            created_at=order_created_at,
+            updated_at=bid_created_at,
+        )
+        ask_order = OrderBookOrder(
+            id=uuid.uuid4(),
+            organization_id=DEMO_SELLER_ORG_ID,
+            side=OrderSide.ASK,
+            product_id=product_id,
+            delivery_point_id=dp_id,
+            quantity_mt=trade_qty,
+            remaining_quantity_mt=Decimal("0"),
+            price_per_mt_usd=trade_price,
+            availability_window=availability_window,
+            status=OrderBookStatus.FILLED,
+            certifications=ask_metadata["certifications"],
+            certification_declared=ask_metadata["certification_declared"],
+            certification_scheme=ask_metadata["certification_scheme"],
+            specification_standard=ask_metadata["specification_standard"],
+            msds_available=ask_metadata["msds_available"],
+            carbon_intensity_method=ask_metadata["carbon_intensity_method"],
+            feedstock=ask_metadata["feedstock"],
+            origin=f"{port_name} hub",
+            is_verdaxis_verified=True,
+            carbon_intensity_gco2_mj=Decimal(str(round(_RNG.uniform(ci_lo, ci_hi), 2))),
+            energy_density_mj_kg=Decimal(str(energy_density)),
+            created_at=order_created_at,
+            updated_at=bid_created_at,
+        )
+        db.add(bid_order)
+        db.add(ask_order)
+        await db.flush()
 
         total_usd = trade_qty * trade_price
         commission_rate = Decimal("0.500")
@@ -976,10 +1109,10 @@ async def seed_market_data(db: AsyncSession) -> None:
 
         trade = Trade(
             id=uuid.uuid4(),
-            bid_order_id=None,
-            ask_order_id=None,
-            buyer_id=BUY_CORP_ID,
-            seller_id=SELL_CORP_ID,
+            bid_order_id=bid_order.id,
+            ask_order_id=ask_order.id,
+            buyer_id=DEMO_BUYER_ORG_ID,
+            seller_id=DEMO_SELLER_ORG_ID,
             initiated_by=initiator,
             quantity_mt=trade_qty,
             price_per_mt_usd=trade_price,
@@ -989,16 +1122,16 @@ async def seed_market_data(db: AsyncSession) -> None:
             final_total_usd=total_usd if status in (TradeStatus.DELIVERED, TradeStatus.PAID) else None,
             commission_rate_pct=commission_rate,
             commission_amount_usd=commission_amt if status == TradeStatus.PAID else None,
-            confirmed_at=confirmed,
-            delivered_at=delivered,
-            paid_at=paid,
-            created_at=created,
+            confirmed_at=confirmed_at,
+            delivered_at=delivered_at,
+            paid_at=paid_at,
+            created_at=bid_created_at,
         )
         db.add(trade)
-        bc_trades_created += 1
+        demo_trades_created += 1
 
     await db.flush()
-    print(f"[market_seed] Created {bc_trades_created} Buy Corp / Sell Corp trades.")
+    print(f"[market_seed] Created {demo_trades_created} Buy Corp / Sell Corp demo trades.")
 
     # ------------------------------------------------------------------
     # Commit everything
