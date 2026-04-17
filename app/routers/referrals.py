@@ -1,6 +1,5 @@
 """Referral link endpoints — generate, share, track, leaderboard."""
 import re
-from datetime import datetime, UTC
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request as _Request
@@ -10,7 +9,7 @@ from sqlalchemy.orm import selectinload
 
 from app.database import get_db
 from app.models.referral import Referral, ReferralStatus, generate_referral_code
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.rate_limit import limiter
 from app.routers.auth_simple import get_current_user
 from app.config import settings
@@ -224,6 +223,14 @@ async def resolve_referral_code(
 
     if not user:
         return ResolveCodeResponse(valid=False)
+
+    if user.role == UserRole.ADMIN:
+        return ResolveCodeResponse(
+            valid=True,
+            organization_name="Verdaxis Exchange",
+            organization_type=None,
+            referrer_name=None,
+        )
 
     name = _display_name(user)
     return ResolveCodeResponse(

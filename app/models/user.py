@@ -84,6 +84,10 @@ class User(Base):
         UUID(as_uuid=True), ForeignKey("users.id"), nullable=True
     )
 
+    # Onboarding survey (migrated via Alembic)
+    onboarding_use_case: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    onboarding_referral_source: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+
     organization: Mapped["Organization"] = relationship(back_populates="users")
 
     referrals_made: Mapped[list["Referral"]] = relationship(

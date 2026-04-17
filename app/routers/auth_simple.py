@@ -19,7 +19,7 @@ from app.core.security import (
     create_access_token, create_refresh_token, decode_token,
     REFRESH_TOKEN_EXPIRE_DAYS,
 )
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
 import uuid
 
 from app.models.referral import Referral, ReferralStatus, generate_referral_code
@@ -721,3 +721,40 @@ async def switch_role(
         additional_claims={"role": target_role_upper},
     )
     return {"access_token": access_token, "token_type": "bearer"}
+
+
+_VALID_USE_CASES = {"buyer", "supplier", "financier_other"}
+
+
+class SurveySubmission(BaseModel):
+    email: EmailStr
+    use_case: str
+    referral_source: str | None = None
+
+
+@router.post("/survey", status_code=status.HTTP_204_NO_CONTENT)
+@limiter.limit("5/minute")
+async def submit_survey(
+    request: _Request,
+    body: SurveySubmission,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> None:
+    """Record onboarding survey answers. Public but rate-limited. Idempotent."""
+    if body.use_case not in _VALID_USE_CASES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"use_case must be one of: {sorted(_VALID_USE_CASES)}",
+        )
+
+    result = await db.execute(select(User).where(User.email == body.email))
+    user = result.scalar_one_or_none()
+
+    if not user or not user.email_verified:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    if user.onboarding_use_case is not None:
+        return
+
+    user.onboarding_use_case = body.use_case
+    user.onboarding_referral_source = body.referral_source
+    await db.commit()
