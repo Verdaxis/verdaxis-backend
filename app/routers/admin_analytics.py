@@ -1,12 +1,13 @@
 """Platform-wide analytics endpoints for the admin dashboard."""
 import hashlib
+import uuid as _uuid
 from datetime import datetime, timedelta, UTC, date
-from typing import Annotated
+from typing import Annotated, Optional
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel
 from slowapi.util import get_remote_address
-from sqlalchemy import select, func, cast, Date, distinct
+from sqlalchemy import select, func, cast, Date, distinct, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -14,7 +15,7 @@ from app.middleware.rbac import require_role
 from app.models.orderbook import (
     OrderBookOrder, OrderBookStatus, Trade, TradeStatus,
 )
-from app.models.user import User, UserRole
+from app.models.user import User, UserRole, UserStatus, Organization
 from app.rate_limit import limiter
 
 
@@ -42,6 +43,26 @@ class DailyStat(BaseModel):
     volume_mt: float
     gmv_usd: float
     commission_usd: float
+
+
+class AdminUserEntry(BaseModel):
+    id: _uuid.UUID
+    email: str
+    first_name: Optional[str]
+    last_name: Optional[str]
+    role: str
+    status: str
+    created_at: datetime
+    org_name: Optional[str]
+    org_type: Optional[str]
+
+    class Config:
+        from_attributes = True
+
+
+class AdminUsersResponse(BaseModel):
+    items: list[AdminUserEntry]
+    total: int
 
 
 # ---------------------------------------------------------------------------
@@ -301,3 +322,113 @@ async def get_daily_stats(
         )
 
     return result
+
+
+# ---------------------------------------------------------------------------
+# Admin user management
+# ---------------------------------------------------------------------------
+
+def _user_to_entry(row) -> AdminUserEntry:
+    """Map a (User, org_name, org_type) row to AdminUserEntry."""
+    user, org_name, org_type = row
+    return AdminUserEntry(
+        id=user.id,
+        email=user.email,
+        first_name=user.first_name,
+        last_name=user.last_name,
+        role=user.role.value if user.role else "",
+        status=user.status.value if user.status else "",
+        created_at=user.created_at,
+        org_name=org_name,
+        org_type=org_type.value if org_type else None,
+    )
+
+
+@router.get("/users", response_model=AdminUsersResponse)
+@limiter.limit("60/minute", key_func=_per_token_rate_key)
+async def list_users(
+    request: Request,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_role(UserRole.ADMIN))],
+    status_filter: Optional[str] = Query(None, alias="status"),
+    search: Optional[str] = Query(None),
+    limit: int = Query(50, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+):
+    """List platform users for admin review. Filterable by status and searchable by name/email."""
+
+    base = (
+        select(User, Organization.name, Organization.type)
+        .outerjoin(Organization, User.organization_id == Organization.id)
+        .where(User.role != UserRole.ADMIN)  # Admins manage non-admin accounts
+    )
+
+    if status_filter and status_filter.upper() != "ALL":
+        try:
+            base = base.where(User.status == UserStatus(status_filter.upper()))
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid status filter: {status_filter}",
+            )
+
+    if search:
+        term = f"%{search}%"
+        base = base.where(
+            or_(
+                User.email.ilike(term),
+                User.first_name.ilike(term),
+                User.last_name.ilike(term),
+            )
+        )
+
+    total_q = await db.execute(select(func.count()).select_from(base.subquery()))
+    total = total_q.scalar() or 0
+
+    rows_q = await db.execute(
+        base.order_by(User.created_at.desc()).limit(limit).offset(offset)
+    )
+    items = [_user_to_entry(row) for row in rows_q]
+
+    return AdminUsersResponse(items=items, total=total)
+
+
+@router.put("/users/{user_id}/reject", response_model=AdminUserEntry)
+@limiter.limit("60/minute", key_func=_per_token_rate_key)
+async def reject_user(
+    request: Request,
+    user_id: _uuid.UUID,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_role(UserRole.ADMIN))],
+):
+    """Reject a pending or approved user. Admins cannot reject other admins."""
+
+    result = await db.execute(
+        select(User, Organization.name, Organization.type)
+        .outerjoin(Organization, User.organization_id == Organization.id)
+        .where(User.id == user_id)
+    )
+    row = result.one_or_none()
+
+    if row is None:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    user, org_name, org_type = row
+
+    if user.role == UserRole.ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin accounts cannot be rejected via this endpoint",
+        )
+
+    if user.status == UserStatus.REJECTED:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="User is already rejected",
+        )
+
+    user.status = UserStatus.REJECTED
+    await db.commit()
+    await db.refresh(user)
+
+    return _user_to_entry((user, org_name, org_type))
