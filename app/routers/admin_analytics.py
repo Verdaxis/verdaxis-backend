@@ -1,9 +1,11 @@
 """Platform-wide analytics endpoints for the admin dashboard."""
+import hashlib
 from datetime import datetime, timedelta, UTC, date
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel
+from slowapi.util import get_remote_address
 from sqlalchemy import select, func, cast, Date, distinct
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,6 +15,7 @@ from app.models.orderbook import (
     OrderBookOrder, OrderBookStatus, Trade, TradeStatus,
 )
 from app.models.user import User, UserRole
+from app.rate_limit import limiter
 
 
 # ---------------------------------------------------------------------------
@@ -50,6 +53,16 @@ router = APIRouter(prefix="/admin/analytics", tags=["admin-analytics"])
 
 _MARKET_MEMBER_ROLES = [UserRole.BUYER, UserRole.SUPPLIER]
 
+# Trade statuses considered economically committed ("trade actually happened").
+# Used to filter volume / gmv / commission aggregations so dashboards reflect
+# realized activity, not cancelled or pending-confirmation matches.
+# Tuple rather than list so the constant cannot be mutated by future callers.
+_CONFIRMED_TRADE_STATUSES = (
+    TradeStatus.CONFIRMED,
+    TradeStatus.DELIVERED,
+    TradeStatus.PAID,
+)
+
 
 def _market_member_org_ids_subquery():
     """
@@ -74,8 +87,31 @@ def _market_member_org_ids_subquery():
     )
 
 
+def _per_token_rate_key(request: Request) -> str:
+    """
+    Rate-limit bucket keyed by bearer-token identity (per-session-per-user).
+
+    The global `limiter` is configured with `key_func=get_remote_address`,
+    which collapses several admins behind a single corporate NAT/VPN into
+    one rate bucket. For admin endpoints we want per-user granularity so
+    one heavy poller cannot starve the others.
+
+    We hash the Authorization header directly — no JWT parsing, no signing
+    verification (require_role still gates access). Different tokens map
+    to different buckets; a token rotation resets the bucket (acceptable).
+    Falls back to remote address when no Authorization header is present,
+    so anonymous callers still get throttled.
+    """
+    auth = request.headers.get("Authorization", "")
+    if auth:
+        return "tok:" + hashlib.sha256(auth.encode("utf-8")).hexdigest()[:16]
+    return get_remote_address(request)
+
+
 @router.get("/overview", response_model=OverviewResponse)
+@limiter.limit("60/minute", key_func=_per_token_rate_key)
 async def get_overview(
+    request: Request,
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(require_role(UserRole.ADMIN))],
 ):
@@ -137,21 +173,22 @@ async def get_overview(
     )
     total_trades = total_trades_q.scalar() or 0
 
-    confirmed_statuses = [TradeStatus.CONFIRMED, TradeStatus.DELIVERED, TradeStatus.PAID]
     confirmed_trades_q = await db.execute(
         select(func.count(Trade.id)).where(
             Trade.buyer_id.in_(market_org_ids),
             Trade.seller_id.in_(market_org_ids),
-            Trade.status.in_(confirmed_statuses),
+            Trade.status.in_(_CONFIRMED_TRADE_STATUSES),
         )
     )
     confirmed_trades = confirmed_trades_q.scalar() or 0
 
-    # Total volume (all trades)
+    # Volume — confirmed/delivered/paid trades only. Keeps this metric
+    # consistent with revenue/GMV (both PAID-only) and with confirmed_trades.
     volume_q = await db.execute(
         select(func.coalesce(func.sum(Trade.quantity_mt), 0)).where(
             Trade.buyer_id.in_(market_org_ids),
             Trade.seller_id.in_(market_org_ids),
+            Trade.status.in_(_CONFIRMED_TRADE_STATUSES),
         )
     )
     total_volume_mt = float(volume_q.scalar() or 0)
@@ -191,7 +228,9 @@ async def get_overview(
 
 
 @router.get("/daily", response_model=list[DailyStat])
+@limiter.limit("60/minute", key_func=_per_token_rate_key)
 async def get_daily_stats(
+    request: Request,
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(require_role(UserRole.ADMIN))],
     days: int = Query(30, ge=1, le=365),
@@ -217,7 +256,7 @@ async def get_daily_stats(
     )
     orders_by_day = {row.day: row.cnt for row in orders_q}
 
-    # Daily trade stats
+    # Daily trade stats — confirmed/delivered/paid only, matching overview.
     trade_date_col = cast(Trade.created_at, Date)
     trades_q = await db.execute(
         select(
@@ -231,6 +270,7 @@ async def get_daily_stats(
             trade_date_col >= start_date,
             Trade.buyer_id.in_(market_org_ids),
             Trade.seller_id.in_(market_org_ids),
+            Trade.status.in_(_CONFIRMED_TRADE_STATUSES),
         )
         .group_by(trade_date_col)
     )
