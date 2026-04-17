@@ -13,12 +13,11 @@ import secrets
 from app.database import get_db
 from app.models.user import User, UserRole, UserStatus, Organization
 from app.schemas.user import UserCreate, UserResponse, UserUpdate, RegistrationResponse, Token, PasswordChangeRequest
-from app.schemas.organization import OrganizationCreate, OrganizationResponse
+from app.schemas.organization import OrganizationCreate
 from app.core.security import (
     verify_password, get_password_hash,
     create_access_token, create_refresh_token, decode_token,
     REFRESH_TOKEN_EXPIRE_DAYS,
-    SECRET_KEY, ALGORITHM,
 )
 from pydantic import BaseModel
 import uuid
@@ -665,16 +664,17 @@ async def reset_password(
 # ---------------------------------------------------------------------------
 
 @router.put("/approve/{user_id}", response_model=UserResponse)
+@limiter.limit("60/minute")
 async def approve_user(
+    request: _Request,
     user_id: uuid.UUID,
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)]
 ):
+    # Cannot use require_role here — rbac imports get_current_user from this
+    # module, creating a circular import. Keep manual check instead.
     if current_user.role != UserRole.ADMIN:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not authorized to approve users",
-        )
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
 
     stmt = select(User).where(User.id == user_id)
     result = await db.execute(stmt)
@@ -683,6 +683,14 @@ async def approve_user(
     if not user_to_approve:
         raise HTTPException(status_code=404, detail="User not found")
 
+    # Guard: prevent approving another admin (no-op protection; admins are already approved).
+    if user_to_approve.role == UserRole.ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin accounts cannot be managed via this endpoint",
+        )
+
+    # Re-approving a REJECTED user is allowed (admin error correction).
     user_to_approve.status = UserStatus.APPROVED
     await db.commit()
     await db.refresh(user_to_approve)
