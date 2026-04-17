@@ -54,3 +54,6 @@ postgres_data/
 # Ad-hoc test scripts (not proper pytest)
 test_api.py
 test_match.py
+
+# Runtime logs
+logs/

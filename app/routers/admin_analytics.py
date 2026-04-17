@@ -4,7 +4,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
-from sqlalchemy import select, func, case, and_, cast, Date
+from sqlalchemy import select, func, cast, Date, distinct
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -12,7 +12,7 @@ from app.middleware.rbac import require_role
 from app.models.orderbook import (
     OrderBookOrder, OrderBookStatus, Trade, TradeStatus,
 )
-from app.models.user import User, UserRole, Organization
+from app.models.user import User, UserRole
 
 
 # ---------------------------------------------------------------------------
@@ -48,6 +48,32 @@ class DailyStat(BaseModel):
 router = APIRouter(prefix="/admin/analytics", tags=["admin-analytics"])
 
 
+_MARKET_MEMBER_ROLES = [UserRole.BUYER, UserRole.SUPPLIER]
+
+
+def _market_member_org_ids_subquery():
+    """
+    Organizations that have at least one real (BUYER/SUPPLIER) user.
+
+    Excludes seeded/demo liquidity orgs that have no real member accounts,
+    as well as admin-only orgs. Uses an explicit role whitelist so that
+    NULL roles and any future non-market roles are also excluded.
+
+    Note on trade filtering: callers use this subquery with AND semantics
+    (both buyer AND seller must be market members). Trades where a real
+    user transacts against a seeded liquidity org will therefore not be
+    counted. If the pilot requires surfacing real-vs-seed trades,
+    switch the trade filters to OR (at least one side is a market org).
+    """
+    return (
+        select(distinct(User.organization_id))
+        .where(
+            User.organization_id.is_not(None),
+            User.role.in_(_MARKET_MEMBER_ROLES),
+        )
+    )
+
+
 @router.get("/overview", response_model=OverviewResponse)
 async def get_overview(
     db: Annotated[AsyncSession, Depends(get_db)],
@@ -57,48 +83,84 @@ async def get_overview(
 
     now = datetime.now(UTC)
     seven_days_ago = now - timedelta(days=7)
+    market_org_ids = _market_member_org_ids_subquery()
 
     # --- Users ---
-    total_users_q = await db.execute(select(func.count(User.id)))
+    # Count only real market users (BUYER/SUPPLIER). Keeps this metric consistent
+    # with every downstream filter, and makes NULL roles explicit non-matches.
+    total_users_q = await db.execute(
+        select(func.count(User.id)).where(
+            User.role.in_(_MARKET_MEMBER_ROLES),
+        )
+    )
     total_users = total_users_q.scalar() or 0
 
     active_users_q = await db.execute(
-        select(func.count(User.id)).where(User.last_login >= seven_days_ago)
+        select(func.count(User.id)).where(
+            User.role.in_(_MARKET_MEMBER_ROLES),
+            User.last_login >= seven_days_ago,
+        )
     )
     active_users_7d = active_users_q.scalar() or 0
 
     # --- Organizations ---
-    total_orgs_q = await db.execute(select(func.count(Organization.id)))
+    total_orgs_q = await db.execute(
+        select(func.count(distinct(User.organization_id))).where(
+            User.organization_id.is_not(None),
+            User.role.in_(_MARKET_MEMBER_ROLES),
+        )
+    )
     total_organizations = total_orgs_q.scalar() or 0
 
     # --- Orders ---
-    total_orders_q = await db.execute(select(func.count(OrderBookOrder.id)))
+    total_orders_q = await db.execute(
+        select(func.count(OrderBookOrder.id)).where(
+            OrderBookOrder.organization_id.in_(market_org_ids)
+        )
+    )
     total_orders = total_orders_q.scalar() or 0
 
     open_orders_q = await db.execute(
         select(func.count(OrderBookOrder.id)).where(
+            OrderBookOrder.organization_id.in_(market_org_ids),
             OrderBookOrder.status.in_([OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED])
         )
     )
     open_orders = open_orders_q.scalar() or 0
 
     # --- Trades ---
-    total_trades_q = await db.execute(select(func.count(Trade.id)))
+    total_trades_q = await db.execute(
+        select(func.count(Trade.id)).where(
+            Trade.buyer_id.in_(market_org_ids),
+            Trade.seller_id.in_(market_org_ids),
+        )
+    )
     total_trades = total_trades_q.scalar() or 0
 
     confirmed_statuses = [TradeStatus.CONFIRMED, TradeStatus.DELIVERED, TradeStatus.PAID]
     confirmed_trades_q = await db.execute(
-        select(func.count(Trade.id)).where(Trade.status.in_(confirmed_statuses))
+        select(func.count(Trade.id)).where(
+            Trade.buyer_id.in_(market_org_ids),
+            Trade.seller_id.in_(market_org_ids),
+            Trade.status.in_(confirmed_statuses),
+        )
     )
     confirmed_trades = confirmed_trades_q.scalar() or 0
 
     # Total volume (all trades)
-    volume_q = await db.execute(select(func.coalesce(func.sum(Trade.quantity_mt), 0)))
+    volume_q = await db.execute(
+        select(func.coalesce(func.sum(Trade.quantity_mt), 0)).where(
+            Trade.buyer_id.in_(market_org_ids),
+            Trade.seller_id.in_(market_org_ids),
+        )
+    )
     total_volume_mt = float(volume_q.scalar() or 0)
 
     # Revenue = sum of commission_amount_usd from PAID trades
     revenue_q = await db.execute(
         select(func.coalesce(func.sum(Trade.commission_amount_usd), 0)).where(
+            Trade.buyer_id.in_(market_org_ids),
+            Trade.seller_id.in_(market_org_ids),
             Trade.status == TradeStatus.PAID
         )
     )
@@ -107,6 +169,8 @@ async def get_overview(
     # GMV = sum of final_total_usd from PAID trades
     gmv_q = await db.execute(
         select(func.coalesce(func.sum(Trade.final_total_usd), 0)).where(
+            Trade.buyer_id.in_(market_org_ids),
+            Trade.seller_id.in_(market_org_ids),
             Trade.status == TradeStatus.PAID
         )
     )
@@ -136,6 +200,7 @@ async def get_daily_stats(
 
     today = date.today()
     start_date = today - timedelta(days=days - 1)
+    market_org_ids = _market_member_org_ids_subquery()
 
     # Daily orders placed
     order_date_col = cast(OrderBookOrder.created_at, Date)
@@ -144,7 +209,10 @@ async def get_daily_stats(
             order_date_col.label("day"),
             func.count(OrderBookOrder.id).label("cnt"),
         )
-        .where(order_date_col >= start_date)
+        .where(
+            order_date_col >= start_date,
+            OrderBookOrder.organization_id.in_(market_org_ids),
+        )
         .group_by(order_date_col)
     )
     orders_by_day = {row.day: row.cnt for row in orders_q}
@@ -159,7 +227,11 @@ async def get_daily_stats(
             func.coalesce(func.sum(Trade.final_total_usd), 0).label("gmv"),
             func.coalesce(func.sum(Trade.commission_amount_usd), 0).label("comm"),
         )
-        .where(trade_date_col >= start_date)
+        .where(
+            trade_date_col >= start_date,
+            Trade.buyer_id.in_(market_org_ids),
+            Trade.seller_id.in_(market_org_ids),
+        )
         .group_by(trade_date_col)
     )
     trades_by_day = {
