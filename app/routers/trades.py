@@ -27,6 +27,7 @@ from app.services.event_bus import event_bus
 from app.services.watchlist_events import _best_slice_price, emit_order_updated
 from app.services.execution_policy import order_is_execution_qualified
 from app.services.live_benchmarks import rebuild_live_slice_benchmarks_for_keys
+from app.services.demo_market import is_demo_market_organization
 
 router = APIRouter(prefix="/trades", tags=["trades"])
 
@@ -193,6 +194,12 @@ async def create_trade(
 
     if not order_is_execution_qualified(order):
         raise HTTPException(status_code=400, detail="Order is not execution-qualified")
+
+    if is_demo_market_organization(order.organization_id):
+        raise HTTPException(
+            status_code=400,
+            detail="Demo listings are preview liquidity and cannot be traded.",
+        )
 
     # Determine sides
     if order.side == OrderSide.ASK:

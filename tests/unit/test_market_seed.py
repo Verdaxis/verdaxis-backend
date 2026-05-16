@@ -9,12 +9,18 @@ from app.models.orderbook import OrderSide
 
 
 def test_market_seed_windows_cover_current_and_forward_slices():
-    expected = build_seed_windows(date(2026, 4, 13))
+    today = date.today()
+    expected = build_seed_windows(today)
+    current_month = f"{today.year}-{today.month:02d}"
+    next_month = today + timedelta(days=32)
+    next_month = next_month.replace(day=1)
+    next_month_code = f"{next_month.year}-{next_month.month:02d}"
+
     assert WINDOWS == expected
     assert 'SPOT' in WINDOWS
-    assert '2026-04' in WINDOWS
-    assert '2026-06' in WINDOWS
-    assert '2026-Q3' in WINDOWS
+    assert current_month in WINDOWS
+    assert next_month_code in WINDOWS
+    assert any(window.startswith(f"{today.year}-Q") for window in WINDOWS)
 
 
 def test_market_seed_ask_metadata_declares_certification():

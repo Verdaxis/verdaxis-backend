@@ -56,6 +56,7 @@ class TestCreateAlert:
         count_result = MagicMock()
         count_result.scalar.return_value = 0
         mock_db.execute.return_value = count_result
+        mock_db.get.return_value = None
 
         alert_data = AlertCreate(
             product_id=product_id,
@@ -74,6 +75,7 @@ class TestCreateAlert:
             instance.is_active = True
             instance.triggered_at = None
             instance.created_at = datetime.utcnow()
+            instance.product = None
             MockAlert.return_value = instance
 
             result = await create_alert(alert_data=alert_data, current_user=user, db=mock_db)
@@ -131,6 +133,7 @@ class TestCreateAlert:
         count_result = MagicMock()
         count_result.scalar.return_value = 4  # one slot remaining
         mock_db.execute.return_value = count_result
+        mock_db.get.return_value = None
 
         alert_data = AlertCreate(
             product_id=product_id,
@@ -149,6 +152,7 @@ class TestCreateAlert:
             instance.is_active = True
             instance.triggered_at = None
             instance.created_at = datetime.utcnow()
+            instance.product = None
             MockAlert.return_value = instance
 
             result = await create_alert(alert_data=alert_data, current_user=user, db=mock_db)
@@ -164,6 +168,7 @@ class TestCreateAlert:
         count_result = MagicMock()
         count_result.scalar.return_value = 0
         mock_db.execute.return_value = count_result
+        mock_db.get.return_value = None
 
         alert_data = AlertCreate(
             product_id=uuid4(),
@@ -173,11 +178,16 @@ class TestCreateAlert:
 
         with patch("app.routers.alerts.PriceAlert") as MockAlert:
             instance = MagicMock()
+            instance.id = uuid4()
+            instance.org_id = user.organization_id
+            instance.product_id = alert_data.product_id
+            instance.delivery_point_id = None
             instance.direction = "below"
             instance.threshold_usd = Decimal("400.00")
             instance.is_active = True
             instance.triggered_at = None
             instance.created_at = datetime.utcnow()
+            instance.product = None
             MockAlert.return_value = instance
 
             result = await create_alert(alert_data=alert_data, current_user=user, db=mock_db)
@@ -196,7 +206,7 @@ class TestListAlerts:
 
         alerts = [make_alert(user.organization_id) for _ in range(3)]
         mock_result = MagicMock()
-        mock_result.scalars.return_value.all.return_value = alerts
+        mock_result.all.return_value = [(alert, None) for alert in alerts]
         mock_db.execute.return_value = mock_result
 
         result = await list_alerts(current_user=user, db=mock_db)
@@ -222,7 +232,7 @@ class TestListAlerts:
         mock_db = AsyncMock()
 
         mock_result = MagicMock()
-        mock_result.scalars.return_value.all.return_value = []
+        mock_result.all.return_value = []
         mock_db.execute.return_value = mock_result
 
         result = await list_alerts(current_user=user, db=mock_db)

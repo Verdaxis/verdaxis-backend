@@ -91,6 +91,7 @@ def _make_order(
     delivery_point_id,
     price: str,
     quantity: str = '1000',
+    availability_window: str = 'SPOT',
     certification_scheme: str | None = 'ISCC EU',
     certification_declared: bool = True,
 ) -> OrderBookOrder:
@@ -102,7 +103,7 @@ def _make_order(
         quantity_mt=Decimal(quantity),
         remaining_quantity_mt=Decimal(quantity),
         price_per_mt_usd=Decimal(price),
-        availability_window='SPOT',
+        availability_window=availability_window,
         status=OrderBookStatus.OPEN,
         created_at=datetime.now(UTC),
         certification_scheme=certification_scheme,
@@ -417,8 +418,76 @@ class TestMarketplaceFuelFiltering:
         db.add_all([open_order, off_spec_order])
         await db.commit()
 
-        result = await list_aggregated_orderbook(include_off_spec=False, db=db)
+        result = await list_aggregated_orderbook(
+            product_id=None,
+            delivery_point_id=None,
+            fuel_type=None,
+            market_product=None,
+            region=None,
+            availability_window=None,
+            include_off_spec=False,
+            db=db,
+        )
 
         assert len(result) == 1
         assert result[0].total_quantity == Decimal('1000')
 
+    @pytest.mark.asyncio
+    async def test_aggregated_filters_by_market_slice(self, db: AsyncSession):
+        supplier = await _make_org(db, 'Supplier')
+        singapore = await _make_delivery_point(db, 'Singapore', 'Asia')
+        santos = await _make_delivery_point(db, 'Santos', 'Americas')
+        bio_methanol = await _make_product(db, name='Bio Methanol', fuel_type='Methanol', fuel_grade='Bio')
+        e_methanol = await _make_product(db, name='e-Methanol', fuel_type='Methanol', fuel_grade='E')
+
+        matching_order = _make_order(
+            org_id=supplier.id,
+            product_id=bio_methanol.id,
+            delivery_point_id=singapore.id,
+            price='1100',
+            quantity='1000',
+            availability_window='SPOT',
+        )
+        wrong_product = _make_order(
+            org_id=supplier.id,
+            product_id=e_methanol.id,
+            delivery_point_id=singapore.id,
+            price='1250',
+            quantity='500',
+            availability_window='SPOT',
+        )
+        wrong_port = _make_order(
+            org_id=supplier.id,
+            product_id=bio_methanol.id,
+            delivery_point_id=santos.id,
+            price='1110',
+            quantity='300',
+            availability_window='SPOT',
+        )
+        wrong_window = _make_order(
+            org_id=supplier.id,
+            product_id=bio_methanol.id,
+            delivery_point_id=singapore.id,
+            price='1120',
+            quantity='200',
+            availability_window='2026-06',
+        )
+        db.add_all([matching_order, wrong_product, wrong_port, wrong_window])
+        await db.commit()
+
+        result = await list_aggregated_orderbook(
+            product_id=None,
+            fuel_type=None,
+            market_product='BIO_METHANOL',
+            delivery_point_id=singapore.id,
+            region=None,
+            availability_window='SPOT',
+            include_off_spec=False,
+            db=db,
+        )
+
+        assert len(result) == 1
+        assert result[0].product_id == bio_methanol.id
+        assert result[0].delivery_point_id == singapore.id
+        assert result[0].availability_window == 'SPOT'
+        assert result[0].total_quantity == Decimal('1000')

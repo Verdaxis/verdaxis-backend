@@ -12,7 +12,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
-from sqlalchemy import select, func, cast, Date, and_, or_
+from sqlalchemy import select, func, and_, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from fastapi import Request as _Request
@@ -29,6 +29,11 @@ from app.schemas.orderbook import (
 from app.services.availability_windows import normalize_availability_window
 
 router = APIRouter(prefix="/prices", tags=["price-discovery"])
+
+
+def _trade_order_join_condition():
+    """Join a trade to whichever order carries market metadata."""
+    return OrderBookOrder.id == func.coalesce(Trade.ask_order_id, Trade.bid_order_id)
 
 
 def _market_product_filter_clause(market_product: Optional[str]):
@@ -72,11 +77,11 @@ def _derive_market_product_value(product_name: str | None, fuel_type: str | None
 
 def _normalize_window_value(value: object) -> str:
     if not isinstance(value, str) or not value.strip():
-        return 'SPOT'
+        return "SPOT"
     try:
         return normalize_availability_window(value)
     except ValueError:
-        return 'SPOT'
+        return "SPOT"
 
 
 def _validate_query_filters(market_product: Optional[str], availability_window: Optional[str]) -> tuple[Optional[str], Optional[str]]:
@@ -90,6 +95,15 @@ def _validate_query_filters(market_product: Optional[str], availability_window: 
 
     return normalized_market_product, normalized_window
 
+
+def _coerce_trade_date(value: object) -> date:
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    if isinstance(value, str):
+        return date.fromisoformat(value[:10])
+    raise ValueError("reference price query returned an invalid trade date")
 
 
 async def aggregate_trade_prices(
@@ -123,8 +137,8 @@ async def aggregate_trade_prices(
             Product.name.label("product_name"),
             Product.fuel_type.label("fuel_type"),
             Product.fuel_grade.label("fuel_grade"),
-            OrderBookOrder.delivery_point_id,
             OrderBookOrder.availability_window.label("availability_window"),
+            OrderBookOrder.delivery_point_id,
             DeliveryPoint.name.label("delivery_point_name"),
             DeliveryPoint.region.label("region"),
             func.max(Trade.price_per_mt_usd).label("high"),
@@ -134,7 +148,10 @@ async def aggregate_trade_prices(
             func.count(Trade.id).label("trade_count"),
             func.max(Trade.created_at).label("last_trade_at"),
         )
-        .join(OrderBookOrder, func.coalesce(Trade.ask_order_id, Trade.bid_order_id) == OrderBookOrder.id)
+        .join(
+            OrderBookOrder,
+            _trade_order_join_condition(),
+        )
         .join(Product, OrderBookOrder.product_id == Product.id)
         .outerjoin(DeliveryPoint, OrderBookOrder.delivery_point_id == DeliveryPoint.id)
         .where(
@@ -157,19 +174,15 @@ async def aggregate_trade_prices(
         aggregate_stmt = aggregate_stmt.where(OrderBookOrder.availability_window == normalized_window)
 
     aggregate_stmt = aggregate_stmt.group_by(
-        OrderBookOrder.product_id,
-        Product.name,
-        Product.fuel_type,
-        Product.fuel_grade,
-        OrderBookOrder.delivery_point_id,
+        OrderBookOrder.product_id, Product.name, Product.fuel_type, Product.fuel_grade,
         OrderBookOrder.availability_window,
-        DeliveryPoint.name,
-        DeliveryPoint.region,
+        OrderBookOrder.delivery_point_id, DeliveryPoint.name, DeliveryPoint.region,
     )
 
     result = await db.execute(aggregate_stmt)
     rows = result.all()
 
+    # Latest price subquery
     latest_price_stmt = (
         select(
             OrderBookOrder.product_id,
@@ -186,7 +199,10 @@ async def aggregate_trade_prices(
                 order_by=Trade.created_at.desc(),
             ).label("rn"),
         )
-        .join(OrderBookOrder, func.coalesce(Trade.ask_order_id, Trade.bid_order_id) == OrderBookOrder.id)
+        .join(
+            OrderBookOrder,
+            _trade_order_join_condition(),
+        )
         .join(Product, OrderBookOrder.product_id == Product.id)
         .outerjoin(DeliveryPoint, OrderBookOrder.delivery_point_id == DeliveryPoint.id)
         .where(
@@ -231,12 +247,11 @@ async def aggregate_trade_prices(
     for row in rows:
         row_window = _normalize_window_value(row.availability_window)
         latest = latest_by_market.get((row.product_id, row.delivery_point_id, row_window))
-        market_product_value = _derive_market_product_value(row.product_name, row.fuel_type, row.fuel_grade)
         summaries.append(
             PriceSummary(
                 product_id=row.product_id,
                 product_name=row.product_name or "",
-                market_product=market_product_value,
+                market_product=_derive_market_product_value(row.product_name, row.fuel_type, row.fuel_grade),
                 fuel_type=row.fuel_type or "",
                 delivery_point_id=row.delivery_point_id,
                 delivery_point_name=row.delivery_point_name,
@@ -307,17 +322,18 @@ async def compute_reference_prices(
 ) -> list[ReferencePriceItem]:
     """
     Compute daily VWAP reference prices from confirmed+ trades.
-    VWAP = sum(price * quantity) / sum(quantity), grouped by product_id, delivery_point_id, availability_window, date.
+    VWAP = sum(price * quantity) / sum(quantity), grouped by product_id, delivery_point_id, date.
     """
     valid_statuses = [
         TradeStatus.CONFIRMED,
         TradeStatus.DELIVERED,
         TradeStatus.PAID,
     ]
-
-    trade_date = cast(Trade.created_at, Date).label("trade_date")
     normalized_window = normalize_availability_window(availability_window) if availability_window else None
     market_product_clause = _market_product_filter_clause(market_product)
+
+    trade_date_expr = func.date(Trade.created_at)
+    trade_date = trade_date_expr.label("trade_date")
 
     stmt = (
         select(
@@ -325,8 +341,8 @@ async def compute_reference_prices(
             Product.name.label("product_name"),
             Product.fuel_type.label("fuel_type"),
             Product.fuel_grade.label("fuel_grade"),
-            OrderBookOrder.delivery_point_id,
             OrderBookOrder.availability_window.label("availability_window"),
+            OrderBookOrder.delivery_point_id,
             DeliveryPoint.name.label("delivery_point_name"),
             DeliveryPoint.region.label("region"),
             trade_date,
@@ -334,16 +350,19 @@ async def compute_reference_prices(
             func.sum(Trade.quantity_mt).label("total_volume"),
             func.count(Trade.id).label("trade_count"),
         )
-        .join(OrderBookOrder, func.coalesce(Trade.ask_order_id, Trade.bid_order_id) == OrderBookOrder.id)
+        .join(
+            OrderBookOrder,
+            _trade_order_join_condition(),
+        )
         .join(Product, OrderBookOrder.product_id == Product.id)
         .outerjoin(DeliveryPoint, OrderBookOrder.delivery_point_id == DeliveryPoint.id)
         .where(Trade.status.in_(valid_statuses))
     )
 
     if date_from:
-        stmt = stmt.where(cast(Trade.created_at, Date) >= date_from)
+        stmt = stmt.where(trade_date_expr >= date_from.isoformat())
     if date_to:
-        stmt = stmt.where(cast(Trade.created_at, Date) <= date_to)
+        stmt = stmt.where(trade_date_expr <= date_to.isoformat())
     if product_id:
         stmt = stmt.where(OrderBookOrder.product_id == product_id)
     if delivery_point_id:
@@ -358,14 +377,9 @@ async def compute_reference_prices(
         stmt = stmt.where(OrderBookOrder.availability_window == normalized_window)
 
     stmt = stmt.group_by(
-        OrderBookOrder.product_id,
-        Product.name,
-        Product.fuel_type,
-        Product.fuel_grade,
-        OrderBookOrder.delivery_point_id,
+        OrderBookOrder.product_id, Product.name, Product.fuel_type, Product.fuel_grade,
         OrderBookOrder.availability_window,
-        DeliveryPoint.name,
-        DeliveryPoint.region,
+        OrderBookOrder.delivery_point_id, DeliveryPoint.name, DeliveryPoint.region,
         trade_date,
     ).order_by(trade_date.desc())
 
@@ -377,30 +391,40 @@ async def compute_reference_prices(
         total_vol = row.total_volume or Decimal("0")
         weighted = row.weighted_sum or Decimal("0")
         vwap = Decimal(str(round(weighted / total_vol, 2))) if total_vol > 0 else Decimal("0")
-        row_window = _normalize_window_value(row.availability_window)
-        market_product_value = _derive_market_product_value(row.product_name, row.fuel_type, row.fuel_grade)
+        fuel_grade = getattr(row, "fuel_grade", "")
+        if not isinstance(fuel_grade, str):
+            fuel_grade = ""
+        availability_window = getattr(row, "availability_window", "SPOT")
+        if not isinstance(availability_window, str):
+            availability_window = "SPOT"
         items.append(
             ReferencePriceItem(
                 product_id=row.product_id,
                 product_name=row.product_name or "",
-                market_product=market_product_value,
+                market_product=(
+                    derived.value
+                    if (derived := derive_market_product(row.product_name or "", row.fuel_type or "", fuel_grade))
+                    else None
+                ),
                 fuel_type=row.fuel_type or "",
                 delivery_point_id=row.delivery_point_id,
                 delivery_point_name=row.delivery_point_name,
-                availability_window=row_window,
+                availability_window=availability_window,
                 region=row.region or "",
                 vwap_usd=vwap,
                 total_volume_mt=total_vol,
                 trade_count=row.trade_count or 0,
-                date=row.trade_date,
+                date=_coerce_trade_date(row.trade_date),
             )
         )
 
     return items
 
 
-_CSV_COLUMNS = ["date", "product_name", "market_product", "availability_window", "fuel_type", "delivery_point_name",
-                "region", "vwap_usd", "volume_mt", "trade_count"]
+_CSV_COLUMNS = [
+    "date", "product_name", "market_product", "availability_window",
+    "fuel_type", "delivery_point_name", "region", "vwap_usd", "volume_mt", "trade_count",
+]
 
 
 def _items_to_csv(items: list[ReferencePriceItem]) -> str:
@@ -413,7 +437,7 @@ def _items_to_csv(items: list[ReferencePriceItem]) -> str:
             "date": str(item.date),
             "product_name": item.product_name or "",
             "market_product": item.market_product or "",
-            "availability_window": item.availability_window or "",
+            "availability_window": item.availability_window or "SPOT",
             "fuel_type": item.fuel_type or "",
             "delivery_point_name": item.delivery_point_name or "",
             "region": item.region or "",
@@ -486,8 +510,8 @@ async def export_reference_prices_csv(
     """
     Export daily VWAP reference prices as a CSV download.
     No auth required. Accepts the same filters as /reference.
-    CSV columns: date, product_name, fuel_type, delivery_point_name, region,
-                 vwap_usd, volume_mt, trade_count
+    CSV columns: date, product_name, market_product, availability_window,
+                 fuel_type, delivery_point_name, region, vwap_usd, volume_mt, trade_count
     """
     try:
         validated_market_product, validated_window = _validate_query_filters(market_product, availability_window)

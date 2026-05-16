@@ -1,67 +1,98 @@
-#!/bin/bash
-# deploy.sh - Server-side deployment script for Verdaxis Backend
-# Run this on the VPS to pull latest code and redeploy
-set -e
+#!/usr/bin/env bash
+# Systemd-aware deploy helper for the Verdaxis backend.
+#
+# Defaults are inferred from the live VPS layout:
+#   /home/verdaxis-prod/verdaxis/prod/be     -> branch prod, service verdaxis-backend.service
+#   /home/verdaxis-prod/verdaxis/staging/be  -> branch staging, service verdaxis-backend-staging.service
+#
+# Usage:
+#   ./scripts/deploy.sh --dry-run
+#   ./scripts/deploy.sh
+#   TARGET_BRANCH=feature/foo ALLOW_DIRTY=1 ./scripts/deploy.sh
+set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BACKEND_DIR="$(dirname "$SCRIPT_DIR")"
+DRY_RUN=0
+
+if [[ "${1:-}" == "--dry-run" ]]; then
+    DRY_RUN=1
+fi
+
+cd "$BACKEND_DIR"
+GIT=(git -c "safe.directory=$BACKEND_DIR")
+
+case "$BACKEND_DIR" in
+    */prod/be)
+        DEFAULT_BRANCH="prod"
+        SERVICE_NAME="verdaxis-backend.service"
+        HEALTH_URL="https://api.verdaxis.exchange/health"
+        ;;
+    */staging/be)
+        DEFAULT_BRANCH="staging"
+        SERVICE_NAME="verdaxis-backend-staging.service"
+        HEALTH_URL="https://api-staging.verdaxis.exchange/health"
+        ;;
+    *)
+        echo "Cannot infer backend environment from path: $BACKEND_DIR" >&2
+        echo "Set TARGET_BRANCH, SERVICE_NAME, and HEALTH_URL explicitly." >&2
+        : "${TARGET_BRANCH:?TARGET_BRANCH is required outside prod/staging layout}"
+        : "${SERVICE_NAME:?SERVICE_NAME is required outside prod/staging layout}"
+        : "${HEALTH_URL:?HEALTH_URL is required outside prod/staging layout}"
+        DEFAULT_BRANCH="$TARGET_BRANCH"
+        ;;
+esac
+
+TARGET_BRANCH="${TARGET_BRANCH:-$DEFAULT_BRANCH}"
+SERVICE_NAME="${SERVICE_NAME:-$SERVICE_NAME}"
+HEALTH_URL="${HEALTH_URL:-$HEALTH_URL}"
+ALLOW_DIRTY="${ALLOW_DIRTY:-0}"
+
+run() {
+    echo "+ $*"
+    if [[ "$DRY_RUN" == "0" ]]; then
+        "$@"
+    fi
+}
 
 echo "=== Verdaxis Backend Deployment ==="
 echo "Timestamp: $(date)"
+echo "Directory: $BACKEND_DIR"
+echo "Current branch: $("${GIT[@]}" branch --show-current)"
+echo "Current SHA: $("${GIT[@]}" rev-parse --short HEAD)"
+echo "Target branch: $TARGET_BRANCH"
+echo "Service: $SERVICE_NAME"
+echo "Health URL: $HEALTH_URL"
+echo "Dry run: $DRY_RUN"
 
-cd "$BACKEND_DIR"
+if [[ -n "$("${GIT[@]}" status --porcelain)" && "$ALLOW_DIRTY" != "1" ]]; then
+    echo "Working tree is dirty. Commit/stash changes, or set ALLOW_DIRTY=1 for an intentional hotfix deploy." >&2
+    "${GIT[@]}" status --short >&2
+    exit 1
+fi
 
-# Pull latest code
-echo ""
-echo ">>> Pulling latest code from origin..."
-git fetch origin
-git checkout main
-git pull origin main
+run "${GIT[@]}" fetch origin "$TARGET_BRANCH"
+run "${GIT[@]}" checkout "$TARGET_BRANCH"
+run "${GIT[@]}" pull --ff-only origin "$TARGET_BRANCH"
 
-# Rebuild and restart containers
-echo ""
-echo ">>> Rebuilding Docker containers..."
-docker compose down || true
-docker compose up -d --build --remove-orphans
+if [[ -f requirements.txt ]]; then
+    run ./venv/bin/python -m pip install -r requirements.txt
+fi
 
-# Wait for containers to be healthy
-echo ""
-echo ">>> Waiting for containers to start..."
-sleep 5
+if [[ -f alembic.ini ]]; then
+    run ./venv/bin/alembic upgrade head
+fi
 
-# Run database migrations
-echo ""
-echo ">>> Running database migrations..."
-docker exec verdaxis-backend alembic upgrade head || echo "Migration failed or no migrations needed"
+run sudo systemctl restart "$SERVICE_NAME"
 
-# Run seed script if needed
-echo ""
-echo ">>> Checking if seed data exists..."
-docker exec verdaxis-backend python -c "
-from app.database import AsyncSessionLocal
-from app.models.user import User
-from sqlalchemy import select
-import asyncio
+if [[ "$DRY_RUN" == "1" ]]; then
+    echo "Dry run complete; service was not restarted."
+    exit 0
+fi
 
-async def check():
-    async with AsyncSessionLocal() as db:
-        result = await db.execute(select(User).limit(1))
-        return result.scalar_one_or_none()
+sleep 3
+systemctl is-active --quiet "$SERVICE_NAME"
+curl --fail --silent --show-error --max-time 15 "$HEALTH_URL" | grep -q '"ok"'
 
-user = asyncio.run(check())
-if not user:
-    print('No users found, running seed...')
-    exit(1)
-else:
-    print('Seed data exists, skipping...')
-    exit(0)
-" && echo "Seed data present" || docker exec verdaxis-backend python scripts/seed.py
-
-# Health check
-echo ""
-echo ">>> Running health check..."
-sleep 2
-curl -s http://localhost:8000/health | grep -q "ok" && echo "✓ Backend is healthy!" || echo "✗ Backend health check failed"
-
-echo ""
+echo "Backend is healthy: $HEALTH_URL"
 echo "=== Backend Deployment Complete ==="

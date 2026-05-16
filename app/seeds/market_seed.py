@@ -63,36 +63,44 @@ SUPPLIER_ORGS = [
 # ---------------------------------------------------------------------------
 PRICING: dict[str, dict[str, tuple[float, float, float, float]]] = {
     "Bio Methanol": {
-        "Singapore": (1020, 1070, 1090, 1140),
-        "Shanghai": (980, 1035, 1050, 1105),
         "Dalian": (955, 1005, 1025, 1075),
-        "Amsterdam": (540, 578, 595, 640),
+        "Busan": (1000, 1050, 1065, 1115),
+        "Shanghai": (980, 1035, 1050, 1105),
+        "Singapore": (1020, 1070, 1090, 1140),
         "Rotterdam": (545, 585, 600, 645),
-        "Antwerp": (548, 588, 603, 648),
+        "Houston": (780, 830, 845, 895),
+        "Los Angeles": (850, 900, 920, 970),
+        "Santos": (720, 765, 780, 830),
     },
     "e-Methanol": {
-        "Singapore": (1090, 1140, 1160, 1210),
-        "Shanghai": (1045, 1095, 1110, 1160),
         "Dalian": (1020, 1070, 1085, 1135),
-        "Amsterdam": (610, 648, 665, 710),
+        "Busan": (1060, 1110, 1125, 1175),
+        "Shanghai": (1045, 1095, 1110, 1160),
+        "Singapore": (1090, 1140, 1160, 1210),
         "Rotterdam": (615, 655, 670, 715),
-        "Antwerp": (620, 660, 675, 720),
+        "Houston": (880, 930, 950, 1000),
+        "Los Angeles": (930, 985, 1005, 1055),
+        "Santos": (820, 870, 890, 940),
     },
     "Bio Ethanol": {
-        "Singapore": (610, 655, 670, 715),
-        "Shanghai": (590, 635, 650, 695),
         "Dalian": (575, 620, 635, 680),
-        "Amsterdam": (558, 598, 613, 653),
+        "Busan": (600, 645, 660, 705),
+        "Shanghai": (590, 635, 650, 695),
+        "Singapore": (610, 655, 670, 715),
         "Rotterdam": (565, 605, 620, 660),
-        "Antwerp": (568, 608, 623, 663),
+        "Houston": (520, 560, 575, 615),
+        "Los Angeles": (545, 585, 600, 640),
+        "Santos": (480, 520, 535, 575),
     },
     "Synthetic Ethanol": {
-        "Singapore": (700, 745, 760, 810),
-        "Shanghai": (680, 725, 740, 790),
         "Dalian": (665, 710, 725, 775),
-        "Amsterdam": (648, 688, 703, 743),
+        "Busan": (690, 735, 750, 800),
+        "Shanghai": (680, 725, 740, 790),
+        "Singapore": (700, 745, 760, 810),
         "Rotterdam": (655, 695, 710, 750),
-        "Antwerp": (660, 700, 715, 755),
+        "Houston": (625, 670, 685, 735),
+        "Los Angeles": (650, 695, 710, 760),
+        "Santos": (585, 630, 645, 695),
     },
 }
 
@@ -130,8 +138,8 @@ DEMO_ACCOUNT_TRADE_CONFIGS = [
     ("Bio Methanol", "Rotterdam", SPOT_WINDOW, Decimal("750"), Decimal("602.00"), TradeStatus.PENDING_CONFIRMATION, Initiator.SELLER, 2),
     ("e-Methanol", "Singapore", "2026-06", Decimal("1500"), Decimal("1184.00"), TradeStatus.CONFIRMED, Initiator.BUYER, 4),
     ("Bio Ethanol", "Shanghai", "2026-05", Decimal("1200"), Decimal("668.00"), TradeStatus.CONFIRMED, Initiator.SELLER, 5),
-    ("Synthetic Ethanol", "Amsterdam", "2026-05", Decimal("900"), Decimal("709.50"), TradeStatus.CONFIRMED, Initiator.SELLER, 8),
-    ("Bio Methanol", "Antwerp", "2026-Q3", Decimal("1800"), Decimal("608.00"), TradeStatus.CONFIRMED, Initiator.BUYER, 15),
+    ("Synthetic Ethanol", "Houston", "2026-05", Decimal("900"), Decimal("709.50"), TradeStatus.CONFIRMED, Initiator.SELLER, 8),
+    ("Bio Methanol", "Los Angeles", "2026-Q3", Decimal("1800"), Decimal("934.00"), TradeStatus.CONFIRMED, Initiator.BUYER, 15),
 ]
 
 def build_seed_windows(reference_date: date | None = None, *, quarter_count: int = 6) -> list[str]:
@@ -169,7 +177,7 @@ RFQ_NOTES = [
     "Urgent requirement — vessel arriving next week",
     "Testing new fuel pathway for FuelEU compliance",
     "Require full chain-of-custody documentation",
-    "Prefer suppliers with Amsterdam/Rotterdam/Antwerp delivery capability",
+    "Prefer suppliers with Rotterdam/Houston/Los Angeles delivery capability",
     "Need blending options — open to partial bio blends",
 ]
 
@@ -879,16 +887,16 @@ async def seed_market_data(db: AsyncSession, *, force_reset: bool = False) -> No
     rfqs_created = 0
 
     rfq_configs = [
-        ("Bio Methanol",      "Amsterdam", 2000, 575.00),
+        ("Bio Methanol",      "Houston",   2000, 875.00),
         ("Bio Methanol",      "Singapore", 3000, 1065.00),
-        ("Bio Ethanol",       "Antwerp",   2500, 630.00),
+        ("Bio Ethanol",       "Santos",    2500, 555.00),
         ("Bio Ethanol",       "Shanghai",  1800, None),
         ("Synthetic Ethanol", "Rotterdam", 1500, 720.00),
         ("Synthetic Ethanol", "Singapore", 2000, None),
-        ("e-Methanol",        "Amsterdam", 2500, 650.00),
+        ("e-Methanol",        "Busan",     2500, 1150.00),
         ("e-Methanol",        "Rotterdam", 1000, None),
         ("e-Methanol",        "Dalian",    1500, 890.00),
-        ("Synthetic Ethanol", "Antwerp",   2000, 720.00),
+        ("Synthetic Ethanol", "Los Angeles", 2000, 735.00),
     ]
 
     for i, (product_name, port_name, qty, target_price) in enumerate(rfq_configs):

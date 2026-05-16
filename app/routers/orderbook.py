@@ -28,6 +28,7 @@ from pydantic import BaseModel
 from app.services.benchmarks import compute_premium_discount
 from app.services.watchlist_events import emit_order_created, emit_order_updated, emit_pin_updated, emit_slice_state_changed, _best_slice_price
 from app.services.execution_policy import normalize_certification_scheme
+from app.services.demo_market import is_demo_market_organization
 from app.services.live_benchmarks import (
     LiveBenchmarkKey,
     get_live_slice_benchmark_price,
@@ -286,6 +287,7 @@ async def _order_response(
     payload = OrderResponse.model_validate(order, from_attributes=True).model_copy(
         update={
             "is_crossed": is_crossed,
+            "is_demo_listing": is_demo_market_organization(order.organization_id),
             **(await _benchmark_payload(db, order, cache=benchmark_cache)),
         }
     )
@@ -661,6 +663,12 @@ async def latest_supplier_listing_template(
 
 @router.get("/aggregated", response_model=list[AggregatedOrderbookResponse])
 async def list_aggregated_orderbook(
+    product_id: Optional[UUID] = Query(None, description="Filter by product"),
+    delivery_point_id: Optional[UUID] = Query(None, description="Filter by delivery point"),
+    fuel_type: Optional[str] = Query(None, description="Filter by fuel type"),
+    market_product: Optional[MarketProduct] = Query(None, description="Filter by canonical market product"),
+    region: Optional[str] = Query(None, description="Filter by region or delivery point name"),
+    availability_window: Optional[str] = Query(None, description="Filter by availability window"),
     include_off_spec: bool = Query(False, description="Include off-spec orders"),
     db: AsyncSession = Depends(get_db),
 ):
@@ -670,12 +678,27 @@ async def list_aggregated_orderbook(
     filters = [OrderBookOrder.status == OrderBookStatus.OPEN]
     joins = [(Product, OrderBookOrder.product_id == Product.id)]
     _apply_public_marketplace_scope(filters, joins, include_off_spec=include_off_spec)
+    if product_id:
+        filters.append(OrderBookOrder.product_id == product_id)
+    if delivery_point_id:
+        filters.append(OrderBookOrder.delivery_point_id == delivery_point_id)
+    if fuel_type:
+        filters.append(Product.fuel_type == fuel_type)
+    normalized_market_product = _normalize_market_product_query(market_product)
+    if normalized_market_product:
+        filters.append(_market_product_filter_condition(normalized_market_product))
+    if region:
+        filters.append(or_(DeliveryPoint.region == region, DeliveryPoint.name == region))
+    normalized_window = _normalize_query_window(availability_window)
+    if normalized_window:
+        filters.append(OrderBookOrder.availability_window == normalized_window)
 
     query = (
         select(
             OrderBookOrder.product_id,
             Product.name.label("product_name"),
             Product.fuel_type.label("fuel_type"),
+            OrderBookOrder.availability_window,
             OrderBookOrder.delivery_point_id,
             DeliveryPoint.name.label("delivery_point_name"),
             DeliveryPoint.region.label("region"),
@@ -685,16 +708,18 @@ async def list_aggregated_orderbook(
             func.sum(OrderBookOrder.remaining_quantity_mt).label("total_quantity"),
             func.count(OrderBookOrder.id).label("order_count"),
         )
-        .join(Product, OrderBookOrder.product_id == Product.id)
-        .outerjoin(DeliveryPoint, OrderBookOrder.delivery_point_id == DeliveryPoint.id)
         .where(*filters)
         .group_by(
             OrderBookOrder.product_id, Product.name, Product.fuel_type,
+            OrderBookOrder.availability_window,
             OrderBookOrder.delivery_point_id, DeliveryPoint.name, DeliveryPoint.region,
             OrderBookOrder.side,
         )
         .order_by(Product.name, DeliveryPoint.name, OrderBookOrder.side)
     )
+    for join_target, join_cond in joins:
+        query = query.join(join_target, join_cond)
+    query = query.outerjoin(DeliveryPoint, OrderBookOrder.delivery_point_id == DeliveryPoint.id)
 
     result = await db.execute(query)
     rows = result.all()
@@ -708,6 +733,7 @@ async def list_aggregated_orderbook(
                 fuel_type=row.fuel_type or "",
                 delivery_point_id=row.delivery_point_id,
                 delivery_point_name=row.delivery_point_name or "",
+                availability_window=row.availability_window or "SPOT",
                 region=row.region or "",
                 side=row.side,
                 min_price=row.min_price,

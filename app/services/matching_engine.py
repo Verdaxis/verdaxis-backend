@@ -4,29 +4,19 @@ and automatically create trades. Uses price-time priority (FIFO at each price le
 """
 from decimal import Decimal
 from datetime import datetime, UTC
-from sqlalchemy import or_, select
+from typing import Optional
+import uuid
+
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.orderbook import (
     OrderBookOrder, Trade, OrderSide, OrderBookStatus, TradeStatus, Initiator
 )
-from app.models.catalog import Product
 from app.models.notification import Notification, NotificationType
 from app.models.user import User
+from app.services.demo_market import is_demo_market_organization
 from app.services.execution_policy import order_is_execution_qualified, orders_execution_compatible
-
-
-async def _matching_product_ids(db: AsyncSession, product_id) -> set:
-    product = await db.get(Product, product_id)
-    if not product or not product.market_product:
-        return {product_id}
-
-    result = await db.execute(select(Product))
-    return {
-        candidate.id
-        for candidate in result.scalars().all()
-        if candidate.market_product == product.market_product
-    } or {product_id}
 
 
 async def match_order(
@@ -38,8 +28,9 @@ async def match_order(
     Attempt to match a newly created order against the opposite side of the book.
 
     Rules:
-    - BID matches against ASKs where ask_price <= bid_price (same product_id + delivery_point_id)
-    - ASK matches against BIDs where bid_price >= ask_price (same product_id + delivery_point_id)
+    - BID matches against ASKs where ask_price <= bid_price
+    - ASK matches against BIDs where bid_price >= ask_price
+    - Product, delivery point, availability window, and certification constraints must be compatible
     - Price-time priority: best price first, then oldest order first
     - Partial fills allowed: match as much as possible
     - Self-trade prevention: skip orders from same organization
@@ -49,10 +40,15 @@ async def match_order(
     """
     trades_created: list[Trade] = []
 
-    if new_order.remaining_quantity_mt <= 0 or not order_is_execution_qualified(new_order):
+    if new_order.remaining_quantity_mt <= 0:
         return trades_created
 
-    matching_product_ids = await _matching_product_ids(db, new_order.product_id)
+    new_order_is_demo = is_demo_market_organization(new_order.organization_id)
+    if new_order_is_demo:
+        return trades_created
+
+    if not order_is_execution_qualified(new_order):
+        return trades_created
 
     # Determine which side to match against
     if new_order.side == OrderSide.BID:
@@ -71,13 +67,10 @@ async def match_order(
     # Build matching filters: same product_id, same delivery_point_id
     match_filters = [
         OrderBookOrder.side == opposite_side,
-        OrderBookOrder.product_id.in_(matching_product_ids),
+        OrderBookOrder.product_id == new_order.product_id,
         OrderBookOrder.availability_window == new_order.availability_window,
         OrderBookOrder.status.in_([OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED]),
         OrderBookOrder.organization_id != new_order.organization_id,  # No self-trade
-        OrderBookOrder.off_spec.is_(False),
-        or_(OrderBookOrder.side != OrderSide.ASK, OrderBookOrder.certification_scheme.is_not(None)),
-        or_(OrderBookOrder.side != OrderSide.ASK, OrderBookOrder.certification_declared.is_(True)),
         price_filter,
     ]
 
@@ -101,7 +94,8 @@ async def match_order(
     for crossing in crossing_orders:
         if new_order.remaining_quantity_mt <= 0:
             break
-
+        if is_demo_market_organization(crossing.organization_id):
+            continue
         if not orders_execution_compatible(new_order, crossing):
             continue
 
@@ -139,6 +133,7 @@ async def match_order(
             is_anonymous=is_anonymous,
         )
         db.add(trade)
+        await db.flush()
 
         # Update quantities
         new_order.remaining_quantity_mt -= trade_qty

@@ -89,10 +89,10 @@ DELIVERY_POINTS = [
         timezone="Asia/Shanghai",
     ),
     DeliveryPoint(
-        id=_dp_id("Amsterdam"),
-        name="Amsterdam",
-        region="Europe",
-        timezone="Europe/Amsterdam",
+        id=_dp_id("Busan"),
+        name="Busan",
+        region="Asia",
+        timezone="Asia/Seoul",
     ),
     DeliveryPoint(
         id=_dp_id("Rotterdam"),
@@ -101,10 +101,22 @@ DELIVERY_POINTS = [
         timezone="Europe/Amsterdam",
     ),
     DeliveryPoint(
-        id=_dp_id("Antwerp"),
-        name="Antwerp",
-        region="Europe",
-        timezone="Europe/Brussels",
+        id=_dp_id("Houston"),
+        name="Houston",
+        region="Americas",
+        timezone="America/Chicago",
+    ),
+    DeliveryPoint(
+        id=_dp_id("Los Angeles"),
+        name="Los Angeles",
+        region="Americas",
+        timezone="America/Los_Angeles",
+    ),
+    DeliveryPoint(
+        id=_dp_id("Santos"),
+        name="Santos",
+        region="Americas",
+        timezone="America/Sao_Paulo",
     ),
 ]
 

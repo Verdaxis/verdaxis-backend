@@ -5,10 +5,28 @@ Maritime fuel trading exchange platform backend.
 ## Quick Start
 
 ```bash
-cd /home/verdaxis-prod/verdaxis-backend
+cd /home/verdaxis-prod/verdaxis/staging/be
 source venv/bin/activate
 uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
+
+## Live Deployment
+
+The VPS runs the backend via systemd, not Docker Compose.
+
+```bash
+# Staging
+cd /home/verdaxis-prod/verdaxis/staging/be
+./scripts/deploy.sh --dry-run
+./scripts/deploy.sh
+
+# Production
+cd /home/verdaxis-prod/verdaxis/prod/be
+./scripts/deploy.sh --dry-run
+./scripts/deploy.sh
+```
+
+The deploy helper infers the correct branch and service from the path, refuses dirty worktrees by default, runs migrations, restarts systemd, and checks the public health endpoint.
 
 ## API Endpoints
 
