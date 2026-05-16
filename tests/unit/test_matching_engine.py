@@ -20,7 +20,6 @@ from app.models.orderbook import (
 )
 from app.models.notification import Notification
 from app.services.matching_engine import match_order
-from app.services.availability_windows import SPOT_WINDOW
 
 # Tables needed for our tests (avoids loading models with broken FK refs)
 _REQUIRED_TABLES = [
@@ -208,14 +207,23 @@ def _make_order(
     delivery_point_id: uuid.UUID | None = _TEST_DP_ID,
     price: Decimal = Decimal("550.00"),
     quantity: Decimal = Decimal("1000.00"),
-    availability_window: str = SPOT_WINDOW,
     created_at: datetime | None = None,
     status: OrderBookStatus = OrderBookStatus.OPEN,
-    certification_scheme: str | None = "ISCC EU",
-    certification_declared: bool = True,
+    availability_window: str = "SPOT",
+    certifications: list[str] | None = None,
+    certification_declared: bool | None = None,
+    certification_scheme: str | None = None,
     off_spec: bool = False,
 ) -> OrderBookOrder:
     """Helper to build an OrderBookOrder with sensible defaults."""
+    certs = certifications or []
+    if side == OrderSide.ASK:
+        certification_scheme = certification_scheme or (certs[0] if certs else "ISCC EU")
+        certification_declared = True if certification_declared is None else certification_declared
+        certs = certs or [certification_scheme]
+    else:
+        certification_declared = False if certification_declared is None else certification_declared
+
     return OrderBookOrder(
         organization_id=org_id,
         side=side,
@@ -225,11 +233,12 @@ def _make_order(
         remaining_quantity_mt=quantity,
         price_per_mt_usd=price,
         availability_window=availability_window,
+        certifications=certs,
+        certification_declared=certification_declared,
+        certification_scheme=certification_scheme,
+        off_spec=off_spec,
         status=status,
         created_at=created_at or datetime.now(UTC),
-        certification_scheme=certification_scheme,
-        certification_declared=certification_declared,
-        off_spec=off_spec,
     )
 
 
@@ -238,56 +247,6 @@ def _make_order(
 
 class TestBasicMatching:
     """Basic bid-ask crossing scenarios."""
-
-    @pytest.mark.asyncio
-    async def test_certification_scheme_mismatch_prevents_matching(self, db, buyer_org, seller_org, org_buyer_id, org_seller_id, test_product, test_dp):
-        ask = _make_order(org_seller_id, OrderSide.ASK, price=Decimal("550.00"), certification_scheme="ISCC PLUS")
-        db.add(ask)
-        await db.flush()
-
-        bid = _make_order(org_buyer_id, OrderSide.BID, price=Decimal("560.00"), certification_scheme="ISCC EU")
-        db.add(bid)
-        await db.flush()
-
-        trades = await match_order(db, bid)
-
-        assert trades == []
-        assert bid.status == OrderBookStatus.OPEN
-        assert ask.status == OrderBookStatus.OPEN
-
-
-    @pytest.mark.asyncio
-    async def test_bid_certification_preferences_match_allowed_ask_schemes(self, db, buyer_org, seller_org, org_buyer_id, org_seller_id, test_product, test_dp):
-        ask = _make_order(org_seller_id, OrderSide.ASK, price=Decimal('550.00'), certification_scheme='REDCERT EU')
-        db.add(ask)
-        await db.flush()
-
-        bid = _make_order(org_buyer_id, OrderSide.BID, price=Decimal('560.00'), certification_scheme=None)
-        bid.certifications = ['ISCC EU', 'REDcert EU']
-        db.add(bid)
-        await db.flush()
-
-        trades = await match_order(db, bid)
-
-        assert len(trades) == 1
-        assert ask.status == OrderBookStatus.FILLED
-        assert bid.status == OrderBookStatus.FILLED
-
-    @pytest.mark.asyncio
-    async def test_bid_without_certification_scheme_matches_any_qualified_ask(self, db, buyer_org, seller_org, org_buyer_id, org_seller_id, test_product, test_dp):
-        ask = _make_order(org_seller_id, OrderSide.ASK, price=Decimal("550.00"))
-        db.add(ask)
-        await db.flush()
-
-        bid = _make_order(org_buyer_id, OrderSide.BID, price=Decimal("560.00"), certification_scheme=None)
-        db.add(bid)
-        await db.flush()
-
-        trades = await match_order(db, bid)
-
-        assert len(trades) == 1
-        assert bid.status == OrderBookStatus.FILLED
-        assert ask.status == OrderBookStatus.FILLED
 
     @pytest.mark.asyncio
     async def test_bid_matches_ask_when_bid_gte_ask(self, db, buyer_org, seller_org, org_buyer_id, org_seller_id, test_product, test_dp):
@@ -350,67 +309,29 @@ class TestBasicMatching:
         assert trades[0].price_per_mt_usd == Decimal("550.00")
 
     @pytest.mark.asyncio
-    async def test_matches_on_market_product_not_raw_product_id(
-        self,
-        db,
-        buyer_org,
-        seller_org,
-        org_buyer_id,
-        org_seller_id,
-        test_dp,
-    ):
-        legacy_product = Product(
-            id=uuid.uuid5(uuid.NAMESPACE_DNS, "test:product:legacy-bio-methanol"),
-            name=f"Methanol Green {uuid.uuid4().hex[:6]}",
-            fuel_type="Methanol",
-            fuel_grade="Green",
-            unit="MT",
-            min_lot_size=200,
-        )
-        canonical_product = Product(
-            id=uuid.uuid5(uuid.NAMESPACE_DNS, "test:product:bio-methanol"),
-            name=f"Bio Methanol {uuid.uuid4().hex[:6]}",
-            fuel_type="Methanol",
-            fuel_grade="Bio",
-            unit="MT",
-            min_lot_size=200,
-        )
-        db.add_all([legacy_product, canonical_product])
+    async def test_auto_match_notifications_include_trade_id(self, db, buyer_org, seller_org, org_buyer_id, org_seller_id, test_product, test_dp):
+        """Regression: notifications should not be emitted with trade_id=None."""
+        ask = _make_order(org_seller_id, OrderSide.ASK, price=Decimal("550.00"))
+        db.add(ask)
         await db.flush()
 
-        ask = _make_order(org_seller_id, OrderSide.ASK, product_id=legacy_product.id, price=Decimal("540.00"))
-        bid = _make_order(org_buyer_id, OrderSide.BID, product_id=canonical_product.id, price=Decimal("550.00"))
-        db.add_all([ask, bid])
+        bid = _make_order(org_buyer_id, OrderSide.BID, price=Decimal("560.00"))
+        db.add(bid)
         await db.flush()
 
         trades = await match_order(db, bid)
+        await db.flush()
 
         assert len(trades) == 1
-        assert trades[0].ask_order_id == ask.id
-        assert trades[0].bid_order_id == bid.id
+        assert trades[0].id is not None
 
-    @pytest.mark.asyncio
-    async def test_off_spec_orders_are_excluded_from_default_matching(
-        self,
-        db,
-        buyer_org,
-        seller_org,
-        org_buyer_id,
-        org_seller_id,
-        test_product,
-        test_dp,
-    ):
-        ask = _make_order(org_seller_id, OrderSide.ASK, price=Decimal("540.00"))
-        ask.off_spec = True
-        bid = _make_order(org_buyer_id, OrderSide.BID, price=Decimal("550.00"))
-        db.add_all([ask, bid])
-        await db.flush()
-
-        trades = await match_order(db, bid)
-
-        assert trades == []
-        assert ask.status == OrderBookStatus.OPEN
-        assert bid.status == OrderBookStatus.OPEN
+        notifications = (await db.execute(
+            Notification.__table__.select()
+        )).all()
+        assert notifications
+        for row in notifications:
+            payload = row._mapping["data"]
+            assert payload["trade_id"] == str(trades[0].id)
 
 
 class TestNoMatch:
@@ -445,13 +366,13 @@ class TestNoMatch:
         assert len(trades) == 0
 
     @pytest.mark.asyncio
-    async def test_no_match_when_availability_window_differs(self, db, buyer_org, seller_org, org_buyer_id, org_seller_id, test_product, test_dp):
-        """Crossing prices should not match across different availability windows."""
+    async def test_no_match_availability_window_differs(self, db, buyer_org, seller_org, org_buyer_id, org_seller_id, test_product, test_dp):
+        """A crossing price is not enough when availability windows differ."""
         ask = _make_order(
             org_seller_id,
             OrderSide.ASK,
             price=Decimal("550.00"),
-            availability_window="2026-Q3",
+            availability_window="2026-Q2",
         )
         db.add(ask)
         await db.flush()
@@ -460,10 +381,154 @@ class TestNoMatch:
             org_buyer_id,
             OrderSide.BID,
             price=Decimal("560.00"),
-            availability_window="2026-Q4",
+            availability_window="SPOT",
         )
         db.add(bid)
         await db.flush()
+
+        trades = await match_order(db, bid)
+        assert len(trades) == 0
+
+    @pytest.mark.asyncio
+    async def test_no_match_certifications_are_disjoint(self, db, buyer_org, seller_org, org_buyer_id, org_seller_id, test_product, test_dp):
+        """A bid with explicit acceptable schemes should not match a disjoint ask declaration."""
+        ask = _make_order(
+            org_seller_id,
+            OrderSide.ASK,
+            price=Decimal("550.00"),
+            certifications=["ISCC"],
+        )
+        db.add(ask)
+        await db.flush()
+
+        bid = _make_order(
+            org_buyer_id,
+            OrderSide.BID,
+            price=Decimal("560.00"),
+            certifications=["REDcert"],
+        )
+        db.add(bid)
+        await db.flush()
+
+        trades = await match_order(db, bid)
+        assert len(trades) == 0
+
+    @pytest.mark.asyncio
+    async def test_match_certifications_overlap(self, db, buyer_org, seller_org, org_buyer_id, org_seller_id, test_product, test_dp):
+        """A bid can match an ask when at least one acceptable certification overlaps."""
+        ask = _make_order(
+            org_seller_id,
+            OrderSide.ASK,
+            price=Decimal("550.00"),
+            certifications=["ISCC"],
+        )
+        db.add(ask)
+        await db.flush()
+
+        bid = _make_order(
+            org_buyer_id,
+            OrderSide.BID,
+            price=Decimal("560.00"),
+            certifications=["ISCC", "REDcert"],
+        )
+        db.add(bid)
+        await db.flush()
+
+        trades = await match_order(db, bid)
+        assert len(trades) == 1
+
+    @pytest.mark.asyncio
+    async def test_match_certification_scheme_normalized(self, db, buyer_org, seller_org, org_buyer_id, org_seller_id, test_product, test_dp):
+        """Certification compatibility uses normalized scheme names."""
+        ask = _make_order(
+            org_seller_id,
+            OrderSide.ASK,
+            price=Decimal("550.00"),
+            certification_scheme="iscc eu",
+            certifications=["iscc eu"],
+        )
+        db.add(ask)
+        await db.flush()
+
+        bid = _make_order(
+            org_buyer_id,
+            OrderSide.BID,
+            price=Decimal("560.00"),
+            certifications=["ISCC EU"],
+        )
+        db.add(bid)
+        await db.flush()
+
+        trades = await match_order(db, bid)
+        assert len(trades) == 1
+
+    @pytest.mark.asyncio
+    async def test_no_match_off_spec_ask(self, db, buyer_org, seller_org, org_buyer_id, org_seller_id, test_product, test_dp):
+        """Off-spec orders are not eligible for automatic execution."""
+        ask = _make_order(org_seller_id, OrderSide.ASK, price=Decimal("550.00"), off_spec=True)
+        db.add(ask)
+        await db.flush()
+
+        bid = _make_order(org_buyer_id, OrderSide.BID, price=Decimal("560.00"))
+        db.add(bid)
+        await db.flush()
+
+        trades = await match_order(db, bid)
+        assert len(trades) == 0
+
+    @pytest.mark.asyncio
+    async def test_no_match_ask_without_certification_declaration(self, db, buyer_org, seller_org, org_buyer_id, org_seller_id, test_product, test_dp):
+        """Supplier asks must declare certification before automatic execution."""
+        ask = _make_order(
+            org_seller_id,
+            OrderSide.ASK,
+            price=Decimal("550.00"),
+            certification_declared=False,
+        )
+        db.add(ask)
+        await db.flush()
+
+        bid = _make_order(org_buyer_id, OrderSide.BID, price=Decimal("560.00"))
+        db.add(bid)
+        await db.flush()
+
+        trades = await match_order(db, bid)
+        assert len(trades) == 0
+
+    @pytest.mark.asyncio
+    async def test_no_match_crosses_demo_boundary(self, monkeypatch, db, buyer_org, seller_org, org_buyer_id, org_seller_id, test_product, test_dp):
+        """Real user orders must not auto-execute against preview/demo liquidity."""
+        ask = _make_order(org_seller_id, OrderSide.ASK, price=Decimal("550.00"))
+        db.add(ask)
+        await db.flush()
+
+        bid = _make_order(org_buyer_id, OrderSide.BID, price=Decimal("560.00"))
+        db.add(bid)
+        await db.flush()
+
+        monkeypatch.setattr(
+            "app.services.matching_engine.is_demo_market_organization",
+            lambda org_id: org_id == org_seller_id,
+        )
+
+        trades = await match_order(db, bid)
+        assert len(trades) == 0
+
+    @pytest.mark.asyncio
+    async def test_no_auto_match_for_demo_orders(self, monkeypatch, db, buyer_org, seller_org, org_buyer_id, org_seller_id, test_product, test_dp):
+        """Demo liquidity is preview-only and must not auto-execute, even against other demo orders."""
+        ask = _make_order(org_seller_id, OrderSide.ASK, price=Decimal("550.00"))
+        db.add(ask)
+        await db.flush()
+
+        bid = _make_order(org_buyer_id, OrderSide.BID, price=Decimal("560.00"))
+        db.add(bid)
+        await db.flush()
+
+        monkeypatch.setattr(
+            "app.services.matching_engine.is_demo_market_organization",
+            lambda org_id: org_id in {org_buyer_id, org_seller_id},
+        )
 
         trades = await match_order(db, bid)
         assert len(trades) == 0

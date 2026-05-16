@@ -126,6 +126,31 @@ async def _make_ask(
 
 
 @pytest.mark.asyncio
+async def test_create_trade_rejects_demo_listing(monkeypatch, db: AsyncSession):
+    buyer_org = await _make_org(db, 'Buyer', OrgType.SHIPPING_LINE)
+    supplier_org = await _make_org(db, 'Supplier', OrgType.FUEL_SUPPLIER)
+    product = await _make_product(db)
+    delivery_point = await _make_delivery_point(db)
+    ask = await _make_ask(db, org_id=supplier_org.id, product_id=product.id, delivery_point_id=delivery_point.id)
+    await db.commit()
+
+    monkeypatch.setattr(
+        trades_router,
+        'is_demo_market_organization',
+        lambda org_id: org_id == supplier_org.id,
+    )
+
+    current_user = SimpleNamespace(organization_id=buyer_org.id, role=UserRole.BUYER)
+    payload = trades_router.TradeCreate(order_id=ask.id, quantity_mt=Decimal('100'))
+
+    with pytest.raises(HTTPException) as exc_info:
+        await trades_router.create_trade(payload=payload, db=db, current_user=current_user)
+
+    assert exc_info.value.status_code == 400
+    assert 'Demo listings' in exc_info.value.detail
+
+
+@pytest.mark.asyncio
 async def test_create_trade_rejects_non_executable_order(monkeypatch, db: AsyncSession):
     buyer_org = await _make_org(db, 'Buyer', OrgType.SHIPPING_LINE)
     buyer = await _make_user(db, buyer_org, UserRole.BUYER)

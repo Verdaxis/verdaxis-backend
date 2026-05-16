@@ -1,5 +1,15 @@
 # Verdaxis Backend - Claude Code Instructions
 
+## Live VPS Layout
+
+The live VPS deployment is systemd-based, not Docker-based:
+
+- Production backend: `/home/verdaxis-prod/verdaxis/prod/be`, branch `prod`, service `verdaxis-backend.service`, health `https://api.verdaxis.exchange/health`
+- Staging backend: `/home/verdaxis-prod/verdaxis/staging/be`, branch `staging`, service `verdaxis-backend-staging.service`, health `https://api-staging.verdaxis.exchange/health`
+- Deploy helper: `./scripts/deploy.sh`
+
+The deploy helper prints branch, SHA, service, and health target, refuses dirty worktrees by default, runs Alembic, restarts the correct systemd service, and checks live health. Use `./scripts/deploy.sh --dry-run` before real deploys. Use `ALLOW_DIRTY=1` only for an intentional hotfix deploy from a known dirty tree.
+
 Read ARCHITECTURE.md before exploring the codebase.
 
 ## Project Overview
@@ -12,13 +22,10 @@ Backend API for Verdaxis -- a maritime intelligence and procurement platform. Ha
 ## Development Commands
 
 ```bash
-# Activate virtual environment
-source /home/verdaxis-prod/verdaxis-backend/venv/bin/activate
+# Activate virtual environment from the current live tree
+source ./venv/bin/activate
 
-# Start services (from project root)
-docker compose up -d --build
-
-# Run the backend directly (without Docker)
+# Run the backend directly for local development
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
 # Run all unit tests (no DB required, uses sqlite in-memory)
@@ -39,8 +46,9 @@ alembic revision --autogenerate -m "description_here"
 # Seed the database
 python scripts/seed.py
 
-# Full deploy script (on server)
-bash scripts/deploy.sh
+# Full deploy script (on server, from prod/be or staging/be)
+./scripts/deploy.sh --dry-run
+./scripts/deploy.sh
 ```
 
 ## Deployment
@@ -52,23 +60,15 @@ bash scripts/deploy.sh
 
 ### CI/CD (GitHub Actions)
 
-Push to `main` triggers `.github/workflows/backend-ci.yml`:
-1. Runs unit tests with `DATABASE_URL=sqlite+aiosqlite:///:memory:`
-2. If tests pass AND it was a push (not PR), SSH deploys to VPS:
-   ```
-   git pull origin main -> docker compose down -> docker compose up -d --build -> docker system prune -f
-   ```
+Legacy CI/CD documentation may still refer to Docker and `main`. Treat the live systemd layout above as authoritative until the GitHub workflow is reconciled.
 
 ### Manual Deploy
 
 ```bash
 ssh verdaxis-prod@144.126.151.136
-cd ~/verdaxis-backend
-git pull origin main
-docker compose down
-docker compose up -d --build
-# Run migrations if schema changed:
-docker exec verdaxis-backend alembic upgrade head
+cd /home/verdaxis-prod/verdaxis/staging/be   # or /home/verdaxis-prod/verdaxis/prod/be
+./scripts/deploy.sh --dry-run
+./scripts/deploy.sh
 ```
 
 ## Database & Migrations
@@ -245,9 +245,10 @@ ENABLE_AUTH_BYPASS=false        # Never true in production
 
 ## Git Workflow
 
-- **`main`** branch: Active development. Push triggers CI/CD deploy.
-- **`prod`** branch: Exists but currently mirrors `main`.
-- CI runs unit tests then deploys via SSH on push to `main`.
+- **`staging`** branch: live staging backend source at `/home/verdaxis-prod/verdaxis/staging/be`.
+- **`prod`** branch: live production backend source at `/home/verdaxis-prod/verdaxis/prod/be`.
+- **`main`** branch: legacy/default development branch in older docs and workflows.
+- Do not assume a push to `main` deploys the current live topology; verify `.github/workflows/backend-ci.yml` before relying on CI/CD.
 
 ## Development with Hot Reload
 

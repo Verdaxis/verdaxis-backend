@@ -166,6 +166,7 @@ class OrderResponse(AvailabilityWindowMixin, SupplierListingMetadataMixin):
     premium_discount_per_mt_usd: Optional[Decimal] = None
     benchmark_source: Optional[str] = None
     is_crossed: bool = False
+    is_demo_listing: bool = False
 
     class Config:
         from_attributes = True
