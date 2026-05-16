@@ -1,8 +1,8 @@
 from pydantic import BaseModel
-from typing import Optional
 from decimal import Decimal
 from datetime import datetime
 from enum import Enum
+from uuid import UUID
 
 
 class UrgencyLevel(str, Enum):
@@ -18,6 +18,10 @@ class DemandSignal(BaseModel):
     """
     fuel_type: str
     region: str
+    market_product_code: str | None = None
+    delivery_point_id: UUID | None = None
+    delivery_point_name: str | None = None
+    availability_window_code: str | None = None
     volume_mt: Decimal
     max_price_per_mt: Decimal
     urgency: UrgencyLevel

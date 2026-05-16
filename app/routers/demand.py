@@ -16,7 +16,6 @@ from app.schemas.demand import DemandSignal, UrgencyLevel
 from app.services.availability_windows import (
     SPOT_WINDOW,
     availability_window_display_label,
-    availability_window_sort_key,
     normalize_availability_window,
     window_start_date,
 )
@@ -45,11 +44,14 @@ async def get_demand_signals(
 ):
     """
     Public: anonymized demand signals from buyer bids.
-    Aggregated by fuel_type + region via Product/DeliveryPoint joins.
+    Aggregated by tradable market product + delivery point + availability window.
     """
     stmt = (
         select(
             Product.fuel_type.label("fuel_type"),
+            Product.market_product.label("market_product_code"),
+            DeliveryPoint.id.label("delivery_point_id"),
+            DeliveryPoint.name.label("delivery_point_name"),
             DeliveryPoint.region.label("region"),
             OrderBookOrder.remaining_quantity_mt.label("remaining_quantity_mt"),
             OrderBookOrder.price_per_mt_usd.label("price_per_mt_usd"),
@@ -72,14 +74,21 @@ async def get_demand_signals(
     result = await db.execute(stmt)
     rows = result.all()
 
-    groups: dict[tuple[str, str], dict[str, object]] = {}
+    groups: dict[tuple[str, str, str], dict[str, object]] = {}
     for row in rows:
-        key = (row.fuel_type or "", row.region or "")
         normalized_window = normalize_availability_window(str(row.availability_window))
+        key = (
+            str(row.market_product_code or ""),
+            str(row.delivery_point_id or ""),
+            normalized_window,
+        )
         if key not in groups:
             groups[key] = {
                 "fuel_type": row.fuel_type or "",
                 "region": row.region or "",
+                "market_product_code": row.market_product_code,
+                "delivery_point_id": row.delivery_point_id,
+                "delivery_point_name": row.delivery_point_name,
                 "volume_mt": row.remaining_quantity_mt,
                 "max_price_per_mt": row.price_per_mt_usd,
                 "bid_count": 1,
@@ -92,8 +101,6 @@ async def get_demand_signals(
         group["volume_mt"] += row.remaining_quantity_mt
         group["max_price_per_mt"] = max(group["max_price_per_mt"], row.price_per_mt_usd)
         group["bid_count"] += 1
-        if availability_window_sort_key(normalized_window) < availability_window_sort_key(group["earliest_window"]):
-            group["earliest_window"] = normalized_window
         if row.created_at > group["created_at"]:
             group["created_at"] = row.created_at
 
@@ -101,6 +108,10 @@ async def get_demand_signals(
         DemandSignal(
             fuel_type=group["fuel_type"],
             region=group["region"],
+            market_product_code=group["market_product_code"],
+            delivery_point_id=group["delivery_point_id"],
+            delivery_point_name=group["delivery_point_name"],
+            availability_window_code=group["earliest_window"],
             volume_mt=group["volume_mt"],
             max_price_per_mt=group["max_price_per_mt"],
             urgency=_classify_urgency(group["earliest_window"]),
