@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.models.orderbook import OrderBookOrder, OrderSide, OrderBookStatus
-from app.models.catalog import Product, DeliveryPoint
+from app.models.catalog import Product, DeliveryPoint, derive_market_product
 from app.schemas.demand import DemandSignal, UrgencyLevel
 from app.services.availability_windows import (
     SPOT_WINDOW,
@@ -49,7 +49,8 @@ async def get_demand_signals(
     stmt = (
         select(
             Product.fuel_type.label("fuel_type"),
-            Product.market_product.label("market_product_code"),
+            Product.name.label("product_name"),
+            Product.fuel_grade.label("fuel_grade"),
             DeliveryPoint.id.label("delivery_point_id"),
             DeliveryPoint.name.label("delivery_point_name"),
             DeliveryPoint.region.label("region"),
@@ -77,8 +78,10 @@ async def get_demand_signals(
     groups: dict[tuple[str, str, str], dict[str, object]] = {}
     for row in rows:
         normalized_window = normalize_availability_window(str(row.availability_window))
+        market_product = derive_market_product(row.product_name or "", row.fuel_type or "", row.fuel_grade or "")
+        market_product_code = market_product.value if market_product else None
         key = (
-            str(row.market_product_code or ""),
+            str(market_product_code or ""),
             str(row.delivery_point_id or ""),
             normalized_window,
         )
@@ -86,7 +89,7 @@ async def get_demand_signals(
             groups[key] = {
                 "fuel_type": row.fuel_type or "",
                 "region": row.region or "",
-                "market_product_code": row.market_product_code,
+                "market_product_code": market_product_code,
                 "delivery_point_id": row.delivery_point_id,
                 "delivery_point_name": row.delivery_point_name,
                 "volume_mt": row.remaining_quantity_mt,
