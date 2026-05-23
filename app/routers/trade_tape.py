@@ -18,8 +18,8 @@ router = APIRouter(prefix="/trade-tape", tags=["trade-tape"])
 
 
 def _is_market_hours(now: datetime) -> bool:
-    """Return True if current UTC hour is within 08:00-18:00."""
-    return 8 <= now.hour < 18
+    """Verdaxis physical fuel markets are presented without exchange-session delay."""
+    return True
 
 
 def _build_tape_entry(trade: Trade) -> TradeTapeEntry:
@@ -64,31 +64,21 @@ async def get_trade_tape(
     limit: int = Query(50, ge=1, le=200),
 ):
     """
-    Public trade tape — anonymized confirmed trades from the last 24 hours.
+    Public trade tape — anonymized confirmed trades from the last 7 days.
 
-    During market hours (08:00-18:00 UTC) trades are shown in real-time.
-    Outside market hours, trades are delayed by 1 hour.
+    Confirmed trades are shown without an exchange-hours delay; the lookback
+    window is intentionally kept separate from market availability semantics.
     """
     now = datetime.now(timezone.utc)
     market_hours = _is_market_hours(now)
 
-    if market_hours:
-        # Real-time: trades confirmed in the last 24h
-        cutoff = now - timedelta(days=7)
-        confirmed_before = None
-    else:
-        # Delayed: trades confirmed in last 25h but only those older than 1h
-        cutoff = now - timedelta(days=7)
-        confirmed_before = now - timedelta(hours=1)
+    cutoff = now - timedelta(days=7)
 
     # Base filter: confirmed trades after cutoff
     conditions = [
         Trade.status.in_([TradeStatus.CONFIRMED, TradeStatus.DELIVERED, TradeStatus.PAID]),
         Trade.confirmed_at >= cutoff,
     ]
-    if confirmed_before is not None:
-        conditions.append(Trade.confirmed_at <= confirmed_before)
-
     tape_order = aliased(OrderBookOrder)
 
     # Join a single canonical display order per trade. Prefer the ASK order when present,

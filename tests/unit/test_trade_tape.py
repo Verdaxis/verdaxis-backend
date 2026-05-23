@@ -1,4 +1,4 @@
-"""Unit tests for public trade tape endpoint — market hours logic and anonymization."""
+"""Unit tests for public trade tape endpoint — live status and anonymization."""
 
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -16,33 +16,10 @@ from app.schemas.trade_tape import TradeTapeEntry, TradeTapeResponse
 # ---------------------------------------------------------------------------
 
 class TestIsMarketHours:
-    def test_market_open_at_0800(self):
-        dt = datetime(2026, 3, 15, 8, 0, 0, tzinfo=timezone.utc)
+    @pytest.mark.parametrize("hour", [0, 7, 8, 12, 17, 18, 23])
+    def test_market_has_no_session_delay(self, hour):
+        dt = datetime(2026, 3, 15, hour, 0, 0, tzinfo=timezone.utc)
         assert _is_market_hours(dt) is True
-
-    def test_market_open_at_1200(self):
-        dt = datetime(2026, 3, 15, 12, 0, 0, tzinfo=timezone.utc)
-        assert _is_market_hours(dt) is True
-
-    def test_market_open_at_1759(self):
-        dt = datetime(2026, 3, 15, 17, 59, 0, tzinfo=timezone.utc)
-        assert _is_market_hours(dt) is True
-
-    def test_market_closed_at_1800(self):
-        dt = datetime(2026, 3, 15, 18, 0, 0, tzinfo=timezone.utc)
-        assert _is_market_hours(dt) is False
-
-    def test_market_closed_at_0759(self):
-        dt = datetime(2026, 3, 15, 7, 59, 0, tzinfo=timezone.utc)
-        assert _is_market_hours(dt) is False
-
-    def test_market_closed_at_midnight(self):
-        dt = datetime(2026, 3, 15, 0, 0, 0, tzinfo=timezone.utc)
-        assert _is_market_hours(dt) is False
-
-    def test_market_closed_at_2300(self):
-        dt = datetime(2026, 3, 15, 23, 0, 0, tzinfo=timezone.utc)
-        assert _is_market_hours(dt) is False
 
 
 # ---------------------------------------------------------------------------

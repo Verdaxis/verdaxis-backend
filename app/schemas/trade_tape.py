@@ -23,4 +23,4 @@ class TradeTapeEntry(BaseModel):
 class TradeTapeResponse(BaseModel):
     items: list[TradeTapeEntry]
     total: int
-    market_hours: bool  # true if 08:00-18:00 UTC
+    market_hours: bool  # true while Verdaxis presents confirmed trades without session delay
