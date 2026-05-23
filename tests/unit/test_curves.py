@@ -7,8 +7,17 @@ from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
-from app.routers.curves import compute_forward_curve
-from app.schemas.curves import ForwardCurvePoint, ForwardCurveResponse
+from app.routers.curves import _build_board_cell, compute_forward_curve
+from app.schemas.curves import (
+    ForwardCurveBoardCell,
+    ForwardCurveBoardDepthLevel,
+    ForwardCurveBoardFocus,
+    ForwardCurveBoardPort,
+    ForwardCurveBoardProduct,
+    ForwardCurveBoardResponse,
+    ForwardCurvePoint,
+    ForwardCurveResponse,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -88,18 +97,18 @@ class TestForwardCurveResponseSchema:
     """ForwardCurveResponse wrapper schema."""
 
     def test_empty_curve(self):
-        from datetime import datetime, UTC
+        from datetime import datetime, timezone
         resp = ForwardCurveResponse(
             product_id=uuid4(),
             delivery_point_id=None,
             curve=[],
-            generated_at=datetime.now(UTC),
+            generated_at=datetime.now(timezone.utc),
         )
         assert resp.curve == []
         assert resp.delivery_point_id is None
 
     def test_with_points(self):
-        from datetime import datetime, UTC
+        from datetime import datetime, timezone
         pid = uuid4()
         point = ForwardCurvePoint(
             availability_window="SPOT",
@@ -114,10 +123,133 @@ class TestForwardCurveResponseSchema:
             product_id=pid,
             delivery_point_id=None,
             curve=[point],
-            generated_at=datetime.now(UTC),
+            generated_at=datetime.now(timezone.utc),
         )
         assert len(resp.curve) == 1
         assert resp.product_id == pid
+
+
+class TestForwardCurveBoardSchema:
+    """Forward curve board response schema."""
+
+    def test_board_cell_carries_hybrid_market_context(self):
+        pid = uuid4()
+        dp_id = uuid4()
+        cell = ForwardCurveBoardCell(
+            product_id=pid,
+            market_product="BIO_METHANOL",
+            product_name="Bio Methanol",
+            delivery_point_id=dp_id,
+            delivery_point_name="Singapore",
+            region="Asia",
+            availability_window="SPOT",
+            benchmark_mid=Decimal("1052.00"),
+            benchmark_source="seed_matrix",
+            is_demo_benchmark=True,
+            best_bid=Decimal("1048.00"),
+            best_ask=Decimal("1056.00"),
+            spread=Decimal("8.00"),
+            volume_mt=Decimal("9000.00"),
+            order_count=4,
+        )
+
+        assert cell.benchmark_mid == Decimal("1052.00")
+        assert cell.is_demo_benchmark is True
+        assert cell.spread == Decimal("8.00")
+
+    def test_board_response_groups_ports_products_and_focus(self):
+        from datetime import datetime, timezone
+
+        pid = uuid4()
+        dp_id = uuid4()
+        cell = ForwardCurveBoardCell(
+            product_id=pid,
+            market_product="BIO_METHANOL",
+            product_name="Bio Methanol",
+            delivery_point_id=dp_id,
+            delivery_point_name="Singapore",
+            region="Asia",
+            availability_window="SPOT",
+            benchmark_mid=Decimal("1052.00"),
+            benchmark_source="manual_override",
+            best_bid=None,
+            best_ask=None,
+            spread=None,
+            volume_mt=Decimal("0"),
+            order_count=0,
+        )
+        response = ForwardCurveBoardResponse(
+            availability_window="SPOT",
+            products=[
+                ForwardCurveBoardProduct(
+                    product_id=pid,
+                    market_product="BIO_METHANOL",
+                    product_name="Bio Methanol",
+                )
+            ],
+            ports=[
+                ForwardCurveBoardPort(
+                    delivery_point_id=dp_id,
+                    delivery_point_name="Singapore",
+                    region="Asia",
+                    cells=[cell],
+                )
+            ],
+            focus=ForwardCurveBoardFocus(
+                product_id=pid,
+                market_product="BIO_METHANOL",
+                product_name="Bio Methanol",
+                delivery_point_id=dp_id,
+                delivery_point_name="Singapore",
+                region="Asia",
+                availability_window="SPOT",
+                curve=[cell],
+                depth_bids=[ForwardCurveBoardDepthLevel(price_per_mt_usd=Decimal("1048"), quantity_mt=Decimal("5000"), order_count=1)],
+                depth_asks=[],
+            ),
+            generated_at=datetime.now(timezone.utc),
+        )
+
+        assert response.products[0].market_product == "BIO_METHANOL"
+        assert response.ports[0].cells[0].delivery_point_name == "Singapore"
+        assert response.focus.depth_bids[0].quantity_mt == Decimal("5000")
+
+    @pytest.mark.asyncio
+    async def test_real_orders_hide_seed_demo_benchmark(self):
+        """Demo benchmark scaffolding disappears once the exact slice has real orders."""
+        product = MagicMock()
+        product.id = uuid4()
+        product.market_product = "BIO_METHANOL"
+        product.name = "Bio Methanol"
+
+        delivery_point = MagicMock()
+        delivery_point.id = uuid4()
+        delivery_point.name = "Singapore"
+        delivery_point.region = "Asia"
+
+        quote = MagicMock()
+        quote.benchmark_price_per_mt_usd = Decimal("1052.00")
+        quote.source = "seed_matrix"
+
+        with patch("app.routers.curves.get_benchmark_quote", new=AsyncMock(return_value=quote)):
+            cell = await _build_board_cell(
+                AsyncMock(),
+                product=product,
+                delivery_point=delivery_point,
+                availability_window="SPOT",
+                orderbook_bucket={
+                    "best_bid": Decimal("1048.00"),
+                    "best_ask": Decimal("1056.00"),
+                    "volume_mt": Decimal("9000.00"),
+                    "order_count": 4,
+                    "real_order_count": 1,
+                },
+            )
+
+        assert cell.benchmark_mid is None
+        assert cell.benchmark_source is None
+        assert cell.is_demo_benchmark is False
+        assert cell.best_bid == Decimal("1048.00")
 
 
 # ---------------------------------------------------------------------------
@@ -603,3 +735,69 @@ class TestForwardCurveEndpoint:
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
                 response = await client.get("/api/v1/curves/forward/export")
         assert response.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_forward_board_returns_matrix_and_focus(self):
+        from datetime import datetime, timezone
+        from httpx import AsyncClient, ASGITransport
+        from fastapi import FastAPI
+        from app.routers.curves import router
+        from app.database import get_db
+
+        app = FastAPI()
+        app.include_router(router, prefix="/api/v1")
+
+        async def mock_db():
+            yield AsyncMock()
+        app.dependency_overrides[get_db] = mock_db
+
+        pid = uuid4()
+        dp_id = uuid4()
+        cell = ForwardCurveBoardCell(
+            product_id=pid,
+            market_product="BIO_METHANOL",
+            product_name="Bio Methanol",
+            delivery_point_id=dp_id,
+            delivery_point_name="Singapore",
+            region="Asia",
+            availability_window="SPOT",
+            benchmark_mid=Decimal("1052.00"),
+            benchmark_source="seed_matrix",
+            is_demo_benchmark=True,
+            best_bid=Decimal("1048.00"),
+            best_ask=Decimal("1056.00"),
+            spread=Decimal("8.00"),
+            volume_mt=Decimal("9000.00"),
+            order_count=4,
+        )
+        board = ForwardCurveBoardResponse(
+            availability_window="SPOT",
+            products=[ForwardCurveBoardProduct(product_id=pid, market_product="BIO_METHANOL", product_name="Bio Methanol")],
+            ports=[ForwardCurveBoardPort(delivery_point_id=dp_id, delivery_point_name="Singapore", region="Asia", cells=[cell])],
+            focus=ForwardCurveBoardFocus(
+                product_id=pid,
+                market_product="BIO_METHANOL",
+                product_name="Bio Methanol",
+                delivery_point_id=dp_id,
+                delivery_point_name="Singapore",
+                region="Asia",
+                availability_window="SPOT",
+                curve=[cell],
+                depth_bids=[],
+                depth_asks=[],
+            ),
+            generated_at=datetime.now(timezone.utc),
+        )
+
+        with patch("app.routers.curves.build_forward_curve_board", new=AsyncMock(return_value=board)) as mocked:
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                response = await client.get(
+                    f"/api/v1/curves/forward/board?availability_window=SPOT&focus_market_product=BIO_METHANOL&focus_delivery_point_id={dp_id}"
+                )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["ports"][0]["cells"][0]["benchmark_source"] == "seed_matrix"
+        assert data["ports"][0]["cells"][0]["is_demo_benchmark"] is True
+        assert data["focus"]["market_product"] == "BIO_METHANOL"
+        mocked.assert_awaited_once()
