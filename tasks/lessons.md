@@ -87,3 +87,15 @@
 - **Trigger:** I left legacy bucket and non-approved ports like `ARA`, `Fujairah`, and `Houston` active after the user narrowed the trading surface to six specific ports.
 - **Rule:** When the user defines an approved trading port set, update both the catalog/seed layer and the live dropdown/data sources together, and remove bucket ports like `ARA` from executable trading surfaces.
 - **Why:** Mixed port taxonomies make the marketplace, forward curve, and seeded data disagree about what a valid market slice is.
+
+### Treat Trade Tape As Live
+- **Date:** 2026-05-19
+- **Trigger:** The user corrected the Trade Tape showing `Market Closed` even though Verdaxis physical fuel trading should be presented without exchange-session delay.
+- **Rule:** Do not apply exchange-session open/closed semantics to Verdaxis market surfaces unless the product owner explicitly defines a session calendar.
+- **Why:** Maritime fuel trading is not being modeled as a venue with fixed UTC exchange hours, and stale session logic makes the product look unavailable.
+
+### Separate Trade Tape Availability From History
+- **Date:** 2026-05-23
+- **Trigger:** The user clarified that "24" meant no market-hours delay, while trade tape history should remain 7 days.
+- **Rule:** Label trade tape availability as live/no delay and keep the history lookback as a separate 7-day setting in code, docs, and UI copy.
+- **Why:** "24h" can be misread as a data lookback window, which causes incorrect implementation and documentation changes.
