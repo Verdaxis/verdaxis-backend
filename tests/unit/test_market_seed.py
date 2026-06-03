@@ -12,15 +12,18 @@ def test_market_seed_windows_cover_current_and_forward_slices():
     today = date.today()
     expected = build_seed_windows(today)
     current_month = f"{today.year}-{today.month:02d}"
-    next_month = today + timedelta(days=32)
-    next_month = next_month.replace(day=1)
-    next_month_code = f"{next_month.year}-{next_month.month:02d}"
+    current_quarter = ((today.month - 1) // 3) + 1
+    current_quarter_end_month = current_quarter * 3
+    current_quarter_months = [
+        f"{today.year}-{month:02d}"
+        for month in range(today.month, current_quarter_end_month + 1)
+    ]
 
     assert WINDOWS == expected
     assert 'SPOT' in WINDOWS
     assert current_month in WINDOWS
-    assert next_month_code in WINDOWS
-    assert any(window.startswith(f"{today.year}-Q") for window in WINDOWS)
+    assert all(month in WINDOWS for month in current_quarter_months)
+    assert any(window.endswith(f"-Q{(current_quarter % 4) + 1}") for window in WINDOWS)
 
 
 def test_market_seed_ask_metadata_declares_certification():
@@ -102,6 +105,9 @@ def test_seed_price_for_slice_keeps_resting_book_non_crossed():
 
 
 def test_seed_price_for_slice_builds_plausible_contango():
+    month_window = next(window for window in WINDOWS if len(window) == 7 and window[4] == '-')
+    quarter_window = next(window for window in WINDOWS if '-Q' in window)
+
     spot_mid = (
         _seed_price_for_slice(
             OrderSide.BID,
@@ -129,7 +135,7 @@ def test_seed_price_for_slice_builds_plausible_contango():
             bid_hi=1070,
             ask_lo=1090,
             ask_hi=1140,
-            window='2026-05',
+            window=month_window,
             depth_index=0,
         )
         + _seed_price_for_slice(
@@ -138,7 +144,7 @@ def test_seed_price_for_slice_builds_plausible_contango():
             bid_hi=1070,
             ask_lo=1090,
             ask_hi=1140,
-            window='2026-05',
+            window=month_window,
             depth_index=0,
         )
     ) / 2
@@ -149,7 +155,7 @@ def test_seed_price_for_slice_builds_plausible_contango():
             bid_hi=1070,
             ask_lo=1090,
             ask_hi=1140,
-            window='2026-Q3',
+            window=quarter_window,
             depth_index=0,
         )
         + _seed_price_for_slice(
@@ -158,7 +164,7 @@ def test_seed_price_for_slice_builds_plausible_contango():
             bid_hi=1070,
             ask_lo=1090,
             ask_hi=1140,
-            window='2026-Q3',
+            window=quarter_window,
             depth_index=0,
         )
     ) / 2

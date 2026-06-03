@@ -46,6 +46,7 @@ from app.routers.negotiations import router as negotiations_router
 from app.routers.watchlists import router as watchlists_router
 from app.routers.news import router as news_router
 from app.routers.benchmarks import router as benchmarks_router
+from app.routers.monitor import router as monitor_router
 
 # ---------------------------------------------------------------------------
 # Structured logging
@@ -194,6 +195,7 @@ app.include_router(negotiations_router, prefix=settings.API_V1_STR)
 app.include_router(news_router, prefix=settings.API_V1_STR)
 app.include_router(fleet_intel_router, prefix=settings.API_V1_STR)
 app.include_router(benchmarks_router, prefix=settings.API_V1_STR)
+app.include_router(monitor_router, prefix=settings.API_V1_STR)
 
 from app.routers import dashboard
 app.include_router(dashboard.router, prefix=settings.API_V1_STR)

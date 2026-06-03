@@ -129,6 +129,15 @@ class TestBuildTapeEntry:
         entry = _build_tape_entry(trade)
         assert entry.fuel_type == "MGO"
 
+    def test_demo_trade_flagged_without_party_identity(self, monkeypatch):
+        trade = _make_mock_trade()
+        monkeypatch.setattr(
+            "app.routers.trade_tape.is_demo_market_organization",
+            lambda organization_id: organization_id in {trade.buyer_id, trade.seller_id},
+        )
+        entry = _build_tape_entry(trade)
+        assert entry.is_demo_trade is True
+
 
 # ---------------------------------------------------------------------------
 # Schema validation
@@ -139,7 +148,7 @@ class TestTradeTapeSchemas:
         expected = {
             "id", "market_product", "fuel_type", "fuel_grade", "region",
             "quantity_mt", "price_per_mt_usd", "total_usd",
-            "confirmed_at", "availability_window",
+            "confirmed_at", "availability_window", "is_demo_trade",
         }
         assert set(TradeTapeEntry.model_fields.keys()) == expected
 

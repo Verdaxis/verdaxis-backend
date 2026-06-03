@@ -10,7 +10,7 @@ import pytest
 import os
 import uuid
 from httpx import AsyncClient
-from jose import jwt
+import jwt
 from datetime import datetime, timedelta
 
 TEST_API_URL = os.environ.get("TEST_API_URL", "http://localhost:8000")

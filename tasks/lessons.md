@@ -99,3 +99,9 @@
 - **Trigger:** The user clarified that "24" meant no market-hours delay, while trade tape history should remain 7 days.
 - **Rule:** Label trade tape availability as live/no delay and keep the history lookback as a separate 7-day setting in code, docs, and UI copy.
 - **Why:** "24h" can be misread as a data lookback window, which causes incorrect implementation and documentation changes.
+
+### Keep Canary Checks Off Quota-Limited Email
+- **Date:** 2026-05-25
+- **Trigger:** The signup canary consumed Resend daily verification-email quota by exercising the real OTP email path every five minutes.
+- **Rule:** Synthetic signup health checks must authenticate with a monitor token and suppress external email sends for narrowly scoped canary addresses only.
+- **Why:** Canary traffic should verify application flow without spending provider quotas or blocking real user onboarding.
