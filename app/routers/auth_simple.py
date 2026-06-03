@@ -11,6 +11,7 @@ import hashlib
 import jwt
 import secrets
 from app.database import get_db
+from app.config import settings
 from app.models.user import User, UserRole, UserStatus, Organization
 from app.schemas.user import UserCreate, UserResponse, UserUpdate, RegistrationResponse, Token, PasswordChangeRequest
 from app.schemas.organization import OrganizationCreate
@@ -24,6 +25,7 @@ import uuid
 
 from app.models.referral import Referral, ReferralStatus, generate_referral_code
 from app.services.email import send_verification_email, send_password_reset_email
+from app.services.monitor_canary import is_monitor_canary_email
 
 class RegisterWithOrgRequest(BaseModel):
     registration_token: str
@@ -301,6 +303,15 @@ async def _assign_referral_code(db: AsyncSession, user: User):
 
 ALLOWED_REGISTRATION_ROLES = {UserRole.BUYER, UserRole.SUPPLIER}
 
+
+def _should_skip_verification_email_for_canary(request: _Request, email: str) -> bool:
+    token = request.headers.get("X-Monitor-Token")
+    return bool(
+        settings.MONITOR_TOKEN
+        and token == settings.MONITOR_TOKEN
+        and is_monitor_canary_email(email)
+    )
+
 @router.post("/register", response_model=RegistrationResponse)
 @limiter.limit("5/minute")
 async def register(request: _Request, user_in: UserCreate, db: AsyncSession = Depends(get_db)):
@@ -356,7 +367,8 @@ async def register(request: _Request, user_in: UserCreate, db: AsyncSession = De
         # Referral attribution
         await _attribute_referral(db, new_user, user_in.referral_code)
 
-        await send_verification_email(new_user.email, new_user.first_name or "there", verification_token)
+        if not _should_skip_verification_email_for_canary(request, str(new_user.email)):
+            await send_verification_email(new_user.email, new_user.first_name or "there", verification_token)
 
         return RegistrationResponse(status="created", user=new_user)
 
@@ -382,6 +394,7 @@ async def register(request: _Request, user_in: UserCreate, db: AsyncSession = De
 
 @router.post("/register-with-org", response_model=UserResponse)
 async def register_with_org(
+    http_request: _Request,
     request: RegisterWithOrgRequest,
     db: AsyncSession = Depends(get_db)
 ):
@@ -441,7 +454,8 @@ async def register_with_org(
     # Referral attribution
     await _attribute_referral(db, new_user, payload.get("referral_code"))
 
-    await send_verification_email(new_user.email, new_user.first_name or "there", verification_token)
+    if not _should_skip_verification_email_for_canary(http_request, str(new_user.email)):
+        await send_verification_email(new_user.email, new_user.first_name or "there", verification_token)
 
     return new_user
 

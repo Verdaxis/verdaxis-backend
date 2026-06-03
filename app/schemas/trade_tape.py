@@ -18,6 +18,7 @@ class TradeTapeEntry(BaseModel):
     total_usd: Decimal
     confirmed_at: datetime
     availability_window: str
+    is_demo_trade: bool = False
 
 
 class TradeTapeResponse(BaseModel):

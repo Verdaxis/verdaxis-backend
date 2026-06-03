@@ -80,6 +80,9 @@ class Settings(BaseSettings):
     EMAIL_FROM: str = "Verdaxis <noreply@verdaxis.exchange>"
     FRONTEND_URL: str = "https://app.verdaxis.exchange"
 
+    # Internal monitoring
+    MONITOR_TOKEN: Optional[str] = None
+
     # CORS
     BACKEND_CORS_ORIGINS: list[str] = [
         "http://localhost:5173",

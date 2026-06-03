@@ -2,7 +2,7 @@ import pytest
 from httpx import AsyncClient
 from uuid import UUID
 import os
-from jose import jwt
+import jwt
 from datetime import datetime, timedelta
 
 # Fixtures and helpers

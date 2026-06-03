@@ -13,6 +13,7 @@ from app.database import get_db
 from app.models.orderbook import Trade, TradeStatus, OrderBookOrder
 from app.schemas.trade_tape import TradeTapeEntry, TradeTapeResponse
 from app.services.availability_windows import normalize_availability_window
+from app.services.demo_market import is_demo_market_organization
 
 router = APIRouter(prefix="/trade-tape", tags=["trade-tape"])
 
@@ -50,6 +51,10 @@ def _build_tape_entry(trade: Trade) -> TradeTapeEntry:
         total_usd=trade.quantity_mt * trade.price_per_mt_usd,
         confirmed_at=trade.confirmed_at,
         availability_window=availability_window,
+        is_demo_trade=(
+            is_demo_market_organization(trade.buyer_id)
+            and is_demo_market_organization(trade.seller_id)
+        ),
     )
 
 
