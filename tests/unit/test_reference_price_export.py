@@ -215,6 +215,25 @@ class TestReferencePriceExport:
         assert call_kwargs["date_to"] == date(2026, 3, 1)
 
     @pytest.mark.asyncio
+    async def test_invalid_date_range_returns_422_before_compute(self):
+        with patch(
+            "app.routers.price_discovery.compute_reference_prices",
+            new_callable=AsyncMock,
+            return_value=[],
+        ) as mock_compute:
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                resp = await client.get(
+                    "/api/prices/reference/export",
+                    params={"from_date": "2026-03-01", "to_date": "2026-01-01"},
+                )
+
+        assert resp.status_code == 422
+        assert "from_date must be before or equal to to_date" in resp.text
+        mock_compute.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_delivery_point_name_none_exported_as_empty_string(self):
         """Items with no delivery point (delivery_point_name=None) export cleanly."""
         item = _make_item(delivery_point_name=None)

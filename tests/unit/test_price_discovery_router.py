@@ -3,14 +3,17 @@ Unit tests for the price discovery router logic.
 Tests the aggregation query builder without a live DB by mocking the session.
 """
 import pytest
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 from datetime import date, datetime, UTC
 from decimal import Decimal
 from uuid import uuid4
 
+from httpx import ASGITransport, AsyncClient
+from sqlalchemy.dialects import postgresql
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.database import Base
+from app.main import app
 from app.models.catalog import DeliveryPoint, Product
 from app.models.orderbook import OrderBookOrder, OrderSide, Trade, TradeStatus, Initiator
 from app.models.user import Organization, OrgType
@@ -44,7 +47,9 @@ async def _seed_confirmed_trade(
     delivery_point: DeliveryPoint | None = None,
     buyer_id=None,
     seller_id=None,
+    trade_created_at: datetime | None = None,
 ) -> tuple[Product, DeliveryPoint, OrderBookOrder, Trade]:
+    created_at = trade_created_at or datetime.now(UTC)
     buyer = Organization(id=buyer_id or uuid4(), name=f"Buyer-{uuid4().hex[:6]}", type=OrgType.SHIPPING_LINE)
     seller = Organization(id=seller_id or uuid4(), name=f"Seller-{uuid4().hex[:6]}", type=OrgType.FUEL_SUPPLIER)
     should_add_product = product is None
@@ -74,7 +79,7 @@ async def _seed_confirmed_trade(
         remaining_quantity_mt=Decimal("0.00"),
         price_per_mt_usd=Decimal(price),
         availability_window=availability_window,
-        created_at=datetime.now(UTC),
+        created_at=created_at,
         certification_declared=True,
         certification_scheme="ISCC EU",
         certifications=["ISCC EU"],
@@ -96,7 +101,7 @@ async def _seed_confirmed_trade(
         quantity_mt=Decimal(quantity),
         price_per_mt_usd=Decimal(price),
         status=TradeStatus.CONFIRMED,
-        created_at=datetime.now(UTC),
+        created_at=created_at,
     )
     db.add(trade)
     await db.commit()
@@ -462,6 +467,105 @@ class TestComputeReferencePrices:
         assert mock_db.execute.call_count == 1
 
     @pytest.mark.asyncio
+    async def test_rejects_invalid_date_range_before_query(self):
+        mock_db = AsyncMock()
+
+        with pytest.raises(ValueError, match="date_from must be before or equal to date_to"):
+            await compute_reference_prices(
+                mock_db,
+                date_from=date(2026, 3, 1),
+                date_to=date(2026, 1, 1),
+            )
+
+        mock_db.execute.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_date_range_excludes_out_of_range_trades(self):
+        engine = create_async_engine("sqlite+aiosqlite://", echo=False)
+        tables = [Base.metadata.tables[name] for name in _PRICE_DISCOVERY_TABLES]
+
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all, tables=tables)
+
+        session_factory = async_sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
+
+        try:
+            async with session_factory() as db:
+                product, delivery_point, _, _ = await _seed_confirmed_trade(
+                    db,
+                    product_name="Bio Methanol",
+                    fuel_type="Methanol",
+                    fuel_grade="Bio",
+                    delivery_point_name="Singapore",
+                    region="Asia",
+                    availability_window="SPOT",
+                    price="500.00",
+                    trade_created_at=datetime(2026, 2, 10, 9, 0, tzinfo=UTC),
+                )
+                await _seed_confirmed_trade(
+                    db,
+                    product_name="Bio Methanol",
+                    fuel_type="Methanol",
+                    fuel_grade="Bio",
+                    delivery_point_name="Singapore",
+                    region="Asia",
+                    availability_window="SPOT",
+                    price="550.00",
+                    product=product,
+                    delivery_point=delivery_point,
+                    trade_created_at=datetime(2026, 2, 15, 9, 0, tzinfo=UTC),
+                )
+                await _seed_confirmed_trade(
+                    db,
+                    product_name="Bio Methanol",
+                    fuel_type="Methanol",
+                    fuel_grade="Bio",
+                    delivery_point_name="Singapore",
+                    region="Asia",
+                    availability_window="SPOT",
+                    price="650.00",
+                    product=product,
+                    delivery_point=delivery_point,
+                    trade_created_at=datetime(2026, 3, 3, 9, 0, tzinfo=UTC),
+                )
+
+                prices = await compute_reference_prices(
+                    db,
+                    date_from=date(2026, 2, 15),
+                    date_to=date(2026, 2, 15),
+                )
+
+            assert len(prices) == 1
+            assert prices[0].date == date(2026, 2, 15)
+            assert prices[0].vwap_usd == Decimal("550.00")
+        finally:
+            async with engine.begin() as conn:
+                await conn.run_sync(Base.metadata.drop_all, tables=tables)
+            await engine.dispose()
+
+    @pytest.mark.asyncio
+    async def test_date_filters_bind_python_date_values_for_postgres(self):
+        mock_db = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.all.return_value = []
+        mock_db.execute.return_value = mock_result
+
+        await compute_reference_prices(
+            mock_db,
+            date_from=date(2026, 1, 1),
+            date_to=date(2026, 3, 1),
+        )
+
+        stmt = mock_db.execute.call_args.args[0]
+        compiled = stmt.compile(dialect=postgresql.dialect())
+        bind_values = list(compiled.params.values())
+
+        assert date(2026, 1, 1) in bind_values
+        assert date(2026, 3, 1) in bind_values
+        assert "2026-01-01" not in bind_values
+        assert "2026-03-01" not in bind_values
+
+    @pytest.mark.asyncio
     async def test_filters_by_product_id(self):
         mock_db = AsyncMock()
         mock_result = MagicMock()
@@ -651,6 +755,135 @@ class TestComputeReferencePrices:
             async with engine.begin() as conn:
                 await conn.run_sync(Base.metadata.drop_all, tables=tables)
             await engine.dispose()
+
+
+class TestReferencePriceRoute:
+    """Test public route contract for reference price date filters."""
+
+    @pytest.mark.asyncio
+    async def test_preferred_date_params_are_forwarded_to_compute(self):
+        with patch(
+            "app.routers.price_discovery.compute_reference_prices",
+            new_callable=AsyncMock,
+            return_value=[],
+        ) as mock_compute:
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                resp = await client.get(
+                    "/api/prices/reference",
+                    params={"date_from": "2026-01-01", "date_to": "2026-03-01"},
+                )
+
+        assert resp.status_code == 200
+        call_kwargs = mock_compute.call_args.kwargs
+        assert call_kwargs["date_from"] == date(2026, 1, 1)
+        assert call_kwargs["date_to"] == date(2026, 3, 1)
+
+    @pytest.mark.asyncio
+    async def test_deprecated_date_aliases_are_forwarded_to_compute(self):
+        with patch(
+            "app.routers.price_discovery.compute_reference_prices",
+            new_callable=AsyncMock,
+            return_value=[],
+        ) as mock_compute:
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                resp = await client.get(
+                    "/api/prices/reference",
+                    params={"from": "2026-01-01", "to": "2026-03-01"},
+                )
+
+        assert resp.status_code == 200
+        call_kwargs = mock_compute.call_args.kwargs
+        assert call_kwargs["date_from"] == date(2026, 1, 1)
+        assert call_kwargs["date_to"] == date(2026, 3, 1)
+
+    @pytest.mark.asyncio
+    async def test_matching_preferred_and_deprecated_aliases_are_accepted(self):
+        with patch(
+            "app.routers.price_discovery.compute_reference_prices",
+            new_callable=AsyncMock,
+            return_value=[],
+        ) as mock_compute:
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                resp = await client.get(
+                    "/api/prices/reference",
+                    params={
+                        "date_from": "2026-01-01",
+                        "from": "2026-01-01",
+                        "date_to": "2026-03-01",
+                        "to": "2026-03-01",
+                    },
+                )
+
+        assert resp.status_code == 200
+        call_kwargs = mock_compute.call_args.kwargs
+        assert call_kwargs["date_from"] == date(2026, 1, 1)
+        assert call_kwargs["date_to"] == date(2026, 3, 1)
+
+    @pytest.mark.asyncio
+    async def test_conflicting_preferred_and_deprecated_aliases_return_422(self):
+        with patch(
+            "app.routers.price_discovery.compute_reference_prices",
+            new_callable=AsyncMock,
+            return_value=[],
+        ) as mock_compute:
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                resp = await client.get(
+                    "/api/prices/reference",
+                    params={"date_from": "2026-01-01", "from": "2026-01-02"},
+                )
+
+        assert resp.status_code == 422
+        assert "date_from and from must match" in resp.text
+        mock_compute.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_invalid_preferred_date_range_returns_422(self):
+        with patch(
+            "app.routers.price_discovery.compute_reference_prices",
+            new_callable=AsyncMock,
+            return_value=[],
+        ) as mock_compute:
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                resp = await client.get(
+                    "/api/prices/reference",
+                    params={"date_from": "2026-03-01", "date_to": "2026-01-01"},
+                )
+
+        assert resp.status_code == 422
+        assert "date_from must be before or equal to date_to" in resp.text
+        mock_compute.assert_not_called()
+
+    def test_reference_price_openapi_date_contract(self):
+        schema = app.openapi()
+        parameters = {
+            param["name"]: param
+            for param in schema["paths"]["/api/prices/reference"]["get"]["parameters"]
+        }
+
+        assert "date_from" in parameters
+        assert "date_to" in parameters
+        assert parameters["from"]["deprecated"] is True
+        assert parameters["to"]["deprecated"] is True
+
+    def test_reference_export_openapi_uses_export_date_names(self):
+        schema = app.openapi()
+        operation = schema["paths"]["/api/prices/reference/export"]["get"]
+        parameters = {param["name"]: param for param in operation["parameters"]}
+
+        assert "from_date" in parameters
+        assert "to_date" in parameters
+        assert "same market filters" in operation["description"]
+        assert "from_date/to_date" in operation["description"]
 
 
 class TestReferencePriceItemSchema:
