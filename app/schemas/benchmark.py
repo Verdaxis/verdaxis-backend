@@ -14,6 +14,7 @@ class BenchmarkQuote(BaseModel):
     benchmark_price_per_mt_usd: Decimal
     source: str
     generated_at: datetime
+    observed_at: Optional[datetime] = None
 
 
 class BenchmarkQuoteResponse(BaseModel):

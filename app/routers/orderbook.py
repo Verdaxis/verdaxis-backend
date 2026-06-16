@@ -22,6 +22,7 @@ from app.schemas.orderbook import (
 )
 from app.schemas.pagination import PaginatedResponse
 from app.services.ci_pricing import calculate_ci_adjusted_price
+from app.services.activity import order_activity_provenance, trade_activity_provenance
 from app.services.event_bus import event_bus
 from app.services.availability_windows import normalize_availability_window
 from pydantic import BaseModel
@@ -1059,6 +1060,7 @@ async def create_order(
     if matched_trades:
         for trade in matched_trades:
             await event_bus.publish("trades", "trade_auto_matched", {
+                **trade_activity_provenance(trade),
                 "trade_id": str(trade.id),
                 "product_name": new_order.product_name,
                 "fuel_type": new_order.fuel_type,
@@ -1067,6 +1069,7 @@ async def create_order(
                 "is_anonymous": trade.is_anonymous,
             })
         await event_bus.publish("orderbook", "orders_matched", {
+            **order_activity_provenance(new_order),
             "order_id": str(new_order.id),
             "matches": len(matched_trades),
         })
@@ -1083,6 +1086,7 @@ async def create_order(
 
     # Emit SSE event for new order
     await event_bus.publish("orderbook", "order_created", {
+        **order_activity_provenance(new_order),
         "id": str(new_order.id),
         "side": new_order.side.value,
         "product_name": new_order.product_name,
@@ -1253,6 +1257,7 @@ async def cancel_order(
 
     # Emit SSE event for cancelled order
     await event_bus.publish("orderbook", "order_cancelled", {
+        **order_activity_provenance(order),
         "id": str(order.id),
         "side": order.side.value,
         "product_name": order.product_name,

@@ -15,7 +15,9 @@ from app.models.catalog import DeliveryPoint, Product
 from app.models.orderbook import OrderBookOrder, OrderSide, Trade, TradeStatus, Initiator
 from app.models.user import Organization, OrgType
 from app.routers.price_discovery import aggregate_trade_prices, compute_reference_prices
+from app.schemas.market_activity import MarketDemoStatus, MarketSourceKind
 from app.schemas.orderbook import ReferencePriceItem
+from app.services.demo_market import DEMO_ACTIVITY_BUYER_ORG_ID, DEMO_ACTIVITY_SELLER_ORG_ID
 
 
 _PRICE_DISCOVERY_TABLES = [
@@ -38,18 +40,23 @@ async def _seed_confirmed_trade(
     availability_window: str,
     price: str,
     quantity: str = "100.00",
+    product: Product | None = None,
     delivery_point: DeliveryPoint | None = None,
+    buyer_id=None,
+    seller_id=None,
 ) -> tuple[Product, DeliveryPoint, OrderBookOrder, Trade]:
-    buyer = Organization(id=uuid4(), name=f"Buyer-{uuid4().hex[:6]}", type=OrgType.SHIPPING_LINE)
-    seller = Organization(id=uuid4(), name=f"Seller-{uuid4().hex[:6]}", type=OrgType.FUEL_SUPPLIER)
-    product = Product(
-        id=uuid4(),
-        name=product_name,
-        fuel_type=fuel_type,
-        fuel_grade=fuel_grade,
-        unit="MT",
-        min_lot_size=100,
-    )
+    buyer = Organization(id=buyer_id or uuid4(), name=f"Buyer-{uuid4().hex[:6]}", type=OrgType.SHIPPING_LINE)
+    seller = Organization(id=seller_id or uuid4(), name=f"Seller-{uuid4().hex[:6]}", type=OrgType.FUEL_SUPPLIER)
+    should_add_product = product is None
+    if should_add_product:
+        product = Product(
+            id=uuid4(),
+            name=product_name,
+            fuel_type=fuel_type,
+            fuel_grade=fuel_grade,
+            unit="MT",
+            min_lot_size=100,
+        )
     should_add_delivery_point = delivery_point is None
     if should_add_delivery_point:
         delivery_point = DeliveryPoint(
@@ -72,7 +79,9 @@ async def _seed_confirmed_trade(
         certification_scheme="ISCC EU",
         certifications=["ISCC EU"],
     )
-    objects = [buyer, seller, product, order]
+    objects = [buyer, seller, order]
+    if should_add_product:
+        objects.append(product)
     if should_add_delivery_point:
         objects.append(delivery_point)
     db.add_all(objects)
@@ -217,6 +226,136 @@ class TestAggregateFunction:
             assert summaries[0].delivery_point_id == delivery_point.id
             assert summaries[0].volume_24h == Decimal("250.00")
             assert summaries[0].trade_count_24h == 1
+            assert summaries[0].source_kind == MarketSourceKind.CONFIRMED_TRADE
+            assert summaries[0].demo_status == MarketDemoStatus.REAL_ONLY
+            assert summaries[0].real_trade_count_24h == 1
+            assert summaries[0].demo_trade_count_24h == 0
+            assert summaries[0].unknown_trade_count_24h == 0
+        finally:
+            async with engine.begin() as conn:
+                await conn.run_sync(Base.metadata.drop_all, tables=tables)
+            await engine.dispose()
+
+    @pytest.mark.asyncio
+    async def test_demo_trade_summary_is_marked_demo_seed(self):
+        engine = create_async_engine("sqlite+aiosqlite://", echo=False)
+        tables = [Base.metadata.tables[name] for name in _PRICE_DISCOVERY_TABLES]
+
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all, tables=tables)
+
+        session_factory = async_sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
+
+        try:
+            async with session_factory() as db:
+                await _seed_confirmed_trade(
+                    db,
+                    product_name="Bio Methanol",
+                    fuel_type="Methanol",
+                    fuel_grade="Bio",
+                    delivery_point_name="Singapore",
+                    region="Asia",
+                    availability_window="SPOT",
+                    price="1100.00",
+                    buyer_id=DEMO_ACTIVITY_BUYER_ORG_ID,
+                    seller_id=DEMO_ACTIVITY_SELLER_ORG_ID,
+                )
+
+                summaries = await aggregate_trade_prices(db, hours=24)
+
+            assert len(summaries) == 1
+            assert summaries[0].source_kind == MarketSourceKind.DEMO_SEED
+            assert summaries[0].demo_status == MarketDemoStatus.DEMO_ONLY
+            assert summaries[0].real_trade_count_24h == 0
+            assert summaries[0].demo_trade_count_24h == 1
+            assert summaries[0].unknown_trade_count_24h == 0
+        finally:
+            async with engine.begin() as conn:
+                await conn.run_sync(Base.metadata.drop_all, tables=tables)
+            await engine.dispose()
+
+    @pytest.mark.asyncio
+    async def test_mixed_trade_summary_is_marked_mixed_source(self):
+        engine = create_async_engine("sqlite+aiosqlite://", echo=False)
+        tables = [Base.metadata.tables[name] for name in _PRICE_DISCOVERY_TABLES]
+
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all, tables=tables)
+
+        session_factory = async_sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
+
+        try:
+            async with session_factory() as db:
+                product, delivery_point, _, _ = await _seed_confirmed_trade(
+                    db,
+                    product_name="Bio Methanol",
+                    fuel_type="Methanol",
+                    fuel_grade="Bio",
+                    delivery_point_name="Singapore",
+                    region="Asia",
+                    availability_window="SPOT",
+                    price="1100.00",
+                )
+                await _seed_confirmed_trade(
+                    db,
+                    product_name="Bio Methanol",
+                    fuel_type="Methanol",
+                    fuel_grade="Bio",
+                    delivery_point_name="Singapore",
+                    region="Asia",
+                    availability_window="SPOT",
+                    price="1115.00",
+                    product=product,
+                    delivery_point=delivery_point,
+                    buyer_id=DEMO_ACTIVITY_BUYER_ORG_ID,
+                    seller_id=DEMO_ACTIVITY_SELLER_ORG_ID,
+                )
+
+                summaries = await aggregate_trade_prices(db, hours=24)
+
+            assert len(summaries) == 1
+            assert summaries[0].source_kind == MarketSourceKind.MIXED_SOURCE
+            assert summaries[0].demo_status == MarketDemoStatus.MIXED
+            assert summaries[0].real_trade_count_24h == 1
+            assert summaries[0].demo_trade_count_24h == 1
+            assert summaries[0].unknown_trade_count_24h == 0
+        finally:
+            async with engine.begin() as conn:
+                await conn.run_sync(Base.metadata.drop_all, tables=tables)
+            await engine.dispose()
+
+    @pytest.mark.asyncio
+    async def test_one_sided_demo_trade_summary_is_marked_unknown(self):
+        engine = create_async_engine("sqlite+aiosqlite://", echo=False)
+        tables = [Base.metadata.tables[name] for name in _PRICE_DISCOVERY_TABLES]
+
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all, tables=tables)
+
+        session_factory = async_sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
+
+        try:
+            async with session_factory() as db:
+                await _seed_confirmed_trade(
+                    db,
+                    product_name="Bio Methanol",
+                    fuel_type="Methanol",
+                    fuel_grade="Bio",
+                    delivery_point_name="Singapore",
+                    region="Asia",
+                    availability_window="SPOT",
+                    price="1100.00",
+                    buyer_id=DEMO_ACTIVITY_BUYER_ORG_ID,
+                )
+
+                summaries = await aggregate_trade_prices(db, hours=24)
+
+            assert len(summaries) == 1
+            assert summaries[0].source_kind == MarketSourceKind.UNKNOWN
+            assert summaries[0].demo_status == MarketDemoStatus.UNKNOWN
+            assert summaries[0].real_trade_count_24h == 0
+            assert summaries[0].demo_trade_count_24h == 0
+            assert summaries[0].unknown_trade_count_24h == 1
         finally:
             async with engine.begin() as conn:
                 await conn.run_sync(Base.metadata.drop_all, tables=tables)

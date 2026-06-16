@@ -12,7 +12,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
-from sqlalchemy import select, func, and_, or_
+from sqlalchemy import select, func, and_, or_, case
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from fastapi import Request as _Request
@@ -26,7 +26,14 @@ from app.schemas.orderbook import (
     ReferencePriceItem,
     ReferencePriceResponse,
 )
+from app.schemas.market_activity import (
+    MarketScope,
+    MarketSourceKind,
+    demo_status_from_counts,
+    source_kind_from_counts,
+)
 from app.services.availability_windows import normalize_availability_window
+from app.services.demo_market import DEMO_MARKET_ORG_IDS
 
 router = APIRouter(prefix="/prices", tags=["price-discovery"])
 
@@ -106,6 +113,34 @@ def _coerce_trade_date(value: object) -> date:
     raise ValueError("reference price query returned an invalid trade date")
 
 
+def _trade_demo_count_expressions():
+    demo_org_ids = list(DEMO_MARKET_ORG_IDS)
+    buyer_is_demo = Trade.buyer_id.in_(demo_org_ids)
+    seller_is_demo = Trade.seller_id.in_(demo_org_ids)
+    buyer_is_real = Trade.buyer_id.notin_(demo_org_ids)
+    seller_is_real = Trade.seller_id.notin_(demo_org_ids)
+
+    demo_trade_count = func.sum(
+        case(
+            (and_(buyer_is_demo, seller_is_demo), 1),
+            else_=0,
+        )
+    ).label("demo_trade_count")
+    real_trade_count = func.sum(
+        case(
+            (and_(buyer_is_real, seller_is_real), 1),
+            else_=0,
+        )
+    ).label("real_trade_count")
+    unknown_trade_count = func.sum(
+        case(
+            (or_(and_(buyer_is_demo, seller_is_real), and_(buyer_is_real, seller_is_demo)), 1),
+            else_=0,
+        )
+    ).label("unknown_trade_count")
+    return real_trade_count, demo_trade_count, unknown_trade_count
+
+
 async def aggregate_trade_prices(
     db: AsyncSession,
     product_id: Optional[UUID] = None,
@@ -130,6 +165,7 @@ async def aggregate_trade_prices(
     ]
     normalized_window = normalize_availability_window(availability_window) if availability_window else None
     market_product_clause = _market_product_filter_clause(market_product)
+    real_trade_count_expr, demo_trade_count_expr, unknown_trade_count_expr = _trade_demo_count_expressions()
 
     aggregate_stmt = (
         select(
@@ -147,6 +183,9 @@ async def aggregate_trade_prices(
             func.sum(Trade.quantity_mt).label("total_volume"),
             func.count(Trade.id).label("trade_count"),
             func.max(Trade.created_at).label("last_trade_at"),
+            real_trade_count_expr,
+            demo_trade_count_expr,
+            unknown_trade_count_expr,
         )
         .join(
             OrderBookOrder,
@@ -247,6 +286,21 @@ async def aggregate_trade_prices(
     for row in rows:
         row_window = _normalize_window_value(row.availability_window)
         latest = latest_by_market.get((row.product_id, row.delivery_point_id, row_window))
+        real_trade_count = int(row.real_trade_count or 0)
+        demo_trade_count = int(row.demo_trade_count or 0)
+        unknown_trade_count = int(row.unknown_trade_count or 0)
+        source_kind = source_kind_from_counts(
+            real_count=real_trade_count,
+            demo_count=demo_trade_count,
+            unknown_count=unknown_trade_count,
+            real_source=MarketSourceKind.CONFIRMED_TRADE,
+        )
+        demo_status = demo_status_from_counts(
+            real_count=real_trade_count,
+            demo_count=demo_trade_count,
+            unknown_count=unknown_trade_count,
+        )
+        observed_at = latest.last_trade_at if latest else row.last_trade_at
         summaries.append(
             PriceSummary(
                 product_id=row.product_id,
@@ -264,7 +318,15 @@ async def aggregate_trade_prices(
                 volume_24h=row.total_volume or Decimal("0"),
                 trade_count_24h=row.trade_count or 0,
                 price_change_pct=None,
-                last_trade_at=latest.last_trade_at if latest else row.last_trade_at,
+                last_trade_at=observed_at,
+                source_kind=source_kind,
+                scope=MarketScope.DELIVERY_POINT if row.delivery_point_id else MarketScope.UNKNOWN,
+                demo_status=demo_status,
+                is_reference=False,
+                observed_at=observed_at,
+                real_trade_count_24h=real_trade_count,
+                demo_trade_count_24h=demo_trade_count,
+                unknown_trade_count_24h=unknown_trade_count,
             )
         )
 

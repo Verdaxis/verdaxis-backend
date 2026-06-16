@@ -5,6 +5,7 @@ from datetime import datetime, date
 from decimal import Decimal
 from enum import Enum
 
+from app.schemas.market_activity import MarketDemoStatus, MarketScope, MarketSourceKind
 from app.services.availability_windows import (
     JSON_SCHEMA_PATTERN,
     SPOT_WINDOW,
@@ -280,6 +281,14 @@ class PriceSummary(BaseModel):
     trade_count_24h: int = 0
     price_change_pct: Optional[Decimal] = None
     last_trade_at: Optional[datetime] = None
+    source_kind: MarketSourceKind = MarketSourceKind.UNKNOWN
+    scope: MarketScope = MarketScope.UNKNOWN
+    demo_status: MarketDemoStatus = MarketDemoStatus.UNKNOWN
+    is_reference: bool = False
+    observed_at: Optional[datetime] = None
+    real_trade_count_24h: int = 0
+    demo_trade_count_24h: int = 0
+    unknown_trade_count_24h: int = 0
 
 
 class PriceDiscoveryResponse(BaseModel):

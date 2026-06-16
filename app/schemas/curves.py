@@ -8,6 +8,8 @@ from uuid import UUID
 
 from pydantic import BaseModel
 
+from app.schemas.market_activity import MarketDemoStatus, MarketScope, MarketSourceKind
+
 
 class ForwardCurvePoint(BaseModel):
     """
@@ -70,6 +72,21 @@ class ForwardCurveBoardCell(BaseModel):
     benchmark_mid: Optional[Decimal] = None
     benchmark_source: Optional[str] = None
     is_demo_benchmark: bool = False
+    order_source_kind: MarketSourceKind = MarketSourceKind.NO_DATA
+    benchmark_source_kind: MarketSourceKind = MarketSourceKind.NO_DATA
+    scope: MarketScope = MarketScope.DELIVERY_POINT
+    demo_status: MarketDemoStatus = MarketDemoStatus.NOT_APPLICABLE
+    real_order_count: int = 0
+    demo_order_count: int = 0
+    unknown_order_count: int = 0
+    real_best_bid: Optional[Decimal] = None
+    real_best_ask: Optional[Decimal] = None
+    demo_best_bid: Optional[Decimal] = None
+    demo_best_ask: Optional[Decimal] = None
+    best_bid_source_kind: MarketSourceKind = MarketSourceKind.NO_DATA
+    best_ask_source_kind: MarketSourceKind = MarketSourceKind.NO_DATA
+    order_observed_at: Optional[datetime] = None
+    benchmark_observed_at: Optional[datetime] = None
     best_bid: Optional[Decimal] = None
     best_ask: Optional[Decimal] = None
     spread: Optional[Decimal] = None
