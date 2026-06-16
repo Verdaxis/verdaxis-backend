@@ -1,13 +1,13 @@
 """Unit tests for public trade tape endpoint — live status and anonymization."""
 
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from decimal import Decimal
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, AsyncMock
 
 import pytest
 
-from app.routers.trade_tape import _is_market_hours, _build_tape_entry
+from app.routers.trade_tape import _is_market_hours, _build_tape_entry, get_trade_tape
 from app.schemas.trade_tape import TradeTapeEntry, TradeTapeResponse
 
 
@@ -35,6 +35,8 @@ def _make_mock_trade(
     fuel_type: str = "VLSFO",
     fuel_grade: str = "Conventional",
     region: str = "Amsterdam",
+    product_id: uuid.UUID | None = None,
+    delivery_point_id: uuid.UUID | None = None,
     availability_window: str = "SPOT",
 ) -> MagicMock:
     """Build a mock Trade with nested order relationships."""
@@ -49,6 +51,8 @@ def _make_mock_trade(
 
     # Mock the related order
     order = MagicMock()
+    order.product_id = product_id or uuid.uuid4()
+    order.delivery_point_id = delivery_point_id or uuid.uuid4()
     order.market_product = market_product
     order.fuel_type = fuel_type
     order.fuel_grade = fuel_grade
@@ -96,9 +100,32 @@ class TestBuildTapeEntry:
         entry = _build_tape_entry(trade)
         assert entry.market_product == "E_METHANOL"
 
-    def test_region_from_order(self):
+    def test_exact_scope_includes_product_and_delivery_point_fields(self):
+        product_id = uuid.uuid4()
+        delivery_point_id = uuid.uuid4()
+        trade = _make_mock_trade(
+            product_id=product_id,
+            delivery_point_id=delivery_point_id,
+            region="Singapore",
+        )
+        entry = _build_tape_entry(trade, expose_delivery_point=True)
+        assert entry.product_id == product_id
+        assert entry.delivery_point_id == delivery_point_id
+        assert entry.delivery_point_name == "Singapore"
+        assert entry.scope == "DELIVERY_POINT"
+
+    def test_broad_scope_hides_exact_delivery_point_fields(self):
         trade = _make_mock_trade(region="Singapore")
         entry = _build_tape_entry(trade)
+        assert entry.product_id is None
+        assert entry.delivery_point_id is None
+        assert entry.delivery_point_name is None
+        assert entry.scope == "REGION"
+        assert entry.region == "Asia"
+
+    def test_exact_scope_uses_delivery_point_name_as_region_label(self):
+        trade = _make_mock_trade(region="Singapore")
+        entry = _build_tape_entry(trade, expose_delivery_point=True)
         assert entry.region == "Singapore"
 
     def test_fuel_grade_from_order(self):
@@ -118,8 +145,11 @@ class TestBuildTapeEntry:
         entry = _build_tape_entry(trade)
         assert entry.fuel_type == ""
         assert entry.fuel_grade == ""
+        assert entry.delivery_point_id is None
+        assert entry.delivery_point_name is None
         assert entry.region == ""
         assert entry.availability_window == ""
+        assert entry.scope == "UNKNOWN"
 
     def test_bid_order_used_when_no_ask_order(self):
         trade = _make_mock_trade(fuel_type="MGO")
@@ -137,6 +167,7 @@ class TestBuildTapeEntry:
         )
         entry = _build_tape_entry(trade)
         assert entry.is_demo_trade is True
+        assert entry.provenance_kind == "DEMO_SEED"
 
 
 # ---------------------------------------------------------------------------
@@ -146,9 +177,11 @@ class TestBuildTapeEntry:
 class TestTradeTapeSchemas:
     def test_tape_entry_schema_fields(self):
         expected = {
-            "id", "market_product", "fuel_type", "fuel_grade", "region",
+            "id", "product_id", "market_product", "fuel_type", "fuel_grade",
+            "delivery_point_id", "delivery_point_name", "region",
             "quantity_mt", "price_per_mt_usd", "total_usd",
             "confirmed_at", "availability_window", "is_demo_trade",
+            "scope", "provenance_kind",
         }
         assert set(TradeTapeEntry.model_fields.keys()) == expected
 
@@ -165,18 +198,133 @@ class TestTradeTapeSchemas:
     def test_tape_response_round_trip(self):
         entry = TradeTapeEntry(
             id="abcd1234",
+            product_id=uuid.uuid4(),
             market_product="BIO_METHANOL",
             fuel_type="VLSFO",
             fuel_grade="Conventional",
+            delivery_point_id=uuid.uuid4(),
+            delivery_point_name="Amsterdam",
             region="Amsterdam",
             quantity_mt=Decimal("1000"),
             price_per_mt_usd=Decimal("750.50"),
             total_usd=Decimal("750500.00"),
             confirmed_at=datetime(2026, 3, 15, 10, 0, 0, tzinfo=timezone.utc),
             availability_window="SPOT",
+            scope="DELIVERY_POINT",
+            provenance_kind="CONFIRMED_TRADE",
         )
         resp = TradeTapeResponse(items=[entry], total=1, market_hours=True)
         assert resp.total == 1
         assert resp.market_hours is True
         assert len(resp.items) == 1
         assert resp.items[0].id == "abcd1234"
+
+
+# ---------------------------------------------------------------------------
+# Endpoint contract
+# ---------------------------------------------------------------------------
+
+
+class _ScalarResult:
+    def __init__(self, value):
+        self._value = value
+
+    def scalar(self):
+        return self._value
+
+
+class _TradeResult:
+    def __init__(self, trades=None):
+        self._trades = trades or []
+
+    def unique(self):
+        return self
+
+    def scalars(self):
+        return self
+
+    def all(self):
+        return self._trades
+
+
+class TestTradeTapeEndpointContract:
+    @pytest.mark.asyncio
+    async def test_delivery_point_filter_is_applied_to_query(self):
+        delivery_point_id = uuid.uuid4()
+        db = MagicMock()
+        db.execute = AsyncMock(side_effect=[_ScalarResult(0), _TradeResult()])
+
+        await get_trade_tape(
+            db=db,
+            fuel_type=None,
+            market_product=None,
+            delivery_point_id=delivery_point_id,
+            region=None,
+            availability_window=None,
+            skip=0,
+            limit=50,
+        )
+
+        data_stmt = db.execute.await_args_list[1].args[0]
+        compiled_params = data_stmt.compile().params
+        assert delivery_point_id in compiled_params.values()
+
+    @pytest.mark.asyncio
+    async def test_unfiltered_response_hides_exact_delivery_point_identity(self):
+        trade = _make_mock_trade(region="Singapore")
+        db = MagicMock()
+        db.execute = AsyncMock(side_effect=[_ScalarResult(1), _TradeResult([trade])])
+
+        response = await get_trade_tape(
+            db=db,
+            fuel_type=None,
+            market_product=None,
+            delivery_point_id=None,
+            region=None,
+            availability_window=None,
+            skip=0,
+            limit=50,
+        )
+
+        entry = response.items[0]
+        assert entry.scope == "REGION"
+        assert entry.region == "Asia"
+        assert entry.product_id is None
+        assert entry.delivery_point_id is None
+        assert entry.delivery_point_name is None
+
+    @pytest.mark.asyncio
+    async def test_exact_delivery_point_response_exposes_exact_scope(self):
+        delivery_point_id = uuid.uuid4()
+        trade = _make_mock_trade(region="Singapore", delivery_point_id=delivery_point_id)
+        db = MagicMock()
+        db.execute = AsyncMock(side_effect=[_ScalarResult(1), _TradeResult([trade])])
+
+        response = await get_trade_tape(
+            db=db,
+            fuel_type=None,
+            market_product=None,
+            delivery_point_id=delivery_point_id,
+            region=None,
+            availability_window=None,
+            skip=0,
+            limit=50,
+        )
+
+        entry = response.items[0]
+        assert entry.scope == "DELIVERY_POINT"
+        assert entry.region == "Singapore"
+        assert entry.delivery_point_id == delivery_point_id
+        assert entry.delivery_point_name == "Singapore"
+
+    def test_openapi_exposes_exact_delivery_point_filter(self):
+        from fastapi import FastAPI
+        from app.routers.trade_tape import router
+
+        app = FastAPI()
+        app.include_router(router, prefix="/api")
+        operation = app.openapi()["paths"]["/api/trade-tape"]["get"]
+        params = {param["name"]: param for param in operation["parameters"]}
+
+        assert "delivery_point_id" in params
+        assert "uuid" in str(params["delivery_point_id"]["schema"])

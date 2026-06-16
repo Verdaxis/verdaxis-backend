@@ -35,6 +35,7 @@ app/
     trades.py                   # Trade lifecycle — create/confirm/decline/deliver/pay + SSE events
     matchmaking.py              # Match suggestions — generate, list, dismiss
     price_discovery.py          # Public price ticker + daily VWAP reference prices
+    trade_tape.py               # Public anonymized 7-day confirmed trade tape with exact delivery-point filtering
     curves.py                   # Forward curve data products and monitoring board aggregation
     stream.py                   # SSE endpoints — /stream/prices, /stream/orderbook, /stream/trades
     compliance_api.py           # Compliance scoring — fleet scores, vessel scores, what-if scenarios
@@ -89,6 +90,7 @@ tests/integration/              # Auth hardening, trade lifecycle, orderbook E2E
 - **Availability windows:** Persist canonical codes (`SPOT`, `YYYY-MM`, `YYYY-QN`, legacy-compatible `YYYY-CAL`); UI-relative labels like `M+1` must be resolved before persistence
 - **Green-fuels market model:** Matching and live slice benchmarks key on `side + market_product + delivery_point + availability_window`; supplier sustainability/compliance fields stay out of the hard market key
 - **Forward Curve monitoring board:** `/curves/forward/board` aggregates approved ports and public market products into a read-only matrix, using benchmark mids plus visible orderbook bid/ask context without creating a separate execution model.
+- **Trade tape scope:** `/trade-tape` returns anonymized confirmed trade prints for the last 7 days. Exact delivery-point history is available only when clients filter by `delivery_point_id` and entries return `scope="DELIVERY_POINT"` with delivery-point fields.
 - **Market Radar watchlists:** Watchlists are observer-only. Typed targets store either canonical slices or pinned order snapshots, and order create/update/cancel paths emit slice/pin events without feeding core matchmaking.
 
 ## Revenue Streams

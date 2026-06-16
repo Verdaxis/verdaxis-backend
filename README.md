@@ -64,6 +64,7 @@ The deploy helper infers the correct branch and service from the path, refuses d
 |--------|----------|------|-------------|
 | GET | `/api/prices` | No | Aggregated trade prices (24h) |
 | GET | `/api/prices/reference` | No | Daily VWAP reference prices |
+| GET | `/api/trade-tape` | No | Anonymized 7-day confirmed trade tape; filterable by `market_product`, `delivery_point_id`, `region`, and `availability_window` |
 
 ### Compliance
 | Method | Endpoint | Auth | Description |
