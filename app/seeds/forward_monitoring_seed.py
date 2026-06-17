@@ -197,18 +197,13 @@ async def _delete_demo_rows(db: AsyncSession) -> tuple[int, int, int]:
 async def seed_forward_monitoring_demo_data(
     db: AsyncSession,
     *,
-    reset: bool = True,
     reference_now: datetime | None = None,
 ) -> ForwardMonitoringSeedResult:
     """Seed explicit demo-only monitoring signal rows for staging review."""
     now = reference_now or _utcnow()
     curve_windows = _default_curve_windows(now)
 
-    deleted_indications = 0
-    deleted_fair_price_bands = 0
-    deleted_physical_stems = 0
-    if reset:
-        deleted_indications, deleted_fair_price_bands, deleted_physical_stems = await _delete_demo_rows(db)
+    deleted_indications, deleted_fair_price_bands, deleted_physical_stems = await _delete_demo_rows(db)
 
     indication_rows: list[MarketIndication] = []
     band_rows: list[FairPriceBand] = []
