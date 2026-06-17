@@ -27,14 +27,25 @@ from app.schemas.benchmark import BenchmarkQuote
 from app.schemas.curves import (
     ForwardCurveBoardCell,
     ForwardCurveBoardDepthLevel,
+    ForwardCurveBoardFairPriceBand,
     ForwardCurveBoardFocus,
+    ForwardCurveBoardIndicationSummary,
     ForwardCurveBoardPort,
     ForwardCurveBoardProduct,
+    ForwardCurveBoardPhysicalStemSummary,
     ForwardCurveBoardResponse,
+    ForwardCurveSignalProvenance,
     ForwardCurvePoint,
     ForwardCurveResponse,
+    MarketSignalType,
 )
-from app.schemas.market_activity import MarketDemoStatus, MarketScope, MarketSourceKind, demo_status_from_counts, source_kind_from_counts
+from app.schemas.market_activity import (
+    MarketDemoStatus,
+    MarketScope,
+    MarketSourceKind,
+    demo_status_from_counts,
+    source_kind_from_counts,
+)
 from app.services.availability_windows import (
     SPOT_WINDOW,
     availability_window_sort_key,
@@ -42,6 +53,17 @@ from app.services.availability_windows import (
 )
 from app.services.benchmarks import get_benchmark_quote, get_benchmark_quotes
 from app.services.demo_market import DEMO_MARKET_ORG_IDS
+from app.services.forward_monitoring import (
+    SignalKey,
+    load_fair_price_bands,
+    load_indication_summaries,
+    load_latest_indications_for_focus,
+    load_physical_stem_summaries,
+    load_physical_stems_for_focus,
+    no_data_fair_price_band_provenance,
+    no_data_summary_for_signal,
+    normalize_signal_keys,
+)
 
 
 router = APIRouter(prefix="/curves/forward", tags=["forward-curve"])
@@ -403,6 +425,10 @@ async def _build_board_cell(
     availability_window: str,
     orderbook_bucket: dict[str, object] | None,
     benchmark_quote: BenchmarkQuote | None | object = _MISSING_BENCHMARK,
+    indication_summary: ForwardCurveBoardIndicationSummary | None = None,
+    fair_price_band: ForwardCurveBoardFairPriceBand | None = None,
+    fair_price_band_provenance: ForwardCurveSignalProvenance | None = None,
+    physical_stem_summary: ForwardCurveBoardPhysicalStemSummary | None = None,
 ) -> ForwardCurveBoardCell:
     quote = (
         await get_benchmark_quote(
@@ -474,6 +500,13 @@ async def _build_board_cell(
         ),
         order_observed_at=orderbook_bucket.get("last_order_at") if orderbook_bucket else None,
         benchmark_observed_at=getattr(quote, "observed_at", None) if quote and benchmark_mid is not None else None,
+        indication_summary=indication_summary
+        or no_data_summary_for_signal(MarketSignalType.MARKET_INDICATION),
+        fair_price_band=fair_price_band,
+        fair_price_band_provenance=fair_price_band_provenance
+        or no_data_fair_price_band_provenance(),
+        physical_stem_summary=physical_stem_summary
+        or no_data_summary_for_signal(MarketSignalType.PHYSICAL_STEM),
         best_bid=best_bid,
         best_ask=best_ask,
         spread=spread,
@@ -568,6 +601,19 @@ async def build_forward_curve_board(
         set(_default_curve_windows()) | set(focus_orderbook_by_window.keys()),
         key=availability_window_sort_key,
     )
+    matrix_signal_keys: list[SignalKey] = [
+        (product.market_product or "", delivery_point.id, normalized_window)
+        for delivery_point in delivery_points
+        for product in products
+    ]
+    focus_signal_keys: list[SignalKey] = [
+        (focus_product.market_product or "", focus_delivery_point.id, window)
+        for window in curve_windows
+    ]
+    signal_keys = normalize_signal_keys([*matrix_signal_keys, *focus_signal_keys])
+    indication_summaries = await load_indication_summaries(db, signal_keys)
+    physical_stem_summaries = await load_physical_stem_summaries(db, signal_keys)
+    fair_price_bands = await load_fair_price_bands(db, signal_keys)
     benchmark_requests = [
         (product.market_product, delivery_point.id, normalized_window, delivery_point.name)
         for delivery_point in delivery_points
@@ -581,8 +627,11 @@ async def build_forward_curve_board(
 
     ports: list[ForwardCurveBoardPort] = []
     for delivery_point in delivery_points:
-        cells = [
-            await _build_board_cell(
+        cells: list[ForwardCurveBoardCell] = []
+        for product in products:
+            cell_key = (product.market_product or "", delivery_point.id, normalized_window)
+            cell_fair_price_band = fair_price_bands.get(cell_key)
+            cell = await _build_board_cell(
                 db,
                 product=product,
                 delivery_point=delivery_point,
@@ -595,9 +644,16 @@ async def build_forward_curve_board(
                         normalized_window,
                     )
                 ),
+                indication_summary=indication_summaries.get(cell_key),
+                fair_price_band=cell_fair_price_band,
+                fair_price_band_provenance=(
+                    cell_fair_price_band.provenance
+                    if cell_fair_price_band
+                    else no_data_fair_price_band_provenance()
+                ),
+                physical_stem_summary=physical_stem_summaries.get(cell_key),
             )
-            for product in products
-        ]
+            cells.append(cell)
         ports.append(
             ForwardCurveBoardPort(
                 delivery_point_id=delivery_point.id,
@@ -609,6 +665,8 @@ async def build_forward_curve_board(
 
     focus_curve: list[ForwardCurveBoardCell] = []
     for window in curve_windows:
+        focus_key = (focus_product.market_product or "", focus_delivery_point.id, window)
+        focus_fair_price_band = fair_price_bands.get(focus_key)
         focus_curve.append(
             await _build_board_cell(
                 db,
@@ -623,6 +681,14 @@ async def build_forward_curve_board(
                         window,
                     )
                 ),
+                indication_summary=indication_summaries.get(focus_key),
+                fair_price_band=focus_fair_price_band,
+                fair_price_band_provenance=(
+                    focus_fair_price_band.provenance
+                    if focus_fair_price_band
+                    else no_data_fair_price_band_provenance()
+                ),
+                physical_stem_summary=physical_stem_summaries.get(focus_key),
             )
         )
 
@@ -632,6 +698,20 @@ async def build_forward_curve_board(
         delivery_point_id=focus_delivery_point.id,
         availability_window=normalized_window,
     )
+    focus_indications = await load_latest_indications_for_focus(
+        db,
+        market_product=focus_product.market_product or "",
+        delivery_point_id=focus_delivery_point.id,
+        availability_window=normalized_window,
+    )
+    focus_physical_stems = await load_physical_stems_for_focus(
+        db,
+        market_product=focus_product.market_product or "",
+        delivery_point_id=focus_delivery_point.id,
+        availability_window=normalized_window,
+    )
+    selected_focus_key = (focus_product.market_product or "", focus_delivery_point.id, normalized_window)
+    selected_focus_fair_price_band = fair_price_bands.get(selected_focus_key)
 
     focus = ForwardCurveBoardFocus(
         product_id=focus_product.id,
@@ -644,6 +724,14 @@ async def build_forward_curve_board(
         curve=focus_curve,
         depth_bids=depth_bids,
         depth_asks=depth_asks,
+        indications=focus_indications,
+        fair_price_band=selected_focus_fair_price_band,
+        fair_price_band_provenance=(
+            selected_focus_fair_price_band.provenance
+            if selected_focus_fair_price_band
+            else no_data_fair_price_band_provenance()
+        ),
+        physical_stems=focus_physical_stems,
     )
 
     return ForwardCurveBoardResponse(

@@ -320,10 +320,20 @@ class TestForwardCurveBoardSchema:
             patch("app.routers.curves._aggregate_depth_levels", new=AsyncMock(return_value=([], []))),
             patch("app.routers.curves.get_benchmark_quotes", new=AsyncMock(return_value={})) as batch_quotes,
             patch("app.routers.curves.get_benchmark_quote", new=AsyncMock(side_effect=AssertionError("per-cell benchmark fetch used"))),
+            patch("app.routers.curves.load_indication_summaries", new=AsyncMock(return_value={})) as indication_summaries,
+            patch("app.routers.curves.load_physical_stem_summaries", new=AsyncMock(return_value={})) as stem_summaries,
+            patch("app.routers.curves.load_fair_price_bands", new=AsyncMock(return_value={})) as fair_bands,
+            patch("app.routers.curves.load_latest_indications_for_focus", new=AsyncMock(return_value=[])) as focus_indications,
+            patch("app.routers.curves.load_physical_stems_for_focus", new=AsyncMock(return_value=[])) as focus_stems,
         ):
             board = await build_forward_curve_board(AsyncMock(), availability_window="SPOT")
 
         batch_quotes.assert_awaited_once()
+        indication_summaries.assert_awaited_once()
+        stem_summaries.assert_awaited_once()
+        fair_bands.assert_awaited_once()
+        focus_indications.assert_awaited_once()
+        focus_stems.assert_awaited_once()
         assert len(board.ports) == 1
         assert len(board.focus.curve) >= 1
 
