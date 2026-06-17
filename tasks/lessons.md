@@ -105,3 +105,9 @@
 - **Trigger:** The signup canary consumed Resend daily verification-email quota by exercising the real OTP email path every five minutes.
 - **Rule:** Synthetic signup health checks must authenticate with a monitor token and suppress external email sends for narrowly scoped canary addresses only.
 - **Why:** Canary traffic should verify application flow without spending provider quotas or blocking real user onboarding.
+
+### Honor Sprint-Level Test Skips Explicitly
+- **Date:** 2026-06-17
+- **Trigger:** User corrected the Forward Curve demo-seed sprint to skip writing and running tests for now.
+- **Rule:** When the user explicitly pauses tests for a sprint, do not add new test files or run pytest; use compile/smoke/browser dogfood evidence instead and record the deferred test gap.
+- **Why:** The user is prioritizing fast staging review for simple/demo-data slices, and adding tests can slow down the immediate product feedback loop.
