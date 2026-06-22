@@ -142,3 +142,24 @@ def availability_window_display_label(value: str) -> str:
 
     return normalized
 
+
+def tradable_availability_windows(
+    *,
+    today: date | None = None,
+    quarter_count: int = 8,
+) -> list[str]:
+    current = today or date.today()
+    current_quarter = ((current.month - 1) // 3) + 1
+    current_quarter_end_month = current_quarter * 3
+
+    windows = [SPOT_WINDOW]
+    for month in range(current.month, current_quarter_end_month + 1):
+        windows.append(f"{current.year}-{month:02d}")
+
+    for index in range(quarter_count):
+        absolute_quarter = (current.year * 4) + (current_quarter - 1) + 1 + index
+        quarter_year = absolute_quarter // 4
+        quarter = (absolute_quarter % 4) + 1
+        windows.append(f"{quarter_year}-Q{quarter}")
+
+    return windows
