@@ -51,6 +51,7 @@ from app.services.availability_windows import (
     availability_window_display_label,
     availability_window_sort_key,
     normalize_availability_window,
+    tradable_availability_windows,
 )
 from app.services.demo_market import DEMO_MARKET_ORG_IDS, is_demo_market_organization
 from app.services.forward_monitoring import (
@@ -184,25 +185,7 @@ def normalize_public_windows(values: Sequence[str] | None, *, now: datetime | No
 
 def default_curve_windows(now: datetime | None = None) -> list[str]:
     current = now or datetime.now(timezone.utc)
-    year = current.year
-    month = current.month
-    quarter = ((month - 1) // 3) + 1
-
-    windows = [SPOT_WINDOW]
-    for offset in range(1, 7):
-        zero_based = month - 1 + offset
-        next_year = year + (zero_based // 12)
-        next_month = (zero_based % 12) + 1
-        windows.append(f"{next_year}-{next_month:02d}")
-
-    for offset in range(1, 5):
-        absolute_quarter = (year * 4) + (quarter - 1) + offset
-        quarter_year = absolute_quarter // 4
-        next_quarter = (absolute_quarter % 4) + 1
-        windows.append(f"{quarter_year}-Q{next_quarter}")
-
-    windows.extend([f"{year + 1}-CAL", f"{year + 2}-CAL"])
-    return windows
+    return tradable_availability_windows(today=current.date())
 
 
 def _window_group(window: str) -> str:

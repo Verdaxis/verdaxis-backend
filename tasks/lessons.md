@@ -111,3 +111,9 @@
 - **Trigger:** User corrected the Forward Curve demo-seed sprint to skip writing and running tests for now.
 - **Rule:** When the user explicitly pauses tests for a sprint, do not add new test files or run pytest; use compile/smoke/browser dogfood evidence instead and record the deferred test gap.
 - **Why:** The user is prioritizing fast staging review for simple/demo-data slices, and adding tests can slow down the immediate product feedback loop.
+
+### Synthetic Browser Checks Must Fail Closed Without Crashing
+- **Date:** 2026-06-22
+- **Trigger:** The Verdaxis monitor reported `rendered page checks crashed` because headless Chromium timed out while dumping the login page DOM.
+- **Rule:** Wrap browser-render timeouts as ordinary monitor failures with clear context, and set render timeouts for VPS/browser cold-start latency rather than assuming fast local Chrome startup.
+- **Why:** A synthetic UI check is useful only if it reports the failing condition; uncaught subprocess timeouts make the monitor itself look broken and obscure the actual site state.
