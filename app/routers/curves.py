@@ -15,7 +15,7 @@ from decimal import Decimal
 from typing import Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy import case, select, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,23 +23,50 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.models.catalog import DeliveryPoint, MarketProduct, Product
 from app.models.orderbook import OrderBookOrder, OrderBookStatus, OrderSide
+from app.schemas.benchmark import BenchmarkQuote
 from app.schemas.curves import (
     ForwardCurveBoardCell,
     ForwardCurveBoardDepthLevel,
+    ForwardCurveBoardFairPriceBand,
     ForwardCurveBoardFocus,
+    ForwardCurveBoardIndicationSummary,
     ForwardCurveBoardPort,
     ForwardCurveBoardProduct,
+    ForwardCurveBoardPhysicalStemSummary,
     ForwardCurveBoardResponse,
+    ForwardCurveSliceResponse,
+    ForwardCurveTableResponse,
+    ForwardCurveSignalProvenance,
     ForwardCurvePoint,
     ForwardCurveResponse,
+    MarketSignalType,
+)
+from app.schemas.market_activity import (
+    MarketDemoStatus,
+    MarketScope,
+    MarketSourceKind,
+    demo_status_from_counts,
+    source_kind_from_counts,
 )
 from app.services.availability_windows import (
     SPOT_WINDOW,
     availability_window_sort_key,
     normalize_availability_window,
 )
-from app.services.benchmarks import get_benchmark_quote
+from app.services.benchmarks import get_benchmark_quote, get_benchmark_quotes
 from app.services.demo_market import DEMO_MARKET_ORG_IDS
+from app.services.forward_monitoring import (
+    SignalKey,
+    load_fair_price_bands,
+    load_indication_summaries,
+    load_latest_indications_for_focus,
+    load_physical_stem_summaries,
+    load_physical_stems_for_focus,
+    no_data_fair_price_band_provenance,
+    no_data_summary_for_signal,
+    normalize_signal_keys,
+)
+from app.services.forward_curve_market_slices import forward_curve_market_slices
 
 
 router = APIRouter(prefix="/curves/forward", tags=["forward-curve"])
@@ -96,6 +123,45 @@ def _money(value: Decimal | int | float | None) -> Decimal | None:
     if value is None:
         return None
     return Decimal(str(value)).quantize(Decimal("0.01"))
+
+
+_MISSING_BENCHMARK = object()
+
+
+def _is_demo_order_clause():
+    return OrderBookOrder.organization_id.in_(list(DEMO_MARKET_ORG_IDS))
+
+
+def _is_real_order_clause():
+    return OrderBookOrder.organization_id.notin_(list(DEMO_MARKET_ORG_IDS))
+
+
+def _source_kind_for_best_price(
+    *,
+    best_price: Decimal | None,
+    real_best: Decimal | None,
+    demo_best: Decimal | None,
+) -> MarketSourceKind:
+    if best_price is None:
+        return MarketSourceKind.NO_DATA
+
+    real_matches = real_best is not None and _money(real_best) == _money(best_price)
+    demo_matches = demo_best is not None and _money(demo_best) == _money(best_price)
+    if real_matches and demo_matches:
+        return MarketSourceKind.MIXED_SOURCE
+    if demo_matches:
+        return MarketSourceKind.DEMO_SEED
+    if real_matches:
+        return MarketSourceKind.LIVE_ORDER
+    return MarketSourceKind.UNKNOWN
+
+
+def _source_kind_for_benchmark(quote: BenchmarkQuote | None, *, benchmark_is_demo: bool) -> MarketSourceKind:
+    if quote is None:
+        return MarketSourceKind.NO_DATA
+    if benchmark_is_demo:
+        return MarketSourceKind.DEMO_SEED
+    return MarketSourceKind.BENCHMARK_REFERENCE
 
 # Canonical window ordering for deterministic response ordering
 async def compute_forward_curve(
@@ -222,6 +288,8 @@ async def _aggregate_orderbook_window(
     if not product_ids or not delivery_point_ids:
         return {}
 
+    demo_order = _is_demo_order_clause()
+    real_order = _is_real_order_clause()
     stmt = (
         select(
             OrderBookOrder.product_id,
@@ -229,14 +297,25 @@ async def _aggregate_orderbook_window(
             OrderBookOrder.side,
             func.max(OrderBookOrder.price_per_mt_usd).label("max_price"),
             func.min(OrderBookOrder.price_per_mt_usd).label("min_price"),
+            func.max(case((real_order, OrderBookOrder.price_per_mt_usd))).label("real_max_price"),
+            func.min(case((real_order, OrderBookOrder.price_per_mt_usd))).label("real_min_price"),
+            func.max(case((demo_order, OrderBookOrder.price_per_mt_usd))).label("demo_max_price"),
+            func.min(case((demo_order, OrderBookOrder.price_per_mt_usd))).label("demo_min_price"),
             func.sum(OrderBookOrder.remaining_quantity_mt).label("total_volume"),
             func.count(OrderBookOrder.id).label("order_count"),
             func.sum(
                 case(
-                    (OrderBookOrder.organization_id.notin_(list(DEMO_MARKET_ORG_IDS)), 1),
+                    (real_order, 1),
                     else_=0,
                 )
             ).label("real_order_count"),
+            func.sum(
+                case(
+                    (demo_order, 1),
+                    else_=0,
+                )
+            ).label("demo_order_count"),
+            func.max(func.coalesce(OrderBookOrder.updated_at, OrderBookOrder.created_at)).label("last_order_at"),
         )
         .where(
             OrderBookOrder.status.in_(_ACTIVE_STATUSES),
@@ -257,12 +336,76 @@ async def _aggregate_orderbook_window(
         side = row.side.value if hasattr(row.side, "value") else str(row.side)
         if side == OrderSide.BID.value:
             bucket["best_bid"] = row.max_price
+            bucket["real_best_bid"] = row.real_max_price
+            bucket["demo_best_bid"] = row.demo_max_price
         elif side == OrderSide.ASK.value:
             bucket["best_ask"] = row.min_price
+            bucket["real_best_ask"] = row.real_min_price
+            bucket["demo_best_ask"] = row.demo_min_price
         bucket["volume_mt"] = Decimal(str(bucket["volume_mt"])) + (row.total_volume or Decimal("0"))
         bucket["order_count"] = int(bucket["order_count"]) + int(row.order_count or 0)
         bucket["real_order_count"] = int(bucket.get("real_order_count") or 0) + int(row.real_order_count or 0)
+        bucket["demo_order_count"] = int(bucket.get("demo_order_count") or 0) + int(row.demo_order_count or 0)
+        current_last_order_at = bucket.get("last_order_at")
+        if row.last_order_at is not None and (current_last_order_at is None or row.last_order_at > current_last_order_at):
+            bucket["last_order_at"] = row.last_order_at
     return board
+
+
+async def _aggregate_orderbook_focus_windows(
+    db: AsyncSession,
+    *,
+    product_id: UUID,
+    delivery_point_id: UUID,
+) -> dict[str, dict[str, object]]:
+    demo_order = _is_demo_order_clause()
+    real_order = _is_real_order_clause()
+    stmt = (
+        select(
+            OrderBookOrder.availability_window,
+            OrderBookOrder.side,
+            func.max(OrderBookOrder.price_per_mt_usd).label("max_price"),
+            func.min(OrderBookOrder.price_per_mt_usd).label("min_price"),
+            func.max(case((real_order, OrderBookOrder.price_per_mt_usd))).label("real_max_price"),
+            func.min(case((real_order, OrderBookOrder.price_per_mt_usd))).label("real_min_price"),
+            func.max(case((demo_order, OrderBookOrder.price_per_mt_usd))).label("demo_max_price"),
+            func.min(case((demo_order, OrderBookOrder.price_per_mt_usd))).label("demo_min_price"),
+            func.sum(OrderBookOrder.remaining_quantity_mt).label("total_volume"),
+            func.count(OrderBookOrder.id).label("order_count"),
+            func.sum(case((real_order, 1), else_=0)).label("real_order_count"),
+            func.sum(case((demo_order, 1), else_=0)).label("demo_order_count"),
+            func.max(func.coalesce(OrderBookOrder.updated_at, OrderBookOrder.created_at)).label("last_order_at"),
+        )
+        .where(
+            OrderBookOrder.status.in_(_ACTIVE_STATUSES),
+            OrderBookOrder.product_id == product_id,
+            OrderBookOrder.delivery_point_id == delivery_point_id,
+        )
+        .group_by(OrderBookOrder.availability_window, OrderBookOrder.side)
+    )
+
+    result = await db.execute(stmt)
+    buckets: dict[str, dict[str, object]] = {}
+    for row in result.all():
+        window = normalize_availability_window(str(row.availability_window))
+        bucket = buckets.setdefault(window, {"volume_mt": Decimal("0"), "order_count": 0})
+        side = row.side.value if hasattr(row.side, "value") else str(row.side)
+        if side == OrderSide.BID.value:
+            bucket["best_bid"] = row.max_price
+            bucket["real_best_bid"] = row.real_max_price
+            bucket["demo_best_bid"] = row.demo_max_price
+        elif side == OrderSide.ASK.value:
+            bucket["best_ask"] = row.min_price
+            bucket["real_best_ask"] = row.real_min_price
+            bucket["demo_best_ask"] = row.demo_min_price
+        bucket["volume_mt"] = Decimal(str(bucket["volume_mt"])) + (row.total_volume or Decimal("0"))
+        bucket["order_count"] = int(bucket["order_count"]) + int(row.order_count or 0)
+        bucket["real_order_count"] = int(bucket.get("real_order_count") or 0) + int(row.real_order_count or 0)
+        bucket["demo_order_count"] = int(bucket.get("demo_order_count") or 0) + int(row.demo_order_count or 0)
+        current_last_order_at = bucket.get("last_order_at")
+        if row.last_order_at is not None and (current_last_order_at is None or row.last_order_at > current_last_order_at):
+            bucket["last_order_at"] = row.last_order_at
+    return buckets
 
 
 def _orderbook_bucket_to_values(bucket: dict[str, object] | None) -> tuple[Decimal | None, Decimal | None, Decimal | None, Decimal, int]:
@@ -284,12 +427,21 @@ async def _build_board_cell(
     delivery_point: DeliveryPoint,
     availability_window: str,
     orderbook_bucket: dict[str, object] | None,
+    benchmark_quote: BenchmarkQuote | None | object = _MISSING_BENCHMARK,
+    indication_summary: ForwardCurveBoardIndicationSummary | None = None,
+    fair_price_band: ForwardCurveBoardFairPriceBand | None = None,
+    fair_price_band_provenance: ForwardCurveSignalProvenance | None = None,
+    physical_stem_summary: ForwardCurveBoardPhysicalStemSummary | None = None,
 ) -> ForwardCurveBoardCell:
-    quote = await get_benchmark_quote(
-        db,
-        market_product=product.market_product,
-        delivery_point_id=delivery_point.id,
-        availability_window=availability_window,
+    quote = (
+        await get_benchmark_quote(
+            db,
+            market_product=product.market_product,
+            delivery_point_id=delivery_point.id,
+            availability_window=availability_window,
+        )
+        if benchmark_quote is _MISSING_BENCHMARK
+        else benchmark_quote
     )
     best_bid, best_ask, spread, volume_mt, order_count = _orderbook_bucket_to_values(orderbook_bucket)
     benchmark_mid = _money(quote.benchmark_price_per_mt_usd) if quote else None
@@ -298,6 +450,24 @@ async def _build_board_cell(
         benchmark_mid = None
         benchmark_source = None
     benchmark_is_demo = benchmark_mid is not None and _benchmark_is_demo(benchmark_source)
+    real_order_count = int(orderbook_bucket.get("real_order_count") or 0) if orderbook_bucket else 0
+    demo_order_count = int(orderbook_bucket.get("demo_order_count") or 0) if orderbook_bucket else 0
+    unknown_order_count = int(orderbook_bucket.get("unknown_order_count") or 0) if orderbook_bucket else 0
+    demo_status = demo_status_from_counts(
+        real_count=real_order_count,
+        demo_count=demo_order_count,
+        unknown_count=unknown_order_count,
+    )
+    order_source_kind = source_kind_from_counts(
+        real_count=real_order_count,
+        demo_count=demo_order_count,
+        unknown_count=unknown_order_count,
+        real_source=MarketSourceKind.LIVE_ORDER,
+    )
+    real_best_bid = _money(orderbook_bucket.get("real_best_bid")) if orderbook_bucket else None
+    real_best_ask = _money(orderbook_bucket.get("real_best_ask")) if orderbook_bucket else None
+    demo_best_bid = _money(orderbook_bucket.get("demo_best_bid")) if orderbook_bucket else None
+    demo_best_ask = _money(orderbook_bucket.get("demo_best_ask")) if orderbook_bucket else None
 
     return ForwardCurveBoardCell(
         product_id=product.id,
@@ -310,6 +480,36 @@ async def _build_board_cell(
         benchmark_mid=benchmark_mid,
         benchmark_source=benchmark_source,
         is_demo_benchmark=benchmark_is_demo,
+        order_source_kind=order_source_kind,
+        benchmark_source_kind=_source_kind_for_benchmark(quote if benchmark_mid is not None else None, benchmark_is_demo=benchmark_is_demo),
+        scope=MarketScope.DELIVERY_POINT,
+        demo_status=demo_status,
+        real_order_count=real_order_count,
+        demo_order_count=demo_order_count,
+        unknown_order_count=unknown_order_count,
+        real_best_bid=real_best_bid,
+        real_best_ask=real_best_ask,
+        demo_best_bid=demo_best_bid,
+        demo_best_ask=demo_best_ask,
+        best_bid_source_kind=_source_kind_for_best_price(
+            best_price=best_bid,
+            real_best=real_best_bid,
+            demo_best=demo_best_bid,
+        ),
+        best_ask_source_kind=_source_kind_for_best_price(
+            best_price=best_ask,
+            real_best=real_best_ask,
+            demo_best=demo_best_ask,
+        ),
+        order_observed_at=orderbook_bucket.get("last_order_at") if orderbook_bucket else None,
+        benchmark_observed_at=getattr(quote, "observed_at", None) if quote and benchmark_mid is not None else None,
+        indication_summary=indication_summary
+        or no_data_summary_for_signal(MarketSignalType.MARKET_INDICATION),
+        fair_price_band=fair_price_band,
+        fair_price_band_provenance=fair_price_band_provenance
+        or no_data_fair_price_band_provenance(),
+        physical_stem_summary=physical_stem_summary
+        or no_data_summary_for_signal(MarketSignalType.PHYSICAL_STEM),
         best_bid=best_bid,
         best_ask=best_ask,
         spread=spread,
@@ -331,6 +531,8 @@ async def _aggregate_depth_levels(
             OrderBookOrder.price_per_mt_usd,
             func.sum(OrderBookOrder.remaining_quantity_mt).label("quantity_mt"),
             func.count(OrderBookOrder.id).label("order_count"),
+            func.sum(case((_is_real_order_clause(), 1), else_=0)).label("real_order_count"),
+            func.sum(case((_is_demo_order_clause(), 1), else_=0)).label("demo_order_count"),
         )
         .where(
             OrderBookOrder.status.in_(_ACTIVE_STATUSES),
@@ -344,10 +546,22 @@ async def _aggregate_depth_levels(
     bids: list[ForwardCurveBoardDepthLevel] = []
     asks: list[ForwardCurveBoardDepthLevel] = []
     for row in result.all():
+        real_order_count = int(row.real_order_count or 0)
+        demo_order_count = int(row.demo_order_count or 0)
+        demo_status = demo_status_from_counts(real_count=real_order_count, demo_count=demo_order_count)
+        source_kind = source_kind_from_counts(
+            real_count=real_order_count,
+            demo_count=demo_order_count,
+            real_source=MarketSourceKind.LIVE_ORDER,
+        )
         level = ForwardCurveBoardDepthLevel(
             price_per_mt_usd=_money(row.price_per_mt_usd) or Decimal("0"),
             quantity_mt=_money(row.quantity_mt) or Decimal("0"),
             order_count=int(row.order_count or 0),
+            source_kind=source_kind,
+            demo_status=demo_status,
+            real_order_count=real_order_count,
+            demo_order_count=demo_order_count,
         )
         side = row.side.value if hasattr(row.side, "value") else str(row.side)
         if side == OrderSide.BID.value:
@@ -373,36 +587,6 @@ async def build_forward_curve_board(
     if not products or not delivery_points:
         raise ValueError("Forward curve board requires active products and delivery points")
 
-    product_ids = [product.id for product in products]
-    delivery_point_ids = [point.id for point in delivery_points]
-    orderbook_by_key = await _aggregate_orderbook_window(
-        db,
-        product_ids=product_ids,
-        delivery_point_ids=delivery_point_ids,
-        availability_window=normalized_window,
-    )
-
-    ports: list[ForwardCurveBoardPort] = []
-    for delivery_point in delivery_points:
-        cells = [
-            await _build_board_cell(
-                db,
-                product=product,
-                delivery_point=delivery_point,
-                availability_window=normalized_window,
-                orderbook_bucket=orderbook_by_key.get((product.id, delivery_point.id)),
-            )
-            for product in products
-        ]
-        ports.append(
-            ForwardCurveBoardPort(
-                delivery_point_id=delivery_point.id,
-                delivery_point_name=delivery_point.name,
-                region=delivery_point.region,
-                cells=cells,
-            )
-        )
-
     normalized_focus_market_product = (
         focus_market_product.value
         if isinstance(focus_market_product, MarketProduct)
@@ -417,36 +601,111 @@ async def build_forward_curve_board(
         next((point for point in delivery_points if point.name == "Singapore"), delivery_points[0]),
     )
 
-    orderbook_curve = {
-        point.availability_window: point
-        for point in await compute_forward_curve(
-            db,
-            product_id=focus_product.id,
-            delivery_point_id=focus_delivery_point.id,
-        )
-    }
+    product_ids = [product.id for product in products]
+    delivery_point_ids = [point.id for point in delivery_points]
+    orderbook_by_key = await _aggregate_orderbook_window(
+        db,
+        product_ids=product_ids,
+        delivery_point_ids=delivery_point_ids,
+        availability_window=normalized_window,
+    )
+    focus_orderbook_by_window = await _aggregate_orderbook_focus_windows(
+        db,
+        product_id=focus_product.id,
+        delivery_point_id=focus_delivery_point.id,
+    )
     curve_windows = sorted(
-        set(_default_curve_windows()) | set(orderbook_curve.keys()),
+        set(_default_curve_windows()) | set(focus_orderbook_by_window.keys()),
         key=availability_window_sort_key,
     )
+    matrix_signal_keys: list[SignalKey] = [
+        (product.market_product or "", delivery_point.id, normalized_window)
+        for delivery_point in delivery_points
+        for product in products
+    ]
+    focus_signal_keys: list[SignalKey] = [
+        (focus_product.market_product or "", focus_delivery_point.id, window)
+        for window in curve_windows
+    ]
+    signal_keys = normalize_signal_keys([*matrix_signal_keys, *focus_signal_keys])
+    indication_summaries = await load_indication_summaries(db, signal_keys)
+    physical_stem_summaries = await load_physical_stem_summaries(db, signal_keys)
+    fair_price_bands = await load_fair_price_bands(db, signal_keys)
+    benchmark_requests = [
+        (product.market_product, delivery_point.id, normalized_window, delivery_point.name)
+        for delivery_point in delivery_points
+        for product in products
+    ]
+    benchmark_requests.extend(
+        (focus_product.market_product, focus_delivery_point.id, window, focus_delivery_point.name)
+        for window in curve_windows
+    )
+    benchmark_quotes = await get_benchmark_quotes(db, benchmark_requests)
+
+    ports: list[ForwardCurveBoardPort] = []
+    for delivery_point in delivery_points:
+        cells: list[ForwardCurveBoardCell] = []
+        for product in products:
+            cell_key = (product.market_product or "", delivery_point.id, normalized_window)
+            cell_fair_price_band = fair_price_bands.get(cell_key)
+            cell = await _build_board_cell(
+                db,
+                product=product,
+                delivery_point=delivery_point,
+                availability_window=normalized_window,
+                orderbook_bucket=orderbook_by_key.get((product.id, delivery_point.id)),
+                benchmark_quote=benchmark_quotes.get(
+                    (
+                        product.market_product or "",
+                        delivery_point.id,
+                        normalized_window,
+                    )
+                ),
+                indication_summary=indication_summaries.get(cell_key),
+                fair_price_band=cell_fair_price_band,
+                fair_price_band_provenance=(
+                    cell_fair_price_band.provenance
+                    if cell_fair_price_band
+                    else no_data_fair_price_band_provenance()
+                ),
+                physical_stem_summary=physical_stem_summaries.get(cell_key),
+            )
+            cells.append(cell)
+        ports.append(
+            ForwardCurveBoardPort(
+                delivery_point_id=delivery_point.id,
+                delivery_point_name=delivery_point.name,
+                region=delivery_point.region,
+                cells=cells,
+            )
+        )
+
     focus_curve: list[ForwardCurveBoardCell] = []
     for window in curve_windows:
-        point = orderbook_curve.get(window)
-        bucket = None
-        if point is not None:
-            bucket = {
-                "best_bid": point.best_bid,
-                "best_ask": point.best_ask,
-                "volume_mt": point.volume_mt,
-                "order_count": point.order_count,
-            }
+        focus_key = (focus_product.market_product or "", focus_delivery_point.id, window)
+        focus_fair_price_band = fair_price_bands.get(focus_key)
         focus_curve.append(
             await _build_board_cell(
                 db,
                 product=focus_product,
                 delivery_point=focus_delivery_point,
                 availability_window=window,
-                orderbook_bucket=bucket,
+                orderbook_bucket=focus_orderbook_by_window.get(window),
+                benchmark_quote=benchmark_quotes.get(
+                    (
+                        focus_product.market_product or "",
+                        focus_delivery_point.id,
+                        window,
+                    )
+                ),
+                indication_summary=indication_summaries.get(focus_key),
+                fair_price_band=focus_fair_price_band,
+                fair_price_band_provenance=(
+                    focus_fair_price_band.provenance
+                    if focus_fair_price_band
+                    else no_data_fair_price_band_provenance()
+                ),
+                physical_stem_summary=physical_stem_summaries.get(focus_key),
             )
         )
 
@@ -456,6 +715,20 @@ async def build_forward_curve_board(
         delivery_point_id=focus_delivery_point.id,
         availability_window=normalized_window,
     )
+    focus_indications = await load_latest_indications_for_focus(
+        db,
+        market_product=focus_product.market_product or "",
+        delivery_point_id=focus_delivery_point.id,
+        availability_window=normalized_window,
+    )
+    focus_physical_stems = await load_physical_stems_for_focus(
+        db,
+        market_product=focus_product.market_product or "",
+        delivery_point_id=focus_delivery_point.id,
+        availability_window=normalized_window,
+    )
+    selected_focus_key = (focus_product.market_product or "", focus_delivery_point.id, normalized_window)
+    selected_focus_fair_price_band = fair_price_bands.get(selected_focus_key)
 
     focus = ForwardCurveBoardFocus(
         product_id=focus_product.id,
@@ -468,6 +741,14 @@ async def build_forward_curve_board(
         curve=focus_curve,
         depth_bids=depth_bids,
         depth_asks=depth_asks,
+        indications=focus_indications,
+        fair_price_band=selected_focus_fair_price_band,
+        fair_price_band_provenance=(
+            selected_focus_fair_price_band.provenance
+            if selected_focus_fair_price_band
+            else no_data_fair_price_band_provenance()
+        ),
+        physical_stems=focus_physical_stems,
     )
 
     return ForwardCurveBoardResponse(
@@ -515,6 +796,39 @@ def build_csv(points: list[ForwardCurvePoint]) -> str:
             "order_count": point.order_count,
         })
     return buf.getvalue()
+
+
+@router.get("/table", response_model=ForwardCurveTableResponse, summary="Forward curve monitoring table")
+async def get_forward_curve_table(
+    windows: Optional[list[str]] = Query(None, description="Optional canonical windows. Repeat the query parameter to request multiple windows."),
+    db: AsyncSession = Depends(get_db),
+) -> ForwardCurveTableResponse:
+    """Return the canonical product-port-window monitoring matrix."""
+
+    try:
+        return await forward_curve_market_slices.load_table(db, windows=windows)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.get("/slice", response_model=ForwardCurveSliceResponse, summary="Forward curve selected slice")
+async def get_forward_curve_slice(
+    market_product: MarketProduct = Query(..., description="Canonical market product"),
+    delivery_point_id: UUID = Query(..., description="Approved delivery point UUID"),
+    availability_window: str = Query(..., description="Canonical window: SPOT, YYYY-MM, YYYY-QN, or YYYY-CAL"),
+    db: AsyncSession = Depends(get_db),
+) -> ForwardCurveSliceResponse:
+    """Return bounded graph-ready evidence for one exact market slice."""
+
+    try:
+        return await forward_curve_market_slices.load_slice(
+            db,
+            market_product=market_product.value,
+            delivery_point_id=delivery_point_id,
+            availability_window=availability_window,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.get("/board", response_model=ForwardCurveBoardResponse, summary="Forward curve monitoring board")

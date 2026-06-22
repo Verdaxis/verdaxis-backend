@@ -23,6 +23,7 @@ from app.models.orderbook import (
 from app.models.notification import Notification, NotificationType
 from app.schemas.orderbook import TradeCreate, TradeResponse, TradeDeliverPayload
 from app.schemas.pagination import PaginatedResponse
+from app.services.activity import trade_activity_provenance
 from app.services.event_bus import event_bus
 from app.services.watchlist_events import _best_slice_price, emit_order_updated
 from app.services.execution_policy import order_is_execution_qualified
@@ -292,6 +293,7 @@ async def create_trade(
     # Emit SSE event for new trade
     _order = loaded_trade.ask_order or loaded_trade.bid_order
     await event_bus.publish("trades", "trade_created", {
+        **trade_activity_provenance(loaded_trade),
         "id": str(loaded_trade.id),
         "status": loaded_trade.status.value,
         "quantity": str(loaded_trade.quantity_mt),
@@ -406,6 +408,7 @@ async def confirm_trade(
 
     # Emit SSE event for confirmed trade
     await event_bus.publish("trades", "trade_confirmed", {
+        **trade_activity_provenance(loaded_trade),
         "id": str(loaded_trade.id),
         "status": loaded_trade.status.value,
         "quantity": str(loaded_trade.quantity_mt),
@@ -530,6 +533,7 @@ async def deliver_trade(
 
     # Emit SSE event for delivered trade
     await event_bus.publish("trades", "trade_delivered", {
+        **trade_activity_provenance(loaded_trade),
         "id": str(loaded_trade.id),
         "status": loaded_trade.status.value,
         "final_quantity": str(loaded_trade.final_quantity_mt),
@@ -582,6 +586,7 @@ async def pay_trade(
 
     # Emit SSE event for paid trade
     await event_bus.publish("trades", "trade_paid", {
+        **trade_activity_provenance(loaded_trade),
         "id": str(loaded_trade.id),
         "status": loaded_trade.status.value,
         "quantity": str(loaded_trade.quantity_mt),

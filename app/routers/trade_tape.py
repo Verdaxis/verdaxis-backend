@@ -3,6 +3,7 @@
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Optional
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select, func
@@ -23,38 +24,52 @@ def _is_market_hours(now: datetime) -> bool:
     return True
 
 
-def _build_tape_entry(trade: Trade) -> TradeTapeEntry:
+def _build_tape_entry(trade: Trade, *, expose_delivery_point: bool = False) -> TradeTapeEntry:
     """Build an anonymized tape entry from a Trade with loaded relationships."""
     order = trade.ask_order or trade.bid_order
 
+    product_id = None
     market_product = None
     fuel_type = ""
     fuel_grade = ""
+    delivery_point_id = None
+    delivery_point_name = None
     region = ""
     availability_window = ""
 
     if order:
+        product_id = order.product_id if expose_delivery_point else None
         market_product = order.market_product
         fuel_type = order.fuel_type
         fuel_grade = order.fuel_grade
-        region = order.delivery_point_name or order.region
+        delivery_point_id = order.delivery_point_id if expose_delivery_point else None
+        delivery_point_name = order.delivery_point_name if expose_delivery_point else None
+        region = order.delivery_point_name if expose_delivery_point else order.region
         availability_window = normalize_availability_window(str(order.availability_window)) if order.availability_window else ""
+
+    is_demo_trade = (
+        is_demo_market_organization(trade.buyer_id)
+        and is_demo_market_organization(trade.seller_id)
+    )
+    scope = "DELIVERY_POINT" if expose_delivery_point and delivery_point_id else ("REGION" if region else "UNKNOWN")
 
     return TradeTapeEntry(
         id=str(trade.id).replace("-", "")[:8],
+        product_id=product_id,
         market_product=market_product,
         fuel_type=fuel_type,
         fuel_grade=fuel_grade,
+        delivery_point_id=delivery_point_id,
+        delivery_point_name=delivery_point_name,
         region=region,
         quantity_mt=trade.quantity_mt,
         price_per_mt_usd=trade.price_per_mt_usd,
         total_usd=trade.quantity_mt * trade.price_per_mt_usd,
         confirmed_at=trade.confirmed_at,
         availability_window=availability_window,
-        is_demo_trade=(
-            is_demo_market_organization(trade.buyer_id)
-            and is_demo_market_organization(trade.seller_id)
-        ),
+        is_demo_trade=is_demo_trade,
+        scope=scope,
+        provenance_kind="DEMO_SEED" if is_demo_trade else "CONFIRMED_TRADE",
     )
 
 
@@ -63,6 +78,7 @@ async def get_trade_tape(
     db: AsyncSession = Depends(get_db),
     fuel_type: Optional[str] = Query(None, description="Filter by fuel type"),
     market_product: Optional[str] = Query(None, description="Filter by canonical market product"),
+    delivery_point_id: Optional[UUID] = Query(None, description="Filter by exact delivery point ID"),
     region: Optional[str] = Query(None, description="Filter by region"),
     availability_window: Optional[str] = Query(None, description="Filter by availability window"),
     skip: int = Query(0, ge=0),
@@ -93,8 +109,10 @@ async def get_trade_tape(
         .outerjoin(tape_order, tape_order.id == func.coalesce(Trade.ask_order_id, Trade.bid_order_id))
         .where(*conditions)
         .options(
-            joinedload(Trade.ask_order),
-            joinedload(Trade.bid_order),
+            joinedload(Trade.ask_order).joinedload(OrderBookOrder.product),
+            joinedload(Trade.ask_order).joinedload(OrderBookOrder.delivery_point),
+            joinedload(Trade.bid_order).joinedload(OrderBookOrder.product),
+            joinedload(Trade.bid_order).joinedload(OrderBookOrder.delivery_point),
         )
     )
 
@@ -114,6 +132,8 @@ async def get_trade_tape(
             if not product_ids:
                 return TradeTapeResponse(items=[], total=0, market_hours=market_hours)
             base_query = base_query.where(Product.id.in_(product_ids))
+    if delivery_point_id is not None:
+        base_query = base_query.where(tape_order.delivery_point_id == delivery_point_id)
     if region is not None:
         from app.models.catalog import DeliveryPoint
         from sqlalchemy import or_
@@ -139,6 +159,6 @@ async def get_trade_tape(
     result = await db.execute(data_stmt)
     trades = result.unique().scalars().all()
 
-    items = [_build_tape_entry(t) for t in trades]
+    items = [_build_tape_entry(t, expose_delivery_point=delivery_point_id is not None) for t in trades]
 
     return TradeTapeResponse(items=items, total=total, market_hours=market_hours)

@@ -10,7 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models.catalog import Product
+from app.models.catalog import DeliveryPoint, Product
 from app.models.orderbook import OrderBookOrder, OrderBookStatus
 from app.models.watchlist import (
     Watchlist,
@@ -19,6 +19,7 @@ from app.models.watchlist import (
     WatchlistTarget,
     WatchlistTargetType,
 )
+from app.schemas.market_activity import MarketDemoStatus, MarketScope, MarketSourceKind
 from app.schemas.watchlist import (
     WatchlistDetailResponse,
     WatchlistEventResponse,
@@ -46,6 +47,50 @@ def decode_event_cursor(cursor: str) -> tuple[datetime, UUID]:
         return datetime.fromisoformat(ts), UUID(raw_id)
     except (ValueError, TypeError, AttributeError) as exc:
         raise ValueError("Invalid watchlist event cursor") from exc
+
+
+def _coerce_uuid(value: object) -> UUID | None:
+    if isinstance(value, UUID):
+        return value
+    if not value:
+        return None
+    try:
+        return UUID(str(value))
+    except (TypeError, ValueError):
+        return None
+
+
+def build_watchlist_event_response(
+    event: WatchlistEvent,
+    target: WatchlistTarget,
+    *,
+    delivery_point_name: str | None = None,
+) -> WatchlistEventResponse:
+    payload = event.event_payload or {}
+    source_kind = payload.get("source_kind") or MarketSourceKind.UNKNOWN.value
+    demo_status = payload.get("demo_status") or MarketDemoStatus.UNKNOWN.value
+    scope = payload.get("scope") or (
+        MarketScope.DELIVERY_POINT.value if target.delivery_point_id else MarketScope.UNKNOWN.value
+    )
+    return WatchlistEventResponse(
+        id=event.id,
+        watchlist_id=event.watchlist_id,
+        watchlist_target_id=event.watchlist_target_id,
+        target_type=target.target_type.value if hasattr(target.target_type, 'value') else str(target.target_type),
+        event_type=event.event_type.value if hasattr(event.event_type, 'value') else str(event.event_type),
+        event_payload=payload,
+        source_kind=source_kind,
+        scope=scope,
+        demo_status=demo_status,
+        observed_at=payload.get("observed_at"),
+        market_product_code=payload.get("market_product_code") or target.market_product_code,
+        delivery_point_id=_coerce_uuid(payload.get("delivery_point_id")) or target.delivery_point_id,
+        delivery_point_name=payload.get("delivery_point_name") or delivery_point_name or target.snapshot_delivery_point_name,
+        availability_window_code=payload.get("availability_window_code") or target.availability_window_code,
+        order_id=_coerce_uuid(payload.get("order_id")) or target.order_id,
+        is_read=event.is_read,
+        created_at=event.created_at,
+    )
 
 
 async def ensure_market_radar(db: AsyncSession, user_id: UUID) -> Watchlist:
@@ -272,8 +317,9 @@ async def list_watchlist_events(
 ) -> WatchlistEventsPageResponse:
     limit = max(1, min(limit, MAX_EVENT_PAGE_SIZE))
     stmt = (
-        select(WatchlistEvent, WatchlistTarget.target_type)
+        select(WatchlistEvent, WatchlistTarget, DeliveryPoint.name)
         .join(WatchlistTarget, WatchlistEvent.watchlist_target_id == WatchlistTarget.id)
+        .outerjoin(DeliveryPoint, WatchlistTarget.delivery_point_id == DeliveryPoint.id)
         .where(WatchlistEvent.watchlist_id == watchlist_id)
     )
     if cursor:
@@ -288,21 +334,12 @@ async def list_watchlist_events(
     rows = (await db.execute(stmt)).all()
     next_cursor = None
     if len(rows) > limit:
-        last_event, _ = rows[limit - 1]
+        last_event, _, _ = rows[limit - 1]
         next_cursor = encode_event_cursor(last_event.created_at, last_event.id)
         rows = rows[:limit]
 
     items = [
-        WatchlistEventResponse(
-            id=event.id,
-            watchlist_id=event.watchlist_id,
-            watchlist_target_id=event.watchlist_target_id,
-            target_type=target_type.value if hasattr(target_type, 'value') else str(target_type),
-            event_type=event.event_type.value if hasattr(event.event_type, 'value') else str(event.event_type),
-            event_payload=event.event_payload or {},
-            is_read=event.is_read,
-            created_at=event.created_at,
-        )
-        for event, target_type in rows
+        build_watchlist_event_response(event, target, delivery_point_name=delivery_point_name)
+        for event, target, delivery_point_name in rows
     ]
     return WatchlistEventsPageResponse(items=items, next_cursor=next_cursor)

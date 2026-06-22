@@ -62,8 +62,17 @@ The deploy helper infers the correct branch and service from the path, refuses d
 ### Price Discovery (Public)
 | Method | Endpoint | Auth | Description |
 |--------|----------|------|-------------|
-| GET | `/api/prices` | No | Aggregated trade prices (24h) |
+| GET | `/api/prices` | No | Aggregated trade prices (24h) with source/scope/demo provenance |
 | GET | `/api/prices/reference` | No | Daily VWAP reference prices |
+| GET | `/api/trade-tape` | No | Anonymized 7-day confirmed trade tape; filterable by `market_product`, `delivery_point_id`, `region`, and `availability_window` |
+
+Market-data surfaces use a shared provenance vocabulary:
+
+- `source_kind`: `CONFIRMED_TRADE`, `LIVE_ORDER`, `DEMO_SEED`, `BENCHMARK_REFERENCE`, `MIXED_SOURCE`, `NO_DATA`, or `UNKNOWN`.
+- `scope`: `DELIVERY_POINT`, `REGION`, `PRODUCT`, or `UNKNOWN`.
+- `demo_status`: `REAL_ONLY`, `DEMO_ONLY`, `MIXED`, `UNKNOWN`, or `NOT_APPLICABLE`.
+
+Aggregate responses expose real/demo/unknown counts. Unknown contributors remain `UNKNOWN` rather than being reported as real activity.
 
 ### Compliance
 | Method | Endpoint | Auth | Description |
@@ -77,8 +86,8 @@ The deploy helper infers the correct branch and service from the path, refuses d
 | Method | Endpoint | Auth | Description |
 |--------|----------|------|-------------|
 | GET | `/api/stream/prices` | No | Price update events |
-| GET | `/api/stream/orderbook` | No | Order events (created/cancelled/matched) |
-| GET | `/api/stream/trades` | No | Trade lifecycle events |
+| GET | `/api/stream/orderbook` | No | Order events (created/cancelled/matched) with append-only provenance fields |
+| GET | `/api/stream/trades` | No | Trade lifecycle events with append-only provenance fields |
 
 ### Admin (ADMIN role only)
 | Method | Endpoint | Auth | Description |
