@@ -7,7 +7,7 @@ from decimal import Decimal
 from typing import TypeVar
 from uuid import UUID
 
-from sqlalchemy import Select, func, select
+from sqlalchemy import Select, func, select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.forward_monitoring import (
@@ -77,13 +77,8 @@ def _key_for_row(row) -> SignalKey:
 
 
 def _apply_key_filters(stmt: Select, model: type[_T], keys: list[SignalKey]) -> Select:
-    market_products = sorted({key[0] for key in keys})
-    delivery_point_ids = sorted({key[1] for key in keys}, key=str)
-    windows = sorted({key[2] for key in keys})
     return stmt.where(
-        model.market_product.in_(market_products),
-        model.delivery_point_id.in_(delivery_point_ids),
-        model.availability_window.in_(windows),
+        tuple_(model.market_product, model.delivery_point_id, model.availability_window).in_(keys)
     )
 
 

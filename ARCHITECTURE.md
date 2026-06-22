@@ -36,7 +36,7 @@ app/
     matchmaking.py              # Match suggestions — generate, list, dismiss
     price_discovery.py          # Public price ticker + daily VWAP reference prices
     trade_tape.py               # Public anonymized 7-day confirmed trade tape with exact delivery-point filtering
-    curves.py                   # Forward curve data products and monitoring board aggregation
+    curves.py                   # Forward curve data products plus legacy board/table/slice endpoints
     stream.py                   # SSE endpoints — /stream/prices, /stream/orderbook, /stream/trades
     compliance_api.py           # Compliance scoring — fleet scores, vessel scores, what-if scenarios
     admin_analytics.py          # Platform analytics — overview stats + daily breakdown (ADMIN only)
@@ -62,6 +62,7 @@ app/
     event_bus.py                # AsyncIO pub/sub — per-channel queues, 200 subscriber cap, backpressure
     matching_engine.py          # Match-on-insert — price-time priority within canonical market identity, partial fills, auto-confirm
     benchmarks.py               # External/manual benchmark lookup keyed by market_product + delivery_point + availability_window
+    forward_curve_market_slices.py # Canonical public Forward Curve table/slice read models and label policy
     live_benchmarks.py          # Persisted live same-side slice VWAP rebuilds + read-through fallback
     availability_windows.py     # Canonical availability code parsing, sorting, display labels, legacy alias normalization
     compliance_scoring.py       # Pure function scoring — FuelEU/ETS/CII, 9 fuels, scenario engine
@@ -91,7 +92,7 @@ tests/integration/              # Auth hardening, trade lifecycle, orderbook E2E
 - **Availability windows:** Persist canonical codes (`SPOT`, `YYYY-MM`, `YYYY-QN`, legacy-compatible `YYYY-CAL`); UI-relative labels like `M+1` must be resolved before persistence
 - **Green-fuels market model:** Matching and live slice benchmarks key on `side + market_product + delivery_point + availability_window`; supplier sustainability/compliance fields stay out of the hard market key
 - **Market provenance contract:** Market-data responses use shared `source_kind`, `scope`, and `demo_status` fields. Aggregate data exposes real/demo/unknown counts; unknown contributors remain `UNKNOWN` rather than being collapsed into real/demo/mixed.
-- **Forward Curve monitoring board:** `/curves/forward/board` aggregates approved ports and public market products into a read-only matrix, using benchmark mids plus visible orderbook bid/ask context without creating a separate execution model. Board cells separate real/demo best prices and batch benchmark reads to avoid per-cell fanout.
+- **Forward Curve monitoring:** `/curves/forward/table` and `/curves/forward/slice` use `forward_curve_market_slices.py` as the canonical public read model for approved `market_product + delivery_point + availability_window` slices. Products aggregate by canonical market product, delivery points are restricted to the approved trading ports, and public cells expose server-owned label policy plus redacted source/demo/staleness fields. `/curves/forward/board` remains for older clients.
 - **Price discovery provenance:** `/prices` 24h summaries classify confirmed trade buckets as `CONFIRMED_TRADE`, `DEMO_SEED`, `MIXED_SOURCE`, or `UNKNOWN` using the same demo organization rules as trade tape.
 - **Trade tape scope:** `/trade-tape` returns anonymized confirmed trade prints for the last 7 days. Exact delivery-point history is available only when clients filter by `delivery_point_id` and entries return `scope="DELIVERY_POINT"` with delivery-point fields. `provenance_kind` is legacy-compatible; new clients should prefer `source_kind`/`demo_status` when present on newer surfaces.
 - **Market Radar watchlists:** Watchlists are observer-only. Typed targets store either canonical slices or pinned order snapshots, and order create/update/cancel paths emit slice/pin events without feeding core matchmaking. New event payloads carry provenance at emission time; legacy events return `UNKNOWN` rather than doing response-time order lookups.

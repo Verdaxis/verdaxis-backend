@@ -15,7 +15,7 @@ from decimal import Decimal
 from typing import Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy import case, select, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -34,6 +34,8 @@ from app.schemas.curves import (
     ForwardCurveBoardProduct,
     ForwardCurveBoardPhysicalStemSummary,
     ForwardCurveBoardResponse,
+    ForwardCurveSliceResponse,
+    ForwardCurveTableResponse,
     ForwardCurveSignalProvenance,
     ForwardCurvePoint,
     ForwardCurveResponse,
@@ -64,6 +66,7 @@ from app.services.forward_monitoring import (
     no_data_summary_for_signal,
     normalize_signal_keys,
 )
+from app.services.forward_curve_market_slices import forward_curve_market_slices
 
 
 router = APIRouter(prefix="/curves/forward", tags=["forward-curve"])
@@ -528,6 +531,8 @@ async def _aggregate_depth_levels(
             OrderBookOrder.price_per_mt_usd,
             func.sum(OrderBookOrder.remaining_quantity_mt).label("quantity_mt"),
             func.count(OrderBookOrder.id).label("order_count"),
+            func.sum(case((_is_real_order_clause(), 1), else_=0)).label("real_order_count"),
+            func.sum(case((_is_demo_order_clause(), 1), else_=0)).label("demo_order_count"),
         )
         .where(
             OrderBookOrder.status.in_(_ACTIVE_STATUSES),
@@ -541,10 +546,22 @@ async def _aggregate_depth_levels(
     bids: list[ForwardCurveBoardDepthLevel] = []
     asks: list[ForwardCurveBoardDepthLevel] = []
     for row in result.all():
+        real_order_count = int(row.real_order_count or 0)
+        demo_order_count = int(row.demo_order_count or 0)
+        demo_status = demo_status_from_counts(real_count=real_order_count, demo_count=demo_order_count)
+        source_kind = source_kind_from_counts(
+            real_count=real_order_count,
+            demo_count=demo_order_count,
+            real_source=MarketSourceKind.LIVE_ORDER,
+        )
         level = ForwardCurveBoardDepthLevel(
             price_per_mt_usd=_money(row.price_per_mt_usd) or Decimal("0"),
             quantity_mt=_money(row.quantity_mt) or Decimal("0"),
             order_count=int(row.order_count or 0),
+            source_kind=source_kind,
+            demo_status=demo_status,
+            real_order_count=real_order_count,
+            demo_order_count=demo_order_count,
         )
         side = row.side.value if hasattr(row.side, "value") else str(row.side)
         if side == OrderSide.BID.value:
@@ -779,6 +796,39 @@ def build_csv(points: list[ForwardCurvePoint]) -> str:
             "order_count": point.order_count,
         })
     return buf.getvalue()
+
+
+@router.get("/table", response_model=ForwardCurveTableResponse, summary="Forward curve monitoring table")
+async def get_forward_curve_table(
+    windows: Optional[list[str]] = Query(None, description="Optional canonical windows. Repeat the query parameter to request multiple windows."),
+    db: AsyncSession = Depends(get_db),
+) -> ForwardCurveTableResponse:
+    """Return the canonical product-port-window monitoring matrix."""
+
+    try:
+        return await forward_curve_market_slices.load_table(db, windows=windows)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.get("/slice", response_model=ForwardCurveSliceResponse, summary="Forward curve selected slice")
+async def get_forward_curve_slice(
+    market_product: MarketProduct = Query(..., description="Canonical market product"),
+    delivery_point_id: UUID = Query(..., description="Approved delivery point UUID"),
+    availability_window: str = Query(..., description="Canonical window: SPOT, YYYY-MM, YYYY-QN, or YYYY-CAL"),
+    db: AsyncSession = Depends(get_db),
+) -> ForwardCurveSliceResponse:
+    """Return bounded graph-ready evidence for one exact market slice."""
+
+    try:
+        return await forward_curve_market_slices.load_slice(
+            db,
+            market_product=market_product.value,
+            delivery_point_id=delivery_point_id,
+            availability_window=availability_window,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.get("/board", response_model=ForwardCurveBoardResponse, summary="Forward curve monitoring board")
