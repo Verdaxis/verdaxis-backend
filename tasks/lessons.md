@@ -117,3 +117,9 @@
 - **Trigger:** The Verdaxis monitor reported `rendered page checks crashed` because headless Chromium timed out while dumping the login page DOM.
 - **Rule:** Wrap browser-render timeouts as ordinary monitor failures with clear context, and set render timeouts for VPS/browser cold-start latency rather than assuming fast local Chrome startup.
 - **Why:** A synthetic UI check is useful only if it reports the failing condition; uncaught subprocess timeouts make the monitor itself look broken and obscure the actual site state.
+
+### Treat Vercel Bot Challenges As Monitor-Client Blocks
+- **Date:** 2026-06-23
+- **Trigger:** The Verdaxis monitor reported the login page was missing `Sign In` because Vercel returned a Security Checkpoint page to the VPS/headless monitor client.
+- **Rule:** Synthetic frontend checks against Vercel-hosted sites must detect Vercel Security Checkpoint responses and report them as monitor-client challenges, not application-render failures.
+- **Why:** Repeated headless checks can trigger Vercel mitigation for the monitor IP; the app can be healthy for normal users while the synthetic browser sees only the challenge DOM.
