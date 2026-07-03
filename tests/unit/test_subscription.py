@@ -92,6 +92,7 @@ class TestGetOrCreateSubscription:
         mock_result = MagicMock()
         mock_result.scalar_one_or_none.return_value = mock_sub
         mock_db = AsyncMock()
+        mock_db.add = MagicMock()
         mock_db.execute.return_value = mock_result
 
         result = await get_or_create_subscription(mock_db, org_id)
@@ -107,6 +108,7 @@ class TestGetOrCreateSubscription:
         mock_result = MagicMock()
         mock_result.scalar_one_or_none.return_value = None
         mock_db = AsyncMock()
+        mock_db.add = MagicMock()
         mock_db.execute.return_value = mock_result
 
         result = await get_or_create_subscription(mock_db, org_id)
@@ -136,6 +138,7 @@ class TestRequireTier:
         mock_sub.tier = SubscriptionTier.STANDARD
 
         mock_db = AsyncMock()
+        mock_db.add = MagicMock()
 
         with patch("app.middleware.subscription.get_or_create_subscription", return_value=mock_sub):
             dep_fn = require_tier(SubscriptionTier.STANDARD)
@@ -155,6 +158,7 @@ class TestRequireTier:
         mock_sub.tier = SubscriptionTier.ENTERPRISE
 
         mock_db = AsyncMock()
+        mock_db.add = MagicMock()
 
         with patch("app.middleware.subscription.get_or_create_subscription", return_value=mock_sub):
             dep_fn = require_tier(SubscriptionTier.STANDARD)
@@ -175,6 +179,7 @@ class TestRequireTier:
         mock_sub.tier = SubscriptionTier.FREE
 
         mock_db = AsyncMock()
+        mock_db.add = MagicMock()
 
         with patch("app.middleware.subscription.get_or_create_subscription", return_value=mock_sub):
             dep_fn = require_tier(SubscriptionTier.STANDARD)
@@ -198,6 +203,7 @@ class TestRequireTier:
         mock_sub.tier = SubscriptionTier.STANDARD
 
         mock_db = AsyncMock()
+        mock_db.add = MagicMock()
 
         with patch("app.middleware.subscription.get_or_create_subscription", return_value=mock_sub):
             dep_fn = require_tier(SubscriptionTier.ENTERPRISE)
@@ -220,6 +226,7 @@ class TestRequireTier:
         mock_sub.tier = SubscriptionTier.FREE
 
         mock_db = AsyncMock()
+        mock_db.add = MagicMock()
 
         with patch("app.middleware.subscription.get_or_create_subscription", return_value=mock_sub):
             dep_fn = require_tier(SubscriptionTier.ENTERPRISE)
@@ -243,6 +250,7 @@ class TestRequireTier:
         mock_sub.tier = SubscriptionTier.FREE
 
         mock_db = AsyncMock()
+        mock_db.add = MagicMock()
 
         with patch("app.middleware.subscription.get_or_create_subscription", return_value=mock_sub):
             dep_fn = require_tier(SubscriptionTier.FREE)
@@ -264,6 +272,7 @@ class TestSubscriptionRouter:
 
         mock_sub = Subscription(org_id=org_id, tier=SubscriptionTier.FREE)
         mock_db = AsyncMock()
+        mock_db.add = MagicMock()
 
         with patch("app.routers.subscriptions.get_or_create_subscription", return_value=mock_sub):
             result = await get_my_subscription(current_user=mock_user, db=mock_db)
@@ -284,6 +293,7 @@ class TestSubscriptionRouter:
         mock_result = MagicMock()
         mock_result.scalars.return_value.all.return_value = subs
         mock_db = AsyncMock()
+        mock_db.add = MagicMock()
         mock_db.execute.return_value = mock_result
 
         result = await list_subscriptions(current_user=mock_admin, db=mock_db)
@@ -299,6 +309,7 @@ class TestSubscriptionRouter:
         mock_result = MagicMock()
         mock_result.scalar_one_or_none.return_value = mock_sub
         mock_db = AsyncMock()
+        mock_db.add = MagicMock()
         mock_db.execute.return_value = mock_result
 
         result = await get_subscription_by_org(org_id=org_id, current_user=mock_admin, db=mock_db)
@@ -314,6 +325,7 @@ class TestSubscriptionRouter:
         mock_result = MagicMock()
         mock_result.scalar_one_or_none.return_value = None
         mock_db = AsyncMock()
+        mock_db.add = MagicMock()
         mock_db.execute.return_value = mock_result
 
         with pytest.raises(HTTPException) as exc_info:
@@ -331,6 +343,7 @@ class TestSubscriptionRouter:
         mock_result = MagicMock()
         mock_result.scalar_one_or_none.return_value = existing_sub
         mock_db = AsyncMock()
+        mock_db.add = MagicMock()
         mock_db.execute.return_value = mock_result
 
         update = SubscriptionUpdate(tier=SubscriptionTier.ENTERPRISE)
@@ -351,6 +364,7 @@ class TestSubscriptionRouter:
         mock_result = MagicMock()
         mock_result.scalar_one_or_none.return_value = None
         mock_db = AsyncMock()
+        mock_db.add = MagicMock()
         mock_db.execute.return_value = mock_result
 
         update = SubscriptionUpdate(tier=SubscriptionTier.STANDARD)
