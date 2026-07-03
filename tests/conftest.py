@@ -35,11 +35,15 @@ async def client() -> AsyncClient:
 
 @pytest.fixture
 def sample_user_data():
-    """Sample user data for testing registration."""
+    """Sample user data for testing registration.
+
+    Uses the itest org's domain so registration attaches the user to an
+    existing organization instead of branching into the requires_org flow.
+    """
     import uuid
     unique_id = str(uuid.uuid4())[:8]
     return {
-        "email": f"test_{unique_id}@verdaxis.com",
+        "email": f"test_{unique_id}@itest.staging.verdaxis.exchange",
         "password": "securepassword123",
         "first_name": "Test",
         "last_name": "User",
@@ -60,10 +64,29 @@ def admin_user_data():
 
 
 @pytest.fixture
-def admin_credentials():
-    """Seeded admin credentials for the test database."""
+def admin_credentials(itest_password):
+    """Dedicated staging itest admin (the old seeded admin password was
+    scrubbed from history and is unrecoverable)."""
     return {
-        "email": "admin@verdaxis.com",
-        "password": "***REMOVED***"
+        "email": "itest-admin@staging.verdaxis.exchange",
+        "password": itest_password,
     }
 
+
+
+@pytest.fixture(scope="session")
+def itest_password() -> str:
+    """Password for the dedicated itest-* staging users.
+
+    Prefers the ITEST_PASSWORD env var; falls back to the secrets file kept
+    next to the repos on the staging VPS (see PILOT-RUNBOOK §9).
+    """
+    pw = os.environ.get("ITEST_PASSWORD")
+    if pw:
+        return pw
+    secret_path = os.path.join(os.path.dirname(__file__), "..", "..", "..", ".staging-itest-password")
+    try:
+        with open(secret_path) as fh:
+            return fh.read().strip()
+    except OSError:
+        pytest.skip("No itest password available (set ITEST_PASSWORD or provision the secrets file)")
