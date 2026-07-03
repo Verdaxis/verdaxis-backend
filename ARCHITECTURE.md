@@ -30,7 +30,6 @@ app/
     audit.py                    # AuditLog (JSONB changes, indexed action/resource/timestamp)
   routers/
     auth_simple.py              # JWT auth — login/register, cookie-backed refresh rotation, password change, /me, RBAC
-    oauth.py                    # [feature branch] Google + Microsoft OIDC via Authlib
     orderbook.py                # Order/listing CRUD, supplier ASK template endpoint, certification guardrails
     trades.py                   # Trade lifecycle — create/confirm/decline/deliver/pay + SSE events
     matchmaking.py              # Match suggestions — generate, list, dismiss
@@ -66,7 +65,7 @@ app/
     live_benchmarks.py          # Persisted live same-side slice VWAP rebuilds + read-through fallback
     availability_windows.py     # Canonical availability code parsing, sorting, display labels, legacy alias normalization
     compliance_scoring.py       # Pure function scoring — FuelEU/ETS/CII, 9 fuels, scenario engine
-    audit_service.py            # record_audit() — async audit logging
+    audit_service.py            # record_audit() — async audit logging (currently unwired: no callers; /admin/audit-logs reads an always-empty table)
     ai_service.py               # Gemini chat + document analysis (stub)
     matchmaking.py              # Score-based BID/ASK matching (0-100)
     watchlists.py               # Market Radar helpers: default container, typed targets, slice summaries
