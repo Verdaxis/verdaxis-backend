@@ -2,9 +2,21 @@
 import uuid
 from typing import Any
 
+from fastapi import Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.audit import AuditLog
+
+
+def request_audit_context(request: Request) -> dict[str, str | None]:
+    """IP + correlation id kwargs for record_audit, derived from the request."""
+    from app.main import request_id_ctx  # lazy: main imports the routers that import us
+    from app.middleware.preauth_rate_limit import client_ip
+
+    return {
+        "ip_address": client_ip(request),
+        "request_id": request_id_ctx.get() or request.headers.get("X-Request-ID"),
+    }
 
 
 async def record_audit(

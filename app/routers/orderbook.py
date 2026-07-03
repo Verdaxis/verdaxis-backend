@@ -1,7 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, Request, status, Query
+from app.services.audit_service import record_audit, request_audit_context
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, or_, and_
-from sqlalchemy.orm import selectinload, joinedload
+from sqlalchemy.orm import selectinload
 from typing import Optional
 from decimal import Decimal
 from uuid import UUID
@@ -1211,6 +1212,7 @@ async def update_order(
 @router.delete("/{order_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def cancel_order(
     order_id: UUID,
+    request: Request,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -1253,6 +1255,15 @@ async def cancel_order(
     order.status = OrderBookStatus.CANCELLED
     await rebuild_live_slice_benchmarks_for_keys(db, [benchmark_key])
     await emit_order_updated(db, before=before_state, order=order)
+    await record_audit(
+        db,
+        user_id=current_user.id,
+        action="order.cancelled",
+        resource_type="order",
+        resource_id=order.id,
+        changes={"status": OrderBookStatus.CANCELLED.value},
+        **request_audit_context(request),
+    )
     await db.commit()
 
     # Emit SSE event for cancelled order
