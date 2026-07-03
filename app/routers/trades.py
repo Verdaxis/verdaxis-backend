@@ -447,8 +447,22 @@ async def decline_trade(
 
     trade.status = TradeStatus.DECLINED
 
-    # Restore the order's remaining quantity
+    # Restore the order's remaining quantity. The eager-loaded relationship
+    # row is not covered by the trade's FOR UPDATE lock, so re-select it
+    # locked before mutating remaining_quantity_mt.
     order = trade.ask_order or trade.bid_order
+    if order is not None:
+        result = await db.execute(
+            select(OrderBookOrder)
+            .where(OrderBookOrder.id == order.id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        order = result.scalar_one()
+        if order.status in (OrderBookStatus.CANCELLED, OrderBookStatus.EXPIRED):
+            # The resting order was withdrawn while the trade was pending;
+            # declining must not revive it as live liquidity.
+            order = None
     before_state = await _watchlist_before_state(db, order) if order is not None else None
     if order is not None:
         order.remaining_quantity_mt += trade.quantity_mt

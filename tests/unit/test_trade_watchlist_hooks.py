@@ -232,6 +232,46 @@ async def test_create_trade_emits_pin_and_slice_events(monkeypatch, db: AsyncSes
 
 
 @pytest.mark.asyncio
+async def test_decline_trade_does_not_revive_cancelled_order(monkeypatch, db: AsyncSession):
+    """Declining a pending trade must not resurrect an order the owner cancelled."""
+    buyer_org = await _make_org(db, 'Buyer', OrgType.SHIPPING_LINE)
+    supplier_org = await _make_org(db, 'Supplier', OrgType.FUEL_SUPPLIER)
+    supplier = await _make_user(db, supplier_org, UserRole.SUPPLIER)
+    product = await _make_product(db)
+    delivery_point = await _make_delivery_point(db)
+    ask = await _make_ask(db, org_id=supplier_org.id, product_id=product.id, delivery_point_id=delivery_point.id)
+
+    trade = Trade(
+        bid_order_id=None,
+        ask_order_id=ask.id,
+        buyer_id=buyer_org.id,
+        seller_id=supplier_org.id,
+        initiated_by=trades_router.Initiator.BUYER,
+        quantity_mt=Decimal('400'),
+        price_per_mt_usd=ask.price_per_mt_usd,
+        status=trades_router.TradeStatus.PENDING_CONFIRMATION,
+    )
+    db.add(trade)
+    # Owner cancelled the resting order while the trade was pending
+    ask.remaining_quantity_mt = Decimal('600')
+    ask.status = OrderBookStatus.CANCELLED
+    await db.commit()
+
+    async def _noop_notify(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(trades_router, 'notify_org_users', _noop_notify)
+
+    current_user = SimpleNamespace(organization_id=supplier_org.id, role=UserRole.SUPPLIER)
+    response = await trades_router.decline_trade(trade_id=trade.id, db=db, current_user=current_user)
+
+    assert response.status == 'DECLINED'
+    refreshed = await db.get(OrderBookOrder, ask.id)
+    assert refreshed.status == OrderBookStatus.CANCELLED
+    assert refreshed.remaining_quantity_mt == Decimal('600')
+
+
+@pytest.mark.asyncio
 async def test_decline_trade_restores_watchlist_state(monkeypatch, db: AsyncSession):
     buyer_org = await _make_org(db, 'Buyer', OrgType.SHIPPING_LINE)
     buyer = await _make_user(db, buyer_org, UserRole.BUYER)
