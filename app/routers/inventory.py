@@ -102,7 +102,7 @@ async def list_inventory(
 ):
     if current_user.role != UserRole.SUPPLIER:
         # Buyers might see aggregated inventory, but for now strict scoping
-        raise HTTPException(status_code=403, detail="Access restricted to Suppliers")
+        raise HTTPException(status_code=403, detail="Forbidden")
 
     stmt = select(InventoryItem).where(InventoryItem.supplier_id == current_user.organization_id)
     result = await db.execute(stmt)
