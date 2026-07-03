@@ -93,7 +93,7 @@ def _watchlist_target_response(target: WatchlistTarget) -> WatchlistTargetRespon
 def _validate_market_product_code(value: str) -> str:
     valid = {member.value for member in MarketProduct}
     if value not in valid:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid market_product_code")
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Invalid market_product_code")
     return value
 
 
@@ -217,7 +217,7 @@ async def create_watchlist_target(
         try:
             normalized_window = normalize_availability_window(body.availability_window_code)
         except ValueError as exc:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
         target = WatchlistTarget(
             watchlist_id=watchlist.id,
             target_type=WatchlistTargetType.SLICE,
@@ -238,7 +238,7 @@ async def create_watchlist_target(
         if order is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
         if not order.market_product or not order.delivery_point_id or not order.availability_window:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Pinned order does not map to a canonical slice")
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Pinned order does not map to a canonical slice")
         normalized_window = normalize_availability_window(order.availability_window)
         slice_stmt = select(WatchlistTarget).where(
             WatchlistTarget.watchlist_id == watchlist.id,
@@ -331,7 +331,7 @@ async def get_watchlist_events(
     try:
         return await list_watchlist_events(db, watchlist.id, cursor=cursor, limit=limit)
     except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
 
 
 @router.patch("/{watchlist_id}/events/{event_id}", response_model=WatchlistEventResponse)
