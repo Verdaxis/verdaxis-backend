@@ -21,13 +21,13 @@ JWT_SECRET = settings.JWT_SECRET
 # orgs — demo-org listings cannot be traded, which silently breaks the whole
 # lifecycle suite if reused here).
 SUPPLIER_1_ID = "9e63f7a1-0000-4000-8000-000000000011"
-SUPPLIER_1_EMAIL = "itest-seller@verdaxis.test"
+SUPPLIER_1_EMAIL = "itest-seller@staging.verdaxis.exchange"
 SUPPLIER_2_ID = "9e63f7a1-0000-4000-8000-000000000013"
-SUPPLIER_2_EMAIL = "itest-seller2@verdaxis.test"
+SUPPLIER_2_EMAIL = "itest-seller2@staging.verdaxis.exchange"
 BUYER_1_ID = "9e63f7a1-0000-4000-8000-000000000012"
-BUYER_1_EMAIL = "itest-buyer@verdaxis.test"
+BUYER_1_EMAIL = "itest-buyer@staging.verdaxis.exchange"
 BUYER_2_ID = "9e63f7a1-0000-4000-8000-000000000012"
-BUYER_2_EMAIL = "itest-buyer@verdaxis.test"
+BUYER_2_EMAIL = "itest-buyer@staging.verdaxis.exchange"
 
 # Deterministic product/delivery point IDs from catalog_seed.py
 PRODUCT_METHANOL_GREEN = "b0f9b249-1ae4-5e02-adf5-e4964788ad8e"
