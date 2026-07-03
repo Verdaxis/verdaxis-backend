@@ -1,11 +1,16 @@
 """Platform-wide analytics endpoints for the admin dashboard."""
 import hashlib
 import uuid as _uuid
-from datetime import datetime, timedelta, UTC, date
+from datetime import datetime, timedelta, UTC
+# Aliased because the DailyStat field is itself named `date` — pydantic
+# cannot resolve an annotation shadowed by its own field name.
+from datetime import date as date_type
+# The DailyStat field is named `date`, which shadows the type inside the
+# class body — pydantic needs an unshadowed alias for the annotation.
 from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from slowapi.util import get_remote_address
 from sqlalchemy import select, func, cast, Date, distinct, or_
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,6 +22,8 @@ from app.models.orderbook import (
 )
 from app.models.user import User, UserRole, UserStatus, Organization
 from app.rate_limit import limiter
+from app.schemas.errors import AUTH_RESPONSES
+from app.services.audit_service import record_audit, request_audit_context
 
 
 # ---------------------------------------------------------------------------
@@ -24,25 +31,25 @@ from app.rate_limit import limiter
 # ---------------------------------------------------------------------------
 
 class OverviewResponse(BaseModel):
-    total_users: int
-    active_users_7d: int
-    total_organizations: int
-    total_orders: int
-    open_orders: int
-    total_trades: int
-    confirmed_trades: int
-    total_volume_mt: float
-    total_revenue_usd: float
-    total_gmv_usd: float
+    total_users: int = Field(description="Count of real market users (BUYER/SUPPLIER roles only; admins and seeded demo accounts excluded).")
+    active_users_7d: int = Field(description="Market users whose last login is within the past 7 days.")
+    total_organizations: int = Field(description="Organizations with at least one real market user.")
+    total_orders: int = Field(description="All orders ever placed by market organizations, regardless of status.")
+    open_orders: int = Field(description="Orders currently OPEN or PARTIALLY_FILLED.")
+    total_trades: int = Field(description="All trades between market organizations, in ANY status — includes pending, cancelled, and declined. Compare with confirmed_trades.")
+    confirmed_trades: int = Field(description="Trades in CONFIRMED, DELIVERED, or PAID status — trades that economically happened.")
+    total_volume_mt: float = Field(description="Sum of quantity_mt over CONFIRMED/DELIVERED/PAID trades only (same filter as confirmed_trades).")
+    total_revenue_usd: float = Field(description="Sum of commission_amount_usd over PAID trades only — realized platform revenue.")
+    total_gmv_usd: float = Field(description="Sum of final_total_usd over PAID trades only — realized gross merchandise value.")
 
 
 class DailyStat(BaseModel):
-    date: date
-    orders_placed: int
-    trades_executed: int
-    volume_mt: float
-    gmv_usd: float
-    commission_usd: float
+    date: date_type = Field(description="UTC calendar day of the bucket.")
+    orders_placed: int = Field(description="Orders created by market organizations that day, any status.")
+    trades_executed: int = Field(description="CONFIRMED/DELIVERED/PAID trades created that day.")
+    volume_mt: float = Field(description="Sum of quantity_mt over that day's confirmed trades.")
+    gmv_usd: float = Field(description="Sum of final_total_usd over that day's confirmed trades (any payment status).")
+    commission_usd: float = Field(description="Sum of commission_amount_usd over that day's confirmed trades (accrued, not necessarily paid).")
 
 
 class AdminUserEntry(BaseModel):
@@ -69,7 +76,11 @@ class AdminUsersResponse(BaseModel):
 # Router
 # ---------------------------------------------------------------------------
 
-router = APIRouter(prefix="/admin/analytics", tags=["admin-analytics"])
+router = APIRouter(
+    prefix="/admin/analytics",
+    tags=["admin-analytics"],
+    responses=AUTH_RESPONSES,
+)
 
 
 _MARKET_MEMBER_ROLES = [UserRole.BUYER, UserRole.SUPPLIER]
@@ -94,10 +105,11 @@ def _market_member_org_ids_subquery():
     NULL roles and any future non-market roles are also excluded.
 
     Note on trade filtering: callers use this subquery with AND semantics
-    (both buyer AND seller must be market members). Trades where a real
-    user transacts against a seeded liquidity org will therefore not be
-    counted. If the pilot requires surfacing real-vs-seed trades,
-    switch the trade filters to OR (at least one side is a market org).
+    (both buyer AND seller must be market members). Decision (Sprint 3
+    item 7, 2026-07-04): AND is kept deliberately — demo listings can no
+    longer be traded at all (create_trade and the matching engine both
+    reject demo orgs), so a real-vs-demo trade cannot exist and the
+    dashboard reports strictly real activity.
     """
     return (
         select(distinct(User.organization_id))
@@ -258,7 +270,10 @@ async def get_daily_stats(
 ):
     """Daily trading stats for the last N days."""
 
-    today = date.today()
+    # Bucket days in UTC, not server-local time (Sprint 3 item 6 decision:
+    # UTC keeps buckets stable across server moves and matches created_at,
+    # which is stored in UTC).
+    today = datetime.now(UTC).date()
     start_date = today - timedelta(days=days - 1)
     market_org_ids = _market_member_org_ids_subquery()
 
@@ -427,7 +442,17 @@ async def reject_user(
             detail="User is already rejected",
         )
 
+    previous_status = user.status
     user.status = UserStatus.REJECTED
+    await record_audit(
+        db,
+        user_id=current_user.id,
+        action="admin.user_rejected",
+        resource_type="user",
+        resource_id=user.id,
+        changes={"status": {"from": previous_status.value, "to": UserStatus.REJECTED.value}},
+        **request_audit_context(request),
+    )
     await db.commit()
     await db.refresh(user)
 
