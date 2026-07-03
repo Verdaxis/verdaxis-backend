@@ -17,21 +17,23 @@ TEST_API_URL = os.environ.get("TEST_API_URL", "http://localhost:8000")
 from app.config import settings
 JWT_SECRET = settings.JWT_SECRET
 
-# Seeded user IDs from scripts/seed.py
-SUPPLIER_1_ID = "11785ff3-3753-4fa5-93e1-d815f5c4a4b3"
-SUPPLIER_1_EMAIL = "seller@sell.com"
-SUPPLIER_2_ID = "11785ff3-3753-4fa5-93e1-d815f5c4a4b3"
-SUPPLIER_2_EMAIL = "seller@sell.com"
-BUYER_1_ID = "37c639be-8b49-4981-8d86-c7f2ef83bec3"
-BUYER_1_EMAIL = "buyer@buy.com"
-BUYER_2_ID = "37c639be-8b49-4981-8d86-c7f2ef83bec3"
-BUYER_2_EMAIL = "buyer@buy.com"
+# Dedicated integration-test users (seeded in the staging DB, NOT demo-market
+# orgs — demo-org listings cannot be traded, which silently breaks the whole
+# lifecycle suite if reused here).
+SUPPLIER_1_ID = "9e63f7a1-0000-4000-8000-000000000011"
+SUPPLIER_1_EMAIL = "itest-seller@verdaxis.test"
+SUPPLIER_2_ID = "9e63f7a1-0000-4000-8000-000000000013"
+SUPPLIER_2_EMAIL = "itest-seller2@verdaxis.test"
+BUYER_1_ID = "9e63f7a1-0000-4000-8000-000000000012"
+BUYER_1_EMAIL = "itest-buyer@verdaxis.test"
+BUYER_2_ID = "9e63f7a1-0000-4000-8000-000000000012"
+BUYER_2_EMAIL = "itest-buyer@verdaxis.test"
 
 # Deterministic product/delivery point IDs from catalog_seed.py
 PRODUCT_METHANOL_GREEN = "b0f9b249-1ae4-5e02-adf5-e4964788ad8e"
-PRODUCT_LNG_CONV = "758cb4b6-463f-5431-8196-17037b4e015f"
-PRODUCT_BIOFUEL_BIO = "3ebf5484-430e-50b7-be68-04cdd39f8c0d"
-PRODUCT_AMMONIA_GREEN = "57015681-f987-556b-9711-97524da07f63"
+PRODUCT_E_METHANOL = "f9b20492-b445-59cd-b292-a386d913f488"
+PRODUCT_BIO_ETHANOL = "c4a688be-f7c2-5edc-8f93-6b34e387609c"
+PRODUCT_SYN_ETHANOL = "d186bffb-766d-5944-8825-989abbdcfc46"
 DP_SINGAPORE = "73835e92-820e-584b-8280-bb61c63aa28e"
 DP_ARA = "0f6b6006-61ef-5ef9-b096-71bf87d1d3d7"
 DP_HOUSTON = "a083db06-b050-56c2-a274-3897eac2fdae"
@@ -65,6 +67,13 @@ async def create_ask_order(client: AsyncClient, headers=None, **overrides) -> di
         "delivery_point_id": DP_SINGAPORE,
         "quantity_mt": "5000",
         "price_per_mt_usd": "560",
+        "certification_declared": True,
+        "certification_scheme": "ISCC EU",
+        "specification_standard": "ISO 8217",
+        "msds_available": True,
+        "carbon_intensity_gco2_mj": "20.5",
+        "feedstock": "Waste-based",
+        "origin": "Singapore",
         **overrides,
     }
     resp = await client.post("/api/orderbook", json=payload, headers=headers or supplier_headers())
@@ -76,7 +85,7 @@ async def create_bid_order(client: AsyncClient, headers=None, **overrides) -> di
     """Helper: create a BID order and return the response dict."""
     payload = {
         "side": "BID",
-        "product_id": PRODUCT_LNG_CONV,
+        "product_id": PRODUCT_E_METHANOL,
         "delivery_point_id": DP_HOUSTON,
         "quantity_mt": "2000",
         "price_per_mt_usd": "1200",
@@ -238,9 +247,9 @@ class TestListMyTrades:
 
             resp = await client.get("/api/trades/my", headers=buyer_headers())
             assert resp.status_code == 200
-            trades = resp.json()
-            assert isinstance(trades, list)
-            assert len(trades) > 0
+            body = resp.json()
+            assert isinstance(body["items"], list)
+            assert body["total"] > 0
 
     @pytest.mark.asyncio
     async def test_list_trades_as_seller(self):
@@ -250,8 +259,8 @@ class TestListMyTrades:
 
             resp = await client.get("/api/trades/my", headers=supplier_headers())
             assert resp.status_code == 200
-            trades = resp.json()
-            assert len(trades) > 0
+            body = resp.json()
+            assert body["total"] > 0
 
     @pytest.mark.asyncio
     async def test_trade_response_shape(self):
@@ -260,7 +269,7 @@ class TestListMyTrades:
             await hit_order(client, ask["id"], "500", buyer_headers())
 
             resp = await client.get("/api/trades/my", headers=buyer_headers())
-            trade = resp.json()[0]
+            trade = resp.json()["items"][0]
             expected_keys = {
                 "id", "buyer_id", "seller_id", "buyer_name", "seller_name",
                 "initiated_by", "quantity_mt", "price_per_mt_usd", "status",
@@ -449,6 +458,50 @@ class TestDeliverTrade:
             )
             assert resp.status_code == 403
 
+    @pytest.mark.asyncio
+    async def test_final_price_outside_band_rejected(self):
+        """final_price_per_mt more than 10% away from the confirmed trade
+        price must be rejected (commission/GMV integrity)."""
+        async with AsyncClient(base_url=TEST_API_URL, timeout=10.0) as client:
+            ask = await create_ask_order(client)  # confirmed price 560
+            trade_resp = await hit_order(client, ask["id"], "1000", buyer_headers())
+            trade_id = trade_resp.json()["id"]
+            await client.put(f"/api/trades/{trade_id}/confirm", headers=supplier_headers())
+
+            for bad_price in ("700", "0.01", "503.99"):  # +25%, ~-100%, just past -10%
+                resp = await client.put(
+                    f"/api/trades/{trade_id}/deliver",
+                    json={"final_quantity_mt": "1000", "final_price_per_mt": bad_price},
+                    headers=supplier_headers(),
+                )
+                assert resp.status_code == 400, f"price {bad_price}: {resp.text}"
+                assert "confirmed trade price" in resp.json()["detail"]
+
+            # Trade must still be deliverable at a legitimate price afterwards
+            resp = await client.put(
+                f"/api/trades/{trade_id}/deliver",
+                json={"final_quantity_mt": "1000", "final_price_per_mt": "560"},
+                headers=supplier_headers(),
+            )
+            assert resp.status_code == 200, resp.text
+
+    @pytest.mark.asyncio
+    async def test_final_price_at_band_edge_allowed(self):
+        """Exactly 10% deviation is inside the allowed band."""
+        async with AsyncClient(base_url=TEST_API_URL, timeout=10.0) as client:
+            ask = await create_ask_order(client)  # confirmed price 560
+            trade_resp = await hit_order(client, ask["id"], "1000", buyer_headers())
+            trade_id = trade_resp.json()["id"]
+            await client.put(f"/api/trades/{trade_id}/confirm", headers=supplier_headers())
+
+            resp = await client.put(
+                f"/api/trades/{trade_id}/deliver",
+                json={"final_quantity_mt": "1000", "final_price_per_mt": "616"},  # 560 * 1.10
+                headers=supplier_headers(),
+            )
+            assert resp.status_code == 200, resp.text
+            assert float(resp.json()["final_price_per_mt"]) == 616
+
 
 # ============================================================
 # Pay
@@ -532,7 +585,7 @@ class TestFullTradeLifecycle:
             # 1. Supplier creates ASK
             ask = await create_ask_order(
                 client,
-                product_id=PRODUCT_BIOFUEL_BIO,
+                product_id=PRODUCT_BIO_ETHANOL,
                 delivery_point_id=DP_ARA,
                 quantity_mt="10000",
                 price_per_mt_usd="780",
@@ -592,7 +645,7 @@ class TestFullTradeLifecycle:
             # 1. Buyer creates BID
             bid = await create_bid_order(
                 client,
-                product_id=PRODUCT_AMMONIA_GREEN,
+                product_id=PRODUCT_SYN_ETHANOL,
                 delivery_point_id=DP_FUJAIRAH,
                 quantity_mt="5000",
                 price_per_mt_usd="850",

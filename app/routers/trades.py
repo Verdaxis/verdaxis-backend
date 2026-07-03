@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, UTC
 from decimal import Decimal
-from typing import Annotated, List
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy import select, or_, func
@@ -31,6 +31,11 @@ from app.services.live_benchmarks import rebuild_live_slice_benchmarks_for_keys
 from app.services.demo_market import is_demo_market_organization
 
 router = APIRouter(prefix="/trades", tags=["trades"])
+
+# One party reports delivery unilaterally, so the final price it sets must
+# stay within this band around the confirmed trade price. Guards commission
+# and GMV integrity until a two-sided delivery confirmation flow exists.
+MAX_FINAL_PRICE_DEVIATION_PCT = Decimal("10")
 
 
 # ---------------------------------------------------------------------------
@@ -518,6 +523,19 @@ async def deliver_trade(
         raise HTTPException(
             status_code=400,
             detail="final_quantity_mt cannot exceed originally traded quantity",
+        )
+    price_deviation_pct = (
+        abs(payload.final_price_per_mt - trade.price_per_mt_usd)
+        / trade.price_per_mt_usd
+        * Decimal("100")
+    )
+    if price_deviation_pct > MAX_FINAL_PRICE_DEVIATION_PCT:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"final_price_per_mt deviates more than {MAX_FINAL_PRICE_DEVIATION_PCT}% "
+                "from the confirmed trade price"
+            ),
         )
 
     trade.final_quantity_mt = payload.final_quantity_mt
