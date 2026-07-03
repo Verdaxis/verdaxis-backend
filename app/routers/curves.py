@@ -43,7 +43,6 @@ from app.schemas.curves import (
     MarketSignalType,
 )
 from app.schemas.market_activity import (
-    MarketDemoStatus,
     MarketScope,
     MarketSourceKind,
     demo_status_from_counts,
@@ -195,6 +194,10 @@ async def compute_forward_curve(
         .where(
             OrderBookOrder.status.in_(_ACTIVE_STATUSES),
             OrderBookOrder.product_id == product_id,
+            # Real orders only: sibling endpoints (/table, /slice, /board)
+            # segregate and label demo liquidity; this legacy curve has no
+            # source labelling, so demo orders must not leak into it.
+            _is_real_order_clause(),
         )
         .group_by(OrderBookOrder.availability_window, OrderBookOrder.side)
     )

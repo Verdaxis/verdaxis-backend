@@ -499,6 +499,19 @@ class TestComputeForwardCurve:
         assert mock_db.execute.call_count == 1
 
     @pytest.mark.asyncio
+    async def test_excludes_demo_market_orders(self):
+        """The legacy curve has no source labelling, so demo-org liquidity
+        must be excluded from the aggregation entirely."""
+        mock_db = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.all.return_value = []
+        mock_db.execute.return_value = mock_result
+
+        await compute_forward_curve(mock_db, product_id=uuid4())
+        stmt = mock_db.execute.call_args.args[0]
+        assert "organization_id NOT IN" in str(stmt).replace("(", " ").replace(")", " ")
+
+    @pytest.mark.asyncio
     async def test_mid_price_rounded_to_two_decimal_places(self):
         """Mid price = (bid + ask) / 2, rounded to 2dp."""
         mock_db = AsyncMock()
