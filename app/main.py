@@ -133,6 +133,14 @@ app.add_middleware(
 )
 
 # ---------------------------------------------------------------------------
+# Pre-auth rate limiting (runs before routing/dependencies — catches the
+# invalid-token traffic that slowapi's in-endpoint limits never see)
+# ---------------------------------------------------------------------------
+from app.middleware.preauth_rate_limit import preauth_rate_limit_middleware
+
+app.middleware("http")(preauth_rate_limit_middleware)
+
+# ---------------------------------------------------------------------------
 # Request logging middleware (structlog + correlation IDs)
 # ---------------------------------------------------------------------------
 @app.middleware("http")
