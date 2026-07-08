@@ -1,6 +1,6 @@
 """add must_change_password to users
 
-Revision ID: auth_2026_07_must_change_password
+Revision ID: auth_20260708_pw_change
 Revises: fc_2026_06_monitor_signals
 Create Date: 2026-07-08
 """
@@ -10,7 +10,7 @@ import sqlalchemy as sa
 from alembic import op
 
 
-revision = "auth_2026_07_must_change_password"
+revision = "auth_20260708_pw_change"
 down_revision = "fc_2026_06_monitor_signals"
 branch_labels = None
 depends_on = None
