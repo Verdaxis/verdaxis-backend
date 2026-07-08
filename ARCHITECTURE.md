@@ -16,7 +16,7 @@ app/
     security.py                 # PyJWT + bcrypt — create_access_token, create_refresh_token, decode_token
   models/
     __init__.py                 # Imports all models for Alembic autogenerate
-    user.py                     # User (with password_changed_at, oauth_provider), Organization, enums
+    user.py                     # User (password_changed_at, must_change_password), Organization, enums
     port.py                     # Port (PostGIS), PortIntelligence, Vessel
     marketplace.py              # InventoryItem, FuelType enum
     orderbook.py                # OrderBookOrder (BID/ASK), Trade, canonical availability_window strings, enums (OrderSide, TradeStatus)
@@ -86,7 +86,7 @@ tests/integration/              # Auth hardening, trade lifecycle, orderbook E2E
 - **Supplier ASK invariants:** ASK creation/update requires explicit `certification_declared=true` plus a non-empty `certification_scheme`; `GET /orderbook/my/latest-ask-template` returns safe defaults for the next listing and resets off-spec state
 - **SSE broadcasting:** `event_bus.publish(channel, event_type, data)` → subscribers via AsyncIO queues; order/trade payloads are append-only enriched with market source/scope/demo provenance
 - **Compliance scoring:** Pure function `calculate_compliance_score()` — no DB, 100% testable
-- **Dual-token JWT:** 15-min access + 7-day refresh, `password_changed_at` for stateless invalidation
+- **Dual-token JWT:** 15-min access + 7-day refresh, `password_changed_at` for stateless invalidation, `must_change_password` for temporary-password lockouts
 - **Cookie-backed refresh:** refresh token is also rotated through an HttpOnly `refresh_token` cookie scoped to `/api/auth`, while access tokens remain bearer tokens
 - **Rate limiting:** slowapi per-route (5/min login, 3/min password, 60/min prices, 30/min reference)
 - **Availability windows:** Persist canonical codes (`SPOT`, `YYYY-MM`, `YYYY-QN`, legacy-compatible `YYYY-CAL`); UI-relative labels like `M+1` must be resolved before persistence

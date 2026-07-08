@@ -82,7 +82,17 @@ def _clear_refresh_cookie(response: Response) -> None:
         path=REFRESH_COOKIE_PATH,
     )
 
-async def get_current_user(token: Annotated[str, Depends(oauth2_scheme)], db: AsyncSession = Depends(get_db)):
+PASSWORD_CHANGE_ALLOWED_PATHS = {
+    "/api/auth/me",
+    "/api/auth/me/password",
+}
+
+
+async def get_current_user(
+    request: _Request,
+    token: Annotated[str, Depends(oauth2_scheme)],
+    db: AsyncSession = Depends(get_db),
+):
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
@@ -134,6 +144,12 @@ async def get_current_user(token: Annotated[str, Depends(oauth2_scheme)], db: As
             detail=f"Account is {user.status.value}. Please wait for admin approval.",
         )
 
+    if user.must_change_password and request.url.path not in PASSWORD_CHANGE_ALLOWED_PATHS:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Password change required.",
+        )
+
     return user
 
 async def get_current_user_optional(
@@ -147,7 +163,7 @@ async def get_current_user_optional(
     if not token or scheme.lower() != 'bearer':
         return None
     try:
-        return await get_current_user(token=token, db=db)
+        return await get_current_user(request=request, token=token, db=db)
     except Exception:
         return None
 
@@ -589,6 +605,7 @@ async def change_password(
 
     current_user.password_hash = get_password_hash(payload.new_password)
     current_user.password_changed_at = datetime.now(UTC)
+    current_user.must_change_password = False
 
     await db.commit()
 
@@ -669,6 +686,7 @@ async def reset_password(
     user.password_reset_token_hash = None
     user.password_reset_expires = None
     user.password_changed_at = datetime.now(UTC)
+    user.must_change_password = False
     await db.commit()
 
     return {"message": "Password updated. You can now sign in."}

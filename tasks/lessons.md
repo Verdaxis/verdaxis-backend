@@ -123,3 +123,9 @@
 - **Trigger:** The Verdaxis monitor reported the login page was missing `Sign In` because Vercel returned a Security Checkpoint page to the VPS/headless monitor client.
 - **Rule:** Synthetic frontend checks against Vercel-hosted sites must detect Vercel Security Checkpoint responses and report them as monitor-client challenges, not application-render failures.
 - **Why:** Repeated headless checks can trigger Vercel mitigation for the monitor IP; the app can be healthy for normal users while the synthetic browser sees only the challenge DOM.
+
+### Create Named User Accounts In The Requested Environment
+- **Date:** 2026-07-08
+- **Trigger:** The user clarified that `belinda@verdaxis.exchange` should be created/updated on prod, not treated as a staging mirror task.
+- **Rule:** For named operational user accounts, default to the explicitly requested environment and avoid mirroring to staging unless asked.
+- **Why:** User provisioning affects real access; environment drift is safer than unintentionally creating extra login surfaces.

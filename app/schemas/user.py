@@ -29,6 +29,7 @@ class UserResponse(UserBase):
     status: UserStatus
     organization_id: Optional[UUID] = None
     referral_code: Optional[str] = None
+    must_change_password: bool = False
     
     class Config:
         from_attributes = True
@@ -64,4 +65,3 @@ class RegistrationResponse(BaseModel):
 class PasswordChangeRequest(BaseModel):
     current_password: str
     new_password: str
-
