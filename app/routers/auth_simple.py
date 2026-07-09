@@ -15,6 +15,7 @@ from app.config import settings
 from app.models.user import User, UserRole, UserStatus, Organization
 from app.schemas.user import UserCreate, UserResponse, UserUpdate, RegistrationResponse, Token, PasswordChangeRequest
 from app.schemas.organization import OrganizationCreate
+from app.schemas.errors import AUTH_RESPONSES
 from app.core.security import (
     verify_password, get_password_hash,
     create_access_token, create_refresh_token, decode_token,
@@ -44,7 +45,11 @@ class ResetPasswordRequest(BaseModel):
     token: str
     new_password: str
 
-router = APIRouter(prefix="/auth", tags=["Authentication"])
+router = APIRouter(
+    prefix="/auth",
+    tags=["Authentication"],
+    responses=AUTH_RESPONSES,
+)
 
 REFRESH_COOKIE_NAME = "refresh_token"
 REFRESH_COOKIE_PATH = "/api/auth"
@@ -55,11 +60,12 @@ REFRESH_COOKIE_SAMESITE = "lax"
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
 
 
-def _build_token_pair(subject: str, role: UserRole | None = None) -> tuple[str, str]:
-    access_token = create_access_token(
-        subject=subject,
-        additional_claims={"role": role.value if role else None},
-    )
+def _build_token_pair(subject: str) -> tuple[str, str]:
+    # Deliberately no role claim: authorization always reads the role from
+    # the DB (require_role), so a claim here would only invite a future
+    # regression where something trusts the client-visible token instead
+    # (Sprint 3 item 3).
+    access_token = create_access_token(subject=subject)
     refresh_token = create_refresh_token(subject=subject)
     return access_token, refresh_token
 
@@ -192,7 +198,7 @@ async def login(
     user.last_login = datetime.now(UTC)
     await db.commit()
 
-    access_token, refresh_token = _build_token_pair(str(user.id), user.role)
+    access_token, refresh_token = _build_token_pair(str(user.id))
     _set_refresh_cookie(response, refresh_token)
     return {
         "access_token": access_token,
@@ -254,7 +260,7 @@ async def refresh_tokens(
         if iat_dt < user.password_changed_at:
             raise HTTPException(status_code=401, detail="Password was changed. Please log in again.")
 
-    access_token, refresh_token = _build_token_pair(str(user.id), user.role)
+    access_token, refresh_token = _build_token_pair(str(user.id))
     _set_refresh_cookie(response, refresh_token)
     return {
         "access_token": access_token,
@@ -593,7 +599,7 @@ async def change_password(
     await db.commit()
 
     # Return fresh tokens so the user stays logged in
-    access_token, refresh_token = _build_token_pair(str(current_user.id), current_user.role)
+    access_token, refresh_token = _build_token_pair(str(current_user.id))
     _set_refresh_cookie(response, refresh_token)
 
     return {

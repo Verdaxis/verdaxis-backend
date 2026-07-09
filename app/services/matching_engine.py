@@ -2,9 +2,7 @@
 Match-on-insert engine. When a new order is placed, scan for crossing orders
 and automatically create trades. Uses price-time priority (FIFO at each price level).
 """
-from decimal import Decimal
 from datetime import datetime, UTC
-from typing import Optional
 import uuid
 
 from sqlalchemy import select
@@ -39,6 +37,7 @@ async def match_order(
     Returns list of Trade objects created (may be empty if no matches).
     """
     trades_created: list[Trade] = []
+    pending_notifications: list[tuple[uuid.UUID, str, dict]] = []
 
     if new_order.remaining_quantity_mt <= 0:
         return trades_created
@@ -155,36 +154,44 @@ async def match_order(
         # Derive product name for notification messages
         product_name = new_order.product_name or "fuel"
 
-        # Create notifications for both parties
-        await _notify_org(
-            db, buyer_org,
-            NotificationType.TRADE_CONFIRMED,
-            "Auto-Matched Trade",
-            f"Your order was automatically matched: {trade_qty} MT of {product_name} at ${trade_price}/MT",
-            {"trade_id": str(trade.id), "auto_matched": True},
+        # Queue notifications for both parties; delivered in one batch after
+        # the loop so we run a single user query instead of two per trade.
+        message = (
+            f"Your order was automatically matched: "
+            f"{trade_qty} MT of {product_name} at ${trade_price}/MT"
         )
+        data = {"trade_id": str(trade.id), "auto_matched": True}
+        pending_notifications.append((buyer_org, message, data))
+        pending_notifications.append((seller_org, message, data))
 
-        await _notify_org(
-            db, seller_org,
-            NotificationType.TRADE_CONFIRMED,
-            "Auto-Matched Trade",
-            f"Your order was automatically matched: {trade_qty} MT of {product_name} at ${trade_price}/MT",
-            {"trade_id": str(trade.id), "auto_matched": True},
-        )
+    await _notify_orgs(db, pending_notifications)
 
     return trades_created
 
 
-async def _notify_org(db: AsyncSession, org_id, notif_type, title, message, data=None):
-    """Send notification to all users in an organization."""
-    stmt = select(User).where(User.organization_id == org_id)
-    result = await db.execute(stmt)
-    users = result.scalars().all()
-    for user in users:
-        db.add(Notification(
-            recipient_id=user.id,
-            type=notif_type,
-            title=title,
-            message=message,
-            data=data or {},
-        ))
+async def _notify_orgs(
+    db: AsyncSession,
+    pending: list[tuple[uuid.UUID, str, str | dict]],
+) -> None:
+    """Fan (org_id, message, data) tuples out to every user of each org.
+
+    Fetches users for all involved orgs in one query (the per-trade version
+    was an N+1: two user queries per matched trade).
+    """
+    if not pending:
+        return
+    org_ids = {org_id for org_id, _, _ in pending}
+    result = await db.execute(select(User).where(User.organization_id.in_(org_ids)))
+    users_by_org: dict[uuid.UUID, list[User]] = {}
+    for user in result.scalars():
+        users_by_org.setdefault(user.organization_id, []).append(user)
+
+    for org_id, message, data in pending:
+        for user in users_by_org.get(org_id, []):
+            db.add(Notification(
+                recipient_id=user.id,
+                type=NotificationType.TRADE_CONFIRMED,
+                title="Auto-Matched Trade",
+                message=message,
+                data=data,
+            ))

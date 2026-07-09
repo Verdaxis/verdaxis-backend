@@ -25,6 +25,7 @@ from app.schemas.rfq import (
 )
 from app.services.event_bus import event_bus
 from app.services.availability_windows import normalize_availability_window
+from app.services.activity import trade_activity_provenance
 
 router = APIRouter(prefix="/rfq", tags=["rfq"])
 
@@ -448,6 +449,7 @@ async def accept_quote(
 
     # Emit SSE event
     await event_bus.publish("trades", "trade_created", {
+        **trade_activity_provenance(trade),
         "id": str(trade.id),
         "status": trade.status.value,
         "quantity": str(trade.quantity_mt),

@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from decimal import Decimal
 import re
+from typing import Iterable
 from uuid import UUID
 
 from sqlalchemy import select
@@ -114,12 +115,14 @@ async def get_benchmark_quote(
     if override is not None:
         price = Decimal(str(override.price_per_mt_usd)).quantize(Decimal("0.01"))
         source = override.source
+        observed_at = override.updated_at or override.created_at
     else:
         base_price = _base_benchmark_price(market_product, delivery_point.name)
         if base_price is None:
             return None
         price = (base_price + _window_adjustment(normalized_window)).quantize(Decimal("0.01"))
         source = "seed_matrix"
+        observed_at = None
 
     generated_at = datetime.now(UTC)
     return BenchmarkQuote(
@@ -130,4 +133,78 @@ async def get_benchmark_quote(
         benchmark_price_per_mt_usd=price,
         source=source,
         generated_at=generated_at,
+        observed_at=observed_at,
     )
+
+
+async def get_benchmark_quotes(
+    db: AsyncSession,
+    requests: Iterable[tuple[str | None, UUID | None, str, str | None]],
+) -> dict[tuple[str, UUID, str], BenchmarkQuote]:
+    """Batch benchmark quotes for known market product, delivery point, window tuples.
+
+    Each request is `(market_product, delivery_point_id, availability_window, delivery_point_name)`.
+    The delivery point name is supplied by the caller to avoid a per-cell delivery-point lookup.
+    """
+    normalized_requests: dict[tuple[str, UUID, str], str] = {}
+    for market_product, delivery_point_id, availability_window, delivery_point_name in requests:
+        if not market_product or delivery_point_id is None or not delivery_point_name:
+            continue
+        normalized_requests[
+            (
+                market_product,
+                delivery_point_id,
+                normalize_availability_window(availability_window),
+            )
+        ] = delivery_point_name
+
+    if not normalized_requests:
+        return {}
+
+    market_products = sorted({key[0] for key in normalized_requests})
+    delivery_point_ids = sorted({key[1] for key in normalized_requests}, key=str)
+    windows = sorted({key[2] for key in normalized_requests})
+
+    overrides: dict[tuple[str, UUID, str], Benchmark] = {}
+    override_stmt = select(Benchmark).where(
+        Benchmark.market_product.in_(market_products),
+        Benchmark.delivery_point_id.in_(delivery_point_ids),
+        Benchmark.availability_window.in_(windows),
+    )
+    try:
+        override_result = await db.execute(override_stmt)
+        for override in override_result.scalars().all():
+            overrides[(override.market_product, override.delivery_point_id, override.availability_window)] = override
+    except (OperationalError, ProgrammingError):
+        # Older SQLite-backed test schemas may not include the override table yet.
+        overrides = {}
+
+    generated_at = datetime.now(UTC)
+    quotes: dict[tuple[str, UUID, str], BenchmarkQuote] = {}
+    for key, delivery_point_name in normalized_requests.items():
+        market_product, delivery_point_id, availability_window = key
+        override = overrides.get(key)
+        if override is not None:
+            price = Decimal(str(override.price_per_mt_usd)).quantize(Decimal("0.01"))
+            source = override.source
+            observed_at = override.updated_at or override.created_at
+        else:
+            base_price = _base_benchmark_price(market_product, delivery_point_name)
+            if base_price is None:
+                continue
+            price = (base_price + _window_adjustment(availability_window)).quantize(Decimal("0.01"))
+            source = "seed_matrix"
+            observed_at = None
+
+        quotes[key] = BenchmarkQuote(
+            market_product=market_product,
+            delivery_point_id=delivery_point_id,
+            delivery_point_name=delivery_point_name,
+            availability_window=availability_window,
+            benchmark_price_per_mt_usd=price,
+            source=source,
+            generated_at=generated_at,
+            observed_at=observed_at,
+        )
+
+    return quotes

@@ -30,13 +30,12 @@ app/
     audit.py                    # AuditLog (JSONB changes, indexed action/resource/timestamp)
   routers/
     auth_simple.py              # JWT auth — login/register, cookie-backed refresh rotation, password change, /me, RBAC
-    oauth.py                    # [feature branch] Google + Microsoft OIDC via Authlib
     orderbook.py                # Order/listing CRUD, supplier ASK template endpoint, certification guardrails
     trades.py                   # Trade lifecycle — create/confirm/decline/deliver/pay + SSE events
     matchmaking.py              # Match suggestions — generate, list, dismiss
     price_discovery.py          # Public price ticker + daily VWAP reference prices
     trade_tape.py               # Public anonymized 7-day confirmed trade tape with exact delivery-point filtering
-    curves.py                   # Forward curve data products and monitoring board aggregation
+    curves.py                   # Forward curve data products plus legacy board/table/slice endpoints
     stream.py                   # SSE endpoints — /stream/prices, /stream/orderbook, /stream/trades
     compliance_api.py           # Compliance scoring — fleet scores, vessel scores, what-if scenarios
     admin_analytics.py          # Platform analytics — overview stats + daily breakdown (ADMIN only)
@@ -55,16 +54,18 @@ app/
   schemas/
     user.py                     # UserCreate (min 8 chars pw), UserResponse, PasswordChangeRequest
     organization.py             # OrganizationCreate/Response
-    orderbook.py                # Order/Trade schemas, supplier metadata pack, ASK template response, canonical availability window validation
+    orderbook.py                # Order/Trade schemas, price summaries, supplier metadata pack, ASK template response, canonical availability window validation
+    market_activity.py          # Shared source/scope/demo-status provenance enums for market data
     [others unchanged]
   services/
     event_bus.py                # AsyncIO pub/sub — per-channel queues, 200 subscriber cap, backpressure
     matching_engine.py          # Match-on-insert — price-time priority within canonical market identity, partial fills, auto-confirm
     benchmarks.py               # External/manual benchmark lookup keyed by market_product + delivery_point + availability_window
+    forward_curve_market_slices.py # Canonical public Forward Curve table/slice read models and label policy
     live_benchmarks.py          # Persisted live same-side slice VWAP rebuilds + read-through fallback
     availability_windows.py     # Canonical availability code parsing, sorting, display labels, legacy alias normalization
     compliance_scoring.py       # Pure function scoring — FuelEU/ETS/CII, 9 fuels, scenario engine
-    audit_service.py            # record_audit() — async audit logging
+    audit_service.py            # record_audit() — async audit logging (currently unwired: no callers; /admin/audit-logs reads an always-empty table)
     ai_service.py               # Gemini chat + document analysis (stub)
     matchmaking.py              # Score-based BID/ASK matching (0-100)
     watchlists.py               # Market Radar helpers: default container, typed targets, slice summaries
@@ -82,16 +83,18 @@ tests/integration/              # Auth hardening, trade lifecycle, orderbook E2E
 
 - **Match-on-insert:** `POST /orderbook` → `db.flush()` → `match_order()` → `db.commit()` (atomic); executable matches now require exact `product + delivery_point + availability_window`
 - **Supplier ASK invariants:** ASK creation/update requires explicit `certification_declared=true` plus a non-empty `certification_scheme`; `GET /orderbook/my/latest-ask-template` returns safe defaults for the next listing and resets off-spec state
-- **SSE broadcasting:** `event_bus.publish(channel, event_type, data)` → subscribers via AsyncIO queues
+- **SSE broadcasting:** `event_bus.publish(channel, event_type, data)` → subscribers via AsyncIO queues; order/trade payloads are append-only enriched with market source/scope/demo provenance
 - **Compliance scoring:** Pure function `calculate_compliance_score()` — no DB, 100% testable
 - **Dual-token JWT:** 15-min access + 7-day refresh, `password_changed_at` for stateless invalidation
 - **Cookie-backed refresh:** refresh token is also rotated through an HttpOnly `refresh_token` cookie scoped to `/api/auth`, while access tokens remain bearer tokens
 - **Rate limiting:** slowapi per-route (5/min login, 3/min password, 60/min prices, 30/min reference)
 - **Availability windows:** Persist canonical codes (`SPOT`, `YYYY-MM`, `YYYY-QN`, legacy-compatible `YYYY-CAL`); UI-relative labels like `M+1` must be resolved before persistence
 - **Green-fuels market model:** Matching and live slice benchmarks key on `side + market_product + delivery_point + availability_window`; supplier sustainability/compliance fields stay out of the hard market key
-- **Forward Curve monitoring board:** `/curves/forward/board` aggregates approved ports and public market products into a read-only matrix, using benchmark mids plus visible orderbook bid/ask context without creating a separate execution model.
-- **Trade tape scope:** `/trade-tape` returns anonymized confirmed trade prints for the last 7 days. Exact delivery-point history is available only when clients filter by `delivery_point_id` and entries return `scope="DELIVERY_POINT"` with delivery-point fields.
-- **Market Radar watchlists:** Watchlists are observer-only. Typed targets store either canonical slices or pinned order snapshots, and order create/update/cancel paths emit slice/pin events without feeding core matchmaking.
+- **Market provenance contract:** Market-data responses use shared `source_kind`, `scope`, and `demo_status` fields. Aggregate data exposes real/demo/unknown counts; unknown contributors remain `UNKNOWN` rather than being collapsed into real/demo/mixed.
+- **Forward Curve monitoring:** `/curves/forward/table` and `/curves/forward/slice` use `forward_curve_market_slices.py` as the canonical public read model for approved `market_product + delivery_point + availability_window` slices. Products aggregate by canonical market product, delivery points are restricted to the approved trading ports, and public cells expose server-owned label policy plus redacted source/demo/staleness fields. `/curves/forward/board` remains for older clients.
+- **Price discovery provenance:** `/prices` 24h summaries classify confirmed trade buckets as `CONFIRMED_TRADE`, `DEMO_SEED`, `MIXED_SOURCE`, or `UNKNOWN` using the same demo organization rules as trade tape.
+- **Trade tape scope:** `/trade-tape` returns anonymized confirmed trade prints for the last 7 days. Exact delivery-point history is available only when clients filter by `delivery_point_id` and entries return `scope="DELIVERY_POINT"` with delivery-point fields. `provenance_kind` is legacy-compatible; new clients should prefer `source_kind`/`demo_status` when present on newer surfaces.
+- **Market Radar watchlists:** Watchlists are observer-only. Typed targets store either canonical slices or pinned order snapshots, and order create/update/cancel paths emit slice/pin events without feeding core matchmaking. New event payloads carry provenance at emission time; legacy events return `UNKNOWN` rather than doing response-time order lookups.
 
 ## Revenue Streams
 

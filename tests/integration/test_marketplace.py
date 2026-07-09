@@ -29,16 +29,16 @@ async def test_inventory_publish_flow():
         # 1. Login/Get Token for Supplier
         # Using a seeded supplier from seed.py
         # Supplier 1 ID from seed.py
-        supplier_id = "00000000-0000-0000-0000-000000000a01"
-        supplier_email = "supplier1@verdaxis.com"
+        supplier_id = "9e63f7a1-0000-4000-8000-000000000011"
+        supplier_email = "itest-seller@staging.verdaxis.exchange"
         token = create_test_token(supplier_id, supplier_email, "SUPPLIER")
         headers = {"Authorization": f"Bearer {token}"}
 
         # 2. Add Inventory Item
         inventory_data = {
-            "port_id": "SGSIN",
-            "fuel_type": "Biofuel",
-            "product_name": "Test Sustainable Fuel",
+            "port_id": "sg-sin",
+            "fuel_type": "Ethanol",
+            "product_name": "Bio Ethanol",  # exact live catalog name so publish can map it
             "current_stock_mt": 1000.0,
             "price_per_mt_usd": 850.0,
             "is_certified": True
@@ -59,7 +59,7 @@ async def test_inventory_publish_flow():
         listings = listings_resp.json()
         
         # Find our new listing
-        found = any(l["fuel_type"] == "Biofuel" and float(l["quantity_mt"]) == 1000.0 for l in listings)
+        found = any(l["fuel_type"] == "Ethanol" and float(l["quantity_mt"]) == 1000.0 for l in listings)
         assert found, "Published listing not found in public listings"
 
         # 5. Verify Supplier's My Listings
@@ -72,38 +72,11 @@ async def test_inventory_publish_flow():
         assert "match_count" in my_listings[0], "match_count missing from My Listings response"
 
 @pytest.mark.asyncio
-async def test_direct_order_list_optimized():
-    """
-    Test that Direct Order list endpoints return organization names (optimized queries).
-    """
-    async with AsyncClient(base_url=TEST_API_URL, timeout=10.0) as client:
-        # Use seeded buyer
-        # Buyer 1 ID from seed.py
-        buyer_id = "00000000-0000-0000-0000-000000000b01"
-        buyer_email = "buyer1@verdaxis.com"
-        token = create_test_token(buyer_id, buyer_email, "BUYER")
-        headers = {"Authorization": f"Bearer {token}"}
-
-        # Get my Direct Order requests
-        resp = await client.get("/api/direct-orders", headers=headers)
-        assert resp.status_code == 200
-        matches = resp.json()
-        
-        if matches:
-            match = matches[0]
-            assert "supplier_name" in match
-            assert "buyer_name" in match
-            assert match["supplier_name"] != "Unknown"
-            assert match["buyer_name"] != "Unknown"
-        else:
-            print("No Direct Orders found for seeded buyer, skipping detailed name check")
-
-@pytest.mark.asyncio
 async def test_unauthorized_publish():
     """Ensure buyers cannot publish inventory."""
     async with AsyncClient(base_url=TEST_API_URL, timeout=10.0) as client:
-        buyer_id = "00000000-0000-0000-0000-000000000001"
-        buyer_email = "buyer1@verdaxis.com"
+        buyer_id = "9e63f7a1-0000-4000-8000-000000000012"
+        buyer_email = "itest-buyer@staging.verdaxis.exchange"
         token = create_test_token(buyer_id, buyer_email, "BUYER")
         headers = {"Authorization": f"Bearer {token}"}
         

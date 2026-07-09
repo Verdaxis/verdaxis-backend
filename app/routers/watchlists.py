@@ -39,6 +39,7 @@ from app.schemas.watchlist import (
 from app.services.availability_windows import SPOT_WINDOW, normalize_availability_window
 from app.services.watchlist_events import sync_target_snapshot
 from app.services.watchlists import (
+    build_watchlist_event_response,
     build_watchlist_detail,
     build_watchlist_summary,
     ensure_market_radar,
@@ -92,7 +93,7 @@ def _watchlist_target_response(target: WatchlistTarget) -> WatchlistTargetRespon
 def _validate_market_product_code(value: str) -> str:
     valid = {member.value for member in MarketProduct}
     if value not in valid:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid market_product_code")
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Invalid market_product_code")
     return value
 
 
@@ -216,7 +217,7 @@ async def create_watchlist_target(
         try:
             normalized_window = normalize_availability_window(body.availability_window_code)
         except ValueError as exc:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
         target = WatchlistTarget(
             watchlist_id=watchlist.id,
             target_type=WatchlistTargetType.SLICE,
@@ -237,7 +238,7 @@ async def create_watchlist_target(
         if order is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
         if not order.market_product or not order.delivery_point_id or not order.availability_window:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Pinned order does not map to a canonical slice")
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Pinned order does not map to a canonical slice")
         normalized_window = normalize_availability_window(order.availability_window)
         slice_stmt = select(WatchlistTarget).where(
             WatchlistTarget.watchlist_id == watchlist.id,
@@ -330,7 +331,7 @@ async def get_watchlist_events(
     try:
         return await list_watchlist_events(db, watchlist.id, cursor=cursor, limit=limit)
     except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
 
 
 @router.patch("/{watchlist_id}/events/{event_id}", response_model=WatchlistEventResponse)
@@ -352,17 +353,13 @@ async def mark_watchlist_event_read(
         event.is_read = True
         await db.commit()
     target = await db.get(WatchlistTarget, event.watchlist_target_id)
-    target_type = target.target_type.value if target else "SLICE"
-    return WatchlistEventResponse(
-        id=event.id,
-        watchlist_id=event.watchlist_id,
-        watchlist_target_id=event.watchlist_target_id,
-        target_type=target_type,
-        event_type=event.event_type.value,
-        event_payload=event.event_payload or {},
-        is_read=event.is_read,
-        created_at=event.created_at,
-    )
+    if target is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event target not found")
+    delivery_point_name = None
+    if target.delivery_point_id is not None:
+        delivery_point = await db.get(DeliveryPoint, target.delivery_point_id)
+        delivery_point_name = delivery_point.name if delivery_point else None
+    return build_watchlist_event_response(event, target, delivery_point_name=delivery_point_name)
 
 
 @router.post("/{watchlist_id}/entries", response_model=WatchlistEntryResponse, status_code=201)

@@ -16,25 +16,26 @@ from app.config import settings
 JWT_SECRET = settings.JWT_SECRET
 
 # Seeded user IDs from scripts/seed.py
-SUPPLIER_1_ID = "11785ff3-3753-4fa5-93e1-d815f5c4a4b3"
-SUPPLIER_1_EMAIL = "seller@sell.com"
-SUPPLIER_2_ID = "11785ff3-3753-4fa5-93e1-d815f5c4a4b3"
-SUPPLIER_2_EMAIL = "seller@sell.com"
-BUYER_1_ID = "37c639be-8b49-4981-8d86-c7f2ef83bec3"
-BUYER_1_EMAIL = "buyer@buy.com"
-BUYER_2_ID = "37c639be-8b49-4981-8d86-c7f2ef83bec3"
-BUYER_2_EMAIL = "buyer@buy.com"
+SUPPLIER_1_ID = "9e63f7a1-0000-4000-8000-000000000011"
+SUPPLIER_1_EMAIL = "itest-seller@staging.verdaxis.exchange"
+SUPPLIER_2_ID = "9e63f7a1-0000-4000-8000-000000000013"
+SUPPLIER_2_EMAIL = "itest-seller2@staging.verdaxis.exchange"
+BUYER_1_ID = "9e63f7a1-0000-4000-8000-000000000012"
+BUYER_1_EMAIL = "itest-buyer@staging.verdaxis.exchange"
+BUYER_2_ID = "9e63f7a1-0000-4000-8000-000000000014"
+BUYER_2_EMAIL = "itest-buyer2@staging.verdaxis.exchange"
 
-# Deterministic product/delivery point IDs from catalog_seed.py
-PRODUCT_METHANOL_GREEN = "b0f9b249-1ae4-5e02-adf5-e4964788ad8e"
-PRODUCT_LNG_CONV = "758cb4b6-463f-5431-8196-17037b4e015f"
-PRODUCT_MGO_CONV = "a7c823a5-03b0-54a7-9df3-0c78b76e6ea7"
-PRODUCT_BIOFUEL_BIO = "3ebf5484-430e-50b7-be68-04cdd39f8c0d"
-PRODUCT_AMMONIA_GREEN = "57015681-f987-556b-9711-97524da07f63"
+# Live staging catalog IDs (the original LNG/MGO/biofuel/ammonia products and
+# ARA/Fujairah delivery points no longer exist — remapped 2026-07-04)
+PRODUCT_METHANOL_GREEN = "f9b20492-b445-59cd-b292-a386d913f488"   # e-Methanol
+PRODUCT_LNG_CONV = "c4a688be-f7c2-5edc-8f93-6b34e387609c"         # Bio-Ethanol
+PRODUCT_MGO_CONV = "d186bffb-766d-5944-8825-989abbdcfc46"         # Syn-Ethanol
+PRODUCT_BIOFUEL_BIO = "c4a688be-f7c2-5edc-8f93-6b34e387609c"      # Bio-Ethanol
+PRODUCT_AMMONIA_GREEN = "d186bffb-766d-5944-8825-989abbdcfc46"    # Syn-Ethanol
 DP_SINGAPORE = "73835e92-820e-584b-8280-bb61c63aa28e"
-DP_ARA = "0f6b6006-61ef-5ef9-b096-71bf87d1d3d7"
+DP_ARA = "1379d36c-1ca9-55b7-9c0d-5235a0ba1f36"                   # Rotterdam
 DP_HOUSTON = "a083db06-b050-56c2-a274-3897eac2fdae"
-DP_FUJAIRAH = "f4877150-d88e-5825-b154-3410dfc9f1f1"
+DP_FUJAIRAH = "262d36ae-6f35-5785-b9e8-9e221b0f1b78"              # Busan
 
 
 def create_test_token(user_id: str, email: str, role: str) -> str:
@@ -59,6 +60,24 @@ def buyer_headers(buyer_id=BUYER_1_ID, email=BUYER_1_EMAIL):
     return {"Authorization": f"Bearer {token}"}
 
 
+# ASK orders require an explicit certification declaration + supplier details.
+ASK_REQUIRED_FIELDS = {
+    "certification_declared": True,
+    "certification_scheme": "ISCC EU",
+    "specification_standard": "ISO 8217",
+    "msds_available": True,
+    "carbon_intensity_gco2_mj": "20.5",
+    "feedstock": "Waste-based",
+    "origin": "Singapore",
+}
+
+
+def ask_payload(**overrides):
+    payload = {"side": "ASK", **ASK_REQUIRED_FIELDS}
+    payload.update(overrides)
+    return payload
+
+
 # ============================================================
 # Public endpoints (no auth required)
 # ============================================================
@@ -78,8 +97,9 @@ class TestListOrders:
         async with AsyncClient(base_url=TEST_API_URL, timeout=10.0) as client:
             resp = await client.get("/api/orderbook/bids")
             assert resp.status_code == 200
-            data = resp.json()
-            assert isinstance(data, list)
+            body = resp.json()
+            assert set(body.keys()) >= {"items", "total"}
+            data = body["items"]
             for order in data:
                 assert order["side"] == "BID"
                 assert order["status"] in ("OPEN", "PARTIALLY_FILLED")
@@ -89,8 +109,9 @@ class TestListOrders:
         async with AsyncClient(base_url=TEST_API_URL, timeout=10.0) as client:
             resp = await client.get("/api/orderbook/asks")
             assert resp.status_code == 200
-            data = resp.json()
-            assert isinstance(data, list)
+            body = resp.json()
+            assert set(body.keys()) >= {"items", "total"}
+            data = body["items"]
             for order in data:
                 assert order["side"] == "ASK"
                 assert order["status"] in ("OPEN", "PARTIALLY_FILLED")
@@ -109,7 +130,7 @@ class TestListOrders:
         async with AsyncClient(base_url=TEST_API_URL, timeout=10.0) as client:
             resp = await client.get("/api/orderbook/asks", params={"delivery_point_id": DP_SINGAPORE})
             assert resp.status_code == 200
-            data = resp.json()
+            data = resp.json()["items"]
             for order in data:
                 assert order["delivery_point_id"] == DP_SINGAPORE
 
@@ -220,7 +241,7 @@ class TestCreateOrder:
             data = resp.json()
             assert data["side"] == "ASK"
             assert data["fuel_type"] == "Methanol"
-            assert data["fuel_grade"] == "Green"
+            assert data["fuel_grade"] == "E"
             assert data["product_id"] == PRODUCT_METHANOL_GREEN
             assert data["status"] == "OPEN"
             assert float(data["remaining_quantity_mt"]) == 3000
@@ -229,7 +250,7 @@ class TestCreateOrder:
             assert data["certification_scheme"] == "ISCC EU"
             assert data["specification_standard"] == "IMPCA"
             assert data["msds_available"] is True
-            assert data["carbon_intensity_gco2_mj"] == "19.5"
+            assert float(data["carbon_intensity_gco2_mj"]) == 19.5
             assert data["carbon_intensity_method"] == "ISCC EU"
             assert data["feedstock"] == "Biogenic CO2"
             assert data["origin"] == "Iceland"
@@ -310,13 +331,12 @@ class TestMyOrders:
             # Create an order first
             await client.post(
                 "/api/orderbook",
-                json={
-                    "side": "ASK",
-                    "product_id": PRODUCT_MGO_CONV,
-                    "delivery_point_id": DP_ARA,
-                    "quantity_mt": "500",
-                    "price_per_mt_usd": "620",
-                },
+                json=ask_payload(
+                    product_id=PRODUCT_MGO_CONV,
+                    delivery_point_id=DP_ARA,
+                    quantity_mt="500",
+                    price_per_mt_usd="620",
+                ),
                 headers=supplier_headers(),
             )
 
@@ -349,13 +369,12 @@ class TestUpdateOrder:
             # Create
             create_resp = await client.post(
                 "/api/orderbook",
-                json={
-                    "side": "ASK",
-                    "product_id": PRODUCT_AMMONIA_GREEN,
-                    "delivery_point_id": DP_FUJAIRAH,
-                    "quantity_mt": "4000",
-                    "price_per_mt_usd": "900",
-                },
+                json=ask_payload(
+                    product_id=PRODUCT_AMMONIA_GREEN,
+                    delivery_point_id=DP_FUJAIRAH,
+                    quantity_mt="4000",
+                    price_per_mt_usd="900",
+                ),
                 headers=headers,
             )
             assert create_resp.status_code == 201
@@ -377,13 +396,12 @@ class TestUpdateOrder:
 
             create_resp = await client.post(
                 "/api/orderbook",
-                json={
-                    "side": "ASK",
-                    "product_id": PRODUCT_BIOFUEL_BIO,
-                    "delivery_point_id": DP_ARA,
-                    "quantity_mt": "5000",
-                    "price_per_mt_usd": "760",
-                },
+                json=ask_payload(
+                    product_id=PRODUCT_BIOFUEL_BIO,
+                    delivery_point_id=DP_ARA,
+                    quantity_mt="5000",
+                    price_per_mt_usd="760",
+                ),
                 headers=headers,
             )
             order_id = create_resp.json()["id"]
@@ -405,13 +423,12 @@ class TestUpdateOrder:
             # Supplier 1 creates
             create_resp = await client.post(
                 "/api/orderbook",
-                json={
-                    "side": "ASK",
-                    "product_id": PRODUCT_LNG_CONV,
-                    "delivery_point_id": DP_SINGAPORE,
-                    "quantity_mt": "1000",
-                    "price_per_mt_usd": "1300",
-                },
+                json=ask_payload(
+                    product_id=PRODUCT_LNG_CONV,
+                    delivery_point_id=DP_SINGAPORE,
+                    quantity_mt="1000",
+                    price_per_mt_usd="1300",
+                ),
                 headers=supplier_headers(SUPPLIER_1_ID, SUPPLIER_1_EMAIL),
             )
             order_id = create_resp.json()["id"]
@@ -445,13 +462,12 @@ class TestCancelOrder:
             # Create
             create_resp = await client.post(
                 "/api/orderbook",
-                json={
-                    "side": "ASK",
-                    "product_id": PRODUCT_METHANOL_GREEN,
-                    "delivery_point_id": DP_ARA,
-                    "quantity_mt": "1000",
-                    "price_per_mt_usd": "540",
-                },
+                json=ask_payload(
+                    product_id=PRODUCT_METHANOL_GREEN,
+                    delivery_point_id=DP_ARA,
+                    quantity_mt="1000",
+                    price_per_mt_usd="540",
+                ),
                 headers=headers,
             )
             order_id = create_resp.json()["id"]
@@ -510,13 +526,12 @@ class TestCancelOrder:
 
             create_resp = await client.post(
                 "/api/orderbook",
-                json={
-                    "side": "ASK",
-                    "product_id": PRODUCT_MGO_CONV,
-                    "delivery_point_id": DP_ARA,
-                    "quantity_mt": "500",
-                    "price_per_mt_usd": "615",
-                },
+                json=ask_payload(
+                    product_id=PRODUCT_MGO_CONV,
+                    delivery_point_id=DP_ARA,
+                    quantity_mt="500",
+                    price_per_mt_usd="615",
+                ),
                 headers=headers,
             )
             order_id = create_resp.json()["id"]

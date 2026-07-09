@@ -1,7 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, Request, status, Query
+from app.services.audit_service import record_audit, request_audit_context
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, or_, and_
-from sqlalchemy.orm import selectinload, joinedload
+from sqlalchemy.orm import selectinload
 from typing import Optional
 from decimal import Decimal
 from uuid import UUID
@@ -22,6 +23,7 @@ from app.schemas.orderbook import (
 )
 from app.schemas.pagination import PaginatedResponse
 from app.services.ci_pricing import calculate_ci_adjusted_price
+from app.services.activity import order_activity_provenance, trade_activity_provenance
 from app.services.event_bus import event_bus
 from app.services.availability_windows import normalize_availability_window
 from pydantic import BaseModel
@@ -1059,6 +1061,7 @@ async def create_order(
     if matched_trades:
         for trade in matched_trades:
             await event_bus.publish("trades", "trade_auto_matched", {
+                **trade_activity_provenance(trade),
                 "trade_id": str(trade.id),
                 "product_name": new_order.product_name,
                 "fuel_type": new_order.fuel_type,
@@ -1067,6 +1070,7 @@ async def create_order(
                 "is_anonymous": trade.is_anonymous,
             })
         await event_bus.publish("orderbook", "orders_matched", {
+            **order_activity_provenance(new_order),
             "order_id": str(new_order.id),
             "matches": len(matched_trades),
         })
@@ -1083,6 +1087,7 @@ async def create_order(
 
     # Emit SSE event for new order
     await event_bus.publish("orderbook", "order_created", {
+        **order_activity_provenance(new_order),
         "id": str(new_order.id),
         "side": new_order.side.value,
         "product_name": new_order.product_name,
@@ -1207,6 +1212,7 @@ async def update_order(
 @router.delete("/{order_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def cancel_order(
     order_id: UUID,
+    request: Request,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -1249,10 +1255,20 @@ async def cancel_order(
     order.status = OrderBookStatus.CANCELLED
     await rebuild_live_slice_benchmarks_for_keys(db, [benchmark_key])
     await emit_order_updated(db, before=before_state, order=order)
+    await record_audit(
+        db,
+        user_id=current_user.id,
+        action="order.cancelled",
+        resource_type="order",
+        resource_id=order.id,
+        changes={"status": OrderBookStatus.CANCELLED.value},
+        **request_audit_context(request),
+    )
     await db.commit()
 
     # Emit SSE event for cancelled order
     await event_bus.publish("orderbook", "order_cancelled", {
+        **order_activity_provenance(order),
         "id": str(order.id),
         "side": order.side.value,
         "product_name": order.product_name,

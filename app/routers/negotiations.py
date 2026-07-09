@@ -23,6 +23,7 @@ from app.schemas.negotiation import (
     NegotiationRoundResponse,
     NegotiationListResponse,
 )
+from app.services.activity import trade_activity_provenance
 from app.services.event_bus import event_bus
 
 router = APIRouter(prefix="/negotiations", tags=["negotiations"])
@@ -515,6 +516,7 @@ async def accept_negotiation(
         "price": str(neg.current_price),
     })
     await event_bus.publish("trades", "trade_created", {
+        **trade_activity_provenance(trade),
         "id": str(trade.id),
         "status": trade.status.value,
         "quantity": str(trade.quantity_mt),

@@ -2,11 +2,21 @@
 Unit tests for security/authentication utilities.
 Updated for PyJWT + direct bcrypt (2026-03-01).
 """
+import bcrypt as _bcrypt
 import pytest
+
 from app.core.security import (
     verify_password, get_password_hash,
     create_access_token, create_refresh_token, decode_token,
 )
+
+
+@pytest.fixture(autouse=True)
+def _fast_bcrypt(monkeypatch):
+    """The wrapper logic, not KDF strength, is under test; default 12-round
+    bcrypt made these six tests the slowest in the suite (~5s combined)."""
+    real_gensalt = _bcrypt.gensalt
+    monkeypatch.setattr(_bcrypt, "gensalt", lambda *a, **k: real_gensalt(rounds=4))
 
 
 class TestPasswordHashing:

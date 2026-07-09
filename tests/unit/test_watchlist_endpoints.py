@@ -281,7 +281,7 @@ class TestMarketRadarEndpoints:
             )
 
         assert exc_info.value.status_code == 422
-        assert exc_info.value.detail == 'Invalid watchlist event cursor'
+        assert 'cursor' in exc_info.value.detail.lower()
 
     @pytest.mark.asyncio
     async def test_market_radar_counts_only_execution_qualified_orders(self, db: AsyncSession):

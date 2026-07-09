@@ -5,6 +5,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.schemas.market_activity import MarketDemoStatus, MarketScope, MarketSourceKind
+
 
 class WatchlistCreateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=100)
@@ -113,6 +115,15 @@ class WatchlistEventResponse(BaseModel):
     target_type: Literal["SLICE", "PIN"]
     event_type: str
     event_payload: dict = Field(default_factory=dict)
+    source_kind: MarketSourceKind = MarketSourceKind.UNKNOWN
+    scope: MarketScope = MarketScope.UNKNOWN
+    demo_status: MarketDemoStatus = MarketDemoStatus.UNKNOWN
+    observed_at: datetime | None = None
+    market_product_code: str | None = None
+    delivery_point_id: UUID | None = None
+    delivery_point_name: str | None = None
+    availability_window_code: str | None = None
+    order_id: UUID | None = None
     is_read: bool
     created_at: datetime
 

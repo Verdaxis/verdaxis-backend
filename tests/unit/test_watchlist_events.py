@@ -12,8 +12,10 @@ from app.models.catalog import DeliveryPoint, Product
 from app.models.orderbook import OrderBookOrder, OrderBookStatus, OrderSide
 from app.models.user import OrgType, Organization, User, UserRole, UserStatus
 from app.models.watchlist import WatchlistEvent, WatchlistKind, WatchlistTarget, WatchlistTargetType
-from app.services.watchlist_events import emit_order_created, emit_order_updated, emit_pin_updated, emit_slice_state_changed, sync_target_snapshot
-from app.services.watchlists import ensure_market_radar
+from app.schemas.market_activity import MarketDemoStatus, MarketScope, MarketSourceKind
+from app.services.demo_market import DEMO_ACTIVITY_SELLER_ORG_ID
+from app.services.watchlist_events import emit_benchmark_moved, emit_order_created, emit_order_updated, emit_pin_updated, emit_slice_state_changed, sync_target_snapshot
+from app.services.watchlists import ensure_market_radar, list_watchlist_events
 
 REQUIRED_TABLES = [
     'organizations',
@@ -52,8 +54,8 @@ async def db(async_engine, setup_tables):
         await session.commit()
 
 
-async def _make_org(db: AsyncSession, name: str, org_type: OrgType) -> Organization:
-    org = Organization(name=f'{name}-{uuid4().hex[:6]}', type=org_type)
+async def _make_org(db: AsyncSession, name: str, org_type: OrgType, *, org_id=None) -> Organization:
+    org = Organization(id=org_id or uuid4(), name=f'{name}-{uuid4().hex[:6]}', type=org_type)
     db.add(org)
     await db.flush()
     return org
@@ -139,6 +141,21 @@ async def test_emit_order_created_creates_slice_new_order_event(db: AsyncSession
     event_types = [event.event_type.value for event in events]
     assert 'SLICE_NEW_ORDER' in event_types
     assert 'SLICE_BEST_PRICE_MOVED' in event_types
+    new_order_event = next(event for event in events if event.event_type.value == 'SLICE_NEW_ORDER')
+    assert new_order_event.event_payload['source_kind'] == MarketSourceKind.LIVE_ORDER.value
+    assert new_order_event.event_payload['demo_status'] == MarketDemoStatus.REAL_ONLY.value
+    assert new_order_event.event_payload['scope'] == MarketScope.DELIVERY_POINT.value
+
+    page = await list_watchlist_events(db, radar.id, cursor=None, limit=10)
+    response_event = next(item for item in page.items if item.event_type == 'SLICE_NEW_ORDER')
+    assert response_event.source_kind == MarketSourceKind.LIVE_ORDER
+    assert response_event.demo_status == MarketDemoStatus.REAL_ONLY
+    assert response_event.scope == MarketScope.DELIVERY_POINT
+    assert response_event.market_product_code == 'BIO_METHANOL'
+    assert response_event.delivery_point_id == singapore.id
+    assert response_event.delivery_point_name == singapore.name
+    assert response_event.availability_window_code == 'SPOT'
+    assert response_event.order_id == order.id
 
 
 @pytest.mark.asyncio
@@ -241,6 +258,51 @@ async def test_emit_order_updated_emits_slice_best_price_when_top_order_is_remov
 
 
 @pytest.mark.asyncio
+async def test_slice_best_price_move_classifies_new_demo_top_of_book(db: AsyncSession):
+    user_org = await _make_org(db, 'Buyer', OrgType.SHIPPING_LINE)
+    user = await _make_user(db, user_org, UserRole.BUYER)
+    real_supplier_org = await _make_org(db, 'Supplier', OrgType.FUEL_SUPPLIER)
+    demo_supplier_org = await _make_org(db, 'DemoSupplier', OrgType.FUEL_SUPPLIER, org_id=DEMO_ACTIVITY_SELLER_ORG_ID)
+    singapore = await _make_delivery_point(db, 'Singapore')
+    product = await _make_product(db, name='Bio Methanol', fuel_type='Methanol', fuel_grade='Bio')
+    radar = await ensure_market_radar(db, user.id)
+
+    real_best_order = await _make_order(db, org_id=real_supplier_org.id, product_id=product.id, delivery_point_id=singapore.id, price='1090')
+    await _make_order(db, org_id=demo_supplier_org.id, product_id=product.id, delivery_point_id=singapore.id, price='1115')
+
+    slice_target = WatchlistTarget(
+        watchlist_id=radar.id,
+        target_type=WatchlistTargetType.SLICE,
+        market_product_code='BIO_METHANOL',
+        delivery_point_id=singapore.id,
+        availability_window_code='SPOT',
+        snapshot_market_product='BIO_METHANOL',
+        snapshot_delivery_point_name=singapore.name,
+        snapshot_availability_window='SPOT',
+    )
+    db.add(slice_target)
+    await db.flush()
+
+    before = {
+        'price_per_mt_usd': Decimal('1090'),
+        'remaining_quantity_mt': Decimal('1000'),
+        'status': OrderBookStatus.OPEN,
+        'slice_best_price_per_mt_usd': Decimal('1090'),
+    }
+    real_best_order.status = OrderBookStatus.CANCELLED
+
+    await emit_order_updated(db, before=before, order=real_best_order)
+    await db.commit()
+
+    events = (await db.execute(select(WatchlistEvent).order_by(WatchlistEvent.created_at.asc()))).scalars().all()
+    move_events = [event for event in events if event.event_type.value == 'SLICE_BEST_PRICE_MOVED']
+    assert move_events
+    assert move_events[-1].event_payload['new_price_per_mt_usd'] == 1115.0
+    assert move_events[-1].event_payload['source_kind'] == MarketSourceKind.DEMO_SEED.value
+    assert move_events[-1].event_payload['demo_status'] == MarketDemoStatus.DEMO_ONLY.value
+
+
+@pytest.mark.asyncio
 async def test_emit_pin_and_slice_events_for_auto_matched_resting_order(db: AsyncSession):
     user_org = await _make_org(db, 'Buyer', OrgType.SHIPPING_LINE)
     user = await _make_user(db, user_org, UserRole.BUYER)
@@ -305,3 +367,45 @@ async def test_emit_pin_and_slice_events_for_auto_matched_resting_order(db: Asyn
     move_events = [event for event in events if event.event_type.value == 'SLICE_BEST_PRICE_MOVED']
     assert move_events[-1].event_payload['old_price_per_mt_usd'] == 1090.0
     assert move_events[-1].event_payload['new_price_per_mt_usd'] == 1115.0
+
+
+@pytest.mark.asyncio
+async def test_emit_benchmark_moved_marks_seed_benchmark_provenance(db: AsyncSession):
+    user_org = await _make_org(db, 'Buyer', OrgType.SHIPPING_LINE)
+    user = await _make_user(db, user_org, UserRole.BUYER)
+    singapore = await _make_delivery_point(db, 'Singapore')
+    radar = await ensure_market_radar(db, user.id)
+    slice_target = WatchlistTarget(
+        watchlist_id=radar.id,
+        target_type=WatchlistTargetType.SLICE,
+        market_product_code='BIO_METHANOL',
+        delivery_point_id=singapore.id,
+        availability_window_code='SPOT',
+        snapshot_market_product='BIO_METHANOL',
+        snapshot_delivery_point_name=singapore.name,
+        snapshot_availability_window='SPOT',
+    )
+    db.add(slice_target)
+    await db.flush()
+
+    await emit_benchmark_moved(
+        db,
+        market_product_code='BIO_METHANOL',
+        delivery_point_id=singapore.id,
+        availability_window_code='SPOT',
+        old_price=Decimal('1000'),
+        new_price=Decimal('1025'),
+        benchmark_source='seed_matrix',
+    )
+    await db.commit()
+
+    events = (await db.execute(select(WatchlistEvent).order_by(WatchlistEvent.created_at.asc()))).scalars().all()
+    assert len(events) == 1
+    assert events[0].event_type.value == 'SLICE_BENCHMARK_MOVED'
+    assert events[0].event_payload['source_kind'] == MarketSourceKind.DEMO_SEED.value
+    assert events[0].event_payload['demo_status'] == MarketDemoStatus.DEMO_ONLY.value
+
+    page = await list_watchlist_events(db, radar.id, cursor=None, limit=10)
+    assert page.items[0].source_kind == MarketSourceKind.DEMO_SEED
+    assert page.items[0].demo_status == MarketDemoStatus.DEMO_ONLY
+    assert page.items[0].delivery_point_id == singapore.id

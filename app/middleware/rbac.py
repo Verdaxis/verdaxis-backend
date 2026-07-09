@@ -21,10 +21,11 @@ def require_role(*allowed_roles: UserRole):
     """Returns a FastAPI dependency that enforces role-based access."""
     async def role_checker(current_user: Annotated[User, Depends(get_current_user)]) -> User:
         if current_user.role not in allowed_roles:
-            role_names = ", ".join(r.value for r in allowed_roles)
+            # Deliberately generic: enumerating the allowed roles here hands
+            # an attacker a map of the privilege model (Sprint 3 item 4).
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Access restricted to: {role_names}",
+                detail="Forbidden",
             )
         return current_user
     return role_checker

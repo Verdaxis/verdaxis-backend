@@ -12,8 +12,13 @@ from app.schemas.orders import (
     CommissionUpdate,
 )
 from app.routers.auth_simple import get_current_user
+from app.schemas.errors import AUTH_RESPONSES
 
-router = APIRouter(prefix="/orders", tags=["orders"])
+router = APIRouter(
+    prefix="/orders",
+    tags=["orders"],
+    responses=AUTH_RESPONSES,
+)
 
 
 # ============== Admin Commission Endpoints ==============

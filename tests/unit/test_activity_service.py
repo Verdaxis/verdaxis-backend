@@ -5,12 +5,16 @@ from uuid import uuid4
 from decimal import Decimal
 from datetime import datetime
 
+from app.schemas.market_activity import MarketDemoStatus, MarketScope, MarketSourceKind
 from app.services.activity import (
+    order_activity_provenance,
     publish_new_listing,
     publish_price_crossing,
     publish_order_outbid,
+    trade_activity_provenance,
     check_price_alerts,
 )
+from app.services.demo_market import DEMO_ACTIVITY_BUYER_ORG_ID, DEMO_ACTIVITY_SELLER_ORG_ID
 
 
 # ---------------------------------------------------------------------------
@@ -26,6 +30,20 @@ def make_order(org_id=None):
     order.remaining_quantity_mt = Decimal("1000")
     order.created_at = datetime.utcnow()
     return order
+
+
+def make_trade(*, buyer_id=None, seller_id=None):
+    trade = MagicMock()
+    trade.buyer_id = buyer_id or uuid4()
+    trade.seller_id = seller_id or uuid4()
+    trade.created_at = datetime.utcnow()
+    trade.confirmed_at = None
+    trade.delivered_at = None
+    trade.paid_at = None
+    trade.status = None
+    trade.ask_order = None
+    trade.bid_order = None
+    return trade
 
 
 def make_product(name="Green Methanol"):
@@ -80,6 +98,23 @@ class TestPublishNewListing:
         assert "delivery_point" in data
         assert data["product_name"] == "LNG Conventional"
         assert data["delivery_point"] == "Rotterdam"
+        assert data["source_kind"] == MarketSourceKind.LIVE_ORDER.value
+        assert data["demo_status"] == MarketDemoStatus.REAL_ONLY.value
+        assert data["scope"] == MarketScope.UNKNOWN.value
+
+    @pytest.mark.asyncio
+    async def test_new_listing_marks_demo_orders(self):
+        order = make_order(DEMO_ACTIVITY_SELLER_ORG_ID)
+        product = make_product("Bio Methanol")
+        dp = make_dp("Singapore")
+
+        with patch("app.services.activity.event_bus") as mock_bus:
+            mock_bus.publish = AsyncMock()
+            await publish_new_listing(order, product, dp)
+
+        data = mock_bus.publish.call_args[0][2]
+        assert data["source_kind"] == MarketSourceKind.DEMO_SEED.value
+        assert data["demo_status"] == MarketDemoStatus.DEMO_ONLY.value
 
     @pytest.mark.asyncio
     async def test_new_listing_with_no_delivery_point(self):
@@ -126,6 +161,9 @@ class TestPublishPriceCrossing:
         assert "product_id" in data
         assert "product_name" in data
         assert data["product_name"] == "Ammonia Green"
+        assert data["source_kind"] == MarketSourceKind.UNKNOWN.value
+        assert data["demo_status"] == MarketDemoStatus.UNKNOWN.value
+        assert data["observed_at"] is None
 
     @pytest.mark.asyncio
     async def test_price_crossing_with_no_delivery_point(self):
@@ -134,6 +172,60 @@ class TestPublishPriceCrossing:
             mock_bus.publish = AsyncMock()
             await publish_price_crossing(product, None)
         mock_bus.publish.assert_awaited_once()
+
+
+class TestActivityProvenanceHelpers:
+    def test_trade_activity_provenance_marks_demo_trade(self):
+        trade = make_trade(
+            buyer_id=DEMO_ACTIVITY_BUYER_ORG_ID,
+            seller_id=DEMO_ACTIVITY_SELLER_ORG_ID,
+        )
+
+        payload = trade_activity_provenance(trade)
+
+        assert payload["source_kind"] == MarketSourceKind.DEMO_SEED.value
+        assert payload["demo_status"] == MarketDemoStatus.DEMO_ONLY.value
+
+    def test_trade_activity_provenance_marks_one_sided_demo_unknown(self):
+        trade = make_trade(buyer_id=DEMO_ACTIVITY_BUYER_ORG_ID)
+
+        payload = trade_activity_provenance(trade)
+
+        assert payload["source_kind"] == MarketSourceKind.UNKNOWN.value
+        assert payload["demo_status"] == MarketDemoStatus.UNKNOWN.value
+
+    def test_order_activity_provenance_preserves_existing_order_source(self):
+        order = make_order()
+
+        payload = order_activity_provenance(order)
+
+        assert payload["source_kind"] == MarketSourceKind.LIVE_ORDER.value
+        assert payload["demo_status"] == MarketDemoStatus.REAL_ONLY.value
+
+    def test_trade_activity_provenance_uses_delivered_timestamp_for_delivered_trade(self):
+        from app.models.orderbook import TradeStatus
+
+        trade = make_trade()
+        trade.status = TradeStatus.DELIVERED
+        trade.confirmed_at = datetime(2026, 1, 1, 12, 0)
+        trade.delivered_at = datetime(2026, 1, 2, 12, 0)
+
+        payload = trade_activity_provenance(trade)
+
+        assert payload["observed_at"] == "2026-01-02T12:00:00"
+
+    def test_trade_activity_provenance_uses_paid_timestamp_for_paid_trade(self):
+        from app.models.orderbook import TradeStatus
+
+        trade = make_trade()
+        trade.status = TradeStatus.PAID
+        trade.confirmed_at = datetime(2026, 1, 1, 12, 0)
+        trade.delivered_at = datetime(2026, 1, 2, 12, 0)
+        trade.paid_at = datetime(2026, 1, 3, 12, 0)
+
+        payload = trade_activity_provenance(trade)
+
+        assert payload["observed_at"] == "2026-01-03T12:00:00"
 
 
 # ---------------------------------------------------------------------------

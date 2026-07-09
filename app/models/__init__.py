@@ -16,3 +16,4 @@ from app.models.watchlist import Watchlist, WatchlistEntry, WatchlistTarget, Wat
 from app.models.news import NewsItem
 from app.models.benchmark import Benchmark
 from app.models.live_slice_benchmark import LiveSliceBenchmark
+from app.models.forward_monitoring import FairPriceBand, MarketIndication, MarketSignalIngestionRun, PhysicalStem
