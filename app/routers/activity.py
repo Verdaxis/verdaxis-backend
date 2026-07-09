@@ -31,11 +31,13 @@ async def stream_activity(
     Unauthenticated users receive public activity events only.
     """
     # EventSource doesn't support custom headers, so accept token as query param
-    # and resolve the user manually if header-based auth returned None.
+    # and resolve the user manually if header-based auth returned None. Only
+    # short-lived stream tokens are valid here; access tokens must stay out of
+    # query strings because proxies and browser history can retain them.
     if current_user is None and token:
         try:
             payload = decode_token(token)
-            if payload.get("type") != "refresh":
+            if payload.get("type") == "stream":
                 user_id = uuid.UUID(payload["sub"])
                 result = await db.execute(select(User).where(User.id == user_id))
                 current_user = result.scalar_one_or_none()

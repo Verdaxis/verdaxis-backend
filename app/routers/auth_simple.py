@@ -18,7 +18,7 @@ from app.schemas.organization import OrganizationCreate
 from app.schemas.errors import AUTH_RESPONSES
 from app.core.security import (
     verify_password, get_password_hash,
-    create_access_token, create_refresh_token, decode_token,
+    create_access_token, create_refresh_token, create_stream_token, decode_token,
     REFRESH_TOKEN_EXPIRE_DAYS,
 )
 from pydantic import BaseModel, EmailStr
@@ -106,8 +106,8 @@ async def get_current_user(
     )
     try:
         payload = decode_token(token)
-        # Reject refresh tokens used as access tokens
-        if payload.get("type") == "refresh":
+        # Only access tokens may authenticate ordinary API requests.
+        if payload.get("type") != "access":
             raise credentials_exception
         user_id_str: str = payload.get("sub")
         if user_id_str is None:
@@ -289,6 +289,15 @@ async def refresh_tokens(
 async def logout(response: Response):
     _clear_refresh_cookie(response)
     return {"message": "Logged out"}
+
+
+@router.get("/stream-token")
+@limiter.limit("30/minute")
+async def issue_stream_token(
+    request: _Request,
+    current_user: Annotated[User, Depends(get_current_user)],
+):
+    return {"stream_token": create_stream_token(current_user.id)}
 
 # ---------------------------------------------------------------------------
 # Registration

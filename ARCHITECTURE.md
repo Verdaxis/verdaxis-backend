@@ -13,7 +13,7 @@ app/
   admin.py                      # SQLAdmin panel at /admin
   rate_limit.py                 # slowapi Limiter singleton (key=remote_address)
   core/
-    security.py                 # PyJWT + bcrypt — create_access_token, create_refresh_token, decode_token
+    security.py                 # PyJWT + bcrypt — access/refresh/stream token creation, decode_token
   models/
     __init__.py                 # Imports all models for Alembic autogenerate
     user.py                     # User (password_changed_at, must_change_password), Organization, enums
@@ -85,7 +85,7 @@ tests/integration/              # Auth hardening, trade lifecycle, orderbook E2E
 - **Supplier ASK invariants:** ASK creation/update requires explicit `certification_declared=true` plus a non-empty `certification_scheme`; `GET /orderbook/my/latest-ask-template` returns safe defaults for the next listing and resets off-spec state
 - **SSE broadcasting:** `event_bus.publish(channel, event_type, data)` → subscribers via AsyncIO queues; order/trade payloads are append-only enriched with market source/scope/demo provenance
 - **Compliance scoring:** Pure function `calculate_compliance_score()` — no DB, 100% testable
-- **Dual-token JWT:** 15-min access + 7-day refresh, `password_changed_at` for stateless invalidation, `must_change_password` for temporary-password lockouts
+- **JWT auth:** 15-min access + 7-day refresh, plus 60-second `type="stream"` tokens from `/auth/stream-token` for SSE query-param auth. Ordinary API auth only accepts access tokens; activity SSE query auth only accepts stream tokens.
 - **Cookie-backed refresh:** refresh token is also rotated through an HttpOnly `refresh_token` cookie scoped to `/api/auth`, while access tokens remain bearer tokens
 - **Rate limiting:** slowapi per-route (5/min login, 3/min password, 60/min prices, 30/min reference)
 - **Availability windows:** Persist canonical codes (`SPOT`, `YYYY-MM`, `YYYY-QN`, legacy-compatible `YYYY-CAL`); UI-relative labels like `M+1` must be resolved before persistence

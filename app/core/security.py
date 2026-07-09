@@ -74,6 +74,18 @@ def create_refresh_token(subject: Union[str, Any]) -> str:
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
 
+def create_stream_token(user_id: Union[str, Any]) -> str:
+    """Creates a single-purpose JWT for SSE query-param authentication."""
+    expire = datetime.now(UTC) + timedelta(seconds=60)
+    to_encode: dict[str, Any] = {
+        "sub": str(user_id),
+        "exp": expire,
+        "type": "stream",
+        "iat": datetime.now(UTC),
+    }
+    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+
+
 def decode_token(token: str) -> dict[str, Any]:
     """Decodes and validates a JWT token. Raises jwt.PyJWTError on failure."""
     return jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
