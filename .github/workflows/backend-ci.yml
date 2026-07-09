@@ -1,14 +1,22 @@
-name: Verdaxis Backend CI/CD
+# Live branches are staging/prod.
+# Deploys are operator-run on the VPS via scripts/deploy.sh.
+# See CLAUDE.md for live topology details.
+
+name: Verdaxis Backend CI
 
 on:
   push:
-    branches: ["main"]
+    branches: [staging, prod]
   pull_request:
-    branches: ["main"]
+    branches: [staging, prod, main]
+
+permissions:
+  contents: read
 
 jobs:
   test:
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v4
 
@@ -21,32 +29,14 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pytest pytest-asyncio httpx
 
-      - name: Run Unit Tests
+      - name: Run unit tests
         env:
           ENVIRONMENT: test
           JWT_SECRET: "test-secret-key-that-is-at-least-32-characters-long"
-          DATABASE_URL: "sqlite+aiosqlite:///:memory:"
-        run: pytest tests/unit/ -v
+        run: DATABASE_URL="sqlite+aiosqlite:///:memory:" pytest tests/unit -q
 
-      - name: Security audit
-        run: pip install pip-audit && pip-audit --strict 2>&1 || true
-
-  deploy:
-    needs: test
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Deploy to VPS
-        uses: appleboy/ssh-action@v0.1.10
-        with:
-          host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USERNAME }}
-          key: ${{ secrets.VPS_SSH_KEY }}
-          script: |
-            cd ~/verdaxis-backend
-            git pull origin main
-            docker compose down
-            docker compose up -d --build
-            docker system prune -f
+      - name: Dependency audit
+        run: |
+          pip install pip-audit
+          pip-audit --strict -r requirements.txt
