@@ -1,6 +1,7 @@
 from fastapi import Request as _Request
 from app.rate_limit import limiter
 from datetime import datetime, timedelta, UTC
+import logging
 import os
 from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Response, status
@@ -35,6 +36,8 @@ from app.services.audit_actions import (
     USER_PASSWORD_RESET_REQUESTED,
     USER_REGISTERED,
 )
+
+logger = logging.getLogger(__name__)
 
 class RegisterWithOrgRequest(BaseModel):
     registration_token: str
@@ -224,9 +227,10 @@ async def login(
 
     access_token, refresh_token = _build_token_pair(str(user.id))
     _set_refresh_cookie(response, refresh_token)
+    # The refresh token travels ONLY in the HttpOnly cookie — never in the
+    # JSON body, where an XSS could read it.
     return {
         "access_token": access_token,
-        "refresh_token": refresh_token,
         "token_type": "bearer",
     }
 
@@ -244,6 +248,9 @@ async def refresh_tokens(
 ):
     refresh_token = None
     if body and body.refresh_token:
+        # TODO(remove-json-refresh) 2026-07-09: accepted only for older
+        # cached bundles; the current frontend relies on the cookie.
+        logger.warning("Deprecated JSON-body refresh token used; clients should rely on the HttpOnly cookie")
         refresh_token = body.refresh_token
     else:
         refresh_token = request.cookies.get(REFRESH_COOKIE_NAME)
@@ -288,7 +295,6 @@ async def refresh_tokens(
     _set_refresh_cookie(response, refresh_token)
     return {
         "access_token": access_token,
-        "refresh_token": refresh_token,
         "token_type": "bearer",
     }
 
@@ -687,7 +693,6 @@ async def change_password(
     return {
         "message": "Password changed successfully",
         "access_token": access_token,
-        "refresh_token": refresh_token,
     }
 
 # ---------------------------------------------------------------------------
