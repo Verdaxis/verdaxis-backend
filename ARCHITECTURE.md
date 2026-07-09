@@ -25,6 +25,7 @@ app/
     matchmaking.py              # MatchSuggestion
     watchlist.py                 # Watchlist, typed targets, event feed for Market Radar
     notification.py             # Notification, NotificationType (11 types incl trade events)
+    user_preference.py          # Per-user JSON preferences by namespace (market_watch, notifications, tutorial)
     compliance.py               # TraceabilityEvent, ComplianceLedger
     producer.py                 # ProducerProject (PostGIS, GENA import)
     audit.py                    # AuditLog (JSONB changes, indexed action/resource/timestamp)
@@ -43,6 +44,7 @@ app/
     demand.py                   # Anonymized BID demand signals
     producers.py                # Producer project list (map data)
     notifications.py            # User notification CRUD
+    preferences.py              # Authenticated server-persisted user preferences
     inventory.py                # Supplier inventory + publish-to-ASK
     ports.py                    # Port data with PostGIS
     vessels.py                  # Vessel data (org-scoped)
@@ -53,6 +55,7 @@ app/
     dashboard.py                # System health metrics
   schemas/
     user.py                     # UserCreate (min 8 chars pw), UserResponse, PasswordChangeRequest
+    preferences.py              # Strict namespace schemas for user preferences
     organization.py             # OrganizationCreate/Response
     orderbook.py                # Order/Trade schemas, price summaries, supplier metadata pack, ASK template response, canonical availability window validation
     market_activity.py          # Shared source/scope/demo-status provenance enums for market data
