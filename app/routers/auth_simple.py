@@ -27,6 +27,14 @@ import uuid
 from app.models.referral import Referral, ReferralStatus, generate_referral_code
 from app.services.email import send_verification_email, send_password_reset_email
 from app.services.monitor_canary import is_monitor_canary_email
+from app.services.audit_service import record_audit, request_audit_context
+from app.services.audit_actions import (
+    ADMIN_USER_APPROVED,
+    USER_PASSWORD_CHANGED,
+    USER_PASSWORD_RESET_COMPLETED,
+    USER_PASSWORD_RESET_REQUESTED,
+    USER_REGISTERED,
+)
 
 class RegisterWithOrgRequest(BaseModel):
     registration_token: str
@@ -343,6 +351,15 @@ def _should_skip_verification_email_for_canary(request: _Request, email: str) ->
         and is_monitor_canary_email(email)
     )
 
+
+def _mask_email_for_audit(email: str) -> str:
+    local, _, domain = email.partition("@")
+    if not domain:
+        return "***"
+    if not local:
+        return f"***@{domain}"
+    return f"{local[0]}***@{domain}"
+
 @router.post("/register", response_model=RegistrationResponse)
 @limiter.limit("5/minute")
 async def register(request: _Request, user_in: UserCreate, db: AsyncSession = Depends(get_db)):
@@ -392,6 +409,21 @@ async def register(request: _Request, user_in: UserCreate, db: AsyncSession = De
         )
 
         db.add(new_user)
+        await db.flush()
+        await record_audit(
+            db,
+            user_id=new_user.id,
+            action=USER_REGISTERED,
+            resource_type="user",
+            resource_id=new_user.id,
+            changes={
+                "role": new_user.role.value if new_user.role else None,
+                "organization_id": str(new_user.organization_id) if new_user.organization_id else None,
+                "email": str(new_user.email),
+                "via": "domain_match",
+            },
+            **request_audit_context(request),
+        )
         await db.commit()
         await db.refresh(new_user)
 
@@ -479,6 +511,21 @@ async def register_with_org(
     )
 
     db.add(new_user)
+    await db.flush()
+    await record_audit(
+        db,
+        user_id=new_user.id,
+        action=USER_REGISTERED,
+        resource_type="user",
+        resource_id=new_user.id,
+        changes={
+            "role": new_user.role.value if new_user.role else None,
+            "organization_id": str(new_user.organization_id) if new_user.organization_id else None,
+            "email": str(new_user.email),
+            "via": "new_org",
+        },
+        **request_audit_context(http_request),
+    )
     await db.commit()
     await db.refresh(new_user)
 
@@ -622,6 +669,15 @@ async def change_password(
     current_user.password_changed_at = datetime.now(UTC)
     current_user.must_change_password = False
 
+    await record_audit(
+        db,
+        user_id=current_user.id,
+        action=USER_PASSWORD_CHANGED,
+        resource_type="user",
+        resource_id=current_user.id,
+        changes={"password_changed": True},
+        **request_audit_context(request),
+    )
     await db.commit()
 
     # Return fresh tokens so the user stays logged in
@@ -653,6 +709,16 @@ async def forgot_password(
     user = result.scalar_one_or_none()
 
     if not user or user.status != UserStatus.APPROVED:
+        await record_audit(
+            db,
+            user_id=user.id if user else None,
+            action=USER_PASSWORD_RESET_REQUESTED,
+            resource_type="user",
+            resource_id=user.id if user else None,
+            changes={"email_provided": _mask_email_for_audit(body.email)},
+            **request_audit_context(request),
+        )
+        await db.commit()
         return safe_response
 
     # Generate token, store SHA-256 hash (never store plaintext)
@@ -661,6 +727,15 @@ async def forgot_password(
 
     user.password_reset_token_hash = token_hash
     user.password_reset_expires = datetime.now(UTC) + timedelta(hours=1)
+    await record_audit(
+        db,
+        user_id=user.id,
+        action=USER_PASSWORD_RESET_REQUESTED,
+        resource_type="user",
+        resource_id=user.id,
+        changes={"email_provided": _mask_email_for_audit(body.email)},
+        **request_audit_context(request),
+    )
     await db.commit()
 
     await send_password_reset_email(user.email, user.first_name or "there", token)
@@ -702,6 +777,15 @@ async def reset_password(
     user.password_reset_expires = None
     user.password_changed_at = datetime.now(UTC)
     user.must_change_password = False
+    await record_audit(
+        db,
+        user_id=user.id,
+        action=USER_PASSWORD_RESET_COMPLETED,
+        resource_type="user",
+        resource_id=user.id,
+        changes={"password_reset": "completed"},
+        **request_audit_context(request),
+    )
     await db.commit()
 
     return {"message": "Password updated. You can now sign in."}
@@ -738,7 +822,17 @@ async def approve_user(
         )
 
     # Re-approving a REJECTED user is allowed (admin error correction).
+    previous_status = user_to_approve.status
     user_to_approve.status = UserStatus.APPROVED
+    await record_audit(
+        db,
+        user_id=current_user.id,
+        action=ADMIN_USER_APPROVED,
+        resource_type="user",
+        resource_id=user_to_approve.id,
+        changes={"status": {"from": previous_status.value, "to": UserStatus.APPROVED.value}},
+        **request_audit_context(request),
+    )
     await db.commit()
     await db.refresh(user_to_approve)
     return user_to_approve

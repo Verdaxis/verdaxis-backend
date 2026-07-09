@@ -1,0 +1,103 @@
+"""Audit coverage tests for financially/compliance-relevant mutations."""
+import ast
+from pathlib import Path
+
+
+EXPECTED_AUDIT_CONSTANTS = {
+    "ADMIN_USER_APPROVED": "admin.user_approved",
+    "ADMIN_USER_REJECTED": "admin.user_rejected",
+    "COMMISSION_UPDATED": "commission.updated",
+    "INVENTORY_PUBLISHED": "inventory.published",
+    "KYC_APPROVED": "kyc.approved",
+    "KYC_REJECTED": "kyc.rejected",
+    "KYC_SUBMITTED": "kyc.submitted",
+    "NEGOTIATION_ACCEPTED": "negotiation.accepted",
+    "NEGOTIATION_COUNTERED": "negotiation.countered",
+    "NEGOTIATION_CREATED": "negotiation.created",
+    "NEGOTIATION_DECLINED": "negotiation.declined",
+    "ORDER_CANCELLED": "order.cancelled",
+    "ORDER_CREATED": "order.created",
+    "ORDER_UPDATED": "order.updated",
+    "RFQ_ACCEPTED": "rfq.accepted",
+    "RFQ_CANCELLED": "rfq.cancelled",
+    "RFQ_CREATED": "rfq.created",
+    "RFQ_QUOTE_SUBMITTED": "rfq.quote_submitted",
+    "SUBSCRIPTION_UPDATED": "subscription.updated",
+    "TRADE_AUTO_MATCHED": "trade.auto_matched",
+    "TRADE_CONFIRMED": "trade.confirmed",
+    "TRADE_CREATED": "trade.created",
+    "TRADE_DECLINED": "trade.declined",
+    "TRADE_DELIVERED": "trade.delivered",
+    "TRADE_PAID": "trade.paid",
+    "USER_PASSWORD_CHANGED": "user.password_changed",
+    "USER_PASSWORD_RESET_COMPLETED": "user.password_reset_completed",
+    "USER_PASSWORD_RESET_REQUESTED": "user.password_reset_requested",
+    "USER_REGISTERED": "user.registered",
+}
+
+
+def _app_source_files() -> list[Path]:
+    root = Path(__file__).resolve().parents[2]
+    return sorted((root / "app").rglob("*.py"))
+
+
+def _record_audit_calls() -> list[tuple[Path, ast.Call]]:
+    calls: list[tuple[Path, ast.Call]] = []
+    for path in _app_source_files():
+        tree = ast.parse(path.read_text(), filename=str(path))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            func = node.func
+            if isinstance(func, ast.Name) and func.id == "record_audit":
+                calls.append((path, node))
+    return calls
+
+
+def test_every_action_constant_is_registered():
+    from app.services import audit_actions
+
+    constants = {
+        name: value
+        for name, value in vars(audit_actions).items()
+        if name.isupper() and name != "AUDIT_ACTIONS"
+    }
+
+    assert constants == EXPECTED_AUDIT_CONSTANTS
+    assert audit_actions.AUDIT_ACTIONS == frozenset(EXPECTED_AUDIT_CONSTANTS.values())
+    assert set(constants.values()) == audit_actions.AUDIT_ACTIONS
+
+
+def test_record_audit_action_arguments_use_registered_constants_only():
+    from app.services import audit_actions
+
+    constants = {
+        name
+        for name, value in vars(audit_actions).items()
+        if name.isupper() and name != "AUDIT_ACTIONS"
+    }
+    calls = _record_audit_calls()
+
+    assert calls, "expected at least one record_audit call in app/"
+
+    for path, call in calls:
+        action_kw = next((kw for kw in call.keywords if kw.arg == "action"), None)
+        assert action_kw is not None, f"{path}:{call.lineno} record_audit missing action="
+        assert isinstance(action_kw.value, ast.Name), (
+            f"{path}:{call.lineno} action= must be a registered constant identifier"
+        )
+        assert action_kw.value.id in constants, (
+            f"{path}:{call.lineno} action={action_kw.value.id} is not registered"
+        )
+
+
+def test_all_registered_actions_have_a_call_site():
+    from app.services import audit_actions
+
+    used_actions = set()
+    for _, call in _record_audit_calls():
+        action_kw = next((kw for kw in call.keywords if kw.arg == "action"), None)
+        if action_kw is not None and isinstance(action_kw.value, ast.Name):
+            used_actions.add(getattr(audit_actions, action_kw.value.id))
+
+    assert used_actions == audit_actions.AUDIT_ACTIONS

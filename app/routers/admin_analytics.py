@@ -24,6 +24,7 @@ from app.models.user import User, UserRole, UserStatus, Organization
 from app.rate_limit import limiter
 from app.schemas.errors import AUTH_RESPONSES
 from app.services.audit_service import record_audit, request_audit_context
+from app.services.audit_actions import ADMIN_USER_REJECTED
 
 
 # ---------------------------------------------------------------------------
@@ -447,7 +448,7 @@ async def reject_user(
     await record_audit(
         db,
         user_id=current_user.id,
-        action="admin.user_rejected",
+        action=ADMIN_USER_REJECTED,
         resource_type="user",
         resource_id=user.id,
         changes={"status": {"from": previous_status.value, "to": UserStatus.REJECTED.value}},

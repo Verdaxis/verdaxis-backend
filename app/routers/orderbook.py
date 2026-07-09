@@ -1,9 +1,16 @@
 from fastapi import APIRouter, Depends, HTTPException, Request, status, Query
 from app.services.audit_service import record_audit, request_audit_context
+from app.services.audit_actions import (
+    ORDER_CANCELLED,
+    ORDER_CREATED,
+    ORDER_UPDATED,
+    TRADE_AUTO_MATCHED,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, or_, and_
 from sqlalchemy.orm import selectinload
 from typing import Optional
+from datetime import date, datetime
 from decimal import Decimal
 from uuid import UUID
 
@@ -159,6 +166,30 @@ def _supplier_metadata_payload(source: object) -> dict[str, object]:
         field: getattr(source, field)
         for field in SUPPLIER_METADATA_FIELDS
     }
+
+
+def _audit_value(value: object) -> object:
+    if hasattr(value, "value"):
+        return value.value
+    if isinstance(value, (Decimal, UUID)):
+        return str(value)
+    if isinstance(value, (date, datetime)):
+        return value.isoformat()
+    if isinstance(value, list):
+        return [_audit_value(item) for item in value]
+    return value
+
+
+def _changed_fields(before: dict[str, object], after: dict[str, object]) -> dict[str, dict[str, object]]:
+    changes: dict[str, dict[str, object]] = {}
+    for field, before_value in before.items():
+        after_value = after[field]
+        if before_value != after_value:
+            changes[field] = {
+                "from": _audit_value(before_value),
+                "to": _audit_value(after_value),
+            }
+    return changes
 
 
 async def _watchlist_before_state(db: AsyncSession, order: OrderBookOrder) -> dict[str, object]:
@@ -856,6 +887,7 @@ async def list_orders(
 
 @router.post("", response_model=OrderResponse, status_code=status.HTTP_201_CREATED)
 async def create_order(
+    request: Request,
     order_data: OrderCreate,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -950,6 +982,25 @@ async def create_order(
     db.add(new_order)
     await db.flush()  # Get the order ID without committing
 
+    await record_audit(
+        db,
+        user_id=current_user.id,
+        action=ORDER_CREATED,
+        resource_type="order",
+        resource_id=new_order.id,
+        changes={
+            "side": new_order.side.value,
+            "product_id": str(new_order.product_id),
+            "market_product": new_order.market_product,
+            "delivery_point_id": str(new_order.delivery_point_id) if new_order.delivery_point_id else None,
+            "availability_window": new_order.availability_window,
+            "quantity_mt": str(new_order.quantity_mt),
+            "price_per_mt_usd": str(new_order.price_per_mt_usd),
+            "status": new_order.status.value,
+        },
+        **request_audit_context(request),
+    )
+
     previous_best_price = await _best_slice_price(
         db,
         market_product_code=new_order.market_product,
@@ -992,6 +1043,24 @@ async def create_order(
     if settings.AUTO_MATCHING_ENABLED:
         from app.services.matching_engine import match_order
         matched_trades = await match_order(db, new_order, is_anonymous=order_data.is_anonymous)
+        for trade in matched_trades:
+            await record_audit(
+                db,
+                user_id=current_user.id,
+                action=TRADE_AUTO_MATCHED,
+                resource_type="trade",
+                resource_id=trade.id,
+                changes={
+                    "trade_id": str(trade.id),
+                    "bid_order_id": str(trade.bid_order_id) if trade.bid_order_id else None,
+                    "ask_order_id": str(trade.ask_order_id) if trade.ask_order_id else None,
+                    "quantity_mt": str(trade.quantity_mt),
+                    "price_per_mt_usd": str(trade.price_per_mt_usd),
+                    "buyer_org_id": str(trade.buyer_id),
+                    "seller_org_id": str(trade.seller_id),
+                },
+                **request_audit_context(request),
+            )
 
     await rebuild_live_slice_benchmarks_for_keys(
         db,
@@ -1103,6 +1172,7 @@ async def create_order(
 @router.put("/{order_id}", response_model=OrderResponse)
 async def update_order(
     order_id: UUID,
+    request: Request,
     update_data: OrderUpdate,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -1182,9 +1252,22 @@ async def update_order(
         order.delivery_point_id,
         order.availability_window,
     )
+    audit_fields = set(update_dict)
+    audit_fields.update({"remaining_quantity_mt", "status"})
+    audit_before = {
+        field: getattr(order, field)
+        for field in audit_fields
+        if hasattr(order, field)
+    }
 
     for field, value in update_dict.items():
         setattr(order, field, value)
+
+    audit_after = {
+        field: getattr(order, field)
+        for field in audit_before
+    }
+    audit_changes = _changed_fields(audit_before, audit_after)
 
     await rebuild_live_slice_benchmarks_for_keys(
         db,
@@ -1194,6 +1277,16 @@ async def update_order(
         ],
     )
     await emit_order_updated(db, before=before_state, order=order)
+    if audit_changes:
+        await record_audit(
+            db,
+            user_id=current_user.id,
+            action=ORDER_UPDATED,
+            resource_type="order",
+            resource_id=order.id,
+            changes=audit_changes,
+            **request_audit_context(request),
+        )
 
     await db.commit()
     await db.refresh(order)
@@ -1258,7 +1351,7 @@ async def cancel_order(
     await record_audit(
         db,
         user_id=current_user.id,
-        action="order.cancelled",
+        action=ORDER_CANCELLED,
         resource_type="order",
         resource_id=order.id,
         changes={"status": OrderBookStatus.CANCELLED.value},

@@ -24,6 +24,14 @@ from app.schemas.negotiation import (
     NegotiationListResponse,
 )
 from app.services.activity import trade_activity_provenance
+from app.services.audit_service import record_audit, request_audit_context
+from app.services.audit_actions import (
+    NEGOTIATION_ACCEPTED,
+    NEGOTIATION_COUNTERED,
+    NEGOTIATION_CREATED,
+    NEGOTIATION_DECLINED,
+    TRADE_CREATED,
+)
 from app.services.event_bus import event_bus
 
 router = APIRouter(prefix="/negotiations", tags=["negotiations"])
@@ -279,6 +287,24 @@ async def create_negotiation(
         notes=payload.notes,
     )
     db.add(round1)
+    await record_audit(
+        db,
+        user_id=current_user.id,
+        action=NEGOTIATION_CREATED,
+        resource_type="negotiation",
+        resource_id=neg.id,
+        changes={
+            "initiator_org_id": str(neg.initiator_org_id),
+            "counterparty_org_id": str(neg.counterparty_org_id),
+            "product_id": str(neg.product_id),
+            "bid_order_id": str(neg.bid_order_id) if neg.bid_order_id else None,
+            "ask_order_id": str(neg.ask_order_id) if neg.ask_order_id else None,
+            "quantity_mt": str(neg.quantity_mt),
+            "price_per_mt_usd": str(neg.current_price),
+            "status": neg.status.value,
+        },
+        **request_audit_context(request),
+    )
 
     org_names = await _batch_org_names(db, {org_id})
     proposer_name = org_names.get(org_id)
@@ -402,6 +428,8 @@ async def counter_negotiation(
     if len(neg.rounds) >= MAX_ROUNDS:
         raise HTTPException(status_code=400, detail=f"Maximum {MAX_ROUNDS} rounds reached")
 
+    previous_price = neg.current_price
+    previous_status = neg.status
     next_round_num = len(neg.rounds) + 1
     new_round = NegotiationRound(
         negotiation_id=neg.id,
@@ -427,6 +455,20 @@ async def counter_negotiation(
         "Counter-Offer Received",
         f"{org_names.get(org_id) or 'Counterparty'} countered at ${payload.proposed_price}/MT.",
         {"negotiation_id": str(neg.id)},
+    )
+    await record_audit(
+        db,
+        user_id=current_user.id,
+        action=NEGOTIATION_COUNTERED,
+        resource_type="negotiation",
+        resource_id=neg.id,
+        changes={
+            "status": {"from": previous_status.value, "to": neg.status.value},
+            "price_per_mt_usd": {"from": str(previous_price), "to": str(neg.current_price)},
+            "round": next_round_num,
+            "proposer_org_id": str(org_id),
+        },
+        **request_audit_context(request),
     )
 
     await db.commit()
@@ -484,6 +526,7 @@ async def accept_negotiation(
     db.add(trade)
     await db.flush()
 
+    previous_status = neg.status
     neg.status = NegotiationStatus.AGREED
     neg.trade_id = trade.id
 
@@ -506,6 +549,36 @@ async def accept_negotiation(
         "Deal Agreed",
         f"You accepted the deal at ${neg.current_price}/MT. Trade confirmed.",
         {"negotiation_id": str(neg.id), "trade_id": str(trade.id)},
+    )
+    await record_audit(
+        db,
+        user_id=current_user.id,
+        action=NEGOTIATION_ACCEPTED,
+        resource_type="negotiation",
+        resource_id=neg.id,
+        changes={
+            "status": {"from": previous_status.value, "to": NegotiationStatus.AGREED.value},
+            "trade_id": str(trade.id),
+            "accepted_by_org_id": str(org_id),
+            "price_per_mt_usd": str(neg.current_price),
+        },
+        **request_audit_context(request),
+    )
+    await record_audit(
+        db,
+        user_id=current_user.id,
+        action=TRADE_CREATED,
+        resource_type="trade",
+        resource_id=trade.id,
+        changes={
+            "via": "negotiation",
+            "negotiation_id": str(neg.id),
+            "quantity_mt": str(trade.quantity_mt),
+            "price_per_mt_usd": str(trade.price_per_mt_usd),
+            "buyer_org_id": str(trade.buyer_id),
+            "seller_org_id": str(trade.seller_id),
+        },
+        **request_audit_context(request),
     )
 
     await db.commit()
@@ -548,6 +621,7 @@ async def decline_negotiation(
 
     _assert_active(neg)
 
+    previous_status = neg.status
     neg.status = NegotiationStatus.DECLINED
 
     other_org_id = (
@@ -561,6 +635,18 @@ async def decline_negotiation(
         "Deal Declined",
         f"{org_names.get(org_id) or 'Counterparty'} declined the negotiation.",
         {"negotiation_id": str(neg.id)},
+    )
+    await record_audit(
+        db,
+        user_id=current_user.id,
+        action=NEGOTIATION_DECLINED,
+        resource_type="negotiation",
+        resource_id=neg.id,
+        changes={
+            "status": {"from": previous_status.value, "to": NegotiationStatus.DECLINED.value},
+            "declined_by_org_id": str(org_id),
+        },
+        **request_audit_context(request),
     )
 
     await db.commit()

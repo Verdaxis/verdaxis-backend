@@ -30,6 +30,13 @@ from app.services.execution_policy import order_is_execution_qualified
 from app.services.live_benchmarks import rebuild_live_slice_benchmarks_for_keys
 from app.services.demo_market import is_demo_market_organization
 from app.services.audit_service import record_audit, request_audit_context
+from app.services.audit_actions import (
+    TRADE_CONFIRMED,
+    TRADE_CREATED,
+    TRADE_DECLINED,
+    TRADE_DELIVERED,
+    TRADE_PAID,
+)
 from app.schemas.errors import AUTH_RESPONSES
 
 router = APIRouter(prefix="/trades", tags=["trades"], responses=AUTH_RESPONSES)
@@ -296,7 +303,7 @@ async def create_trade(
     await record_audit(
         db,
         user_id=current_user.id,
-        action="trade.created",
+        action=TRADE_CREATED,
         resource_type="trade",
         resource_id=trade.id,
         changes={
@@ -427,7 +434,7 @@ async def confirm_trade(
     await record_audit(
         db,
         user_id=current_user.id,
-        action="trade.confirmed",
+        action=TRADE_CONFIRMED,
         resource_type="trade",
         resource_id=trade.id,
         changes={"status": TradeStatus.CONFIRMED.value},
@@ -523,7 +530,7 @@ async def decline_trade(
     await record_audit(
         db,
         user_id=current_user.id,
-        action="trade.declined",
+        action=TRADE_DECLINED,
         resource_type="trade",
         resource_id=trade.id,
         changes={"status": TradeStatus.DECLINED.value},
@@ -599,7 +606,7 @@ async def deliver_trade(
     await record_audit(
         db,
         user_id=current_user.id,
-        action="trade.delivered",
+        action=TRADE_DELIVERED,
         resource_type="trade",
         resource_id=trade.id,
         changes={
@@ -667,7 +674,7 @@ async def pay_trade(
     await record_audit(
         db,
         user_id=current_user.id,
-        action="trade.paid",
+        action=TRADE_PAID,
         resource_type="trade",
         resource_id=trade.id,
         changes={"status": TradeStatus.PAID.value},

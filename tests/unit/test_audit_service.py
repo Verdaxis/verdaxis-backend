@@ -5,6 +5,7 @@ from uuid import uuid4
 import pytest
 
 from app.services.audit_service import record_audit, request_audit_context
+from app.services.audit_actions import TRADE_CONFIRMED
 
 
 class _FakeDB:
@@ -24,7 +25,7 @@ async def test_record_audit_adds_entry_without_committing():
     entry = await record_audit(
         db,
         user_id=user_id,
-        action="trade.confirmed",
+        action=TRADE_CONFIRMED,
         resource_type="trade",
         resource_id=resource_id,
         changes={"status": "CONFIRMED"},
@@ -34,7 +35,7 @@ async def test_record_audit_adds_entry_without_committing():
 
     assert db.added == [entry]
     assert entry.user_id == user_id
-    assert entry.action == "trade.confirmed"
+    assert entry.action == TRADE_CONFIRMED
     assert entry.resource_type == "trade"
     assert entry.resource_id == str(resource_id)
     assert entry.changes == {"status": "CONFIRMED"}
