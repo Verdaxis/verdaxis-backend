@@ -1,4 +1,5 @@
 import os
+from decimal import Decimal
 from pydantic_settings import BaseSettings
 from pydantic import model_validator, field_validator
 from typing import Optional
@@ -71,6 +72,10 @@ class Settings(BaseSettings):
 
     # Order Matching Engine
     AUTO_MATCHING_ENABLED: bool = True  # Set to False to disable match-on-insert
+
+    # Compliance pricing overlay: EUR/USD conversion override (defaults to
+    # the ASSUMED rate in app/services/compliance_pricing.py when unset)
+    COMPLIANCE_EUR_USD_RATE: Optional[Decimal] = None
 
     # Gemini AI
     GEMINI_API_KEY: Optional[str] = None

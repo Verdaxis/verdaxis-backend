@@ -30,7 +30,6 @@ from app.config import settings
 from app.database import Base, get_db
 from app.models.catalog import DeliveryPoint, Product
 from app.models.orderbook import OrderBookOrder, OrderBookStatus, OrderSide
-from app.models.port import Vessel
 from app.models.user import OrgType, Organization, User, UserRole, UserStatus
 from app.routers.auth_simple import get_current_user
 from app.routers.compliance_api import router as compliance_api_router
@@ -205,11 +204,14 @@ def test_unresolvable_rows_return_none():
 def test_service_never_references_fuel_ghg_intensities():
     # FUEL_GHG_INTENSITIES has no Ethanol entry and its .get(fuel, 91.16)
     # fallback silently zeroes the advantage of unknown fuels; the overlay
-    # service must resolve CI via PRODUCT_DEFAULT_CI instead.
+    # service must resolve CI via PRODUCT_DEFAULT_CI instead. Comments may
+    # name the constant to document the trap; imports may not.
     import app.services.compliance_pricing as module
 
+    assert not hasattr(module, "FUEL_GHG_INTENSITIES")
     source = Path(inspect.getsourcefile(module)).read_text()
-    assert "FUEL_GHG_INTENSITIES" not in source
+    assert "from app.services.compliance_scoring" not in source
+    assert "import compliance_scoring" not in source
 
     from app.services.compliance_scoring import FUEL_GHG_INTENSITIES
 
@@ -636,8 +638,20 @@ async def test_endpoint_org_fleet_basis_when_org_has_vessels(db: AsyncSession):
         product_id=product.id,
         delivery_point_id=singapore.id,
     )
-    db.add(Vessel(organization_id=buyer.organization_id, name="MV Test", imo_number=f"IMO{uuid4().hex[:7]}"))
-    await db.flush()
+    # An ORM Vessel insert emits ST_GeogFromText() for the Geography columns,
+    # which sqlite lacks; insert directly, binding uuids in the 32-char hex
+    # format the dialect uses for UUID params on sqlite.
+    await db.execute(
+        text(
+            "INSERT INTO vessels (id, organization_id, name, imo_number, updated_at) "
+            "VALUES (:id, :org, 'MV Test', :imo, CURRENT_TIMESTAMP)"
+        ),
+        {
+            "id": uuid4().hex,
+            "org": buyer.organization_id.hex,
+            "imo": f"IMO{uuid4().hex[:7]}",
+        },
+    )
     await db.commit()
 
     async with overlay_client(db, user=buyer) as client:
