@@ -113,6 +113,41 @@ The only diagnostic categories are `disabled`, `configuration`,
 body, URL credentials, username, password, bearer token, or exception text is
 included in responses or logs.
 
+## Product Analytics Property Aggregates
+
+Verified against the installed Umami 3.2.0 container on 2026-07-15 by
+`scripts/smoke_umami_product_analytics.py` (read-only, view-only credentials,
+loopback-only unless `--allow-remote-readonly`). The Product Analytics
+workspace may call exactly these authenticated HTTP routes — never the Umami
+database:
+
+- `GET /api/websites/{websiteId}/event-data/properties?startAt&endAt` —
+  event×property inventory. Rows:
+  `{eventName: str, propertyName: str, dataType: int, total: int}`.
+- `GET /api/websites/{websiteId}/event-data/events?startAt&endAt&event=<name>`
+  — per-value breakdown for one registered event. Rows:
+  `{eventName: str, propertyName: str, dataType: int, propertyValue: str,
+  total: int}`.
+- `GET /api/websites/{websiteId}/event-data/values?startAt&endAt&event=<name>&propertyName=<prop>`
+  — value distribution for one event property. Rows:
+  `{value: str, total: int}`.
+
+Unsupported or excluded forms (do not call):
+
+- `event-data/events` **without** the `event` filter returns HTTP 500 on this
+  build.
+- `event-data/values` silently ignores an `eventName` parameter and returns an
+  empty result; the filter parameter is `event`.
+- `event-data-pivot` is supported (paginated
+  `{count, data, isCapped, page, pageSize}` envelope, requires `eventName`)
+  but is excluded from the implementation contract; the smoke probes it only
+  to detect upstream drift.
+
+Event names passed to these routes must come from the registered taxonomies
+above; property names must come from the analytics event registry. Responses
+are bounded (1MB body, 5,000 rows) and any shape drift is a contract failure,
+not data.
+
 ## Caching
 
 Successful behavioral aggregates may be cached in-process for at most five
