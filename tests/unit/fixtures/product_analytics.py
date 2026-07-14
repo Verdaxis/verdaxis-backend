@@ -27,7 +27,7 @@ from datetime import UTC, date, datetime
 from decimal import Decimal
 from uuid import UUID, uuid5
 
-from sqlalchemy import Column, Table
+from sqlalchemy import Column, Table, text
 from sqlalchemy.dialects.postgresql import UUID as PgUUID
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -182,11 +182,18 @@ def build_scenario() -> ProductAnalyticsScenario:
     scenario = ProductAnalyticsScenario()
 
     scenario.organizations = [
-        Organization(id=LIVE_BUYER_ORG_ID, name="Live Buyer Shipping", type=OrgType.FUEL_BUYER),
-        Organization(id=LIVE_SUPPLIER_ORG_ID, name="Live Supplier Fuels", type=OrgType.FUEL_SUPPLIER),
-        Organization(id=RETURNING_ORG_ID, name="Returning Trader", type=OrgType.FUEL_TRADER),
-        Organization(id=PENDING_ORG_ID, name="Pending Prospect", type=OrgType.FUEL_BUYER),
-        Organization(id=DEMO_ORG_ID, name="Demo Activity Buyer", type=OrgType.FUEL_BUYER),
+        # Explicit created_at values keep organization-to-first-order duration
+        # metrics deterministic.
+        Organization(id=LIVE_BUYER_ORG_ID, name="Live Buyer Shipping",
+                     type=OrgType.FUEL_BUYER, created_at=_utc(2026, 5, 9)),
+        Organization(id=LIVE_SUPPLIER_ORG_ID, name="Live Supplier Fuels",
+                     type=OrgType.FUEL_SUPPLIER, created_at=_utc(2026, 3, 10)),
+        Organization(id=RETURNING_ORG_ID, name="Returning Trader",
+                     type=OrgType.FUEL_TRADER, created_at=_utc(2026, 3, 15)),
+        Organization(id=PENDING_ORG_ID, name="Pending Prospect",
+                     type=OrgType.FUEL_BUYER, created_at=_utc(2026, 6, 4)),
+        Organization(id=DEMO_ORG_ID, name="Demo Activity Buyer",
+                     type=OrgType.FUEL_BUYER, created_at=_utc(2026, 6, 1)),
     ]
 
     def user(
@@ -206,6 +213,9 @@ def build_scenario() -> ProductAnalyticsScenario:
             organization_id=org_id,
             created_at=created_at,
             last_login=last_login,
+            # Verified by default so the activation drop-off buckets stay
+            # mutually exclusive and deterministic.
+            email_verified=True,
         )
 
     scenario.users = [
@@ -400,6 +410,50 @@ def build_scenario() -> ProductAnalyticsScenario:
     return scenario
 
 
+async def _insert_legacy_match_rows(session: AsyncSession, scenario: ProductAnalyticsScenario) -> None:
+    """Satisfy ``Commission.match_id`` FK targets on both harnesses.
+
+    SQLite uses the single-column stub table; PostgreSQL databases migrated by
+    Alembic carry the real legacy ``orders``/``public_listings`` tables (the
+    renamed ``rfq_matches`` chain), so minimal legacy rows are inserted there.
+    Nothing in Product Analytics reads these legacy tables.
+    """
+    # Register the metadata stub on both paths: the ORM unit-of-work needs a
+    # resolvable FK target to order the commissions insert. On PostgreSQL the
+    # real (Alembic-migrated) table is written through raw SQL below.
+    orders_table = legacy_orders_stub_table()
+    dialect = session.get_bind().dialect.name
+    if dialect != "postgresql":
+        for row in scenario.legacy_match_rows:
+            await session.execute(orders_table.insert().values(**row))
+        return
+
+    listing_id = fixture_uuid("legacy-listing:stub")
+    await session.execute(
+        text(
+            "INSERT INTO public_listings (id, supplier_id, region, fuel_type, fuel_grade, "
+            "quantity_mt, price_per_mt_usd, availability_window, is_verdaxis_verified, "
+            "status, created_at, updated_at) VALUES (:id, :supplier_id, 'Asia', 'Methanol', "
+            "'Bio', 1, 1, 'SPOT', false, 'ACTIVE', :ts, :ts)"
+        ),
+        {"id": listing_id, "supplier_id": LIVE_SUPPLIER_ORG_ID, "ts": PERIOD_START},
+    )
+    for row in scenario.legacy_match_rows:
+        await session.execute(
+            text(
+                "INSERT INTO orders (id, listing_id, buyer_id, status, "
+                "buyer_accepted_terms_at, commission_rate_pct, created_at) "
+                "VALUES (:id, :listing_id, :buyer_id, 'COMPLETED', :ts, 0.5, :ts)"
+            ),
+            {
+                "id": row["id"],
+                "listing_id": listing_id,
+                "buyer_id": LIVE_BUYER_ORG_ID,
+                "ts": PERIOD_START,
+            },
+        )
+
+
 async def seed_product_analytics_scenario(session: AsyncSession) -> ProductAnalyticsScenario:
     """Insert the frozen scenario and commit. Tables must already exist."""
     scenario = build_scenario()
@@ -412,9 +466,7 @@ async def seed_product_analytics_scenario(session: AsyncSession) -> ProductAnaly
     await session.flush()
     session.add_all(scenario.trades)
     await session.flush()
-    orders_table = legacy_orders_stub_table()
-    for row in scenario.legacy_match_rows:
-        await session.execute(orders_table.insert().values(**row))
+    await _insert_legacy_match_rows(session, scenario)
     session.add_all(scenario.commissions)
     await session.commit()
     return scenario
@@ -487,8 +539,9 @@ EXPECTED: dict[str, object] = {
         "active_current": 3,
         # buyer_active only (5/20).
         "active_previous": 1,
-        # Approved members with no login-day row ever: buyer_never_logged.
-        "dormant_approved": 1,
+        # Approved members who never logged in: buyer_never_logged and
+        # buyer_new (approved 6/12, no login recorded).
+        "dormant_approved": 2,
         # Latest status transition at or before PERIOD_END is APPROVED, org is
         # non-demo, role Buyer/Supplier: live buyer org (buyer_active,
         # buyer_new, buyer_never_logged), live supplier org (supplier_active),
@@ -501,8 +554,25 @@ EXPECTED: dict[str, object] = {
     "activation": {
         # Transition to APPROVED inside [start, end): buyer_new (6/12).
         "approved_in_period": 1,
-        "pending_approval": 1,   # pending_buyer
-        "rejected": 1,           # supplier_rejected
+        # Mutually exclusive drop-off buckets over non-demo Buyer/Supplier
+        # users (classified in order): rejected → unverified → pending →
+        # organization incomplete → approved-but-never-logged-in.
+        "drop_off_rejected": 1,            # supplier_rejected
+        "drop_off_unverified": 0,          # all fixture users verified
+        "drop_off_pending_approval": 1,    # pending_buyer
+        "drop_off_organization_incomplete": 0,
+        "drop_off_never_logged_in": 2,     # buyer_never_logged, buyer_new
+        # Registered split by role, current period: buyer_new + pending_buyer
+        # are both buyers.
+        "registered_current_buyer": 2,
+        "registered_current_supplier": 0,
+        # Organization-creation → first-ever live order falling inside the
+        # period: only the live buyer org (created 5/9 00:00, first live
+        # order bid_live_filled 6/4 12:00 → 636 hours). The supplier and
+        # returning organizations placed their first live orders before the
+        # period, so they are outside this cohort.
+        "org_to_first_live_order_sample": 1,
+        "org_to_first_live_order_median_hours": 636,
         # Members whose earliest login-day row falls inside the period:
         # supplier_active (6/15), trader_active (6/21). buyer_active's
         # earliest recorded day is 5/20 (previous period).
@@ -520,6 +590,10 @@ EXPECTED: dict[str, object] = {
         "live_previous": 1,
         "live_bids_current": 4,
         "live_asks_current": 3,
+        # Distinct live organizations per side in the period: bids from the
+        # live buyer org and the returning org; asks from the supplier only.
+        "bid_organizations_current": 2,
+        "ask_organizations_current": 1,
         "demo_current": 1,      # bid_demo_open
         "unknown_current": 1,   # bid_unknown_open (pending-only organization)
         # Distinct live organizations creating ≥1 live order in the period.
@@ -573,6 +647,11 @@ EXPECTED: dict[str, object] = {
         # Active current (order 6/21), inactive previous, active earlier
         # (order 3/20): returning org.
         "reactivated_organizations": 1,
+        # Previous-period equivalents: nothing was active in both the
+        # previous period and the one before it (2026-04-02 → 2026-05-02 has
+        # no activity), and nothing reactivated into the previous period.
+        "retained_organizations_previous": 0,
+        "reactivated_organizations_previous": 0,
         # Distinct UTC activity days (order created or trade confirmed) per
         # live organization inside the period:
         #   live buyer: orders 6/4, 6/7, 6/9 + trades 6/6, 6/12, 6/16 →

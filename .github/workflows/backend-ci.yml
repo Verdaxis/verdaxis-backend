@@ -40,3 +40,43 @@ jobs:
         run: |
           pip install pip-audit
           pip-audit --strict -r requirements.txt
+
+  postgres-analytics:
+    # Product Analytics correctness suite against the deployed database image.
+    # SQLite (unit job) is the fast harness; PostgreSQL is the authority.
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgis/postgis:15-3.3
+        env:
+          POSTGRES_PASSWORD: analytics-test
+          POSTGRES_DB: verdaxis_analytics_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run PostgreSQL analytics tests
+        env:
+          ENVIRONMENT: test
+          JWT_SECRET: "test-secret-key-that-is-at-least-32-characters-long"
+          DATABASE_URL: "postgresql+asyncpg://postgres:analytics-test@localhost:5432/verdaxis_analytics_test"
+          PRODUCT_ANALYTICS_TEST_DATABASE_URL: "postgresql+asyncpg://postgres:analytics-test@localhost:5432/verdaxis_analytics_test"
+        run: pytest tests/postgres -q
