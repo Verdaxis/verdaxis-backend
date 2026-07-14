@@ -24,6 +24,7 @@ MANIFEST
 
 # Environment variables
 .env
+.env.analytics
 .venv
 venv/
 ENV/
