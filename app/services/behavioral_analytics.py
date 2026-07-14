@@ -11,7 +11,6 @@ from datetime import UTC, datetime, timedelta
 from enum import Enum
 from typing import Any
 from urllib.parse import urlparse
-from uuid import UUID
 
 import httpx
 
@@ -62,7 +61,6 @@ class AnalyticsDiagnostic(str, Enum):
 @dataclass(frozen=True)
 class AnalyticsEvent:
     name: str
-    user_id: UUID
     role: str
     side: str | None = None
     canonical_product: str | None = None
@@ -79,7 +77,6 @@ class AnalyticsEvent:
 
     def data(self) -> dict[str, str]:
         values = {
-            "user_id": str(self.user_id),
             "role": self.role,
             "side": self.side,
             "canonical_product": self.canonical_product,
@@ -478,7 +475,6 @@ def _market_side_for_role(role: Any) -> str | None:
 def registration_completed_event(user: Any, *, request: Any | None = None) -> AnalyticsEvent:
     return AnalyticsEvent(
         name="registration_completed",
-        user_id=user.id,
         role=_enum_value(user.role) or "UNKNOWN",
         **_request_metadata(request),
     )
@@ -487,7 +483,6 @@ def registration_completed_event(user: Any, *, request: Any | None = None) -> An
 def organization_created_event(user: Any, *, request: Any | None = None) -> AnalyticsEvent:
     return AnalyticsEvent(
         name="organization_created",
-        user_id=user.id,
         role=_enum_value(user.role) or "UNKNOWN",
         **_request_metadata(request),
     )
@@ -496,7 +491,6 @@ def organization_created_event(user: Any, *, request: Any | None = None) -> Anal
 def order_created_event(user: Any, order: Any, *, request: Any | None = None) -> AnalyticsEvent:
     return AnalyticsEvent(
         name="order_created",
-        user_id=user.id,
         role=_enum_value(user.role) or "UNKNOWN",
         side=_enum_value(order.side),
         canonical_product=getattr(order, "market_product", None),
@@ -518,7 +512,6 @@ def trade_created_event(
 ) -> AnalyticsEvent:
     return AnalyticsEvent(
         name="trade_created",
-        user_id=user.id,
         role=_enum_value(user.role) or "UNKNOWN",
         side=side or _market_side_for_role(user.role) or (_enum_value(getattr(order, "side", None)) if order else None),
         canonical_product=canonical_product or (getattr(order, "market_product", None) if order else None),

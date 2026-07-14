@@ -1,6 +1,5 @@
 import asyncio
 import logging
-from uuid import uuid4
 
 import httpx
 import pytest
@@ -169,7 +168,6 @@ async def test_server_event_payload_is_allowlisted_and_contains_no_commercial_or
     delivered = await service.send_event(
         AnalyticsEvent(
             name="order_created",
-            user_id=uuid4(),
             role="BUYER",
             side="BID",
             canonical_product="BIO_METHANOL",
@@ -185,7 +183,6 @@ async def test_server_event_payload_is_allowlisted_and_contains_no_commercial_or
     assert payload["hostname"] == "staging.verdaxis.exchange"
     assert captured_headers["user-agent"] == "Mozilla/5.0 Test Browser"
     assert set(payload["data"]) == {
-        "user_id",
         "role",
         "side",
         "canonical_product",
@@ -260,7 +257,6 @@ async def test_beep_boop_bot_filter_response_is_treated_as_dropped_delivery():
     delivered = await service.send_event(
         AnalyticsEvent(
             name="trade_created",
-            user_id=uuid4(),
             role="BUYER",
             user_agent="Mozilla/5.0 Test Browser",
         )
@@ -278,7 +274,7 @@ async def test_best_effort_scheduling_never_raises_to_the_request(monkeypatch):
 
     monkeypatch.setattr(service, "send_event", fail)
     task = service.schedule_event(
-        AnalyticsEvent(name="registration_completed", user_id=uuid4(), role="BUYER")
+        AnalyticsEvent(name="registration_completed", role="BUYER")
     )
 
     assert task in service.pending_tasks

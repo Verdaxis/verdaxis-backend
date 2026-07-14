@@ -45,7 +45,7 @@ def test_conversion_event_builders_expose_only_contract_fields():
     ]
     for event in events:
         assert set(event.data()) <= {
-            "user_id", "role", "side", "canonical_product",
+            "role", "side", "canonical_product",
             "delivery_point", "availability_window",
         }
         serialized = repr(event.data()).lower()

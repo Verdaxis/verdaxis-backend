@@ -31,11 +31,11 @@ be enabled with a base URL and website ID.
 
 After the related database transaction succeeds, the backend sends bounded,
 best-effort events for `registration_completed`, `organization_created`,
-`order_created`, and `trade_created`. These events may include internal user ID,
-role, side, canonical product, delivery point, and availability window. They may
-not include email, names, organization names, order/trade IDs, counterparties,
-price, quantity, or total value. Delivery is timeout-bounded and may never fail
-the user request.
+`order_created`, and `trade_created`. These events may include role, side,
+canonical product, delivery point, and availability window. They may not include
+internal user IDs, email, names, organization names, order/trade IDs,
+counterparties, price, quantity, or total value. Delivery is timeout-bounded and
+may never fail the user request.
 
 Events are scheduled in-process immediately after the owning transaction commits.
 This deliberately favors request isolation over guaranteed delivery: a process
