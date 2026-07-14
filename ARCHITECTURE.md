@@ -39,7 +39,7 @@ app/
     curves.py                   # Forward curve data products plus legacy board/table/slice endpoints
     stream.py                   # SSE endpoints — /stream/prices, /stream/orderbook, /stream/trades
     compliance_api.py           # Compliance scoring — fleet scores, vessel scores, what-if scenarios
-    admin_analytics.py          # Platform analytics — overview stats + daily breakdown (ADMIN only)
+    admin_analytics.py          # Platform and product-usage aggregates (ADMIN only; Umami degrades independently)
     availability.py             # Fuel availability by port
     demand.py                   # Anonymized BID demand signals
     producers.py                # Producer project list (map data)
@@ -59,6 +59,7 @@ app/
     organization.py             # OrganizationCreate/Response
     orderbook.py                # Order/Trade schemas, price summaries, supplier metadata pack, ASK template response, canonical availability window validation
     market_activity.py          # Shared source/scope/demo-status provenance enums for market data
+    behavioral_analytics.py     # Typed privacy-bounded admin product-usage response
     [others unchanged]
   services/
     event_bus.py                # AsyncIO pub/sub — per-channel queues, 200 subscriber cap, backpressure
@@ -75,6 +76,7 @@ app/
     matchmaking.py              # Score-based BID/ASK matching (0-100)
     watchlists.py               # Market Radar helpers: default container, typed targets, slice summaries
     watchlist_events.py         # Slice/pin event emission from order lifecycle changes
+    behavioral_analytics.py     # Optional async Umami client, token/aggregate caches, post-commit conversion events
     ci_pricing.py               # Carbon intensity adjusted pricing
   middleware/
     rbac.py                     # require_role() factory — FastAPI dependency for role-based access
@@ -101,10 +103,11 @@ tests/integration/              # Auth hardening, trade lifecycle, orderbook E2E
 - **Price discovery provenance:** `/prices` 24h summaries classify confirmed trade buckets as `CONFIRMED_TRADE`, `DEMO_SEED`, `MIXED_SOURCE`, or `UNKNOWN` using the same demo organization rules as trade tape.
 - **Trade tape scope:** `/trade-tape` returns anonymized confirmed trade prints for the last 7 days. Exact delivery-point history is available only when clients filter by `delivery_point_id` and entries return `scope="DELIVERY_POINT"` with delivery-point fields. `provenance_kind` is legacy-compatible; new clients should prefer `source_kind`/`demo_status` when present on newer surfaces.
 - **Market Radar watchlists:** Watchlists are observer-only. Typed targets store either canonical slices or pinned order snapshots, and order create/update/cancel paths emit slice/pin events without feeding core matchmaking. New event payloads carry provenance at emission time; legacy events return `UNKNOWN` rather than doing response-time order lookups.
+- **Behavioral analytics:** Umami is an optional failure-isolated dependency. `GET /admin/analytics/product-usage?days=7|30|90` combines bounded Umami aggregates with authoritative UTC-period database counts. Server conversion events and the documented browser reporting taxonomy use separate allowlists. Registration, organization, order, and trade events are scheduled only after commits, carry bounded originating request metadata for Umami bot classification/environment attribution, and use a strict property allowlist; collector drops/failures never alter endpoint response contracts. Aggregate successes cache for at most five minutes and failures for at most 30 seconds. `totaltime / visits` is exposed only as average session duration, not active engagement. See `docs/behavioral-analytics-contract.md`.
 
 ## Revenue Streams
 
 1. **Transaction fees (0.5%)** — commission_amount_usd on Trade model
 2. **Compliance SaaS ($200-500/vessel/mo)** — /compliance/fleet, /compliance/scenario
 3. **Data products ($1K-5K/seat/mo)** — /prices/reference (daily VWAP)
-4. **Platform analytics** — /admin/analytics/overview, /admin/analytics/daily
+4. **Platform analytics** — /admin/analytics/overview, /admin/analytics/daily, /admin/analytics/product-usage

@@ -38,6 +38,7 @@ from app.services.audit_actions import (
     TRADE_PAID,
 )
 from app.schemas.errors import AUTH_RESPONSES
+from app.services.behavioral_analytics import track_analytics_event, trade_created_event
 
 router = APIRouter(prefix="/trades", tags=["trades"], responses=AUTH_RESPONSES)
 
@@ -314,6 +315,7 @@ async def create_trade(
         **request_audit_context(request),
     )
     await db.commit()
+    track_analytics_event(trade_created_event(current_user, order=order, request=request))
 
     # Reload with relationships for response
     loaded_trade = await _load_trade(db, trade.id)

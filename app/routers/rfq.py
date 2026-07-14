@@ -34,6 +34,7 @@ from app.services.audit_actions import (
     RFQ_QUOTE_SUBMITTED,
     TRADE_CREATED,
 )
+from app.services.behavioral_analytics import track_analytics_event, trade_created_event
 
 router = APIRouter(prefix="/rfq", tags=["rfq"])
 
@@ -522,6 +523,13 @@ async def accept_quote(
     )
 
     await db.commit()
+    track_analytics_event(
+        trade_created_event(
+            current_user,
+            availability_window=rfq.availability_window,
+            request=request,
+        )
+    )
 
     # Emit SSE event
     await event_bus.publish("trades", "trade_created", {

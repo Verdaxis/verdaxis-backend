@@ -1,6 +1,7 @@
 """Platform-wide analytics endpoints for the admin dashboard."""
 import hashlib
 import uuid as _uuid
+from enum import IntEnum
 from datetime import datetime, timedelta, UTC
 # Aliased because the DailyStat field is itself named `date` — pydantic
 # cannot resolve an annotation shadowed by its own field name.
@@ -25,6 +26,14 @@ from app.rate_limit import limiter
 from app.schemas.errors import AUTH_RESPONSES
 from app.services.audit_service import record_audit, request_audit_context
 from app.services.audit_actions import ADMIN_USER_REJECTED
+from app.schemas.behavioral_analytics import (
+    AuthoritativeUsage,
+    BehavioralUsage,
+    FunnelStage,
+    ProductUsageResponse,
+)
+from app.services.behavioral_analytics import UmamiAnalyticsService, get_analytics_service
+from app.services.demo_market import DEMO_MARKET_ORG_IDS
 
 
 # ---------------------------------------------------------------------------
@@ -140,6 +149,111 @@ def _per_token_rate_key(request: Request) -> str:
     if auth:
         return "tok:" + hashlib.sha256(auth.encode("utf-8")).hexdigest()[:16]
     return get_remote_address(request)
+
+
+def _conversion_rate(value: int, previous: int) -> float | None:
+    if previous <= 0:
+        return None
+    return round(value / previous * 100, 1)
+
+
+class ProductUsagePeriod(IntEnum):
+    SEVEN_DAYS = 7
+    THIRTY_DAYS = 30
+    NINETY_DAYS = 90
+
+
+@router.get("/product-usage", response_model=ProductUsageResponse)
+@limiter.limit("30/minute", key_func=_per_token_rate_key)
+async def get_product_usage(
+    request: Request,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_role(UserRole.ADMIN))],
+    analytics: Annotated[UmamiAnalyticsService, Depends(get_analytics_service)],
+    days: ProductUsagePeriod = Query(ProductUsagePeriod.THIRTY_DAYS),
+):
+    """Aggregated product usage without session identifiers or commercial data."""
+    days_value = int(days)
+    period_end = datetime.now(UTC)
+    period_start = period_end - timedelta(days=days_value)
+    market_roles = tuple(_MARKET_MEMBER_ROLES)
+
+    registrations_q = await db.execute(
+        select(func.count(User.id)).where(
+            User.role.in_(market_roles),
+            User.created_at >= period_start,
+            User.created_at < period_end,
+        )
+    )
+    logins_q = await db.execute(
+        select(func.count(User.id)).where(
+            User.role.in_(market_roles),
+            User.last_login >= period_start,
+            User.last_login < period_end,
+        )
+    )
+    order_orgs_q = await db.execute(
+        select(func.count(distinct(OrderBookOrder.organization_id))).where(
+            OrderBookOrder.created_at >= period_start,
+            OrderBookOrder.created_at < period_end,
+            OrderBookOrder.organization_id.in_(_market_member_org_ids_subquery()),
+            OrderBookOrder.organization_id.notin_(list(DEMO_MARKET_ORG_IDS)),
+        )
+    )
+    authoritative = AuthoritativeUsage(
+        registrations=registrations_q.scalar() or 0,
+        users_logging_in=logins_q.scalar() or 0,
+        order_placing_organizations=order_orgs_q.scalar() or 0,
+    )
+
+    aggregate = await analytics.get_aggregate(days_value)
+    average_session_duration = (
+        round(aggregate.total_time_seconds / aggregate.visits, 1)
+        if aggregate.visits
+        else 0.0
+    )
+    behavioral = BehavioralUsage(
+        visitors=aggregate.visitors,
+        visits=aggregate.visits,
+        pageviews=aggregate.pageviews,
+        total_time_seconds=aggregate.total_time_seconds,
+        average_session_duration_seconds=average_session_duration,
+        event_totals=aggregate.event_totals,
+        event_series=aggregate.event_series,
+        daily_visitors=aggregate.daily_visitors,
+        top_entries=aggregate.top_entries,
+        top_referrers=aggregate.top_referrers,
+    )
+
+    stage_values = [
+        ("visitors", behavioral.visitors),
+        ("signup_started", behavioral.event_totals.get("signup_started", 0)),
+        ("registrations", authoritative.registrations),
+        ("users_logging_in", authoritative.users_logging_in),
+        ("order_placing_organizations", authoritative.order_placing_organizations),
+    ]
+    funnel = [
+        FunnelStage(
+            name=name,
+            value=value,
+            conversion_from_previous_pct=(
+                None if index == 0 else _conversion_rate(value, stage_values[index - 1][1])
+            ),
+        )
+        for index, (name, value) in enumerate(stage_values)
+    ]
+
+    return ProductUsageResponse(
+        days=days_value,
+        period_start=period_start,
+        period_end=period_end,
+        behavioral_status=aggregate.status,
+        diagnostic=aggregate.diagnostic,
+        observed_at=aggregate.observed_at,
+        behavioral=behavioral,
+        authoritative=authoritative,
+        funnel=funnel,
+    )
 
 
 @router.get("/overview", response_model=OverviewResponse)

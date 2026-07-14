@@ -33,6 +33,7 @@ from app.services.audit_actions import (
     TRADE_CREATED,
 )
 from app.services.event_bus import event_bus
+from app.services.behavioral_analytics import track_analytics_event, trade_created_event
 
 router = APIRouter(prefix="/negotiations", tags=["negotiations"])
 
@@ -582,6 +583,9 @@ async def accept_negotiation(
     )
 
     await db.commit()
+    track_analytics_event(
+        trade_created_event(current_user, request=request)
+    )
 
     await event_bus.publish("negotiation", "negotiation_agreed", {
         "id": str(neg.id),
