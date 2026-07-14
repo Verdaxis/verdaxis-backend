@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import secrets
 import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -424,8 +425,16 @@ def get_analytics_service() -> UmamiAnalyticsService:
     return analytics_service
 
 
-def track_analytics_event(event: AnalyticsEvent) -> None:
+def track_analytics_event(event: AnalyticsEvent, *, request: Any | None = None) -> None:
     """Schedule a post-commit event without adding latency to the request."""
+    provided_monitor_token = getattr(request, "headers", {}).get("x-monitor-token") if request else None
+    configured_monitor_token = settings.MONITOR_TOKEN
+    if (
+        provided_monitor_token
+        and configured_monitor_token
+        and secrets.compare_digest(provided_monitor_token, configured_monitor_token)
+    ):
+        return
     analytics_service.schedule_event(event)
 
 

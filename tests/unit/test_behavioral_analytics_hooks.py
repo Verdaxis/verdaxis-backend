@@ -1,12 +1,15 @@
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import Mock
 from uuid import uuid4
 
 from app.services.behavioral_analytics import (
+    analytics_service,
     organization_created_event,
     order_created_event,
     registration_completed_event,
     trade_created_event,
+    track_analytics_event,
 )
 
 
@@ -74,6 +77,22 @@ def test_request_metadata_is_bounded_and_not_part_of_event_data():
     assert len(event.user_agent) <= 256
     assert "user_agent" not in event.data()
     assert "hostname" not in event.data()
+
+
+def test_authenticated_monitor_requests_are_not_tracked(monkeypatch):
+    request = SimpleNamespace(headers={"x-monitor-token": "monitor-secret"})
+    user = SimpleNamespace(id=uuid4(), role=SimpleNamespace(value="BUYER"))
+    schedule = Mock()
+    monkeypatch.setattr(analytics_service, "schedule_event", schedule)
+    monkeypatch.setattr("app.services.behavioral_analytics.settings.MONITOR_TOKEN", "monitor-secret")
+
+    track_analytics_event(registration_completed_event(user), request=request)
+
+    schedule.assert_not_called()
+
+    request.headers["x-monitor-token"] = "wrong-token"
+    track_analytics_event(registration_completed_event(user), request=request)
+    schedule.assert_called_once()
 
 
 def test_registration_and_organization_events_are_wired_after_commits():

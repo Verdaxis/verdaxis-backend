@@ -43,6 +43,10 @@ termination can drop an event, and analytics is not a financial system of record
 Verdaxis remains authoritative for registrations, logins, organizations, orders,
 and trades.
 
+Requests authenticated with the configured internal monitor token are excluded
+from event delivery so signup canaries test the real flow without inflating
+acquisition metrics.
+
 The server producer allowlist is limited to `registration_completed`,
 `organization_created`, `order_created`, and `trade_created`. It is separate from
 the browser reporting taxonomy below. Server events copy the originating request's

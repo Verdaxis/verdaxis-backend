@@ -1131,9 +1131,13 @@ async def create_order(
 
     await db.commit()
     if new_order is not None:
-        track_analytics_event(order_created_event(current_user, new_order, request=request))
+        track_analytics_event(
+            order_created_event(current_user, new_order, request=request), request=request
+        )
         for trade in matched_trades:
-            track_analytics_event(trade_created_event(current_user, order=new_order, request=request))
+            track_analytics_event(
+                trade_created_event(current_user, order=new_order, request=request), request=request
+            )
 
     # Publish events for any auto-matched trades
     if matched_trades:

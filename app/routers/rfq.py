@@ -528,7 +528,8 @@ async def accept_quote(
             current_user,
             availability_window=rfq.availability_window,
             request=request,
-        )
+        ),
+        request=request,
     )
 
     # Emit SSE event

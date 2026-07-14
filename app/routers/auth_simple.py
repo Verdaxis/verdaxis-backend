@@ -437,7 +437,9 @@ async def register(request: _Request, user_in: UserCreate, db: AsyncSession = De
         )
         await db.commit()
         await db.refresh(new_user)
-        track_analytics_event(registration_completed_event(new_user, request=request))
+        track_analytics_event(
+            registration_completed_event(new_user, request=request), request=request
+        )
 
         # Referral attribution
         await _attribute_referral(db, new_user, user_in.referral_code)
@@ -540,8 +542,12 @@ async def register_with_org(
     )
     await db.commit()
     await db.refresh(new_user)
-    track_analytics_event(organization_created_event(new_user, request=http_request))
-    track_analytics_event(registration_completed_event(new_user, request=http_request))
+    track_analytics_event(
+        organization_created_event(new_user, request=http_request), request=http_request
+    )
+    track_analytics_event(
+        registration_completed_event(new_user, request=http_request), request=http_request
+    )
 
     # Referral attribution
     await _attribute_referral(db, new_user, payload.get("referral_code"))

@@ -315,7 +315,9 @@ async def create_trade(
         **request_audit_context(request),
     )
     await db.commit()
-    track_analytics_event(trade_created_event(current_user, order=order, request=request))
+    track_analytics_event(
+        trade_created_event(current_user, order=order, request=request), request=request
+    )
 
     # Reload with relationships for response
     loaded_trade = await _load_trade(db, trade.id)

@@ -584,7 +584,7 @@ async def accept_negotiation(
 
     await db.commit()
     track_analytics_event(
-        trade_created_event(current_user, request=request)
+        trade_created_event(current_user, request=request), request=request
     )
 
     await event_bus.publish("negotiation", "negotiation_agreed", {
