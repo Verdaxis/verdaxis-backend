@@ -7,6 +7,7 @@ import json
 import logging
 import secrets
 import time
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from enum import Enum
@@ -21,6 +22,14 @@ logger = logging.getLogger(__name__)
 
 _MAX_RESPONSE_BYTES = 1_000_000
 _TOKEN_TTL_SECONDS = 300
+# Windowed aggregate cache (plan §2.6): bounded LRU with per-key
+# single-flight locks. Keys include the normalized window, requested
+# breakdowns, website id, and a schema-version constant.
+_WINDOW_CACHE_MAX_ENTRIES = 32
+_WINDOW_CACHE_SCHEMA_VERSION = 1
+_LEGACY_WINDOW_QUANTUM_SECONDS = 300
+_MAX_PROPERTY_EVENTS = 12
+_MAX_PROPERTY_ROWS = 500
 SERVER_EVENT_NAMES = frozenset(
     {"registration_completed", "organization_created", "order_created", "trade_created"}
 )
@@ -111,6 +120,47 @@ class BehavioralAggregate:
         )
 
 
+@dataclass(frozen=True)
+class BehavioralWindowAggregate:
+    """Date-bounded behavioral aggregate for one half-open UTC window.
+
+    ``status`` is ``available`` when every requested piece resolved,
+    ``partial`` when the core aggregate resolved but one or more per-event
+    property breakdowns failed (failed events listed in
+    ``property_failures``), and ``unavailable`` when the core fetch failed.
+    """
+
+    status: str
+    diagnostic: AnalyticsDiagnostic | None
+    observed_at: datetime
+    start: datetime
+    end: datetime
+    visitors: int = 0
+    visits: int = 0
+    pageviews: int = 0
+    total_time_seconds: int = 0
+    event_totals: dict[str, int] = field(default_factory=dict)
+    event_series: list[dict[str, Any]] = field(default_factory=list)
+    daily_visitors: list[dict[str, Any]] = field(default_factory=list)
+    top_entries: list[dict[str, Any]] = field(default_factory=list)
+    top_referrers: list[dict[str, Any]] = field(default_factory=list)
+    # Per requested event name: [{"property": str, "value": str, "total": int}]
+    event_properties: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
+    property_failures: tuple[str, ...] = ()
+
+    @classmethod
+    def unavailable(
+        cls, diagnostic: AnalyticsDiagnostic, start: datetime, end: datetime
+    ) -> "BehavioralWindowAggregate":
+        return cls(
+            status="unavailable",
+            diagnostic=diagnostic,
+            observed_at=datetime.now(UTC),
+            start=start,
+            end=end,
+        )
+
+
 class _AnalyticsError(Exception):
     def __init__(self, diagnostic: AnalyticsDiagnostic):
         self.diagnostic = diagnostic
@@ -133,8 +183,11 @@ class UmamiAnalyticsService:
         self._token: str | None = None
         self._token_expires_at = 0.0
         self._token_lock = asyncio.Lock()
-        self._aggregate_cache: dict[int, tuple[float, BehavioralAggregate]] = {}
-        self._aggregate_locks = {days: asyncio.Lock() for days in (7, 30, 90)}
+        # Bounded LRU of windowed aggregates with per-key single-flight locks.
+        self._window_cache: OrderedDict[tuple, tuple[float, BehavioralWindowAggregate]] = (
+            OrderedDict()
+        )
+        self._window_locks: dict[tuple, asyncio.Lock] = {}
         self._pending_tasks: set[asyncio.Task[None]] = set()
 
     @property
@@ -278,12 +331,47 @@ class UmamiAnalyticsService:
             rows.append({"name": item["x"][:500], "value": cls._number(item.get("y"))})
         return rows
 
-    async def _fetch_aggregate(self, days: int) -> BehavioralAggregate:
+    async def _fetch_event_property_rows(
+        self, base: str, params: dict[str, Any], event_name: str
+    ) -> list[dict[str, Any]]:
+        """Per-value breakdown for one registered event.
+
+        Uses the verified ``event-data/events?event=<name>`` form — the only
+        property route shape supported by the installed Umami 3.2.0 (see
+        docs/behavioral-analytics-contract.md). Rows are bounded and
+        allowlist-shaped; anything else is a malformed response.
+        """
+        payload = await self._authorized_get(
+            f"{base}/event-data/events", {**params, "event": event_name}
+        )
+        if not isinstance(payload, list):
+            raise _AnalyticsError(AnalyticsDiagnostic.MALFORMED_RESPONSE)
+        rows: list[dict[str, Any]] = []
+        for item in payload[:_MAX_PROPERTY_ROWS]:
+            if (
+                not isinstance(item, dict)
+                or not isinstance(item.get("propertyName"), str)
+                or not isinstance(item.get("propertyValue"), str)
+            ):
+                raise _AnalyticsError(AnalyticsDiagnostic.MALFORMED_RESPONSE)
+            rows.append(
+                {
+                    "property": item["propertyName"][:120],
+                    "value": item["propertyValue"][:500],
+                    "total": self._number(item.get("total")),
+                }
+            )
+        return rows
+
+    async def _fetch_window(
+        self,
+        start: datetime,
+        end: datetime,
+        event_properties: tuple[str, ...],
+    ) -> BehavioralWindowAggregate:
         website = self.configuration.UMAMI_WEBSITE_ID
         if not website:
             raise _AnalyticsError(AnalyticsDiagnostic.CONFIGURATION)
-        end = datetime.now(UTC)
-        start = end - timedelta(days=days)
         params = {
             "startAt": int(start.timestamp() * 1000),
             "endAt": int(end.timestamp() * 1000),
@@ -331,10 +419,41 @@ class UmamiAnalyticsService:
                 {"date": item["x"][:10], "value": self._number(item.get("y"))}
             )
 
-        return BehavioralAggregate(
-            status="available",
-            diagnostic=None,
-            observed_at=end,
+        # Per-event property breakdowns are best-effort: a failed breakdown
+        # degrades the window to partial instead of failing the whole tab.
+        property_rows: dict[str, list[dict[str, Any]]] = {}
+        property_failures: list[str] = []
+        failure_diagnostic: AnalyticsDiagnostic | None = None
+        if event_properties:
+            outcomes = await asyncio.gather(
+                *(
+                    self._fetch_event_property_rows(base, params, event_name)
+                    for event_name in event_properties
+                ),
+                return_exceptions=True,
+            )
+            for event_name, outcome in zip(event_properties, outcomes):
+                if isinstance(outcome, BaseException):
+                    diagnostic = (
+                        outcome.diagnostic
+                        if isinstance(outcome, _AnalyticsError)
+                        else AnalyticsDiagnostic.UPSTREAM
+                    )
+                    failure_diagnostic = failure_diagnostic or diagnostic
+                    property_failures.append(event_name)
+                    logger.warning(
+                        "behavioral_analytics.property_breakdown_unavailable",
+                        extra={"event": event_name, "diagnostic": diagnostic.value},
+                    )
+                else:
+                    property_rows[event_name] = outcome
+
+        return BehavioralWindowAggregate(
+            status="partial" if property_failures else "available",
+            diagnostic=failure_diagnostic,
+            observed_at=datetime.now(UTC),
+            start=start,
+            end=end,
             visitors=self._number(stats.get("visitors")),
             visits=self._number(stats.get("visits")),
             pageviews=self._number(stats.get("pageviews")),
@@ -344,31 +463,121 @@ class UmamiAnalyticsService:
             daily_visitors=daily_visitors,
             top_entries=self._metric_rows(entries),
             top_referrers=self._metric_rows(referrers),
+            event_properties=property_rows,
+            property_failures=tuple(property_failures),
         )
+
+    @staticmethod
+    def _normalized_window(start: datetime, end: datetime) -> tuple[datetime, datetime]:
+        if start.tzinfo is None:
+            start = start.replace(tzinfo=UTC)
+        if end.tzinfo is None:
+            end = end.replace(tzinfo=UTC)
+        return start.astimezone(UTC), end.astimezone(UTC)
+
+    async def get_window_aggregate(
+        self,
+        start: datetime,
+        end: datetime,
+        *,
+        event_properties: tuple[str, ...] = (),
+    ) -> BehavioralWindowAggregate:
+        """Date-bounded aggregate with optional per-event property breakdowns.
+
+        Results are cached in a bounded LRU keyed by the normalized window,
+        the requested breakdown set, the website id, and a schema-version
+        constant; identical concurrent requests share one upstream fetch.
+        """
+        start, end = self._normalized_window(start, end)
+        if end <= start:
+            raise ValueError("end must be after start")
+        names = tuple(sorted(set(event_properties)))
+        if len(names) > _MAX_PROPERTY_EVENTS:
+            raise ValueError(f"at most {_MAX_PROPERTY_EVENTS} event breakdowns per request")
+        registered = SERVER_EVENT_NAMES | FRONTEND_EVENT_NAMES
+        for name in names:
+            if name not in registered:
+                raise ValueError(f"unregistered analytics event: {name}")
+
+        key = (
+            _WINDOW_CACHE_SCHEMA_VERSION,
+            self.configuration.UMAMI_WEBSITE_ID,
+            int(start.timestamp() * 1000),
+            int(end.timestamp() * 1000),
+            names,
+        )
+        cached = self._window_cache.get(key)
+        if cached and time.monotonic() < cached[0]:
+            self._window_cache.move_to_end(key)
+            return cached[1]
+
+        lock = self._window_locks.setdefault(key, asyncio.Lock())
+        try:
+            async with lock:
+                cached = self._window_cache.get(key)
+                if cached and time.monotonic() < cached[0]:
+                    self._window_cache.move_to_end(key)
+                    return cached[1]
+                try:
+                    result = await self._fetch_window(start, end, names)
+                except _AnalyticsError as exc:
+                    logger.warning(
+                        "behavioral_analytics.window_unavailable",
+                        extra={"diagnostic": exc.diagnostic.value},
+                    )
+                    result = BehavioralWindowAggregate.unavailable(exc.diagnostic, start, end)
+                except Exception:
+                    logger.warning(
+                        "behavioral_analytics.window_unavailable",
+                        extra={"diagnostic": AnalyticsDiagnostic.UPSTREAM.value},
+                    )
+                    result = BehavioralWindowAggregate.unavailable(
+                        AnalyticsDiagnostic.UPSTREAM, start, end
+                    )
+                ttl = (
+                    self.success_cache_seconds
+                    if result.status == "available"
+                    else self.failure_cache_seconds
+                )
+                self._window_cache[key] = (time.monotonic() + ttl, result)
+                self._window_cache.move_to_end(key)
+                while len(self._window_cache) > _WINDOW_CACHE_MAX_ENTRIES:
+                    self._window_cache.popitem(last=False)
+                return result
+        finally:
+            # Waiters keep their reference to the lock object; dropping the
+            # dict entry only bounds the lock table.
+            self._window_locks.pop(key, None)
 
     async def get_aggregate(self, days: int) -> BehavioralAggregate:
         if days not in {7, 30, 90}:
             raise ValueError("days must be 7, 30, or 90")
-        now = time.monotonic()
-        cached = self._aggregate_cache.get(days)
-        if cached and now < cached[0]:
-            return cached[1]
-        async with self._aggregate_locks[days]:
-            now = time.monotonic()
-            cached = self._aggregate_cache.get(days)
-            if cached and now < cached[0]:
-                return cached[1]
-            try:
-                result = await self._fetch_aggregate(days)
-            except _AnalyticsError as exc:
-                logger.warning("behavioral_analytics.aggregate_unavailable", extra={"diagnostic": exc.diagnostic.value})
-                result = BehavioralAggregate.unavailable(exc.diagnostic)
-            except Exception:
-                logger.warning("behavioral_analytics.aggregate_unavailable", extra={"diagnostic": AnalyticsDiagnostic.UPSTREAM.value})
-                result = BehavioralAggregate.unavailable(AnalyticsDiagnostic.UPSTREAM)
-            ttl = self.success_cache_seconds if result.status == "available" else self.failure_cache_seconds
-            self._aggregate_cache[days] = (time.monotonic() + ttl, result)
-            return result
+        # Quantize the rolling window to five-minute boundaries so repeated
+        # dashboard polls share one LRU entry (preserving the legacy caching
+        # behavior within the same TTL bound).
+        quantized = int(time.time() // _LEGACY_WINDOW_QUANTUM_SECONDS) * (
+            _LEGACY_WINDOW_QUANTUM_SECONDS
+        )
+        end = datetime.fromtimestamp(quantized, tz=UTC)
+        start = end - timedelta(days=days)
+        window = await self.get_window_aggregate(start, end)
+        if window.status == "unavailable":
+            diagnostic = window.diagnostic or AnalyticsDiagnostic.UPSTREAM
+            return BehavioralAggregate.unavailable(diagnostic)
+        return BehavioralAggregate(
+            status="available",
+            diagnostic=None,
+            observed_at=window.observed_at,
+            visitors=window.visitors,
+            visits=window.visits,
+            pageviews=window.pageviews,
+            total_time_seconds=window.total_time_seconds,
+            event_totals=window.event_totals,
+            event_series=window.event_series,
+            daily_visitors=window.daily_visitors,
+            top_entries=window.top_entries,
+            top_referrers=window.top_referrers,
+        )
 
     async def send_event(self, event: AnalyticsEvent) -> bool:
         if not self._collector_configured:

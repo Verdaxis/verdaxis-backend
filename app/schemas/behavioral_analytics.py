@@ -35,6 +35,15 @@ class BehavioralUsage(BaseModel):
     top_referrers: list[MetricEntry]
 
 
+class EventPropertyValueRow(BaseModel):
+    """One per-value breakdown row from the verified Umami
+    ``event-data/events?event=<name>`` route (Product Analytics §2.3)."""
+
+    property: str
+    value: str
+    total: int = Field(ge=0)
+
+
 class AuthoritativeUsage(BaseModel):
     registrations: int = Field(ge=0)
     users_logging_in: int = Field(ge=0)

@@ -9,6 +9,7 @@ from app.services.behavioral_analytics import (
     ADMIN_FEATURE_EVENT_NAMES,
     AnalyticsDiagnostic,
     AnalyticsEvent,
+    BehavioralAggregate,
     FRONTEND_EVENT_NAMES,
     SERVER_EVENT_NAMES,
     UmamiAnalyticsService,
@@ -283,3 +284,246 @@ async def test_best_effort_scheduling_never_raises_to_the_request(monkeypatch):
     assert task.done()
     assert task.exception() is None
     assert not service.pending_tasks
+
+
+# ---------------------------------------------------------------------------
+# Windowed aggregates (Product Analytics plan Task 4)
+# ---------------------------------------------------------------------------
+
+from datetime import UTC, datetime, timedelta
+
+
+_WINDOW_START = datetime(2026, 6, 1, tzinfo=UTC)
+_WINDOW_END = datetime(2026, 7, 1, tzinfo=UTC)
+
+
+def _window_handler(counters: dict, *, property_status: int = 200):
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path == "/api/auth/login":
+            return httpx.Response(200, json={"token": "token-value"})
+        counters.setdefault("windows", set()).add(
+            (request.url.params.get("startAt"), request.url.params.get("endAt"))
+        )
+        if path.endswith("/stats"):
+            counters["stats"] = counters.get("stats", 0) + 1
+            return httpx.Response(
+                200, json={"visitors": 12, "visits": 8, "pageviews": 30, "totaltime": 160}
+            )
+        if path.endswith("/pageviews"):
+            return httpx.Response(200, json={"pageviews": [], "sessions": []})
+        if path.endswith("/events/series"):
+            return httpx.Response(
+                200, json=[{"x": "signup_started", "t": "2026-06-10 00:00:00", "y": 4}]
+            )
+        if path.endswith("/event-data/events"):
+            counters["properties"] = counters.get("properties", 0) + 1
+            assert request.url.params.get("event"), "bare event-data/events form is unsupported"
+            if property_status != 200:
+                return httpx.Response(property_status)
+            return httpx.Response(
+                200,
+                json=[
+                    {"eventName": request.url.params["event"], "propertyName": "destination",
+                     "dataType": 1, "propertyValue": "marketplace", "total": 7},
+                    {"eventName": request.url.params["event"], "propertyName": "destination",
+                     "dataType": 1, "propertyValue": "map", "total": 3},
+                ],
+            )
+        return httpx.Response(200, json=[])
+
+    return handler
+
+
+@pytest.mark.asyncio
+async def test_window_aggregate_is_date_bounded_and_isolated_by_query_key():
+    counters: dict = {}
+    service = UmamiAnalyticsService(
+        _settings(), transport=httpx.MockTransport(_window_handler(counters))
+    )
+
+    current = await service.get_window_aggregate(_WINDOW_START, _WINDOW_END)
+    previous = await service.get_window_aggregate(
+        _WINDOW_START - timedelta(days=30), _WINDOW_START
+    )
+
+    assert current.status == "available"
+    assert current.start == _WINDOW_START and current.end == _WINDOW_END
+    assert current.visitors == 12
+    assert previous.start == _WINDOW_START - timedelta(days=30)
+    # Two distinct windows → two upstream fetch cycles with distinct bounds.
+    assert counters["stats"] == 2
+    assert len(counters["windows"]) == 2
+    requested = {
+        (str(int(_WINDOW_START.timestamp() * 1000)), str(int(_WINDOW_END.timestamp() * 1000)))
+    }
+    assert requested <= counters["windows"]
+
+    # Same windows again: served from cache, no new upstream calls.
+    await service.get_window_aggregate(_WINDOW_START, _WINDOW_END)
+    await service.get_window_aggregate(_WINDOW_START - timedelta(days=30), _WINDOW_START)
+    assert counters["stats"] == 2
+
+
+@pytest.mark.asyncio
+async def test_event_property_breakdowns_use_the_verified_filtered_route():
+    counters: dict = {}
+    service = UmamiAnalyticsService(
+        _settings(), transport=httpx.MockTransport(_window_handler(counters))
+    )
+
+    result = await service.get_window_aggregate(
+        _WINDOW_START, _WINDOW_END, event_properties=("platform_navigation",)
+    )
+
+    assert result.status == "available"
+    assert result.event_properties["platform_navigation"] == [
+        {"property": "destination", "value": "marketplace", "total": 7},
+        {"property": "destination", "value": "map", "total": 3},
+    ]
+    assert counters["properties"] == 1
+
+    with pytest.raises(ValueError):
+        await service.get_window_aggregate(
+            _WINDOW_START, _WINDOW_END, event_properties=("not_a_registered_event",)
+        )
+
+
+@pytest.mark.asyncio
+async def test_partial_property_failure_keeps_totals_and_reports_partial():
+    counters: dict = {}
+    service = UmamiAnalyticsService(
+        _settings(),
+        transport=httpx.MockTransport(_window_handler(counters, property_status=500)),
+    )
+
+    result = await service.get_window_aggregate(
+        _WINDOW_START, _WINDOW_END, event_properties=("platform_navigation",)
+    )
+
+    assert result.status == "partial"
+    assert result.diagnostic == AnalyticsDiagnostic.UPSTREAM
+    assert result.visitors == 12  # core totals survive
+    assert result.event_properties == {}
+    assert result.property_failures == ("platform_navigation",)
+
+
+@pytest.mark.asyncio
+async def test_malformed_property_rows_degrade_to_partial():
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/auth/login":
+            return httpx.Response(200, json={"token": "token-value"})
+        if request.url.path.endswith("/stats"):
+            return httpx.Response(
+                200, json={"visitors": 1, "visits": 1, "pageviews": 1, "totaltime": 5}
+            )
+        if request.url.path.endswith("/pageviews"):
+            return httpx.Response(200, json={"pageviews": [], "sessions": []})
+        if request.url.path.endswith("/events/series"):
+            return httpx.Response(200, json=[])
+        if request.url.path.endswith("/event-data/events"):
+            return httpx.Response(200, json=[{"unexpected": "shape"}])
+        return httpx.Response(200, json=[])
+
+    service = UmamiAnalyticsService(_settings(), transport=httpx.MockTransport(handler))
+    result = await service.get_window_aggregate(
+        _WINDOW_START, _WINDOW_END, event_properties=("signup_started",)
+    )
+
+    assert result.status == "partial"
+    assert result.diagnostic == AnalyticsDiagnostic.MALFORMED_RESPONSE
+    assert result.property_failures == ("signup_started",)
+
+
+@pytest.mark.asyncio
+async def test_window_core_timeout_is_unavailable_with_short_ttl():
+    calls = {"count": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/auth/login":
+            return httpx.Response(200, json={"token": "token-value"})
+        calls["count"] += 1
+        raise httpx.ReadTimeout("slow collector")
+
+    service = UmamiAnalyticsService(
+        _settings(), transport=httpx.MockTransport(handler), failure_cache_seconds=30
+    )
+    first = await service.get_window_aggregate(_WINDOW_START, _WINDOW_END)
+    burst_calls = calls["count"]
+    second = await service.get_window_aggregate(_WINDOW_START, _WINDOW_END)
+
+    assert first.status == "unavailable"
+    assert first.diagnostic == AnalyticsDiagnostic.TIMEOUT
+    assert second.status == "unavailable"
+    # The failure is cached with the short TTL: one upstream burst, not two.
+    assert calls["count"] == burst_calls
+
+
+@pytest.mark.asyncio
+async def test_window_cache_is_a_bounded_lru_of_32_entries():
+    counters: dict = {}
+    service = UmamiAnalyticsService(
+        _settings(), transport=httpx.MockTransport(_window_handler(counters))
+    )
+
+    for offset in range(33):
+        start = _WINDOW_START + timedelta(days=offset)
+        await service.get_window_aggregate(start, start + timedelta(days=1))
+    assert counters["stats"] == 33
+    assert len(service._window_cache) == 32
+
+    # The first (least recently used) window was evicted and refetches,
+    # which in turn evicts the next-oldest window (offset 1).
+    await service.get_window_aggregate(_WINDOW_START, _WINDOW_START + timedelta(days=1))
+    assert counters["stats"] == 34
+    # A window that survived the evictions is still served from cache.
+    await service.get_window_aggregate(
+        _WINDOW_START + timedelta(days=2), _WINDOW_START + timedelta(days=3)
+    )
+    assert counters["stats"] == 34
+
+
+@pytest.mark.asyncio
+async def test_single_flight_deduplicates_concurrent_identical_requests():
+    counters = {"stats": 0}
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/auth/login":
+            return httpx.Response(200, json={"token": "token-value"})
+        if request.url.path.endswith("/stats"):
+            counters["stats"] += 1
+            await asyncio.sleep(0.02)
+            return httpx.Response(
+                200, json={"visitors": 3, "visits": 2, "pageviews": 5, "totaltime": 40}
+            )
+        if request.url.path.endswith("/pageviews"):
+            return httpx.Response(200, json={"pageviews": [], "sessions": []})
+        if request.url.path.endswith("/events/series"):
+            return httpx.Response(200, json=[])
+        return httpx.Response(200, json=[])
+
+    service = UmamiAnalyticsService(_settings(), transport=httpx.MockTransport(handler))
+    results = await asyncio.gather(
+        *(service.get_window_aggregate(_WINDOW_START, _WINDOW_END) for _ in range(5))
+    )
+
+    assert all(result.visitors == 3 for result in results)
+    assert counters["stats"] == 1
+
+
+@pytest.mark.asyncio
+async def test_legacy_days_aggregate_delegates_to_the_window_cache():
+    counters: dict = {}
+    service = UmamiAnalyticsService(
+        _settings(), transport=httpx.MockTransport(_window_handler(counters))
+    )
+
+    first = await service.get_aggregate(7)
+    second = await service.get_aggregate(7)
+
+    assert isinstance(first, BehavioralAggregate)
+    assert first.visitors == 12
+    assert first.event_totals == {"signup_started": 4}
+    # Quantized rolling window → one upstream fetch for both calls.
+    assert counters["stats"] == 1
+    assert second.status == "available"
