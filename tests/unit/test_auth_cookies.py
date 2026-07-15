@@ -44,6 +44,7 @@ def _approved_user() -> SimpleNamespace:
         status=UserStatus.APPROVED,
         email_verified=True,
         password_changed_at=None,
+        organization_id=None,
     )
 
 
@@ -54,6 +55,10 @@ def _mock_db_session(user: SimpleNamespace) -> AsyncMock:
     session.execute = AsyncMock(return_value=result)
     session.commit = AsyncMock()
     session.refresh = AsyncMock()
+    # record_login_day inspects the dialect for its upsert flavor.
+    session.get_bind = MagicMock(
+        return_value=SimpleNamespace(dialect=SimpleNamespace(name="sqlite"))
+    )
     return session
 
 

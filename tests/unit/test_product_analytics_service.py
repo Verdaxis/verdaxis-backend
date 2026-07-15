@@ -36,6 +36,20 @@ async def seeded_engine():
     factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     async with factory() as session:
         await fixtures.seed_product_analytics_scenario(session)
+        await fixtures.seed_fact_tables(session)
+        yield engine, session
+    await engine.dispose()
+
+
+@pytest.fixture
+async def pre_fact_engine():
+    """Scenario without any fact rows: coverage-gated metrics must be null."""
+    engine = create_async_engine("sqlite+aiosqlite://", echo=False)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all, tables=list(fixtures.scenario_tables()))
+    factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    async with factory() as session:
+        await fixtures.seed_product_analytics_scenario(session)
         yield engine, session
     await engine.dispose()
 
@@ -77,10 +91,16 @@ async def test_overview_matches_frozen_expectations(seeded_engine):
     retention = EXPECTED["retention"]
 
     kpis = result.kpis
-    # Fact-table-backed KPIs stay null until Task 5 lands the fact tables —
-    # never inferred from mutable snapshots.
-    assert kpis.qualified_organizations.value is None
-    assert kpis.active_members.value is None
+    # Fact-backed KPIs: qualified organizations reconstructed as-of end from
+    # the transition history; active members from login-day facts. The
+    # previous active-member window predates login coverage → null.
+    assert kpis.qualified_organizations.value == members["qualified_organizations_as_of_end"]
+    assert (
+        kpis.qualified_organizations.previous
+        == members["qualified_organizations_as_of_previous_end"]
+    )
+    assert kpis.active_members.value == members["active_current"]
+    assert kpis.active_members.previous is None
     assert kpis.participating_organizations.value == orders["participating_organizations_current"]
     assert kpis.participating_organizations.previous == orders["participating_organizations_previous"]
     assert kpis.live_orders.value == orders["live_current"]
@@ -470,6 +490,15 @@ async def test_activation_matches_frozen_expectations(seeded_engine):
     assert result.time_to_first_live_order.median_hours is None
     assert result.data_quality.suppressed_cell_count > 0
 
+    # Fact-backed journey stages: one approval transition and two first
+    # recorded logins in the period — both segmented small cells.
+    assert result.approved_members.suppressed is True
+    assert result.first_login_members.suppressed is True
+    assert result.time_to_first_login.suppressed is True
+    assert result.time_to_first_login.median_hours is None
+    assert result.status_coverage_start is not None
+    assert result.login_coverage_start is not None
+
 
 async def test_retention_matches_frozen_expectations(seeded_engine):
     _engine, session = seeded_engine
@@ -493,6 +522,53 @@ async def test_retention_matches_frozen_expectations(seeded_engine):
     assert repeat["1"].suppressed is True
     assert repeat["2"].count == expected["repeat_participation_2_days"]
     assert repeat["3_plus"].suppressed is True
+
+    # Returning members require login coverage over both windows; the
+    # previous window predates coverage → null, not a fabricated count.
+    assert result.returning_members.value is None
+    # Weekly member cohorts start at coverage; every pilot-scale cohort cell
+    # is suppressed rather than zeroed.
+    assert result.member_cohorts, "cohorts expected once login facts exist"
+    assert all(row.size.suppressed for row in result.member_cohorts)
+    assert result.login_coverage_start == datetime(2026, 5, 20, tzinfo=UTC)
+
+
+async def test_engagement_rolling_windows_are_coverage_gated(seeded_engine):
+    _engine, session = seeded_engine
+    service = ProductAnalyticsService(session)
+
+    result = await service.engagement(_query())
+    expected = EXPECTED["engagement"]
+
+    assert result.kpis.dau.value == expected["dau"]
+    assert result.kpis.wau.value == expected["wau"]
+    assert result.kpis.mau.value == expected["mau"]
+    assert sum(point.value for point in result.active_members_trend) == 4
+    assert result.login_coverage_start == datetime(2026, 5, 20, tzinfo=UTC)
+
+
+async def test_fact_backed_metrics_are_null_without_fact_rows(pre_fact_engine):
+    """Before the fact tables have rows, coverage-gated metrics return null —
+    never values inferred from User.last_login or User.status snapshots."""
+    _engine, session = pre_fact_engine
+    service = ProductAnalyticsService(session)
+
+    overview = await service.overview(_query())
+    assert overview.kpis.active_members.value is None
+    assert overview.kpis.qualified_organizations.value is None
+    assert overview.login_coverage_start is None
+    assert overview.status_coverage_start is None
+
+    engagement = await service.engagement(_query())
+    assert engagement.kpis.mau.value is None
+
+    retention = await service.retention(_query())
+    assert retention.returning_members.value is None
+    assert retention.member_cohorts == []
+
+    activation = await service.activation(_query())
+    assert activation.approved_members.count is None
+    assert activation.first_login_members.count == 0
 
 
 async def test_activation_and_retention_statement_budgets(seeded_engine):

@@ -42,6 +42,7 @@ from app.models.orderbook import (
     TradeStatus,
 )
 from app.models.orders import Commission, CommissionStatus
+from app.models.product_analytics import UserLoginDay, UserStatusTransition
 from app.models.user import Organization, OrgType, User, UserRole, UserStatus
 from app.services.demo_market import DEMO_ACTIVITY_BUYER_ORG_ID
 
@@ -157,7 +158,13 @@ SCENARIO_TABLES = (
 
 def scenario_tables() -> tuple[Table, ...]:
     """All tables the scenario writes, legacy stub included, creation-ordered."""
-    return (*SCENARIO_TABLES[:-1], legacy_orders_stub_table(), Commission.__table__)
+    return (
+        *SCENARIO_TABLES[:-1],
+        legacy_orders_stub_table(),
+        Commission.__table__,
+        UserLoginDay.__table__,
+        UserStatusTransition.__table__,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -472,6 +479,62 @@ async def seed_product_analytics_scenario(session: AsyncSession) -> ProductAnaly
     return scenario
 
 
+async def seed_fact_tables(session: AsyncSession) -> None:
+    """Insert the planned login-day and status-transition facts (Task 5).
+
+    Kept separate from the base scenario so pre-fact tests can still exercise
+    the coverage-gated null behavior by seeding only the scenario.
+    """
+    for planned in PLANNED_LOGIN_DAYS:
+        user_key = planned["user"]
+        user_id = USER_IDS[user_key]
+        org_id, role = _USER_SNAPSHOTS[user_key]
+        session.add(
+            UserLoginDay(
+                id=fixture_uuid(f"login-day:{user_key}:{planned['activity_date']}"),
+                activity_date=planned["activity_date"],
+                user_id=user_id,
+                organization_id=org_id,
+                role=role,
+                login_count=planned["login_count"],
+                first_login_at=planned["first_login_at"],
+                last_login_at=planned["last_login_at"],
+            )
+        )
+    for planned in PLANNED_STATUS_TRANSITIONS:
+        user_key = planned["user"]
+        org_id, role = _USER_SNAPSHOTS[user_key]
+        session.add(
+            UserStatusTransition(
+                id=fixture_uuid(
+                    f"transition:{user_key}:{planned['to']}:{planned['effective_at']}"
+                ),
+                user_id=USER_IDS[user_key],
+                organization_id=org_id,
+                role=role,
+                from_status=UserStatus(planned["from"]) if planned["from"] else None,
+                to_status=UserStatus(planned["to"]),
+                effective_at=planned["effective_at"],
+                provenance=planned["provenance"],
+            )
+        )
+    await session.commit()
+
+
+# Organization/role snapshots for fact rows, keyed by user fixture name.
+_USER_SNAPSHOTS: dict[str, tuple[UUID | None, UserRole]] = {
+    "buyer_active": (LIVE_BUYER_ORG_ID, UserRole.BUYER),
+    "buyer_new": (LIVE_BUYER_ORG_ID, UserRole.BUYER),
+    "buyer_never_logged": (LIVE_BUYER_ORG_ID, UserRole.BUYER),
+    "supplier_active": (LIVE_SUPPLIER_ORG_ID, UserRole.SUPPLIER),
+    "supplier_rejected": (LIVE_SUPPLIER_ORG_ID, UserRole.SUPPLIER),
+    "trader_active": (RETURNING_ORG_ID, UserRole.BUYER),
+    "pending_buyer": (PENDING_ORG_ID, UserRole.BUYER),
+    "admin": (None, UserRole.ADMIN),
+    "demo_buyer": (DEMO_ORG_ID, UserRole.BUYER),
+}
+
+
 # ---------------------------------------------------------------------------
 # Planned fact rows (Task 5 models) as plain data
 # ---------------------------------------------------------------------------
@@ -537,8 +600,11 @@ EXPECTED: dict[str, object] = {
         # Distinct members with a login day in the period (PLANNED_LOGIN_DAYS,
         # admin and demo excluded): buyer_active, supplier_active, trader_active.
         "active_current": 3,
-        # buyer_active only (5/20).
-        "active_previous": 1,
+        # The previous window [5/2, 6/1) starts before login-history coverage
+        # begins (first fact row 5/20), so the metric is null — never
+        # fabricated from partial facts or User.last_login. The single
+        # recorded previous-window login (buyer_active 5/20) stays internal.
+        "active_previous": None,
         # Approved members who never logged in: buyer_never_logged and
         # buyer_new (approved 6/12, no login recorded).
         "dormant_approved": 2,
@@ -575,12 +641,13 @@ EXPECTED: dict[str, object] = {
         "org_to_first_live_order_median_hours": 636,
         # Members whose earliest login-day row falls inside the period:
         # supplier_active (6/15), trader_active (6/21). buyer_active's
-        # earliest recorded day is 5/20 (previous period).
+        # earliest recorded day is 5/20 (previous period). Two members is a
+        # segmented small cell, so the stage and its duration distribution
+        # suppress.
         "first_recorded_login_in_period": 2,
-        # buyer_active: created 5/10 09:00, first login-day 5/20 → 10 days.
-        "registration_to_first_login_days_example": 10,
-        # Coverage starts at the earliest UserLoginDay row.
-        "login_history_coverage_start": _utc(2026, 5, 20, 8),
+        "first_login_suppressed": True,
+        # Coverage starts at the earliest UserLoginDay activity date.
+        "login_history_coverage_start_date": date(2026, 5, 20),
     },
     "orders": {
         # Orders created in the period by recognized non-demo organizations
@@ -652,6 +719,9 @@ EXPECTED: dict[str, object] = {
         # no activity), and nothing reactivated into the previous period.
         "retained_organizations_previous": 0,
         "reactivated_organizations_previous": 0,
+        # Returning members need login coverage over BOTH windows; the
+        # previous window predates coverage (5/20), so the metric is null.
+        "returning_members_default_window": None,
         # Distinct UTC activity days (order created or trade confirmed) per
         # live organization inside the period:
         #   live buyer: orders 6/4, 6/7, 6/9 + trades 6/6, 6/12, 6/16 →
@@ -699,6 +769,14 @@ EXPECTED: dict[str, object] = {
         # 6/6 09:00 = 69h; bid_live_filled 6/4 12:00 → 45h; ask_live_partial
         # 6/8 12:00 → 6/12 10:00 = 94h. Median = 69h.
         "median_hours_to_first_fill": 69,
+    },
+    "engagement": {
+        # As-of PERIOD_END (upper bound 7/1): DAU counts 6/30 (no logins),
+        # WAU counts [6/24, 7/1) (none — last member login is 6/21), MAU
+        # counts [6/1, 7/1): buyer_active, supplier_active, trader_active.
+        "dau": 0,
+        "wau": 0,
+        "mau": 3,
     },
     "behavioral": {
         # From UMAMI_STATS_PAYLOAD: totaltime 1800 / visits 90 = 20.0 —

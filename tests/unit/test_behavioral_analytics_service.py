@@ -210,10 +210,14 @@ def test_server_and_frontend_reporting_event_taxonomies_are_separate_and_documen
         "order_form_submitted", "trade_confirmation_opened", "tutorial_started",
         "tutorial_step_completed", "tutorial_step_skipped", "tutorial_completed",
         "estimator_opened", "estimator_completed",
+        # Reliability telemetry (Product Analytics plan §2.5).
+        "frontend_error", "backend_unavailable", "navigation_performance",
     } == FRONTEND_EVENT_NAMES
     assert ADMIN_FEATURE_EVENT_NAMES < FRONTEND_EVENT_NAMES
     assert "platform_navigation" in ADMIN_FEATURE_EVENT_NAMES
     assert "signup_started" not in ADMIN_FEATURE_EVENT_NAMES
+    # Reliability events are reportable but are not feature-usage events.
+    assert "frontend_error" not in ADMIN_FEATURE_EVENT_NAMES
 
 
 @pytest.mark.asyncio

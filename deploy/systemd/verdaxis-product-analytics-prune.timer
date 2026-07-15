@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily Verdaxis product analytics login-day prune
+
+[Timer]
+OnCalendar=*-*-* 03:20:00 Asia/Singapore
+Persistent=true
+RandomizedDelaySec=15m
+
+[Install]
+WantedBy=timers.target

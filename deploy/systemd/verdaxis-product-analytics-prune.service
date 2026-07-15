@@ -1,0 +1,17 @@
+[Unit]
+Description=Prune Verdaxis product analytics login-day facts (800-date retention)
+Documentation=file:/home/verdaxis-prod/verdaxis/staging/fe/docs/product-analytics-runbook.md
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=verdaxis-prod
+Group=verdaxis-prod
+WorkingDirectory=/home/verdaxis-prod/verdaxis/staging/be
+EnvironmentFile=/home/verdaxis-prod/verdaxis/staging/be/.env
+ExecStart=/home/verdaxis-prod/verdaxis/staging/be/venv/bin/python scripts/prune_product_analytics.py
+Nice=10
+IOSchedulingClass=idle
+NoNewPrivileges=true
+PrivateTmp=true
+TimeoutStartSec=300

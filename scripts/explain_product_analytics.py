@@ -52,12 +52,15 @@ def _statements(days: int, dialect: str):
     previous_start = start - (end - start)
     previous_end = start
     return {
-        "overview.registered_users": pa.registered_users_stmt(start, end, previous_start, previous_end),
+        "overview.users_facts": pa.users_facts_stmt(start, end, previous_start, previous_end),
         "overview.orders_aggregate": pa.orders_aggregate_stmt(start, end, previous_start, previous_end),
         "overview.orders_daily": pa.orders_daily_stmt(start, end, dialect),
         "overview.trades_aggregate": pa.trades_aggregate_stmt(start, end, previous_start, previous_end),
         "overview.trades_daily": pa.trades_daily_stmt(start, end, dialect),
-        "overview.trading_orgs": pa.trading_orgs_stmt(start, end, previous_start, previous_end),
+        "overview.login_day_facts": pa.login_day_facts_stmt(start, end, previous_start, previous_end),
+        "overview.status_transition_facts": pa.status_transition_facts_stmt(
+            start, end, previous_start, previous_end
+        ),
         "overview.org_activity_buckets": pa.org_activity_buckets_stmt(
             start, end, previous_start, previous_end, dialect
         ),

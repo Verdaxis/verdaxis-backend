@@ -34,6 +34,7 @@ from app.schemas.behavioral_analytics import (
 )
 from app.services.behavioral_analytics import UmamiAnalyticsService, get_analytics_service
 from app.services.demo_market import DEMO_MARKET_ORG_IDS
+from app.services.user_status_transition import record_status_transition
 
 
 # ---------------------------------------------------------------------------
@@ -559,6 +560,9 @@ async def reject_user(
 
     previous_status = user.status
     user.status = UserStatus.REJECTED
+    record_status_transition(
+        db, user, from_status=previous_status, to_status=UserStatus.REJECTED
+    )
     await record_audit(
         db,
         user_id=current_user.id,

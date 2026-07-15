@@ -42,6 +42,9 @@ FRONTEND_EVENT_NAMES = frozenset(
         "market_slice_selected", "listing_opened", "order_form_opened", "order_form_submitted",
         "trade_confirmation_opened", "tutorial_started", "tutorial_step_completed",
         "tutorial_step_skipped", "tutorial_completed", "estimator_opened", "estimator_completed",
+        # Reliability telemetry (Product Analytics plan §2.5): bounded enums
+        # only — never stack traces, URLs, identifiers, or free text.
+        "frontend_error", "backend_unavailable", "navigation_performance",
     }
 )
 ADMIN_FEATURE_EVENT_NAMES = frozenset(

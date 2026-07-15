@@ -13,6 +13,7 @@ from app.services.kyc import verify_document_with_gemini
 from app.services.email import send_kyc_approved_email, send_kyc_rejected_email
 from app.services.audit_service import record_audit, request_audit_context
 from app.services.audit_actions import KYC_APPROVED, KYC_REJECTED, KYC_SUBMITTED
+from app.services.user_status_transition import record_status_transition
 
 router = APIRouter(prefix="/kyc", tags=["KYC"])
 
@@ -54,6 +55,12 @@ async def submit_kyc(
         current_user.kyc_status = "APPROVED"
         current_user.kyc_rejection_reason = None
         current_user.status = UserStatus.APPROVED
+        record_status_transition(
+            db,
+            current_user,
+            from_status=previous_account_status,
+            to_status=UserStatus.APPROVED,
+        )
         await record_audit(
             db,
             user_id=current_user.id,
@@ -162,6 +169,9 @@ async def admin_approve_kyc(
     target.kyc_status = "APPROVED"
     target.kyc_rejection_reason = None
     target.status = UserStatus.APPROVED
+    record_status_transition(
+        db, target, from_status=previous_account_status, to_status=UserStatus.APPROVED
+    )
     await record_audit(
         db,
         user_id=current_user.id,

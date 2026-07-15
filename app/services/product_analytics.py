@@ -73,9 +73,12 @@ from app.schemas.product_analytics import (
     AggregateCell,
     AnalyticsActivity,
     AnalyticsDataQuality,
+    CohortCell,
+    CohortRow,
     CommercialSummary,
     ConcentrationBand,
     DecimalMetricValue,
+    EngagementKpis,
     DurationDistribution,
     LiquiditySummary,
     MarketActivitySection,
@@ -105,6 +108,7 @@ _MARKET_ROLES = (UserRole.BUYER, UserRole.SUPPLIER)
 _CONFIRMED_TRADE_STATUSES = (TradeStatus.CONFIRMED, TradeStatus.DELIVERED, TradeStatus.PAID)
 _OPEN_ORDER_STATUSES = (OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED)
 _SUPPRESSION_THRESHOLD = 3
+_MAX_COHORTS = 54
 
 Provenance = Literal["live", "demo", "unknown"]
 
@@ -195,6 +199,68 @@ def _sum_if(condition, value_column):
 
 
 # ---------------------------------------------------------------------------
+# Login-day fact writes (plan §2.4)
+# ---------------------------------------------------------------------------
+
+
+def is_retryable_transaction_error(error: Exception) -> bool:
+    """Serialization/deadlock failures may be retried once by the caller."""
+    orig = getattr(error, "orig", None)
+    sqlstate = getattr(orig, "sqlstate", None) or getattr(orig, "pgcode", None)
+    return sqlstate in {"40001", "40P01"}
+
+
+async def record_login_day(db: AsyncSession, user: User, *, at: datetime | None = None) -> None:
+    """Upsert one login-day row inside the caller's transaction.
+
+    One atomic ``INSERT … ON CONFLICT (activity_date, user_id) DO UPDATE``
+    increments ``login_count``, keeps the earliest ``first_login_at``, and
+    advances ``last_login_at``. Sharing the authentication transaction means
+    a database failure behaves exactly like the existing ``last_login``
+    update — no best-effort side channel. Never stores IP, user agent,
+    token, or credential data.
+    """
+    from uuid import uuid4
+
+    from app.models.product_analytics import UserLoginDay
+
+    instant = (at or datetime.now(UTC)).astimezone(UTC)
+    dialect = db.get_bind().dialect.name
+    if dialect == "postgresql":
+        from sqlalchemy.dialects.postgresql import insert as upsert_insert
+
+        earliest = func.least
+        latest = func.greatest
+    else:
+        from sqlalchemy.dialects.sqlite import insert as upsert_insert
+
+        # SQLite lacks LEAST/GREATEST; its two-argument MIN/MAX scalar
+        # functions are the equivalent.
+        earliest = func.min
+        latest = func.max
+
+    stmt = upsert_insert(UserLoginDay).values(
+        id=uuid4(),
+        activity_date=instant.date(),
+        user_id=user.id,
+        organization_id=user.organization_id,
+        role=user.role,
+        login_count=1,
+        first_login_at=instant,
+        last_login_at=instant,
+    )
+    stmt = stmt.on_conflict_do_update(
+        index_elements=["activity_date", "user_id"],
+        set_={
+            "login_count": UserLoginDay.login_count + 1,
+            "first_login_at": earliest(UserLoginDay.first_login_at, stmt.excluded.first_login_at),
+            "last_login_at": latest(UserLoginDay.last_login_at, stmt.excluded.last_login_at),
+        },
+    )
+    await db.execute(stmt)
+
+
+# ---------------------------------------------------------------------------
 # Statement builders (pure; reused by scripts/explain_product_analytics.py)
 # ---------------------------------------------------------------------------
 
@@ -217,6 +283,276 @@ def registered_users_stmt(start: datetime, end: datetime,
             _in_window(User.created_at, previous_start or start, end),
         )
         .group_by(User.role)
+    )
+
+
+def _date_window(window_start: datetime | None, window_end: datetime | None):
+    """Half-open date bounds for date-only facts projected to 00:00:00Z.
+
+    A midday start excludes that date; a midday end includes it (§1.5).
+    Returns ``(lower_inclusive, upper_exclusive)`` or ``None`` when the
+    window is absent.
+    """
+    if window_start is None or window_end is None:
+        return None
+    lower = window_start.date()
+    if window_start != datetime(lower.year, lower.month, lower.day, tzinfo=UTC):
+        lower = lower + timedelta(days=1)
+    upper = window_end.date()
+    if window_end != datetime(upper.year, upper.month, upper.day, tzinfo=UTC):
+        upper = upper + timedelta(days=1)
+    return lower, upper
+
+
+def _member_login_rows():
+    """Base filter for member login-day facts (demo and admin excluded)."""
+    from app.models.product_analytics import UserLoginDay
+
+    return and_(
+        UserLoginDay.role.in_(_MARKET_ROLES),
+        or_(
+            UserLoginDay.organization_id.is_(None),
+            UserLoginDay.organization_id.notin_(list(DEMO_MARKET_ORG_IDS)),
+        ),
+    )
+
+
+def users_facts_stmt(start: datetime, end: datetime,
+                     previous_start: datetime | None, previous_end: datetime | None):
+    """Registrations by role plus activation drop-off buckets in one round
+    trip (UNION ALL over the users table)."""
+    member = and_(
+        User.role.in_(_MARKET_ROLES),
+        or_(
+            User.organization_id.is_(None),
+            User.organization_id.notin_(list(DEMO_MARKET_ORG_IDS)),
+        ),
+    )
+    registered = (
+        select(
+            literal("registered").label("kind"),
+            cast(User.role, String).label("key"),
+            _count_if(_in_window(User.created_at, start, end)).label("current"),
+            _count_if(_in_window(User.created_at, previous_start, previous_end)).label(
+                "previous"
+            ),
+        )
+        .where(member, _in_window(User.created_at, previous_start or start, end))
+        .group_by(User.role)
+    )
+    rejected = User.status == UserStatus.REJECTED
+    unverified = and_(~rejected, User.email_verified.is_(False))
+    pending = and_(~rejected, User.email_verified.is_(True), User.status == UserStatus.PENDING)
+    org_incomplete = and_(
+        User.status == UserStatus.APPROVED,
+        User.email_verified.is_(True),
+        User.organization_id.is_(None),
+    )
+    never_logged_in = and_(
+        User.status == UserStatus.APPROVED,
+        User.email_verified.is_(True),
+        User.organization_id.is_not(None),
+        User.last_login.is_(None),
+    )
+    drop_off_arms = [
+        select(
+            literal("drop_off").label("kind"),
+            literal(key).label("key"),
+            _count_if(condition).label("current"),
+            literal(0).label("previous"),
+        ).where(member)
+        for key, condition in (
+            ("rejected", rejected),
+            ("unverified", unverified),
+            ("pending_approval", pending),
+            ("organization_incomplete", org_incomplete),
+            ("never_logged_in", never_logged_in),
+        )
+    ]
+    return union_all(registered, *drop_off_arms)
+
+
+def login_day_facts_stmt(start: datetime, end: datetime,
+                         previous_start: datetime | None, previous_end: datetime | None):
+    """Member login-day series and summary in one round trip.
+
+    The daily arm feeds the active-members trend; the summary arm carries
+    window totals, DAU/WAU/MAU as-of end, and the login-history coverage
+    start (the earliest fact row of any role, per §2.4).
+    """
+    from app.models.product_analytics import UserLoginDay
+
+    current = _date_window(start, end)
+    previous = _date_window(previous_start, previous_end)
+    member = _member_login_rows()
+
+    def in_dates(bounds):
+        if bounds is None:
+            return literal(False)
+        lower, upper = bounds
+        return and_(UserLoginDay.activity_date >= lower, UserLoginDay.activity_date < upper)
+
+    assert current is not None
+    upper = current[1]
+    daily = (
+        select(
+            literal("daily").label("kind"),
+            cast(UserLoginDay.activity_date, String).label("day"),
+            func.count(distinct(UserLoginDay.user_id)).label("active_current"),
+            literal(0).label("active_previous"),
+            literal(0).label("dau"),
+            literal(0).label("wau"),
+            literal(0).label("mau"),
+            cast(null(), String).label("coverage_start"),
+        )
+        .where(member, in_dates(current))
+        .group_by(UserLoginDay.activity_date)
+    )
+    summary = select(
+        literal("summary").label("kind"),
+        cast(null(), String).label("day"),
+        func.count(distinct(case((in_dates(current), UserLoginDay.user_id)))).label(
+            "active_current"
+        ),
+        func.count(distinct(case((in_dates(previous), UserLoginDay.user_id)))).label(
+            "active_previous"
+        ),
+        func.count(
+            distinct(
+                case(
+                    (UserLoginDay.activity_date >= upper - timedelta(days=1), UserLoginDay.user_id)
+                )
+            )
+        ).label("dau"),
+        func.count(
+            distinct(
+                case(
+                    (UserLoginDay.activity_date >= upper - timedelta(days=7), UserLoginDay.user_id)
+                )
+            )
+        ).label("wau"),
+        func.count(
+            distinct(
+                case(
+                    (UserLoginDay.activity_date >= upper - timedelta(days=30), UserLoginDay.user_id)
+                )
+            )
+        ).label("mau"),
+        cast(func.min(UserLoginDay.activity_date), String).label("coverage_start"),
+    ).where(member, UserLoginDay.activity_date < upper)
+    return union_all(daily, summary)
+
+
+def status_transition_facts_stmt(start: datetime, end: datetime,
+                                 previous_start: datetime | None, previous_end: datetime | None):
+    """Approval-journey and as-of qualification aggregates in one round trip.
+
+    Qualified organizations (§1.5): distinct non-demo organizations whose
+    latest member transition at or before the as-of instant is APPROVED —
+    reconstructed from the append-only history, never from ``User.status``.
+    """
+    from app.models.product_analytics import UserStatusTransition as T
+
+    member = and_(
+        T.role.in_(_MARKET_ROLES),
+        or_(
+            T.organization_id.is_(None),
+            T.organization_id.notin_(list(DEMO_MARKET_ORG_IDS)),
+        ),
+    )
+
+    def qualified_as_of(as_of: datetime | None):
+        if as_of is None:
+            return cast(null(), Integer)
+        latest = (
+            select(T.user_id.label("user_id"), func.max(T.effective_at).label("latest_at"))
+            .where(T.effective_at <= as_of)
+            .group_by(T.user_id)
+            .subquery()
+        )
+        return (
+            select(func.count(distinct(T.organization_id)))
+            .select_from(T)
+            .join(
+                latest,
+                and_(T.user_id == latest.c.user_id, T.effective_at == latest.c.latest_at),
+            )
+            .where(
+                T.to_status == UserStatus.APPROVED,
+                T.organization_id.is_not(None),
+                member,
+            )
+            .scalar_subquery()
+        )
+
+    approved = T.to_status == UserStatus.APPROVED
+    return select(
+        _count_if(and_(approved, member, _in_window(T.effective_at, start, end))).label(
+            "approved_current"
+        ),
+        _count_if(
+            and_(approved, member, _in_window(T.effective_at, previous_start, previous_end))
+        ).label("approved_previous"),
+        qualified_as_of(end).label("qualified_end"),
+        qualified_as_of(previous_end).label("qualified_previous_end"),
+        select(func.min(T.effective_at)).scalar_subquery().label("coverage_start"),
+    )
+
+
+def member_login_rollup_stmt(start: datetime, end: datetime,
+                             previous_start: datetime | None, previous_end: datetime | None):
+    """Per-member first-login instant, window flags, and registration instant.
+
+    One grouped statement (bounded by member count) feeding returning-member
+    counts, the first-login activation stage, and the registration→first-login
+    distribution.
+    """
+    from app.models.product_analytics import UserLoginDay
+
+    current = _date_window(start, end)
+    previous = _date_window(previous_start, previous_end)
+
+    def in_dates(bounds):
+        if bounds is None:
+            return literal(False)
+        lower, upper = bounds
+        return and_(UserLoginDay.activity_date >= lower, UserLoginDay.activity_date < upper)
+
+    per_user = (
+        select(
+            UserLoginDay.user_id.label("user_id"),
+            func.min(UserLoginDay.first_login_at).label("first_login_at"),
+            func.min(UserLoginDay.activity_date).label("first_login_date"),
+            func.max(case((in_dates(current), 1), else_=0)).label("in_current"),
+            func.max(case((in_dates(previous), 1), else_=0)).label("in_previous"),
+        )
+        .where(_member_login_rows())
+        .group_by(UserLoginDay.user_id)
+        .subquery()
+    )
+    return select(
+        per_user.c.user_id,
+        per_user.c.first_login_at,
+        per_user.c.first_login_date,
+        per_user.c.in_current,
+        per_user.c.in_previous,
+        User.created_at.label("registered_at"),
+    ).join(User, User.id == per_user.c.user_id)
+
+
+def member_activity_days_stmt(end: datetime):
+    """Distinct member login dates before the as-of instant (weekly cohort
+    input; bounded by the 800-date retention window)."""
+    from app.models.product_analytics import UserLoginDay
+
+    upper = _date_window(datetime(1970, 1, 1, tzinfo=UTC), end)[1]
+    return (
+        select(
+            UserLoginDay.user_id.label("user_id"),
+            UserLoginDay.activity_date.label("activity_date"),
+        )
+        .where(_member_login_rows(), UserLoginDay.activity_date < upper)
+        .distinct()
     )
 
 
@@ -391,7 +727,9 @@ def trades_daily_stmt(start: datetime, end: datetime, dialect: str):
 
 def _org_activity_union(include_orders: bool = True):
     """Per-organization live activity instants: order creation and strict
-    economic trade confirmation, one column layout for UNION ALL."""
+    economic trade confirmation, one column layout for UNION ALL. The
+    ``kind`` column distinguishes trade activity so trading-organization
+    counts ride the same round trip."""
     recognized = recognized_market_org_ids()
     arms = []
     if include_orders:
@@ -399,37 +737,32 @@ def _org_activity_union(include_orders: bool = True):
             select(
                 OrderBookOrder.organization_id.label("org_id"),
                 OrderBookOrder.created_at.label("ts"),
+                literal("order").label("kind"),
             ).where(OrderBookOrder.organization_id.in_(recognized))
         )
     arms.append(
-        select(Trade.buyer_id.label("org_id"), Trade.confirmed_at.label("ts")).where(
+        select(
+            Trade.buyer_id.label("org_id"),
+            Trade.confirmed_at.label("ts"),
+            literal("trade").label("kind"),
+        ).where(
             Trade.status.in_(_CONFIRMED_TRADE_STATUSES),
             Trade.confirmed_at.is_not(None),
             trade_provenance_case() == "live",
         )
     )
     arms.append(
-        select(Trade.seller_id.label("org_id"), Trade.confirmed_at.label("ts")).where(
+        select(
+            Trade.seller_id.label("org_id"),
+            Trade.confirmed_at.label("ts"),
+            literal("trade").label("kind"),
+        ).where(
             Trade.status.in_(_CONFIRMED_TRADE_STATUSES),
             Trade.confirmed_at.is_not(None),
             trade_provenance_case() == "live",
         )
     )
     return union_all(*arms).subquery("org_activity")
-
-
-def trading_orgs_stmt(start: datetime, end: datetime,
-                      previous_start: datetime | None, previous_end: datetime | None):
-    """Distinct live organizations on either side of a confirmed trade."""
-    activity = _org_activity_union(include_orders=False)
-    return select(
-        func.count(distinct(case((_in_window(activity.c.ts, start, end), activity.c.org_id)))).label(
-            "current"
-        ),
-        func.count(
-            distinct(case((_in_window(activity.c.ts, previous_start, previous_end), activity.c.org_id)))
-        ).label("previous"),
-    )
 
 
 def org_activity_buckets_stmt(start: datetime, end: datetime,
@@ -464,6 +797,27 @@ def org_activity_buckets_stmt(start: datetime, end: datetime,
                     else_=0,
                 )
             ).label("earlier"),
+            func.max(
+                case(
+                    (
+                        and_(activity.c.kind == "trade", _in_window(activity.c.ts, start, end)),
+                        1,
+                    ),
+                    else_=0,
+                )
+            ).label("trading_cur"),
+            func.max(
+                case(
+                    (
+                        and_(
+                            activity.c.kind == "trade",
+                            _in_window(activity.c.ts, previous_start, previous_end),
+                        ),
+                        1,
+                    ),
+                    else_=0,
+                )
+            ).label("trading_prev"),
             func.count(
                 distinct(
                     case(
@@ -488,6 +842,8 @@ def org_activity_buckets_stmt(start: datetime, end: datetime,
         _count_if(and_(b.prev == 1, b.prev_prev == 0, b.earlier == 1)).label(
             "reactivated_previous"
         ),
+        _count_if(b.trading_cur == 1).label("trading_current"),
+        _count_if(b.trading_prev == 1).label("trading_previous"),
         _count_if(b.active_days == 1).label("days_1"),
         _count_if(b.active_days == 2).label("days_2"),
         _count_if(b.active_days >= 3).label("days_3_plus"),
@@ -635,14 +991,10 @@ def commissions_stmt(start: datetime, end: datetime,
     """
 
     def projected_window(window_start: datetime | None, window_end: datetime | None):
-        if window_start is None or window_end is None:
+        bounds = _date_window(window_start, window_end)
+        if bounds is None:
             return literal(False)
-        lower = window_start.date()
-        if window_start != datetime(lower.year, lower.month, lower.day, tzinfo=UTC):
-            lower = lower + timedelta(days=1)
-        upper = window_end.date()
-        if window_end != datetime(upper.year, upper.month, upper.day, tzinfo=UTC):
-            upper = upper + timedelta(days=1)
+        lower, upper = bounds
         return and_(
             Commission.payment_date.is_not(None),
             Commission.payment_date >= lower,
@@ -867,9 +1219,12 @@ class OverviewAuthoritative:
     lifecycle: LifecycleCounts
     orders_series: list[SeriesPoint]
     confirmed_trades_series: list[SeriesPoint]
+    active_members_series: list[SeriesPoint]
     marketplace_balance: MarketplaceBalance
     one_sided_live_market: bool
     dormant_approved_members: int
+    login_coverage_start: datetime | None
+    status_coverage_start: datetime | None
     data_quality: AnalyticsDataQuality
 
 
@@ -888,19 +1243,46 @@ class ActivationAuthoritative:
     registered_total: MetricValue
     registered_buyer: AggregateCell
     registered_supplier: AggregateCell
+    approved_members: AggregateCell
+    first_login_members: AggregateCell
     first_live_order_organizations: AggregateCell
     drop_off: list[AggregateCell]
+    time_to_first_login: DurationDistribution
     time_to_first_live_order: DurationDistribution
+    login_coverage_start: datetime | None
+    status_coverage_start: datetime | None
     data_quality: AnalyticsDataQuality
 
 
 @dataclass
 class RetentionAuthoritative:
+    returning_members: MetricValue
     retained_organizations: MetricValue
     reactivated_organizations: MetricValue
     dormant_approved_members: MetricValue
     repeat_participation: list[AggregateCell]
+    member_cohorts: list["CohortRow"]
+    login_coverage_start: datetime | None
     data_quality: AnalyticsDataQuality
+
+
+@dataclass
+class EngagementAuthoritative:
+    kpis: EngagementKpis
+    active_members_trend: list[SeriesPoint]
+    login_coverage_start: datetime | None
+    data_quality: AnalyticsDataQuality
+
+
+@dataclass
+class _LoginFacts:
+    coverage_start: date | None
+    active_current: int
+    active_previous: int
+    dau: int
+    wau: int
+    mau: int
+    daily: dict[date, int]
 
 
 # ---------------------------------------------------------------------------
@@ -924,8 +1306,8 @@ class ProductAnalyticsService:
         start, end = query.start, query.end
         prev_start, prev_end = query.previous_start, query.previous_end
 
-        registered_rows = (
-            await self.db.execute(registered_users_stmt(start, end, prev_start, prev_end))
+        users_rows = (
+            await self.db.execute(users_facts_stmt(start, end, prev_start, prev_end))
         ).all()
         orders_rows = (
             await self.db.execute(orders_aggregate_stmt(start, end, prev_start, prev_end))
@@ -935,16 +1317,26 @@ class ProductAnalyticsService:
             await self.db.execute(trades_aggregate_stmt(start, end, prev_start, prev_end))
         ).all()
         daily_trades = (await self.db.execute(trades_daily_stmt(start, end, self._dialect))).all()
-        trading_orgs = (
-            await self.db.execute(trading_orgs_stmt(start, end, prev_start, prev_end))
-        ).one()
         activity = (
             await self.db.execute(
                 org_activity_buckets_stmt(start, end, prev_start, prev_end, self._dialect)
             )
         ).one()
-        dormant = (await self.db.execute(drop_off_stmt())).one()
+        login = self._parse_login_facts(
+            (
+                await self.db.execute(
+                    login_day_facts_stmt(start, end, prev_start, prev_end)
+                )
+            ).all()
+        )
+        status_facts = (
+            await self.db.execute(
+                status_transition_facts_stmt(start, end, prev_start, prev_end)
+            )
+        ).one()
 
+        registered_rows = [row for row in users_rows if row.kind == "registered"]
+        drop_off_rows = {row.key: row.current for row in users_rows if row.kind == "drop_off"}
         registered_current = sum(row.current for row in registered_rows)
         registered_previous = sum(row.previous for row in registered_rows)
         live_orders = self._provenance_row(orders_rows, "live")
@@ -968,12 +1360,26 @@ class ProductAnalyticsService:
         bids = live_orders.bids_current if live_orders else 0
         asks = live_orders.asks_current if live_orders else 0
 
+        active_members = self._login_metric(query, login)
+        status_coverage = _as_utc(status_facts.coverage_start)
+        qualified = MetricValue(
+            value=(
+                status_facts.qualified_end
+                if status_coverage is not None and end >= status_coverage
+                else None
+            ),
+            previous=(
+                status_facts.qualified_previous_end
+                if prev_end is not None
+                and status_coverage is not None
+                and prev_end >= status_coverage
+                else None
+            ),
+        )
+
         kpis = OverviewKpis(
-            # Requires the Task-5 status-transition facts; never inferred from
-            # the mutable User.status snapshot.
-            qualified_organizations=MetricValue(),
-            # Requires the Task-5 login-day facts.
-            active_members=MetricValue(),
+            qualified_organizations=qualified,
+            active_members=active_members,
             participating_organizations=MetricValue(
                 value=participating_current, previous=participating_previous
             ),
@@ -982,9 +1388,11 @@ class ProductAnalyticsService:
         )
         lifecycle = LifecycleCounts(
             registered=MetricValue(value=registered_current, previous=registered_previous),
-            active=MetricValue(),
+            active=active_members,
             participating=kpis.participating_organizations,
-            trading=MetricValue(value=trading_orgs.current, previous=trading_orgs.previous),
+            trading=MetricValue(
+                value=activity.trading_current, previous=activity.trading_previous
+            ),
             retained=MetricValue(
                 value=activity.retained_current, previous=activity.retained_previous
             ),
@@ -1010,10 +1418,63 @@ class ProductAnalyticsService:
             lifecycle=lifecycle,
             orders_series=self._series(daily_orders, "orders", start, end),
             confirmed_trades_series=self._series(daily_trades, "trades", start, end),
+            active_members_series=_dense_series(start, end, login.daily),
             marketplace_balance=balance,
             one_sided_live_market=(bids == 0) != (asks == 0),
-            dormant_approved_members=dormant.never_logged_in,
+            dormant_approved_members=drop_off_rows.get("never_logged_in", 0),
+            login_coverage_start=self._coverage_instant(login.coverage_start),
+            status_coverage_start=status_coverage,
             data_quality=quality.to_schema(),
+        )
+
+    @staticmethod
+    def _parse_login_facts(rows) -> _LoginFacts:
+        coverage: date | None = None
+        active_current = active_previous = dau = wau = mau = 0
+        daily: dict[date, int] = {}
+        for row in rows:
+            if row.kind == "summary":
+                active_current = row.active_current
+                active_previous = row.active_previous
+                dau, wau, mau = row.dau, row.wau, row.mau
+                coverage = _as_date(row.coverage_start) if row.coverage_start else None
+            else:
+                daily[_as_date(row.day)] = row.active_current
+        return _LoginFacts(
+            coverage_start=coverage,
+            active_current=active_current,
+            active_previous=active_previous,
+            dau=dau,
+            wau=wau,
+            mau=mau,
+            daily=daily,
+        )
+
+    @staticmethod
+    def _coverage_instant(coverage_date: date | None) -> datetime | None:
+        if coverage_date is None:
+            return None
+        return datetime(coverage_date.year, coverage_date.month, coverage_date.day, tzinfo=UTC)
+
+    def _login_metric(self, query: ProductAnalyticsQuery, login: _LoginFacts) -> MetricValue:
+        """Active-member counts, null when the login-history facts cannot
+        cover the requested window (§2.4 — never fabricated from
+        ``User.last_login``)."""
+        current_bounds = _date_window(query.start, query.end)
+        current_covered = (
+            login.coverage_start is not None
+            and current_bounds is not None
+            and current_bounds[0] >= login.coverage_start
+        )
+        previous_bounds = _date_window(query.previous_start, query.previous_end)
+        previous_covered = (
+            login.coverage_start is not None
+            and previous_bounds is not None
+            and previous_bounds[0] >= login.coverage_start
+        )
+        return MetricValue(
+            value=login.active_current if current_covered else None,
+            previous=login.active_previous if previous_covered else None,
         )
 
     # -- Marketplace ---------------------------------------------------------
@@ -1150,6 +1611,37 @@ class ProductAnalyticsService:
             _cell("never_logged_in", drop_off_row.never_logged_in, None, quality),
         ]
 
+        # Fact-backed approval journey and first-login stages (§2.4).
+        status_facts = (
+            await self.db.execute(
+                status_transition_facts_stmt(start, end, prev_start, prev_end)
+            )
+        ).one()
+        rollup_rows = (
+            await self.db.execute(
+                member_login_rollup_stmt(start, end, prev_start, prev_end)
+            )
+        ).all()
+        status_coverage = _as_utc(status_facts.coverage_start)
+        approved_available = status_coverage is not None and status_coverage <= end
+
+        current_bounds = _date_window(start, end)
+        first_login_durations: list[timedelta] = []
+        login_coverage: date | None = None
+        for row in rollup_rows:
+            first_date = _as_date(row.first_login_date)
+            login_coverage = (
+                first_date if login_coverage is None else min(login_coverage, first_date)
+            )
+            if current_bounds and current_bounds[0] <= first_date < current_bounds[1]:
+                first_login_durations.append(
+                    _as_utc(row.first_login_at) - _as_utc(row.registered_at)
+                )
+        first_login_count = len(first_login_durations)
+        first_login_suppressed = 0 < first_login_count < _SUPPRESSION_THRESHOLD
+        if first_login_suppressed:
+            quality.suppressed_cell_count += 1
+
         return ActivationAuthoritative(
             registered_total=MetricValue(
                 value=registered_current, previous=registered_previous
@@ -1160,20 +1652,76 @@ class ProductAnalyticsService:
             registered_supplier=_cell(
                 "SUPPLIER", supplier_row.current if supplier_row else 0, None, quality
             ),
+            approved_members=_cell(
+                "approved",
+                status_facts.approved_current if approved_available else None,
+                None,
+                quality,
+            ),
+            first_login_members=_cell("first_login", first_login_count, None, quality),
             first_live_order_organizations=_cell(
                 "first_live_order", first_order_orgs, None, quality
             ),
             drop_off=drop_off,
+            time_to_first_login=DurationDistribution(
+                buckets=[],
+                median_hours=(
+                    None if first_login_suppressed else _median_hours(first_login_durations)
+                ),
+                sample_size=(
+                    None if first_login_suppressed else (first_login_count or None)
+                ),
+                suppressed=first_login_suppressed,
+            ),
             time_to_first_live_order=DurationDistribution(
                 buckets=[],
                 median_hours=None if sample_suppressed else _median_hours(durations),
                 sample_size=None if sample_suppressed else (first_order_orgs or None),
                 suppressed=sample_suppressed,
             ),
+            login_coverage_start=self._coverage_instant(login_coverage),
+            status_coverage_start=status_coverage,
             data_quality=quality.to_schema(),
         )
 
-    # -- Retention (order/trade backed portions) ------------------------------
+    # -- Engagement (login-fact backed portions) -------------------------------
+
+    async def engagement(self, query: ProductAnalyticsQuery) -> EngagementAuthoritative:
+        quality = _QualityTracker()
+        start, end = query.start, query.end
+        prev_start, prev_end = query.previous_start, query.previous_end
+        login = self._parse_login_facts(
+            (
+                await self.db.execute(
+                    login_day_facts_stmt(start, end, prev_start, prev_end)
+                )
+            ).all()
+        )
+        bounds = _date_window(start, end)
+        upper = bounds[1] if bounds else None
+
+        def rolling_metric(value: int, days: int) -> MetricValue:
+            covered = (
+                login.coverage_start is not None
+                and upper is not None
+                and upper - timedelta(days=days) >= login.coverage_start
+            )
+            return MetricValue(value=value if covered else None)
+
+        dau = rolling_metric(login.dau, 1)
+        wau = rolling_metric(login.wau, 7)
+        mau = rolling_metric(login.mau, 30)
+        stickiness = None
+        if dau.value is not None and mau.value:
+            stickiness = _rate_pct(dau.value, mau.value)
+        return EngagementAuthoritative(
+            kpis=EngagementKpis(dau=dau, wau=wau, mau=mau, stickiness_pct=stickiness),
+            active_members_trend=_dense_series(start, end, login.daily),
+            login_coverage_start=self._coverage_instant(login.coverage_start),
+            data_quality=quality.to_schema(),
+        )
+
+    # -- Retention (order/trade and login-fact backed portions) ---------------
 
     async def retention(self, query: ProductAnalyticsQuery) -> RetentionAuthoritative:
         quality = _QualityTracker()
@@ -1185,12 +1733,38 @@ class ProductAnalyticsService:
             )
         ).one()
         dormant = (await self.db.execute(drop_off_stmt())).one()
+        rollup_rows = (
+            await self.db.execute(
+                member_login_rollup_stmt(start, end, prev_start, prev_end)
+            )
+        ).all()
+        activity_days = (await self.db.execute(member_activity_days_stmt(end))).all()
+
+        login_coverage: date | None = None
+        returning_count = 0
+        for row in rollup_rows:
+            first_date = _as_date(row.first_login_date)
+            login_coverage = (
+                first_date if login_coverage is None else min(login_coverage, first_date)
+            )
+            if row.in_current and row.in_previous:
+                returning_count += 1
+        previous_bounds = _date_window(prev_start, prev_end)
+        returning_covered = (
+            login_coverage is not None
+            and previous_bounds is not None
+            and previous_bounds[0] >= login_coverage
+        )
+
         repeat = [
             _cell("1", activity.days_1, None, quality),
             _cell("2", activity.days_2, None, quality),
             _cell("3_plus", activity.days_3_plus, None, quality),
         ]
         return RetentionAuthoritative(
+            returning_members=MetricValue(
+                value=returning_count if returning_covered else None
+            ),
             retained_organizations=MetricValue(
                 value=activity.retained_current, previous=activity.retained_previous
             ),
@@ -1199,8 +1773,63 @@ class ProductAnalyticsService:
             ),
             dormant_approved_members=MetricValue(value=dormant.never_logged_in),
             repeat_participation=repeat,
+            member_cohorts=self._member_cohorts(activity_days, end, quality),
+            login_coverage_start=self._coverage_instant(login_coverage),
             data_quality=quality.to_schema(),
         )
+
+    def _member_cohorts(self, activity_days, end: datetime, quality: _QualityTracker) -> list[CohortRow]:
+        """Weekly member login cohorts from the fact rows (§1.6 Retention).
+
+        Cohort = ISO week (Monday-anchored) of a member's first recorded
+        login day; cells count cohort members active in each subsequent
+        week. History never predates login-fact coverage.
+        """
+
+        def week_start(day: date) -> date:
+            return day - timedelta(days=day.weekday())
+
+        per_user: dict[Any, set[date]] = {}
+        for row in activity_days:
+            per_user.setdefault(row.user_id, set()).add(week_start(_as_date(row.activity_date)))
+        cohorts: dict[date, dict[int, int]] = {}
+        sizes: dict[date, int] = {}
+        for weeks in per_user.values():
+            first = min(weeks)
+            sizes[first] = sizes.get(first, 0) + 1
+            buckets = cohorts.setdefault(first, {})
+            for week in weeks:
+                offset = (week - first).days // 7
+                buckets[offset] = buckets.get(offset, 0) + 1
+
+        rows: list[CohortRow] = []
+        for cohort_start in sorted(cohorts)[:_MAX_COHORTS]:
+            size_value, size_suppressed = _suppress(sizes[cohort_start], None, quality)
+            cells: list[CohortCell] = []
+            for offset in sorted(cohorts[cohort_start]):
+                value, suppressed = _suppress(cohorts[cohort_start][offset], None, quality)
+                pct = None
+                if value is not None and size_value:
+                    pct = _rate_pct(value, size_value)
+                cells.append(
+                    CohortCell(
+                        offset=offset,
+                        cell=AggregateCell(key=str(offset), count=value, suppressed=suppressed),
+                        pct=pct,
+                    )
+                )
+            rows.append(
+                CohortRow(
+                    cohort_start=cohort_start,
+                    size=AggregateCell(
+                        key=cohort_start.isoformat(),
+                        count=size_value,
+                        suppressed=size_suppressed,
+                    ),
+                    cells=cells[:54],
+                )
+            )
+        return rows
 
     # -- Internals ------------------------------------------------------------
 

@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.exc import DBAPIError
 import hashlib
 import jwt
 import secrets
@@ -29,6 +30,8 @@ from app.models.referral import Referral, ReferralStatus, generate_referral_code
 from app.services.email import send_verification_email, send_password_reset_email
 from app.services.monitor_canary import is_monitor_canary_email
 from app.services.audit_service import record_audit, request_audit_context
+from app.services.product_analytics import is_retryable_transaction_error, record_login_day
+from app.services.user_status_transition import record_initial_status, record_status_transition
 from app.services.audit_actions import (
     ADMIN_USER_APPROVED,
     USER_PASSWORD_CHANGED,
@@ -226,9 +229,22 @@ async def login(
             detail=f"Account is {user.status.value}. Please wait for admin approval.",
         )
 
-    # Update last_login
-    user.last_login = datetime.now(UTC)
-    await db.commit()
+    # Update last_login and the daily login fact in ONE transaction: a
+    # database failure behaves exactly like the pre-existing last_login
+    # update. Serialization/deadlock races retry once (plan §2.4).
+    login_instant = datetime.now(UTC)
+    user.last_login = login_instant
+    await record_login_day(db, user, at=login_instant)
+    try:
+        await db.commit()
+    except DBAPIError as error:
+        if not is_retryable_transaction_error(error):
+            raise
+        await db.rollback()
+        user = await db.merge(user)
+        user.last_login = login_instant
+        await record_login_day(db, user, at=login_instant)
+        await db.commit()
 
     access_token, refresh_token = _build_token_pair(str(user.id))
     _set_refresh_cookie(response, refresh_token)
@@ -421,6 +437,7 @@ async def register(request: _Request, user_in: UserCreate, db: AsyncSession = De
 
         db.add(new_user)
         await db.flush()
+        record_initial_status(db, new_user)
         await record_audit(
             db,
             user_id=new_user.id,
@@ -526,6 +543,7 @@ async def register_with_org(
 
     db.add(new_user)
     await db.flush()
+    record_initial_status(db, new_user)
     await record_audit(
         db,
         user_id=new_user.id,
@@ -571,9 +589,13 @@ async def verify_email(token: str, db: AsyncSession = Depends(get_db)):
     if not user:
         raise HTTPException(status_code=400, detail="Invalid or expired verification link")
 
+    previous_status = user.status
     user.email_verified = True
     user.email_verification_token = None
     user.status = UserStatus.APPROVED
+    record_status_transition(
+        db, user, from_status=previous_status, to_status=UserStatus.APPROVED
+    )
 
     # Progress referral status if this user was referred
     if user.referred_by_id:
@@ -843,6 +865,9 @@ async def approve_user(
     # Re-approving a REJECTED user is allowed (admin error correction).
     previous_status = user_to_approve.status
     user_to_approve.status = UserStatus.APPROVED
+    record_status_transition(
+        db, user_to_approve, from_status=previous_status, to_status=UserStatus.APPROVED
+    )
     await record_audit(
         db,
         user_id=current_user.id,
