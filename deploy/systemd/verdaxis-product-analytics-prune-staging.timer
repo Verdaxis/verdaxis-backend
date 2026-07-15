@@ -1,5 +1,5 @@
 [Unit]
-Description=Daily Verdaxis product analytics login-day prune (prod)
+Description=Daily Verdaxis product analytics login-day prune (staging)
 
 [Timer]
 OnCalendar=*-*-* 03:20:00 Asia/Singapore

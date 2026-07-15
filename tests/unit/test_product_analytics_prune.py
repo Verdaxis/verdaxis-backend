@@ -23,8 +23,12 @@ from app.models.product_analytics import UserLoginDay, UserStatusTransition
 from app.models.user import User, UserRole, UserStatus
 
 _BACKEND_ROOT = Path(__file__).resolve().parents[2]
-_SERVICE_UNIT = _BACKEND_ROOT / "deploy" / "systemd" / "verdaxis-product-analytics-prune.service"
-_TIMER_UNIT = _BACKEND_ROOT / "deploy" / "systemd" / "verdaxis-product-analytics-prune.timer"
+_SYSTEMD_DIR = _BACKEND_ROOT / "deploy" / "systemd"
+# Bare unit name serves prod, matching verdaxis-backend.service convention.
+_PRUNE_ENVIRONMENTS = {
+    "prod": ("verdaxis-product-analytics-prune", "/home/verdaxis-prod/verdaxis/prod/be"),
+    "staging": ("verdaxis-product-analytics-prune-staging", "/home/verdaxis-prod/verdaxis/staging/be"),
+}
 
 
 def _load_prune_module():
@@ -137,15 +141,17 @@ async def test_status_transitions_are_never_pruned(prune_db):
     assert count == 1
 
 
-def test_systemd_service_artifact_matches_the_specified_unit():
-    content = _SERVICE_UNIT.read_text()
+@pytest.mark.parametrize("environment", sorted(_PRUNE_ENVIRONMENTS))
+def test_systemd_service_artifact_matches_the_specified_unit(environment):
+    unit_name, backend_dir = _PRUNE_ENVIRONMENTS[environment]
+    content = (_SYSTEMD_DIR / f"{unit_name}.service").read_text()
     for directive in (
         "Type=oneshot",
         "User=verdaxis-prod",
         "Group=verdaxis-prod",
-        "WorkingDirectory=/home/verdaxis-prod/verdaxis/staging/be",
-        "EnvironmentFile=/home/verdaxis-prod/verdaxis/staging/be/.env",
-        "ExecStart=/home/verdaxis-prod/verdaxis/staging/be/venv/bin/python scripts/prune_product_analytics.py",
+        f"WorkingDirectory={backend_dir}",
+        f"EnvironmentFile={backend_dir}/.env",
+        f"ExecStart={backend_dir}/venv/bin/python scripts/prune_product_analytics.py",
         "Nice=10",
         "IOSchedulingClass=idle",
         "NoNewPrivileges=true",
@@ -157,8 +163,10 @@ def test_systemd_service_artifact_matches_the_specified_unit():
     assert "Restart=" not in content
 
 
-def test_systemd_timer_artifact_matches_the_specified_schedule():
-    content = _TIMER_UNIT.read_text()
+@pytest.mark.parametrize("environment", sorted(_PRUNE_ENVIRONMENTS))
+def test_systemd_timer_artifact_matches_the_specified_schedule(environment):
+    unit_name, _ = _PRUNE_ENVIRONMENTS[environment]
+    content = (_SYSTEMD_DIR / f"{unit_name}.timer").read_text()
     for directive in (
         "OnCalendar=*-*-* 03:20:00 Asia/Singapore",
         "Persistent=true",
