@@ -462,8 +462,11 @@ class FeatureAdoptionRow(BaseModel):
 
 class NavigationDestinationRow(BaseModel):
     destination: NavigationDestination
-    buyer: AggregateCell
-    supplier: AggregateCell
+    total: AggregateCell
+    # View-mode split requires a cross-tab the verified Umami property API
+    # does not provide; None marks it unavailable rather than fabricated.
+    buyer: AggregateCell | None = None
+    supplier: AggregateCell | None = None
 
 
 class TutorialStepRow(BaseModel):
@@ -729,7 +732,9 @@ class BackendUnavailablePanel(BaseModel):
 
 
 class NavigationLatencyRow(BaseModel):
-    destination: NavigationDestination
+    # "all" carries the cross-destination distribution when the per-
+    # destination cross-tab is unavailable from the verified property API.
+    destination: NavigationDestination | Literal["all"]
     buckets: list[AggregateCell] = Field(default_factory=list, max_length=5)
 
 

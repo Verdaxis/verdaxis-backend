@@ -576,3 +576,910 @@ async def reject_user(
     await db.refresh(user)
 
     return _user_to_entry((user, org_name, org_type))
+
+
+# ---------------------------------------------------------------------------
+# Product Analytics workspace (plan §2.2): seven lazy tab endpoints
+# ---------------------------------------------------------------------------
+
+import asyncio
+from decimal import Decimal
+
+from pydantic import ValidationError
+
+from app.models.audit import AuditLog
+from app.models.catalog import DeliveryPoint, Product
+from app.schemas.product_analytics import (
+    AcquisitionKpis,
+    AcquisitionResponse,
+    ActivationResponse,
+    ActivityTrend,
+    AggregateCell,
+    AnalyticsActivity,
+    AnalyticsAudience,
+    AnalyticsCoverage,
+    AnalyticsDataQuality,
+    AnalyticsDiagnostic as SchemaDiagnostic,
+    AnalyticsMeta,
+    AnalyticsSourceCoverage,
+    AnalyticsSourceStatus,
+    BackendUnavailablePanel,
+    CalculatorFunnel,
+    CollectorState,
+    ConversionRatioKind,
+    CtaMatrixRow,
+    DecimalMetricValue,
+    EngagementResponse,
+    FeatureAdoptionRow,
+    FrontendErrorPanel,
+    JourneySource,
+    JourneyStage,
+    LabeledRatio,
+    LifecycleStage,
+    LifecycleStageKey,
+    LoginFailurePanel,
+    MarketplaceResponse,
+    MetricValue,
+    NavigationDestinationRow,
+    NavigationLatencyRow,
+    NeedsAttentionItem,
+    NeedsAttentionRule,
+    OverviewResponse as PAOverviewResponse,
+    ProductAnalyticsQuery,
+    RankedRow,
+    RatioValue,
+    ReliabilityResponse,
+    RetentionKpis,
+    RetentionResponse,
+    SeriesPoint,
+    AuditActivityRow,
+)
+from app.services.availability_windows import normalize_availability_window
+from app.services.behavioral_analytics import BehavioralWindowAggregate
+from app.services.product_analytics import ProductAnalyticsService
+
+_PA_RATE_LIMIT = "30/minute"
+_ADMIN_ONLY = require_role(UserRole.ADMIN)
+
+_ACQUISITION_EVENTS = ("landing_cta_clicked",)
+_ENGAGEMENT_EVENTS = ("platform_navigation", "tutorial_step_completed", "tutorial_step_skipped")
+_RELIABILITY_EVENTS = ("login_failed", "frontend_error", "backend_unavailable", "navigation_performance")
+
+_FEATURE_FAMILIES = (
+    "platform_navigation", "market_slice_selected", "listing_opened",
+    "order_form_opened", "order_form_submitted", "tutorial_started",
+    "tutorial_completed", "estimator_opened", "estimator_completed",
+)
+_LATENCY_BUCKETS = ("lt250", "250_500", "500_1000", "1000_2500", "gte2500")
+
+
+def product_analytics_query(
+    start: Annotated[datetime, Query(description="Half-open UTC period start")],
+    end: Annotated[datetime, Query(description="Half-open UTC period end (exclusive)")],
+    compare: Annotated[bool, Query()] = True,
+    audience: Annotated[AnalyticsAudience, Query()] = AnalyticsAudience.ALL,
+    activity: Annotated[AnalyticsActivity, Query()] = AnalyticsActivity.LIVE,
+    product_id: Annotated[Optional[_uuid.UUID], Query()] = None,
+    delivery_point_id: Annotated[Optional[_uuid.UUID], Query()] = None,
+    availability_window: Annotated[Optional[str], Query(max_length=16)] = None,
+) -> ProductAnalyticsQuery:
+    """Explicit GET-scalar dependency (plan §2.5): each parameter is declared
+    with Query(...) and the validated model is constructed here — FastAPI is
+    never asked to deserialize a Pydantic body on a GET endpoint."""
+    try:
+        return ProductAnalyticsQuery(
+            start=start,
+            end=end,
+            compare=compare,
+            audience=audience,
+            activity=activity,
+            product_id=product_id,
+            delivery_point_id=delivery_point_id,
+            availability_window=availability_window,
+        )
+    except ValidationError as error:
+        first = error.errors()[0] if error.errors() else {}
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(first.get("msg", "invalid product analytics query")),
+        )
+
+
+def _reject_reference_outside_marketplace(query: ProductAnalyticsQuery) -> None:
+    if query.activity == AnalyticsActivity.REFERENCE:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="REFERENCE activity is accepted only by the marketplace tab",
+        )
+
+
+def _schema_diagnostic(value: str | None) -> SchemaDiagnostic | None:
+    if value is None:
+        return None
+    try:
+        return SchemaDiagnostic(value)
+    except ValueError:
+        return SchemaDiagnostic.UPSTREAM
+
+
+def _behavioral_coverage(window: BehavioralWindowAggregate | None) -> AnalyticsSourceCoverage:
+    if window is None:
+        return AnalyticsSourceCoverage(
+            status=AnalyticsSourceStatus.UNAVAILABLE,
+            diagnostic=SchemaDiagnostic.UPSTREAM,
+        )
+    status_map = {
+        "available": AnalyticsSourceStatus.AVAILABLE,
+        "partial": AnalyticsSourceStatus.PARTIAL,
+        "unavailable": AnalyticsSourceStatus.UNAVAILABLE,
+    }
+    return AnalyticsSourceCoverage(
+        observed_at=window.observed_at,
+        status=status_map.get(window.status, AnalyticsSourceStatus.UNAVAILABLE),
+        diagnostic=_schema_diagnostic(window.diagnostic.value if window.diagnostic else None),
+    )
+
+
+def _fact_coverage(
+    coverage_start: datetime | None, query: ProductAnalyticsQuery
+) -> AnalyticsSourceCoverage:
+    if coverage_start is None:
+        return AnalyticsSourceCoverage(
+            status=AnalyticsSourceStatus.UNAVAILABLE,
+            diagnostic=SchemaDiagnostic.INSUFFICIENT_COVERAGE,
+        )
+    fully_covered = coverage_start <= query.start and (
+        query.previous_start is None or coverage_start <= query.previous_start
+    )
+    return AnalyticsSourceCoverage(
+        coverage_start=coverage_start,
+        observed_at=datetime.now(UTC),
+        status=AnalyticsSourceStatus.AVAILABLE if fully_covered else AnalyticsSourceStatus.PARTIAL,
+        diagnostic=None if fully_covered else SchemaDiagnostic.INSUFFICIENT_COVERAGE,
+    )
+
+
+def _meta(
+    query: ProductAnalyticsQuery,
+    *,
+    data_quality: AnalyticsDataQuality,
+    behavioral: BehavioralWindowAggregate | None = None,
+    behavioral_applicable: bool = True,
+    login_coverage: datetime | None = None,
+    login_applicable: bool = True,
+    status_coverage: datetime | None = None,
+    status_applicable: bool = True,
+    reference_status: AnalyticsSourceStatus = AnalyticsSourceStatus.NOT_APPLICABLE,
+) -> AnalyticsMeta:
+    return AnalyticsMeta(
+        start=query.start,
+        end=query.end,
+        previous_start=query.previous_start,
+        previous_end=query.previous_end,
+        observed_at=datetime.now(UTC),
+        coverage=AnalyticsCoverage(
+            authoritative=AnalyticsSourceCoverage(
+                status=AnalyticsSourceStatus.AVAILABLE, observed_at=datetime.now(UTC)
+            ),
+            behavioral=(
+                _behavioral_coverage(behavioral)
+                if behavioral_applicable
+                else AnalyticsSourceCoverage.not_applicable()
+            ),
+            login_history=(
+                _fact_coverage(login_coverage, query)
+                if login_applicable
+                else AnalyticsSourceCoverage.not_applicable()
+            ),
+            status_history=(
+                _fact_coverage(status_coverage, query)
+                if status_applicable
+                else AnalyticsSourceCoverage.not_applicable()
+            ),
+            reference=AnalyticsSourceCoverage(status=reference_status),
+        ),
+        data_quality=data_quality,
+    )
+
+
+async def _behavioral_windows(
+    analytics: UmamiAnalyticsService,
+    query: ProductAnalyticsQuery,
+    events: tuple[str, ...] = (),
+) -> tuple[BehavioralWindowAggregate | None, BehavioralWindowAggregate | None]:
+    """Fetch current and previous behavioral windows; failures degrade to
+    unavailable results and never fail the tab."""
+    try:
+        current = await analytics.get_window_aggregate(
+            query.start, query.end, event_properties=events
+        )
+    except Exception:
+        current = None
+    previous = None
+    if query.previous_start is not None and query.previous_end is not None:
+        try:
+            previous = await analytics.get_window_aggregate(
+                query.previous_start, query.previous_end, event_properties=events
+            )
+        except Exception:
+            previous = None
+    return current, previous
+
+
+def _behavioral_int(window: BehavioralWindowAggregate | None, field: str) -> int | None:
+    if window is None or window.status == "unavailable":
+        return None
+    return getattr(window, field)
+
+
+def _event_total(window: BehavioralWindowAggregate | None, event: str) -> int | None:
+    if window is None or window.status == "unavailable":
+        return None
+    return window.event_totals.get(event, 0)
+
+
+def _behavioral_metric(
+    current: BehavioralWindowAggregate | None,
+    previous: BehavioralWindowAggregate | None,
+    field: str,
+) -> MetricValue:
+    return MetricValue(
+        value=_behavioral_int(current, field), previous=_behavioral_int(previous, field)
+    )
+
+
+def _event_metric(
+    current: BehavioralWindowAggregate | None,
+    previous: BehavioralWindowAggregate | None,
+    event: str,
+) -> MetricValue:
+    return MetricValue(
+        value=_event_total(current, event), previous=_event_total(previous, event)
+    )
+
+
+def _daily_series(
+    window: BehavioralWindowAggregate | None, query: ProductAnalyticsQuery
+) -> list[SeriesPoint]:
+    if window is None or window.status == "unavailable":
+        return []
+    values: dict[date_type, int] = {}
+    for point in window.daily_visitors:
+        try:
+            values[date_type.fromisoformat(str(point.get("date"))[:10])] = int(point.get("value", 0))
+        except (TypeError, ValueError):
+            continue
+    series: list[SeriesPoint] = []
+    cursor = query.start.date()
+    while cursor < query.end.date() and len(series) < 366:
+        series.append(SeriesPoint(date=cursor, value=values.get(cursor, 0)))
+        cursor += timedelta(days=1)
+    return series
+
+
+def _event_daily_series(
+    window: BehavioralWindowAggregate | None, event: str, query: ProductAnalyticsQuery
+) -> list[SeriesPoint]:
+    if window is None or window.status == "unavailable":
+        return []
+    values: dict[date_type, int] = {}
+    for point in window.event_series:
+        if point.get("event") != event:
+            continue
+        try:
+            day = date_type.fromisoformat(str(point.get("date"))[:10])
+        except (TypeError, ValueError):
+            continue
+        values[day] = values.get(day, 0) + int(point.get("value", 0))
+    series: list[SeriesPoint] = []
+    cursor = query.start.date()
+    while cursor < query.end.date() and len(series) < 366:
+        series.append(SeriesPoint(date=cursor, value=values.get(cursor, 0)))
+        cursor += timedelta(days=1)
+    return series
+
+
+def _property_rows(
+    window: BehavioralWindowAggregate | None, event: str, property_name: str
+) -> list[dict]:
+    if window is None:
+        return []
+    return [
+        row
+        for row in window.event_properties.get(event, [])
+        if row.get("property") == property_name
+    ]
+
+
+def _aggregate_ratio(key: str, numerator: int | None, denominator: int | None) -> LabeledRatio:
+    rate = None
+    if numerator is not None and denominator and denominator > 0:
+        rate = (Decimal(numerator) / Decimal(denominator) * 100).quantize(Decimal("0.01"))
+    return LabeledRatio(
+        key=key,
+        kind=ConversionRatioKind.AGGREGATE_EVENT,
+        ratio=RatioValue(numerator=numerator, denominator=denominator, rate_pct=rate),
+    )
+
+
+async def _validate_marketplace_filters(
+    db: AsyncSession, query: ProductAnalyticsQuery
+) -> None:
+    """Canonical catalog validation (§2.1) — only when filters are supplied."""
+    if query.availability_window is not None:
+        try:
+            normalize_availability_window(query.availability_window)
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="availability_window is not a canonical window",
+            )
+    if query.product_id is not None:
+        product = await db.get(Product, query.product_id)
+        if product is None or product.is_active is False:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="product_id is not an active catalog product",
+            )
+    if query.delivery_point_id is not None:
+        point = await db.get(DeliveryPoint, query.delivery_point_id)
+        if point is None or point.is_active is False:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="delivery_point_id is not an active catalog delivery point",
+            )
+
+
+@router.get("/product-analytics/overview", response_model=PAOverviewResponse)
+@limiter.limit(_PA_RATE_LIMIT, key_func=_per_token_rate_key)
+async def product_analytics_overview(
+    request: Request,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(_ADMIN_ONLY)],
+    analytics: Annotated[UmamiAnalyticsService, Depends(get_analytics_service)],
+    query: Annotated[ProductAnalyticsQuery, Depends(product_analytics_query)],
+):
+    _reject_reference_outside_marketplace(query)
+    service = ProductAnalyticsService(db)
+    authoritative, (behavioral, behavioral_previous) = await asyncio.gather(
+        service.overview(query), _behavioral_windows(analytics, query)
+    )
+
+    visitors = _behavioral_metric(behavioral, behavioral_previous, "visitors")
+    behavioral_status = (
+        AnalyticsSourceStatus.AVAILABLE
+        if behavioral is not None and behavioral.status != "unavailable"
+        else AnalyticsSourceStatus.UNAVAILABLE
+    )
+    lifecycle = [
+        LifecycleStage(
+            key=LifecycleStageKey.VISITORS,
+            count=visitors.value,
+            previous=visitors.previous,
+            coverage=behavioral_status,
+            detail_tab="acquisition",
+        ),
+        LifecycleStage(
+            key=LifecycleStageKey.REGISTERED,
+            count=authoritative.lifecycle.registered.value,
+            previous=authoritative.lifecycle.registered.previous,
+            coverage=AnalyticsSourceStatus.AVAILABLE,
+            detail_tab="activation",
+        ),
+        LifecycleStage(
+            key=LifecycleStageKey.ACTIVE,
+            count=authoritative.lifecycle.active.value,
+            previous=authoritative.lifecycle.active.previous,
+            coverage=_fact_coverage(authoritative.login_coverage_start, query).status,
+            detail_tab="engagement",
+        ),
+        LifecycleStage(
+            key=LifecycleStageKey.PARTICIPATING,
+            count=authoritative.lifecycle.participating.value,
+            previous=authoritative.lifecycle.participating.previous,
+            coverage=AnalyticsSourceStatus.AVAILABLE,
+            detail_tab="marketplace",
+        ),
+        LifecycleStage(
+            key=LifecycleStageKey.TRADING,
+            count=authoritative.lifecycle.trading.value,
+            previous=authoritative.lifecycle.trading.previous,
+            coverage=AnalyticsSourceStatus.AVAILABLE,
+            detail_tab="marketplace",
+        ),
+        LifecycleStage(
+            key=LifecycleStageKey.RETAINED,
+            count=authoritative.lifecycle.retained.value,
+            previous=authoritative.lifecycle.retained.previous,
+            coverage=AnalyticsSourceStatus.AVAILABLE,
+            detail_tab="retention",
+        ),
+    ]
+
+    needs_attention: list[NeedsAttentionItem] = []
+    if authoritative.dormant_approved_members > 0:
+        needs_attention.append(
+            NeedsAttentionItem(
+                rule=NeedsAttentionRule.APPROVED_MEMBERS_NEVER_LOGGED_IN,
+                count=authoritative.dormant_approved_members,
+            )
+        )
+    signup_started = _event_total(behavioral, "signup_started")
+    signup_submitted = _event_total(behavioral, "signup_submitted")
+    if signup_started and (signup_submitted or 0) == 0:
+        needs_attention.append(
+            NeedsAttentionItem(rule=NeedsAttentionRule.SIGNUP_SUBMISSION_DROP, count=signup_started)
+        )
+    if authoritative.one_sided_live_market:
+        needs_attention.append(NeedsAttentionItem(rule=NeedsAttentionRule.ONE_SIDED_LIVE_MARKET))
+    login_failures = _event_total(behavioral, "login_failed")
+    if login_failures is not None and login_failures >= 5:
+        needs_attention.append(
+            NeedsAttentionItem(
+                rule=NeedsAttentionRule.ELEVATED_LOGIN_FAILURES, count=login_failures
+            )
+        )
+    if behavioral_status != AnalyticsSourceStatus.AVAILABLE:
+        needs_attention.append(
+            NeedsAttentionItem(rule=NeedsAttentionRule.DEGRADED_ANALYTICS_COLLECTION)
+        )
+
+    return PAOverviewResponse(
+        meta=_meta(
+            query,
+            data_quality=authoritative.data_quality,
+            behavioral=behavioral,
+            login_coverage=authoritative.login_coverage_start,
+            status_coverage=authoritative.status_coverage_start,
+        ),
+        kpis=authoritative.kpis,
+        lifecycle=lifecycle,
+        activity_trend=ActivityTrend(
+            visitors=_daily_series(behavioral, query),
+            active_members=authoritative.active_members_series,
+            orders=authoritative.orders_series,
+            confirmed_trades=authoritative.confirmed_trades_series,
+        ),
+        marketplace_balance=authoritative.marketplace_balance,
+        needs_attention=needs_attention[:10],
+    )
+
+
+@router.get("/product-analytics/acquisition", response_model=AcquisitionResponse)
+@limiter.limit(_PA_RATE_LIMIT, key_func=_per_token_rate_key)
+async def product_analytics_acquisition(
+    request: Request,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(_ADMIN_ONLY)],
+    analytics: Annotated[UmamiAnalyticsService, Depends(get_analytics_service)],
+    query: Annotated[ProductAnalyticsQuery, Depends(product_analytics_query)],
+):
+    _reject_reference_outside_marketplace(query)
+    behavioral, behavioral_previous = await _behavioral_windows(
+        analytics, query, _ACQUISITION_EVENTS
+    )
+
+    def duration(window: BehavioralWindowAggregate | None) -> Decimal | None:
+        if window is None or window.status == "unavailable" or not window.visits:
+            return None
+        return (Decimal(window.total_time_seconds) / Decimal(window.visits)).quantize(
+            Decimal("0.1")
+        )
+
+    referrer_total = (
+        sum(row["value"] for row in behavioral.top_referrers) if behavioral else 0
+    )
+
+    def share(count: int) -> Decimal | None:
+        if not referrer_total:
+            return None
+        return (Decimal(count) / Decimal(referrer_total) * 100).quantize(Decimal("0.01"))
+
+    referrers = []
+    entry_pages = []
+    if behavioral is not None and behavioral.status != "unavailable":
+        for row in behavioral.top_referrers[:20]:
+            name = str(row.get("name", ""))
+            # An empty referrer is Direct / unknown — distinct from no data.
+            key = "direct" if name == "" else name
+            referrers.append(
+                RankedRow(key=key, label=key, count=int(row.get("value", 0)), share_pct=share(int(row.get("value", 0))))
+            )
+        entry_total = sum(int(row.get("value", 0)) for row in behavioral.top_entries) or None
+        for row in behavioral.top_entries[:20]:
+            count = int(row.get("value", 0))
+            entry_pages.append(
+                RankedRow(
+                    key=str(row.get("name", "/")),
+                    label=str(row.get("name", "/")),
+                    count=count,
+                    share_pct=(
+                        (Decimal(count) / Decimal(entry_total) * 100).quantize(Decimal("0.01"))
+                        if entry_total
+                        else None
+                    ),
+                )
+            )
+
+    # The verified property API returns per-property value totals; a CTA ×
+    # placement cross-tab is not available, so each dimension reports its own
+    # rows and this is labelled clicks, never conversion.
+    cta_rows: list[CtaMatrixRow] = []
+    cta_total = _event_total(behavioral, "landing_cta_clicked")
+    for row in _property_rows(behavioral, "landing_cta_clicked", "cta")[:10]:
+        cta_rows.append(
+            CtaMatrixRow(
+                cta=str(row["value"]),
+                placement="all",
+                clicks=int(row["total"]),
+                share_pct=(
+                    (Decimal(row["total"]) / Decimal(cta_total) * 100).quantize(Decimal("0.01"))
+                    if cta_total
+                    else None
+                ),
+            )
+        )
+    for row in _property_rows(behavioral, "landing_cta_clicked", "placement")[:10]:
+        cta_rows.append(
+            CtaMatrixRow(cta="all", placement=str(row["value"]), clicks=int(row["total"]))
+        )
+
+    languages = [
+        RankedRow(key=str(row["value"]), label=str(row["value"]), count=int(row["total"]))
+        for row in _property_rows(behavioral, "landing_cta_clicked", "language")[:5]
+    ]
+
+    return AcquisitionResponse(
+        meta=_meta(
+            query,
+            data_quality=AnalyticsDataQuality(),
+            behavioral=behavioral,
+            login_applicable=False,
+            status_applicable=False,
+        ),
+        kpis=AcquisitionKpis(
+            visitors=_behavioral_metric(behavioral, behavioral_previous, "visitors"),
+            visits=_behavioral_metric(behavioral, behavioral_previous, "visits"),
+            pageviews=_behavioral_metric(behavioral, behavioral_previous, "pageviews"),
+            average_session_duration_seconds=DecimalMetricValue(
+                value=duration(behavioral), previous=duration(behavioral_previous)
+            ),
+            cta_clicks=_event_metric(behavioral, behavioral_previous, "landing_cta_clicked"),
+        ),
+        visitors_trend=_daily_series(behavioral, query),
+        previous_visitors_trend=[],
+        visits_trend=[],
+        referrers=referrers,
+        entry_pages=entry_pages,
+        cta_matrix=cta_rows[:20],
+        languages=languages,
+        calculator=CalculatorFunnel(
+            starts=_event_metric(behavioral, behavioral_previous, "energy_calculator_started"),
+            completions=_event_metric(
+                behavioral, behavioral_previous, "energy_calculator_completed"
+            ),
+        ),
+    )
+
+
+@router.get("/product-analytics/activation", response_model=ActivationResponse)
+@limiter.limit(_PA_RATE_LIMIT, key_func=_per_token_rate_key)
+async def product_analytics_activation(
+    request: Request,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(_ADMIN_ONLY)],
+    analytics: Annotated[UmamiAnalyticsService, Depends(get_analytics_service)],
+    query: Annotated[ProductAnalyticsQuery, Depends(product_analytics_query)],
+):
+    _reject_reference_outside_marketplace(query)
+    service = ProductAnalyticsService(db)
+    authoritative, (behavioral, _previous) = await asyncio.gather(
+        service.activation(query), _behavioral_windows(analytics, query)
+    )
+
+    def behavioral_stage(key: str) -> JourneyStage:
+        total = _event_total(behavioral, key)
+        return JourneyStage(
+            key=key,
+            source=JourneySource.BEHAVIORAL,
+            total=AggregateCell(key=key, count=total),
+        )
+
+    journey = [
+        behavioral_stage("signup_started"),
+        behavioral_stage("signup_role_selected"),
+        behavioral_stage("signup_submitted"),
+        behavioral_stage("signup_organization_required"),
+        behavioral_stage("signup_organization_submitted"),
+        JourneyStage(
+            key="registered",
+            source=JourneySource.AUTHORITATIVE,
+            total=AggregateCell(key="registered", count=authoritative.registered_total.value),
+            buyer=authoritative.registered_buyer,
+            supplier=authoritative.registered_supplier,
+        ),
+        JourneyStage(
+            key="approved",
+            source=JourneySource.AUTHORITATIVE,
+            total=authoritative.approved_members,
+        ),
+        JourneyStage(
+            key="first_login",
+            source=JourneySource.AUTHORITATIVE,
+            total=authoritative.first_login_members,
+        ),
+        JourneyStage(
+            key="first_live_order",
+            source=JourneySource.AUTHORITATIVE,
+            total=authoritative.first_live_order_organizations,
+        ),
+    ]
+
+    # Aggregate event ratios stay behavioral-only; user/organization cohorts
+    # stay database-only — historical DB registrations are never divided by
+    # events collected only after behavioral coverage began (§1.6).
+    ratios = [
+        _aggregate_ratio(
+            "signup_started_to_submitted",
+            _event_total(behavioral, "signup_submitted"),
+            _event_total(behavioral, "signup_started"),
+        ),
+    ]
+
+    return ActivationResponse(
+        meta=_meta(
+            query,
+            data_quality=authoritative.data_quality,
+            behavioral=behavioral,
+            login_coverage=authoritative.login_coverage_start,
+            status_coverage=authoritative.status_coverage_start,
+        ),
+        journey=journey,
+        time_to_first_login=authoritative.time_to_first_login,
+        time_to_first_live_order=authoritative.time_to_first_live_order,
+        drop_off=authoritative.drop_off,
+        ratios=ratios,
+    )
+
+
+@router.get("/product-analytics/engagement", response_model=EngagementResponse)
+@limiter.limit(_PA_RATE_LIMIT, key_func=_per_token_rate_key)
+async def product_analytics_engagement(
+    request: Request,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(_ADMIN_ONLY)],
+    analytics: Annotated[UmamiAnalyticsService, Depends(get_analytics_service)],
+    query: Annotated[ProductAnalyticsQuery, Depends(product_analytics_query)],
+):
+    _reject_reference_outside_marketplace(query)
+    service = ProductAnalyticsService(db)
+    authoritative, (behavioral, _previous) = await asyncio.gather(
+        service.engagement(query), _behavioral_windows(analytics, query, _ENGAGEMENT_EVENTS)
+    )
+
+    adoption = [
+        FeatureAdoptionRow(family=family, events=_event_total(behavioral, family))
+        for family in _FEATURE_FAMILIES
+    ]
+    adoption.sort(key=lambda row: row.events or 0, reverse=True)
+
+    workflow_ratios = [
+        _aggregate_ratio(
+            "listing_to_order_form",
+            _event_total(behavioral, "order_form_opened"),
+            _event_total(behavioral, "listing_opened"),
+        ),
+        _aggregate_ratio(
+            "order_form_to_submit",
+            _event_total(behavioral, "order_form_submitted"),
+            _event_total(behavioral, "order_form_opened"),
+        ),
+        _aggregate_ratio(
+            "tutorial_start_to_complete",
+            _event_total(behavioral, "tutorial_completed"),
+            _event_total(behavioral, "tutorial_started"),
+        ),
+        _aggregate_ratio(
+            "estimator_open_to_complete",
+            _event_total(behavioral, "estimator_completed"),
+            _event_total(behavioral, "estimator_opened"),
+        ),
+    ]
+
+    destinations = [
+        NavigationDestinationRow(
+            destination=str(row["value"]),  # validated by the response model
+            total=AggregateCell(key=str(row["value"]), count=int(row["total"])),
+        )
+        for row in _property_rows(behavioral, "platform_navigation", "destination")[:12]
+        if str(row["value"]) in {
+            "home", "map", "marketplace", "curve", "watchlist", "analytics",
+            "trades", "quotes", "compliance", "training", "settings", "admin",
+        }
+    ]
+
+    steps: dict[str, dict[str, int]] = {}
+    for row in _property_rows(behavioral, "tutorial_step_completed", "step"):
+        steps.setdefault(str(row["value"]), {})["completed"] = int(row["total"])
+    for row in _property_rows(behavioral, "tutorial_step_skipped", "step"):
+        steps.setdefault(str(row["value"]), {})["skipped"] = int(row["total"])
+    from app.schemas.product_analytics import TutorialStepRow
+
+    tutorial_steps = [
+        TutorialStepRow(
+            step=step,
+            completed=AggregateCell(key="completed", count=values.get("completed", 0)),
+            skipped=AggregateCell(key="skipped", count=values.get("skipped", 0)),
+        )
+        for step, values in sorted(steps.items())[:20]
+    ]
+
+    return EngagementResponse(
+        meta=_meta(
+            query,
+            data_quality=authoritative.data_quality,
+            behavioral=behavioral,
+            login_coverage=authoritative.login_coverage_start,
+            status_applicable=False,
+        ),
+        kpis=authoritative.kpis,
+        active_members_trend=authoritative.active_members_trend,
+        feature_adoption=adoption,
+        workflow_ratios=workflow_ratios,
+        navigation_destinations=destinations,
+        tutorial_steps=tutorial_steps,
+    )
+
+
+@router.get("/product-analytics/marketplace", response_model=MarketplaceResponse)
+@limiter.limit(_PA_RATE_LIMIT, key_func=_per_token_rate_key)
+async def product_analytics_marketplace(
+    request: Request,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(_ADMIN_ONLY)],
+    query: Annotated[ProductAnalyticsQuery, Depends(product_analytics_query)],
+):
+    await _validate_marketplace_filters(db, query)
+    service = ProductAnalyticsService(db)
+    result = await service.marketplace(query)
+
+    reference_status = (
+        AnalyticsSourceStatus.AVAILABLE
+        if result.reference is not None
+        else AnalyticsSourceStatus.NOT_APPLICABLE
+    )
+    return MarketplaceResponse(
+        meta=_meta(
+            query,
+            data_quality=result.data_quality,
+            behavioral_applicable=False,
+            login_applicable=False,
+            status_applicable=False,
+            reference_status=reference_status,
+        ),
+        live=result.live,
+        demo=result.demo,
+        unknown=result.unknown,
+        reference=result.reference,
+        commercial=result.commercial,
+    )
+
+
+@router.get("/product-analytics/retention", response_model=RetentionResponse)
+@limiter.limit(_PA_RATE_LIMIT, key_func=_per_token_rate_key)
+async def product_analytics_retention(
+    request: Request,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(_ADMIN_ONLY)],
+    query: Annotated[ProductAnalyticsQuery, Depends(product_analytics_query)],
+):
+    _reject_reference_outside_marketplace(query)
+    service = ProductAnalyticsService(db)
+    result = await service.retention(query)
+
+    return RetentionResponse(
+        meta=_meta(
+            query,
+            data_quality=result.data_quality,
+            behavioral_applicable=False,
+            login_coverage=result.login_coverage_start,
+            status_applicable=False,
+        ),
+        kpis=RetentionKpis(
+            returning_members=result.returning_members,
+            retained_organizations=result.retained_organizations,
+            reactivated_organizations=result.reactivated_organizations,
+            dormant_approved_members=result.dormant_approved_members,
+        ),
+        member_cohorts=result.member_cohorts[:54],
+        organization_cohorts=result.organization_cohorts[:54],
+        repeat_participation=result.repeat_participation,
+    )
+
+
+@router.get("/product-analytics/reliability", response_model=ReliabilityResponse)
+@limiter.limit(_PA_RATE_LIMIT, key_func=_per_token_rate_key)
+async def product_analytics_reliability(
+    request: Request,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(_ADMIN_ONLY)],
+    analytics: Annotated[UmamiAnalyticsService, Depends(get_analytics_service)],
+    query: Annotated[ProductAnalyticsQuery, Depends(product_analytics_query)],
+):
+    _reject_reference_outside_marketplace(query)
+    behavioral, behavioral_previous = await _behavioral_windows(
+        analytics, query, _RELIABILITY_EVENTS
+    )
+
+    def cells(event: str, property_name: str, limit: int = 8) -> list[AggregateCell]:
+        return [
+            AggregateCell(key=str(row["value"]), count=int(row["total"]))
+            for row in _property_rows(behavioral, event, property_name)[:limit]
+        ]
+
+    latency_cells = {
+        str(row["value"]): int(row["total"])
+        for row in _property_rows(behavioral, "navigation_performance", "latency_bucket")
+    }
+    navigation_latency = []
+    if latency_cells:
+        # The per-destination cross-tab is unavailable from the verified
+        # property API; "all" carries the cross-destination distribution.
+        navigation_latency.append(
+            NavigationLatencyRow(
+                destination="all",
+                buckets=[
+                    AggregateCell(key=bucket, count=latency_cells.get(bucket, 0))
+                    for bucket in _LATENCY_BUCKETS
+                ],
+            )
+        )
+
+    audit_rows = (
+        await db.execute(
+            select(AuditLog.timestamp, AuditLog.action, AuditLog.resource_type, User.role)
+            .outerjoin(User, User.id == AuditLog.user_id)
+            .order_by(AuditLog.timestamp.desc())
+            .limit(20)
+        )
+    ).all()
+
+    return ReliabilityResponse(
+        meta=_meta(
+            query,
+            data_quality=AnalyticsDataQuality(),
+            behavioral=behavioral,
+            login_applicable=False,
+            status_applicable=False,
+        ),
+        collector=CollectorState(
+            status=_behavioral_coverage(behavioral).status,
+            diagnostic=_behavioral_coverage(behavioral).diagnostic,
+            last_observation_at=behavioral.observed_at if behavioral else None,
+        ),
+        login_failures=LoginFailurePanel(
+            total=_event_metric(behavioral, behavioral_previous, "login_failed"),
+            categories=cells("login_failed", "reason_category"),
+            trend=_event_daily_series(behavioral, "login_failed", query),
+        ),
+        frontend_errors=FrontendErrorPanel(
+            total=_event_metric(behavioral, behavioral_previous, "frontend_error"),
+            by_route_family=cells("frontend_error", "route_family", 4),
+            by_category=cells("frontend_error", "category", 4),
+        ),
+        backend_unavailable=BackendUnavailablePanel(
+            total=_event_metric(behavioral, behavioral_previous, "backend_unavailable"),
+            by_route_family=cells("backend_unavailable", "route_family", 4),
+        ),
+        navigation_latency=navigation_latency,
+        # Product reliability telemetry only — no IP addresses, no actors.
+        audit_activity=[
+            AuditActivityRow(
+                occurred_at=row.timestamp,
+                action=row.action,
+                resource_type=row.resource_type,
+                actor_role=row.role.value if row.role else None,
+            )
+            for row in audit_rows
+        ],
+    )

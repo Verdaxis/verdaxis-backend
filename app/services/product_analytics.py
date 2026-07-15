@@ -113,6 +113,63 @@ _MAX_COHORTS = 54
 Provenance = Literal["live", "demo", "unknown"]
 
 
+@dataclass(frozen=True)
+class MarketSliceFilters:
+    """Canonical Marketplace filters (§1.3). Orders filter on their own
+    columns; trades and commissions qualify through a linked order matching
+    the filters, so legacy trades without an order link drop out of filtered
+    views instead of being silently misattributed."""
+
+    product_id: UUID | None = None
+    delivery_point_id: UUID | None = None
+    availability_window: str | None = None
+
+    @property
+    def active(self) -> bool:
+        return any(
+            value is not None
+            for value in (self.product_id, self.delivery_point_id, self.availability_window)
+        )
+
+    @classmethod
+    def from_query(cls, query: "ProductAnalyticsQuery") -> "MarketSliceFilters":
+        return cls(
+            product_id=query.product_id,
+            delivery_point_id=query.delivery_point_id,
+            availability_window=query.availability_window,
+        )
+
+
+def _order_filter_conditions(filters: MarketSliceFilters | None) -> list:
+    if filters is None or not filters.active:
+        return []
+    conditions = []
+    if filters.product_id is not None:
+        conditions.append(OrderBookOrder.product_id == filters.product_id)
+    if filters.delivery_point_id is not None:
+        conditions.append(OrderBookOrder.delivery_point_id == filters.delivery_point_id)
+    if filters.availability_window is not None:
+        conditions.append(OrderBookOrder.availability_window == filters.availability_window)
+    return conditions
+
+
+def _trade_matches_filters(filters: MarketSliceFilters | None):
+    """EXISTS predicate: a trade qualifies when either linked order matches."""
+    if filters is None or not filters.active:
+        return literal(True)
+    return exists(
+        select(literal(1))
+        .select_from(OrderBookOrder)
+        .where(
+            or_(
+                OrderBookOrder.id == Trade.bid_order_id,
+                OrderBookOrder.id == Trade.ask_order_id,
+            ),
+            *_order_filter_conditions(filters),
+        )
+    )
+
+
 def slugify(value: str) -> str:
     """Stable lowercase key for catalog labels (never a UUID)."""
     cleaned = "".join(ch if ch.isalnum() else "-" for ch in value.strip().lower())
@@ -540,6 +597,25 @@ def member_login_rollup_stmt(start: datetime, end: datetime,
     ).join(User, User.id == per_user.c.user_id)
 
 
+def org_activity_days_stmt(end: datetime, dialect: str):
+    """Distinct live-organization activity dates (order creation or strict
+    economic confirmation) before the as-of instant, for weekly organization
+    cohorts. Order/trade dates may legitimately predate login-fact coverage.
+
+    The entity column is labelled ``user_id`` so cohort bucketing shares one
+    row shape with member cohorts; here it carries organization ids.
+    """
+    activity = _org_activity_union()
+    return (
+        select(
+            activity.c.org_id.label("user_id"),
+            utc_date_bucket(activity.c.ts, dialect).label("activity_date"),
+        )
+        .where(activity.c.ts.is_not(None), activity.c.ts < end)
+        .distinct()
+    )
+
+
 def member_activity_days_stmt(end: datetime):
     """Distinct member login dates before the as-of instant (weekly cohort
     input; bounded by the 800-date retention window)."""
@@ -557,7 +633,8 @@ def member_activity_days_stmt(end: datetime):
 
 
 def orders_aggregate_stmt(start: datetime, end: datetime,
-                          previous_start: datetime | None, previous_end: datetime | None):
+                          previous_start: datetime | None, previous_end: datetime | None,
+                          filters: MarketSliceFilters | None = None):
     """Order counts/sides/organizations/execution grouped by provenance.
 
     Execution (§1.5): an order created in the period counts as executed when a
@@ -633,7 +710,10 @@ def orders_aggregate_stmt(start: datetime, end: datetime,
                 )
             ).label("still_open_current"),
         )
-        .where(_in_window(OrderBookOrder.created_at, previous_start or start, end))
+        .where(
+            _in_window(OrderBookOrder.created_at, previous_start or start, end),
+            *_order_filter_conditions(filters),
+        )
         .group_by(provenance)
     )
 
@@ -653,7 +733,8 @@ def orders_daily_stmt(start: datetime, end: datetime, dialect: str):
 
 
 def trades_aggregate_stmt(start: datetime, end: datetime,
-                          previous_start: datetime | None, previous_end: datetime | None):
+                          previous_start: datetime | None, previous_end: datetime | None,
+                          filters: MarketSliceFilters | None = None):
     """Confirmed-trade counts/volume/GMV and data-quality counters by provenance.
 
     Economic activity buckets by ``confirmed_at``; a legacy confirmed row with
@@ -704,6 +785,7 @@ def trades_aggregate_stmt(start: datetime, end: datetime,
                 _in_window(economic_ts, previous_start or start, end),
                 and_(paid, _in_window(Trade.paid_at, previous_start or start, end)),
             ),
+            _trade_matches_filters(filters),
         )
         .group_by(provenance)
     )
@@ -850,7 +932,7 @@ def org_activity_buckets_stmt(start: datetime, end: datetime,
     )
 
 
-def eligible_quotes_stmt(as_of: datetime):
+def eligible_quotes_stmt(as_of: datetime, filters: MarketSliceFilters | None = None):
     """Eligible live/demo quote rows for slice liquidity (§1.6 Marketplace).
 
     An eligible quote is OPEN or PARTIALLY_FILLED with remaining quantity, a
@@ -880,16 +962,19 @@ def eligible_quotes_stmt(as_of: datetime):
             OrderBookOrder.delivery_point_id.is_not(None),
             or_(OrderBookOrder.expires_at.is_(None), OrderBookOrder.expires_at >= as_of),
             OrderBookOrder.created_at < as_of,
+            *_order_filter_conditions(filters),
         )
     )
 
 
-def matrix_window_stmt(start: datetime, end: datetime):
+def matrix_window_stmt(start: datetime, end: datetime,
+                       filters: MarketSliceFilters | None = None):
     """Live product×port matrix and availability-window distribution in one
     round trip (UNION ALL of two groupings)."""
     live = and_(
         _in_window(OrderBookOrder.created_at, start, end),
         OrderBookOrder.organization_id.in_(recognized_market_org_ids()),
+        *_order_filter_conditions(filters),
     )
     matrix = (
         select(
@@ -924,7 +1009,8 @@ def matrix_window_stmt(start: datetime, end: datetime):
     return union_all(matrix, windows)
 
 
-def balance_trend_stmt(start: datetime, end: datetime, dialect: str):
+def balance_trend_stmt(start: datetime, end: datetime, dialect: str,
+                       filters: MarketSliceFilters | None = None):
     """Daily live order counts and distinct organizations per side."""
     bucket = utc_date_bucket(OrderBookOrder.created_at, dialect).label("day")
     return (
@@ -937,12 +1023,14 @@ def balance_trend_stmt(start: datetime, end: datetime, dialect: str):
         .where(
             _in_window(OrderBookOrder.created_at, start, end),
             OrderBookOrder.organization_id.in_(recognized_market_org_ids()),
+            *_order_filter_conditions(filters),
         )
         .group_by(bucket, OrderBookOrder.side)
     )
 
 
-def status_distribution_stmt(start: datetime, end: datetime):
+def status_distribution_stmt(start: datetime, end: datetime,
+                             filters: MarketSliceFilters | None = None):
     """Order and trade status distributions by provenance in one round trip.
 
     The provenance expressions are shared between SELECT and GROUP BY —
@@ -957,7 +1045,10 @@ def status_distribution_stmt(start: datetime, end: datetime):
             func.count(OrderBookOrder.id).label("count"),
             func.count(distinct(OrderBookOrder.organization_id)).label("organizations"),
         )
-        .where(_in_window(OrderBookOrder.created_at, start, end))
+        .where(
+            _in_window(OrderBookOrder.created_at, start, end),
+            *_order_filter_conditions(filters),
+        )
         .group_by(order_provenance, OrderBookOrder.status)
     )
     economic_ts = func.coalesce(Trade.confirmed_at, Trade.created_at)
@@ -973,14 +1064,15 @@ def status_distribution_stmt(start: datetime, end: datetime):
             # falls back to the event-count rule (§1.4 rule 12).
             cast(null(), Integer).label("organizations"),
         )
-        .where(_in_window(economic_ts, start, end))
+        .where(_in_window(economic_ts, start, end), _trade_matches_filters(filters))
         .group_by(trade_provenance, Trade.status)
     )
     return union_all(orders, trades)
 
 
 def commissions_stmt(start: datetime, end: datetime,
-                     previous_start: datetime | None, previous_end: datetime | None):
+                     previous_start: datetime | None, previous_end: datetime | None,
+                     filters: MarketSliceFilters | None = None):
     """Realized revenue by payment date plus outstanding commission totals.
 
     ``Commission.payment_date`` is date-only and projects to 00:00:00Z on that
@@ -1028,11 +1120,17 @@ def commissions_stmt(start: datetime, end: datetime,
         )
         .select_from(Commission)
         .outerjoin(Trade, Trade.id == Commission.trade_id)
-        .where(~demo_trade)
+        .where(
+            ~demo_trade,
+            literal(True)
+            if filters is None or not filters.active
+            else and_(Trade.id.is_not(None), _trade_matches_filters(filters)),
+        )
     )
 
 
-def time_to_fill_stmt(start: datetime, end: datetime):
+def time_to_fill_stmt(start: datetime, end: datetime,
+                      filters: MarketSliceFilters | None = None):
     """Per-order first economic confirmation for live orders created in the
     period (bounded by orders in the period; grouped, not looped)."""
     return (
@@ -1048,6 +1146,7 @@ def time_to_fill_stmt(start: datetime, end: datetime):
         .where(
             _in_window(OrderBookOrder.created_at, start, end),
             OrderBookOrder.organization_id.in_(recognized_market_org_ids()),
+            *_order_filter_conditions(filters),
             Trade.status.in_(_CONFIRMED_TRADE_STATUSES),
             Trade.confirmed_at.is_not(None),
             Trade.confirmed_at < end,
@@ -1262,6 +1361,7 @@ class RetentionAuthoritative:
     dormant_approved_members: MetricValue
     repeat_participation: list[AggregateCell]
     member_cohorts: list["CohortRow"]
+    organization_cohorts: list["CohortRow"]
     login_coverage_start: datetime | None
     data_quality: AnalyticsDataQuality
 
@@ -1496,22 +1596,31 @@ class ProductAnalyticsService:
         live_section = demo_section = unknown_section = None
         commercial = None
 
+        filters = MarketSliceFilters.from_query(query)
         if wants_activity:
             orders_rows = (
-                await self.db.execute(orders_aggregate_stmt(start, end, prev_start, prev_end))
+                await self.db.execute(
+                    orders_aggregate_stmt(start, end, prev_start, prev_end, filters)
+                )
             ).all()
-            quotes_rows = (await self.db.execute(eligible_quotes_stmt(end))).all()
+            quotes_rows = (await self.db.execute(eligible_quotes_stmt(end, filters))).all()
             trades_rows = (
-                await self.db.execute(trades_aggregate_stmt(start, end, prev_start, prev_end))
+                await self.db.execute(
+                    trades_aggregate_stmt(start, end, prev_start, prev_end, filters)
+                )
             ).all()
-            matrix_rows = (await self.db.execute(matrix_window_stmt(start, end))).all()
+            matrix_rows = (await self.db.execute(matrix_window_stmt(start, end, filters))).all()
             trend_rows = (
-                await self.db.execute(balance_trend_stmt(start, end, self._dialect))
+                await self.db.execute(balance_trend_stmt(start, end, self._dialect, filters))
             ).all()
-            status_rows = (await self.db.execute(status_distribution_stmt(start, end))).all()
-            fill_rows = (await self.db.execute(time_to_fill_stmt(start, end))).all()
+            status_rows = (
+                await self.db.execute(status_distribution_stmt(start, end, filters))
+            ).all()
+            fill_rows = (await self.db.execute(time_to_fill_stmt(start, end, filters))).all()
             commissions = (
-                await self.db.execute(commissions_stmt(start, end, prev_start, prev_end))
+                await self.db.execute(
+                    commissions_stmt(start, end, prev_start, prev_end, filters)
+                )
             ).one()
 
             sections: dict[str, MarketActivitySection] = {}
@@ -1739,6 +1848,9 @@ class ProductAnalyticsService:
             )
         ).all()
         activity_days = (await self.db.execute(member_activity_days_stmt(end))).all()
+        org_days = (
+            await self.db.execute(org_activity_days_stmt(end, self._dialect))
+        ).all()
 
         login_coverage: date | None = None
         returning_count = 0
@@ -1774,6 +1886,7 @@ class ProductAnalyticsService:
             dormant_approved_members=MetricValue(value=dormant.never_logged_in),
             repeat_participation=repeat,
             member_cohorts=self._member_cohorts(activity_days, end, quality),
+            organization_cohorts=self._member_cohorts(org_days, end, quality),
             login_coverage_start=self._coverage_instant(login_coverage),
             data_quality=quality.to_schema(),
         )
