@@ -2,7 +2,7 @@ from decimal import Decimal
 from typing import Any, Annotated, List
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
@@ -19,6 +19,8 @@ from app.schemas.marketplace import InventoryCreate, InventoryItemUpdate, Invent
 from app.models.user import User, UserRole
 from app.routers.auth_simple import get_current_user
 from app.services.availability_windows import SPOT_WINDOW
+from app.services.audit_service import record_audit, request_audit_context
+from app.services.audit_actions import INVENTORY_PUBLISHED
 import logging
 
 logger = logging.getLogger(__name__)
@@ -102,7 +104,7 @@ async def list_inventory(
 ):
     if current_user.role != UserRole.SUPPLIER:
         # Buyers might see aggregated inventory, but for now strict scoping
-        raise HTTPException(status_code=403, detail="Access restricted to Suppliers")
+        raise HTTPException(status_code=403, detail="Forbidden")
 
     stmt = select(InventoryItem).where(InventoryItem.supplier_id == current_user.organization_id)
     result = await db.execute(stmt)
@@ -199,6 +201,7 @@ async def delete_inventory(
 @router.post("/inventory/{item_id}/publish")
 async def publish_inventory_item(
     item_id: UUID,
+    request: Request,
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user)],
 ):
@@ -247,6 +250,22 @@ async def publish_inventory_item(
         **{field: getattr(item, field) for field in SUPPLIER_METADATA_FIELDS},
     )
     db.add(listing)
+    await db.flush()
+    await record_audit(
+        db,
+        user_id=current_user.id,
+        action=INVENTORY_PUBLISHED,
+        resource_type="inventory",
+        resource_id=item.id,
+        changes={
+            "inventory_item_id": str(item.id),
+            "listing_id": str(listing.id),
+            "quantity_mt": str(listing.quantity_mt),
+            "price_per_mt_usd": str(listing.price_per_mt_usd),
+            "status": listing.status.value,
+        },
+        **request_audit_context(request),
+    )
     await db.commit()
     await db.refresh(listing)
 

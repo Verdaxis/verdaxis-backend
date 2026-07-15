@@ -44,6 +44,7 @@ def _approved_user() -> SimpleNamespace:
         status=UserStatus.APPROVED,
         email_verified=True,
         password_changed_at=None,
+        organization_id=None,
     )
 
 
@@ -54,6 +55,10 @@ def _mock_db_session(user: SimpleNamespace) -> AsyncMock:
     session.execute = AsyncMock(return_value=result)
     session.commit = AsyncMock()
     session.refresh = AsyncMock()
+    # record_login_day inspects the dialect for its upsert flavor.
+    session.get_bind = MagicMock(
+        return_value=SimpleNamespace(dialect=SimpleNamespace(name="sqlite"))
+    )
     return session
 
 
@@ -94,7 +99,8 @@ class TestRefreshCookieMigration:
         assert response.status_code == 200
         data = response.json()
         assert data["access_token"] == "access-token-login"
-        assert data["refresh_token"] == "refresh-token-login"
+        # The refresh token must travel ONLY in the HttpOnly cookie.
+        assert "refresh_token" not in data
         cookie_header = _cookie_header(response)
         assert "refresh_token=refresh-token-login" in cookie_header
         assert "HttpOnly" in cookie_header
@@ -130,7 +136,7 @@ class TestRefreshCookieMigration:
         assert refresh_response.status_code == 200
         data = refresh_response.json()
         assert data["access_token"] == "access-token-refresh"
-        assert data["refresh_token"] == "refresh-token-refresh"
+        assert "refresh_token" not in data
         assert client.cookies.get("refresh_token") == "refresh-token-refresh"
 
     @pytest.mark.asyncio
@@ -156,7 +162,7 @@ class TestRefreshCookieMigration:
         assert response.status_code == 200
         data = response.json()
         assert data["access_token"] == "access-token-refresh"
-        assert data["refresh_token"] == "refresh-token-next"
+        assert "refresh_token" not in data
 
     @pytest.mark.asyncio
     async def test_logout_clears_refresh_cookie(self):

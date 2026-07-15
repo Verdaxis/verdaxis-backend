@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from uuid import UUID
@@ -12,8 +12,15 @@ from app.schemas.orders import (
     CommissionUpdate,
 )
 from app.routers.auth_simple import get_current_user
+from app.schemas.errors import AUTH_RESPONSES
+from app.services.audit_service import record_audit, request_audit_context
+from app.services.audit_actions import COMMISSION_UPDATED
 
-router = APIRouter(prefix="/orders", tags=["orders"])
+router = APIRouter(
+    prefix="/orders",
+    tags=["orders"],
+    responses=AUTH_RESPONSES,
+)
 
 
 # ============== Admin Commission Endpoints ==============
@@ -87,6 +94,7 @@ async def get_commission_summary(
 @router.put("/admin/commissions/{commission_id}", response_model=CommissionResponse)
 async def update_commission(
     commission_id: UUID,
+    request: Request,
     update_data: CommissionUpdate,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -110,9 +118,26 @@ async def update_commission(
         )
 
     update_dict = update_data.model_dump(exclude_unset=True)
+    previous_status = commission.status
     for field, value in update_dict.items():
         setattr(commission, field, value)
 
+    changes = {}
+    if "status" in update_dict and previous_status != commission.status:
+        changes["status"] = {
+            "from": previous_status.value,
+            "to": commission.status.value,
+        }
+
+    await record_audit(
+        db,
+        user_id=current_user.id,
+        action=COMMISSION_UPDATED,
+        resource_type="commission",
+        resource_id=commission.id,
+        changes=changes,
+        **request_audit_context(request),
+    )
     await db.commit()
     await db.refresh(commission)
 

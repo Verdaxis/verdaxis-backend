@@ -60,7 +60,7 @@ python scripts/seed.py
 
 ### CI/CD (GitHub Actions)
 
-Legacy CI/CD documentation may still refer to Docker and `main`. Treat the live systemd layout above as authoritative until the GitHub workflow is reconciled.
+CI (`.github/workflows/backend-ci.yml`) runs the unit-test suite and a strict `pip-audit` dependency gate on pushes and PRs to `staging` and `prod` — the branches that are actually deployed. CI does NOT deploy: deploys are operator-run on the VPS via `scripts/deploy.sh` against the systemd services described above. Any remaining docs referring to Docker-based CI or a `main` deploy branch are legacy.
 
 ### Manual Deploy
 

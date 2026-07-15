@@ -26,6 +26,15 @@ from app.schemas.rfq import (
 from app.services.event_bus import event_bus
 from app.services.availability_windows import normalize_availability_window
 from app.services.activity import trade_activity_provenance
+from app.services.audit_service import record_audit, request_audit_context
+from app.services.audit_actions import (
+    RFQ_ACCEPTED,
+    RFQ_CANCELLED,
+    RFQ_CREATED,
+    RFQ_QUOTE_SUBMITTED,
+    TRADE_CREATED,
+)
+from app.services.behavioral_analytics import track_analytics_event, trade_created_event
 
 router = APIRouter(prefix="/rfq", tags=["rfq"])
 
@@ -200,6 +209,23 @@ async def create_rfq(
 
     db.add(rfq)
     await db.flush()
+    await record_audit(
+        db,
+        user_id=current_user.id,
+        action=RFQ_CREATED,
+        resource_type="rfq",
+        resource_id=rfq.id,
+        changes={
+            "buyer_org_id": str(rfq.buyer_org_id),
+            "product_id": str(rfq.product_id),
+            "delivery_point_id": str(rfq.delivery_point_id) if rfq.delivery_point_id else None,
+            "quantity_mt": str(rfq.quantity_mt),
+            "target_price_per_mt": str(rfq.target_price_per_mt) if rfq.target_price_per_mt else None,
+            "availability_window": rfq.availability_window,
+            "status": rfq.status.value,
+        },
+        **request_audit_context(request),
+    )
 
     # Eagerly set quotes to empty list for response building
     rfq.quotes = []
@@ -325,6 +351,7 @@ async def submit_quote(
     if existing:
         raise HTTPException(status_code=409, detail="You have already quoted this RFQ")
 
+    previous_status = rfq.status
     quote = RFQQuote(
         rfq_id=rfq.id,
         seller_org_id=current_user.organization_id,
@@ -347,6 +374,21 @@ async def submit_quote(
         "New Quote Received",
         f"A supplier submitted a quote of ${payload.price_per_mt_usd}/MT on your RFQ.",
         {"rfq_id": str(rfq.id), "quote_id": str(quote.id)},
+    )
+    await record_audit(
+        db,
+        user_id=current_user.id,
+        action=RFQ_QUOTE_SUBMITTED,
+        resource_type="rfq_quote",
+        resource_id=quote.id,
+        changes={
+            "rfq_id": str(rfq.id),
+            "seller_org_id": str(quote.seller_org_id),
+            "price_per_mt_usd": str(quote.price_per_mt_usd),
+            "quote_status": quote.status.value,
+            "rfq_status": {"from": previous_status.value, "to": rfq.status.value},
+        },
+        **request_audit_context(request),
     )
 
     await db.commit()
@@ -412,6 +454,8 @@ async def accept_quote(
         raise HTTPException(status_code=400, detail="Quote is not pending")
 
     # Accept the target quote, decline all others
+    previous_rfq_status = rfq.status
+    previous_quote_status = target_quote.status
     target_quote.status = QuoteStatus.ACCEPTED
     for q in rfq.quotes:
         if q.id != quote_id and q.status == QuoteStatus.PENDING:
@@ -444,8 +488,49 @@ async def accept_quote(
         f"Your quote of ${target_quote.price_per_mt_usd}/MT has been accepted!",
         {"rfq_id": str(rfq.id), "trade_id": str(trade.id)},
     )
+    await record_audit(
+        db,
+        user_id=current_user.id,
+        action=RFQ_ACCEPTED,
+        resource_type="rfq",
+        resource_id=rfq.id,
+        changes={
+            "rfq_status": {"from": previous_rfq_status.value, "to": RFQStatus.ACCEPTED.value},
+            "quote_status": {"from": previous_quote_status.value, "to": QuoteStatus.ACCEPTED.value},
+            "quote_id": str(target_quote.id),
+            "seller_org_id": str(target_quote.seller_org_id),
+            "trade_id": str(trade.id),
+            "price_per_mt_usd": str(target_quote.price_per_mt_usd),
+        },
+        **request_audit_context(request),
+    )
+    await record_audit(
+        db,
+        user_id=current_user.id,
+        action=TRADE_CREATED,
+        resource_type="trade",
+        resource_id=trade.id,
+        changes={
+            "via": "rfq",
+            "rfq_id": str(rfq.id),
+            "quote_id": str(target_quote.id),
+            "quantity_mt": str(trade.quantity_mt),
+            "price_per_mt_usd": str(trade.price_per_mt_usd),
+            "buyer_org_id": str(trade.buyer_id),
+            "seller_org_id": str(trade.seller_id),
+        },
+        **request_audit_context(request),
+    )
 
     await db.commit()
+    track_analytics_event(
+        trade_created_event(
+            current_user,
+            availability_window=rfq.availability_window,
+            request=request,
+        ),
+        request=request,
+    )
 
     # Emit SSE event
     await event_bus.publish("trades", "trade_created", {
@@ -500,6 +585,7 @@ async def cancel_rfq(
     if rfq.status not in (RFQStatus.OPEN, RFQStatus.QUOTED):
         raise HTTPException(status_code=400, detail="RFQ cannot be cancelled in its current state")
 
+    previous_status = rfq.status
     rfq.status = RFQStatus.CANCELLED
 
     # Withdraw all pending quotes
@@ -508,6 +594,15 @@ async def cancel_rfq(
             if q.status == QuoteStatus.PENDING:
                 q.status = QuoteStatus.WITHDRAWN
 
+    await record_audit(
+        db,
+        user_id=current_user.id,
+        action=RFQ_CANCELLED,
+        resource_type="rfq",
+        resource_id=rfq.id,
+        changes={"status": {"from": previous_status.value, "to": RFQStatus.CANCELLED.value}},
+        **request_audit_context(request),
+    )
     await db.commit()
 
     return {"detail": "RFQ cancelled successfully"}

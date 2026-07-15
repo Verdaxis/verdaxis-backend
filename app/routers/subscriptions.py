@@ -2,7 +2,7 @@
 import uuid
 from typing import Annotated, List
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,6 +13,8 @@ from app.models.subscription import Subscription, SubscriptionTier
 from app.models.user import User, UserRole
 from app.routers.auth_simple import get_current_user
 from app.schemas.subscription import SubscriptionResponse, SubscriptionUpdate
+from app.services.audit_service import record_audit, request_audit_context
+from app.services.audit_actions import SUBSCRIPTION_UPDATED
 
 router = APIRouter(tags=["subscriptions"])
 
@@ -66,6 +68,7 @@ async def get_subscription_by_org(
 @router.put("/admin/subscriptions/{org_id}", response_model=SubscriptionResponse)
 async def update_subscription(
     org_id: uuid.UUID,
+    request: Request,
     body: SubscriptionUpdate,
     current_user: Annotated[User, Depends(require_role(UserRole.ADMIN))],
     db: Annotated[AsyncSession, Depends(get_db)],
@@ -79,9 +82,26 @@ async def update_subscription(
     if sub is None:
         sub = Subscription(org_id=org_id, tier=body.tier)
         db.add(sub)
+        previous_tier = None
     else:
+        previous_tier = sub.tier
         sub.tier = body.tier
 
+    await record_audit(
+        db,
+        user_id=current_user.id,
+        action=SUBSCRIPTION_UPDATED,
+        resource_type="subscription",
+        resource_id=org_id,
+        changes={
+            "org_id": str(org_id),
+            "tier": {
+                "from": previous_tier.value if hasattr(previous_tier, "value") else previous_tier,
+                "to": sub.tier.value if hasattr(sub.tier, "value") else sub.tier,
+            },
+        },
+        **request_audit_context(request),
+    )
     await db.commit()
     await db.refresh(sub)
     return sub

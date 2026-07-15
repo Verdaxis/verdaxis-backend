@@ -3,22 +3,28 @@ Compliance scoring API endpoints.
 Provides vessel-level compliance assessments.
 """
 from decimal import Decimal
-from typing import Optional
+from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.routers.auth_simple import get_current_user
+from app.routers.orderbook import _apply_public_marketplace_scope
+from app.models.orderbook import OrderBookOrder, OrderBookStatus, OrderSide
 from app.models.user import User, UserRole
 from app.models.port import Vessel
+from app.schemas.compliance_pricing import (
+    ListingOverlay,
+    PricingOverlayRequest,
+    PricingOverlayResponse,
+)
+from app.services.compliance_pricing import compute_listing_overlay, overlay_assumptions
 from app.services.compliance_scoring import (
     calculate_compliance_score,
     ComplianceScore,
-    ComplianceStatus,
-    TrafficLight,
     FUEL_GHG_INTENSITIES,
 )
 
@@ -185,6 +191,76 @@ async def run_compliance_scenario(
     )
 
     return _score_to_response(score)
+
+
+@router.post("/pricing-overlay", response_model=PricingOverlayResponse)
+async def get_pricing_overlay(
+    payload: PricingOverlayRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> PricingOverlayResponse:
+    """Batch FuelEU pricing overlay for marketplace ASK listings.
+
+    POST is used for a read: up to 100 order ids do not fit reliably in a
+    query string. Nothing is persisted.
+
+    Prices what the green premium buys the buyer under FuelEU Maritime when
+    the listed fuel displaces VLSFO: marginal penalty avoided per MT (EUR and
+    USD) and tCO2e avoided per MT. Distinct from GET /orderbook/with-ci,
+    whose CIAdjustedPrice values avoided CO2 at the EU ETS carbon price -- a
+    much smaller number than FuelEU penalty avoidance. Indicative estimate:
+    the RFNBO reward multiplier, consecutive-deficit escalation and the 50%
+    extra-EU voyage scope are excluded and named in
+    assumptions.excluded_factors.
+
+    Only ASK rows visible in the public marketplace book are priced. Bid
+    ids, unknown ids, cancelled/hidden/off-spec rows and rows whose CI or
+    LCV cannot be resolved all return null indistinguishably (no existence
+    oracle).
+    """
+    filters: list[object] = [
+        OrderBookOrder.id.in_(payload.order_ids),
+        OrderBookOrder.status.in_([OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED]),
+        OrderBookOrder.side == OrderSide.ASK,
+    ]
+    joins: list[tuple[object, object]] = []
+    _apply_public_marketplace_scope(filters, joins)
+
+    query = select(OrderBookOrder)
+    for join_target, join_cond in joins:
+        query = query.join(join_target, join_cond)
+    query = query.where(*filters)
+    orders = (await db.execute(query)).unique().scalars().all()
+
+    overlays: dict[UUID, ListingOverlay | None] = {
+        order_id: None for order_id in payload.order_ids
+    }
+    for order in orders:
+        overlays[order.id] = compute_listing_overlay(
+            market_product=order.market_product,
+            listing_ci_gco2_mj=order.carbon_intensity_gco2_mj,
+            listing_lcv_mj_kg=order.energy_density_mj_kg,
+        )
+
+    # Org awareness mirrors /fleet reads: admins see the whole fleet, other
+    # users their organization's vessels. Count only -- the prototype always
+    # computes with the default GHGIE_actual (see overlay_assumptions).
+    vessel_count_stmt = select(func.count()).select_from(Vessel)
+    if current_user.role != UserRole.ADMIN:
+        if current_user.organization_id is None:
+            vessel_count_stmt = None
+        else:
+            vessel_count_stmt = vessel_count_stmt.where(
+                Vessel.organization_id == current_user.organization_id
+            )
+    fleet_vessel_count = (
+        (await db.execute(vessel_count_stmt)).scalar_one() if vessel_count_stmt is not None else 0
+    )
+
+    return PricingOverlayResponse(
+        overlays=overlays,
+        assumptions=overlay_assumptions(payload.year, fleet_vessel_count),
+    )
 
 
 @router.get("/fuels", response_model=dict)

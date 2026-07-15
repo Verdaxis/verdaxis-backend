@@ -1,6 +1,6 @@
 """KYC router — document submission and admin review."""
 from typing import Annotated
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, status
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 import uuid
@@ -11,6 +11,9 @@ from app.models.user import User, UserRole, UserStatus
 from app.routers.auth_simple import get_current_user
 from app.services.kyc import verify_document_with_gemini
 from app.services.email import send_kyc_approved_email, send_kyc_rejected_email
+from app.services.audit_service import record_audit, request_audit_context
+from app.services.audit_actions import KYC_APPROVED, KYC_REJECTED, KYC_SUBMITTED
+from app.services.user_status_transition import record_status_transition
 
 router = APIRouter(prefix="/kyc", tags=["KYC"])
 
@@ -21,6 +24,7 @@ class AdminRejectBody(BaseModel):
 
 @router.post("/submit")
 async def submit_kyc(
+    request: Request,
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
     passport: UploadFile = File(..., description="Passport or government-issued ID"),
@@ -46,9 +50,39 @@ async def submit_kyc(
     both_passed = passport_result["passed"] and company_result["passed"]
 
     if both_passed:
+        previous_kyc_status = current_user.kyc_status
+        previous_account_status = current_user.status
         current_user.kyc_status = "APPROVED"
         current_user.kyc_rejection_reason = None
         current_user.status = UserStatus.APPROVED
+        record_status_transition(
+            db,
+            current_user,
+            from_status=previous_account_status,
+            to_status=UserStatus.APPROVED,
+        )
+        await record_audit(
+            db,
+            user_id=current_user.id,
+            action=KYC_SUBMITTED,
+            resource_type="kyc",
+            resource_id=current_user.id,
+            changes={"kyc_record_id": str(current_user.id), "new_status": "APPROVED"},
+            **request_audit_context(request),
+        )
+        await record_audit(
+            db,
+            user_id=current_user.id,
+            action=KYC_APPROVED,
+            resource_type="kyc",
+            resource_id=current_user.id,
+            changes={
+                "kyc_record_id": str(current_user.id),
+                "kyc_status": {"from": previous_kyc_status, "to": "APPROVED"},
+                "account_status": {"from": previous_account_status.value, "to": UserStatus.APPROVED.value},
+            },
+            **request_audit_context(request),
+        )
         await db.commit()
         await send_kyc_approved_email(
             current_user.email, current_user.first_name or "there"
@@ -65,8 +99,30 @@ async def submit_kyc(
             issues.append(f"Company doc: {', '.join(company_result['issues']) or 'failed verification'}")
 
         rejection_reason = "; ".join(issues)
+        previous_kyc_status = current_user.kyc_status
         current_user.kyc_status = "REJECTED"
         current_user.kyc_rejection_reason = rejection_reason
+        await record_audit(
+            db,
+            user_id=current_user.id,
+            action=KYC_SUBMITTED,
+            resource_type="kyc",
+            resource_id=current_user.id,
+            changes={"kyc_record_id": str(current_user.id), "new_status": "REJECTED"},
+            **request_audit_context(request),
+        )
+        await record_audit(
+            db,
+            user_id=current_user.id,
+            action=KYC_REJECTED,
+            resource_type="kyc",
+            resource_id=current_user.id,
+            changes={
+                "kyc_record_id": str(current_user.id),
+                "kyc_status": {"from": previous_kyc_status, "to": "REJECTED"},
+            },
+            **request_audit_context(request),
+        )
         await db.commit()
         await send_kyc_rejected_email(
             current_user.email, current_user.first_name or "there", rejection_reason
@@ -93,6 +149,7 @@ async def get_kyc_status(
 @router.put("/admin/{user_id}/approve")
 async def admin_approve_kyc(
     user_id: uuid.UUID,
+    request: Request,
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
@@ -107,9 +164,28 @@ async def admin_approve_kyc(
     if not target:
         raise HTTPException(status_code=404, detail="User not found")
 
+    previous_kyc_status = target.kyc_status
+    previous_account_status = target.status
     target.kyc_status = "APPROVED"
     target.kyc_rejection_reason = None
     target.status = UserStatus.APPROVED
+    record_status_transition(
+        db, target, from_status=previous_account_status, to_status=UserStatus.APPROVED
+    )
+    await record_audit(
+        db,
+        user_id=current_user.id,
+        action=KYC_APPROVED,
+        resource_type="kyc",
+        resource_id=target.id,
+        changes={
+            "kyc_record_id": str(target.id),
+            "target_user_id": str(target.id),
+            "kyc_status": {"from": previous_kyc_status, "to": "APPROVED"},
+            "account_status": {"from": previous_account_status.value, "to": UserStatus.APPROVED.value},
+        },
+        **request_audit_context(request),
+    )
     await db.commit()
     await db.refresh(target)
 
@@ -126,6 +202,7 @@ async def admin_approve_kyc(
 @router.put("/admin/{user_id}/reject")
 async def admin_reject_kyc(
     user_id: uuid.UUID,
+    request: Request,
     body: AdminRejectBody,
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
@@ -141,8 +218,22 @@ async def admin_reject_kyc(
     if not target:
         raise HTTPException(status_code=404, detail="User not found")
 
+    previous_kyc_status = target.kyc_status
     target.kyc_status = "REJECTED"
     target.kyc_rejection_reason = body.reason
+    await record_audit(
+        db,
+        user_id=current_user.id,
+        action=KYC_REJECTED,
+        resource_type="kyc",
+        resource_id=target.id,
+        changes={
+            "kyc_record_id": str(target.id),
+            "target_user_id": str(target.id),
+            "kyc_status": {"from": previous_kyc_status, "to": "REJECTED"},
+        },
+        **request_audit_context(request),
+    )
     await db.commit()
     await db.refresh(target)
 

@@ -418,11 +418,13 @@ A real-time Server-Sent Events stream that merges two channels:
 
 ### How SSE Works
 
-The frontend opens an `EventSource` connection to `/api/v1/stream/activity`.
+The frontend requests a short-lived stream token, then opens an `EventSource`
+connection to `/api/stream/activity`.
 The server holds the connection open and pushes events as they happen:
 
 ```
-Client -> GET /stream/activity?token=eyJ...
+Client -> GET /api/auth/stream-token
+Client -> GET /api/stream/activity?token=eyJ...
 Server -> HTTP 200, Content-Type: text/event-stream
 
 data: {"event": "new_listing", "data": {"fuel_type": "VLSFO", "quantity_mt": 5000}}
@@ -433,13 +435,16 @@ data: {"event": "trade_matched", "data": {"price": 520.50, "quantity_mt": 1000}}
 ### Auth via Query Parameter
 
 **Problem:** The `EventSource` API does not support custom headers (no `Authorization`).
-**Solution:** Token is passed as a query parameter: `?token=<JWT>`.
+**Solution:** A 60-second `type="stream"` JWT is requested from
+`GET /api/auth/stream-token` using normal bearer auth, then passed as a query
+parameter: `?token=<stream JWT>`. Access and refresh tokens are not accepted in
+the SSE query parameter.
 
 **File:** `app/routers/activity.py`
 
-The endpoint accepts an optional `token` query param. If present, it's decoded
-inline using `jose.jwt.decode()`. If absent or invalid, the user gets only
-public events (no org-specific channel).
+The endpoint accepts an optional `token` query param. If present, it is decoded
+with the shared PyJWT helper and must have `type="stream"`. If absent, expired,
+or invalid, the user gets only public events (no org-specific channel).
 
 ### Event Types
 

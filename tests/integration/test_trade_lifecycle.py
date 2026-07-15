@@ -18,10 +18,11 @@ import pytest
 from decimal import Decimal
 from httpx import AsyncClient
 
-TEST_API_URL = "http://localhost:8000"
+import os
+TEST_API_URL = os.environ.get("TEST_API_URL", "http://localhost:8000")
 
 # Deterministic product/delivery point IDs from catalog_seed.py
-PRODUCT_BIOFUEL_BIO = "3ebf5484-430e-50b7-be68-04cdd39f8c0d"
+PRODUCT_BIOFUEL_BIO = "c4a688be-f7c2-5edc-8f93-6b34e387609c"  # Bio-Ethanol (live catalog)
 DP_ROTTERDAM = "1379d36c-1ca9-55b7-9c0d-5235a0ba1f36"
 
 
@@ -32,8 +33,8 @@ async def client():
 
 
 @pytest.fixture
-async def buyer_headers(client: AsyncClient):
-    form = {"username": "buyer@buy.com", "password": "password"}
+async def buyer_headers(client: AsyncClient, itest_password):
+    form = {"username": "itest-buyer@staging.verdaxis.exchange", "password": itest_password}
     res = await client.post("/api/auth/login", data=form)
     assert res.status_code == 200, f"Buyer login failed: {res.text}"
     token = res.json()["access_token"]
@@ -41,8 +42,8 @@ async def buyer_headers(client: AsyncClient):
 
 
 @pytest.fixture
-async def seller_headers(client: AsyncClient):
-    form = {"username": "seller@sell.com", "password": "password"}
+async def seller_headers(client: AsyncClient, itest_password):
+    form = {"username": "itest-seller@staging.verdaxis.exchange", "password": itest_password}
     res = await client.post("/api/auth/login", data=form)
     assert res.status_code == 200, f"Seller login failed: {res.text}"
     token = res.json()["access_token"]
@@ -62,6 +63,14 @@ class TestTradeLifecycle:
             "quantity_mt": 500,
             "price_per_mt_usd": 1200,
             "availability_window": "Spot",
+            # ASK orders require an explicit certification declaration + supplier details
+            "certification_declared": True,
+            "certification_scheme": "ISCC EU",
+            "specification_standard": "ISO 8217",
+            "msds_available": True,
+            "carbon_intensity_gco2_mj": "20.5",
+            "feedstock": "Waste-based",
+            "origin": "Singapore",
         }
         res = await client.post("/api/orderbook", json=ask_data, headers=seller_headers)
         assert res.status_code == 201, f"ASK creation failed: {res.text}"

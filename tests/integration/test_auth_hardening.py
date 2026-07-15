@@ -13,7 +13,8 @@ import pytest
 import uuid
 from httpx import AsyncClient
 
-TEST_API_URL = "http://localhost:8000"
+import os
+TEST_API_URL = os.environ.get("TEST_API_URL", "http://localhost:8000")
 
 
 @pytest.fixture
@@ -23,9 +24,9 @@ async def auth_client():
 
 
 @pytest.fixture
-async def buyer_tokens(auth_client: AsyncClient):
-    """Login as buyer@buy.com and return both tokens."""
-    form = {"username": "buyer@buy.com", "password": "password"}
+async def buyer_tokens(auth_client: AsyncClient, itest_password):
+    """Login as itest-buyer@staging.verdaxis.exchange and return both tokens."""
+    form = {"username": "itest-buyer@staging.verdaxis.exchange", "password": itest_password}
     res = await auth_client.post("/api/auth/login", data=form)
     assert res.status_code == 200, f"Login failed: {res.text}"
     data = res.json()
@@ -35,9 +36,9 @@ async def buyer_tokens(auth_client: AsyncClient):
 
 
 @pytest.fixture
-async def seller_tokens(auth_client: AsyncClient):
-    """Login as seller@sell.com and return both tokens."""
-    form = {"username": "seller@sell.com", "password": "password"}
+async def seller_tokens(auth_client: AsyncClient, itest_password):
+    """Login as itest-seller@staging.verdaxis.exchange and return both tokens."""
+    form = {"username": "itest-seller@staging.verdaxis.exchange", "password": itest_password}
     res = await auth_client.post("/api/auth/login", data=form)
     assert res.status_code == 200, f"Login failed: {res.text}"
     return res.json()
@@ -56,7 +57,7 @@ class TestDualTokenLogin:
         res = await auth_client.get("/api/auth/me", headers=headers)
         assert res.status_code == 200
         user = res.json()
-        assert user["email"] == "buyer@buy.com"
+        assert user["email"] == "itest-buyer@staging.verdaxis.exchange"
 
 
 class TestTokenRefresh:

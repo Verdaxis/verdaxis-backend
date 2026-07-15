@@ -4,6 +4,7 @@ from app.models.marketplace import InventoryItem
 from app.models.compliance import TraceabilityEvent, ComplianceLedger
 from app.models.orders import Commission
 from app.models.notification import Notification
+from app.models.user_preference import UserPreference
 from app.models.orderbook import OrderBookOrder, Trade
 from app.models.matchmaking import MatchSuggestion
 from app.models.producer import ProducerProject
@@ -17,3 +18,4 @@ from app.models.news import NewsItem
 from app.models.benchmark import Benchmark
 from app.models.live_slice_benchmark import LiveSliceBenchmark
 from app.models.forward_monitoring import FairPriceBand, MarketIndication, MarketSignalIngestionRun, PhysicalStem
+from app.models.product_analytics import UserLoginDay, UserStatusTransition

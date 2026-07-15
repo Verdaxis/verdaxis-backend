@@ -1,12 +1,14 @@
 from fastapi import Request as _Request
 from app.rate_limit import limiter
 from datetime import datetime, timedelta, UTC
+import logging
 import os
 from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.exc import DBAPIError
 import hashlib
 import jwt
 import secrets
@@ -15,9 +17,10 @@ from app.config import settings
 from app.models.user import User, UserRole, UserStatus, Organization
 from app.schemas.user import UserCreate, UserResponse, UserUpdate, RegistrationResponse, Token, PasswordChangeRequest
 from app.schemas.organization import OrganizationCreate
+from app.schemas.errors import AUTH_RESPONSES
 from app.core.security import (
     verify_password, get_password_hash,
-    create_access_token, create_refresh_token, decode_token,
+    create_access_token, create_refresh_token, create_stream_token, decode_token,
     REFRESH_TOKEN_EXPIRE_DAYS,
 )
 from pydantic import BaseModel, EmailStr
@@ -26,6 +29,23 @@ import uuid
 from app.models.referral import Referral, ReferralStatus, generate_referral_code
 from app.services.email import send_verification_email, send_password_reset_email
 from app.services.monitor_canary import is_monitor_canary_email
+from app.services.audit_service import record_audit, request_audit_context
+from app.services.product_analytics import is_retryable_transaction_error, record_login_day
+from app.services.user_status_transition import record_initial_status, record_status_transition
+from app.services.audit_actions import (
+    ADMIN_USER_APPROVED,
+    USER_PASSWORD_CHANGED,
+    USER_PASSWORD_RESET_COMPLETED,
+    USER_PASSWORD_RESET_REQUESTED,
+    USER_REGISTERED,
+)
+from app.services.behavioral_analytics import (
+    organization_created_event,
+    registration_completed_event,
+    track_analytics_event,
+)
+
+logger = logging.getLogger(__name__)
 
 class RegisterWithOrgRequest(BaseModel):
     registration_token: str
@@ -44,7 +64,11 @@ class ResetPasswordRequest(BaseModel):
     token: str
     new_password: str
 
-router = APIRouter(prefix="/auth", tags=["Authentication"])
+router = APIRouter(
+    prefix="/auth",
+    tags=["Authentication"],
+    responses=AUTH_RESPONSES,
+)
 
 REFRESH_COOKIE_NAME = "refresh_token"
 REFRESH_COOKIE_PATH = "/api/auth"
@@ -55,11 +79,12 @@ REFRESH_COOKIE_SAMESITE = "lax"
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
 
 
-def _build_token_pair(subject: str, role: UserRole | None = None) -> tuple[str, str]:
-    access_token = create_access_token(
-        subject=subject,
-        additional_claims={"role": role.value if role else None},
-    )
+def _build_token_pair(subject: str) -> tuple[str, str]:
+    # Deliberately no role claim: authorization always reads the role from
+    # the DB (require_role), so a claim here would only invite a future
+    # regression where something trusts the client-visible token instead
+    # (Sprint 3 item 3).
+    access_token = create_access_token(subject=subject)
     refresh_token = create_refresh_token(subject=subject)
     return access_token, refresh_token
 
@@ -100,8 +125,8 @@ async def get_current_user(
     )
     try:
         payload = decode_token(token)
-        # Reject refresh tokens used as access tokens
-        if payload.get("type") == "refresh":
+        # Only access tokens may authenticate ordinary API requests.
+        if payload.get("type") != "access":
             raise credentials_exception
         user_id_str: str = payload.get("sub")
         if user_id_str is None:
@@ -204,15 +229,29 @@ async def login(
             detail=f"Account is {user.status.value}. Please wait for admin approval.",
         )
 
-    # Update last_login
-    user.last_login = datetime.now(UTC)
-    await db.commit()
+    # Update last_login and the daily login fact in ONE transaction: a
+    # database failure behaves exactly like the pre-existing last_login
+    # update. Serialization/deadlock races retry once (plan §2.4).
+    login_instant = datetime.now(UTC)
+    user.last_login = login_instant
+    await record_login_day(db, user, at=login_instant)
+    try:
+        await db.commit()
+    except DBAPIError as error:
+        if not is_retryable_transaction_error(error):
+            raise
+        await db.rollback()
+        user = await db.merge(user)
+        user.last_login = login_instant
+        await record_login_day(db, user, at=login_instant)
+        await db.commit()
 
-    access_token, refresh_token = _build_token_pair(str(user.id), user.role)
+    access_token, refresh_token = _build_token_pair(str(user.id))
     _set_refresh_cookie(response, refresh_token)
+    # The refresh token travels ONLY in the HttpOnly cookie — never in the
+    # JSON body, where an XSS could read it.
     return {
         "access_token": access_token,
-        "refresh_token": refresh_token,
         "token_type": "bearer",
     }
 
@@ -230,6 +269,9 @@ async def refresh_tokens(
 ):
     refresh_token = None
     if body and body.refresh_token:
+        # TODO(remove-json-refresh) 2026-07-09: accepted only for older
+        # cached bundles; the current frontend relies on the cookie.
+        logger.warning("Deprecated JSON-body refresh token used; clients should rely on the HttpOnly cookie")
         refresh_token = body.refresh_token
     else:
         refresh_token = request.cookies.get(REFRESH_COOKIE_NAME)
@@ -270,11 +312,10 @@ async def refresh_tokens(
         if iat_dt < user.password_changed_at:
             raise HTTPException(status_code=401, detail="Password was changed. Please log in again.")
 
-    access_token, refresh_token = _build_token_pair(str(user.id), user.role)
+    access_token, refresh_token = _build_token_pair(str(user.id))
     _set_refresh_cookie(response, refresh_token)
     return {
         "access_token": access_token,
-        "refresh_token": refresh_token,
         "token_type": "bearer",
     }
 
@@ -283,6 +324,15 @@ async def refresh_tokens(
 async def logout(response: Response):
     _clear_refresh_cookie(response)
     return {"message": "Logged out"}
+
+
+@router.get("/stream-token")
+@limiter.limit("30/minute")
+async def issue_stream_token(
+    request: _Request,
+    current_user: Annotated[User, Depends(get_current_user)],
+):
+    return {"stream_token": create_stream_token(current_user.id)}
 
 # ---------------------------------------------------------------------------
 # Registration
@@ -327,6 +377,15 @@ def _should_skip_verification_email_for_canary(request: _Request, email: str) ->
         and token == settings.MONITOR_TOKEN
         and is_monitor_canary_email(email)
     )
+
+
+def _mask_email_for_audit(email: str) -> str:
+    local, _, domain = email.partition("@")
+    if not domain:
+        return "***"
+    if not local:
+        return f"***@{domain}"
+    return f"{local[0]}***@{domain}"
 
 @router.post("/register", response_model=RegistrationResponse)
 @limiter.limit("5/minute")
@@ -377,8 +436,27 @@ async def register(request: _Request, user_in: UserCreate, db: AsyncSession = De
         )
 
         db.add(new_user)
+        await db.flush()
+        record_initial_status(db, new_user)
+        await record_audit(
+            db,
+            user_id=new_user.id,
+            action=USER_REGISTERED,
+            resource_type="user",
+            resource_id=new_user.id,
+            changes={
+                "role": new_user.role.value if new_user.role else None,
+                "organization_id": str(new_user.organization_id) if new_user.organization_id else None,
+                "email": str(new_user.email),
+                "via": "domain_match",
+            },
+            **request_audit_context(request),
+        )
         await db.commit()
         await db.refresh(new_user)
+        track_analytics_event(
+            registration_completed_event(new_user, request=request), request=request
+        )
 
         # Referral attribution
         await _attribute_referral(db, new_user, user_in.referral_code)
@@ -464,8 +542,30 @@ async def register_with_org(
     )
 
     db.add(new_user)
+    await db.flush()
+    record_initial_status(db, new_user)
+    await record_audit(
+        db,
+        user_id=new_user.id,
+        action=USER_REGISTERED,
+        resource_type="user",
+        resource_id=new_user.id,
+        changes={
+            "role": new_user.role.value if new_user.role else None,
+            "organization_id": str(new_user.organization_id) if new_user.organization_id else None,
+            "email": str(new_user.email),
+            "via": "new_org",
+        },
+        **request_audit_context(http_request),
+    )
     await db.commit()
     await db.refresh(new_user)
+    track_analytics_event(
+        organization_created_event(new_user, request=http_request), request=http_request
+    )
+    track_analytics_event(
+        registration_completed_event(new_user, request=http_request), request=http_request
+    )
 
     # Referral attribution
     await _attribute_referral(db, new_user, payload.get("referral_code"))
@@ -489,9 +589,13 @@ async def verify_email(token: str, db: AsyncSession = Depends(get_db)):
     if not user:
         raise HTTPException(status_code=400, detail="Invalid or expired verification link")
 
+    previous_status = user.status
     user.email_verified = True
     user.email_verification_token = None
     user.status = UserStatus.APPROVED
+    record_status_transition(
+        db, user, from_status=previous_status, to_status=UserStatus.APPROVED
+    )
 
     # Progress referral status if this user was referred
     if user.referred_by_id:
@@ -607,16 +711,24 @@ async def change_password(
     current_user.password_changed_at = datetime.now(UTC)
     current_user.must_change_password = False
 
+    await record_audit(
+        db,
+        user_id=current_user.id,
+        action=USER_PASSWORD_CHANGED,
+        resource_type="user",
+        resource_id=current_user.id,
+        changes={"password_changed": True},
+        **request_audit_context(request),
+    )
     await db.commit()
 
     # Return fresh tokens so the user stays logged in
-    access_token, refresh_token = _build_token_pair(str(current_user.id), current_user.role)
+    access_token, refresh_token = _build_token_pair(str(current_user.id))
     _set_refresh_cookie(response, refresh_token)
 
     return {
         "message": "Password changed successfully",
         "access_token": access_token,
-        "refresh_token": refresh_token,
     }
 
 # ---------------------------------------------------------------------------
@@ -638,6 +750,16 @@ async def forgot_password(
     user = result.scalar_one_or_none()
 
     if not user or user.status != UserStatus.APPROVED:
+        await record_audit(
+            db,
+            user_id=user.id if user else None,
+            action=USER_PASSWORD_RESET_REQUESTED,
+            resource_type="user",
+            resource_id=user.id if user else None,
+            changes={"email_provided": _mask_email_for_audit(body.email)},
+            **request_audit_context(request),
+        )
+        await db.commit()
         return safe_response
 
     # Generate token, store SHA-256 hash (never store plaintext)
@@ -646,6 +768,15 @@ async def forgot_password(
 
     user.password_reset_token_hash = token_hash
     user.password_reset_expires = datetime.now(UTC) + timedelta(hours=1)
+    await record_audit(
+        db,
+        user_id=user.id,
+        action=USER_PASSWORD_RESET_REQUESTED,
+        resource_type="user",
+        resource_id=user.id,
+        changes={"email_provided": _mask_email_for_audit(body.email)},
+        **request_audit_context(request),
+    )
     await db.commit()
 
     await send_password_reset_email(user.email, user.first_name or "there", token)
@@ -687,6 +818,15 @@ async def reset_password(
     user.password_reset_expires = None
     user.password_changed_at = datetime.now(UTC)
     user.must_change_password = False
+    await record_audit(
+        db,
+        user_id=user.id,
+        action=USER_PASSWORD_RESET_COMPLETED,
+        resource_type="user",
+        resource_id=user.id,
+        changes={"password_reset": "completed"},
+        **request_audit_context(request),
+    )
     await db.commit()
 
     return {"message": "Password updated. You can now sign in."}
@@ -723,7 +863,20 @@ async def approve_user(
         )
 
     # Re-approving a REJECTED user is allowed (admin error correction).
+    previous_status = user_to_approve.status
     user_to_approve.status = UserStatus.APPROVED
+    record_status_transition(
+        db, user_to_approve, from_status=previous_status, to_status=UserStatus.APPROVED
+    )
+    await record_audit(
+        db,
+        user_id=current_user.id,
+        action=ADMIN_USER_APPROVED,
+        resource_type="user",
+        resource_id=user_to_approve.id,
+        changes={"status": {"from": previous_status.value, "to": UserStatus.APPROVED.value}},
+        **request_audit_context(request),
+    )
     await db.commit()
     await db.refresh(user_to_approve)
     return user_to_approve

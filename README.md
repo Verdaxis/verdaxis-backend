@@ -94,7 +94,16 @@ Aggregate responses expose real/demo/unknown counts. Unknown contributors remain
 |--------|----------|------|-------------|
 | GET | `/api/admin/analytics/overview` | Admin | Platform stats |
 | GET | `/api/admin/analytics/daily` | Admin | Daily breakdown |
+| GET | `/api/admin/analytics/product-usage?days=7\|30\|90` | Admin | Aggregated behavioral usage plus authoritative registrations, logins, and order-placing organizations |
 | GET | `/api/admin/audit-logs` | Admin | Audit trail |
+
+Behavioral analytics is optional. Configure the server-only
+`ANALYTICS_ENABLED`, `UMAMI_BASE_URL`, `UMAMI_WEBSITE_ID`,
+`UMAMI_API_USERNAME`, `UMAMI_API_PASSWORD`, and bounded
+`ANALYTICS_REQUEST_TIMEOUT_SECONDS` values to enable it. Missing or unavailable
+Umami returns a degraded behavioral section with HTTP 200 while preserving the
+Verdaxis database counts. See `docs/behavioral-analytics-contract.md` for the
+privacy and event contracts.
 
 ## Test Accounts
 
@@ -110,7 +119,7 @@ ENVIRONMENT=test JWT_SECRET=test-secret-key-for-testing-minimum-32-chars \
   python -m pytest tests/unit/ -v
 ```
 
-155 tests passing.
+Run the command above for the current test count.
 
 ## Feature Branches
 

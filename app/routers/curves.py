@@ -12,6 +12,7 @@ import csv
 import io
 from datetime import datetime, timezone
 from decimal import Decimal
+from types import SimpleNamespace
 from typing import Optional
 from uuid import UUID
 
@@ -42,7 +43,6 @@ from app.schemas.curves import (
     MarketSignalType,
 )
 from app.schemas.market_activity import (
-    MarketDemoStatus,
     MarketScope,
     MarketSourceKind,
     demo_status_from_counts,
@@ -194,6 +194,10 @@ async def compute_forward_curve(
         .where(
             OrderBookOrder.status.in_(_ACTIVE_STATUSES),
             OrderBookOrder.product_id == product_id,
+            # Real orders only: sibling endpoints (/table, /slice, /board)
+            # segregate and label demo liquidity; this legacy curve has no
+            # source labelling, so demo orders must not leak into it.
+            _is_real_order_clause(),
         )
         .group_by(OrderBookOrder.availability_window, OrderBookOrder.side)
     )
@@ -204,14 +208,29 @@ async def compute_forward_curve(
     result = await db.execute(stmt)
     rows = result.all()
 
-    # Aggregate rows into per-window buckets
-    # key: availability_window → {"BID": row, "ASK": row}
-    windows: dict[str, dict[str, object]] = {}
+    # Aggregate rows into per-window buckets, merging rows whose raw
+    # availability_window aliases normalize to the same canonical window
+    # (SQL groups by the raw value, so aliases arrive as separate rows).
+    # key: availability_window -> {"BID": agg, "ASK": agg}
+    windows: dict[str, dict[str, SimpleNamespace]] = {}
     for row in rows:
         window = normalize_availability_window(str(row.availability_window))
-        if window not in windows:
-            windows[window] = {}
-        windows[window][row.side.value if hasattr(row.side, "value") else str(row.side)] = row
+        side = row.side.value if hasattr(row.side, "value") else str(row.side)
+        agg = windows.setdefault(window, {}).get(side)
+        if agg is None:
+            windows[window][side] = SimpleNamespace(
+                max_price=row.max_price,
+                min_price=row.min_price,
+                total_volume=row.total_volume or Decimal("0"),
+                order_count=row.order_count or 0,
+            )
+        else:
+            if row.max_price is not None:
+                agg.max_price = row.max_price if agg.max_price is None else max(agg.max_price, row.max_price)
+            if row.min_price is not None:
+                agg.min_price = row.min_price if agg.min_price is None else min(agg.min_price, row.min_price)
+            agg.total_volume += row.total_volume or Decimal("0")
+            agg.order_count += row.order_count or 0
 
     points: list[ForwardCurvePoint] = []
     for window, sides in windows.items():

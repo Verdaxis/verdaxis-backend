@@ -72,7 +72,10 @@ class TestAuthEndpoints:
         })
         
         assert response.status_code == 403
-        assert "pending" in response.json()["detail"].lower()
+        # Email verification now gates login before the approval check; either
+        # message proves an unapproved account cannot log in.
+        detail = response.json()["detail"].lower()
+        assert "pending" in detail or "verify your email" in detail
     
     async def test_login_wrong_password(self, client: AsyncClient, admin_credentials):
         """Should reject login with wrong password."""

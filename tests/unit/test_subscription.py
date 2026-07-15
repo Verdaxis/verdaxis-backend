@@ -1,9 +1,14 @@
 """Unit tests for subscription model, tier gating, and endpoints."""
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+from types import SimpleNamespace
 from uuid import uuid4
 
 from app.models.subscription import Subscription, SubscriptionTier
+
+
+def _fake_request():
+    return SimpleNamespace(headers={}, client=SimpleNamespace(host="127.0.0.1"))
 
 
 # ---------------------------------------------------------------------------
@@ -92,6 +97,7 @@ class TestGetOrCreateSubscription:
         mock_result = MagicMock()
         mock_result.scalar_one_or_none.return_value = mock_sub
         mock_db = AsyncMock()
+        mock_db.add = MagicMock()
         mock_db.execute.return_value = mock_result
 
         result = await get_or_create_subscription(mock_db, org_id)
@@ -107,6 +113,7 @@ class TestGetOrCreateSubscription:
         mock_result = MagicMock()
         mock_result.scalar_one_or_none.return_value = None
         mock_db = AsyncMock()
+        mock_db.add = MagicMock()
         mock_db.execute.return_value = mock_result
 
         result = await get_or_create_subscription(mock_db, org_id)
@@ -136,6 +143,7 @@ class TestRequireTier:
         mock_sub.tier = SubscriptionTier.STANDARD
 
         mock_db = AsyncMock()
+        mock_db.add = MagicMock()
 
         with patch("app.middleware.subscription.get_or_create_subscription", return_value=mock_sub):
             dep_fn = require_tier(SubscriptionTier.STANDARD)
@@ -155,6 +163,7 @@ class TestRequireTier:
         mock_sub.tier = SubscriptionTier.ENTERPRISE
 
         mock_db = AsyncMock()
+        mock_db.add = MagicMock()
 
         with patch("app.middleware.subscription.get_or_create_subscription", return_value=mock_sub):
             dep_fn = require_tier(SubscriptionTier.STANDARD)
@@ -175,6 +184,7 @@ class TestRequireTier:
         mock_sub.tier = SubscriptionTier.FREE
 
         mock_db = AsyncMock()
+        mock_db.add = MagicMock()
 
         with patch("app.middleware.subscription.get_or_create_subscription", return_value=mock_sub):
             dep_fn = require_tier(SubscriptionTier.STANDARD)
@@ -198,6 +208,7 @@ class TestRequireTier:
         mock_sub.tier = SubscriptionTier.STANDARD
 
         mock_db = AsyncMock()
+        mock_db.add = MagicMock()
 
         with patch("app.middleware.subscription.get_or_create_subscription", return_value=mock_sub):
             dep_fn = require_tier(SubscriptionTier.ENTERPRISE)
@@ -220,6 +231,7 @@ class TestRequireTier:
         mock_sub.tier = SubscriptionTier.FREE
 
         mock_db = AsyncMock()
+        mock_db.add = MagicMock()
 
         with patch("app.middleware.subscription.get_or_create_subscription", return_value=mock_sub):
             dep_fn = require_tier(SubscriptionTier.ENTERPRISE)
@@ -243,6 +255,7 @@ class TestRequireTier:
         mock_sub.tier = SubscriptionTier.FREE
 
         mock_db = AsyncMock()
+        mock_db.add = MagicMock()
 
         with patch("app.middleware.subscription.get_or_create_subscription", return_value=mock_sub):
             dep_fn = require_tier(SubscriptionTier.FREE)
@@ -264,6 +277,7 @@ class TestSubscriptionRouter:
 
         mock_sub = Subscription(org_id=org_id, tier=SubscriptionTier.FREE)
         mock_db = AsyncMock()
+        mock_db.add = MagicMock()
 
         with patch("app.routers.subscriptions.get_or_create_subscription", return_value=mock_sub):
             result = await get_my_subscription(current_user=mock_user, db=mock_db)
@@ -284,6 +298,7 @@ class TestSubscriptionRouter:
         mock_result = MagicMock()
         mock_result.scalars.return_value.all.return_value = subs
         mock_db = AsyncMock()
+        mock_db.add = MagicMock()
         mock_db.execute.return_value = mock_result
 
         result = await list_subscriptions(current_user=mock_admin, db=mock_db)
@@ -299,6 +314,7 @@ class TestSubscriptionRouter:
         mock_result = MagicMock()
         mock_result.scalar_one_or_none.return_value = mock_sub
         mock_db = AsyncMock()
+        mock_db.add = MagicMock()
         mock_db.execute.return_value = mock_result
 
         result = await get_subscription_by_org(org_id=org_id, current_user=mock_admin, db=mock_db)
@@ -314,6 +330,7 @@ class TestSubscriptionRouter:
         mock_result = MagicMock()
         mock_result.scalar_one_or_none.return_value = None
         mock_db = AsyncMock()
+        mock_db.add = MagicMock()
         mock_db.execute.return_value = mock_result
 
         with pytest.raises(HTTPException) as exc_info:
@@ -326,15 +343,23 @@ class TestSubscriptionRouter:
         from app.schemas.subscription import SubscriptionUpdate
         org_id = uuid4()
         mock_admin = MagicMock()
+        mock_admin.id = uuid4()
 
         existing_sub = Subscription(org_id=org_id, tier=SubscriptionTier.FREE)
         mock_result = MagicMock()
         mock_result.scalar_one_or_none.return_value = existing_sub
         mock_db = AsyncMock()
+        mock_db.add = MagicMock()
         mock_db.execute.return_value = mock_result
 
         update = SubscriptionUpdate(tier=SubscriptionTier.ENTERPRISE)
-        result = await update_subscription(org_id=org_id, body=update, current_user=mock_admin, db=mock_db)
+        result = await update_subscription(
+            org_id=org_id,
+            request=_fake_request(),
+            body=update,
+            current_user=mock_admin,
+            db=mock_db,
+        )
 
         assert result.tier == SubscriptionTier.ENTERPRISE
         mock_db.commit.assert_awaited_once()
@@ -347,16 +372,24 @@ class TestSubscriptionRouter:
         from app.schemas.subscription import SubscriptionUpdate
         org_id = uuid4()
         mock_admin = MagicMock()
+        mock_admin.id = uuid4()
 
         mock_result = MagicMock()
         mock_result.scalar_one_or_none.return_value = None
         mock_db = AsyncMock()
+        mock_db.add = MagicMock()
         mock_db.execute.return_value = mock_result
 
         update = SubscriptionUpdate(tier=SubscriptionTier.STANDARD)
-        result = await update_subscription(org_id=org_id, body=update, current_user=mock_admin, db=mock_db)
+        result = await update_subscription(
+            org_id=org_id,
+            request=_fake_request(),
+            body=update,
+            current_user=mock_admin,
+            db=mock_db,
+        )
 
         assert result.org_id == org_id
         assert result.tier == SubscriptionTier.STANDARD
-        mock_db.add.assert_called_once()
+        assert mock_db.add.call_count == 2
         mock_db.commit.assert_awaited_once()

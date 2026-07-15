@@ -1,7 +1,9 @@
 import os
+from decimal import Decimal
 from pydantic_settings import BaseSettings
-from pydantic import model_validator, field_validator
+from pydantic import Field, SecretStr, model_validator, field_validator
 from typing import Optional
+from urllib.parse import urlparse
 
 class Settings(BaseSettings):
     # Server
@@ -72,6 +74,10 @@ class Settings(BaseSettings):
     # Order Matching Engine
     AUTO_MATCHING_ENABLED: bool = True  # Set to False to disable match-on-insert
 
+    # Compliance pricing overlay: EUR/USD conversion override (defaults to
+    # the ASSUMED rate in app/services/compliance_pricing.py when unset)
+    COMPLIANCE_EUR_USD_RATE: Optional[Decimal] = None
+
     # Gemini AI
     GEMINI_API_KEY: Optional[str] = None
 
@@ -82,6 +88,37 @@ class Settings(BaseSettings):
 
     # Internal monitoring
     MONITOR_TOKEN: Optional[str] = None
+
+    # Optional behavioral analytics (Umami, server-side credentials only)
+    ANALYTICS_ENABLED: bool = False
+    UMAMI_BASE_URL: Optional[str] = None
+    UMAMI_WEBSITE_ID: Optional[str] = None
+    UMAMI_API_USERNAME: Optional[str] = None
+    UMAMI_API_PASSWORD: Optional[SecretStr] = None
+    ANALYTICS_REQUEST_TIMEOUT_SECONDS: float = Field(default=2.0, gt=0, le=10.0)
+
+    @field_validator("UMAMI_BASE_URL")
+    @classmethod
+    def validate_umami_base_url(cls, value: Optional[str]) -> Optional[str]:
+        if value is None or not value.strip():
+            return None
+        normalized = value.strip().rstrip("/")
+        parsed = urlparse(normalized)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            raise ValueError("UMAMI_BASE_URL must be an absolute HTTP(S) URL")
+        if parsed.username or parsed.password:
+            raise ValueError("UMAMI_BASE_URL must not contain credentials")
+        return normalized
+
+    @field_validator("UMAMI_WEBSITE_ID", "UMAMI_API_USERNAME")
+    @classmethod
+    def normalize_optional_analytics_value(cls, value: Optional[str]) -> Optional[str]:
+        if value is None or not value.strip():
+            return None
+        normalized = value.strip()
+        if len(normalized) > 200:
+            raise ValueError("Analytics configuration value is too long")
+        return normalized
 
     # CORS
     BACKEND_CORS_ORIGINS: list[str] = [

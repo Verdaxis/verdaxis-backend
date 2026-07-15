@@ -90,9 +90,20 @@ if [[ "$DRY_RUN" == "1" ]]; then
     exit 0
 fi
 
-sleep 3
 systemctl is-active --quiet "$SERVICE_NAME"
-curl --fail --silent --show-error --max-time 15 "$HEALTH_URL" | grep -q '"ok"'
+HEALTH_ATTEMPTS="${HEALTH_ATTEMPTS:-12}"
+HEALTH_RETRY_DELAY="${HEALTH_RETRY_DELAY:-2}"
+for ((attempt = 1; attempt <= HEALTH_ATTEMPTS; attempt++)); do
+    if curl --fail --silent --show-error --max-time 15 "$HEALTH_URL" | grep -q '"ok"'; then
+        break
+    fi
+    if [[ "$attempt" == "$HEALTH_ATTEMPTS" ]]; then
+        echo "Backend health check failed after ${HEALTH_ATTEMPTS} attempts: ${HEALTH_URL}" >&2
+        exit 1
+    fi
+    echo "Backend not ready (${attempt}/${HEALTH_ATTEMPTS}); retrying in ${HEALTH_RETRY_DELAY}s..."
+    sleep "$HEALTH_RETRY_DELAY"
+done
 
 echo "Backend is healthy: $HEALTH_URL"
 echo "=== Backend Deployment Complete ==="

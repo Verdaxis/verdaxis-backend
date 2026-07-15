@@ -1,9 +1,9 @@
 import uuid
 from datetime import datetime, UTC
 from decimal import Decimal
-from typing import Annotated, List
+from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, Request, status, Query
 from sqlalchemy import select, or_, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
@@ -29,8 +29,23 @@ from app.services.watchlist_events import _best_slice_price, emit_order_updated
 from app.services.execution_policy import order_is_execution_qualified
 from app.services.live_benchmarks import rebuild_live_slice_benchmarks_for_keys
 from app.services.demo_market import is_demo_market_organization
+from app.services.audit_service import record_audit, request_audit_context
+from app.services.audit_actions import (
+    TRADE_CONFIRMED,
+    TRADE_CREATED,
+    TRADE_DECLINED,
+    TRADE_DELIVERED,
+    TRADE_PAID,
+)
+from app.schemas.errors import AUTH_RESPONSES
+from app.services.behavioral_analytics import track_analytics_event, trade_created_event
 
-router = APIRouter(prefix="/trades", tags=["trades"])
+router = APIRouter(prefix="/trades", tags=["trades"], responses=AUTH_RESPONSES)
+
+# One party reports delivery unilaterally, so the final price it sets must
+# stay within this band around the confirmed trade price. Guards commission
+# and GMV integrity until a two-sided delivery confirmation flow exists.
+MAX_FINAL_PRICE_DEVIATION_PCT = Decimal("10")
 
 
 # ---------------------------------------------------------------------------
@@ -165,6 +180,7 @@ async def _watchlist_before_state(db: AsyncSession, order: OrderBookOrder) -> di
 @router.post("/", response_model=TradeResponse)
 async def create_trade(
     payload: TradeCreate,
+    request: Request,
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user)],
 ):
@@ -285,7 +301,23 @@ async def create_trade(
         {"trade_id": str(trade.id)},
     )
 
+    await record_audit(
+        db,
+        user_id=current_user.id,
+        action=TRADE_CREATED,
+        resource_type="trade",
+        resource_id=trade.id,
+        changes={
+            "order_id": str(order.id),
+            "quantity_mt": str(payload.quantity_mt),
+            "price_per_mt_usd": str(order.price_per_mt_usd),
+        },
+        **request_audit_context(request),
+    )
     await db.commit()
+    track_analytics_event(
+        trade_created_event(current_user, order=order, request=request), request=request
+    )
 
     # Reload with relationships for response
     loaded_trade = await _load_trade(db, trade.id)
@@ -353,6 +385,7 @@ async def list_my_trades(
 @router.put("/{trade_id}/confirm", response_model=TradeResponse)
 async def confirm_trade(
     trade_id: UUID,
+    request: Request,
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user)],
 ):
@@ -402,6 +435,15 @@ async def confirm_trade(
         {"trade_id": str(trade.id)},
     )
 
+    await record_audit(
+        db,
+        user_id=current_user.id,
+        action=TRADE_CONFIRMED,
+        resource_type="trade",
+        resource_id=trade.id,
+        changes={"status": TradeStatus.CONFIRMED.value},
+        **request_audit_context(request),
+    )
     await db.commit()
 
     loaded_trade = await _load_trade(db, trade.id)
@@ -425,6 +467,7 @@ async def confirm_trade(
 @router.put("/{trade_id}/decline", response_model=TradeResponse)
 async def decline_trade(
     trade_id: UUID,
+    request: Request,
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user)],
 ):
@@ -447,8 +490,22 @@ async def decline_trade(
 
     trade.status = TradeStatus.DECLINED
 
-    # Restore the order's remaining quantity
+    # Restore the order's remaining quantity. The eager-loaded relationship
+    # row is not covered by the trade's FOR UPDATE lock, so re-select it
+    # locked before mutating remaining_quantity_mt.
     order = trade.ask_order or trade.bid_order
+    if order is not None:
+        result = await db.execute(
+            select(OrderBookOrder)
+            .where(OrderBookOrder.id == order.id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        order = result.scalar_one()
+        if order.status in (OrderBookStatus.CANCELLED, OrderBookStatus.EXPIRED):
+            # The resting order was withdrawn while the trade was pending;
+            # declining must not revive it as live liquidity.
+            order = None
     before_state = await _watchlist_before_state(db, order) if order is not None else None
     if order is not None:
         order.remaining_quantity_mt += trade.quantity_mt
@@ -474,6 +531,15 @@ async def decline_trade(
         {"trade_id": str(trade.id)},
     )
 
+    await record_audit(
+        db,
+        user_id=current_user.id,
+        action=TRADE_DECLINED,
+        resource_type="trade",
+        resource_id=trade.id,
+        changes={"status": TradeStatus.DECLINED.value},
+        **request_audit_context(request),
+    )
     await db.commit()
 
     loaded_trade = await _load_trade(db, trade.id)
@@ -488,6 +554,7 @@ async def decline_trade(
 async def deliver_trade(
     trade_id: UUID,
     payload: TradeDeliverPayload,
+    request: Request,
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user)],
 ):
@@ -504,6 +571,19 @@ async def deliver_trade(
         raise HTTPException(
             status_code=400,
             detail="final_quantity_mt cannot exceed originally traded quantity",
+        )
+    price_deviation_pct = (
+        abs(payload.final_price_per_mt - trade.price_per_mt_usd)
+        / trade.price_per_mt_usd
+        * Decimal("100")
+    )
+    if price_deviation_pct > MAX_FINAL_PRICE_DEVIATION_PCT:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"final_price_per_mt deviates more than {MAX_FINAL_PRICE_DEVIATION_PCT}% "
+                "from the confirmed trade price"
+            ),
         )
 
     trade.final_quantity_mt = payload.final_quantity_mt
@@ -527,6 +607,20 @@ async def deliver_trade(
         {"trade_id": str(trade.id)},
     )
 
+    await record_audit(
+        db,
+        user_id=current_user.id,
+        action=TRADE_DELIVERED,
+        resource_type="trade",
+        resource_id=trade.id,
+        changes={
+            "status": TradeStatus.DELIVERED.value,
+            "final_quantity_mt": str(trade.final_quantity_mt),
+            "final_price_per_mt": str(trade.final_price_per_mt),
+            "final_total_usd": str(trade.final_total_usd),
+        },
+        **request_audit_context(request),
+    )
     await db.commit()
 
     loaded_trade = await _load_trade(db, trade.id)
@@ -551,6 +645,7 @@ async def deliver_trade(
 @router.post("/{trade_id}/pay", response_model=TradeResponse)
 async def pay_trade(
     trade_id: UUID,
+    request: Request,
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user)],
 ):
@@ -580,6 +675,15 @@ async def pay_trade(
         {"trade_id": str(trade.id)},
     )
 
+    await record_audit(
+        db,
+        user_id=current_user.id,
+        action=TRADE_PAID,
+        resource_type="trade",
+        resource_id=trade.id,
+        changes={"status": TradeStatus.PAID.value},
+        **request_audit_context(request),
+    )
     await db.commit()
 
     loaded_trade = await _load_trade(db, trade.id)

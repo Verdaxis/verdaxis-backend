@@ -10,15 +10,22 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.database import Base
+from app.models.audit import AuditLog  # noqa: F401 — registers audit_logs on Base.metadata
 from app.models.catalog import DeliveryPoint, Product
 from app.models.orderbook import OrderBookOrder, OrderBookStatus, OrderSide, Trade
 from app.models.user import OrgType, Organization, User, UserRole, UserStatus
 from app.models.watchlist import WatchlistEvent, WatchlistTarget, WatchlistTargetType
 from app.routers import trades as trades_router
+
+
+def _fake_request():
+    """Minimal Request stand-in for endpoints that record audit entries."""
+    return SimpleNamespace(headers={}, client=SimpleNamespace(host="127.0.0.1"))
 from app.services.watchlists import ensure_market_radar
 from app.services.watchlist_events import sync_target_snapshot
 
 REQUIRED_TABLES = [
+    'audit_logs',
     'organizations',
     'users',
     'products',
@@ -52,7 +59,7 @@ async def db(async_engine, setup_tables):
     session_factory = async_sessionmaker(bind=async_engine, class_=AsyncSession, expire_on_commit=False, autoflush=False)
     async with session_factory() as session:
         yield session
-        for table in ('watchlist_events', 'watchlist_targets', 'watchlists', 'live_slice_benchmarks', 'trades', 'orderbook_orders', 'users', 'delivery_points', 'products', 'organizations'):
+        for table in ('audit_logs', 'watchlist_events', 'watchlist_targets', 'watchlists', 'live_slice_benchmarks', 'trades', 'orderbook_orders', 'users', 'delivery_points', 'products', 'organizations'):
             await session.execute(delete(Base.metadata.tables[table]))
         await session.commit()
 
@@ -140,11 +147,11 @@ async def test_create_trade_rejects_demo_listing(monkeypatch, db: AsyncSession):
         lambda org_id: org_id == supplier_org.id,
     )
 
-    current_user = SimpleNamespace(organization_id=buyer_org.id, role=UserRole.BUYER)
+    current_user = SimpleNamespace(id=uuid4(), organization_id=buyer_org.id, role=UserRole.BUYER)
     payload = trades_router.TradeCreate(order_id=ask.id, quantity_mt=Decimal('100'))
 
     with pytest.raises(HTTPException) as exc_info:
-        await trades_router.create_trade(payload=payload, db=db, current_user=current_user)
+        await trades_router.create_trade(payload=payload, request=_fake_request(), db=db, current_user=current_user)
 
     assert exc_info.value.status_code == 400
     assert 'Demo listings' in exc_info.value.detail
@@ -167,11 +174,11 @@ async def test_create_trade_rejects_non_executable_order(monkeypatch, db: AsyncS
     )
     await db.commit()
 
-    current_user = SimpleNamespace(organization_id=buyer_org.id, role=UserRole.BUYER)
+    current_user = SimpleNamespace(id=uuid4(), organization_id=buyer_org.id, role=UserRole.BUYER)
     payload = trades_router.TradeCreate(order_id=ask.id, quantity_mt=Decimal('100'))
 
     with pytest.raises(HTTPException) as exc_info:
-        await trades_router.create_trade(payload=payload, db=db, current_user=current_user)
+        await trades_router.create_trade(payload=payload, request=_fake_request(), db=db, current_user=current_user)
 
     assert exc_info.value.status_code == 400
     assert 'execution-qualified' in exc_info.value.detail
@@ -220,15 +227,55 @@ async def test_create_trade_emits_pin_and_slice_events(monkeypatch, db: AsyncSes
     monkeypatch.setattr(trades_router.event_bus, 'publish', _noop_publish)
 
     payload = trades_router.TradeCreate(order_id=ask.id, quantity_mt=Decimal('1000'))
-    current_user = SimpleNamespace(organization_id=buyer_org.id, role=UserRole.BUYER)
+    current_user = SimpleNamespace(id=uuid4(), organization_id=buyer_org.id, role=UserRole.BUYER)
 
-    response = await trades_router.create_trade(payload=payload, db=db, current_user=current_user)
+    response = await trades_router.create_trade(payload=payload, request=_fake_request(), db=db, current_user=current_user)
 
     assert response.status == 'PENDING_CONFIRMATION'
     events = (await db.execute(select(WatchlistEvent).order_by(WatchlistEvent.created_at.asc()))).scalars().all()
     event_types = [event.event_type.value for event in events]
     assert 'PIN_FILLED' in event_types
     assert 'SLICE_BEST_PRICE_MOVED' in event_types
+
+
+@pytest.mark.asyncio
+async def test_decline_trade_does_not_revive_cancelled_order(monkeypatch, db: AsyncSession):
+    """Declining a pending trade must not resurrect an order the owner cancelled."""
+    buyer_org = await _make_org(db, 'Buyer', OrgType.SHIPPING_LINE)
+    supplier_org = await _make_org(db, 'Supplier', OrgType.FUEL_SUPPLIER)
+    supplier = await _make_user(db, supplier_org, UserRole.SUPPLIER)
+    product = await _make_product(db)
+    delivery_point = await _make_delivery_point(db)
+    ask = await _make_ask(db, org_id=supplier_org.id, product_id=product.id, delivery_point_id=delivery_point.id)
+
+    trade = Trade(
+        bid_order_id=None,
+        ask_order_id=ask.id,
+        buyer_id=buyer_org.id,
+        seller_id=supplier_org.id,
+        initiated_by=trades_router.Initiator.BUYER,
+        quantity_mt=Decimal('400'),
+        price_per_mt_usd=ask.price_per_mt_usd,
+        status=trades_router.TradeStatus.PENDING_CONFIRMATION,
+    )
+    db.add(trade)
+    # Owner cancelled the resting order while the trade was pending
+    ask.remaining_quantity_mt = Decimal('600')
+    ask.status = OrderBookStatus.CANCELLED
+    await db.commit()
+
+    async def _noop_notify(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(trades_router, 'notify_org_users', _noop_notify)
+
+    current_user = SimpleNamespace(id=uuid4(), organization_id=supplier_org.id, role=UserRole.SUPPLIER)
+    response = await trades_router.decline_trade(trade_id=trade.id, request=_fake_request(), db=db, current_user=current_user)
+
+    assert response.status == 'DECLINED'
+    refreshed = await db.get(OrderBookOrder, ask.id)
+    assert refreshed.status == OrderBookStatus.CANCELLED
+    assert refreshed.remaining_quantity_mt == Decimal('600')
 
 
 @pytest.mark.asyncio
@@ -284,8 +331,8 @@ async def test_decline_trade_restores_watchlist_state(monkeypatch, db: AsyncSess
 
     monkeypatch.setattr(trades_router, 'notify_org_users', _noop_notify)
 
-    current_user = SimpleNamespace(organization_id=supplier_org.id, role=UserRole.SUPPLIER)
-    response = await trades_router.decline_trade(trade_id=trade.id, db=db, current_user=current_user)
+    current_user = SimpleNamespace(id=uuid4(), organization_id=supplier_org.id, role=UserRole.SUPPLIER)
+    response = await trades_router.decline_trade(trade_id=trade.id, request=_fake_request(), db=db, current_user=current_user)
 
     assert response.status == 'DECLINED'
     events = (await db.execute(select(WatchlistEvent).order_by(WatchlistEvent.created_at.asc()))).scalars().all()

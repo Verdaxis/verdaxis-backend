@@ -2,6 +2,7 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 from decimal import Decimal
+from types import SimpleNamespace
 from uuid import uuid4
 
 from app.routers.inventory import _listing_payload, publish_inventory_item
@@ -12,9 +13,14 @@ from app.models.user import UserRole
 
 def _make_user():
     user = MagicMock()
+    user.id = uuid4()
     user.role = UserRole.SUPPLIER
     user.organization_id = uuid4()
     return user
+
+
+def _fake_request():
+    return SimpleNamespace(headers={}, client=SimpleNamespace(host="127.0.0.1"))
 
 
 def _make_inventory_item():
@@ -80,12 +86,13 @@ class TestPublishInventoryItem:
 
         result = await publish_inventory_item(
             item_id=item.id,
+            request=_fake_request(),
             db=mock_db,
             current_user=user,
         )
 
         assert result["status"] == "published"
-        listing = mock_db.add.call_args.args[0]
+        listing = mock_db.add.call_args_list[0].args[0]
         assert listing.product_id == fallback_product.id
         assert listing.delivery_point_id == delivery_point.id
         assert listing.port_id == item.port_id

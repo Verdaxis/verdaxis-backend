@@ -2,6 +2,7 @@
 import pytest
 from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock, Mock
+from types import SimpleNamespace
 from uuid import uuid4
 
 from fastapi import HTTPException
@@ -14,6 +15,7 @@ from app.schemas.orderbook import OrderCreate, OrderSide
 
 def _make_buyer_user():
     user = MagicMock()
+    user.id = uuid4()
     user.role = UserRole.BUYER
     user.organization_id = uuid4()
     return user
@@ -21,9 +23,14 @@ def _make_buyer_user():
 
 def _make_supplier_user():
     user = MagicMock()
+    user.id = uuid4()
     user.role = UserRole.SUPPLIER
     user.organization_id = uuid4()
     return user
+
+
+def _fake_request():
+    return SimpleNamespace(headers={}, client=SimpleNamespace(host="127.0.0.1"))
 
 
 class TestCreateOrder:
@@ -53,6 +60,7 @@ class TestCreateOrder:
 
         with pytest.raises(HTTPException) as exc_info:
             await create_order(
+                request=_fake_request(),
                 order_data=order,
                 current_user=_make_buyer_user(),
                 db=AsyncMock(),
@@ -75,6 +83,7 @@ class TestCreateOrder:
 
         with pytest.raises(HTTPException) as exc_info:
             await create_order(
+                request=_fake_request(),
                 order_data=order,
                 current_user=_make_buyer_user(),
                 db=AsyncMock(),
@@ -113,6 +122,7 @@ class TestCreateOrder:
 
         with pytest.raises(RuntimeError, match='stop-after-add'):
             await create_order(
+                request=_fake_request(),
                 order_data=order,
                 current_user=_make_buyer_user(),
                 db=db,
@@ -135,6 +145,7 @@ class TestCreateOrder:
 
         with pytest.raises(HTTPException) as exc_info:
             await create_order(
+                request=_fake_request(),
                 order_data=order,
                 current_user=_make_supplier_user(),
                 db=AsyncMock(),
@@ -158,6 +169,7 @@ class TestCreateOrder:
 
         with pytest.raises(HTTPException) as exc_info:
             await create_order(
+                request=_fake_request(),
                 order_data=order,
                 current_user=_make_supplier_user(),
                 db=AsyncMock(),
@@ -180,6 +192,7 @@ class TestCreateOrder:
 
         with pytest.raises(HTTPException) as exc_info:
             await create_order(
+                request=_fake_request(),
                 order_data=order,
                 current_user=_make_supplier_user(),
                 db=AsyncMock(),

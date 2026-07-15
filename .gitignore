@@ -24,6 +24,7 @@ MANIFEST
 
 # Environment variables
 .env
+.env.analytics
 .venv
 venv/
 ENV/
@@ -57,3 +58,7 @@ test_match.py
 
 # Runtime logs
 logs/
+
+# Runtime log artifacts
+remote_logs.txt
+*.log
