@@ -1390,6 +1390,48 @@ class _LoginFacts:
 # ---------------------------------------------------------------------------
 
 
+# Successful authoritative aggregates may cache for at most 60 seconds per
+# normalized filter key (plan §2.2). Process-local, bounded, read-only values.
+_AUTHORITATIVE_CACHE: "OrderedDict[tuple, tuple[float, Any]]" = __import__("collections").OrderedDict()
+_AUTHORITATIVE_CACHE_TTL_SECONDS = 60
+_AUTHORITATIVE_CACHE_MAX_ENTRIES = 64
+
+
+def _cached_aggregate(method):
+    import functools
+    import time as _time
+
+    @functools.wraps(method)
+    async def wrapper(self, query: ProductAnalyticsQuery):
+        key = (
+            method.__name__,
+            # Engine identity isolates parallel test databases; production
+            # runs a single engine so keys stay stable.
+            id(self.db.get_bind()),
+            query.start,
+            query.end,
+            query.compare,
+            query.audience,
+            query.activity,
+            query.product_id,
+            query.delivery_point_id,
+            query.availability_window,
+        )
+        cached = _AUTHORITATIVE_CACHE.get(key)
+        now = _time.monotonic()
+        if cached is not None and now < cached[0]:
+            _AUTHORITATIVE_CACHE.move_to_end(key)
+            return cached[1]
+        result = await method(self, query)
+        _AUTHORITATIVE_CACHE[key] = (now + _AUTHORITATIVE_CACHE_TTL_SECONDS, result)
+        _AUTHORITATIVE_CACHE.move_to_end(key)
+        while len(_AUTHORITATIVE_CACHE) > _AUTHORITATIVE_CACHE_MAX_ENTRIES:
+            _AUTHORITATIVE_CACHE.popitem(last=False)
+        return result
+
+    return wrapper
+
+
 class ProductAnalyticsService:
     def __init__(self, db: AsyncSession):
         self.db = db
@@ -1401,6 +1443,7 @@ class ProductAnalyticsService:
 
     # -- Overview ----------------------------------------------------------
 
+    @_cached_aggregate
     async def overview(self, query: ProductAnalyticsQuery) -> OverviewAuthoritative:
         quality = _QualityTracker()
         start, end = query.start, query.end
@@ -1579,6 +1622,7 @@ class ProductAnalyticsService:
 
     # -- Marketplace ---------------------------------------------------------
 
+    @_cached_aggregate
     async def marketplace(self, query: ProductAnalyticsQuery) -> MarketplaceAuthoritative:
         quality = _QualityTracker()
         start, end = query.start, query.end
@@ -1680,6 +1724,7 @@ class ProductAnalyticsService:
 
     # -- Activation ----------------------------------------------------------
 
+    @_cached_aggregate
     async def activation(self, query: ProductAnalyticsQuery) -> ActivationAuthoritative:
         quality = _QualityTracker()
         start, end = query.start, query.end
@@ -1795,6 +1840,7 @@ class ProductAnalyticsService:
 
     # -- Engagement (login-fact backed portions) -------------------------------
 
+    @_cached_aggregate
     async def engagement(self, query: ProductAnalyticsQuery) -> EngagementAuthoritative:
         quality = _QualityTracker()
         start, end = query.start, query.end
@@ -1832,6 +1878,7 @@ class ProductAnalyticsService:
 
     # -- Retention (order/trade and login-fact backed portions) ---------------
 
+    @_cached_aggregate
     async def retention(self, query: ProductAnalyticsQuery) -> RetentionAuthoritative:
         quality = _QualityTracker()
         start, end = query.start, query.end

@@ -30,7 +30,7 @@ TABS = (
     "overview", "acquisition", "activation", "engagement",
     "marketplace", "retention", "reliability",
 )
-WARM_REQUESTS = 30
+WARM_REQUESTS = 25  # stays inside the 30/minute per-token endpoint rate limit
 WARM_P95_BUDGET_MS = 500
 COLD_BUDGET_MS = 1500
 SIZE_BUDGET_BYTES = 250_000
