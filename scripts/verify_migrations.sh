@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Verify a database can reach Alembic head and has no model/schema drift.
 # The caller owns the database lifecycle; the disposable PostGIS runner is
-# scripts/run_postgres_tests.sh.
+# scripts/run_product_analytics_postgres_tests.sh.
 set -euo pipefail
 
 BACKEND_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -22,5 +22,6 @@ if [[ "$DATABASE_URL" == *"api.verdaxis.exchange"* ]]; then
 fi
 
 cd "$BACKEND_ROOT"
-"${ALEMBIC_BIN:-alembic}" upgrade head
-"${ALEMBIC_BIN:-alembic}" check
+PYTHONDONTWRITEBYTECODE=1 "${ALEMBIC_BIN:-alembic}" upgrade head
+PYTHONDONTWRITEBYTECODE=1 "${ALEMBIC_BIN:-alembic}" current --check-heads
+PYTHONDONTWRITEBYTECODE=1 "${ALEMBIC_BIN:-alembic}" check

@@ -135,3 +135,9 @@
 - **Trigger:** A touched test helper imported `requests`, which is not declared in `requirements.txt`.
 - **Rule:** Prefer an already-declared HTTP client such as `httpx` before adding a dependency to a test helper.
 - **Why:** Test-only dependency drift makes clean CI/bootstrap environments fail unnecessarily.
+
+### Remove Obsolete Harnesses Identified By Audit
+- **Date:** 2026-07-20
+- **Trigger:** Ponytail audit found the purchase-flow helper had no references and targeted obsolete endpoints.
+- **Rule:** Remove zero-reference legacy harnesses instead of preserving direct invocation compatibility when no authoritative use remains.
+- **Why:** Compatibility code for dead endpoints increases maintenance and can mislead operators about supported runtime workflows.

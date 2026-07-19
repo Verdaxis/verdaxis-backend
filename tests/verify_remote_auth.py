@@ -2,7 +2,11 @@
 import asyncio
 import httpx
 import os
+import sys
+from pathlib import Path
 from uuid import uuid4
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from tests.runtime_config import resolve_test_api_url
 

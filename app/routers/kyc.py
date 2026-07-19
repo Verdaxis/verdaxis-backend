@@ -6,6 +6,7 @@ from sqlalchemy import select
 import uuid
 from pydantic import BaseModel
 
+from app.config import settings
 from app.database import get_db
 from app.models.user import User, UserRole, UserStatus
 from app.routers.auth_simple import get_current_user
@@ -16,6 +17,44 @@ from app.services.audit_actions import KYC_APPROVED, KYC_REJECTED, KYC_SUBMITTED
 from app.services.user_status_transition import record_status_transition
 
 router = APIRouter(prefix="/kyc", tags=["KYC"])
+
+
+async def read_bounded_upload(upload: UploadFile, *, max_bytes: int) -> bytes:
+    """Read an upload without retaining more than its configured bound."""
+    declared_size = getattr(upload, "size", None)
+    if declared_size is not None and declared_size > max_bytes:
+        raise HTTPException(status_code=413, detail="KYC file exceeds the per-file size limit")
+
+    chunks: list[bytes] = []
+    total = 0
+    chunk_size = 64 * 1024
+    while True:
+        chunk = await upload.read(min(chunk_size, max_bytes - total + 1))
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > max_bytes:
+            raise HTTPException(status_code=413, detail="KYC file exceeds the per-file size limit")
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
+async def read_bounded_kyc_documents(
+    passport: UploadFile,
+    company_doc: UploadFile,
+    *,
+    max_file_bytes: int,
+    max_total_bytes: int,
+) -> tuple[bytes, bytes]:
+    """Read both KYC documents without exceeding either configured bound."""
+    passport_bytes = await read_bounded_upload(passport, max_bytes=max_file_bytes)
+    remaining_bytes = max_total_bytes - len(passport_bytes)
+    if remaining_bytes <= 0:
+        raise HTTPException(status_code=413, detail="KYC upload exceeds the aggregate size limit")
+    company_bytes = await read_bounded_upload(
+        company_doc, max_bytes=min(max_file_bytes, remaining_bytes)
+    )
+    return passport_bytes, company_bytes
 
 
 class AdminRejectBody(BaseModel):
@@ -34,8 +73,12 @@ async def submit_kyc(
     Submit KYC documents for verification via Gemini Vision.
     Both documents must pass for auto-approval.
     """
-    passport_bytes = await passport.read()
-    company_bytes = await company_doc.read()
+    passport_bytes, company_bytes = await read_bounded_kyc_documents(
+        passport,
+        company_doc,
+        max_file_bytes=settings.KYC_MAX_FILE_BYTES,
+        max_total_bytes=settings.KYC_MAX_TOTAL_BYTES,
+    )
 
     passport_mime = passport.content_type or "image/jpeg"
     company_mime = company_doc.content_type or "image/jpeg"

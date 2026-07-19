@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, Enum, ForeignKey, Integer, Numeric, String, UniqueConstraint
+from sqlalchemy import DateTime, Enum, ForeignKey, Index, Integer, Numeric, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -18,6 +18,13 @@ class LiveSliceBenchmark(Base):
             "delivery_point_id",
             "availability_window",
             name="uq_live_slice_benchmarks_slice_key",
+        ),
+        Index(
+            "ix_live_slice_benchmarks_lookup",
+            "side",
+            "market_product",
+            "delivery_point_id",
+            "availability_window",
         ),
     )
 

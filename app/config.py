@@ -28,6 +28,11 @@ class Settings(BaseSettings):
     DB_MAX_CONNECTIONS: int = Field(default=100, ge=1, le=1000)
     DB_RESERVED_CONNECTIONS: int = Field(default=20, ge=0, le=999)
 
+    # KYC uploads are held in memory only while sent to the verifier. Keep
+    # both individual and aggregate requests bounded before reading them.
+    KYC_MAX_FILE_BYTES: int = Field(default=10 * 1024 * 1024, ge=1, le=100 * 1024 * 1024)
+    KYC_MAX_TOTAL_BYTES: int = Field(default=20 * 1024 * 1024, ge=1, le=200 * 1024 * 1024)
+
     @model_validator(mode='after')
     def validate_db_pool_capacity(self) -> 'Settings':
         if self.DB_RESERVED_CONNECTIONS >= self.DB_MAX_CONNECTIONS:
@@ -43,6 +48,12 @@ class Settings(BaseSettings):
                 'DB_POOL_WORKERS * (DB_POOL_SIZE + DB_MAX_OVERFLOW) must be '
                 'less than or equal to DB_MAX_CONNECTIONS - DB_RESERVED_CONNECTIONS'
             )
+        return self
+
+    @model_validator(mode='after')
+    def validate_kyc_upload_capacity(self) -> 'Settings':
+        if self.KYC_MAX_TOTAL_BYTES < self.KYC_MAX_FILE_BYTES:
+            raise ValueError('KYC_MAX_TOTAL_BYTES must be at least KYC_MAX_FILE_BYTES')
         return self
 
     @model_validator(mode='after')

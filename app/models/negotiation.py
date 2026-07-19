@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime, UTC
 from decimal import Decimal
 
-from sqlalchemy import ForeignKey, Enum, Numeric, DateTime, Text, Integer, String
+from sqlalchemy import ForeignKey, Enum, Index, Numeric, DateTime, Text, Integer, String, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -21,6 +21,13 @@ class NegotiationStatus(str, enum.Enum):
 
 class Negotiation(Base):
     __tablename__ = "negotiations"
+    __table_args__ = (
+        Index("ix_negotiations_initiator_org", "initiator_org_id"),
+        Index("ix_negotiations_counterparty_org", "counterparty_org_id"),
+        Index("ix_negotiations_status", "status"),
+        Index("ix_negotiations_expires_at", "expires_at", postgresql_where=text("status IN ('OPEN', 'COUNTERED')")),
+        Index("ix_negotiations_status_created", "status", text("created_at DESC")),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
@@ -39,7 +46,9 @@ class Negotiation(Base):
     )
     # "BUYER" or "SELLER" — the initiator's role in this trade.
     # Set at creation from the user's org role; used to derive buyer_id/seller_id on acceptance.
-    initiator_side: Mapped[str] = mapped_column(String(10), nullable=False)
+    initiator_side: Mapped[str] = mapped_column(
+        String(10), nullable=False, server_default="BUYER"
+    )
     product_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("products.id"), nullable=False
     )
@@ -77,6 +86,10 @@ class Negotiation(Base):
 
 class NegotiationRound(Base):
     __tablename__ = "negotiation_rounds"
+    __table_args__ = (
+        UniqueConstraint("negotiation_id", "round_number", name="uq_neg_rounds_negotiation_round"),
+        Index("ix_negotiation_rounds_negotiation", "negotiation_id"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4

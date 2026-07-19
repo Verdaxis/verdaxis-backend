@@ -4,14 +4,21 @@ from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
+from alembic.autogenerate import compare_metadata
+from alembic.migration import MigrationContext
+from sqlalchemy import Column, ForeignKey, Integer, MetaData, Table, create_engine
+from app.migration_drift import compare_server_default, compare_type, include_object
 
 from app.config import Settings
 from app.database import engine_options
 from tests.runtime_config import (
-    REMOTE_MUTATION_OPT_IN,
     RuntimeTestConfigurationError,
     resolve_test_api_url,
 )
+
+MUTATION_OPT_IN = "ALLOW_TEST_MUTATIONS"
+MUTATION_OPT_IN_VALUE = "I_UNDERSTAND_TEST_MUTATIONS"
+RUNTIME_ENV_ATTESTATION = "TEST_RUNTIME_ENV"
 
 
 def _settings(**overrides):
@@ -38,6 +45,20 @@ def test_pool_defaults_leave_headroom_for_four_workers_on_postgres_max_100():
 
 
 @pytest.mark.parametrize(
+    "unit_name",
+    ["verdaxis-backend.service", "verdaxis-backend-staging.service"],
+)
+def test_deployed_units_use_the_validated_connection_budget(unit_name):
+    root = Path(__file__).parents[2]
+    service = (root / "deploy/systemd" / unit_name).read_text()
+    worker_count = int(service.split("--workers ", 1)[1].split()[0])
+    settings = _settings(DB_POOL_WORKERS=worker_count)
+
+    assert worker_count == 4
+    assert worker_count * (settings.DB_POOL_SIZE + settings.DB_MAX_OVERFLOW) + settings.DB_RESERVED_CONNECTIONS <= settings.DB_MAX_CONNECTIONS
+
+
+@pytest.mark.parametrize(
     "overrides",
     [
         {"DB_POOL_SIZE": 0},
@@ -58,6 +79,15 @@ def test_sqlite_settings_keep_pool_configuration_but_database_layer_can_disable_
     assert settings.DATABASE_URL.startswith("sqlite")
     assert settings.DB_POOL_SIZE == 3
     assert engine_options(settings) == {}
+
+
+def test_kyc_upload_defaults_are_bounded_and_aggregate_limit_is_enforced():
+    settings = _settings()
+
+    assert settings.KYC_MAX_FILE_BYTES == 10 * 1024 * 1024
+    assert settings.KYC_MAX_TOTAL_BYTES == 20 * 1024 * 1024
+    with pytest.raises(ValidationError):
+        _settings(KYC_MAX_FILE_BYTES=11, KYC_MAX_TOTAL_BYTES=10)
 
 
 def test_postgres_engine_options_use_validated_per_worker_pool_settings():
@@ -88,24 +118,54 @@ def test_integration_url_rejects_production_host():
         resolve_test_api_url({"TEST_API_URL": "https://api.verdaxis.exchange"})
 
 
-def test_remote_mutating_target_requires_unmistakable_opt_in():
-    env = {"TEST_API_URL": "https://api-staging.verdaxis.exchange"}
+def test_mutating_target_requires_opt_in_and_positive_environment_attestation():
+    env = {"TEST_API_URL": "http://127.0.0.1:18765"}
 
-    with pytest.raises(RuntimeTestConfigurationError, match="REMOTE_TEST_MUTATIONS"):
+    with pytest.raises(RuntimeTestConfigurationError, match="TEST_MUTATIONS"):
         resolve_test_api_url(env, require_mutation_opt_in=True)
 
-    env[REMOTE_MUTATION_OPT_IN] = "I_UNDERSTAND_REMOTE_TEST_MUTATIONS"
+    env[MUTATION_OPT_IN] = MUTATION_OPT_IN_VALUE
+    with pytest.raises(RuntimeTestConfigurationError, match="RUNTIME_ENV"):
+        resolve_test_api_url(env, require_mutation_opt_in=True)
+
+    env[RUNTIME_ENV_ATTESTATION] = "disposable"
     assert resolve_test_api_url(env, require_mutation_opt_in=True) == env["TEST_API_URL"]
 
 
-def test_local_mutating_target_does_not_need_remote_opt_in():
-    assert (
-        resolve_test_api_url(
-            {"TEST_API_URL": "http://127.0.0.1:18765"},
-            require_mutation_opt_in=True,
-        )
-        == "http://127.0.0.1:18765"
-    )
+@pytest.mark.parametrize(
+    "url, runtime_env",
+    [
+        ("http://127.0.0.1:8000", "disposable"),
+        ("http://localhost:8000", "disposable"),
+        ("http://[::1]:8000", "disposable"),
+        ("http://144.126.151.136:8000", "staging"),
+        ("https://api.verdaxis.exchange", "staging"),
+        ("https://api-staging.verdaxis.exchange", "disposable"),
+        ("https://example.invalid", "disposable"),
+    ],
+)
+def test_mutating_target_rejects_production_or_wrong_attestation(url, runtime_env):
+    env = {
+        "TEST_API_URL": url,
+        MUTATION_OPT_IN: MUTATION_OPT_IN_VALUE,
+        RUNTIME_ENV_ATTESTATION: runtime_env,
+    }
+    with pytest.raises(RuntimeTestConfigurationError):
+        resolve_test_api_url(env, require_mutation_opt_in=True)
+
+
+def test_mutating_target_accepts_only_known_staging_or_disposable_targets():
+    common = {
+        MUTATION_OPT_IN: MUTATION_OPT_IN_VALUE,
+    }
+    assert resolve_test_api_url(
+        {**common, "TEST_API_URL": "https://api-staging.verdaxis.exchange", RUNTIME_ENV_ATTESTATION: "staging"},
+        require_mutation_opt_in=True,
+    ) == "https://api-staging.verdaxis.exchange"
+    assert resolve_test_api_url(
+        {**common, "TEST_API_URL": "http://127.0.0.1:18765", RUNTIME_ENV_ATTESTATION: "disposable"},
+        require_mutation_opt_in=True,
+    ) == "http://127.0.0.1:18765"
 
 
 def test_systemd_templates_are_loopback_bound_and_sandboxed():
@@ -116,15 +176,25 @@ def test_systemd_templates_are_loopback_bound_and_sandboxed():
     ):
         contents = path.read_text()
         assert "--host 127.0.0.1" in contents
-        assert "After=network-online.target docker.service" in contents
+        expected_port = "8000" if path.name == "verdaxis-backend.service" else "8001"
+        assert f"--port {expected_port}" in contents
+        assert "After=network-online.target postgresql.service" in contents
+        assert "Requires=postgresql.service" in contents
+        assert "docker.service" not in contents
         assert "ExecStartPre=" in contents
+        assert "current --check-heads" in contents
         assert "KillSignal=SIGTERM" in contents
         assert "TimeoutStopSec=30" in contents
         assert "NoNewPrivileges=true" in contents
         assert "ProtectSystem=strict" in contents
         assert "ProtectHome=read-only" in contents
         assert "PrivateTmp=true" in contents
+        assert "MemoryHigh=512M" in contents
+        assert "MemoryMax=768M" in contents
         assert "RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6" in contents
+
+        worker_count = contents.split("--workers ", 1)[1].split()[0]
+        assert int(worker_count) == 4
 
 
 def test_migration_verification_is_upgrade_then_drift_check():
@@ -134,3 +204,67 @@ def test_migration_verification_is_upgrade_then_drift_check():
     assert "upgrade head" in script
     assert " check" in script
     assert "DATABASE_URL" in script
+
+
+def test_migration_drift_check_does_not_suppress_columns_fks_types_defaults_or_comments():
+    root = Path(__file__).parents[2]
+    source = (root / "alembic/env.py").read_text()
+
+    assert "compare_type=compare_type" in source
+    assert "compare_server_default=compare_server_default" in source
+    assert "compare_comments=True" in source
+    assert "type_ in {\"index\", \"foreign_key_constraint\"}" not in source
+    assert "reflected or compare_to is not None" not in source
+    drift_source = (root / "app/migration_drift.py").read_text()
+    assert "spatial_ref_sys" in drift_source
+    assert "LEGACY_TABLES" in drift_source
+    assert "reflected" in drift_source
+
+
+def test_migration_type_comparator_only_normalizes_non_native_enum_storage():
+    from sqlalchemy import Enum, Integer, String
+
+    assert compare_type(None, None, None, String(16), Enum("A", native_enum=False)) is False
+    assert compare_type(None, None, None, String(16), Integer()) is None
+
+
+def test_migration_default_comparator_only_normalizes_python_owned_defaults():
+    from sqlalchemy import Column, Integer, MetaData, text
+
+    metadata = MetaData()
+    python_default = Column("python_default", Integer, default=1)
+    explicit_default = Column("explicit_default", Integer, server_default=text("1"))
+    assert compare_server_default(None, None, python_default, "1", None, None) is False
+    assert compare_server_default(None, None, explicit_default, "2", text("1"), "1") is None
+
+
+def test_migration_comparison_detects_an_omitted_foreign_key():
+    engine = create_engine("sqlite://")
+    actual = MetaData()
+    Table("parents", actual, Column("id", Integer, primary_key=True))
+    Table("children", actual, Column("id", Integer, primary_key=True), Column("parent_id", Integer))
+    actual.create_all(engine)
+
+    expected = MetaData()
+    Table("parents", expected, Column("id", Integer, primary_key=True))
+    Table(
+        "children",
+        expected,
+        Column("id", Integer, primary_key=True),
+        Column("parent_id", Integer, ForeignKey("parents.id")),
+    )
+
+    with engine.connect() as connection:
+        context = MigrationContext.configure(
+            connection,
+            opts={
+                "target_metadata": expected,
+                "include_object": include_object,
+                "compare_type": True,
+                "compare_server_default": True,
+                "compare_comments": True,
+            },
+        )
+        differences = compare_metadata(context, expected)
+
+    assert any(difference[0] == "add_fk" for difference in differences)

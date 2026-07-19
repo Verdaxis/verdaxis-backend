@@ -31,17 +31,17 @@ class MatchSuggestion(Base):
     score: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=False)
 
     # JSON array of reasons: ["fuel_type_match", "region_match", "price_overlap", ...]
-    match_reasons: Mapped[list] = mapped_column(JSON, default=list)
+    match_reasons: Mapped[list | None] = mapped_column(JSON, default=list, nullable=True)
 
     status: Mapped[MatchStatus] = mapped_column(
         Enum(MatchStatus, native_enum=False),
-        default=MatchStatus.SUGGESTED,
+        default=MatchStatus.SUGGESTED, nullable=True,
     )
 
     # Who this suggestion is for (the org that placed the triggering order)
     recipient_org_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organizations.id"), nullable=False)
 
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=True)
 
     # Relationships
     bid_order = relationship("OrderBookOrder", foreign_keys=[bid_order_id])

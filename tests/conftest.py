@@ -1,7 +1,8 @@
 """
 Pytest configuration and fixtures for Verdaxis backend tests.
 
-For integration tests, we test against the running Docker backend.
+For integration tests, we test against an explicitly selected local disposable,
+staging, or other read-only API target.
 Unit tests use mocks and don't require the database.
 """
 import pytest
@@ -23,7 +24,7 @@ def event_loop() -> Generator[asyncio.AbstractEventLoop, None, None]:
 async def client() -> AsyncClient:
     """
     Create an async HTTP client for testing API endpoints.
-    Tests against the running backend (Docker or remote).
+    Tests against the explicitly configured running backend.
     """
     from tests.runtime_config import resolve_test_api_url
 

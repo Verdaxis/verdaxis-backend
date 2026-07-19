@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime, UTC
 from decimal import Decimal
 
-from sqlalchemy import ForeignKey, Enum, String, Numeric, DateTime, Text, Boolean
+from sqlalchemy import ForeignKey, Enum, Index, String, Numeric, DateTime, Text, Boolean
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -29,6 +29,10 @@ class QuoteStatus(str, enum.Enum):
 
 class RFQ(Base):
     __tablename__ = "rfqs"
+    __table_args__ = (
+        Index("ix_rfqs_buyer_org_id", "buyer_org_id"),
+        Index("ix_rfqs_status", "status"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
@@ -43,9 +47,7 @@ class RFQ(Base):
         UUID(as_uuid=True), ForeignKey("delivery_points.id"), nullable=True
     )
     quantity_mt: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
-    target_price_per_mt: Mapped[Decimal | None] = mapped_column(
-        Numeric(10, 2), nullable=True, comment="Optional indicative price"
-    )
+    target_price_per_mt: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
     availability_window: Mapped[str] = mapped_column(String(16), nullable=False, default=SPOT_WINDOW)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_anonymous: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -63,6 +65,7 @@ class RFQ(Base):
 
 class RFQQuote(Base):
     __tablename__ = "rfq_quotes"
+    __table_args__ = (Index("ix_rfq_quotes_rfq_id", "rfq_id"),)
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4

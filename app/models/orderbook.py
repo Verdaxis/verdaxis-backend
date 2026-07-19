@@ -51,6 +51,9 @@ class OrderBookOrder(Base):
     """
     __tablename__ = "orderbook_orders"
     __table_args__ = (
+        Index("ix_orderbook_orders_side", "side"),
+        Index("ix_orderbook_orders_status", "status"),
+        Index("ix_orderbook_orders_org", "organization_id"),
         Index(
             "ix_orderbook_orders_active_slice_lookup",
             "side",
@@ -175,6 +178,11 @@ class Trade(Base):
     Replaces both the legacy Order (listing->buyer) and accepted DirectOrderOffer.
     """
     __tablename__ = "trades"
+    __table_args__ = (
+        Index("ix_trades_buyer", "buyer_id"),
+        Index("ix_trades_seller", "seller_id"),
+        Index("ix_trades_status", "status"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
 
@@ -185,7 +193,7 @@ class Trade(Base):
     # Parties
     buyer_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organizations.id"), nullable=False)
     seller_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organizations.id"), nullable=False)
-    initiated_by: Mapped[Initiator] = mapped_column(Enum(Initiator, native_enum=False), nullable=False)
+    initiated_by: Mapped[Initiator] = mapped_column(Enum(Initiator, native_enum=False, length=10), nullable=False)
     is_anonymous: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
 
     # Trade details
@@ -194,8 +202,10 @@ class Trade(Base):
 
     # Status
     status: Mapped[TradeStatus] = mapped_column(
-        Enum(TradeStatus, native_enum=False),
-        default=TradeStatus.PENDING_CONFIRMATION
+        Enum(TradeStatus, native_enum=False, length=30),
+        default=TradeStatus.PENDING_CONFIRMATION,
+        nullable=True,
+        server_default="PENDING_CONFIRMATION",
     )
 
     # Final deal details (populated on delivery)
@@ -204,14 +214,14 @@ class Trade(Base):
     final_total_usd: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
 
     # Commission
-    commission_rate_pct: Mapped[Decimal] = mapped_column(Numeric(5, 3), default=Decimal("0.5"))
+    commission_rate_pct: Mapped[Decimal | None] = mapped_column(Numeric(5, 3), default=Decimal("0.5"), nullable=True, server_default="0.5")
     commission_amount_usd: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
 
     # Lifecycle timestamps
     confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=True, server_default="now()")
 
     # Relationships
     bid_order = relationship("OrderBookOrder", foreign_keys=[bid_order_id], back_populates="bid_trades")

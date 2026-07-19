@@ -6,6 +6,7 @@ The live VPS deployment is systemd-based, not Docker-based:
 
 - Production backend: `/home/verdaxis-prod/verdaxis/prod/be`, branch `prod`, service `verdaxis-backend.service`, health `https://api.verdaxis.exchange/health`
 - Staging backend: `/home/verdaxis-prod/verdaxis/staging/be`, branch `staging`, service `verdaxis-backend-staging.service`, health `https://api-staging.verdaxis.exchange/health`
+- Production Uvicorn binds `127.0.0.1:8000`; staging binds `127.0.0.1:8001`. Caddy/reverse-proxy health URLs are the public surfaces.
 - Deploy helper: `./scripts/deploy.sh`
 
 The deploy helper prints branch, SHA, service, and health target, refuses dirty worktrees by default, runs Alembic, restarts the correct systemd service, and checks live health. Use `./scripts/deploy.sh --dry-run` before real deploys. Use `ALLOW_DIRTY=1` only for an intentional hotfix deploy from a known dirty tree.
@@ -32,11 +33,15 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 DATABASE_URL="sqlite+aiosqlite:///:memory:" pytest tests/unit/ -v
 
 # Run integration tests against an explicitly selected disposable/local API
-TEST_API_URL=http://127.0.0.1:8000 pytest tests/integration/ -v
+TEST_API_URL=http://127.0.0.1:18765 \
+  ALLOW_TEST_MUTATIONS=I_UNDERSTAND_TEST_MUTATIONS \
+  TEST_RUNTIME_ENV=disposable \
+  pytest tests/integration/ -v
 
-# Remote staging mutation suites require an explicit acknowledgement
+# Approved staging mutation suites require both explicit guards
 TEST_API_URL=https://api-staging.verdaxis.exchange \
-  ALLOW_REMOTE_TEST_MUTATIONS=I_UNDERSTAND_REMOTE_TEST_MUTATIONS \
+  ALLOW_TEST_MUTATIONS=I_UNDERSTAND_TEST_MUTATIONS \
+  TEST_RUNTIME_ENV=staging \
   pytest tests/integration/ -v
 
 # Run Alembic migrations
@@ -56,7 +61,7 @@ python scripts/seed.py
 ## Deployment
 
 **Server:** `verdaxis-prod@144.126.151.136`
-**API:** `https://api.verdaxis.exchange/api` (Caddy reverse proxy -> `localhost:8000`)
+**API:** `https://api.verdaxis.exchange/api` (Caddy reverse proxy -> `127.0.0.1:8000`; staging -> `127.0.0.1:8001`)
 **Swagger:** `https://api.verdaxis.exchange/docs`
 **Admin Panel:** `https://api.verdaxis.exchange/admin` (credentials from `ADMIN_USERNAME`/`ADMIN_PASSWORD` in `.env`)
 
@@ -79,7 +84,7 @@ cd /home/verdaxis-prod/verdaxis/staging/be   # or /home/verdaxis-prod/verdaxis/p
 - The database URL is assembled from individual env vars (`DATABASE_HOST`, `DATABASE_PORT`, `DATABASE_NAME`, `DATABASE_USER`, `DATABASE_PASSWORD`) unless `DATABASE_URL` is explicitly set
 - In Docker, `DATABASE_HOST=verdaxis-db` (the container name)
 - Alembic's `env.py` overrides `sqlalchemy.url` from Settings at runtime. The `alembic.ini` value (`driver://user:pass@localhost/dbname`) is never used.
-- Alembic `include_object` excludes `spatial_ref_sys` (PostGIS system table) from autogeneration
+- Alembic compares columns, foreign keys, indexes, types, defaults, and comments. It excludes only explicitly enumerated PostGIS/system or documented legacy objects; targeted callbacks cover non-native enum storage and Python-owned defaults.
 - All models MUST be imported in `app/models/__init__.py` or Alembic autogenerate will miss them
 
 ### Key Tables
@@ -213,11 +218,11 @@ cd /home/verdaxis-prod/verdaxis/staging/be   # or /home/verdaxis-prod/verdaxis/p
 
 11. **Availability windows are canonical strings, not a static enum.** Persist `SPOT`, `YYYY-MM`, `YYYY-QN`, and legacy-compatible `YYYY-CAL`. UI labels like `M`, `M+1`, and `Next Quarter` must be resolved to canonical codes before they hit the API.
 
-12. **`python-jose` is unmaintained.** Last release was 2022 (v3.5.0) with known CVEs. Recommend migrating to `PyJWT` or `joserfc` for JWT handling.
+12. **JWT helpers use the declared `PyJWT` dependency.** Do not reintroduce undeclared `python-jose` imports in scripts or tests.
 
 13. **`passlib` is unmaintained.** Last release was 2020 (v1.7.4). Depends on the deprecated `crypt` module removed in Python 3.13. Recommend migrating to direct `bcrypt` or `argon2-cffi`.
 
-14. **Redis container is running but unused.** `docker-compose.yml` provisions a Redis container, but no application code references Redis. It consumes memory and creates unnecessary attack surface. Should be removed or utilized.
+14. **Redis is an intentional Docker Compose dependency.** `docker-compose.yml` provisions Redis for the upcoming shared event/rate-limit work; keep the service and its configuration intact.
 
 15. **Never use `--reload` in production Docker.** The `docker-compose.yml` `command:` used to include `--reload`, which caused uvicorn's `StatReload` to poll all 11,243 files in the bind-mounted `/app` directory (including `venv/` with 3,267 `.py` files and `postgres_data/`). This burned 243% CPU doing nothing. The fix: production compose uses plain `uvicorn` without `--reload`; dev uses `docker-compose.override.yml` with `--reload-dir` targeting only source directories.
 
@@ -225,7 +230,7 @@ cd /home/verdaxis-prod/verdaxis/staging/be   # or /home/verdaxis-prod/verdaxis/p
 
 17. **Frontend polls `/api/notifications` even when unauthenticated.** The frontend has a polling loop that hits `GET /api/notifications` and receives `401 Unauthorized` repeatedly. This generates log noise and wastes request cycles. The frontend should check auth state before starting the polling interval, or the polling should stop after receiving a 401.
 
-18. **Server is exposed on `0.0.0.0:8000` and receives internet scanner traffic.** Random IPs probe for `/bins/`, `httpbin.org`, `/backup/`, etc. Consider restricting the backend port to `127.0.0.1:8000` in `docker-compose.yml` and letting Caddy handle external traffic exclusively.
+18. **Production backend exposure is systemd-loopback only.** Production binds `127.0.0.1:8000` and staging binds `127.0.0.1:8001`; Caddy handles external traffic. Docker Compose remains a development/disposable topology and is not the live service manager.
 
 ## Environment Variables
 
@@ -248,6 +253,8 @@ DB_MAX_OVERFLOW=2               # Per-worker overflow; see docs/runtime-hardenin
 DB_POOL_WORKERS=4               # Must match the Uvicorn worker count
 DB_MAX_CONNECTIONS=100
 DB_RESERVED_CONNECTIONS=20
+KYC_MAX_FILE_BYTES=10485760   # 10 MiB per document
+KYC_MAX_TOTAL_BYTES=20971520  # 20 MiB per KYC request
 ```
 
 ## Git Workflow

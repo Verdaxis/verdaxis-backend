@@ -7,7 +7,7 @@ Maritime fuel trading exchange platform backend.
 ```bash
 cd /home/verdaxis-prod/verdaxis/staging/be
 source venv/bin/activate
-uvicorn app.main:app --host 0.0.0.0 --port 8000
+uvicorn app.main:app --host 0.0.0.0 --port 8000  # local development only
 ```
 
 ## Live Deployment
@@ -122,16 +122,19 @@ ENVIRONMENT=test JWT_SECRET=test-secret-key-for-testing-minimum-32-chars \
 Run the command above for the current test count.
 
 Integration tests require an explicit `TEST_API_URL`; they never default to a
-running service. Because the suite includes mutating flows, a non-loopback
-target additionally requires:
+running service. Mutating helpers require both an exact acknowledgement and a
+positive `TEST_RUNTIME_ENV` attestation. A disposable local API example is:
 
 ```bash
-TEST_API_URL=http://127.0.0.1:8000 python -m pytest tests/integration -v
+TEST_API_URL=http://127.0.0.1:18765 \
+  ALLOW_TEST_MUTATIONS=I_UNDERSTAND_TEST_MUTATIONS \
+  TEST_RUNTIME_ENV=disposable \
+  python -m pytest tests/integration -v
 ```
 
-For an approved remote staging target, add
-`ALLOW_REMOTE_TEST_MUTATIONS=I_UNDERSTAND_REMOTE_TEST_MUTATIONS`. Production
-Verdaxis API hosts are always refused.
+For approved staging only, use `TEST_API_URL=https://api-staging.verdaxis.exchange`
+with the same two guard variables and `TEST_RUNTIME_ENV=staging`. Production
+hosts, `144.126.151.136`, and localhost:8000 are categorically refused.
 
 Use `scripts/run_product_analytics_postgres_tests.sh` for a disposable
 PostGIS container. It binds a unique loopback port, runs migrations, checks

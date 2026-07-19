@@ -4,6 +4,9 @@ import time
 import uuid
 import sys
 import json
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 # Configuration
 from tests.runtime_config import resolve_test_api_url

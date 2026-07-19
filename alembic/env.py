@@ -19,10 +19,9 @@ if config.config_file_name is not None:
 from app.database import Base
 from app.models import *  # Import all models to register them
 from app.config import settings
+from app.migration_drift import compare_server_default, compare_type, include_object
 
 target_metadata = Base.metadata
-
-_LEGACY_TABLES = {"orders", "direct_orders", "public_listings"}
 
 # Override sqlalchemy.url in config
 config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
@@ -45,13 +44,6 @@ def run_migrations_offline() -> None:
     script output.
 
     """
-    def include_object(object, name, type_, reflected, compare_to):
-        if type_ == "table" and (name == "spatial_ref_sys" or name in _LEGACY_TABLES):
-            return False
-        if type_ == "column" and getattr(object.table, "name", None) in _LEGACY_TABLES:
-            return False
-        return True
-
     url = config.get_main_option("sqlalchemy.url")
     context.configure(
         url=url,
@@ -59,9 +51,9 @@ def run_migrations_offline() -> None:
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
         include_object=include_object,
-        compare_type=False,
-        compare_server_default=False,
-        compare_comments=False,
+        compare_type=compare_type,
+        compare_server_default=compare_server_default,
+        compare_comments=True,
     )
 
     with context.begin_transaction():
@@ -69,29 +61,13 @@ def run_migrations_offline() -> None:
 
 
 def do_run_migrations(connection: Connection) -> None:
-    def include_object(object, name, type_, reflected, compare_to):
-        if type_ == "table" and (name == "spatial_ref_sys" or name in _LEGACY_TABLES):
-            return False
-        if type_ == "column" and getattr(object.table, "name", None) in _LEGACY_TABLES:
-            return False
-        # PostGIS and historical migrations own extension/legacy objects that
-        # are not represented by current ORM models. Keep drift checks focused
-        # on current application tables and their expected columns.
-        if type_ == "table" and reflected and compare_to is None:
-            return False
-        if type_ == "column" and (reflected or compare_to is not None):
-            return False
-        if type_ in {"index", "foreign_key_constraint"}:
-            return False
-        return True
-
     context.configure(
         connection=connection, 
         target_metadata=target_metadata,
         include_object=include_object,
-        compare_type=False,
-        compare_server_default=False,
-        compare_comments=False,
+        compare_type=compare_type,
+        compare_server_default=compare_server_default,
+        compare_comments=True,
     )
 
     with context.begin_transaction():

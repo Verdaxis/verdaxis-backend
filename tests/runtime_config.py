@@ -6,10 +6,13 @@ from ipaddress import ip_address
 from urllib.parse import urlsplit
 
 
-REMOTE_MUTATION_OPT_IN = "ALLOW_REMOTE_TEST_MUTATIONS"
-REMOTE_MUTATION_OPT_IN_VALUE = "I_UNDERSTAND_REMOTE_TEST_MUTATIONS"
+MUTATION_OPT_IN = "ALLOW_TEST_MUTATIONS"
+MUTATION_OPT_IN_VALUE = "I_UNDERSTAND_TEST_MUTATIONS"
+RUNTIME_ENV_ATTESTATION = "TEST_RUNTIME_ENV"
 _LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1"}
+_STAGING_HOSTS = {"api-staging.verdaxis.exchange"}
 _PRODUCTION_HOSTS = {"verdaxis.exchange", "www.verdaxis.exchange", "api.verdaxis.exchange"}
+_PRODUCTION_IPS = {"144.126.151.136"}
 
 
 class RuntimeTestConfigurationError(RuntimeError):
@@ -28,7 +31,12 @@ def _is_local_host(hostname: str) -> bool:
 def resolve_test_api_url(
     environ: dict[str, str], *, require_mutation_opt_in: bool = False
 ) -> str:
-    """Return a validated explicit target for an API integration suite."""
+    """Return a validated explicit target for an API integration suite.
+
+    Mutating suites require both a deliberate acknowledgement and a positive
+    declaration of the runtime environment. The target class is checked too,
+    so an environment variable cannot turn an arbitrary URL into a safe one.
+    """
     value = environ.get("TEST_API_URL", "").strip()
     if not value:
         raise RuntimeTestConfigurationError(
@@ -39,14 +47,42 @@ def resolve_test_api_url(
     hostname = (parsed.hostname or "").lower().rstrip(".")
     if parsed.scheme not in {"http", "https"} or not hostname or parsed.username:
         raise RuntimeTestConfigurationError("TEST_API_URL must be an absolute HTTP(S) URL without credentials")
-    if hostname in _PRODUCTION_HOSTS:
+    try:
+        target_ip = ip_address(hostname)
+    except ValueError:
+        target_ip = None
+    if hostname in _PRODUCTION_HOSTS or hostname in _PRODUCTION_IPS or (
+        target_ip is not None and str(target_ip) in _PRODUCTION_IPS
+    ):
         raise RuntimeTestConfigurationError(
-            "refusing production verdaxis.exchange host in integration tests"
+            "refusing the Verdaxis production URL/IP in integration tests"
         )
-    if require_mutation_opt_in and not _is_local_host(hostname):
-        if environ.get(REMOTE_MUTATION_OPT_IN) != REMOTE_MUTATION_OPT_IN_VALUE:
+    try:
+        target_port = parsed.port
+    except ValueError as exc:
+        raise RuntimeTestConfigurationError(
+            "TEST_API_URL must use a valid TCP port"
+        ) from exc
+    if require_mutation_opt_in:
+        if environ.get(MUTATION_OPT_IN) != MUTATION_OPT_IN_VALUE:
             raise RuntimeTestConfigurationError(
-                f"{REMOTE_MUTATION_OPT_IN}={REMOTE_MUTATION_OPT_IN_VALUE} is required "
-                "for mutating remote integration tests"
+                f"{MUTATION_OPT_IN}={MUTATION_OPT_IN_VALUE} is required for mutating tests"
+            )
+        runtime_env = environ.get(RUNTIME_ENV_ATTESTATION, "").strip().lower()
+        if runtime_env not in {"staging", "disposable"}:
+            raise RuntimeTestConfigurationError(
+                f"{RUNTIME_ENV_ATTESTATION} must positively attest staging or disposable"
+            )
+        if target_port == 8000 and _is_local_host(hostname):
+            raise RuntimeTestConfigurationError(
+                "refusing localhost:8000, the production backend port"
+            )
+        if runtime_env == "staging" and hostname not in _STAGING_HOSTS:
+            raise RuntimeTestConfigurationError(
+                "staging mutation tests require the approved staging API target"
+            )
+        if runtime_env == "disposable" and not _is_local_host(hostname):
+            raise RuntimeTestConfigurationError(
+                "disposable mutation tests require a loopback API target"
             )
     return value.rstrip("/")

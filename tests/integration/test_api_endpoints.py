@@ -1,10 +1,10 @@
 """
 Integration tests for API endpoints.
-Tests the full request/response cycle against the running Docker backend.
+Tests the full request/response cycle against the explicitly selected backend.
 
 Run with: pytest tests/integration/ -v
 Requires: an explicit TEST_API_URL targeting a disposable local or approved
-staging backend. Remote mutating runs also require the documented opt-in.
+staging backend, plus both documented mutation guards for mutating tests.
 """
 import pytest
 from httpx import AsyncClient

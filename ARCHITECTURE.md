@@ -8,9 +8,10 @@
 ```
 app/
   main.py                       # FastAPI app, CORS, structlog, request correlation IDs, rate limiter
-  config.py                     # Pydantic Settings — env vars, JWT config, OAuth, auto-matching toggle
+  config.py                     # Pydantic Settings — env vars, JWT config, OAuth, pool/upload budget validation
   database.py                   # AsyncSession factory (asyncpg), validated per-worker pooling, SQLite guard
   models/legacy.py              # Metadata-only legacy FK table stubs excluded from Alembic drift checks
+  migration_drift.py            # Explicit PostGIS/legacy exclusions and narrow Alembic comparison callbacks
   admin.py                      # SQLAdmin panel at /admin
   rate_limit.py                 # slowapi Limiter singleton (key=remote_address)
   core/
@@ -87,7 +88,7 @@ tests/integration/              # Auth hardening, trade lifecycle, orderbook E2E
 tests/runtime_config.py          # Explicit/validated API target policy for mutating suites
 deploy/systemd/                  # Checked-in staging/production backend units and scheduled jobs
 scripts/verify_migrations.sh    # Upgrade-to-head plus Alembic model/schema drift check
-  alembic/versions/               # Migrations incl. canonical availability-window rewrite + defaults
+  alembic/versions/               # Migrations incl. canonical availability-window rewrite + runtime metadata alignment
 ```
 
 ## Key Patterns
@@ -108,6 +109,8 @@ scripts/verify_migrations.sh    # Upgrade-to-head plus Alembic model/schema drif
 - **Trade tape scope:** `/trade-tape` returns anonymized confirmed trade prints for the last 7 days. Exact delivery-point history is available only when clients filter by `delivery_point_id` and entries return `scope="DELIVERY_POINT"` with delivery-point fields. `provenance_kind` is legacy-compatible; new clients should prefer `source_kind`/`demo_status` when present on newer surfaces.
 - **Market Radar watchlists:** Watchlists are observer-only. Typed targets store either canonical slices or pinned order snapshots, and order create/update/cancel paths emit slice/pin events without feeding core matchmaking. New event payloads carry provenance at emission time; legacy events return `UNKNOWN` rather than doing response-time order lookups.
 - **Behavioral analytics:** Umami is an optional failure-isolated dependency. `GET /admin/analytics/product-usage?days=7|30|90` combines bounded Umami aggregates with authoritative UTC-period database counts. Server conversion events and the documented browser reporting taxonomy use separate allowlists. Registration, organization, order, and trade events are scheduled only after commits, carry bounded originating request metadata for Umami bot classification/environment attribution, and use a strict property allowlist; collector drops/failures never alter endpoint response contracts. Aggregate successes cache for at most five minutes and failures for at most 30 seconds. `totaltime / visits` is exposed only as average session duration, not active engagement. See `docs/behavioral-analytics-contract.md`.
+- **Live runtime topology:** Production systemd binds Uvicorn to `127.0.0.1:8000`; staging binds to `127.0.0.1:8001`; the public reverse proxy fronts those loopback ports. Both services require network-online and PostgreSQL, use four workers, and preflight exact Alembic heads.
+- **Runtime budgets:** The default pool aggregate is `4 × (5 + 2) + 20 = 48` against PostgreSQL `max_connections=100`. KYC uploads are bounded at 10 MiB per file and 20 MiB aggregate by default, with `MemoryHigh=512M` and `MemoryMax=768M` in systemd.
 
 ## Revenue Streams
 

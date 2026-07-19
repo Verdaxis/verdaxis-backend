@@ -1,4 +1,4 @@
-from sqlalchemy import String, ForeignKey, Enum, DateTime, Boolean, Text
+from sqlalchemy import String, ForeignKey, Enum, DateTime, Boolean, Index, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import UUID
 import uuid
@@ -49,7 +49,7 @@ class Organization(Base):
     name: Mapped[str] = mapped_column(String, nullable=False)
     domain: Mapped[str | None] = mapped_column(String, unique=True, nullable=True)
     type: Mapped[OrgType] = mapped_column(Enum(OrgType, native_enum=False), nullable=False)
-    supplier_tier: Mapped[TierLabel | None] = mapped_column(Enum(TierLabel, native_enum=False), nullable=True, default=None)
+    supplier_tier: Mapped[TierLabel | None] = mapped_column(Enum(TierLabel, native_enum=False, length=50), nullable=True, default=None)
     tax_id: Mapped[str | None] = mapped_column(String)
     country_code: Mapped[str | None] = mapped_column(String(2))
     verification_status: Mapped[str] = mapped_column(String, default="PENDING")
@@ -61,6 +61,7 @@ class Organization(Base):
 
 class User(Base):
     __tablename__ = "users"
+    __table_args__ = (Index("ix_users_referral_code", "referral_code"),)
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     email: Mapped[str] = mapped_column(String, unique=True, nullable=False)
@@ -94,8 +95,14 @@ class User(Base):
     )
 
     # Onboarding survey (migrated via Alembic)
-    onboarding_use_case: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
-    onboarding_referral_source: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    onboarding_use_case: Mapped[Optional[str]] = mapped_column(
+        String(50), nullable=True,
+        comment="Self-reported role from post-verification survey: buyer | supplier | financier_other",
+    )
+    onboarding_referral_source: Mapped[Optional[str]] = mapped_column(
+        String(500), nullable=True,
+        comment="Free-text attribution from post-verification survey",
+    )
 
     organization: Mapped["Organization"] = relationship(back_populates="users")
 

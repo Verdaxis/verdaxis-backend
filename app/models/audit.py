@@ -2,7 +2,7 @@
 from datetime import datetime, UTC
 import uuid
 
-from sqlalchemy import JSON, String, ForeignKey, DateTime, Text
+from sqlalchemy import JSON, String, ForeignKey, DateTime, Text, func
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 
 # JSONB on Postgres (matches the live column), plain JSON elsewhere so the
@@ -24,6 +24,6 @@ class AuditLog(Base):
     changes: Mapped[dict | None] = mapped_column(_JSON_VARIANT, nullable=True)
     ip_address: Mapped[str | None] = mapped_column(String(45), nullable=True)
     request_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
-    timestamp: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC), index=True
+    timestamp: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), server_default=func.now(), nullable=True, index=True
     )

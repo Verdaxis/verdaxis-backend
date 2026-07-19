@@ -5,7 +5,7 @@ import string
 import secrets
 from datetime import datetime, UTC
 
-from sqlalchemy import ForeignKey, Enum, String, DateTime, UniqueConstraint
+from sqlalchemy import ForeignKey, Enum, Index, String, DateTime, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -27,6 +27,7 @@ def generate_referral_code() -> str:
 
 class Referral(Base):
     __tablename__ = "referrals"
+    __table_args__ = (Index("ix_referrals_referrer_id", "referrer_id"),)
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
