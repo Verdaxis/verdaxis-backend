@@ -11,15 +11,7 @@ import uuid
 import random
 from decimal import Decimal
 import sys
-
-# DB connection
-DB_CONFIG = {
-    'host': 'localhost',
-    'port': 5432,
-    'dbname': 'verdaxis',
-    'user': 'postgres',
-    'password': 'Tealtent477',
-}
+from app.seeds.safety import seed_connection
 
 # Organization IDs
 BUYERS = [
@@ -66,7 +58,7 @@ COMMISSION_RATE = 0.005  # 0.5%
 
 def get_connection():
     """Create database connection."""
-    return psycopg2.connect(**DB_CONFIG)
+    return seed_connection()
 
 def clean_existing_trades(conn):
     """Remove existing seeded trades (idempotent)."""

@@ -51,9 +51,6 @@ class OrderBookOrder(Base):
     """
     __tablename__ = "orderbook_orders"
     __table_args__ = (
-        Index("ix_orderbook_orders_side", "side"),
-        Index("ix_orderbook_orders_status", "status"),
-        Index("ix_orderbook_orders_org", "organization_id"),
         Index(
             "ix_orderbook_orders_active_slice_lookup",
             "side",

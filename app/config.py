@@ -1,21 +1,44 @@
-import os
 from decimal import Decimal
+import re
 from pydantic_settings import BaseSettings
 from pydantic import Field, SecretStr, model_validator, field_validator
 from typing import Optional
 from urllib.parse import urlparse
+from sqlalchemy.engine import make_url
+
+
+_LOCAL_CORS_ORIGINS = (
+    "http://localhost:5173",
+    "http://localhost:5174",
+    "http://127.0.0.1:5173",
+    "http://127.0.0.1:5174",
+)
+
+_CORS_ORIGINS_BY_ENVIRONMENT = {
+    "production": (
+        "https://verdaxis.exchange",
+        "https://app.verdaxis.exchange",
+    ),
+    "staging": ("https://staging.verdaxis.exchange",),
+    "development": _LOCAL_CORS_ORIGINS,
+    "test": _LOCAL_CORS_ORIGINS,
+}
 
 class Settings(BaseSettings):
     # Server
     PROJECT_NAME: str = "Verdaxis"
     API_V1_STR: str = "/api"
+    ENVIRONMENT: str = "development"
+    RELEASE_SHA: str = "development"
+    UVICORN_WORKERS: int = Field(default=4, ge=1, le=100)
+    HEALTH_READINESS_TIMEOUT_SECONDS: float = Field(default=2.0, gt=0, le=30)
 
     # Database
     DATABASE_HOST: str = "localhost"
     DATABASE_PORT: int = 5432
-    DATABASE_NAME: str = "verdaxis"
-    DATABASE_USER: str = "postgres"
-    DATABASE_PASSWORD: str = "postgres"
+    DATABASE_NAME: str = "verdaxis_dev"
+    DATABASE_USER: str = "verdaxis_app"
+    DATABASE_PASSWORD: str = ""
     DATABASE_URL: Optional[str] = None
 
     # SQLAlchemy pool settings are per application worker.  The aggregate
@@ -25,7 +48,6 @@ class Settings(BaseSettings):
     DB_MAX_OVERFLOW: int = Field(default=1, ge=0, le=100)
     DB_POOL_TIMEOUT: float = Field(default=30.0, gt=0, le=300)
     DB_POOL_RECYCLE: int = Field(default=1800, ge=0, le=86400)
-    DB_POOL_WORKERS: int = Field(default=4, ge=1, le=100)
     DB_SERVICE_COUNT: int = Field(default=2, ge=1, le=100)
     DB_MAX_CONNECTIONS: int = Field(default=100, ge=1, le=1000)
     DB_RESERVED_CONNECTIONS: int = Field(default=20, ge=0, le=999)
@@ -54,13 +76,13 @@ class Settings(BaseSettings):
             )
         configured_connections = (
             self.DB_SERVICE_COUNT
-            * self.DB_POOL_WORKERS
+            * self.UVICORN_WORKERS
             * (self.DB_POOL_SIZE + self.DB_MAX_OVERFLOW)
         )
         available_connections = self.DB_MAX_CONNECTIONS - self.DB_RESERVED_CONNECTIONS
         if configured_connections > available_connections:
             raise ValueError(
-                'DB_SERVICE_COUNT * DB_POOL_WORKERS * '
+                'DB_SERVICE_COUNT * UVICORN_WORKERS * '
                 '(DB_POOL_SIZE + DB_MAX_OVERFLOW) must be '
                 'less than or equal to DB_MAX_CONNECTIONS - DB_RESERVED_CONNECTIONS'
             )
@@ -101,6 +123,52 @@ class Settings(BaseSettings):
             )
         return self
 
+    @model_validator(mode="after")
+    def validate_production_boundaries(self) -> "Settings":
+        environment = self.ENVIRONMENT.strip().lower()
+        if environment not in {"development", "test", "staging", "production"}:
+            raise ValueError("ENVIRONMENT must be development, test, staging, or production")
+        self.ENVIRONMENT = environment
+        release_sha = self.RELEASE_SHA.strip().lower()
+        full_release_sha = re.fullmatch(r"[0-9a-f]{40}", release_sha) is not None
+        if environment in {"staging", "production"}:
+            if not full_release_sha:
+                raise ValueError(
+                    "RELEASE_SHA must be a full 40-hex commit SHA in staging and production"
+                )
+        elif release_sha != environment and not full_release_sha:
+            raise ValueError(
+                f"RELEASE_SHA must be {environment!r} or a full 40-hex commit SHA"
+            )
+        self.RELEASE_SHA = release_sha
+
+        if environment == "production":
+            if len(self.JWT_SECRET) < 32:
+                raise ValueError("JWT_SECRET must be at least 32 characters in production")
+            if self.ENABLE_AUTH_BYPASS:
+                raise ValueError("ENABLE_AUTH_BYPASS must be false in production")
+            if self.DATABASE_PASSWORD in {"", "postgres"}:
+                raise ValueError("DATABASE_PASSWORD must be explicitly configured in production")
+            configured_user = self.DATABASE_USER.strip().lower()
+            if configured_user in {"postgres", "root"}:
+                raise ValueError(
+                    "DATABASE_USER must be a least-privilege application role in production"
+                )
+            effective_user = (make_url(self.DATABASE_URL).username or "").strip().lower()
+            if not effective_user or effective_user in {"postgres", "root"}:
+                raise ValueError(
+                    "effective DATABASE_URL username must be a least-privilege application role in production"
+                )
+            if self.MIGRATOR_DATABASE_URL:
+                migrator_user = (
+                    make_url(self.MIGRATOR_DATABASE_URL).username or ""
+                ).strip().lower()
+                if not migrator_user or migrator_user in {"postgres", "root"}:
+                    raise ValueError(
+                        "effective MIGRATOR_DATABASE_URL username must be a least-privilege migrator role in production"
+                    )
+        return self
+
     # Security
     ENABLE_AUTH_BYPASS: bool = False
 
@@ -115,45 +183,6 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 15  # Short-lived access tokens
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7     # Long-lived refresh tokens
     API_AUDIENCE: str = "verdaxis-client-id"
-
-    @field_validator('JWT_SECRET')
-    @classmethod
-    def validate_jwt_secret(cls, v: str) -> str:
-        if len(v) < 32:
-            env = os.environ.get('ENVIRONMENT', 'production')
-            if env != 'test':
-                raise ValueError(
-                    'JWT_SECRET must be at least 32 characters. '
-                    'Generate one with: python3 -c "import secrets; print(secrets.token_hex(32))"'
-                )
-        return v
-
-    @field_validator('ENABLE_AUTH_BYPASS')
-    @classmethod
-    def validate_auth_bypass(cls, v: bool) -> bool:
-        env = os.environ.get('ENVIRONMENT', 'production')
-        if v and env == 'production':
-            raise ValueError('ENABLE_AUTH_BYPASS must be false in production')
-        return v
-
-
-    @field_validator('DATABASE_PASSWORD')
-    @classmethod
-    def validate_db_password(cls, v: str) -> str:
-        env = os.environ.get('ENVIRONMENT', 'production')
-        if v == 'postgres' and env == 'production':
-            raise ValueError('DATABASE_PASSWORD must not be "postgres" in production')
-        return v
-
-    @field_validator('DATABASE_USER')
-    @classmethod
-    def validate_db_role(cls, v: str) -> str:
-        env = os.environ.get('ENVIRONMENT', 'production')
-        if v.strip().lower() in {'postgres', 'root'} and env == 'production':
-            raise ValueError(
-                'DATABASE_USER must be a least-privilege application role in production'
-            )
-        return v
 
     # Order Matching Engine
     AUTO_MATCHING_ENABLED: bool = True  # Set to False to disable match-on-insert
@@ -205,15 +234,31 @@ class Settings(BaseSettings):
         return normalized
 
     # CORS
-    BACKEND_CORS_ORIGINS: list[str] = [
-        "http://localhost:5173",
-        "http://localhost:5174",
-        "http://127.0.0.1:5173",
-        "http://127.0.0.1:5174",
-        "https://app.verdaxis.exchange",
-        "https://verdaxis-frontend.vercel.app",
-        "https://staging.verdaxis.exchange",
-    ]
+    BACKEND_CORS_ORIGINS: Optional[list[str]] = None
+
+    @model_validator(mode="after")
+    def validate_cors_origins(self) -> "Settings":
+        allowed = _CORS_ORIGINS_BY_ENVIRONMENT[self.ENVIRONMENT]
+        origins = list(allowed) if self.BACKEND_CORS_ORIGINS is None else self.BACKEND_CORS_ORIGINS
+        for origin in origins:
+            parsed = urlparse(origin)
+            if (
+                "*" in origin
+                or parsed.scheme not in {"http", "https"}
+                or not parsed.netloc
+                or parsed.username
+                or parsed.password
+                or parsed.path not in {"", "/"}
+                or parsed.params
+                or parsed.query
+                or parsed.fragment
+                or origin.rstrip("/") not in allowed
+            ):
+                raise ValueError(
+                    f"BACKEND_CORS_ORIGINS contains an origin incompatible with {self.ENVIRONMENT}"
+                )
+        self.BACKEND_CORS_ORIGINS = [origin.rstrip("/") for origin in origins]
+        return self
 
     class Config:
         env_file = ".env"

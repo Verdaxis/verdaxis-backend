@@ -16,7 +16,7 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-from app.database import Base, migrator_connect_args
+from app.database import Base, migrator_connect_args, verify_migrator_connection
 from app.models import *  # Import all models to register them
 from app.config import settings
 from app.migration_drift import compare_server_default, compare_type, include_object
@@ -63,6 +63,10 @@ def run_migrations_offline() -> None:
 
 
 def do_run_migrations(connection: Connection) -> None:
+    verify_migrator_connection(connection, settings)
+    # The attestation SELECT starts SQLAlchemy's implicit transaction. Close
+    # that read-only transaction so Alembic owns and commits its DDL boundary.
+    connection.commit()
     context.configure(
         connection=connection, 
         target_metadata=target_metadata,

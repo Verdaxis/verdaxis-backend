@@ -25,6 +25,7 @@ MANIFEST
 # Environment variables
 .env
 .env.analytics
+.runtime-release.env
 .venv
 venv/
 ENV/

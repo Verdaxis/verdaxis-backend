@@ -4,12 +4,12 @@
 
 The live VPS deployment is systemd-based, not Docker-based:
 
-- Production backend: `/home/verdaxis-prod/verdaxis/prod/be`, branch `prod`, service `verdaxis-backend.service`, health `https://api.verdaxis.exchange/health`
-- Staging backend: `/home/verdaxis-prod/verdaxis/staging/be`, branch `staging`, service `verdaxis-backend-staging.service`, health `https://api-staging.verdaxis.exchange/health`
+- Production backend: `/home/verdaxis-prod/verdaxis/prod/be`, branch `prod`, service `verdaxis-backend.service`, readiness `https://api.verdaxis.exchange/health/ready`
+- Staging backend: `/home/verdaxis-prod/verdaxis/staging/be`, branch `staging`, service `verdaxis-backend-staging.service`, readiness `https://api-staging.verdaxis.exchange/health/ready`
 - Production Uvicorn binds `127.0.0.1:8000`; staging binds `127.0.0.1:8001`. Caddy/reverse-proxy health URLs are the public surfaces.
 - Deploy helper: `./scripts/deploy.sh`
 
-The deploy helper prints branch, SHA, service, and health target, refuses dirty worktrees by default, runs Alembic, restarts the correct systemd service, and checks live health. Use `./scripts/deploy.sh --dry-run` before real deploys. Use `ALLOW_DIRTY=1` only for an intentional hotfix deploy from a known dirty tree.
+The deploy helper prints branch, SHA, service, and health target, refuses dirty worktrees by default, runs Alembic, atomically writes the checked-out full SHA to the gitignored `.runtime-release.env`, restarts the correct systemd service, and checks readiness. The app consumes this artifact from systemd and never invokes Git. Use `./scripts/deploy.sh --dry-run` before real deploys. Use `ALLOW_DIRTY=1` only for an intentional hotfix deploy from a known dirty tree.
 
 Read ARCHITECTURE.md before exploring the codebase.
 
@@ -30,12 +30,15 @@ source ./venv/bin/activate
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
 # Run all unit tests (no DB required, uses sqlite in-memory)
-DATABASE_URL="sqlite+aiosqlite:///:memory:" pytest tests/unit/ -v
+ENVIRONMENT=test RELEASE_SHA=test \
+  JWT_SECRET=test-secret-key-for-testing-minimum-32-chars \
+  DATABASE_URL="sqlite+aiosqlite:///:memory:" pytest tests/unit/ -v
 
 # Run integration tests against an explicitly selected disposable/local API
 TEST_API_URL=http://127.0.0.1:18765 \
   ALLOW_TEST_MUTATIONS=I_UNDERSTAND_TEST_MUTATIONS \
   TEST_RUNTIME_ENV=disposable \
+  TEST_DISPOSABLE_DB_NAME=verdaxis_runtime_test \
   pytest tests/integration/ -v
 
 # Approved staging mutation suites require both explicit guards
@@ -50,8 +53,10 @@ alembic upgrade head
 # Create a new migration
 alembic revision --autogenerate -m "description_here"
 
-# Seed the database
-python scripts/seed.py
+# Seed an explicitly attested staging/disposable database only; see README
+SEED_DATABASE_URL=... SEED_TARGET_DATABASE=verdaxis_staging \
+  SEED_RUNTIME_ENV=staging ALLOW_SEED_MUTATIONS=I_UNDERSTAND_SEED_MUTATIONS \
+  python scripts/seed.py
 
 # Full deploy script (on server, from prod/be or staging/be)
 ./scripts/deploy.sh --dry-run
@@ -120,7 +125,9 @@ cd /home/verdaxis-prod/verdaxis/staging/be   # or /home/verdaxis-prod/verdaxis/p
 - `GET /api/orderbook/with-ci` -- Orders enriched with CI-adjusted pricing
 - `GET /api/listings` -- Backward-compatible ASK listing view
 - `GET /` -- Health message
-- `GET /health` -- Status check
+- `GET /health/ready` -- Bounded database readiness; use for off-host monitoring
+- `GET /health/live` -- Process-only liveness
+- `GET /health` -- Backward-compatible readiness alias
 
 ### Auth (`/api/auth`)
 - `POST /api/auth/login` -- OAuth2 password form (email in `username` field) -> JWT
@@ -237,6 +244,8 @@ cd /home/verdaxis-prod/verdaxis/staging/be   # or /home/verdaxis-prod/verdaxis/p
 Key variables in `.env` (loaded by `pydantic-settings`):
 
 ```
+ENVIRONMENT=production          # development/test/staging/production
+RELEASE_SHA=...                 # Full 40-hex SHA required in staging/production
 DATABASE_HOST=verdaxis-db       # "localhost" for non-Docker
 DATABASE_PORT=5432
 DATABASE_NAME=verdaxis
@@ -251,7 +260,7 @@ ADMIN_PASSWORD=...
 ENABLE_AUTH_BYPASS=false        # Never true in production
 DB_POOL_SIZE=2                  # Per-worker SQLAlchemy pool
 DB_MAX_OVERFLOW=1               # Per-worker overflow; see docs/runtime-hardening.md
-DB_POOL_WORKERS=4               # Must match the Uvicorn worker count
+UVICORN_WORKERS=4               # Authoritative systemd/config/pool worker count
 DB_SERVICE_COUNT=2              # Shared prod + staging budget
 DB_MAX_CONNECTIONS=100
 DB_RESERVED_CONNECTIONS=20
@@ -263,6 +272,8 @@ MIGRATOR_LOCK_TIMEOUT_MS=30000
 MIGRATOR_IDLE_IN_TRANSACTION_SESSION_TIMEOUT_MS=300000
 KYC_MAX_FILE_BYTES=10485760   # 10 MiB per document
 KYC_MAX_TOTAL_BYTES=20971520  # 20 MiB per KYC request
+HEALTH_READINESS_TIMEOUT_SECONDS=2
+BACKEND_CORS_ORIGINS=          # Omit for exact environment-specific allowlist
 ```
 
 ## Git Workflow
@@ -294,9 +305,6 @@ Before exploring the tree, read:
 2. `.codesight/wiki/overview.md` — architecture and high-impact files
 3. Load topic articles on demand: `.codesight/wiki/<topic>.md` (auth, database, payments, users, ui, etc.)
 4. `.codesight/CODESIGHT.md` — full route/schema/lib map (fallback if wiki missing)
-2. `.codesight/libs.md` if present
-3. `.codesight/routes.md` if the task touches routes or handlers
-4. `.codesight/schema.md` if the task touches models or database code
 
 Only open full source files after consulting the wiki first.
 <!-- codesight-local:end -->

@@ -22,13 +22,17 @@ set -euo pipefail
 
 BACKEND_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PYTEST_BIN="${PYTEST_BIN:-$BACKEND_ROOT/venv/bin/pytest}"
-IMAGE="postgis/postgis:17-3.6-alpine"
+IMAGE="postgis/postgis:17-3.6-alpine@sha256:49b4d46c9fb8b158ddecd14d1894871a21ed4acb7ef376e2050f43f79c7b7272"
 DB_NAME="verdaxis_analytics_test"
 DB_PASSWORD="analytics-test"
+APP_ROLE="verdaxis_app_test"
+MIGRATOR_ROLE="verdaxis_migrator_test"
+BACKUP_ROLE="verdaxis_backup_test"
 
 # This harness is always a test environment. Callers may override these
 # values, but a local run must not inherit unsafe production defaults.
 export ENVIRONMENT="${ENVIRONMENT:-test}"
+export RELEASE_SHA="${RELEASE_SHA:-test}"
 export JWT_SECRET="${JWT_SECRET:-test-secret-key-that-is-at-least-32-characters-long}"
 
 PYTEST_PATHS=("$@")
@@ -46,9 +50,19 @@ validate_url() {
   fi
 }
 
+apply_role_policy() {
+  docker exec -i "$CONTAINER" psql -U postgres -d "$DB_NAME" \
+    -v database_name="$DB_NAME" \
+    -v app_role="$APP_ROLE" \
+    -v migrator_role="$MIGRATOR_ROLE" \
+    -v backup_role="$BACKUP_ROLE" \
+    < "$BACKEND_ROOT/deploy/postgres/bootstrap_roles.sql"
+}
+
 if [ -n "${PRODUCT_ANALYTICS_TEST_DATABASE_URL:-}" ]; then
   validate_url "$PRODUCT_ANALYTICS_TEST_DATABASE_URL"
   echo "Using externally supplied PRODUCT_ANALYTICS_TEST_DATABASE_URL"
+  export DATABASE_URL="${DATABASE_URL:-$PRODUCT_ANALYTICS_TEST_DATABASE_URL}"
 else
   command -v docker >/dev/null || { echo "docker is required" >&2; exit 2; }
   CONTAINER="verdaxis-analytics-test-$$-$(date +%s)"
@@ -86,17 +100,31 @@ else
     exit 1
   fi
 
-  POSTGRES_VERSION="$(docker exec "$CONTAINER" postgres --version)"
-  POSTGIS_VERSION="$(docker exec "$CONTAINER" psql -U postgres -d "$DB_NAME" -Atqc "CREATE EXTENSION IF NOT EXISTS postgis; SELECT PostGIS_Full_Version();")"
-  if [[ "$POSTGRES_VERSION" != *"PostgreSQL 17."* || "$POSTGIS_VERSION" != *'POSTGIS="3.6.'* ]]; then
-    echo "expected PostgreSQL 17/PostGIS 3.6, got: $POSTGRES_VERSION / $POSTGIS_VERSION" >&2
+  VERSION_ROW="$(docker exec "$CONTAINER" psql -U postgres -d "$DB_NAME" -qAtF '|' -c "CREATE EXTENSION IF NOT EXISTS postgis; SELECT current_setting('server_version_num'), PostGIS_Lib_Version();")"
+  IFS='|' read -r POSTGRES_VERSION_NUM POSTGIS_VERSION <<<"$VERSION_ROW"
+  if [[ "$POSTGRES_VERSION_NUM" -lt 170000 || "$POSTGRES_VERSION_NUM" -ge 180000 || "$POSTGIS_VERSION" != 3.6.* ]]; then
+    echo "expected PostgreSQL 17/PostGIS 3.6; version attestation failed" >&2
     exit 1
   fi
 
-  export PRODUCT_ANALYTICS_TEST_DATABASE_URL="postgresql+asyncpg://postgres:${DB_PASSWORD}@127.0.0.1:${PORT}/${DB_NAME}"
+  apply_role_policy
+  docker exec "$CONTAINER" psql -U postgres -d "$DB_NAME" -v ON_ERROR_STOP=1 \
+    -c "ALTER ROLE $APP_ROLE PASSWORD '$DB_PASSWORD'; ALTER ROLE $MIGRATOR_ROLE PASSWORD '$DB_PASSWORD'; ALTER ROLE $BACKUP_ROLE PASSWORD '$DB_PASSWORD';" >/dev/null
+
+  export PRODUCT_ANALYTICS_TEST_DATABASE_URL="postgresql+asyncpg://${MIGRATOR_ROLE}:${DB_PASSWORD}@127.0.0.1:${PORT}/${DB_NAME}"
+  export MIGRATOR_DATABASE_URL="postgresql+asyncpg://${MIGRATOR_ROLE}:${DB_PASSWORD}@127.0.0.1:${PORT}/${DB_NAME}"
+  export DATABASE_URL="postgresql+asyncpg://${APP_ROLE}:${DB_PASSWORD}@127.0.0.1:${PORT}/${DB_NAME}"
 fi
 
 cd "$BACKEND_ROOT"
-DATABASE_URL="${PRODUCT_ANALYTICS_TEST_DATABASE_URL}" \
-  ./scripts/verify_migrations.sh
+./scripts/verify_migrations.sh
+if [[ -n "${CONTAINER:-}" ]]; then
+  apply_role_policy
+  docker exec -i "$CONTAINER" psql -U postgres -d "$DB_NAME" \
+    -v database_name="$DB_NAME" \
+    -v app_role="$APP_ROLE" \
+    -v migrator_role="$MIGRATOR_ROLE" \
+    -v backup_role="$BACKUP_ROLE" \
+    < "$BACKEND_ROOT/deploy/postgres/validate_roles.sql"
+fi
 PYTHONDONTWRITEBYTECODE=1 "$PYTEST_BIN" -p no:cacheprovider "${PYTEST_PATHS[@]}" -q

@@ -22,15 +22,10 @@ import uuid
 import random
 import json
 from datetime import datetime, timedelta, date
+from app.seeds.safety import canonical_seed_window, seed_connection
 
 # Database connection
-conn = psycopg2.connect(
-    host="localhost",
-    port=5432,
-    dbname="verdaxis",
-    user="postgres",
-    password="Tealtent477",
-)
+conn = seed_connection()
 conn.autocommit = False
 cur = conn.cursor()
 
@@ -67,7 +62,8 @@ SUPPLIER_ORGS = ["green_marine", "sell_corp", "marinachain"]
 BUYER_ORGS = ["buy_corp", "marinachain", "green_marine"]
 
 AVAILABILITY_WINDOWS = [
-    "Spot", "Q2 2026", "Q3 2026", "Q4 2026", "Forward 2027",
+    canonical_seed_window(value)
+    for value in ("SPOT", "2026-Q2", "2026-Q3", "2026-Q4", "2027-CAL")
 ]
 
 CERTIFICATIONS_POOL = [
@@ -192,14 +188,14 @@ def build_order(side, product_key, dp_key, mid, spread_pct, min_lot, max_lot):
 
     dw_start = None
     dw_end = None
-    if window != "Spot":
-        if "Q2 2026" in window:
+    if window != "SPOT":
+        if window == "2026-Q2":
             dw_start, dw_end = date(2026, 4, 1), date(2026, 6, 30)
-        elif "Q3 2026" in window:
+        elif window == "2026-Q3":
             dw_start, dw_end = date(2026, 7, 1), date(2026, 9, 30)
-        elif "Q4 2026" in window:
+        elif window == "2026-Q4":
             dw_start, dw_end = date(2026, 10, 1), date(2026, 12, 31)
-        elif "Forward 2027" in window:
+        elif window == "2027-CAL":
             dw_start, dw_end = date(2027, 1, 1), date(2027, 12, 31)
 
     expires_at = None

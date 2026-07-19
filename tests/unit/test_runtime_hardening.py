@@ -1,16 +1,26 @@
 """Focused tests for runtime configuration and integration safety."""
 
+import os
+import importlib.util
 from pathlib import Path
+import subprocess
+import sys
+from types import SimpleNamespace
 
 import pytest
 from pydantic import ValidationError
 from alembic.autogenerate import compare_metadata
 from alembic.migration import MigrationContext
-from sqlalchemy import Column, ForeignKey, Integer, MetaData, String, Table, create_engine, text
+from sqlalchemy import Boolean, Column, ForeignKey, Integer, MetaData, String, Table, UniqueConstraint, create_engine, text
 from app.migration_drift import compare_server_default, compare_type, include_object
 
 from app.config import Settings
-from app.database import engine_options, migrator_connect_args
+from app.database import (
+    assert_migrator_connection_is_safe,
+    assert_database_runtime_is_safe,
+    engine_options,
+    migrator_connect_args,
+)
 from tests.runtime_config import (
     RuntimeTestConfigurationError,
     resolve_test_api_url,
@@ -27,6 +37,7 @@ def _settings(**overrides):
         "DATABASE_URL": "sqlite+aiosqlite:///:memory:",
         "JWT_SECRET": "test-secret-key-that-is-at-least-32-characters-long",
         "ENVIRONMENT": "test",
+        "RELEASE_SHA": "test",
     }
     values.update(overrides)
     return Settings(**values)
@@ -37,12 +48,12 @@ def test_pool_defaults_leave_headroom_for_four_workers_on_postgres_max_100():
 
     assert settings.DB_POOL_SIZE == 2
     assert settings.DB_MAX_OVERFLOW == 1
-    assert settings.DB_POOL_WORKERS == 4
+    assert settings.UVICORN_WORKERS == 4
     assert settings.DB_SERVICE_COUNT == 2
     assert settings.DB_MAX_CONNECTIONS == 100
     assert settings.DB_RESERVED_CONNECTIONS == 20
-    assert settings.DB_SERVICE_COUNT * settings.DB_POOL_WORKERS * (settings.DB_POOL_SIZE + settings.DB_MAX_OVERFLOW) + settings.DB_RESERVED_CONNECTIONS == 44
-    assert settings.DB_SERVICE_COUNT * settings.DB_POOL_WORKERS * (settings.DB_POOL_SIZE + settings.DB_MAX_OVERFLOW) <= (
+    assert settings.DB_SERVICE_COUNT * settings.UVICORN_WORKERS * (settings.DB_POOL_SIZE + settings.DB_MAX_OVERFLOW) + settings.DB_RESERVED_CONNECTIONS == 44
+    assert settings.DB_SERVICE_COUNT * settings.UVICORN_WORKERS * (settings.DB_POOL_SIZE + settings.DB_MAX_OVERFLOW) <= (
         settings.DB_MAX_CONNECTIONS - settings.DB_RESERVED_CONNECTIONS
     )
 
@@ -54,10 +65,11 @@ def test_pool_defaults_leave_headroom_for_four_workers_on_postgres_max_100():
 def test_deployed_units_use_the_validated_connection_budget(unit_name):
     root = Path(__file__).parents[2]
     service = (root / "deploy/systemd" / unit_name).read_text()
-    worker_count = int(service.split("--workers ", 1)[1].split()[0])
-    settings = _settings(DB_POOL_WORKERS=worker_count)
+    worker_count = int(service.split("Environment=UVICORN_WORKERS=", 1)[1].splitlines()[0])
+    settings = _settings(UVICORN_WORKERS=worker_count)
 
     assert worker_count == 4
+    assert "--workers ${UVICORN_WORKERS}" in service
     assert settings.DB_SERVICE_COUNT * worker_count * (settings.DB_POOL_SIZE + settings.DB_MAX_OVERFLOW) + settings.DB_RESERVED_CONNECTIONS <= settings.DB_MAX_CONNECTIONS
 
 
@@ -66,9 +78,9 @@ def test_deployed_units_use_the_validated_connection_budget(unit_name):
     [
         {"DB_POOL_SIZE": 0},
         {"DB_MAX_OVERFLOW": -1},
-        {"DB_POOL_WORKERS": 0},
+        {"UVICORN_WORKERS": 0},
         {"DB_MAX_CONNECTIONS": 10, "DB_RESERVED_CONNECTIONS": 10},
-        {"DB_POOL_WORKERS": 20, "DB_POOL_SIZE": 5, "DB_MAX_OVERFLOW": 2},
+        {"UVICORN_WORKERS": 20, "DB_POOL_SIZE": 5, "DB_MAX_OVERFLOW": 2},
         {"DB_STATEMENT_TIMEOUT_MS": 60_000, "MIGRATOR_STATEMENT_TIMEOUT_MS": 30_000},
     ],
 )
@@ -119,6 +131,186 @@ def test_postgres_engine_options_use_validated_per_worker_pool_settings():
     }
 
 
+def test_production_validates_the_effective_database_url_username(monkeypatch):
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    with pytest.raises(ValidationError, match="effective DATABASE_URL username"):
+        Settings(
+            ENVIRONMENT="production",
+            RELEASE_SHA="a" * 40,
+            DATABASE_USER="verdaxis_app",
+            DATABASE_PASSWORD="not-a-default",
+            DATABASE_URL="postgresql+asyncpg://postgres:not-a-default@localhost/verdaxis",
+            JWT_SECRET="x" * 32,
+        )
+    with pytest.raises(ValidationError, match="effective MIGRATOR_DATABASE_URL username"):
+        Settings(
+            ENVIRONMENT="production",
+            RELEASE_SHA="a" * 40,
+            DATABASE_USER="verdaxis_app",
+            DATABASE_PASSWORD="not-a-default",
+            DATABASE_URL="postgresql+asyncpg://verdaxis_app:not-a-default@localhost/verdaxis",
+            MIGRATOR_DATABASE_URL="postgresql+asyncpg://postgres:not-a-default@localhost/verdaxis",
+            JWT_SECRET="x" * 32,
+        )
+
+
+def test_database_startup_identity_and_observed_capacity_are_attested():
+    settings = _settings(
+        DATABASE_URL="postgresql+asyncpg://verdaxis_app:x@localhost/verdaxis_test"
+    )
+    assert_database_runtime_is_safe(
+        settings,
+        connected_user="verdaxis_app",
+        connected_role_is_superuser=False,
+        observed_max_connections=100,
+    )
+    with pytest.raises(RuntimeError, match="does not match"):
+        assert_database_runtime_is_safe(
+            settings,
+            connected_user="unexpected_role",
+            connected_role_is_superuser=False,
+            observed_max_connections=100,
+        )
+
+    database_source = (Path(__file__).parents[2] / "app/database.py").read_text()
+    assert 'text("SHOW max_connections")' in database_source
+
+
+def test_migrator_connected_role_is_attested():
+    settings = _settings(
+        DATABASE_URL="postgresql+asyncpg://verdaxis_app:x@localhost/verdaxis_test",
+        MIGRATOR_DATABASE_URL="postgresql+asyncpg://verdaxis_migrator:x@localhost/verdaxis_test",
+    )
+    assert_migrator_connection_is_safe(
+        settings,
+        connected_user="verdaxis_migrator",
+        connected_role_is_superuser=False,
+    )
+    with pytest.raises(RuntimeError, match="migrator current_user does not match"):
+        assert_migrator_connection_is_safe(
+            settings,
+            connected_user="verdaxis_app",
+            connected_role_is_superuser=False,
+        )
+    with pytest.raises(RuntimeError, match="superuser"):
+        assert_migrator_connection_is_safe(
+            settings,
+            connected_user="verdaxis_migrator",
+            connected_role_is_superuser=True,
+        )
+    with pytest.raises(RuntimeError, match="superuser"):
+        assert_database_runtime_is_safe(
+            settings,
+            connected_user="verdaxis_app",
+            connected_role_is_superuser=True,
+            observed_max_connections=100,
+        )
+    with pytest.raises(RuntimeError, match="max_connections"):
+        assert_database_runtime_is_safe(
+            settings,
+            connected_user="verdaxis_app",
+            connected_role_is_superuser=False,
+            observed_max_connections=40,
+        )
+
+
+def test_app_config_imports_without_ambient_configuration():
+    result = subprocess.run(
+        [sys.executable, "-c", "import app.config, app.database"],
+        cwd=Path(__file__).parents[2],
+        env={"PATH": os.environ["PATH"], "PYTHONPATH": "."},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize("environment", ["staging", "production"])
+def test_deployed_environments_require_full_release_sha(environment):
+    values = {
+        "ENVIRONMENT": environment,
+        "DATABASE_PASSWORD": "not-a-default",
+        "DATABASE_URL": "postgresql+asyncpg://verdaxis_app:not-a-default@localhost/verdaxis",
+        "JWT_SECRET": "x" * 32,
+    }
+    with pytest.raises(ValidationError, match="RELEASE_SHA"):
+        Settings(**values)
+    settings = Settings(**values, RELEASE_SHA="a" * 40)
+    assert settings.RELEASE_SHA == "a" * 40
+
+
+@pytest.mark.parametrize("environment, placeholder", [("development", "development"), ("test", "test")])
+def test_non_deployed_environments_allow_only_their_explicit_placeholder(
+    environment, placeholder
+):
+    assert Settings(ENVIRONMENT=environment, RELEASE_SHA=placeholder).RELEASE_SHA == placeholder
+    with pytest.raises(ValidationError, match="RELEASE_SHA"):
+        Settings(ENVIRONMENT=environment, RELEASE_SHA="unknown")
+
+
+@pytest.mark.parametrize(
+    "environment, expected",
+    [
+        ("production", {"https://verdaxis.exchange", "https://app.verdaxis.exchange"}),
+        ("staging", {"https://staging.verdaxis.exchange"}),
+        (
+            "development",
+            {
+                "http://localhost:5173",
+                "http://localhost:5174",
+                "http://127.0.0.1:5173",
+                "http://127.0.0.1:5174",
+            },
+        ),
+    ],
+)
+def test_cors_defaults_are_environment_specific(monkeypatch, environment, expected):
+    monkeypatch.setenv("ENVIRONMENT", environment)
+    values = {"ENVIRONMENT": environment, "RELEASE_SHA": "a" * 40 if environment in {"production", "staging"} else environment}
+    if environment == "production":
+        values.update(
+            DATABASE_PASSWORD="not-a-default",
+            DATABASE_URL="postgresql+asyncpg://verdaxis_app:not-a-default@localhost/verdaxis",
+            JWT_SECRET="x" * 32,
+        )
+    settings = Settings(**values)
+    assert set(settings.BACKEND_CORS_ORIGINS) == expected
+
+
+@pytest.mark.parametrize(
+    "environment, origin",
+    [
+        ("production", "https://staging.verdaxis.exchange"),
+        ("production", "http://localhost:5173"),
+        ("staging", "https://app.verdaxis.exchange"),
+        ("staging", "http://127.0.0.1:5173"),
+        ("development", "https://app.verdaxis.exchange"),
+        ("development", "*"),
+        ("development", "https://*.verdaxis.exchange"),
+        ("development", "http://user:pass@localhost:5173"),
+        ("development", "http://localhost:5173/path"),
+    ],
+)
+def test_credentialed_cors_rejects_cross_environment_or_non_origin_values(
+    monkeypatch, environment, origin
+):
+    monkeypatch.setenv("ENVIRONMENT", environment)
+    values = {
+        "ENVIRONMENT": environment,
+        "RELEASE_SHA": "a" * 40 if environment in {"production", "staging"} else environment,
+        "BACKEND_CORS_ORIGINS": [origin],
+    }
+    if environment == "production":
+        values.update(
+            DATABASE_PASSWORD="not-a-default",
+            DATABASE_URL="postgresql+asyncpg://verdaxis_app:not-a-default@localhost/verdaxis",
+            JWT_SECRET="x" * 32,
+        )
+    with pytest.raises(ValidationError, match="CORS"):
+        Settings(**values)
+
+
 def test_migrator_policy_is_longer_lived_but_bounded():
     settings = _settings()
 
@@ -140,6 +332,7 @@ def test_alembic_uses_separate_migrator_url_and_policy():
 
     assert "MIGRATOR_DATABASE_URL or settings.DATABASE_URL" in source
     assert "connect_args=migrator_connect_args(settings)" in source
+    assert "verify_migrator_connection(connection, settings)" in source
 
 
 def test_integration_url_requires_explicit_environment_value():
@@ -212,6 +405,10 @@ def test_mutating_target_accepts_only_known_staging_or_disposable_targets():
         require_mutation_opt_in=True,
     ) == "https://api-staging.verdaxis.exchange"
     assert resolve_test_api_url(
+        {**common, "TEST_API_URL": "http://127.0.0.1:8001", RUNTIME_ENV_ATTESTATION: "staging"},
+        require_mutation_opt_in=True,
+    ) == "http://127.0.0.1:8001"
+    assert resolve_test_api_url(
         {**common, "TEST_API_URL": "http://127.0.0.1:18765", RUNTIME_ENV_ATTESTATION: "disposable", DISPOSABLE_DB_NAME: "verdaxis_runtime_test"},
         require_mutation_opt_in=True,
     ) == "http://127.0.0.1:18765"
@@ -243,6 +440,7 @@ def test_systemd_templates_are_loopback_bound_and_sandboxed():
         assert "Requires=postgresql.service" in contents
         assert "docker.service" not in contents
         assert "ExecStartPre=" in contents
+        assert ".runtime-release.env" in contents
         assert "current --check-heads" in contents
         assert "KillSignal=SIGTERM" in contents
         assert "TimeoutStopSec=30" in contents
@@ -254,8 +452,16 @@ def test_systemd_templates_are_loopback_bound_and_sandboxed():
         assert "MemoryMax=1G" in contents
         assert "RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6" in contents
 
-        worker_count = contents.split("--workers ", 1)[1].split()[0]
+        worker_count = contents.split("Environment=UVICORN_WORKERS=", 1)[1].splitlines()[0]
         assert int(worker_count) == 4
+
+
+def test_deploy_script_hands_release_sha_to_systemd_atomically():
+    script = (Path(__file__).parents[2] / "scripts/deploy.sh").read_text()
+    assert "RELEASE_SHA=" in script
+    assert ".runtime-release.env" in script
+    assert "mv --" in script
+    assert script.index("mv --") < script.index("systemctl restart")
 
 
 def test_migration_verification_is_upgrade_then_drift_check():
@@ -266,6 +472,14 @@ def test_migration_verification_is_upgrade_then_drift_check():
     assert " check" in script
     assert "DATABASE_URL" in script
     assert "expected exactly one standalone Alembic head" in script
+
+
+def test_alembic_closes_identity_attestation_transaction_before_migrations():
+    source = (Path(__file__).parents[2] / "alembic/env.py").read_text()
+    verification = source.index("verify_migrator_connection(connection, settings)")
+    attestation_commit = source.index("connection.commit()", verification)
+    configure = source.index("context.configure(", verification)
+    assert verification < attestation_commit < configure
 
 
 def test_migration_drift_check_does_not_suppress_columns_fks_types_defaults_or_comments():
@@ -281,6 +495,62 @@ def test_migration_drift_check_does_not_suppress_columns_fks_types_defaults_or_c
     assert "spatial_ref_sys" in drift_source
     assert "LEGACY_TABLES" in drift_source
     assert "reflected" in drift_source
+
+
+def test_postgis_and_external_object_exclusions_require_exact_schema_table_and_shape():
+    public_metadata = MetaData(schema="public")
+    public_state = Table("state", public_metadata, Column("id", Integer))
+    assert include_object(public_state, "state", "table", True, None)
+
+    implicit_topology = Table(
+        "topology",
+        MetaData(),
+        Column("id", Integer),
+        Column("name", String),
+        Column("srid", Integer),
+        Column("precision", Integer),
+        Column("hasz", Boolean),
+        Column("useslargeids", Boolean),
+    )
+    assert not include_object(implicit_topology, "topology", "table", True, None)
+    unrelated_topology = Table(
+        "topology", MetaData(), Column("id", Integer), Column("owner_id", Integer)
+    )
+    assert include_object(unrelated_topology, "topology", "table", True, None)
+
+    tiger_metadata = MetaData(schema="tiger")
+    tiger_state = Table("state", tiger_metadata, Column("gid", Integer))
+    assert not include_object(tiger_state, "state", "table", True, None)
+
+    news = Table(
+        "news_items",
+        public_metadata,
+        Column("reference_number", String(20)),
+        UniqueConstraint("reference_number", name="reference_number_key"),
+        extend_existing=True,
+    )
+    news_constraint = next(
+        constraint for constraint in news.constraints
+        if constraint.name == "reference_number_key"
+    )
+    assert include_object(
+        news_constraint, "reference_number_key", "unique_constraint", True, None
+    )
+
+    rfqs = Table(
+        "rfqs",
+        public_metadata,
+        Column("reference_number", String(20)),
+        UniqueConstraint("reference_number", name="reference_number_key"),
+        extend_existing=True,
+    )
+    rfq_constraint = next(
+        constraint for constraint in rfqs.constraints
+        if constraint.name == "reference_number_key"
+    )
+    assert not include_object(
+        rfq_constraint, "reference_number_key", "unique_constraint", True, None
+    )
 
 
 def test_migration_type_comparator_only_normalizes_non_native_enum_storage():
@@ -333,6 +603,21 @@ def test_migration_default_comparator_only_normalizes_python_owned_defaults():
     assert compare_server_default(None, None, explicit_default, "2", text("1"), "1") is None
 
 
+def test_changed_python_default_is_not_hidden_by_a_historical_server_default():
+    metadata = MetaData(schema="public")
+    unchanged = Table(
+        "news_items", metadata, Column("category", String, default="markets")
+    ).c.category
+    changed = Table(
+        "news_items_changed", MetaData(schema="public"),
+        Column("category", String, default="shipping"),
+    ).c.category
+    changed.table.name = "news_items"
+
+    assert compare_server_default(None, None, unchanged, "'markets'", None, None) is False
+    assert compare_server_default(None, None, changed, "'markets'", None, None) is None
+
+
 def test_runtime_migration_retains_delivery_windows_and_required_defaults():
     root = Path(__file__).parents[2]
     migration = (root / "alembic/versions/rh_20260720_runtime_metadata.py").read_text()
@@ -343,6 +628,64 @@ def test_runtime_migration_retains_delivery_windows_and_required_defaults():
     assert 'server_default=sa.text("false")' in migration
     assert 'server_default=sa.text("\'OPEN\'")' in migration or 'server_default="OPEN"' in migration
     assert 'server_default=sa.text("now()")' in migration
+    assert "cannot narrow inventory_items.fuel_type" in migration
+    assert "length(fuel_type) > 8" in migration
+
+
+def test_runtime_downgrade_refuses_biomethane_with_actionable_error(monkeypatch):
+    path = Path(__file__).parents[2] / "alembic/versions/rh_20260720_runtime_metadata.py"
+    spec = importlib.util.spec_from_file_location("runtime_metadata_migration", path)
+    migration = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(migration)
+
+    bind = SimpleNamespace(scalar=lambda statement: "Biomethane")
+    monkeypatch.setattr(migration.op, "get_bind", lambda: bind)
+    with pytest.raises(RuntimeError, match="Biomethane requires the widened schema"):
+        migration._assert_inventory_fuel_type_fits_legacy_width()
+
+
+def test_runtime_migration_and_model_remove_only_the_proven_redundant_indexes():
+    root = Path(__file__).parents[2]
+    migration = (root / "alembic/versions/rh_20260720_runtime_metadata.py").read_text()
+    model = (root / "app/models/orderbook.py").read_text()
+    redundant = {
+        "ix_orderbook_orders_side",
+        "ix_orderbook_orders_status",
+        "ix_orderbook_orders_org",
+    }
+    for name in redundant:
+        assert f'op.drop_index("{name}", table_name="orderbook_orders")' in migration
+        assert f'Index("{name}"' not in model
+    assert "ix_orderbook_orders_active_slice_lookup" in model
+
+
+def test_postgres_helper_is_digest_pinned_and_checks_numeric_versions():
+    script = (Path(__file__).parents[2] / "scripts/run_product_analytics_postgres_tests.sh").read_text()
+    assert "postgis/postgis:17-3.6-alpine@sha256:" in script
+    assert "server_version_num" in script
+    assert "PostGIS_Lib_Version()" in script
+    assert 'POSTGRES_VERSION_NUM" -lt 170000' in script
+    assert 'POSTGRES_VERSION_NUM" -ge 180000' in script
+
+
+def test_least_privilege_role_artifacts_cover_existing_and_future_objects():
+    root = Path(__file__).parents[2]
+    bootstrap = (root / "deploy/postgres/bootstrap_roles.sql").read_text()
+    validation = (root / "deploy/postgres/validate_roles.sql").read_text()
+
+    for role in ("app_role", "migrator_role", "backup_role"):
+        assert role in bootstrap
+        assert role in validation
+    assert "NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION" in bootstrap
+    assert "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES" in bootstrap
+    assert "GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES" in bootstrap
+    assert "ALTER DEFAULT PRIVILEGES FOR ROLE" in bootstrap
+    assert "statement_timeout" in bootstrap
+    assert "idle_in_transaction_session_timeout" in bootstrap
+    assert "has_table_privilege" in validation
+    assert "has_sequence_privilege" in validation
+    assert "acldefault" in validation
 
 
 def test_migration_comparison_detects_an_omitted_foreign_key():

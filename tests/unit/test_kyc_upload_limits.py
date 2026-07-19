@@ -104,16 +104,29 @@ async def test_multipart_upload_without_content_length_still_enforces_streaming_
         boundary,
     )
 
+    seen_headers = {}
+
+    async def chunked_body():
+        for offset in range(0, len(body), 7):
+            yield body[offset : offset + 7]
+
+    @app.middleware("http")
+    async def capture_headers(request, call_next):
+        seen_headers.update(request.headers)
+        return await call_next(request)
+
     async with AsyncClient(
         transport=ASGITransport(app=app), base_url="http://testserver"
     ) as client:
         response = await client.post(
             "/api/kyc/submit",
-            content=body,
+            content=chunked_body(),
             headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
         )
 
     assert response.status_code == 413
+    assert "content-length" not in seen_headers
+    assert seen_headers["transfer-encoding"] == "chunked"
 
 
 @pytest.mark.asyncio
@@ -128,12 +141,23 @@ async def test_multipart_upload_with_lying_content_length_uses_actual_stream_siz
         boundary,
     )
 
+    seen_headers = {}
+
+    async def chunked_body():
+        for offset in range(0, len(body), 5):
+            yield body[offset : offset + 5]
+
+    @app.middleware("http")
+    async def capture_headers(request, call_next):
+        seen_headers.update(request.headers)
+        return await call_next(request)
+
     async with AsyncClient(
         transport=ASGITransport(app=app), base_url="http://testserver"
     ) as client:
         response = await client.post(
             "/api/kyc/submit",
-            content=body,
+            content=chunked_body(),
             headers={
                 "Content-Type": f"multipart/form-data; boundary={boundary}",
                 "Content-Length": "1",
@@ -141,3 +165,4 @@ async def test_multipart_upload_with_lying_content_length_uses_actual_stream_siz
         )
 
     assert response.status_code == 413
+    assert seen_headers["content-length"] == "1"

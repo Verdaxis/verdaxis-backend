@@ -95,11 +95,17 @@ async def test_postgresql17_runtime_drift_mutations_are_not_suppressed(analytics
                         return getattr(object_, "schema", None) == "runtime_drift_probe"
                     return getattr(table, "schema", None) == "runtime_drift_probe"
 
+                def include_probe_name(name, type_, parent_names):
+                    if type_ == "schema":
+                        return name == "runtime_drift_probe"
+                    return parent_names.get("schema_name") == "runtime_drift_probe"
+
                 context = MigrationContext.configure(
                     sync_connection,
                     opts={
                         "target_metadata": metadata,
                         "include_schemas": True,
+                        "include_name": include_probe_name,
                         "include_object": include_probe,
                         "compare_type": compare_type,
                         "compare_server_default": compare_server_default,

@@ -7,7 +7,7 @@ Maritime fuel trading exchange platform backend.
 ```bash
 cd /home/verdaxis-prod/verdaxis/staging/be
 source venv/bin/activate
-uvicorn app.main:app --host 0.0.0.0 --port 8000  # local development only
+ENVIRONMENT=development uvicorn app.main:app --host 127.0.0.1 --port 8000  # local only
 ```
 
 ## Live Deployment
@@ -26,7 +26,7 @@ cd /home/verdaxis-prod/verdaxis/prod/be
 ./scripts/deploy.sh
 ```
 
-The deploy helper infers the correct branch and service from the path, refuses dirty worktrees by default, runs migrations, restarts systemd, and checks the public health endpoint.
+The deploy helper infers the correct branch and service from the path, refuses dirty worktrees by default, runs migrations, atomically hands the checked-out full commit SHA to systemd through the gitignored `.runtime-release.env`, restarts systemd, and checks `/health/ready`. The application does not invoke Git. Readiness returns the validated environment/release SHA for external artifact comparison. Off-host monitoring must use readiness; `/health/live` proves only that a process responds. The legacy `/health` path is a readiness alias.
 
 ## API Endpoints
 
@@ -115,7 +115,9 @@ privacy and event contracts.
 ## Tests
 
 ```bash
-ENVIRONMENT=test JWT_SECRET=test-secret-key-for-testing-minimum-32-chars \
+ENVIRONMENT=test RELEASE_SHA=test \
+  JWT_SECRET=test-secret-key-for-testing-minimum-32-chars \
+  DATABASE_URL=sqlite+aiosqlite:///:memory: \
   python -m pytest tests/unit/ -v
 ```
 
@@ -129,16 +131,41 @@ positive `TEST_RUNTIME_ENV` attestation. A disposable local API example is:
 TEST_API_URL=http://127.0.0.1:18765 \
   ALLOW_TEST_MUTATIONS=I_UNDERSTAND_TEST_MUTATIONS \
   TEST_RUNTIME_ENV=disposable \
+  TEST_DISPOSABLE_DB_NAME=verdaxis_runtime_test \
   python -m pytest tests/integration -v
 ```
 
 For approved staging only, use `TEST_API_URL=https://api-staging.verdaxis.exchange`
 with the same two guard variables and `TEST_RUNTIME_ENV=staging`. Production
 hosts, `144.126.151.136`, and localhost:8000 are categorically refused.
+The exact `http://127.0.0.1:8001` target is accepted only with
+`TEST_RUNTIME_ENV=staging`; disposable tests reject both live ports.
 
 Use `scripts/run_product_analytics_postgres_tests.sh` for a disposable
 PostGIS container. It binds a unique loopback port, runs migrations, checks
-Alembic drift, and removes only the container it created.
+Alembic drift, applies and validates the idempotent app/migrator/backup role
+policy, exercises the runtime upgrade/downgrade roundtrip, and removes only
+the container it created.
+
+Credentialed API CORS is fail-closed by environment: production allows only
+the canonical production landing/app origins, staging only its staging origin,
+and development/test only enumerated localhost origins. Wildcards are never
+used with credentials.
+
+## Seed safety
+
+Every executable seeder requires `SEED_DATABASE_URL`,
+`ALLOW_SEED_MUTATIONS=I_UNDERSTAND_SEED_MUTATIONS`, `SEED_RUNTIME_ENV`, and an
+exact matching `SEED_TARGET_DATABASE`. Production/system databases,
+superuser URLs, non-loopback targets, and non-canonical availability windows
+are denied. Disposable database names end in `_test`; staging is exactly
+`verdaxis_staging`. Seeders never inherit an implicit application URL.
+
+Historical repository versions contained a live database credential in seed
+scripts. Removing it from this branch does not revoke it. An operator must
+separately rotate the credential, update the secret store and deployed
+environment, verify the replacement role, then revoke the old credential.
+This repository change performs none of those external actions.
 
 ## Feature Branches
 

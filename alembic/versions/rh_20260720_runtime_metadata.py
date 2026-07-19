@@ -62,10 +62,29 @@ def _assert_no_null_commission_legacy_keys() -> None:
         )
 
 
+def _assert_inventory_fuel_type_fits_legacy_width() -> None:
+    widened_values = op.get_bind().scalar(
+        sa.text(
+            "SELECT string_agg(DISTINCT fuel_type, ', ' ORDER BY fuel_type) "
+            "FROM inventory_items WHERE length(fuel_type) > 8"
+        )
+    )
+    if widened_values:
+        raise RuntimeError(
+            "cannot narrow inventory_items.fuel_type to VARCHAR(8): "
+            f"values exceed the legacy width ({widened_values}). "
+            "Remove or remap those values before retrying downgrade; Biomethane requires the widened schema."
+        )
+
+
 def upgrade() -> None:
     # Preflight/backfill is deliberately before every NOT NULL alteration.
     _backfill_required_values()
     _assert_no_null_commission_legacy_keys()
+
+    op.drop_index("ix_orderbook_orders_side", table_name="orderbook_orders")
+    op.drop_index("ix_orderbook_orders_status", table_name="orderbook_orders")
+    op.drop_index("ix_orderbook_orders_org", table_name="orderbook_orders")
 
     op.alter_column(
         "inventory_items",
@@ -226,6 +245,7 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     # Reverse metadata only; all delivery-window data remains intact.
+    _assert_inventory_fuel_type_fits_legacy_width()
     op.alter_column(
         "match_suggestions", "created_at", existing_type=sa.DateTime(timezone=True),
         nullable=True, existing_nullable=False, server_default=sa.text("now()"),
@@ -284,6 +304,9 @@ def downgrade() -> None:
         "inventory_items", "fuel_type", existing_type=sa.String(length=16),
         type_=sa.String(length=8),
     )
+    op.create_index("ix_orderbook_orders_org", "orderbook_orders", ["organization_id"])
+    op.create_index("ix_orderbook_orders_status", "orderbook_orders", ["status"])
+    op.create_index("ix_orderbook_orders_side", "orderbook_orders", ["side"])
     for table_name, column_name, current_default in (
         ("rfqs", "status", "'OPEN'"),
         ("rfq_quotes", "status", "'PENDING'"),

@@ -14,9 +14,12 @@ User=verdaxis-prod
 Group=verdaxis-prod
 WorkingDirectory=/home/verdaxis-prod/verdaxis/staging/be
 EnvironmentFile=/home/verdaxis-prod/verdaxis/staging/be/.env
+EnvironmentFile=/home/verdaxis-prod/verdaxis/staging/be/.runtime-release.env
+Environment=UVICORN_WORKERS=4
 ExecStartPre=/usr/bin/test -r /home/verdaxis-prod/verdaxis/staging/be/.env
+ExecStartPre=/usr/bin/test -r /home/verdaxis-prod/verdaxis/staging/be/.runtime-release.env
 ExecStartPre=/home/verdaxis-prod/verdaxis/staging/be/venv/bin/alembic current --check-heads
-ExecStart=/home/verdaxis-prod/verdaxis/staging/be/venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8001 --workers 4
+ExecStart=/home/verdaxis-prod/verdaxis/staging/be/venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8001 --workers ${UVICORN_WORKERS}
 Environment=PYTHONDONTWRITEBYTECODE=1
 ExecReload=/bin/kill -HUP $MAINPID
 Restart=on-failure

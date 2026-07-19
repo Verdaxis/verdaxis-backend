@@ -11,7 +11,7 @@ from slowapi.errors import RateLimitExceeded
 from sqlalchemy.exc import DBAPIError
 
 from app.config import settings
-from app.services.db_errors import is_lock_timeout_or_deadlock, is_market_path
+from app.services.db_errors import is_contention_error, is_market_path
 from app.rate_limit import limiter
 from app.routers.auth_simple import router as auth_router
 from app.admin import setup_admin
@@ -87,6 +87,10 @@ from contextlib import asynccontextmanager
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    from app.database import verify_database_runtime
+
+    await verify_database_runtime()
+
     async def _news_refresh_loop():
         from app.database import AsyncSessionLocal
         from app.services.news_feed import refresh_news
@@ -127,12 +131,18 @@ async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
 @app.exception_handler(DBAPIError)
 async def database_contention_handler(request: Request, exc: DBAPIError):
     """Keep market contention bounded and retryable without leaking SQL."""
-    if is_market_path(request.url.path) and is_lock_timeout_or_deadlock(exc):
+    if is_market_path(request.url.path) and is_contention_error(exc):
         return JSONResponse(
             status_code=503,
             content={"detail": "Market is temporarily busy; retry shortly."},
             headers={"Retry-After": "1"},
         )
+    logger.exception(
+        "database_operation_failed",
+        method=getattr(request, "method", None),
+        path=request.url.path,
+        exc_info=exc,
+    )
     return JSONResponse(
         status_code=500,
         content={"detail": "Database operation failed."},
@@ -234,7 +244,8 @@ async def root():
 
 @app.get("/health")
 async def health_check():
-    return {"status": "ok"}
+    """Backward-compatible readiness alias; off-host checks use /health/ready."""
+    return await health_ready()
 
 @app.get("/health/live")
 async def health_live():
@@ -243,16 +254,21 @@ async def health_live():
 
 @app.get("/health/ready")
 async def health_ready():
-    """Readiness probe — checks DB connectivity."""
+    """Bounded readiness probe — checks DB connectivity without leaking errors."""
     from app.database import engine
     from sqlalchemy import text
+    provenance = {
+        "environment": settings.ENVIRONMENT,
+        "release_sha": settings.RELEASE_SHA,
+    }
     try:
-        async with engine.connect() as conn:
-            await conn.execute(text("SELECT 1"))
-        return {"status": "ok", "db": "connected"}
-    except Exception as e:
-        from fastapi.responses import JSONResponse
+        async with asyncio.timeout(settings.HEALTH_READINESS_TIMEOUT_SECONDS):
+            async with engine.connect() as conn:
+                await conn.execute(text("SELECT 1"))
+        return {"status": "ok", "db": "connected", **provenance}
+    except Exception:
+        logger.exception("health_readiness_failed")
         return JSONResponse(
             status_code=503,
-            content={"status": "error", "db": str(e)},
+            content={"status": "error", "db": "unavailable", **provenance},
         )

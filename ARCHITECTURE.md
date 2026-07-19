@@ -7,9 +7,10 @@
 
 ```
 app/
-  main.py                       # FastAPI app, CORS, structlog, request correlation IDs, rate limiter
-  config.py                     # Pydantic Settings — env vars, JWT config, OAuth, pool/upload budget validation
-  database.py                   # AsyncSession factory (asyncpg), validated per-worker pooling, SQLite guard
+  main.py                       # FastAPI app, exact credentialed CORS, sanitized readiness/provenance, error handlers
+  config.py                     # Pydantic Settings — release/CORS boundaries and pool/upload budget validation
+  database.py                   # AsyncSession factory, role/max_connections startup attestation, bounded pooling
+  seeds/safety.py               # Opt-in, environment/target-attested seeder connection gate
   models/legacy.py              # Metadata-only legacy FK table stubs excluded from Alembic drift checks
   migration_drift.py            # Explicit PostGIS/legacy exclusions and narrow Alembic comparison callbacks
   admin.py                      # SQLAdmin panel at /admin
@@ -86,9 +87,10 @@ app/
 tests/unit/                     # 155 tests (auth, matching, compliance, events, pricing, schemas)
 tests/integration/              # Auth hardening, trade lifecycle, orderbook E2E
 tests/runtime_config.py          # Explicit/validated API target policy for mutating suites
-deploy/systemd/                  # Checked-in staging/production backend units and scheduled jobs
+deploy/systemd/                  # Checked-in loopback units; consume immutable runtime release artifact
+deploy/postgres/                 # Idempotent least-privilege role bootstrap and validation SQL
 scripts/verify_migrations.sh    # Upgrade-to-head plus Alembic model/schema drift check
-  alembic/versions/               # Migrations incl. canonical availability-window rewrite + runtime metadata alignment
+alembic/versions/               # Migrations incl. canonical availability-window rewrite + runtime metadata alignment
 ```
 
 ## Key Patterns
@@ -111,6 +113,9 @@ scripts/verify_migrations.sh    # Upgrade-to-head plus Alembic model/schema drif
 - **Behavioral analytics:** Umami is an optional failure-isolated dependency. `GET /admin/analytics/product-usage?days=7|30|90` combines bounded Umami aggregates with authoritative UTC-period database counts. Server conversion events and the documented browser reporting taxonomy use separate allowlists. Registration, organization, order, and trade events are scheduled only after commits, carry bounded originating request metadata for Umami bot classification/environment attribution, and use a strict property allowlist; collector drops/failures never alter endpoint response contracts. Aggregate successes cache for at most five minutes and failures for at most 30 seconds. `totaltime / visits` is exposed only as average session duration, not active engagement. See `docs/behavioral-analytics-contract.md`.
 - **Live runtime topology:** Production systemd binds Uvicorn to `127.0.0.1:8000`; staging binds to `127.0.0.1:8001`; the public reverse proxy fronts those loopback ports. Both services require network-online and PostgreSQL, use four workers, and preflight exact Alembic heads.
 - **Runtime budgets:** Production and staging share PostgreSQL `max_connections=100`; the default aggregate is `2 services × 4 workers × (2 + 1) + 20 maintenance reserve = 44`. KYC uploads are bounded at 10 MiB per file and 20 MiB aggregate by default. Measured steady state is approximately 530–538 MiB per service; systemd starts at `MemoryHigh=768M` and `MemoryMax=1G` with headroom, not a measured-safe claim.
+- **Runtime identity and boundaries:** Deploy writes a full commit SHA atomically into `.runtime-release.env`; staging/production fail startup without it, and bounded `/health/ready` exposes only environment/SHA plus sanitized DB state. Credentialed CORS uses exact per-environment origin allowlists. `/health/live` is process-only and is never an off-host readiness signal.
+- **Database authority split:** Runtime connections attest their effective username, connected `current_user`, non-superuser status, and observed `max_connections`. Alembic separately attests the migrator. Executable SQL provisions DML-only app, DDL migrator, and read-only backup roles with existing/default table and sequence privileges plus bounded timeouts.
+- **KYC trust boundary:** Gemini document analysis is advisory only. Account activation remains a trusted-administrator approval decision after human review.
 
 ## Revenue Streams
 

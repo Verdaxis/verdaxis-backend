@@ -86,7 +86,11 @@ def resolve_test_api_url(
             raise RuntimeTestConfigurationError(
                 f"{RUNTIME_ENV_ATTESTATION} must positively attest staging or disposable"
             )
-        if _is_local_host(hostname) and target_port in _LIVE_LOOPBACK_PORTS:
+        if (
+            _is_local_host(hostname)
+            and target_port in _LIVE_LOOPBACK_PORTS
+            and not (runtime_env == "staging" and hostname == "127.0.0.1" and target_port == 8001)
+        ):
             raise RuntimeTestConfigurationError(
                 "refusing live Verdaxis loopback ports 8000 and 8001"
             )

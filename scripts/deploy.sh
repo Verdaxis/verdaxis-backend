@@ -25,13 +25,15 @@ GIT=(git -c "safe.directory=$BACKEND_DIR")
 case "$BACKEND_DIR" in
     */prod/be)
         DEFAULT_BRANCH="prod"
+        DEPLOY_ENVIRONMENT="production"
         SERVICE_NAME="verdaxis-backend.service"
-        HEALTH_URL="https://api.verdaxis.exchange/health"
+        HEALTH_URL="https://api.verdaxis.exchange/health/ready"
         ;;
     */staging/be)
         DEFAULT_BRANCH="staging"
+        DEPLOY_ENVIRONMENT="staging"
         SERVICE_NAME="verdaxis-backend-staging.service"
-        HEALTH_URL="https://api-staging.verdaxis.exchange/health"
+        HEALTH_URL="https://api-staging.verdaxis.exchange/health/ready"
         ;;
     *)
         echo "Cannot infer backend environment from path: $BACKEND_DIR" >&2
@@ -39,20 +41,35 @@ case "$BACKEND_DIR" in
         : "${TARGET_BRANCH:?TARGET_BRANCH is required outside prod/staging layout}"
         : "${SERVICE_NAME:?SERVICE_NAME is required outside prod/staging layout}"
         : "${HEALTH_URL:?HEALTH_URL is required outside prod/staging layout}"
+        : "${DEPLOY_ENVIRONMENT:?DEPLOY_ENVIRONMENT is required outside prod/staging layout}"
         DEFAULT_BRANCH="$TARGET_BRANCH"
         ;;
 esac
 
 TARGET_BRANCH="${TARGET_BRANCH:-$DEFAULT_BRANCH}"
-SERVICE_NAME="${SERVICE_NAME:-$SERVICE_NAME}"
-HEALTH_URL="${HEALTH_URL:-$HEALTH_URL}"
 ALLOW_DIRTY="${ALLOW_DIRTY:-0}"
+RELEASE_ENV_FILE="$BACKEND_DIR/.runtime-release.env"
 
 run() {
     echo "+ $*"
     if [[ "$DRY_RUN" == "0" ]]; then
         "$@"
     fi
+}
+
+write_release_artifact() {
+    local release_sha="$1"
+    local temporary_file="${RELEASE_ENV_FILE}.tmp.$$"
+
+    echo "+ write immutable release metadata to $RELEASE_ENV_FILE"
+    if [[ "$DRY_RUN" == "1" ]]; then
+        return
+    fi
+    umask 077
+    printf 'ENVIRONMENT=%s\nRELEASE_SHA=%s\n' \
+        "$DEPLOY_ENVIRONMENT" "$release_sha" > "$temporary_file"
+    chmod 0600 "$temporary_file"
+    mv -- "$temporary_file" "$RELEASE_ENV_FILE"
 }
 
 echo "=== Verdaxis Backend Deployment ==="
@@ -83,6 +100,12 @@ if [[ -f alembic.ini ]]; then
     run ./venv/bin/alembic upgrade head
 fi
 
+CURRENT_SHA="$("${GIT[@]}" rev-parse HEAD)"
+if [[ ! "$CURRENT_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+    echo "Resolved release identity is not a full commit SHA." >&2
+    exit 1
+fi
+write_release_artifact "$CURRENT_SHA"
 run sudo systemctl restart "$SERVICE_NAME"
 
 if [[ "$DRY_RUN" == "1" ]]; then

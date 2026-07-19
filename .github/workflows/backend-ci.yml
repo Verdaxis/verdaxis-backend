@@ -33,6 +33,7 @@ jobs:
       - name: Run unit tests
         env:
           ENVIRONMENT: test
+          RELEASE_SHA: test
           JWT_SECRET: "test-secret-key-that-is-at-least-32-characters-long"
         run: DATABASE_URL="sqlite+aiosqlite:///:memory:" pytest tests/unit -q
 
@@ -48,7 +49,7 @@ jobs:
 
     services:
       postgres:
-        image: postgis/postgis:17-3.6-alpine
+        image: postgis/postgis:17-3.6-alpine@sha256:49b4d46c9fb8b158ddecd14d1894871a21ed4acb7ef376e2050f43f79c7b7272
         env:
           POSTGRES_PASSWORD: analytics-test
           POSTGRES_DB: verdaxis_analytics_test
@@ -76,9 +77,35 @@ jobs:
       - name: Run PostgreSQL analytics tests
         env:
           ENVIRONMENT: test
+          RELEASE_SHA: test
           JWT_SECRET: "test-secret-key-that-is-at-least-32-characters-long"
-          DATABASE_URL: "postgresql+asyncpg://postgres:analytics-test@localhost:5432/verdaxis_analytics_test"
-          PRODUCT_ANALYTICS_TEST_DATABASE_URL: "postgresql+asyncpg://postgres:analytics-test@localhost:5432/verdaxis_analytics_test"
+          PGPASSWORD: "analytics-test"
+          DATABASE_URL: "postgresql+asyncpg://verdaxis_app_test:analytics-test@localhost:5432/verdaxis_analytics_test"
+          MIGRATOR_DATABASE_URL: "postgresql+asyncpg://verdaxis_migrator_test:analytics-test@localhost:5432/verdaxis_analytics_test"
+          PRODUCT_ANALYTICS_TEST_DATABASE_URL: "postgresql+asyncpg://verdaxis_migrator_test:analytics-test@localhost:5432/verdaxis_analytics_test"
         run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client
+          psql -h localhost -U postgres -d verdaxis_analytics_test -v ON_ERROR_STOP=1 -c "CREATE EXTENSION IF NOT EXISTS postgis"
+          psql -h localhost -U postgres -d verdaxis_analytics_test \
+            -v database_name=verdaxis_analytics_test \
+            -v app_role=verdaxis_app_test \
+            -v migrator_role=verdaxis_migrator_test \
+            -v backup_role=verdaxis_backup_test \
+            -f deploy/postgres/bootstrap_roles.sql
+          psql -h localhost -U postgres -d verdaxis_analytics_test -v ON_ERROR_STOP=1 \
+            -c "ALTER ROLE verdaxis_app_test PASSWORD 'analytics-test'; ALTER ROLE verdaxis_migrator_test PASSWORD 'analytics-test'; ALTER ROLE verdaxis_backup_test PASSWORD 'analytics-test';"
           ./scripts/verify_migrations.sh
+          psql -h localhost -U postgres -d verdaxis_analytics_test \
+            -v database_name=verdaxis_analytics_test \
+            -v app_role=verdaxis_app_test \
+            -v migrator_role=verdaxis_migrator_test \
+            -v backup_role=verdaxis_backup_test \
+            -f deploy/postgres/bootstrap_roles.sql
+          psql -h localhost -U postgres -d verdaxis_analytics_test \
+            -v database_name=verdaxis_analytics_test \
+            -v app_role=verdaxis_app_test \
+            -v migrator_role=verdaxis_migrator_test \
+            -v backup_role=verdaxis_backup_test \
+            -f deploy/postgres/validate_roles.sql
           pytest tests/postgres -q

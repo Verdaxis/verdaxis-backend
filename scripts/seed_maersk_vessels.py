@@ -11,16 +11,7 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from sqlalchemy import select, text
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
-
-# Use the remote database
-DATABASE_URL = os.environ.get(
-    "DATABASE_URL",
-    "postgresql+asyncpg://jonathanjie:@localhost:5432/verdaxis"
-)
-
-engine = create_async_engine(DATABASE_URL, echo=False)
-AsyncSessionLocal = async_sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
+from app.seeds.safety import seed_session
 
 MAERSK_VESSELS = [
     {
@@ -139,7 +130,7 @@ MAERSK_VESSELS = [
 
 
 async def seed_vessels():
-    async with AsyncSessionLocal() as session:
+    async with seed_session() as session:
         # 1. Find the buyer@buy.com user and their organization
         result = await session.execute(
             text("SELECT id, organization_id FROM users WHERE email = :email"),

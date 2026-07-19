@@ -2,7 +2,7 @@
 
 > **Navigation aid.** Schema shapes and field types extracted via AST. Read the actual schema source files before writing migrations or query logic.
 
-**sqlalchemy** — 30 models
+**sqlalchemy** — 38 models
 
 ### PriceAlert
 
@@ -27,7 +27,7 @@ pk: `id` (UUID) · fk: user_id
 - `action`: String _(index)_
 - `resource_type`: String _(index)_
 - `resource_id`: String _(nullable)_
-- `changes`: JSONB _(nullable)_
+- `changes`: unknown _(nullable)_
 - `ip_address`: String _(nullable)_
 - `request_id`: String _(nullable)_
 - `timestamp`: DateTime _(default, index)_
@@ -97,6 +97,100 @@ pk: `id` (UUID) · fk: organization_id
 - `description`: String
 - `reference_id`: String
 - `created_at`: DateTime _(default)_
+
+### MarketSignalIngestionRun
+
+pk: `id` (UUID)
+
+- `id`: UUID _(pk, default)_
+- `signal_family`: String
+- `source`: String
+- `source_kind`: String
+- `started_at`: DateTime _(default)_
+- `verified_at`: DateTime _(nullable)_
+- `created_at`: DateTime _(default)_
+
+### MarketIndication
+
+pk: `id` (UUID) · fk: delivery_point_id, trusted_ingestion_run_id
+
+- `id`: UUID _(pk, default)_
+- `market_product`: String
+- `delivery_point_id`: UUID _(fk)_
+- `availability_window`: String
+- `side`: String
+- `price_per_mt_usd`: Numeric
+- `quantity_mt`: Numeric _(nullable)_
+- `source`: String
+- `source_record_id`: String _(nullable)_
+- `source_event_id`: String _(nullable)_
+- `trusted_ingestion_run_id`: UUID _(fk, nullable)_
+- `is_demo`: Boolean _(default)_
+- `is_verified_real`: Boolean _(default)_
+- `verified_real_at`: DateTime _(nullable)_
+- `observed_at`: DateTime
+- `created_at`: DateTime _(default)_
+
+### FairPriceBand
+
+pk: `id` (UUID) · fk: delivery_point_id, trusted_ingestion_run_id
+
+- `id`: UUID _(pk, default)_
+- `market_product`: String
+- `delivery_point_id`: UUID _(fk)_
+- `availability_window`: String
+- `low_price_per_mt_usd`: Numeric
+- `mid_price_per_mt_usd`: Numeric
+- `high_price_per_mt_usd`: Numeric
+- `model_name`: String
+- `model_version`: String _(nullable)_
+- `source`: String
+- `source_event_id`: String _(nullable)_
+- `trusted_ingestion_run_id`: UUID _(fk, nullable)_
+- `is_demo`: Boolean _(default)_
+- `is_verified_real`: Boolean _(default)_
+- `verified_real_at`: DateTime _(nullable)_
+- `observed_at`: DateTime
+- `created_at`: DateTime _(default)_
+
+### PhysicalStem
+
+pk: `id` (UUID) · fk: delivery_point_id, trusted_ingestion_run_id
+
+- `id`: UUID _(pk, default)_
+- `market_product`: String
+- `delivery_point_id`: UUID _(fk)_
+- `availability_window`: String
+- `quantity_mt`: Numeric
+- `stem_start`: DateTime _(nullable)_
+- `stem_end`: DateTime _(nullable)_
+- `status`: String
+- `source`: String
+- `stem_uid`: String
+- `source_record_id`: String _(nullable)_
+- `source_event_id`: String _(nullable)_
+- `trusted_ingestion_run_id`: UUID _(fk, nullable)_
+- `is_demo`: Boolean _(default)_
+- `is_verified_real`: Boolean _(default)_
+- `verified_real_at`: DateTime _(nullable)_
+- `observed_at`: DateTime
+- `created_at`: DateTime _(default)_
+
+### LiveSliceBenchmark
+
+pk: `id` (UUID) · fk: delivery_point_id
+
+- `id`: UUID _(pk, default)_
+- `side`: Enum
+- `market_product`: String
+- `delivery_point_id`: UUID _(fk)_
+- `availability_window`: String
+- `benchmark_price_per_mt_usd`: Numeric
+- `total_remaining_quantity_mt`: Numeric
+- `order_count`: Integer _(default)_
+- `source`: String _(default)_
+- `created_at`: DateTime _(default)_
+- `updated_at`: DateTime _(default)_
 
 ### InventoryItem
 
@@ -218,6 +312,8 @@ pk: `id` (UUID) · fk: organization_id, product_id, delivery_point_id, vessel_id
 - `remaining_quantity_mt`: Numeric
 - `price_per_mt_usd`: Numeric
 - `availability_window`: String _(default)_
+- `delivery_window_start`: Date _(nullable)_
+- `delivery_window_end`: Date _(nullable)_
 - `certifications`: JSON _(default)_
 - `certification_declared`: Boolean _(default)_
 - `certification_scheme`: String _(nullable)_
@@ -347,6 +443,32 @@ pk: `id` (UUID) · fk: organization_id
 - `updated_at`: DateTime _(default)_
 - _relations_: organization: Organization
 
+### UserLoginDay
+
+pk: `id` (UUID) · fk: user_id
+
+- `id`: UUID _(pk, default)_
+- `activity_date`: Date
+- `user_id`: unknown _(fk)_
+- `organization_id`: UUID _(nullable)_
+- `role`: Enum _(nullable)_
+- `login_count`: Integer _(default)_
+- `first_login_at`: DateTime
+- `last_login_at`: DateTime
+
+### UserStatusTransition
+
+pk: `id` (UUID) · fk: user_id
+
+- `id`: UUID _(pk, default)_
+- `user_id`: unknown _(fk)_
+- `organization_id`: UUID _(nullable)_
+- `role`: Enum _(nullable)_
+- `from_status`: Enum _(nullable)_
+- `to_status`: Enum
+- `effective_at`: DateTime _(default)_
+- `provenance`: String _(default)_
+
 ### Referral
 
 pk: `id` (UUID) · fk: referrer_id, referred_user_id
@@ -433,6 +555,7 @@ pk: `id` (UUID) · fk: organization_id, referred_by_id
 - `organization_id`: unknown _(fk)_
 - `last_login`: DateTime
 - `password_changed_at`: DateTime _(nullable)_
+- `must_change_password`: Boolean _(default)_
 - `created_at`: DateTime _(default)_
 - `email_verified`: Boolean _(default)_
 - `email_verification_token`: String _(nullable)_
@@ -442,7 +565,19 @@ pk: `id` (UUID) · fk: organization_id, referred_by_id
 - `password_reset_expires`: DateTime _(nullable)_
 - `referral_code`: String _(unique, nullable)_
 - `referred_by_id`: UUID _(fk, nullable)_
+- `onboarding_use_case`: String _(nullable)_
+- `onboarding_referral_source`: String _(nullable)_
 - _relations_: organization: , referrals_made: , referral_received: 
+
+### UserPreference
+
+pk: `id` (UUID) · fk: user_id
+
+- `id`: UUID _(pk, default)_
+- `user_id`: UUID _(fk, index)_
+- `namespace`: String
+- `value`: JSON
+- `updated_at`: DateTime
 
 ### Watchlist
 

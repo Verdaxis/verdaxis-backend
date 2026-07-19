@@ -2,15 +2,19 @@
 
 ## Database connection budget
 
-Production and staging share one PostgreSQL cluster, each with four Uvicorn
-workers and the same conservative SQLAlchemy defaults:
+Production and staging share one PostgreSQL cluster. `UVICORN_WORKERS` is the
+single worker-count setting consumed by systemd and the pool validator; each
+service currently uses four workers and the same conservative SQLAlchemy defaults:
 
 ```text
 services × workers × (pool_size + max_overflow) + maintenance reserve
 2 × 4 × (2 + 1) + 20 = 44 ≤ PostgreSQL max_connections=100
 ```
 
-`Settings` validates this shared aggregate for both deployed environments. It rejects
+`Settings` validates this shared aggregate for both deployed environments. Startup
+queries `current_user`, `pg_roles.rolsuper`, and `SHOW max_connections`; an
+effective URL/connected-role mismatch, superuser connection, or aggregate over
+the observed server limit aborts startup. It rejects
 non-positive values, a reserved budget at or above the PostgreSQL limit, and a
 worker capacity that exceeds the available connection budget. The reserve is
 for migrations, administration, and other processes; it is not a promise that
@@ -38,10 +42,20 @@ peak RSS and cgroup usage before changing them.
 ports. Both units order after `network-online.target` and require/order on
 `postgresql.service`; neither depends on Docker.
 
-Each unit runs `alembic current --check-heads` before Uvicorn, uses four workers,
+Each unit runs `alembic current --check-heads` before Uvicorn and passes the
+same `UVICORN_WORKERS=4` value used by application pool math,
 sets `PYTHONDONTWRITEBYTECODE=1`, and applies a read-only systemd sandbox. No
 broad source-tree `ReadWritePaths` grant is present. The checked-in units are
 artifacts only; this change does not install or deploy them.
+
+The units also require the gitignored `.runtime-release.env` artifact. After a
+successful fast-forward and migration, `scripts/deploy.sh` resolves the full
+40-hex commit ID from the checked-out artifact, writes `ENVIRONMENT` and
+`RELEASE_SHA` to a mode-0600 temporary file, then atomically renames it before
+the service restart. The application never shells out to Git. Staging and
+production refuse startup without a full SHA; development/test may explicitly
+use their named placeholder. Existing deployments need the updated unit and a
+deploy-helper run together—do not invent a placeholder SHA to bridge rollout.
 
 ## Database roles and session timeouts
 
@@ -69,21 +83,30 @@ ALTER ROLE verdaxis_migrator SET lock_timeout = '30s';
 ALTER ROLE verdaxis_migrator SET idle_in_transaction_session_timeout = '300s';
 ```
 
-The roles must be `NOSUPERUSER NOCREATEDB NOCREATEROLE` with only the required
-database connect, schema usage, table, sequence, and migration privileges.
-The integration bootstrap should create the roles explicitly, for example:
+The idempotent executable artifacts are
+`deploy/postgres/bootstrap_roles.sql` and `deploy/postgres/validate_roles.sql`.
+They provision app, migrator, and read-only backup roles; transfer public
+table/sequence ownership to the migrator; grant existing and default table and
+sequence privileges; restrict database DDL authority to the migrator; revoke
+public defaults; and set per-database timeouts.
+Run them as the database owner with explicit psql variables, for example:
 
-```sql
-CREATE ROLE verdaxis_app LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE;
-CREATE ROLE verdaxis_migrator LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE;
-GRANT CONNECT ON DATABASE verdaxis TO verdaxis_app, verdaxis_migrator;
-GRANT USAGE ON SCHEMA public TO verdaxis_app, verdaxis_migrator;
--- Grant application table/sequence DML to verdaxis_app; grant migration DDL
--- only to verdaxis_migrator during the controlled migration window.
+```bash
+psql --dbname "$ADMIN_DATABASE_URL" \
+  -v database_name=verdaxis_test \
+  -v app_role=verdaxis_app_test \
+  -v migrator_role=verdaxis_migrator_test \
+  -v backup_role=verdaxis_backup_test \
+  -f deploy/postgres/bootstrap_roles.sql
+psql --dbname "$ADMIN_DATABASE_URL" \
+  -v database_name=verdaxis_test \
+  -v app_role=verdaxis_app_test \
+  -v migrator_role=verdaxis_migrator_test \
+  -v backup_role=verdaxis_backup_test \
+  -f deploy/postgres/validate_roles.sql
 ```
 
-Passwords and ownership grants are integration-only secrets/operations and
-are not committed here.
+Passwords are intentionally absent. Provision them through the secret manager.
 This pass deliberately does not add RLS. Market lock timeout, deadlock, and
 serialization failures return a generic bounded `503` with `Retry-After: 1`.
 
@@ -111,6 +134,37 @@ PostgreSQL 17.9/PostGIS 3.6.2; the live-version preflight is read-only). It
 creates a unique Docker container,
 uses a Docker-assigned loopback port, runs migration and drift checks, and
 removes only its own container. Redis and the compose topology remain intact.
+The helper image is digest-pinned and verifies numeric PostgreSQL 17 and
+`PostGIS_Lib_Version()` 3.6 values before migrations.
+
+## Seeder safety and credential rotation
+
+Seed entrypoints use `app.seeds.safety` and require four independent values:
+`SEED_DATABASE_URL`, `ALLOW_SEED_MUTATIONS=I_UNDERSTAND_SEED_MUTATIONS`,
+`SEED_RUNTIME_ENV=staging|disposable`, and an exact `SEED_TARGET_DATABASE`.
+Only loopback targets are accepted. Production/system databases and superuser
+roles are always denied; disposable names end in `_test`, staging is exactly
+`verdaxis_staging`, and availability-window literals must already be canonical.
+
+The removed tracked credential must be rotated as a separate operator action:
+create/verify a replacement secret and least-privilege role, update the secret
+store and deployed environment, then revoke the exposed credential. No live
+credential, database, or service is changed by this branch.
+
+## Health and credentialed CORS
+
+`/health/live` is process-only. `/health/ready` (and the legacy `/health`
+alias) performs a bounded database probe and returns a sanitized 503 on timeout
+or failure. Both success and failure JSON include only the validated
+`environment` and `release_sha`, allowing an external monitor to compare the
+immutable expected artifact. Off-host monitors and deploy checks use
+`/health/ready`; liveness is not a deployment/readiness signal.
+
+Credentialed CORS has exact environment allowlists: production permits only
+`https://verdaxis.exchange` and `https://app.verdaxis.exchange`; staging only
+`https://staging.verdaxis.exchange`; development/test only enumerated localhost
+origins. Cross-environment values, URL credentials/paths, and wildcards fail
+settings initialization.
 
 ## Migration verification
 
@@ -119,8 +173,10 @@ removes only its own container. Redis and the compose topology remain intact.
 with `alembic current --check-heads`, and runs `alembic check`.
 
 Alembic compares columns, foreign keys, indexes, types, defaults, and comments.
-`app.migration_drift` excludes only explicitly enumerated PostGIS/geocoder
-system tables and documented historical legacy tables. Its normalizations are
+`app.migration_drift` excludes only schema-qualified PostGIS/geocoder
+fingerprints and documented historical legacy tables. External columns,
+indexes, and constraints include exact schema/table/name/shape fingerprints;
+there is no name-only unique-constraint suppression. Its normalizations are
 narrow: exact Enum/String length and value fingerprints, and exact
 Python-owned default fingerprints where metadata intentionally has no SQL
 server default. Explicit SQL defaults remain comparable; no category-wide
@@ -134,11 +190,12 @@ inventory fuel width and stale orderbook availability/default/nullability/date
 columns, rather than hiding those differences. It retains
 `delivery_window_start`/`delivery_window_end` because realistic orderbook
 seeding uses them, backfills before tightening required fields, and never
-drops data in this branch. The three already-proven duplicate orderbook model
-indexes (`ix_orderbook_orders_side`, `ix_orderbook_orders_status`, and
-`ix_orderbook_orders_org`) are retained because removing them would create
-unsafe live index churn; the combined integration migration may reconcile
-them explicitly.
+drops data in this branch. The exact redundant single-column orderbook indexes
+(`ix_orderbook_orders_side`, `ix_orderbook_orders_status`, and
+`ix_orderbook_orders_org`) are removed by the migration and model; the active
+slice lookup index remains. Downgrade refuses narrowing `fuel_type` to eight
+characters while values such as `Biomethane` exist and reports the required
+cleanup, rather than failing with an opaque truncation error.
 
 ## Alembic integration order
 
@@ -163,3 +220,6 @@ The security branch owns the KYC route/body workflow. Integration must retain
 its route-level body bound while preserving this branch's bounded streaming
 regression coverage for missing and lying `Content-Length`; neither branch
 should overwrite the other's upload semantics.
+Gemini document analysis remains advisory only: it must never activate an
+account by itself. A trusted administrator approves or rejects KYC after
+review, and integration must preserve that human-approval boundary.

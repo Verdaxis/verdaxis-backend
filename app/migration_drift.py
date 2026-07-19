@@ -7,49 +7,49 @@ from typing import Any
 from sqlalchemy import Enum, String
 
 
-# The PostGIS image's tiger/geocoder catalog is installed in the public
-# database alongside spatial_ref_sys. These are extension-owned, not
-# application-owned, and are intentionally enumerated rather than ignored by
-# object type.
+# PostGIS owns spatial_ref_sys in public and the geocoder tables in its tiger
+# schema. Schema is part of every fingerprint so an application table such as
+# public.state can never be hidden by an extension table name.
 POSTGIS_SYSTEM_TABLES = {
-    "addr",
-    "addrfeat",
-    "bg",
-    "county",
-    "county_lookup",
-    "countysub_lookup",
-    "cousub",
-    "direction_lookup",
-    "edges",
-    "faces",
-    "featnames",
-    "geocode_settings",
-    "geocode_settings_default",
-    "layer",
-    "loader_lookuptables",
-    "loader_platform",
-    "loader_variables",
-    "pagc_gaz",
-    "pagc_lex",
-    "pagc_rules",
-    "place",
-    "place_lookup",
-    "secondary_unit_lookup",
-    "spatial_ref_sys",
-    "state",
-    "state_lookup",
-    "street_type_lookup",
-    "tabblock",
-    "tabblock20",
-    "topology",
-    "tract",
-    "zcta5",
-    "zip_lookup",
-    "zip_lookup_all",
-    "zip_lookup_base",
-    "zip_state",
-    "zip_state_loc",
+    ("public", "spatial_ref_sys"),
+    *(("tiger", name) for name in {
+        "addr", "addrfeat", "bg", "county", "county_lookup",
+        "countysub_lookup", "cousub", "direction_lookup", "edges", "faces",
+        "featnames", "geocode_settings", "geocode_settings_default", "layer",
+        "loader_lookuptables", "loader_platform", "loader_variables", "pagc_gaz",
+        "pagc_lex", "pagc_rules", "place", "place_lookup",
+        "secondary_unit_lookup", "state", "state_lookup", "street_type_lookup",
+        "tabblock", "tabblock20", "tract", "zcta5", "zip_lookup",
+        "zip_lookup_all", "zip_lookup_base", "zip_state", "zip_state_loc",
+    }),
+    ("topology", "topology"),
 }
+
+# PostgreSQL/PostGIS 17 may reflect topology extension tables through the
+# active search path without their schema. Suppress only their complete table
+# shapes; an application table reusing either name remains visible to drift.
+POSTGIS_IMPLICIT_TABLE_FINGERPRINTS = {
+    (
+        "layer",
+        (
+            "topology_id", "layer_id", "schema_name", "table_name",
+            "feature_column", "feature_type", "level", "child_id",
+        ),
+    ),
+    ("topology", ("id", "name", "srid", "precision", "hasz", "useslargeids")),
+}
+
+
+def _is_postgis_system_table(table: Any) -> bool:
+    schema = getattr(table, "schema", None)
+    name = getattr(table, "name", None)
+    if schema is not None:
+        return (schema, name) in POSTGIS_SYSTEM_TABLES
+    columns = tuple(column.name for column in getattr(table, "columns", ()))
+    return ("public", name) in POSTGIS_SYSTEM_TABLES or (
+        name,
+        columns,
+    ) in POSTGIS_IMPLICIT_TABLE_FINGERPRINTS
 
 # These three columns and the two named RFQ objects are present in the live
 # schemas but are owned by the security/market integration branches. They are
@@ -57,11 +57,11 @@ POSTGIS_SYSTEM_TABLES = {
 # combined integration migration adopts them; this is not a category-wide
 # reflected-object suppression.
 EXTERNAL_SCHEMA_FINGERPRINTS = {
-    ("rfqs", "reference_number", "VARCHAR(20)", True, None),
-    ("rfqs", "daily_seq", "INTEGER", True, None),
-    ("rfq_quotes", "last_counter_by", "VARCHAR(10)", True, "NULL"),
-    ("rfqs", "ix_rfqs_reference_number", "index", None, None),
-    ("rfqs", "reference_number_key", "unique_constraint", None, None),
+    ("public", "rfqs", "reference_number", "column", "VARCHAR(20)", True, None, ()),
+    ("public", "rfqs", "daily_seq", "column", "INTEGER", True, None, ()),
+    ("public", "rfq_quotes", "last_counter_by", "column", "VARCHAR(10)", True, "NULL", ()),
+    ("public", "rfqs", "ix_rfqs_reference_number", "index", None, None, None, ("reference_number",)),
+    ("public", "rfqs", "reference_number_key", "unique_constraint", None, None, None, ("reference_number",)),
 }
 
 # Historical Verdaxis migrations retain these tables for data moves, but the
@@ -86,42 +86,49 @@ def include_object(
     compare_to: Any,
 ) -> bool:
     """Compare everything except explicitly documented non-application objects."""
-    if type_ == "table" and name in POSTGIS_SYSTEM_TABLES | LEGACY_TABLES:
+    object_schema = getattr(object_, "schema", None) or "public"
+    if type_ == "table" and _is_postgis_system_table(object_):
+        return False
+    if type_ == "table" and object_schema == "public" and name in LEGACY_TABLES:
         return False
 
     table = getattr(object_, "table", None)
     table_name = getattr(table, "name", None)
-    if table_name in POSTGIS_SYSTEM_TABLES | LEGACY_TABLES:
+    table_schema = getattr(table, "schema", None) or "public"
+    if table is not None and _is_postgis_system_table(table):
+        return False
+    if table_schema == "public" and table_name in LEGACY_TABLES:
         return False
 
     if type_ == "foreign_key_constraint":
         referred_table = getattr(object_, "referred_table", None)
-        if getattr(referred_table, "name", None) in LEGACY_TABLES:
+        if (
+            (getattr(referred_table, "schema", None) or "public") == "public"
+            and getattr(referred_table, "name", None) in LEGACY_TABLES
+        ):
             return False
 
-    if reflected and compare_to is None and table_name in {"rfqs", "rfq_quotes"}:
+    if reflected and compare_to is None:
+        column_collection = getattr(object_, "columns", None)
+        columns = (
+            tuple(column.name for column in column_collection)
+            if column_collection is not None
+            else ()
+        )
         if type_ == "column":
             type_name = str(getattr(object_, "type", "")).upper().replace(" ", "")
             nullable = getattr(object_, "nullable", None)
             default = _normalize_server_default(getattr(object_, "server_default", None))
-            fingerprint = (table_name, name, type_name, nullable, default)
-            if fingerprint in EXTERNAL_SCHEMA_FINGERPRINTS:
-                return False
-        elif type_ == "index" and (table_name, name, "index", None, None) in EXTERNAL_SCHEMA_FINGERPRINTS:
+            fingerprint = (
+                table_schema, table_name, name, "column", type_name,
+                nullable, default, (),
+            )
+        else:
+            fingerprint = (
+                table_schema, table_name, name, type_, None, None, None, columns,
+            )
+        if fingerprint in EXTERNAL_SCHEMA_FINGERPRINTS:
             return False
-        elif type_ == "unique_constraint" and (table_name, name, "unique_constraint", None, None) in EXTERNAL_SCHEMA_FINGERPRINTS:
-            return False
-    # SQLAlchemy does not consistently attach the reflected table to a
-    # PostgreSQL unique constraint during autogenerate. Keep this one exact
-    # integration-owned object allowlisted by name rather than suppressing
-    # every reflected unique constraint.
-    if (
-        reflected
-        and compare_to is None
-        and type_ == "unique_constraint"
-        and name in {"reference_number_key", "rfqs_reference_number_key"}
-    ):
-        return False
 
     return True
 
@@ -291,4 +298,22 @@ _PYTHON_DEFAULT_COMPATIBILITY = {
 
 def _python_default_compatibility_fingerprint(column: Any, actual: str | None) -> bool:
     table = getattr(getattr(column, "table", None), "name", None)
-    return (table, getattr(column, "name", None), actual) in _PYTHON_DEFAULT_COMPATIBILITY
+    schema = getattr(getattr(column, "table", None), "schema", None) or "public"
+    fingerprint = (table, getattr(column, "name", None), actual)
+    if schema != "public" or fingerprint not in _PYTHON_DEFAULT_COMPATIBILITY:
+        return False
+
+    default = getattr(getattr(column, "default", None), "arg", None)
+    if callable(default):
+        return True
+    if hasattr(default, "value"):
+        default = default.value
+    if isinstance(default, str):
+        expected = repr(default)
+    elif isinstance(default, bool):
+        expected = str(default).lower()
+    elif default is None:
+        expected = None
+    else:
+        expected = str(default)
+    return _normalize_server_default(expected) == actual

@@ -3,16 +3,17 @@
 from sqlalchemy.exc import DBAPIError
 
 
-MARKET_PATH_PREFIXES = (
+MARKET_PATH_ROOTS = (
     "/api/orderbook",
     "/api/trades",
+    "/api/prices",
     "/api/price-discovery",
     "/api/matchmaking",
 )
 _TRANSIENT_LOCK_STATES = {"55P03", "40P01", "40001"}
 
 
-def is_lock_timeout_or_deadlock(exc: DBAPIError) -> bool:
+def is_contention_error(exc: DBAPIError) -> bool:
     """Recognize PostgreSQL lock/serialization failures without exposing SQL."""
     original = getattr(exc, "orig", exc)
     sqlstate = (
@@ -20,16 +21,8 @@ def is_lock_timeout_or_deadlock(exc: DBAPIError) -> bool:
         or getattr(original, "pgcode", None)
         or getattr(original, "sqlstate_code", None)
     )
-    message = str(original).lower()
-    return sqlstate in _TRANSIENT_LOCK_STATES or any(
-        marker in message
-        for marker in (
-            "lock timeout",
-            "deadlock detected",
-            "could not serialize access",
-        )
-    )
+    return sqlstate in _TRANSIENT_LOCK_STATES
 
 
 def is_market_path(path: str) -> bool:
-    return path.startswith(MARKET_PATH_PREFIXES)
+    return any(path == root or path.startswith(f"{root}/") for root in MARKET_PATH_ROOTS)
