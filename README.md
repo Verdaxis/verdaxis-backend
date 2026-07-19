@@ -121,6 +121,22 @@ ENVIRONMENT=test JWT_SECRET=test-secret-key-for-testing-minimum-32-chars \
 
 Run the command above for the current test count.
 
+Integration tests require an explicit `TEST_API_URL`; they never default to a
+running service. Because the suite includes mutating flows, a non-loopback
+target additionally requires:
+
+```bash
+TEST_API_URL=http://127.0.0.1:8000 python -m pytest tests/integration -v
+```
+
+For an approved remote staging target, add
+`ALLOW_REMOTE_TEST_MUTATIONS=I_UNDERSTAND_REMOTE_TEST_MUTATIONS`. Production
+Verdaxis API hosts are always refused.
+
+Use `scripts/run_product_analytics_postgres_tests.sh` for a disposable
+PostGIS container. It binds a unique loopback port, runs migrations, checks
+Alembic drift, and removes only the container it created.
+
 ## Feature Branches
 
 - `feature/oauth-integration` — Google + Microsoft SSO (169 tests, ready for merge)

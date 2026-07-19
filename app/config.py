@@ -18,6 +18,33 @@ class Settings(BaseSettings):
     DATABASE_PASSWORD: str = "postgres"
     DATABASE_URL: Optional[str] = None
 
+    # SQLAlchemy pool settings are per application worker.  Defaults reserve
+    # 20 connections from PostgreSQL's 100-connection deployment budget.
+    DB_POOL_SIZE: int = Field(default=5, ge=1, le=100)
+    DB_MAX_OVERFLOW: int = Field(default=2, ge=0, le=100)
+    DB_POOL_TIMEOUT: float = Field(default=30.0, gt=0, le=300)
+    DB_POOL_RECYCLE: int = Field(default=1800, ge=0, le=86400)
+    DB_POOL_WORKERS: int = Field(default=4, ge=1, le=100)
+    DB_MAX_CONNECTIONS: int = Field(default=100, ge=1, le=1000)
+    DB_RESERVED_CONNECTIONS: int = Field(default=20, ge=0, le=999)
+
+    @model_validator(mode='after')
+    def validate_db_pool_capacity(self) -> 'Settings':
+        if self.DB_RESERVED_CONNECTIONS >= self.DB_MAX_CONNECTIONS:
+            raise ValueError(
+                'DB_RESERVED_CONNECTIONS must be less than DB_MAX_CONNECTIONS'
+            )
+        configured_connections = self.DB_POOL_WORKERS * (
+            self.DB_POOL_SIZE + self.DB_MAX_OVERFLOW
+        )
+        available_connections = self.DB_MAX_CONNECTIONS - self.DB_RESERVED_CONNECTIONS
+        if configured_connections > available_connections:
+            raise ValueError(
+                'DB_POOL_WORKERS * (DB_POOL_SIZE + DB_MAX_OVERFLOW) must be '
+                'less than or equal to DB_MAX_CONNECTIONS - DB_RESERVED_CONNECTIONS'
+            )
+        return self
+
     @model_validator(mode='after')
     def assemble_db_connection(self) -> 'Settings':
         if self.DATABASE_URL is None:

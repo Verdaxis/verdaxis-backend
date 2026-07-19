@@ -1,11 +1,14 @@
 import httpx
+import os
 import time
 import uuid
 import sys
 import json
 
 # Configuration
-BASE_URL = "http://144.126.151.136:8000/api"
+from tests.runtime_config import resolve_test_api_url
+
+BASE_URL = resolve_test_api_url(os.environ, require_mutation_opt_in=True) + "/api"
 TIMEOUT = 30
 
 def log(msg):

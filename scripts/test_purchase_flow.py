@@ -1,14 +1,21 @@
-import requests
+import httpx
 import json
 import sys
 import datetime
+import os
 from jose import jwt
 
-# Use Local URL
-API_URL = "http://localhost:8000/api"
+from tests.runtime_config import resolve_test_api_url
+
+API_URL = resolve_test_api_url(os.environ, require_mutation_opt_in=True) + "/api"
 # Matches config.py default
 JWT_SECRET = "***REMOVED***" 
 JWT_ALGORITHM = "HS256"
+
+
+def _request(method, url, **kwargs):
+    with httpx.Client(timeout=30.0) as client:
+        return client.request(method, url, **kwargs)
 
 def create_local_token(email, role, user_id):
     # We need a user_id. Since we can't query the remote DB, we have to guess or assume.
@@ -45,7 +52,7 @@ def main():
     # 2. Check Auth / Ports
     print("\n2. Verifying Buyer Auth & Fetching Ports...")
     try:
-        res = requests.get(f"{API_URL}/ports", headers=buyer_headers)
+        res = _request("GET", f"{API_URL}/ports", headers=buyer_headers)
         if res.status_code != 200:
             print(f"   Auth/Ports Failed: {res.status_code} {res.text}")
             sys.exit(1)
@@ -57,7 +64,7 @@ def main():
         sys.exit(1)
 
     print("\n   Fetching Vessels...")
-    res = requests.get(f"{API_URL}/vessels", headers=buyer_headers)
+    res = _request("GET", f"{API_URL}/vessels", headers=buyer_headers)
     vessels = res.json()
     if not vessels:
          print("   No vessels found.")
@@ -76,7 +83,7 @@ def main():
         "vessel_id": vessel_id
     }
     
-    res = requests.post(f"{API_URL}/quotes", json=quote_payload, headers=buyer_headers)
+    res = _request("POST", f"{API_URL}/quotes", json=quote_payload, headers=buyer_headers)
     if res.status_code != 200:
         print(f"   Create Quote Failed: {res.text}")
         sys.exit(1)
@@ -89,7 +96,7 @@ def main():
     # NOTE: Backend logic for suppliers:
     # "Suppliers see requests they have offered on OR all pending requests (Marketplace) - Simplified for demo: Show all"
     
-    res = requests.get(f"{API_URL}/quotes", headers=supplier_headers)
+    res = _request("GET", f"{API_URL}/quotes", headers=supplier_headers)
     quotes = res.json()
     found = False
     for q in quotes:
@@ -111,13 +118,13 @@ def main():
     }
     url = f"{API_URL}/quotes/{quote_id}/offers"
     print(f"   POST {url}")
-    res = requests.post(url, json=offer_payload, headers=supplier_headers)
+    res = _request("POST", url, json=offer_payload, headers=supplier_headers)
     
     if res.status_code == 404:
         # Try with trailing slash
         url_slash = f"{url}/"
         print(f"   404 encountered. Retrying with {url_slash}")
-        res = requests.post(url_slash, json=offer_payload, headers=supplier_headers)
+        res = _request("POST", url_slash, json=offer_payload, headers=supplier_headers)
 
     if res.status_code != 200:
         print(f"   Create Offer Failed: {res.status_code} {res.text}")
@@ -129,7 +136,7 @@ def main():
 
     # 6. Buyer Checks Offers
     print("\n6. Buyer Checks Offers...")
-    res = requests.get(f"{API_URL}/quotes", headers=buyer_headers)
+    res = _request("GET", f"{API_URL}/quotes", headers=buyer_headers)
     quotes = res.json()
     my_quote = next((q for q in quotes if q["id"] == quote_id), None)
     
@@ -145,7 +152,7 @@ def main():
 
     # 7. Buyer Accepts Offer
     print("\n7. Buyer Accepts Offer...")
-    res = requests.put(f"{API_URL}/quotes/{quote_id}/accept/{offer_id}", headers=buyer_headers)
+    res = _request("PUT", f"{API_URL}/quotes/{quote_id}/accept/{offer_id}", headers=buyer_headers)
     if res.status_code != 200:
         print(f"   Accept Offer Failed: {res.text}")
         sys.exit(1)

@@ -19,7 +19,9 @@ from decimal import Decimal
 from httpx import AsyncClient
 
 import os
-TEST_API_URL = os.environ.get("TEST_API_URL", "http://localhost:8000")
+from tests.runtime_config import resolve_test_api_url
+
+TEST_API_URL = resolve_test_api_url(os.environ, require_mutation_opt_in=True)
 
 # Deterministic product/delivery point IDs from catalog_seed.py
 PRODUCT_BIOFUEL_BIO = "c4a688be-f7c2-5edc-8f93-6b34e387609c"  # Bio-Ethanol (live catalog)

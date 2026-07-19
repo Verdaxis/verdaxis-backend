@@ -9,7 +9,8 @@
 app/
   main.py                       # FastAPI app, CORS, structlog, request correlation IDs, rate limiter
   config.py                     # Pydantic Settings — env vars, JWT config, OAuth, auto-matching toggle
-  database.py                   # AsyncSession factory (asyncpg), connection pooling (20/40), SQLite guard
+  database.py                   # AsyncSession factory (asyncpg), validated per-worker pooling, SQLite guard
+  models/legacy.py              # Metadata-only legacy FK table stubs excluded from Alembic drift checks
   admin.py                      # SQLAdmin panel at /admin
   rate_limit.py                 # slowapi Limiter singleton (key=remote_address)
   core/
@@ -83,6 +84,9 @@ app/
 
 tests/unit/                     # 155 tests (auth, matching, compliance, events, pricing, schemas)
 tests/integration/              # Auth hardening, trade lifecycle, orderbook E2E
+tests/runtime_config.py          # Explicit/validated API target policy for mutating suites
+deploy/systemd/                  # Checked-in staging/production backend units and scheduled jobs
+scripts/verify_migrations.sh    # Upgrade-to-head plus Alembic model/schema drift check
   alembic/versions/               # Migrations incl. canonical availability-window rewrite + defaults
 ```
 

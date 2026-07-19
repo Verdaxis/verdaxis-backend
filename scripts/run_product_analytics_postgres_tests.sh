@@ -25,6 +25,11 @@ IMAGE="postgis/postgis:15-3.3"
 DB_NAME="verdaxis_analytics_test"
 DB_PASSWORD="analytics-test"
 
+# This harness is always a test environment. Callers may override these
+# values, but a local run must not inherit unsafe production defaults.
+export ENVIRONMENT="${ENVIRONMENT:-test}"
+export JWT_SECRET="${JWT_SECRET:-test-secret-key-that-is-at-least-32-characters-long}"
+
 PYTEST_PATHS=("$@")
 if [ ${#PYTEST_PATHS[@]} -eq 0 ]; then
   PYTEST_PATHS=("tests/postgres")
@@ -54,6 +59,7 @@ else
 
   echo "Starting $IMAGE as $CONTAINER"
   docker run -d --name "$CONTAINER" \
+    --label "com.docker.compose.project=verdaxis-postgres-test-$$" \
     -e POSTGRES_PASSWORD="$DB_PASSWORD" \
     -e POSTGRES_DB="$DB_NAME" \
     -p 127.0.0.1::5432 \
@@ -67,7 +73,8 @@ else
 
   echo "Waiting for PostgreSQL on 127.0.0.1:$PORT"
   for _ in $(seq 1 60); do
-    if docker exec "$CONTAINER" pg_isready -U postgres -d "$DB_NAME" >/dev/null 2>&1; then
+    if docker exec "$CONTAINER" pg_isready -U postgres -d "$DB_NAME" >/dev/null 2>&1 \
+      && pg_isready -h 127.0.0.1 -p "$PORT" -U postgres -d "$DB_NAME" >/dev/null 2>&1; then
       READY=1
       break
     fi
@@ -82,4 +89,6 @@ else
 fi
 
 cd "$BACKEND_ROOT"
+DATABASE_URL="${PRODUCT_ANALYTICS_TEST_DATABASE_URL}" \
+  ./scripts/verify_migrations.sh
 PYTHONDONTWRITEBYTECODE=1 "$PYTEST_BIN" -p no:cacheprovider "${PYTEST_PATHS[@]}" -q

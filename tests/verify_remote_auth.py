@@ -1,9 +1,12 @@
 
 import asyncio
 import httpx
+import os
 from uuid import uuid4
 
-BASE_URL = "http://144.126.151.136:8000"
+from tests.runtime_config import resolve_test_api_url
+
+BASE_URL = resolve_test_api_url(os.environ, require_mutation_opt_in=True)
 
 # User Data - Randomize to avoid collisions on repeated runs
 SUPPLIER_EMAIL = f"remote_sup_{uuid4()}@test.com"

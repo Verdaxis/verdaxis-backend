@@ -11,10 +11,6 @@ from typing import Generator
 from httpx import AsyncClient
 
 
-# Test against local Docker instance or remote
-TEST_API_URL = os.environ.get("TEST_API_URL", "http://localhost:8000")
-
-
 @pytest.fixture(scope="session")
 def event_loop() -> Generator[asyncio.AbstractEventLoop, None, None]:
     """Create an instance of the default event loop for the test session."""
@@ -29,7 +25,10 @@ async def client() -> AsyncClient:
     Create an async HTTP client for testing API endpoints.
     Tests against the running backend (Docker or remote).
     """
-    async with AsyncClient(base_url=TEST_API_URL, timeout=10.0) as ac:
+    from tests.runtime_config import resolve_test_api_url
+
+    test_api_url = resolve_test_api_url(os.environ)
+    async with AsyncClient(base_url=test_api_url, timeout=10.0) as ac:
         yield ac
 
 

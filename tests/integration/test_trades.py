@@ -13,7 +13,9 @@ from httpx import AsyncClient
 import jwt
 from datetime import datetime, timedelta
 
-TEST_API_URL = os.environ.get("TEST_API_URL", "http://localhost:8000")
+from tests.runtime_config import resolve_test_api_url
+
+TEST_API_URL = resolve_test_api_url(os.environ, require_mutation_opt_in=True)
 from app.config import settings
 JWT_SECRET = settings.JWT_SECRET
 

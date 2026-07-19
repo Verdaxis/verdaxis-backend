@@ -1,10 +1,13 @@
 import httpx
+import os
 import time
 import uuid
 import sys
 
 # Configuration
-BASE_URL = "http://localhost:8000/api"
+from tests.runtime_config import resolve_test_api_url
+
+BASE_URL = resolve_test_api_url(os.environ, require_mutation_opt_in=True) + "/api"
 TIMEOUT = 30
 
 def generate_email(prefix, domain="test.com"):

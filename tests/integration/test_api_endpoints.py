@@ -3,7 +3,8 @@ Integration tests for API endpoints.
 Tests the full request/response cycle against the running Docker backend.
 
 Run with: pytest tests/integration/ -v
-Requires: Docker backend running on localhost:8000
+Requires: an explicit TEST_API_URL targeting a disposable local or approved
+staging backend. Remote mutating runs also require the documented opt-in.
 """
 import pytest
 from httpx import AsyncClient
@@ -145,4 +146,3 @@ class TestProtectedEndpoints:
         assert response.status_code == 200
         data = response.json()
         assert data["email"] == admin_credentials["email"]
-

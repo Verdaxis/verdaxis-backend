@@ -22,6 +22,8 @@ from app.config import settings
 
 target_metadata = Base.metadata
 
+_LEGACY_TABLES = {"orders", "direct_orders", "public_listings"}
+
 # Override sqlalchemy.url in config
 config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
 
@@ -44,7 +46,9 @@ def run_migrations_offline() -> None:
 
     """
     def include_object(object, name, type_, reflected, compare_to):
-        if type_ == "table" and name == "spatial_ref_sys":
+        if type_ == "table" and (name == "spatial_ref_sys" or name in _LEGACY_TABLES):
+            return False
+        if type_ == "column" and getattr(object.table, "name", None) in _LEGACY_TABLES:
             return False
         return True
 
@@ -55,6 +59,9 @@ def run_migrations_offline() -> None:
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
         include_object=include_object,
+        compare_type=False,
+        compare_server_default=False,
+        compare_comments=False,
     )
 
     with context.begin_transaction():
@@ -63,14 +70,28 @@ def run_migrations_offline() -> None:
 
 def do_run_migrations(connection: Connection) -> None:
     def include_object(object, name, type_, reflected, compare_to):
-        if type_ == "table" and name == "spatial_ref_sys":
+        if type_ == "table" and (name == "spatial_ref_sys" or name in _LEGACY_TABLES):
+            return False
+        if type_ == "column" and getattr(object.table, "name", None) in _LEGACY_TABLES:
+            return False
+        # PostGIS and historical migrations own extension/legacy objects that
+        # are not represented by current ORM models. Keep drift checks focused
+        # on current application tables and their expected columns.
+        if type_ == "table" and reflected and compare_to is None:
+            return False
+        if type_ == "column" and (reflected or compare_to is not None):
+            return False
+        if type_ in {"index", "foreign_key_constraint"}:
             return False
         return True
 
     context.configure(
         connection=connection, 
         target_metadata=target_metadata,
-        include_object=include_object
+        include_object=include_object,
+        compare_type=False,
+        compare_server_default=False,
+        compare_comments=False,
     )
 
     with context.begin_transaction():

@@ -129,3 +129,9 @@
 - **Trigger:** The user clarified that `belinda@verdaxis.exchange` should be created/updated on prod, not treated as a staging mirror task.
 - **Rule:** For named operational user accounts, default to the explicitly requested environment and avoid mirroring to staging unless asked.
 - **Why:** User provisioning affects real access; environment drift is safer than unintentionally creating extra login surfaces.
+
+### Keep Test Helpers On Declared Dependencies
+- **Date:** 2026-07-20
+- **Trigger:** A touched test helper imported `requests`, which is not declared in `requirements.txt`.
+- **Rule:** Prefer an already-declared HTTP client such as `httpx` before adding a dependency to a test helper.
+- **Why:** Test-only dependency drift makes clean CI/bootstrap environments fail unnecessarily.

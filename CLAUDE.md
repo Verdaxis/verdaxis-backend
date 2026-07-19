@@ -31,11 +31,13 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 # Run all unit tests (no DB required, uses sqlite in-memory)
 DATABASE_URL="sqlite+aiosqlite:///:memory:" pytest tests/unit/ -v
 
-# Run integration tests (requires running Docker backend)
-pytest tests/integration/ -v
+# Run integration tests against an explicitly selected disposable/local API
+TEST_API_URL=http://127.0.0.1:8000 pytest tests/integration/ -v
 
-# Run integration tests against production
-TEST_API_URL=http://144.126.151.136:8000 pytest tests/integration/ -v
+# Remote staging mutation suites require an explicit acknowledgement
+TEST_API_URL=https://api-staging.verdaxis.exchange \
+  ALLOW_REMOTE_TEST_MUTATIONS=I_UNDERSTAND_REMOTE_TEST_MUTATIONS \
+  pytest tests/integration/ -v
 
 # Run Alembic migrations
 alembic upgrade head
@@ -241,6 +243,11 @@ GEMINI_API_KEY=...              # Optional, AI features degrade gracefully witho
 ADMIN_USERNAME=...              # For /admin panel login
 ADMIN_PASSWORD=...
 ENABLE_AUTH_BYPASS=false        # Never true in production
+DB_POOL_SIZE=5                  # Per-worker SQLAlchemy pool
+DB_MAX_OVERFLOW=2               # Per-worker overflow; see docs/runtime-hardening.md
+DB_POOL_WORKERS=4               # Must match the Uvicorn worker count
+DB_MAX_CONNECTIONS=100
+DB_RESERVED_CONNECTIONS=20
 ```
 
 ## Git Workflow

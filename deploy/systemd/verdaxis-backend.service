@@ -1,0 +1,43 @@
+[Unit]
+Description=Verdaxis Backend API (production)
+Documentation=file:/home/verdaxis-prod/verdaxis/prod/be/README.md
+Wants=network-online.target
+After=network-online.target docker.service
+RequiresMountsFor=/home/verdaxis-prod/verdaxis/prod/be
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=verdaxis-prod
+Group=verdaxis-prod
+WorkingDirectory=/home/verdaxis-prod/verdaxis/prod/be
+EnvironmentFile=/home/verdaxis-prod/verdaxis/prod/be/.env
+ExecStartPre=/usr/bin/test -r /home/verdaxis-prod/verdaxis/prod/be/.env
+ExecStartPre=/home/verdaxis-prod/verdaxis/prod/be/venv/bin/alembic current
+ExecStart=/home/verdaxis-prod/verdaxis/prod/be/venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 4
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=5
+KillSignal=SIGTERM
+TimeoutStopSec=30
+TimeoutStartSec=120
+LimitNOFILE=65536
+TasksMax=256
+MemoryMax=768M
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/verdaxis-prod/verdaxis/prod/be
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictSUIDSGID=true
+LockPersonality=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+
+[Install]
+WantedBy=multi-user.target

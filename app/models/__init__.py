@@ -19,3 +19,4 @@ from app.models.benchmark import Benchmark
 from app.models.live_slice_benchmark import LiveSliceBenchmark
 from app.models.forward_monitoring import FairPriceBand, MarketIndication, MarketSignalIngestionRun, PhysicalStem
 from app.models.product_analytics import UserLoginDay, UserStatusTransition
+from app.models.legacy import orders, direct_orders

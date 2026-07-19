@@ -14,7 +14,9 @@ import uuid
 from httpx import AsyncClient
 
 import os
-TEST_API_URL = os.environ.get("TEST_API_URL", "http://localhost:8000")
+from tests.runtime_config import resolve_test_api_url
+
+TEST_API_URL = resolve_test_api_url(os.environ, require_mutation_opt_in=True)
 
 
 @pytest.fixture

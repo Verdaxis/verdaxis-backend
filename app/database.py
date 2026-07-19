@@ -1,16 +1,22 @@
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase
-from app.config import settings
+from app.config import Settings, settings
 
-# Connection pooling only applies to non-SQLite backends (CI uses SQLite)
-pool_kwargs = {}
-if not settings.DATABASE_URL.startswith('sqlite'):
-    pool_kwargs = dict(
-        pool_size=20,
-        max_overflow=40,
-        pool_pre_ping=True,
-        pool_recycle=3600,
-    )
+
+def engine_options(config: Settings) -> dict:
+    """Build engine options without applying PostgreSQL pooling to SQLite."""
+    if config.DATABASE_URL.startswith("sqlite"):
+        return {}
+    return {
+        "pool_size": config.DB_POOL_SIZE,
+        "max_overflow": config.DB_MAX_OVERFLOW,
+        "pool_timeout": config.DB_POOL_TIMEOUT,
+        "pool_pre_ping": True,
+        "pool_recycle": config.DB_POOL_RECYCLE,
+    }
+
+
+pool_kwargs = engine_options(settings)
 
 engine = create_async_engine(
     settings.DATABASE_URL,

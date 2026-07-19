@@ -79,4 +79,6 @@ jobs:
           JWT_SECRET: "test-secret-key-that-is-at-least-32-characters-long"
           DATABASE_URL: "postgresql+asyncpg://postgres:analytics-test@localhost:5432/verdaxis_analytics_test"
           PRODUCT_ANALYTICS_TEST_DATABASE_URL: "postgresql+asyncpg://postgres:analytics-test@localhost:5432/verdaxis_analytics_test"
-        run: pytest tests/postgres -q
+        run: |
+          ./scripts/verify_migrations.sh
+          pytest tests/postgres -q
