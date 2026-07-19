@@ -60,6 +60,8 @@ def resolve_seed_target(environ: Mapping[str, str] | None = None) -> SeedTarget:
         raise SeedTargetError("SEED_DATABASE_URL must be a valid PostgreSQL URL") from exc
     if not url.drivername.startswith("postgresql"):
         raise SeedTargetError("SEED_DATABASE_URL must use PostgreSQL")
+    if url.query:
+        raise SeedTargetError("SEED_DATABASE_URL must not contain query parameters")
 
     database_name = (url.database or "").lower()
     attested_name = values.get("SEED_TARGET_DATABASE", "").strip().lower()
@@ -131,7 +133,7 @@ async def seed_session(environ: Mapping[str, str] | None = None):
     """Yield one authorized async seed session and dispose its private engine."""
     target = resolve_seed_target(environ)
     url = target.url.set(drivername="postgresql+asyncpg")
-    engine = create_async_engine(url)
+    engine = create_async_engine(url, hide_parameters=True)
     session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     try:
         async with session_factory() as session:

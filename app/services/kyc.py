@@ -5,13 +5,13 @@ from app.config import settings
 
 logger = structlog.get_logger()
 
-_AUTO_APPROVED_RESULT = {
-    "valid": True,
-    "readable": True,
+_UNAVAILABLE_ADVISORY_RESULT = {
+    "valid": False,
+    "readable": False,
     "tampered": False,
-    "confidence": 1.0,
-    "issues": ["GEMINI_API_KEY not configured — auto-approved"],
-    "passed": True,
+    "confidence": 0.0,
+    "issues": ["Gemini advisory analysis is unavailable"],
+    "passed": False,
 }
 
 
@@ -33,7 +33,7 @@ async def verify_document_with_gemini(
     """
     if not settings.GEMINI_API_KEY:
         logger.warning("kyc_gemini_skipped", reason="GEMINI_API_KEY not configured", doc_type=doc_type)
-        return _AUTO_APPROVED_RESULT
+        return _UNAVAILABLE_ADVISORY_RESULT.copy()
 
     try:
         import google.generativeai as genai

@@ -327,7 +327,5 @@ def downgrade() -> None:
         server_default=sa.text("'APPROVED'"),
         existing_server_default=sa.text("'PENDING'"),
     )
-    op.alter_column(
-        "commissions", "match_id", existing_type=sa.UUID(),
-        nullable=True, existing_nullable=False,
-    )
+    # pa_20260715 already requires commissions.match_id NOT NULL. The upgrade
+    # repairs live drift to that contract; downgrade must preserve it.

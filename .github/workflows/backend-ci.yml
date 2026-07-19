@@ -83,6 +83,12 @@ jobs:
           DATABASE_URL: "postgresql+asyncpg://verdaxis_app_test:analytics-test@localhost:5432/verdaxis_analytics_test"
           MIGRATOR_DATABASE_URL: "postgresql+asyncpg://verdaxis_migrator_test:analytics-test@localhost:5432/verdaxis_analytics_test"
           PRODUCT_ANALYTICS_TEST_DATABASE_URL: "postgresql+asyncpg://verdaxis_migrator_test:analytics-test@localhost:5432/verdaxis_analytics_test"
+          BACKUP_DATABASE_URL: "postgresql+asyncpg://verdaxis_backup_test:analytics-test@localhost:5432/verdaxis_analytics_test"
+          POSTGRES_ADMIN_TEST_DATABASE_URL: "postgresql+asyncpg://postgres:analytics-test@localhost:5432/verdaxis_analytics_test"
+          RUNTIME_TEST_DATABASE_NAME: "verdaxis_analytics_test"
+          RUNTIME_TEST_APP_ROLE: "verdaxis_app_test"
+          RUNTIME_TEST_MIGRATOR_ROLE: "verdaxis_migrator_test"
+          RUNTIME_TEST_BACKUP_ROLE: "verdaxis_backup_test"
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq postgresql-client

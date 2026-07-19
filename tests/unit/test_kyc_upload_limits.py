@@ -7,9 +7,11 @@ from fastapi import FastAPI, HTTPException, UploadFile
 from httpx import ASGITransport, AsyncClient
 
 from app.database import get_db
+from app.models.user import UserStatus
 from app.routers import kyc as kyc_router
 from app.routers.auth_simple import get_current_user
 from app.routers.kyc import read_bounded_kyc_documents, read_bounded_upload
+from app.services import kyc as kyc_service
 
 
 def _multipart_body(files: dict[str, tuple[str, bytes, str]], boundary: str) -> bytes:
@@ -33,7 +35,7 @@ class _FakeSession:
         pass
 
 
-def _kyc_test_app(monkeypatch, *, max_bytes: int = 8):
+def _kyc_test_app(monkeypatch, *, max_bytes: int = 8, advisory_passed: bool = True):
     app = FastAPI()
     app.include_router(kyc_router.router, prefix="/api")
     user = SimpleNamespace(
@@ -42,21 +44,51 @@ def _kyc_test_app(monkeypatch, *, max_bytes: int = 8):
         first_name="Test",
         kyc_status="PENDING",
         kyc_rejection_reason=None,
+        status=UserStatus.PENDING,
     )
     app.dependency_overrides[get_current_user] = lambda: user
     app.dependency_overrides[get_db] = lambda: _FakeSession()
     monkeypatch.setattr(kyc_router.settings, "KYC_MAX_FILE_BYTES", max_bytes)
     monkeypatch.setattr(kyc_router.settings, "KYC_MAX_TOTAL_BYTES", max_bytes * 2)
     async def verify(*args, **kwargs):
-        return {"passed": True, "issues": []}
+        return {"passed": advisory_passed, "issues": []}
     async def audit(*args, **kwargs):
         return None
     async def email(*args, **kwargs):
+        app.state.approval_emails += 1
         return True
     monkeypatch.setattr(kyc_router, "verify_document_with_gemini", verify)
     monkeypatch.setattr(kyc_router, "record_audit", audit)
     monkeypatch.setattr(kyc_router, "send_kyc_approved_email", email)
+    app.state.kyc_user = user
+    app.state.approval_emails = 0
     return app
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("advisory_passed", [True, False])
+async def test_gemini_result_is_advisory_and_submission_remains_pending_admin_review(
+    monkeypatch, advisory_passed
+):
+    app = _kyc_test_app(monkeypatch, max_bytes=8, advisory_passed=advisory_passed)
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://testserver"
+    ) as client:
+        response = await client.post(
+            "/api/kyc/submit",
+            files={
+                "passport": ("passport.jpg", b"1234", "image/jpeg"),
+                "company_doc": ("company.pdf", b"5678", "application/pdf"),
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.json()["kyc_status"] == "PENDING"
+    assert "admin review" in response.json()["message"].lower()
+    assert app.state.kyc_user.kyc_status == "PENDING"
+    assert app.state.kyc_user.status == UserStatus.PENDING
+    assert app.state.approval_emails == 0
 
 
 @pytest.mark.asyncio
@@ -64,6 +96,18 @@ async def test_kyc_upload_is_read_only_within_per_file_limit():
     upload = UploadFile(filename="passport.jpg", file=BytesIO(b"passport"))
 
     assert await read_bounded_upload(upload, max_bytes=8) == b"passport"
+
+
+@pytest.mark.asyncio
+async def test_missing_gemini_key_is_not_an_auto_approval(monkeypatch):
+    monkeypatch.setattr(kyc_service.settings, "GEMINI_API_KEY", None)
+
+    result = await kyc_service.verify_document_with_gemini(
+        b"document", "image/jpeg", "passport"
+    )
+
+    assert result["passed"] is False
+    assert "auto-approved" not in " ".join(result["issues"]).lower()
 
 
 @pytest.mark.asyncio

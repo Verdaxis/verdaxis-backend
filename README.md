@@ -26,7 +26,9 @@ cd /home/verdaxis-prod/verdaxis/prod/be
 ./scripts/deploy.sh
 ```
 
-The deploy helper infers the correct branch and service from the path, refuses dirty worktrees by default, runs migrations, atomically hands the checked-out full commit SHA to systemd through the gitignored `.runtime-release.env`, restarts systemd, and checks `/health/ready`. The application does not invoke Git. Readiness returns the validated environment/release SHA for external artifact comparison. Off-host monitoring must use readiness; `/health/live` proves only that a process responds. The legacy `/health` path is a readiness alias.
+The deploy helper infers the correct branch and service from the path, always refuses dirty worktrees, preflights the exact environment/database/app identity, runs migrations through a distinct migrator, atomically hands the checked-out full commit SHA to systemd through the gitignored `.runtime-release.env`, restarts systemd, and parses `/health/ready` JSON for exact `status`, environment, and release SHA. The application does not invoke Git. Off-host monitoring must use readiness; `/health/live` proves only that a process responds. The legacy `/health` path is a readiness alias.
+
+`./scripts/install_systemd_units.sh` is a no-change dry run. After both live checkouts, credentials, CORS values, migration heads, and release identities are ready, an approved operator can run it with `--apply`; it preflights both environments, installs only changed unit files, and runs `systemctl daemon-reload` only when needed. It never enables, starts, or restarts a service. Rollbacks publish a clean forward revert commit as a new release and use the same preflight/health gate; never automatically downgrade schema or edit release metadata to impersonate an older checkout.
 
 ## API Endpoints
 
@@ -162,10 +164,12 @@ are denied. Disposable database names end in `_test`; staging is exactly
 `verdaxis_staging`. Seeders never inherit an implicit application URL.
 
 Historical repository versions contained a live database credential in seed
-scripts. Removing it from this branch does not revoke it. An operator must
-separately rotate the credential, update the secret store and deployed
-environment, verify the replacement role, then revoke the old credential.
-This repository change performs none of those external actions.
+scripts. Current-tree source cleanup is insufficient and does not revoke it;
+rewriting repository history is not a substitute for rotation. An operator
+must create and verify a replacement least-privilege credential, update the
+secret store and deployed environment, attest the replacement role, then
+revoke the exposed credential. This repository change performs none of those
+external actions.
 
 ## Feature Branches
 

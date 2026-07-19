@@ -48,7 +48,7 @@ async def prune_login_days(session, *, today: date | None = None) -> int:
 async def main() -> int:
     from app.config import settings
 
-    engine = create_async_engine(settings.DATABASE_URL)
+    engine = create_async_engine(settings.DATABASE_URL, hide_parameters=True)
     try:
         factory = async_sessionmaker(engine)
         async with factory() as session:

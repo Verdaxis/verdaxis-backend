@@ -4,8 +4,8 @@ import pytest
 from sqlalchemy.exc import DBAPIError
 
 from app import database
-from app.main import database_contention_handler
-from app.services.db_errors import is_contention_error, is_market_path
+from app.main import database_contention_handler, request_id_ctx
+from app.services.db_errors import database_error_log_fields, is_contention_error, is_market_path
 
 
 class _PostgresError(Exception):
@@ -77,17 +77,44 @@ async def test_database_dependency_rolls_back_before_propagating_db_errors(monke
 
 
 @pytest.mark.asyncio
-async def test_unknown_database_errors_log_traceback_and_return_sanitized_500(monkeypatch):
+async def test_unknown_database_errors_log_bounded_fields_and_return_sanitized_500(monkeypatch):
     calls = []
     monkeypatch.setattr(
         "app.main.logger",
-        SimpleNamespace(exception=lambda *args, **kwargs: calls.append((args, kwargs))),
+        SimpleNamespace(error=lambda *args, **kwargs: calls.append((args, kwargs))),
     )
+    request_id_ctx.set("request-123")
     response = await database_contention_handler(
-        SimpleNamespace(url=SimpleNamespace(path="/api/prices")),
+        SimpleNamespace(url=SimpleNamespace(path="/api/prices"), method="POST"),
         _db_error("sensitive database detail", "23505"),
     )
 
     assert response.status_code == 500
     assert b"sensitive database detail" not in response.body
     assert calls
+    args, fields = calls[0]
+    assert args == ("database_operation_failed",)
+    assert fields == {
+        "error_class": "_PostgresError",
+        "sqlstate": "23505",
+        "request_id": "request-123",
+        "route": "/api/prices",
+    }
+
+
+def test_database_error_log_fields_never_include_statement_parameters_or_message():
+    fields = database_error_log_fields(
+        _db_error("password=do-not-log", "23505"),
+        request_id="request-123",
+        route="/api/orderbook",
+    )
+
+    assert fields == {
+        "error_class": "_PostgresError",
+        "sqlstate": "23505",
+        "request_id": "request-123",
+        "route": "/api/orderbook",
+    }
+    serialized = repr(fields)
+    assert "do-not-log" not in serialized
+    assert "UPDATE market_data" not in serialized

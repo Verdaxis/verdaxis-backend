@@ -51,11 +51,11 @@ app/
     inventory.py                # Supplier inventory + publish-to-ASK
     ports.py                    # Port data with PostGIS
     vessels.py                  # Vessel data (org-scoped)
-    compliance.py               # Compliance ledger (legacy)
+    compliance.py               # Unmounted legacy module; ledger/verify routes are absent
     ai.py                       # Gemini AI chat proxy
     orders.py                   # Admin commission management
     audit.py                    # Admin audit log query
-    dashboard.py                # System health metrics
+    dashboard.py                # Unmounted legacy module; dashboard health route is absent
   schemas/
     user.py                     # UserCreate (min 8 chars pw), UserResponse, PasswordChangeRequest
     preferences.py              # Strict namespace schemas for user preferences
@@ -84,12 +84,15 @@ app/
   middleware/
     rbac.py                     # require_role() factory — FastAPI dependency for role-based access
 
-tests/unit/                     # 155 tests (auth, matching, compliance, events, pricing, schemas)
+tests/unit/                     # Unit coverage (auth, matching, runtime, compliance, events, pricing, schemas)
 tests/integration/              # Auth hardening, trade lifecycle, orderbook E2E
 tests/runtime_config.py          # Explicit/validated API target policy for mutating suites
 deploy/systemd/                  # Checked-in loopback units; consume immutable runtime release artifact
 deploy/postgres/                 # Idempotent least-privilege role bootstrap and validation SQL
 scripts/verify_migrations.sh    # Upgrade-to-head plus Alembic model/schema drift check
+scripts/preflight_runtime.py    # Read-only exact deployed config/database identity gate
+scripts/validate_health_response.py # Strict readiness JSON environment/SHA validator
+scripts/install_systemd_units.sh # Dry-run-default, idempotent operator unit install path
 alembic/versions/               # Migrations incl. canonical availability-window rewrite + runtime metadata alignment
 ```
 
@@ -111,11 +114,11 @@ alembic/versions/               # Migrations incl. canonical availability-window
 - **Trade tape scope:** `/trade-tape` returns anonymized confirmed trade prints for the last 7 days. Exact delivery-point history is available only when clients filter by `delivery_point_id` and entries return `scope="DELIVERY_POINT"` with delivery-point fields. `provenance_kind` is legacy-compatible; new clients should prefer `source_kind`/`demo_status` when present on newer surfaces.
 - **Market Radar watchlists:** Watchlists are observer-only. Typed targets store either canonical slices or pinned order snapshots, and order create/update/cancel paths emit slice/pin events without feeding core matchmaking. New event payloads carry provenance at emission time; legacy events return `UNKNOWN` rather than doing response-time order lookups.
 - **Behavioral analytics:** Umami is an optional failure-isolated dependency. `GET /admin/analytics/product-usage?days=7|30|90` combines bounded Umami aggregates with authoritative UTC-period database counts. Server conversion events and the documented browser reporting taxonomy use separate allowlists. Registration, organization, order, and trade events are scheduled only after commits, carry bounded originating request metadata for Umami bot classification/environment attribution, and use a strict property allowlist; collector drops/failures never alter endpoint response contracts. Aggregate successes cache for at most five minutes and failures for at most 30 seconds. `totaltime / visits` is exposed only as average session duration, not active engagement. See `docs/behavioral-analytics-contract.md`.
-- **Live runtime topology:** Production systemd binds Uvicorn to `127.0.0.1:8000`; staging binds to `127.0.0.1:8001`; the public reverse proxy fronts those loopback ports. Both services require network-online and PostgreSQL, use four workers, and preflight exact Alembic heads.
-- **Runtime budgets:** Production and staging share PostgreSQL `max_connections=100`; the default aggregate is `2 services × 4 workers × (2 + 1) + 20 maintenance reserve = 44`. KYC uploads are bounded at 10 MiB per file and 20 MiB aggregate by default. Measured steady state is approximately 530–538 MiB per service; systemd starts at `MemoryHigh=768M` and `MemoryMax=1G` with headroom, not a measured-safe claim.
-- **Runtime identity and boundaries:** Deploy writes a full commit SHA atomically into `.runtime-release.env`; staging/production fail startup without it, and bounded `/health/ready` exposes only environment/SHA plus sanitized DB state. Credentialed CORS uses exact per-environment origin allowlists. `/health/live` is process-only and is never an off-host readiness signal.
-- **Database authority split:** Runtime connections attest their effective username, connected `current_user`, non-superuser status, and observed `max_connections`. Alembic separately attests the migrator. Executable SQL provisions DML-only app, DDL migrator, and read-only backup roles with existing/default table and sequence privileges plus bounded timeouts.
-- **KYC trust boundary:** Gemini document analysis is advisory only. Account activation remains a trusted-administrator approval decision after human review.
+- **Live runtime topology:** Production systemd binds Uvicorn to `127.0.0.1:8000`; staging binds to `127.0.0.1:8001`; the public reverse proxy fronts those loopback ports. Both services require network-online and PostgreSQL, use four workers, and preflight exact Alembic heads. Scheduled jobs run as one external singleton per job; application workers create no news scheduler.
+- **Runtime budgets:** Production and staging share PostgreSQL `max_connections=100`; deployed settings require exactly two app services and at least 20 maintenance connections, so configuration cannot undercount the immutable topology. The default aggregate is `2 services × 4 workers × (2 + 1) + 20 reserve = 44`. KYC uploads are bounded at 10 MiB per file and 20 MiB aggregate by default. Measured steady state is approximately 530–538 MiB per service; systemd starts at `MemoryHigh=768M` and `MemoryMax=1G` with headroom, not a measured-safe claim.
+- **Runtime identity and boundaries:** Production is exactly database `verdaxis`, app `verdaxis_app`, migrator `verdaxis_migrator`; staging is exactly `verdaxis_staging`, `verdaxis_app_staging`, `verdaxis_migrator_staging`. Both deployed environments reject SQLite, default JWTs, auth bypass, URL query routing, shared app/migrator roles, or absent credentials. Deploy writes a full commit SHA atomically into `.runtime-release.env`; strict readiness requires exact status/environment/SHA. Credentialed CORS uses exact per-environment origin allowlists.
+- **Database authority split:** Runtime and Alembic separately attest `current_database()`, `current_user`, exact role properties, and absence of memberships. The migrator owns the database, public schema, and application tables/sequences. Exact app and backup ACLs exclude `alembic_version`, `spatial_ref_sys`, and extension-owned objects; default ACLs are reset and validated as set equality.
+- **KYC trust boundary:** Gemini document analysis is advisory only and every submission remains pending. Only trusted administrator approve/reject routes may change KYC/account status. The removed legacy compliance and dashboard routes stay unmounted.
 
 ## Revenue Streams
 

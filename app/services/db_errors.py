@@ -24,5 +24,26 @@ def is_contention_error(exc: DBAPIError) -> bool:
     return sqlstate in _TRANSIENT_LOCK_STATES
 
 
+def database_error_log_fields(
+    exc: DBAPIError,
+    *,
+    request_id: str,
+    route: str,
+) -> dict[str, str | None]:
+    """Return only non-sensitive database failure metadata safe for logs."""
+    original = getattr(exc, "orig", exc)
+    sqlstate = (
+        getattr(original, "sqlstate", None)
+        or getattr(original, "pgcode", None)
+        or getattr(original, "sqlstate_code", None)
+    )
+    return {
+        "error_class": type(original).__name__,
+        "sqlstate": sqlstate,
+        "request_id": request_id,
+        "route": route,
+    }
+
+
 def is_market_path(path: str) -> bool:
     return any(path == root or path.startswith(f"{root}/") for root in MARKET_PATH_ROOTS)

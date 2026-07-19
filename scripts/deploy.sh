@@ -8,7 +8,8 @@
 # Usage:
 #   ./scripts/deploy.sh --dry-run
 #   ./scripts/deploy.sh
-#   TARGET_BRANCH=feature/foo ALLOW_DIRTY=1 ./scripts/deploy.sh
+# Dirty trees are always refused because a commit SHA cannot identify modified
+# source. Rollbacks are forward-only revert releases; see docs/runtime-hardening.md.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -47,7 +48,6 @@ case "$BACKEND_DIR" in
 esac
 
 TARGET_BRANCH="${TARGET_BRANCH:-$DEFAULT_BRANCH}"
-ALLOW_DIRTY="${ALLOW_DIRTY:-0}"
 RELEASE_ENV_FILE="$BACKEND_DIR/.runtime-release.env"
 
 run() {
@@ -82,8 +82,8 @@ echo "Service: $SERVICE_NAME"
 echo "Health URL: $HEALTH_URL"
 echo "Dry run: $DRY_RUN"
 
-if [[ -n "$("${GIT[@]}" status --porcelain)" && "$ALLOW_DIRTY" != "1" ]]; then
-    echo "Working tree is dirty. Commit/stash changes, or set ALLOW_DIRTY=1 for an intentional hotfix deploy." >&2
+if [[ -n "$("${GIT[@]}" status --porcelain)" ]]; then
+    echo "Working tree is dirty; refusing to publish a mismatched release SHA." >&2
     "${GIT[@]}" status --short >&2
     exit 1
 fi
@@ -92,17 +92,28 @@ run "${GIT[@]}" fetch origin "$TARGET_BRANCH"
 run "${GIT[@]}" checkout "$TARGET_BRANCH"
 run "${GIT[@]}" pull --ff-only origin "$TARGET_BRANCH"
 
+CURRENT_SHA="$("${GIT[@]}" rev-parse HEAD)"
+if [[ ! "$CURRENT_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+    echo "Resolved release identity is not a full commit SHA." >&2
+    exit 1
+fi
+
+run env ENVIRONMENT="$DEPLOY_ENVIRONMENT" RELEASE_SHA="$CURRENT_SHA" \
+    ./venv/bin/python scripts/preflight_runtime.py \
+    --environment "$DEPLOY_ENVIRONMENT" --release-sha "$CURRENT_SHA"
+
 if [[ -f requirements.txt ]]; then
     run ./venv/bin/python -m pip install -r requirements.txt
 fi
 
 if [[ -f alembic.ini ]]; then
-    run ./venv/bin/alembic upgrade head
+    run env ENVIRONMENT="$DEPLOY_ENVIRONMENT" RELEASE_SHA="$CURRENT_SHA" \
+        ./venv/bin/alembic upgrade head
 fi
 
-CURRENT_SHA="$("${GIT[@]}" rev-parse HEAD)"
-if [[ ! "$CURRENT_SHA" =~ ^[0-9a-f]{40}$ ]]; then
-    echo "Resolved release identity is not a full commit SHA." >&2
+if [[ -n "$("${GIT[@]}" status --porcelain)" ]]; then
+    echo "Deploy steps changed tracked source; refusing a mismatched release artifact." >&2
+    "${GIT[@]}" status --short >&2
     exit 1
 fi
 write_release_artifact "$CURRENT_SHA"
@@ -117,8 +128,12 @@ systemctl is-active --quiet "$SERVICE_NAME"
 HEALTH_ATTEMPTS="${HEALTH_ATTEMPTS:-12}"
 HEALTH_RETRY_DELAY="${HEALTH_RETRY_DELAY:-2}"
 for ((attempt = 1; attempt <= HEALTH_ATTEMPTS; attempt++)); do
-    if curl --fail --silent --show-error --max-time 15 "$HEALTH_URL" | grep -q '"ok"'; then
-        break
+    if HEALTH_PAYLOAD="$(curl --fail --silent --show-error --max-time 15 "$HEALTH_URL")"; then
+        if printf '%s' "$HEALTH_PAYLOAD" | ./venv/bin/python \
+            scripts/validate_health_response.py \
+            --environment "$DEPLOY_ENVIRONMENT" --release-sha "$CURRENT_SHA"; then
+            break
+        fi
     fi
     if [[ "$attempt" == "$HEALTH_ATTEMPTS" ]]; then
         echo "Backend health check failed after ${HEALTH_ATTEMPTS} attempts: ${HEALTH_URL}" >&2

@@ -70,8 +70,8 @@ async def submit_kyc(
     company_doc: UploadFile = File(..., description="Company registration document"),
 ):
     """
-    Submit KYC documents for verification via Gemini Vision.
-    Both documents must pass for auto-approval.
+    Submit KYC documents for advisory Gemini analysis and administrator review.
+    Gemini never approves, rejects, or changes the account status.
     """
     passport_bytes, company_bytes = await read_bounded_kyc_documents(
         passport,
@@ -90,91 +90,30 @@ async def submit_kyc(
         company_bytes, company_mime, "company registration document"
     )
 
-    both_passed = passport_result["passed"] and company_result["passed"]
-
-    if both_passed:
-        previous_kyc_status = current_user.kyc_status
-        previous_account_status = current_user.status
-        current_user.kyc_status = "APPROVED"
-        current_user.kyc_rejection_reason = None
-        current_user.status = UserStatus.APPROVED
-        record_status_transition(
-            db,
-            current_user,
-            from_status=previous_account_status,
-            to_status=UserStatus.APPROVED,
-        )
-        await record_audit(
-            db,
-            user_id=current_user.id,
-            action=KYC_SUBMITTED,
-            resource_type="kyc",
-            resource_id=current_user.id,
-            changes={"kyc_record_id": str(current_user.id), "new_status": "APPROVED"},
-            **request_audit_context(request),
-        )
-        await record_audit(
-            db,
-            user_id=current_user.id,
-            action=KYC_APPROVED,
-            resource_type="kyc",
-            resource_id=current_user.id,
-            changes={
-                "kyc_record_id": str(current_user.id),
-                "kyc_status": {"from": previous_kyc_status, "to": "APPROVED"},
-                "account_status": {"from": previous_account_status.value, "to": UserStatus.APPROVED.value},
+    previous_kyc_status = current_user.kyc_status
+    current_user.kyc_status = "PENDING"
+    current_user.kyc_rejection_reason = None
+    await record_audit(
+        db,
+        user_id=current_user.id,
+        action=KYC_SUBMITTED,
+        resource_type="kyc",
+        resource_id=current_user.id,
+        changes={
+            "kyc_record_id": str(current_user.id),
+            "kyc_status": {"from": previous_kyc_status, "to": "PENDING"},
+            "gemini_advisory": {
+                "passport_passed": bool(passport_result.get("passed")),
+                "company_document_passed": bool(company_result.get("passed")),
             },
-            **request_audit_context(request),
-        )
-        await db.commit()
-        await send_kyc_approved_email(
-            current_user.email, current_user.first_name or "there"
-        )
-        return {
-            "kyc_status": current_user.kyc_status,
-            "message": "KYC verification successful. Your account is now active.",
-        }
-    else:
-        issues = []
-        if not passport_result["passed"]:
-            issues.append(f"Passport/ID: {', '.join(passport_result['issues']) or 'failed verification'}")
-        if not company_result["passed"]:
-            issues.append(f"Company doc: {', '.join(company_result['issues']) or 'failed verification'}")
-
-        rejection_reason = "; ".join(issues)
-        previous_kyc_status = current_user.kyc_status
-        current_user.kyc_status = "REJECTED"
-        current_user.kyc_rejection_reason = rejection_reason
-        await record_audit(
-            db,
-            user_id=current_user.id,
-            action=KYC_SUBMITTED,
-            resource_type="kyc",
-            resource_id=current_user.id,
-            changes={"kyc_record_id": str(current_user.id), "new_status": "REJECTED"},
-            **request_audit_context(request),
-        )
-        await record_audit(
-            db,
-            user_id=current_user.id,
-            action=KYC_REJECTED,
-            resource_type="kyc",
-            resource_id=current_user.id,
-            changes={
-                "kyc_record_id": str(current_user.id),
-                "kyc_status": {"from": previous_kyc_status, "to": "REJECTED"},
-            },
-            **request_audit_context(request),
-        )
-        await db.commit()
-        await send_kyc_rejected_email(
-            current_user.email, current_user.first_name or "there", rejection_reason
-        )
-        return {
-            "kyc_status": current_user.kyc_status,
-            "message": "KYC verification failed. Please review the issues and resubmit.",
-            "rejection_reason": rejection_reason,
-        }
+        },
+        **request_audit_context(request),
+    )
+    await db.commit()
+    return {
+        "kyc_status": current_user.kyc_status,
+        "message": "KYC submitted for authoritative admin review.",
+    }
 
 
 @router.get("/status")

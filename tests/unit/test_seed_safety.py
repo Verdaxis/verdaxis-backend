@@ -66,6 +66,22 @@ def test_seed_target_accepts_exact_disposable_and_staging_targets():
     assert staging.database_name == "verdaxis_staging"
 
 
+@pytest.mark.parametrize(
+    "query",
+    ["host=/tmp", "database=verdaxis", "target_session_attrs=read-write"],
+)
+def test_seed_target_rejects_all_connection_routing_query_parameters(query):
+    with pytest.raises(SeedTargetError, match="query parameters"):
+        resolve_seed_target(
+            _seed_env(
+                SEED_DATABASE_URL=(
+                    "postgresql://verdaxis_seed:x@127.0.0.1/verdaxis_seed_test?"
+                    + query
+                )
+            )
+        )
+
+
 def test_connected_seed_identity_must_match_and_must_not_be_superuser():
     target = resolve_seed_target(_seed_env())
     attest_connected_seed_target(

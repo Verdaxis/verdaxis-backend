@@ -24,6 +24,20 @@ _CORS_ORIGINS_BY_ENVIRONMENT = {
     "test": _LOCAL_CORS_ORIGINS,
 }
 
+_DEPLOYED_DATABASE_IDENTITIES = {
+    "production": {
+        "database": "verdaxis",
+        "app_role": "verdaxis_app",
+        "migrator_role": "verdaxis_migrator",
+    },
+    "staging": {
+        "database": "verdaxis_staging",
+        "app_role": "verdaxis_app_staging",
+        "migrator_role": "verdaxis_migrator_staging",
+    },
+}
+_DEFAULT_JWT_SECRETS = {"", "change-me-in-production", "CHANGE_ME_MIN_32_CHARS"}
+
 class Settings(BaseSettings):
     # Server
     PROJECT_NAME: str = "Verdaxis"
@@ -142,31 +156,94 @@ class Settings(BaseSettings):
             )
         self.RELEASE_SHA = release_sha
 
-        if environment == "production":
-            if len(self.JWT_SECRET) < 32:
-                raise ValueError("JWT_SECRET must be at least 32 characters in production")
+        migration_url = make_url(self.MIGRATOR_DATABASE_URL or self.DATABASE_URL)
+        if migration_url.query:
+            raise ValueError(
+                "migration database URLs must not contain query parameters"
+            )
+
+        if environment in _DEPLOYED_DATABASE_IDENTITIES:
+            identity = _DEPLOYED_DATABASE_IDENTITIES[environment]
+            if len(self.JWT_SECRET) < 32 or self.JWT_SECRET in _DEFAULT_JWT_SECRETS:
+                raise ValueError(
+                    "JWT_SECRET must be a non-default value of at least 32 characters "
+                    "in staging and production"
+                )
             if self.ENABLE_AUTH_BYPASS:
-                raise ValueError("ENABLE_AUTH_BYPASS must be false in production")
-            if self.DATABASE_PASSWORD in {"", "postgres"}:
-                raise ValueError("DATABASE_PASSWORD must be explicitly configured in production")
-            configured_user = self.DATABASE_USER.strip().lower()
-            if configured_user in {"postgres", "root"}:
                 raise ValueError(
-                    "DATABASE_USER must be a least-privilege application role in production"
+                    "ENABLE_AUTH_BYPASS must be false in staging and production"
                 )
-            effective_user = (make_url(self.DATABASE_URL).username or "").strip().lower()
-            if not effective_user or effective_user in {"postgres", "root"}:
+            if self.DB_SERVICE_COUNT != 2:
                 raise ValueError(
-                    "effective DATABASE_URL username must be a least-privilege application role in production"
+                    "DB_SERVICE_COUNT must be exactly 2 for the deployed production "
+                    "and staging topology"
                 )
-            if self.MIGRATOR_DATABASE_URL:
-                migrator_user = (
-                    make_url(self.MIGRATOR_DATABASE_URL).username or ""
-                ).strip().lower()
-                if not migrator_user or migrator_user in {"postgres", "root"}:
-                    raise ValueError(
-                        "effective MIGRATOR_DATABASE_URL username must be a least-privilege migrator role in production"
-                    )
+            if self.DB_RESERVED_CONNECTIONS < 20:
+                raise ValueError(
+                    "DB_RESERVED_CONNECTIONS must reserve at least 20 maintenance "
+                    "connections in deployed environments"
+                )
+
+            app_url = make_url(self.DATABASE_URL)
+            if not app_url.drivername.startswith("postgresql"):
+                raise ValueError(
+                    "DATABASE_URL must use PostgreSQL in staging and production"
+                )
+            if self.DATABASE_NAME != identity["database"]:
+                raise ValueError(
+                    f"{environment} database identity must be exactly "
+                    f"{identity['database']}"
+                )
+            if self.DATABASE_USER != identity["app_role"]:
+                raise ValueError(
+                    f"{environment} application role must be exactly "
+                    f"{identity['app_role']}"
+                )
+            if app_url.database != identity["database"]:
+                raise ValueError(
+                    f"effective DATABASE_URL database must be exactly "
+                    f"{identity['database']} in {environment}"
+                )
+            if app_url.username != identity["app_role"]:
+                raise ValueError(
+                    f"effective DATABASE_URL application role must be exactly "
+                    f"{identity['app_role']} in {environment}"
+                )
+            if app_url.query:
+                raise ValueError(
+                    "deployed database URLs must not contain query parameters"
+                )
+            if not app_url.password or app_url.password.lower() in {"postgres", "change_me"}:
+                raise ValueError(
+                    "DATABASE_URL password must be explicitly configured in deployed environments"
+                )
+
+            if not self.MIGRATOR_DATABASE_URL:
+                raise ValueError(
+                    "MIGRATOR_DATABASE_URL is required in staging and production"
+                )
+            if not migration_url.drivername.startswith("postgresql"):
+                raise ValueError(
+                    "MIGRATOR_DATABASE_URL must use PostgreSQL in staging and production"
+                )
+            if migration_url.database != identity["database"]:
+                raise ValueError(
+                    f"effective MIGRATOR_DATABASE_URL database must be exactly "
+                    f"{identity['database']} in {environment}"
+                )
+            if migration_url.username != identity["migrator_role"]:
+                raise ValueError(
+                    f"effective MIGRATOR_DATABASE_URL migrator role must be exactly "
+                    f"{identity['migrator_role']} in {environment}"
+                )
+            if app_url.username == migration_url.username:
+                raise ValueError(
+                    "runtime application and migrator database roles must be distinct"
+                )
+            if not migration_url.password:
+                raise ValueError(
+                    "MIGRATOR_DATABASE_URL password must be explicitly configured in deployed environments"
+                )
         return self
 
     # Security

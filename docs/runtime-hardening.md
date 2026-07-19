@@ -11,14 +11,14 @@ services × workers × (pool_size + max_overflow) + maintenance reserve
 2 × 4 × (2 + 1) + 20 = 44 ≤ PostgreSQL max_connections=100
 ```
 
-`Settings` validates this shared aggregate for both deployed environments. Startup
-queries `current_user`, `pg_roles.rolsuper`, and `SHOW max_connections`; an
-effective URL/connected-role mismatch, superuser connection, or aggregate over
-the observed server limit aborts startup. It rejects
-non-positive values, a reserved budget at or above the PostgreSQL limit, and a
-worker capacity that exceeds the available connection budget. The reserve is
-for migrations, administration, and other processes; it is not a promise that
-PostgreSQL creates those clients.
+`Settings` validates this shared aggregate for both deployed environments.
+Production and staging require exactly two application services and a minimum
+20-connection maintenance reserve, so configuration cannot undercount the
+immutable deployed topology. Startup attests `current_database()`,
+`current_user`, exact role properties, absence of every membership/`SET ROLE`
+path, and `SHOW max_connections`; an identity or capacity mismatch aborts
+startup. The reserve is for migrations, administration, and other processes;
+it is not a promise that PostgreSQL creates those clients.
 
 ## KYC upload limits and service memory
 
@@ -46,7 +46,9 @@ Each unit runs `alembic current --check-heads` before Uvicorn and passes the
 same `UVICORN_WORKERS=4` value used by application pool math,
 sets `PYTHONDONTWRITEBYTECODE=1`, and applies a read-only systemd sandbox. No
 broad source-tree `ReadWritePaths` grant is present. The checked-in units are
-artifacts only; this change does not install or deploy them.
+artifacts only; this change does not install or deploy them. Scheduled jobs
+must run as one external singleton per job. Uvicorn workers do not create a
+news refresh scheduler.
 
 The units also require the gitignored `.runtime-release.env` artifact. After a
 successful fast-forward and migration, `scripts/deploy.sh` resolves the full
@@ -57,10 +59,41 @@ production refuse startup without a full SHA; development/test may explicitly
 use their named placeholder. Existing deployments need the updated unit and a
 deploy-helper run together—do not invent a placeholder SHA to bridge rollout.
 
+`scripts/install_systemd_units.sh` provides the operator path and defaults to a
+no-change dry run. With explicit `--apply`, it requires clean production and
+staging checkouts, validates environment/release identity, runs the application
+database/CORS/auth preflight, verifies exact Alembic heads and both unit files,
+installs only changed units, and calls `systemctl daemon-reload` only after a
+change. It never enables, starts, or restarts either service. Installation and
+daemon reload remain operator-held live actions.
+
+Deploys categorically reject dirty trees before and after preparation because
+a commit SHA cannot identify modified source. The readiness gate parses JSON
+and requires exact `status="ok"`, target environment, and full deployed SHA.
+A rollback is a clean forward revert commit published as a new release through
+the same preflight, migration, release-artifact, restart, and health gates.
+Never automatically run an Alembic downgrade or edit `.runtime-release.env` to
+impersonate an older checkout; schema rollback requires a separately reviewed,
+forward-compatible corrective migration.
+
 ## Database roles and session timeouts
 
-The application URL must use a least-privilege runtime role (for example
-`verdaxis_app`, not `postgres`). Each application connection sets:
+Deployed identities are exact:
+
+| Environment | Database | Runtime app role | Migrator role |
+|---|---|---|---|
+| production | `verdaxis` | `verdaxis_app` | `verdaxis_migrator` |
+| staging | `verdaxis_staging` | `verdaxis_app_staging` | `verdaxis_migrator_staging` |
+
+Both environments require PostgreSQL URLs, explicit non-default passwords, a
+non-default JWT of at least 32 characters, and disabled auth bypass. SQLite,
+missing migrator URLs, shared app/migrator roles, cross-environment identities,
+and every URL query parameter are rejected. Runtime and migration startup each
+attest the exact `current_database()`, `current_user`, LOGIN/NOINHERIT and
+non-superuser/non-createdb/non-createrole/non-replication/non-bypass-RLS role
+properties, plus the absence of role memberships.
+
+Each application connection sets:
 
 ```text
 statement_timeout=30s
@@ -86,9 +119,16 @@ ALTER ROLE verdaxis_migrator SET idle_in_transaction_session_timeout = '300s';
 The idempotent executable artifacts are
 `deploy/postgres/bootstrap_roles.sql` and `deploy/postgres/validate_roles.sql`.
 They provision app, migrator, and read-only backup roles; transfer public
-table/sequence ownership to the migrator; grant existing and default table and
-sequence privileges; restrict database DDL authority to the migrator; revoke
-public defaults; and set per-database timeouts.
+database/schema and application table/sequence ownership to the migrator;
+remove every protected-role membership edge (including inherited superuser and
+`SET ROLE` paths); revoke stale direct/default ACLs; and reconstruct exact
+least-privilege grants. App-owned objects exclude `alembic_version`,
+`spatial_ref_sys`, and extension-owned objects. The app receives table
+`SELECT/INSERT/UPDATE/DELETE` and sequence `USAGE/SELECT/UPDATE`; backup receives
+only table/sequence `SELECT`. Validation checks exact ownership, role
+properties, memberships, effective privileges, unexpected grantees, default
+ACL set equality, backup write absence, excluded-object immutability, and exact
+per-database timeouts.
 Run them as the database owner with explicit psql variables, for example:
 
 ```bash
@@ -107,7 +147,9 @@ psql --dbname "$ADMIN_DATABASE_URL" \
 ```
 
 Passwords are intentionally absent. Provision them through the secret manager.
-This pass deliberately does not add RLS. Market lock timeout, deadlock, and
+This pass deliberately does not add RLS. SQLAlchemy engines use
+`hide_parameters=True`; database error logs contain only exception class,
+SQLSTATE, request ID, and route. Market lock timeout, deadlock, and
 serialization failures return a generic bounded `503` with `Retry-After: 1`.
 
 ## Integration safety
@@ -145,11 +187,16 @@ Seed entrypoints use `app.seeds.safety` and require four independent values:
 Only loopback targets are accepted. Production/system databases and superuser
 roles are always denied; disposable names end in `_test`, staging is exactly
 `verdaxis_staging`, and availability-window literals must already be canonical.
+Every connection-routing URL query parameter (including `host` and `database`)
+is rejected. Seeders and Alembic attest `current_database()` before mutations.
 
-The removed tracked credential must be rotated as a separate operator action:
-create/verify a replacement secret and least-privilege role, update the secret
-store and deployed environment, then revoke the exposed credential. No live
-credential, database, or service is changed by this branch.
+The removed tracked credential must be rotated as a separate operator action.
+Current-tree source cleanup is insufficient, and repository history rewriting
+is not a substitute for credential rotation. The approved operator procedure
+is: create and verify a replacement least-privilege credential, update the
+secret store and deployed environment, attest the replacement role, then revoke
+the exposed credential. No live credential, database, or service is changed by
+this branch.
 
 ## Health and credentialed CORS
 
@@ -159,6 +206,10 @@ or failure. Both success and failure JSON include only the validated
 `environment` and `release_sha`, allowing an external monitor to compare the
 immutable expected artifact. Off-host monitors and deploy checks use
 `/health/ready`; liveness is not a deployment/readiness signal.
+
+The deploy checker does not substring-match this response. It parses JSON and
+requires the exact success status, target environment, and expected full SHA;
+wrong environment, wrong SHA, malformed JSON, and degraded status all fail.
 
 Credentialed CORS has exact environment allowlists: production permits only
 `https://verdaxis.exchange` and `https://app.verdaxis.exchange`; staging only
@@ -195,7 +246,11 @@ drops data in this branch. The exact redundant single-column orderbook indexes
 `ix_orderbook_orders_org`) are removed by the migration and model; the active
 slice lookup index remains. Downgrade refuses narrowing `fuel_type` to eight
 characters while values such as `Biomethane` exist and reports the required
-cleanup, rather than failing with an opaque truncation error.
+cleanup, rather than failing with an opaque truncation error. Roundtrip coverage
+builds the down revision independently and compares every touched column and
+index after downgrade; in particular, `commissions.match_id` is restored as
+`NOT NULL`. This migration contains runtime metadata normalization only: it
+does not create/drop tables or include KYC, security, or market feature DDL.
 
 ## Alembic integration order
 
@@ -216,10 +271,11 @@ line. Do not create an empty merge-head workaround. The runtime migration is
 independently testable now and can be folded into the final combined migration
 if exact model alignment makes that simpler.
 
-The security branch owns the KYC route/body workflow. Integration must retain
-its route-level body bound while preserving this branch's bounded streaming
-regression coverage for missing and lying `Content-Length`; neither branch
-should overwrite the other's upload semantics.
-Gemini document analysis remains advisory only: it must never activate an
-account by itself. A trusted administrator approves or rejects KYC after
-review, and integration must preserve that human-approval boundary.
+Integration must retain the KYC route-level body bound and bounded streaming
+regression coverage for missing and lying `Content-Length`. Gemini document
+analysis remains advisory only: pass, fail, and unavailable results all leave
+KYC pending and never activate or reject an account. Only trusted administrator
+approve/reject routes are authoritative. Integration must also preserve the
+absence of per-worker news schedulers and the removed legacy compliance-ledger,
+compliance-verify, and dashboard-health routes; every scheduled job has one
+external scheduler.

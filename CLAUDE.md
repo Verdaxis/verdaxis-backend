@@ -9,7 +9,7 @@ The live VPS deployment is systemd-based, not Docker-based:
 - Production Uvicorn binds `127.0.0.1:8000`; staging binds `127.0.0.1:8001`. Caddy/reverse-proxy health URLs are the public surfaces.
 - Deploy helper: `./scripts/deploy.sh`
 
-The deploy helper prints branch, SHA, service, and health target, refuses dirty worktrees by default, runs Alembic, atomically writes the checked-out full SHA to the gitignored `.runtime-release.env`, restarts the correct systemd service, and checks readiness. The app consumes this artifact from systemd and never invokes Git. Use `./scripts/deploy.sh --dry-run` before real deploys. Use `ALLOW_DIRTY=1` only for an intentional hotfix deploy from a known dirty tree.
+The deploy helper always refuses dirty worktrees, preflights the exact environment/database/app identity, runs Alembic with a distinct migrator identity, atomically writes the checked-out full SHA to the gitignored `.runtime-release.env`, restarts the correct systemd service, and accepts readiness only when parsed JSON reports exact `status=ok`, environment, and full release SHA. The app consumes this artifact from systemd and never invokes Git. Use `./scripts/deploy.sh --dry-run` before real deploys. There is no dirty-deploy override.
 
 Read ARCHITECTURE.md before exploring the codebase.
 
@@ -154,13 +154,10 @@ cd /home/verdaxis-prod/verdaxis/staging/be   # or /home/verdaxis-prod/verdaxis/p
 - `GET /api/inventory` -- Supplier's inventory
 - `POST /api/inventory` -- Add inventory item
 - `POST /api/inventory/{id}/publish` -- Convert inventory to ASK order
-- `GET /api/compliance/ledger` -- Org compliance records
-- `POST /api/compliance/verify` -- Upload document for AI verification (stub)
 - `POST /api/ai/chat` -- Gemini chat
 - `GET /api/matchmaking/suggestions` -- Match suggestions for org
 - `POST /api/matchmaking/generate/{order_id}` -- Trigger match generation
 - `PATCH /api/matchmaking/suggestions/{id}/dismiss`
-- `GET /api/dashboard/health` -- System metrics (CPU, RAM, disk)
 
 ### Admin Only
 - `GET /api/orders/admin/commissions` -- All commissions
@@ -249,10 +246,10 @@ RELEASE_SHA=...                 # Full 40-hex SHA required in staging/production
 DATABASE_HOST=verdaxis-db       # "localhost" for non-Docker
 DATABASE_PORT=5432
 DATABASE_NAME=verdaxis
-DATABASE_USER=verdaxis_app       # least-privilege runtime role in deployed envs
+DATABASE_USER=verdaxis_app       # prod exact; staging is verdaxis_app_staging
 DATABASE_PASSWORD=...
 DATABASE_URL=                   # Optional override (e.g. sqlite+aiosqlite:///:memory: for tests)
-MIGRATOR_DATABASE_URL=          # Optional separate least-privilege Alembic role URL
+MIGRATOR_DATABASE_URL=          # Required deployed: verdaxis_migrator[_staging], same DB
 JWT_SECRET=...                  # MUST be strong in production
 GEMINI_API_KEY=...              # Optional, AI features degrade gracefully without it
 ADMIN_USERNAME=...              # For /admin panel login
@@ -261,9 +258,9 @@ ENABLE_AUTH_BYPASS=false        # Never true in production
 DB_POOL_SIZE=2                  # Per-worker SQLAlchemy pool
 DB_MAX_OVERFLOW=1               # Per-worker overflow; see docs/runtime-hardening.md
 UVICORN_WORKERS=4               # Authoritative systemd/config/pool worker count
-DB_SERVICE_COUNT=2              # Shared prod + staging budget
+DB_SERVICE_COUNT=2              # Immutable deployed prod + staging topology
 DB_MAX_CONNECTIONS=100
-DB_RESERVED_CONNECTIONS=20
+DB_RESERVED_CONNECTIONS=20      # Deployed minimum maintenance reserve
 DB_STATEMENT_TIMEOUT_MS=30000
 DB_LOCK_TIMEOUT_MS=3000
 DB_IDLE_IN_TRANSACTION_SESSION_TIMEOUT_MS=60000

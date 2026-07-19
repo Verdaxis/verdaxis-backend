@@ -11,7 +11,11 @@ from slowapi.errors import RateLimitExceeded
 from sqlalchemy.exc import DBAPIError
 
 from app.config import settings
-from app.services.db_errors import is_contention_error, is_market_path
+from app.services.db_errors import (
+    database_error_log_fields,
+    is_contention_error,
+    is_market_path,
+)
 from app.rate_limit import limiter
 from app.routers.auth_simple import router as auth_router
 from app.admin import setup_admin
@@ -19,7 +23,6 @@ from app.admin import setup_admin
 from app.routers.ports import router as ports_router
 from app.routers.vessels import router as vessels_router
 from app.routers.inventory import router as inventory_router
-from app.routers.compliance import router as compliance_router
 from app.routers.ai import router as ai_router
 from app.routers.orders import router as orders_router
 from app.routers.notifications import router as notifications_router
@@ -81,7 +84,8 @@ _docs_url = "/docs" if os.getenv("ENVIRONMENT") != "production" else None
 _redoc_url = "/redoc" if os.getenv("ENVIRONMENT") != "production" else None
 
 # ---------------------------------------------------------------------------
-# Lifespan: background news feed refresh every 15 minutes
+# Lifespan: runtime identity attestation only. Scheduled jobs are external
+# singletons; never start one scheduler per Uvicorn worker.
 # ---------------------------------------------------------------------------
 from contextlib import asynccontextmanager
 
@@ -90,21 +94,7 @@ async def lifespan(app: FastAPI):
     from app.database import verify_database_runtime
 
     await verify_database_runtime()
-
-    async def _news_refresh_loop():
-        from app.database import AsyncSessionLocal
-        from app.services.news_feed import refresh_news
-        while True:
-            try:
-                async with AsyncSessionLocal() as db:
-                    await refresh_news(db)
-            except Exception:
-                logger.warning("news_refresh_loop.error", exc_info=True)
-            await asyncio.sleep(900)  # 15 minutes
-
-    task = asyncio.create_task(_news_refresh_loop())
     yield
-    task.cancel()
 
 app = FastAPI(
     title="Verdaxis Intelligence Cockpit",
@@ -137,11 +127,13 @@ async def database_contention_handler(request: Request, exc: DBAPIError):
             content={"detail": "Market is temporarily busy; retry shortly."},
             headers={"Retry-After": "1"},
         )
-    logger.exception(
+    logger.error(
         "database_operation_failed",
-        method=getattr(request, "method", None),
-        path=request.url.path,
-        exc_info=exc,
+        **database_error_log_fields(
+            exc,
+            request_id=request_id_ctx.get(),
+            route=request.url.path,
+        ),
     )
     return JSONResponse(
         status_code=500,
@@ -202,7 +194,6 @@ app.include_router(auth_router, prefix=settings.API_V1_STR)
 app.include_router(ports_router, prefix=settings.API_V1_STR)
 app.include_router(vessels_router, prefix=settings.API_V1_STR)
 app.include_router(inventory_router, prefix=settings.API_V1_STR)
-app.include_router(compliance_router, prefix=settings.API_V1_STR)
 app.include_router(ai_router, prefix=settings.API_V1_STR)
 app.include_router(orders_router, prefix=settings.API_V1_STR)
 app.include_router(notifications_router, prefix=settings.API_V1_STR)
@@ -234,10 +225,6 @@ app.include_router(fleet_intel_router, prefix=settings.API_V1_STR)
 app.include_router(benchmarks_router, prefix=settings.API_V1_STR)
 app.include_router(monitor_router, prefix=settings.API_V1_STR)
 
-from app.routers import dashboard
-app.include_router(dashboard.router, prefix=settings.API_V1_STR)
-
-
 @app.get("/")
 async def root():
     return {"message": "Verdaxis API is running", "version": "1.0.0"}
@@ -266,8 +253,21 @@ async def health_ready():
             async with engine.connect() as conn:
                 await conn.execute(text("SELECT 1"))
         return {"status": "ok", "db": "connected", **provenance}
-    except Exception:
-        logger.exception("health_readiness_failed")
+    except DBAPIError as exc:
+        logger.error(
+            "health_readiness_database_failed",
+            **database_error_log_fields(
+                exc,
+                request_id=request_id_ctx.get(),
+                route="/health/ready",
+            ),
+        )
+        return JSONResponse(
+            status_code=503,
+            content={"status": "error", "db": "unavailable", **provenance},
+        )
+    except Exception as exc:
+        logger.error("health_readiness_failed", error_class=type(exc).__name__)
         return JSONResponse(
             status_code=503,
             content={"status": "error", "db": "unavailable", **provenance},

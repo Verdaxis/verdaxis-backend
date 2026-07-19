@@ -55,7 +55,7 @@ async def test_readiness_failure_and_timeout_are_bounded_and_sanitized(
     monkeypatch.setattr(
         main,
         "logger",
-        type("Logger", (), {"exception": lambda self, *args, **kwargs: calls.append(1)})(),
+        type("Logger", (), {"error": lambda self, *args, **kwargs: calls.append(1)})(),
     )
 
     response = await main.health_ready()

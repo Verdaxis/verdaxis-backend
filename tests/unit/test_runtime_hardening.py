@@ -43,6 +43,49 @@ def _settings(**overrides):
     return Settings(**values)
 
 
+def _deployed_values(environment: str) -> dict:
+    identities = {
+        "production": ("verdaxis", "verdaxis_app", "verdaxis_migrator"),
+        "staging": (
+            "verdaxis_staging",
+            "verdaxis_app_staging",
+            "verdaxis_migrator_staging",
+        ),
+    }
+    database, app_role, migrator_role = identities[environment]
+    return {
+        "ENVIRONMENT": environment,
+        "RELEASE_SHA": "a" * 40,
+        "DATABASE_NAME": database,
+        "DATABASE_USER": app_role,
+        "DATABASE_PASSWORD": "not-a-default",
+        "DATABASE_URL": (
+            f"postgresql+asyncpg://{app_role}:not-a-default@localhost/{database}"
+        ),
+        "MIGRATOR_DATABASE_URL": (
+            f"postgresql+asyncpg://{migrator_role}:not-a-default@localhost/{database}"
+        ),
+        "JWT_SECRET": "x" * 32,
+    }
+
+
+def _role_attestation(database: str, user: str, **overrides) -> dict:
+    values = {
+        "connected_database": database,
+        "connected_user": user,
+        "role_can_login": True,
+        "role_inherits_privileges": False,
+        "connected_role_is_superuser": False,
+        "role_can_create_database": False,
+        "role_can_create_role": False,
+        "role_can_replicate": False,
+        "role_bypasses_rls": False,
+        "role_has_memberships": False,
+    }
+    values.update(overrides)
+    return values
+
+
 def test_pool_defaults_leave_headroom_for_four_workers_on_postgres_max_100():
     settings = _settings()
 
@@ -133,24 +176,19 @@ def test_postgres_engine_options_use_validated_per_worker_pool_settings():
 
 def test_production_validates_the_effective_database_url_username(monkeypatch):
     monkeypatch.setenv("ENVIRONMENT", "production")
-    with pytest.raises(ValidationError, match="effective DATABASE_URL username"):
+    with pytest.raises(ValidationError, match="effective DATABASE_URL application role"):
         Settings(
-            ENVIRONMENT="production",
-            RELEASE_SHA="a" * 40,
-            DATABASE_USER="verdaxis_app",
-            DATABASE_PASSWORD="not-a-default",
-            DATABASE_URL="postgresql+asyncpg://postgres:not-a-default@localhost/verdaxis",
-            JWT_SECRET="x" * 32,
+            **{
+                **_deployed_values("production"),
+                "DATABASE_URL": "postgresql+asyncpg://postgres:not-a-default@localhost/verdaxis",
+            }
         )
-    with pytest.raises(ValidationError, match="effective MIGRATOR_DATABASE_URL username"):
+    with pytest.raises(ValidationError, match="effective MIGRATOR_DATABASE_URL migrator role"):
         Settings(
-            ENVIRONMENT="production",
-            RELEASE_SHA="a" * 40,
-            DATABASE_USER="verdaxis_app",
-            DATABASE_PASSWORD="not-a-default",
-            DATABASE_URL="postgresql+asyncpg://verdaxis_app:not-a-default@localhost/verdaxis",
-            MIGRATOR_DATABASE_URL="postgresql+asyncpg://postgres:not-a-default@localhost/verdaxis",
-            JWT_SECRET="x" * 32,
+            **{
+                **_deployed_values("production"),
+                "MIGRATOR_DATABASE_URL": "postgresql+asyncpg://postgres:not-a-default@localhost/verdaxis",
+            }
         )
 
 
@@ -160,16 +198,14 @@ def test_database_startup_identity_and_observed_capacity_are_attested():
     )
     assert_database_runtime_is_safe(
         settings,
-        connected_user="verdaxis_app",
-        connected_role_is_superuser=False,
         observed_max_connections=100,
+        **_role_attestation("verdaxis_test", "verdaxis_app"),
     )
     with pytest.raises(RuntimeError, match="does not match"):
         assert_database_runtime_is_safe(
             settings,
-            connected_user="unexpected_role",
-            connected_role_is_superuser=False,
             observed_max_connections=100,
+            **_role_attestation("verdaxis_test", "unexpected_role"),
         )
 
     database_source = (Path(__file__).parents[2] / "app/database.py").read_text()
@@ -183,34 +219,37 @@ def test_migrator_connected_role_is_attested():
     )
     assert_migrator_connection_is_safe(
         settings,
-        connected_user="verdaxis_migrator",
-        connected_role_is_superuser=False,
+        **_role_attestation("verdaxis_test", "verdaxis_migrator"),
     )
     with pytest.raises(RuntimeError, match="migrator current_user does not match"):
         assert_migrator_connection_is_safe(
             settings,
-            connected_user="verdaxis_app",
-            connected_role_is_superuser=False,
+            **_role_attestation("verdaxis_test", "verdaxis_app"),
         )
     with pytest.raises(RuntimeError, match="superuser"):
         assert_migrator_connection_is_safe(
             settings,
-            connected_user="verdaxis_migrator",
-            connected_role_is_superuser=True,
+            **_role_attestation(
+                "verdaxis_test",
+                "verdaxis_migrator",
+                connected_role_is_superuser=True,
+            ),
         )
     with pytest.raises(RuntimeError, match="superuser"):
         assert_database_runtime_is_safe(
             settings,
-            connected_user="verdaxis_app",
-            connected_role_is_superuser=True,
             observed_max_connections=100,
+            **_role_attestation(
+                "verdaxis_test",
+                "verdaxis_app",
+                connected_role_is_superuser=True,
+            ),
         )
     with pytest.raises(RuntimeError, match="max_connections"):
         assert_database_runtime_is_safe(
             settings,
-            connected_user="verdaxis_app",
-            connected_role_is_superuser=False,
             observed_max_connections=40,
+            **_role_attestation("verdaxis_test", "verdaxis_app"),
         )
 
 
@@ -228,12 +267,8 @@ def test_app_config_imports_without_ambient_configuration():
 
 @pytest.mark.parametrize("environment", ["staging", "production"])
 def test_deployed_environments_require_full_release_sha(environment):
-    values = {
-        "ENVIRONMENT": environment,
-        "DATABASE_PASSWORD": "not-a-default",
-        "DATABASE_URL": "postgresql+asyncpg://verdaxis_app:not-a-default@localhost/verdaxis",
-        "JWT_SECRET": "x" * 32,
-    }
+    values = _deployed_values(environment)
+    values.pop("RELEASE_SHA")
     with pytest.raises(ValidationError, match="RELEASE_SHA"):
         Settings(**values)
     settings = Settings(**values, RELEASE_SHA="a" * 40)
@@ -267,13 +302,11 @@ def test_non_deployed_environments_allow_only_their_explicit_placeholder(
 )
 def test_cors_defaults_are_environment_specific(monkeypatch, environment, expected):
     monkeypatch.setenv("ENVIRONMENT", environment)
-    values = {"ENVIRONMENT": environment, "RELEASE_SHA": "a" * 40 if environment in {"production", "staging"} else environment}
-    if environment == "production":
-        values.update(
-            DATABASE_PASSWORD="not-a-default",
-            DATABASE_URL="postgresql+asyncpg://verdaxis_app:not-a-default@localhost/verdaxis",
-            JWT_SECRET="x" * 32,
-        )
+    values = (
+        _deployed_values(environment)
+        if environment in {"production", "staging"}
+        else {"ENVIRONMENT": environment, "RELEASE_SHA": environment}
+    )
     settings = Settings(**values)
     assert set(settings.BACKEND_CORS_ORIGINS) == expected
 
@@ -296,17 +329,12 @@ def test_credentialed_cors_rejects_cross_environment_or_non_origin_values(
     monkeypatch, environment, origin
 ):
     monkeypatch.setenv("ENVIRONMENT", environment)
-    values = {
-        "ENVIRONMENT": environment,
-        "RELEASE_SHA": "a" * 40 if environment in {"production", "staging"} else environment,
-        "BACKEND_CORS_ORIGINS": [origin],
-    }
-    if environment == "production":
-        values.update(
-            DATABASE_PASSWORD="not-a-default",
-            DATABASE_URL="postgresql+asyncpg://verdaxis_app:not-a-default@localhost/verdaxis",
-            JWT_SECRET="x" * 32,
-        )
+    values = (
+        _deployed_values(environment)
+        if environment in {"production", "staging"}
+        else {"ENVIRONMENT": environment, "RELEASE_SHA": environment}
+    )
+    values["BACKEND_CORS_ORIGINS"] = [origin]
     with pytest.raises(ValidationError, match="CORS"):
         Settings(**values)
 
@@ -678,8 +706,12 @@ def test_least_privilege_role_artifacts_cover_existing_and_future_objects():
         assert role in bootstrap
         assert role in validation
     assert "NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION" in bootstrap
-    assert "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES" in bootstrap
-    assert "GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES" in bootstrap
+    assert "GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE" in bootstrap
+    assert "GRANT USAGE, SELECT, UPDATE ON SEQUENCE" in bootstrap
+    assert "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES" not in bootstrap
+    assert "alembic_version" in bootstrap
+    assert "spatial_ref_sys" in bootstrap
+    assert "pg_auth_members" in bootstrap
     assert "ALTER DEFAULT PRIVILEGES FOR ROLE" in bootstrap
     assert "statement_timeout" in bootstrap
     assert "idle_in_transaction_session_timeout" in bootstrap

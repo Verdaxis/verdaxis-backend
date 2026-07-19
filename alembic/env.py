@@ -91,6 +91,7 @@ async def run_async_migrations() -> None:
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
         connect_args=migrator_connect_args(settings),
+        hide_parameters=True,
     )
 
     async with connectable.connect() as connection:

@@ -5,6 +5,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import selectinload
 
 from app.database import get_db
@@ -140,9 +141,11 @@ async def add_inventory(
         return db_item
     except HTTPException:
         raise
+    except DBAPIError:
+        raise
     except Exception as e:
         await db.rollback()
-        logger.error(f"Failed to create inventory item: {e}", exc_info=True)
+        logger.error("inventory_create_failed", extra={"error_class": type(e).__name__})
         raise HTTPException(status_code=500, detail=f"Failed to create inventory item: {str(e)}")
 
 @router.patch("/inventory/{item_id}", response_model=InventoryResponse)

@@ -1,6 +1,11 @@
 \set ON_ERROR_STOP on
 
 SELECT 1 / (current_database() = :'database_name')::integer;
+SELECT 1 / (
+    :'app_role' <> :'migrator_role'
+    AND :'app_role' <> :'backup_role'
+    AND :'migrator_role' <> :'backup_role'
+)::integer;
 
 CREATE OR REPLACE FUNCTION pg_temp.assert_role_policy(ok boolean, message text)
 RETURNS void LANGUAGE plpgsql AS $$
@@ -13,91 +18,179 @@ $$;
 
 SELECT pg_temp.assert_role_policy(
     count(*) = 3 AND bool_and(
-        rolcanlogin AND NOT rolsuper AND NOT rolcreatedb AND NOT rolcreaterole
-        AND NOT rolreplication AND NOT rolbypassrls
+        rolcanlogin AND NOT rolinherit AND NOT rolsuper AND NOT rolcreatedb
+        AND NOT rolcreaterole AND NOT rolreplication AND NOT rolbypassrls
     ),
-    'roles must exist and be least privilege'
+    'roles must exist with exact least-privilege properties'
 )
 FROM pg_catalog.pg_roles
 WHERE rolname IN (:'app_role', :'migrator_role', :'backup_role');
 
 SELECT pg_temp.assert_role_policy(
-    has_database_privilege(:'migrator_role', :'database_name', 'CREATE,TEMPORARY')
-    AND NOT has_database_privilege(:'app_role', :'database_name', 'CREATE')
-    AND NOT has_database_privilege(:'backup_role', :'database_name', 'CREATE'),
-    'database DDL authority must be restricted to migrator_role'
+    NOT EXISTS (
+        SELECT 1
+        FROM pg_catalog.pg_auth_members AS membership
+        JOIN pg_catalog.pg_roles AS granted ON granted.oid = membership.roleid
+        JOIN pg_catalog.pg_roles AS member ON member.oid = membership.member
+        WHERE granted.rolname IN (:'app_role', :'migrator_role', :'backup_role')
+           OR member.rolname IN (:'app_role', :'migrator_role', :'backup_role')
+    ),
+    'protected roles must have no memberships or SET ROLE path'
+);
+
+SELECT pg_temp.assert_role_policy(
+    (SELECT owner.rolname
+     FROM pg_catalog.pg_database AS database
+     JOIN pg_catalog.pg_roles AS owner ON owner.oid = database.datdba
+     WHERE database.datname = :'database_name') = :'migrator_role',
+    'database owner must be migrator_role'
+);
+SELECT pg_temp.assert_role_policy(
+    (SELECT owner.rolname
+     FROM pg_catalog.pg_namespace AS namespace
+     JOIN pg_catalog.pg_roles AS owner ON owner.oid = namespace.nspowner
+     WHERE namespace.nspname = 'public') = :'migrator_role',
+    'public schema owner must be migrator_role'
+);
+
+SELECT pg_temp.assert_role_policy(
+    has_database_privilege(:'app_role', :'database_name', 'CONNECT')
+    AND NOT has_database_privilege(:'app_role', :'database_name', 'CREATE,TEMPORARY')
+    AND has_database_privilege(:'backup_role', :'database_name', 'CONNECT')
+    AND NOT has_database_privilege(:'backup_role', :'database_name', 'CREATE,TEMPORARY'),
+    'app and backup database privileges must be CONNECT only'
+);
+SELECT pg_temp.assert_role_policy(
+    has_schema_privilege(:'app_role', 'public', 'USAGE')
+    AND NOT has_schema_privilege(:'app_role', 'public', 'CREATE')
+    AND has_schema_privilege(:'backup_role', 'public', 'USAGE')
+    AND NOT has_schema_privilege(:'backup_role', 'public', 'CREATE'),
+    'app and backup schema privileges must be USAGE only'
+);
+
+CREATE TEMP VIEW app_policy_objects AS
+SELECT object.oid, object.relname, object.relkind, object.relowner, object.relacl
+FROM pg_catalog.pg_class AS object
+JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = object.relnamespace
+WHERE namespace.nspname = 'public'
+  AND object.relkind IN ('r', 'p', 'S')
+  AND object.relname NOT IN ('alembic_version', 'spatial_ref_sys')
+  AND NOT EXISTS (
+      SELECT 1 FROM pg_catalog.pg_depend AS dependency
+      WHERE dependency.classid = 'pg_class'::regclass
+        AND dependency.objid = object.oid AND dependency.deptype = 'e'
+  );
+
+SELECT pg_temp.assert_role_policy(
+    NOT EXISTS (
+        SELECT 1 FROM app_policy_objects AS object
+        JOIN pg_catalog.pg_roles AS owner ON owner.oid = object.relowner
+        WHERE owner.rolname <> :'migrator_role'
+    ),
+    'every app-owned object must be owned by migrator_role'
 );
 
 SELECT pg_temp.assert_role_policy(
     NOT EXISTS (
-        SELECT 1 FROM pg_catalog.pg_tables
-        WHERE schemaname = 'public'
-          AND NOT has_table_privilege(:'app_role', format('%I.%I', schemaname, tablename), 'SELECT,INSERT,UPDATE,DELETE')
+        SELECT 1 FROM app_policy_objects AS object
+        WHERE object.relkind IN ('r', 'p') AND (
+            NOT has_table_privilege(:'app_role', object.oid, 'SELECT,INSERT,UPDATE,DELETE')
+            OR has_table_privilege(:'app_role', object.oid, 'TRUNCATE,REFERENCES,TRIGGER')
+            OR NOT has_table_privilege(:'backup_role', object.oid, 'SELECT')
+            OR has_table_privilege(:'backup_role', object.oid, 'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+        )
     ),
-    'app_role lacks table DML'
+    'app-object table privileges are not exact'
 );
 SELECT pg_temp.assert_role_policy(
     NOT EXISTS (
-        SELECT 1 FROM pg_catalog.pg_tables
-        WHERE schemaname = 'public'
-          AND (
-              NOT has_table_privilege(:'backup_role', format('%I.%I', schemaname, tablename), 'SELECT')
-              OR has_table_privilege(:'backup_role', format('%I.%I', schemaname, tablename), 'INSERT,UPDATE,DELETE')
-          )
+        SELECT 1 FROM app_policy_objects AS object
+        WHERE object.relkind = 'S' AND (
+            NOT has_sequence_privilege(:'app_role', object.oid, 'USAGE,SELECT,UPDATE')
+            OR NOT has_sequence_privilege(:'backup_role', object.oid, 'SELECT')
+            OR has_sequence_privilege(:'backup_role', object.oid, 'USAGE,UPDATE')
+        )
     ),
-    'backup_role table privileges are not read only'
-);
-SELECT pg_temp.assert_role_policy(
-    NOT EXISTS (
-        SELECT 1 FROM pg_catalog.pg_sequences
-        WHERE schemaname = 'public'
-          AND NOT has_sequence_privilege(:'app_role', format('%I.%I', schemaname, sequencename), 'USAGE,SELECT,UPDATE')
-    ),
-    'app_role lacks sequence privileges'
-);
-SELECT pg_temp.assert_role_policy(
-    NOT EXISTS (
-        SELECT 1 FROM pg_catalog.pg_sequences
-        WHERE schemaname = 'public'
-          AND (
-              NOT has_sequence_privilege(:'backup_role', format('%I.%I', schemaname, sequencename), 'SELECT')
-              OR has_sequence_privilege(:'backup_role', format('%I.%I', schemaname, sequencename), 'USAGE,UPDATE')
-          )
-    ),
-    'backup_role sequence privileges are not read only'
+    'app-object sequence privileges are not exact'
 );
 
-WITH expected(role_name, object_type, privileges) AS (
+SELECT pg_temp.assert_role_policy(
+    NOT EXISTS (
+        SELECT 1
+        FROM app_policy_objects AS object
+        CROSS JOIN LATERAL aclexplode(
+            COALESCE(
+                object.relacl,
+                acldefault(
+                    CASE WHEN object.relkind = 'S' THEN 'S'::"char" ELSE 'r'::"char" END,
+                    object.relowner
+                )
+            )
+        ) AS acl
+        LEFT JOIN pg_catalog.pg_roles AS grantee ON grantee.oid = acl.grantee
+        WHERE acl.grantee = 0
+           OR grantee.rolname NOT IN (:'app_role', :'migrator_role', :'backup_role')
+    ),
+    'app-owned objects contain grants to an unexpected role or PUBLIC'
+);
+
+SELECT pg_temp.assert_role_policy(
+    NOT EXISTS (
+        SELECT 1
+        FROM pg_catalog.pg_class AS object
+        JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = object.relnamespace
+        WHERE namespace.nspname = 'public'
+          AND object.relkind IN ('r', 'p')
+          AND (
+              object.relname IN ('alembic_version', 'spatial_ref_sys')
+              OR EXISTS (
+                  SELECT 1 FROM pg_catalog.pg_depend AS dependency
+                  WHERE dependency.classid = 'pg_class'::regclass
+                    AND dependency.objid = object.oid AND dependency.deptype = 'e'
+              )
+          )
+          AND (
+              has_table_privilege(:'app_role', object.oid, 'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+              OR has_table_privilege(:'backup_role', object.oid, 'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+          )
+    ),
+    'control or extension tables are mutable by app or backup roles'
+);
+
+WITH expected(role_name, object_type, privilege_type) AS (
     VALUES
-        (:'app_role', 'r', ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE']),
-        (:'app_role', 'S', ARRAY['USAGE', 'SELECT', 'UPDATE']),
-        (:'backup_role', 'r', ARRAY['SELECT']),
-        (:'backup_role', 'S', ARRAY['SELECT'])
+        (:'app_role', 'r', 'SELECT'),
+        (:'app_role', 'r', 'INSERT'),
+        (:'app_role', 'r', 'UPDATE'),
+        (:'app_role', 'r', 'DELETE'),
+        (:'app_role', 'S', 'USAGE'),
+        (:'app_role', 'S', 'SELECT'),
+        (:'app_role', 'S', 'UPDATE'),
+        (:'backup_role', 'r', 'SELECT'),
+        (:'backup_role', 'S', 'SELECT')
 ), actual AS (
-    SELECT grantee.rolname AS role_name, defaults.defaclobjtype::text AS object_type,
-           array_agg(DISTINCT acl.privilege_type) AS privileges
+    SELECT COALESCE(grantee.rolname, 'PUBLIC') AS role_name,
+           defaults.defaclobjtype::text AS object_type,
+           acl.privilege_type
     FROM pg_catalog.pg_default_acl AS defaults
     JOIN pg_catalog.pg_roles AS owner ON owner.oid = defaults.defaclrole
     JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = defaults.defaclnamespace
-    CROSS JOIN LATERAL aclexplode(
-        COALESCE(defaults.defaclacl, acldefault(defaults.defaclobjtype, defaults.defaclrole))
-    ) AS acl
-    JOIN pg_catalog.pg_roles AS grantee ON grantee.oid = acl.grantee
+    CROSS JOIN LATERAL aclexplode(defaults.defaclacl) AS acl
+    LEFT JOIN pg_catalog.pg_roles AS grantee ON grantee.oid = acl.grantee
     WHERE owner.rolname = :'migrator_role' AND namespace.nspname = 'public'
-    GROUP BY grantee.rolname, defaults.defaclobjtype
+), differences AS (
+    (SELECT * FROM actual EXCEPT SELECT * FROM expected)
+    UNION ALL
+    (SELECT * FROM expected EXCEPT SELECT * FROM actual)
 )
 SELECT pg_temp.assert_role_policy(
-    NOT EXISTS (
-        SELECT 1 FROM expected
-        LEFT JOIN actual USING (role_name, object_type)
-        WHERE NOT expected.privileges <@ actual.privileges
-    ),
-    'default table or sequence privileges are incomplete'
+    NOT EXISTS (SELECT 1 FROM differences),
+    'default privileges must exactly match app and backup policy'
 );
 
 SELECT pg_temp.assert_role_policy(
-    count(*) = 3 AND bool_and(setconfig @> required),
-    'database role timeout policy is incomplete'
+    count(*) = 3 AND bool_and(setconfig @> required AND setconfig <@ required),
+    'database role timeout policy must be exact'
 )
 FROM (
     SELECT role_name, setconfig,
