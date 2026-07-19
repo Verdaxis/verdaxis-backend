@@ -1,7 +1,7 @@
 """PostgreSQL correctness for the authoritative Product Analytics aggregates.
 
-Re-runs the frozen fixture contract against a migrated PostgreSQL 15/PostGIS
-3.3 database (matching the deployed image) and adds the PostgreSQL-only
+Re-runs the frozen fixture contract against a migrated PostgreSQL 17/PostGIS
+3.6 database (matching the deployed image) and adds the PostgreSQL-only
 concerns the SQLite harness cannot prove: session-timezone independence of
 UTC buckets, native UUID/enum round-trips, and the exact commission
 payment-date projection.

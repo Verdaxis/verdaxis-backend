@@ -24,6 +24,6 @@ class AuditLog(Base):
     changes: Mapped[dict | None] = mapped_column(_JSON_VARIANT, nullable=True)
     ip_address: Mapped[str | None] = mapped_column(String(45), nullable=True)
     request_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
-    timestamp: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC), server_default=func.now(), nullable=True, index=True
+    timestamp: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), server_default=func.now(), nullable=False, index=True
     )

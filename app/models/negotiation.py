@@ -56,7 +56,7 @@ class Negotiation(Base):
     # The current "live" price on the table — updated each round
     current_price: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
     status: Mapped[NegotiationStatus] = mapped_column(
-        Enum(NegotiationStatus, native_enum=False),
+        Enum(NegotiationStatus, native_enum=False, length=10),
         default=NegotiationStatus.OPEN,
         nullable=False,
     )

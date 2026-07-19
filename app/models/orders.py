@@ -31,7 +31,7 @@ class Commission(Base):
     # Financials
     amount_usd: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     status: Mapped[CommissionStatus] = mapped_column(
-        Enum(CommissionStatus, native_enum=False),
+        Enum(CommissionStatus, native_enum=False, length=8),
         default=CommissionStatus.PENDING
     )
 

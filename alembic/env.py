@@ -16,7 +16,7 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-from app.database import Base
+from app.database import Base, migrator_connect_args
 from app.models import *  # Import all models to register them
 from app.config import settings
 from app.migration_drift import compare_server_default, compare_type, include_object
@@ -24,7 +24,9 @@ from app.migration_drift import compare_server_default, compare_type, include_ob
 target_metadata = Base.metadata
 
 # Override sqlalchemy.url in config
-config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
+config.set_main_option(
+    "sqlalchemy.url", settings.MIGRATOR_DATABASE_URL or settings.DATABASE_URL
+)
 
 # other values from the config, defined by the needs of env.py,
 # can be acquired:
@@ -84,6 +86,7 @@ async def run_async_migrations() -> None:
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
+        connect_args=migrator_connect_args(settings),
     )
 
     async with connectable.connect() as connection:

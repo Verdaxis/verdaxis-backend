@@ -10,18 +10,25 @@ if [[ -z "${DATABASE_URL:-}" ]]; then
   exit 2
 fi
 
-DATABASE_NAME="${DATABASE_URL##*/}"
-DATABASE_NAME="${DATABASE_NAME%%\?*}"
+VERIFY_URL="${MIGRATOR_DATABASE_URL:-$DATABASE_URL}"
+VERIFY_PATH="${VERIFY_URL%%\?*}"
+DATABASE_NAME="${VERIFY_PATH##*/}"
 if [[ "$DATABASE_NAME" != *_test ]]; then
   echo "refusing migration verification database '$DATABASE_NAME': name must end with _test" >&2
   exit 2
 fi
-if [[ "$DATABASE_URL" == *"api.verdaxis.exchange"* ]]; then
+if [[ "$VERIFY_URL" == *"api.verdaxis.exchange"* ]]; then
   echo "refusing migration verification against the Verdaxis production host" >&2
   exit 2
 fi
 
 cd "$BACKEND_ROOT"
-PYTHONDONTWRITEBYTECODE=1 "${ALEMBIC_BIN:-alembic}" upgrade head
-PYTHONDONTWRITEBYTECODE=1 "${ALEMBIC_BIN:-alembic}" current --check-heads
-PYTHONDONTWRITEBYTECODE=1 "${ALEMBIC_BIN:-alembic}" check
+ALEMBIC="${ALEMBIC_BIN:-alembic}"
+HEAD_COUNT="$(PYTHONDONTWRITEBYTECODE=1 "$ALEMBIC" heads | awk '/\(head\)/ { count += 1 } END { print count + 0 }')"
+if [[ "$HEAD_COUNT" != "1" ]]; then
+  echo "refusing migration verification: expected exactly one standalone Alembic head, found $HEAD_COUNT" >&2
+  exit 2
+fi
+PYTHONDONTWRITEBYTECODE=1 "$ALEMBIC" upgrade head
+PYTHONDONTWRITEBYTECODE=1 "$ALEMBIC" current --check-heads
+PYTHONDONTWRITEBYTECODE=1 "$ALEMBIC" check

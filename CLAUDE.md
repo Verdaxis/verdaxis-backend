@@ -18,7 +18,7 @@ Read ARCHITECTURE.md before exploring the codebase.
 Backend API for Verdaxis -- a maritime intelligence and procurement platform. Handles fuel procurement (order book with BID/ASK matching), compliance auditing (EU ETS, FuelEU Maritime), port intelligence with geospatial data, AI copilot via Google Gemini, and a trade lifecycle (create -> confirm -> deliver -> pay).
 
 **Repo:** `jonathanjie/verdaxis-backend`
-**Runtime:** Python 3.10+ / FastAPI / PostgreSQL 15 with PostGIS / SQLAlchemy 2 (async) / Alembic
+**Runtime:** Python 3.10+ / FastAPI / PostgreSQL 17.9 with PostGIS 3.6.2 / SQLAlchemy 2 (async) / Alembic
 
 ## Development Commands
 
@@ -240,19 +240,27 @@ Key variables in `.env` (loaded by `pydantic-settings`):
 DATABASE_HOST=verdaxis-db       # "localhost" for non-Docker
 DATABASE_PORT=5432
 DATABASE_NAME=verdaxis
-DATABASE_USER=postgres
+DATABASE_USER=verdaxis_app       # least-privilege runtime role in deployed envs
 DATABASE_PASSWORD=...
 DATABASE_URL=                   # Optional override (e.g. sqlite+aiosqlite:///:memory: for tests)
+MIGRATOR_DATABASE_URL=          # Optional separate least-privilege Alembic role URL
 JWT_SECRET=...                  # MUST be strong in production
 GEMINI_API_KEY=...              # Optional, AI features degrade gracefully without it
 ADMIN_USERNAME=...              # For /admin panel login
 ADMIN_PASSWORD=...
 ENABLE_AUTH_BYPASS=false        # Never true in production
-DB_POOL_SIZE=5                  # Per-worker SQLAlchemy pool
-DB_MAX_OVERFLOW=2               # Per-worker overflow; see docs/runtime-hardening.md
+DB_POOL_SIZE=2                  # Per-worker SQLAlchemy pool
+DB_MAX_OVERFLOW=1               # Per-worker overflow; see docs/runtime-hardening.md
 DB_POOL_WORKERS=4               # Must match the Uvicorn worker count
+DB_SERVICE_COUNT=2              # Shared prod + staging budget
 DB_MAX_CONNECTIONS=100
 DB_RESERVED_CONNECTIONS=20
+DB_STATEMENT_TIMEOUT_MS=30000
+DB_LOCK_TIMEOUT_MS=3000
+DB_IDLE_IN_TRANSACTION_SESSION_TIMEOUT_MS=60000
+MIGRATOR_STATEMENT_TIMEOUT_MS=300000
+MIGRATOR_LOCK_TIMEOUT_MS=30000
+MIGRATOR_IDLE_IN_TRANSACTION_SESSION_TIMEOUT_MS=300000
 KYC_MAX_FILE_BYTES=10485760   # 10 MiB per document
 KYC_MAX_TOTAL_BYTES=20971520  # 20 MiB per KYC request
 ```

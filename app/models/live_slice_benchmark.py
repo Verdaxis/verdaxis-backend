@@ -29,7 +29,7 @@ class LiveSliceBenchmark(Base):
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    side: Mapped[OrderSide] = mapped_column(Enum(OrderSide, native_enum=False), nullable=False)
+    side: Mapped[OrderSide] = mapped_column(Enum(OrderSide, native_enum=False, length=3), nullable=False)
     market_product: Mapped[str] = mapped_column(String(64), nullable=False)
     delivery_point_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("delivery_points.id"), nullable=False

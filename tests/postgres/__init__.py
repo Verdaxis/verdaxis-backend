@@ -1,4 +1,4 @@
-"""PostgreSQL 15/PostGIS 3.3 correctness suite for Product Analytics.
+"""PostgreSQL 17/PostGIS 3.6 correctness suite for Product Analytics.
 
 SQLite is the fast unit harness; this suite is the correctness authority.
 Requires PRODUCT_ANALYTICS_TEST_DATABASE_URL (see

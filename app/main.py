@@ -8,8 +8,10 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from slowapi.errors import RateLimitExceeded
+from sqlalchemy.exc import DBAPIError
 
 from app.config import settings
+from app.services.db_errors import is_lock_timeout_or_deadlock, is_market_path
 from app.rate_limit import limiter
 from app.routers.auth_simple import router as auth_router
 from app.admin import setup_admin
@@ -119,6 +121,21 @@ async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
     return JSONResponse(
         status_code=429,
         content={"detail": f"Rate limit exceeded: {exc.detail}"},
+    )
+
+
+@app.exception_handler(DBAPIError)
+async def database_contention_handler(request: Request, exc: DBAPIError):
+    """Keep market contention bounded and retryable without leaking SQL."""
+    if is_market_path(request.url.path) and is_lock_timeout_or_deadlock(exc):
+        return JSONResponse(
+            status_code=503,
+            content={"detail": "Market is temporarily busy; retry shortly."},
+            headers={"Retry-After": "1"},
+        )
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Database operation failed."},
     )
 
 # Admin panel

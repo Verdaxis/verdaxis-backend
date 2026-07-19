@@ -18,15 +18,28 @@ class Settings(BaseSettings):
     DATABASE_PASSWORD: str = "postgres"
     DATABASE_URL: Optional[str] = None
 
-    # SQLAlchemy pool settings are per application worker.  Defaults reserve
-    # 20 connections from PostgreSQL's 100-connection deployment budget.
-    DB_POOL_SIZE: int = Field(default=5, ge=1, le=100)
-    DB_MAX_OVERFLOW: int = Field(default=2, ge=0, le=100)
+    # SQLAlchemy pool settings are per application worker.  The aggregate
+    # validator below budgets production, staging, and a maintenance reserve
+    # against the shared PostgreSQL max_connections.
+    DB_POOL_SIZE: int = Field(default=2, ge=1, le=100)
+    DB_MAX_OVERFLOW: int = Field(default=1, ge=0, le=100)
     DB_POOL_TIMEOUT: float = Field(default=30.0, gt=0, le=300)
     DB_POOL_RECYCLE: int = Field(default=1800, ge=0, le=86400)
     DB_POOL_WORKERS: int = Field(default=4, ge=1, le=100)
+    DB_SERVICE_COUNT: int = Field(default=2, ge=1, le=100)
     DB_MAX_CONNECTIONS: int = Field(default=100, ge=1, le=1000)
     DB_RESERVED_CONNECTIONS: int = Field(default=20, ge=0, le=999)
+    DB_STATEMENT_TIMEOUT_MS: int = Field(default=30_000, gt=0, le=3_600_000)
+    DB_LOCK_TIMEOUT_MS: int = Field(default=3_000, gt=0, le=600_000)
+    DB_IDLE_IN_TRANSACTION_SESSION_TIMEOUT_MS: int = Field(
+        default=60_000, gt=0, le=3_600_000
+    )
+    MIGRATOR_DATABASE_URL: Optional[str] = None
+    MIGRATOR_STATEMENT_TIMEOUT_MS: int = Field(default=300_000, gt=0, le=7_200_000)
+    MIGRATOR_LOCK_TIMEOUT_MS: int = Field(default=30_000, gt=0, le=600_000)
+    MIGRATOR_IDLE_IN_TRANSACTION_SESSION_TIMEOUT_MS: int = Field(
+        default=300_000, gt=0, le=7_200_000
+    )
 
     # KYC uploads are held in memory only while sent to the verifier. Keep
     # both individual and aggregate requests bounded before reading them.
@@ -39,14 +52,37 @@ class Settings(BaseSettings):
             raise ValueError(
                 'DB_RESERVED_CONNECTIONS must be less than DB_MAX_CONNECTIONS'
             )
-        configured_connections = self.DB_POOL_WORKERS * (
-            self.DB_POOL_SIZE + self.DB_MAX_OVERFLOW
+        configured_connections = (
+            self.DB_SERVICE_COUNT
+            * self.DB_POOL_WORKERS
+            * (self.DB_POOL_SIZE + self.DB_MAX_OVERFLOW)
         )
         available_connections = self.DB_MAX_CONNECTIONS - self.DB_RESERVED_CONNECTIONS
         if configured_connections > available_connections:
             raise ValueError(
-                'DB_POOL_WORKERS * (DB_POOL_SIZE + DB_MAX_OVERFLOW) must be '
+                'DB_SERVICE_COUNT * DB_POOL_WORKERS * '
+                '(DB_POOL_SIZE + DB_MAX_OVERFLOW) must be '
                 'less than or equal to DB_MAX_CONNECTIONS - DB_RESERVED_CONNECTIONS'
+            )
+        return self
+
+    @model_validator(mode='after')
+    def validate_db_timeout_policies(self) -> 'Settings':
+        if self.MIGRATOR_STATEMENT_TIMEOUT_MS < self.DB_STATEMENT_TIMEOUT_MS:
+            raise ValueError(
+                'MIGRATOR_STATEMENT_TIMEOUT_MS must be at least DB_STATEMENT_TIMEOUT_MS'
+            )
+        if self.MIGRATOR_LOCK_TIMEOUT_MS < self.DB_LOCK_TIMEOUT_MS:
+            raise ValueError(
+                'MIGRATOR_LOCK_TIMEOUT_MS must be at least DB_LOCK_TIMEOUT_MS'
+            )
+        if (
+            self.MIGRATOR_IDLE_IN_TRANSACTION_SESSION_TIMEOUT_MS
+            < self.DB_IDLE_IN_TRANSACTION_SESSION_TIMEOUT_MS
+        ):
+            raise ValueError(
+                'MIGRATOR_IDLE_IN_TRANSACTION_SESSION_TIMEOUT_MS must be at least '
+                'DB_IDLE_IN_TRANSACTION_SESSION_TIMEOUT_MS'
             )
         return self
 
@@ -107,6 +143,16 @@ class Settings(BaseSettings):
         env = os.environ.get('ENVIRONMENT', 'production')
         if v == 'postgres' and env == 'production':
             raise ValueError('DATABASE_PASSWORD must not be "postgres" in production')
+        return v
+
+    @field_validator('DATABASE_USER')
+    @classmethod
+    def validate_db_role(cls, v: str) -> str:
+        env = os.environ.get('ENVIRONMENT', 'production')
+        if v.strip().lower() in {'postgres', 'root'} and env == 'production':
+            raise ValueError(
+                'DATABASE_USER must be a least-privilege application role in production'
+            )
         return v
 
     # Order Matching Engine

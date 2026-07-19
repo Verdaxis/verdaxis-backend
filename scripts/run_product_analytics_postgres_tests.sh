@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Run the Product Analytics PostgreSQL correctness suite against a disposable
-# postgis/postgis:15-3.3 container (matching the deployed image).
+# postgis/postgis:17-3.6-alpine container (PostgreSQL 17 with the deployed
+# PostGIS 3.6 line; the runner verifies the PostgreSQL/PostGIS series).
 #
 # Usage:
 #   scripts/run_product_analytics_postgres_tests.sh [pytest paths...]
@@ -21,7 +22,7 @@ set -euo pipefail
 
 BACKEND_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PYTEST_BIN="${PYTEST_BIN:-$BACKEND_ROOT/venv/bin/pytest}"
-IMAGE="postgis/postgis:15-3.3"
+IMAGE="postgis/postgis:17-3.6-alpine"
 DB_NAME="verdaxis_analytics_test"
 DB_PASSWORD="analytics-test"
 
@@ -82,6 +83,13 @@ else
   done
   if [ -z "${READY:-}" ]; then
     echo "PostgreSQL did not become ready" >&2
+    exit 1
+  fi
+
+  POSTGRES_VERSION="$(docker exec "$CONTAINER" postgres --version)"
+  POSTGIS_VERSION="$(docker exec "$CONTAINER" psql -U postgres -d "$DB_NAME" -Atqc "CREATE EXTENSION IF NOT EXISTS postgis; SELECT PostGIS_Full_Version();")"
+  if [[ "$POSTGRES_VERSION" != *"PostgreSQL 17."* || "$POSTGIS_VERSION" != *'POSTGIS="3.6.'* ]]; then
+    echo "expected PostgreSQL 17/PostGIS 3.6, got: $POSTGRES_VERSION / $POSTGIS_VERSION" >&2
     exit 1
   fi
 

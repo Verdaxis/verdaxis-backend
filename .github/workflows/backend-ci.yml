@@ -48,7 +48,7 @@ jobs:
 
     services:
       postgres:
-        image: postgis/postgis:15-3.3
+        image: postgis/postgis:17-3.6-alpine
         env:
           POSTGRES_PASSWORD: analytics-test
           POSTGRES_DB: verdaxis_analytics_test

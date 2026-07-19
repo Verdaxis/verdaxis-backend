@@ -1,6 +1,6 @@
 # Architecture
 
-> FastAPI + SQLAlchemy 2 (async) + PostgreSQL 15/PostGIS + Alembic + Pydantic v2
+> FastAPI + SQLAlchemy 2 (async) + PostgreSQL 17.9/PostGIS 3.6.2 + Alembic + Pydantic v2
 > PyJWT (HS256) + bcrypt + slowapi rate limiting + structlog JSON logging
 
 ## File Map
@@ -110,7 +110,7 @@ scripts/verify_migrations.sh    # Upgrade-to-head plus Alembic model/schema drif
 - **Market Radar watchlists:** Watchlists are observer-only. Typed targets store either canonical slices or pinned order snapshots, and order create/update/cancel paths emit slice/pin events without feeding core matchmaking. New event payloads carry provenance at emission time; legacy events return `UNKNOWN` rather than doing response-time order lookups.
 - **Behavioral analytics:** Umami is an optional failure-isolated dependency. `GET /admin/analytics/product-usage?days=7|30|90` combines bounded Umami aggregates with authoritative UTC-period database counts. Server conversion events and the documented browser reporting taxonomy use separate allowlists. Registration, organization, order, and trade events are scheduled only after commits, carry bounded originating request metadata for Umami bot classification/environment attribution, and use a strict property allowlist; collector drops/failures never alter endpoint response contracts. Aggregate successes cache for at most five minutes and failures for at most 30 seconds. `totaltime / visits` is exposed only as average session duration, not active engagement. See `docs/behavioral-analytics-contract.md`.
 - **Live runtime topology:** Production systemd binds Uvicorn to `127.0.0.1:8000`; staging binds to `127.0.0.1:8001`; the public reverse proxy fronts those loopback ports. Both services require network-online and PostgreSQL, use four workers, and preflight exact Alembic heads.
-- **Runtime budgets:** The default pool aggregate is `4 × (5 + 2) + 20 = 48` against PostgreSQL `max_connections=100`. KYC uploads are bounded at 10 MiB per file and 20 MiB aggregate by default, with `MemoryHigh=512M` and `MemoryMax=768M` in systemd.
+- **Runtime budgets:** Production and staging share PostgreSQL `max_connections=100`; the default aggregate is `2 services × 4 workers × (2 + 1) + 20 maintenance reserve = 44`. KYC uploads are bounded at 10 MiB per file and 20 MiB aggregate by default. Measured steady state is approximately 530–538 MiB per service; systemd starts at `MemoryHigh=768M` and `MemoryMax=1G` with headroom, not a measured-safe claim.
 
 ## Revenue Streams
 

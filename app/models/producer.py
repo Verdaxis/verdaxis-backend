@@ -41,9 +41,9 @@ class ProducerProject(Base):
 
     # Status
     status: Mapped[ProjectStatus | None] = mapped_column(
-        Enum(ProjectStatus, native_enum=False),
+        Enum(ProjectStatus, native_enum=False, length=30),
         default=ProjectStatus.ANNOUNCED,
-        nullable=True,
+        nullable=False,
         server_default="ANNOUNCED",
     )
 
@@ -60,8 +60,8 @@ class ProducerProject(Base):
     carbon_intensity_gco2_mj: Mapped[Decimal | None] = mapped_column(Numeric(8, 2))
     notes: Mapped[str | None] = mapped_column(Text)
 
-    created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, server_default=func.now(), nullable=True)
-    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, server_default=func.now(), nullable=True, onupdate=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, server_default=func.now(), nullable=False, onupdate=datetime.utcnow)
 
     # Relationships
     organization = relationship("Organization", foreign_keys=[organization_id])

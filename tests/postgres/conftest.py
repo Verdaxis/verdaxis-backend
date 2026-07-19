@@ -1,4 +1,4 @@
-"""Fixtures for the PostgreSQL Product Analytics correctness suite.
+"""Fixtures for the PostgreSQL 17/PostGIS 3.6 correctness suite.
 
 The disposable database comes from PRODUCT_ANALYTICS_TEST_DATABASE_URL
 (exported by scripts/run_product_analytics_postgres_tests.sh or the CI

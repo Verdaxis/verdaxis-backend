@@ -13,6 +13,28 @@ def engine_options(config: Settings) -> dict:
         "pool_timeout": config.DB_POOL_TIMEOUT,
         "pool_pre_ping": True,
         "pool_recycle": config.DB_POOL_RECYCLE,
+        "connect_args": {
+            "server_settings": {
+                "statement_timeout": str(config.DB_STATEMENT_TIMEOUT_MS),
+                "lock_timeout": str(config.DB_LOCK_TIMEOUT_MS),
+                "idle_in_transaction_session_timeout": str(
+                    config.DB_IDLE_IN_TRANSACTION_SESSION_TIMEOUT_MS
+                ),
+            }
+        },
+    }
+
+
+def migrator_connect_args(config: Settings) -> dict:
+    """Return the longer-lived, still-bounded Alembic session policy."""
+    return {
+        "server_settings": {
+            "statement_timeout": str(config.MIGRATOR_STATEMENT_TIMEOUT_MS),
+            "lock_timeout": str(config.MIGRATOR_LOCK_TIMEOUT_MS),
+            "idle_in_transaction_session_timeout": str(
+                config.MIGRATOR_IDLE_IN_TRANSACTION_SESSION_TIMEOUT_MS
+            ),
+        }
     }
 
 

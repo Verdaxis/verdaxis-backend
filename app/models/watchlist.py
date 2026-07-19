@@ -62,7 +62,7 @@ class Watchlist(Base):
     user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     kind: Mapped[WatchlistKind] = mapped_column(
-        Enum(WatchlistKind, native_enum=False),
+        Enum(WatchlistKind, native_enum=False, length=32),
         nullable=False,
         default=WatchlistKind.CUSTOM,
         server_default=WatchlistKind.CUSTOM.value,

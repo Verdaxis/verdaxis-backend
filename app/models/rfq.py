@@ -52,7 +52,7 @@ class RFQ(Base):
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_anonymous: Mapped[bool] = mapped_column(Boolean, default=False)
     status: Mapped[RFQStatus] = mapped_column(
-        Enum(RFQStatus, native_enum=False), default=RFQStatus.OPEN, nullable=False
+        Enum(RFQStatus, native_enum=False, length=10), default=RFQStatus.OPEN, nullable=False
     )
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
@@ -79,7 +79,7 @@ class RFQQuote(Base):
     price_per_mt_usd: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[QuoteStatus] = mapped_column(
-        Enum(QuoteStatus, native_enum=False), default=QuoteStatus.PENDING, nullable=False
+        Enum(QuoteStatus, native_enum=False, length=10), default=QuoteStatus.PENDING, nullable=False
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC)

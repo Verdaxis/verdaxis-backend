@@ -1,4 +1,4 @@
-from sqlalchemy import String, ForeignKey, Enum, DateTime, Boolean, Index, Text
+from sqlalchemy import String, ForeignKey, Enum, DateTime, Boolean, Index, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import UUID
 import uuid
@@ -48,7 +48,7 @@ class Organization(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String, nullable=False)
     domain: Mapped[str | None] = mapped_column(String, unique=True, nullable=True)
-    type: Mapped[OrgType] = mapped_column(Enum(OrgType, native_enum=False), nullable=False)
+    type: Mapped[OrgType] = mapped_column(Enum(OrgType, native_enum=False, length=14), nullable=False)
     supplier_tier: Mapped[TierLabel | None] = mapped_column(Enum(TierLabel, native_enum=False, length=50), nullable=True, default=None)
     tax_id: Mapped[str | None] = mapped_column(String)
     country_code: Mapped[str | None] = mapped_column(String(2))
@@ -68,13 +68,16 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(String, nullable=False)
     first_name: Mapped[str | None] = mapped_column(String)
     last_name: Mapped[str | None] = mapped_column(String)
-    role: Mapped[UserRole | None] = mapped_column(Enum(UserRole, native_enum=False), nullable=True)
-    status: Mapped[UserStatus] = mapped_column(Enum(UserStatus, native_enum=False), default=UserStatus.PENDING)
+    role: Mapped[UserRole | None] = mapped_column(Enum(UserRole, native_enum=False, length=8), nullable=True)
+    status: Mapped[UserStatus] = mapped_column(
+        Enum(UserStatus, native_enum=False, length=8), default=UserStatus.PENDING,
+        server_default="PENDING", nullable=False,
+    )
     organization_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("organizations.id"))
     last_login: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     password_changed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     must_change_password: Mapped[bool] = mapped_column(Boolean, default=False, server_default='false', nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), server_default=func.now(), nullable=False)
 
     # Email verification (STORY-010a)
     email_verified: Mapped[bool] = mapped_column(Boolean, default=False, server_default='false', nullable=False)

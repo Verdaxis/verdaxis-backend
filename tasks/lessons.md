@@ -8,6 +8,12 @@
 - **Rule:** What to do instead
 - **Why:** Root cause
 
+### Encode measured shared database budgets
+- **Date:** 2026-07-20
+- **Trigger:** The database architect measured the shared PostgreSQL cluster and recommended a lower per-worker pool plus explicit session timeout policies.
+- **Rule:** Budget prod, staging, and maintenance together from measured capacity; configure role/session statement, lock, and idle-transaction timeouts and keep migrations on a separate longer-lived policy.
+- **Why:** Per-service pool arithmetic and absent timeout policy can exhaust the shared cluster or leave market locks and idle transactions unbounded.
+
 ## Security
 
 - **Date:** 2026-02-18

@@ -4,7 +4,7 @@ contract (tests/unit/fixtures/product_analytics.py).
 Every assertion traces to a hand-derived value in ``fixtures.EXPECTED`` or to
 a plan rule (fe/docs/plans/2026-07-15-product-analytics-workspace.md). The
 SQLite harness here is the fast unit check; tests/postgres re-runs the same
-aggregates against a migrated PostgreSQL 15/PostGIS 3.3 database.
+aggregates against a migrated PostgreSQL 17/PostGIS 3.6 database.
 """
 
 from __future__ import annotations
