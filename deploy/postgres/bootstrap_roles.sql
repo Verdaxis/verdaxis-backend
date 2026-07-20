@@ -28,12 +28,13 @@ FROM (VALUES (:'app_role'), (:'migrator_role'), (:'backup_role')) AS roles(role_
 
 -- NOINHERIT does not block SET ROLE. Remove every membership edge involving
 -- a protected role so none can escalate or be assumed through membership.
-SELECT format('REVOKE %I FROM %I', granted.rolname, member.rolname)
+SELECT format('REVOKE %I FROM %I CASCADE', granted.rolname, member.rolname)
 FROM pg_catalog.pg_auth_members AS membership
 JOIN pg_catalog.pg_roles AS granted ON granted.oid = membership.roleid
 JOIN pg_catalog.pg_roles AS member ON member.oid = membership.member
 WHERE granted.rolname IN (:'app_role', :'migrator_role', :'backup_role')
    OR member.rolname IN (:'app_role', :'migrator_role', :'backup_role')
+ORDER BY granted.rolname, member.rolname
 \gexec
 
 ALTER DATABASE :"database_name" OWNER TO :"migrator_role";
@@ -51,6 +52,7 @@ CROSS JOIN LATERAL aclexplode(
 LEFT JOIN pg_catalog.pg_roles AS grantee ON grantee.oid = acl.grantee
 WHERE database.datname = :'database_name'
   AND acl.grantee <> database.datdba
+ORDER BY 1
 \gexec
 REVOKE ALL ON DATABASE :"database_name" FROM PUBLIC CASCADE;
 GRANT CONNECT ON DATABASE :"database_name" TO :"app_role", :"backup_role";
@@ -70,6 +72,7 @@ CROSS JOIN LATERAL aclexplode(
 LEFT JOIN pg_catalog.pg_roles AS grantee ON grantee.oid = acl.grantee
 WHERE namespace.nspname = 'public'
   AND acl.grantee <> namespace.nspowner
+ORDER BY 1
 \gexec
 REVOKE ALL ON SCHEMA public FROM PUBLIC CASCADE;
 GRANT USAGE ON SCHEMA public TO :"app_role", :"backup_role";
@@ -97,6 +100,24 @@ WHERE namespace.nspname = 'public'
   )
 \gexec
 
+-- Snapshot the governed relation once. All subsequent object and column ACL
+-- repair uses this exact relation, keeping control/extension objects out of
+-- scope and treating ordinary tables, partitions, and sequences uniformly.
+CREATE TEMP TABLE governed_objects ON COMMIT DROP AS
+SELECT object.oid, object.relnamespace, object.relname, object.relkind,
+       object.relowner, object.relacl
+FROM pg_catalog.pg_class AS object
+JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = object.relnamespace
+WHERE namespace.nspname = 'public'
+  AND object.relkind IN ('r', 'p', 'S')
+  AND object.relname NOT IN ('alembic_version', 'spatial_ref_sys')
+  AND NOT EXISTS (
+      SELECT 1 FROM pg_catalog.pg_depend AS dependency
+      WHERE dependency.classid = 'pg_class'::regclass
+        AND dependency.objid = object.oid AND dependency.deptype = 'e'
+  );
+CREATE UNIQUE INDEX governed_objects_oid_idx ON governed_objects (oid);
+
 -- Remove app/backup authority from control and extension objects as well as
 -- governed objects. Exact app/backup grants are rebuilt only for governed
 -- objects below.
@@ -107,14 +128,14 @@ REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM :"app_role", :"backup_role";
 -- REVOKE ... CASCADE intentionally removes grants delegated by any stale
 -- grantee. The owner is excluded because PostgreSQL owner authority is
 -- intrinsic; every governed object was transferred to migrator_role above.
-SELECT DISTINCT format(
+SELECT format(
     'REVOKE ALL PRIVILEGES ON %s %I.%I FROM %s CASCADE',
     CASE WHEN object.relkind = 'S' THEN 'SEQUENCE' ELSE 'TABLE' END,
     namespace.nspname,
     object.relname,
     CASE WHEN acl.grantee = 0 THEN 'PUBLIC' ELSE format('%I', grantee.rolname) END
 )
-FROM pg_catalog.pg_class AS object
+FROM governed_objects AS object
 JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = object.relnamespace
 CROSS JOIN LATERAL aclexplode(
     COALESCE(
@@ -128,13 +149,33 @@ CROSS JOIN LATERAL aclexplode(
 LEFT JOIN pg_catalog.pg_roles AS grantee ON grantee.oid = acl.grantee
 WHERE namespace.nspname = 'public'
   AND object.relkind IN ('r', 'p', 'S')
-  AND object.relname NOT IN ('alembic_version', 'spatial_ref_sys')
-  AND NOT EXISTS (
-      SELECT 1 FROM pg_catalog.pg_depend AS dependency
-      WHERE dependency.classid = 'pg_class'::regclass
-        AND dependency.objid = object.oid AND dependency.deptype = 'e'
-  )
   AND acl.grantee <> object.relowner
+GROUP BY namespace.nspname, object.relname, object.relkind, acl.grantee, grantee.rolname
+ORDER BY namespace.nspname, object.relname, object.relkind, acl.grantee
+\gexec
+
+-- Column ACLs are independent from table ACLs and can carry delegated write
+-- authority. Remove every explicit column grant, including PUBLIC, before
+-- rebuilding table-level policy. CASCADE removes grants dependent on a stale
+-- grant option.
+SELECT format(
+    'REVOKE ALL PRIVILEGES (%I) ON TABLE %I.%I FROM %s CASCADE',
+    attribute.attname,
+    namespace.nspname,
+    object.relname,
+    CASE WHEN acl.grantee = 0 THEN 'PUBLIC' ELSE format('%I', grantee.rolname) END
+)
+FROM governed_objects AS object
+JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = object.relnamespace
+JOIN pg_catalog.pg_attribute AS attribute ON attribute.attrelid = object.oid
+CROSS JOIN LATERAL aclexplode(attribute.attacl) AS acl
+LEFT JOIN pg_catalog.pg_roles AS grantee ON grantee.oid = acl.grantee
+WHERE object.relkind IN ('r', 'p')
+  AND attribute.attnum > 0
+  AND NOT attribute.attisdropped
+GROUP BY namespace.nspname, object.relname, attribute.attnum, attribute.attname,
+         acl.grantee, grantee.rolname
+ORDER BY namespace.nspname, object.relname, attribute.attnum, acl.grantee
 \gexec
 
 SELECT format(
@@ -143,16 +184,10 @@ SELECT format(
     object.relname,
     :'app_role'
 )
-FROM pg_catalog.pg_class AS object
+FROM governed_objects AS object
 JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = object.relnamespace
 WHERE namespace.nspname = 'public'
   AND object.relkind IN ('r', 'p')
-  AND object.relname NOT IN ('alembic_version', 'spatial_ref_sys')
-  AND NOT EXISTS (
-      SELECT 1 FROM pg_catalog.pg_depend AS dependency
-      WHERE dependency.classid = 'pg_class'::regclass
-        AND dependency.objid = object.oid AND dependency.deptype = 'e'
-  )
 \gexec
 SELECT format(
     'GRANT SELECT ON TABLE %I.%I TO %I',
@@ -160,16 +195,10 @@ SELECT format(
     object.relname,
     :'backup_role'
 )
-FROM pg_catalog.pg_class AS object
+FROM governed_objects AS object
 JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = object.relnamespace
 WHERE namespace.nspname = 'public'
   AND object.relkind IN ('r', 'p')
-  AND object.relname NOT IN ('alembic_version', 'spatial_ref_sys')
-  AND NOT EXISTS (
-      SELECT 1 FROM pg_catalog.pg_depend AS dependency
-      WHERE dependency.classid = 'pg_class'::regclass
-        AND dependency.objid = object.oid AND dependency.deptype = 'e'
-  )
 \gexec
 SELECT format(
     'GRANT USAGE, SELECT, UPDATE ON SEQUENCE %I.%I TO %I',
@@ -177,15 +206,10 @@ SELECT format(
     object.relname,
     :'app_role'
 )
-FROM pg_catalog.pg_class AS object
+FROM governed_objects AS object
 JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = object.relnamespace
 WHERE namespace.nspname = 'public'
   AND object.relkind = 'S'
-  AND NOT EXISTS (
-      SELECT 1 FROM pg_catalog.pg_depend AS dependency
-      WHERE dependency.classid = 'pg_class'::regclass
-        AND dependency.objid = object.oid AND dependency.deptype = 'e'
-  )
 \gexec
 SELECT format(
     'GRANT SELECT ON SEQUENCE %I.%I TO %I',
@@ -193,15 +217,10 @@ SELECT format(
     object.relname,
     :'backup_role'
 )
-FROM pg_catalog.pg_class AS object
+FROM governed_objects AS object
 JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = object.relnamespace
 WHERE namespace.nspname = 'public'
   AND object.relkind = 'S'
-  AND NOT EXISTS (
-      SELECT 1 FROM pg_catalog.pg_depend AS dependency
-      WHERE dependency.classid = 'pg_class'::regclass
-        AND dependency.objid = object.oid AND dependency.deptype = 'e'
-  )
 \gexec
 
 -- Default privileges compose global rows with per-schema rows. Reset every
@@ -233,6 +252,7 @@ WHERE owner.rolname IN (:'app_role', :'migrator_role', :'backup_role')
   AND (defaults.defaclnamespace = 0 OR namespace.nspname = 'public')
   AND defaults.defaclobjtype IN ('r', 'S', 'f', 'T', 'n')
   AND (defaults.defaclnamespace = 0 OR defaults.defaclobjtype <> 'n')
+ORDER BY 1
 \gexec
 
 -- Restore each global ACL to PostgreSQL's hard-wired owner/PUBLIC defaults.

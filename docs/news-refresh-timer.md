@@ -12,9 +12,10 @@ Production and staging each have exactly one source-controlled systemd timer
 and matching `Type=oneshot` service in `deploy/systemd/`. A PostgreSQL
 transaction advisory lock makes concurrent timer or CLI invocations mutually
 exclusive across processes; overlap exits successfully without duplicate work.
-Each service also refuses to start while its checkout's `.runtime-deploying`
-guard exists, so a timer cannot execute newly selected source before matching
-release identity has been published.
+Each service checks its environment's durable `.runtime-deploy/<environment>.state`
+file and refuses blocked/readiness-pending starts, so a timer cannot execute
+newly selected source before matching release identity has been published and
+readiness has passed.
 
 ## Operator-held installation
 
@@ -31,8 +32,9 @@ may differ. First verify the exact release from its matching clean checkout:
 After approval, repeat each command with `--apply`. The environment bundle also
 contains the backend and product-analytics prune units; all five files are
 materialized from the approved commit into private root-owned staging and
-digest-checked before installation. The installer reloads systemd only when a
-file changed and does not enable or start anything. Enabling the matching news
+digest-checked before installation. The installer persists pending state,
+always reloads systemd, and clears pending state only after a successful reload;
+it does not enable or start anything. Enabling the matching news
 timer is a separate live action:
 
 ```bash

@@ -18,7 +18,7 @@ EnvironmentFile=/home/verdaxis-prod/verdaxis/prod/be/.runtime-release.env
 Environment=UVICORN_WORKERS=4
 ExecStartPre=/usr/bin/test -r /home/verdaxis-prod/verdaxis/prod/be/.env
 ExecStartPre=/usr/bin/test -r /home/verdaxis-prod/verdaxis/prod/be/.runtime-release.env
-ExecStartPre=/usr/bin/test ! -e /home/verdaxis-prod/verdaxis/prod/be/.runtime-deploying
+ExecStartPre=/bin/sh -c 'test ! -e /home/verdaxis-prod/verdaxis/prod/be/.runtime-deploy/production.state || grep -qx DEPLOYMENT_STATE=restart-authorized /home/verdaxis-prod/verdaxis/prod/be/.runtime-deploy/production.state'
 ExecStartPre=/home/verdaxis-prod/verdaxis/prod/be/venv/bin/alembic current --check-heads
 ExecStart=/home/verdaxis-prod/verdaxis/prod/be/venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers ${UVICORN_WORKERS}
 Environment=PYTHONDONTWRITEBYTECODE=1

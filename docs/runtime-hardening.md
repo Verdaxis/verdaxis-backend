@@ -72,40 +72,44 @@ unit bundle, an operator may enable the intended timer with
 `sudo systemctl enable --now verdaxis-product-analytics-prune-staging.timer`;
 this branch does neither.
 
-The units require the gitignored `.runtime-release.env` artifact and refuse to
-start while the gitignored `.runtime-deploying` guard exists. An actual
-`scripts/deploy.sh` run first rejects a dirty tree and atomically creates that
-guard before source mutation. It fetches and fast-forwards only the selected
-target branch, then attests the exact clean remote 40-hex commit. Before
-invoking preflight, Python/pip, Alembic, or any other executable from the new
-tree, it writes that commit's `ENVIRONMENT` and `RELEASE_SHA` through a
-mode-0600 temporary file and atomic rename. The guard prevents backend, news,
-and prune unit starts during this transition. The application never shells out
-to Git.
+The units require the gitignored `.runtime-release.env` artifact and check the
+durable per-environment `.runtime-deploy/<environment>.state` file. A normal
+start is allowed only when state is absent; the one explicit
+`DEPLOYMENT_STATE=restart-authorized` phase permits the controlled deploy
+restart. Blocked and readiness-pending state refuses starts. An actual
+`scripts/deploy.sh` run first rejects a dirty tree, acquires a durable
+environment-specific `flock`, and atomically writes blocked state before
+source mutation. It fetches and fast-forwards only the selected target branch,
+but requires `APPROVED_RELEASE_SHA` to equal the full SHA printed by a prior
+dry-run; a moved remote branch is refused. The selected SHA is published to
+`.runtime-release.env` before invoking preflight, Python/pip, or Alembic from
+the new tree. The application never shells out to Git.
 
-If release-metadata publication itself fails, the guard stays present and no
-new-tree unit may start. If preflight, dependency preparation, migration,
-restart, or readiness later fails, source and release metadata remain aligned
-at the selected new commit and the failure trap leaves or restores the guard.
-The helper never rolls metadata back independently and never uses destructive
-Git reset. It clears the guard only after preflight, dependency preparation,
-migration, and a final clean-tree check; a restart/readiness failure restores
-the guard and stops the failed backend service. Recovery is a corrected forward release or an explicitly designed
-atomic code-and-identity restoration—not an identity-only rollback and never
-an automatic schema downgrade.
+If release-metadata publication itself fails, durable blocked state stays
+present and no new-tree unit may start. If preflight, dependency preparation,
+migration, restart, readiness, or the operator process later fails, source and
+release metadata remain aligned at the selected new commit and the durable
+state remains fail-closed; interruption therefore cannot erase the guard
+before restart/readiness. The helper never rolls metadata back independently
+and never uses destructive Git reset. It clears state only after the restarted
+service returns exact readiness; a restart/readiness failure stops the failed
+backend service. Recovery is a corrected forward release or an explicitly
+designed atomic code-and-identity restoration—not an identity-only rollback
+and never an automatic schema downgrade.
 
 `scripts/deploy.sh --dry-run` makes no deployed-state change. It requires the
-live checkout to be clean and on the target branch, resolves the remote target
-without updating that checkout, and materializes the exact remote commit into
-a private temporary candidate. Against those immutable candidate bytes it
-runs the read-only runtime/database identity preflight, pip resolver dry-run,
-`pip check`, and `alembic current --check-heads`, then rechecks live source
-cleanliness and removes the candidate. It explicitly skips live source update,
-dependency installation, migration upgrade, release/guard publication,
-restart, and post-restart health. Staging and production refuse startup without
-a full SHA; development/test may explicitly use their named placeholder.
-Existing deployments must have the guard-aware unit bundle installed before
-using this deploy contract—do not invent a placeholder SHA to bridge rollout.
+live checkout to be clean and on the target branch, resolves one remote branch
+to a full SHA, fetches that object, and materializes only its allowlisted
+systemd unit paths from an immutable Git archive. Trusted `tar`, `sha256sum`,
+and `systemd-analyze` inspect those bytes. Candidate Python imports, build
+backends, pip/Alembic, live database/configuration, `.env`, operator home,
+agent, and network access are deliberately omitted. The output binds approval
+to `APPROVED_RELEASE_SHA=<sha>` for the subsequent deploy; it explicitly
+reports that candidate-dependent application checks and readiness were not
+performed. Staging and production refuse startup without a full SHA;
+development/test may explicitly use their named placeholder. Existing
+deployments must have the guard-aware unit bundle installed before using this
+contract—do not invent a placeholder SHA to bridge rollout.
 
 `scripts/install_systemd_units.sh` provides the operator path. Every invocation
 requires `--environment production|staging` and an explicit full
@@ -125,13 +129,15 @@ infers approval from another live checkout. Production and staging are
 independently promoted, so run and approve them separately; their SHAs may
 differ.
 
-After provenance succeeds, the installer validates the selected environment's
-release identity, application database/CORS/auth configuration, exact Alembic
-heads, and unit syntax. `--dry-run` then exits without changes. Explicit
-`--apply` installs only changed units and calls `systemctl daemon-reload` only
-after a change. It never enables, starts, or restarts a service or timer.
-Installation, daemon reload, and timer enablement remain operator-held live
-actions.
+After provenance succeeds, the installer validates only the exact Git object,
+unit digest manifest, and staged unit syntax. It does not execute candidate
+checkout Python, application preflight, Alembic, or build metadata. `--dry-run`
+then exits without changes. Explicit `--apply` writes a durable pending record
+under `/var/lib/verdaxis/systemd-units`, installs only staged bytes, and always
+calls `systemctl daemon-reload`; pending state is removed only after a
+successful reload, so a reload failure is retryable on the next apply. It
+never enables, starts, or restarts a service or timer. Installation, daemon
+reload, and timer enablement remain operator-held live actions.
 
 Deploys categorically reject dirty trees before and after preparation because
 a commit SHA cannot identify modified source. The readiness gate parses JSON
@@ -192,10 +198,12 @@ They provision app, migrator, and read-only backup roles; transfer public
 database/schema and application table/sequence ownership to the migrator;
 remove every protected-role membership edge (including inherited superuser and
 `SET ROLE` paths); revoke stale direct/default ACLs; and reconstruct exact
-least-privilege grants. For every governed ordinary table, partitioned table,
-child partition, and sequence, bootstrap discovers expanded ACL grantees with
-`aclexplode`, revokes every non-owner grantee—including PUBLIC, app, backup,
-and unrelated roles—with intentional `CASCADE`, then grants only the exact
+least-privilege grants. A central governed-object relation covers every
+ordinary table, partitioned table, child partition, and sequence. Bootstrap
+discovers expanded ACL grantees with `aclexplode`, revokes every non-owner
+grantee—including PUBLIC, app, backup, and unrelated roles—with intentional
+deterministic `CASCADE`, separately discovers every explicit
+`pg_attribute.attacl` column grant, revokes it including PUBLIC, then grants only the exact
 app/backup policy. The app and backup are also stripped from control and
 extension objects before governed grants are rebuilt. The normalized expanded
 database and `public` schema
@@ -218,8 +226,9 @@ App-owned objects exclude `alembic_version`,
 `SELECT/INSERT/UPDATE/DELETE` and sequence `USAGE/SELECT/UPDATE`; backup receives
 only table/sequence `SELECT`. Validation checks exact ownership, role
 properties, memberships, effective privileges, unexpected database/schema/
-object grantees, exact default ACL set equality (including grantor and grant
-option), backup write absence, excluded-object immutability, and exact
+object and column grantees, absence of explicit governed `attacl`, exact
+default ACL set equality (including grantor and grant option), explicit backup
+column-write absence, excluded-object immutability, and exact
 per-database timeouts.
 Run them as the database owner with explicit psql variables, for example:
 

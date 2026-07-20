@@ -113,7 +113,7 @@ SELECT pg_temp.assert_role_policy(
     'public schema ACL must exactly match owner, app, and backup policy'
 );
 
-CREATE TEMP VIEW app_policy_objects AS
+CREATE TEMP VIEW governed_objects AS
 SELECT object.oid, object.relname, object.relkind, object.relowner, object.relacl
 FROM pg_catalog.pg_class AS object
 JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = object.relnamespace
@@ -125,6 +125,9 @@ WHERE namespace.nspname = 'public'
       WHERE dependency.classid = 'pg_class'::regclass
         AND dependency.objid = object.oid AND dependency.deptype = 'e'
   );
+
+CREATE TEMP VIEW app_policy_objects AS
+SELECT * FROM governed_objects;
 
 SELECT pg_temp.assert_role_policy(
     NOT EXISTS (
@@ -177,6 +180,36 @@ SELECT pg_temp.assert_role_policy(
            OR grantee.rolname NOT IN (:'app_role', :'migrator_role', :'backup_role')
     ),
     'app-owned objects contain grants to an unexpected role or PUBLIC'
+);
+
+SELECT pg_temp.assert_role_policy(
+    NOT EXISTS (
+        SELECT 1
+        FROM governed_objects AS object
+        JOIN pg_catalog.pg_attribute AS attribute ON attribute.attrelid = object.oid
+        CROSS JOIN LATERAL aclexplode(attribute.attacl) AS acl
+        LEFT JOIN pg_catalog.pg_roles AS grantee ON grantee.oid = acl.grantee
+        WHERE object.relkind IN ('r', 'p')
+          AND attribute.attnum > 0
+          AND NOT attribute.attisdropped
+    ),
+    'governed objects must not retain explicit column ACLs, including PUBLIC'
+);
+
+SELECT pg_temp.assert_role_policy(
+    NOT EXISTS (
+        SELECT 1
+        FROM governed_objects AS object
+        JOIN pg_catalog.pg_attribute AS attribute ON attribute.attrelid = object.oid
+        WHERE object.relkind IN ('r', 'p')
+          AND attribute.attnum > 0
+          AND NOT attribute.attisdropped
+          AND has_column_privilege(
+              :'backup_role', object.oid, attribute.attnum,
+              'INSERT,UPDATE,REFERENCES'
+          )
+    ),
+    'backup role must not inherit column write privileges'
 );
 
 SELECT pg_temp.assert_role_policy(

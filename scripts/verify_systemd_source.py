@@ -15,7 +15,6 @@ import tarfile
 
 
 _FULL_SHA = re.compile(r"[0-9a-f]{40}")
-_MODES = {"dry-run", "apply"}
 UNIT_PATHS_BY_ENVIRONMENT = {
     "production": (
         "deploy/systemd/verdaxis-backend.service",
@@ -74,11 +73,8 @@ def _verified_committed_units(
     source_root: Path,
     source_ref: str,
     environment: str,
-    mode: str,
 ) -> dict[str, bytes]:
     """Attest a clean checkout and return only immutable committed unit bytes."""
-    if mode not in _MODES:
-        raise SourceProvenanceError("installation mode must be dry-run or apply")
     if environment not in UNIT_PATHS_BY_ENVIRONMENT:
         raise SourceProvenanceError("environment must be production or staging")
     if _FULL_SHA.fullmatch(source_ref) is None:
@@ -127,14 +123,12 @@ def verify_source_provenance(
     source_root: Path,
     source_ref: str,
     environment: str,
-    mode: str,
 ) -> dict[str, str]:
     """Return SHA-256 unit digests after exact release provenance checks."""
     committed_units = _verified_committed_units(
         source_root=source_root,
         source_ref=source_ref,
         environment=environment,
-        mode=mode,
     )
     return {
         relative: hashlib.sha256(content).hexdigest()
@@ -161,14 +155,12 @@ def build_verified_unit_archive(
     source_root: Path,
     source_ref: str,
     environment: str,
-    mode: str,
 ) -> bytes:
     """Build a deterministic archive exclusively from the approved Git commit."""
     committed_units = _verified_committed_units(
         source_root=source_root,
         source_ref=source_ref,
         environment=environment,
-        mode=mode,
     )
     manifest = "".join(
         f"{hashlib.sha256(content).hexdigest()}  {relative}\n"
@@ -191,7 +183,6 @@ def main() -> int:
     parser.add_argument(
         "--environment", choices=sorted(UNIT_PATHS_BY_ENVIRONMENT), required=True
     )
-    parser.add_argument("--mode", choices=sorted(_MODES), required=True)
     parser.add_argument("--archive", action="store_true")
     args = parser.parse_args()
     try:
@@ -200,7 +191,6 @@ def main() -> int:
                 source_root=args.source_root,
                 source_ref=args.source_ref,
                 environment=args.environment,
-                mode=args.mode,
             )
             sys.stdout.buffer.write(archive)
             return 0
@@ -208,7 +198,6 @@ def main() -> int:
             source_root=args.source_root,
             source_ref=args.source_ref,
             environment=args.environment,
-            mode=args.mode,
         )
     except (OSError, SourceProvenanceError) as exc:
         print(f"systemd source provenance failed: {exc}", file=sys.stderr)

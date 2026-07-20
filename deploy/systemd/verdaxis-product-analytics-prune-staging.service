@@ -17,7 +17,7 @@ EnvironmentFile=/home/verdaxis-prod/verdaxis/staging/be/.env
 EnvironmentFile=/home/verdaxis-prod/verdaxis/staging/be/.runtime-release.env
 ExecStartPre=/usr/bin/test -r /home/verdaxis-prod/verdaxis/staging/be/.env
 ExecStartPre=/usr/bin/test -r /home/verdaxis-prod/verdaxis/staging/be/.runtime-release.env
-ExecStartPre=/usr/bin/test ! -e /home/verdaxis-prod/verdaxis/staging/be/.runtime-deploying
+ExecStartPre=/bin/sh -c 'test ! -e /home/verdaxis-prod/verdaxis/staging/be/.runtime-deploy/staging.state || grep -qx DEPLOYMENT_STATE=restart-authorized /home/verdaxis-prod/verdaxis/staging/be/.runtime-deploy/staging.state'
 ExecStartPre=/usr/bin/pg_isready --quiet --timeout=5
 ExecStart=/home/verdaxis-prod/verdaxis/staging/be/venv/bin/python scripts/prune_product_analytics.py --environment staging --release-sha ${RELEASE_SHA}
 Nice=10

@@ -1,15 +1,9 @@
 #!/usr/bin/env bash
 # Systemd-aware deploy helper for the Verdaxis backend.
 #
-# Defaults are inferred from the live VPS layout:
-#   /home/verdaxis-prod/verdaxis/prod/be     -> branch prod, service verdaxis-backend.service
-#   /home/verdaxis-prod/verdaxis/staging/be  -> branch staging, service verdaxis-backend-staging.service
-#
-# Usage:
-#   ./scripts/deploy.sh --dry-run
-#   ./scripts/deploy.sh
-# Dirty trees are always refused because a commit SHA cannot identify modified
-# source. Rollbacks are forward-only revert releases; see docs/runtime-hardening.md.
+# Dry-run is an immutable source/configuration inspection only. It never
+# executes candidate application code or supplies candidate code with live
+# secrets, home, database, agent, or network access.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -26,6 +20,7 @@ case "${1:-}" in
 esac
 
 cd "$BACKEND_DIR"
+export GIT_NO_REPLACE_OBJECTS=1
 GIT=(git -c "safe.directory=$BACKEND_DIR" -c core.hooksPath=/dev/null)
 
 case "$BACKEND_DIR" in
@@ -34,12 +29,26 @@ case "$BACKEND_DIR" in
         DEPLOY_ENVIRONMENT="production"
         SERVICE_NAME="verdaxis-backend.service"
         HEALTH_URL="https://api.verdaxis.exchange/health/ready"
+        UNIT_NAMES=(
+            verdaxis-backend.service
+            verdaxis-news-refresh.service
+            verdaxis-news-refresh.timer
+            verdaxis-product-analytics-prune.service
+            verdaxis-product-analytics-prune.timer
+        )
         ;;
     */staging/be)
         DEFAULT_BRANCH="staging"
         DEPLOY_ENVIRONMENT="staging"
         SERVICE_NAME="verdaxis-backend-staging.service"
         HEALTH_URL="https://api-staging.verdaxis.exchange/health/ready"
+        UNIT_NAMES=(
+            verdaxis-backend-staging.service
+            verdaxis-news-refresh-staging.service
+            verdaxis-news-refresh-staging.timer
+            verdaxis-product-analytics-prune-staging.service
+            verdaxis-product-analytics-prune-staging.timer
+        )
         ;;
     *)
         echo "Cannot infer backend environment from path: $BACKEND_DIR" >&2
@@ -49,15 +58,46 @@ case "$BACKEND_DIR" in
         : "${HEALTH_URL:?HEALTH_URL is required outside prod/staging layout}"
         : "${DEPLOY_ENVIRONMENT:?DEPLOY_ENVIRONMENT is required outside prod/staging layout}"
         DEFAULT_BRANCH="$TARGET_BRANCH"
+        UNIT_NAMES=()
         ;;
 esac
 
 TARGET_BRANCH="${TARGET_BRANCH:-$DEFAULT_BRANCH}"
+if [[ "${#UNIT_NAMES[@]}" == 0 ]]; then
+    case "$DEPLOY_ENVIRONMENT" in
+        production)
+            UNIT_NAMES=(
+                verdaxis-backend.service
+                verdaxis-news-refresh.service
+                verdaxis-news-refresh.timer
+                verdaxis-product-analytics-prune.service
+                verdaxis-product-analytics-prune.timer
+            )
+            ;;
+        staging)
+            UNIT_NAMES=(
+                verdaxis-backend-staging.service
+                verdaxis-news-refresh-staging.service
+                verdaxis-news-refresh-staging.timer
+                verdaxis-product-analytics-prune-staging.service
+                verdaxis-product-analytics-prune-staging.timer
+            )
+            ;;
+        *)
+            echo "DEPLOY_ENVIRONMENT must be production or staging." >&2
+            exit 2
+            ;;
+    esac
+fi
 RELEASE_ENV_FILE="$BACKEND_DIR/.runtime-release.env"
-DEPLOY_GUARD_FILE="$BACKEND_DIR/.runtime-deploying"
+DEPLOY_STATE_DIR="${DEPLOY_STATE_DIR:-$BACKEND_DIR/.runtime-deploy}"
+DEPLOY_LOCK_FILE="$DEPLOY_STATE_DIR/${DEPLOY_ENVIRONMENT}.lock"
+DEPLOY_STATE_FILE="$DEPLOY_STATE_DIR/${DEPLOY_ENVIRONMENT}.state"
+APPROVED_RELEASE_SHA="${APPROVED_RELEASE_SHA:-}"
+DEPLOY_LOCK_FD=""
 DEPLOY_STARTED=0
-RELEASE_IDENTITY_PUBLISHED=0
 SERVICE_RESTART_ATTEMPTED=0
+DEPLOY_PHASE="preflight"
 DRY_RUN_TEMP=""
 
 assert_clean_tree() {
@@ -67,6 +107,16 @@ assert_clean_tree() {
     if [[ -n "$status" ]]; then
         echo "$phase changed tracked source; refusing a mismatched release identity." >&2
         "${GIT[@]}" status --short >&2
+        exit 1
+    fi
+}
+
+acquire_deploy_lock() {
+    mkdir -p -- "$DEPLOY_STATE_DIR"
+    chmod 0755 "$DEPLOY_STATE_DIR"
+    exec {DEPLOY_LOCK_FD}>"$DEPLOY_LOCK_FILE"
+    if ! flock -n "$DEPLOY_LOCK_FD"; then
+        echo "A $DEPLOY_ENVIRONMENT deployment is already running; refusing concurrent deploy." >&2
         exit 1
     fi
 }
@@ -83,18 +133,20 @@ write_release_artifact() {
     mv -- "$temporary_file" "$RELEASE_ENV_FILE"
 }
 
-write_deploy_guard() {
-    local temporary_file="${DEPLOY_GUARD_FILE}.tmp.$$"
+write_deploy_state() {
+    local phase="$1"
+    local release_sha="${2:-${CURRENT_SHA:-$APPROVED_RELEASE_SHA}}"
+    local temporary_file="${DEPLOY_STATE_FILE}.tmp.$$"
 
-    umask 077
-    printf 'DEPLOYMENT_STATE=blocked\nENVIRONMENT=%s\n' \
-        "$DEPLOY_ENVIRONMENT" > "$temporary_file"
-    chmod 0600 "$temporary_file"
-    mv -- "$temporary_file" "$DEPLOY_GUARD_FILE"
+    umask 022
+    printf 'DEPLOYMENT_STATE=%s\nENVIRONMENT=%s\nRELEASE_SHA=%s\n' \
+        "$phase" "$DEPLOY_ENVIRONMENT" "$release_sha" > "$temporary_file"
+    chmod 0644 "$temporary_file"
+    mv -- "$temporary_file" "$DEPLOY_STATE_FILE"
 }
 
-clear_deploy_guard() {
-    rm -f -- "$DEPLOY_GUARD_FILE"
+clear_deploy_state() {
+    rm -f -- "$DEPLOY_STATE_FILE"
 }
 
 cleanup_dry_run_candidate() {
@@ -117,18 +169,14 @@ preserve_failed_release() {
     trap - EXIT
     cleanup_dry_run_candidate
     if [[ "$status" != "0" && "$DRY_RUN" == "0" && "$DEPLOY_STARTED" == "1" ]]; then
-        if ! write_deploy_guard; then
-            echo "WARNING: could not restore the deployment guard." >&2
+        if ! write_deploy_state "blocked" "${CURRENT_SHA:-$APPROVED_RELEASE_SHA}"; then
+            echo "WARNING: could not restore durable deployment state." >&2
         fi
         if [[ "$SERVICE_RESTART_ATTEMPTED" == "1" ]] \
             && ! sudo systemctl stop "$SERVICE_NAME"; then
             echo "WARNING: could not stop the failed backend service." >&2
         fi
-        if [[ "$RELEASE_IDENTITY_PUBLISHED" == "1" ]]; then
-            echo "Deployment failed; selected release remains fail-closed with code and published identity aligned." >&2
-        else
-            echo "Deployment failed before release identity publication; unit starts remain fail-closed." >&2
-        fi
+        echo "Deployment failed; code and published identity remain aligned and the durable state stays fail-closed." >&2
     fi
     exit "$status"
 }
@@ -152,12 +200,11 @@ if [[ "$DRY_RUN" == "1" ]]; then
         exit 1
     fi
     assert_clean_tree "Dry-run preflight"
-
-    CURRENT_SHA="$("${GIT[@]}" rev-parse HEAD)"
-    if [[ ! "$CURRENT_SHA" =~ ^[0-9a-f]{40}$ ]]; then
-        echo "Resolved release identity is not a full commit SHA." >&2
+    if [[ -e "$DEPLOY_STATE_FILE" ]]; then
+        echo "Durable deployment state is present; recover the interrupted deploy before dry-run." >&2
         exit 1
     fi
+
     mapfile -t REMOTE_REFS < <(
         "${GIT[@]}" ls-remote --exit-code origin "refs/heads/$TARGET_BRANCH"
     )
@@ -175,58 +222,47 @@ if [[ "$DRY_RUN" == "1" ]]; then
     umask 077
     DRY_RUN_TEMP="$(mktemp -d /tmp/verdaxis-deploy-dry-run.XXXXXXXX)"
     chmod 0700 "$DRY_RUN_TEMP"
-    CANDIDATE_REPOSITORY="$DRY_RUN_TEMP/repository"
-    CANDIDATE_TREE="$DRY_RUN_TEMP/candidate"
-    ORIGIN_URL="$("${GIT[@]}" remote get-url origin)"
-    git -c core.hooksPath=/dev/null clone --quiet --no-checkout --depth 1 \
-        --single-branch --branch "$TARGET_BRANCH" -- \
-        "$ORIGIN_URL" "$CANDIDATE_REPOSITORY"
-    CANDIDATE_SHA="$(git -c core.hooksPath=/dev/null \
-        -C "$CANDIDATE_REPOSITORY" rev-parse HEAD)"
-    if [[ "$CANDIDATE_SHA" != "$REMOTE_SHA" ]]; then
-        echo "Materialized candidate does not match the attested remote SHA." >&2
-        exit 1
-    fi
-    mkdir -m 0700 "$CANDIDATE_TREE"
-    git -c core.hooksPath=/dev/null -C "$CANDIDATE_REPOSITORY" \
-        archive --format=tar "$CANDIDATE_SHA" \
-        | tar --extract --file=- --directory="$CANDIDATE_TREE"
-    if [[ -f "$BACKEND_DIR/.env" ]]; then
-        ln -s "$BACKEND_DIR/.env" "$CANDIDATE_TREE/.env"
-    fi
-
-    (
-        cd "$CANDIDATE_TREE"
-        env ENVIRONMENT="$DEPLOY_ENVIRONMENT" RELEASE_SHA="$CANDIDATE_SHA" \
-            "$BACKEND_DIR/venv/bin/python" scripts/preflight_runtime.py \
-            --environment "$DEPLOY_ENVIRONMENT" --release-sha "$CANDIDATE_SHA"
-        if [[ -f requirements.txt ]]; then
-            "$BACKEND_DIR/venv/bin/python" -m pip install --dry-run \
-                --no-cache-dir -r requirements.txt
-            "$BACKEND_DIR/venv/bin/python" -m pip check
-        fi
-        if [[ -f alembic.ini ]]; then
-            env ENVIRONMENT="$DEPLOY_ENVIRONMENT" RELEASE_SHA="$CANDIDATE_SHA" \
-                "$BACKEND_DIR/venv/bin/alembic" current --check-heads
-        fi
-    )
+    git -c core.hooksPath=/dev/null -C "$BACKEND_DIR" fetch --quiet --no-tags \
+        origin "$REMOTE_SHA"
+    git -c core.hooksPath=/dev/null -C "$BACKEND_DIR" cat-file -e "$REMOTE_SHA^{commit}"
+    mkdir -m 0700 "$DRY_RUN_TEMP/candidate-units"
+    ARCHIVE_PATHS=()
+    CANDIDATE_UNITS=()
+    for unit_name in "${UNIT_NAMES[@]}"; do
+        relative="deploy/systemd/$unit_name"
+        "${GIT[@]}" cat-file -e "$REMOTE_SHA:$relative"
+        ARCHIVE_PATHS+=("$relative")
+        CANDIDATE_UNITS+=("$DRY_RUN_TEMP/candidate-units/$relative")
+    done
+    "${GIT[@]}" archive --format=tar "$REMOTE_SHA" "${ARCHIVE_PATHS[@]}" \
+        | tar --extract --file=- --directory="$DRY_RUN_TEMP/candidate-units"
+    sha256sum "${CANDIDATE_UNITS[@]}" > "$DRY_RUN_TEMP/SHA256SUMS"
+    systemd-analyze verify "${CANDIDATE_UNITS[@]}"
     assert_clean_tree "Dry-run checks"
     cleanup_dry_run_candidate
 
-    echo "Dry-run checks passed for the exact clean remote release."
+    echo "Dry-run checks passed for immutable candidate SHA $REMOTE_SHA."
+    echo "APPROVED_RELEASE_SHA=$REMOTE_SHA"
+    echo "Candidate Python code was not executed; live secrets, home, database, and network were not supplied to candidate code."
     echo "Skipped mutations:"
-    echo "  - source update (the remote candidate was staged privately instead)"
-    echo "  - dependency installation (resolver dry-run and pip check ran)"
-    echo "  - migration upgrade (Alembic current --check-heads ran)"
-    echo "  - release identity and deployment guard publication"
+    echo "  - source update (the exact SHA was inspected from an immutable Git archive)"
+    echo "  - candidate application preflight (omitted; this dry-run does not execute candidate code)"
+    echo "  - dependency installation and resolver/build metadata"
+    echo "  - migration upgrade or live database inspection"
+    echo "  - release identity and deployment state publication"
     echo "  - service restart"
     echo "  - health gate (valid only after the candidate service restarts)"
     exit 0
 fi
 
+acquire_deploy_lock
 assert_clean_tree "Initial deploy preflight"
+if [[ ! "$APPROVED_RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+    echo "APPROVED_RELEASE_SHA must be the exact full SHA printed by a prior dry-run." >&2
+    exit 1
+fi
 DEPLOY_STARTED=1
-write_deploy_guard
+write_deploy_state "blocked" "$APPROVED_RELEASE_SHA"
 
 "${GIT[@]}" fetch origin "refs/heads/$TARGET_BRANCH"
 "${GIT[@]}" checkout "$TARGET_BRANCH"
@@ -235,6 +271,10 @@ write_deploy_guard
 CURRENT_BRANCH="$("${GIT[@]}" branch --show-current)"
 CURRENT_SHA="$("${GIT[@]}" rev-parse HEAD)"
 REMOTE_SHA="$("${GIT[@]}" rev-parse 'FETCH_HEAD^{commit}')"
+if [[ "$REMOTE_SHA" != "$APPROVED_RELEASE_SHA" ]]; then
+    echo "Remote target moved after approval; refusing to deploy a different SHA." >&2
+    exit 1
+fi
 if [[ "$CURRENT_BRANCH" != "$TARGET_BRANCH" \
     || ! "$CURRENT_SHA" =~ ^[0-9a-f]{40}$ \
     || "$CURRENT_SHA" != "$REMOTE_SHA" ]]; then
@@ -244,10 +284,9 @@ fi
 assert_clean_tree "Selected release"
 
 # Publish the selected tree's exact identity before invoking any executable
-# from that tree. Installed runtime units refuse to start while the guard is
-# present, so publication failure cannot start mismatched bytes.
+# from that tree. The durable state lets units remain fail-closed during this
+# transition and through any restart/readiness failure.
 write_release_artifact "$CURRENT_SHA"
-RELEASE_IDENTITY_PUBLISHED=1
 
 env ENVIRONMENT="$DEPLOY_ENVIRONMENT" RELEASE_SHA="$CURRENT_SHA" \
     ./venv/bin/python scripts/preflight_runtime.py \
@@ -264,9 +303,12 @@ if [[ -f alembic.ini ]]; then
 fi
 
 assert_clean_tree "Deploy steps"
-clear_deploy_guard
+DEPLOY_PHASE="restart-authorized"
+write_deploy_state "$DEPLOY_PHASE" "$CURRENT_SHA"
 SERVICE_RESTART_ATTEMPTED=1
 sudo systemctl restart "$SERVICE_NAME"
+DEPLOY_PHASE="readiness-pending"
+write_deploy_state "$DEPLOY_PHASE" "$CURRENT_SHA"
 
 systemctl is-active --quiet "$SERVICE_NAME"
 HEALTH_ATTEMPTS="${HEALTH_ATTEMPTS:-12}"
@@ -288,6 +330,7 @@ for ((attempt = 1; attempt <= HEALTH_ATTEMPTS; attempt++)); do
 done
 
 echo "Backend is healthy: $HEALTH_URL"
+clear_deploy_state
 echo "=== Backend Deployment Complete ==="
 DEPLOY_STARTED=0
 trap - EXIT

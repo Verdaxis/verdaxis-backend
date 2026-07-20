@@ -150,10 +150,16 @@ async def test_delegated_database_and_schema_grants_are_cascade_revoked():
     database = values["database_name"]
     parent = "verdaxis_unexpected_acl_test"
     child = "verdaxis_delegated_acl_test"
+    membership_parent = "verdaxis_membership_parent_test"
+    membership_child = "verdaxis_membership_child_test"
     await _execute_admin(f"DROP ROLE IF EXISTS {child}")
     await _execute_admin(f"DROP ROLE IF EXISTS {parent}")
+    await _execute_admin(f"DROP ROLE IF EXISTS {membership_child}")
+    await _execute_admin(f"DROP ROLE IF EXISTS {membership_parent}")
     await _execute_admin(f"CREATE ROLE {parent} NOLOGIN")
     await _execute_admin(f"CREATE ROLE {child} NOLOGIN")
+    await _execute_admin(f"CREATE ROLE {membership_parent} NOLOGIN")
+    await _execute_admin(f"CREATE ROLE {membership_child} NOLOGIN")
     await _execute_admin(
         f"GRANT CREATE, TEMPORARY ON DATABASE {database} TO {parent} "
         "WITH GRANT OPTION"
@@ -167,6 +173,16 @@ async def test_delegated_database_and_schema_grants_are_cascade_revoked():
             f"GRANT CREATE, TEMPORARY ON DATABASE {database} TO {child}",
             f"GRANT CREATE ON SCHEMA public TO {child}",
         ],
+    )
+    await _execute_admin(
+        f"GRANT {membership_parent} TO {values['app_role']} WITH ADMIN OPTION"
+    )
+    await _execute_admin(
+        f"GRANT {membership_child} TO {values['app_role']} WITH ADMIN OPTION"
+    )
+    await _execute_admin_as(
+        values["app_role"],
+        [f"GRANT {membership_child} TO {membership_parent}"],
     )
 
     try:
@@ -186,12 +202,23 @@ async def test_delegated_database_and_schema_grants_are_cascade_revoked():
             )
             assert database_authority is False
             assert schema_authority is False
+        remaining_memberships = await _fetchall_admin(
+            "SELECT granted.rolname, member.rolname "
+            "FROM pg_catalog.pg_auth_members AS membership "
+            "JOIN pg_catalog.pg_roles AS granted ON granted.oid = membership.roleid "
+            "JOIN pg_catalog.pg_roles AS member ON member.oid = membership.member "
+            f"WHERE granted.rolname IN ('{membership_parent}', '{membership_child}') "
+            f"OR member.rolname IN ('{membership_parent}', '{membership_child}')"
+        )
+        assert remaining_memberships == set()
     finally:
         _psql("bootstrap_roles.sql")
         await _execute_admin(f"DROP OWNED BY {child}")
         await _execute_admin(f"DROP OWNED BY {parent}")
         await _execute_admin(f"DROP ROLE IF EXISTS {child}")
         await _execute_admin(f"DROP ROLE IF EXISTS {parent}")
+        await _execute_admin(f"DROP ROLE IF EXISTS {membership_child}")
+        await _execute_admin(f"DROP ROLE IF EXISTS {membership_parent}")
 
 
 @pytest.mark.asyncio
@@ -227,6 +254,14 @@ async def test_governed_object_acls_are_exactly_repaired_with_cascade():
             "WITH GRANT OPTION"
         )
         await _execute_admin(f"GRANT SELECT ON TABLE public.{object_name} TO PUBLIC")
+        await _execute_admin(
+            f"GRANT UPDATE (bucket) ON TABLE public.{object_name} TO {parent_role} "
+            "WITH GRANT OPTION"
+        )
+        await _execute_admin(
+            f"GRANT UPDATE (bucket) ON TABLE public.{object_name} TO {values['backup_role']} "
+            "WITH GRANT OPTION"
+        )
     await _execute_admin(
         f"GRANT USAGE ON SEQUENCE public.{sequence} TO {parent_role} "
         "WITH GRANT OPTION"
@@ -267,6 +302,22 @@ async def test_governed_object_acls_are_exactly_repaired_with_cascade():
             f"AND (acl.grantee = 0 OR grantee.rolname IN ('{parent_role}', '{child_role}'))"
         )
         assert unexpected_acls == set()
+        column_acls = await _fetchall_admin(
+            "SELECT object.relname, attribute.attname, "
+            "COALESCE(grantee.rolname, 'PUBLIC'), acl.privilege_type, acl.is_grantable "
+            "FROM pg_catalog.pg_class AS object "
+            "JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = object.relnamespace "
+            "JOIN pg_catalog.pg_attribute AS attribute ON attribute.attrelid = object.oid "
+            "CROSS JOIN LATERAL aclexplode(attribute.attacl) AS acl "
+            "LEFT JOIN pg_catalog.pg_roles AS grantee ON grantee.oid = acl.grantee "
+            f"WHERE namespace.nspname = 'public' AND object.relname IN ('{parent_table}', '{child_table}')"
+        )
+        assert column_acls == set()
+        backup_can_write_column = await _fetch_admin(
+            f"SELECT has_column_privilege('{values['backup_role']}', "
+            f"'public.{parent_table}', 'bucket', 'UPDATE')"
+        )
+        assert backup_can_write_column == (False,)
     finally:
         _psql("bootstrap_roles.sql")
         await _execute_admin_as(

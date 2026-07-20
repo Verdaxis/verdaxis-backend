@@ -90,7 +90,10 @@ def test_deploy_rejects_dirty_release_and_uses_json_health_gate():
     assert source.rindex("status --porcelain") < source.index(
         'write_release_artifact "$CURRENT_SHA"'
     )
-    assert "preflight_runtime.py" in source
+    assert "APPROVED_RELEASE_SHA" in source
+    assert "archive --format=tar" in source
+    assert "clone" not in source
+    assert "ln -s" not in source
 
 
 def _git(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
@@ -124,8 +127,12 @@ def _deployment_checkout(tmp_path: Path) -> tuple[Path, Path, str]:
     scripts.mkdir()
     shutil.copy2(ROOT / "scripts/deploy.sh", scripts / "deploy.sh")
     (scripts / "preflight_runtime.py").write_text("# deployment test preflight\n")
+    for relative in SYSTEMD_UNITS["staging"]:
+        destination = source / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(ROOT / relative, destination)
     (source / ".gitignore").write_text(
-        "venv/\n.runtime-release.env\n.runtime-deploying\n"
+        "venv/\n.runtime-release.env\n.runtime-deploy/\n"
     )
     (source / "requirements.txt").write_text("deployment-test==1\n")
     (source / "alembic.ini").write_text("[alembic]\n")
@@ -148,6 +155,9 @@ if [[ "${DEPLOY_FAIL_PHASE:-}" == "dependency" && "${1:-} ${2:-} ${3:-}" == "-m 
 fi
 if [[ "${DEPLOY_FAIL_PHASE:-}" == "health" && "${1:-}" == "scripts/validate_health_response.py" ]]; then
     exit 44
+fi
+if [[ "${DEPLOY_BLOCK_PHASE:-}" == "${1:-}" ]]; then
+    sleep 30
 fi
 """
     fake_alembic = """#!/usr/bin/env bash
@@ -193,6 +203,7 @@ def _deploy_environment(log_path: Path, *, fail_phase: str = "") -> dict[str, st
         "DEPLOY_ENVIRONMENT": "staging",
         "DEPLOY_TEST_LOG": str(log_path),
         "DEPLOY_FAIL_PHASE": fail_phase,
+        "DEPLOY_STATE_DIR": str(log_path.parent / "runtime-deploy-state"),
         "HEALTH_ATTEMPTS": "1",
         "PATH": f"{log_path.parent / 'fake-bin'}{os.pathsep}{os.environ['PATH']}",
     }
@@ -206,7 +217,7 @@ def _push_new_release(source: Path) -> str:
     return _git(source, "rev-parse", "HEAD").stdout.strip()
 
 
-def test_deploy_dry_run_executes_all_read_only_checks(tmp_path):
+def test_deploy_dry_run_only_attests_pinned_archive_without_candidate_execution(tmp_path):
     source, checkout, current_sha = _deployment_checkout(tmp_path)
     candidate_sha = _push_new_release(source)
     log_path = tmp_path / "commands.log"
@@ -221,21 +232,16 @@ def test_deploy_dry_run_executes_all_read_only_checks(tmp_path):
     )
 
     assert result.returncode == 0, result.stderr
-    commands = log_path.read_text().splitlines()
-    assert any(
-        "scripts/preflight_runtime.py" in command
-        and f"--release-sha {candidate_sha}" in command
-        for command in commands
-    )
-    assert any("-m pip install --dry-run" in command for command in commands)
-    assert any("-m pip check" in command for command in commands)
-    assert any("alembic:current --check-heads" == command for command in commands)
+    commands = log_path.read_text().splitlines() if log_path.exists() else []
+    assert not any("python:" in command for command in commands)
+    assert not any("alembic:" in command for command in commands)
     assert _git(checkout, "rev-parse", "HEAD").stdout.strip() == current_sha
     assert current_sha != candidate_sha
     assert not (checkout / ".runtime-release.env").exists()
-    assert not (checkout / ".runtime-deploying").exists()
-    assert "Skipped mutations:" in result.stdout
-    for skipped in ("source update", "dependency installation", "migration upgrade", "service restart", "health gate"):
+    assert not (checkout / ".runtime-deploy").exists()
+    assert f"APPROVED_RELEASE_SHA={candidate_sha}" in result.stdout
+    assert "Candidate Python code was not executed" in result.stdout
+    for skipped in ("source update", "candidate application preflight", "dependency installation", "migration upgrade", "service restart", "health gate"):
         assert skipped in result.stdout
 
 
@@ -249,11 +255,13 @@ def test_deploy_failure_keeps_selected_code_and_identity_aligned_and_guarded(
     )
     new_sha = _push_new_release(source)
     log_path = tmp_path / "commands.log"
+    environment = _deploy_environment(log_path, fail_phase=fail_phase)
+    environment["APPROVED_RELEASE_SHA"] = new_sha
 
     result = subprocess.run(
         ["bash", "scripts/deploy.sh"],
         cwd=checkout,
-        env=_deploy_environment(log_path, fail_phase=fail_phase),
+        env=environment,
         capture_output=True,
         text=True,
         check=False,
@@ -264,8 +272,8 @@ def test_deploy_failure_keeps_selected_code_and_identity_aligned_and_guarded(
     assert (checkout / ".runtime-release.env").read_text() == (
         f"ENVIRONMENT=staging\nRELEASE_SHA={new_sha}\n"
     )
-    assert (checkout / ".runtime-deploying").is_file()
-    assert "release remains fail-closed" in result.stderr
+    assert (log_path.parent / "runtime-deploy-state/staging.state").is_file()
+    assert "durable state stays fail-closed" in result.stderr
 
 
 def test_failed_post_restart_health_stops_service_and_restores_guard(tmp_path):
@@ -275,11 +283,13 @@ def test_failed_post_restart_health_stops_service_and_restores_guard(tmp_path):
     )
     new_sha = _push_new_release(source)
     log_path = tmp_path / "commands.log"
+    environment = _deploy_environment(log_path, fail_phase="health")
+    environment["APPROVED_RELEASE_SHA"] = new_sha
 
     result = subprocess.run(
         ["bash", "scripts/deploy.sh"],
         cwd=checkout,
-        env=_deploy_environment(log_path, fail_phase="health"),
+        env=environment,
         capture_output=True,
         text=True,
         check=False,
@@ -289,13 +299,58 @@ def test_failed_post_restart_health_stops_service_and_restores_guard(tmp_path):
     assert (checkout / ".runtime-release.env").read_text() == (
         f"ENVIRONMENT=staging\nRELEASE_SHA={new_sha}\n"
     )
-    assert (checkout / ".runtime-deploying").is_file()
+    assert (log_path.parent / "runtime-deploy-state/staging.state").is_file()
     commands = log_path.read_text().splitlines()
     restart = "sudo:systemctl restart verdaxis-backend-staging-test.service"
     stop = "sudo:systemctl stop verdaxis-backend-staging-test.service"
     assert restart in commands
     assert stop in commands
     assert commands.index(restart) < commands.index(stop)
+
+
+def test_deploy_lock_serializes_concurrent_runs_and_state_survives_interruption(tmp_path):
+    source, checkout, old_sha = _deployment_checkout(tmp_path)
+    (checkout / ".runtime-release.env").write_text(
+        f"ENVIRONMENT=staging\nRELEASE_SHA={old_sha}\n"
+    )
+    new_sha = _push_new_release(source)
+    log_path = tmp_path / "commands.log"
+    environment = _deploy_environment(log_path)
+    environment["APPROVED_RELEASE_SHA"] = new_sha
+    environment["DEPLOY_BLOCK_PHASE"] = "scripts/preflight_runtime.py"
+
+    running = subprocess.Popen(
+        ["bash", "scripts/deploy.sh"],
+        cwd=checkout,
+        env=environment,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    state = log_path.parent / "runtime-deploy-state/staging.state"
+    for _ in range(50):
+        if state.exists():
+            break
+        import time
+
+        time.sleep(0.02)
+    assert state.exists()
+
+    concurrent = subprocess.run(
+        ["bash", "scripts/deploy.sh"],
+        cwd=checkout,
+        env={**environment, "DEPLOY_BLOCK_PHASE": ""},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert concurrent.returncode != 0
+    assert "already running" in concurrent.stderr
+
+    running.terminate()
+    running.wait(timeout=5)
+    assert state.exists()
+    assert "DEPLOYMENT_STATE=blocked" in state.read_text()
 
 
 def test_deploy_publishes_identity_before_selected_tree_execution():
@@ -328,20 +383,23 @@ def test_every_runtime_service_fails_closed_during_deployment(unit_name):
         else "/home/verdaxis-prod/verdaxis/prod/be"
     )
 
-    assert (
-        f"ExecStartPre=/usr/bin/test ! -e {backend_dir}/.runtime-deploying"
-        in content
-    )
+    state = f"{backend_dir}/.runtime-deploy/{'staging' if 'staging' in unit_name else 'production'}.state"
+    assert state in content
+    assert "DEPLOYMENT_STATE=restart-authorized" in content
 
 
 def test_systemd_installer_is_idempotent_preflights_and_never_starts_services():
     source = (ROOT / "scripts/install_systemd_units.sh").read_text()
 
     assert "systemd-analyze verify" in source
-    assert "preflight_runtime.py" in source
-    assert "alembic current --check-heads" in source
+    assert "preflight_runtime.py" not in source
+    assert "alembic current --check-heads" not in source
     assert "cmp --silent" in source or "cmp -s" in source
     assert "systemctl daemon-reload" in source
+    assert "PENDING_STATE" in source
+    assert source.index("systemctl daemon-reload") < source.index(
+        'rm -f -- "$PENDING_STATE"'
+    )
     assert "systemctl start" not in source
     assert "systemctl restart" not in source
     assert "systemctl enable" not in source
@@ -396,7 +454,6 @@ def test_systemd_source_provenance_refuses_wrong_sha_in_every_mode(tmp_path, mod
             source_root=root,
             source_ref="b" * 40,
             environment="production",
-            mode=mode,
         )
 
 
@@ -411,7 +468,6 @@ def test_systemd_source_provenance_refuses_dirty_unit_bytes(tmp_path, mode):
             source_root=root,
             source_ref=source_ref,
             environment="production",
-            mode=mode,
         )
 
 
@@ -436,7 +492,6 @@ def test_systemd_source_provenance_refuses_digest_mismatch_hidden_from_status(
             source_root=root,
             source_ref=source_ref,
             environment="production",
-            mode=mode,
         )
 
 
@@ -459,7 +514,6 @@ def test_systemd_source_provenance_refuses_hidden_non_unit_source_changes(
             source_root=root,
             source_ref=source_ref,
             environment="production",
-            mode=mode,
         )
 
 
@@ -487,7 +541,6 @@ def test_systemd_source_provenance_refuses_git_replacement_refs(tmp_path, mode):
             source_root=root,
             source_ref=source_ref,
             environment="production",
-            mode=mode,
         )
 
 
@@ -503,7 +556,6 @@ def test_systemd_source_provenance_accepts_exact_clean_release(
         source_root=root,
         source_ref=source_ref,
         environment=environment,
-        mode=mode,
     )
 
     assert set(digests) == set(units)
@@ -521,7 +573,6 @@ def test_systemd_archive_contains_exact_environment_unit_set_and_digests(
         source_root=root,
         source_ref=source_ref,
         environment=environment,
-        mode="apply",
     )
 
     with tarfile.open(fileobj=io.BytesIO(archive), mode="r:") as bundle:
@@ -563,7 +614,6 @@ def test_systemd_archive_ignores_concurrent_worktree_mutation_after_attestation(
         source_root=root,
         source_ref=source_ref,
         environment="production",
-        mode="apply",
     )
 
     assert target.read_bytes() != approved_bytes
@@ -578,7 +628,7 @@ def test_systemd_installer_requires_independent_environment_and_source_ref():
 
     assert "--environment" in source
     assert "--source-ref" in source
-    assert "verify_systemd_source.py" in source
+    assert "archive --format=tar" in source
     assert "/home/verdaxis-prod/verdaxis/prod/be" in source
     assert "/home/verdaxis-prod/verdaxis/staging/be" in source
     for unit_name in (
@@ -594,13 +644,16 @@ def test_systemd_installer_requires_independent_environment_and_source_ref():
         "verdaxis-product-analytics-prune-staging.timer",
     ):
         assert unit_name in source
-    assert "--archive" in source
+    assert "SHA256SUMS" in source
     assert "sudo mktemp -d" in source
     assert "sha256sum --check" in source
     assert 'UNIT_SOURCES+=("$STAGING_DIR/deploy/systemd/$unit_name")' in source
     assert 'UNIT_SOURCES+=("$SOURCE_ROOT/deploy/systemd/$unit_name")' not in source
     assert "preflight_backend production" not in source
     assert "preflight_backend staging" not in source
-    assert source.index("verify_systemd_source.py") < source.index(
+    assert "venv/bin" not in source
+    assert "preflight_runtime.py" not in source
+    assert "alembic current" not in source
+    assert source.index("archive --format=tar") < source.index(
         'if [[ "$MODE" == "dry-run" ]]'
     )

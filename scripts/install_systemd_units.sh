@@ -2,6 +2,7 @@
 # Install one environment's units only from its exact approved clean checkout.
 # The script deliberately never enables, starts, or restarts a service/timer.
 set -euo pipefail
+export GIT_NO_REPLACE_OBJECTS=1
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BACKEND_ROOT="$(dirname "$SCRIPT_DIR")"
@@ -79,8 +80,20 @@ if [[ "$(realpath -e "$BACKEND_ROOT")" != "$(realpath -e "$SOURCE_ROOT")" ]]; th
     echo "installer must run from the selected environment's fixed deploy checkout" >&2
     exit 1
 fi
-if [[ ! -x "$SOURCE_ROOT/venv/bin/python" || ! -x "$SOURCE_ROOT/venv/bin/alembic" ]]; then
-    echo "selected deploy checkout is missing its virtualenv" >&2
+
+SOURCE_GIT=(git -C "$SOURCE_ROOT" -c "safe.directory=$SOURCE_ROOT" -c core.hooksPath=/dev/null)
+if [[ "$("${SOURCE_GIT[@]}" rev-parse --show-toplevel)" != "$SOURCE_ROOT" \
+    || "$("${SOURCE_GIT[@]}" rev-parse HEAD)" != "$SOURCE_REF" ]]; then
+    echo "selected deploy checkout is not the exact approved source ref" >&2
+    exit 1
+fi
+if [[ -n "$("${SOURCE_GIT[@]}" replace -l)" \
+    || -n "$("${SOURCE_GIT[@]}" status --porcelain --untracked-files=all)" ]]; then
+    echo "selected deploy checkout is dirty or contains replacement refs" >&2
+    exit 1
+fi
+if "${SOURCE_GIT[@]} ls-files -v --" | awk '$1 ~ /^[a-zS]$/ { found=1 } END { exit found ? 0 : 1 }'; then
+    echo "selected deploy checkout contains hidden tracked-file index flags" >&2
     exit 1
 fi
 
@@ -109,23 +122,18 @@ if [[ "$(sudo stat -c '%u:%g:%a' "$STAGING_DIR")" != "0:0:700" ]]; then
     exit 1
 fi
 
-"$SOURCE_ROOT/venv/bin/python" "$SOURCE_ROOT/scripts/verify_systemd_source.py" \
-    --source-root "$SOURCE_ROOT" \
-    --source-ref "$SOURCE_REF" \
-    --environment "$DEPLOY_ENVIRONMENT" \
-    --mode "$MODE" \
-    --archive | sudo tar --extract --file=- --directory="$STAGING_DIR"
+ARCHIVE_PATHS=()
+for unit_name in "${UNIT_NAMES[@]}"; do
+    relative="deploy/systemd/$unit_name"
+    "${SOURCE_GIT[@]}" cat-file -e "$SOURCE_REF:$relative"
+    ARCHIVE_PATHS+=("$relative")
+done
+"${SOURCE_GIT[@]}" archive --format=tar "$SOURCE_REF" "${ARCHIVE_PATHS[@]}" \
+    | sudo tar --extract --file=- --directory="$STAGING_DIR"
+sudo /bin/sh -c 'cd "$1" && shift && /usr/bin/sha256sum "$@" > SHA256SUMS' \
+    systemd-unit-digest-manifest "$STAGING_DIR" "${ARCHIVE_PATHS[@]}"
 sudo /bin/sh -c 'cd "$1" && /usr/bin/sha256sum --check SHA256SUMS' \
     systemd-unit-digest-check "$STAGING_DIR"
-
-(
-    cd "$SOURCE_ROOT"
-    env ENVIRONMENT="$DEPLOY_ENVIRONMENT" RELEASE_SHA="$SOURCE_REF" \
-        ./venv/bin/python scripts/preflight_runtime.py \
-        --environment "$DEPLOY_ENVIRONMENT" --release-sha "$SOURCE_REF"
-    env ENVIRONMENT="$DEPLOY_ENVIRONMENT" RELEASE_SHA="$SOURCE_REF" \
-        ./venv/bin/alembic current --check-heads
-)
 
 UNIT_SOURCES=()
 for unit_name in "${UNIT_NAMES[@]}"; do
@@ -137,11 +145,18 @@ echo "Verdaxis systemd unit installation mode: $MODE"
 echo "Environment: $DEPLOY_ENVIRONMENT"
 echo "Approved source ref: $SOURCE_REF"
 if [[ "$MODE" == "dry-run" ]]; then
-    echo "Provenance and preflights passed; no unit files were changed."
+    echo "Immutable unit provenance and trusted systemd syntax checks passed; no unit files were changed."
     exit 0
 fi
 
-UNITS_CHANGED=0
+PENDING_DIR="${INSTALL_PENDING_DIR:-/var/lib/verdaxis/systemd-units}"
+PENDING_STATE="$PENDING_DIR/${DEPLOY_ENVIRONMENT}.pending"
+sudo install -d -m 0750 -o root -g root "$PENDING_DIR"
+printf 'ENVIRONMENT=%s\nSOURCE_REF=%s\n' "$DEPLOY_ENVIRONMENT" "$SOURCE_REF" \
+    | sudo tee "${PENDING_STATE}.tmp.$$" >/dev/null
+sudo chmod 0644 "${PENDING_STATE}.tmp.$$"
+sudo mv -- "${PENDING_STATE}.tmp.$$" "$PENDING_STATE"
+
 for index in "${!UNIT_NAMES[@]}"; do
     unit_name="${UNIT_NAMES[$index]}"
     source="${UNIT_SOURCES[$index]}"
@@ -151,9 +166,7 @@ for index in "${!UNIT_NAMES[@]}"; do
         continue
     fi
     sudo install -m 0644 -o root -g root "$source" "$destination"
-    UNITS_CHANGED=1
 done
-if [[ "$UNITS_CHANGED" == 1 ]]; then
-    sudo systemctl daemon-reload
-fi
+sudo systemctl daemon-reload
+sudo rm -f -- "$PENDING_STATE"
 echo "Unit files installed; services and timers were left unchanged."

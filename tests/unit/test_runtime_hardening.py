@@ -712,12 +712,20 @@ def test_least_privilege_role_artifacts_cover_existing_and_future_objects():
     assert "alembic_version" in bootstrap
     assert "spatial_ref_sys" in bootstrap
     assert "pg_auth_members" in bootstrap
+    assert "pg_attribute" in bootstrap
+    assert "attacl" in bootstrap
+    assert "REVOKE ALL PRIVILEGES (%I) ON TABLE" in bootstrap
+    assert "CASCADE" in bootstrap
+    assert "ORDER BY" in bootstrap
     assert "ALTER DEFAULT PRIVILEGES FOR ROLE" in bootstrap
     assert "statement_timeout" in bootstrap
     assert "idle_in_transaction_session_timeout" in bootstrap
     assert "has_table_privilege" in validation
     assert "has_sequence_privilege" in validation
     assert "acldefault" in validation
+    assert "pg_attribute" in validation
+    assert "attacl" in validation
+    assert "has_column_privilege" in validation
 
 
 def test_migration_comparison_detects_an_omitted_foreign_key():
