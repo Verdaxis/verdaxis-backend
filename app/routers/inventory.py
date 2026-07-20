@@ -5,12 +5,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-<<<<<<< /home/jons-openclaw/worktrees/verdaxis-be-enterprise-integration/app/routers/inventory.py
-from sqlalchemy.exc import DBAPIError
-||||||| /tmp/claude-1001/-home-jons-openclaw/e53e48f3-c631-4fc2-b3ad-7079edf68cd3/scratchpad/base/app_routers_inventory.py
-=======
 from sqlalchemy.exc import SQLAlchemyError
->>>>>>> /tmp/claude-1001/-home-jons-openclaw/e53e48f3-c631-4fc2-b3ad-7079edf68cd3/scratchpad/sec/app_routers_inventory.py
 from sqlalchemy.orm import selectinload
 
 from app.database import get_db
@@ -148,26 +143,10 @@ async def add_inventory(
         return db_item
     except HTTPException:
         raise
-<<<<<<< /home/jons-openclaw/worktrees/verdaxis-be-enterprise-integration/app/routers/inventory.py
-    except DBAPIError:
-        raise
-    except Exception as e:
-||||||| /tmp/claude-1001/-home-jons-openclaw/e53e48f3-c631-4fc2-b3ad-7079edf68cd3/scratchpad/base/app_routers_inventory.py
-    except Exception as e:
-=======
     except SQLAlchemyError as exc:
->>>>>>> /tmp/claude-1001/-home-jons-openclaw/e53e48f3-c631-4fc2-b3ad-7079edf68cd3/scratchpad/sec/app_routers_inventory.py
         await db.rollback()
-<<<<<<< /home/jons-openclaw/worktrees/verdaxis-be-enterprise-integration/app/routers/inventory.py
-        logger.error("inventory_create_failed", extra={"error_class": type(e).__name__})
-        raise HTTPException(status_code=500, detail=f"Failed to create inventory item: {str(e)}")
-||||||| /tmp/claude-1001/-home-jons-openclaw/e53e48f3-c631-4fc2-b3ad-7079edf68cd3/scratchpad/base/app_routers_inventory.py
-        logger.error(f"Failed to create inventory item: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to create inventory item: {str(e)}")
-=======
         logger.error("inventory_create_failed (%s)", type(exc).__name__)
         raise HTTPException(status_code=503, detail="Inventory is temporarily unavailable") from exc
->>>>>>> /tmp/claude-1001/-home-jons-openclaw/e53e48f3-c631-4fc2-b3ad-7079edf68cd3/scratchpad/sec/app_routers_inventory.py
 
 @router.patch("/inventory/{item_id}", response_model=InventoryResponse)
 async def update_inventory(

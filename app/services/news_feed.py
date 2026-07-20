@@ -14,14 +14,8 @@ from typing import Optional
 from urllib.parse import urlsplit
 
 import structlog
-<<<<<<< /home/jons-openclaw/worktrees/verdaxis-be-enterprise-integration/app/services/news_feed.py
-from sqlalchemy import select, text
-||||||| /tmp/claude-1001/-home-jons-openclaw/e53e48f3-c631-4fc2-b3ad-7079edf68cd3/scratchpad/base/app_services_news_feed.py
-from sqlalchemy import select
-=======
 import httpx
 from sqlalchemy import select, text
->>>>>>> /tmp/claude-1001/-home-jons-openclaw/e53e48f3-c631-4fc2-b3ad-7079edf68cd3/scratchpad/sec/app_services_news_feed.py
 from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -38,10 +32,6 @@ from app.services.gemini_provider import (
 logger = structlog.get_logger()
 
 GEMINI_MODEL = "gemini-2.5-flash-lite"
-<<<<<<< /home/jons-openclaw/worktrees/verdaxis-be-enterprise-integration/app/services/news_feed.py
-NEWS_REFRESH_ADVISORY_LOCK_ID = 6216461178696259923
-||||||| /tmp/claude-1001/-home-jons-openclaw/e53e48f3-c631-4fc2-b3ad-7079edf68cd3/scratchpad/base/app_services_news_feed.py
-=======
 NEWS_PROVIDER_TIMEOUT_SECONDS = 15
 RSS_FETCH_TIMEOUT_SECONDS = 15
 RSS_MAX_CONCURRENT = 4
@@ -55,7 +45,6 @@ NEWS_REFRESH_ADVISORY_LOCK_ID = 6216461178696259923
 NEWS_TITLE_MAX_CHARS = 500
 NEWS_URL_MAX_CHARS = 1000
 _news_provider_capacity = ProviderCapacity(NEWS_PROVIDER_MAX_CONCURRENT)
->>>>>>> /tmp/claude-1001/-home-jons-openclaw/e53e48f3-c631-4fc2-b3ad-7079edf68cd3/scratchpad/sec/app_services_news_feed.py
 
 RSS_FEEDS = [
     {
@@ -88,13 +77,6 @@ RSS_FEEDS = [
 VALID_CATEGORIES = {"shipping", "bunkers", "regulation", "carbon", "commodities", "markets"}
 
 
-<<<<<<< /home/jons-openclaw/worktrees/verdaxis-be-enterprise-integration/app/services/news_feed.py
-class NewsRefreshInProgress(RuntimeError):
-    """Another database-coordinated news refresh already holds the lock."""
-
-
-||||||| /tmp/claude-1001/-home-jons-openclaw/e53e48f3-c631-4fc2-b3ad-7079edf68cd3/scratchpad/base/app_services_news_feed.py
-=======
 @dataclass
 class _RefreshProviderState:
     """Run-scoped provider state; never carries a key or provider response."""
@@ -187,7 +169,6 @@ def _is_provider_auth_failure(exc: Exception) -> bool:
     )
 
 
->>>>>>> /tmp/claude-1001/-home-jons-openclaw/e53e48f3-c631-4fc2-b3ad-7079edf68cd3/scratchpad/sec/app_services_news_feed.py
 def _parse_published(entry: dict) -> datetime:
     """Extract published datetime from a feed entry, falling back to now."""
     if hasattr(entry, "published_parsed") and entry.published_parsed:
@@ -442,45 +423,6 @@ async def refresh_news(db: AsyncSession) -> int:
 
     Returns the count of newly inserted items.
     """
-<<<<<<< /home/jons-openclaw/worktrees/verdaxis-be-enterprise-integration/app/services/news_feed.py
-    bind = db.get_bind()
-    dialect_name = bind.dialect.name if bind is not None else ""
-    if dialect_name == "postgresql":
-        acquired = await db.scalar(
-            text("SELECT pg_try_advisory_xact_lock(:lock_id)"),
-            {"lock_id": NEWS_REFRESH_ADVISORY_LOCK_ID},
-        )
-        if not acquired:
-            raise NewsRefreshInProgress("A news refresh is already running")
-
-    raw_items = await fetch_all_feeds()
-    if not raw_items:
-        logger.info("news_feed.no_items_fetched")
-        return 0
-
-    raw_items = _dedupe_fetched_items(raw_items)
-
-    # Get existing URLs from DB for deduplication
-    urls = [item["url"] for item in raw_items]
-    result = await db.execute(
-        select(NewsItem.url).where(NewsItem.url.in_(urls))
-    )
-    existing_urls = set(result.scalars().all())
-||||||| /tmp/claude-1001/-home-jons-openclaw/e53e48f3-c631-4fc2-b3ad-7079edf68cd3/scratchpad/base/app_services_news_feed.py
-    raw_items = await fetch_all_feeds()
-    if not raw_items:
-        logger.info("news_feed.no_items_fetched")
-        return 0
-
-    raw_items = _dedupe_fetched_items(raw_items)
-
-    # Get existing URLs from DB for deduplication
-    urls = [item["url"] for item in raw_items]
-    result = await db.execute(
-        select(NewsItem.url).where(NewsItem.url.in_(urls))
-    )
-    existing_urls = set(result.scalars().all())
-=======
     state = _RefreshProviderState(provider_enabled=bool(settings.GEMINI_API_KEY))
     token = _refresh_provider_state.set(state)
     try:
@@ -493,7 +435,6 @@ async def refresh_news(db: AsyncSession) -> int:
             )
             if not acquired:
                 raise NewsRefreshInProgress("A news refresh is already running")
->>>>>>> /tmp/claude-1001/-home-jons-openclaw/e53e48f3-c631-4fc2-b3ad-7079edf68cd3/scratchpad/sec/app_services_news_feed.py
 
         raw_items = await fetch_all_feeds()
         if not raw_items:
@@ -521,33 +462,6 @@ async def refresh_news(db: AsyncSession) -> int:
             provider_enabled=state.provider_enabled,
         )
 
-<<<<<<< /home/jons-openclaw/worktrees/verdaxis-be-enterprise-integration/app/services/news_feed.py
-    if dialect_name == "postgresql":
-        stmt = postgresql_insert(NewsItem).values(rows_to_insert)
-        stmt = stmt.on_conflict_do_nothing(index_elements=[NewsItem.url])
-    elif dialect_name == "sqlite":
-        stmt = sqlite_insert(NewsItem).values(rows_to_insert)
-        stmt = stmt.on_conflict_do_nothing(index_elements=[NewsItem.url])
-    else:
-        for row in rows_to_insert:
-            db.add(NewsItem(**row))
-        await db.commit()
-        inserted = len(rows_to_insert)
-||||||| /tmp/claude-1001/-home-jons-openclaw/e53e48f3-c631-4fc2-b3ad-7079edf68cd3/scratchpad/base/app_services_news_feed.py
-    bind = db.get_bind()
-    dialect_name = bind.dialect.name if bind is not None else ""
-    if dialect_name == "postgresql":
-        stmt = postgresql_insert(NewsItem).values(rows_to_insert)
-        stmt = stmt.on_conflict_do_nothing(index_elements=[NewsItem.url])
-    elif dialect_name == "sqlite":
-        stmt = sqlite_insert(NewsItem).values(rows_to_insert)
-        stmt = stmt.on_conflict_do_nothing(index_elements=[NewsItem.url])
-    else:
-        for row in rows_to_insert:
-            db.add(NewsItem(**row))
-        await db.commit()
-        inserted = len(rows_to_insert)
-=======
         rows_to_insert = []
         for item in new_items:
             cat_result = await categorize_headline(item["title"])
@@ -581,7 +495,6 @@ async def refresh_news(db: AsyncSession) -> int:
 
         result = await db.execute(stmt)
         inserted = max(result.rowcount or 0, 0)
->>>>>>> /tmp/claude-1001/-home-jons-openclaw/e53e48f3-c631-4fc2-b3ad-7079edf68cd3/scratchpad/sec/app_services_news_feed.py
         logger.info("news_feed.refresh_complete", inserted=inserted)
         return inserted
     finally:

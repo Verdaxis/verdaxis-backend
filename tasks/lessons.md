@@ -201,3 +201,56 @@
 - **Trigger:** ACL review found `audit_logs` and `user_status_transitions` were read-only even though normal request transactions append both.
 - **Rule:** Give runtime event/history tables explicit `SELECT, INSERT` authority with `UPDATE, DELETE` denied, and test the business mutation and its append in one raw-role transaction.
 - **Why:** Least privilege is not synonymous with read-only; denying required append authority breaks auditability and atomic status history.
+### Keep Periodic Jobs Out Of Web Workers
+- **Date:** 2026-07-20
+- **Trigger:** News refresh scheduling in the API lifespan ran once per worker, multiplying refreshes across the environment.
+- **Rule:** Keep web workers request-driven and expose periodic work as a process-independent one-shot CLI invoked by exactly one environment timer.
+- **Why:** Worker counts are an implementation detail and are not a safe coordination mechanism for singleton jobs.
+
+### Do Not Hold Request Sessions Across SSE Streams
+- **Date:** 2026-07-20
+- **Trigger:** Security review found private SSE handlers retained request-scoped database sessions for the entire stream and treated backend failures as anonymous access.
+- **Rule:** Resolve SSE authorization with short-lived sessions, close/rollback immediately, and catch only expected authentication errors; propagate database/runtime failures.
+- **Why:** Long-lived streams can exhaust small connection pools, and fail-open anonymous fallback hides authorization outages.
+
+### Make Every Security Transition Explicit And Independently Revalidated
+- **Date:** 2026-07-20
+- **Trigger:** A second security review found implicit tenant-join approval, ambiguous SSE credentials, incomplete party provenance, and revocation races after an initial hardening pass.
+- **Rule:** Model each approval as its own audited operation, bind long-lived/private flows to one credential and immutable scope, and revalidate every persisted actor inside the transaction that changes executable state.
+- **Why:** Reusing adjacent approval transitions or inferred ownership creates authorization coupling that happy-path tests do not expose.
+
+### Treat Auth Error Codes As A Cross-Client Contract
+- **Date:** 2026-07-20
+- **Trigger:** Frontend review found refresh failures exposed only human strings, forcing unsafe string matching to decide whether authentication was terminal.
+- **Rule:** Every terminal refresh 401 must use an allowlisted stable machine code with separate human detail; transient rotation races remain a distinct 409 code.
+- **Why:** Client token preservation and logout behavior are security decisions and cannot depend on mutable prose.
+
+### Keep Operational Surfaces Out Of The Public API
+- **Date:** 2026-07-20
+- **Trigger:** Endpoint inventory found log reading, host metrics, a state-changing news refresh, and dead role mutation exposed through web routes.
+- **Rule:** Operational logs, detailed host telemetry, and scheduled maintenance belong in authenticated infrastructure tooling or one-shot CLIs; remove dead token-mutation routes and assert their absence from the application route table.
+- **Why:** Even nominally protected operational endpoints expand data-exposure and state-mutation attack surface, while duplicate scheduler entry points undermine singleton controls.
+
+### Derive Mutable Account Identity From Authentication
+- **Date:** 2026-07-20
+- **Trigger:** The onboarding survey accepted a body email and let an unauthenticated caller win a write-once update for any verified account.
+- **Rule:** Account-mutating endpoints must derive the target user from an authenticated principal or a narrowly scoped server-verified token; body identity fields are forbidden, even when the write is idempotent.
+- **Why:** Rate limits and write-once semantics do not establish ownership and can turn first-write behavior into a cross-account race.
+
+### Reject Unsafe External Links Before Persistence
+- **Date:** 2026-07-20
+- **Trigger:** RSS ingestion persisted publisher-controlled links that the frontend later opened directly without validating scheme, host, or size.
+- **Rule:** Validate and bound externally supplied titles and URLs at ingestion; persist only absolute HTTP(S) links without credentials or local/private destinations.
+- **Why:** Output rendering is too late to make unsafe stored links harmless, and feed data is untrusted even when fetched from a known publisher.
+
+### Remove Nonfunctional Upload Surfaces
+- **Date:** 2026-07-20
+- **Trigger:** A legacy compliance upload endpoint accepted files but performed no verification, while an overlapping active compliance router already served the supported product.
+- **Rule:** Do not register placeholder upload or mutation routes; remove obsolete routers from the application and assert dead paths are absent.
+- **Why:** Authentication alone does not justify parser/upload attack surface, and stubs create a misleading security contract.
+
+### Serialize Cookie Authentication By Browser Device
+- **Date:** 2026-07-20
+- **Trigger:** A follow-up review showed that cross-account login and refresh responses could arrive out of order, allowing a delayed cookie response to restore an older refresh family.
+- **Rule:** Bind refresh families to an opaque HttpOnly device identifier and serialize login, refresh, and logout with the same device-scoped PostgreSQL advisory lock; revoke every superseded device family before issuing a replacement.
+- **Why:** Token rotation alone orders database writes, not browser `Set-Cookie` application, so response reordering must leave every delayed token cryptographically and server-side unusable.
