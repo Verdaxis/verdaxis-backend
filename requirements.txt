@@ -22,3 +22,5 @@ watchfiles
 slowapi>=0.1.9
 structlog>=24.0.0
 feedparser
+disposable-email-domains==0.0.225
+free-email-domains==1.0.2

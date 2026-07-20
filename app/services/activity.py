@@ -14,6 +14,13 @@ from app.services.demo_market import is_demo_market_organization
 from app.services.event_bus import event_bus
 
 
+async def publish_trade_event(trade, event_type: str, data: dict) -> None:
+    """Publish lifecycle data only to the two participating org channels."""
+    channels = {f"trades:{trade.buyer_id}", f"trades:{trade.seller_id}"}
+    for channel in channels:
+        await event_bus.publish(channel, event_type, data)
+
+
 def order_activity_provenance(order) -> dict:
     is_demo = is_demo_market_organization(getattr(order, "organization_id", None))
     observed_at = getattr(order, "updated_at", None) or getattr(order, "created_at", None)

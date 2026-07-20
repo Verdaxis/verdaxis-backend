@@ -10,7 +10,9 @@ class TraceabilityEvent(Base):
     __tablename__ = "traceability_events"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    direct_order_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("direct_orders.id"))
+    # Legacy identifier retained for historical traceability records. The
+    # retired direct_orders table is not part of the current ORM metadata.
+    direct_order_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
     
     stage: Mapped[str] = mapped_column(String, nullable=False) # 'Origin', 'Production', 'Bunkering'
     location_name: Mapped[str | None] = mapped_column(String)

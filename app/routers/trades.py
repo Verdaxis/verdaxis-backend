@@ -10,7 +10,8 @@ from sqlalchemy.orm import joinedload, selectinload
 from uuid import UUID
 
 from app.database import get_db
-from app.routers.auth_simple import get_current_user
+from app.routers.auth_simple import get_authenticated_user, get_current_user
+from app.middleware.execution import require_execution_eligible_user
 from app.models.user import User, UserRole
 from app.models.orderbook import (
     OrderBookOrder,
@@ -23,10 +24,12 @@ from app.models.orderbook import (
 from app.models.notification import Notification, NotificationType
 from app.schemas.orderbook import TradeCreate, TradeResponse, TradeDeliverPayload
 from app.schemas.pagination import PaginatedResponse
-from app.services.activity import trade_activity_provenance
+from app.services.activity import publish_trade_event, trade_activity_provenance
 from app.services.event_bus import event_bus
 from app.services.watchlist_events import _best_slice_price, emit_order_updated
 from app.services.execution_policy import order_is_execution_qualified
+from app.services.execution_policy import execution_party_is_eligible
+from app.models.user import Organization
 from app.services.live_benchmarks import rebuild_live_slice_benchmarks_for_keys
 from app.services.demo_market import is_demo_market_organization
 from app.services.audit_service import record_audit, request_audit_context
@@ -157,6 +160,29 @@ async def _load_trade(db: AsyncSession, trade_id: uuid.UUID, for_update: bool = 
     return trade
 
 
+async def _revalidate_trade_parties(db: AsyncSession, trade: Trade) -> None:
+    if not trade.buyer_user_id or not trade.seller_user_id:
+        raise HTTPException(status_code=409, detail="Trade parties require fresh admission review")
+    users_result = await db.execute(
+        select(User)
+        .where(User.id.in_([trade.buyer_user_id, trade.seller_user_id]))
+        .with_for_update()
+    )
+    users = {user.id: user for user in users_result.scalars().all()}
+    orgs_result = await db.execute(
+        select(Organization)
+        .where(Organization.id.in_([trade.buyer_id, trade.seller_id]))
+        .with_for_update()
+    )
+    orgs = {org.id: org for org in orgs_result.scalars().all()}
+    if not await execution_party_is_eligible(
+        db, user=users.get(trade.buyer_user_id), organization=orgs.get(trade.buyer_id)
+    ) or not await execution_party_is_eligible(
+        db, user=users.get(trade.seller_user_id), organization=orgs.get(trade.seller_id)
+    ):
+        raise HTTPException(status_code=409, detail="Trade parties are no longer execution-qualified")
+
+
 
 
 async def _watchlist_before_state(db: AsyncSession, order: OrderBookOrder) -> dict[str, object]:
@@ -182,7 +208,7 @@ async def create_trade(
     payload: TradeCreate,
     request: Request,
     db: Annotated[AsyncSession, Depends(get_db)],
-    current_user: Annotated[User, Depends(get_current_user)],
+    current_user: Annotated[User, Depends(require_execution_eligible_user)],
 ):
     if not current_user.organization_id:
         raise HTTPException(
@@ -218,6 +244,9 @@ async def create_trade(
             detail="Demo listings are preview liquidity and cannot be traded.",
         )
 
+    if not order.owner_user_id:
+        raise HTTPException(status_code=409, detail="Order owner requires explicit provenance review")
+
     # Determine sides
     if order.side == OrderSide.ASK:
         # User is the BUYER hitting a seller's ask
@@ -252,6 +281,32 @@ async def create_trade(
     if order.organization_id == current_user.organization_id:
         raise HTTPException(status_code=400, detail="Cannot trade with your own order")
 
+    # Re-read and lock both concrete parties and exact organizations in the
+    # order transaction. The dependency's earlier admission decision is not
+    # trusted at execution time.
+    party_result = await db.execute(
+        select(User)
+        .where(User.id.in_([current_user.id, order.owner_user_id]))
+        .with_for_update()
+    )
+    parties = {party.id: party for party in party_result.scalars().all()}
+    org_result = await db.execute(
+        select(Organization)
+        .where(Organization.id.in_([current_user.organization_id, order.organization_id]))
+        .with_for_update()
+    )
+    organizations = {organization.id: organization for organization in org_result.scalars().all()}
+    if not await execution_party_is_eligible(
+        db,
+        user=parties.get(current_user.id),
+        organization=organizations.get(current_user.organization_id),
+    ) or not await execution_party_is_eligible(
+        db,
+        user=parties.get(order.owner_user_id),
+        organization=organizations.get(order.organization_id),
+    ):
+        raise HTTPException(status_code=409, detail="Trade parties are no longer execution-qualified")
+
     # Quantity check
     if payload.quantity_mt > order.remaining_quantity_mt:
         raise HTTPException(
@@ -267,6 +322,8 @@ async def create_trade(
         ask_order_id=ask_order_id,
         buyer_id=buyer_org_id,
         seller_id=seller_org_id,
+        buyer_user_id=current_user.id if initiated_by == Initiator.BUYER else order.owner_user_id,
+        seller_user_id=current_user.id if initiated_by == Initiator.SELLER else order.owner_user_id,
         initiated_by=initiated_by,
         quantity_mt=payload.quantity_mt,
         price_per_mt_usd=order.price_per_mt_usd,
@@ -324,7 +381,7 @@ async def create_trade(
 
     # Emit SSE event for new trade
     _order = loaded_trade.ask_order or loaded_trade.bid_order
-    await event_bus.publish("trades", "trade_created", {
+    await publish_trade_event(loaded_trade, "trade_created", {
         **trade_activity_provenance(loaded_trade),
         "id": str(loaded_trade.id),
         "status": loaded_trade.status.value,
@@ -387,7 +444,7 @@ async def confirm_trade(
     trade_id: UUID,
     request: Request,
     db: Annotated[AsyncSession, Depends(get_db)],
-    current_user: Annotated[User, Depends(get_current_user)],
+    current_user: Annotated[User, Depends(require_execution_eligible_user)],
 ):
     trade = await _load_trade(db, trade_id, for_update=True)
     org_id = current_user.organization_id
@@ -398,14 +455,16 @@ async def confirm_trade(
     # Only the counterparty (non-initiator) can confirm
     if trade.initiated_by == Initiator.BUYER:
         # Buyer initiated, so seller confirms
-        if trade.seller_id != org_id:
+        if trade.seller_id != org_id or trade.seller_user_id != current_user.id:
             raise HTTPException(status_code=403, detail="Only the seller can confirm this trade")
         initiator_org_id = trade.buyer_id
     else:
         # Seller initiated, so buyer confirms
-        if trade.buyer_id != org_id:
+        if trade.buyer_id != org_id or trade.buyer_user_id != current_user.id:
             raise HTTPException(status_code=403, detail="Only the buyer can confirm this trade")
         initiator_org_id = trade.seller_id
+
+    await _revalidate_trade_parties(db, trade)
 
     trade.status = TradeStatus.CONFIRMED
     trade.confirmed_at = datetime.now(UTC)
@@ -449,7 +508,7 @@ async def confirm_trade(
     loaded_trade = await _load_trade(db, trade.id)
 
     # Emit SSE event for confirmed trade
-    await event_bus.publish("trades", "trade_confirmed", {
+    await publish_trade_event(loaded_trade, "trade_confirmed", {
         **trade_activity_provenance(loaded_trade),
         "id": str(loaded_trade.id),
         "status": loaded_trade.status.value,
@@ -469,7 +528,7 @@ async def decline_trade(
     trade_id: UUID,
     request: Request,
     db: Annotated[AsyncSession, Depends(get_db)],
-    current_user: Annotated[User, Depends(get_current_user)],
+    current_user: Annotated[User, Depends(get_authenticated_user)],
 ):
     # Load trade with order relationships for quantity restore
     trade = await _load_trade(db, trade_id, for_update=True)
@@ -480,11 +539,21 @@ async def decline_trade(
 
     # Only the counterparty (non-initiator) can decline
     if trade.initiated_by == Initiator.BUYER:
-        if trade.seller_id != org_id:
+        is_counterparty = (
+            trade.seller_user_id == current_user.id
+            if trade.seller_user_id is not None
+            else trade.seller_id == org_id
+        )
+        if not is_counterparty:
             raise HTTPException(status_code=403, detail="Only the seller can decline this trade")
         initiator_org_id = trade.buyer_id
     else:
-        if trade.buyer_id != org_id:
+        is_counterparty = (
+            trade.buyer_user_id == current_user.id
+            if trade.buyer_user_id is not None
+            else trade.buyer_id == org_id
+        )
+        if not is_counterparty:
             raise HTTPException(status_code=403, detail="Only the buyer can decline this trade")
         initiator_org_id = trade.seller_id
 
@@ -556,7 +625,7 @@ async def deliver_trade(
     payload: TradeDeliverPayload,
     request: Request,
     db: Annotated[AsyncSession, Depends(get_db)],
-    current_user: Annotated[User, Depends(get_current_user)],
+    current_user: Annotated[User, Depends(require_execution_eligible_user)],
 ):
     trade = await _load_trade(db, trade_id, for_update=True)
     org_id = current_user.organization_id
@@ -565,8 +634,15 @@ async def deliver_trade(
         raise HTTPException(status_code=400, detail="Trade must be confirmed before delivery")
 
     # Either party can mark as delivered
-    if org_id not in (trade.buyer_id, trade.seller_id):
+    if (
+        (org_id, current_user.id)
+        not in (
+            (trade.buyer_id, trade.buyer_user_id),
+            (trade.seller_id, trade.seller_user_id),
+        )
+    ):
         raise HTTPException(status_code=403, detail="Not authorized for this trade")
+    await _revalidate_trade_parties(db, trade)
     if payload.final_quantity_mt > trade.quantity_mt:
         raise HTTPException(
             status_code=400,
@@ -626,7 +702,7 @@ async def deliver_trade(
     loaded_trade = await _load_trade(db, trade.id)
 
     # Emit SSE event for delivered trade
-    await event_bus.publish("trades", "trade_delivered", {
+    await publish_trade_event(loaded_trade, "trade_delivered", {
         **trade_activity_provenance(loaded_trade),
         "id": str(loaded_trade.id),
         "status": loaded_trade.status.value,
@@ -647,7 +723,7 @@ async def pay_trade(
     trade_id: UUID,
     request: Request,
     db: Annotated[AsyncSession, Depends(get_db)],
-    current_user: Annotated[User, Depends(get_current_user)],
+    current_user: Annotated[User, Depends(require_execution_eligible_user)],
 ):
     trade = await _load_trade(db, trade_id, for_update=True)
     org_id = current_user.organization_id
@@ -656,11 +732,12 @@ async def pay_trade(
         raise HTTPException(status_code=400, detail="Trade must be delivered before payment")
 
     # Only the seller can mark as paid
-    if trade.seller_id != org_id:
+    if trade.seller_id != org_id or trade.seller_user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Only the seller can mark a trade as paid")
 
     if current_user.role != UserRole.SUPPLIER:
         raise HTTPException(status_code=403, detail="Only suppliers can mark trades as paid")
+    await _revalidate_trade_parties(db, trade)
 
     trade.status = TradeStatus.PAID
     trade.paid_at = datetime.now(UTC)
@@ -689,7 +766,7 @@ async def pay_trade(
     loaded_trade = await _load_trade(db, trade.id)
 
     # Emit SSE event for paid trade
-    await event_bus.publish("trades", "trade_paid", {
+    await publish_trade_event(loaded_trade, "trade_paid", {
         **trade_activity_provenance(loaded_trade),
         "id": str(loaded_trade.id),
         "status": loaded_trade.status.value,

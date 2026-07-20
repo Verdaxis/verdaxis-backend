@@ -34,6 +34,7 @@ class NegotiationRoundResponse(BaseModel):
     round_number: int
     proposer_org_id: UUID
     proposer_org_name: Optional[str] = None
+    proposer_user_id: Optional[UUID] = None
     proposed_price: Decimal
     notes: Optional[str] = None
     created_at: datetime
@@ -49,6 +50,9 @@ class NegotiationResponse(BaseModel):
     initiator_org_name: Optional[str] = None
     counterparty_org_id: UUID
     counterparty_org_name: Optional[str] = None
+    initiator_user_id: Optional[UUID] = None
+    counterparty_user_id: Optional[UUID] = None
+    accepted_by_user_id: Optional[UUID] = None
     initiator_side: str
     product_id: UUID
     product_name: Optional[str] = None

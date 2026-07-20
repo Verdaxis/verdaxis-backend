@@ -4,6 +4,8 @@ from pathlib import Path
 
 
 EXPECTED_AUDIT_CONSTANTS = {
+    "ADMIN_ORGANIZATION_APPROVED": "admin.organization_approved",
+    "ADMIN_ORGANIZATION_REJECTED": "admin.organization_rejected",
     "ADMIN_USER_APPROVED": "admin.user_approved",
     "ADMIN_USER_REJECTED": "admin.user_rejected",
     "COMMISSION_UPDATED": "commission.updated",
@@ -11,6 +13,7 @@ EXPECTED_AUDIT_CONSTANTS = {
     "KYC_APPROVED": "kyc.approved",
     "KYC_REJECTED": "kyc.rejected",
     "KYC_SUBMITTED": "kyc.submitted",
+    "KYC_MEMBERSHIP_INVALIDATED": "kyc.membership_invalidated",
     "NEGOTIATION_ACCEPTED": "negotiation.accepted",
     "NEGOTIATION_COUNTERED": "negotiation.countered",
     "NEGOTIATION_CREATED": "negotiation.created",
@@ -22,6 +25,7 @@ EXPECTED_AUDIT_CONSTANTS = {
     "RFQ_CANCELLED": "rfq.cancelled",
     "RFQ_CREATED": "rfq.created",
     "RFQ_QUOTE_SUBMITTED": "rfq.quote_submitted",
+    "RFQ_QUOTE_WITHDRAWN": "rfq.quote_withdrawn",
     "SUBSCRIPTION_UPDATED": "subscription.updated",
     "TRADE_AUTO_MATCHED": "trade.auto_matched",
     "TRADE_CONFIRMED": "trade.confirmed",
@@ -33,6 +37,9 @@ EXPECTED_AUDIT_CONSTANTS = {
     "USER_PASSWORD_RESET_COMPLETED": "user.password_reset_completed",
     "USER_PASSWORD_RESET_REQUESTED": "user.password_reset_requested",
     "USER_REGISTERED": "user.registered",
+    "ORGANIZATION_JOIN_REQUESTED": "organization.join_requested",
+    "ORGANIZATION_JOIN_APPROVED": "organization.join_approved",
+    "ORGANIZATION_JOIN_REJECTED": "organization.join_rejected",
 }
 
 

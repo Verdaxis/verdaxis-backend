@@ -42,9 +42,13 @@ class AdminAuth(AuthenticationBackend):
             return False
         return True
 
-authentication_backend = AdminAuth(secret_key=settings.ADMIN_SESSION_SECRET or settings.JWT_SECRET)
+authentication_backend = AdminAuth(secret_key=settings.ADMIN_SESSION_SECRET or "disabled")
 
 def setup_admin(app):
+    if not settings.ENABLE_SQLADMIN:
+        return None
+    if not settings.ADMIN_SESSION_SECRET:
+        raise RuntimeError("ENABLE_SQLADMIN requires ADMIN_SESSION_SECRET")
     admin = Admin(app, engine, authentication_backend=authentication_backend)
 
     class OrganizationAdmin(ModelView, model=Organization):

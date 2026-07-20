@@ -1,12 +1,18 @@
 """Canonical audit action registry."""
 
 ADMIN_USER_APPROVED = "admin.user_approved"
+ADMIN_ORGANIZATION_APPROVED = "admin.organization_approved"
+ADMIN_ORGANIZATION_REJECTED = "admin.organization_rejected"
+ORGANIZATION_JOIN_REQUESTED = "organization.join_requested"
+ORGANIZATION_JOIN_APPROVED = "organization.join_approved"
+ORGANIZATION_JOIN_REJECTED = "organization.join_rejected"
 ADMIN_USER_REJECTED = "admin.user_rejected"
 COMMISSION_UPDATED = "commission.updated"
 INVENTORY_PUBLISHED = "inventory.published"
 KYC_APPROVED = "kyc.approved"
 KYC_REJECTED = "kyc.rejected"
 KYC_SUBMITTED = "kyc.submitted"
+KYC_MEMBERSHIP_INVALIDATED = "kyc.membership_invalidated"
 NEGOTIATION_ACCEPTED = "negotiation.accepted"
 NEGOTIATION_COUNTERED = "negotiation.countered"
 NEGOTIATION_CREATED = "negotiation.created"
@@ -18,6 +24,7 @@ RFQ_ACCEPTED = "rfq.accepted"
 RFQ_CANCELLED = "rfq.cancelled"
 RFQ_CREATED = "rfq.created"
 RFQ_QUOTE_SUBMITTED = "rfq.quote_submitted"
+RFQ_QUOTE_WITHDRAWN = "rfq.quote_withdrawn"
 SUBSCRIPTION_UPDATED = "subscription.updated"
 TRADE_AUTO_MATCHED = "trade.auto_matched"
 TRADE_CONFIRMED = "trade.confirmed"
@@ -35,12 +42,18 @@ USER_REGISTERED = "user.registered"
 AUDIT_ACTIONS = frozenset(
     {
         ADMIN_USER_APPROVED,
+        ADMIN_ORGANIZATION_APPROVED,
+        ADMIN_ORGANIZATION_REJECTED,
+        ORGANIZATION_JOIN_REQUESTED,
+        ORGANIZATION_JOIN_APPROVED,
+        ORGANIZATION_JOIN_REJECTED,
         ADMIN_USER_REJECTED,
         COMMISSION_UPDATED,
         INVENTORY_PUBLISHED,
         KYC_APPROVED,
         KYC_REJECTED,
         KYC_SUBMITTED,
+        KYC_MEMBERSHIP_INVALIDATED,
         NEGOTIATION_ACCEPTED,
         NEGOTIATION_COUNTERED,
         NEGOTIATION_CREATED,
@@ -52,6 +65,7 @@ AUDIT_ACTIONS = frozenset(
         RFQ_CANCELLED,
         RFQ_CREATED,
         RFQ_QUOTE_SUBMITTED,
+        RFQ_QUOTE_WITHDRAWN,
         SUBSCRIPTION_UPDATED,
         TRADE_AUTO_MATCHED,
         TRADE_CONFIRMED,

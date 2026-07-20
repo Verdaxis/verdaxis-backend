@@ -1,5 +1,6 @@
 """Unit tests for news feed dedupe hardening."""
 from datetime import UTC, datetime
+from types import SimpleNamespace
 
 import pytest
 from sqlalchemy import func, select
@@ -58,6 +59,57 @@ def _raw_item(url: str, title: str = "Headline") -> dict:
         "source_url": "https://shipandbunker.com/rss",
         "published_at": datetime.now(UTC),
     }
+
+
+def test_malicious_and_oversized_feed_entries_are_rejected_before_storage():
+    feed = {
+        "name": "Publisher",
+        "url": "https://publisher.example/rss",
+        "article_domains": ("publisher.example",),
+    }
+    malicious_entries = (
+        SimpleNamespace(title="Script", link="javascript:alert(1)"),
+        SimpleNamespace(title="Data", link="data:text/html,unsafe"),
+        SimpleNamespace(title="File", link="file:///etc/passwd"),
+        SimpleNamespace(title="Private", link="http://127.0.0.1/admin"),
+        SimpleNamespace(title="Credentials", link="https://user:pass@publisher.example/story"),
+        SimpleNamespace(title="Wrong host", link="https://attacker.example/story"),
+        SimpleNamespace(title="Log\ninjection", link="https://publisher.example/story"),
+        SimpleNamespace(title="x" * (news_feed.NEWS_TITLE_MAX_CHARS + 1), link="https://publisher.example/story"),
+        SimpleNamespace(title="Long URL", link="https://publisher.example/" + "x" * news_feed.NEWS_URL_MAX_CHARS),
+    )
+
+    assert all(news_feed._validated_feed_entry(entry, feed) is None for entry in malicious_entries)
+    item = news_feed._validated_feed_entry(
+        SimpleNamespace(title=" Safe headline ", link="https://news.publisher.example/story?id=1"),
+        feed,
+    )
+    assert item is not None
+    published_at = item.pop("published_at")
+    assert item == {
+        "title": "Safe headline",
+        "url": "https://news.publisher.example/story?id=1",
+        "source": "Publisher",
+        "source_url": "https://publisher.example/rss",
+    }
+    assert abs((datetime.now(UTC) - published_at).total_seconds()) < 2
+
+
+@pytest.mark.asyncio
+async def test_streamed_feed_reader_rejects_body_over_byte_cap():
+    class Response:
+        async def aiter_bytes(self, **_kwargs):
+            yield b"x" * news_feed.RSS_MAX_BYTES_PER_FEED
+            yield b"overflow"
+
+    assert await news_feed._read_feed_body(Response()) is None
+
+
+def test_high_item_feed_and_run_are_bounded():
+    entries = list(range(news_feed.RSS_MAX_ENTRIES_PER_FEED + 50))
+    assert len(news_feed._bounded_feed_entries(entries)) == news_feed.RSS_MAX_ENTRIES_PER_FEED
+    items = [_raw_item(f"https://example.com/{index}") for index in range(news_feed.RSS_MAX_ENTRIES_PER_RUN + 50)]
+    assert len(news_feed._dedupe_fetched_items(items)) == news_feed.RSS_MAX_ENTRIES_PER_RUN
 
 
 class TestRefreshNewsDedupe:

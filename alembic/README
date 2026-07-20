@@ -1,1 +1,41 @@
-Generic single-database configuration with an async dbapi.
+Security-v2 migration notes
+===========================
+
+The security branch is deliberately linear:
+
+    pa_20260715_analytics_facts
+      -> sec_20260720_identity
+      -> sec_20260720_boundaries
+      -> sec_20260720_fresh
+      -> sec_20260720_device
+
+`sec_20260720_identity` starts the explicit 24-hour legacy email-token
+compatibility window. `sec_20260720_boundaries` refuses to drop the plaintext
+column until no migration-time compatibility token remains active. See
+`docs/security-hardening-v2.md` for the staged commands and rollback limits.
+`sec_20260720_fresh` adds nullable organization-bound KYC and inventory-listing
+provenance without guessing legacy values. Its downgrade intentionally keeps
+the compatible inventory fuel width at VARCHAR(20), so valid post-upgrade long
+fuel values cannot break rollback.
+`sec_20260720_device` adds nullable hashed browser-device ownership to refresh
+families. Existing NULL-device rows are revoked, remain NULL, and are never
+auto-bound; affected browsers must sign in again.
+
+`env.py` fixes Alembic reflection to `public, pg_catalog`, excludes every
+non-public extension schema, and dynamically discovers extension-owned or
+extension-configured public relations from `pg_depend`, `pg_extension`,
+`pg_class`, and `pg_namespace`. No Tiger/PostGIS relation list is hardcoded.
+It also excludes explicitly enumerated database-only legacy
+tables/order-delivery columns and preserves named historical performance
+indexes/constraints that migrations own but ORM metadata does not; unknown
+public application objects are not suppressed. It treats an existing
+unbounded/wider VARCHAR as compatible with a bounded model declaration,
+preventing unsafe shrink noise without hiding a database column that is
+narrower than its model. Clean PostgreSQL 17/PostGIS 3.5 passes `alembic check`,
+and a deliberate public application column drift remains detectable.
+
+When integrating another migration branch, rebase/linearize these revisions
+onto the chosen predecessor. Do not create an empty merge-head migration.
+Always verify fresh upgrade, realistic upgrade through both security
+revisions, supported downgrade/re-upgrade, one `alembic heads` result, and
+`alembic check` before promotion.

@@ -5,16 +5,25 @@ from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import select, func, or_, and_
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.database import get_db
 from app.rate_limit import limiter
-from app.routers.auth_simple import get_current_user
+from app.routers.auth_simple import get_authenticated_user, get_current_user
+from app.middleware.execution import require_execution_eligible_user
 from app.models.user import User, UserRole, Organization
 from app.models.negotiation import Negotiation, NegotiationRound, NegotiationStatus
 from app.models.catalog import Product
-from app.models.orderbook import OrderBookOrder, OrderSide, Trade, TradeStatus, Initiator
+from app.models.orderbook import (
+    Initiator,
+    OrderBookOrder,
+    OrderBookStatus,
+    OrderSide,
+    Trade,
+    TradeStatus,
+)
 from app.models.notification import Notification, NotificationType
 from app.schemas.negotiation import (
     NegotiationCreateRequest,
@@ -23,7 +32,7 @@ from app.schemas.negotiation import (
     NegotiationRoundResponse,
     NegotiationListResponse,
 )
-from app.services.activity import trade_activity_provenance
+from app.services.activity import publish_trade_event, trade_activity_provenance
 from app.services.audit_service import record_audit, request_audit_context
 from app.services.audit_actions import (
     NEGOTIATION_ACCEPTED,
@@ -34,6 +43,7 @@ from app.services.audit_actions import (
 )
 from app.services.event_bus import event_bus
 from app.services.behavioral_analytics import track_analytics_event, trade_created_event
+from app.services.execution_policy import execution_party_is_eligible, order_is_execution_qualified
 
 router = APIRouter(prefix="/negotiations", tags=["negotiations"])
 
@@ -63,7 +73,7 @@ async def _load_negotiation(
     if with_rounds:
         stmt = stmt.options(selectinload(Negotiation.rounds))
     if for_update:
-        stmt = stmt.with_for_update()
+        stmt = stmt.with_for_update(nowait=True)
     result = await db.execute(stmt)
     neg = result.unique().scalar_one_or_none()
     if neg is None:
@@ -101,6 +111,7 @@ async def _build_response(db: AsyncSession, neg: Negotiation) -> NegotiationResp
             round_number=r.round_number,
             proposer_org_id=r.proposer_org_id,
             proposer_org_name=org_names.get(r.proposer_org_id),
+            proposer_user_id=r.proposer_user_id,
             proposed_price=r.proposed_price,
             notes=r.notes,
             created_at=r.created_at,
@@ -116,6 +127,9 @@ async def _build_response(db: AsyncSession, neg: Negotiation) -> NegotiationResp
         initiator_org_name=org_names.get(neg.initiator_org_id),
         counterparty_org_id=neg.counterparty_org_id,
         counterparty_org_name=org_names.get(neg.counterparty_org_id),
+        initiator_user_id=neg.initiator_user_id,
+        counterparty_user_id=neg.counterparty_user_id,
+        accepted_by_user_id=neg.accepted_by_user_id,
         initiator_side=neg.initiator_side,
         product_id=neg.product_id,
         product_name=product_name,
@@ -181,6 +195,202 @@ def _resolve_trade_roles(neg: Negotiation) -> tuple[uuid.UUID, uuid.UUID]:
     return neg.counterparty_org_id, neg.initiator_org_id
 
 
+def _resolve_trade_users(neg: Negotiation) -> tuple[uuid.UUID, uuid.UUID]:
+    """Return concrete (buyer_user_id, seller_user_id), rejecting legacy ambiguity."""
+    if not neg.initiator_user_id or not neg.counterparty_user_id:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "NEGOTIATION_PROVENANCE_REQUIRED",
+                "message": "Legacy negotiation requires an explicit audited provenance decision",
+            },
+        )
+    if neg.initiator_side == "BUYER":
+        return neg.initiator_user_id, neg.counterparty_user_id
+    if neg.initiator_side == "SELLER":
+        return neg.counterparty_user_id, neg.initiator_user_id
+    raise HTTPException(status_code=409, detail="Negotiation party roles are invalid")
+
+
+def _assert_concrete_party(neg: Negotiation, current_user: User) -> None:
+    expected = {
+        neg.initiator_user_id: neg.initiator_org_id,
+        neg.counterparty_user_id: neg.counterparty_org_id,
+    }
+    expected_org = expected.get(current_user.id)
+    if expected_org is None or current_user.organization_id != expected_org:
+        raise HTTPException(status_code=404, detail="Negotiation not found")
+
+
+async def _revalidate_negotiation_parties(
+    db: AsyncSession,
+    neg: Negotiation,
+) -> tuple[dict[uuid.UUID, User], dict[uuid.UUID, Organization]]:
+    """Lock and revalidate both concrete user/organization pairs in this transaction."""
+    buyer_user_id, seller_user_id = _resolve_trade_users(neg)
+    users = {
+        user.id: user
+        for user in (
+            await db.execute(
+                select(User)
+                .where(User.id.in_([buyer_user_id, seller_user_id]))
+                .order_by(User.id)
+                .with_for_update(nowait=True)
+            )
+        ).scalars().all()
+    }
+    buyer_org_id, seller_org_id = _resolve_trade_roles(neg)
+    organizations = {
+        organization.id: organization
+        for organization in (
+            await db.execute(
+                select(Organization)
+                .where(Organization.id.in_([buyer_org_id, seller_org_id]))
+                .order_by(Organization.id)
+                .with_for_update(nowait=True)
+            )
+        ).scalars().all()
+    }
+    buyer = users.get(buyer_user_id)
+    seller = users.get(seller_user_id)
+    if (
+        getattr(buyer, "role", None) != UserRole.BUYER
+        or getattr(seller, "role", None) != UserRole.SUPPLIER
+        or not await execution_party_is_eligible(
+            db, user=buyer, organization=organizations.get(buyer_org_id)
+        )
+        or not await execution_party_is_eligible(
+            db, user=seller, organization=organizations.get(seller_org_id)
+        )
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "NEGOTIATION_PARTY_INELIGIBLE",
+                "message": "One or more negotiation parties are no longer execution-qualified",
+            },
+        )
+    return users, organizations
+
+
+async def _load_negotiation_orders(
+    db: AsyncSession,
+    neg: Negotiation,
+    *,
+    require_available: bool,
+) -> dict[uuid.UUID, OrderBookOrder]:
+    order_ids = sorted(
+        (order_id for order_id in (neg.bid_order_id, neg.ask_order_id) if order_id),
+        key=str,
+    )
+    orders = {
+        order.id: order
+        for order in (
+            await db.execute(
+                select(OrderBookOrder)
+                .where(OrderBookOrder.id.in_(order_ids))
+                .order_by(OrderBookOrder.id)
+                .with_for_update(nowait=True)
+            )
+        ).scalars().all()
+    }
+    buyer_user_id, seller_user_id = _resolve_trade_users(neg)
+    buyer_org_id, seller_org_id = _resolve_trade_roles(neg)
+    expected = (
+        (neg.bid_order_id, OrderSide.BID, buyer_org_id, buyer_user_id),
+        (neg.ask_order_id, OrderSide.ASK, seller_org_id, seller_user_id),
+    )
+    for order_id, side, organization_id, owner_user_id in expected:
+        if order_id is None:
+            continue
+        order = orders.get(order_id)
+        if (
+            order is None
+            or order.side != side
+            or order.organization_id != organization_id
+            or order.owner_user_id != owner_user_id
+            or order.product_id != neg.product_id
+        ):
+            raise HTTPException(status_code=409, detail="Negotiation order provenance changed")
+        if require_available and (
+            order.status not in (OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED)
+            or (order.expires_at is not None and order.expires_at <= datetime.now(UTC))
+            or not order_is_execution_qualified(order)
+            or order.remaining_quantity_mt < neg.quantity_mt
+        ):
+            raise HTTPException(status_code=409, detail="Negotiation order is no longer executable")
+    return orders
+
+
+def _consume_locked_order_capacity(
+    neg: Negotiation,
+    orders: dict[uuid.UUID, OrderBookOrder],
+) -> None:
+    """Consume unfilled capacity after canonical rows have been locked/validated."""
+    for order_id in (neg.bid_order_id, neg.ask_order_id):
+        if order_id is None:
+            continue
+        order = orders[order_id]
+        order.remaining_quantity_mt -= neg.quantity_mt
+        if order.remaining_quantity_mt <= 0:
+            order.remaining_quantity_mt = 0
+            order.status = OrderBookStatus.FILLED
+        else:
+            order.status = OrderBookStatus.PARTIALLY_FILLED
+
+
+def _is_lock_unavailable(exc: DBAPIError) -> bool:
+    original = getattr(exc, "orig", None)
+    return getattr(original, "sqlstate", None) in {"55P03", "57014"}
+
+
+def _capacity_busy_error() -> HTTPException:
+    return HTTPException(
+        status_code=409,
+        detail={
+            "code": "NEGOTIATION_CAPACITY_BUSY",
+            "message": "Order capacity is being updated; retry the negotiation",
+        },
+    )
+
+
+async def _consume_negotiation_capacity(
+    db: AsyncSession,
+    neg: Negotiation,
+) -> dict[uuid.UUID, OrderBookOrder]:
+    try:
+        orders = await _load_negotiation_orders(db, neg, require_available=True)
+    except DBAPIError as exc:
+        if _is_lock_unavailable(exc):
+            raise _capacity_busy_error() from exc
+        raise
+    _consume_locked_order_capacity(neg, orders)
+    return orders
+
+
+async def _load_owned_negotiation_for_decline(
+    db: AsyncSession,
+    negotiation_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> Negotiation:
+    result = await db.execute(
+        select(Negotiation)
+        .options(selectinload(Negotiation.rounds))
+        .where(
+            Negotiation.id == negotiation_id,
+            or_(
+                Negotiation.initiator_user_id == user_id,
+                Negotiation.counterparty_user_id == user_id,
+            ),
+        )
+        .with_for_update()
+    )
+    neg = result.unique().scalar_one_or_none()
+    if neg is None:
+        raise HTTPException(status_code=404, detail="Negotiation not found")
+    return neg
+
+
 # ---------------------------------------------------------------------------
 # 1. POST /negotiations — Initiate negotiation
 # ---------------------------------------------------------------------------
@@ -191,7 +401,7 @@ async def create_negotiation(
     request: Request,
     payload: NegotiationCreateRequest,
     db: Annotated[AsyncSession, Depends(get_db)],
-    current_user: Annotated[User, Depends(get_current_user)],
+    current_user: Annotated[User, Depends(require_execution_eligible_user)],
 ):
     """Initiate a price negotiation with another organization."""
     if not current_user.organization_id:
@@ -202,41 +412,105 @@ async def create_negotiation(
     if payload.counterparty_org_id == org_id:
         raise HTTPException(status_code=400, detail="Cannot negotiate with yourself")
 
+    if current_user.role == UserRole.BUYER:
+        initiator_side = "BUYER"
+        if payload.ask_order_id is None:
+            raise HTTPException(status_code=400, detail="Buyer negotiations require a counterparty ASK order")
+    elif current_user.role == UserRole.SUPPLIER:
+        initiator_side = "SELLER"
+        if payload.bid_order_id is None:
+            raise HTTPException(status_code=400, detail="Supplier negotiations require a counterparty BID order")
+    else:
+        raise HTTPException(status_code=403, detail="Administrators cannot initiate negotiations")
+
     # Validate product
     product_result = await db.execute(select(Product).where(Product.id == payload.product_id))
     if not product_result.scalars().first():
         raise HTTPException(status_code=400, detail="Invalid product_id")
 
-    # Validate orders belong to the declared parties and have correct sides
-    if payload.bid_order_id:
-        bid_result = await db.execute(
-            select(OrderBookOrder).where(OrderBookOrder.id == payload.bid_order_id)
-        )
-        bid_order = bid_result.scalars().first()
-        if not bid_order:
-            raise HTTPException(status_code=400, detail="Invalid bid_order_id")
-        if bid_order.side != OrderSide.BID:
-            raise HTTPException(status_code=400, detail="bid_order_id must reference a BID order")
-        if bid_order.organization_id not in (org_id, payload.counterparty_org_id):
-            raise HTTPException(
-                status_code=400,
-                detail="bid_order_id does not belong to either negotiating party",
+    order_ids = [order_id for order_id in (payload.bid_order_id, payload.ask_order_id) if order_id]
+    orders = {
+        order.id: order
+        for order in (
+            await db.execute(
+                select(OrderBookOrder).where(OrderBookOrder.id.in_(order_ids)).with_for_update()
             )
+        ).scalars().all()
+    }
+    bid_order = orders.get(payload.bid_order_id) if payload.bid_order_id else None
+    ask_order = orders.get(payload.ask_order_id) if payload.ask_order_id else None
+    expected_orders = (
+        (payload.bid_order_id, bid_order, OrderSide.BID),
+        (payload.ask_order_id, ask_order, OrderSide.ASK),
+    )
+    for order_id, order, side in expected_orders:
+        if order_id is None:
+            continue
+        if order is None or order.side != side:
+            raise HTTPException(status_code=400, detail=f"Invalid {side.value.lower()}_order_id")
+        if (
+            order.product_id != payload.product_id
+            or order.status not in (OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED)
+            or (order.expires_at is not None and order.expires_at <= datetime.now(UTC))
+            or not order_is_execution_qualified(order)
+            or order.remaining_quantity_mt < payload.quantity_mt
+        ):
+            raise HTTPException(status_code=409, detail="Referenced order is not execution-qualified")
 
-    if payload.ask_order_id:
-        ask_result = await db.execute(
-            select(OrderBookOrder).where(OrderBookOrder.id == payload.ask_order_id)
-        )
-        ask_order = ask_result.scalars().first()
-        if not ask_order:
-            raise HTTPException(status_code=400, detail="Invalid ask_order_id")
-        if ask_order.side != OrderSide.ASK:
-            raise HTTPException(status_code=400, detail="ask_order_id must reference an ASK order")
-        if ask_order.organization_id not in (org_id, payload.counterparty_org_id):
-            raise HTTPException(
-                status_code=400,
-                detail="ask_order_id does not belong to either negotiating party",
+    if initiator_side == "BUYER":
+        if ask_order.organization_id != payload.counterparty_org_id or not ask_order.owner_user_id:
+            raise HTTPException(status_code=400, detail="ASK order does not identify the declared counterparty")
+        if bid_order and (
+            bid_order.organization_id != org_id or bid_order.owner_user_id != current_user.id
+        ):
+            raise HTTPException(status_code=400, detail="BID order must be owned by the initiating user")
+        counterparty_user_id = ask_order.owner_user_id
+        expected_counterparty_role = UserRole.SUPPLIER
+    else:
+        if bid_order.organization_id != payload.counterparty_org_id or not bid_order.owner_user_id:
+            raise HTTPException(status_code=400, detail="BID order does not identify the declared counterparty")
+        if ask_order and (
+            ask_order.organization_id != org_id or ask_order.owner_user_id != current_user.id
+        ):
+            raise HTTPException(status_code=400, detail="ASK order must be owned by the initiating user")
+        counterparty_user_id = bid_order.owner_user_id
+        expected_counterparty_role = UserRole.BUYER
+
+    locked_users = {
+        user.id: user
+        for user in (
+            await db.execute(
+                select(User)
+                .where(User.id.in_([current_user.id, counterparty_user_id]))
+                .with_for_update()
             )
+        ).scalars().all()
+    }
+    organizations = {
+        organization.id: organization
+        for organization in (
+            await db.execute(
+                select(Organization)
+                .where(Organization.id.in_([org_id, payload.counterparty_org_id]))
+                .with_for_update()
+            )
+        ).scalars().all()
+    }
+    locked_initiator = locked_users.get(current_user.id)
+    counterparty_user = locked_users.get(counterparty_user_id)
+    if (
+        getattr(locked_initiator, "role", None) != current_user.role
+        or getattr(counterparty_user, "role", None) != expected_counterparty_role
+        or not await execution_party_is_eligible(
+            db, user=locked_initiator, organization=organizations.get(org_id)
+        )
+        or not await execution_party_is_eligible(
+            db,
+            user=counterparty_user,
+            organization=organizations.get(payload.counterparty_org_id),
+        )
+    ):
+        raise HTTPException(status_code=409, detail="Negotiation party is not execution-qualified")
 
     # Reject duplicate active negotiation between the same two parties for the same product
     duplicate = await db.execute(
@@ -263,13 +537,13 @@ async def create_negotiation(
             detail="An active negotiation already exists for this product with this counterparty",
         )
 
-    initiator_side = "BUYER" if current_user.role == UserRole.BUYER else "SELLER"
-
     neg = Negotiation(
         bid_order_id=payload.bid_order_id,
         ask_order_id=payload.ask_order_id,
         initiator_org_id=org_id,
         counterparty_org_id=payload.counterparty_org_id,
+        initiator_user_id=current_user.id,
+        counterparty_user_id=counterparty_user_id,
         initiator_side=initiator_side,
         product_id=payload.product_id,
         quantity_mt=payload.quantity_mt,
@@ -284,6 +558,7 @@ async def create_negotiation(
         negotiation_id=neg.id,
         round_number=1,
         proposer_org_id=org_id,
+        proposer_user_id=current_user.id,
         proposed_price=payload.proposed_price,
         notes=payload.notes,
     )
@@ -297,6 +572,8 @@ async def create_negotiation(
         changes={
             "initiator_org_id": str(neg.initiator_org_id),
             "counterparty_org_id": str(neg.counterparty_org_id),
+            "initiator_user_id": str(neg.initiator_user_id),
+            "counterparty_user_id": str(neg.counterparty_user_id),
             "product_id": str(neg.product_id),
             "bid_order_id": str(neg.bid_order_id) if neg.bid_order_id else None,
             "ask_order_id": str(neg.ask_order_id) if neg.ask_order_id else None,
@@ -414,7 +691,7 @@ async def counter_negotiation(
     negotiation_id: uuid.UUID,
     payload: NegotiationCounterRequest,
     db: Annotated[AsyncSession, Depends(get_db)],
-    current_user: Annotated[User, Depends(get_current_user)],
+    current_user: Annotated[User, Depends(require_execution_eligible_user)],
 ):
     """Submit a counter-offer price."""
     if not current_user.organization_id:
@@ -423,6 +700,9 @@ async def counter_negotiation(
     org_id = current_user.organization_id
     neg = await _load_negotiation(db, negotiation_id, org_id, with_rounds=True, for_update=True)
 
+    _assert_concrete_party(neg, current_user)
+    await _revalidate_negotiation_parties(db, neg)
+    await _load_negotiation_orders(db, neg, require_available=True)
     _assert_active(neg)
     _assert_counterparty_turn(neg, org_id)
 
@@ -436,6 +716,7 @@ async def counter_negotiation(
         negotiation_id=neg.id,
         round_number=next_round_num,
         proposer_org_id=org_id,
+        proposer_user_id=current_user.id,
         proposed_price=payload.proposed_price,
         notes=payload.notes,
     )
@@ -468,6 +749,7 @@ async def counter_negotiation(
             "price_per_mt_usd": {"from": str(previous_price), "to": str(neg.current_price)},
             "round": next_round_num,
             "proposer_org_id": str(org_id),
+            "proposer_user_id": str(current_user.id),
         },
         **request_audit_context(request),
     )
@@ -494,20 +776,28 @@ async def accept_negotiation(
     request: Request,
     negotiation_id: uuid.UUID,
     db: Annotated[AsyncSession, Depends(get_db)],
-    current_user: Annotated[User, Depends(get_current_user)],
+    current_user: Annotated[User, Depends(require_execution_eligible_user)],
 ):
     """Accept the current proposed price — creates a confirmed trade."""
     if not current_user.organization_id:
         raise HTTPException(status_code=403, detail="User must belong to an organization")
 
     org_id = current_user.organization_id
-    neg = await _load_negotiation(db, negotiation_id, org_id, with_rounds=True, for_update=True)
-
-    _assert_active(neg)
-    _assert_counterparty_turn(neg, org_id)
-
+    try:
+        neg = await _load_negotiation(db, negotiation_id, org_id, with_rounds=True, for_update=True)
+        _assert_concrete_party(neg, current_user)
+        await _revalidate_negotiation_parties(db, neg)
+        _assert_active(neg)
+        _assert_counterparty_turn(neg, org_id)
+        await _consume_negotiation_capacity(db, neg)
+    except DBAPIError as exc:
+        if _is_lock_unavailable(exc):
+            await db.rollback()
+            raise _capacity_busy_error() from exc
+        raise
     # Deterministic buyer/seller from initiator_side — not derived from order lookup
     buyer_org, seller_org = _resolve_trade_roles(neg)
+    buyer_user_id, seller_user_id = _resolve_trade_users(neg)
 
     # Safety: caller must be one of the two resolved trade parties
     if org_id not in (buyer_org, seller_org):
@@ -518,6 +808,8 @@ async def accept_negotiation(
         ask_order_id=neg.ask_order_id,
         buyer_id=buyer_org,
         seller_id=seller_org,
+        buyer_user_id=buyer_user_id,
+        seller_user_id=seller_user_id,
         initiated_by=Initiator.BUYER if org_id == buyer_org else Initiator.SELLER,
         quantity_mt=neg.quantity_mt,
         price_per_mt_usd=neg.current_price,
@@ -530,6 +822,7 @@ async def accept_negotiation(
     previous_status = neg.status
     neg.status = NegotiationStatus.AGREED
     neg.trade_id = trade.id
+    neg.accepted_by_user_id = current_user.id
 
     other_org_id = seller_org if org_id == buyer_org else buyer_org
     org_names = await _batch_org_names(db, {org_id})
@@ -561,6 +854,7 @@ async def accept_negotiation(
             "status": {"from": previous_status.value, "to": NegotiationStatus.AGREED.value},
             "trade_id": str(trade.id),
             "accepted_by_org_id": str(org_id),
+            "accepted_by_user_id": str(current_user.id),
             "price_per_mt_usd": str(neg.current_price),
         },
         **request_audit_context(request),
@@ -578,6 +872,8 @@ async def accept_negotiation(
             "price_per_mt_usd": str(trade.price_per_mt_usd),
             "buyer_org_id": str(trade.buyer_id),
             "seller_org_id": str(trade.seller_id),
+            "buyer_user_id": str(trade.buyer_user_id),
+            "seller_user_id": str(trade.seller_user_id),
         },
         **request_audit_context(request),
     )
@@ -592,7 +888,7 @@ async def accept_negotiation(
         "trade_id": str(trade.id),
         "price": str(neg.current_price),
     })
-    await event_bus.publish("trades", "trade_created", {
+    await publish_trade_event(trade, "trade_created", {
         **trade_activity_provenance(trade),
         "id": str(trade.id),
         "status": trade.status.value,
@@ -614,14 +910,15 @@ async def decline_negotiation(
     request: Request,
     negotiation_id: uuid.UUID,
     db: Annotated[AsyncSession, Depends(get_db)],
-    current_user: Annotated[User, Depends(get_current_user)],
+    current_user: Annotated[User, Depends(get_authenticated_user)],
 ):
-    """Decline the negotiation — no trade created."""
-    if not current_user.organization_id:
-        raise HTTPException(status_code=403, detail="User must belong to an organization")
-
-    org_id = current_user.organization_id
-    neg = await _load_negotiation(db, negotiation_id, org_id, with_rounds=True, for_update=True)
+    """Decline an owned negotiation even after KYC or organization eligibility changes."""
+    neg = await _load_owned_negotiation_for_decline(db, negotiation_id, current_user.id)
+    org_id = (
+        neg.initiator_org_id
+        if neg.initiator_user_id == current_user.id
+        else neg.counterparty_org_id
+    )
 
     _assert_active(neg)
 

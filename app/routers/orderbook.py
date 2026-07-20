@@ -15,7 +15,8 @@ from decimal import Decimal
 from uuid import UUID
 
 from app.database import get_db
-from app.routers.auth_simple import get_current_user
+from app.routers.auth_simple import get_authenticated_user, get_current_user
+from app.middleware.execution import require_execution_eligible_user
 from app.models.user import User, UserRole
 from app.models.orderbook import OrderBookOrder, OrderSide, OrderBookStatus
 from app.models.catalog import Product, DeliveryPoint, MarketProduct
@@ -30,7 +31,7 @@ from app.schemas.orderbook import (
 )
 from app.schemas.pagination import PaginatedResponse
 from app.services.ci_pricing import calculate_ci_adjusted_price
-from app.services.activity import order_activity_provenance, trade_activity_provenance
+from app.services.activity import order_activity_provenance, publish_trade_event, trade_activity_provenance
 from app.services.event_bus import event_bus
 from app.services.availability_windows import normalize_availability_window
 from pydantic import BaseModel
@@ -47,6 +48,10 @@ from app.services.behavioral_analytics import (
     order_created_event,
     track_analytics_event,
     trade_created_event,
+)
+from app.services.execution_invalidation import (
+    invalidate_execution_state_for_request,
+    publish_execution_invalidation,
 )
 
 router = APIRouter(prefix="/orderbook", tags=["orderbook"])
@@ -894,7 +899,7 @@ async def list_orders(
 async def create_order(
     request: Request,
     order_data: OrderCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_execution_eligible_user),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -964,6 +969,7 @@ async def create_order(
 
     new_order = OrderBookOrder(
         organization_id=current_user.organization_id,
+        owner_user_id=current_user.id,
         side=order_data.side,
         product_id=order_data.product_id,
         delivery_point_id=order_data.delivery_point_id,
@@ -1142,7 +1148,7 @@ async def create_order(
     # Publish events for any auto-matched trades
     if matched_trades:
         for trade in matched_trades:
-            await event_bus.publish("trades", "trade_auto_matched", {
+            await publish_trade_event(trade, "trade_auto_matched", {
                 **trade_activity_provenance(trade),
                 "trade_id": str(trade.id),
                 "product_name": new_order.product_name,
@@ -1187,7 +1193,7 @@ async def update_order(
     order_id: UUID,
     request: Request,
     update_data: OrderUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_execution_eligible_user),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -1211,7 +1217,13 @@ async def update_order(
             detail="Order not found",
         )
 
-    if order.organization_id != current_user.organization_id:
+    owns_order = (
+        order.owner_user_id == current_user.id
+        if order.owner_user_id is not None
+        else current_user.organization_id is not None
+        and order.organization_id == current_user.organization_id
+    )
+    if not owns_order:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You can only update your own orders",
@@ -1319,67 +1331,28 @@ async def update_order(
 async def cancel_order(
     order_id: UUID,
     request: Request,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_authenticated_user),
     db: AsyncSession = Depends(get_db),
 ):
     """
     Cancel an own order (soft cancel by setting status to CANCELLED).
     """
-    result = await db.execute(
-        select(OrderBookOrder)
-        .options(selectinload(OrderBookOrder.product), selectinload(OrderBookOrder.delivery_point))
-        .where(OrderBookOrder.id == order_id)
-        .with_for_update()
+    audit_context = request_audit_context(request)
+    cancellation = await invalidate_execution_state_for_request(
+        db,
+        order_ids=[order_id],
+        direct_order_owner_user_id=current_user.id,
+        direct_order_organization_id=current_user.organization_id,
+        actor_user_id=current_user.id,
+        reason="owner_requested",
+        **audit_context,
     )
-    order = result.scalars().first()
-
-    if not order:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Order not found",
-        )
-
-    if order.organization_id != current_user.organization_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You can only cancel your own orders",
-        )
-
-    if order.status not in (OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED):
+    if cancellation["orders_cancelled"] != 1:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Can only cancel orders with OPEN or PARTIALLY_FILLED status",
+            detail="Order is unavailable or cannot be cancelled",
         )
-
-    before_state = await _watchlist_before_state(db, order)
-    benchmark_key: LiveBenchmarkKey | None = (
-        order.side,
-        order.market_product,
-        order.delivery_point_id,
-        order.availability_window,
-    )
-    order.status = OrderBookStatus.CANCELLED
-    await rebuild_live_slice_benchmarks_for_keys(db, [benchmark_key])
-    await emit_order_updated(db, before=before_state, order=order)
-    await record_audit(
-        db,
-        user_id=current_user.id,
-        action=ORDER_CANCELLED,
-        resource_type="order",
-        resource_id=order.id,
-        changes={"status": OrderBookStatus.CANCELLED.value},
-        **request_audit_context(request),
-    )
     await db.commit()
-
-    # Emit SSE event for cancelled order
-    await event_bus.publish("orderbook", "order_cancelled", {
-        **order_activity_provenance(order),
-        "id": str(order.id),
-        "side": order.side.value,
-        "product_name": order.product_name,
-        "fuel_type": order.fuel_type,
-        "region": order.region,
-    })
+    await publish_execution_invalidation(cancellation)
 
     return None

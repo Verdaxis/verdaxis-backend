@@ -34,6 +34,10 @@ from app.schemas.behavioral_analytics import (
 )
 from app.services.behavioral_analytics import UmamiAnalyticsService, get_analytics_service
 from app.services.demo_market import DEMO_MARKET_ORG_IDS
+from app.services.execution_invalidation import (
+    invalidate_execution_state_for_request,
+    publish_execution_invalidation,
+)
 from app.services.user_status_transition import record_status_transition
 
 
@@ -534,17 +538,12 @@ async def reject_user(
 ):
     """Reject a pending or approved user. Admins cannot reject other admins."""
 
-    result = await db.execute(
-        select(User, Organization.name, Organization.type)
-        .outerjoin(Organization, User.organization_id == Organization.id)
-        .where(User.id == user_id)
-    )
-    row = result.one_or_none()
+    user = (
+        await db.execute(select(User).where(User.id == user_id).with_for_update())
+    ).scalar_one_or_none()
 
-    if row is None:
+    if user is None:
         raise HTTPException(status_code=404, detail="User not found")
-
-    user, org_name, org_type = row
 
     if user.role == UserRole.ADMIN:
         raise HTTPException(
@@ -563,17 +562,38 @@ async def reject_user(
     record_status_transition(
         db, user, from_status=previous_status, to_status=UserStatus.REJECTED
     )
+    audit_context = request_audit_context(request)
+    counts = await invalidate_execution_state_for_request(
+        db,
+        user_ids=[user.id],
+        actor_user_id=current_user.id,
+        reason="admin_analytics_user_rejected",
+        **audit_context,
+    )
     await record_audit(
         db,
         user_id=current_user.id,
         action=ADMIN_USER_REJECTED,
         resource_type="user",
         resource_id=user.id,
-        changes={"status": {"from": previous_status.value, "to": UserStatus.REJECTED.value}},
-        **request_audit_context(request),
+        changes={
+            "status": {"from": previous_status.value, "to": UserStatus.REJECTED.value},
+            **counts,
+        },
+        **audit_context,
     )
     await db.commit()
+    await publish_execution_invalidation(counts)
     await db.refresh(user)
+
+    organization = (
+        await db.execute(
+            select(Organization.name, Organization.type).where(
+                Organization.id == user.organization_id
+            )
+        )
+    ).one_or_none()
+    org_name, org_type = organization if organization is not None else (None, None)
 
     return _user_to_entry((user, org_name, org_type))
 

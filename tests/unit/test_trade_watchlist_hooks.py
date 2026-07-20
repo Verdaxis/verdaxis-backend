@@ -65,7 +65,11 @@ async def db(async_engine, setup_tables):
 
 
 async def _make_org(db: AsyncSession, name: str, org_type: OrgType) -> Organization:
-    org = Organization(name=f'{name}-{uuid4().hex[:6]}', type=org_type)
+    org = Organization(
+        name=f'{name}-{uuid4().hex[:6]}',
+        type=org_type,
+        verification_status='APPROVED',
+    )
     db.add(org)
     await db.flush()
     return org
@@ -78,8 +82,15 @@ async def _make_user(db: AsyncSession, org: Organization, role: UserRole) -> Use
         role=role,
         status=UserStatus.APPROVED,
         organization_id=org.id,
+        email_verified=True,
+        kyc_status='APPROVED',
+        kyc_external_evidence_reference='external-test-case',
+        kyc_review_note='Externally retained evidence reviewed for this test fixture.',
+        kyc_reviewed_at=datetime.now(UTC),
     )
     db.add(user)
+    await db.flush()
+    user.kyc_reviewed_by = user.id
     await db.flush()
     return user
 
@@ -108,9 +119,11 @@ async def _make_ask(
     qty='1000',
     certification_declared: bool = True,
     certification_scheme: str | None = 'ISCC EU',
+    owner_user_id=None,
 ) -> OrderBookOrder:
     order = OrderBookOrder(
         organization_id=org_id,
+        owner_user_id=owner_user_id,
         side=OrderSide.ASK,
         product_id=product_id,
         delivery_point_id=delivery_point_id,
@@ -162,6 +175,7 @@ async def test_create_trade_rejects_non_executable_order(monkeypatch, db: AsyncS
     buyer_org = await _make_org(db, 'Buyer', OrgType.SHIPPING_LINE)
     buyer = await _make_user(db, buyer_org, UserRole.BUYER)
     supplier_org = await _make_org(db, 'Supplier', OrgType.FUEL_SUPPLIER)
+    supplier = await _make_user(db, supplier_org, UserRole.SUPPLIER)
     product = await _make_product(db)
     delivery_point = await _make_delivery_point(db)
     ask = await _make_ask(
@@ -189,10 +203,25 @@ async def test_create_trade_emits_pin_and_slice_events(monkeypatch, db: AsyncSes
     buyer_org = await _make_org(db, 'Buyer', OrgType.SHIPPING_LINE)
     buyer = await _make_user(db, buyer_org, UserRole.BUYER)
     supplier_org = await _make_org(db, 'Supplier', OrgType.FUEL_SUPPLIER)
+    supplier = await _make_user(db, supplier_org, UserRole.SUPPLIER)
     product = await _make_product(db)
     delivery_point = await _make_delivery_point(db)
-    ask = await _make_ask(db, org_id=supplier_org.id, product_id=product.id, delivery_point_id=delivery_point.id, price='1090')
-    await _make_ask(db, org_id=supplier_org.id, product_id=product.id, delivery_point_id=delivery_point.id, price='1110')
+    ask = await _make_ask(
+        db,
+        org_id=supplier_org.id,
+        owner_user_id=supplier.id,
+        product_id=product.id,
+        delivery_point_id=delivery_point.id,
+        price='1090',
+    )
+    await _make_ask(
+        db,
+        org_id=supplier_org.id,
+        owner_user_id=supplier.id,
+        product_id=product.id,
+        delivery_point_id=delivery_point.id,
+        price='1110',
+    )
 
     radar = await ensure_market_radar(db, buyer.id)
     slice_target = WatchlistTarget(
@@ -227,7 +256,7 @@ async def test_create_trade_emits_pin_and_slice_events(monkeypatch, db: AsyncSes
     monkeypatch.setattr(trades_router.event_bus, 'publish', _noop_publish)
 
     payload = trades_router.TradeCreate(order_id=ask.id, quantity_mt=Decimal('1000'))
-    current_user = SimpleNamespace(id=uuid4(), organization_id=buyer_org.id, role=UserRole.BUYER)
+    current_user = buyer
 
     response = await trades_router.create_trade(payload=payload, request=_fake_request(), db=db, current_user=current_user)
 

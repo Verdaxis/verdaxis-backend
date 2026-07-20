@@ -1,7 +1,8 @@
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 from uuid import UUID
 from typing import Optional
 from enum import Enum
+from app.core.security import validate_password_bytes
 
 class UserStatus(str, Enum):
     PENDING = "PENDING"
@@ -19,10 +20,20 @@ class UserBase(BaseModel):
     last_name: Optional[str] = None
     role: UserRole
 
+    @field_validator("email")
+    @classmethod
+    def normalize_email(cls, value: EmailStr) -> str:
+        return str(value).strip().lower()
+
 class UserCreate(UserBase):
     password: str = Field(..., min_length=8)
     organization_id: Optional[UUID] = None
     referral_code: Optional[str] = None
+
+    @field_validator("password")
+    @classmethod
+    def validate_password_size(cls, value: str) -> str:
+        return validate_password_bytes(value)
 
 class UserResponse(UserBase):
     id: UUID
@@ -65,3 +76,8 @@ class RegistrationResponse(BaseModel):
 class PasswordChangeRequest(BaseModel):
     current_password: str
     new_password: str
+
+    @field_validator("current_password", "new_password")
+    @classmethod
+    def validate_password_size(cls, value: str) -> str:
+        return validate_password_bytes(value)

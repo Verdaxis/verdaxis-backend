@@ -10,7 +10,8 @@ from sqlalchemy.orm import selectinload
 
 from app.database import get_db
 from app.rate_limit import limiter
-from app.routers.auth_simple import get_current_user
+from app.routers.auth_simple import get_authenticated_user, get_current_user
+from app.middleware.execution import require_execution_eligible_user
 from app.models.user import User, UserRole, Organization
 from app.models.rfq import RFQ, RFQQuote, RFQStatus, QuoteStatus
 from app.models.catalog import Product, DeliveryPoint
@@ -25,7 +26,7 @@ from app.schemas.rfq import (
 )
 from app.services.event_bus import event_bus
 from app.services.availability_windows import normalize_availability_window
-from app.services.activity import trade_activity_provenance
+from app.services.activity import publish_trade_event, trade_activity_provenance
 from app.services.audit_service import record_audit, request_audit_context
 from app.services.audit_actions import (
     RFQ_ACCEPTED,
@@ -35,8 +36,10 @@ from app.services.audit_actions import (
     TRADE_CREATED,
 )
 from app.services.behavioral_analytics import track_analytics_event, trade_created_event
+from app.services.execution_policy import execution_party_is_eligible
 
 router = APIRouter(prefix="/rfq", tags=["rfq"])
+_SUPPLIER_VISIBLE_STATUSES = (RFQStatus.OPEN, RFQStatus.QUOTED)
 
 
 # ---------------------------------------------------------------------------
@@ -49,9 +52,10 @@ async def _load_rfq(
     *,
     with_quotes: bool = False,
     for_update: bool = False,
+    visibility_filters: tuple = (),
 ) -> RFQ:
     """Load an RFQ by ID, optionally with quotes eager-loaded."""
-    stmt = select(RFQ).where(RFQ.id == rfq_id)
+    stmt = select(RFQ).where(RFQ.id == rfq_id, *visibility_filters)
     if with_quotes:
         stmt = stmt.options(selectinload(RFQ.quotes))
     if for_update:
@@ -63,6 +67,32 @@ async def _load_rfq(
     return rfq
 
 
+def _rfq_visibility_filters(current_user: User, *, now: datetime | None = None) -> tuple:
+    if not current_user.organization_id:
+        raise HTTPException(status_code=403, detail="User must belong to an organization")
+    if current_user.role == UserRole.SUPPLIER:
+        return (
+            RFQ.buyer_org_id != current_user.organization_id,
+            RFQ.status.in_(_SUPPLIER_VISIBLE_STATUSES),
+            RFQ.expires_at > (now or datetime.now(UTC)),
+        )
+    return (RFQ.buyer_org_id == current_user.organization_id,)
+
+
+def _ensure_rfq_detail_visible(rfq: RFQ, current_user: User, *, now: datetime | None = None) -> None:
+    if not current_user.organization_id:
+        raise HTTPException(status_code=403, detail="User must belong to an organization")
+    visible = rfq.buyer_org_id == current_user.organization_id
+    if current_user.role == UserRole.SUPPLIER:
+        visible = (
+            rfq.buyer_org_id != current_user.organization_id
+            and rfq.status in _SUPPLIER_VISIBLE_STATUSES
+            and rfq.expires_at > (now or datetime.now(UTC))
+        )
+    if not visible:
+        raise HTTPException(status_code=404, detail="RFQ not found")
+
+
 async def _build_rfq_response(db: AsyncSession, rfq: RFQ, *, viewer_org_id: uuid.UUID | None = None) -> RFQResponse:
     """Build an RFQResponse with denormalized names and quote filtering."""
     # Fetch org name
@@ -72,8 +102,10 @@ async def _build_rfq_response(db: AsyncSession, rfq: RFQ, *, viewer_org_id: uuid
     if row:
         buyer_org_name = row
 
-    # For anonymous RFQs, hide buyer name from non-owners
-    if rfq.is_anonymous and viewer_org_id and viewer_org_id != rfq.buyer_org_id:
+    is_owner = viewer_org_id == rfq.buyer_org_id if viewer_org_id else False
+    # Anonymous RFQs never expose a stable buyer tenant identifier to other
+    # organizations. Owners retain their normal management view.
+    if rfq.is_anonymous and not is_owner:
         buyer_org_name = "Anonymous"
 
     # Product name
@@ -93,7 +125,6 @@ async def _build_rfq_response(db: AsyncSession, rfq: RFQ, *, viewer_org_id: uuid
 
     # Build quotes list — filter for suppliers (they see only their own quotes)
     quotes: list[RFQQuoteResponse] = []
-    is_owner = viewer_org_id == rfq.buyer_org_id if viewer_org_id else False
     if hasattr(rfq, "quotes") and rfq.quotes:
         for q in rfq.quotes:
             if is_owner or (viewer_org_id and q.seller_org_id == viewer_org_id):
@@ -115,7 +146,7 @@ async def _build_rfq_response(db: AsyncSession, rfq: RFQ, *, viewer_org_id: uuid
 
     return RFQResponse(
         id=rfq.id,
-        buyer_org_id=rfq.buyer_org_id,
+        buyer_org_id=rfq.buyer_org_id if is_owner or not rfq.is_anonymous else None,
         buyer_org_name=buyer_org_name,
         product_id=rfq.product_id,
         product_name=product_name,
@@ -168,7 +199,7 @@ async def create_rfq(
     request: Request,
     payload: RFQCreateRequest,
     db: Annotated[AsyncSession, Depends(get_db)],
-    current_user: Annotated[User, Depends(get_current_user)],
+    current_user: Annotated[User, Depends(require_execution_eligible_user)],
 ):
     """Create a new Request for Quote. Only buyers can create RFQs."""
     if not current_user.organization_id:
@@ -196,6 +227,7 @@ async def create_rfq(
 
     rfq = RFQ(
         buyer_org_id=current_user.organization_id,
+        buyer_user_id=current_user.id,
         product_id=payload.product_id,
         delivery_point_id=payload.delivery_point_id,
         quantity_mt=payload.quantity_mt,
@@ -307,7 +339,14 @@ async def get_rfq(
     current_user: Annotated[User, Depends(get_current_user)],
 ):
     """Get RFQ detail with quotes. Buyers see all quotes; suppliers see only their own."""
-    rfq = await _load_rfq(db, rfq_id, with_quotes=True)
+    visibility_filters = _rfq_visibility_filters(current_user)
+    rfq = await _load_rfq(
+        db,
+        rfq_id,
+        with_quotes=True,
+        visibility_filters=visibility_filters,
+    )
+    _ensure_rfq_detail_visible(rfq, current_user)
 
     org_id = current_user.organization_id
     return await _build_rfq_response(db, rfq, viewer_org_id=org_id)
@@ -324,7 +363,7 @@ async def submit_quote(
     rfq_id: uuid.UUID,
     payload: RFQQuoteRequest,
     db: Annotated[AsyncSession, Depends(get_db)],
-    current_user: Annotated[User, Depends(get_current_user)],
+    current_user: Annotated[User, Depends(require_execution_eligible_user)],
 ):
     """Submit a quote on an RFQ. Only suppliers can quote."""
     if not current_user.organization_id:
@@ -333,7 +372,13 @@ async def submit_quote(
     if current_user.role != UserRole.SUPPLIER:
         raise HTTPException(status_code=403, detail="Only suppliers can submit quotes")
 
-    rfq = await _load_rfq(db, rfq_id, with_quotes=True, for_update=True)
+    rfq = await _load_rfq(
+        db,
+        rfq_id,
+        with_quotes=True,
+        for_update=True,
+        visibility_filters=_rfq_visibility_filters(current_user),
+    )
 
     # Validate RFQ is quotable
     if rfq.status not in (RFQStatus.OPEN, RFQStatus.QUOTED):
@@ -355,6 +400,7 @@ async def submit_quote(
     quote = RFQQuote(
         rfq_id=rfq.id,
         seller_org_id=current_user.organization_id,
+        seller_user_id=current_user.id,
         price_per_mt_usd=payload.price_per_mt_usd,
         notes=payload.notes,
     )
@@ -422,17 +468,25 @@ async def accept_quote(
     rfq_id: uuid.UUID,
     quote_id: uuid.UUID,
     db: Annotated[AsyncSession, Depends(get_db)],
-    current_user: Annotated[User, Depends(get_current_user)],
+    current_user: Annotated[User, Depends(require_execution_eligible_user)],
 ):
     """Accept a quote on an RFQ. Creates a trade and declines all other quotes."""
     if not current_user.organization_id:
         raise HTTPException(status_code=403, detail="User must belong to an organization")
 
-    rfq = await _load_rfq(db, rfq_id, with_quotes=True, for_update=True)
+    rfq = await _load_rfq(
+        db,
+        rfq_id,
+        with_quotes=True,
+        for_update=True,
+        visibility_filters=_rfq_visibility_filters(current_user),
+    )
 
     # Must own the RFQ
     if rfq.buyer_org_id != current_user.organization_id:
         raise HTTPException(status_code=403, detail="Only the RFQ owner can accept quotes")
+    if rfq.buyer_user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Only the initiating user can accept quotes")
 
     # RFQ must be open or quoted
     if rfq.status not in (RFQStatus.OPEN, RFQStatus.QUOTED):
@@ -453,6 +507,30 @@ async def accept_quote(
     if target_quote.status != QuoteStatus.PENDING:
         raise HTTPException(status_code=400, detail="Quote is not pending")
 
+    # Revalidate the RFQ owner and selected quote owner while both market
+    # records are locked. A stale eligible caller cannot execute a revoked
+    # counterparty's quote.
+    if not rfq.buyer_user_id or not target_quote.seller_user_id:
+        raise HTTPException(status_code=409, detail="RFQ parties require fresh admission review")
+    party_result = await db.execute(
+        select(User)
+        .where(User.id.in_([rfq.buyer_user_id, target_quote.seller_user_id]))
+        .with_for_update()
+    )
+    parties = {party.id: party for party in party_result.scalars().all()}
+    org_result = await db.execute(
+        select(Organization)
+        .where(Organization.id.in_([rfq.buyer_org_id, target_quote.seller_org_id]))
+        .with_for_update()
+    )
+    organizations = {org.id: org for org in org_result.scalars().all()}
+    if not await execution_party_is_eligible(
+        db, user=parties.get(rfq.buyer_user_id), organization=organizations.get(rfq.buyer_org_id)
+    ) or not await execution_party_is_eligible(
+        db, user=parties.get(target_quote.seller_user_id), organization=organizations.get(target_quote.seller_org_id)
+    ):
+        raise HTTPException(status_code=409, detail="RFQ parties are no longer execution-qualified")
+
     # Accept the target quote, decline all others
     previous_rfq_status = rfq.status
     previous_quote_status = target_quote.status
@@ -469,6 +547,8 @@ async def accept_quote(
         ask_order_id=None,
         buyer_id=rfq.buyer_org_id,
         seller_id=target_quote.seller_org_id,
+        buyer_user_id=rfq.buyer_user_id,
+        seller_user_id=target_quote.seller_user_id,
         initiated_by=Initiator.BUYER,
         quantity_mt=rfq.quantity_mt,
         price_per_mt_usd=target_quote.price_per_mt_usd,
@@ -533,7 +613,7 @@ async def accept_quote(
     )
 
     # Emit SSE event
-    await event_bus.publish("trades", "trade_created", {
+    await publish_trade_event(trade, "trade_created", {
         **trade_activity_provenance(trade),
         "id": str(trade.id),
         "status": trade.status.value,
@@ -570,16 +650,24 @@ async def cancel_rfq(
     request: Request,
     rfq_id: uuid.UUID,
     db: Annotated[AsyncSession, Depends(get_db)],
-    current_user: Annotated[User, Depends(get_current_user)],
+    current_user: Annotated[User, Depends(get_authenticated_user)],
 ):
-    """Cancel an RFQ and withdraw all pending quotes."""
-    if not current_user.organization_id:
-        raise HTTPException(status_code=403, detail="User must belong to an organization")
-
-    rfq = await _load_rfq(db, rfq_id, with_quotes=True, for_update=True)
+    """Cancel an owned RFQ even after its owner's execution eligibility changes."""
+    rfq = await _load_rfq(
+        db,
+        rfq_id,
+        with_quotes=True,
+        for_update=True,
+    )
 
     # Must own the RFQ
-    if rfq.buyer_org_id != current_user.organization_id:
+    owns_rfq = (
+        rfq.buyer_user_id == current_user.id
+        if rfq.buyer_user_id is not None
+        else current_user.organization_id is not None
+        and rfq.buyer_org_id == current_user.organization_id
+    )
+    if not owns_rfq:
         raise HTTPException(status_code=403, detail="Only the RFQ owner can cancel")
 
     if rfq.status not in (RFQStatus.OPEN, RFQStatus.QUOTED):

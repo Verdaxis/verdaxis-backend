@@ -59,6 +59,13 @@ class TestClientIp:
         req = self._request({"X-Forwarded-For": "6.6.6.6, 203.0.113.9"})
         assert prl.client_ip(req) == "203.0.113.9"
 
+    def test_direct_non_loopback_peer_cannot_spoof_forwarded_address(self):
+        req = self._request(
+            {"X-Forwarded-For": "198.51.100.99"},
+            client_host="203.0.113.8",
+        )
+        assert prl.client_ip(req) == "203.0.113.8"
+
     def test_falls_back_to_peer_address(self):
         req = self._request({}, client_host="10.0.0.5")
         assert prl.client_ip(req) == "10.0.0.5"

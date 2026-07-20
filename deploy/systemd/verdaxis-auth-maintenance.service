@@ -1,0 +1,15 @@
+[Unit]
+Description=Verdaxis bounded authentication maintenance (production)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=verdaxis-prod
+Group=verdaxis-prod
+WorkingDirectory=/home/verdaxis-prod/verdaxis/prod/be
+EnvironmentFile=/home/verdaxis-prod/verdaxis/prod/be/.env
+ExecStart=/home/verdaxis-prod/verdaxis/prod/be/venv/bin/python -m app.cli.auth_maintenance --batch-size 1000
+NoNewPrivileges=true
+PrivateTmp=true
+TimeoutStartSec=300

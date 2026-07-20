@@ -39,7 +39,7 @@ class RFQQuoteResponse(BaseModel):
 
 class RFQResponse(BaseModel):
     id: UUID
-    buyer_org_id: UUID
+    buyer_org_id: Optional[UUID] = None
     buyer_org_name: Optional[str] = None
     product_id: UUID
     product_name: Optional[str] = None

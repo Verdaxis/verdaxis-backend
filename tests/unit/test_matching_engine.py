@@ -38,6 +38,28 @@ _TEST_PRODUCT_2_ID = uuid.uuid5(uuid.NAMESPACE_DNS, "test:product:LNG Convention
 _TEST_DP_ID = uuid.uuid5(uuid.NAMESPACE_DNS, "test:dp:Singapore")
 
 
+def _owner_user_id(organization_id: uuid.UUID) -> uuid.UUID:
+    return uuid.uuid5(uuid.NAMESPACE_URL, f"test:order-owner:{organization_id}")
+
+
+def _admitted_user(*, organization_id: uuid.UUID, role: UserRole, email: str) -> User:
+    user_id = _owner_user_id(organization_id)
+    return User(
+        id=user_id,
+        email=email,
+        password_hash="hashed",
+        role=role,
+        status=UserStatus.APPROVED,
+        organization_id=organization_id,
+        email_verified=True,
+        kyc_status="APPROVED",
+        kyc_external_evidence_reference="external-test-case",
+        kyc_review_note="Externally retained evidence reviewed for this test fixture.",
+        kyc_reviewed_by=user_id,
+        kyc_reviewed_at=datetime.now(UTC),
+    )
+
+
 # --------------- Fixtures ---------------
 
 @pytest.fixture(scope="module")
@@ -144,14 +166,13 @@ async def buyer_org(db, org_buyer_id):
         id=org_buyer_id,
         name="BuyerCorp",
         type=OrgType.SHIPPING_LINE,
+        verification_status="APPROVED",
     )
     db.add(org)
-    user = User(
-        email="buyer@buyercorp.com",
-        password_hash="hashed",
-        role=UserRole.BUYER,
-        status=UserStatus.APPROVED,
+    user = _admitted_user(
         organization_id=org_buyer_id,
+        role=UserRole.BUYER,
+        email="buyer@buyercorp.com",
     )
     db.add(user)
     await db.flush()
@@ -165,14 +186,13 @@ async def seller_org(db, org_seller_id):
         id=org_seller_id,
         name="SellerCorp",
         type=OrgType.FUEL_SUPPLIER,
+        verification_status="APPROVED",
     )
     db.add(org)
-    user = User(
-        email="seller@sellercorp.com",
-        password_hash="hashed",
-        role=UserRole.SUPPLIER,
-        status=UserStatus.APPROVED,
+    user = _admitted_user(
         organization_id=org_seller_id,
+        role=UserRole.SUPPLIER,
+        email="seller@sellercorp.com",
     )
     db.add(user)
     await db.flush()
@@ -186,14 +206,13 @@ async def seller_org2(db, org_seller2_id):
         id=org_seller2_id,
         name="SellerCorp2",
         type=OrgType.FUEL_SUPPLIER,
+        verification_status="APPROVED",
     )
     db.add(org)
-    user = User(
-        email="seller2@sellercorp2.com",
-        password_hash="hashed",
-        role=UserRole.SUPPLIER,
-        status=UserStatus.APPROVED,
+    user = _admitted_user(
         organization_id=org_seller2_id,
+        role=UserRole.SUPPLIER,
+        email="seller2@sellercorp2.com",
     )
     db.add(user)
     await db.flush()
@@ -226,6 +245,7 @@ def _make_order(
 
     return OrderBookOrder(
         organization_id=org_id,
+        owner_user_id=_owner_user_id(org_id),
         side=side,
         product_id=product_id,
         delivery_point_id=delivery_point_id,

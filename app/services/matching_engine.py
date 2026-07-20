@@ -12,9 +12,10 @@ from app.models.orderbook import (
     OrderBookOrder, Trade, OrderSide, OrderBookStatus, TradeStatus, Initiator
 )
 from app.models.notification import Notification, NotificationType
-from app.models.user import User
+from app.models.user import User, Organization
 from app.services.demo_market import is_demo_market_organization
 from app.services.execution_policy import order_is_execution_qualified, orders_execution_compatible
+from app.services.execution_policy import execution_party_is_eligible
 
 
 async def match_order(
@@ -98,6 +99,29 @@ async def match_order(
         if not orders_execution_compatible(new_order, crossing):
             continue
 
+        # Both concrete order creators must still be admitted at the moment
+        # the match is committed. Legacy rows without an owner fail closed.
+        if not new_order.owner_user_id or not crossing.owner_user_id:
+            continue
+        owners_result = await db.execute(
+            select(User)
+            .where(User.id.in_([new_order.owner_user_id, crossing.owner_user_id]))
+            .with_for_update()
+        )
+        owners = {user.id: user for user in owners_result.scalars().all()}
+        orgs_result = await db.execute(
+            select(Organization).where(
+                Organization.id.in_([new_order.organization_id, crossing.organization_id])
+            ).with_for_update()
+        )
+        orgs = {org.id: org for org in orgs_result.scalars().all()}
+        if not await execution_party_is_eligible(
+            db, user=owners.get(new_order.owner_user_id), organization=orgs.get(new_order.organization_id)
+        ) or not await execution_party_is_eligible(
+            db, user=owners.get(crossing.owner_user_id), organization=orgs.get(crossing.organization_id)
+        ):
+            continue
+
         # Determine trade quantity (minimum of both remaining quantities)
         trade_qty = min(new_order.remaining_quantity_mt, crossing.remaining_quantity_mt)
 
@@ -124,6 +148,8 @@ async def match_order(
             ask_order_id=ask_order_id,
             buyer_id=buyer_org,
             seller_id=seller_org,
+            buyer_user_id=new_order.owner_user_id if new_order.side == OrderSide.BID else crossing.owner_user_id,
+            seller_user_id=crossing.owner_user_id if new_order.side == OrderSide.BID else new_order.owner_user_id,
             initiated_by=initiated_by,
             quantity_mt=trade_qty,
             price_per_mt_usd=trade_price,
