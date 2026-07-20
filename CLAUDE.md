@@ -8,8 +8,9 @@ The live VPS deployment is systemd-based, not Docker-based:
 - Staging backend: `/home/verdaxis-prod/verdaxis/staging/be`, branch `staging`, service `verdaxis-backend-staging.service`, readiness `https://api-staging.verdaxis.exchange/health/ready`
 - Production Uvicorn binds `127.0.0.1:8000`; staging binds `127.0.0.1:8001`. Caddy/reverse-proxy health URLs are the public surfaces.
 - Deploy helper: `./scripts/deploy.sh`
-- Unit installer: `./scripts/install_systemd_units.sh --dry-run --environment <production|staging> --source-ref <approved-40-hex-sha>` from that environment's fixed, clean checkout. It verifies exact committed unit bytes before preflight; production and staging refs are independent.
+- Unit installer: `./scripts/install_systemd_units.sh --dry-run --environment <production|staging> --source-ref <approved-40-hex-sha>` from that environment's fixed, clean checkout. It stages the exact environment's five committed units and digest manifest in a private root-owned directory before preflight; production and staging refs are independent.
 - News refresh is owned only by `verdaxis-news-refresh.timer` in production and `verdaxis-news-refresh-staging.timer` in staging. Web workers do not schedule it, and the API has no manual refresh route.
+- Product-analytics pruning is owned only by its environment-specific timer. Its destructive CLI requires an explicit deployed environment and full SHA matching `.runtime-release.env`; it has no development default.
 
 The deploy helper always refuses dirty worktrees, preflights the exact environment/database/app identity, runs Alembic with a distinct migrator identity, atomically writes the checked-out full SHA to the gitignored `.runtime-release.env`, restarts the correct systemd service, and accepts readiness only when parsed JSON reports exact `status=ok`, environment, and full release SHA. The app consumes this artifact from systemd and never invokes Git. Use `./scripts/deploy.sh --dry-run` before real deploys. There is no dirty-deploy override.
 

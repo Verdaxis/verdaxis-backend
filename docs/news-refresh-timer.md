@@ -25,9 +25,12 @@ may differ. First verify the exact release from its matching clean checkout:
   --environment staging --source-ref <approved-staging-sha>
 ```
 
-After approval, repeat each command with `--apply`. That copies only the
-release-attested unit bytes and reloads systemd when files changed; it does not
-enable or start anything. Enabling the matching timer is a separate live action:
+After approval, repeat each command with `--apply`. The environment bundle also
+contains the backend and product-analytics prune units; all five files are
+materialized from the approved commit into private root-owned staging and
+digest-checked before installation. The installer reloads systemd only when a
+file changed and does not enable or start anything. Enabling the matching news
+timer is a separate live action:
 
 ```bash
 sudo systemctl enable --now verdaxis-news-refresh.timer

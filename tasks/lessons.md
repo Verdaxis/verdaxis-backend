@@ -148,6 +148,12 @@
 - **Rule:** Security validators must compare complete ACL/provenance sets, operational jobs must have one source-controlled owner per environment, and every deployed credential class must reject placeholders consistently.
 - **Why:** Checking only named roles or expected live checkouts leaves unexamined authority and artifact paths that can pass validation while violating the deployment contract.
 
+### Normalize Every Inherited Authority And Freeze Install Inputs
+- **Date:** 2026-07-20
+- **Trigger:** Follow-up review found global default ACLs, delegated grants, decoded blank passwords, unbound prune units, and a verify-then-reopen systemd unit race.
+- **Rule:** Validate every scope that composes into effective authority, require destructive jobs to attest deployed identity, and materialize install candidates once from immutable commit objects before verification or copy.
+- **Why:** Exact checks at only the obvious scope and hashes followed by mutable path reuse leave inheritance and TOCTOU paths outside the claimed security boundary.
+
 ### Remove Obsolete Harnesses Identified By Audit
 - **Date:** 2026-07-20
 - **Trigger:** Ponytail audit found the purchase-flow helper had no references and targeted obsolete endpoints.

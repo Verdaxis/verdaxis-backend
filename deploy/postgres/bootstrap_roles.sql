@@ -40,7 +40,7 @@ ALTER DATABASE :"database_name" OWNER TO :"migrator_role";
 -- Revoke every explicit non-owner database ACL entry, including unrelated
 -- roles. Ownership is the only unavoidable authority and is the migrator.
 SELECT DISTINCT format(
-    'REVOKE ALL PRIVILEGES ON DATABASE %I FROM %s',
+    'REVOKE ALL PRIVILEGES ON DATABASE %I FROM %s CASCADE',
     :'database_name',
     CASE WHEN acl.grantee = 0 THEN 'PUBLIC' ELSE format('%I', grantee.rolname) END
 )
@@ -52,7 +52,7 @@ LEFT JOIN pg_catalog.pg_roles AS grantee ON grantee.oid = acl.grantee
 WHERE database.datname = :'database_name'
   AND acl.grantee <> database.datdba
 \gexec
-REVOKE ALL ON DATABASE :"database_name" FROM PUBLIC;
+REVOKE ALL ON DATABASE :"database_name" FROM PUBLIC CASCADE;
 GRANT CONNECT ON DATABASE :"database_name" TO :"app_role", :"backup_role";
 
 ALTER SCHEMA public OWNER TO :"migrator_role";
@@ -60,7 +60,7 @@ ALTER SCHEMA public OWNER TO :"migrator_role";
 -- extra allowlisted grantee after ownership transfer: it resolves to the same
 -- migrator authority and any explicit ACL entry is removed.
 SELECT DISTINCT format(
-    'REVOKE ALL PRIVILEGES ON SCHEMA public FROM %s',
+    'REVOKE ALL PRIVILEGES ON SCHEMA public FROM %s CASCADE',
     CASE WHEN acl.grantee = 0 THEN 'PUBLIC' ELSE format('%I', grantee.rolname) END
 )
 FROM pg_catalog.pg_namespace AS namespace
@@ -71,7 +71,7 @@ LEFT JOIN pg_catalog.pg_roles AS grantee ON grantee.oid = acl.grantee
 WHERE namespace.nspname = 'public'
   AND acl.grantee <> namespace.nspowner
 \gexec
-REVOKE ALL ON SCHEMA public FROM PUBLIC;
+REVOKE ALL ON SCHEMA public FROM PUBLIC CASCADE;
 GRANT USAGE ON SCHEMA public TO :"app_role", :"backup_role";
 
 -- App-owned objects are public ordinary/partitioned tables and sequences that
@@ -168,34 +168,66 @@ WHERE namespace.nspname = 'public'
   )
 \gexec
 
--- Remove every stale explicit default ACL owned by the migrator, including
--- grants to roles other than the three policy roles, before recreating the
--- exact table/sequence defaults.
+-- Default privileges compose global rows with per-schema rows. Reset every
+-- PostgreSQL 17 default-ACL object class for every protected owner. Every ACL
+-- entry is removed (including stale owner grant options), then global
+-- hard-wired defaults and the intended additive public policy are rebuilt.
 SELECT DISTINCT format(
-    'ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA public REVOKE ALL ON %s FROM %s',
-    :'migrator_role',
+    'ALTER DEFAULT PRIVILEGES FOR ROLE %I%s REVOKE ALL PRIVILEGES ON %s FROM %s CASCADE',
+    owner.rolname,
+    CASE
+        WHEN defaults.defaclnamespace = 0 THEN ''
+        ELSE ' IN SCHEMA public'
+    END,
     CASE defaults.defaclobjtype
         WHEN 'r' THEN 'TABLES'
         WHEN 'S' THEN 'SEQUENCES'
         WHEN 'f' THEN 'FUNCTIONS'
         WHEN 'T' THEN 'TYPES'
+        WHEN 'n' THEN 'SCHEMAS'
     END,
     CASE WHEN acl.grantee = 0 THEN 'PUBLIC' ELSE format('%I', grantee.rolname) END
 )
 FROM pg_catalog.pg_default_acl AS defaults
 JOIN pg_catalog.pg_roles AS owner ON owner.oid = defaults.defaclrole
-JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = defaults.defaclnamespace
+LEFT JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = defaults.defaclnamespace
 CROSS JOIN LATERAL aclexplode(defaults.defaclacl) AS acl
 LEFT JOIN pg_catalog.pg_roles AS grantee ON grantee.oid = acl.grantee
-WHERE owner.rolname = :'migrator_role'
-  AND namespace.nspname = 'public'
-  AND defaults.defaclobjtype IN ('r', 'S', 'f', 'T')
+WHERE owner.rolname IN (:'app_role', :'migrator_role', :'backup_role')
+  AND (defaults.defaclnamespace = 0 OR namespace.nspname = 'public')
+  AND defaults.defaclobjtype IN ('r', 'S', 'f', 'T', 'n')
+  AND (defaults.defaclnamespace = 0 OR defaults.defaclobjtype <> 'n')
+\gexec
+
+-- Restore each global ACL to PostgreSQL's hard-wired owner/PUBLIC defaults.
+-- PostgreSQL removes pg_default_acl rows once they equal those defaults.
+SELECT format(
+    'ALTER DEFAULT PRIVILEGES FOR ROLE %I GRANT ALL PRIVILEGES ON %s TO %I',
+    owner_name,
+    object_type,
+    owner_name
+)
+FROM (VALUES (:'app_role'), (:'migrator_role'), (:'backup_role')) AS owners(owner_name)
+CROSS JOIN (VALUES ('TABLES'), ('SEQUENCES'), ('FUNCTIONS'), ('TYPES'), ('SCHEMAS'))
+    AS object_types(object_type)
+\gexec
+SELECT format(
+    'ALTER DEFAULT PRIVILEGES FOR ROLE %I GRANT EXECUTE ON FUNCTIONS TO PUBLIC',
+    owner_name
+)
+FROM (VALUES (:'app_role'), (:'migrator_role'), (:'backup_role')) AS owners(owner_name)
+\gexec
+SELECT format(
+    'ALTER DEFAULT PRIVILEGES FOR ROLE %I GRANT USAGE ON TYPES TO PUBLIC',
+    owner_name
+)
+FROM (VALUES (:'app_role'), (:'migrator_role'), (:'backup_role')) AS owners(owner_name)
 \gexec
 
 ALTER DEFAULT PRIVILEGES FOR ROLE :"migrator_role" IN SCHEMA public
-    REVOKE ALL ON TABLES FROM PUBLIC, :"app_role", :"backup_role";
+    REVOKE ALL ON TABLES FROM PUBLIC, :"app_role", :"backup_role" CASCADE;
 ALTER DEFAULT PRIVILEGES FOR ROLE :"migrator_role" IN SCHEMA public
-    REVOKE ALL ON SEQUENCES FROM PUBLIC, :"app_role", :"backup_role";
+    REVOKE ALL ON SEQUENCES FROM PUBLIC, :"app_role", :"backup_role" CASCADE;
 ALTER DEFAULT PRIVILEGES FOR ROLE :"migrator_role" IN SCHEMA public
     GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO :"app_role";
 ALTER DEFAULT PRIVILEGES FOR ROLE :"migrator_role" IN SCHEMA public

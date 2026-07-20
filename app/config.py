@@ -41,7 +41,8 @@ _DEFAULT_DATABASE_PASSWORDS = {"postgres", "change_me"}
 
 
 def _database_password_is_placeholder(password: str | None) -> bool:
-    return password is None or password.strip().lower() in _DEFAULT_DATABASE_PASSWORDS
+    normalized_password = (password or "").strip().lower()
+    return not normalized_password or normalized_password in _DEFAULT_DATABASE_PASSWORDS
 
 
 class Settings(BaseSettings):

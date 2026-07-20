@@ -55,6 +55,8 @@ case "$DEPLOY_ENVIRONMENT" in
             verdaxis-backend.service
             verdaxis-news-refresh.service
             verdaxis-news-refresh.timer
+            verdaxis-product-analytics-prune.service
+            verdaxis-product-analytics-prune.timer
         )
         ;;
     staging)
@@ -63,6 +65,8 @@ case "$DEPLOY_ENVIRONMENT" in
             verdaxis-backend-staging.service
             verdaxis-news-refresh-staging.service
             verdaxis-news-refresh-staging.timer
+            verdaxis-product-analytics-prune-staging.service
+            verdaxis-product-analytics-prune-staging.timer
         )
         ;;
     *)
@@ -80,18 +84,39 @@ if [[ ! -x "$SOURCE_ROOT/venv/bin/python" || ! -x "$SOURCE_ROOT/venv/bin/alembic
     exit 1
 fi
 
-UNIT_PATH_ARGS=()
-UNIT_SOURCES=()
-for unit_name in "${UNIT_NAMES[@]}"; do
-    UNIT_PATH_ARGS+=(--unit "deploy/systemd/$unit_name")
-    UNIT_SOURCES+=("$SOURCE_ROOT/deploy/systemd/$unit_name")
-done
+STAGING_DIR="$(sudo mktemp -d /run/verdaxis-systemd-units.XXXXXXXX)"
+case "$STAGING_DIR" in
+    /run/verdaxis-systemd-units.*) ;;
+    *)
+        echo "refusing unexpected systemd staging path" >&2
+        exit 1
+        ;;
+esac
+cleanup_staging() {
+    case "$STAGING_DIR" in
+        /run/verdaxis-systemd-units.*)
+            sudo rm -rf -- "$STAGING_DIR"
+            ;;
+        *)
+            echo "refusing unsafe systemd staging cleanup path" >&2
+            ;;
+    esac
+}
+trap cleanup_staging EXIT
+sudo chmod 0700 "$STAGING_DIR"
+if [[ "$(sudo stat -c '%u:%g:%a' "$STAGING_DIR")" != "0:0:700" ]]; then
+    echo "systemd staging directory must be private and root-owned" >&2
+    exit 1
+fi
 
 "$SOURCE_ROOT/venv/bin/python" "$SOURCE_ROOT/scripts/verify_systemd_source.py" \
     --source-root "$SOURCE_ROOT" \
     --source-ref "$SOURCE_REF" \
+    --environment "$DEPLOY_ENVIRONMENT" \
     --mode "$MODE" \
-    "${UNIT_PATH_ARGS[@]}"
+    --archive | sudo tar --extract --file=- --directory="$STAGING_DIR"
+sudo /bin/sh -c 'cd "$1" && /usr/bin/sha256sum --check SHA256SUMS' \
+    systemd-unit-digest-check "$STAGING_DIR"
 
 (
     cd "$SOURCE_ROOT"
@@ -101,7 +126,12 @@ done
     env ENVIRONMENT="$DEPLOY_ENVIRONMENT" RELEASE_SHA="$SOURCE_REF" \
         ./venv/bin/alembic current --check-heads
 )
-systemd-analyze verify "${UNIT_SOURCES[@]}"
+
+UNIT_SOURCES=()
+for unit_name in "${UNIT_NAMES[@]}"; do
+    UNIT_SOURCES+=("$STAGING_DIR/deploy/systemd/$unit_name")
+done
+sudo systemd-analyze verify "${UNIT_SOURCES[@]}"
 
 echo "Verdaxis systemd unit installation mode: $MODE"
 echo "Environment: $DEPLOY_ENVIRONMENT"

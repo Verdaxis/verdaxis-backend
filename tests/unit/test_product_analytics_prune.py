@@ -12,6 +12,7 @@ import importlib.util
 import sys
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
@@ -26,9 +27,16 @@ _BACKEND_ROOT = Path(__file__).resolve().parents[2]
 _SYSTEMD_DIR = _BACKEND_ROOT / "deploy" / "systemd"
 # Bare unit name serves prod, matching verdaxis-backend.service convention.
 _PRUNE_ENVIRONMENTS = {
-    "prod": ("verdaxis-product-analytics-prune", "/home/verdaxis-prod/verdaxis/prod/be"),
-    "staging": ("verdaxis-product-analytics-prune-staging", "/home/verdaxis-prod/verdaxis/staging/be"),
+    "production": (
+        "verdaxis-product-analytics-prune",
+        "/home/verdaxis-prod/verdaxis/prod/be",
+    ),
+    "staging": (
+        "verdaxis-product-analytics-prune-staging",
+        "/home/verdaxis-prod/verdaxis/staging/be",
+    ),
 }
+_RELEASE_SHA = "a" * 40
 
 
 def _load_prune_module():
@@ -141,6 +149,55 @@ async def test_status_transitions_are_never_pruned(prune_db):
     assert count == 1
 
 
+@pytest.mark.parametrize(
+    "argv",
+    [
+        [],
+        ["--environment", "development", "--release-sha", _RELEASE_SHA],
+        ["--environment", "production", "--release-sha", "development"],
+    ],
+)
+def test_destructive_prune_cli_requires_explicit_deployed_identity(argv):
+    prune = _load_prune_module()
+
+    with pytest.raises(SystemExit):
+        prune.parse_cli_args(argv)
+
+
+@pytest.mark.parametrize(
+    "configured_environment,configured_release_sha,error",
+    [
+        ("development", "development", "environment"),
+        ("staging", _RELEASE_SHA, "environment"),
+        ("production", "b" * 40, "release"),
+    ],
+)
+async def test_prune_refuses_mismatched_runtime_config_before_database_access(
+    monkeypatch, configured_environment, configured_release_sha, error
+):
+    prune = _load_prune_module()
+    import app.config as runtime_config
+
+    def database_access_would_be_unsafe(*args, **kwargs):
+        raise AssertionError("database engine opened before runtime identity validation")
+
+    monkeypatch.setattr(prune, "create_async_engine", database_access_would_be_unsafe)
+    monkeypatch.setattr(
+        runtime_config,
+        "settings",
+        SimpleNamespace(
+            ENVIRONMENT=configured_environment,
+            RELEASE_SHA=configured_release_sha,
+            DATABASE_URL="database access must remain unreachable",
+        ),
+    )
+    with pytest.raises(RuntimeError, match=error):
+        await prune.main(
+            expected_environment="production",
+            expected_release_sha=_RELEASE_SHA,
+        )
+
+
 @pytest.mark.parametrize("environment", sorted(_PRUNE_ENVIRONMENTS))
 def test_systemd_service_artifact_matches_the_specified_unit(environment):
     unit_name, backend_dir = _PRUNE_ENVIRONMENTS[environment]
@@ -151,7 +208,14 @@ def test_systemd_service_artifact_matches_the_specified_unit(environment):
         "Group=verdaxis-prod",
         f"WorkingDirectory={backend_dir}",
         f"EnvironmentFile={backend_dir}/.env",
-        f"ExecStart={backend_dir}/venv/bin/python scripts/prune_product_analytics.py",
+        f"EnvironmentFile={backend_dir}/.runtime-release.env",
+        f"ExecStartPre=/usr/bin/test -r {backend_dir}/.env",
+        f"ExecStartPre=/usr/bin/test -r {backend_dir}/.runtime-release.env",
+        (
+            f"ExecStart={backend_dir}/venv/bin/python "
+            "scripts/prune_product_analytics.py "
+            f"--environment {environment} --release-sha ${{RELEASE_SHA}}"
+        ),
         "Nice=10",
         "IOSchedulingClass=idle",
         "NoNewPrivileges=true",
@@ -168,6 +232,7 @@ def test_systemd_timer_artifact_matches_the_specified_schedule(environment):
     unit_name, _ = _PRUNE_ENVIRONMENTS[environment]
     content = (_SYSTEMD_DIR / f"{unit_name}.timer").read_text()
     for directive in (
+        f"Unit={unit_name}.service",
         "OnCalendar=*-*-* 03:20:00 Asia/Singapore",
         "Persistent=true",
         "RandomizedDelaySec=15m",

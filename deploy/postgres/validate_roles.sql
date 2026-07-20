@@ -202,30 +202,45 @@ SELECT pg_temp.assert_role_policy(
     'control or extension tables are mutable by app or backup roles'
 );
 
-WITH expected(role_name, object_type, privilege_type, is_grantable, grantor_name) AS (
+WITH expected(
+    owner_name,
+    namespace_name,
+    role_name,
+    object_type,
+    privilege_type,
+    is_grantable,
+    grantor_name
+) AS (
     VALUES
-        (:'app_role', 'r', 'SELECT', false, :'migrator_role'),
-        (:'app_role', 'r', 'INSERT', false, :'migrator_role'),
-        (:'app_role', 'r', 'UPDATE', false, :'migrator_role'),
-        (:'app_role', 'r', 'DELETE', false, :'migrator_role'),
-        (:'app_role', 'S', 'USAGE', false, :'migrator_role'),
-        (:'app_role', 'S', 'SELECT', false, :'migrator_role'),
-        (:'app_role', 'S', 'UPDATE', false, :'migrator_role'),
-        (:'backup_role', 'r', 'SELECT', false, :'migrator_role'),
-        (:'backup_role', 'S', 'SELECT', false, :'migrator_role')
+        (:'migrator_role', 'public', :'app_role', 'r', 'SELECT', false, :'migrator_role'),
+        (:'migrator_role', 'public', :'app_role', 'r', 'INSERT', false, :'migrator_role'),
+        (:'migrator_role', 'public', :'app_role', 'r', 'UPDATE', false, :'migrator_role'),
+        (:'migrator_role', 'public', :'app_role', 'r', 'DELETE', false, :'migrator_role'),
+        (:'migrator_role', 'public', :'app_role', 'S', 'USAGE', false, :'migrator_role'),
+        (:'migrator_role', 'public', :'app_role', 'S', 'SELECT', false, :'migrator_role'),
+        (:'migrator_role', 'public', :'app_role', 'S', 'UPDATE', false, :'migrator_role'),
+        (:'migrator_role', 'public', :'backup_role', 'r', 'SELECT', false, :'migrator_role'),
+        (:'migrator_role', 'public', :'backup_role', 'S', 'SELECT', false, :'migrator_role')
 ), actual AS (
-    SELECT COALESCE(grantee.rolname, 'PUBLIC') AS role_name,
+    SELECT owner.rolname AS owner_name,
+           CASE
+               WHEN defaults.defaclnamespace = 0 THEN 'GLOBAL'
+               ELSE namespace.nspname
+           END AS namespace_name,
+           COALESCE(grantee.rolname, 'PUBLIC') AS role_name,
            defaults.defaclobjtype::text AS object_type,
            acl.privilege_type,
            acl.is_grantable,
            grantor.rolname AS grantor_name
     FROM pg_catalog.pg_default_acl AS defaults
     JOIN pg_catalog.pg_roles AS owner ON owner.oid = defaults.defaclrole
-    JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = defaults.defaclnamespace
+    LEFT JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = defaults.defaclnamespace
     CROSS JOIN LATERAL aclexplode(defaults.defaclacl) AS acl
     LEFT JOIN pg_catalog.pg_roles AS grantee ON grantee.oid = acl.grantee
     JOIN pg_catalog.pg_roles AS grantor ON grantor.oid = acl.grantor
-    WHERE owner.rolname = :'migrator_role' AND namespace.nspname = 'public'
+    WHERE owner.rolname IN (:'app_role', :'migrator_role', :'backup_role')
+      AND (defaults.defaclnamespace = 0 OR namespace.nspname = 'public')
+      AND defaults.defaclobjtype IN ('r', 'S', 'f', 'T', 'n')
 ), differences AS (
     (SELECT * FROM actual EXCEPT ALL SELECT * FROM expected)
     UNION ALL

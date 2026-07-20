@@ -5,16 +5,33 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import io
 import os
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 import re
 import subprocess
 import sys
-from typing import Iterable
+import tarfile
 
 
 _FULL_SHA = re.compile(r"[0-9a-f]{40}")
 _MODES = {"dry-run", "apply"}
+UNIT_PATHS_BY_ENVIRONMENT = {
+    "production": (
+        "deploy/systemd/verdaxis-backend.service",
+        "deploy/systemd/verdaxis-news-refresh.service",
+        "deploy/systemd/verdaxis-news-refresh.timer",
+        "deploy/systemd/verdaxis-product-analytics-prune.service",
+        "deploy/systemd/verdaxis-product-analytics-prune.timer",
+    ),
+    "staging": (
+        "deploy/systemd/verdaxis-backend-staging.service",
+        "deploy/systemd/verdaxis-news-refresh-staging.service",
+        "deploy/systemd/verdaxis-news-refresh-staging.timer",
+        "deploy/systemd/verdaxis-product-analytics-prune-staging.service",
+        "deploy/systemd/verdaxis-product-analytics-prune-staging.timer",
+    ),
+}
 
 
 class SourceProvenanceError(RuntimeError):
@@ -44,37 +61,26 @@ def _git(
     return completed.stdout
 
 
-def _validated_unit_paths(unit_paths: Iterable[str]) -> tuple[str, ...]:
-    validated: list[str] = []
-    for raw_path in unit_paths:
-        path = PurePosixPath(raw_path)
-        if (
-            path.is_absolute()
-            or ".." in path.parts
-            or len(path.parts) != 3
-            or path.parts[:2] != ("deploy", "systemd")
-            or path.suffix not in {".service", ".timer"}
-        ):
-            raise SourceProvenanceError("unit path is outside deploy/systemd")
-        normalized = path.as_posix()
-        if normalized in validated:
-            raise SourceProvenanceError("unit path is duplicated")
-        validated.append(normalized)
-    if not validated:
-        raise SourceProvenanceError("at least one unit path is required")
-    return tuple(validated)
+def _read_working_unit(path: Path) -> bytes:
+    return path.read_bytes()
 
 
-def verify_source_provenance(
+def _read_committed_unit(source_root: Path, source_ref: str, relative: str) -> bytes:
+    return _git(source_root, "show", f"{source_ref}:{relative}", text=False)
+
+
+def _verified_committed_units(
     *,
     source_root: Path,
     source_ref: str,
-    unit_paths: Iterable[str],
+    environment: str,
     mode: str,
-) -> dict[str, str]:
-    """Return SHA-256 unit digests after exact release provenance checks."""
+) -> dict[str, bytes]:
+    """Attest a clean checkout and return only immutable committed unit bytes."""
     if mode not in _MODES:
         raise SourceProvenanceError("installation mode must be dry-run or apply")
+    if environment not in UNIT_PATHS_BY_ENVIRONMENT:
+        raise SourceProvenanceError("environment must be production or staging")
     if _FULL_SHA.fullmatch(source_ref) is None:
         raise SourceProvenanceError("source ref must be a full lowercase commit SHA")
 
@@ -101,33 +107,107 @@ def verify_source_provenance(
     if dirty:
         raise SourceProvenanceError("source checkout is dirty")
 
-    digests: dict[str, str] = {}
-    for relative in _validated_unit_paths(unit_paths):
+    committed_units: dict[str, bytes] = {}
+    for relative in UNIT_PATHS_BY_ENVIRONMENT[environment]:
         working_path = root / relative
         if not working_path.is_file():
             raise SourceProvenanceError("approved release is missing a systemd unit")
-        committed_bytes = _git(root, "show", f"{source_ref}:{relative}", text=False)
-        working_bytes = working_path.read_bytes()
-        committed_digest = hashlib.sha256(committed_bytes).hexdigest()
-        working_digest = hashlib.sha256(working_bytes).hexdigest()
-        if working_digest != committed_digest:
+        committed_bytes = _read_committed_unit(root, source_ref, relative)
+        working_bytes = _read_working_unit(working_path)
+        if hashlib.sha256(working_bytes).digest() != hashlib.sha256(
+            committed_bytes
+        ).digest():
             raise SourceProvenanceError("systemd unit digest differs from source ref")
-        digests[relative] = working_digest
-    return digests
+        committed_units[relative] = committed_bytes
+    return committed_units
+
+
+def verify_source_provenance(
+    *,
+    source_root: Path,
+    source_ref: str,
+    environment: str,
+    mode: str,
+) -> dict[str, str]:
+    """Return SHA-256 unit digests after exact release provenance checks."""
+    committed_units = _verified_committed_units(
+        source_root=source_root,
+        source_ref=source_ref,
+        environment=environment,
+        mode=mode,
+    )
+    return {
+        relative: hashlib.sha256(content).hexdigest()
+        for relative, content in committed_units.items()
+    }
+
+
+def _archive_member(
+    name: str, content: bytes, *, mode: int
+) -> tuple[tarfile.TarInfo, io.BytesIO]:
+    member = tarfile.TarInfo(name)
+    member.size = len(content)
+    member.mode = mode
+    member.uid = 0
+    member.gid = 0
+    member.uname = "root"
+    member.gname = "root"
+    member.mtime = 0
+    return member, io.BytesIO(content)
+
+
+def build_verified_unit_archive(
+    *,
+    source_root: Path,
+    source_ref: str,
+    environment: str,
+    mode: str,
+) -> bytes:
+    """Build a deterministic archive exclusively from the approved Git commit."""
+    committed_units = _verified_committed_units(
+        source_root=source_root,
+        source_ref=source_ref,
+        environment=environment,
+        mode=mode,
+    )
+    manifest = "".join(
+        f"{hashlib.sha256(content).hexdigest()}  {relative}\n"
+        for relative, content in committed_units.items()
+    ).encode()
+    archive = io.BytesIO()
+    with tarfile.open(fileobj=archive, mode="w", format=tarfile.USTAR_FORMAT) as bundle:
+        for relative, content in committed_units.items():
+            member, stream = _archive_member(relative, content, mode=0o644)
+            bundle.addfile(member, stream)
+        member, stream = _archive_member("SHA256SUMS", manifest, mode=0o600)
+        bundle.addfile(member, stream)
+    return archive.getvalue()
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--source-root", type=Path, required=True)
     parser.add_argument("--source-ref", required=True)
+    parser.add_argument(
+        "--environment", choices=sorted(UNIT_PATHS_BY_ENVIRONMENT), required=True
+    )
     parser.add_argument("--mode", choices=sorted(_MODES), required=True)
-    parser.add_argument("--unit", action="append", dest="units", required=True)
+    parser.add_argument("--archive", action="store_true")
     args = parser.parse_args()
     try:
+        if args.archive:
+            archive = build_verified_unit_archive(
+                source_root=args.source_root,
+                source_ref=args.source_ref,
+                environment=args.environment,
+                mode=args.mode,
+            )
+            sys.stdout.buffer.write(archive)
+            return 0
         digests = verify_source_provenance(
             source_root=args.source_root,
             source_ref=args.source_ref,
-            unit_paths=args.units,
+            environment=args.environment,
             mode=args.mode,
         )
     except (OSError, SourceProvenanceError) as exc:

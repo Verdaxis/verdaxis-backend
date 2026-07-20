@@ -82,6 +82,33 @@ async def _fetch_admin(statement: str) -> tuple:
         await engine.dispose()
 
 
+async def _fetchall_admin(statement: str) -> set[tuple]:
+    raw_url = os.environ["POSTGRES_ADMIN_TEST_DATABASE_URL"]
+    engine = create_async_engine(raw_url, hide_parameters=True)
+    try:
+        async with engine.connect() as connection:
+            return {
+                tuple(row) for row in (await connection.execute(text(statement))).all()
+            }
+    finally:
+        await engine.dispose()
+
+
+async def _execute_admin_as(role: str, statements: list[str]) -> None:
+    if not ROLE_NAME.fullmatch(role):
+        raise RuntimeError("runtime role-policy identifier is invalid")
+    raw_url = os.environ["POSTGRES_ADMIN_TEST_DATABASE_URL"]
+    engine = create_async_engine(raw_url, hide_parameters=True)
+    try:
+        async with engine.begin() as connection:
+            await connection.execute(text(f"SET ROLE {role}"))
+            for statement in statements:
+                await connection.execute(text(statement))
+            await connection.execute(text("RESET ROLE"))
+    finally:
+        await engine.dispose()
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("stale_policy", ["membership", "backup_insert", "default_insert"])
 async def test_validation_rejects_stale_escalation_and_insert_authority(stale_policy):
@@ -118,16 +145,29 @@ async def test_validation_rejects_stale_escalation_and_insert_authority(stale_po
 
 
 @pytest.mark.asyncio
-async def test_unexpected_database_and_schema_grantee_is_rejected_then_revoked():
+async def test_delegated_database_and_schema_grants_are_cascade_revoked():
     values = _policy_values()
     database = values["database_name"]
-    unexpected = "verdaxis_unexpected_acl_test"
-    await _execute_admin(f"DROP ROLE IF EXISTS {unexpected}")
-    await _execute_admin(f"CREATE ROLE {unexpected} NOLOGIN")
+    parent = "verdaxis_unexpected_acl_test"
+    child = "verdaxis_delegated_acl_test"
+    await _execute_admin(f"DROP ROLE IF EXISTS {child}")
+    await _execute_admin(f"DROP ROLE IF EXISTS {parent}")
+    await _execute_admin(f"CREATE ROLE {parent} NOLOGIN")
+    await _execute_admin(f"CREATE ROLE {child} NOLOGIN")
     await _execute_admin(
-        f"GRANT CREATE, TEMPORARY ON DATABASE {database} TO {unexpected}"
+        f"GRANT CREATE, TEMPORARY ON DATABASE {database} TO {parent} "
+        "WITH GRANT OPTION"
     )
-    await _execute_admin(f"GRANT CREATE ON SCHEMA public TO {unexpected}")
+    await _execute_admin(
+        f"GRANT CREATE ON SCHEMA public TO {parent} WITH GRANT OPTION"
+    )
+    await _execute_admin_as(
+        parent,
+        [
+            f"GRANT CREATE, TEMPORARY ON DATABASE {database} TO {child}",
+            f"GRANT CREATE ON SCHEMA public TO {child}",
+        ],
+    )
 
     try:
         rejected = _psql("validate_roles.sql")
@@ -138,15 +178,102 @@ async def test_unexpected_database_and_schema_grantee_is_rejected_then_revoked()
         accepted = _psql("validate_roles.sql")
         assert accepted.returncode == 0, accepted.stderr
 
-        database_authority, schema_authority = await _fetch_admin(
-            "SELECT "
-            f"has_database_privilege('{unexpected}', current_database(), 'CREATE,TEMPORARY'), "
-            f"has_schema_privilege('{unexpected}', 'public', 'CREATE')"
-        )
-        assert database_authority is False
-        assert schema_authority is False
+        for role in (parent, child):
+            database_authority, schema_authority = await _fetch_admin(
+                "SELECT "
+                f"has_database_privilege('{role}', current_database(), 'CREATE,TEMPORARY'), "
+                f"has_schema_privilege('{role}', 'public', 'CREATE')"
+            )
+            assert database_authority is False
+            assert schema_authority is False
     finally:
+        _psql("bootstrap_roles.sql")
+        await _execute_admin(f"DROP OWNED BY {child}")
+        await _execute_admin(f"DROP OWNED BY {parent}")
+        await _execute_admin(f"DROP ROLE IF EXISTS {child}")
+        await _execute_admin(f"DROP ROLE IF EXISTS {parent}")
+
+
+@pytest.mark.asyncio
+async def test_global_and_public_default_acls_are_repaired_for_all_policy_owners():
+    values = _policy_values()
+    app = values["app_role"]
+    migrator = values["migrator_role"]
+    backup = values["backup_role"]
+    unexpected = "verdaxis_unexpected_default_acl_test"
+    delegated = "verdaxis_delegated_default_acl_test"
+    future_table = "runtime_future_acl_test"
+
+    await _execute_admin(f"DROP TABLE IF EXISTS public.{future_table}")
+    await _execute_admin(f"DROP ROLE IF EXISTS {delegated}")
+    await _execute_admin(f"DROP ROLE IF EXISTS {unexpected}")
+    await _execute_admin(f"CREATE ROLE {unexpected} NOLOGIN")
+    await _execute_admin(f"CREATE ROLE {delegated} NOLOGIN")
+
+    for statement in (
+        f"ALTER DEFAULT PRIVILEGES FOR ROLE {migrator} "
+        f"GRANT INSERT ON TABLES TO {unexpected}",
+        f"ALTER DEFAULT PRIVILEGES FOR ROLE {app} "
+        f"GRANT EXECUTE ON FUNCTIONS TO {unexpected}",
+        f"ALTER DEFAULT PRIVILEGES FOR ROLE {backup} "
+        f"GRANT USAGE ON SCHEMAS TO {unexpected}",
+        f"ALTER DEFAULT PRIVILEGES FOR ROLE {backup} "
+        f"GRANT USAGE ON TYPES TO {backup} WITH GRANT OPTION",
+        f"ALTER DEFAULT PRIVILEGES FOR ROLE {app} IN SCHEMA public "
+        f"GRANT USAGE ON TYPES TO {delegated}",
+        f"ALTER DEFAULT PRIVILEGES FOR ROLE {backup} IN SCHEMA public "
+        f"GRANT SELECT ON SEQUENCES TO {delegated}",
+    ):
+        await _execute_admin(statement)
+
+    try:
+        rejected = _psql("validate_roles.sql")
+        assert rejected.returncode != 0
+
+        repaired = _psql("bootstrap_roles.sql")
+        assert repaired.returncode == 0, repaired.stderr
+        accepted = _psql("validate_roles.sql")
+        assert accepted.returncode == 0, accepted.stderr
+
+        await _execute_admin_as(
+            migrator, [f"CREATE TABLE public.{future_table} (id bigint)"]
+        )
+        future_acl = await _fetchall_admin(
+            "SELECT COALESCE(grantee.rolname, 'PUBLIC'), acl.privilege_type, "
+            "acl.is_grantable, grantor.rolname "
+            "FROM pg_catalog.pg_class AS object "
+            "CROSS JOIN LATERAL aclexplode(object.relacl) AS acl "
+            "LEFT JOIN pg_catalog.pg_roles AS grantee ON grantee.oid = acl.grantee "
+            "JOIN pg_catalog.pg_roles AS grantor ON grantor.oid = acl.grantor "
+            f"WHERE object.oid = 'public.{future_table}'::regclass"
+        )
+        owner_privileges = {
+            "SELECT",
+            "INSERT",
+            "UPDATE",
+            "DELETE",
+            "TRUNCATE",
+            "REFERENCES",
+            "TRIGGER",
+            "MAINTAIN",
+        }
+        expected_acl = {
+            (migrator, privilege, False, migrator)
+            for privilege in owner_privileges
+        }
+        expected_acl.update(
+            (app, privilege, False, migrator)
+            for privilege in {"SELECT", "INSERT", "UPDATE", "DELETE"}
+        )
+        expected_acl.add((backup, "SELECT", False, migrator))
+        assert future_acl == expected_acl
+        assert _psql("validate_roles.sql").returncode == 0
+    finally:
+        await _execute_admin(f"DROP TABLE IF EXISTS public.{future_table}")
+        _psql("bootstrap_roles.sql")
+        await _execute_admin(f"DROP OWNED BY {delegated}")
         await _execute_admin(f"DROP OWNED BY {unexpected}")
+        await _execute_admin(f"DROP ROLE IF EXISTS {delegated}")
         await _execute_admin(f"DROP ROLE IF EXISTS {unexpected}")
 
 

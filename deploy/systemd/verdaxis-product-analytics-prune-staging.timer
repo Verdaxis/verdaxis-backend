@@ -2,6 +2,7 @@
 Description=Daily Verdaxis product analytics login-day prune (staging)
 
 [Timer]
+Unit=verdaxis-product-analytics-prune-staging.service
 OnCalendar=*-*-* 03:20:00 Asia/Singapore
 Persistent=true
 RandomizedDelaySec=15m

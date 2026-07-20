@@ -56,6 +56,18 @@ removed, and a PostgreSQL transaction advisory lock rejects overlapping CLI
 runs. Installation and timer enablement remain separate operator-held live
 actions; see `docs/news-refresh-timer.md`.
 
+Product-analytics retention likewise has exactly one external timer/service pair
+per environment. Each prune service loads both `.env` and
+`.runtime-release.env`, passes a literal `production` or `staging` target plus
+the release SHA to the destructive CLI, and refuses an absent, development, or
+mismatched identity before opening a database engine. The timer names its
+matching service explicitly. Installation and timer enablement are
+operator-held live actions. After separately approving and applying the unit
+bundle, an operator may enable the intended timer with
+`sudo systemctl enable --now verdaxis-product-analytics-prune.timer` or
+`sudo systemctl enable --now verdaxis-product-analytics-prune-staging.timer`;
+this branch does neither.
+
 The units also require the gitignored `.runtime-release.env` artifact. After a
 successful fast-forward and migration, `scripts/deploy.sh` resolves the full
 40-hex commit ID from the checked-out artifact, writes `ENVIRONMENT` and
@@ -69,15 +81,19 @@ deploy-helper run together—do not invent a placeholder SHA to bridge rollout.
 requires `--environment production|staging` and an explicit full
 `--source-ref`; omitted mode safely defaults to dry-run, while mutation requires
 explicit `--apply`. The selected environment maps to one fixed release
-checkout. Before preflight or mutation, the installer requires that checkout
-to be clean and exactly at the source ref. Git
+checkout and an exact five-unit set: backend, singleton news service/timer, and
+product-analytics prune service/timer. Before preflight or mutation, the
+installer requires that checkout to be clean and exactly at the source ref. Git
 replacement refs and tracked `assume-unchanged`/`skip-worktree` flags are
 refused, and committed blobs are read with replacement-object processing
-disabled. The installer then reads every selected backend/news unit from that
-same Git commit and attests the working bytes and SHA-256 digest against the
-release artifact. It never sources units from the invoking worktree or infers
-approval from another live checkout. Production and staging are independently
-promoted, so run and approve them separately; their SHAs may differ.
+disabled. The installer materializes every selected unit from that exact Git
+commit into a new root-owned mode-0700 directory under `/run`, validates a
+SHA-256 manifest there, and performs syntax checks, comparisons, and installs
+only from those immutable staged bytes. A later worktree mutation cannot alter
+the install candidate, and no mutable worktree unit path is reopened. It never
+infers approval from another live checkout. Production and staging are
+independently promoted, so run and approve them separately; their SHAs may
+differ.
 
 After provenance succeeds, the installer validates the selected environment's
 release identity, application database/CORS/auth configuration, exact Alembic
@@ -107,8 +123,9 @@ Deployed identities are exact:
 
 Both environments require PostgreSQL URLs, explicit non-default passwords in
 both the application and migrator URLs, a non-default JWT of at least 32
-characters, and disabled auth bypass. Missing and known placeholder passwords
-are rejected with field-only errors that never echo URL credentials. SQLite,
+characters, and disabled auth bypass. Missing, empty, whitespace-only after URL
+decoding (including percent-encoded whitespace), and known placeholder
+passwords are rejected with field-only errors that never echo URL credentials. SQLite,
 missing migrator URLs, shared app/migrator roles, cross-environment identities,
 and every URL query parameter are rejected. Runtime and migration startup each
 attest the exact `current_database()`, `current_user`, LOGIN/NOINHERIT and
@@ -146,12 +163,20 @@ remove every protected-role membership edge (including inherited superuser and
 `SET ROLE` paths); revoke stale direct/default ACLs; and reconstruct exact
 least-privilege grants. The normalized expanded database and `public` schema
 ACLs allow only the migrator owner plus the intended app/backup grants; every
-unrelated explicit grantee is revoked. PostgreSQL's ownership authority is
+unrelated explicit grantee is revoked with intentional `CASCADE`, including
+privileges that grantee delegated onward. PostgreSQL's ownership authority is
 represented by the migrator owner, so a redundant explicit
 `pg_database_owner` schema ACL is removed rather than treated as extra access.
 Validation compares the complete expanded ACL sets, including grantor and
 grantability, instead of checking only named roles or relying on ACL array
-ordering. App-owned objects exclude `alembic_version`,
+ordering. Default ACL normalization covers both global
+`defaclnamespace=0` rows and additive `public`-schema rows for app, migrator,
+and backup owners across every PostgreSQL 17 default-ACL object type. It
+discovers grantees with `aclexplode`, removes stale global and `IN SCHEMA
+public` authority, restores PostgreSQL's hard-wired global defaults, and then
+reconstructs only the intended migrator-owned table/sequence defaults. A
+future public table therefore receives the same exact owner/app/backup ACL.
+App-owned objects exclude `alembic_version`,
 `spatial_ref_sys`, and extension-owned objects. The app receives table
 `SELECT/INSERT/UPDATE/DELETE` and sequence `USAGE/SELECT/UPDATE`; backup receives
 only table/sequence `SELECT`. Validation checks exact ownership, role
