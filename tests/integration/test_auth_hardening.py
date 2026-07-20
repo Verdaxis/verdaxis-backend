@@ -121,4 +121,4 @@ class TestHealthEndpoints:
         assert res.status_code == 200
         data = res.json()
         assert data["status"] == "ok"
-        assert data["db"] == "connected"
+        assert data["db"] == "ok"

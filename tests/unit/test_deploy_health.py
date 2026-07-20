@@ -4,7 +4,9 @@ import hashlib
 import io
 import importlib.util
 import json
+import os
 from pathlib import Path
+import shutil
 import subprocess
 import tarfile
 
@@ -38,7 +40,7 @@ def test_health_response_requires_exact_status_environment_and_release_sha():
         json.dumps(
             {
                 "status": "ok",
-                "db": "connected",
+                "db": "ok",
                 "environment": "production",
                 "release_sha": SHA,
             }
@@ -49,12 +51,13 @@ def test_health_response_requires_exact_status_environment_and_release_sha():
 
     for mutation in (
         {"status": "okay"},
+        {"db": "connected"},
         {"environment": "staging"},
         {"release_sha": "b" * 40},
     ):
         payload = {
             "status": "ok",
-            "db": "connected",
+            "db": "ok",
             "environment": "production",
             "release_sha": SHA,
             **mutation,
@@ -88,6 +91,247 @@ def test_deploy_rejects_dirty_release_and_uses_json_health_gate():
         'write_release_artifact "$CURRENT_SHA"'
     )
     assert "preflight_runtime.py" in source
+
+
+def _git(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["git", *args],
+        cwd=cwd,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+
+def _write_executable(path: Path, source: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(source)
+    path.chmod(0o755)
+
+
+def _deployment_checkout(tmp_path: Path) -> tuple[Path, Path, str]:
+    origin = tmp_path / "origin.git"
+    source = tmp_path / "approved-source"
+    checkout = tmp_path / "deploy-checkout"
+    origin.mkdir()
+    source.mkdir()
+    _git(origin, "init", "--bare", "-q")
+    _git(source, "init", "-q", "-b", "staging")
+    _git(source, "config", "user.email", "runtime-test@example.invalid")
+    _git(source, "config", "user.name", "Runtime Test")
+
+    scripts = source / "scripts"
+    scripts.mkdir()
+    shutil.copy2(ROOT / "scripts/deploy.sh", scripts / "deploy.sh")
+    (scripts / "preflight_runtime.py").write_text("# deployment test preflight\n")
+    (source / ".gitignore").write_text(
+        "venv/\n.runtime-release.env\n.runtime-deploying\n"
+    )
+    (source / "requirements.txt").write_text("deployment-test==1\n")
+    (source / "alembic.ini").write_text("[alembic]\n")
+    (source / "release.txt").write_text("old release\n")
+    _git(source, "add", ".")
+    _git(source, "commit", "-qm", "old release")
+    _git(source, "remote", "add", "origin", str(origin))
+    _git(source, "push", "-q", "-u", "origin", "staging")
+    _git(tmp_path, "clone", "-q", "--branch", "staging", str(origin), str(checkout))
+    old_sha = _git(checkout, "rev-parse", "HEAD").stdout.strip()
+
+    fake_python = """#!/usr/bin/env bash
+set -euo pipefail
+printf 'python:%s\\n' "$*" >> "${DEPLOY_TEST_LOG:?}"
+if [[ "${DEPLOY_FAIL_PHASE:-}" == "preflight" && "${1:-}" == "scripts/preflight_runtime.py" ]]; then
+    exit 41
+fi
+if [[ "${DEPLOY_FAIL_PHASE:-}" == "dependency" && "${1:-} ${2:-} ${3:-}" == "-m pip install" ]]; then
+    exit 42
+fi
+if [[ "${DEPLOY_FAIL_PHASE:-}" == "health" && "${1:-}" == "scripts/validate_health_response.py" ]]; then
+    exit 44
+fi
+"""
+    fake_alembic = """#!/usr/bin/env bash
+set -euo pipefail
+printf 'alembic:%s\\n' "$*" >> "${DEPLOY_TEST_LOG:?}"
+if [[ "${DEPLOY_FAIL_PHASE:-}" == "alembic" ]]; then
+    exit 43
+fi
+"""
+    _write_executable(checkout / "venv/bin/python", fake_python)
+    _write_executable(checkout / "venv/bin/alembic", fake_alembic)
+    fake_bin = tmp_path / "fake-bin"
+    _write_executable(
+        fake_bin / "sudo",
+        """#!/usr/bin/env bash
+set -euo pipefail
+printf 'sudo:%s\\n' "$*" >> "${DEPLOY_TEST_LOG:?}"
+""",
+    )
+    _write_executable(
+        fake_bin / "systemctl",
+        """#!/usr/bin/env bash
+set -euo pipefail
+printf 'systemctl:%s\\n' "$*" >> "${DEPLOY_TEST_LOG:?}"
+""",
+    )
+    _write_executable(
+        fake_bin / "curl",
+        """#!/usr/bin/env bash
+set -euo pipefail
+printf '{"status":"ok","db":"ok","environment":"wrong","release_sha":"wrong"}'
+""",
+    )
+    return source, checkout, old_sha
+
+
+def _deploy_environment(log_path: Path, *, fail_phase: str = "") -> dict[str, str]:
+    return {
+        **os.environ,
+        "TARGET_BRANCH": "staging",
+        "SERVICE_NAME": "verdaxis-backend-staging-test.service",
+        "HEALTH_URL": "https://health.invalid/health/ready",
+        "DEPLOY_ENVIRONMENT": "staging",
+        "DEPLOY_TEST_LOG": str(log_path),
+        "DEPLOY_FAIL_PHASE": fail_phase,
+        "HEALTH_ATTEMPTS": "1",
+        "PATH": f"{log_path.parent / 'fake-bin'}{os.pathsep}{os.environ['PATH']}",
+    }
+
+
+def _push_new_release(source: Path) -> str:
+    (source / "release.txt").write_text("new release\n")
+    _git(source, "add", "release.txt")
+    _git(source, "commit", "-qm", "new release")
+    _git(source, "push", "-q", "origin", "staging")
+    return _git(source, "rev-parse", "HEAD").stdout.strip()
+
+
+def test_deploy_dry_run_executes_all_read_only_checks(tmp_path):
+    source, checkout, current_sha = _deployment_checkout(tmp_path)
+    candidate_sha = _push_new_release(source)
+    log_path = tmp_path / "commands.log"
+
+    result = subprocess.run(
+        ["bash", "scripts/deploy.sh", "--dry-run"],
+        cwd=checkout,
+        env=_deploy_environment(log_path),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    commands = log_path.read_text().splitlines()
+    assert any(
+        "scripts/preflight_runtime.py" in command
+        and f"--release-sha {candidate_sha}" in command
+        for command in commands
+    )
+    assert any("-m pip install --dry-run" in command for command in commands)
+    assert any("-m pip check" in command for command in commands)
+    assert any("alembic:current --check-heads" == command for command in commands)
+    assert _git(checkout, "rev-parse", "HEAD").stdout.strip() == current_sha
+    assert current_sha != candidate_sha
+    assert not (checkout / ".runtime-release.env").exists()
+    assert not (checkout / ".runtime-deploying").exists()
+    assert "Skipped mutations:" in result.stdout
+    for skipped in ("source update", "dependency installation", "migration upgrade", "service restart", "health gate"):
+        assert skipped in result.stdout
+
+
+@pytest.mark.parametrize("fail_phase", ["preflight", "dependency", "alembic"])
+def test_deploy_failure_keeps_selected_code_and_identity_aligned_and_guarded(
+    tmp_path, fail_phase
+):
+    source, checkout, old_sha = _deployment_checkout(tmp_path)
+    (checkout / ".runtime-release.env").write_text(
+        f"ENVIRONMENT=staging\nRELEASE_SHA={old_sha}\n"
+    )
+    new_sha = _push_new_release(source)
+    log_path = tmp_path / "commands.log"
+
+    result = subprocess.run(
+        ["bash", "scripts/deploy.sh"],
+        cwd=checkout,
+        env=_deploy_environment(log_path, fail_phase=fail_phase),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert _git(checkout, "rev-parse", "HEAD").stdout.strip() == new_sha
+    assert (checkout / ".runtime-release.env").read_text() == (
+        f"ENVIRONMENT=staging\nRELEASE_SHA={new_sha}\n"
+    )
+    assert (checkout / ".runtime-deploying").is_file()
+    assert "release remains fail-closed" in result.stderr
+
+
+def test_failed_post_restart_health_stops_service_and_restores_guard(tmp_path):
+    source, checkout, old_sha = _deployment_checkout(tmp_path)
+    (checkout / ".runtime-release.env").write_text(
+        f"ENVIRONMENT=staging\nRELEASE_SHA={old_sha}\n"
+    )
+    new_sha = _push_new_release(source)
+    log_path = tmp_path / "commands.log"
+
+    result = subprocess.run(
+        ["bash", "scripts/deploy.sh"],
+        cwd=checkout,
+        env=_deploy_environment(log_path, fail_phase="health"),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert (checkout / ".runtime-release.env").read_text() == (
+        f"ENVIRONMENT=staging\nRELEASE_SHA={new_sha}\n"
+    )
+    assert (checkout / ".runtime-deploying").is_file()
+    commands = log_path.read_text().splitlines()
+    restart = "sudo:systemctl restart verdaxis-backend-staging-test.service"
+    stop = "sudo:systemctl stop verdaxis-backend-staging-test.service"
+    assert restart in commands
+    assert stop in commands
+    assert commands.index(restart) < commands.index(stop)
+
+
+def test_deploy_publishes_identity_before_selected_tree_execution():
+    source = (ROOT / "scripts/deploy.sh").read_text()
+
+    identity = source.index('write_release_artifact "$CURRENT_SHA"')
+    assert identity < source.index("scripts/preflight_runtime.py", identity)
+    assert identity < source.index("pip install", identity)
+    assert identity < source.index("alembic upgrade head", identity)
+    assert "reset --hard" not in source
+    assert '"${GIT[@]}" checkout --' not in source
+
+
+@pytest.mark.parametrize(
+    "unit_name",
+    [
+        "verdaxis-backend.service",
+        "verdaxis-backend-staging.service",
+        "verdaxis-news-refresh.service",
+        "verdaxis-news-refresh-staging.service",
+        "verdaxis-product-analytics-prune.service",
+        "verdaxis-product-analytics-prune-staging.service",
+    ],
+)
+def test_every_runtime_service_fails_closed_during_deployment(unit_name):
+    content = (ROOT / "deploy/systemd" / unit_name).read_text()
+    backend_dir = (
+        "/home/verdaxis-prod/verdaxis/staging/be"
+        if "staging" in unit_name
+        else "/home/verdaxis-prod/verdaxis/prod/be"
+    )
+
+    assert (
+        f"ExecStartPre=/usr/bin/test ! -e {backend_dir}/.runtime-deploying"
+        in content
+    )
 
 
 def test_systemd_installer_is_idempotent_preflights_and_never_starts_services():

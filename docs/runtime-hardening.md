@@ -60,22 +60,52 @@ Product-analytics retention likewise has exactly one external timer/service pair
 per environment. Each prune service loads both `.env` and
 `.runtime-release.env`, passes a literal `production` or `staging` target plus
 the release SHA to the destructive CLI, and refuses an absent, development, or
-mismatched identity before opening a database engine. The timer names its
-matching service explicitly. Installation and timer enablement are
-operator-held live actions. After separately approving and applying the unit
-bundle, an operator may enable the intended timer with
+mismatched identity before opening a database engine. The services want
+network-online, require/order after PostgreSQL, require the backend mount, and
+run `pg_isready` before the CLI. Boot-time failures retry after 30 seconds but
+are bounded to five starts per 15 minutes. Their filesystem, device,
+capability, address-family, and system-call sandbox matches the news units. The
+timer names its matching service explicitly. Installation and timer enablement
+are operator-held live actions. After separately approving and applying the
+unit bundle, an operator may enable the intended timer with
 `sudo systemctl enable --now verdaxis-product-analytics-prune.timer` or
 `sudo systemctl enable --now verdaxis-product-analytics-prune-staging.timer`;
 this branch does neither.
 
-The units also require the gitignored `.runtime-release.env` artifact. After a
-successful fast-forward and migration, `scripts/deploy.sh` resolves the full
-40-hex commit ID from the checked-out artifact, writes `ENVIRONMENT` and
-`RELEASE_SHA` to a mode-0600 temporary file, then atomically renames it before
-the service restart. The application never shells out to Git. Staging and
-production refuse startup without a full SHA; development/test may explicitly
-use their named placeholder. Existing deployments need the updated unit and a
-deploy-helper run together—do not invent a placeholder SHA to bridge rollout.
+The units require the gitignored `.runtime-release.env` artifact and refuse to
+start while the gitignored `.runtime-deploying` guard exists. An actual
+`scripts/deploy.sh` run first rejects a dirty tree and atomically creates that
+guard before source mutation. It fetches and fast-forwards only the selected
+target branch, then attests the exact clean remote 40-hex commit. Before
+invoking preflight, Python/pip, Alembic, or any other executable from the new
+tree, it writes that commit's `ENVIRONMENT` and `RELEASE_SHA` through a
+mode-0600 temporary file and atomic rename. The guard prevents backend, news,
+and prune unit starts during this transition. The application never shells out
+to Git.
+
+If release-metadata publication itself fails, the guard stays present and no
+new-tree unit may start. If preflight, dependency preparation, migration,
+restart, or readiness later fails, source and release metadata remain aligned
+at the selected new commit and the failure trap leaves or restores the guard.
+The helper never rolls metadata back independently and never uses destructive
+Git reset. It clears the guard only after preflight, dependency preparation,
+migration, and a final clean-tree check; a restart/readiness failure restores
+the guard and stops the failed backend service. Recovery is a corrected forward release or an explicitly designed
+atomic code-and-identity restoration—not an identity-only rollback and never
+an automatic schema downgrade.
+
+`scripts/deploy.sh --dry-run` makes no deployed-state change. It requires the
+live checkout to be clean and on the target branch, resolves the remote target
+without updating that checkout, and materializes the exact remote commit into
+a private temporary candidate. Against those immutable candidate bytes it
+runs the read-only runtime/database identity preflight, pip resolver dry-run,
+`pip check`, and `alembic current --check-heads`, then rechecks live source
+cleanliness and removes the candidate. It explicitly skips live source update,
+dependency installation, migration upgrade, release/guard publication,
+restart, and post-restart health. Staging and production refuse startup without
+a full SHA; development/test may explicitly use their named placeholder.
+Existing deployments must have the guard-aware unit bundle installed before
+using this deploy contract—do not invent a placeholder SHA to bridge rollout.
 
 `scripts/install_systemd_units.sh` provides the operator path. Every invocation
 requires `--environment production|staging` and an explicit full
@@ -105,7 +135,8 @@ actions.
 
 Deploys categorically reject dirty trees before and after preparation because
 a commit SHA cannot identify modified source. The readiness gate parses JSON
-and requires exact `status="ok"`, target environment, and full deployed SHA.
+and requires exact `status="ok"`, `db="ok"`, target environment, and full
+deployed SHA.
 A rollback is a clean forward revert commit published as a new release through
 the same preflight, migration, release-artifact, restart, and health gates.
 Never automatically run an Alembic downgrade or edit `.runtime-release.env` to
@@ -161,7 +192,13 @@ They provision app, migrator, and read-only backup roles; transfer public
 database/schema and application table/sequence ownership to the migrator;
 remove every protected-role membership edge (including inherited superuser and
 `SET ROLE` paths); revoke stale direct/default ACLs; and reconstruct exact
-least-privilege grants. The normalized expanded database and `public` schema
+least-privilege grants. For every governed ordinary table, partitioned table,
+child partition, and sequence, bootstrap discovers expanded ACL grantees with
+`aclexplode`, revokes every non-owner grantee—including PUBLIC, app, backup,
+and unrelated roles—with intentional `CASCADE`, then grants only the exact
+app/backup policy. The app and backup are also stripped from control and
+extension objects before governed grants are rebuilt. The normalized expanded
+database and `public` schema
 ACLs allow only the migrator owner plus the intended app/backup grants; every
 unrelated explicit grantee is revoked with intentional `CASCADE`, including
 privileges that grantee delegated onward. PostgreSQL's ownership authority is
@@ -263,8 +300,9 @@ immutable expected artifact. Off-host monitors and deploy checks use
 `/health/ready`; liveness is not a deployment/readiness signal.
 
 The deploy checker does not substring-match this response. It parses JSON and
-requires the exact success status, target environment, and expected full SHA;
-wrong environment, wrong SHA, malformed JSON, and degraded status all fail.
+requires exact `status="ok"`, `db="ok"`, target environment, and expected full
+SHA; wrong database status, environment, SHA, malformed JSON, and degraded
+status all fail.
 
 Credentialed CORS has exact environment allowlists: production permits only
 `https://verdaxis.exchange` and `https://app.verdaxis.exchange`; staging only
@@ -310,21 +348,42 @@ does not create/drop tables or include KYC, security, or market feature DDL.
 ## Alembic integration order
 
 The standalone runtime head `rh_20260720_runtime_metadata` descends from
-`pa_20260715_analytics_facts`. The exact integration linearization is:
+`pa_20260715_analytics_facts` and remains there in this isolated branch. The
+combined-tree integration linearization is:
 
 ```text
 pa_20260715_analytics_facts
-  -> sec_20260720_identity
-  -> sec_20260720_boundaries
-  -> mi_20260720_market_integrity
-  -> rh_20260720_runtime_metadata (rebased, or folded into one combined migration)
+  -> rh_20260720_runtime_metadata
+  -> sec_20260720_identity (reparented during integration)
+  -> remaining security revisions
+  -> sec_20260720_device
+  -> market-owned revisions when integrated
 ```
 
-Rebase the market branch onto the security head, resolve any shared model
-ownership there, then rebase this runtime branch onto that single combined
-line. Do not create an empty merge-head workaround. The runtime migration is
-independently testable now and can be folded into the final combined migration
-if exact model alignment makes that simpler.
+Do not reparent runtime after security in this branch. Integration reparents
+only `sec_20260720_identity` onto `rh_20260720_runtime_metadata`, preserves the
+remaining security chain through `sec_20260720_device`, then composes
+market-owned DDL after that head. Do not create an empty merge-head workaround.
+The runtime migration remains runtime metadata normalization only.
+
+This isolated runtime branch's immutable installer allowlist intentionally
+contains five units per environment. The combined security tree must add
+`verdaxis-auth-maintenance.service` and
+`verdaxis-auth-maintenance.timer` to production, plus
+`verdaxis-auth-maintenance-staging.service` and
+`verdaxis-auth-maintenance-staging.timer` to staging, while preserving exact
+environment-specific provenance. Until both the migration chain and these
+allowlists are integrated, this branch must not be represented as an
+independently deployable combined runtime+security release.
+
+The local-monitor branch's reviewed identity-only EXIT rollback is also an
+integration blocker: after source has advanced, restoring only an old release
+SHA recreates stale identity over new bytes. The combined deploy path must
+remove that rollback and preserve the forward-aligned identity under the
+deployment guard, or atomically restore both code and identity. It must not use
+a destructive Git reset or automatically downgrade schema. The canonical
+successful readiness payload shared with that monitor is exactly
+`status="ok"`, `db="ok"`, the target environment, and the full release SHA.
 
 Integration must retain the KYC route-level body bound and bounded streaming
 regression coverage for missing and lying `Content-Length`. Gemini document

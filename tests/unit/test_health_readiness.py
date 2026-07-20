@@ -91,7 +91,7 @@ async def test_readiness_exposes_sanitized_deployment_provenance(monkeypatch):
 
     assert await main.health_ready() == {
         "status": "ok",
-        "db": "connected",
+        "db": "ok",
         "environment": "test",
         "release_sha": "test",
     }

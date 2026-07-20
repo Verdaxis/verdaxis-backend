@@ -195,6 +195,94 @@ async def test_delegated_database_and_schema_grants_are_cascade_revoked():
 
 
 @pytest.mark.asyncio
+async def test_governed_object_acls_are_exactly_repaired_with_cascade():
+    values = _policy_values()
+    migrator = values["migrator_role"]
+    parent_role = "verdaxis_object_grant_parent_test"
+    child_role = "verdaxis_object_grant_child_test"
+    parent_table = "runtime_acl_parent_test"
+    child_table = "runtime_acl_partition_test"
+    sequence = "runtime_acl_sequence_test"
+
+    await _execute_admin(f"DROP TABLE IF EXISTS public.{parent_table} CASCADE")
+    await _execute_admin(f"DROP SEQUENCE IF EXISTS public.{sequence}")
+    await _execute_admin(f"DROP ROLE IF EXISTS {child_role}")
+    await _execute_admin(f"DROP ROLE IF EXISTS {parent_role}")
+    await _execute_admin(f"CREATE ROLE {parent_role} NOLOGIN")
+    await _execute_admin(f"CREATE ROLE {child_role} NOLOGIN")
+    await _execute_admin_as(
+        migrator,
+        [
+            f"CREATE TABLE public.{parent_table} (id bigint, bucket integer) "
+            "PARTITION BY RANGE (bucket)",
+            f"CREATE TABLE public.{child_table} PARTITION OF "
+            f"public.{parent_table} FOR VALUES FROM (0) TO (10)",
+            f"CREATE SEQUENCE public.{sequence}",
+        ],
+    )
+
+    for object_name in (parent_table, child_table):
+        await _execute_admin(
+            f"GRANT SELECT ON TABLE public.{object_name} TO {parent_role} "
+            "WITH GRANT OPTION"
+        )
+        await _execute_admin(f"GRANT SELECT ON TABLE public.{object_name} TO PUBLIC")
+    await _execute_admin(
+        f"GRANT USAGE ON SEQUENCE public.{sequence} TO {parent_role} "
+        "WITH GRANT OPTION"
+    )
+    await _execute_admin(f"GRANT SELECT ON SEQUENCE public.{sequence} TO PUBLIC")
+    await _execute_admin(f"GRANT USAGE ON SCHEMA public TO {parent_role}")
+    await _execute_admin_as(
+        parent_role,
+        [
+            f"GRANT SELECT ON TABLE public.{parent_table} TO {child_role}",
+            f"GRANT SELECT ON TABLE public.{child_table} TO {child_role}",
+            f"GRANT USAGE ON SEQUENCE public.{sequence} TO {child_role}",
+        ],
+    )
+    await _execute_admin(f"REVOKE USAGE ON SCHEMA public FROM {parent_role}")
+
+    try:
+        rejected = _psql("validate_roles.sql")
+        assert rejected.returncode != 0
+
+        first_repair = _psql("bootstrap_roles.sql")
+        assert first_repair.returncode == 0, first_repair.stderr
+        second_repair = _psql("bootstrap_roles.sql")
+        assert second_repair.returncode == 0, second_repair.stderr
+        accepted = _psql("validate_roles.sql")
+        assert accepted.returncode == 0, accepted.stderr
+
+        unexpected_acls = await _fetchall_admin(
+            "SELECT object.relname, COALESCE(grantee.rolname, 'PUBLIC'), "
+            "acl.privilege_type, acl.is_grantable "
+            "FROM pg_catalog.pg_class AS object "
+            "JOIN pg_catalog.pg_namespace AS namespace "
+            "ON namespace.oid = object.relnamespace "
+            "CROSS JOIN LATERAL aclexplode(object.relacl) AS acl "
+            "LEFT JOIN pg_catalog.pg_roles AS grantee ON grantee.oid = acl.grantee "
+            "WHERE namespace.nspname = 'public' "
+            f"AND object.relname IN ('{parent_table}', '{child_table}', '{sequence}') "
+            f"AND (acl.grantee = 0 OR grantee.rolname IN ('{parent_role}', '{child_role}'))"
+        )
+        assert unexpected_acls == set()
+    finally:
+        _psql("bootstrap_roles.sql")
+        await _execute_admin_as(
+            migrator,
+            [
+                f"DROP TABLE IF EXISTS public.{parent_table} CASCADE",
+                f"DROP SEQUENCE IF EXISTS public.{sequence}",
+            ],
+        )
+        await _execute_admin(f"DROP OWNED BY {child_role}")
+        await _execute_admin(f"DROP OWNED BY {parent_role}")
+        await _execute_admin(f"DROP ROLE IF EXISTS {child_role}")
+        await _execute_admin(f"DROP ROLE IF EXISTS {parent_role}")
+
+
+@pytest.mark.asyncio
 async def test_global_and_public_default_acls_are_repaired_for_all_policy_owners():
     values = _policy_values()
     app = values["app_role"]

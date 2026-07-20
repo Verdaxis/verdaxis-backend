@@ -97,9 +97,45 @@ WHERE namespace.nspname = 'public'
   )
 \gexec
 
--- Remove stale direct privileges everywhere, then grant only on app objects.
+-- Remove app/backup authority from control and extension objects as well as
+-- governed objects. Exact app/backup grants are rebuilt only for governed
+-- objects below.
 REVOKE ALL ON ALL TABLES IN SCHEMA public FROM :"app_role", :"backup_role";
 REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM :"app_role", :"backup_role";
+
+-- Reconstruct every governed object's ACL from zero non-owner authority.
+-- REVOKE ... CASCADE intentionally removes grants delegated by any stale
+-- grantee. The owner is excluded because PostgreSQL owner authority is
+-- intrinsic; every governed object was transferred to migrator_role above.
+SELECT DISTINCT format(
+    'REVOKE ALL PRIVILEGES ON %s %I.%I FROM %s CASCADE',
+    CASE WHEN object.relkind = 'S' THEN 'SEQUENCE' ELSE 'TABLE' END,
+    namespace.nspname,
+    object.relname,
+    CASE WHEN acl.grantee = 0 THEN 'PUBLIC' ELSE format('%I', grantee.rolname) END
+)
+FROM pg_catalog.pg_class AS object
+JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = object.relnamespace
+CROSS JOIN LATERAL aclexplode(
+    COALESCE(
+        object.relacl,
+        acldefault(
+            CASE WHEN object.relkind = 'S' THEN 'S'::"char" ELSE 'r'::"char" END,
+            object.relowner
+        )
+    )
+) AS acl
+LEFT JOIN pg_catalog.pg_roles AS grantee ON grantee.oid = acl.grantee
+WHERE namespace.nspname = 'public'
+  AND object.relkind IN ('r', 'p', 'S')
+  AND object.relname NOT IN ('alembic_version', 'spatial_ref_sys')
+  AND NOT EXISTS (
+      SELECT 1 FROM pg_catalog.pg_depend AS dependency
+      WHERE dependency.classid = 'pg_class'::regclass
+        AND dependency.objid = object.oid AND dependency.deptype = 'e'
+  )
+  AND acl.grantee <> object.relowner
+\gexec
 
 SELECT format(
     'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE %I.%I TO %I',

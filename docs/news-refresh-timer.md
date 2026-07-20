@@ -12,6 +12,9 @@ Production and staging each have exactly one source-controlled systemd timer
 and matching `Type=oneshot` service in `deploy/systemd/`. A PostgreSQL
 transaction advisory lock makes concurrent timer or CLI invocations mutually
 exclusive across processes; overlap exits successfully without duplicate work.
+Each service also refuses to start while its checkout's `.runtime-deploying`
+guard exists, so a timer cannot execute newly selected source before matching
+release identity has been published.
 
 ## Operator-held installation
 
@@ -40,3 +43,8 @@ sudo systemctl enable --now verdaxis-news-refresh-staging.timer
 Never enable both environment timers against the same checkout or `.env`.
 Confirm backend workers retain no scheduler and the removed public refresh
 route remains absent.
+
+In the eventual combined security release, retain these singleton news owners
+and add the matching environment's auth-maintenance service/timer pair to the
+immutable installer allowlist. The runtime-only five-unit allowlists are not a
+claim that the isolated branch is a complete runtime+security deployment.

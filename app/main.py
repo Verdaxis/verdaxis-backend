@@ -252,7 +252,7 @@ async def health_ready():
         async with asyncio.timeout(settings.HEALTH_READINESS_TIMEOUT_SECONDS):
             async with engine.connect() as conn:
                 await conn.execute(text("SELECT 1"))
-        return {"status": "ok", "db": "connected", **provenance}
+        return {"status": "ok", "db": "ok", **provenance}
     except DBAPIError as exc:
         logger.error(
             "health_readiness_database_failed",

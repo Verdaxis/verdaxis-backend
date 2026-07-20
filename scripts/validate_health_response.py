@@ -26,6 +26,7 @@ def validate_health_response(
         raise HealthResponseError("readiness response must be a JSON object")
     expected = {
         "status": "ok",
+        "db": "ok",
         "environment": expected_environment,
         "release_sha": expected_release_sha,
     }

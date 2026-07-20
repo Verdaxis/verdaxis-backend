@@ -159,3 +159,21 @@
 - **Trigger:** Ponytail audit found the purchase-flow helper had no references and targeted obsolete endpoints.
 - **Rule:** Remove zero-reference legacy harnesses instead of preserving direct invocation compatibility when no authoritative use remains.
 - **Why:** Compatibility code for dead endpoints increases maintenance and can mislead operators about supported runtime workflows.
+
+### Keep Repair And Release Identity Exact Through Failure
+- **Date:** 2026-07-20
+- **Trigger:** Review found object ACLs that validation rejected but bootstrap could not repair, dry-run checks that were skipped, and deploy failures that could leave new source bytes paired with stale release identity.
+- **Rule:** Every exact validator needs an idempotent repair for the same authority scope, and deployment must publish identity before executing selected-tree code while dry-run executes every genuinely non-mutating gate.
+- **Why:** A validator-only policy and a success-only identity update both fail closed too late, leaving operators unable to converge or runtime metadata inconsistent with executable bytes.
+
+### Keep Readiness Vocabulary Canonical Across Owners
+- **Date:** 2026-07-20
+- **Trigger:** Integration review found runtime readiness reported `db=connected` while the approved monitor contract requires `db=ok`.
+- **Rule:** Treat readiness JSON as a cross-component API and assert its complete canonical success payload in runtime, deploy, and monitor-facing tests.
+- **Why:** Semantically similar status words still break strict health gates and can cause a healthy release to be rejected after integration.
+
+### Preserve The Branch-Owned Migration Edge During Linearization
+- **Date:** 2026-07-20
+- **Trigger:** Integration clarified that runtime metadata remains immediately after product analytics and security's first revision must be reparented onto runtime, not the reverse.
+- **Rule:** Keep branch-owned migration ancestry unchanged unless explicitly assigned; express cross-branch linearization as a precise integration reparenting gate on the downstream branch.
+- **Why:** Reparenting the wrong branch changes ownership boundaries and can make an isolated remediation conflict with the intended combined migration order.

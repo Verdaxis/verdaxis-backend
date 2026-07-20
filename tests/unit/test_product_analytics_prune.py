@@ -203,6 +203,12 @@ def test_systemd_service_artifact_matches_the_specified_unit(environment):
     unit_name, backend_dir = _PRUNE_ENVIRONMENTS[environment]
     content = (_SYSTEMD_DIR / f"{unit_name}.service").read_text()
     for directive in (
+        "Wants=network-online.target",
+        "Requires=postgresql.service",
+        "After=network-online.target postgresql.service",
+        f"RequiresMountsFor={backend_dir}",
+        "StartLimitIntervalSec=15min",
+        "StartLimitBurst=5",
         "Type=oneshot",
         "User=verdaxis-prod",
         "Group=verdaxis-prod",
@@ -211,6 +217,8 @@ def test_systemd_service_artifact_matches_the_specified_unit(environment):
         f"EnvironmentFile={backend_dir}/.runtime-release.env",
         f"ExecStartPre=/usr/bin/test -r {backend_dir}/.env",
         f"ExecStartPre=/usr/bin/test -r {backend_dir}/.runtime-release.env",
+        f"ExecStartPre=/usr/bin/test ! -e {backend_dir}/.runtime-deploying",
+        "ExecStartPre=/usr/bin/pg_isready --quiet --timeout=5",
         (
             f"ExecStart={backend_dir}/venv/bin/python "
             "scripts/prune_product_analytics.py "
@@ -220,11 +228,22 @@ def test_systemd_service_artifact_matches_the_specified_unit(environment):
         "IOSchedulingClass=idle",
         "NoNewPrivileges=true",
         "PrivateTmp=true",
+        "PrivateDevices=true",
+        "ProtectSystem=strict",
+        "ProtectHome=read-only",
+        "RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6",
+        "RestrictSUIDSGID=true",
+        "LockPersonality=true",
+        "CapabilityBoundingSet=",
+        "AmbientCapabilities=",
+        "SystemCallFilter=@system-service",
+        "SystemCallErrorNumber=EPERM",
+        "Restart=on-failure",
+        "RestartSec=30s",
         "TimeoutStartSec=300",
     ):
         assert directive in content, directive
-    # A oneshot must stay failed for the monitor to alert on — no auto restart.
-    assert "Restart=" not in content
+    assert content.count("Restart=") == 1
 
 
 @pytest.mark.parametrize("environment", sorted(_PRUNE_ENVIRONMENTS))
