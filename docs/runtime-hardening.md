@@ -42,8 +42,10 @@ peak RSS and cgroup usage before changing them.
 ports. Both units order after `network-online.target` and require/order on
 `postgresql.service`; neither depends on Docker.
 
-Each unit runs `alembic current --check-heads` before Uvicorn and passes the
-same `UVICORN_WORKERS=4` value used by application pool math,
+Each unit requires the literal `MIGRATION_REVISION` published with its release
+identity and verifies that the live database is at exactly that checkpoint
+before Uvicorn. It does not require the checkpoint to equal a later source
+head. Each unit passes the same `UVICORN_WORKERS=4` value used by application pool math,
 sets `PYTHONDONTWRITEBYTECODE=1`, and applies a read-only systemd sandbox. No
 broad source-tree `ReadWritePaths` grant is present. The checked-in units are
 artifacts only; this change does not install or deploy them. News refresh has
@@ -72,8 +74,10 @@ unit bundle, an operator may enable the intended timer with
 `sudo systemctl enable --now verdaxis-product-analytics-prune-staging.timer`;
 this branch does neither.
 
-The units require the gitignored `.runtime-release.env` artifact and check the
-durable per-environment `.runtime-deploy/<environment>.state` file. A normal
+The units require the gitignored `.runtime-release.env` artifact containing the
+exact environment, full source SHA, and literal deployed migration revision.
+They also check the durable per-environment
+`.runtime-deploy/<environment>.state` file. A normal
 start is allowed only when state is absent; the one explicit
 `DEPLOYMENT_STATE=restart-authorized` phase permits the controlled deploy
 restart. Blocked and readiness-pending state refuses starts. An actual
@@ -81,9 +85,51 @@ restart. Blocked and readiness-pending state refuses starts. An actual
 environment-specific `flock`, and atomically writes blocked state before
 source mutation. It fetches and fast-forwards only the selected target branch,
 but requires `APPROVED_RELEASE_SHA` to equal the full SHA printed by a prior
-dry-run; a moved remote branch is refused. The selected SHA is published to
-`.runtime-release.env` before invoking preflight, Python/pip, or Alembic from
-the new tree. The application never shells out to Git.
+dry-run; a moved remote branch is refused. Before acquiring the lock or
+mutating source, it also requires `MIGRATION_APPROVED_SOURCE_SHA` to equal that
+same SHA and requires literal `MIGRATION_EXPECTED_CURRENT_REVISION` and
+`MIGRATION_TARGET_REVISION` values. The expected/target pair must occur in the
+selected SHA's committed `deploy/migration-checkpoints.tsv`; aliases such as
+`head`, revision arithmetic, absent revisions, and reverse traversal refuse.
+After the policy check, deploy acquires the environment lock and the clean
+current checkout's exact-revision verifier reads live state through the
+explicit migrator credential. A revision different from the operator-approved
+current value refuses before blocked state or source fast-forward while still
+preventing another deploy from racing that decision. The selected helper
+repeats that check before migration and verifies the exact result afterward.
+The selected SHA and approved target revision are published to
+`.runtime-release.env` before invoking preflight, Python/pip, or the exact
+migration checkpoint from the new tree.
+The checkpoint helper re-attests the clean checkout, source SHA, migrator
+identity, current revision, graph ancestry, and exact resulting revision. It
+requires an explicit `MIGRATOR_DATABASE_URL` whose role differs from
+`DATABASE_URL` before opening an engine; neither checkpoint application nor
+startup revision verification ever falls back to application credentials. It
+pins Alembic's effective `sqlalchemy.url` to that attested migrator URL and
+passes only the literal approved target. A missing, shared, or application-role
+migrator credential refuses before the live-revision read or Alembic upgrade.
+The application and migrator URLs must use the same normalized host and port,
+in addition to the same database and their distinct exact roles. Canonical
+deploys discard ambient database URL/component overrides so preflight and both
+migration checks read the same deployed `.env` that systemd will load. They
+also discard Python import controls and invoke database-bearing Python helpers
+and dependency installation with a minimal environment; checkpoint Git
+identity uses the fixed system Git binary with global/system configuration
+disabled. Health attempt and delay controls are bounded decimal integers
+before they can reach shell arithmetic.
+The application never shells out to Git.
+
+Immediately after the checkpoint succeeds and before any service restart,
+deploy runs `scripts/converge_runtime_acls.py` from a private archive of the
+approved commit together with `deploy/postgres/app_acl_policy.sql` and
+`deploy/postgres/converge_runtime_object_acls.sql`. Each archived regular file
+is digest-compared with its committed blob. The helper opens the deployed
+`.env` once with no-follow semantics, requires it to be a regular file, binds
+both database URLs to the exact environment identities, and invokes `psql` as
+the migrator in one transaction. A symlinked environment file, app credential,
+ambient URL override, different endpoint, wrong database/role, policy failure,
+or `psql` failure leaves deployment state
+blocked and prevents restart.
 
 If release-metadata publication itself fails, durable blocked state stays
 present and no new-tree unit may start. If preflight, dependency preparation,
@@ -99,14 +145,22 @@ and never an automatic schema downgrade.
 
 `scripts/deploy.sh --dry-run` makes no deployed-state change. It requires the
 live checkout to be clean and on the target branch, resolves one remote branch
-to a full SHA, fetches that object, and materializes only its allowlisted
-systemd unit paths from an immutable Git archive. Trusted `tar`, `sha256sum`,
-and `systemd-analyze` inspect those bytes. Candidate Python imports, build
-backends, pip/Alembic, live database/configuration, `.env`, operator home,
-agent, and network access are deliberately omitted. The output binds approval
-to `APPROVED_RELEASE_SHA=<sha>` for the subsequent deploy; it explicitly
-reports that candidate-dependent application checks and readiness were not
-performed. Staging and production refuse startup without a full SHA;
+to a full SHA, fetches that object, and materializes only its unit manifest,
+migration policy, and manifest-selected systemd paths from an immutable Git
+archive. Regular-file checks reject candidate symlinks before parsing or
+hashing, and each staged digest is compared with the exact committed blob.
+Release-tree attestation also refuses every tracked symlink or gitlink, so a
+later approved Python/import/build path cannot escape the selected Git object.
+Trusted `tar`, `sha256sum`, and `systemd-analyze` inspect the committed unit manifest, migration policy,
+and exact unit bytes. Candidate Python imports, build backends, pip/Alembic,
+live database/configuration, `.env`, operator home, agent, and candidate-code
+network access are deliberately omitted. Trusted Git may contact the configured
+remote to resolve and fetch the exact commit; no fetched executable code is
+run. The output binds approval to `APPROVED_RELEASE_SHA=<sha>` and prints the
+three additional migration approval inputs required for the subsequent deploy;
+it explicitly reports that candidate-dependent application checks, live
+migration state, and readiness were not performed. Staging and production
+refuse startup without a full SHA and literal migration checkpoint;
 development/test may explicitly use their named placeholder. Existing
 deployments must have the guard-aware unit bundle installed before using this
 contract—do not invent a placeholder SHA to bridge rollout.
@@ -115,9 +169,11 @@ contract—do not invent a placeholder SHA to bridge rollout.
 requires `--environment production|staging` and an explicit full
 `--source-ref`; omitted mode safely defaults to dry-run, while mutation requires
 explicit `--apply`. The selected environment maps to one fixed release
-checkout and an exact five-unit set: backend, singleton news service/timer, and
-product-analytics prune service/timer. Before preflight or mutation, the
-installer requires that checkout to be clean and exactly at the source ref. Git
+checkout. Its exact unit set comes from that commit's
+`deploy/systemd/runtime-units.manifest`; the current manifest names the backend,
+singleton news service/timer, and product-analytics prune service/timer. Before
+preflight or mutation, the installer requires that checkout to be clean and
+exactly at the source ref. Git
 replacement refs and tracked `assume-unchanged`/`skip-worktree` flags are
 refused, and committed blobs are read with replacement-object processing
 disabled. The installer materializes every selected unit from that exact Git
@@ -129,13 +185,26 @@ infers approval from another live checkout. Production and staging are
 independently promoted, so run and approve them separately; their SHAs may
 differ.
 
+Unit filenames are globally unique across the manifest. Production entries
+must not use the `-staging` suffix and staging entries must use it, preventing
+one environment from replacing the other's destination. Canonical installer
+tools use a fixed trusted path and a scrubbed Git environment. Explicit apply
+re-executes under a non-blocking per-environment `flock`, so concurrent applies
+cannot interleave pending state or destination replacements. Only the
+root-owned re-exec may honor its lock marker, and the pending-state directory
+is fixed rather than caller-selectable.
+
 After provenance succeeds, the installer validates only the exact Git object,
 unit digest manifest, and staged unit syntax. It does not execute candidate
 checkout Python, application preflight, Alembic, or build metadata. `--dry-run`
-then exits without changes. Explicit `--apply` writes a durable pending record
-under `/var/lib/verdaxis/systemd-units`, installs only staged bytes, and always
-calls `systemctl daemon-reload`; pending state is removed only after a
-successful reload, so a reload failure is retryable on the next apply. It
+then exits without changing systemd destinations or durable pending state.
+Explicit `--apply` writes a durable pending record
+under `/var/lib/verdaxis/systemd-units`, prepares every destination replacement
+before changing a unit, and restores prior bytes if replacement is only
+partially applied. It installs only staged bytes and always calls `systemctl
+daemon-reload`; pending state is removed only after a successful reload, so a
+reload failure leaves the installed bundle and durable retry marker for the
+next apply. It
 never enables, starts, or restarts a service or timer. Installation, daemon
 reload, and timer enablement remain operator-held live actions.
 
@@ -177,7 +246,10 @@ lock_timeout=3s
 idle_in_transaction_session_timeout=60s
 ```
 
-Alembic can use `MIGRATOR_DATABASE_URL` with a separate migrator role. Its
+Deployed Alembic uses the required `MIGRATOR_DATABASE_URL` with a separate
+migrator role. Direct development/test Alembic retains its settings-bounded
+local fallback, but the deployment checkpoint and revision-verifier entry
+points require explicit migrator credentials in every environment. Their
 bounded policy is 300s / 30s / 300s respectively so schema changes have room
 to complete without inheriting the application pool policy. The role/session
 settings are applied by the asyncpg connection and are also intended to be
@@ -203,10 +275,12 @@ ordinary table, partitioned table, child partition, and sequence. Bootstrap
 discovers expanded ACL grantees with `aclexplode`, revokes every non-owner
 grantee—including PUBLIC, app, backup, and unrelated roles—with intentional
 deterministic `CASCADE`, separately discovers every explicit
-`pg_attribute.attacl` column grant, revokes it including PUBLIC, then grants only the exact
-app/backup policy. The app and backup are also stripped from control and
-extension objects before governed grants are rebuilt. The normalized expanded
-database and `public` schema
+`pg_attribute.attacl` column grant, revokes it including PUBLIC, then grants
+only the declarations in `deploy/postgres/app_acl_policy.sql`. The same
+deterministic repair removes delegated object privileges and role memberships,
+including grant/admin-option dependents, before rebuilding authority. The app
+and backup are also stripped from control and extension objects before governed
+grants are rebuilt. The normalized expanded database and `public` schema
 ACLs allow only the migrator owner plus the intended app/backup grants; every
 unrelated explicit grantee is revoked with intentional `CASCADE`, including
 privileges that grantee delegated onward. PostgreSQL's ownership authority is
@@ -219,17 +293,41 @@ ordering. Default ACL normalization covers both global
 and backup owners across every PostgreSQL 17 default-ACL object type. It
 discovers grantees with `aclexplode`, removes stale global and `IN SCHEMA
 public` authority, restores PostgreSQL's hard-wired global defaults, and then
-reconstructs only the intended migrator-owned table/sequence defaults. A
-future public table therefore receives the same exact owner/app/backup ACL.
-App-owned objects exclude `alembic_version`,
-`spatial_ref_sys`, and extension-owned objects. The app receives table
-`SELECT/INSERT/UPDATE/DELETE` and sequence `USAGE/SELECT/UPDATE`; backup receives
-only table/sequence `SELECT`. Validation checks exact ownership, role
-properties, memberships, effective privileges, unexpected database/schema/
-object and column grantees, absence of explicit governed `attacl`, exact
-default ACL set equality (including grantor and grant option), explicit backup
-column-write absence, excluded-object immutability, and exact
-per-database timeouts.
+reconstructs only the intended migrator-owned backup defaults. A future public
+table or sequence therefore gives the app no authority until an exact policy
+entry is reviewed; backup receives only table/sequence `SELECT`.
+
+The app policy is fail closed. Normal application DML exists only on explicitly
+listed tables. `organizations` has table-level `SELECT`/`DELETE`, plus named
+column `INSERT`/`UPDATE`. Its exact insert list is `id`, `name`, `domain`,
+`type`, `supplier_tier`, `tax_id`, `country_code`, and
+`created_at`; its exact update list is `name`, `domain`, `type`,
+`supplier_tier`, `tax_id`, and `country_code`. Signup relies on the database
+default for `verification_status`; verification and provenance columns require
+a trusted writer and are denied to the runtime app, as is every absent or
+future column until reviewed.
+`audit_logs` and `user_status_transitions` are explicitly append-only
+(`SELECT, INSERT`) for normal request transactions, with no app
+`UPDATE`/`DELETE` and no backup write. The current sequence policy is empty. Policy
+entries for integration-owned `seed_runs` and `market_row_quarantines` become
+read-only only if those tables exist, so their absence cannot create a broad
+grant. `alembic_version`, `spatial_ref_sys`, extension objects,
+seed/quarantine, market evidence/provenance, and operator/control data are not
+app-writable. Unknown governed tables and sequences receive no app grant.
+Services that eventually need to mutate protected security or market state
+must use an integration-owned trusted writer boundary; widening the ordinary
+app role is not an integration shortcut.
+
+Validation checks exact ownership, role properties, memberships, effective
+privileges, expanded database/schema/object/column ACL equality including
+grantor and grantability, exact default ACL equality, excluded-object
+immutability, and exact per-database timeouts. The disposable PostgreSQL proof
+injects delegated object and column grants, converges bootstrap twice, and then
+uses the raw app role to execute a signup transaction and an audited
+organization/admission mutation, while proving it cannot change organization
+provenance, rewrite audit/status history, rewrite seed/quarantine controls,
+`SET ROLE`, delegate grants, or retain an undeclared column ACL. Backup column
+writes are likewise rejected.
 Run them as the database owner with explicit psql variables, for example:
 
 ```bash
@@ -323,7 +421,10 @@ settings initialization.
 
 `scripts/verify_migrations.sh` requires an explicit database URL ending in
 `_test`, runs `alembic upgrade head`, proves the revision is exactly at a head
-with `alembic current --check-heads`, and runs `alembic check`.
+with `alembic current --check-heads`, and runs `alembic check`. This is a
+disposable test-schema completeness harness, not the production/staging
+deployment command. Production and staging never traverse to `head`; they use
+the source-attested literal checkpoint contract described above.
 
 Alembic compares columns, foreign keys, indexes, types, defaults, and comments.
 `app.migration_drift` excludes only schema-qualified PostGIS/geocoder
@@ -375,14 +476,49 @@ remaining security chain through `sec_20260720_device`, then composes
 market-owned DDL after that head. Do not create an empty merge-head workaround.
 The runtime migration remains runtime metadata normalization only.
 
-This isolated runtime branch's immutable installer allowlist intentionally
-contains five units per environment. The combined security tree must add
+Checkpoint policy is the cutover boundary, not merely a graph-validity check.
+This branch permits `pa_20260715_analytics_facts ->
+rh_20260720_runtime_metadata` and an idempotent `rh -> rh` deployment. Combined
+integration must add separately reviewed literal transitions for the intended
+security identity, security device, and market quarantine pauses only after
+those revisions exist in the combined source. An operator approves exact
+source SHA, expected live revision, and one target for each promotion; a later
+head cannot be reached accidentally through an earlier approval. Backend unit
+preflight compares the live revision with the published checkpoint rather than
+with source `head`, so an intentional pause remains restartable and
+readiness-gated even when selected source contains later revisions. Do not
+import or invent the security/market migrations in this runtime branch.
+
+The combined security tree must extend the ACL policy at the same checkpoint
+that introduces admission/KYC schema. In particular, it must review exact
+table authority for `pending_registrations`, `organization_join_requests`, and
+`refresh_sessions`, and replace broad `users` mutation with reviewed column
+entries before adding identity/KYC fields such as
+`email_verification_token_hash`, `email_verification_token_expires_at`,
+`kyc_organization_id`, `kyc_external_evidence_reference`, `kyc_review_note`,
+`kyc_reviewed_by`, and `kyc_reviewed_at`. Only columns emitted by the combined
+signup and trusted administrator workflows are added; absence or a newly added
+column must remain denied. Organization provenance promotion is not one of
+those app columns.
+
+The current legacy market-signal ingestion CLI cannot justify app-role writes
+to `market_signal_ingestion_runs`, `market_indications`, `fair_price_bands`, or
+`physical_stems`. Combined integration must assign that CLI a separately
+approved operator identity and exact ACLs before deployed use. Seed,
+quarantine, and market-evidence authority stays closed in this branch.
+
+This isolated runtime branch's immutable installer manifest intentionally
+contains five units per environment. The combined security tree must add the
+audited unit bytes and exact manifest entries for
 `verdaxis-auth-maintenance.service` and
 `verdaxis-auth-maintenance.timer` to production, plus
 `verdaxis-auth-maintenance-staging.service` and
 `verdaxis-auth-maintenance-staging.timer` to staging, while preserving exact
-environment-specific provenance. Until both the migration chain and these
-allowlists are integrated, this branch must not be represented as an
+environment-specific provenance. The installer consumes the committed manifest
+and immutable archive, so this extension requires no hard-coded installer list
+and no mutable checkout reopen. Until the migration chain, checkpoint policy,
+protected-state writer paths, and these unit bytes are integrated, this branch
+must not be represented as an
 independently deployable combined runtime+security release.
 
 The local-monitor branch's reviewed identity-only EXIT rollback is also an
@@ -401,4 +537,7 @@ KYC pending and never activate or reject an account. Only trusted administrator
 approve/reject routes are authoritative. Integration must also preserve the
 absence of per-worker news schedulers and the removed legacy compliance-ledger,
 compliance-verify, and dashboard-health routes; every scheduled job has one
-external scheduler.
+external scheduler. Process-local SSE transport remains an explicit combined
+integration problem; this branch preserves the four-worker systemd, settings,
+and connection-budget contract and does not hide the transport issue by
+reducing workers.

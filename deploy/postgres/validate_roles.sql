@@ -7,6 +7,8 @@ SELECT 1 / (
     AND :'migrator_role' <> :'backup_role'
 )::integer;
 
+\ir app_acl_policy.sql
+
 CREATE OR REPLACE FUNCTION pg_temp.assert_role_policy(ok boolean, message text)
 RETURNS void LANGUAGE plpgsql AS $$
 BEGIN
@@ -126,12 +128,9 @@ WHERE namespace.nspname = 'public'
         AND dependency.objid = object.oid AND dependency.deptype = 'e'
   );
 
-CREATE TEMP VIEW app_policy_objects AS
-SELECT * FROM governed_objects;
-
 SELECT pg_temp.assert_role_policy(
     NOT EXISTS (
-        SELECT 1 FROM app_policy_objects AS object
+        SELECT 1 FROM governed_objects AS object
         JOIN pg_catalog.pg_roles AS owner ON owner.oid = object.relowner
         WHERE owner.rolname <> :'migrator_role'
     ),
@@ -140,60 +139,140 @@ SELECT pg_temp.assert_role_policy(
 
 SELECT pg_temp.assert_role_policy(
     NOT EXISTS (
-        SELECT 1 FROM app_policy_objects AS object
-        WHERE object.relkind IN ('r', 'p') AND (
-            NOT has_table_privilege(:'app_role', object.oid, 'SELECT,INSERT,UPDATE,DELETE')
-            OR has_table_privilege(:'app_role', object.oid, 'TRUNCATE,REFERENCES,TRIGGER')
-            OR NOT has_table_privilege(:'backup_role', object.oid, 'SELECT')
-            OR has_table_privilege(:'backup_role', object.oid, 'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
-        )
-    ),
-    'app-object table privileges are not exact'
-);
-SELECT pg_temp.assert_role_policy(
-    NOT EXISTS (
-        SELECT 1 FROM app_policy_objects AS object
-        WHERE object.relkind = 'S' AND (
-            NOT has_sequence_privilege(:'app_role', object.oid, 'USAGE,SELECT,UPDATE')
-            OR NOT has_sequence_privilege(:'backup_role', object.oid, 'SELECT')
-            OR has_sequence_privilege(:'backup_role', object.oid, 'USAGE,UPDATE')
-        )
-    ),
-    'app-object sequence privileges are not exact'
-);
-
-SELECT pg_temp.assert_role_policy(
-    NOT EXISTS (
         SELECT 1
-        FROM app_policy_objects AS object
-        CROSS JOIN LATERAL aclexplode(
-            COALESCE(
-                object.relacl,
-                acldefault(
-                    CASE WHEN object.relkind = 'S' THEN 'S'::"char" ELSE 'r'::"char" END,
-                    object.relowner
-                )
-            )
-        ) AS acl
-        LEFT JOIN pg_catalog.pg_roles AS grantee ON grantee.oid = acl.grantee
-        WHERE acl.grantee = 0
-           OR grantee.rolname NOT IN (:'app_role', :'migrator_role', :'backup_role')
+        FROM governed_objects AS object
+        JOIN app_column_policy AS policy ON policy.table_name = object.relname
+        LEFT JOIN pg_catalog.pg_attribute AS attribute
+          ON attribute.attrelid = object.oid
+         AND attribute.attname = policy.column_name
+         AND attribute.attnum > 0
+         AND NOT attribute.attisdropped
+        WHERE object.relkind IN ('r', 'p')
+          AND attribute.attrelid IS NULL
     ),
-    'app-owned objects contain grants to an unexpected role or PUBLIC'
+    'every declared column for an existing table must exist exactly'
 );
 
 SELECT pg_temp.assert_role_policy(
     NOT EXISTS (
         SELECT 1
         FROM governed_objects AS object
-        JOIN pg_catalog.pg_attribute AS attribute ON attribute.attrelid = object.oid
-        CROSS JOIN LATERAL aclexplode(attribute.attacl) AS acl
-        LEFT JOIN pg_catalog.pg_roles AS grantee ON grantee.oid = acl.grantee
+        CROSS JOIN (VALUES ('SELECT'), ('INSERT'), ('UPDATE'), ('DELETE'))
+            AS privilege(privilege_type)
+        LEFT JOIN app_table_policy AS policy ON policy.table_name = object.relname
         WHERE object.relkind IN ('r', 'p')
-          AND attribute.attnum > 0
-          AND NOT attribute.attisdropped
+          AND has_table_privilege(
+              :'app_role', object.oid, privilege.privilege_type
+          ) <> (
+              privilege.privilege_type = ANY(
+                  COALESCE(policy.privileges, ARRAY[]::text[])
+              )
+          )
     ),
-    'governed objects must not retain explicit column ACLs, including PUBLIC'
+    'app table privileges do not exactly match the declarative policy'
+);
+SELECT pg_temp.assert_role_policy(
+    NOT EXISTS (
+        SELECT 1
+        FROM governed_objects AS object
+        CROSS JOIN (VALUES ('USAGE'), ('SELECT'), ('UPDATE'))
+            AS privilege(privilege_type)
+        LEFT JOIN app_sequence_policy AS policy
+          ON policy.sequence_name = object.relname
+        WHERE object.relkind = 'S'
+          AND has_sequence_privilege(
+              :'app_role', object.oid, privilege.privilege_type
+          ) <> (
+              privilege.privilege_type = ANY(
+                  COALESCE(policy.privileges, ARRAY[]::text[])
+              )
+          )
+    ),
+    'app sequence privileges do not exactly match the declarative policy'
+);
+
+SELECT pg_temp.assert_role_policy(
+    NOT EXISTS (
+        WITH actual AS (
+            SELECT object.relname, object.relkind::text,
+                   COALESCE(grantee.rolname, 'PUBLIC') AS grantee_name,
+                   acl.privilege_type, acl.is_grantable,
+                   grantor.rolname AS grantor_name
+            FROM governed_objects AS object
+            CROSS JOIN LATERAL aclexplode(
+                COALESCE(
+                    object.relacl,
+                    acldefault(
+                        CASE WHEN object.relkind = 'S' THEN 'S'::"char" ELSE 'r'::"char" END,
+                        object.relowner
+                    )
+                )
+            ) AS acl
+            LEFT JOIN pg_catalog.pg_roles AS grantee ON grantee.oid = acl.grantee
+            JOIN pg_catalog.pg_roles AS grantor ON grantor.oid = acl.grantor
+            WHERE acl.grantee <> object.relowner
+        ), expected AS (
+            SELECT object.relname, object.relkind::text, :'app_role',
+                   privilege.privilege_type, false, :'migrator_role'
+            FROM governed_objects AS object
+            JOIN app_table_policy AS policy ON policy.table_name = object.relname
+            CROSS JOIN LATERAL unnest(policy.privileges) AS privilege(privilege_type)
+            WHERE object.relkind IN ('r', 'p')
+            UNION ALL
+            SELECT object.relname, object.relkind::text, :'app_role',
+                   privilege.privilege_type, false, :'migrator_role'
+            FROM governed_objects AS object
+            JOIN app_sequence_policy AS policy ON policy.sequence_name = object.relname
+            CROSS JOIN LATERAL unnest(policy.privileges) AS privilege(privilege_type)
+            WHERE object.relkind = 'S'
+            UNION ALL
+            SELECT object.relname, object.relkind::text, :'backup_role',
+                   'SELECT', false, :'migrator_role'
+            FROM governed_objects AS object
+        ), differences AS (
+            (SELECT * FROM actual EXCEPT ALL SELECT * FROM expected)
+            UNION ALL
+            (SELECT * FROM expected EXCEPT ALL SELECT * FROM actual)
+        )
+        SELECT 1 FROM differences
+    ),
+    'governed non-owner object ACLs do not exactly match policy'
+);
+
+SELECT pg_temp.assert_role_policy(
+    NOT EXISTS (
+        WITH actual AS (
+            SELECT object.relname, attribute.attname,
+                   COALESCE(grantee.rolname, 'PUBLIC') AS grantee_name,
+                   acl.privilege_type, acl.is_grantable,
+                   grantor.rolname AS grantor_name
+            FROM governed_objects AS object
+            JOIN pg_catalog.pg_attribute AS attribute ON attribute.attrelid = object.oid
+            CROSS JOIN LATERAL aclexplode(attribute.attacl) AS acl
+            LEFT JOIN pg_catalog.pg_roles AS grantee ON grantee.oid = acl.grantee
+            JOIN pg_catalog.pg_roles AS grantor ON grantor.oid = acl.grantor
+            WHERE object.relkind IN ('r', 'p')
+              AND attribute.attnum > 0
+              AND NOT attribute.attisdropped
+        ), expected AS (
+            SELECT object.relname, attribute.attname, :'app_role',
+                   policy.privilege_type, false, :'migrator_role'
+            FROM governed_objects AS object
+            JOIN app_column_policy AS policy ON policy.table_name = object.relname
+            JOIN pg_catalog.pg_attribute AS attribute
+              ON attribute.attrelid = object.oid
+             AND attribute.attname = policy.column_name
+             AND attribute.attnum > 0
+             AND NOT attribute.attisdropped
+            WHERE object.relkind IN ('r', 'p')
+        ), differences AS (
+            (SELECT * FROM actual EXCEPT ALL SELECT * FROM expected)
+            UNION ALL
+            (SELECT * FROM expected EXCEPT ALL SELECT * FROM actual)
+        )
+        SELECT 1 FROM differences
+    ),
+    'governed column ACLs do not exactly match policy, including PUBLIC'
 );
 
 SELECT pg_temp.assert_role_policy(
@@ -220,7 +299,12 @@ SELECT pg_temp.assert_role_policy(
         WHERE namespace.nspname = 'public'
           AND object.relkind IN ('r', 'p')
           AND (
-              object.relname IN ('alembic_version', 'spatial_ref_sys')
+              object.relname IN (
+                  'alembic_version', 'spatial_ref_sys', 'seed_runs',
+                  'market_row_quarantines',
+                  'market_signal_ingestion_runs', 'market_indications',
+                  'fair_price_bands', 'physical_stems'
+              )
               OR EXISTS (
                   SELECT 1 FROM pg_catalog.pg_depend AS dependency
                   WHERE dependency.classid = 'pg_class'::regclass
@@ -232,7 +316,29 @@ SELECT pg_temp.assert_role_policy(
               OR has_table_privilege(:'backup_role', object.oid, 'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
           )
     ),
-    'control or extension tables are mutable by app or backup roles'
+    'provenance, operator, control, or extension tables are mutable by app or backup roles'
+);
+
+SELECT pg_temp.assert_role_policy(
+    NOT EXISTS (
+        SELECT 1
+        FROM pg_catalog.pg_class AS object
+        JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = object.relnamespace
+        WHERE namespace.nspname = 'public'
+          AND object.relkind IN ('r', 'p')
+          AND object.relname IN ('audit_logs', 'user_status_transitions')
+          AND (
+              has_table_privilege(
+                  :'app_role', object.oid,
+                  'UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER'
+              )
+              OR has_table_privilege(
+                  :'backup_role', object.oid,
+                  'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER'
+              )
+          )
+    ),
+    'audit and status history must remain append-only for app and read-only for backup'
 );
 
 WITH expected(
@@ -245,13 +351,6 @@ WITH expected(
     grantor_name
 ) AS (
     VALUES
-        (:'migrator_role', 'public', :'app_role', 'r', 'SELECT', false, :'migrator_role'),
-        (:'migrator_role', 'public', :'app_role', 'r', 'INSERT', false, :'migrator_role'),
-        (:'migrator_role', 'public', :'app_role', 'r', 'UPDATE', false, :'migrator_role'),
-        (:'migrator_role', 'public', :'app_role', 'r', 'DELETE', false, :'migrator_role'),
-        (:'migrator_role', 'public', :'app_role', 'S', 'USAGE', false, :'migrator_role'),
-        (:'migrator_role', 'public', :'app_role', 'S', 'SELECT', false, :'migrator_role'),
-        (:'migrator_role', 'public', :'app_role', 'S', 'UPDATE', false, :'migrator_role'),
         (:'migrator_role', 'public', :'backup_role', 'r', 'SELECT', false, :'migrator_role'),
         (:'migrator_role', 'public', :'backup_role', 'S', 'SELECT', false, :'migrator_role')
 ), actual AS (

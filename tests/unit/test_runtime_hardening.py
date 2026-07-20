@@ -3,6 +3,7 @@
 import os
 import importlib.util
 from pathlib import Path
+import re
 import subprocess
 import sys
 from types import SimpleNamespace
@@ -11,7 +12,7 @@ import pytest
 from pydantic import ValidationError
 from alembic.autogenerate import compare_metadata
 from alembic.migration import MigrationContext
-from sqlalchemy import Boolean, Column, ForeignKey, Integer, MetaData, String, Table, UniqueConstraint, create_engine, text
+from sqlalchemy import Boolean, Column, ForeignKey, Integer, MetaData, String, Table, UniqueConstraint, create_engine
 from app.migration_drift import compare_server_default, compare_type, include_object
 
 from app.config import Settings
@@ -183,6 +184,20 @@ def test_production_validates_the_effective_database_url_username(monkeypatch):
                 "DATABASE_URL": "postgresql+asyncpg://postgres:not-a-default@localhost/verdaxis",
             }
         )
+
+
+def test_production_requires_app_and_migrator_on_same_database_endpoint(
+    monkeypatch,
+):
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    values = _deployed_values("production")
+    values["MIGRATOR_DATABASE_URL"] = (
+        "postgresql+asyncpg://verdaxis_migrator:not-a-default@"
+        "migration-db/verdaxis"
+    )
+
+    with pytest.raises(ValidationError, match="same database endpoint"):
+        Settings(**values)
     with pytest.raises(ValidationError, match="effective MIGRATOR_DATABASE_URL migrator role"):
         Settings(
             **{
@@ -469,7 +484,9 @@ def test_systemd_templates_are_loopback_bound_and_sandboxed():
         assert "docker.service" not in contents
         assert "ExecStartPre=" in contents
         assert ".runtime-release.env" in contents
-        assert "current --check-heads" in contents
+        assert "current --check-heads" not in contents
+        assert "scripts/verify_migration_revision.py" in contents
+        assert "--expected ${MIGRATION_REVISION}" in contents
         assert "KillSignal=SIGTERM" in contents
         assert "TimeoutStopSec=30" in contents
         assert "NoNewPrivileges=true" in contents
@@ -487,6 +504,7 @@ def test_systemd_templates_are_loopback_bound_and_sandboxed():
 def test_deploy_script_hands_release_sha_to_systemd_atomically():
     script = (Path(__file__).parents[2] / "scripts/deploy.sh").read_text()
     assert "RELEASE_SHA=" in script
+    assert "MIGRATION_REVISION=" in script
     assert ".runtime-release.env" in script
     assert "mv --" in script
     assert script.index("mv --") < script.index("systemctl restart")
@@ -620,9 +638,8 @@ def test_migration_comparison_detects_enum_storage_length_drift():
 
 
 def test_migration_default_comparator_only_normalizes_python_owned_defaults():
-    from sqlalchemy import Column, Integer, MetaData, text
+    from sqlalchemy import Column, Integer, text
 
-    metadata = MetaData()
     python_default = Column("python_default", Integer, default=1)
     explicit_default = Column("explicit_default", Integer, server_default=text("1"))
     assert compare_server_default(None, None, python_default, None, None, None) is False
@@ -701,20 +718,31 @@ def test_least_privilege_role_artifacts_cover_existing_and_future_objects():
     root = Path(__file__).parents[2]
     bootstrap = (root / "deploy/postgres/bootstrap_roles.sql").read_text()
     validation = (root / "deploy/postgres/validate_roles.sql").read_text()
+    policy_path = root / "deploy/postgres/app_acl_policy.sql"
+    convergence_path = root / "deploy/postgres/converge_runtime_object_acls.sql"
+
+    assert policy_path.exists()
+    assert convergence_path.exists()
+    policy = policy_path.read_text()
+    convergence = convergence_path.read_text()
 
     for role in ("app_role", "migrator_role", "backup_role"):
         assert role in bootstrap
         assert role in validation
     assert "NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION" in bootstrap
-    assert "GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE" in bootstrap
-    assert "GRANT USAGE, SELECT, UPDATE ON SEQUENCE" in bootstrap
+    assert "app_table_policy" in convergence
+    assert "app_column_policy" in convergence
+    assert "app_table_policy" in validation
+    assert "app_column_policy" in validation
     assert "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES" not in bootstrap
+    assert "GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE" not in bootstrap
+    assert "GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO" not in bootstrap
     assert "alembic_version" in bootstrap
     assert "spatial_ref_sys" in bootstrap
     assert "pg_auth_members" in bootstrap
-    assert "pg_attribute" in bootstrap
-    assert "attacl" in bootstrap
-    assert "REVOKE ALL PRIVILEGES (%I) ON TABLE" in bootstrap
+    assert "pg_attribute" in convergence
+    assert "attacl" in convergence
+    assert "REVOKE ALL PRIVILEGES (%I) ON TABLE" in convergence
     assert "CASCADE" in bootstrap
     assert "ORDER BY" in bootstrap
     assert "ALTER DEFAULT PRIVILEGES FOR ROLE" in bootstrap
@@ -726,6 +754,100 @@ def test_least_privilege_role_artifacts_cover_existing_and_future_objects():
     assert "pg_attribute" in validation
     assert "attacl" in validation
     assert "has_column_privilege" in validation
+    for protected_table in (
+        "alembic_version",
+        "seed_runs",
+        "market_row_quarantines",
+        "market_signal_ingestion_runs",
+    ):
+        assert protected_table in policy or protected_table in bootstrap
+    assert "('audit_logs', ARRAY['SELECT', 'INSERT'])" in policy
+    assert "('user_status_transitions', ARRAY['SELECT', 'INSERT'])" in policy
+    column_policy = policy.split("app_column_policy", 1)[-1]
+    assert "verification_status" not in column_policy
+    assert "provenance" not in column_policy
+
+    assert "\\ir app_acl_policy.sql" in convergence
+    assert "\\ir converge_runtime_object_acls.sql" in bootstrap
+    for shared_statement in (
+        "CREATE TEMP TABLE governed_objects",
+        "REVOKE ALL PRIVILEGES (%I) ON TABLE",
+        "JOIN app_column_policy AS policy",
+        "JOIN app_sequence_policy AS policy",
+    ):
+        assert shared_statement in convergence
+        assert shared_statement not in bootstrap
+
+
+def test_postgres_runner_uses_the_selected_venv_for_migration_tools():
+    source = (
+        Path(__file__).parents[2]
+        / "scripts/run_product_analytics_postgres_tests.sh"
+    ).read_text()
+
+    path_setup = 'export PATH="$(dirname "$PYTEST_BIN"):$PATH"'
+    assert path_setup in source
+    assert source.index(path_setup) < source.index("./scripts/verify_migrations.sh")
+
+
+def test_organization_registration_columns_match_existing_write_paths():
+    root = Path(__file__).parents[2]
+    model_source = (root / "app/models/user.py").read_text()
+    registration_source = (root / "app/routers/auth_simple.py").read_text()
+    policy = (root / "deploy/postgres/app_acl_policy.sql").read_text()
+
+    organization_source = model_source.split("class Organization", 1)[1].split(
+        "class User", 1
+    )[0]
+    assert 'server_default="PENDING"' in organization_source
+    assert 'default="PENDING"' not in organization_source.replace(
+        'server_default="PENDING"', ""
+    )
+    registration_block = registration_source.split(
+        "async def register_with_org", 1
+    )[1].split("db.add(new_org)", 1)[0]
+    assert 'verification_status="PENDING"' not in registration_block
+    assert "('organizations', 'verification_status', 'INSERT')" not in policy
+    assert "('organizations', 'verification_status', 'UPDATE')" not in policy
+
+    from sqlalchemy.dialects import postgresql
+    from app.models.user import Organization, OrgType
+
+    insert_sql = str(
+        Organization.__table__.insert()
+        .values(name="New Org", domain="new.invalid", type=OrgType.FUEL_BUYER)
+        .compile(dialect=postgresql.dialect())
+    )
+    assert "verification_status" not in insert_sql
+
+
+def test_organization_column_acl_is_the_exact_reviewed_set():
+    policy = (
+        Path(__file__).parents[2] / "deploy/postgres/app_acl_policy.sql"
+    ).read_text()
+    entries = {
+        (column_name, privilege)
+        for column_name, privilege in re.findall(
+            r"\('organizations', '([^']+)', '(INSERT|UPDATE)'\)", policy
+        )
+    }
+
+    assert entries == {
+        ("id", "INSERT"),
+        ("name", "INSERT"),
+        ("domain", "INSERT"),
+        ("type", "INSERT"),
+        ("supplier_tier", "INSERT"),
+        ("tax_id", "INSERT"),
+        ("country_code", "INSERT"),
+        ("created_at", "INSERT"),
+        ("name", "UPDATE"),
+        ("domain", "UPDATE"),
+        ("type", "UPDATE"),
+        ("supplier_tier", "UPDATE"),
+        ("tax_id", "UPDATE"),
+        ("country_code", "UPDATE"),
+    }
 
 
 def test_migration_comparison_detects_an_omitted_foreign_key():

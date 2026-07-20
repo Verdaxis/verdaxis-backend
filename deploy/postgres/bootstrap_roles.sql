@@ -100,128 +100,13 @@ WHERE namespace.nspname = 'public'
   )
 \gexec
 
--- Snapshot the governed relation once. All subsequent object and column ACL
--- repair uses this exact relation, keeping control/extension objects out of
--- scope and treating ordinary tables, partitions, and sequences uniformly.
-CREATE TEMP TABLE governed_objects ON COMMIT DROP AS
-SELECT object.oid, object.relnamespace, object.relname, object.relkind,
-       object.relowner, object.relacl
-FROM pg_catalog.pg_class AS object
-JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = object.relnamespace
-WHERE namespace.nspname = 'public'
-  AND object.relkind IN ('r', 'p', 'S')
-  AND object.relname NOT IN ('alembic_version', 'spatial_ref_sys')
-  AND NOT EXISTS (
-      SELECT 1 FROM pg_catalog.pg_depend AS dependency
-      WHERE dependency.classid = 'pg_class'::regclass
-        AND dependency.objid = object.oid AND dependency.deptype = 'e'
-  );
-CREATE UNIQUE INDEX governed_objects_oid_idx ON governed_objects (oid);
-
 -- Remove app/backup authority from control and extension objects as well as
 -- governed objects. Exact app/backup grants are rebuilt only for governed
--- objects below.
-REVOKE ALL ON ALL TABLES IN SCHEMA public FROM :"app_role", :"backup_role";
-REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM :"app_role", :"backup_role";
+-- objects by the shared owner-executable convergence include.
+REVOKE ALL ON ALL TABLES IN SCHEMA public FROM :"app_role", :"backup_role" CASCADE;
+REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM :"app_role", :"backup_role" CASCADE;
 
--- Reconstruct every governed object's ACL from zero non-owner authority.
--- REVOKE ... CASCADE intentionally removes grants delegated by any stale
--- grantee. The owner is excluded because PostgreSQL owner authority is
--- intrinsic; every governed object was transferred to migrator_role above.
-SELECT format(
-    'REVOKE ALL PRIVILEGES ON %s %I.%I FROM %s CASCADE',
-    CASE WHEN object.relkind = 'S' THEN 'SEQUENCE' ELSE 'TABLE' END,
-    namespace.nspname,
-    object.relname,
-    CASE WHEN acl.grantee = 0 THEN 'PUBLIC' ELSE format('%I', grantee.rolname) END
-)
-FROM governed_objects AS object
-JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = object.relnamespace
-CROSS JOIN LATERAL aclexplode(
-    COALESCE(
-        object.relacl,
-        acldefault(
-            CASE WHEN object.relkind = 'S' THEN 'S'::"char" ELSE 'r'::"char" END,
-            object.relowner
-        )
-    )
-) AS acl
-LEFT JOIN pg_catalog.pg_roles AS grantee ON grantee.oid = acl.grantee
-WHERE namespace.nspname = 'public'
-  AND object.relkind IN ('r', 'p', 'S')
-  AND acl.grantee <> object.relowner
-GROUP BY namespace.nspname, object.relname, object.relkind, acl.grantee, grantee.rolname
-ORDER BY namespace.nspname, object.relname, object.relkind, acl.grantee
-\gexec
-
--- Column ACLs are independent from table ACLs and can carry delegated write
--- authority. Remove every explicit column grant, including PUBLIC, before
--- rebuilding table-level policy. CASCADE removes grants dependent on a stale
--- grant option.
-SELECT format(
-    'REVOKE ALL PRIVILEGES (%I) ON TABLE %I.%I FROM %s CASCADE',
-    attribute.attname,
-    namespace.nspname,
-    object.relname,
-    CASE WHEN acl.grantee = 0 THEN 'PUBLIC' ELSE format('%I', grantee.rolname) END
-)
-FROM governed_objects AS object
-JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = object.relnamespace
-JOIN pg_catalog.pg_attribute AS attribute ON attribute.attrelid = object.oid
-CROSS JOIN LATERAL aclexplode(attribute.attacl) AS acl
-LEFT JOIN pg_catalog.pg_roles AS grantee ON grantee.oid = acl.grantee
-WHERE object.relkind IN ('r', 'p')
-  AND attribute.attnum > 0
-  AND NOT attribute.attisdropped
-GROUP BY namespace.nspname, object.relname, attribute.attnum, attribute.attname,
-         acl.grantee, grantee.rolname
-ORDER BY namespace.nspname, object.relname, attribute.attnum, acl.grantee
-\gexec
-
-SELECT format(
-    'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE %I.%I TO %I',
-    namespace.nspname,
-    object.relname,
-    :'app_role'
-)
-FROM governed_objects AS object
-JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = object.relnamespace
-WHERE namespace.nspname = 'public'
-  AND object.relkind IN ('r', 'p')
-\gexec
-SELECT format(
-    'GRANT SELECT ON TABLE %I.%I TO %I',
-    namespace.nspname,
-    object.relname,
-    :'backup_role'
-)
-FROM governed_objects AS object
-JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = object.relnamespace
-WHERE namespace.nspname = 'public'
-  AND object.relkind IN ('r', 'p')
-\gexec
-SELECT format(
-    'GRANT USAGE, SELECT, UPDATE ON SEQUENCE %I.%I TO %I',
-    namespace.nspname,
-    object.relname,
-    :'app_role'
-)
-FROM governed_objects AS object
-JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = object.relnamespace
-WHERE namespace.nspname = 'public'
-  AND object.relkind = 'S'
-\gexec
-SELECT format(
-    'GRANT SELECT ON SEQUENCE %I.%I TO %I',
-    namespace.nspname,
-    object.relname,
-    :'backup_role'
-)
-FROM governed_objects AS object
-JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = object.relnamespace
-WHERE namespace.nspname = 'public'
-  AND object.relkind = 'S'
-\gexec
+\ir converge_runtime_object_acls.sql
 
 -- Default privileges compose global rows with per-schema rows. Reset every
 -- PostgreSQL 17 default-ACL object class for every protected owner. Every ACL
@@ -284,10 +169,6 @@ ALTER DEFAULT PRIVILEGES FOR ROLE :"migrator_role" IN SCHEMA public
     REVOKE ALL ON TABLES FROM PUBLIC, :"app_role", :"backup_role" CASCADE;
 ALTER DEFAULT PRIVILEGES FOR ROLE :"migrator_role" IN SCHEMA public
     REVOKE ALL ON SEQUENCES FROM PUBLIC, :"app_role", :"backup_role" CASCADE;
-ALTER DEFAULT PRIVILEGES FOR ROLE :"migrator_role" IN SCHEMA public
-    GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO :"app_role";
-ALTER DEFAULT PRIVILEGES FOR ROLE :"migrator_role" IN SCHEMA public
-    GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO :"app_role";
 ALTER DEFAULT PRIVILEGES FOR ROLE :"migrator_role" IN SCHEMA public
     GRANT SELECT ON TABLES TO :"backup_role";
 ALTER DEFAULT PRIVILEGES FOR ROLE :"migrator_role" IN SCHEMA public

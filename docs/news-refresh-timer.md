@@ -29,10 +29,11 @@ may differ. First verify the exact release from its matching clean checkout:
   --environment staging --source-ref <approved-staging-sha>
 ```
 
-After approval, repeat each command with `--apply`. The environment bundle also
-contains the backend and product-analytics prune units; all five files are
-materialized from the approved commit into private root-owned staging and
-digest-checked before installation. The installer persists pending state,
+After approval, repeat each command with `--apply`. The current environment
+manifest also names the backend and product-analytics prune units, for five
+files total. The exact manifest and every named file are materialized from the
+approved commit into private root-owned staging and digest-checked before
+installation. The installer persists pending state,
 always reloads systemd, and clears pending state only after a successful reload;
 it does not enable or start anything. Enabling the matching news
 timer is a separate live action:
@@ -47,6 +48,8 @@ Confirm backend workers retain no scheduler and the removed public refresh
 route remains absent.
 
 In the eventual combined security release, retain these singleton news owners
-and add the matching environment's auth-maintenance service/timer pair to the
-immutable installer allowlist. The runtime-only five-unit allowlists are not a
-claim that the isolated branch is a complete runtime+security deployment.
+and add the matching environment's audited auth-maintenance service/timer pair
+to `deploy/systemd/runtime-units.manifest`. The manifest-driven installer needs
+no code change and continues to stage only immutable committed bytes. The
+runtime-only five-unit manifest is not a claim that the isolated branch is a
+complete runtime+security deployment.

@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+from uuid import uuid4
 
 import pytest
 from sqlalchemy import text
@@ -32,10 +33,15 @@ def _policy_values() -> dict[str, str]:
     return values
 
 
-def _psql(script_name: str) -> subprocess.CompletedProcess[str]:
-    raw_url = os.environ.get("POSTGRES_ADMIN_TEST_DATABASE_URL", "")
+def _psql(
+    script_name: str,
+    *,
+    url_environment: str = "POSTGRES_ADMIN_TEST_DATABASE_URL",
+    single_transaction: bool = False,
+) -> subprocess.CompletedProcess[str]:
+    raw_url = os.environ.get(url_environment, "")
     if not raw_url:
-        pytest.skip("POSTGRES_ADMIN_TEST_DATABASE_URL is not configured")
+        pytest.skip(f"{url_environment} is not configured")
     url = make_url(raw_url)
     values = _policy_values()
     command = [
@@ -50,6 +56,8 @@ def _psql(script_name: str) -> subprocess.CompletedProcess[str]:
         "-d",
         url.database or "",
     ]
+    if single_transaction:
+        command.append("--single-transaction")
     for key, value in values.items():
         command.extend(("-v", f"{key}={value}"))
     command.extend(("-f", str(ROOT / "deploy/postgres" / script_name)))
@@ -60,6 +68,93 @@ def _psql(script_name: str) -> subprocess.CompletedProcess[str]:
         text=True,
         check=False,
     )
+
+
+@pytest.mark.asyncio
+async def test_migrator_converges_new_policy_table_after_migration():
+    values = _policy_values()
+    table_name = "seed_runs"
+    app_url = os.environ["DATABASE_URL"]
+    migrator = values["migrator_role"]
+    app = values["app_role"]
+    backup = values["backup_role"]
+
+    await _execute_admin_as(
+        migrator,
+        [
+            f"DROP TABLE IF EXISTS public.{table_name}",
+            f"CREATE TABLE public.{table_name} "
+            "(id bigint PRIMARY KEY, status text NOT NULL)",
+            f"INSERT INTO public.{table_name} VALUES (1, 'complete')",
+        ],
+    )
+    try:
+        before_engine = create_async_engine(app_url, hide_parameters=True)
+        try:
+            with pytest.raises(DBAPIError):
+                async with before_engine.connect() as connection:
+                    await connection.execute(
+                        text(f"SELECT status FROM public.{table_name}")
+                    )
+        finally:
+            await before_engine.dispose()
+
+        first = _psql(
+            "converge_runtime_object_acls.sql",
+            url_environment="MIGRATOR_DATABASE_URL",
+            single_transaction=True,
+        )
+        assert first.returncode == 0, first.stderr
+        second = _psql(
+            "converge_runtime_object_acls.sql",
+            url_environment="MIGRATOR_DATABASE_URL",
+            single_transaction=True,
+        )
+        assert second.returncode == 0, second.stderr
+
+        after_engine = create_async_engine(app_url, hide_parameters=True)
+        try:
+            async with after_engine.connect() as connection:
+                assert (
+                    await connection.execute(
+                        text(f"SELECT status FROM public.{table_name}")
+                    )
+                ).scalar_one() == "complete"
+        finally:
+            await after_engine.dispose()
+
+        for statement in (
+            f"INSERT INTO public.{table_name} VALUES (2, 'forbidden')",
+            f"UPDATE public.{table_name} SET status = 'forbidden'",
+            f"DELETE FROM public.{table_name}",
+        ):
+            denied_engine = create_async_engine(app_url, hide_parameters=True)
+            try:
+                with pytest.raises(DBAPIError):
+                    async with denied_engine.begin() as connection:
+                        await connection.execute(text(statement))
+            finally:
+                await denied_engine.dispose()
+
+        non_owner_acl = await _fetchall_admin(
+            "SELECT COALESCE(grantee.rolname, 'PUBLIC'), acl.privilege_type, "
+            "acl.is_grantable, grantor.rolname "
+            "FROM pg_catalog.pg_class AS object "
+            "CROSS JOIN LATERAL aclexplode(object.relacl) AS acl "
+            "LEFT JOIN pg_catalog.pg_roles AS grantee ON grantee.oid = acl.grantee "
+            "JOIN pg_catalog.pg_roles AS grantor ON grantor.oid = acl.grantor "
+            f"WHERE object.oid = 'public.{table_name}'::regclass "
+            "AND acl.grantee <> object.relowner"
+        )
+        assert non_owner_acl == {
+            (app, "SELECT", False, migrator),
+            (backup, "SELECT", False, migrator),
+        }
+    finally:
+        await _execute_admin_as(
+            migrator, [f"DROP TABLE IF EXISTS public.{table_name}"]
+        )
+        _psql("bootstrap_roles.sql")
 
 
 async def _execute_admin(statement: str) -> None:
@@ -400,12 +495,13 @@ async def test_global_and_public_default_acls_are_repaired_for_all_policy_owners
             (migrator, privilege, False, migrator)
             for privilege in owner_privileges
         }
-        expected_acl.update(
-            (app, privilege, False, migrator)
-            for privilege in {"SELECT", "INSERT", "UPDATE", "DELETE"}
-        )
         expected_acl.add((backup, "SELECT", False, migrator))
         assert future_acl == expected_acl
+        app_can_mutate_future = await _fetch_admin(
+            f"SELECT has_table_privilege('{app}', 'public.{future_table}', "
+            "'INSERT,UPDATE,DELETE')"
+        )
+        assert app_can_mutate_future == (False,)
         assert _psql("validate_roles.sql").returncode == 0
     finally:
         await _execute_admin(f"DROP TABLE IF EXISTS public.{future_table}")
@@ -436,6 +532,279 @@ async def test_app_and_backup_cannot_mutate_control_or_extension_objects():
                     await connection.execute(text(statement))
         finally:
             await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_raw_app_cannot_promote_rewrite_controls_set_role_or_delegate():
+    values = _policy_values()
+    app = values["app_role"]
+    migrator = values["migrator_role"]
+    delegated = "verdaxis_raw_app_delegate_test"
+    app_url = os.environ["DATABASE_URL"]
+    registration_org_id = uuid4()
+    registration_user_id = uuid4()
+
+    await _execute_admin("DROP TABLE IF EXISTS public.market_row_quarantines")
+    await _execute_admin("DROP TABLE IF EXISTS public.seed_runs")
+    await _execute_admin(f"DROP ROLE IF EXISTS {delegated}")
+    await _execute_admin(f"CREATE ROLE {delegated} NOLOGIN")
+    await _execute_admin_as(
+        migrator,
+        [
+            "ALTER TABLE public.organizations "
+            "ADD COLUMN IF NOT EXISTS provenance text NOT NULL DEFAULT 'operator'",
+            "CREATE TABLE public.seed_runs "
+            "(id bigint PRIMARY KEY, status text NOT NULL)",
+            "CREATE TABLE public.market_row_quarantines "
+            "(id bigint PRIMARY KEY, reason text NOT NULL)",
+        ],
+    )
+    await _execute_admin(
+        f"GRANT UPDATE (provenance) ON TABLE public.organizations TO {app} "
+        "WITH GRANT OPTION"
+    )
+    await _execute_admin(
+        f"GRANT SELECT ON TABLE public.organizations TO {app} WITH GRANT OPTION"
+    )
+    await _execute_admin(
+        f"GRANT UPDATE (version_num) ON TABLE public.alembic_version TO {app} "
+        "WITH GRANT OPTION"
+    )
+    await _execute_admin(
+        "GRANT UPDATE (version_num) ON TABLE public.alembic_version TO PUBLIC"
+    )
+    await _execute_admin_as(
+        app,
+        [
+            f"GRANT UPDATE (provenance) ON TABLE public.organizations TO {delegated}",
+            f"GRANT SELECT ON TABLE public.organizations TO {delegated}",
+        ],
+    )
+
+    try:
+        rejected = _psql("validate_roles.sql")
+        assert rejected.returncode != 0
+
+        first_repair = _psql("bootstrap_roles.sql")
+        assert first_repair.returncode == 0, first_repair.stderr
+        second_repair = _psql("bootstrap_roles.sql")
+        assert second_repair.returncode == 0, second_repair.stderr
+        accepted = _psql("validate_roles.sql")
+        assert accepted.returncode == 0, accepted.stderr
+
+        registration_engine = create_async_engine(app_url, hide_parameters=True)
+        try:
+            async with registration_engine.begin() as connection:
+                await connection.execute(
+                    text(
+                        "INSERT INTO public.organizations "
+                        "(id, name, type) "
+                        "VALUES (:org_id, 'Runtime ACL registration proof', "
+                        "'SHIPPING_LINE')"
+                    ),
+                    {"org_id": registration_org_id},
+                )
+                await connection.execute(
+                    text(
+                        "INSERT INTO public.users "
+                        "(id, email, password_hash, role, status, organization_id) "
+                        "VALUES (:user_id, :email, 'not-a-real-hash', 'BUYER', "
+                        "'PENDING', :org_id)"
+                    ),
+                    {
+                        "user_id": registration_user_id,
+                        "email": f"runtime-acl-{registration_user_id}@example.invalid",
+                        "org_id": registration_org_id,
+                    },
+                )
+                await connection.execute(
+                    text(
+                        "INSERT INTO public.user_status_transitions "
+                        "(id, user_id, organization_id, role, from_status, "
+                        "to_status, effective_at, provenance) VALUES "
+                        "(gen_random_uuid(), :user_id, :org_id, 'BUYER', NULL, "
+                        "'PENDING', now(), 'workflow')"
+                    ),
+                    {
+                        "user_id": registration_user_id,
+                        "org_id": registration_org_id,
+                    },
+                )
+                await connection.execute(
+                    text(
+                        "INSERT INTO public.audit_logs "
+                        "(id, user_id, action, resource_type, resource_id, changes) "
+                        "VALUES (gen_random_uuid(), :user_id, 'USER_REGISTERED', "
+                        "'user', :resource_id, '{}'::jsonb)"
+                    ),
+                    {
+                        "user_id": registration_user_id,
+                        "resource_id": str(registration_user_id),
+                    },
+                )
+        finally:
+            await registration_engine.dispose()
+
+        admin_engine = create_async_engine(app_url, hide_parameters=True)
+        try:
+            async with admin_engine.begin() as connection:
+                await connection.execute(
+                    text(
+                        "UPDATE public.users SET status = 'APPROVED' "
+                        "WHERE id = :user_id"
+                    ),
+                    {"user_id": registration_user_id},
+                )
+                await connection.execute(
+                    text(
+                        "INSERT INTO public.user_status_transitions "
+                        "(id, user_id, organization_id, role, from_status, "
+                        "to_status, effective_at, provenance) VALUES "
+                        "(gen_random_uuid(), :user_id, :org_id, 'BUYER', "
+                        "'PENDING', 'APPROVED', now(), 'workflow')"
+                    ),
+                    {
+                        "user_id": registration_user_id,
+                        "org_id": registration_org_id,
+                    },
+                )
+                await connection.execute(
+                    text(
+                        "INSERT INTO public.audit_logs "
+                        "(id, user_id, action, resource_type, resource_id, changes) "
+                        "VALUES (gen_random_uuid(), :user_id, 'KYC_APPROVED', "
+                        "'organization', :resource_id, "
+                        "'{\"verification_status\": \"APPROVED\"}'::jsonb)"
+                    ),
+                    {
+                        "user_id": registration_user_id,
+                        "resource_id": str(registration_org_id),
+                    },
+                )
+        finally:
+            await admin_engine.dispose()
+
+        status_and_append_counts = await _fetch_admin(
+            "SELECT organization.verification_status, users.status, "
+            "(SELECT count(*) FROM public.audit_logs "
+            f"WHERE user_id = '{registration_user_id}'), "
+            "(SELECT count(*) FROM public.user_status_transitions "
+            f"WHERE user_id = '{registration_user_id}') "
+            "FROM public.organizations AS organization "
+            "JOIN public.users AS users ON users.organization_id = organization.id "
+            f"WHERE organization.id = '{registration_org_id}'"
+        )
+        assert status_and_append_counts == ("PENDING", "APPROVED", 2, 2)
+
+        rejected_statements = (
+            "UPDATE public.organizations SET verification_status = 'APPROVED'",
+            "UPDATE public.organizations SET provenance = 'self-promoted'",
+            "INSERT INTO public.organizations "
+            "(name, type, verification_status, provenance) VALUES "
+            "('Unauthorized provenance', 'SHIPPING_LINE', 'PENDING', 'self')",
+            "UPDATE public.alembic_version SET version_num = version_num",
+            "UPDATE public.audit_logs SET action = action",
+            "DELETE FROM public.audit_logs",
+            "UPDATE public.user_status_transitions SET provenance = provenance",
+            "DELETE FROM public.user_status_transitions",
+            "UPDATE public.market_row_quarantines SET reason = 'accepted'",
+            "DELETE FROM public.seed_runs",
+            f"SET ROLE {migrator}",
+        )
+        for statement in rejected_statements:
+            engine = create_async_engine(app_url, hide_parameters=True)
+            try:
+                try:
+                    async with engine.begin() as connection:
+                        await connection.execute(text(statement))
+                except DBAPIError:
+                    pass
+                else:
+                    pytest.fail(f"raw app unexpectedly allowed: {statement}")
+            finally:
+                await engine.dispose()
+
+        delegate_engine = create_async_engine(app_url, hide_parameters=True)
+        try:
+            async with delegate_engine.begin() as connection:
+                await connection.execute(
+                    text(
+                        f"GRANT SELECT ON TABLE public.organizations TO {delegated}"
+                    )
+                )
+        finally:
+            await delegate_engine.dispose()
+        delegated_select = await _fetch_admin(
+            f"SELECT has_table_privilege('{delegated}', "
+            "'public.organizations', 'SELECT')"
+        )
+        assert delegated_select == (False,)
+
+        column_acls = await _fetchall_admin(
+            "SELECT object.relname, attribute.attname, grantee.rolname, "
+            "acl.privilege_type, acl.is_grantable "
+            "FROM pg_catalog.pg_class AS object "
+            "JOIN pg_catalog.pg_namespace AS namespace "
+            "ON namespace.oid = object.relnamespace "
+            "JOIN pg_catalog.pg_attribute AS attribute "
+            "ON attribute.attrelid = object.oid "
+            "CROSS JOIN LATERAL aclexplode(attribute.attacl) AS acl "
+            "JOIN pg_catalog.pg_roles AS grantee ON grantee.oid = acl.grantee "
+            "WHERE namespace.nspname = 'public'"
+        )
+        insert_columns = {
+            "id",
+            "name",
+            "domain",
+            "type",
+            "supplier_tier",
+            "tax_id",
+            "country_code",
+            "created_at",
+        }
+        update_columns = {
+            "name",
+            "domain",
+            "type",
+            "supplier_tier",
+            "tax_id",
+            "country_code",
+        }
+        expected_column_acls = {
+            ("organizations", column, app, "INSERT", False)
+            for column in insert_columns
+        } | {
+            ("organizations", column, app, "UPDATE", False)
+            for column in update_columns
+        }
+        assert column_acls == expected_column_acls
+    finally:
+        _psql("bootstrap_roles.sql")
+        await _execute_admin(
+            "DELETE FROM public.audit_logs "
+            f"WHERE user_id = '{registration_user_id}'"
+        )
+        await _execute_admin(
+            "DELETE FROM public.user_status_transitions "
+            f"WHERE user_id = '{registration_user_id}'"
+        )
+        await _execute_admin(
+            f"DELETE FROM public.users WHERE id = '{registration_user_id}'"
+        )
+        await _execute_admin(
+            f"DELETE FROM public.organizations WHERE id = '{registration_org_id}'"
+        )
+        await _execute_admin_as(
+            migrator,
+            [
+                "DROP TABLE IF EXISTS public.market_row_quarantines",
+                "DROP TABLE IF EXISTS public.seed_runs",
+                "ALTER TABLE public.organizations DROP COLUMN IF EXISTS provenance",
+            ],
+        )
+        await _execute_admin(f"DROP OWNED BY {delegated}")
+        await _execute_admin(f"DROP ROLE IF EXISTS {delegated}")
+        _psql("bootstrap_roles.sql")
 
 
 @pytest.mark.asyncio

@@ -177,3 +177,27 @@
 - **Trigger:** Integration clarified that runtime metadata remains immediately after product analytics and security's first revision must be reparented onto runtime, not the reverse.
 - **Rule:** Keep branch-owned migration ancestry unchanged unless explicitly assigned; express cross-branch linearization as a precise integration reparenting gate on the downstream branch.
 - **Why:** Reparenting the wrong branch changes ownership boundaries and can make an isolated remediation conflict with the intended combined migration order.
+
+### Bind Cutovers And Runtime Authority To Explicit Policy
+- **Date:** 2026-07-20
+- **Trigger:** Integration review arrived after the runtime pass and found that deploy still traversed to Alembic head while the app role inherited blanket current/future DML.
+- **Rule:** Production cutovers must bind an exact source, expected revision, and allowlisted checkpoint; database bootstrap must reconstruct app authority only from explicit table, privilege, and column declarations.
+- **Why:** Branch heads and default grants silently absorb later security or market changes, bypassing staged review boundaries and giving ordinary runtime code control-plane authority.
+
+### Never Fall Back Across Database Authority Boundaries
+- **Date:** 2026-07-20
+- **Trigger:** Parent integration review found the checkpoint reader could substitute the application URL when the migrator URL was absent.
+- **Rule:** Migration and revision-verification paths must require an explicit, distinct migrator URL and role before opening an engine; never reuse application credentials for control-plane work.
+- **Why:** An availability fallback collapses the least-privilege role split and can run schema control operations with runtime authority.
+
+### Preserve Real Write Paths When Narrowing Column ACLs
+- **Date:** 2026-07-20
+- **Trigger:** ACL review found that omitting `organizations.verification_status` would break signup plus existing demo/admin organization flows.
+- **Rule:** Before narrowing a table to column grants, inventory ORM defaults and every signup, system, and administrator write path; grant only the exact current columns and prove them through the raw runtime role.
+- **Why:** A syntactically exact allowlist can still deny required application transactions when it models desired sensitivity but not actual emitted SQL.
+
+### Model Append-Only Runtime Authority Explicitly
+- **Date:** 2026-07-20
+- **Trigger:** ACL review found `audit_logs` and `user_status_transitions` were read-only even though normal request transactions append both.
+- **Rule:** Give runtime event/history tables explicit `SELECT, INSERT` authority with `UPDATE, DELETE` denied, and test the business mutation and its append in one raw-role transaction.
+- **Why:** Least privilege is not synonymous with read-only; denying required append authority breaks auditability and atomic status history.

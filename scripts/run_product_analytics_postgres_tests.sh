@@ -22,6 +22,7 @@ set -euo pipefail
 
 BACKEND_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PYTEST_BIN="${PYTEST_BIN:-$BACKEND_ROOT/venv/bin/pytest}"
+export PATH="$(dirname "$PYTEST_BIN"):$PATH"
 IMAGE="postgis/postgis:17-3.6-alpine@sha256:49b4d46c9fb8b158ddecd14d1894871a21ed4acb7ef376e2050f43f79c7b7272"
 DB_NAME="verdaxis_analytics_test"
 DB_PASSWORD="analytics-test"
@@ -51,12 +52,34 @@ validate_url() {
 }
 
 apply_role_policy() {
-  docker exec -i "$CONTAINER" psql -U postgres -d "$DB_NAME" \
+  local policy_dir="/tmp/verdaxis-runtime-role-policy"
+  docker exec "$CONTAINER" mkdir -p "$policy_dir"
+  docker cp "$BACKEND_ROOT/deploy/postgres/app_acl_policy.sql" \
+    "$CONTAINER:$policy_dir/app_acl_policy.sql" >/dev/null
+  docker cp "$BACKEND_ROOT/deploy/postgres/converge_runtime_object_acls.sql" \
+    "$CONTAINER:$policy_dir/converge_runtime_object_acls.sql" >/dev/null
+  docker cp "$BACKEND_ROOT/deploy/postgres/bootstrap_roles.sql" \
+    "$CONTAINER:$policy_dir/bootstrap_roles.sql" >/dev/null
+  docker exec "$CONTAINER" psql -X -U postgres -d "$DB_NAME" \
     -v database_name="$DB_NAME" \
     -v app_role="$APP_ROLE" \
     -v migrator_role="$MIGRATOR_ROLE" \
     -v backup_role="$BACKUP_ROLE" \
-    < "$BACKEND_ROOT/deploy/postgres/bootstrap_roles.sql"
+    -f "$policy_dir/bootstrap_roles.sql"
+}
+
+validate_role_policy() {
+  local policy_dir="/tmp/verdaxis-runtime-role-policy"
+  docker cp "$BACKEND_ROOT/deploy/postgres/app_acl_policy.sql" \
+    "$CONTAINER:$policy_dir/app_acl_policy.sql" >/dev/null
+  docker cp "$BACKEND_ROOT/deploy/postgres/validate_roles.sql" \
+    "$CONTAINER:$policy_dir/validate_roles.sql" >/dev/null
+  docker exec "$CONTAINER" psql -X -U postgres -d "$DB_NAME" \
+    -v database_name="$DB_NAME" \
+    -v app_role="$APP_ROLE" \
+    -v migrator_role="$MIGRATOR_ROLE" \
+    -v backup_role="$BACKUP_ROLE" \
+    -f "$policy_dir/validate_roles.sql"
 }
 
 if [ -n "${PRODUCT_ANALYTICS_TEST_DATABASE_URL:-}" ]; then
@@ -127,11 +150,6 @@ cd "$BACKEND_ROOT"
 ./scripts/verify_migrations.sh
 if [[ -n "${CONTAINER:-}" ]]; then
   apply_role_policy
-  docker exec -i "$CONTAINER" psql -U postgres -d "$DB_NAME" \
-    -v database_name="$DB_NAME" \
-    -v app_role="$APP_ROLE" \
-    -v migrator_role="$MIGRATOR_ROLE" \
-    -v backup_role="$BACKUP_ROLE" \
-    < "$BACKEND_ROOT/deploy/postgres/validate_roles.sql"
+  validate_role_policy
 fi
 PYTHONDONTWRITEBYTECODE=1 "$PYTEST_BIN" -p no:cacheprovider "${PYTEST_PATHS[@]}" -q

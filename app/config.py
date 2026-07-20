@@ -45,6 +45,10 @@ def _database_password_is_placeholder(password: str | None) -> bool:
     return not normalized_password or normalized_password in _DEFAULT_DATABASE_PASSWORDS
 
 
+def _database_endpoint(url) -> tuple[str, int]:
+    return ((url.host or "").lower(), url.port or 5432)
+
+
 class Settings(BaseSettings):
     # Server
     PROJECT_NAME: str = "Verdaxis"
@@ -246,6 +250,10 @@ class Settings(BaseSettings):
             if app_url.username == migration_url.username:
                 raise ValueError(
                     "runtime application and migrator database roles must be distinct"
+                )
+            if _database_endpoint(app_url) != _database_endpoint(migration_url):
+                raise ValueError(
+                    "DATABASE_URL and MIGRATOR_DATABASE_URL must use the same database endpoint"
                 )
             if _database_password_is_placeholder(migration_url.password):
                 raise ValueError(

@@ -513,7 +513,6 @@ async def register_with_org(
         domain=email_domain,
         tax_id=request.organization.tax_id,
         country_code=request.organization.country_code,
-        verification_status="PENDING"
     )
 
     db.add(new_org)

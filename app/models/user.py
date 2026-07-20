@@ -52,7 +52,9 @@ class Organization(Base):
     supplier_tier: Mapped[TierLabel | None] = mapped_column(Enum(TierLabel, native_enum=False, length=50), nullable=True, default=None)
     tax_id: Mapped[str | None] = mapped_column(String)
     country_code: Mapped[str | None] = mapped_column(String(2))
-    verification_status: Mapped[str] = mapped_column(String, default="PENDING")
+    verification_status: Mapped[str] = mapped_column(
+        String, nullable=False, server_default="PENDING"
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
 
     users: Mapped[list["User"]] = relationship(back_populates="organization")
