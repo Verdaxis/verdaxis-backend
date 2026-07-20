@@ -44,6 +44,17 @@ class Negotiation(Base):
     counterparty_org_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("organizations.id"), nullable=False
     )
+    # Nullable only for pre-hardening rows. Such rows remain non-executable
+    # until product chooses quarantine or an audited provenance mapping.
+    initiator_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id"), nullable=True, index=True
+    )
+    counterparty_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id"), nullable=True, index=True
+    )
+    accepted_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id"), nullable=True
+    )
     # "BUYER" or "SELLER" — the initiator's role in this trade.
     # Set at creation from the user's org role; used to derive buyer_id/seller_id on acceptance.
     initiator_side: Mapped[str] = mapped_column(
@@ -100,6 +111,9 @@ class NegotiationRound(Base):
     round_number: Mapped[int] = mapped_column(Integer, nullable=False)
     proposer_org_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("organizations.id"), nullable=False
+    )
+    proposer_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id"), nullable=True
     )
     proposed_price: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)

@@ -1,4 +1,5 @@
 from decimal import Decimal
+import os
 import re
 from pydantic_settings import BaseSettings
 from pydantic import Field, SecretStr, model_validator, field_validator
@@ -6,23 +7,6 @@ from typing import Optional
 from urllib.parse import urlparse
 from sqlalchemy.engine import make_url
 
-
-_LOCAL_CORS_ORIGINS = (
-    "http://localhost:5173",
-    "http://localhost:5174",
-    "http://127.0.0.1:5173",
-    "http://127.0.0.1:5174",
-)
-
-_CORS_ORIGINS_BY_ENVIRONMENT = {
-    "production": (
-        "https://verdaxis.exchange",
-        "https://app.verdaxis.exchange",
-    ),
-    "staging": ("https://staging.verdaxis.exchange",),
-    "development": _LOCAL_CORS_ORIGINS,
-    "test": _LOCAL_CORS_ORIGINS,
-}
 
 _DEPLOYED_DATABASE_IDENTITIES = {
     "production": {
@@ -48,6 +32,27 @@ def _database_password_is_placeholder(password: str | None) -> bool:
 def _database_endpoint(url) -> tuple[str, int]:
     return ((url.host or "").lower(), url.port or 5432)
 
+
+
+_CREDENTIALED_ORIGINS: dict[str, tuple[str, ...]] = {
+    "production": (
+        "https://app.verdaxis.exchange",
+        "https://verdaxis.exchange",
+    ),
+    "staging": ("https://staging.verdaxis.exchange",),
+    "development": (
+        "http://localhost:5173",
+        "http://localhost:5174",
+        "http://127.0.0.1:5173",
+        "http://127.0.0.1:5174",
+    ),
+    "test": ("https://test",),
+}
+
+
+def credentialed_origins_for_environment(environment: str) -> tuple[str, ...]:
+    """Return the closed credentialed-origin set for one environment."""
+    return _CREDENTIALED_ORIGINS.get(environment.strip().lower(), ())
 
 class Settings(BaseSettings):
     # Server
@@ -265,16 +270,70 @@ class Settings(BaseSettings):
     ENABLE_AUTH_BYPASS: bool = False
 
     # Admin UI credentials
+    ENABLE_SQLADMIN: bool = False
     ADMIN_USERNAME: Optional[str] = None
     ADMIN_PASSWORD: Optional[str] = None
     ADMIN_SESSION_SECRET: Optional[str] = None
 
     # JWT
-    JWT_SECRET: str = "change-me-in-production"
+    JWT_SECRET: Optional[str] = None
+    JWT_SECRET_PREVIOUS: Optional[str] = None
     JWT_ALGORITHM: str = "HS256"
+    JWT_ISSUER: Optional[str] = None
+    JWT_AUDIENCE: Optional[str] = None
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 15  # Short-lived access tokens
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7     # Long-lived refresh tokens
     API_AUDIENCE: str = "verdaxis-client-id"
+
+    @field_validator('JWT_SECRET')
+    @classmethod
+    def validate_jwt_secret(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and len(v) < 32:
+            env = os.environ.get('ENVIRONMENT', 'production').lower()
+            if env not in {'test', 'development'}:
+                raise ValueError(
+                    'JWT_SECRET must be at least 32 characters. '
+                    'Generate one with: python3 -c "import secrets; print(secrets.token_hex(32))"'
+                )
+        return v
+
+    @field_validator('ENABLE_AUTH_BYPASS')
+    @classmethod
+    def validate_auth_bypass(cls, v: bool) -> bool:
+        env = os.environ.get('ENVIRONMENT', 'production')
+        if v and env == 'production':
+            raise ValueError('ENABLE_AUTH_BYPASS must be false in production')
+        return v
+
+
+    @field_validator('DATABASE_PASSWORD')
+    @classmethod
+    def validate_db_password(cls, v: str) -> str:
+        env = os.environ.get('ENVIRONMENT', 'production')
+        if v == 'postgres' and env == 'production':
+            raise ValueError('DATABASE_PASSWORD must not be "postgres" in production')
+        return v
+
+    @model_validator(mode="after")
+    def validate_admin_and_jwt_boundaries(self) -> "Settings":
+        if self.ENABLE_SQLADMIN and not self.ADMIN_SESSION_SECRET:
+            raise ValueError("ADMIN_SESSION_SECRET is required when ENABLE_SQLADMIN=true")
+        if self.ENABLE_SQLADMIN and self.ADMIN_SESSION_SECRET == self.JWT_SECRET:
+            raise ValueError("ADMIN_SESSION_SECRET must be distinct from JWT_SECRET")
+        if not self.JWT_SECRET or len(self.JWT_SECRET) < 32:
+            raise ValueError("JWT_SECRET is required and must be at least 32 characters")
+        if not self.JWT_ISSUER or not self.JWT_AUDIENCE:
+            raise ValueError("JWT_ISSUER and JWT_AUDIENCE must be explicitly configured per environment")
+        if not self.JWT_ISSUER.strip() or not self.JWT_AUDIENCE.strip():
+            raise ValueError("JWT_ISSUER and JWT_AUDIENCE must not be blank")
+        if self.JWT_ISSUER == self.JWT_AUDIENCE:
+            raise ValueError("JWT_ISSUER and JWT_AUDIENCE must be distinct")
+        if self.JWT_SECRET_PREVIOUS is not None:
+            if len(self.JWT_SECRET_PREVIOUS) < 32:
+                raise ValueError("JWT_SECRET_PREVIOUS must be at least 32 characters")
+            if self.JWT_SECRET_PREVIOUS == self.JWT_SECRET:
+                raise ValueError("JWT_SECRET_PREVIOUS must be distinct from JWT_SECRET")
+        return self
 
     # Order Matching Engine
     AUTO_MATCHING_ENABLED: bool = True  # Set to False to disable match-on-insert
@@ -325,32 +384,10 @@ class Settings(BaseSettings):
             raise ValueError("Analytics configuration value is too long")
         return normalized
 
-    # CORS
-    BACKEND_CORS_ORIGINS: Optional[list[str]] = None
-
-    @model_validator(mode="after")
-    def validate_cors_origins(self) -> "Settings":
-        allowed = _CORS_ORIGINS_BY_ENVIRONMENT[self.ENVIRONMENT]
-        origins = list(allowed) if self.BACKEND_CORS_ORIGINS is None else self.BACKEND_CORS_ORIGINS
-        for origin in origins:
-            parsed = urlparse(origin)
-            if (
-                "*" in origin
-                or parsed.scheme not in {"http", "https"}
-                or not parsed.netloc
-                or parsed.username
-                or parsed.password
-                or parsed.path not in {"", "/"}
-                or parsed.params
-                or parsed.query
-                or parsed.fragment
-                or origin.rstrip("/") not in allowed
-            ):
-                raise ValueError(
-                    f"BACKEND_CORS_ORIGINS contains an origin incompatible with {self.ENVIRONMENT}"
-                )
-        self.BACKEND_CORS_ORIGINS = [origin.rstrip("/") for origin in origins]
-        return self
+    @property
+    def BACKEND_CORS_ORIGINS(self) -> tuple[str, ...]:
+        """Closed allowlist; environment input cannot add cross-environment origins."""
+        return credentialed_origins_for_environment(self.ENVIRONMENT)
 
     class Config:
         env_file = ".env"

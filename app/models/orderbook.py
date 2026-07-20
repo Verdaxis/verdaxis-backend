@@ -64,7 +64,19 @@ class OrderBookOrder(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     organization_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organizations.id"), nullable=False)
+<<<<<<< /home/jons-openclaw/worktrees/verdaxis-be-enterprise-integration/app/models/orderbook.py
     side: Mapped[OrderSide] = mapped_column(Enum(OrderSide, native_enum=False, length=10), nullable=False)
+||||||| /tmp/claude-1001/-home-jons-openclaw/e53e48f3-c631-4fc2-b3ad-7079edf68cd3/scratchpad/base/app_models_orderbook.py
+    side: Mapped[OrderSide] = mapped_column(Enum(OrderSide, native_enum=False), nullable=False)
+=======
+    owner_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
+    # Set only for listings published from managed inventory. Legacy and
+    # manually-created orders remain NULL; cancellation must never guess.
+    inventory_item_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("inventory_items.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    side: Mapped[OrderSide] = mapped_column(Enum(OrderSide, native_enum=False), nullable=False)
+>>>>>>> /tmp/claude-1001/-home-jons-openclaw/e53e48f3-c631-4fc2-b3ad-7079edf68cd3/scratchpad/sec/app_models_orderbook.py
 
     # Product & Delivery Point (FK references)
     product_id: Mapped[uuid.UUID] = mapped_column(
@@ -86,11 +98,17 @@ class OrderBookOrder(Base):
     price_per_mt_usd: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
 
     # Timing
+<<<<<<< /home/jons-openclaw/worktrees/verdaxis-be-enterprise-integration/app/models/orderbook.py
     availability_window: Mapped[str] = mapped_column(
         String(50), nullable=False, default=SPOT_WINDOW, server_default=text("'SPOT'")
     )
     delivery_window_start: Mapped[date | None] = mapped_column(Date, nullable=True)
     delivery_window_end: Mapped[date | None] = mapped_column(Date, nullable=True)
+||||||| /tmp/claude-1001/-home-jons-openclaw/e53e48f3-c631-4fc2-b3ad-7079edf68cd3/scratchpad/base/app_models_orderbook.py
+    availability_window: Mapped[str] = mapped_column(String(16), nullable=False, default=SPOT_WINDOW)
+=======
+    availability_window: Mapped[str] = mapped_column(String(16), nullable=True, default=SPOT_WINDOW)
+>>>>>>> /tmp/claude-1001/-home-jons-openclaw/e53e48f3-c631-4fc2-b3ad-7079edf68cd3/scratchpad/sec/app_models_orderbook.py
 
     # ASK-specific
     certifications: Mapped[list | None] = mapped_column(JSON, default=list, server_default=text("'[]'"))
@@ -98,7 +116,13 @@ class OrderBookOrder(Base):
     certification_scheme: Mapped[str | None] = mapped_column(String(120), nullable=True)
     specification_standard: Mapped[str | None] = mapped_column(String(120), nullable=True)
     msds_available: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+<<<<<<< /home/jons-openclaw/worktrees/verdaxis-be-enterprise-integration/app/models/orderbook.py
     is_verdaxis_verified: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"), nullable=False)
+||||||| /tmp/claude-1001/-home-jons-openclaw/e53e48f3-c631-4fc2-b3ad-7079edf68cd3/scratchpad/base/app_models_orderbook.py
+    is_verdaxis_verified: Mapped[bool] = mapped_column(Boolean, default=False)
+=======
+    is_verdaxis_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=True)
+>>>>>>> /tmp/claude-1001/-home-jons-openclaw/e53e48f3-c631-4fc2-b3ad-7079edf68cd3/scratchpad/sec/app_models_orderbook.py
 
     # CI data (optional -- populated by supplier for ASK orders)
     carbon_intensity_gco2_mj: Mapped[Decimal | None] = mapped_column(
@@ -115,14 +139,24 @@ class OrderBookOrder(Base):
 
     # Status
     status: Mapped[OrderBookStatus] = mapped_column(
+<<<<<<< /home/jons-openclaw/worktrees/verdaxis-be-enterprise-integration/app/models/orderbook.py
         Enum(OrderBookStatus, native_enum=False, length=20),
         default=OrderBookStatus.OPEN,
         nullable=False,
         server_default=text("'OPEN'"),
+||||||| /tmp/claude-1001/-home-jons-openclaw/e53e48f3-c631-4fc2-b3ad-7079edf68cd3/scratchpad/base/app_models_orderbook.py
+        Enum(OrderBookStatus, native_enum=False),
+        default=OrderBookStatus.OPEN
+=======
+        Enum(OrderBookStatus, native_enum=False),
+        default=OrderBookStatus.OPEN,
+        nullable=True,
+>>>>>>> /tmp/claude-1001/-home-jons-openclaw/e53e48f3-c631-4fc2-b3ad-7079edf68cd3/scratchpad/sec/app_models_orderbook.py
     )
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Timestamps
+<<<<<<< /home/jons-openclaw/worktrees/verdaxis-be-enterprise-integration/app/models/orderbook.py
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), server_default=func.now(), nullable=False
     )
@@ -130,12 +164,25 @@ class OrderBookOrder(Base):
         DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC),
         server_default=func.now(), nullable=False,
     )
+||||||| /tmp/claude-1001/-home-jons-openclaw/e53e48f3-c631-4fc2-b3ad-7079edf68cd3/scratchpad/base/app_models_orderbook.py
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))
+=======
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=True
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC), nullable=True
+    )
+>>>>>>> /tmp/claude-1001/-home-jons-openclaw/e53e48f3-c631-4fc2-b3ad-7079edf68cd3/scratchpad/sec/app_models_orderbook.py
 
     # Relationships
     organization = relationship("Organization", back_populates="orderbook_orders")
     product = relationship("Product", lazy="selectin")
     delivery_point = relationship("DeliveryPoint", lazy="selectin")
     vessel = relationship("Vessel", foreign_keys=[vessel_id])
+    inventory_item = relationship("InventoryItem")
     bid_trades = relationship("Trade", foreign_keys="Trade.bid_order_id", back_populates="bid_order")
     ask_trades = relationship("Trade", foreign_keys="Trade.ask_order_id", back_populates="ask_order")
 
@@ -201,7 +248,15 @@ class Trade(Base):
     # Parties
     buyer_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organizations.id"), nullable=False)
     seller_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organizations.id"), nullable=False)
+<<<<<<< /home/jons-openclaw/worktrees/verdaxis-be-enterprise-integration/app/models/orderbook.py
     initiated_by: Mapped[Initiator] = mapped_column(Enum(Initiator, native_enum=False, length=10), nullable=False)
+||||||| /tmp/claude-1001/-home-jons-openclaw/e53e48f3-c631-4fc2-b3ad-7079edf68cd3/scratchpad/base/app_models_orderbook.py
+    initiated_by: Mapped[Initiator] = mapped_column(Enum(Initiator, native_enum=False), nullable=False)
+=======
+    buyer_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
+    seller_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
+    initiated_by: Mapped[Initiator] = mapped_column(Enum(Initiator, native_enum=False), nullable=False)
+>>>>>>> /tmp/claude-1001/-home-jons-openclaw/e53e48f3-c631-4fc2-b3ad-7079edf68cd3/scratchpad/sec/app_models_orderbook.py
     is_anonymous: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
 
     # Trade details
@@ -210,10 +265,19 @@ class Trade(Base):
 
     # Status
     status: Mapped[TradeStatus] = mapped_column(
+<<<<<<< /home/jons-openclaw/worktrees/verdaxis-be-enterprise-integration/app/models/orderbook.py
         Enum(TradeStatus, native_enum=False, length=30),
         default=TradeStatus.PENDING_CONFIRMATION,
         nullable=False,
         server_default=text("'PENDING_CONFIRMATION'"),
+||||||| /tmp/claude-1001/-home-jons-openclaw/e53e48f3-c631-4fc2-b3ad-7079edf68cd3/scratchpad/base/app_models_orderbook.py
+        Enum(TradeStatus, native_enum=False),
+        default=TradeStatus.PENDING_CONFIRMATION
+=======
+        Enum(TradeStatus, native_enum=False),
+        default=TradeStatus.PENDING_CONFIRMATION,
+        nullable=True,
+>>>>>>> /tmp/claude-1001/-home-jons-openclaw/e53e48f3-c631-4fc2-b3ad-7079edf68cd3/scratchpad/sec/app_models_orderbook.py
     )
 
     # Final deal details (populated on delivery)
@@ -222,18 +286,34 @@ class Trade(Base):
     final_total_usd: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
 
     # Commission
+<<<<<<< /home/jons-openclaw/worktrees/verdaxis-be-enterprise-integration/app/models/orderbook.py
     commission_rate_pct: Mapped[Decimal] = mapped_column(
         Numeric(5, 3), default=Decimal("0.5"), nullable=False, server_default=text("0.5")
     )
+||||||| /tmp/claude-1001/-home-jons-openclaw/e53e48f3-c631-4fc2-b3ad-7079edf68cd3/scratchpad/base/app_models_orderbook.py
+    commission_rate_pct: Mapped[Decimal] = mapped_column(Numeric(5, 3), default=Decimal("0.5"))
+=======
+    commission_rate_pct: Mapped[Decimal] = mapped_column(
+        Numeric(5, 3), default=Decimal("0.5"), nullable=True
+    )
+>>>>>>> /tmp/claude-1001/-home-jons-openclaw/e53e48f3-c631-4fc2-b3ad-7079edf68cd3/scratchpad/sec/app_models_orderbook.py
     commission_amount_usd: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
 
     # Lifecycle timestamps
     confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+<<<<<<< /home/jons-openclaw/worktrees/verdaxis-be-enterprise-integration/app/models/orderbook.py
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False, server_default=func.now()
     )
+||||||| /tmp/claude-1001/-home-jons-openclaw/e53e48f3-c631-4fc2-b3ad-7079edf68cd3/scratchpad/base/app_models_orderbook.py
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+=======
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=True
+    )
+>>>>>>> /tmp/claude-1001/-home-jons-openclaw/e53e48f3-c631-4fc2-b3ad-7079edf68cd3/scratchpad/sec/app_models_orderbook.py
 
     # Relationships
     bid_order = relationship("OrderBookOrder", foreign_keys=[bid_order_id], back_populates="bid_trades")

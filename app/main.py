@@ -1,7 +1,7 @@
-import asyncio
 import os
 import time
 import uuid as _uuid
+import re
 from contextvars import ContextVar
 
 from fastapi import FastAPI, Request
@@ -84,16 +84,40 @@ _docs_url = "/docs" if os.getenv("ENVIRONMENT") != "production" else None
 _redoc_url = "/redoc" if os.getenv("ENVIRONMENT") != "production" else None
 
 # ---------------------------------------------------------------------------
+<<<<<<< /home/jons-openclaw/worktrees/verdaxis-be-enterprise-integration/app/main.py
 # Lifespan: runtime identity attestation only. Scheduled jobs are external
 # singletons; never start one scheduler per Uvicorn worker.
+||||||| /tmp/claude-1001/-home-jons-openclaw/e53e48f3-c631-4fc2-b3ad-7079edf68cd3/scratchpad/base/app_main.py
+# Lifespan: background news feed refresh every 15 minutes
+=======
+# Lifespan: web workers remain request-driven; periodic jobs use systemd timers
+>>>>>>> /tmp/claude-1001/-home-jons-openclaw/e53e48f3-c631-4fc2-b3ad-7079edf68cd3/scratchpad/sec/app_main.py
 # ---------------------------------------------------------------------------
 from contextlib import asynccontextmanager
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+<<<<<<< /home/jons-openclaw/worktrees/verdaxis-be-enterprise-integration/app/main.py
     from app.database import verify_database_runtime
 
     await verify_database_runtime()
+||||||| /tmp/claude-1001/-home-jons-openclaw/e53e48f3-c631-4fc2-b3ad-7079edf68cd3/scratchpad/base/app_main.py
+    async def _news_refresh_loop():
+        from app.database import AsyncSessionLocal
+        from app.services.news_feed import refresh_news
+        while True:
+            try:
+                async with AsyncSessionLocal() as db:
+                    await refresh_news(db)
+            except Exception:
+                logger.warning("news_refresh_loop.error", exc_info=True)
+            await asyncio.sleep(900)  # 15 minutes
+
+    task = asyncio.create_task(_news_refresh_loop())
+=======
+    """Keep web workers request-driven; scheduled jobs run via CLI timers."""
+>>>>>>> /tmp/claude-1001/-home-jons-openclaw/e53e48f3-c631-4fc2-b3ad-7079edf68cd3/scratchpad/sec/app_main.py
     yield
 
 app = FastAPI(
@@ -165,7 +189,8 @@ app.middleware("http")(preauth_rate_limit_middleware)
 # ---------------------------------------------------------------------------
 @app.middleware("http")
 async def request_logging_middleware(request: Request, call_next):
-    rid = request.headers.get("X-Request-ID") or str(_uuid.uuid4())
+    supplied_rid = request.headers.get("X-Request-ID", "")
+    rid = supplied_rid if re.fullmatch(r"[A-Za-z0-9._:-]{1,36}", supplied_rid) else str(_uuid.uuid4())
     request_id_ctx.set(rid)
     structlog.contextvars.clear_contextvars()
     structlog.contextvars.bind_contextvars(request_id=rid)
@@ -249,6 +274,7 @@ async def health_ready():
         "release_sha": settings.RELEASE_SHA,
     }
     try:
+<<<<<<< /home/jons-openclaw/worktrees/verdaxis-be-enterprise-integration/app/main.py
         async with asyncio.timeout(settings.HEALTH_READINESS_TIMEOUT_SECONDS):
             async with engine.connect() as conn:
                 await conn.execute(text("SELECT 1"))
@@ -268,7 +294,26 @@ async def health_ready():
         )
     except Exception as exc:
         logger.error("health_readiness_failed", error_class=type(exc).__name__)
+||||||| /tmp/claude-1001/-home-jons-openclaw/e53e48f3-c631-4fc2-b3ad-7079edf68cd3/scratchpad/base/app_main.py
+        async with engine.connect() as conn:
+            await conn.execute(text("SELECT 1"))
+        return {"status": "ok", "db": "connected"}
+    except Exception as e:
+        from fastapi.responses import JSONResponse
+=======
+        async with engine.connect() as conn:
+            await conn.execute(text("SELECT 1"))
+        return {"status": "ok", "db": "connected"}
+    except Exception:
+        from fastapi.responses import JSONResponse
+>>>>>>> /tmp/claude-1001/-home-jons-openclaw/e53e48f3-c631-4fc2-b3ad-7079edf68cd3/scratchpad/sec/app_main.py
         return JSONResponse(
             status_code=503,
+<<<<<<< /home/jons-openclaw/worktrees/verdaxis-be-enterprise-integration/app/main.py
             content={"status": "error", "db": "unavailable", **provenance},
+||||||| /tmp/claude-1001/-home-jons-openclaw/e53e48f3-c631-4fc2-b3ad-7079edf68cd3/scratchpad/base/app_main.py
+            content={"status": "error", "db": str(e)},
+=======
+            content={"status": "error", "db": "unavailable"},
+>>>>>>> /tmp/claude-1001/-home-jons-openclaw/e53e48f3-c631-4fc2-b3ad-7079edf68cd3/scratchpad/sec/app_main.py
         )

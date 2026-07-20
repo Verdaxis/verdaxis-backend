@@ -5,7 +5,12 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
+<<<<<<< /home/jons-openclaw/worktrees/verdaxis-be-enterprise-integration/app/routers/inventory.py
 from sqlalchemy.exc import DBAPIError
+||||||| /tmp/claude-1001/-home-jons-openclaw/e53e48f3-c631-4fc2-b3ad-7079edf68cd3/scratchpad/base/app_routers_inventory.py
+=======
+from sqlalchemy.exc import SQLAlchemyError
+>>>>>>> /tmp/claude-1001/-home-jons-openclaw/e53e48f3-c631-4fc2-b3ad-7079edf68cd3/scratchpad/sec/app_routers_inventory.py
 from sqlalchemy.orm import selectinload
 
 from app.database import get_db
@@ -17,11 +22,13 @@ from app.models.orderbook import (
     OrderSide,
 )
 from app.schemas.marketplace import InventoryCreate, InventoryItemUpdate, InventoryResponse
-from app.models.user import User, UserRole
+from app.models.user import Organization, User, UserRole
 from app.routers.auth_simple import get_current_user
+from app.middleware.execution import require_execution_eligible_user
 from app.services.availability_windows import SPOT_WINDOW
 from app.services.audit_service import record_audit, request_audit_context
 from app.services.audit_actions import INVENTORY_PUBLISHED
+from app.services.execution_policy import execution_party_is_eligible
 import logging
 
 logger = logging.getLogger(__name__)
@@ -116,7 +123,7 @@ async def list_inventory(
 async def add_inventory(
     item: InventoryCreate,
     db: Annotated[AsyncSession, Depends(get_db)],
-    current_user: Annotated[User, Depends(get_current_user)]
+    current_user: Annotated[User, Depends(require_execution_eligible_user)]
 ):
     if current_user.role != UserRole.SUPPLIER:
         raise HTTPException(status_code=403, detail="Only suppliers can manage inventory")
@@ -141,19 +148,33 @@ async def add_inventory(
         return db_item
     except HTTPException:
         raise
+<<<<<<< /home/jons-openclaw/worktrees/verdaxis-be-enterprise-integration/app/routers/inventory.py
     except DBAPIError:
         raise
     except Exception as e:
+||||||| /tmp/claude-1001/-home-jons-openclaw/e53e48f3-c631-4fc2-b3ad-7079edf68cd3/scratchpad/base/app_routers_inventory.py
+    except Exception as e:
+=======
+    except SQLAlchemyError as exc:
+>>>>>>> /tmp/claude-1001/-home-jons-openclaw/e53e48f3-c631-4fc2-b3ad-7079edf68cd3/scratchpad/sec/app_routers_inventory.py
         await db.rollback()
+<<<<<<< /home/jons-openclaw/worktrees/verdaxis-be-enterprise-integration/app/routers/inventory.py
         logger.error("inventory_create_failed", extra={"error_class": type(e).__name__})
         raise HTTPException(status_code=500, detail=f"Failed to create inventory item: {str(e)}")
+||||||| /tmp/claude-1001/-home-jons-openclaw/e53e48f3-c631-4fc2-b3ad-7079edf68cd3/scratchpad/base/app_routers_inventory.py
+        logger.error(f"Failed to create inventory item: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to create inventory item: {str(e)}")
+=======
+        logger.error("inventory_create_failed (%s)", type(exc).__name__)
+        raise HTTPException(status_code=503, detail="Inventory is temporarily unavailable") from exc
+>>>>>>> /tmp/claude-1001/-home-jons-openclaw/e53e48f3-c631-4fc2-b3ad-7079edf68cd3/scratchpad/sec/app_routers_inventory.py
 
 @router.patch("/inventory/{item_id}", response_model=InventoryResponse)
 async def update_inventory(
     item_id: UUID,
     updates: InventoryItemUpdate,
     db: Annotated[AsyncSession, Depends(get_db)],
-    current_user: Annotated[User, Depends(get_current_user)]
+    current_user: Annotated[User, Depends(require_execution_eligible_user)]
 ):
     if current_user.role != UserRole.SUPPLIER:
         raise HTTPException(status_code=403, detail="Only suppliers can manage inventory")
@@ -183,7 +204,7 @@ async def update_inventory(
 async def delete_inventory(
     item_id: UUID,
     db: Annotated[AsyncSession, Depends(get_db)],
-    current_user: Annotated[User, Depends(get_current_user)]
+    current_user: Annotated[User, Depends(require_execution_eligible_user)]
 ):
     if current_user.role != UserRole.SUPPLIER:
         raise HTTPException(status_code=403, detail="Only suppliers can manage inventory")
@@ -206,7 +227,7 @@ async def publish_inventory_item(
     item_id: UUID,
     request: Request,
     db: Annotated[AsyncSession, Depends(get_db)],
-    current_user: Annotated[User, Depends(get_current_user)],
+    current_user: Annotated[User, Depends(require_execution_eligible_user)],
 ):
     """Convert an inventory item into an ASK listing on the unified orderbook."""
     if current_user.role != UserRole.SUPPLIER:
@@ -215,17 +236,34 @@ async def publish_inventory_item(
     if not current_user.organization_id:
         raise HTTPException(status_code=400, detail="User has no organization")
 
+    # Revalidate the concrete supplier and exact tenant under row locks in the
+    # same transaction that publishes the executable order.
+    locked_user = (
+        await db.execute(select(User).where(User.id == current_user.id).with_for_update())
+    ).scalar_one_or_none()
+    locked_organization = (
+        await db.execute(
+            select(Organization).where(Organization.id == current_user.organization_id).with_for_update()
+        )
+    ).scalar_one_or_none()
+    if not await execution_party_is_eligible(
+        db,
+        user=locked_user,
+        organization=locked_organization,
+    ) or locked_user.role != UserRole.SUPPLIER:
+        raise HTTPException(status_code=403, detail="Supplier is no longer execution-qualified")
+
     stmt = select(InventoryItem).options(selectinload(InventoryItem.port)).where(
         InventoryItem.id == item_id,
         InventoryItem.supplier_id == current_user.organization_id,
-    )
+    ).with_for_update()
     result = await db.execute(stmt)
     item = result.scalar_one_or_none()
 
     if not item:
         raise HTTPException(status_code=404, detail="Inventory item not found")
 
-    quantity = Decimal(str(item.current_stock_mt or 0))
+    quantity = Decimal(str(item.current_stock_mt or 0)) - Decimal(str(item.reserved_stock_mt or 0))
     if quantity <= 0:
         raise HTTPException(status_code=400, detail="Inventory quantity must be positive")
 
@@ -240,6 +278,8 @@ async def publish_inventory_item(
 
     listing = OrderBookOrder(
         organization_id=current_user.organization_id,
+        owner_user_id=current_user.id,
+        inventory_item_id=item.id,
         side=OrderSide.ASK,
         product_id=product.id,
         delivery_point_id=delivery_point.id if delivery_point else None,
@@ -253,6 +293,7 @@ async def publish_inventory_item(
         **{field: getattr(item, field) for field in SUPPLIER_METADATA_FIELDS},
     )
     db.add(listing)
+    item.reserved_stock_mt = Decimal(str(item.reserved_stock_mt or 0)) + quantity
     await db.flush()
     await record_audit(
         db,
