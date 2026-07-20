@@ -954,8 +954,18 @@ def test_systemd_manifest_extends_exact_archive_without_installer_code_changes(
         }
     installer = (ROOT / "scripts/install_systemd_units.sh").read_text()
     assert "verdaxis-auth-maintenance" not in installer
-    assert not (ROOT / additions[0]).exists()
-    assert not (ROOT / additions[1]).exists()
+    # The security checkpoint landed the audited auth-maintenance units on
+    # this tree: bytes exist and both environments are manifest-declared,
+    # still without naming them in installer code.
+    committed_manifest = (ROOT / UNIT_MANIFEST).read_text()
+    for relative in additions:
+        assert (ROOT / relative).exists()
+        assert f"production\t{Path(relative).name}" in committed_manifest
+        staging_name = Path(relative).name.replace(
+            "verdaxis-auth-maintenance", "verdaxis-auth-maintenance-staging"
+        )
+        assert (ROOT / "deploy/systemd" / staging_name).exists()
+        assert f"staging\t{staging_name}" in committed_manifest
 
 
 def test_systemd_manifest_rejects_cross_environment_filename_collision():

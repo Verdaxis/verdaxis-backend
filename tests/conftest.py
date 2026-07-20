@@ -14,6 +14,7 @@ from httpx import AsyncClient
 # Tests must opt into an isolated JWT namespace. Production/staging startup
 # fails closed when these environment-bound values are absent.
 os.environ.setdefault("ENVIRONMENT", "test")
+os.environ.setdefault("RELEASE_SHA", "test")
 os.environ.setdefault("JWT_SECRET", "test-secret-key-for-testing-minimum-32-chars")
 os.environ.setdefault("JWT_ISSUER", "verdaxis-test-api")
 os.environ.setdefault("JWT_AUDIENCE", "verdaxis-test-web")

@@ -764,7 +764,10 @@ def test_least_privilege_role_artifacts_cover_existing_and_future_objects():
     assert "('audit_logs', ARRAY['SELECT', 'INSERT'])" in policy
     assert "('user_status_transitions', ARRAY['SELECT', 'INSERT'])" in policy
     column_policy = policy.split("app_column_policy", 1)[-1]
-    assert "verification_status" not in column_policy
+    # The security checkpoint's admin organization admission review is the
+    # single app-role write path for verification_status: UPDATE only.
+    assert "('organizations', 'verification_status', 'INSERT')" not in column_policy
+    assert "('organizations', 'verification_status', 'UPDATE')" in column_policy
     assert "provenance" not in column_policy
 
     assert "\\ir app_acl_policy.sql" in convergence
@@ -808,7 +811,10 @@ def test_organization_registration_columns_match_existing_write_paths():
     )[1].split("db.add(new_org)", 1)[0]
     assert 'verification_status="PENDING"' not in registration_block
     assert "('organizations', 'verification_status', 'INSERT')" not in policy
-    assert "('organizations', 'verification_status', 'UPDATE')" not in policy
+    # The security checkpoint added exactly one app-role write path for
+    # verification_status: the admin organization admission review endpoints.
+    # UPDATE is therefore declared; INSERT stays denied (server_default only).
+    assert "('organizations', 'verification_status', 'UPDATE')" in policy
 
     from sqlalchemy.dialects import postgresql
     from app.models.user import Organization, OrgType
@@ -847,6 +853,7 @@ def test_organization_column_acl_is_the_exact_reviewed_set():
         ("supplier_tier", "UPDATE"),
         ("tax_id", "UPDATE"),
         ("country_code", "UPDATE"),
+        ("verification_status", "UPDATE"),
     }
 
 

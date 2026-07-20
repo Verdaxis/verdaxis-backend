@@ -20,7 +20,16 @@ _DEPLOYED_DATABASE_IDENTITIES = {
         "migrator_role": "verdaxis_migrator_staging",
     },
 }
-_DEFAULT_JWT_SECRETS = {"", "change-me-in-production", "CHANGE_ME_MIN_32_CHARS"}
+_INSECURE_LOCAL_JWT_SECRETS = {
+    "development": "insecure-development-only-jwt-secret-do-not-deploy",
+    "test": "insecure-test-only-jwt-secret-do-not-deploy",
+}
+_DEFAULT_JWT_SECRETS = {
+    "",
+    "change-me-in-production",
+    "CHANGE_ME_MIN_32_CHARS",
+    *_INSECURE_LOCAL_JWT_SECRETS.values(),
+}
 _DEFAULT_DATABASE_PASSWORDS = {"postgres", "change_me"}
 
 
@@ -180,7 +189,7 @@ class Settings(BaseSettings):
 
         if environment in _DEPLOYED_DATABASE_IDENTITIES:
             identity = _DEPLOYED_DATABASE_IDENTITIES[environment]
-            if len(self.JWT_SECRET) < 32 or self.JWT_SECRET in _DEFAULT_JWT_SECRETS:
+            if len(self.JWT_SECRET or "") < 32 or self.JWT_SECRET in _DEFAULT_JWT_SECRETS:
                 raise ValueError(
                     "JWT_SECRET must be a non-default value of at least 32 characters "
                     "in staging and production"
@@ -316,6 +325,17 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_admin_and_jwt_boundaries(self) -> "Settings":
+        # Local-only fallbacks keep `import app.config` working without
+        # ambient configuration (runtime contract). The fallback values are
+        # registered in _DEFAULT_JWT_SECRETS, so they can never satisfy the
+        # staging/production boundary validation (security contract).
+        if self.ENVIRONMENT in _INSECURE_LOCAL_JWT_SECRETS:
+            if not self.JWT_SECRET:
+                self.JWT_SECRET = _INSECURE_LOCAL_JWT_SECRETS[self.ENVIRONMENT]
+            if not self.JWT_ISSUER:
+                self.JWT_ISSUER = f"verdaxis-{self.ENVIRONMENT}-api"
+            if not self.JWT_AUDIENCE:
+                self.JWT_AUDIENCE = f"verdaxis-{self.ENVIRONMENT}-web"
         if self.ENABLE_SQLADMIN and not self.ADMIN_SESSION_SECRET:
             raise ValueError("ADMIN_SESSION_SECRET is required when ENABLE_SQLADMIN=true")
         if self.ENABLE_SQLADMIN and self.ADMIN_SESSION_SECRET == self.JWT_SECRET:
@@ -384,10 +404,34 @@ class Settings(BaseSettings):
             raise ValueError("Analytics configuration value is too long")
         return normalized
 
-    @property
-    def BACKEND_CORS_ORIGINS(self) -> tuple[str, ...]:
-        """Closed allowlist; environment input cannot add cross-environment origins."""
-        return credentialed_origins_for_environment(self.ENVIRONMENT)
+    # CORS: closed per-environment allowlist. Explicit input may only restate
+    # (a subset of) the environment's credentialed origins; anything else —
+    # wildcards, credentials, paths, or cross-environment origins — refuses.
+    BACKEND_CORS_ORIGINS: Optional[list[str]] = None
+
+    @model_validator(mode="after")
+    def validate_cors_origins(self) -> "Settings":
+        allowed = credentialed_origins_for_environment(self.ENVIRONMENT)
+        origins = list(allowed) if self.BACKEND_CORS_ORIGINS is None else self.BACKEND_CORS_ORIGINS
+        for origin in origins:
+            parsed = urlparse(origin)
+            if (
+                "*" in origin
+                or parsed.scheme not in {"http", "https"}
+                or not parsed.netloc
+                or parsed.username
+                or parsed.password
+                or parsed.path not in {"", "/"}
+                or parsed.params
+                or parsed.query
+                or parsed.fragment
+                or origin.rstrip("/") not in allowed
+            ):
+                raise ValueError(
+                    f"BACKEND_CORS_ORIGINS contains an origin incompatible with {self.ENVIRONMENT}"
+                )
+        self.BACKEND_CORS_ORIGINS = [origin.rstrip("/") for origin in origins]
+        return self
 
     class Config:
         env_file = ".env"

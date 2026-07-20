@@ -1,3 +1,4 @@
+import asyncio
 import os
 import time
 import uuid as _uuid
@@ -264,13 +265,15 @@ async def health_ready():
                 route="/health/ready",
             ),
         )
+        # Failure responses stay sanitized: no deployment provenance leaves
+        # the process when the database is unavailable (security contract).
         return JSONResponse(
             status_code=503,
-            content={"status": "error", "db": "unavailable", **provenance},
+            content={"status": "error", "db": "unavailable"},
         )
     except Exception as exc:
         logger.error("health_readiness_failed", error_class=type(exc).__name__)
         return JSONResponse(
             status_code=503,
-            content={"status": "error", "db": "unavailable", **provenance},
+            content={"status": "error", "db": "unavailable"},
         )

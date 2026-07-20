@@ -62,11 +62,12 @@ async def test_readiness_failure_and_timeout_are_bounded_and_sanitized(
     payload = json.loads(response.body)
 
     assert response.status_code == 503
+    # Synthesis contract: the success path exposes deployment provenance, but
+    # the failure path stays fully sanitized (security owns /health/ready error
+    # handling) — no environment/release_sha, no backend exception, no creds.
     assert payload == {
         "status": "error",
         "db": "unavailable",
-        "environment": "test",
-        "release_sha": "test",
     }
     assert b"credential" not in response.body
     assert calls

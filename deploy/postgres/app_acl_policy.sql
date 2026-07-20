@@ -3,10 +3,14 @@
 -- objects. Future seed_runs and market_row_quarantines are intentionally
 -- read-only to the app when those integration-owned tables exist. Unknown
 -- tables and sequences receive no app authority. Audit/status history is
--- append-only. organizations.verification_status is deliberately absent from
--- the column policy: signup relies on the model server_default, no runtime
--- app-role path writes it, and status changes belong to the restricted
--- operator/migrator boundary. Undeclared columns remain denied.
+-- append-only. organizations.verification_status stays absent from the INSERT
+-- column policy (signup relies on the model server_default); the security
+-- checkpoint added exactly one runtime write path — the admin organization
+-- admission review endpoints — so it carries a single UPDATE column grant.
+-- users keeps its blanket table-level DML grant, which covers the security
+-- token-hash/KYC-review/admission columns; no per-column users entries exist.
+-- organization_join_requests has no app DELETE path: requests are reviewed in
+-- place, never removed by the app role. Undeclared columns remain denied.
 
 CREATE TEMP TABLE app_table_policy (
     table_name text PRIMARY KEY,
@@ -37,7 +41,9 @@ INSERT INTO app_table_policy (table_name, privileges) VALUES
     ('notifications', ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE']),
     ('orderbook_orders', ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE']),
     ('orders', ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE']),
+    ('organization_join_requests', ARRAY['SELECT', 'INSERT', 'UPDATE']),
     ('organizations', ARRAY['SELECT', 'DELETE']),
+    ('pending_registrations', ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE']),
     ('physical_stems', ARRAY['SELECT']),
     ('port_intelligence', ARRAY['SELECT']),
     ('ports', ARRAY['SELECT']),
@@ -46,6 +52,7 @@ INSERT INTO app_table_policy (table_name, privileges) VALUES
     ('products', ARRAY['SELECT']),
     ('public_listings', ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE']),
     ('referrals', ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE']),
+    ('refresh_sessions', ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE']),
     ('rfq_quotes', ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE']),
     ('rfqs', ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE']),
     ('seed_runs', ARRAY['SELECT']),
@@ -85,7 +92,8 @@ INSERT INTO app_column_policy (table_name, column_name, privilege_type) VALUES
     ('organizations', 'type', 'UPDATE'),
     ('organizations', 'supplier_tier', 'UPDATE'),
     ('organizations', 'tax_id', 'UPDATE'),
-    ('organizations', 'country_code', 'UPDATE');
+    ('organizations', 'country_code', 'UPDATE'),
+    ('organizations', 'verification_status', 'UPDATE');
 
 CREATE TEMP TABLE app_sequence_policy (
     sequence_name text PRIMARY KEY,
