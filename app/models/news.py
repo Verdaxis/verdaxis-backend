@@ -4,7 +4,7 @@ from sqlalchemy.dialects.postgresql import UUID
 import uuid
 from datetime import datetime, UTC
 from typing import Optional
-from app.database import Base
+from app.model_base import Base
 
 
 class NewsItem(Base):

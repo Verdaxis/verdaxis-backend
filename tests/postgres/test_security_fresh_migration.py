@@ -1,4 +1,11 @@
-"""Real PostgreSQL upgrade/downgrade authority for fresh security bindings."""
+"""Real PostgreSQL upgrade/downgrade authority for fresh security bindings.
+
+Integration note: the linearized chain ends in mi_20260720_market_integrity,
+whose downgrade is unsupported by design, so the security downgrade contract
+(sec_20260720_device -> sec_20260720_boundaries keeps the widened fuel width
+and legacy rows intact) is exercised on a scratch database capped at the
+security head instead of the session database at head.
+"""
 
 import os
 import subprocess
@@ -6,17 +13,53 @@ import sys
 from uuid import uuid4
 
 from sqlalchemy import text
+from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import create_async_engine
+
+_SECURITY_HEAD = "sec_20260720_device"
+_SCRATCH_DATABASE = "verdaxis_security_fresh_analytics_test"
+
+
+def _admin_sql(statement: str, *, database: str = "postgres") -> None:
+    url = make_url(os.environ["POSTGRES_ADMIN_TEST_DATABASE_URL"])
+    result = subprocess.run(
+        [
+            "psql", "-X",
+            "-h", url.host or "",
+            "-p", str(url.port or 5432),
+            "-U", url.username or "",
+            "-d", database,
+            "-v", "ON_ERROR_STOP=1",
+            "-c", statement,
+        ],
+        env={**os.environ, "PGPASSWORD": url.password or ""},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
 
 
 async def test_unknown_kyc_is_not_bound_and_long_fuel_survives_downgrade(analytics_pg_url):
-    environment = {**os.environ, "DATABASE_URL": analytics_pg_url}
+    migrator_role = os.environ["RUNTIME_TEST_MIGRATOR_ROLE"]
+    scratch_url = make_url(analytics_pg_url).set(database=_SCRATCH_DATABASE).render_as_string(
+        hide_password=False
+    )
+    _admin_sql(f"DROP DATABASE IF EXISTS {_SCRATCH_DATABASE} WITH (FORCE)")
+    _admin_sql(f"CREATE DATABASE {_SCRATCH_DATABASE} OWNER {migrator_role}")
+    _admin_sql("CREATE EXTENSION IF NOT EXISTS postgis", database=_SCRATCH_DATABASE)
+
+    environment = {
+        **os.environ,
+        "DATABASE_URL": scratch_url,
+        "MIGRATOR_DATABASE_URL": scratch_url,
+    }
 
     def alembic(*args: str) -> None:
         subprocess.run([sys.executable, "-m", "alembic", *args], check=True, env=environment)
 
-    alembic("downgrade", "sec_20260720_boundaries")
-    engine = create_async_engine(analytics_pg_url)
+    alembic("upgrade", "sec_20260720_boundaries")
+    engine = create_async_engine(scratch_url)
     user_id = uuid4()
     organization_id = uuid4()
     inventory_id = uuid4()
@@ -61,7 +104,7 @@ async def test_unknown_kyc_is_not_bound_and_long_fuel_survives_downgrade(analyti
                     "jti_hash": "f" * 64,
                 },
             )
-        alembic("upgrade", "head")
+        alembic("upgrade", _SECURITY_HEAD)
         async with engine.connect() as connection:
             status, bound_org = (
                 await connection.execute(
@@ -95,4 +138,4 @@ async def test_unknown_kyc_is_not_bound_and_long_fuel_survives_downgrade(analyti
             ) == 20
     finally:
         await engine.dispose()
-        alembic("upgrade", "head")
+        _admin_sql(f"DROP DATABASE IF EXISTS {_SCRATCH_DATABASE} WITH (FORCE)")

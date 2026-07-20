@@ -4,12 +4,20 @@ import uuid
 from datetime import datetime, UTC
 from decimal import Decimal
 
-from sqlalchemy import ForeignKey, Enum, Index, String, Numeric, DateTime, Text, Boolean
+from sqlalchemy import ForeignKey, Enum, String, Numeric, DateTime, Text, Boolean, Index, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.database import Base
+from app.model_base import Base
 from app.services.availability_windows import SPOT_WINDOW
+from app.market_constraints import (
+    RFQ_DOMAIN,
+    RFQ_LIFECYCLE,
+    RFQ_NUMERIC_VALUES,
+    RFQ_QUOTE_DOMAIN,
+    RFQ_QUOTE_NUMERIC_VALUES,
+    postgresql_check,
+)
 
 
 class RFQStatus(str, enum.Enum):
@@ -32,6 +40,9 @@ class RFQ(Base):
     __table_args__ = (
         Index("ix_rfqs_buyer_org_id", "buyer_org_id"),
         Index("ix_rfqs_status", "status"),
+        postgresql_check(RFQ_DOMAIN, name="ck_rfqs_domain"),
+        postgresql_check(RFQ_NUMERIC_VALUES, name="ck_rfqs_numeric_values"),
+        postgresql_check(RFQ_LIFECYCLE, name="ck_rfqs_lifecycle"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -47,13 +58,19 @@ class RFQ(Base):
     delivery_point_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("delivery_points.id"), nullable=True
     )
-    quantity_mt: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
-    target_price_per_mt: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
+    quantity_mt: Mapped[Decimal] = mapped_column(Numeric(), nullable=False)
+    target_price_per_mt: Mapped[Decimal | None] = mapped_column(Numeric(), nullable=True)
     availability_window: Mapped[str] = mapped_column(String(16), nullable=False, default=SPOT_WINDOW)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_anonymous: Mapped[bool] = mapped_column(Boolean, default=False)
     status: Mapped[RFQStatus] = mapped_column(
-        Enum(RFQStatus, native_enum=False, length=10), default=RFQStatus.OPEN, nullable=False
+        Enum(RFQStatus, native_enum=False), default=RFQStatus.OPEN, nullable=False
+    )
+    accepted_quote_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("rfq_quotes.id"), nullable=True
+    )
+    trade_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("trades.id"), nullable=True
     )
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
@@ -61,12 +78,22 @@ class RFQ(Base):
     )
 
     # Relationships
-    quotes: Mapped[list["RFQQuote"]] = relationship(back_populates="rfq", cascade="all, delete-orphan")
+    quotes: Mapped[list["RFQQuote"]] = relationship(
+        back_populates="rfq",
+        cascade="all, delete-orphan",
+        foreign_keys="RFQQuote.rfq_id",
+    )
 
 
 class RFQQuote(Base):
     __tablename__ = "rfq_quotes"
-    __table_args__ = (Index("ix_rfq_quotes_rfq_id", "rfq_id"),)
+    __table_args__ = (
+        Index("ix_rfq_quotes_rfq_id", "rfq_id"),
+        Index("ix_rfq_quotes_seller_org_id", "seller_org_id"),
+        UniqueConstraint("rfq_id", "seller_org_id", name="uq_rfq_quotes_rfq_seller"),
+        postgresql_check(RFQ_QUOTE_DOMAIN, name="ck_rfq_quotes_domain"),
+        postgresql_check(RFQ_QUOTE_NUMERIC_VALUES, name="ck_rfq_quotes_numeric_values"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
@@ -78,13 +105,13 @@ class RFQQuote(Base):
         UUID(as_uuid=True), ForeignKey("organizations.id"), nullable=False
     )
     seller_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
-    price_per_mt_usd: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
+    price_per_mt_usd: Mapped[Decimal] = mapped_column(Numeric(), nullable=False)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[QuoteStatus] = mapped_column(
-        Enum(QuoteStatus, native_enum=False, length=10), default=QuoteStatus.PENDING, nullable=False
+        Enum(QuoteStatus, native_enum=False), default=QuoteStatus.PENDING, nullable=False
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC)
     )
 
-    rfq: Mapped["RFQ"] = relationship(back_populates="quotes")
+    rfq: Mapped["RFQ"] = relationship(back_populates="quotes", foreign_keys=[rfq_id])

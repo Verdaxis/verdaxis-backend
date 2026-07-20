@@ -6,6 +6,7 @@ import enum
 from datetime import datetime, UTC
 from typing import Optional, TYPE_CHECKING
 from app.database import Base
+from app.market_constraints import ORGANIZATION_PROVENANCE_DOMAIN, postgresql_check
 
 if TYPE_CHECKING:
     from app.models.referral import Referral
@@ -42,8 +43,24 @@ class TierLabel(str, enum.Enum):
     INDEPENDENT = "INDEPENDENT"
 
 
+class OrganizationProvenance(str, enum.Enum):
+    """Immutable classification of the organization that owns market data."""
+
+    UNKNOWN = "UNKNOWN"
+    REAL = "REAL"
+    DEMO = "DEMO"
+    TEST = "TEST"
+    CANARY = "CANARY"
+
+
 class Organization(Base):
     __tablename__ = "organizations"
+    __table_args__ = (
+        postgresql_check(
+            ORGANIZATION_PROVENANCE_DOMAIN,
+            name="ck_organizations_provenance",
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String, nullable=False)
@@ -55,6 +72,12 @@ class Organization(Base):
     verification_status: Mapped[str] = mapped_column(
         String, nullable=False, server_default="PENDING"
     )
+    provenance: Mapped[OrganizationProvenance] = mapped_column(
+        Enum(OrganizationProvenance, native_enum=False),
+        nullable=False,
+        default=OrganizationProvenance.UNKNOWN,
+        server_default=OrganizationProvenance.UNKNOWN.value,
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
 
     users: Mapped[list["User"]] = relationship(
@@ -65,15 +88,15 @@ class Organization(Base):
 
 class User(Base):
     __tablename__ = "users"
-    __table_args__ = (Index("ix_users_referral_code", "referral_code"),)
-
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    email: Mapped[str] = mapped_column(String, unique=True, nullable=False)
     __table_args__ = (
+        Index("ix_users_referral_code", "referral_code"),
         Index("uq_users_email_lower", text("lower(email)"), unique=True),
         Index("ix_users_email_verification_token_expires_at", "email_verification_token_expires_at"),
         Index("ix_users_password_reset_expires", "password_reset_expires"),
     )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    email: Mapped[str] = mapped_column(String, unique=True, nullable=False)
     password_hash: Mapped[str] = mapped_column(String, nullable=False)
     first_name: Mapped[str | None] = mapped_column(String)
     last_name: Mapped[str | None] = mapped_column(String)

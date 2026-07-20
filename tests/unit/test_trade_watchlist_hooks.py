@@ -10,19 +10,29 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.database import Base
+from app.market_catalog import DELIVERY_POINTS_BY_NAME, PRODUCTS_BY_NAME
 from app.models.audit import AuditLog  # noqa: F401 — registers audit_logs on Base.metadata
 from app.models.catalog import DeliveryPoint, Product
 from app.models.orderbook import OrderBookOrder, OrderBookStatus, OrderSide, Trade
-from app.models.user import OrgType, Organization, User, UserRole, UserStatus
+from app.models.market_event import MarketEventOutbox
+from app.models.user import (
+    OrganizationProvenance,
+    OrgType,
+    Organization,
+    User,
+    UserRole,
+    UserStatus,
+)
 from app.models.watchlist import WatchlistEvent, WatchlistTarget, WatchlistTargetType
 from app.routers import trades as trades_router
+from app.services.watchlists import ensure_market_radar
+from app.services.watchlist_events import sync_target_snapshot
 
 
 def _fake_request():
     """Minimal Request stand-in for endpoints that record audit entries."""
     return SimpleNamespace(headers={}, client=SimpleNamespace(host="127.0.0.1"))
-from app.services.watchlists import ensure_market_radar
-from app.services.watchlist_events import sync_target_snapshot
+
 
 REQUIRED_TABLES = [
     'audit_logs',
@@ -36,6 +46,7 @@ REQUIRED_TABLES = [
     'watchlists',
     'watchlist_targets',
     'watchlist_events',
+    'market_event_outbox',
 ]
 
 
@@ -59,7 +70,8 @@ async def db(async_engine, setup_tables):
     session_factory = async_sessionmaker(bind=async_engine, class_=AsyncSession, expire_on_commit=False, autoflush=False)
     async with session_factory() as session:
         yield session
-        for table in ('audit_logs', 'watchlist_events', 'watchlist_targets', 'watchlists', 'live_slice_benchmarks', 'trades', 'orderbook_orders', 'users', 'delivery_points', 'products', 'organizations'):
+        await session.rollback()
+        for table in ('audit_logs', 'watchlist_events', 'watchlist_targets', 'watchlists', 'market_event_outbox', 'live_slice_benchmarks', 'trades', 'orderbook_orders', 'users', 'delivery_points', 'products', 'organizations'):
             await session.execute(delete(Base.metadata.tables[table]))
         await session.commit()
 
@@ -68,7 +80,8 @@ async def _make_org(db: AsyncSession, name: str, org_type: OrgType) -> Organizat
     org = Organization(
         name=f'{name}-{uuid4().hex[:6]}',
         type=org_type,
-        verification_status='APPROVED',
+        provenance=OrganizationProvenance.REAL,
+        verification_status="APPROVED",
     )
     db.add(org)
     await db.flush()
@@ -81,29 +94,37 @@ async def _make_user(db: AsyncSession, org: Organization, role: UserRole) -> Use
         password_hash='hashed',
         role=role,
         status=UserStatus.APPROVED,
-        organization_id=org.id,
         email_verified=True,
-        kyc_status='APPROVED',
-        kyc_external_evidence_reference='external-test-case',
-        kyc_review_note='Externally retained evidence reviewed for this test fixture.',
-        kyc_reviewed_at=datetime.now(UTC),
+        kyc_status="APPROVED",
+        organization_id=org.id,
     )
     db.add(user)
-    await db.flush()
-    user.kyc_reviewed_by = user.id
     await db.flush()
     return user
 
 
 async def _make_product(db: AsyncSession) -> Product:
-    product = Product(name=f'Bio Methanol-{uuid4().hex[:6]}', fuel_type='Methanol', fuel_grade='Bio')
+    spec = PRODUCTS_BY_NAME['Bio Methanol']
+    product = Product(
+        id=spec.id,
+        name=spec.name,
+        fuel_type=spec.fuel_type,
+        fuel_grade=spec.fuel_grade,
+        is_active=True,
+    )
     db.add(product)
     await db.flush()
     return product
 
 
 async def _make_delivery_point(db: AsyncSession) -> DeliveryPoint:
-    delivery_point = DeliveryPoint(name=f'Singapore-{uuid4().hex[:6]}', region='Asia')
+    spec = DELIVERY_POINTS_BY_NAME['Singapore']
+    delivery_point = DeliveryPoint(
+        id=spec.id,
+        name=spec.name,
+        region=spec.region,
+        is_active=True,
+    )
     db.add(delivery_point)
     await db.flush()
     return delivery_point
@@ -124,6 +145,7 @@ async def _make_ask(
     order = OrderBookOrder(
         organization_id=org_id,
         owner_user_id=owner_user_id,
+        provenance=OrganizationProvenance.REAL,
         side=OrderSide.ASK,
         product_id=product_id,
         delivery_point_id=delivery_point_id,
@@ -145,9 +167,41 @@ async def _make_ask(
     return order
 
 
+def _pending_trade(
+    ask: OrderBookOrder,
+    *,
+    buyer_id,
+    seller_id,
+    quantity: str,
+) -> Trade:
+    return Trade(
+        bid_order_id=None,
+        ask_order_id=ask.id,
+        buyer_id=buyer_id,
+        seller_id=seller_id,
+        initiator_org_id=buyer_id,
+        buyer_provenance=OrganizationProvenance.REAL,
+        seller_provenance=OrganizationProvenance.REAL,
+        initiated_by=trades_router.Initiator.BUYER,
+        product_id=ask.product_id,
+        product_name=ask.product.name,
+        fuel_type=ask.product.fuel_type,
+        fuel_grade=ask.product.fuel_grade,
+        market_product=ask.market_product,
+        delivery_point_id=ask.delivery_point_id,
+        delivery_point_name=ask.delivery_point.name,
+        delivery_point_region=ask.delivery_point.region,
+        availability_window=ask.availability_window,
+        quantity_mt=Decimal(quantity),
+        price_per_mt_usd=ask.price_per_mt_usd,
+        status=trades_router.TradeStatus.PENDING_CONFIRMATION,
+    )
+
+
 @pytest.mark.asyncio
 async def test_create_trade_rejects_demo_listing(monkeypatch, db: AsyncSession):
     buyer_org = await _make_org(db, 'Buyer', OrgType.SHIPPING_LINE)
+    buyer = await _make_user(db, buyer_org, UserRole.BUYER)
     supplier_org = await _make_org(db, 'Supplier', OrgType.FUEL_SUPPLIER)
     product = await _make_product(db)
     delivery_point = await _make_delivery_point(db)
@@ -160,7 +214,7 @@ async def test_create_trade_rejects_demo_listing(monkeypatch, db: AsyncSession):
         lambda org_id: org_id == supplier_org.id,
     )
 
-    current_user = SimpleNamespace(id=uuid4(), organization_id=buyer_org.id, role=UserRole.BUYER)
+    current_user = buyer
     payload = trades_router.TradeCreate(order_id=ask.id, quantity_mt=Decimal('100'))
 
     with pytest.raises(HTTPException) as exc_info:
@@ -175,7 +229,6 @@ async def test_create_trade_rejects_non_executable_order(monkeypatch, db: AsyncS
     buyer_org = await _make_org(db, 'Buyer', OrgType.SHIPPING_LINE)
     buyer = await _make_user(db, buyer_org, UserRole.BUYER)
     supplier_org = await _make_org(db, 'Supplier', OrgType.FUEL_SUPPLIER)
-    supplier = await _make_user(db, supplier_org, UserRole.SUPPLIER)
     product = await _make_product(db)
     delivery_point = await _make_delivery_point(db)
     ask = await _make_ask(
@@ -188,7 +241,7 @@ async def test_create_trade_rejects_non_executable_order(monkeypatch, db: AsyncS
     )
     await db.commit()
 
-    current_user = SimpleNamespace(id=uuid4(), organization_id=buyer_org.id, role=UserRole.BUYER)
+    current_user = buyer
     payload = trades_router.TradeCreate(order_id=ask.id, quantity_mt=Decimal('100'))
 
     with pytest.raises(HTTPException) as exc_info:
@@ -206,22 +259,8 @@ async def test_create_trade_emits_pin_and_slice_events(monkeypatch, db: AsyncSes
     supplier = await _make_user(db, supplier_org, UserRole.SUPPLIER)
     product = await _make_product(db)
     delivery_point = await _make_delivery_point(db)
-    ask = await _make_ask(
-        db,
-        org_id=supplier_org.id,
-        owner_user_id=supplier.id,
-        product_id=product.id,
-        delivery_point_id=delivery_point.id,
-        price='1090',
-    )
-    await _make_ask(
-        db,
-        org_id=supplier_org.id,
-        owner_user_id=supplier.id,
-        product_id=product.id,
-        delivery_point_id=delivery_point.id,
-        price='1110',
-    )
+    ask = await _make_ask(db, org_id=supplier_org.id, product_id=product.id, delivery_point_id=delivery_point.id, price='1090', owner_user_id=supplier.id)
+    await _make_ask(db, org_id=supplier_org.id, product_id=product.id, delivery_point_id=delivery_point.id, price='1110', owner_user_id=supplier.id)
 
     radar = await ensure_market_radar(db, buyer.id)
     slice_target = WatchlistTarget(
@@ -249,11 +288,7 @@ async def test_create_trade_emits_pin_and_slice_events(monkeypatch, db: AsyncSes
     async def _noop_notify(*args, **kwargs):
         return None
 
-    async def _noop_publish(*args, **kwargs):
-        return None
-
     monkeypatch.setattr(trades_router, 'notify_org_users', _noop_notify)
-    monkeypatch.setattr(trades_router.event_bus, 'publish', _noop_publish)
 
     payload = trades_router.TradeCreate(order_id=ask.id, quantity_mt=Decimal('1000'))
     current_user = buyer
@@ -265,6 +300,12 @@ async def test_create_trade_emits_pin_and_slice_events(monkeypatch, db: AsyncSes
     event_types = [event.event_type.value for event in events]
     assert 'PIN_FILLED' in event_types
     assert 'SLICE_BEST_PRICE_MOVED' in event_types
+    outbox = (await db.execute(select(MarketEventOutbox))).scalars().one()
+    assert outbox.event_type == 'trade_created'
+    assert set(outbox.participant_org_ids) == {
+        str(buyer_org.id),
+        str(supplier_org.id),
+    }
 
 
 @pytest.mark.asyncio
@@ -277,15 +318,11 @@ async def test_decline_trade_does_not_revive_cancelled_order(monkeypatch, db: As
     delivery_point = await _make_delivery_point(db)
     ask = await _make_ask(db, org_id=supplier_org.id, product_id=product.id, delivery_point_id=delivery_point.id)
 
-    trade = Trade(
-        bid_order_id=None,
-        ask_order_id=ask.id,
+    trade = _pending_trade(
+        ask,
         buyer_id=buyer_org.id,
         seller_id=supplier_org.id,
-        initiated_by=trades_router.Initiator.BUYER,
-        quantity_mt=Decimal('400'),
-        price_per_mt_usd=ask.price_per_mt_usd,
-        status=trades_router.TradeStatus.PENDING_CONFIRMATION,
+        quantity='400',
     )
     db.add(trade)
     # Owner cancelled the resting order while the trade was pending
@@ -298,7 +335,7 @@ async def test_decline_trade_does_not_revive_cancelled_order(monkeypatch, db: As
 
     monkeypatch.setattr(trades_router, 'notify_org_users', _noop_notify)
 
-    current_user = SimpleNamespace(id=uuid4(), organization_id=supplier_org.id, role=UserRole.SUPPLIER)
+    current_user = supplier
     response = await trades_router.decline_trade(trade_id=trade.id, request=_fake_request(), db=db, current_user=current_user)
 
     assert response.status == 'DECLINED'
@@ -340,15 +377,11 @@ async def test_decline_trade_restores_watchlist_state(monkeypatch, db: AsyncSess
     db.add_all([slice_target, pin_target])
     await db.flush()
 
-    trade = Trade(
-        bid_order_id=None,
-        ask_order_id=ask.id,
+    trade = _pending_trade(
+        ask,
         buyer_id=buyer_org.id,
         seller_id=supplier_org.id,
-        initiated_by=trades_router.Initiator.BUYER,
-        quantity_mt=Decimal('400'),
-        price_per_mt_usd=ask.price_per_mt_usd,
-        status=trades_router.TradeStatus.PENDING_CONFIRMATION,
+        quantity='400',
     )
     db.add(trade)
     ask.remaining_quantity_mt = Decimal('600')
@@ -360,7 +393,7 @@ async def test_decline_trade_restores_watchlist_state(monkeypatch, db: AsyncSess
 
     monkeypatch.setattr(trades_router, 'notify_org_users', _noop_notify)
 
-    current_user = SimpleNamespace(id=uuid4(), organization_id=supplier_org.id, role=UserRole.SUPPLIER)
+    current_user = supplier
     response = await trades_router.decline_trade(trade_id=trade.id, request=_fake_request(), db=db, current_user=current_user)
 
     assert response.status == 'DECLINED'

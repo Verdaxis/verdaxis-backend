@@ -30,7 +30,7 @@ from app.core.security import (
     validate_password_bytes as _validate_password_bytes,
     MAX_PASSWORD_BYTES,
 )
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 import uuid
 
 from app.models.referral import Referral, ReferralStatus, generate_referral_code
@@ -60,10 +60,9 @@ from app.services.behavioral_analytics import (
     track_analytics_event,
 )
 from app.routing import BodySizeLimitRoute, require_trusted_browser_origin
-from app.services.execution_invalidation import (
-    invalidate_execution_state_for_request,
-    publish_execution_invalidation,
-)
+from app.services.market_events import enqueue_market_events
+from app.services.market_invalidation import invalidate_organization_market_access
+from app.services.market_transactions import retry_market_transaction
 
 logger = logging.getLogger(__name__)
 
@@ -1623,6 +1622,7 @@ async def approve_organization(
 
 @router.put("/organization/{organization_id}/reject")
 @limiter.limit("60/minute")
+@retry_market_transaction()
 async def reject_organization(
     request: _Request,
     organization_id: uuid.UUID,
@@ -1650,19 +1650,24 @@ async def reject_organization(
             audit_context=audit_context,
         )
         member.organization_id = None
-    counts = await invalidate_execution_state_for_request(
+    # Market cleanup is owned by the market invalidator: cancel executable
+    # state and release reservations under canonical locks in this same
+    # retried transaction, then persist the participant-scoped events to the
+    # durable outbox before commit.
+    invalidation_events = await invalidate_organization_market_access(
         db,
-        organization_ids=[organization.id],
+        organization_id=organization.id,
         actor_user_id=current_user.id,
         reason="organization_rejected",
-        **audit_context,
+        reference=f"organization:{organization.id}",
     )
+    await enqueue_market_events(db, invalidation_events)
     await record_audit(db, user_id=current_user.id, action=ADMIN_ORGANIZATION_REJECTED,
                        resource_type="organization", resource_id=organization.id,
-                       changes={"verification_status": {"from": previous, "to": "REJECTED"}, **counts,
+                       changes={"verification_status": {"from": previous, "to": "REJECTED"},
+                                "market_invalidation_events": len(invalidation_events),
                                 "reason": body.reason}, **request_audit_context(request))
     await db.commit()
-    await publish_execution_invalidation(counts)
     return {"organization_id": str(organization.id), "verification_status": organization.verification_status}
 
 
@@ -1683,20 +1688,14 @@ async def reject_user(
         raise HTTPException(status_code=404, detail="User not found")
     previous = target.status
     target.status = UserStatus.REJECTED
-    audit_context = request_audit_context(request)
-    counts = await invalidate_execution_state_for_request(
-        db,
-        user_ids=[target.id],
-        actor_user_id=current_user.id,
-        reason="user_rejected",
-        **audit_context,
-    )
+    # A rejected user is fail-closed at execution time: market mutations and
+    # the matching engine re-check execution_party_is_eligible under row locks.
+    # Tenant-level market cleanup is owned by the organization-rejection path.
     await record_audit(db, user_id=current_user.id, action=ADMIN_USER_REJECTED,
                        resource_type="user", resource_id=target.id,
-                       changes={"status": {"from": previous.value, "to": UserStatus.REJECTED.value}, **counts,
+                       changes={"status": {"from": previous.value, "to": UserStatus.REJECTED.value},
                                 "reason": body.reason}, **request_audit_context(request))
     await db.commit()
-    await publish_execution_invalidation(counts)
     return {"user_id": str(target.id), "status": target.status.value}
 
 
@@ -1983,15 +1982,12 @@ async def approve_organization_join(
 
     reviewed_at = datetime.now(UTC)
     audit_context = request_audit_context(request)
-    membership_invalidation = None
+    membership_changed = False
     if user.organization_id != organization.id:
-        membership_invalidation = await invalidate_execution_state_for_request(
-            db,
-            user_ids=[user.id],
-            actor_user_id=current_user.id,
-            reason="organization_membership_changed",
-            **audit_context,
-        )
+        # Membership changes fail closed at execution time: kyc_organization_id
+        # is reset below and execution_party_is_eligible re-checks the exact
+        # tenant binding under row locks on every market mutation.
+        membership_changed = True
         await _invalidate_membership_bound_kyc(
             db,
             user=user,
@@ -2015,13 +2011,11 @@ async def approve_organization_join(
             "organization_id": str(organization.id),
             "status": {"from": JoinRequestStatus.PENDING.value, "to": JoinRequestStatus.APPROVED.value},
             "review_note": body.review_note,
-            **(membership_invalidation or {}),
+            "membership_changed": membership_changed,
         },
         **audit_context,
     )
     await db.commit()
-    if membership_invalidation is not None:
-        await publish_execution_invalidation(membership_invalidation)
     return {"id": str(join_request.id), "status": join_request.status.value}
 
 

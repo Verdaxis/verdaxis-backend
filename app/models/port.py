@@ -5,7 +5,7 @@ from geoalchemy2 import Geography
 import uuid
 import enum
 from datetime import datetime
-from app.database import Base
+from app.model_base import Base
 
 class CongestionLevel(str, enum.Enum):
     Low = "Low"
@@ -57,4 +57,3 @@ class Vessel(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
     organization = relationship("Organization", back_populates="vessels")
-

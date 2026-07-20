@@ -34,10 +34,6 @@ from app.schemas.behavioral_analytics import (
 )
 from app.services.behavioral_analytics import UmamiAnalyticsService, get_analytics_service
 from app.services.demo_market import DEMO_MARKET_ORG_IDS
-from app.services.execution_invalidation import (
-    invalidate_execution_state_for_request,
-    publish_execution_invalidation,
-)
 from app.services.user_status_transition import record_status_transition
 
 
@@ -312,7 +308,8 @@ async def get_overview(
     open_orders_q = await db.execute(
         select(func.count(OrderBookOrder.id)).where(
             OrderBookOrder.organization_id.in_(market_org_ids),
-            OrderBookOrder.status.in_([OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED])
+            OrderBookOrder.status.in_([OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED]),
+            OrderBookOrder.expires_at.is_(None) | (OrderBookOrder.expires_at > func.now()),
         )
     )
     open_orders = open_orders_q.scalar() or 0
@@ -563,13 +560,11 @@ async def reject_user(
         db, user, from_status=previous_status, to_status=UserStatus.REJECTED
     )
     audit_context = request_audit_context(request)
-    counts = await invalidate_execution_state_for_request(
-        db,
-        user_ids=[user.id],
-        actor_user_id=current_user.id,
-        reason="admin_analytics_user_rejected",
-        **audit_context,
-    )
+    # A rejected user is fail-closed at execution time: every market mutation
+    # and the matching engine re-lock the concrete party and re-check
+    # execution_party_is_eligible in-transaction. Tenant-level cleanup of
+    # market state is owned by invalidate_organization_market_access on the
+    # organization rejection path.
     await record_audit(
         db,
         user_id=current_user.id,
@@ -578,12 +573,11 @@ async def reject_user(
         resource_id=user.id,
         changes={
             "status": {"from": previous_status.value, "to": UserStatus.REJECTED.value},
-            **counts,
+            "reason": "admin_analytics_user_rejected",
         },
         **audit_context,
     )
     await db.commit()
-    await publish_execution_invalidation(counts)
     await db.refresh(user)
 
     organization = (

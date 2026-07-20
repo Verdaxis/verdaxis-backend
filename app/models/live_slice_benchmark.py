@@ -5,7 +5,7 @@ from sqlalchemy import DateTime, Enum, ForeignKey, Index, Integer, Numeric, Stri
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.database import Base
+from app.model_base import Base
 from app.models.orderbook import OrderSide
 
 

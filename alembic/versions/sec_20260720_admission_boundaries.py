@@ -125,7 +125,9 @@ def upgrade() -> None:
         sa.Column("password_hash", sa.String(), nullable=False),
         sa.Column("first_name", sa.String(), nullable=True),
         sa.Column("last_name", sa.String(), nullable=True),
-        sa.Column("role", sa.String(), nullable=True),
+        # Integration note: width 8 matches the non-native UserRole enum the
+        # PendingRegistration model declares (longest value SUPPLIER).
+        sa.Column("role", sa.String(8), nullable=True),
         sa.Column("referral_code", sa.String(32), nullable=True),
         sa.Column("expires_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("used_at", sa.DateTime(timezone=True), nullable=True),
@@ -146,7 +148,9 @@ def upgrade() -> None:
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
         sa.Column("user_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("users.id"), nullable=False),
         sa.Column("organization_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("organizations.id"), nullable=False),
-        sa.Column("status", sa.String(), nullable=False, server_default="PENDING"),
+        # Integration note: width 8 matches the non-native JoinRequestStatus
+        # enum the OrganizationJoinRequest model declares (APPROVED/REJECTED).
+        sa.Column("status", sa.String(8), nullable=False, server_default="PENDING"),
         sa.Column("reviewed_by", postgresql.UUID(as_uuid=True), sa.ForeignKey("users.id"), nullable=True),
         sa.Column("reviewed_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("review_note", sa.Text(), nullable=True),

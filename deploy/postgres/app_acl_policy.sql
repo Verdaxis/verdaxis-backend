@@ -31,6 +31,7 @@ INSERT INTO app_table_policy (table_name, privileges) VALUES
     ('fair_price_bands', ARRAY['SELECT']),
     ('inventory_items', ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE']),
     ('live_slice_benchmarks', ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE']),
+    ('market_event_outbox', ARRAY['SELECT', 'INSERT', 'UPDATE']),
     ('market_indications', ARRAY['SELECT']),
     ('market_row_quarantines', ARRAY['SELECT']),
     ('market_signal_ingestion_runs', ARRAY['SELECT']),

@@ -3,6 +3,8 @@ from typing import Optional
 from decimal import Decimal
 from enum import Enum
 
+from app.schemas.market_activity import MarketDemoStatus, MarketScope, MarketSourceKind
+
 
 class AvailabilityLevel(str, Enum):
     AVAILABLE = "AVAILABLE"       # Green: >1000 MT total stock
@@ -16,7 +18,12 @@ class PortFuelAvailability(BaseModel):
     lat: float
     lng: float
     fuel_type: str
-    total_stock_mt: Decimal
+    market_product_code: str
+    total_stock_mt: Optional[Decimal]
     supplier_count: int
     availability_level: AvailabilityLevel
     avg_price_per_mt: Optional[Decimal] = None
+    source_kind: MarketSourceKind = MarketSourceKind.UNKNOWN
+    scope: MarketScope = MarketScope.UNKNOWN
+    demo_status: MarketDemoStatus = MarketDemoStatus.UNKNOWN
+    unknown_count: int = 0

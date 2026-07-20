@@ -16,6 +16,11 @@ def parse_args() -> argparse.Namespace:
         action='store_true',
         help='Clear and reseed market data so the demo state is reset for a fresh recording run.',
     )
+    parser.add_argument(
+        '--allow-demo-reset',
+        action='store_true',
+        help='Explicitly authorize deleting only the deterministic synthetic market fixture.',
+    )
     return parser.parse_args()
 
 
@@ -23,7 +28,11 @@ async def main() -> None:
     args = parse_args()
     logger.info("Running catalog + market seeds...")
     async with seed_session() as db:
-        await seed_all(db, force_reset_market=args.reset_market)
+        await seed_all(
+            db,
+            force_reset_market=args.reset_market,
+            allow_demo_reset=args.allow_demo_reset,
+        )
         await db.commit()
     logger.info("Seed complete.")
 

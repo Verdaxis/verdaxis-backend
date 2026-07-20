@@ -11,17 +11,23 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.catalog import DeliveryPoint, Product
-from app.models.orderbook import Initiator, OrderBookOrder, OrderBookStatus, OrderSide, Trade, TradeStatus
-from app.models.user import OrgType, Organization, TierLabel
+from app.models.orderbook import OrderBookOrder, OrderBookStatus, OrderSide, Trade
+from app.models.user import OrgType, Organization, OrganizationProvenance, TierLabel
 from app.seeds.market_seed import CI_DATA, PRICING, _slice_certification_scheme
-from app.services.availability_windows import SPOT_WINDOW, normalize_availability_window
+from app.services.availability_windows import (
+    availability_window_expiry,
+    normalize_availability_window,
+    tradable_availability_windows,
+)
 from app.services.demo_market import (
     DEMO_ACTIVITY_BUYER_ORG_ID,
     DEMO_ACTIVITY_ORG_IDS,
     DEMO_ACTIVITY_SELLER_ORG_ID,
 )
+from app.services.matching_engine import match_order
+from app.services.market_admission import lock_and_load_market_organizations
+from app.services.market_locks import acquire_market_slice_lock
 
-ACTIVITY_WINDOWS = (SPOT_WINDOW, "2026-06", "2026-Q3")
 MAX_GENERATED_TRADES = 80
 MAX_GENERATED_ORDERS = MAX_GENERATED_TRADES * 3
 RETENTION_DAYS = 7
@@ -34,6 +40,25 @@ def _activity_tick(now: datetime) -> datetime:
     return reference.replace(minute=(reference.minute // 5) * 5, second=0, microsecond=0)
 
 
+def activity_windows(now: datetime) -> tuple[str, ...]:
+    """Current canonical windows, derived from the injected activity clock."""
+    reference = now if now.tzinfo else now.replace(tzinfo=UTC)
+    return tuple(tradable_availability_windows(today=reference.date()))
+
+
+async def _tick_trade_exists(db: AsyncSession, reference: datetime) -> bool:
+    trade_id = (
+        await db.execute(
+            select(Trade.id).where(
+                Trade.buyer_id == DEMO_ACTIVITY_BUYER_ORG_ID,
+                Trade.seller_id == DEMO_ACTIVITY_SELLER_ORG_ID,
+                Trade.created_at == reference - timedelta(minutes=3),
+            )
+        )
+    ).scalar_one_or_none()
+    return trade_id is not None
+
+
 async def ensure_demo_activity_organizations(db: AsyncSession) -> None:
     organizations = {
         DEMO_ACTIVITY_BUYER_ORG_ID: Organization(
@@ -42,6 +67,7 @@ async def ensure_demo_activity_organizations(db: AsyncSession) -> None:
             domain="demo-buyer.verdaxis.local",
             type=OrgType.FUEL_BUYER,
             verification_status="APPROVED",
+            provenance=OrganizationProvenance.DEMO,
         ),
         DEMO_ACTIVITY_SELLER_ORG_ID: Organization(
             id=DEMO_ACTIVITY_SELLER_ORG_ID,
@@ -50,6 +76,7 @@ async def ensure_demo_activity_organizations(db: AsyncSession) -> None:
             type=OrgType.FUEL_SUPPLIER,
             supplier_tier=TierLabel.REGIONAL_SUPPLIER,
             verification_status="APPROVED",
+            provenance=OrganizationProvenance.DEMO,
         ),
     }
     for org in organizations.values():
@@ -67,7 +94,8 @@ def _quantity() -> Decimal:
 def _activity_slice(now: datetime) -> tuple[str, str, str]:
     product_name = _RNG.choice(tuple(PRICING.keys()))
     port_name = _RNG.choice(tuple(PRICING[product_name].keys()))
-    window = _RNG.choice(ACTIVITY_WINDOWS)
+    reference = now if now.tzinfo else now.replace(tzinfo=UTC)
+    window = _RNG.choice(activity_windows(reference))
     return product_name, port_name, normalize_availability_window(window)
 
 
@@ -100,10 +128,20 @@ async def _load_product_and_port(
     db: AsyncSession, product_name: str, port_name: str
 ) -> tuple[Product | None, DeliveryPoint | None]:
     product = (
-        await db.execute(select(Product).where(Product.name == product_name))
+        await db.execute(
+            select(Product).where(
+                Product.name == product_name,
+                Product.is_active.is_(True),
+            )
+        )
     ).scalar_one_or_none()
     delivery_point = (
-        await db.execute(select(DeliveryPoint).where(DeliveryPoint.name == port_name))
+        await db.execute(
+            select(DeliveryPoint).where(
+                DeliveryPoint.name == port_name,
+                DeliveryPoint.is_active.is_(True),
+            )
+        )
     ).scalar_one_or_none()
     return product, delivery_point
 
@@ -231,20 +269,11 @@ async def generate_demo_market_activity(
     tick_key = int(reference.timestamp() // 300)
     _RNG.seed(tick_key)
 
-    await ensure_demo_activity_organizations(db)
-    prune_result = await prune_demo_activity(db, now=reference)
+    # Organization provisioning and retention pruning are separate maintenance
+    # transactions. This transaction owns only one canonical market slice.
+    prune_result = {"trades_pruned": 0, "orders_pruned": 0}
 
-    existing_tick_trade = (
-        await db.execute(
-            select(Trade.id).where(
-                Trade.buyer_id == DEMO_ACTIVITY_BUYER_ORG_ID,
-                Trade.seller_id == DEMO_ACTIVITY_SELLER_ORG_ID,
-                Trade.created_at == reference - timedelta(minutes=3),
-            )
-        )
-    ).scalar_one_or_none()
-    if existing_tick_trade:
-        await db.commit()
+    if await _tick_trade_exists(db, reference):
         return {
             "created_orders": 0,
             "created_trades": 0,
@@ -261,11 +290,84 @@ async def generate_demo_market_activity(
             "reason": "missing product or delivery point",
             **prune_result,
         }
+    await acquire_market_slice_lock(
+        db,
+        side=OrderSide.BID,
+        product_id=product.id,
+        delivery_point_id=delivery_point.id,
+        availability_window=window,
+    )
+    # A concurrent tick may have passed the fast pre-check before waiting on
+    # this slice. Recheck under the transaction lock before inserting.
+    if await _tick_trade_exists(db, reference):
+        return {
+            "created_orders": 0,
+            "created_trades": 0,
+            "reason": "already generated for tick",
+            **prune_result,
+        }
+    await lock_and_load_market_organizations(db, DEMO_ACTIVITY_ORG_IDS)
+
+    trade_qty = _quantity()
+    ask_price = _price(product_name, port_name, OrderSide.ASK)
+    ask_order = OrderBookOrder(
+        organization_id=DEMO_ACTIVITY_SELLER_ORG_ID,
+        provenance=OrganizationProvenance.DEMO,
+        side=OrderSide.ASK,
+        product_id=product.id,
+        delivery_point_id=delivery_point.id,
+        quantity_mt=trade_qty,
+        remaining_quantity_mt=trade_qty,
+        price_per_mt_usd=ask_price,
+        availability_window=window,
+        status=OrderBookStatus.OPEN,
+        expires_at=availability_window_expiry(window, observed_at=reference),
+        created_at=reference - timedelta(minutes=8),
+        updated_at=reference - timedelta(minutes=8),
+        **_ask_metadata(product_name, port_name, window),
+    )
+    db.add(ask_order)
+    await db.flush()
+
+    bid_order = OrderBookOrder(
+        organization_id=DEMO_ACTIVITY_BUYER_ORG_ID,
+        provenance=OrganizationProvenance.DEMO,
+        side=OrderSide.BID,
+        product_id=product.id,
+        delivery_point_id=delivery_point.id,
+        quantity_mt=trade_qty,
+        remaining_quantity_mt=trade_qty,
+        price_per_mt_usd=max(_price(product_name, port_name, OrderSide.BID), ask_price),
+        availability_window=window,
+        status=OrderBookStatus.OPEN,
+        expires_at=availability_window_expiry(window, observed_at=reference),
+        created_at=reference - timedelta(minutes=7),
+        updated_at=reference - timedelta(minutes=7),
+    )
+    db.add(bid_order)
+    await db.flush()
+
+    trades = await match_order(
+        db,
+        bid_order,
+        is_anonymous=True,
+        allowed_demo_order_pair=frozenset((bid_order.id, ask_order.id)),
+    )
+    if len(trades) != 1 or trades[0].bid_order_id != bid_order.id or trades[0].ask_order_id != ask_order.id:
+        raise RuntimeError(
+            "demo pair did not produce exactly one canonical match; caller must roll back"
+        )
+    trade = trades[0]
+    trade.created_at = reference - timedelta(minutes=3)
+    trade.confirmed_at = reference - timedelta(minutes=2)
+    bid_order.updated_at = reference
+    ask_order.updated_at = reference
 
     visible_side = OrderSide.BID if int(reference.timestamp() // 300) % 2 == 0 else OrderSide.ASK
     visible_qty = _quantity()
     visible_order = OrderBookOrder(
         organization_id=DEMO_ACTIVITY_BUYER_ORG_ID if visible_side == OrderSide.BID else DEMO_ACTIVITY_SELLER_ORG_ID,
+        provenance=OrganizationProvenance.DEMO,
         side=visible_side,
         product_id=product.id,
         delivery_point_id=delivery_point.id,
@@ -274,59 +376,12 @@ async def generate_demo_market_activity(
         price_per_mt_usd=_price(product_name, port_name, visible_side),
         availability_window=window,
         status=OrderBookStatus.OPEN,
+        expires_at=availability_window_expiry(window, observed_at=reference),
         created_at=reference,
         updated_at=reference,
         **(_ask_metadata(product_name, port_name, window) if visible_side == OrderSide.ASK else {}),
     )
     db.add(visible_order)
-
-    trade_qty = _quantity()
-    bid_order = OrderBookOrder(
-        organization_id=DEMO_ACTIVITY_BUYER_ORG_ID,
-        side=OrderSide.BID,
-        product_id=product.id,
-        delivery_point_id=delivery_point.id,
-        quantity_mt=trade_qty,
-        remaining_quantity_mt=Decimal("0"),
-        price_per_mt_usd=_price(product_name, port_name, OrderSide.BID),
-        availability_window=window,
-        status=OrderBookStatus.FILLED,
-        created_at=reference - timedelta(minutes=8),
-        updated_at=reference,
-    )
-    ask_price = max(_price(product_name, port_name, OrderSide.ASK), bid_order.price_per_mt_usd)
-    ask_order = OrderBookOrder(
-        organization_id=DEMO_ACTIVITY_SELLER_ORG_ID,
-        side=OrderSide.ASK,
-        product_id=product.id,
-        delivery_point_id=delivery_point.id,
-        quantity_mt=trade_qty,
-        remaining_quantity_mt=Decimal("0"),
-        price_per_mt_usd=ask_price,
-        availability_window=window,
-        status=OrderBookStatus.FILLED,
-        created_at=reference - timedelta(minutes=7),
-        updated_at=reference,
-        **_ask_metadata(product_name, port_name, window),
-    )
-    db.add_all([bid_order, ask_order])
-    await db.flush()
-
-    trade = Trade(
-        bid_order_id=bid_order.id,
-        ask_order_id=ask_order.id,
-        buyer_id=DEMO_ACTIVITY_BUYER_ORG_ID,
-        seller_id=DEMO_ACTIVITY_SELLER_ORG_ID,
-        initiated_by=Initiator.BUYER,
-        is_anonymous=True,
-        quantity_mt=trade_qty,
-        price_per_mt_usd=ask_price,
-        status=TradeStatus.CONFIRMED,
-        confirmed_at=reference - timedelta(minutes=2),
-        created_at=reference - timedelta(minutes=3),
-    )
-    db.add(trade)
-    await db.commit()
 
     return {
         "created_orders": 3,

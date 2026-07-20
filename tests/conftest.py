@@ -19,6 +19,22 @@ os.environ.setdefault("JWT_SECRET", "test-secret-key-for-testing-minimum-32-char
 os.environ.setdefault("JWT_ISSUER", "verdaxis-test-api")
 os.environ.setdefault("JWT_AUDIENCE", "verdaxis-test-web")
 
+# Black-box integration tests target an explicitly supplied running service.
+# Never guess localhost: that turns a missing external harness into hundreds
+# of misleading connection/setup failures during the self-contained suite.
+TEST_API_URL = os.environ.get("TEST_API_URL", "").strip()
+
+
+def pytest_collection_modifyitems(config, items):
+    if TEST_API_URL:
+        return
+    skip_external = pytest.mark.skip(
+        reason="TEST_API_URL is not configured for black-box integration tests"
+    )
+    for item in items:
+        if "/tests/integration/" in str(item.path):
+            item.add_marker(skip_external)
+
 
 @pytest.fixture(scope="session")
 def event_loop() -> Generator[asyncio.AbstractEventLoop, None, None]:
@@ -34,10 +50,9 @@ async def client() -> AsyncClient:
     Create an async HTTP client for testing API endpoints.
     Tests against the explicitly configured running backend.
     """
-    from tests.runtime_config import resolve_test_api_url
-
-    test_api_url = resolve_test_api_url(os.environ)
-    async with AsyncClient(base_url=test_api_url, timeout=10.0) as ac:
+    if not TEST_API_URL:
+        pytest.skip("TEST_API_URL is not configured")
+    async with AsyncClient(base_url=TEST_API_URL, timeout=10.0) as ac:
         yield ac
 
 

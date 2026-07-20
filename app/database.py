@@ -1,8 +1,14 @@
 from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
-from sqlalchemy.orm import DeclarativeBase
 from app.config import Settings, settings
+from app.environment_database import validate_database_target
+# Single declarative registry shared with the config-free base Alembic imports.
+# `as Base` marks this an intentional re-export so linters keep it; all models
+# must bind to this one Base or the metadata splits into two registries.
+from app.model_base import Base as Base
+# Single declarative registry shared with the config-free base that Alembic
+# imports. All models must bind to this one Base or metadata splits in two.
 
 
 def engine_options(config: Settings) -> dict:
@@ -202,6 +208,15 @@ async def verify_database_runtime(config: Settings = settings) -> None:
         observed_max_connections = int(
             (await connection.execute(text("SHOW max_connections"))).scalar_one()
         )
+    # Environment/database identity boundary: a staging process pointed at the
+    # production database (or vice versa) must fail closed at boot, using the
+    # actually connected database name, not just the configured URL.
+    if config.ENVIRONMENT in ("production", "staging", "test"):
+        validate_database_target(
+            environment=config.ENVIRONMENT,
+            database_url=config.DATABASE_URL,
+            current_database=identity[0],
+        )
     assert_database_runtime_is_safe(
         config,
         connected_database=identity[0],
@@ -235,8 +250,6 @@ AsyncSessionLocal = async_sessionmaker(
     autoflush=False,
 )
 
-class Base(DeclarativeBase):
-    pass
 
 async def get_db():
     async with AsyncSessionLocal() as session:

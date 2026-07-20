@@ -8,7 +8,8 @@ from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.database import Base
-from app.models.user import Organization, OrgType
+from app.market_catalog import DELIVERY_POINTS_BY_NAME, PRODUCTS_BY_NAME
+from app.models.user import Organization, OrganizationProvenance, OrgType
 from app.models.catalog import Product, DeliveryPoint
 from app.models.orderbook import OrderBookOrder, OrderSide
 from app.routers.orderbook import list_asks, list_bids
@@ -49,24 +50,44 @@ async def db(async_engine, setup_tables):
     async with session_factory() as session:
         yield session
         await session.rollback()
+        for table in ("live_slice_benchmarks", "orderbook_orders", "delivery_points", "products", "organizations"):
+            await session.execute(delete(Base.metadata.tables[table]))
+        await session.commit()
 
 
 async def _make_org(db, name: str) -> Organization:
-    org = Organization(name=name, type=OrgType.FUEL_SUPPLIER)
+    org = Organization(
+        name=name,
+        type=OrgType.FUEL_SUPPLIER,
+        provenance=OrganizationProvenance.REAL,
+    )
     db.add(org)
     await db.flush()
     return org
 
 
 async def _make_product(db, name: str, fuel_type: str, fuel_grade: str) -> Product:
-    product = Product(name=f"{name} {uuid4().hex[:8]}", fuel_type=fuel_type, fuel_grade=fuel_grade)
+    spec = PRODUCTS_BY_NAME.get(name)
+    product = Product(
+        id=(spec.id if spec and (spec.fuel_type, spec.fuel_grade) == (fuel_type, fuel_grade) else uuid4()),
+        name=name,
+        fuel_type=fuel_type,
+        fuel_grade=fuel_grade,
+        is_active=True,
+    )
     db.add(product)
     await db.flush()
     return product
 
 
 async def _make_delivery_point(db, name: str, region: str) -> DeliveryPoint:
-    dp = DeliveryPoint(name=f"{name} {uuid4().hex[:8]}", region=region)
+    spec = DELIVERY_POINTS_BY_NAME.get(name)
+    dp = DeliveryPoint(
+        id=(spec.id if spec and spec.region == region else uuid4()),
+        name=name,
+        region=region,
+        is_active=True,
+    )
     db.add(dp)
     await db.flush()
     return dp
@@ -85,6 +106,7 @@ def _make_order(
 ):
     payload = dict(
         organization_id=org_id,
+        provenance=OrganizationProvenance.REAL,
         side=side,
         product_id=product_id,
         delivery_point_id=delivery_point_id,
@@ -114,7 +136,7 @@ class TestCrossingDetectionFilters:
         seller_org = await _make_org(db, "Seller Org")
         other_seller_org = await _make_org(db, "Other Seller Org")
 
-        methanol = await _make_product(db, "Methanol Green", "Methanol", "Green")
+        methanol = await _make_product(db, "Bio Methanol", "Methanol", "Bio")
         lng = await _make_product(db, "LNG Conventional", "LNG", "Conventional")
 
         singapore = await _make_delivery_point(db, "Singapore", "Asia")
@@ -190,7 +212,7 @@ class TestCrossingDetectionFilters:
         seller_org = await _make_org(db, "Seller Org")
         other_buyer_org = await _make_org(db, "Other Buyer Org")
 
-        methanol = await _make_product(db, "Methanol Green", "Methanol", "Green")
+        methanol = await _make_product(db, "Bio Methanol", "Methanol", "Bio")
         lng = await _make_product(db, "LNG Conventional", "LNG", "Conventional")
 
         singapore = await _make_delivery_point(db, "Singapore", "Asia")

@@ -2,7 +2,7 @@
 from uuid import uuid4
 from sqlalchemy import Column, String, Numeric, Boolean, DateTime, ForeignKey, Index, func
 from sqlalchemy.dialects.postgresql import UUID
-from app.database import Base
+from app.model_base import Base
 
 
 class PriceAlert(Base):

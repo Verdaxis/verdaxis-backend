@@ -5,7 +5,7 @@ import uuid
 import enum
 from datetime import datetime
 from decimal import Decimal
-from app.database import Base
+from app.model_base import Base
 
 
 class MatchStatus(str, enum.Enum):

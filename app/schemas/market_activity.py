@@ -10,6 +10,7 @@ from pydantic import BaseModel
 class MarketSourceKind(str, Enum):
     CONFIRMED_TRADE = "CONFIRMED_TRADE"
     LIVE_ORDER = "LIVE_ORDER"
+    LIVE_INVENTORY = "LIVE_INVENTORY"
     DEMO_SEED = "DEMO_SEED"
     BENCHMARK_REFERENCE = "BENCHMARK_REFERENCE"
     MIXED_SOURCE = "MIXED_SOURCE"
@@ -51,7 +52,9 @@ def demo_status_from_counts(*, real_count: int = 0, demo_count: int = 0, unknown
     if unknown_count > 0:
         return MarketDemoStatus.UNKNOWN
     if real_count > 0 and demo_count > 0:
-        return MarketDemoStatus.MIXED
+        # A caller supplied an invalid blended aggregate. Fail closed rather
+        # than assigning it a public evidence label.
+        return MarketDemoStatus.UNKNOWN
     if demo_count > 0:
         return MarketDemoStatus.DEMO_ONLY
     return MarketDemoStatus.REAL_ONLY
@@ -71,7 +74,7 @@ def source_kind_from_counts(
     if status == MarketDemoStatus.UNKNOWN:
         return MarketSourceKind.UNKNOWN
     if status == MarketDemoStatus.MIXED:
-        return MarketSourceKind.MIXED_SOURCE
+        return MarketSourceKind.UNKNOWN
     if status == MarketDemoStatus.DEMO_ONLY:
         return MarketSourceKind.DEMO_SEED
     return real_source

@@ -4,9 +4,9 @@ Tests the aggregation query builder without a live DB by mocking the session.
 """
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
-from datetime import date, datetime, UTC
+from datetime import date, datetime, timedelta, UTC
 from decimal import Decimal
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.dialects import postgresql
@@ -14,9 +14,20 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from app.database import Base
 from app.main import app
+from app.market_catalog import (
+    DELIVERY_POINTS_BY_NAME,
+    PRODUCTS_BY_NAME,
+)
 from app.models.catalog import DeliveryPoint, Product
-from app.models.orderbook import OrderBookOrder, OrderSide, Trade, TradeStatus, Initiator
-from app.models.user import Organization, OrgType
+from app.models.orderbook import (
+    Initiator,
+    OrderBookOrder,
+    OrderBookStatus,
+    OrderSide,
+    Trade,
+    TradeStatus,
+)
+from app.models.user import Organization, OrgType, OrganizationProvenance
 from app.routers.price_discovery import aggregate_trade_prices, compute_reference_prices
 from app.schemas.market_activity import MarketDemoStatus, MarketSourceKind
 from app.schemas.orderbook import ReferencePriceItem
@@ -50,28 +61,33 @@ async def _seed_confirmed_trade(
     trade_created_at: datetime | None = None,
 ) -> tuple[Product, DeliveryPoint, OrderBookOrder, Trade]:
     created_at = trade_created_at or datetime.now(UTC)
-    buyer = Organization(id=buyer_id or uuid4(), name=f"Buyer-{uuid4().hex[:6]}", type=OrgType.SHIPPING_LINE)
-    seller = Organization(id=seller_id or uuid4(), name=f"Seller-{uuid4().hex[:6]}", type=OrgType.FUEL_SUPPLIER)
+    buyer = Organization(id=buyer_id or uuid4(), name=f"Buyer-{uuid4().hex[:6]}", type=OrgType.SHIPPING_LINE, verification_status="APPROVED", provenance=(OrganizationProvenance.DEMO if (buyer_id or UUID(int=0)) in {DEMO_ACTIVITY_BUYER_ORG_ID, DEMO_ACTIVITY_SELLER_ORG_ID} else OrganizationProvenance.REAL))
+    seller = Organization(id=seller_id or uuid4(), name=f"Seller-{uuid4().hex[:6]}", type=OrgType.FUEL_SUPPLIER, verification_status="APPROVED", provenance=(OrganizationProvenance.DEMO if (seller_id or UUID(int=0)) in {DEMO_ACTIVITY_BUYER_ORG_ID, DEMO_ACTIVITY_SELLER_ORG_ID} else OrganizationProvenance.REAL))
     should_add_product = product is None
     if should_add_product:
+        product_spec = PRODUCTS_BY_NAME[product_name]
         product = Product(
-            id=uuid4(),
+            id=product_spec.id,
             name=product_name,
             fuel_type=fuel_type,
             fuel_grade=fuel_grade,
             unit="MT",
             min_lot_size=100,
+            is_active=True,
         )
     should_add_delivery_point = delivery_point is None
     if should_add_delivery_point:
+        point_spec = DELIVERY_POINTS_BY_NAME[delivery_point_name]
         delivery_point = DeliveryPoint(
-            id=uuid4(),
+            id=point_spec.id,
             name=delivery_point_name,
             region=region,
             timezone="UTC",
+            is_active=True,
         )
     order = OrderBookOrder(
         organization_id=seller.id,
+        provenance=seller.provenance,
         side=OrderSide.ASK,
         product_id=product.id,
         delivery_point_id=delivery_point.id,
@@ -79,7 +95,13 @@ async def _seed_confirmed_trade(
         remaining_quantity_mt=Decimal("0.00"),
         price_per_mt_usd=Decimal(price),
         availability_window=availability_window,
+        status=OrderBookStatus.FILLED,
         created_at=created_at,
+        expires_at=(
+            created_at + timedelta(days=1)
+            if seller.provenance == OrganizationProvenance.DEMO
+            else None
+        ),
         certification_declared=True,
         certification_scheme="ISCC EU",
         certifications=["ISCC EU"],
@@ -97,10 +119,23 @@ async def _seed_confirmed_trade(
         ask_order_id=order.id,
         buyer_id=buyer.id,
         seller_id=seller.id,
+        initiator_org_id=buyer.id,
+        buyer_provenance=buyer.provenance,
+        seller_provenance=seller.provenance,
         initiated_by=Initiator.BUYER,
+        product_id=product.id,
+        product_name=product.name,
+        fuel_type=product.fuel_type,
+        fuel_grade=product.fuel_grade,
+        market_product=product.market_product,
+        delivery_point_id=delivery_point.id,
+        delivery_point_name=delivery_point.name,
+        delivery_point_region=delivery_point.region,
+        availability_window=order.availability_window,
         quantity_mt=Decimal(quantity),
         price_per_mt_usd=Decimal(price),
         status=TradeStatus.CONFIRMED,
+        confirmed_at=created_at,
         created_at=created_at,
     )
     db.add(trade)
@@ -181,10 +216,10 @@ class TestAggregateFunction:
 
         try:
             async with session_factory() as db:
-                buyer = Organization(id=uuid4(), name="Buyer", type=OrgType.SHIPPING_LINE)
-                seller = Organization(id=uuid4(), name="Seller", type=OrgType.FUEL_SUPPLIER)
+                buyer = Organization(id=uuid4(), name="Buyer", type=OrgType.SHIPPING_LINE, provenance=OrganizationProvenance.REAL)
+                seller = Organization(id=uuid4(), name="Seller", type=OrgType.FUEL_SUPPLIER, provenance=OrganizationProvenance.REAL)
                 product = Product(
-                    id=uuid4(),
+                    id=PRODUCTS_BY_NAME["Bio Methanol"].id,
                     name="Bio Methanol",
                     fuel_type="Methanol",
                     fuel_grade="Bio",
@@ -192,7 +227,7 @@ class TestAggregateFunction:
                     min_lot_size=100,
                 )
                 delivery_point = DeliveryPoint(
-                    id=uuid4(),
+                    id=DELIVERY_POINTS_BY_NAME["Singapore"].id,
                     name="Singapore",
                     region="Asia",
                     timezone="Asia/Singapore",
@@ -215,10 +250,23 @@ class TestAggregateFunction:
                     ask_order_id=None,
                     buyer_id=buyer.id,
                     seller_id=seller.id,
+                    initiator_org_id=seller.id,
+                    buyer_provenance=OrganizationProvenance.REAL,
+                    seller_provenance=OrganizationProvenance.REAL,
                     initiated_by=Initiator.SELLER,
+                    product_id=product.id,
+                    product_name=product.name,
+                    fuel_type=product.fuel_type,
+                    fuel_grade=product.fuel_grade,
+                    market_product=product.market_product,
+                    delivery_point_id=delivery_point.id,
+                    delivery_point_name=delivery_point.name,
+                    delivery_point_region=delivery_point.region,
+                    availability_window=bid.availability_window,
                     quantity_mt=Decimal("250.00"),
                     price_per_mt_usd=Decimal("1100.00"),
                     status=TradeStatus.CONFIRMED,
+                    confirmed_at=datetime.now(UTC),
                     created_at=datetime.now(UTC),
                 )
                 db.add(trade)
@@ -280,7 +328,7 @@ class TestAggregateFunction:
             await engine.dispose()
 
     @pytest.mark.asyncio
-    async def test_mixed_trade_summary_is_marked_mixed_source(self):
+    async def test_real_and_demo_trade_summaries_are_separate(self):
         engine = create_async_engine("sqlite+aiosqlite://", echo=False)
         tables = [Base.metadata.tables[name] for name in _PRICE_DISCOVERY_TABLES]
 
@@ -318,19 +366,27 @@ class TestAggregateFunction:
 
                 summaries = await aggregate_trade_prices(db, hours=24)
 
-            assert len(summaries) == 1
-            assert summaries[0].source_kind == MarketSourceKind.MIXED_SOURCE
-            assert summaries[0].demo_status == MarketDemoStatus.MIXED
-            assert summaries[0].real_trade_count_24h == 1
-            assert summaries[0].demo_trade_count_24h == 1
-            assert summaries[0].unknown_trade_count_24h == 0
+            assert len(summaries) == 2
+            by_status = {summary.demo_status: summary for summary in summaries}
+            real = by_status[MarketDemoStatus.REAL_ONLY]
+            demo = by_status[MarketDemoStatus.DEMO_ONLY]
+            assert real.source_kind == MarketSourceKind.CONFIRMED_TRADE
+            assert real.last_price == Decimal("1100.00")
+            assert real.volume_24h == Decimal("100.00")
+            assert real.real_trade_count_24h == 1
+            assert real.demo_trade_count_24h == 0
+            assert demo.source_kind == MarketSourceKind.DEMO_SEED
+            assert demo.last_price == Decimal("1115.00")
+            assert demo.volume_24h == Decimal("100.00")
+            assert demo.real_trade_count_24h == 0
+            assert demo.demo_trade_count_24h == 1
         finally:
             async with engine.begin() as conn:
                 await conn.run_sync(Base.metadata.drop_all, tables=tables)
             await engine.dispose()
 
     @pytest.mark.asyncio
-    async def test_one_sided_demo_trade_summary_is_marked_unknown(self):
+    async def test_one_sided_demo_trade_is_quarantined_without_economic_values(self):
         engine = create_async_engine("sqlite+aiosqlite://", echo=False)
         tables = [Base.metadata.tables[name] for name in _PRICE_DISCOVERY_TABLES]
 
@@ -356,11 +412,16 @@ class TestAggregateFunction:
                 summaries = await aggregate_trade_prices(db, hours=24)
 
             assert len(summaries) == 1
-            assert summaries[0].source_kind == MarketSourceKind.UNKNOWN
-            assert summaries[0].demo_status == MarketDemoStatus.UNKNOWN
-            assert summaries[0].real_trade_count_24h == 0
-            assert summaries[0].demo_trade_count_24h == 0
-            assert summaries[0].unknown_trade_count_24h == 1
+            summary = summaries[0]
+            assert summary.source_kind == MarketSourceKind.UNKNOWN
+            assert summary.demo_status == MarketDemoStatus.UNKNOWN
+            assert summary.last_price is None
+            assert summary.avg_price_24h is None
+            assert summary.high_24h is None
+            assert summary.low_24h is None
+            assert summary.volume_24h == Decimal("0")
+            assert summary.trade_count_24h == 0
+            assert summary.unknown_trade_count_24h == 1
         finally:
             async with engine.begin() as conn:
                 await conn.run_sync(Base.metadata.drop_all, tables=tables)
@@ -585,15 +646,17 @@ class TestComputeReferencePrices:
         # Trade 1: 100 MT @ $500 = $50,000
         # Trade 2: 200 MT @ $550 = $110,000
         # VWAP = $160,000 / 300 = $533.33
-        pid = uuid4()
-        dpid = uuid4()
+        pid = PRODUCTS_BY_NAME["Bio Methanol"].id
+        dpid = DELIVERY_POINTS_BY_NAME["Singapore"].id
         mock_row = MagicMock()
         mock_row.product_id = pid
-        mock_row.product_name = "Methanol Green"
+        mock_row.product_name = "Bio Methanol"
         mock_row.fuel_type = "Methanol"
+        mock_row.market_product = "BIO_METHANOL"
         mock_row.delivery_point_id = dpid
         mock_row.delivery_point_name = "Singapore"
         mock_row.region = "Asia"
+        mock_row.availability_window = "SPOT"
         mock_row.trade_date = date(2026, 2, 15)
         mock_row.weighted_sum = Decimal("160000.00")
         mock_row.total_volume = Decimal("300.00")
@@ -605,7 +668,7 @@ class TestComputeReferencePrices:
 
         assert len(prices) == 1
         assert prices[0].product_id == pid
-        assert prices[0].product_name == "Methanol Green"
+        assert prices[0].product_name == "Bio Methanol"
         assert prices[0].fuel_type == "Methanol"
         assert prices[0].delivery_point_id == dpid
         assert prices[0].delivery_point_name == "Singapore"
@@ -621,18 +684,20 @@ class TestComputeReferencePrices:
         mock_db = AsyncMock()
         mock_result = MagicMock()
 
-        pid1 = uuid4()
-        pid2 = uuid4()
-        dpid1 = uuid4()
-        dpid2 = uuid4()
+        pid1 = PRODUCTS_BY_NAME["Bio Methanol"].id
+        pid2 = PRODUCTS_BY_NAME["e-Methanol"].id
+        dpid1 = DELIVERY_POINTS_BY_NAME["Singapore"].id
+        dpid2 = DELIVERY_POINTS_BY_NAME["Rotterdam"].id
 
         row1 = MagicMock()
         row1.product_id = pid1
-        row1.product_name = "Methanol Green"
+        row1.product_name = "Bio Methanol"
         row1.fuel_type = "Methanol"
+        row1.market_product = "BIO_METHANOL"
         row1.delivery_point_id = dpid1
         row1.delivery_point_name = "Singapore"
         row1.region = "Asia"
+        row1.availability_window = "SPOT"
         row1.trade_date = date(2026, 2, 15)
         row1.weighted_sum = Decimal("100000.00")
         row1.total_volume = Decimal("200.00")
@@ -640,11 +705,13 @@ class TestComputeReferencePrices:
 
         row2 = MagicMock()
         row2.product_id = pid2
-        row2.product_name = "Ammonia Green"
-        row2.fuel_type = "Ammonia"
+        row2.product_name = "e-Methanol"
+        row2.fuel_type = "Methanol"
+        row2.market_product = "E_METHANOL"
         row2.delivery_point_id = dpid2
-        row2.delivery_point_name = "ARA"
+        row2.delivery_point_name = "Rotterdam"
         row2.region = "Europe"
+        row2.availability_window = "SPOT"
         row2.trade_date = date(2026, 2, 15)
         row2.weighted_sum = Decimal("75000.00")
         row2.total_volume = Decimal("100.00")
@@ -658,7 +725,7 @@ class TestComputeReferencePrices:
         assert len(prices) == 2
         assert prices[0].fuel_type == "Methanol"
         assert prices[0].vwap_usd == Decimal("500.00")
-        assert prices[1].fuel_type == "Ammonia"
+        assert prices[1].market_product == "E_METHANOL"
         assert prices[1].vwap_usd == Decimal("750.00")
 
     @pytest.mark.asyncio
@@ -667,12 +734,14 @@ class TestComputeReferencePrices:
         mock_db = AsyncMock()
         mock_result = MagicMock()
         mock_row = MagicMock()
-        mock_row.product_id = uuid4()
-        mock_row.product_name = "LNG Conventional"
-        mock_row.fuel_type = "LNG"
-        mock_row.delivery_point_id = uuid4()
-        mock_row.delivery_point_name = "Tokyo"
+        mock_row.product_id = PRODUCTS_BY_NAME["Bio Methanol"].id
+        mock_row.product_name = "Bio Methanol"
+        mock_row.fuel_type = "Methanol"
+        mock_row.market_product = "BIO_METHANOL"
+        mock_row.delivery_point_id = DELIVERY_POINTS_BY_NAME["Singapore"].id
+        mock_row.delivery_point_name = "Singapore"
         mock_row.region = "Asia"
+        mock_row.availability_window = "SPOT"
         mock_row.trade_date = date(2026, 3, 1)
         mock_row.weighted_sum = Decimal("0")
         mock_row.total_volume = Decimal("0")
@@ -751,6 +820,72 @@ class TestComputeReferencePrices:
             assert prices[0].market_product == "BIO_ETHANOL"
             assert prices[0].availability_window == "2026-06"
             assert prices[0].vwap_usd == Decimal("540.00")
+        finally:
+            async with engine.begin() as conn:
+                await conn.run_sync(Base.metadata.drop_all, tables=tables)
+            await engine.dispose()
+
+    @pytest.mark.asyncio
+    async def test_reference_prices_use_immutable_snapshots_and_real_scope_only(self):
+        engine = create_async_engine("sqlite+aiosqlite://", echo=False)
+        tables = [Base.metadata.tables[name] for name in _PRICE_DISCOVERY_TABLES]
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all, tables=tables)
+        session_factory = async_sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
+
+        try:
+            async with session_factory() as db:
+                product, point, order, real_trade = await _seed_confirmed_trade(
+                    db,
+                    product_name="Bio Methanol",
+                    fuel_type="Methanol",
+                    fuel_grade="Bio",
+                    delivery_point_name="Singapore",
+                    region="Asia",
+                    availability_window="SPOT",
+                    price="700.00",
+                )
+                await _seed_confirmed_trade(
+                    db,
+                    product_name="Bio Methanol",
+                    fuel_type="Methanol",
+                    fuel_grade="Bio",
+                    delivery_point_name="Singapore",
+                    region="Asia",
+                    availability_window="SPOT",
+                    price="999.00",
+                    product=product,
+                    delivery_point=point,
+                    buyer_id=DEMO_ACTIVITY_BUYER_ORG_ID,
+                    seller_id=DEMO_ACTIVITY_SELLER_ORG_ID,
+                )
+
+                # Mutable catalog/order/current-org changes cannot rewrite history.
+                product.name = "Mutated Product"
+                product.fuel_type = "Ammonia"
+                product.fuel_grade = "Synthetic"
+                point.name = "Mutated Port"
+                point.region = "Mutated Region"
+                order.availability_window = "2026-Q4"
+                buyer = await db.get(Organization, real_trade.buyer_id)
+                seller = await db.get(Organization, real_trade.seller_id)
+                buyer.provenance = OrganizationProvenance.DEMO
+                seller.provenance = OrganizationProvenance.DEMO
+                await db.commit()
+
+                prices = await compute_reference_prices(
+                    db,
+                    market_product="BIO_METHANOL",
+                    region="Asia",
+                    availability_window="SPOT",
+                )
+
+            assert len(prices) == 1
+            assert prices[0].product_name == "Bio Methanol"
+            assert prices[0].delivery_point_name == "Singapore"
+            assert prices[0].region == "Asia"
+            assert prices[0].vwap_usd == Decimal("700.00")
+            assert prices[0].demo_status == MarketDemoStatus.REAL_ONLY
         finally:
             async with engine.begin() as conn:
                 await conn.run_sync(Base.metadata.drop_all, tables=tables)

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from typing import Any
-from sqlalchemy import Enum, String
+from sqlalchemy import Enum, Float, Numeric, String
 
 
 # PostGIS owns spatial_ref_sys in public and the geocoder tables in its tiger
@@ -139,9 +139,20 @@ def compare_type(context: Any, inspected_column: Any, metadata_column: Any,
 
     Non-native SQLAlchemy enums are intentionally stored as VARCHAR values.
     The callback only returns a result for this precise Enum-to-VARCHAR
-    representation. A changed length or reflected value constraint is a real
-    diff; unrelated types use Alembic's normal comparison implementation.
+    representation. A changed length or pure reflected value constraint is a
+    real diff; unrelated types use Alembic's normal comparison implementation.
     """
+    if (
+        isinstance(metadata_type, Numeric)
+        and isinstance(inspected_type, Numeric)
+        and not isinstance(metadata_type, Float)
+        and not isinstance(inspected_type, Float)
+    ):
+        # Market numeric integrity pins exact typmods: a NUMERIC that gains or
+        # loses (precision, scale) silently changes rounding semantics.
+        actual_typmod = (inspected_type.precision, inspected_type.scale)
+        expected_typmod = (metadata_type.precision, metadata_type.scale)
+        return actual_typmod != expected_typmod
     if isinstance(metadata_type, Enum) and isinstance(inspected_type, String):
         if inspected_type.length != metadata_type.length:
             return True
@@ -154,7 +165,14 @@ def compare_type(context: Any, inspected_column: Any, metadata_column: Any,
 
 
 def _reflected_enum_values(inspected_column: Any) -> tuple[str, ...] | None:
-    """Read a simple reflected ``CHECK (column IN (...))`` value set, if present."""
+    """Read a pure reflected ``CHECK (column IN (...))`` value set, if present.
+
+    Only a constraint whose entire predicate is that single membership test is
+    consulted. Market domain/lifecycle CHECK constraints embed ``IN`` subsets
+    inside compound AND/OR expressions, so inferring enum membership from them
+    is ambiguous; those named constraints are owned by the market migration
+    and its integrity tests and are skipped here.
+    """
     constraints = set(getattr(inspected_column, "constraints", ()) or ())
     table = getattr(inspected_column, "table", None)
     constraints.update(getattr(table, "constraints", ()) or ())
@@ -171,6 +189,9 @@ def _reflected_enum_values(inspected_column: Any) -> tuple[str, ...] | None:
     )
     for constraint in constraints:
         sqltext = str(getattr(constraint, "sqltext", ""))
+        unquoted = re.sub(r"'(?:''|[^'])*'", "''", sqltext)
+        if re.search(r"\b(AND|OR|NOT|CASE)\b", unquoted, flags=re.IGNORECASE):
+            continue
         for pattern in patterns:
             match = pattern.search(sqltext)
             if match:
@@ -260,17 +281,21 @@ _PYTHON_DEFAULT_COMPATIBILITY = {
     ("news_items", "category", "'markets'"),
     ("news_items", "relevance", "3"),
     ("orderbook_orders", "id", "gen_random_uuid()"),
+    ("organization_join_requests", "status", "'PENDING'"),
+    ("organization_join_requests", "created_at", "now()"),
     ("organizations", "id", "gen_random_uuid()"),
     ("organizations", "verification_status", "'PENDING'"),
     ("organizations", "created_at", "now()"),
     ("port_intelligence", "id", "gen_random_uuid()"),
     ("port_intelligence", "captured_at", "now()"),
+    ("pending_registrations", "created_at", "now()"),
     ("ports", "is_active", "true"),
     ("price_alerts", "is_active", "true"),
     ("producer_projects", "id", "gen_random_uuid()"),
     ("products", "unit", "'MT'"),
     ("products", "min_lot_size", "100"),
     ("products", "is_active", "true"),
+    ("refresh_sessions", "created_at", "now()"),
     ("referrals", "id", "gen_random_uuid()"),
     ("referrals", "status", "'SIGNED_UP'"),
     ("referrals", "created_at", "now()"),

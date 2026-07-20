@@ -25,6 +25,7 @@ PYTEST_BIN="${PYTEST_BIN:-$BACKEND_ROOT/venv/bin/pytest}"
 export PATH="$(dirname "$PYTEST_BIN"):$PATH"
 IMAGE="postgis/postgis:17-3.6-alpine@sha256:49b4d46c9fb8b158ddecd14d1894871a21ed4acb7ef376e2050f43f79c7b7272"
 DB_NAME="verdaxis_analytics_test"
+MARKET_DB_NAME="verdaxis_market_integrity_test"
 DB_PASSWORD="analytics-test"
 APP_ROLE="verdaxis_app_test"
 MIGRATOR_ROLE="verdaxis_migrator_test"
@@ -134,6 +135,35 @@ else
   docker exec "$CONTAINER" psql -U postgres -d "$DB_NAME" -v ON_ERROR_STOP=1 \
     -c "ALTER ROLE $APP_ROLE PASSWORD '$DB_PASSWORD'; ALTER ROLE $MIGRATOR_ROLE PASSWORD '$DB_PASSWORD'; ALTER ROLE $BACKUP_ROLE PASSWORD '$DB_PASSWORD';" >/dev/null
 
+  # Market/analytics fixtures seed pre-approved REAL provenance by disabling
+  # provenance triggers under session_replication_role; the disposable test
+  # migrator is granted that parameter here only — the deployed role policy
+  # (deploy/postgres/*.sql) deliberately does not carry this grant.
+  docker exec "$CONTAINER" psql -U postgres -d "$DB_NAME" -v ON_ERROR_STOP=1 \
+    -c "GRANT SET ON PARAMETER session_replication_role TO $MIGRATOR_ROLE;" >/dev/null
+
+  # Migration proofs create throwaway *_market_integrity_test databases via
+  # the admin URL (the enforced role policy keeps every verdaxis role
+  # NOCREATEDB). PostGIS is baked into template1 so those fresh databases
+  # satisfy the initial schema's CREATE EXTENSION IF NOT EXISTS without
+  # superuser rights.
+  docker exec "$CONTAINER" psql -U postgres -d template1 -v ON_ERROR_STOP=1 \
+    -c "CREATE EXTENSION IF NOT EXISTS postgis;" >/dev/null
+
+  # The market integrity suite uses its own disposable database; the fixture
+  # refuses any name that does not end in _market_integrity_test.
+  docker exec "$CONTAINER" psql -U postgres -v ON_ERROR_STOP=1 \
+    -c "CREATE DATABASE $MARKET_DB_NAME;" >/dev/null
+  docker exec "$CONTAINER" psql -U postgres -d "$MARKET_DB_NAME" -v ON_ERROR_STOP=1 \
+    -c "CREATE EXTENSION IF NOT EXISTS postgis;" >/dev/null
+  docker exec "$CONTAINER" psql -X -U postgres -d "$MARKET_DB_NAME" \
+    -v database_name="$MARKET_DB_NAME" \
+    -v app_role="$APP_ROLE" \
+    -v migrator_role="$MIGRATOR_ROLE" \
+    -v backup_role="$BACKUP_ROLE" \
+    -f /tmp/verdaxis-runtime-role-policy/bootstrap_roles.sql >/dev/null
+
+  export MARKET_INTEGRITY_TEST_DATABASE_URL="postgresql+asyncpg://${MIGRATOR_ROLE}:${DB_PASSWORD}@127.0.0.1:${PORT}/${MARKET_DB_NAME}"
   export PRODUCT_ANALYTICS_TEST_DATABASE_URL="postgresql+asyncpg://${MIGRATOR_ROLE}:${DB_PASSWORD}@127.0.0.1:${PORT}/${DB_NAME}"
   export MIGRATOR_DATABASE_URL="postgresql+asyncpg://${MIGRATOR_ROLE}:${DB_PASSWORD}@127.0.0.1:${PORT}/${DB_NAME}"
   export DATABASE_URL="postgresql+asyncpg://${APP_ROLE}:${DB_PASSWORD}@127.0.0.1:${PORT}/${DB_NAME}"

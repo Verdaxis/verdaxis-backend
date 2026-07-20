@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import calendar
 import re
-from datetime import date
+from datetime import UTC, date, datetime, time, timedelta
 from typing import Final
 
 
@@ -163,3 +164,55 @@ def tradable_availability_windows(
         windows.append(f"{quarter_year}-Q{quarter}")
 
     return windows
+
+
+def is_tradable_availability_window(
+    value: str,
+    *,
+    today: date | None = None,
+    quarter_count: int = 8,
+) -> bool:
+    """Return whether a canonical window is currently open for new orders."""
+    normalized = normalize_availability_window(value)
+    return normalized in tradable_availability_windows(
+        today=today,
+        quarter_count=quarter_count,
+    )
+
+
+def availability_window_expiry(
+    value: str,
+    *,
+    observed_at: datetime | None = None,
+) -> datetime:
+    """Return the exclusive UTC expiry for deterministic synthetic liquidity."""
+    observed = observed_at or datetime.now(UTC)
+    if observed.tzinfo is None:
+        observed = observed.replace(tzinfo=UTC)
+    else:
+        observed = observed.astimezone(UTC)
+
+    normalized = normalize_availability_window(value)
+    if normalized == SPOT_WINDOW:
+        return observed + timedelta(hours=24)
+
+    month_match = MONTH_WINDOW_RE.fullmatch(normalized)
+    if month_match:
+        year = int(month_match.group("year"))
+        month = int(month_match.group("month"))
+        last_day = calendar.monthrange(year, month)[1]
+        return datetime.combine(date(year, month, last_day) + timedelta(days=1), time.min, UTC)
+
+    quarter_match = QUARTER_WINDOW_RE.fullmatch(normalized)
+    if quarter_match:
+        year = int(quarter_match.group("year"))
+        quarter = int(quarter_match.group("quarter"))
+        end_month = quarter * 3
+        last_day = calendar.monthrange(year, end_month)[1]
+        return datetime.combine(date(year, end_month, last_day) + timedelta(days=1), time.min, UTC)
+
+    calendar_match = CALENDAR_WINDOW_RE.fullmatch(normalized)
+    if calendar_match:
+        return datetime(int(calendar_match.group("year")) + 1, 1, 1, tzinfo=UTC)
+
+    raise ValueError(f"Unsupported availability window: {value}")

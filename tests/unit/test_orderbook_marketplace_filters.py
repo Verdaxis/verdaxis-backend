@@ -1,6 +1,6 @@
 """Tests for public marketplace filtering on approved green-fuels products."""
 import pytest
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from uuid import uuid4
 
@@ -8,10 +8,19 @@ from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.database import Base
+from app.market_catalog import DELIVERY_POINTS_BY_NAME, PRODUCTS_BY_NAME
 from app.models.catalog import DeliveryPoint, Product
 from app.models.orderbook import OrderBookOrder, OrderBookStatus, OrderSide
-from app.models.user import OrgType, Organization
-from app.routers.orderbook import list_aggregated_orderbook, list_asks, list_fuel_types, list_orders, list_orders_with_ci
+from app.models.user import OrganizationProvenance, OrgType, Organization
+from app.routers.orderbook import (
+    list_active_products,
+    list_aggregated_orderbook,
+    list_asks,
+    list_fuel_types,
+    list_orders,
+    list_orders_with_ci,
+    list_regions,
+)
 
 
 REQUIRED_TABLES = [
@@ -58,7 +67,11 @@ async def db(async_engine, setup_tables):
 
 
 async def _make_org(db: AsyncSession, name: str) -> Organization:
-    org = Organization(name=name, type=OrgType.FUEL_SUPPLIER)
+    org = Organization(
+        name=name,
+        type=OrgType.FUEL_SUPPLIER,
+        provenance=OrganizationProvenance.REAL,
+    )
     db.add(org)
     await db.flush()
     return org
@@ -71,14 +84,27 @@ async def _make_product(
     fuel_type: str,
     fuel_grade: str,
 ) -> Product:
-    product = Product(name=f'{name} {uuid4().hex[:8]}', fuel_type=fuel_type, fuel_grade=fuel_grade)
+    spec = PRODUCTS_BY_NAME.get(name)
+    product = Product(
+        id=(spec.id if spec and (spec.fuel_type, spec.fuel_grade) == (fuel_type, fuel_grade) else uuid4()),
+        name=name,
+        fuel_type=fuel_type,
+        fuel_grade=fuel_grade,
+        is_active=True,
+    )
     db.add(product)
     await db.flush()
     return product
 
 
 async def _make_delivery_point(db: AsyncSession, name: str, region: str) -> DeliveryPoint:
-    delivery_point = DeliveryPoint(name=f'{name} {uuid4().hex[:8]}', region=region)
+    spec = DELIVERY_POINTS_BY_NAME.get(name)
+    delivery_point = DeliveryPoint(
+        id=(spec.id if spec and spec.region == region else uuid4()),
+        name=name,
+        region=region,
+        is_active=True,
+    )
     db.add(delivery_point)
     await db.flush()
     return delivery_point
@@ -94,9 +120,11 @@ def _make_order(
     availability_window: str = 'SPOT',
     certification_scheme: str | None = 'ISCC EU',
     certification_declared: bool = True,
+    provenance: OrganizationProvenance = OrganizationProvenance.REAL,
 ) -> OrderBookOrder:
     return OrderBookOrder(
         organization_id=org_id,
+        provenance=provenance,
         side=OrderSide.ASK,
         product_id=product_id,
         delivery_point_id=delivery_point_id,
@@ -113,6 +141,11 @@ def _make_order(
         carbon_intensity_gco2_mj=Decimal('18.50'),
         feedstock='Waste biomass',
         origin='Singapore',
+        expires_at=(
+            datetime.now(UTC) + timedelta(days=1)
+            if provenance == OrganizationProvenance.DEMO
+            else None
+        ),
     )
 
 
@@ -198,6 +231,65 @@ class TestMarketplaceFuelFiltering:
         fuel_types = await list_fuel_types(db=db)
 
         assert fuel_types == ['Ethanol', 'Methanol']
+
+    @pytest.mark.asyncio
+    async def test_public_catalog_facets_exclude_inactive_test_and_expired_demo_rows(self, db: AsyncSession):
+        supplier = await _make_org(db, 'Catalog Supplier')
+        singapore = await _make_delivery_point(db, 'Singapore', 'Asia')
+        retired = await _make_delivery_point(db, 'Fujairah', 'Middle East')
+        retired.is_active = False
+        canonical = await _make_product(
+            db,
+            name='Bio Methanol',
+            fuel_type='Methanol',
+            fuel_grade='Bio',
+        )
+        inactive = await _make_product(
+            db,
+            name='Methanol Green',
+            fuel_type='Methanol',
+            fuel_grade='Green',
+        )
+        inactive.is_active = False
+        visible = _make_order(
+            org_id=supplier.id,
+            product_id=canonical.id,
+            delivery_point_id=singapore.id,
+            price='1100',
+        )
+        retired_port = _make_order(
+            org_id=supplier.id,
+            product_id=canonical.id,
+            delivery_point_id=retired.id,
+            price='1090',
+        )
+        inactive_product = _make_order(
+            org_id=supplier.id,
+            product_id=inactive.id,
+            delivery_point_id=singapore.id,
+            price='1080',
+        )
+        test_order = _make_order(
+            org_id=supplier.id,
+            product_id=canonical.id,
+            delivery_point_id=singapore.id,
+            price='1070',
+            provenance=OrganizationProvenance.TEST,
+        )
+        expired_demo = _make_order(
+            org_id=supplier.id,
+            product_id=canonical.id,
+            delivery_point_id=singapore.id,
+            price='1060',
+            provenance=OrganizationProvenance.DEMO,
+        )
+        expired_demo.expires_at = datetime.now(UTC) - timedelta(seconds=1)
+        db.add_all([visible, retired_port, inactive_product, test_order, expired_demo])
+        await db.commit()
+
+        assert await list_active_products(db=db) == ['Bio Methanol']
+        assert await list_regions(db=db) == ['Asia']
+        assert await list_fuel_types(db=db) == ['Methanol']
 
     @pytest.mark.asyncio
     async def test_list_asks_supports_combined_public_filters_without_duplicate_product_join(self, db: AsyncSession):
@@ -355,6 +447,8 @@ class TestMarketplaceFuelFiltering:
             side=None,
             availability_window=None,
             include_off_spec=False,
+            skip=0,
+            limit=50,
             db=db,
         )
 
@@ -388,6 +482,8 @@ class TestMarketplaceFuelFiltering:
             delivery_point_id=None,
             side=None,
             include_off_spec=False,
+            skip=0,
+            limit=50,
             db=db,
         )
 
@@ -426,6 +522,7 @@ class TestMarketplaceFuelFiltering:
             region=None,
             availability_window=None,
             include_off_spec=False,
+            limit=256,
             db=db,
         )
 
@@ -483,6 +580,7 @@ class TestMarketplaceFuelFiltering:
             region=None,
             availability_window='SPOT',
             include_off_spec=False,
+            limit=256,
             db=db,
         )
 
@@ -491,3 +589,128 @@ class TestMarketplaceFuelFiltering:
         assert result[0].delivery_point_id == singapore.id
         assert result[0].availability_window == 'SPOT'
         assert result[0].total_quantity == Decimal('1000')
+
+    @pytest.mark.asyncio
+    async def test_legacy_collection_is_hard_bounded_before_enrichment(self, db: AsyncSession):
+        supplier = await _make_org(db, 'Bounded Supplier')
+        singapore = await _make_delivery_point(db, 'Singapore', 'Asia')
+        product = await _make_product(
+            db,
+            name='Bio Methanol',
+            fuel_type='Methanol',
+            fuel_grade='Bio',
+        )
+        db.add_all(
+            [
+                _make_order(
+                    org_id=supplier.id,
+                    product_id=product.id,
+                    delivery_point_id=singapore.id,
+                    price=str(1000 + index),
+                )
+                for index in range(75)
+            ]
+        )
+        await db.commit()
+
+        first_page = await list_orders(
+            product_id=None,
+            delivery_point_id=None,
+            side=None,
+            availability_window=None,
+            include_off_spec=False,
+            skip=0,
+            limit=20,
+            db=db,
+        )
+        second_page = await list_orders(
+            product_id=None,
+            delivery_point_id=None,
+            side=None,
+            availability_window=None,
+            include_off_spec=False,
+            skip=20,
+            limit=20,
+            db=db,
+        )
+
+        assert len(first_page) == 20
+        assert len(second_page) == 20
+        assert {item.id for item in first_page}.isdisjoint(
+            {item.id for item in second_page}
+        )
+
+    @pytest.mark.asyncio
+    async def test_aggregate_uses_active_catalog_and_never_blends_real_demo(self, db: AsyncSession):
+        real_org = await _make_org(db, 'Real Aggregate Supplier')
+        demo_org = await _make_org(db, 'Demo Aggregate Supplier')
+        demo_org.provenance = OrganizationProvenance.DEMO
+        singapore = await _make_delivery_point(db, 'Singapore', 'Asia')
+        inactive_port = await _make_delivery_point(db, 'Retired Port', 'Asia')
+        inactive_port.is_active = False
+        product = await _make_product(
+            db,
+            name='Bio Methanol',
+            fuel_type='Methanol',
+            fuel_grade='Bio',
+        )
+        inactive_product = Product(
+            name='Methanol Green',
+            fuel_type='Methanol',
+            fuel_grade='Green',
+            is_active=False,
+        )
+        db.add(inactive_product)
+        await db.flush()
+        db.add_all(
+            [
+                _make_order(
+                    org_id=real_org.id,
+                    product_id=product.id,
+                    delivery_point_id=singapore.id,
+                    price='1000',
+                    quantity='100',
+                ),
+                _make_order(
+                    org_id=demo_org.id,
+                    product_id=product.id,
+                    delivery_point_id=singapore.id,
+                    price='900',
+                    quantity='200',
+                    provenance=OrganizationProvenance.DEMO,
+                ),
+                _make_order(
+                    org_id=real_org.id,
+                    product_id=inactive_product.id,
+                    delivery_point_id=singapore.id,
+                    price='800',
+                    quantity='300',
+                ),
+                _make_order(
+                    org_id=real_org.id,
+                    product_id=product.id,
+                    delivery_point_id=inactive_port.id,
+                    price='700',
+                    quantity='400',
+                ),
+            ]
+        )
+        await db.commit()
+
+        result = await list_aggregated_orderbook(
+            product_id=None,
+            delivery_point_id=None,
+            fuel_type=None,
+            market_product=None,
+            region=None,
+            availability_window=None,
+            include_off_spec=False,
+            limit=256,
+            db=db,
+        )
+
+        assert len(result) == 2
+        assert {row.market_product for row in result} == {'BIO_METHANOL'}
+        assert {row.demo_status.value for row in result} == {'REAL_ONLY', 'DEMO_ONLY'}
+        assert sorted(row.total_quantity for row in result) == [Decimal('100'), Decimal('200')]
+        assert all(row.product_total_order_count == 1 for row in result)

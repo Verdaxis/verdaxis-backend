@@ -4,11 +4,29 @@ import uuid
 from datetime import datetime, UTC
 from decimal import Decimal
 
-from sqlalchemy import ForeignKey, Enum, Index, Numeric, DateTime, Text, Integer, String, UniqueConstraint, text
+from sqlalchemy import (
+    DateTime,
+    Enum,
+    ForeignKey,
+    Index,
+    Integer,
+    Numeric,
+    String,
+    Text,
+    UniqueConstraint,
+    text,
+)
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.database import Base
+from app.model_base import Base
+from app.market_constraints import (
+    NEGOTIATION_DOMAIN,
+    NEGOTIATION_LIFECYCLE,
+    NEGOTIATION_NUMERIC_VALUES,
+    NEGOTIATION_ROUND_NUMERIC_VALUES,
+    postgresql_check,
+)
 
 
 class NegotiationStatus(str, enum.Enum):
@@ -25,8 +43,23 @@ class Negotiation(Base):
         Index("ix_negotiations_initiator_org", "initiator_org_id"),
         Index("ix_negotiations_counterparty_org", "counterparty_org_id"),
         Index("ix_negotiations_status", "status"),
-        Index("ix_negotiations_expires_at", "expires_at", postgresql_where=text("status IN ('OPEN', 'COUNTERED')")),
+        Index(
+            "ix_negotiations_expires_at",
+            "expires_at",
+            postgresql_where=text("status IN ('OPEN', 'COUNTERED')"),
+        ),
         Index("ix_negotiations_status_created", "status", text("created_at DESC")),
+        Index(
+            "uq_negotiations_active_pair_product",
+            text("LEAST(initiator_org_id, counterparty_org_id)"),
+            text("GREATEST(initiator_org_id, counterparty_org_id)"),
+            "product_id",
+            unique=True,
+            postgresql_where=text("status IN ('OPEN', 'COUNTERED')"),
+        ).ddl_if(dialect="postgresql"),
+        postgresql_check(NEGOTIATION_DOMAIN, name="ck_negotiations_domain"),
+        postgresql_check(NEGOTIATION_NUMERIC_VALUES, name="ck_negotiations_numeric_values"),
+        postgresql_check(NEGOTIATION_LIFECYCLE, name="ck_negotiations_lifecycle"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -58,16 +91,22 @@ class Negotiation(Base):
     # "BUYER" or "SELLER" — the initiator's role in this trade.
     # Set at creation from the user's org role; used to derive buyer_id/seller_id on acceptance.
     initiator_side: Mapped[str] = mapped_column(
-        String(10), nullable=False, server_default="BUYER"
+        String(6), nullable=False, server_default="BUYER"
     )
     product_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("products.id"), nullable=False
     )
-    quantity_mt: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    delivery_point_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("delivery_points.id"), nullable=True
+    )
+    availability_window: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="SPOT", server_default="SPOT"
+    )
+    quantity_mt: Mapped[Decimal] = mapped_column(Numeric(), nullable=False)
     # The current "live" price on the table — updated each round
-    current_price: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
+    current_price: Mapped[Decimal] = mapped_column(Numeric(), nullable=False)
     status: Mapped[NegotiationStatus] = mapped_column(
-        Enum(NegotiationStatus, native_enum=False, length=10),
+        Enum(NegotiationStatus, native_enum=False),
         default=NegotiationStatus.OPEN,
         nullable=False,
     )
@@ -98,8 +137,13 @@ class Negotiation(Base):
 class NegotiationRound(Base):
     __tablename__ = "negotiation_rounds"
     __table_args__ = (
-        UniqueConstraint("negotiation_id", "round_number", name="uq_neg_rounds_negotiation_round"),
+        UniqueConstraint(
+            "negotiation_id",
+            "round_number",
+            name="uq_neg_rounds_negotiation_round",
+        ),
         Index("ix_negotiation_rounds_negotiation", "negotiation_id"),
+        postgresql_check(NEGOTIATION_ROUND_NUMERIC_VALUES, name="ck_negotiation_rounds_numeric_values"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -115,7 +159,7 @@ class NegotiationRound(Base):
     proposer_user_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id"), nullable=True
     )
-    proposed_price: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
+    proposed_price: Mapped[Decimal] = mapped_column(Numeric(), nullable=False)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC)

@@ -8,9 +8,10 @@ from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.database import Base
+from app.market_catalog import DELIVERY_POINTS_BY_NAME, PRODUCTS_BY_NAME
 from app.models.catalog import DeliveryPoint, Product
 from app.models.orderbook import OrderBookOrder, OrderBookStatus, OrderSide
-from app.models.user import OrgType, Organization, User, UserRole, UserStatus
+from app.models.user import OrganizationProvenance, OrgType, Organization, User, UserRole, UserStatus
 from app.routers.matchmaking import list_suggestions
 
 REQUIRED_TABLES = [
@@ -49,7 +50,11 @@ async def db(async_engine, setup_tables):
 
 
 async def _make_org(db: AsyncSession, name: str, org_type: OrgType) -> Organization:
-    org = Organization(name=f'{name}-{uuid4().hex[:6]}', type=org_type)
+    org = Organization(
+        name=f'{name}-{uuid4().hex[:6]}',
+        type=org_type,
+        provenance=OrganizationProvenance.REAL,
+    )
     db.add(org)
     await db.flush()
     return org
@@ -69,14 +74,22 @@ async def _make_user(db: AsyncSession, org: Organization, role: UserRole) -> Use
 
 
 async def _make_product(db: AsyncSession, *, name: str, fuel_type: str, fuel_grade: str) -> Product:
-    product = Product(name=f'{name}-{uuid4().hex[:6]}', fuel_type=fuel_type, fuel_grade=fuel_grade)
+    spec = PRODUCTS_BY_NAME[name]
+    assert (spec.fuel_type, spec.fuel_grade) == (fuel_type, fuel_grade)
+    product = Product(
+        id=spec.id,
+        name=spec.name,
+        fuel_type=spec.fuel_type,
+        fuel_grade=spec.fuel_grade,
+    )
     db.add(product)
     await db.flush()
     return product
 
 
 async def _make_delivery_point(db: AsyncSession, name: str) -> DeliveryPoint:
-    delivery_point = DeliveryPoint(name=f'{name}-{uuid4().hex[:6]}', region='Asia')
+    spec = DELIVERY_POINTS_BY_NAME[name]
+    delivery_point = DeliveryPoint(id=spec.id, name=spec.name, region=spec.region)
     db.add(delivery_point)
     await db.flush()
     return delivery_point
@@ -95,6 +108,7 @@ async def _make_order(
 ) -> OrderBookOrder:
     order = OrderBookOrder(
         organization_id=organization_id,
+        provenance=OrganizationProvenance.REAL,
         side=side,
         product_id=product_id,
         delivery_point_id=delivery_point_id,
@@ -214,4 +228,3 @@ async def test_supplier_suggestions_allow_matching_bid_without_supplier_declarat
 
     assert len(suggestions) == 1
     assert suggestions[0]['bid_order_id'] == str(bid.id)
-

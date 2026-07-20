@@ -22,9 +22,10 @@ class TestRFQCreateRequest:
     def test_valid_minimal(self):
         req = RFQCreateRequest(
             product_id=uuid4(),
+            delivery_point_id=uuid4(),
             quantity_mt=Decimal("500"),
         )
-        assert req.delivery_point_id is None
+        assert req.delivery_point_id is not None
         assert req.target_price_per_mt is None
         assert req.availability_window == "SPOT"
         assert req.notes is None
@@ -75,6 +76,7 @@ class TestRFQCreateRequest:
     def test_quantity_at_max_boundary(self):
         req = RFQCreateRequest(
             product_id=uuid4(),
+            delivery_point_id=uuid4(),
             quantity_mt=Decimal("100000"),
         )
         assert req.quantity_mt == Decimal("100000")
@@ -106,6 +108,7 @@ class TestRFQCreateRequest:
     def test_notes_at_max_length(self):
         req = RFQCreateRequest(
             product_id=uuid4(),
+            delivery_point_id=uuid4(),
             quantity_mt=Decimal("500"),
             notes="x" * 500,
         )
@@ -130,6 +133,7 @@ class TestRFQCreateRequest:
     def test_expires_in_hours_at_boundaries(self):
         req1 = RFQCreateRequest(
             product_id=uuid4(),
+            delivery_point_id=uuid4(),
             quantity_mt=Decimal("500"),
             expires_in_hours=1,
         )
@@ -137,6 +141,7 @@ class TestRFQCreateRequest:
 
         req168 = RFQCreateRequest(
             product_id=uuid4(),
+            delivery_point_id=uuid4(),
             quantity_mt=Decimal("500"),
             expires_in_hours=168,
         )

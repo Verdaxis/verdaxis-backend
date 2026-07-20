@@ -64,6 +64,7 @@ def credentialed_origins_for_environment(environment: str) -> tuple[str, ...]:
     return _CREDENTIALED_ORIGINS.get(environment.strip().lower(), ())
 
 class Settings(BaseSettings):
+    ALLOW_DEMO_RESET: bool = False
     # Server
     PROJECT_NAME: str = "Verdaxis"
     API_V1_STR: str = "/api"

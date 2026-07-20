@@ -6,7 +6,7 @@ import uuid
 import enum
 from datetime import datetime, date
 from decimal import Decimal
-from app.database import Base
+from app.model_base import Base
 
 
 class ProjectStatus(str, enum.Enum):

@@ -79,12 +79,20 @@ async def test_migrator_converges_new_policy_table_after_migration():
     app = values["app_role"]
     backup = values["backup_role"]
 
+    # Integration note: seed_runs is now a real miq-owned migration table, so
+    # the probe renames it aside instead of dropping it, and restores it (and
+    # the converged policy grants) afterwards. The synthetic probe table keeps
+    # explicitly named constraints so the parked real table's names never
+    # collide.
+    parked_table = f"{table_name}_premigration_probe_parked"
     await _execute_admin_as(
         migrator,
         [
-            f"DROP TABLE IF EXISTS public.{table_name}",
+            f"DROP TABLE IF EXISTS public.{parked_table}",
+            f"ALTER TABLE public.{table_name} RENAME TO {parked_table}",
             f"CREATE TABLE public.{table_name} "
-            "(id bigint PRIMARY KEY, status text NOT NULL)",
+            "(id bigint CONSTRAINT seed_runs_probe_pkey PRIMARY KEY, "
+            "status text NOT NULL)",
             f"INSERT INTO public.{table_name} VALUES (1, 'complete')",
         ],
     )
@@ -152,7 +160,11 @@ async def test_migrator_converges_new_policy_table_after_migration():
         }
     finally:
         await _execute_admin_as(
-            migrator, [f"DROP TABLE IF EXISTS public.{table_name}"]
+            migrator,
+            [
+                f"DROP TABLE IF EXISTS public.{table_name}",
+                f"ALTER TABLE public.{parked_table} RENAME TO {table_name}",
+            ],
         )
         _psql("bootstrap_roles.sql")
 
@@ -544,21 +556,13 @@ async def test_raw_app_cannot_promote_rewrite_controls_set_role_or_delegate():
     registration_org_id = uuid4()
     registration_user_id = uuid4()
 
-    await _execute_admin("DROP TABLE IF EXISTS public.market_row_quarantines")
-    await _execute_admin("DROP TABLE IF EXISTS public.seed_runs")
+    # Integration note: organizations.provenance, seed_runs, and
+    # market_row_quarantines are real migration-owned objects on the
+    # linearized chain (mi/miq); the pre-integration synthetic copies are no
+    # longer created or dropped here — bad grants are planted directly on the
+    # real objects and repaired by bootstrap_roles.sql.
     await _execute_admin(f"DROP ROLE IF EXISTS {delegated}")
     await _execute_admin(f"CREATE ROLE {delegated} NOLOGIN")
-    await _execute_admin_as(
-        migrator,
-        [
-            "ALTER TABLE public.organizations "
-            "ADD COLUMN IF NOT EXISTS provenance text NOT NULL DEFAULT 'operator'",
-            "CREATE TABLE public.seed_runs "
-            "(id bigint PRIMARY KEY, status text NOT NULL)",
-            "CREATE TABLE public.market_row_quarantines "
-            "(id bigint PRIMARY KEY, reason text NOT NULL)",
-        ],
-    )
     await _execute_admin(
         f"GRANT UPDATE (provenance) ON TABLE public.organizations TO {app} "
         "WITH GRANT OPTION"
@@ -696,8 +700,11 @@ async def test_raw_app_cannot_promote_rewrite_controls_set_role_or_delegate():
         )
         assert status_and_append_counts == ("PENDING", "APPROVED", 2, 2)
 
+        # organizations.verification_status is NOT rejected: the security
+        # admission review endpoints (auth_simple organization approve/reject)
+        # are an app-role write path, so the integrated ACL grants that single
+        # column UPDATE to the app role.
         rejected_statements = (
-            "UPDATE public.organizations SET verification_status = 'APPROVED'",
             "UPDATE public.organizations SET provenance = 'self-promoted'",
             "INSERT INTO public.organizations "
             "(name, type, verification_status, provenance) VALUES "
@@ -769,6 +776,10 @@ async def test_raw_app_cannot_promote_rewrite_controls_set_role_or_delegate():
             "supplier_tier",
             "tax_id",
             "country_code",
+            # Integrated ACL: the security admission review endpoints
+            # (auth_simple organization approve/reject) update this column
+            # through the app role.
+            "verification_status",
         }
         expected_column_acls = {
             ("organizations", column, app, "INSERT", False)
@@ -793,14 +804,6 @@ async def test_raw_app_cannot_promote_rewrite_controls_set_role_or_delegate():
         )
         await _execute_admin(
             f"DELETE FROM public.organizations WHERE id = '{registration_org_id}'"
-        )
-        await _execute_admin_as(
-            migrator,
-            [
-                "DROP TABLE IF EXISTS public.market_row_quarantines",
-                "DROP TABLE IF EXISTS public.seed_runs",
-                "ALTER TABLE public.organizations DROP COLUMN IF EXISTS provenance",
-            ],
         )
         await _execute_admin(f"DROP OWNED BY {delegated}")
         await _execute_admin(f"DROP ROLE IF EXISTS {delegated}")

@@ -5,11 +5,11 @@ import string
 import secrets
 from datetime import datetime, UTC
 
-from sqlalchemy import ForeignKey, Enum, Index, String, DateTime, UniqueConstraint, func
+from sqlalchemy import ForeignKey, Enum, Index, String, DateTime, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.database import Base
+from app.model_base import Base
 
 
 class ReferralStatus(str, enum.Enum):

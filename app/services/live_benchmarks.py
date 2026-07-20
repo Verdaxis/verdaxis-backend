@@ -4,7 +4,7 @@ from decimal import Decimal
 from typing import Iterable
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import select, or_, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -26,6 +26,10 @@ def public_slice_order_qualified(order: OrderBookOrder) -> bool:
         return False
     if order.status not in (OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED):
         return False
+    if order.expires_at is not None:
+        from datetime import datetime, UTC
+        if order.expires_at <= datetime.now(UTC):
+            return False
     if order.remaining_quantity_mt <= 0 or order.off_spec:
         return False
     if order.side != OrderSide.ASK:
@@ -89,6 +93,7 @@ async def rebuild_live_slice_benchmark(
             OrderBookOrder.availability_window == normalized_window,
             OrderBookOrder.status.in_((OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED)),
             OrderBookOrder.remaining_quantity_mt > 0,
+            or_(OrderBookOrder.expires_at.is_(None), OrderBookOrder.expires_at > func.now()),
         )
     )
     orders = result.unique().scalars().all()

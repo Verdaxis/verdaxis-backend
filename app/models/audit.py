@@ -10,7 +10,7 @@ from sqlalchemy.dialects.postgresql import UUID, JSONB
 _JSON_VARIANT = JSON().with_variant(JSONB(astext_type=Text()), "postgresql")
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.database import Base
+from app.model_base import Base
 
 
 class AuditLog(Base):

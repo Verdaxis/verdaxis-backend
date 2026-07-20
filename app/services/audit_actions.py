@@ -9,24 +9,28 @@ ORGANIZATION_JOIN_REJECTED = "organization.join_rejected"
 ADMIN_USER_REJECTED = "admin.user_rejected"
 COMMISSION_UPDATED = "commission.updated"
 INVENTORY_PUBLISHED = "inventory.published"
+MARKET_ACCESS_INVALIDATED = "market.access_invalidated"
 KYC_APPROVED = "kyc.approved"
 KYC_REJECTED = "kyc.rejected"
 KYC_SUBMITTED = "kyc.submitted"
 KYC_MEMBERSHIP_INVALIDATED = "kyc.membership_invalidated"
-NEGOTIATION_ACCEPTED = "negotiation.accepted"
+# negotiation.accepted / rfq.accepted are intentionally absent: negotiation
+# and RFQ execution are disabled in this release (market-owned decision), and
+# the registry never carries actions without a live call site.
 NEGOTIATION_COUNTERED = "negotiation.countered"
 NEGOTIATION_CREATED = "negotiation.created"
 NEGOTIATION_DECLINED = "negotiation.declined"
 ORDER_CANCELLED = "order.cancelled"
 ORDER_CREATED = "order.created"
+ORDER_EXPIRED = "order.expired"
 ORDER_UPDATED = "order.updated"
-RFQ_ACCEPTED = "rfq.accepted"
 RFQ_CANCELLED = "rfq.cancelled"
 RFQ_CREATED = "rfq.created"
 RFQ_QUOTE_SUBMITTED = "rfq.quote_submitted"
 RFQ_QUOTE_WITHDRAWN = "rfq.quote_withdrawn"
 SUBSCRIPTION_UPDATED = "subscription.updated"
 TRADE_AUTO_MATCHED = "trade.auto_matched"
+TRADE_CANCELLED = "trade.cancelled"
 TRADE_CONFIRMED = "trade.confirmed"
 TRADE_CREATED = "trade.created"
 TRADE_DECLINED = "trade.declined"
@@ -50,24 +54,25 @@ AUDIT_ACTIONS = frozenset(
         ADMIN_USER_REJECTED,
         COMMISSION_UPDATED,
         INVENTORY_PUBLISHED,
+        MARKET_ACCESS_INVALIDATED,
         KYC_APPROVED,
         KYC_REJECTED,
         KYC_SUBMITTED,
         KYC_MEMBERSHIP_INVALIDATED,
-        NEGOTIATION_ACCEPTED,
         NEGOTIATION_COUNTERED,
         NEGOTIATION_CREATED,
         NEGOTIATION_DECLINED,
         ORDER_CANCELLED,
         ORDER_CREATED,
+        ORDER_EXPIRED,
         ORDER_UPDATED,
-        RFQ_ACCEPTED,
         RFQ_CANCELLED,
         RFQ_CREATED,
         RFQ_QUOTE_SUBMITTED,
         RFQ_QUOTE_WITHDRAWN,
         SUBSCRIPTION_UPDATED,
         TRADE_AUTO_MATCHED,
+        TRADE_CANCELLED,
         TRADE_CONFIRMED,
         TRADE_CREATED,
         TRADE_DECLINED,

@@ -21,10 +21,6 @@ from app.services.audit_actions import KYC_APPROVED, KYC_REJECTED, KYC_SUBMITTED
 from app.services.audit_service import record_audit, request_audit_context
 from app.services.email import send_kyc_approved_email, send_kyc_rejected_email
 from app.services.kyc import KYCProviderUnavailable, KYC_REVIEW_REQUIRED, verify_document_with_gemini
-from app.services.execution_invalidation import (
-    invalidate_execution_state_for_request,
-    publish_execution_invalidation,
-)
 
 # Honour the runtime-owned KYC size configuration (defaults: 10 MiB per document,
 # 20 MiB per request) so the documented KYC_MAX_* settings stay authoritative.
@@ -330,14 +326,10 @@ async def admin_reject_kyc(user_id: uuid.UUID, request: Request, body: AdminReje
     target.kyc_review_note = body.reason
     target.kyc_reviewed_by = current_user.id
     target.kyc_reviewed_at = datetime.now(UTC)
-    audit_context = request_audit_context(request)
-    counts = await invalidate_execution_state_for_request(
-        db,
-        user_ids=[target.id],
-        actor_user_id=current_user.id,
-        reason="kyc_rejected",
-        **audit_context,
-    )
+    # A KYC-rejected user is fail-closed at execution time: market mutations
+    # and the matching engine re-check execution_party_is_eligible under row
+    # locks in the same transaction. Tenant-level market cleanup is owned by
+    # invalidate_organization_market_access on the organization-revocation path.
     await record_audit(
         db,
         user_id=current_user.id,
@@ -347,12 +339,10 @@ async def admin_reject_kyc(user_id: uuid.UUID, request: Request, body: AdminReje
         changes={
             "kyc_status": {"from": previous, "to": "REJECTED"},
             "reason": body.reason,
-            **counts,
         },
         **request_audit_context(request),
     )
     await db.commit()
-    await publish_execution_invalidation(counts)
     await db.refresh(target)
     await send_kyc_rejected_email(target.email, target.first_name or "there", body.reason)
     return {"user_id": str(target.id), "kyc_status": target.kyc_status, "rejection_reason": target.kyc_rejection_reason, "message": "KYC rejected."}

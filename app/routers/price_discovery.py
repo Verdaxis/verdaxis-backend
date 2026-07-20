@@ -12,14 +12,15 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
-from sqlalchemy import select, func, and_, or_, case
+from sqlalchemy import select, func, and_, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from fastapi import Request as _Request
 from app.rate_limit import limiter
 from app.database import get_db
-from app.models.orderbook import Trade, TradeStatus, OrderBookOrder
-from app.models.catalog import Product, DeliveryPoint, derive_market_product
+from app.models.orderbook import Trade, TradeStatus
+from app.market_catalog import MARKET_PRODUCT_CODES
+from app.models.user import OrganizationProvenance
 from app.schemas.orderbook import (
     PriceSummary,
     PriceDiscoveryResponse,
@@ -27,20 +28,19 @@ from app.schemas.orderbook import (
     ReferencePriceResponse,
 )
 from app.schemas.market_activity import (
+    MarketDemoStatus,
     MarketScope,
     MarketSourceKind,
-    demo_status_from_counts,
-    source_kind_from_counts,
 )
 from app.services.availability_windows import normalize_availability_window
-from app.services.demo_market import DEMO_MARKET_ORG_IDS
+from app.services.market_provenance import (
+    MarketEvidenceScope,
+    formal_trade_snapshot_clause,
+    select_aggregate_evidence,
+    trade_evidence_clause,
+)
 
 router = APIRouter(prefix="/prices", tags=["price-discovery"])
-
-
-def _trade_order_join_condition():
-    """Join a trade to whichever order carries market metadata."""
-    return OrderBookOrder.id == func.coalesce(Trade.ask_order_id, Trade.bid_order_id)
 
 
 def _market_product_filter_clause(market_product: Optional[str]):
@@ -48,47 +48,25 @@ def _market_product_filter_clause(market_product: Optional[str]):
         return None
 
     normalized = market_product.strip().upper()
-    lower_name = func.lower(Product.name)
-    lower_type = func.lower(Product.fuel_type)
-    lower_grade = func.lower(Product.fuel_grade)
-
-    clauses = {
-        "BIO_METHANOL": or_(
-            lower_name.in_(["bio methanol", "methanol green"]),
-            and_(lower_type == "methanol", lower_grade.in_(["bio", "green"])),
-        ),
-        "E_METHANOL": or_(
-            lower_name == "e-methanol",
-            and_(lower_type == "methanol", lower_grade.in_(["e", "synthetic"])),
-        ),
-        "BIO_ETHANOL": or_(
-            lower_name.in_(["bio ethanol", "ethanol green"]),
-            and_(lower_type == "ethanol", lower_grade.in_(["bio", "green"])),
-        ),
-        "SYNTHETIC_ETHANOL": or_(
-            lower_name == "synthetic ethanol",
-            and_(lower_type == "ethanol", lower_grade == "synthetic"),
-        ),
-    }
-
-    if normalized not in clauses:
-        raise ValueError("market_product must be one of BIO_METHANOL, E_METHANOL, BIO_ETHANOL, SYNTHETIC_ETHANOL")
-
-    return clauses[normalized]
+    if normalized not in MARKET_PRODUCT_CODES:
+        raise ValueError(f"market_product must be one of {', '.join(MARKET_PRODUCT_CODES)}")
+    return Trade.market_product == normalized
 
 
-def _derive_market_product_value(product_name: str | None, fuel_type: str | None, fuel_grade: str | None) -> str | None:
-    derived = derive_market_product(product_name or "", fuel_type or "", fuel_grade or "")
-    return derived.value if derived else None
+def _trade_market_product_filter_clause(market_product: Optional[str]):
+    """Filter immutable trade snapshots, never mutable order/product rows."""
+    if not market_product:
+        return None
+    normalized = market_product.strip().upper()
+    if normalized not in MARKET_PRODUCT_CODES:
+        raise ValueError(f"market_product must be one of {', '.join(MARKET_PRODUCT_CODES)}")
+    return Trade.market_product == normalized
 
 
 def _normalize_window_value(value: object) -> str:
-    if not isinstance(value, str) or not value.strip():
-        return "SPOT"
-    try:
-        return normalize_availability_window(value)
-    except ValueError:
-        return "SPOT"
+    if not isinstance(value, str):
+        raise ValueError("formal trade evidence has no canonical availability window")
+    return normalize_availability_window(value)
 
 
 def _validate_query_filters(market_product: Optional[str], availability_window: Optional[str]) -> tuple[Optional[str], Optional[str]]:
@@ -158,34 +136,6 @@ def _resolve_reference_date_range(
     return resolved_from, resolved_to
 
 
-def _trade_demo_count_expressions():
-    demo_org_ids = list(DEMO_MARKET_ORG_IDS)
-    buyer_is_demo = Trade.buyer_id.in_(demo_org_ids)
-    seller_is_demo = Trade.seller_id.in_(demo_org_ids)
-    buyer_is_real = Trade.buyer_id.notin_(demo_org_ids)
-    seller_is_real = Trade.seller_id.notin_(demo_org_ids)
-
-    demo_trade_count = func.sum(
-        case(
-            (and_(buyer_is_demo, seller_is_demo), 1),
-            else_=0,
-        )
-    ).label("demo_trade_count")
-    real_trade_count = func.sum(
-        case(
-            (and_(buyer_is_real, seller_is_real), 1),
-            else_=0,
-        )
-    ).label("real_trade_count")
-    unknown_trade_count = func.sum(
-        case(
-            (or_(and_(buyer_is_demo, seller_is_real), and_(buyer_is_real, seller_is_demo)), 1),
-            else_=0,
-        )
-    ).label("unknown_trade_count")
-    return real_trade_count, demo_trade_count, unknown_trade_count
-
-
 async def aggregate_trade_prices(
     db: AsyncSession,
     product_id: Optional[UUID] = None,
@@ -196,182 +146,232 @@ async def aggregate_trade_prices(
     availability_window: Optional[str] = None,
     hours: int = 24,
 ) -> list[PriceSummary]:
-    """
-    Aggregate confirmed+ trades from the last `hours` hours into
-    PriceSummary objects grouped by (product_id, delivery_point_id, availability_window).
-
-    Derives product info from joined Product/DeliveryPoint tables.
-    """
+    """Aggregate immutable trade snapshots inside separate REAL/DEMO scopes."""
     cutoff = datetime.now(UTC) - timedelta(hours=hours)
-    valid_statuses = [
-        TradeStatus.CONFIRMED,
-        TradeStatus.DELIVERED,
-        TradeStatus.PAID,
-    ]
     normalized_window = normalize_availability_window(availability_window) if availability_window else None
-    market_product_clause = _market_product_filter_clause(market_product)
-    real_trade_count_expr, demo_trade_count_expr, unknown_trade_count_expr = _trade_demo_count_expressions()
+    market_product_clause = _trade_market_product_filter_clause(market_product)
+    summaries: list[PriceSummary] = []
+    event_time = Trade.confirmed_at
 
-    aggregate_stmt = (
-        select(
-            OrderBookOrder.product_id,
-            Product.name.label("product_name"),
-            Product.fuel_type.label("fuel_type"),
-            Product.fuel_grade.label("fuel_grade"),
-            OrderBookOrder.availability_window.label("availability_window"),
-            OrderBookOrder.delivery_point_id,
-            DeliveryPoint.name.label("delivery_point_name"),
-            DeliveryPoint.region.label("region"),
-            func.max(Trade.price_per_mt_usd).label("high"),
-            func.min(Trade.price_per_mt_usd).label("low"),
-            func.avg(Trade.price_per_mt_usd).label("avg_price"),
-            func.sum(Trade.quantity_mt).label("total_volume"),
-            func.count(Trade.id).label("trade_count"),
-            func.max(Trade.created_at).label("last_trade_at"),
-            real_trade_count_expr,
-            demo_trade_count_expr,
-            unknown_trade_count_expr,
+    def filtered(filters):
+        scoped = list(filters)
+        if product_id:
+            scoped.append(Trade.product_id == product_id)
+        if delivery_point_id:
+            scoped.append(Trade.delivery_point_id == delivery_point_id)
+        if fuel_type:
+            scoped.append(Trade.fuel_type.ilike(f"%{fuel_type}%"))
+        if region:
+            scoped.append(Trade.delivery_point_region.ilike(f"%{region}%"))
+        if market_product_clause is not None:
+            scoped.append(market_product_clause)
+        if normalized_window:
+            scoped.append(Trade.availability_window == normalized_window)
+        return scoped
+
+    for evidence_scope in (MarketEvidenceScope.REAL, MarketEvidenceScope.DEMO):
+        evidence_clause = trade_evidence_clause(
+            Trade,
+            evidence_scope,
+            confirmed_since=cutoff,
         )
-        .join(
-            OrderBookOrder,
-            _trade_order_join_condition(),
+        common_filters = filtered([
+            evidence_clause,
+        ])
+
+        identity_columns = (
+            Trade.product_id,
+            Trade.product_name,
+            Trade.fuel_type,
+            Trade.fuel_grade,
+            Trade.market_product,
+            Trade.availability_window,
+            Trade.delivery_point_id,
+            Trade.delivery_point_name,
+            Trade.delivery_point_region,
         )
-        .join(Product, OrderBookOrder.product_id == Product.id)
-        .outerjoin(DeliveryPoint, OrderBookOrder.delivery_point_id == DeliveryPoint.id)
-        .where(
-            Trade.status.in_(valid_statuses),
-            Trade.created_at >= cutoff,
+        aggregate_stmt = (
+            select(
+                *identity_columns,
+                func.max(Trade.price_per_mt_usd).label("high"),
+                func.min(Trade.price_per_mt_usd).label("low"),
+                func.avg(Trade.price_per_mt_usd).label("avg_price"),
+                func.sum(Trade.quantity_mt).label("total_volume"),
+                func.count(Trade.id).label("trade_count"),
+                func.max(event_time).label("last_trade_at"),
+            )
+            .where(*common_filters)
+            .group_by(*identity_columns)
         )
-    )
+        rows = (await db.execute(aggregate_stmt)).all()
 
-    if product_id:
-        aggregate_stmt = aggregate_stmt.where(OrderBookOrder.product_id == product_id)
-    if delivery_point_id:
-        aggregate_stmt = aggregate_stmt.where(OrderBookOrder.delivery_point_id == delivery_point_id)
-    if fuel_type:
-        aggregate_stmt = aggregate_stmt.where(Product.fuel_type.ilike(f"%{fuel_type}%"))
-    if region:
-        aggregate_stmt = aggregate_stmt.where(DeliveryPoint.region.ilike(f"%{region}%"))
-    if market_product_clause is not None:
-        aggregate_stmt = aggregate_stmt.where(market_product_clause)
-    if normalized_window:
-        aggregate_stmt = aggregate_stmt.where(OrderBookOrder.availability_window == normalized_window)
-
-    aggregate_stmt = aggregate_stmt.group_by(
-        OrderBookOrder.product_id, Product.name, Product.fuel_type, Product.fuel_grade,
-        OrderBookOrder.availability_window,
-        OrderBookOrder.delivery_point_id, DeliveryPoint.name, DeliveryPoint.region,
-    )
-
-    result = await db.execute(aggregate_stmt)
-    rows = result.all()
-
-    # Latest price subquery
-    latest_price_stmt = (
-        select(
-            OrderBookOrder.product_id,
-            OrderBookOrder.delivery_point_id,
-            OrderBookOrder.availability_window.label("availability_window"),
+        latest_price_stmt = select(
+            Trade.product_id,
+            Trade.market_product,
+            Trade.delivery_point_id,
+            Trade.availability_window,
             Trade.price_per_mt_usd.label("last_price"),
-            Trade.created_at.label("last_trade_at"),
+            event_time.label("last_trade_at"),
             func.row_number().over(
                 partition_by=(
-                    OrderBookOrder.product_id,
-                    OrderBookOrder.delivery_point_id,
-                    OrderBookOrder.availability_window,
+                    Trade.product_id,
+                    Trade.market_product,
+                    Trade.delivery_point_id,
+                    Trade.availability_window,
                 ),
-                order_by=Trade.created_at.desc(),
+                order_by=event_time.desc(),
             ).label("rn"),
-        )
-        .join(
-            OrderBookOrder,
-            _trade_order_join_condition(),
-        )
-        .join(Product, OrderBookOrder.product_id == Product.id)
-        .outerjoin(DeliveryPoint, OrderBookOrder.delivery_point_id == DeliveryPoint.id)
-        .where(
-            Trade.status.in_(valid_statuses),
-            Trade.created_at >= cutoff,
-        )
-    )
-    if product_id:
-        latest_price_stmt = latest_price_stmt.where(OrderBookOrder.product_id == product_id)
-    if delivery_point_id:
-        latest_price_stmt = latest_price_stmt.where(OrderBookOrder.delivery_point_id == delivery_point_id)
-    if fuel_type:
-        latest_price_stmt = latest_price_stmt.where(Product.fuel_type.ilike(f"%{fuel_type}%"))
-    if region:
-        latest_price_stmt = latest_price_stmt.where(DeliveryPoint.region.ilike(f"%{region}%"))
-    if market_product_clause is not None:
-        latest_price_stmt = latest_price_stmt.where(market_product_clause)
-    if normalized_window:
-        latest_price_stmt = latest_price_stmt.where(OrderBookOrder.availability_window == normalized_window)
+        ).where(*common_filters)
+        latest_subquery = latest_price_stmt.subquery()
+        latest_rows = (
+            await db.execute(
+                select(latest_subquery).where(latest_subquery.c.rn == 1)
+            )
+        ).all()
+        latest_by_market = {
+            (
+                row.product_id,
+                row.market_product,
+                row.delivery_point_id,
+                _normalize_window_value(row.availability_window),
+            ): row
+            for row in latest_rows
+        }
 
-    latest_subquery = latest_price_stmt.subquery()
-    latest_result = await db.execute(
-        select(
-            latest_subquery.c.product_id,
-            latest_subquery.c.delivery_point_id,
-            latest_subquery.c.availability_window,
-            latest_subquery.c.last_price,
-            latest_subquery.c.last_trade_at,
-        ).where(latest_subquery.c.rn == 1)
-    )
-    latest_rows = latest_result.all()
-    latest_by_market = {
-        (
-            row.product_id,
-            row.delivery_point_id,
-            _normalize_window_value(row.availability_window),
-        ): row
-        for row in latest_rows
-    }
+        for row in rows:
+            row_window = _normalize_window_value(row.availability_window)
+            latest = latest_by_market.get(
+                (row.product_id, row.market_product, row.delivery_point_id, row_window)
+            )
+            observed_at = latest.last_trade_at if latest else row.last_trade_at
+            trade_count = int(row.trade_count or 0)
+            selection = select_aggregate_evidence(
+                real_count=(trade_count if evidence_scope == MarketEvidenceScope.REAL else 0),
+                demo_count=(trade_count if evidence_scope == MarketEvidenceScope.DEMO else 0),
+                unknown_count=0,
+                real_source=MarketSourceKind.CONFIRMED_TRADE,
+            )
+            summaries.append(
+                PriceSummary(
+                    product_id=row.product_id,
+                    product_name=row.product_name or "",
+                    market_product=row.market_product,
+                    fuel_type=row.fuel_type or "",
+                    delivery_point_id=row.delivery_point_id,
+                    delivery_point_name=row.delivery_point_name,
+                    availability_window=row_window,
+                    region=row.delivery_point_region or "",
+                    last_price=latest.last_price if latest else row.high,
+                    avg_price_24h=(
+                        Decimal(str(round(row.avg_price, 2)))
+                        if row.avg_price is not None
+                        else None
+                    ),
+                    high_24h=row.high,
+                    low_24h=row.low,
+                    volume_24h=row.total_volume or Decimal("0"),
+                    trade_count_24h=trade_count,
+                    price_change_pct=None,
+                    last_trade_at=observed_at,
+                    source_kind=selection.source_kind,
+                    scope=(
+                        MarketScope.DELIVERY_POINT
+                        if row.delivery_point_id
+                        else MarketScope.UNKNOWN
+                    ),
+                    demo_status=selection.demo_status,
+                    is_reference=False,
+                    observed_at=observed_at,
+                    real_trade_count_24h=(
+                        trade_count if evidence_scope == MarketEvidenceScope.REAL else 0
+                    ),
+                    demo_trade_count_24h=(
+                        trade_count if evidence_scope == MarketEvidenceScope.DEMO else 0
+                    ),
+                    unknown_trade_count_24h=0,
+                )
+            )
 
-    summaries: list[PriceSummary] = []
-    for row in rows:
-        row_window = _normalize_window_value(row.availability_window)
-        latest = latest_by_market.get((row.product_id, row.delivery_point_id, row_window))
-        real_trade_count = int(row.real_trade_count or 0)
-        demo_trade_count = int(row.demo_trade_count or 0)
-        unknown_trade_count = int(row.unknown_trade_count or 0)
-        source_kind = source_kind_from_counts(
-            real_count=real_trade_count,
-            demo_count=demo_trade_count,
-            unknown_count=unknown_trade_count,
+    # Legacy mismatched or UNKNOWN snapshots are reported as quarantine
+    # metadata only. Their prices and volumes never enter public economics.
+    buyer_class = func.coalesce(Trade.buyer_provenance, OrganizationProvenance.UNKNOWN.value)
+    seller_class = func.coalesce(Trade.seller_provenance, OrganizationProvenance.UNKNOWN.value)
+    forbidden = (OrganizationProvenance.TEST.value, OrganizationProvenance.CANARY.value)
+    quarantine_clause = and_(
+        ~buyer_class.in_(forbidden),
+        ~seller_class.in_(forbidden),
+        or_(
+            buyer_class == OrganizationProvenance.UNKNOWN.value,
+            seller_class == OrganizationProvenance.UNKNOWN.value,
+            buyer_class != seller_class,
+        ),
+    )
+    quarantine_filters = filtered(
+        [
+            formal_trade_snapshot_clause(Trade),
+            Trade.status.in_([TradeStatus.CONFIRMED, TradeStatus.DELIVERED, TradeStatus.PAID]),
+            Trade.confirmed_at.is_not(None),
+            event_time >= cutoff,
+            quarantine_clause,
+        ]
+    )
+    identity_columns = (
+        Trade.product_id,
+        Trade.product_name,
+        Trade.fuel_type,
+        Trade.fuel_grade,
+        Trade.market_product,
+        Trade.availability_window,
+        Trade.delivery_point_id,
+        Trade.delivery_point_name,
+        Trade.delivery_point_region,
+    )
+    quarantine_rows = (
+        await db.execute(
+            select(
+                *identity_columns,
+                func.count(Trade.id).label("unknown_count"),
+                func.max(event_time).label("observed_at"),
+            )
+            .where(*quarantine_filters)
+            .group_by(*identity_columns)
+        )
+    ).all()
+    for row in quarantine_rows:
+        unknown_count = int(row.unknown_count or 0)
+        selection = select_aggregate_evidence(
+            real_count=0,
+            demo_count=0,
+            unknown_count=unknown_count,
             real_source=MarketSourceKind.CONFIRMED_TRADE,
         )
-        demo_status = demo_status_from_counts(
-            real_count=real_trade_count,
-            demo_count=demo_trade_count,
-            unknown_count=unknown_trade_count,
-        )
-        observed_at = latest.last_trade_at if latest else row.last_trade_at
         summaries.append(
             PriceSummary(
                 product_id=row.product_id,
                 product_name=row.product_name or "",
-                market_product=_derive_market_product_value(row.product_name, row.fuel_type, row.fuel_grade),
+                market_product=row.market_product,
                 fuel_type=row.fuel_type or "",
                 delivery_point_id=row.delivery_point_id,
                 delivery_point_name=row.delivery_point_name,
-                availability_window=row_window,
-                region=row.region or "",
-                last_price=latest.last_price if latest else row.high,
-                avg_price_24h=Decimal(str(round(row.avg_price, 2))) if row.avg_price else None,
-                high_24h=row.high,
-                low_24h=row.low,
-                volume_24h=row.total_volume or Decimal("0"),
-                trade_count_24h=row.trade_count or 0,
-                price_change_pct=None,
-                last_trade_at=observed_at,
-                source_kind=source_kind,
-                scope=MarketScope.DELIVERY_POINT if row.delivery_point_id else MarketScope.UNKNOWN,
-                demo_status=demo_status,
+                availability_window=_normalize_window_value(row.availability_window),
+                region=row.delivery_point_region or "",
+                last_price=None,
+                avg_price_24h=None,
+                high_24h=None,
+                low_24h=None,
+                volume_24h=Decimal("0"),
+                trade_count_24h=0,
+                last_trade_at=None,
+                source_kind=selection.source_kind,
+                scope=(
+                    MarketScope.DELIVERY_POINT
+                    if row.delivery_point_id
+                    else MarketScope.UNKNOWN
+                ),
+                demo_status=selection.demo_status,
                 is_reference=False,
-                observed_at=observed_at,
-                real_trade_count_24h=real_trade_count,
-                demo_trade_count_24h=demo_trade_count,
-                unknown_trade_count_24h=unknown_trade_count,
+                observed_at=row.observed_at,
+                unknown_trade_count_24h=unknown_count,
             )
         )
 
@@ -433,39 +433,35 @@ async def compute_reference_prices(
     """
     _validate_reference_date_range(date_from, date_to)
 
-    valid_statuses = [
-        TradeStatus.CONFIRMED,
-        TradeStatus.DELIVERED,
-        TradeStatus.PAID,
-    ]
     normalized_window = normalize_availability_window(availability_window) if availability_window else None
-    market_product_clause = _market_product_filter_clause(market_product)
+    market_product_clause = _trade_market_product_filter_clause(market_product)
 
-    trade_date_expr = func.date(Trade.created_at)
+    event_time = Trade.confirmed_at
+    trade_date_expr = func.date(event_time)
     trade_date = trade_date_expr.label("trade_date")
 
     stmt = (
         select(
-            OrderBookOrder.product_id,
-            Product.name.label("product_name"),
-            Product.fuel_type.label("fuel_type"),
-            Product.fuel_grade.label("fuel_grade"),
-            OrderBookOrder.availability_window.label("availability_window"),
-            OrderBookOrder.delivery_point_id,
-            DeliveryPoint.name.label("delivery_point_name"),
-            DeliveryPoint.region.label("region"),
+            Trade.product_id,
+            Trade.product_name,
+            Trade.fuel_type,
+            Trade.fuel_grade,
+            Trade.market_product,
+            Trade.availability_window,
+            Trade.delivery_point_id,
+            Trade.delivery_point_name,
+            Trade.delivery_point_region.label("region"),
             trade_date,
             func.sum(Trade.price_per_mt_usd * Trade.quantity_mt).label("weighted_sum"),
             func.sum(Trade.quantity_mt).label("total_volume"),
             func.count(Trade.id).label("trade_count"),
         )
-        .join(
-            OrderBookOrder,
-            _trade_order_join_condition(),
+        .where(
+            trade_evidence_clause(
+                Trade,
+                MarketEvidenceScope.REAL,
+            ),
         )
-        .join(Product, OrderBookOrder.product_id == Product.id)
-        .outerjoin(DeliveryPoint, OrderBookOrder.delivery_point_id == DeliveryPoint.id)
-        .where(Trade.status.in_(valid_statuses))
     )
 
     if date_from:
@@ -473,22 +469,22 @@ async def compute_reference_prices(
     if date_to:
         stmt = stmt.where(trade_date_expr <= date_to)
     if product_id:
-        stmt = stmt.where(OrderBookOrder.product_id == product_id)
+        stmt = stmt.where(Trade.product_id == product_id)
     if delivery_point_id:
-        stmt = stmt.where(OrderBookOrder.delivery_point_id == delivery_point_id)
+        stmt = stmt.where(Trade.delivery_point_id == delivery_point_id)
     if fuel_type:
-        stmt = stmt.where(Product.fuel_type.ilike(f"%{fuel_type}%"))
+        stmt = stmt.where(Trade.fuel_type.ilike(f"%{fuel_type}%"))
     if region:
-        stmt = stmt.where(DeliveryPoint.region.ilike(f"%{region}%"))
+        stmt = stmt.where(Trade.delivery_point_region.ilike(f"%{region}%"))
     if market_product_clause is not None:
         stmt = stmt.where(market_product_clause)
     if normalized_window:
-        stmt = stmt.where(OrderBookOrder.availability_window == normalized_window)
+        stmt = stmt.where(Trade.availability_window == normalized_window)
 
     stmt = stmt.group_by(
-        OrderBookOrder.product_id, Product.name, Product.fuel_type, Product.fuel_grade,
-        OrderBookOrder.availability_window,
-        OrderBookOrder.delivery_point_id, DeliveryPoint.name, DeliveryPoint.region,
+        Trade.product_id, Trade.product_name, Trade.fuel_type, Trade.fuel_grade, Trade.market_product,
+        Trade.availability_window,
+        Trade.delivery_point_id, Trade.delivery_point_name, Trade.delivery_point_region,
         trade_date,
     ).order_by(trade_date.desc())
 
@@ -500,21 +496,12 @@ async def compute_reference_prices(
         total_vol = row.total_volume or Decimal("0")
         weighted = row.weighted_sum or Decimal("0")
         vwap = Decimal(str(round(weighted / total_vol, 2))) if total_vol > 0 else Decimal("0")
-        fuel_grade = getattr(row, "fuel_grade", "")
-        if not isinstance(fuel_grade, str):
-            fuel_grade = ""
-        availability_window = getattr(row, "availability_window", "SPOT")
-        if not isinstance(availability_window, str):
-            availability_window = "SPOT"
+        availability_window = _normalize_window_value(row.availability_window)
         items.append(
             ReferencePriceItem(
                 product_id=row.product_id,
                 product_name=row.product_name or "",
-                market_product=(
-                    derived.value
-                    if (derived := derive_market_product(row.product_name or "", row.fuel_type or "", fuel_grade))
-                    else None
-                ),
+                market_product=row.market_product,
                 fuel_type=row.fuel_type or "",
                 delivery_point_id=row.delivery_point_id,
                 delivery_point_name=row.delivery_point_name,
@@ -524,6 +511,10 @@ async def compute_reference_prices(
                 total_volume_mt=total_vol,
                 trade_count=row.trade_count or 0,
                 date=_coerce_trade_date(row.trade_date),
+                source_kind=MarketSourceKind.CONFIRMED_TRADE,
+                scope=MarketScope.DELIVERY_POINT,
+                demo_status=MarketDemoStatus.REAL_ONLY,
+                is_reference=True,
             )
         )
 
@@ -546,7 +537,7 @@ def _items_to_csv(items: list[ReferencePriceItem]) -> str:
             "date": str(item.date),
             "product_name": item.product_name or "",
             "market_product": item.market_product or "",
-            "availability_window": item.availability_window or "SPOT",
+            "availability_window": item.availability_window,
             "fuel_type": item.fuel_type or "",
             "delivery_point_name": item.delivery_point_name or "",
             "region": item.region or "",

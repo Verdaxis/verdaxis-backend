@@ -4,7 +4,7 @@ from sqlalchemy.dialects.postgresql import UUID
 import uuid
 import enum
 from datetime import datetime
-from app.database import Base
+from app.model_base import Base
 
 class TraceabilityEvent(Base):
     __tablename__ = "traceability_events"

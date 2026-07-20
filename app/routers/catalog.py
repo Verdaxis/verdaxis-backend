@@ -4,28 +4,31 @@ from sqlalchemy import case, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
+from app.market_catalog import (
+    CANONICAL_PRODUCTS,
+    DELIVERY_POINT_DISPLAY_ORDER,
+)
 from app.models.catalog import Product, DeliveryPoint
 from app.schemas.catalog import ProductResponse, DeliveryPointResponse
+from app.services.market_data_eligibility import (
+    canonical_delivery_point_clause,
+    canonical_product_clause,
+)
 
 router = APIRouter(prefix="/catalog", tags=["catalog"])
-
-DELIVERY_POINT_DISPLAY_ORDER = {
-    "Dalian": 1,
-    "Busan": 2,
-    "Shanghai": 3,
-    "Singapore": 4,
-    "Rotterdam": 5,
-    "Houston": 6,
-    "Los Angeles": 7,
-    "Santos": 8,
-}
-
 
 @router.get("/products", response_model=list[ProductResponse])
 async def list_products(db: AsyncSession = Depends(get_db)):
     """List all active products."""
+    display_order = case(
+        {spec.id: index for index, spec in enumerate(CANONICAL_PRODUCTS, start=1)},
+        value=Product.id,
+        else_=999,
+    )
     result = await db.execute(
-        select(Product).where(Product.is_active.is_(True)).order_by(Product.name)
+        select(Product)
+        .where(canonical_product_clause(Product))
+        .order_by(display_order, Product.name)
     )
     return result.scalars().all()
 
@@ -34,13 +37,13 @@ async def list_products(db: AsyncSession = Depends(get_db)):
 async def list_delivery_points(db: AsyncSession = Depends(get_db)):
     """List all active delivery points."""
     display_order = case(
-        DELIVERY_POINT_DISPLAY_ORDER,
+        dict(DELIVERY_POINT_DISPLAY_ORDER),
         value=DeliveryPoint.name,
         else_=999,
     )
     result = await db.execute(
         select(DeliveryPoint)
-        .where(DeliveryPoint.is_active.is_(True))
+        .where(canonical_delivery_point_clause(DeliveryPoint))
         .order_by(display_order, DeliveryPoint.name)
     )
     return result.scalars().all()

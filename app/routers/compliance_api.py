@@ -221,6 +221,7 @@ async def get_pricing_overlay(
     filters: list[object] = [
         OrderBookOrder.id.in_(payload.order_ids),
         OrderBookOrder.status.in_([OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED]),
+        OrderBookOrder.expires_at.is_(None) | (OrderBookOrder.expires_at > func.now()),
         OrderBookOrder.side == OrderSide.ASK,
     ]
     joins: list[tuple[object, object]] = []

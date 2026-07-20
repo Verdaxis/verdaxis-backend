@@ -93,10 +93,11 @@ async def test_utc_buckets_are_independent_of_session_timezone(pg_session):
     # A late-evening UTC order would fall on the next calendar day in
     # Singapore; a timezone-leaky bucket would misplace it.
     session.add(
-        OrderBookOrder(
-            id=uuid4(),
-            organization_id=fixtures.LIVE_BUYER_ORG_ID,
-            side=OrderSide.BID,
+            OrderBookOrder(
+                id=uuid4(),
+                organization_id=fixtures.LIVE_BUYER_ORG_ID,
+                provenance="REAL",
+                side=OrderSide.BID,
             product_id=fixtures.PRODUCT_BIO_METHANOL_ID,
             delivery_point_id=fixtures.DELIVERY_POINT_SINGAPORE_ID,
             quantity_mt=Decimal("10"),
