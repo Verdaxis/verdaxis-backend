@@ -37,6 +37,12 @@ _DEPLOYED_DATABASE_IDENTITIES = {
     },
 }
 _DEFAULT_JWT_SECRETS = {"", "change-me-in-production", "CHANGE_ME_MIN_32_CHARS"}
+_DEFAULT_DATABASE_PASSWORDS = {"postgres", "change_me"}
+
+
+def _database_password_is_placeholder(password: str | None) -> bool:
+    return password is None or password.strip().lower() in _DEFAULT_DATABASE_PASSWORDS
+
 
 class Settings(BaseSettings):
     # Server
@@ -213,7 +219,7 @@ class Settings(BaseSettings):
                 raise ValueError(
                     "deployed database URLs must not contain query parameters"
                 )
-            if not app_url.password or app_url.password.lower() in {"postgres", "change_me"}:
+            if _database_password_is_placeholder(app_url.password):
                 raise ValueError(
                     "DATABASE_URL password must be explicitly configured in deployed environments"
                 )
@@ -240,7 +246,7 @@ class Settings(BaseSettings):
                 raise ValueError(
                     "runtime application and migrator database roles must be distinct"
                 )
-            if not migration_url.password:
+            if _database_password_is_placeholder(migration_url.password):
                 raise ValueError(
                     "MIGRATOR_DATABASE_URL password must be explicitly configured in deployed environments"
                 )

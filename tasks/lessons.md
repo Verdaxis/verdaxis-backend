@@ -142,6 +142,12 @@
 - **Rule:** Prefer an already-declared HTTP client such as `httpx` before adding a dependency to a test helper.
 - **Why:** Test-only dependency drift makes clean CI/bootstrap environments fail unnecessarily.
 
+### Validate Exact Runtime Authority And Artifact Provenance
+- **Date:** 2026-07-20
+- **Trigger:** Final runtime review found that unrelated database/schema grantees survived bootstrap, systemd units could come from an unapproved invoking tree, news refresh had no external owner, and migrator placeholder passwords were accepted.
+- **Rule:** Security validators must compare complete ACL/provenance sets, operational jobs must have one source-controlled owner per environment, and every deployed credential class must reject placeholders consistently.
+- **Why:** Checking only named roles or expected live checkouts leaves unexamined authority and artifact paths that can pass validation while violating the deployment contract.
+
 ### Remove Obsolete Harnesses Identified By Audit
 - **Date:** 2026-07-20
 - **Trigger:** Ponytail audit found the purchase-flow helper had no references and targeted obsolete endpoints.

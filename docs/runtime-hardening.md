@@ -46,9 +46,15 @@ Each unit runs `alembic current --check-heads` before Uvicorn and passes the
 same `UVICORN_WORKERS=4` value used by application pool math,
 sets `PYTHONDONTWRITEBYTECODE=1`, and applies a read-only systemd sandbox. No
 broad source-tree `ReadWritePaths` grant is present. The checked-in units are
-artifacts only; this change does not install or deploy them. Scheduled jobs
-must run as one external singleton per job. Uvicorn workers do not create a
-news refresh scheduler.
+artifacts only; this change does not install or deploy them. News refresh has
+exactly one external owner in each environment:
+`verdaxis-news-refresh.timer` in production and
+`verdaxis-news-refresh-staging.timer` in staging. Each invokes the locked
+`python -m app.cli.refresh_news` entrypoint through a one-shot service. Uvicorn
+workers do not create a news scheduler, the public manual refresh route is
+removed, and a PostgreSQL transaction advisory lock rejects overlapping CLI
+runs. Installation and timer enablement remain separate operator-held live
+actions; see `docs/news-refresh-timer.md`.
 
 The units also require the gitignored `.runtime-release.env` artifact. After a
 successful fast-forward and migration, `scripts/deploy.sh` resolves the full
@@ -59,13 +65,27 @@ production refuse startup without a full SHA; development/test may explicitly
 use their named placeholder. Existing deployments need the updated unit and a
 deploy-helper run together—do not invent a placeholder SHA to bridge rollout.
 
-`scripts/install_systemd_units.sh` provides the operator path and defaults to a
-no-change dry run. With explicit `--apply`, it requires clean production and
-staging checkouts, validates environment/release identity, runs the application
-database/CORS/auth preflight, verifies exact Alembic heads and both unit files,
-installs only changed units, and calls `systemctl daemon-reload` only after a
-change. It never enables, starts, or restarts either service. Installation and
-daemon reload remain operator-held live actions.
+`scripts/install_systemd_units.sh` provides the operator path. Every invocation
+requires `--environment production|staging` and an explicit full
+`--source-ref`; omitted mode safely defaults to dry-run, while mutation requires
+explicit `--apply`. The selected environment maps to one fixed release
+checkout. Before preflight or mutation, the installer requires that checkout
+to be clean and exactly at the source ref. Git
+replacement refs and tracked `assume-unchanged`/`skip-worktree` flags are
+refused, and committed blobs are read with replacement-object processing
+disabled. The installer then reads every selected backend/news unit from that
+same Git commit and attests the working bytes and SHA-256 digest against the
+release artifact. It never sources units from the invoking worktree or infers
+approval from another live checkout. Production and staging are independently
+promoted, so run and approve them separately; their SHAs may differ.
+
+After provenance succeeds, the installer validates the selected environment's
+release identity, application database/CORS/auth configuration, exact Alembic
+heads, and unit syntax. `--dry-run` then exits without changes. Explicit
+`--apply` installs only changed units and calls `systemctl daemon-reload` only
+after a change. It never enables, starts, or restarts a service or timer.
+Installation, daemon reload, and timer enablement remain operator-held live
+actions.
 
 Deploys categorically reject dirty trees before and after preparation because
 a commit SHA cannot identify modified source. The readiness gate parses JSON
@@ -85,8 +105,10 @@ Deployed identities are exact:
 | production | `verdaxis` | `verdaxis_app` | `verdaxis_migrator` |
 | staging | `verdaxis_staging` | `verdaxis_app_staging` | `verdaxis_migrator_staging` |
 
-Both environments require PostgreSQL URLs, explicit non-default passwords, a
-non-default JWT of at least 32 characters, and disabled auth bypass. SQLite,
+Both environments require PostgreSQL URLs, explicit non-default passwords in
+both the application and migrator URLs, a non-default JWT of at least 32
+characters, and disabled auth bypass. Missing and known placeholder passwords
+are rejected with field-only errors that never echo URL credentials. SQLite,
 missing migrator URLs, shared app/migrator roles, cross-environment identities,
 and every URL query parameter are rejected. Runtime and migration startup each
 attest the exact `current_database()`, `current_user`, LOGIN/NOINHERIT and
@@ -122,12 +144,20 @@ They provision app, migrator, and read-only backup roles; transfer public
 database/schema and application table/sequence ownership to the migrator;
 remove every protected-role membership edge (including inherited superuser and
 `SET ROLE` paths); revoke stale direct/default ACLs; and reconstruct exact
-least-privilege grants. App-owned objects exclude `alembic_version`,
+least-privilege grants. The normalized expanded database and `public` schema
+ACLs allow only the migrator owner plus the intended app/backup grants; every
+unrelated explicit grantee is revoked. PostgreSQL's ownership authority is
+represented by the migrator owner, so a redundant explicit
+`pg_database_owner` schema ACL is removed rather than treated as extra access.
+Validation compares the complete expanded ACL sets, including grantor and
+grantability, instead of checking only named roles or relying on ACL array
+ordering. App-owned objects exclude `alembic_version`,
 `spatial_ref_sys`, and extension-owned objects. The app receives table
 `SELECT/INSERT/UPDATE/DELETE` and sequence `USAGE/SELECT/UPDATE`; backup receives
 only table/sequence `SELECT`. Validation checks exact ownership, role
-properties, memberships, effective privileges, unexpected grantees, default
-ACL set equality, backup write absence, excluded-object immutability, and exact
+properties, memberships, effective privileges, unexpected database/schema/
+object grantees, exact default ACL set equality (including grantor and grant
+option), backup write absence, excluded-object immutability, and exact
 per-database timeouts.
 Run them as the database owner with explicit psql variables, for example:
 

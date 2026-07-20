@@ -54,18 +54,63 @@ SELECT pg_temp.assert_role_policy(
 );
 
 SELECT pg_temp.assert_role_policy(
-    has_database_privilege(:'app_role', :'database_name', 'CONNECT')
-    AND NOT has_database_privilege(:'app_role', :'database_name', 'CREATE,TEMPORARY')
-    AND has_database_privilege(:'backup_role', :'database_name', 'CONNECT')
-    AND NOT has_database_privilege(:'backup_role', :'database_name', 'CREATE,TEMPORARY'),
-    'app and backup database privileges must be CONNECT only'
+    NOT EXISTS (
+        WITH expected(grantee_name, privilege_type, is_grantable, grantor_name) AS (
+            VALUES
+                (:'migrator_role', 'CREATE', false, :'migrator_role'),
+                (:'migrator_role', 'CONNECT', false, :'migrator_role'),
+                (:'migrator_role', 'TEMPORARY', false, :'migrator_role'),
+                (:'app_role', 'CONNECT', false, :'migrator_role'),
+                (:'backup_role', 'CONNECT', false, :'migrator_role')
+        ), actual AS (
+            SELECT COALESCE(grantee.rolname, 'PUBLIC') AS grantee_name,
+                   acl.privilege_type,
+                   acl.is_grantable,
+                   grantor.rolname AS grantor_name
+            FROM pg_catalog.pg_database AS database
+            CROSS JOIN LATERAL aclexplode(
+                COALESCE(database.datacl, acldefault('d', database.datdba))
+            ) AS acl
+            LEFT JOIN pg_catalog.pg_roles AS grantee ON grantee.oid = acl.grantee
+            JOIN pg_catalog.pg_roles AS grantor ON grantor.oid = acl.grantor
+            WHERE database.datname = :'database_name'
+        ), differences AS (
+            (SELECT * FROM actual EXCEPT ALL SELECT * FROM expected)
+            UNION ALL
+            (SELECT * FROM expected EXCEPT ALL SELECT * FROM actual)
+        )
+        SELECT 1 FROM differences
+    ),
+    'database ACL must exactly match owner, app, and backup policy'
 );
 SELECT pg_temp.assert_role_policy(
-    has_schema_privilege(:'app_role', 'public', 'USAGE')
-    AND NOT has_schema_privilege(:'app_role', 'public', 'CREATE')
-    AND has_schema_privilege(:'backup_role', 'public', 'USAGE')
-    AND NOT has_schema_privilege(:'backup_role', 'public', 'CREATE'),
-    'app and backup schema privileges must be USAGE only'
+    NOT EXISTS (
+        WITH expected(grantee_name, privilege_type, is_grantable, grantor_name) AS (
+            VALUES
+                (:'migrator_role', 'CREATE', false, :'migrator_role'),
+                (:'migrator_role', 'USAGE', false, :'migrator_role'),
+                (:'app_role', 'USAGE', false, :'migrator_role'),
+                (:'backup_role', 'USAGE', false, :'migrator_role')
+        ), actual AS (
+            SELECT COALESCE(grantee.rolname, 'PUBLIC') AS grantee_name,
+                   acl.privilege_type,
+                   acl.is_grantable,
+                   grantor.rolname AS grantor_name
+            FROM pg_catalog.pg_namespace AS namespace
+            CROSS JOIN LATERAL aclexplode(
+                COALESCE(namespace.nspacl, acldefault('n', namespace.nspowner))
+            ) AS acl
+            LEFT JOIN pg_catalog.pg_roles AS grantee ON grantee.oid = acl.grantee
+            JOIN pg_catalog.pg_roles AS grantor ON grantor.oid = acl.grantor
+            WHERE namespace.nspname = 'public'
+        ), differences AS (
+            (SELECT * FROM actual EXCEPT ALL SELECT * FROM expected)
+            UNION ALL
+            (SELECT * FROM expected EXCEPT ALL SELECT * FROM actual)
+        )
+        SELECT 1 FROM differences
+    ),
+    'public schema ACL must exactly match owner, app, and backup policy'
 );
 
 CREATE TEMP VIEW app_policy_objects AS
@@ -157,31 +202,34 @@ SELECT pg_temp.assert_role_policy(
     'control or extension tables are mutable by app or backup roles'
 );
 
-WITH expected(role_name, object_type, privilege_type) AS (
+WITH expected(role_name, object_type, privilege_type, is_grantable, grantor_name) AS (
     VALUES
-        (:'app_role', 'r', 'SELECT'),
-        (:'app_role', 'r', 'INSERT'),
-        (:'app_role', 'r', 'UPDATE'),
-        (:'app_role', 'r', 'DELETE'),
-        (:'app_role', 'S', 'USAGE'),
-        (:'app_role', 'S', 'SELECT'),
-        (:'app_role', 'S', 'UPDATE'),
-        (:'backup_role', 'r', 'SELECT'),
-        (:'backup_role', 'S', 'SELECT')
+        (:'app_role', 'r', 'SELECT', false, :'migrator_role'),
+        (:'app_role', 'r', 'INSERT', false, :'migrator_role'),
+        (:'app_role', 'r', 'UPDATE', false, :'migrator_role'),
+        (:'app_role', 'r', 'DELETE', false, :'migrator_role'),
+        (:'app_role', 'S', 'USAGE', false, :'migrator_role'),
+        (:'app_role', 'S', 'SELECT', false, :'migrator_role'),
+        (:'app_role', 'S', 'UPDATE', false, :'migrator_role'),
+        (:'backup_role', 'r', 'SELECT', false, :'migrator_role'),
+        (:'backup_role', 'S', 'SELECT', false, :'migrator_role')
 ), actual AS (
     SELECT COALESCE(grantee.rolname, 'PUBLIC') AS role_name,
            defaults.defaclobjtype::text AS object_type,
-           acl.privilege_type
+           acl.privilege_type,
+           acl.is_grantable,
+           grantor.rolname AS grantor_name
     FROM pg_catalog.pg_default_acl AS defaults
     JOIN pg_catalog.pg_roles AS owner ON owner.oid = defaults.defaclrole
     JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = defaults.defaclnamespace
     CROSS JOIN LATERAL aclexplode(defaults.defaclacl) AS acl
     LEFT JOIN pg_catalog.pg_roles AS grantee ON grantee.oid = acl.grantee
+    JOIN pg_catalog.pg_roles AS grantor ON grantor.oid = acl.grantor
     WHERE owner.rolname = :'migrator_role' AND namespace.nspname = 'public'
 ), differences AS (
-    (SELECT * FROM actual EXCEPT SELECT * FROM expected)
+    (SELECT * FROM actual EXCEPT ALL SELECT * FROM expected)
     UNION ALL
-    (SELECT * FROM expected EXCEPT SELECT * FROM actual)
+    (SELECT * FROM expected EXCEPT ALL SELECT * FROM actual)
 )
 SELECT pg_temp.assert_role_policy(
     NOT EXISTS (SELECT 1 FROM differences),

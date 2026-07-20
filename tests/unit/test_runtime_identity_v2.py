@@ -146,6 +146,25 @@ def test_deployed_environment_rejects_sqlite_default_jwt_and_auth_bypass(environ
 
 
 @pytest.mark.parametrize("environment", ["production", "staging"])
+@pytest.mark.parametrize("url_field", ["DATABASE_URL", "MIGRATOR_DATABASE_URL"])
+@pytest.mark.parametrize("placeholder", ["postgres", "change_me"])
+def test_deployed_app_and_migrator_reject_the_same_placeholder_passwords_without_echo(
+    environment, url_field, placeholder
+):
+    settings = _deployed_settings(environment)
+    original_url = getattr(settings, url_field)
+    unsafe_url = original_url.replace("runtime-test-only", placeholder)
+
+    with pytest.raises(ValidationError, match=f"{url_field} password") as exc_info:
+        _deployed_settings(environment, **{url_field: unsafe_url})
+
+    rendered_error = str(exc_info.value)
+    assert unsafe_url not in rendered_error
+    assert f":{placeholder}@" not in rendered_error
+    assert placeholder not in rendered_error
+
+
+@pytest.mark.parametrize("environment", ["production", "staging"])
 def test_deployed_topology_cannot_undercount_services_or_reserve(environment):
     with pytest.raises(ValidationError, match="DB_SERVICE_COUNT"):
         _deployed_settings(environment, DB_SERVICE_COUNT=1)

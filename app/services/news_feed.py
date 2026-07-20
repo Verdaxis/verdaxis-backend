@@ -8,7 +8,7 @@ from time import mktime
 from typing import Optional
 
 import structlog
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,6 +19,7 @@ from app.models.news import NewsItem
 logger = structlog.get_logger()
 
 GEMINI_MODEL = "gemini-2.5-flash-lite"
+NEWS_REFRESH_ADVISORY_LOCK_ID = 6216461178696259923
 
 RSS_FEEDS = [
     {"name": "TradeWinds", "url": "https://www.tradewindsnews.com/rss"},
@@ -32,6 +33,10 @@ RSS_FEEDS = [
 ]
 
 VALID_CATEGORIES = {"shipping", "bunkers", "regulation", "carbon", "commodities", "markets"}
+
+
+class NewsRefreshInProgress(RuntimeError):
+    """Another database-coordinated news refresh already holds the lock."""
 
 
 def _parse_published(entry: dict) -> datetime:
@@ -163,6 +168,16 @@ async def refresh_news(db: AsyncSession) -> int:
 
     Returns the count of newly inserted items.
     """
+    bind = db.get_bind()
+    dialect_name = bind.dialect.name if bind is not None else ""
+    if dialect_name == "postgresql":
+        acquired = await db.scalar(
+            text("SELECT pg_try_advisory_xact_lock(:lock_id)"),
+            {"lock_id": NEWS_REFRESH_ADVISORY_LOCK_ID},
+        )
+        if not acquired:
+            raise NewsRefreshInProgress("A news refresh is already running")
+
     raw_items = await fetch_all_feeds()
     if not raw_items:
         logger.info("news_feed.no_items_fetched")
@@ -205,8 +220,6 @@ async def refresh_news(db: AsyncSession) -> int:
             }
         )
 
-    bind = db.get_bind()
-    dialect_name = bind.dialect.name if bind is not None else ""
     if dialect_name == "postgresql":
         stmt = postgresql_insert(NewsItem).values(rows_to_insert)
         stmt = stmt.on_conflict_do_nothing(index_elements=[NewsItem.url])

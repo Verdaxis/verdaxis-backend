@@ -1,77 +1,129 @@
 #!/usr/bin/env bash
-# Idempotently install checked-in Verdaxis backend units after read-only
-# configuration, database-identity, and Alembic-head preflights. This script
-# deliberately does not enable, start, or restart either service.
+# Install one environment's units only from its exact approved clean checkout.
+# The script deliberately never enables, starts, or restarts a service/timer.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BACKEND_ROOT="$(dirname "$SCRIPT_DIR")"
 SYSTEMD_DIR="/etc/systemd/system"
-APPLY=0
+MODE="dry-run"
+MODE_SET=0
+DEPLOY_ENVIRONMENT=""
+SOURCE_REF=""
 
-if [[ "${1:-}" == "--apply" ]]; then
-    APPLY=1
-elif [[ -n "${1:-}" && "${1:-}" != "--dry-run" ]]; then
-    echo "usage: $0 [--dry-run|--apply]" >&2
+usage() {
+    echo "usage: $0 [--dry-run|--apply] --environment production|staging --source-ref <40-hex-sha>" >&2
+}
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --dry-run|--apply)
+            if [[ "$MODE_SET" == 1 ]]; then
+                usage
+                exit 2
+            fi
+            MODE="${1#--}"
+            MODE_SET=1
+            shift
+            ;;
+        --environment)
+            [[ $# -ge 2 && -z "$DEPLOY_ENVIRONMENT" ]] || { usage; exit 2; }
+            DEPLOY_ENVIRONMENT="$2"
+            shift 2
+            ;;
+        --source-ref)
+            [[ $# -ge 2 && -z "$SOURCE_REF" ]] || { usage; exit 2; }
+            SOURCE_REF="$2"
+            shift 2
+            ;;
+        *)
+            usage
+            exit 2
+            ;;
+    esac
+done
+
+if [[ ! "$SOURCE_REF" =~ ^[0-9a-f]{40}$ ]]; then
+    echo "--source-ref must be a full lowercase commit SHA" >&2
     exit 2
 fi
 
-preflight_backend() {
-    local environment="$1"
-    local backend="$2"
-    local release_sha
+case "$DEPLOY_ENVIRONMENT" in
+    production)
+        SOURCE_ROOT="/home/verdaxis-prod/verdaxis/prod/be"
+        UNIT_NAMES=(
+            verdaxis-backend.service
+            verdaxis-news-refresh.service
+            verdaxis-news-refresh.timer
+        )
+        ;;
+    staging)
+        SOURCE_ROOT="/home/verdaxis-prod/verdaxis/staging/be"
+        UNIT_NAMES=(
+            verdaxis-backend-staging.service
+            verdaxis-news-refresh-staging.service
+            verdaxis-news-refresh-staging.timer
+        )
+        ;;
+    *)
+        usage
+        exit 2
+        ;;
+esac
 
-    if [[ ! -d "$backend/.git" || ! -x "$backend/venv/bin/python" ]]; then
-        echo "missing deploy checkout or virtualenv for $environment" >&2
-        exit 1
-    fi
-    if [[ -n "$(git -C "$backend" status --porcelain)" ]]; then
-        echo "$environment deploy checkout is dirty; refusing unit installation" >&2
-        exit 1
-    fi
-    release_sha="$(git -C "$backend" rev-parse HEAD)"
-    if [[ ! "$release_sha" =~ ^[0-9a-f]{40}$ ]]; then
-        echo "$environment checkout does not resolve to a full release SHA" >&2
-        exit 1
-    fi
+if [[ "$(realpath -e "$BACKEND_ROOT")" != "$(realpath -e "$SOURCE_ROOT")" ]]; then
+    echo "installer must run from the selected environment's fixed deploy checkout" >&2
+    exit 1
+fi
+if [[ ! -x "$SOURCE_ROOT/venv/bin/python" || ! -x "$SOURCE_ROOT/venv/bin/alembic" ]]; then
+    echo "selected deploy checkout is missing its virtualenv" >&2
+    exit 1
+fi
 
-    (
-        cd "$backend"
-        env ENVIRONMENT="$environment" RELEASE_SHA="$release_sha" \
-            ./venv/bin/python scripts/preflight_runtime.py \
-            --environment "$environment" --release-sha "$release_sha"
-        env ENVIRONMENT="$environment" RELEASE_SHA="$release_sha" \
-            ./venv/bin/alembic current --check-heads
-    )
-}
+UNIT_PATH_ARGS=()
+UNIT_SOURCES=()
+for unit_name in "${UNIT_NAMES[@]}"; do
+    UNIT_PATH_ARGS+=(--unit "deploy/systemd/$unit_name")
+    UNIT_SOURCES+=("$SOURCE_ROOT/deploy/systemd/$unit_name")
+done
 
-install_unit() {
-    local unit_name="$1"
-    local source="$BACKEND_ROOT/deploy/systemd/$unit_name"
-    local destination="$SYSTEMD_DIR/$unit_name"
+"$SOURCE_ROOT/venv/bin/python" "$SOURCE_ROOT/scripts/verify_systemd_source.py" \
+    --source-root "$SOURCE_ROOT" \
+    --source-ref "$SOURCE_REF" \
+    --mode "$MODE" \
+    "${UNIT_PATH_ARGS[@]}"
 
-    sudo systemd-analyze verify "$source"
-    if sudo cmp -s "$source" "$destination"; then
-        echo "$unit_name is already current"
-        return
-    fi
-    sudo install -m 0644 -o root -g root "$source" "$destination"
-    UNITS_CHANGED=1
-}
+(
+    cd "$SOURCE_ROOT"
+    env ENVIRONMENT="$DEPLOY_ENVIRONMENT" RELEASE_SHA="$SOURCE_REF" \
+        ./venv/bin/python scripts/preflight_runtime.py \
+        --environment "$DEPLOY_ENVIRONMENT" --release-sha "$SOURCE_REF"
+    env ENVIRONMENT="$DEPLOY_ENVIRONMENT" RELEASE_SHA="$SOURCE_REF" \
+        ./venv/bin/alembic current --check-heads
+)
+systemd-analyze verify "${UNIT_SOURCES[@]}"
 
-echo "Verdaxis systemd unit installation mode: $([[ "$APPLY" == 1 ]] && echo apply || echo dry-run)"
-if [[ "$APPLY" == 0 ]]; then
-    echo "Would preflight production and staging, verify both units, copy changed units, and reload systemd."
+echo "Verdaxis systemd unit installation mode: $MODE"
+echo "Environment: $DEPLOY_ENVIRONMENT"
+echo "Approved source ref: $SOURCE_REF"
+if [[ "$MODE" == "dry-run" ]]; then
+    echo "Provenance and preflights passed; no unit files were changed."
     exit 0
 fi
 
-preflight_backend production /home/verdaxis-prod/verdaxis/prod/be
-preflight_backend staging /home/verdaxis-prod/verdaxis/staging/be
-
 UNITS_CHANGED=0
-install_unit verdaxis-backend.service
-install_unit verdaxis-backend-staging.service
+for index in "${!UNIT_NAMES[@]}"; do
+    unit_name="${UNIT_NAMES[$index]}"
+    source="${UNIT_SOURCES[$index]}"
+    destination="$SYSTEMD_DIR/$unit_name"
+    if sudo cmp -s "$source" "$destination"; then
+        echo "$unit_name is already current"
+        continue
+    fi
+    sudo install -m 0644 -o root -g root "$source" "$destination"
+    UNITS_CHANGED=1
+done
 if [[ "$UNITS_CHANGED" == 1 ]]; then
     sudo systemctl daemon-reload
 fi
-echo "Unit files installed; services were left unchanged."
+echo "Unit files installed; services and timers were left unchanged."

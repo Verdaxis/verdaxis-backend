@@ -37,11 +37,41 @@ WHERE granted.rolname IN (:'app_role', :'migrator_role', :'backup_role')
 \gexec
 
 ALTER DATABASE :"database_name" OWNER TO :"migrator_role";
-REVOKE ALL ON DATABASE :"database_name" FROM PUBLIC, :"app_role", :"backup_role";
+-- Revoke every explicit non-owner database ACL entry, including unrelated
+-- roles. Ownership is the only unavoidable authority and is the migrator.
+SELECT DISTINCT format(
+    'REVOKE ALL PRIVILEGES ON DATABASE %I FROM %s',
+    :'database_name',
+    CASE WHEN acl.grantee = 0 THEN 'PUBLIC' ELSE format('%I', grantee.rolname) END
+)
+FROM pg_catalog.pg_database AS database
+CROSS JOIN LATERAL aclexplode(
+    COALESCE(database.datacl, acldefault('d', database.datdba))
+) AS acl
+LEFT JOIN pg_catalog.pg_roles AS grantee ON grantee.oid = acl.grantee
+WHERE database.datname = :'database_name'
+  AND acl.grantee <> database.datdba
+\gexec
+REVOKE ALL ON DATABASE :"database_name" FROM PUBLIC;
 GRANT CONNECT ON DATABASE :"database_name" TO :"app_role", :"backup_role";
 
 ALTER SCHEMA public OWNER TO :"migrator_role";
-REVOKE ALL ON SCHEMA public FROM PUBLIC, :"app_role", :"backup_role";
+-- Apply the same complete-ACL reset to public. pg_database_owner is not an
+-- extra allowlisted grantee after ownership transfer: it resolves to the same
+-- migrator authority and any explicit ACL entry is removed.
+SELECT DISTINCT format(
+    'REVOKE ALL PRIVILEGES ON SCHEMA public FROM %s',
+    CASE WHEN acl.grantee = 0 THEN 'PUBLIC' ELSE format('%I', grantee.rolname) END
+)
+FROM pg_catalog.pg_namespace AS namespace
+CROSS JOIN LATERAL aclexplode(
+    COALESCE(namespace.nspacl, acldefault('n', namespace.nspowner))
+) AS acl
+LEFT JOIN pg_catalog.pg_roles AS grantee ON grantee.oid = acl.grantee
+WHERE namespace.nspname = 'public'
+  AND acl.grantee <> namespace.nspowner
+\gexec
+REVOKE ALL ON SCHEMA public FROM PUBLIC;
 GRANT USAGE ON SCHEMA public TO :"app_role", :"backup_role";
 
 -- App-owned objects are public ordinary/partitioned tables and sequences that

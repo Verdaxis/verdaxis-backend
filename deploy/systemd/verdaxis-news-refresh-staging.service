@@ -1,0 +1,30 @@
+[Unit]
+Description=Verdaxis news refresh (staging)
+Wants=network-online.target
+Requires=postgresql.service
+After=network-online.target postgresql.service
+RequiresMountsFor=/home/verdaxis-prod/verdaxis/staging/be
+
+[Service]
+Type=oneshot
+User=verdaxis-prod
+Group=verdaxis-prod
+WorkingDirectory=/home/verdaxis-prod/verdaxis/staging/be
+EnvironmentFile=/home/verdaxis-prod/verdaxis/staging/be/.env
+EnvironmentFile=/home/verdaxis-prod/verdaxis/staging/be/.runtime-release.env
+ExecStartPre=/usr/bin/test -r /home/verdaxis-prod/verdaxis/staging/be/.env
+ExecStartPre=/usr/bin/test -r /home/verdaxis-prod/verdaxis/staging/be/.runtime-release.env
+ExecStart=/home/verdaxis-prod/verdaxis/staging/be/venv/bin/python -m app.cli.refresh_news
+TimeoutStartSec=300
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=read-only
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictSUIDSGID=true
+LockPersonality=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM

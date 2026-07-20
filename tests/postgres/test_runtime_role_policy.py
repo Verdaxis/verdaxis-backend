@@ -72,6 +72,16 @@ async def _execute_admin(statement: str) -> None:
         await engine.dispose()
 
 
+async def _fetch_admin(statement: str) -> tuple:
+    raw_url = os.environ["POSTGRES_ADMIN_TEST_DATABASE_URL"]
+    engine = create_async_engine(raw_url, hide_parameters=True)
+    try:
+        async with engine.connect() as connection:
+            return tuple((await connection.execute(text(statement))).one())
+    finally:
+        await engine.dispose()
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("stale_policy", ["membership", "backup_insert", "default_insert"])
 async def test_validation_rejects_stale_escalation_and_insert_authority(stale_policy):
@@ -105,6 +115,39 @@ async def test_validation_rejects_stale_escalation_and_insert_authority(stale_po
         _psql("bootstrap_roles.sql")
         if stale_policy == "membership":
             await _execute_admin(f"DROP ROLE IF EXISTS {escalation}")
+
+
+@pytest.mark.asyncio
+async def test_unexpected_database_and_schema_grantee_is_rejected_then_revoked():
+    values = _policy_values()
+    database = values["database_name"]
+    unexpected = "verdaxis_unexpected_acl_test"
+    await _execute_admin(f"DROP ROLE IF EXISTS {unexpected}")
+    await _execute_admin(f"CREATE ROLE {unexpected} NOLOGIN")
+    await _execute_admin(
+        f"GRANT CREATE, TEMPORARY ON DATABASE {database} TO {unexpected}"
+    )
+    await _execute_admin(f"GRANT CREATE ON SCHEMA public TO {unexpected}")
+
+    try:
+        rejected = _psql("validate_roles.sql")
+        assert rejected.returncode != 0
+
+        repaired = _psql("bootstrap_roles.sql")
+        assert repaired.returncode == 0, repaired.stderr
+        accepted = _psql("validate_roles.sql")
+        assert accepted.returncode == 0, accepted.stderr
+
+        database_authority, schema_authority = await _fetch_admin(
+            "SELECT "
+            f"has_database_privilege('{unexpected}', current_database(), 'CREATE,TEMPORARY'), "
+            f"has_schema_privilege('{unexpected}', 'public', 'CREATE')"
+        )
+        assert database_authority is False
+        assert schema_authority is False
+    finally:
+        await _execute_admin(f"DROP OWNED BY {unexpected}")
+        await _execute_admin(f"DROP ROLE IF EXISTS {unexpected}")
 
 
 @pytest.mark.asyncio
