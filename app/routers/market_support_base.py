@@ -60,7 +60,13 @@ from app.schemas.market_support import (
 )
 from app.schemas.orderbook import OrderCreate, OrderUpdate
 from app.services.activity import order_activity_provenance
-from app.services.audit_actions import ORDER_CANCELLED
+from app.services.audit_actions import (
+    MARKET_SUPPORT_AUTHORIZATION_CREATED,
+    MARKET_SUPPORT_AUTHORIZATION_REVOKED,
+    MARKET_SUPPORT_CAPABILITY_GRANTED,
+    MARKET_SUPPORT_CAPABILITY_REVOKED,
+    ORDER_CANCELLED,
+)
 from app.services.audit_service import record_audit, request_audit_context
 from app.services.availability_windows import is_tradable_availability_window
 from app.services.execution_policy import (
@@ -99,11 +105,6 @@ _CREATE_OPERATION = "market_support.order.create"
 _UPDATE_OPERATION = "market_support.order.update"
 _CANCEL_OPERATION = "market_support.order.cancel"
 _ACTIVE_ORDER_STATUSES = (OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED)
-
-CAPABILITY_GRANTED = "market_support.capability_granted"
-CAPABILITY_REVOKED = "market_support.capability_revoked"
-AUTHORIZATION_CREATED = "market_support.authorization_created"
-AUTHORIZATION_REVOKED = "market_support.authorization_revoked"
 
 
 def _token_rate_key(request: Request) -> str:
