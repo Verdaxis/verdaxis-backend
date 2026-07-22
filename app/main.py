@@ -29,6 +29,7 @@ from app.routers.orders import router as orders_router
 from app.routers.notifications import router as notifications_router
 from app.routers.preferences import router as preferences_router
 from app.routers.orderbook import router as orderbook_router
+from app.routers.market_support import router as market_support_router
 from app.routers.trades import router as trades_router
 from app.routers.price_discovery import router as price_discovery_router
 from app.routers.matchmaking import router as matchmaking_router
@@ -213,6 +214,7 @@ app.include_router(orders_router, prefix=settings.API_V1_STR)
 app.include_router(notifications_router, prefix=settings.API_V1_STR)
 app.include_router(preferences_router, prefix=settings.API_V1_STR)
 app.include_router(orderbook_router, prefix=settings.API_V1_STR)
+app.include_router(market_support_router, prefix=settings.API_V1_STR)
 app.include_router(trades_router, prefix=settings.API_V1_STR)
 app.include_router(price_discovery_router, prefix=settings.API_V1_STR)
 app.include_router(matchmaking_router, prefix=settings.API_V1_STR)

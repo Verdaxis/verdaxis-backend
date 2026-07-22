@@ -2,7 +2,7 @@
 
 > **Navigation aid.** Route list and file locations extracted via AST. Read the source files listed below before implementing or modifying this subsystem.
 
-The Infra subsystem handles **6 routes** and touches: auth, db, cache.
+The Infra subsystem handles **6 routes** and touches: auth, db, cache, queue.
 
 ## Routes
 
@@ -16,7 +16,7 @@ The Infra subsystem handles **6 routes** and touches: auth, db, cache.
   `app/main.py`
 - `GET` `/status` → in: Annotated [auth, db, upload]
   `app/routers/kyc.py`
-- `POST` `/` → in: TradeCreate, out: TradeResponse [auth, db]
+- `POST` `/` → out: TradeResponse [auth, db, queue]
   `app/routers/trades.py`
 
 ## Source Files

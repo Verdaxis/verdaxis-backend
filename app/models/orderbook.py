@@ -1,10 +1,12 @@
 from sqlalchemy import (
     Boolean,
+    CheckConstraint,
     Date,
     DateTime,
     Enum,
     ForeignKey,
     Index,
+    Integer,
     JSON,
     Numeric,
     SmallInteger,
@@ -54,6 +56,13 @@ class OrderBookStatus(str, enum.Enum):
     FILLED = "FILLED"
     CANCELLED = "CANCELLED"
     EXPIRED = "EXPIRED"
+
+
+class OrderCreationMethod(str, enum.Enum):
+    SELF_SERVICE = "SELF_SERVICE"
+    MARKET_SUPPORT = "MARKET_SUPPORT"
+    SYSTEM = "SYSTEM"
+    LEGACY_UNKNOWN = "LEGACY_UNKNOWN"
 
 
 class TradeStatus(str, enum.Enum):
@@ -114,6 +123,14 @@ class OrderBookOrder(Base):
             "organization_id", "idempotency_operation", "idempotency_key",
             name="uq_orderbook_orders_org_operation_idempotency",
         ),
+        UniqueConstraint(
+            "support_authorization_id", name="uq_orderbook_support_authorization"
+        ),
+        CheckConstraint(
+            "creation_method IN ('SELF_SERVICE', 'MARKET_SUPPORT', 'SYSTEM', 'LEGACY_UNKNOWN')",
+            name="ck_orderbook_creation_method",
+        ),
+        CheckConstraint("version >= 1", name="ck_orderbook_version"),
         postgresql_check(ORDER_DOMAIN, name="ck_orderbook_orders_domain"),
         postgresql_check(ORDER_NUMERIC_VALUES, name="ck_orderbook_orders_numeric_values"),
         postgresql_check(ORDER_LIFECYCLE, name="ck_orderbook_orders_lifecycle"),
@@ -122,6 +139,23 @@ class OrderBookOrder(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     organization_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organizations.id"), nullable=False)
     owner_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
+    created_by_actor_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    creation_method: Mapped[OrderCreationMethod] = mapped_column(
+        Enum(OrderCreationMethod, native_enum=False, length=24),
+        nullable=False,
+        default=OrderCreationMethod.LEGACY_UNKNOWN,
+        server_default=OrderCreationMethod.LEGACY_UNKNOWN.value,
+    )
+    support_authorization_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("market_support_authorizations.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    version: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1, server_default="1"
+    )
     # Set only for listings published from managed inventory. Legacy and
     # manually-created orders remain NULL; cancellation must never guess.
     inventory_item_id: Mapped[uuid.UUID | None] = mapped_column(
@@ -236,6 +270,11 @@ class OrderBookOrder(Base):
             return self.organization.supplier_tier
         from app.models.user import TierLabel
         return TierLabel.INDEPENDENT
+
+    def bump_version(self) -> None:
+        """Advance optimistic concurrency only for support-managed orders."""
+        if self.creation_method == OrderCreationMethod.MARKET_SUPPORT:
+            self.version += 1
 
     # ---- Denormalized accessors for backward compatibility ----
 

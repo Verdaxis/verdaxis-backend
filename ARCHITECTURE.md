@@ -25,6 +25,7 @@ app/
     port.py                     # Port (PostGIS), PortIntelligence, Vessel
     marketplace.py              # InventoryItem, FuelType enum
     orderbook.py                # OrderBookOrder (BID/ASK), Trade, canonical availability_window strings, enums (OrderSide, TradeStatus)
+    market_support.py           # Durable staff capabilities and exact one-use assisted-listing authorizations
     live_slice_benchmark.py     # Persisted same-side slice VWAP aggregates for fast marketplace benchmark reads
     orders.py                   # Commission (legacy match_id + trade_id FKs)
     matchmaking.py              # MatchSuggestion
@@ -37,6 +38,7 @@ app/
   routers/
     auth_simple.py              # JWT auth — login/register, cookie-backed refresh rotation, password change, /me, RBAC
     orderbook.py                # Order/listing CRUD, supplier ASK template endpoint, certification guardrails
+    market_support.py           # ADMIN capability, authorization, assisted ASK publication, and ETag cancellation APIs
     trades.py                   # Trade lifecycle — create/confirm/decline/deliver/pay + SSE events
     matchmaking.py              # Match suggestions — generate, list, dismiss
     price_discovery.py          # Public price ticker + daily VWAP reference prices
@@ -63,6 +65,7 @@ app/
     preferences.py              # Strict namespace schemas for user preferences
     organization.py             # OrganizationCreate/Response
     orderbook.py                # Order/Trade schemas, price summaries, supplier metadata pack, ASK template response, canonical availability window validation
+    market_support.py           # Exact authorization, capability, organization-context, and assisted-listing schemas
     market_activity.py          # Shared source/scope/demo-status provenance enums for market data
     behavioral_analytics.py     # Typed privacy-bounded admin product-usage response
     [others unchanged]
@@ -70,6 +73,8 @@ app/
     event_bus.py                # AsyncIO pub/sub — per-channel queues, 200 subscriber cap, backpressure
     market_event_dispatch.py    # Durable shared SSE transport — outbox sequencer (advisory-lock leader), LISTEN/NOTIFY wake + poll, org-bound hub fan-out (docs/market-event-dispatch.md)
     matching_engine.py          # Match-on-insert — price-time priority within canonical market identity, partial fills, auto-confirm
+    market_support.py           # Authorization digest, ETag parsing, deterministic party locks
+    market_support_post_only.py # Fail-closed crossing assessment for assisted ASK publication
     benchmarks.py               # External/manual benchmark lookup keyed by market_product + delivery_point + availability_window
     forward_curve_market_slices.py # Canonical public Forward Curve table/slice read models and label policy
     market_signal_ingestion.py    # Trusted signal importer: validate -> verified ingestion runs whose rows classify REAL (see docs/market-signal-ingestion.md)
@@ -124,6 +129,7 @@ alembic/versions/               # Migrations incl. canonical availability-window
 
 - **Match-on-insert:** `POST /orderbook` → `db.flush()` → `match_order()` → `db.commit()` (atomic); executable matches now require exact `product + delivery_point + availability_window`
 - **Supplier ASK invariants:** ASK creation/update requires explicit `certification_declared=true` plus a non-empty `certification_scheme`; `GET /orderbook/my/latest-ask-template` returns safe defaults for the next listing and resets off-spec state
+- **Assisted supplier listings:** When explicitly enabled, separately capability-gated administrators may publish one exact ASK for an approved real supplier from one immutable authorization. The supplier remains the economic party and accountable principal; the administrator is retained as actor. Publication is post-only and atomic, customer/admin cancellation requires the current ETag, support-created orders cannot be edited, and public serializers omit support evidence and attribution. See `docs/market-support-assisted-listings.md`.
 - **SSE broadcasting:** `event_bus.publish(channel, event_type, data)` → subscribers via AsyncIO queues; order/trade payloads are append-only enriched with market source/scope/demo provenance. Private market lifecycle events additionally flow through the durable `market_event_outbox` → sequencer → hub pipeline, so delivery and `Last-Event-ID` replay survive worker restarts and cross Uvicorn workers (docs/market-event-dispatch.md; prune policy documented, nothing armed)
 - **Compliance scoring:** Pure function `calculate_compliance_score()` — no DB, 100% testable
 - **JWT auth:** 15-min access + 7-day refresh, plus 60-second `type="stream"` tokens from `/auth/stream-token` for SSE query-param auth. Ordinary API auth only accepts access tokens; activity SSE query auth only accepts stream tokens.

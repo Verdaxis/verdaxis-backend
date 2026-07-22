@@ -7,11 +7,12 @@
 - `ADMIN_USERNAME` (has default) — .env.example
 - `ANALYTICS_ENABLED` (has default) — .env.example
 - `ANALYTICS_REQUEST_TIMEOUT_SECONDS` (has default) — .env.example
-- `BACKEND_CORS_ORIGINS` (has default) — .env.example
+- `BACKUP_DATABASE_URL` **required** — tests/postgres/test_runtime_role_policy.py
 - `DATABASE_HOST` (has default) — .env.example
 - `DATABASE_NAME` (has default) — .env.example
 - `DATABASE_PASSWORD` (has default) — .env.example
 - `DATABASE_PORT` (has default) — .env.example
+- `DATABASE_URL` **required** — tests/postgres/test_runtime_role_policy.py
 - `DATABASE_USER` (has default) — .env.example
 - `DB_IDLE_IN_TRANSACTION_SESSION_TIMEOUT_MS` (has default) — .env.example
 - `DB_LOCK_TIMEOUT_MS` (has default) — .env.example
@@ -23,23 +24,42 @@
 - `DB_RESERVED_CONNECTIONS` (has default) — .env.example
 - `DB_SERVICE_COUNT` (has default) — .env.example
 - `DB_STATEMENT_TIMEOUT_MS` (has default) — .env.example
+- `DEMO_OUTPUT` **required** — tests/monitor/test_runtime_identity.py
+- `DISPOSABLE_ITEST_PASSWORD` **required** — tests/conftest.py
+- `DISPOSABLE_TEST_TOKEN` **required** — tests/disposable_server.py
 - `ENABLE_AUTH_BYPASS` (has default) — .env.example
+- `ENABLE_SQLADMIN` (has default) — .env.example
 - `ENVIRONMENT` (has default) — .env.example
 - `FRONTEND_URL` (has default) — .env.example
 - `GEMINI_API_KEY` **required** — .env.example
+- `GIT_CONFIG_GLOBAL` **required** — tests/unit/test_migration_checkpoint.py
 - `HEALTH_READINESS_TIMEOUT_SECONDS` (has default) — .env.example
 - `ITEST_PASSWORD` **required** — scripts/benchmark_product_analytics.py
 - `JWT_ALGORITHM` (has default) — .env.example
+- `JWT_AUDIENCE` (has default) — .env.example
+- `JWT_ISSUER` (has default) — .env.example
 - `JWT_SECRET` (has default) — .env.example
+- `JWT_SECRET_PREVIOUS` **required** — .env.example
 - `KYC_MAX_FILE_BYTES` (has default) — .env.example
 - `KYC_MAX_TOTAL_BYTES` (has default) — .env.example
+- `MARKET_INTEGRITY_TEST_DATABASE_URL` **required** — tests/postgres/test_market_integrity_concurrency.py
+- `MARKET_REMEDIATION_DATABASE_URL` **required** — scripts/remediate_market_data.py
+- `MARKET_SUPPORT_BOOTSTRAP_ADMIN_USER_IDS` **required** — .env.example
+- `MARKET_SUPPORT_ENABLED` (has default) — .env.example
+- `MARKET_SUPPORT_MAX_TTL_HOURS` (has default) — .env.example
 - `MIGRATOR_DATABASE_URL` **required** — .env.example
 - `MIGRATOR_IDLE_IN_TRANSACTION_SESSION_TIMEOUT_MS` (has default) — .env.example
 - `MIGRATOR_LOCK_TIMEOUT_MS` (has default) — .env.example
 - `MIGRATOR_STATEMENT_TIMEOUT_MS` (has default) — .env.example
-- `PATH` **required** — tests/unit/test_runtime_hardening.py
-- `PYTHONPATH` (has default) — .env.example
+- `PATH` **required** — tests/postgres/test_market_migrations.py
+- `POSTGRES_ADMIN_TEST_DATABASE_URL` **required** — tests/postgres/test_market_integrity_concurrency.py
+- `PYTHONPATH` **required** — tests/unit/test_migration_checkpoint.py
 - `RELEASE_SHA` (has default) — .env.example
+- `RUNTIME_TEST_APP_ROLE` **required** — tests/postgres/test_runtime_role_policy.py
+- `RUNTIME_TEST_BACKUP_ROLE` **required** — tests/postgres/test_runtime_role_policy.py
+- `RUNTIME_TEST_DATABASE_NAME` **required** — tests/postgres/test_runtime_role_policy.py
+- `RUNTIME_TEST_MIGRATOR_ROLE` **required** — tests/postgres/test_runtime_migration_roundtrip.py
+- `TEST_API_URL` **required** — tests/conftest.py
 - `UMAMI_API_PASSWORD` **required** — .env.example
 - `UMAMI_API_USERNAME` **required** — .env.example
 - `UMAMI_BASE_URL` (has default) — .env.example

@@ -203,6 +203,9 @@ class OrderMyResponse(OrderResponse):
     vessel_id: Optional[UUID] = None
     updated_at: datetime
     trade_count: int = 0
+    creation_method: str = "LEGACY_UNKNOWN"
+    version: int = 1
+    etag: str | None = None
 
 
 class SupplierListingTemplateResponse(AvailabilityWindowMixin, SupplierListingMetadataMixin):

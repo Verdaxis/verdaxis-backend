@@ -2,7 +2,7 @@
 
 > **Navigation aid.** Schema shapes and field types extracted via AST. Read the actual schema source files before writing migrations or query logic.
 
-**sqlalchemy** — 38 models
+**sqlalchemy** — 47 models
 
 ### PriceAlert
 
@@ -72,10 +72,10 @@ pk: `id` (UUID)
 
 ### TraceabilityEvent
 
-pk: `id` (UUID) · fk: direct_order_id
+pk: `id` (UUID)
 
 - `id`: UUID _(pk, default)_
-- `direct_order_id`: unknown _(fk)_
+- `direct_order_id`: UUID
 - `stage`: String
 - `location_name`: String
 - `timestamp`: DateTime
@@ -192,12 +192,86 @@ pk: `id` (UUID) · fk: delivery_point_id
 - `created_at`: DateTime _(default)_
 - `updated_at`: DateTime _(default)_
 
+### MarketEventOutbox
+
+pk: `id` (UUID)
+
+- `id`: UUID _(pk, default)_
+- `event_type`: String
+- `aggregate_type`: String
+- `aggregate_id`: String
+- `participant_org_ids`: JSON
+- `payload`: JSON
+- `created_at`: DateTime _(default)_
+- `dispatched_at`: DateTime _(nullable)_
+- `stream_seq`: BigInteger _(nullable)_
+- `delivery_attempts`: Integer _(default)_
+- `last_error`: Text _(nullable)_
+
+### StaffCapabilityAssignment
+
+pk: `id` (UUID) · fk: user_id, granted_by_user_id, revoked_by_user_id
+
+- `id`: UUID _(pk, default)_
+- `user_id`: UUID _(fk)_
+- `capability`: Enum
+- `reason`: String
+- `granted_by_user_id`: UUID _(fk)_
+- `granted_at`: DateTime _(default)_
+- `expires_at`: DateTime
+- `revoked_at`: DateTime
+- `revoked_by_user_id`: UUID _(fk)_
+- `revocation_reason`: String
+
+### MarketSupportAuthorization
+
+pk: `id` (UUID) · fk: organization_id, accountable_user_id, product_id, delivery_point_id, created_by_actor_user_id, revoked_by_actor_user_id
+
+- `id`: UUID _(pk, default)_
+- `organization_id`: UUID _(fk)_
+- `accountable_user_id`: UUID _(fk)_
+- `status`: Enum _(default)_
+- `product_id`: UUID _(fk)_
+- `delivery_point_id`: UUID _(fk)_
+- `availability_window`: String
+- `quantity_mt`: Numeric
+- `price_per_mt_usd`: Numeric
+- `authorization_expires_at`: DateTime
+- `order_expires_at`: DateTime
+- `is_anonymous`: Boolean _(default)_
+- `certifications`: JSON _(default)_
+- `certification_declared`: Boolean
+- `certification_scheme`: String
+- `specification_standard`: String
+- `msds_available`: Boolean
+- `carbon_intensity_gco2_mj`: Numeric
+- `carbon_intensity_method`: String
+- `feedstock`: String
+- `origin`: String
+- `off_spec`: Boolean
+- `off_spec_notes`: Text
+- `terms_digest`: String
+- `evidence_reference`: String
+- `evidence_sha256`: String
+- `commercial_consent_version`: String
+- `commercial_consent_reference`: String
+- `support_case_reference`: String
+- `idempotency_key`: String
+- `idempotency_request_hash`: String
+- `created_by_actor_user_id`: UUID _(fk)_
+- `created_at`: DateTime _(default)_
+- `consumed_at`: DateTime
+- `revoked_at`: DateTime
+- `revoked_by_actor_user_id`: UUID _(fk)_
+- `revocation_reason`: String
+
 ### InventoryItem
 
-pk: `id` (UUID) · fk: supplier_id, port_id
+pk: `id` (UUID) · fk: supplier_id, owner_user_id, port_id
 
 - `id`: UUID _(pk, default)_
 - `supplier_id`: unknown _(fk)_
+- `owner_user_id`: unknown _(fk, nullable)_
 - `port_id`: unknown _(fk)_
 - `fuel_type`: Enum
 - `product_name`: String
@@ -236,15 +310,20 @@ pk: `id` (UUID) · fk: bid_order_id, ask_order_id, recipient_org_id
 
 ### Negotiation
 
-pk: `id` (UUID) · fk: bid_order_id, ask_order_id, initiator_org_id, counterparty_org_id, product_id, last_actor_org_id, trade_id
+pk: `id` (UUID) · fk: bid_order_id, ask_order_id, initiator_org_id, counterparty_org_id, initiator_user_id, counterparty_user_id, accepted_by_user_id, product_id, delivery_point_id, last_actor_org_id, trade_id
 
 - `id`: UUID _(pk, default)_
 - `bid_order_id`: UUID _(fk, nullable)_
 - `ask_order_id`: UUID _(fk, nullable)_
 - `initiator_org_id`: UUID _(fk)_
 - `counterparty_org_id`: UUID _(fk)_
+- `initiator_user_id`: UUID _(fk, nullable, index)_
+- `counterparty_user_id`: UUID _(fk, nullable, index)_
+- `accepted_by_user_id`: UUID _(fk, nullable)_
 - `initiator_side`: String
 - `product_id`: UUID _(fk)_
+- `delivery_point_id`: UUID _(fk, nullable)_
+- `availability_window`: String _(default)_
 - `quantity_mt`: Numeric
 - `current_price`: Numeric
 - `status`: Enum _(default)_
@@ -257,12 +336,13 @@ pk: `id` (UUID) · fk: bid_order_id, ask_order_id, initiator_org_id, counterpart
 
 ### NegotiationRound
 
-pk: `id` (UUID) · fk: negotiation_id, proposer_org_id
+pk: `id` (UUID) · fk: negotiation_id, proposer_org_id, proposer_user_id
 
 - `id`: UUID _(pk, default)_
 - `negotiation_id`: UUID _(fk)_
 - `round_number`: Integer
 - `proposer_org_id`: UUID _(fk)_
+- `proposer_user_id`: UUID _(fk, nullable)_
 - `proposed_price`: Numeric
 - `notes`: Text _(nullable)_
 - `created_at`: DateTime _(default)_
@@ -299,10 +379,17 @@ pk: `id` (UUID) · fk: recipient_id
 
 ### OrderBookOrder
 
-pk: `id` (UUID) · fk: organization_id, product_id, delivery_point_id, vessel_id
+pk: `id` (UUID) · fk: organization_id, owner_user_id, created_by_actor_user_id, support_authorization_id, inventory_item_id, product_id, delivery_point_id, vessel_id
 
 - `id`: UUID _(pk, default)_
 - `organization_id`: unknown _(fk)_
+- `owner_user_id`: unknown _(fk, nullable, index)_
+- `created_by_actor_user_id`: unknown _(fk, nullable)_
+- `creation_method`: Enum _(default)_
+- `support_authorization_id`: UUID _(fk, nullable)_
+- `version`: Integer _(default)_
+- `inventory_item_id`: unknown _(fk, nullable, index)_
+- `provenance`: Enum _(default)_
 - `side`: Enum
 - `product_id`: UUID _(fk)_
 - `delivery_point_id`: UUID _(fk, nullable)_
@@ -329,21 +416,39 @@ pk: `id` (UUID) · fk: organization_id, product_id, delivery_point_id, vessel_id
 - `off_spec_notes`: Text _(nullable)_
 - `status`: Enum _(default)_
 - `expires_at`: DateTime _(nullable)_
+- `idempotency_key`: String _(nullable)_
+- `idempotency_operation`: String _(nullable)_
+- `idempotency_request_hash`: String _(nullable)_
 - `created_at`: DateTime _(default)_
 - `updated_at`: DateTime _(default)_
-- _relations_: organization: Organization, product: Product, delivery_point: DeliveryPoint, vessel: Vessel, bid_trades: Trade, ask_trades: Trade
+- _relations_: organization: Organization, product: Product, delivery_point: DeliveryPoint, vessel: Vessel, inventory_item: InventoryItem, bid_trades: Trade, ask_trades: Trade
 
 ### Trade
 
-pk: `id` (UUID) · fk: bid_order_id, ask_order_id, buyer_id, seller_id
+pk: `id` (UUID) · fk: bid_order_id, ask_order_id, buyer_id, seller_id, buyer_user_id, seller_user_id, initiator_org_id, product_id, delivery_point_id
 
 - `id`: UUID _(pk, default)_
 - `bid_order_id`: unknown _(fk, nullable)_
 - `ask_order_id`: unknown _(fk, nullable)_
 - `buyer_id`: unknown _(fk)_
 - `seller_id`: unknown _(fk)_
+- `buyer_user_id`: unknown _(fk, nullable, index)_
+- `seller_user_id`: unknown _(fk, nullable, index)_
+- `initiator_org_id`: unknown _(fk)_
+- `buyer_provenance`: Enum _(default)_
+- `seller_provenance`: Enum _(default)_
 - `initiated_by`: Enum
 - `is_anonymous`: Boolean _(default)_
+- `product_id`: UUID _(fk, nullable)_
+- `product_name`: String _(nullable)_
+- `fuel_type`: String _(nullable)_
+- `fuel_grade`: String _(nullable)_
+- `market_product`: String _(nullable)_
+- `delivery_point_id`: UUID _(fk, nullable)_
+- `delivery_point_name`: String _(nullable)_
+- `delivery_point_region`: String _(nullable)_
+- `availability_window`: String _(nullable)_
+- `market_snapshot_version`: SmallInteger _(nullable, default)_
 - `quantity_mt`: Numeric
 - `price_per_mt_usd`: Numeric
 - `status`: Enum _(default)_
@@ -356,14 +461,17 @@ pk: `id` (UUID) · fk: bid_order_id, ask_order_id, buyer_id, seller_id
 - `delivered_at`: DateTime _(nullable)_
 - `paid_at`: DateTime _(nullable)_
 - `created_at`: DateTime _(default)_
+- `idempotency_key`: String _(nullable)_
+- `idempotency_operation`: String _(nullable)_
+- `idempotency_request_hash`: String _(nullable)_
 - _relations_: bid_order: OrderBookOrder, ask_order: OrderBookOrder, buyer: Organization, seller: Organization, commission: Commission
 
 ### Commission
 
-pk: `id` (UUID) · fk: match_id, trade_id
+pk: `id` (UUID) · fk: trade_id
 
 - `id`: UUID _(pk, default)_
-- `match_id`: unknown _(fk, unique)_
+- `match_id`: unknown _(unique)_
 - `trade_id`: unknown _(fk, nullable)_
 - `amount_usd`: Numeric
 - `status`: Enum _(default)_
@@ -483,12 +591,58 @@ pk: `id` (UUID) · fk: referrer_id, referred_user_id
 - `activated_at`: DateTime _(nullable)_
 - _relations_: referrer: , referred_user: 
 
+### RefreshSession
+
+pk: `id` (UUID) · fk: user_id
+
+- `id`: UUID _(pk, default)_
+- `user_id`: unknown _(fk, index)_
+- `family_id`: UUID _(index)_
+- `jti_hash`: String _(unique)_
+- `device_id_hash`: String _(nullable, index)_
+- `replaced_by_jti_hash`: String _(nullable)_
+- `rotation_grace_until`: DateTime _(nullable)_
+- `revoked`: Boolean _(default)_
+- `expires_at`: DateTime _(index)_
+- `created_at`: DateTime _(default)_
+- `last_used_at`: DateTime _(nullable)_
+
+### PendingRegistration
+
+pk: `id` (UUID)
+
+- `id`: UUID _(pk, default)_
+- `token_hash`: String _(unique)_
+- `email`: String
+- `password_hash`: String
+- `first_name`: String _(nullable)_
+- `last_name`: String _(nullable)_
+- `role`: Enum _(nullable)_
+- `referral_code`: String _(nullable)_
+- `expires_at`: DateTime
+- `used_at`: DateTime _(nullable)_
+- `created_at`: DateTime _(default)_
+
+### OrganizationJoinRequest
+
+pk: `id` (UUID) · fk: user_id, organization_id, reviewed_by
+
+- `id`: UUID _(pk, default)_
+- `user_id`: unknown _(fk, index)_
+- `organization_id`: unknown _(fk, index)_
+- `status`: Enum _(default)_
+- `reviewed_by`: unknown _(fk, nullable)_
+- `reviewed_at`: DateTime _(nullable)_
+- `review_note`: Text _(nullable)_
+- `created_at`: DateTime _(default)_
+
 ### RFQ
 
-pk: `id` (UUID) · fk: buyer_org_id, product_id, delivery_point_id
+pk: `id` (UUID) · fk: buyer_org_id, buyer_user_id, product_id, delivery_point_id, accepted_quote_id, trade_id
 
 - `id`: UUID _(pk, default)_
 - `buyer_org_id`: UUID _(fk)_
+- `buyer_user_id`: unknown _(fk, nullable, index)_
 - `product_id`: UUID _(fk)_
 - `delivery_point_id`: UUID _(fk, nullable)_
 - `quantity_mt`: Numeric
@@ -497,22 +651,66 @@ pk: `id` (UUID) · fk: buyer_org_id, product_id, delivery_point_id
 - `notes`: Text _(nullable)_
 - `is_anonymous`: Boolean _(default)_
 - `status`: Enum _(default)_
+- `accepted_quote_id`: UUID _(fk, nullable)_
+- `trade_id`: UUID _(fk, nullable)_
 - `expires_at`: DateTime
 - `created_at`: DateTime _(default)_
 - _relations_: quotes: 
 
 ### RFQQuote
 
-pk: `id` (UUID) · fk: rfq_id, seller_org_id
+pk: `id` (UUID) · fk: rfq_id, seller_org_id, seller_user_id
 
 - `id`: UUID _(pk, default)_
 - `rfq_id`: UUID _(fk)_
 - `seller_org_id`: UUID _(fk)_
+- `seller_user_id`: unknown _(fk, nullable, index)_
 - `price_per_mt_usd`: Numeric
 - `notes`: Text _(nullable)_
 - `status`: Enum _(default)_
 - `created_at`: DateTime _(default)_
 - _relations_: rfq: 
+
+### SeedRun
+
+pk: `id` (UUID)
+
+- `id`: UUID _(pk, default)_
+- `seed_name`: String
+- `environment`: String
+- `run_metadata`: JSON _(nullable)_
+- `created_at`: DateTime _(default)_
+- `completed_at`: DateTime _(default)_
+
+### MarketRowQuarantine
+
+pk: `id` (UUID)
+
+- `id`: UUID _(pk, default)_
+- `source_table`: String
+- `source_id`: UUID
+- `original_row`: JSON
+- `dependencies`: JSON
+- `environment`: String
+- `database_name`: String
+- `reason`: Text
+- `operator`: String
+- `reference`: String
+- `quarantined_at`: DateTime _(default)_
+
+### OrganizationMarketApproval
+
+pk: `organization_id` (UUID) · fk: organization_id
+
+- `organization_id`: UUID _(fk, pk)_
+- `previous_verification_status`: String
+- `reviewed_snapshot`: JSON
+- `environment`: String
+- `database_name`: String
+- `reason`: Text
+- `operator`: String
+- `reference`: String
+- `approved_at`: DateTime _(default)_
 
 ### Subscription
 
@@ -537,13 +735,14 @@ pk: `id` (UUID)
 - `supplier_tier`: Enum _(nullable, default)_
 - `tax_id`: String
 - `country_code`: String
-- `verification_status`: String _(default)_
+- `verification_status`: String
+- `provenance`: Enum _(default)_
 - `created_at`: DateTime _(default)_
 - _relations_: users: , vessels: , orderbook_orders: 
 
 ### User
 
-pk: `id` (UUID) · fk: organization_id, referred_by_id
+pk: `id` (UUID) · fk: organization_id, kyc_organization_id, kyc_reviewed_by, referred_by_id
 
 - `id`: UUID _(pk, default)_
 - `email`: String _(unique)_
@@ -558,9 +757,15 @@ pk: `id` (UUID) · fk: organization_id, referred_by_id
 - `must_change_password`: Boolean _(default)_
 - `created_at`: DateTime _(default)_
 - `email_verified`: Boolean _(default)_
-- `email_verification_token`: String _(nullable)_
+- `email_verification_token_hash`: String _(nullable, index)_
+- `email_verification_token_expires_at`: DateTime _(nullable)_
 - `kyc_status`: String _(default)_
+- `kyc_organization_id`: UUID _(fk, nullable, index)_
 - `kyc_rejection_reason`: Text _(nullable)_
+- `kyc_external_evidence_reference`: String _(nullable)_
+- `kyc_review_note`: Text _(nullable)_
+- `kyc_reviewed_by`: UUID _(fk, nullable)_
+- `kyc_reviewed_at`: DateTime _(nullable)_
 - `password_reset_token_hash`: String _(nullable)_
 - `password_reset_expires`: DateTime _(nullable)_
 - `referral_code`: String _(unique, nullable)_

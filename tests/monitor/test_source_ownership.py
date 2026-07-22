@@ -17,11 +17,11 @@ MANIFEST = MONITOR / "artifact-manifest.json"
 # instead. The invariant is unchanged: no monitor/test/tooling work may
 # modify a runtime-owned file silently — a stage that deliberately changes
 # one must update its pinned blob in the same reviewed commit.
-# Stage 5 updated app/main.py (shared SSE dispatcher lifespan wiring).
+# Market Support adds feature-flag settings and one feature-flagged router.
 RUNTIME_OWNED_BLOBS = {
-    "app/config.py": "48d7eece5ecc690ab6ba138125c7485eeabd85b5",
+    "app/config.py": "ce21275460088cf7fa444a2871790581a8cb8fca",
     "app/database.py": "43456b2c2079c07368359d4d54f5ce9629c9b57b",
-    "app/main.py": "44a397bf9d615834082609482317eb4ff0e072e2",
+    "app/main.py": "12ea796399dc855124a9be4c02739a7f8e658f51",
     "scripts/deploy.sh": "c598bee19ddeb4dfbefce23c46a531cfe775eddb",
     "scripts/run_demo_activity.py": "f4b8cabedee10fc77fa87d0553443727a4dfe85a",
 }

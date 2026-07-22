@@ -130,6 +130,7 @@ async def expire_market_slice_orders(
             item.reserved_stock_mt = reserved - remaining
             item.current_stock_mt = Decimal(str(item.current_stock_mt or 0)) + remaining
         order.status = OrderBookStatus.EXPIRED
+        order.bump_version()
         await emit_order_updated(db, before=before, order=order)
         await record_audit(
             db,

@@ -1,6 +1,6 @@
 # be — Wiki
 
-_Generated 2026-07-19 — re-run `npx codesight --wiki` if the codebase has changed._
+_Generated 2026-07-22 — re-run `npx codesight --wiki` if the codebase has changed._
 
 Structural map compiled from source code via AST. No LLM — deterministic, 200ms.
 
@@ -18,12 +18,11 @@ Structural map compiled from source code via AST. No LLM — deterministic, 200m
 - [Auth_simple](./auth_simple.md)
 - [Availability](./availability.md)
 - [Catalog](./catalog.md)
-- [Compliance](./compliance.md)
 - [Compliance_api](./compliance_api.md)
 - [Curves](./curves.md)
-- [Dashboard](./dashboard.md)
 - [Inventory](./inventory.md)
 - [Kyc](./kyc.md)
+- [Market_support](./market_support.md)
 - [Matchmaking](./matchmaking.md)
 - [Monitor](./monitor.md)
 - [Negotiations](./negotiations.md)
@@ -38,6 +37,7 @@ Structural map compiled from source code via AST. No LLM — deterministic, 200m
 - [Stream](./stream.md)
 - [Subscription](./subscription.md)
 - [Subscriptions](./subscriptions.md)
+- [Test_kyc_upload_limits](./test_kyc_upload_limits.md)
 - [Trades](./trades.md)
 - [Vessels](./vessels.md)
 - [Watchlists](./watchlists.md)
@@ -46,10 +46,10 @@ Structural map compiled from source code via AST. No LLM — deterministic, 200m
 
 ## Quick Stats
 
-- Routes: **129**
-- Models: **38**
+- Routes: **143**
+- Models: **47**
 - Components: **0**
-- Env vars: **7** required, **36** with defaults
+- Env vars: **24** required, **39** with defaults
 
 ## How to Use
 
@@ -76,4 +76,4 @@ These exist in your codebase but are **not** reflected in wiki articles:
 When in doubt, search the source. The wiki is a starting point, not a complete inventory.
 
 ---
-_Last compiled: 2026-07-19 · 36 articles · [codesight](https://github.com/Houseofmvps/codesight)_
+_Last compiled: 2026-07-22 · 36 articles · [codesight](https://github.com/Houseofmvps/codesight)_

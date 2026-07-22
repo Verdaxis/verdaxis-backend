@@ -76,6 +76,7 @@ async def match_order(
     now = datetime.now(UTC)
     if new_order.expires_at is not None and new_order.expires_at <= now:
         new_order.status = OrderBookStatus.EXPIRED
+        new_order.bump_version()
         return trades_created
 
     new_order_provenance = getattr(new_order, "provenance", None) or OrganizationProvenance.UNKNOWN
@@ -189,6 +190,7 @@ async def match_order(
         crossing_provenance = coerce_provenance(crossing_provenance)
         if crossing.expires_at is not None and crossing.expires_at <= now:
             crossing.status = OrderBookStatus.EXPIRED
+            crossing.bump_version()
             continue
         if not execution_provenance_compatible(
             new_order_provenance,
@@ -321,6 +323,8 @@ async def match_order(
             crossing.status = OrderBookStatus.FILLED
         else:
             crossing.status = OrderBookStatus.PARTIALLY_FILLED
+        new_order.bump_version()
+        crossing.bump_version()
 
         trades_created.append(trade)
 

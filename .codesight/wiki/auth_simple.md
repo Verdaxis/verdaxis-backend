@@ -2,33 +2,41 @@
 
 > **Navigation aid.** Route list and file locations extracted via AST. Read the source files listed below before implementing or modifying this subsystem.
 
-The Auth_simple subsystem handles **12 routes** and touches: auth, db, cache, email.
+The Auth_simple subsystem handles **16 routes** and touches: auth, db, cache, queue, email.
 
 ## Routes
 
-- `GET` `/api/stream-token` → out: RegistrationResponse [auth, db, cache, email]
+- `GET` `/api/stream-token` → out: RegistrationResponse [auth, db, cache, queue, email]
   `app/routers/auth_simple.py`
-- `POST` `/api/register-with-org` → out: RegistrationResponse [auth, db, cache, email]
+- `POST` `/api/register-with-org` → in: _Request, out: RegistrationResponse [auth, db, cache, queue, email]
   `app/routers/auth_simple.py`
-- `GET` `/api/verify-email` → out: RegistrationResponse [auth, db, cache, email]
+- `GET` `/api/verify-email` → out: RegistrationResponse [auth, db, cache, queue, email]
   `app/routers/auth_simple.py`
-- `POST` `/api/resend-verification` → out: RegistrationResponse [auth, db, cache, email]
+- `POST` `/api/resend-verification-email` → in: _Request, out: RegistrationResponse [auth, db, cache, queue, email]
   `app/routers/auth_simple.py`
-- `POST` `/api/resend-verification-email` → out: RegistrationResponse [auth, db, cache, email]
+- `GET` `/api/me` → out: RegistrationResponse [auth, db, cache, queue, email]
   `app/routers/auth_simple.py`
-- `GET` `/api/me` → out: RegistrationResponse [auth, db, cache, email]
+- `PUT` `/api/me` → in: UserUpdate, out: RegistrationResponse [auth, db, cache, queue, email]
   `app/routers/auth_simple.py`
-- `PUT` `/api/me` → in: UserUpdate, out: RegistrationResponse [auth, db, cache, email]
+- `POST` `/api/forgot-password` → in: _Request, out: RegistrationResponse [auth, db, cache, queue, email]
   `app/routers/auth_simple.py`
-- `POST` `/api/forgot-password` → out: RegistrationResponse [auth, db, cache, email]
+- `POST` `/api/reset-password` → in: _Request, out: RegistrationResponse [auth, db, cache, queue, email]
   `app/routers/auth_simple.py`
-- `POST` `/api/reset-password` → out: RegistrationResponse [auth, db, cache, email]
+- `PUT` `/api/approve/{user_id}` params(user_id) → in: UserUpdate, out: RegistrationResponse [auth, db, cache, queue, email]
   `app/routers/auth_simple.py`
-- `PUT` `/api/approve/{user_id}` params(user_id) → in: UserUpdate, out: RegistrationResponse [auth, db, cache, email]
+- `PUT` `/api/organization/{organization_id}/approve` params(organization_id) → in: UserUpdate, out: RegistrationResponse [auth, db, cache, queue, email]
   `app/routers/auth_simple.py`
-- `PUT` `/api/switch-role/{target_role}` params(target_role) → in: UserUpdate, out: RegistrationResponse [auth, db, cache, email]
+- `PUT` `/api/organization/{organization_id}/reject` params(organization_id) → in: UserUpdate, out: RegistrationResponse [auth, db, cache, queue, email]
   `app/routers/auth_simple.py`
-- `POST` `/api/survey` → out: RegistrationResponse [auth, db, cache, email]
+- `PUT` `/api/reject/{user_id}` params(user_id) → in: UserUpdate, out: RegistrationResponse [auth, db, cache, queue, email]
+  `app/routers/auth_simple.py`
+- `GET` `/api/organization-joins` → out: RegistrationResponse [auth, db, cache, queue, email]
+  `app/routers/auth_simple.py`
+- `PUT` `/api/organization-joins/{join_request_id}/approve` params(join_request_id) → in: UserUpdate, out: RegistrationResponse [auth, db, cache, queue, email]
+  `app/routers/auth_simple.py`
+- `PUT` `/api/organization-joins/{join_request_id}/reject` params(join_request_id) → in: UserUpdate, out: RegistrationResponse [auth, db, cache, queue, email]
+  `app/routers/auth_simple.py`
+- `POST` `/api/survey` → in: _Request, out: RegistrationResponse [auth, db, cache, queue, email]
   `app/routers/auth_simple.py`
 
 ## Source Files

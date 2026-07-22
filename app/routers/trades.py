@@ -513,6 +513,7 @@ async def create_trade(
         order.status = OrderBookStatus.FILLED
     elif order.status == OrderBookStatus.OPEN:
         order.status = OrderBookStatus.PARTIALLY_FILLED
+    order.bump_version()
 
     await rebuild_live_slice_benchmarks_for_keys(
         db,
@@ -847,6 +848,7 @@ async def decline_trade(
                     order.remaining_quantity_mt,
                 )
             order.status = OrderBookStatus.EXPIRED
+            order.bump_version()
             await rebuild_live_slice_benchmarks_for_keys(
                 db,
                 [(order.side, order.market_product, order.delivery_point_id, order.availability_window)],
@@ -873,6 +875,7 @@ async def decline_trade(
             order.status = OrderBookStatus.OPEN
         else:
             order.status = OrderBookStatus.PARTIALLY_FILLED
+        order.bump_version()
         await rebuild_live_slice_benchmarks_for_keys(
             db,
             [(order.side, order.market_product, order.delivery_point_id, order.availability_window)],

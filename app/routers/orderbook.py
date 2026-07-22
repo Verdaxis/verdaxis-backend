@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Request, status, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, status, Query
 from app.services.audit_service import record_audit, request_audit_context
 from app.services.audit_actions import (
     ORDER_CANCELLED,
@@ -19,7 +19,7 @@ from app.config import settings
 from app.routers.auth_simple import get_authenticated_user, get_current_user
 from app.middleware.execution import require_execution_eligible_user
 from app.models.user import OrganizationProvenance, User, UserRole
-from app.models.orderbook import OrderBookOrder, OrderSide, OrderBookStatus
+from app.models.orderbook import OrderBookOrder, OrderSide, OrderBookStatus, OrderCreationMethod
 from app.market_catalog import APPROVED_MARKET_PRODUCTS, MarketProduct
 from app.models.catalog import Product, DeliveryPoint
 from app.schemas.orderbook import (
@@ -84,6 +84,11 @@ from app.services.auto_match_side_effects import collect_auto_match_side_effects
 from app.services.market_admission import (
     MarketActorOwnership,
     lock_and_load_market_organizations,
+)
+from app.services.market_support import (
+    lock_support_order_parties,
+    order_etag,
+    require_matching_etag,
 )
 
 router = APIRouter(prefix="/orderbook", tags=["orderbook"])
@@ -370,7 +375,10 @@ async def _order_my_response(
     benchmark_cache: dict[LiveBenchmarkKey, Decimal | None] | None = None,
 ) -> OrderMyResponse:
     item = OrderMyResponse.model_validate(order, from_attributes=True).model_copy(
-        update=await _benchmark_payload(db, order, cache=benchmark_cache)
+        update={
+            **(await _benchmark_payload(db, order, cache=benchmark_cache)),
+            "etag": order_etag(order.id, order.version),
+        }
     )
     if order.side == OrderSide.BID:
         item.trade_count = len(order.bid_trades)
@@ -1153,6 +1161,8 @@ async def create_order(
     new_order = OrderBookOrder(
         organization_id=current_user.organization_id,
         owner_user_id=current_user.id,
+        created_by_actor_user_id=current_user.id,
+        creation_method=OrderCreationMethod.SELF_SERVICE,
         provenance=snapshot_organization_provenance(organization),
         side=order_data.side,
         product_id=order_data.product_id,
@@ -1380,6 +1390,12 @@ async def update_order(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You can only update your own orders",
+        )
+
+    if order.creation_method == OrderCreationMethod.MARKET_SUPPORT:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Assisted listings cannot be edited; cancel and create a replacement",
         )
 
     if (
@@ -1613,6 +1629,7 @@ async def cancel_order(
     request: Request,
     current_user: User = Depends(get_authenticated_user),
     db: AsyncSession = Depends(get_db),
+    if_match: Annotated[str | None, Header(alias="If-Match")] = None,
 ):
     """
     Cancel an own order (soft cancel by setting status to CANCELLED).
@@ -1641,6 +1658,9 @@ async def cancel_order(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You can only cancel your own orders",
         )
+
+    if order.creation_method == OrderCreationMethod.MARKET_SUPPORT:
+        require_matching_etag(if_match, order_id=order.id, version=order.version)
 
     if order.status not in (OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED):
         raise HTTPException(
@@ -1675,13 +1695,17 @@ async def cancel_order(
     ):
         await db.rollback()
         raise HTTPException(status_code=409, detail="Order slice changed; retry the cancellation")
-    await lock_and_load_market_organizations(
-        db,
-        [current_user.organization_id],
-        actor_ownerships=(
-            MarketActorOwnership(current_user.id, current_user.organization_id),
-        ),
-    )
+    if order.creation_method == OrderCreationMethod.MARKET_SUPPORT:
+        require_matching_etag(if_match, order_id=order.id, version=order.version)
+        await lock_support_order_parties(db, order)
+    else:
+        await lock_and_load_market_organizations(
+            db,
+            [current_user.organization_id],
+            actor_ownerships=(
+                MarketActorOwnership(current_user.id, current_user.organization_id),
+            ),
+        )
 
     before_state = await _watchlist_before_state(db, order)
     benchmark_key: LiveBenchmarkKey | None = (
@@ -1693,6 +1717,7 @@ async def cancel_order(
     if order.inventory_item_id is not None and order.remaining_quantity_mt > 0:
         await release_inventory(db, order.inventory_item_id, order.remaining_quantity_mt)
     order.status = OrderBookStatus.CANCELLED
+    order.bump_version()
     await rebuild_live_slice_benchmarks_for_keys(db, [benchmark_key])
     await emit_order_updated(db, before=before_state, order=order)
     await record_audit(

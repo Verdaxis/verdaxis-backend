@@ -359,6 +359,13 @@ class Settings(BaseSettings):
     # Order Matching Engine
     AUTO_MATCHING_ENABLED: bool = True  # Set to False to disable match-on-insert
 
+    # Organization-scoped assisted listings. This remains fail-closed until
+    # the commercial activation gates in docs/market-support-assisted-listings.md
+    # have been approved.
+    MARKET_SUPPORT_ENABLED: bool = False
+    MARKET_SUPPORT_MAX_TTL_HOURS: int = Field(default=168, ge=1, le=720)
+    MARKET_SUPPORT_BOOTSTRAP_ADMIN_USER_IDS: str = ""
+
     # Compliance pricing overlay: EUR/USD conversion override (defaults to
     # the ASSUMED rate in app/services/compliance_pricing.py when unset)
     COMPLIANCE_EUR_USD_RATE: Optional[Decimal] = None
