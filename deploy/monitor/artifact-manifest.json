@@ -32,6 +32,12 @@
       "sha256": "41e459f3d291ae6fe8816938622fae8e50bd34cbcc48738ffd792c4103e257ac"
     },
     {
+      "source": "outbox_backlog_probe.py",
+      "destination": "/usr/local/libexec/verdaxis-monitor/outbox_backlog_probe.py",
+      "mode": "0755",
+      "sha256": "155c5b08a143d4dd40be454df5c14c9ebbf0fb234eee8416ad613ce1113dbda5"
+    },
+    {
       "source": "retirement-evidence.example.json",
       "destination": "/usr/share/doc/verdaxis-monitor/retirement-evidence.example.json",
       "mode": "0644",

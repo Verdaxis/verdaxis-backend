@@ -47,6 +47,10 @@ EXPECTED_ARTIFACTS = {
         "/usr/local/libexec/verdaxis-monitor/local_health_check.py",
         "0755",
     ),
+    "outbox_backlog_probe.py": (
+        "/usr/local/libexec/verdaxis-monitor/outbox_backlog_probe.py",
+        "0755",
+    ),
     "retirement-evidence.example.json": (
         "/usr/share/doc/verdaxis-monitor/retirement-evidence.example.json",
         "0644",

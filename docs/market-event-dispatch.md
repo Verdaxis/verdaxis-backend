@@ -92,6 +92,13 @@ for it exists or is installed.
   `Last-Event-ID` and replays from the outbox, so nothing is lost.
 - **Replay query failure** → the stream emits a terminal `error` event and
   closes; the client retries.
+- **Wedged-but-alive leader** (holds the lock, stops assigning) → the only
+  external signal is a growing unsequenced backlog.
+  `deploy/monitor/outbox_backlog_probe.py` exposes
+  `count(*) WHERE stream_seq IS NULL` plus the oldest pending age via a
+  read-only psql query (exit 1 on threshold breach). It ships in the
+  attested monitor manifest but is deliberately NOT armed by any
+  service/timer in this repository.
 
 ## Proof
 
