@@ -5,11 +5,12 @@ import io
 import importlib.util
 import json
 import os
-from pathlib import Path
-import signal
+import re
 import shutil
+import signal
 import subprocess
 import tarfile
+from pathlib import Path
 
 import pytest
 
@@ -141,7 +142,11 @@ def _deployment_checkout(tmp_path: Path) -> tuple[Path, Path, str]:
     for relative in SYSTEMD_UNITS["staging"]:
         destination = source / relative
         destination.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(ROOT / relative, destination)
+        unit_text = (ROOT / relative).read_text()
+        unit_text = re.sub(
+            r"^ExecStart=.*$", "ExecStart=/bin/true", unit_text, flags=re.MULTILINE
+        )
+        destination.write_text(unit_text)
     (source / UNIT_MANIFEST).write_text(
         "".join(
             f"staging\t{Path(relative).name}\n"

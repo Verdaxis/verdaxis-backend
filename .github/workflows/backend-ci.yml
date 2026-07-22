@@ -102,6 +102,10 @@ jobs:
             -f deploy/postgres/bootstrap_roles.sql
           psql -h localhost -U postgres -d verdaxis_analytics_test -v ON_ERROR_STOP=1 \
             -c "ALTER ROLE verdaxis_app_test PASSWORD 'analytics-test'; ALTER ROLE verdaxis_migrator_test PASSWORD 'analytics-test'; ALTER ROLE verdaxis_backup_test PASSWORD 'analytics-test';"
+          # Fixtures create reviewed historical provenance that runtime triggers
+          # intentionally reject. This grant is confined to the disposable CI role.
+          psql -h localhost -U postgres -d verdaxis_analytics_test -v ON_ERROR_STOP=1 \
+            -c "GRANT SET ON PARAMETER session_replication_role TO verdaxis_migrator_test;"
           ./scripts/verify_migrations.sh
           psql -h localhost -U postgres -d verdaxis_analytics_test \
             -v database_name=verdaxis_analytics_test \
