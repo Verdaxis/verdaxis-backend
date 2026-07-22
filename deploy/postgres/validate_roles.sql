@@ -29,6 +29,19 @@ FROM pg_catalog.pg_roles
 WHERE rolname IN (:'app_role', :'migrator_role', :'backup_role');
 
 SELECT pg_temp.assert_role_policy(
+    (
+        SELECT owner.rolname = :'migrator_role'
+        FROM pg_catalog.pg_class AS object
+        JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = object.relnamespace
+        JOIN pg_catalog.pg_roles AS owner ON owner.oid = object.relowner
+        WHERE namespace.nspname = 'public'
+          AND object.relname = 'alembic_version'
+          AND object.relkind IN ('r', 'p')
+    ),
+    'alembic_version migration-control table has wrong owner'
+);
+
+SELECT pg_temp.assert_role_policy(
     NOT EXISTS (
         SELECT 1
         FROM pg_catalog.pg_auth_members AS membership

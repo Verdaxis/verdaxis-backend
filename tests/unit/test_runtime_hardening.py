@@ -743,6 +743,9 @@ def test_least_privilege_role_artifacts_cover_existing_and_future_objects():
     assert "GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE" not in bootstrap
     assert "GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO" not in bootstrap
     assert "alembic_version" in bootstrap
+    assert "ALTER TABLE public.alembic_version OWNER TO %I" in bootstrap
+    assert "to_regclass('public.alembic_version') IS NOT NULL" in bootstrap
+    assert "alembic_version migration-control table has wrong owner" in validation
     assert "spatial_ref_sys" in bootstrap
     assert "pg_auth_members" in bootstrap
     assert "pg_attribute" in convergence

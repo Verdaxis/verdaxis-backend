@@ -317,7 +317,9 @@ future column until reviewed.
 `UPDATE`/`DELETE` and no backup write. The current sequence policy is empty. Policy
 entries for integration-owned `seed_runs` and `market_row_quarantines` become
 read-only only if those tables exist; `organization_market_approvals` is not
-granted to the runtime at all. Their absence cannot create a broad grant. `alembic_version`,
+granted to the runtime at all. Their absence cannot create a broad grant. The
+bootstrap explicitly transfers the legacy `alembic_version` control table to
+the migrator role while denying app/backup writes. `spatial_ref_sys`,
 `spatial_ref_sys`, extension objects, seed/quarantine/approval controls,
 market evidence/provenance, and operator data are not app-writable. Unknown
 governed tables and sequences receive no app grant.
