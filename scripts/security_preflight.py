@@ -8,9 +8,10 @@ def _preflight_exit_code(blockers: dict[str, int]) -> int:
 
 
 async def report() -> int:
-    from sqlalchemy import func, or_, select
+    from sqlalchemy import and_, func, not_, or_, select
 
     from app.database import AsyncSessionLocal
+    from app.demo_identities import DEMO_MARKET_ORG_IDS, KNOWN_TEST_ORG_IDS
     from app.models.orderbook import OrderBookOrder, OrderBookStatus, Trade, TradeStatus
     from app.models.negotiation import Negotiation, NegotiationRound, NegotiationStatus
     from app.models.rfq import QuoteStatus, RFQ, RFQQuote, RFQStatus
@@ -28,9 +29,8 @@ async def report() -> int:
             .outerjoin(Organization, Organization.id == User.organization_id)
             .where(
                 User.role.in_([UserRole.BUYER, UserRole.SUPPLIER]),
+                User.status == UserStatus.APPROVED,
                 or_(
-                    User.status.is_(None),
-                    User.status != UserStatus.APPROVED,
                     User.email_verified.is_not(True),
                     User.organization_id.is_(None),
                     Organization.id.is_(None),
@@ -76,18 +76,36 @@ async def report() -> int:
             select(func.count()).select_from(OrderBookOrder).where(
                 OrderBookOrder.owner_user_id.is_(None),
                 OrderBookOrder.status.in_((OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED)),
+                not_(
+                    OrderBookOrder.organization_id.in_(
+                        tuple(DEMO_MARKET_ORG_IDS | KNOWN_TEST_ORG_IDS)
+                    )
+                ),
             )
         )
         outstanding_legacy_rfqs = await db.scalar(
             select(func.count()).select_from(RFQ).where(
                 RFQ.buyer_user_id.is_(None),
                 RFQ.status.in_((RFQStatus.OPEN, RFQStatus.QUOTED)),
+                not_(RFQ.buyer_org_id.in_(tuple(DEMO_MARKET_ORG_IDS | KNOWN_TEST_ORG_IDS))),
             )
         )
         outstanding_legacy_quotes = await db.scalar(
-            select(func.count()).select_from(RFQQuote).where(
+            select(func.count()).select_from(RFQQuote).join(RFQ, RFQ.id == RFQQuote.rfq_id).where(
                 RFQQuote.seller_user_id.is_(None),
                 RFQQuote.status == QuoteStatus.PENDING,
+                not_(
+                    or_(
+                        and_(
+                            RFQ.buyer_org_id.in_(tuple(DEMO_MARKET_ORG_IDS)),
+                            RFQQuote.seller_org_id.in_(tuple(DEMO_MARKET_ORG_IDS)),
+                        ),
+                        and_(
+                            RFQ.buyer_org_id.in_(tuple(KNOWN_TEST_ORG_IDS)),
+                            RFQQuote.seller_org_id.in_(tuple(KNOWN_TEST_ORG_IDS)),
+                        ),
+                    )
+                ),
             )
         )
         outstanding_legacy_trades = await db.scalar(
@@ -95,6 +113,18 @@ async def report() -> int:
                 (Trade.buyer_user_id.is_(None)) | (Trade.seller_user_id.is_(None)),
                 Trade.status.in_(
                     (TradeStatus.PENDING_CONFIRMATION, TradeStatus.CONFIRMED, TradeStatus.DELIVERED)
+                ),
+                not_(
+                    or_(
+                        and_(
+                            Trade.buyer_id.in_(tuple(DEMO_MARKET_ORG_IDS)),
+                            Trade.seller_id.in_(tuple(DEMO_MARKET_ORG_IDS)),
+                        ),
+                        and_(
+                            Trade.buyer_id.in_(tuple(KNOWN_TEST_ORG_IDS)),
+                            Trade.seller_id.in_(tuple(KNOWN_TEST_ORG_IDS)),
+                        ),
+                    )
                 ),
             )
         )
@@ -105,6 +135,18 @@ async def report() -> int:
                     | (Negotiation.counterparty_user_id.is_(None))
                 ),
                 Negotiation.status.in_((NegotiationStatus.OPEN, NegotiationStatus.COUNTERED)),
+                not_(
+                    or_(
+                        and_(
+                            Negotiation.initiator_org_id.in_(tuple(DEMO_MARKET_ORG_IDS)),
+                            Negotiation.counterparty_org_id.in_(tuple(DEMO_MARKET_ORG_IDS)),
+                        ),
+                        and_(
+                            Negotiation.initiator_org_id.in_(tuple(KNOWN_TEST_ORG_IDS)),
+                            Negotiation.counterparty_org_id.in_(tuple(KNOWN_TEST_ORG_IDS)),
+                        ),
+                    )
+                ),
             )
         )
 
@@ -142,7 +184,9 @@ async def report() -> int:
                 print(f"{name}={count}")
         exit_code = _preflight_exit_code(blockers)
         print(f"enforcement_preflight={'BLOCKED' if exit_code else 'READY'}")
-        print("legacy_owner_policy=non_executable_until_explicit_owner_backfill_decision")
+        print(
+            "legacy_owner_policy=exact_synthetic_registry_or_explicit_owner_decision"
+        )
         return exit_code
 
 

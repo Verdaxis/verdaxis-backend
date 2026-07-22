@@ -11,9 +11,19 @@ From the repository root, verify the command and then run the database report:
 ```
 
 An exit code of `2` means a provenance or identity blocker remains. This
-includes approved/email-verified users with no current organization. KYC
-evidence counts remain advisory while the product-owner rollout hold is in
-force.
+includes an approved trader whose email or current approved organization is
+missing. Pending and rejected registrations are reported through their normal
+review queues but do not block a release because they cannot execute market
+actions. KYC evidence counts remain advisory while the product-owner rollout
+hold is in force.
+
+The report shows total ownerless legacy rows for operator visibility. Only
+executable rows outside the exact deterministic DEMO and TEST organization
+registries are blockers. Synthetic exemptions require both parties to belong
+to the same registry; mixed, unknown, or partially synthetic pairs still fail
+closed. The market-integrity migration snapshots those deterministic
+organization provenances, and the runtime continues to prevent synthetic and
+real liquidity from matching.
 
 Review pending cases through the admin-only read APIs:
 

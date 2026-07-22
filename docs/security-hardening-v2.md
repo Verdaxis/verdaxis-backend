@@ -168,10 +168,13 @@ database containing legacy plaintext email-verification tokens:
    ```
 
 The report emits no token/password values or user emails. It enumerates
-ineligible user UUID/state (including approved/verified users with no current
+ineligible approved-user UUID/state (including approved users with no current
 organization), case-insensitive email conflicts, pending joins, advisory KYC
 evidence gaps, total legacy provenance gaps, and outstanding executable legacy
-rows. Ineligible users are blockers. Exit 0 means
+rows. Pending and rejected registrations remain non-executable and are not
+release blockers. Ownerless executable rows are exempt only when every party
+belongs to the same exact deterministic DEMO or TEST registry; mixed or
+unknown provenance remains blocked. Ineligible approved users are blockers. Exit 0 means
 `enforcement_preflight=READY`; exit 2 means `BLOCKED` and production promotion
 must stop.
 
