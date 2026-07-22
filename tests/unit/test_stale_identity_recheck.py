@@ -59,7 +59,9 @@ def session_factory(async_engine, setup_tables):
     )
 
 
-async def _seed_approved_pair(session: AsyncSession) -> tuple[Organization, User]:
+async def _seed_approved_pair(
+    session: AsyncSession, *, kyc_status: str = "APPROVED"
+) -> tuple[Organization, User]:
     org = Organization(
         name=f'Org {uuid4().hex[:8]}',
         type=OrgType.FUEL_SUPPLIER,
@@ -75,12 +77,27 @@ async def _seed_approved_pair(session: AsyncSession) -> tuple[Organization, User
         status=UserStatus.APPROVED,
         organization_id=org.id,
         email_verified=True,
-        kyc_status='APPROVED',
-        kyc_organization_id=org.id,
+        kyc_status=kyc_status,
+        kyc_organization_id=org.id if kyc_status == "APPROVED" else None,
     )
     session.add(user)
     await session.commit()
     return org, user
+
+
+@pytest.mark.asyncio
+async def test_lock_and_load_keeps_pending_legacy_kyc_advisory(session_factory):
+    async with session_factory() as seed_session:
+        org, user = await _seed_approved_pair(seed_session, kyc_status="PENDING")
+
+    async with session_factory() as request_session:
+        organizations = await lock_and_load_market_organizations(
+            request_session,
+            [org.id],
+            actor_ownerships=(MarketActorOwnership(user.id, org.id),),
+        )
+
+    assert organizations[org.id].verification_status == "APPROVED"
 
 
 @pytest.mark.asyncio

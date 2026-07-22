@@ -15,13 +15,13 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.user import Organization, User, UserStatus
+from app.models.user import Organization, User
 from app.services.demo_market import DEMO_ACTIVITY_ORG_IDS
+from app.services.execution_policy import execution_party_is_eligible
 from app.services.provenance import execution_provenance_compatible
 
 
 APPROVED_ORGANIZATION_STATUS = "APPROVED"
-APPROVED_KYC_STATUS = "APPROVED"
 
 
 @dataclass(frozen=True)
@@ -81,14 +81,6 @@ async def lock_and_load_market_organizations(
                     status_code=409,
                     detail="Market user organization ownership changed",
                 )
-            if (
-                user.status != UserStatus.APPROVED
-                or str(user.kyc_status or "").upper() != APPROVED_KYC_STATUS
-            ):
-                raise HTTPException(
-                    status_code=409,
-                    detail="User is not approved for market activity",
-                )
 
     organizations = {
         organization.id: organization
@@ -116,6 +108,16 @@ async def lock_and_load_market_organizations(
             status_code=409,
             detail="Organization is not approved for market activity",
         )
+    for user_id, organization_id in ownership_by_user.items():
+        if not await execution_party_is_eligible(
+            db,
+            user=users[user_id],
+            organization=organizations[organization_id],
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail="User is not approved for market activity",
+            )
     return organizations
 
 
