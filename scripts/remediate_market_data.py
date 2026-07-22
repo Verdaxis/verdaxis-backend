@@ -92,6 +92,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     accepted_rfqs.add_argument("--rfq-id", action="append", required=True)
     accepted_rfqs.add_argument(
+        "--rfq-no-trade",
+        action="append",
+        default=[],
+        metavar="RFQ_ID",
+        help="Explicitly attest that an accepted RFQ has no dependent trade",
+    )
+    accepted_rfqs.add_argument(
         "--rfq-trade",
         action="append",
         default=[],
@@ -150,6 +157,15 @@ def _rfq_trade_bindings(values: list[str]) -> dict:
             raise ValueError(f"conflicting trade bindings for RFQ {rfq_id}")
         bindings[rfq_id] = trade_id
     return bindings
+
+
+def _rfq_id_set(values: list[str]) -> set:
+    from uuid import UUID
+
+    try:
+        return {UUID(value) for value in values}
+    except (ValueError, AttributeError) as exc:
+        raise ValueError("invalid --rfq-no-trade value; expected RFQ_UUID") from exc
 
 
 def _organization_snapshot_bindings(values: list[str]) -> dict:
@@ -228,6 +244,7 @@ async def run(args: argparse.Namespace) -> dict[str, Any]:
                     connection,
                     args.rfq_id,
                     trade_bindings=_rfq_trade_bindings(args.rfq_trade),
+                    no_trade_rfqs=_rfq_id_set(args.rfq_no_trade),
                     context=context,
                     approval_reference=args.accepted_rfq_approval_reference,
                     apply=args.apply,

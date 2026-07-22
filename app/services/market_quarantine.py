@@ -948,12 +948,19 @@ async def quarantine_accepted_rfqs(
     rfq_ids: Iterable[str | UUID],
     *,
     trade_bindings: dict[UUID, UUID] | None,
+    no_trade_rfqs: set[UUID],
     context: OperatorContext,
     approval_reference: str | None,
     apply: bool = False,
 ) -> tuple[AcceptedRFQQuarantineReport, ...]:
     """Archive exact accepted RFQ/quote/demo-trade graphs, then remove them."""
     selected_ids = validate_rfq_ids(rfq_ids)
+    selected_id_set = set(selected_ids)
+    trade_binding_ids = set((trade_bindings or {}).keys())
+    if not no_trade_rfqs <= selected_id_set:
+        raise ValueError("explicit no-trade RFQ IDs must be included in --rfq-id")
+    if no_trade_rfqs & trade_binding_ids:
+        raise ValueError("an RFQ cannot have both trade and explicit no-trade bindings")
     reports = await inspect_accepted_rfq_quarantine(
         connection, selected_ids, trade_bindings=trade_bindings
     )
@@ -975,17 +982,27 @@ async def quarantine_accepted_rfqs(
             + ", ".join(map(str, missing))
         )
     active = [report for report in reports if report.found]
-    invalid = [
-        report.rfq_id
-        for report in active
-        if report.accepted_quote_id is None
-        or report.selected_trade_id is None
-        or (report.original_row or {}).get("status") != "ACCEPTED"
-        or report.blocking_dependencies
-    ]
+    invalid = []
+    for report in active:
+        no_trade_attested = report.rfq_id in no_trade_rfqs
+        trade_binding_valid = (
+            report.selected_trade_id is not None and not no_trade_attested
+        ) or (
+            report.selected_trade_id is None
+            and no_trade_attested
+            and not report.trade_candidates
+        )
+        if (
+            report.accepted_quote_id is None
+            or not trade_binding_valid
+            or (report.original_row or {}).get("status") != "ACCEPTED"
+            or report.blocking_dependencies
+        ):
+            invalid.append(report.rfq_id)
     if invalid:
         raise ValueError(
-            "accepted RFQ graph is ambiguous, unbound, or has unsupported dependencies: "
+            "accepted RFQ graph is ambiguous, unbound, or has unsupported dependencies; "
+            "provide an exact trade binding or explicit no-trade attestation: "
             + ", ".join(map(str, invalid))
         )
     demo_ids = set(DEMO_MARKET_ORG_IDS)
@@ -995,8 +1012,12 @@ async def quarantine_accepted_rfqs(
             row for row in report.quote_rows if UUID(str(row["id"])) == report.accepted_quote_id
         )
         selected_trade = next(
-            row for row in report.trade_candidates
-            if UUID(str(row["id"])) == report.selected_trade_id
+            (
+                row
+                for row in report.trade_candidates
+                if UUID(str(row["id"])) == report.selected_trade_id
+            ),
+            None,
         )
         if UUID(str(rfq["buyer_org_id"])) not in demo_ids or UUID(
             str(accepted_quote["seller_org_id"])
@@ -1004,7 +1025,7 @@ async def quarantine_accepted_rfqs(
             raise ValueError(
                 f"RFQ {report.rfq_id} is not an exact deterministic DEMO pair"
             )
-        if (
+        if selected_trade is not None and (
             UUID(str(selected_trade["buyer_id"]))
             != UUID(str(rfq["buyer_org_id"]))
             or UUID(str(selected_trade["seller_id"]))
@@ -1032,7 +1053,11 @@ async def quarantine_accepted_rfqs(
         slices=slices,
     )
 
-    trade_ids = [str(report.selected_trade_id) for report in active]
+    trade_ids = [
+        str(report.selected_trade_id)
+        for report in active
+        if report.selected_trade_id is not None
+    ]
     if trade_ids:
         await connection.execute(
             text(
@@ -1089,18 +1114,19 @@ async def quarantine_accepted_rfqs(
                 dependencies={"rfq_id": str(report.rfq_id)},
                 context=context,
             )
-        selected_trade = next(
-            row for row in report.trade_candidates
-            if UUID(str(row["id"])) == report.selected_trade_id
-        )
-        await _archive_market_row(
-            connection,
-            source_table="trades",
-            source_id=report.selected_trade_id,
-            original_row=selected_trade,
-            dependencies={"rfq_id": str(report.rfq_id)},
-            context=context,
-        )
+        if report.selected_trade_id is not None:
+            selected_trade = next(
+                row for row in report.trade_candidates
+                if UUID(str(row["id"])) == report.selected_trade_id
+            )
+            await _archive_market_row(
+                connection,
+                source_table="trades",
+                source_id=report.selected_trade_id,
+                original_row=selected_trade,
+                dependencies={"rfq_id": str(report.rfq_id)},
+                context=context,
+            )
         for quote in report.quote_rows:
             await _archive_market_row(
                 connection,
@@ -1117,7 +1143,11 @@ async def quarantine_accepted_rfqs(
             original_row=report.original_row or {},
             dependencies={
                 "quote_ids": [str(row["id"]) for row in report.quote_rows],
-                "trade_id": str(report.selected_trade_id),
+                "trade_id": (
+                    str(report.selected_trade_id)
+                    if report.selected_trade_id is not None
+                    else None
+                ),
                 "commission_ids": [
                     str(row["id"]) for row in report.commission_rows
                 ],

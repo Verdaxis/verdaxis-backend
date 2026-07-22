@@ -211,7 +211,10 @@ sentinel must first be archived with the explicit operator CLI
 (`scripts/remediate_market_data.py quarantine --order-id <exact id> --apply`
 with operator/reason/reference); the migration then proceeds. Accepted
 demo-RFQ remediation likewise requires the explicit CLI. Both remain behind
-owner approval.
+owner approval. An accepted RFQ with no exact orderless trade candidate must
+be acknowledged explicitly with `--rfq-no-trade <rfq-uuid>`; the command
+refuses missing acknowledgements, trade/no-trade conflicts, or any candidate
+trade when no-trade was asserted.
 
 The same `miq` pause owns explicit REAL-organization approval. Generate and
 retain the dry-run output before applying exact IDs:

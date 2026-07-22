@@ -525,6 +525,67 @@ async def test_accepted_rfq_requires_approved_exact_graph_quarantine_before_upgr
 
 
 @pytest.mark.asyncio
+async def test_accepted_rfq_without_trade_requires_explicit_no_trade_attestation(
+    migration_database,
+):
+    database_url, _database_name = migration_database
+    parent = await asyncio.to_thread(_alembic, database_url, "upgrade", _PARENT)
+    assert parent.returncode == 0, parent.stderr
+    rfq_id, quote_id, trade_id = await _seed_parent_accepted_rfq_graph(database_url)
+    await _database_execute(
+        database_url,
+        "DELETE FROM trades WHERE id = :trade_id",
+        {"trade_id": trade_id},
+    )
+
+    refused = await asyncio.to_thread(
+        _remediation_cli,
+        database_url,
+        "--operator",
+        "market-integrity-test",
+        "--reason",
+        "explicit no-trade accepted RFQ quarantine proof",
+        "--reference",
+        "TEST-RFQ-NO-TRADE",
+        "--apply",
+        "quarantine-accepted-rfqs",
+        "--rfq-id",
+        str(rfq_id),
+        "--accepted-rfq-approval-reference",
+        "TEST-RFQ-NO-TRADE",
+    )
+    assert refused.returncode != 0
+    assert "explicit no-trade" in refused.stderr
+
+    applied = await asyncio.to_thread(
+        _remediation_cli,
+        database_url,
+        "--operator",
+        "market-integrity-test",
+        "--reason",
+        "explicit no-trade accepted RFQ quarantine proof",
+        "--reference",
+        "TEST-RFQ-NO-TRADE",
+        "--apply",
+        "quarantine-accepted-rfqs",
+        "--rfq-id",
+        str(rfq_id),
+        "--rfq-no-trade",
+        str(rfq_id),
+        "--accepted-rfq-approval-reference",
+        "TEST-RFQ-NO-TRADE",
+    )
+    assert applied.returncode == 0, applied.stderr
+    archived = await _database_execute(
+        database_url,
+        "SELECT source_table FROM market_row_quarantines "
+        "WHERE source_id = ANY(CAST(:ids AS uuid[])) ORDER BY source_table",
+        {"ids": [str(rfq_id), str(quote_id)]},
+    )
+    assert archived.scalars().all() == ["rfq_quotes", "rfqs"]
+
+
+@pytest.mark.asyncio
 async def test_exact_operator_approval_promotes_only_eligible_real_organizations(
     migration_database,
 ):
