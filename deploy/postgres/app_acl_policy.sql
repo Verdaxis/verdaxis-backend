@@ -20,6 +20,7 @@ CREATE TEMP TABLE app_table_policy (
 );
 
 INSERT INTO app_table_policy (table_name, privileges) VALUES
+    ('admin_capability_grants', ARRAY['SELECT', 'INSERT', 'UPDATE']),
     ('audit_logs', ARRAY['SELECT', 'INSERT']),
     ('benchmarks', ARRAY['SELECT']),
     ('commissions', ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE']),
@@ -36,14 +37,17 @@ INSERT INTO app_table_policy (table_name, privileges) VALUES
     ('market_indications', ARRAY['SELECT']),
     ('market_row_quarantines', ARRAY['SELECT']),
     ('market_signal_ingestion_runs', ARRAY['SELECT']),
+    ('market_support_action_receipts', ARRAY['SELECT', 'INSERT']),
     ('match_suggestions', ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE']),
     ('negotiation_rounds', ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE']),
     ('negotiations', ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE']),
     ('news_items', ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE']),
     ('notifications', ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE']),
+    ('order_support_attributions', ARRAY['SELECT', 'INSERT', 'UPDATE']),
     ('orderbook_orders', ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE']),
     ('orders', ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE']),
     ('organization_join_requests', ARRAY['SELECT', 'INSERT', 'UPDATE']),
+    ('organization_support_authorizations', ARRAY['SELECT', 'INSERT', 'UPDATE']),
     ('organizations', ARRAY['SELECT', 'DELETE']),
     ('pending_registrations', ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE']),
     ('physical_stems', ARRAY['SELECT']),

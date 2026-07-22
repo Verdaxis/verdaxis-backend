@@ -1,5 +1,4 @@
 """Bounded API responses for transient market database contention."""
-
 from sqlalchemy.exc import DBAPIError
 
 
@@ -9,6 +8,8 @@ MARKET_PATH_ROOTS = (
     "/api/prices",
     "/api/price-discovery",
     "/api/matchmaking",
+    "/api/admin/market-support",
+    "/api/market-support",
 )
 _TRANSIENT_LOCK_STATES = {"55P03", "40P01", "40001"}
 

@@ -15,6 +15,10 @@ EXPECTED_AUDIT_CONSTANTS = {
     "KYC_SUBMITTED": "kyc.submitted",
     "KYC_MEMBERSHIP_INVALIDATED": "kyc.membership_invalidated",
     "MARKET_ACCESS_INVALIDATED": "market.access_invalidated",
+    "MARKET_SUPPORT_AUTHORIZATION_CREATED": "market_support.authorization_created",
+    "MARKET_SUPPORT_AUTHORIZATION_REVOKED": "market_support.authorization_revoked",
+    "MARKET_SUPPORT_CAPABILITY_GRANTED": "market_support.capability_granted",
+    "MARKET_SUPPORT_CAPABILITY_REVOKED": "market_support.capability_revoked",
     # negotiation.accepted / rfq.accepted are intentionally unregistered:
     # negotiation and RFQ execution are disabled in this release.
     "NEGOTIATION_COUNTERED": "negotiation.countered",
