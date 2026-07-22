@@ -79,7 +79,7 @@ async def create_authorization(
     await record_audit(
         db,
         user_id=current_user.id,
-        action=AUTHORIZATION_CREATED,
+        action=MARKET_SUPPORT_AUTHORIZATION_CREATED,
         resource_type="organization_support_authorization",
         resource_id=authorization.id,
         changes={
@@ -243,7 +243,7 @@ async def revoke_authorization(
     await record_audit(
         db,
         user_id=current_user.id,
-        action=AUTHORIZATION_REVOKED,
+        action=MARKET_SUPPORT_AUTHORIZATION_REVOKED,
         resource_type="organization_support_authorization",
         resource_id=authorization.id,
         changes={
