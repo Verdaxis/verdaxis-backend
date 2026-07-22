@@ -301,3 +301,8 @@
 - **Trigger:** Designing Last-Event-ID replay for the shared SSE transport: sequences assigned inside producing transactions become visible out of order (a lower sequence can commit after a higher one), so a subscriber cursor would silently skip events.
 - **Rule:** Durable stream cursors require sequence assignment that is serialized after the producing commit (single advisory-lock leader assigning from a database sequence); treat NOTIFY strictly as a lossy wake with a poll fallback, never as the delivery channel.
 - **Why:** Producer-assigned monotonic IDs plus `seq > cursor` reads form a classic visibility race; the failure is unobservable in single-process tests and loses committed events under real concurrency.
+### Distinguish Legacy Token Compatibility From Link Validity
+- **Date:** 2026-07-22
+- **Trigger:** I described the identity cutover as necessarily invalidating active verification links before checking the hash-only verifier and migration behavior.
+- **Rule:** Before claiming an auth migration invalidates links, inspect both the migration and the post-cutover verifier; distinguish link validity from old-worker and rollback compatibility guards.
+- **Why:** `sec_boundaries` retains token hashes that the hardened verifier accepts, while its expiry guard protects the plaintext-writing legacy release and rollback path rather than proving the links are unusable.
