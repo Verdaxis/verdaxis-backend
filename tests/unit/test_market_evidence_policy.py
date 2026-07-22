@@ -163,7 +163,7 @@ def test_count_helpers_cannot_label_mixed_evidence_as_one_market():
 @pytest.mark.asyncio
 async def test_demand_separates_real_demo_and_metadata_only_unknown():
     engine = create_async_engine("sqlite+aiosqlite://", echo=False)
-    table_names = ["organizations", "products", "delivery_points", "orderbook_orders"]
+    table_names = ["organizations", "users", "products", "delivery_points", "orderbook_orders"]
     tables = [Base.metadata.tables[name] for name in table_names]
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all, tables=tables)
@@ -253,7 +253,7 @@ async def test_demand_separates_real_demo_and_metadata_only_unknown():
 @pytest.mark.asyncio
 async def test_demand_excludes_inactive_catalog_rows_and_never_emits_generic_taxonomy():
     engine = create_async_engine("sqlite+aiosqlite://", echo=False)
-    table_names = ["organizations", "products", "delivery_points", "orderbook_orders"]
+    table_names = ["organizations", "users", "products", "delivery_points", "orderbook_orders"]
     tables = [Base.metadata.tables[name] for name in table_names]
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all, tables=tables)

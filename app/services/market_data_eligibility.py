@@ -5,10 +5,53 @@ formal evidence. UNKNOWN remains quarantined. No name/domain heuristics.
 """
 from __future__ import annotations
 
-from sqlalchemy import and_, case, func, or_
+from sqlalchemy import and_, case, func, or_, select
 
 from app.market_catalog import CANONICAL_DELIVERY_POINTS, CANONICAL_PRODUCTS
-from app.models.user import OrganizationProvenance
+from app.models.user import (
+    Organization,
+    OrganizationProvenance,
+    User,
+    UserRole,
+    UserStatus,
+)
+
+
+def public_order_owner_admission_clause(order):
+    """Exclude orders whose recorded owner can no longer execute.
+
+    Query-surface mirror of ``execution_party_is_eligible``: an order whose
+    concrete owner was KYC- or admin-rejected (or is unverified, forced into
+    a password change, moved to another organization, or whose organization
+    lost approval) is permanently inert at fill time, so it must not appear
+    as public liquidity nor weigh in any benchmark. Rows with no recorded
+    owner (synthetic DEMO liquidity, pre-ownership legacy rows) keep the
+    existing provenance-clause posture; they already cannot fill.
+    """
+    eligible_owner = (
+        select(User.id)
+        .where(
+            User.id == order.owner_user_id,
+            User.organization_id == order.organization_id,
+            User.role.in_((UserRole.BUYER, UserRole.SUPPLIER)),
+            User.status == UserStatus.APPROVED,
+            User.email_verified.is_(True),
+            User.must_change_password.is_(False),
+            User.kyc_status != "REJECTED",
+            or_(
+                User.kyc_organization_id.is_(None),
+                User.kyc_organization_id == order.organization_id,
+            ),
+            select(Organization.id)
+            .where(
+                Organization.id == order.organization_id,
+                Organization.verification_status == "APPROVED",
+            )
+            .exists(),
+        )
+        .exists()
+    )
+    return or_(order.owner_user_id.is_(None), eligible_owner)
 
 
 def market_data_eligible_organization_clause(organization):
@@ -93,20 +136,26 @@ def current_public_order_clause(order, *, now_expression=None):
 
     Synthetic DEMO liquidity must always carry and satisfy an explicit expiry.
     Existing REAL/UNKNOWN user rows may remain visible with a null expiry until
-    product owners approve a general order-lifetime policy.
+    product owners approve a general order-lifetime policy. Currency alone is
+    not enough: the owner-admission mirror below is part of every public
+    collection, so a rejected owner's inert orders never surface.
     """
     now_value = now_expression if now_expression is not None else func.now()
-    return or_(
-        order.expires_at > now_value,
-        and_(
-            order.expires_at.is_(None),
-            order.provenance.in_(
-                (
-                    OrganizationProvenance.REAL.value,
-                    OrganizationProvenance.UNKNOWN.value,
-                )
+    return and_(
+        or_(
+            order.expires_at > now_value,
+            and_(
+                order.expires_at.is_(None),
+                order.provenance.in_(
+                    (
+                        OrganizationProvenance.REAL.value,
+                        OrganizationProvenance.UNKNOWN.value,
+                    )
+                ),
             ),
         ),
+        # Every public collection also refuses inert owner-rejected liquidity.
+        public_order_owner_admission_clause(order),
     )
 
 

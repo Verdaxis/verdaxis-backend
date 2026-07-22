@@ -17,6 +17,7 @@ from app.routers.orderbook import list_asks, list_bids
 
 REQUIRED_TABLES = [
     "organizations",
+    "users",
     "products",
     "delivery_points",
     "orderbook_orders",

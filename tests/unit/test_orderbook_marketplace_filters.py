@@ -25,6 +25,7 @@ from app.routers.orderbook import (
 
 REQUIRED_TABLES = [
     'organizations',
+    'users',
     'products',
     'delivery_points',
     'orderbook_orders',

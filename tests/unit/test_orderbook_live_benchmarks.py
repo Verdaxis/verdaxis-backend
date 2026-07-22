@@ -17,6 +17,7 @@ from app.services.live_benchmarks import rebuild_live_slice_benchmark
 
 REQUIRED_TABLES = [
     'organizations',
+    'users',
     'products',
     'delivery_points',
     'orderbook_orders',

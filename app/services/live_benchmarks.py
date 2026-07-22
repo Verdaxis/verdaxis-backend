@@ -12,6 +12,7 @@ from app.models.live_slice_benchmark import LiveSliceBenchmark
 from app.models.orderbook import OrderBookOrder, OrderBookStatus, OrderSide
 from app.services.availability_windows import normalize_availability_window
 from app.services.execution_policy import normalize_certification_scheme, order_is_execution_qualified
+from app.services.market_data_eligibility import public_order_owner_admission_clause
 
 APPROVED_MARKETPLACE_FUEL_TYPES = ("Methanol", "Ethanol")
 LiveBenchmarkKey = tuple[OrderSide, str | None, UUID | None, str | None]
@@ -94,6 +95,8 @@ async def rebuild_live_slice_benchmark(
             OrderBookOrder.status.in_((OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED)),
             OrderBookOrder.remaining_quantity_mt > 0,
             or_(OrderBookOrder.expires_at.is_(None), OrderBookOrder.expires_at > func.now()),
+            # A rejected owner's inert orders never weigh in the public VWAP.
+            public_order_owner_admission_clause(OrderBookOrder),
         )
     )
     orders = result.unique().scalars().all()
