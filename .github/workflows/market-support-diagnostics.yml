@@ -1,0 +1,48 @@
+name: Market Support Diagnostics
+
+on:
+  pull_request:
+    branches: [prod]
+    paths:
+      - 'app/**'
+      - 'tests/**'
+      - 'alembic/**'
+      - 'pyproject.toml'
+      - 'requirements.txt'
+      - '.github/workflows/market-support-diagnostics.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  unit-diagnostics:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Run tests and capture tail
+        id: tests
+        shell: bash
+        run: |
+          set +e
+          python -m pytest -q > market-support-pytest.log 2>&1
+          status=$?
+          echo "exit_code=$status" >> "$GITHUB_OUTPUT"
+          tail -n 300 market-support-pytest.log
+          exit 0
+      - name: Upload diagnostics
+        uses: actions/upload-artifact@v4
+        with:
+          name: market-support-pytest-diagnostics
+          path: market-support-pytest.log
+          if-no-files-found: error
+          retention-days: 1
+      - name: Preserve test result
+        if: steps.tests.outputs.exit_code != '0'
+        run: exit 1
