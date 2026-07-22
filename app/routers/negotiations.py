@@ -16,7 +16,7 @@ from app.models.user import User, UserRole, Organization
 from app.models.negotiation import Negotiation, NegotiationRound, NegotiationStatus
 from app.models.orderbook import OrderBookOrder, OrderBookStatus, OrderSide
 from app.models.catalog import Product
-from app.models.notification import Notification, NotificationType
+from app.models.notification import NotificationType
 from app.schemas.negotiation import (
     NegotiationCreateRequest,
     NegotiationCounterRequest,
@@ -52,6 +52,7 @@ from app.services.market_locks import (
 from app.services.security_market_admission import require_security_market_admission
 from app.services import market_transactions
 from app.services.market_transactions import retry_market_transaction
+from app.services.org_notifications import notify_org_users as _notify_org_users
 
 router = APIRouter(prefix="/negotiations", tags=["negotiations"])
 
@@ -153,26 +154,6 @@ async def _build_response(db: AsyncSession, neg: Negotiation) -> NegotiationResp
         updated_at=neg.updated_at,
         rounds=rounds,
     )
-
-
-async def _notify_org_users(
-    db: AsyncSession,
-    org_id: uuid.UUID,
-    notif_type: NotificationType,
-    title: str,
-    message: str,
-    data: dict | None = None,
-):
-    stmt = select(User).where(User.organization_id == org_id)
-    result = await db.execute(stmt)
-    for user in result.scalars().all():
-        db.add(Notification(
-            recipient_id=user.id,
-            type=notif_type,
-            title=title,
-            message=message,
-            data=data or {},
-        ))
 
 
 def _assert_active(neg: Negotiation) -> None:

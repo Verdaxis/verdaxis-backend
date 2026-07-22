@@ -20,7 +20,7 @@ from app.routers.auth_simple import get_authenticated_user, get_current_user
 from app.middleware.execution import require_execution_eligible_user
 from app.models.user import OrganizationProvenance, User, UserRole
 from app.models.orderbook import OrderBookOrder, OrderSide, OrderBookStatus
-from app.market_catalog import MarketProduct
+from app.market_catalog import APPROVED_MARKET_PRODUCTS, MarketProduct
 from app.models.catalog import Product, DeliveryPoint
 from app.schemas.orderbook import (
     OrderCreate,
@@ -102,7 +102,6 @@ SUPPLIER_METADATA_FIELDS = (
 )
 
 APPROVED_MARKETPLACE_FUEL_TYPES = ("Methanol", "Ethanol")
-APPROVED_MARKET_PRODUCTS = tuple(member.value for member in MarketProduct)
 EXECUTION_QUALIFIER_FIELDS = ("certification_scheme",)
 ASK_ONLY_METADATA_FIELDS = tuple(field for field in SUPPLIER_METADATA_FIELDS if field not in EXECUTION_QUALIFIER_FIELDS)
 REQUIRED_ASK_METADATA_FIELDS = (

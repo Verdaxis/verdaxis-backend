@@ -22,7 +22,7 @@ from app.models.orderbook import (
     TradeStatus,
     Initiator,
 )
-from app.models.notification import Notification, NotificationType
+from app.models.notification import NotificationType
 from app.schemas.orderbook import TradeCreate, TradeResponse, TradeDeliverPayload
 from app.schemas.pagination import PaginatedResponse
 from app.services.activity import trade_activity_provenance
@@ -60,6 +60,7 @@ from app.services.market_admission import (
     MarketActorOwnership,
     lock_and_load_market_organizations,
 )
+from app.services.org_notifications import notify_org_users
 
 router = APIRouter(prefix="/trades", tags=["trades"], responses=AUTH_RESPONSES)
 
@@ -125,30 +126,6 @@ def build_trade_response(trade: Trade) -> TradeResponse:
         demo_status=provenance["demo_status"],
         unknown_count=provenance["unknown_count"],
     )
-
-
-async def notify_org_users(
-    db: AsyncSession,
-    org_id: uuid.UUID,
-    notif_type: NotificationType,
-    title: str,
-    message: str,
-    data: dict = None,
-):
-    """Send a notification to every user in the given organization."""
-    stmt = select(User).where(User.organization_id == org_id)
-    result = await db.execute(stmt)
-    users = result.scalars().all()
-    for user in users:
-        db.add(
-            Notification(
-                recipient_id=user.id,
-                type=notif_type,
-                title=title,
-                message=message,
-                data=data or {},
-            )
-        )
 
 
 async def _load_trade(db: AsyncSession, trade_id: uuid.UUID, for_update: bool = False) -> Trade:

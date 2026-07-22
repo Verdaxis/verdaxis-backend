@@ -155,6 +155,9 @@ DELIVERY_POINT_IDS = MappingProxyType(
     {spec.name: spec.id for spec in CANONICAL_DELIVERY_POINTS}
 )
 MARKET_PRODUCT_CODES: tuple[str, ...] = tuple(PRODUCTS_BY_CODE)
+# Single source for "which market products are publicly tradable" — router
+# and service layers must import this rather than re-deriving it.
+APPROVED_MARKET_PRODUCTS: tuple[str, ...] = MARKET_PRODUCT_CODES
 CANONICAL_PRODUCT_IDS: tuple[UUID, ...] = tuple(PRODUCTS_BY_ID)
 CANONICAL_DELIVERY_POINT_IDS: tuple[UUID, ...] = tuple(DELIVERY_POINTS_BY_ID)
 DELIVERY_POINT_DISPLAY_ORDER = MappingProxyType(

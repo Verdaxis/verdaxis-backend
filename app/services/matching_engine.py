@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.orderbook import (
     OrderBookOrder, Trade, OrderSide, OrderBookStatus, TradeStatus, Initiator
 )
-from app.models.notification import Notification, NotificationType
+from app.models.notification import NotificationType
 from app.models.user import Organization, User
 from app.services.demo_market import (
     DEMO_ACTIVITY_BUYER_ORG_ID,
@@ -29,6 +29,7 @@ from app.services.provenance import coerce_provenance, execution_provenance_comp
 from app.models.user import OrganizationProvenance
 from app.services.inventory_reservations import lock_inventory_items
 from app.services.market_admission import lock_and_load_market_organizations
+from app.services.org_notifications import OrgNotification, notify_org_users_batched
 
 # A single transaction must not hold an unbounded number of market rows. This
 # is a conservative operational cap: callers can retry the remainder in a
@@ -59,7 +60,7 @@ async def match_order(
     Returns list of Trade objects created (may be empty if no matches).
     """
     trades_created: list[Trade] = []
-    pending_notifications: list[tuple[uuid.UUID, str, dict]] = []
+    pending_notifications: list[OrgNotification] = []
 
     if new_order.remaining_quantity_mt <= 0:
         return trades_created
@@ -333,10 +334,14 @@ async def match_order(
             f"{trade_qty} MT of {product_name} at ${trade_price}/MT"
         )
         data = {"trade_id": str(trade.id), "auto_matched": True}
-        pending_notifications.append((buyer_org, message, data))
-        pending_notifications.append((seller_org, message, data))
+        pending_notifications.append(
+            (buyer_org, NotificationType.TRADE_CONFIRMED, "Auto-Matched Trade", message, data)
+        )
+        pending_notifications.append(
+            (seller_org, NotificationType.TRADE_CONFIRMED, "Auto-Matched Trade", message, data)
+        )
 
-    await _notify_orgs(db, pending_notifications)
+    await notify_org_users_batched(db, pending_notifications)
 
     # Session autoflush is disabled. Persist final order quantities/statuses
     # before callers rebuild query-derived benchmarks and event projections.
@@ -352,31 +357,3 @@ async def match_order(
         )
 
     return trades_created
-
-
-async def _notify_orgs(
-    db: AsyncSession,
-    pending: list[tuple[uuid.UUID, str, str | dict]],
-) -> None:
-    """Fan (org_id, message, data) tuples out to every user of each org.
-
-    Fetches users for all involved orgs in one query (the per-trade version
-    was an N+1: two user queries per matched trade).
-    """
-    if not pending:
-        return
-    org_ids = {org_id for org_id, _, _ in pending}
-    result = await db.execute(select(User).where(User.organization_id.in_(org_ids)))
-    users_by_org: dict[uuid.UUID, list[User]] = {}
-    for user in result.scalars():
-        users_by_org.setdefault(user.organization_id, []).append(user)
-
-    for org_id, message, data in pending:
-        for user in users_by_org.get(org_id, []):
-            db.add(Notification(
-                recipient_id=user.id,
-                type=NotificationType.TRADE_CONFIRMED,
-                title="Auto-Matched Trade",
-                message=message,
-                data=data,
-            ))

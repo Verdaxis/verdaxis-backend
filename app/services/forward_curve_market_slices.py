@@ -11,6 +11,7 @@ from sqlalchemy import case, func, or_, select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.market_catalog import (
+    APPROVED_MARKET_PRODUCTS,
     DELIVERY_POINT_DISPLAY_ORDER,
     MARKET_PRODUCT_CODES,
     PRODUCTS_BY_CODE,
@@ -94,7 +95,6 @@ MAX_SLICE_TRADES = 8
 MAX_SLICE_INDICATIONS = 10
 MAX_SLICE_STEMS = 6
 
-APPROVED_MARKET_PRODUCTS = MARKET_PRODUCT_CODES
 MARKET_PRODUCT_DISPLAY_NAMES = {
     code: PRODUCTS_BY_CODE[code].name for code in MARKET_PRODUCT_CODES
 }

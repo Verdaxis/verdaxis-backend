@@ -14,7 +14,7 @@ from app.routers.auth_simple import get_authenticated_user, get_current_user
 from app.models.user import User, UserRole, Organization
 from app.models.rfq import RFQ, RFQQuote, RFQStatus, QuoteStatus
 from app.models.catalog import Product, DeliveryPoint
-from app.models.notification import Notification, NotificationType
+from app.models.notification import NotificationType
 from app.schemas.rfq import (
     RFQCreateRequest,
     RFQQuoteRequest,
@@ -44,6 +44,7 @@ from app.services.market_locks import acquire_market_slice_lock
 from app.services.market_events import enqueue_market_events, participant_market_event
 from app.services.security_market_admission import require_security_market_admission
 from app.services.market_transactions import retry_market_transaction
+from app.services.org_notifications import notify_org_users as _notify_org_users
 
 router = APIRouter(prefix="/rfq", tags=["rfq"])
 
@@ -180,30 +181,6 @@ async def _build_rfq_response(db: AsyncSession, rfq: RFQ, *, viewer_org_id: uuid
         quote_count=len(rfq.quotes) if hasattr(rfq, "quotes") and rfq.quotes else 0,
         quotes=quotes,
     )
-
-
-async def _notify_org_users(
-    db: AsyncSession,
-    org_id: uuid.UUID,
-    notif_type: NotificationType,
-    title: str,
-    message: str,
-    data: dict | None = None,
-):
-    """Send a notification to every user in the given organization."""
-    stmt = select(User).where(User.organization_id == org_id)
-    result = await db.execute(stmt)
-    users = result.scalars().all()
-    for user in users:
-        db.add(
-            Notification(
-                recipient_id=user.id,
-                type=notif_type,
-                title=title,
-                message=message,
-                data=data or {},
-            )
-        )
 
 
 # ---------------------------------------------------------------------------
