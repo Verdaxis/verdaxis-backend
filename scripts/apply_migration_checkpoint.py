@@ -122,6 +122,8 @@ def _git(source_root: Path, *args: str) -> str:
         [
             "/usr/bin/git",
             "-c",
+            f"safe.directory={source_root}",
+            "-c",
             "core.hooksPath=/dev/null",
             "-C",
             str(source_root),

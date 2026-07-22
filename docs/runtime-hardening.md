@@ -115,7 +115,9 @@ migration checks read the same deployed `.env` that systemd will load. They
 also discard Python import controls and invoke database-bearing Python helpers
 and dependency installation with a minimal environment; checkpoint Git
 identity uses the fixed system Git binary with global/system configuration
-disabled. Health attempt and delay controls are bounded decimal integers
+disabled and supplies only the exact selected source root as `safe.directory`,
+so a root-owned or deployment-user-owned fixed checkout remains attestable
+without trusting any ambient repository. Health attempt and delay controls are bounded decimal integers
 before they can reach shell arithmetic.
 The application never shells out to Git.
 

@@ -145,6 +145,7 @@ def test_checkpoint_git_identity_uses_absolute_trusted_binary():
     assert '\n            "git",' not in source
     assert 'environment["GIT_CONFIG_GLOBAL"] = "/dev/null"' in source
     assert 'environment["GIT_CONFIG_NOSYSTEM"] = "1"' in source
+    assert 'f"safe.directory={source_root}"' in source
 
 
 def test_checkpoint_executor_pins_alembic_to_explicit_migrator_url(monkeypatch):
