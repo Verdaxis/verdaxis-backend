@@ -131,6 +131,16 @@ class OrganizationMarketApprovalReport:
         }
 
 
+@dataclass(frozen=True)
+class SyntheticOrderExpiryReport:
+    matching_count: int
+    snapshot_sha256: str
+    applied: bool
+
+    def as_json(self) -> dict[str, Any]:
+        return asdict(self)
+
+
 def validate_write_authorization(
     context: OperatorContext,
     *,
@@ -941,6 +951,96 @@ async def _archive_market_row(
             "reference": context.reference,
         },
     )
+
+
+async def _legacy_synthetic_order_rows(
+    connection: AsyncConnection,
+    *,
+    lock: bool,
+) -> list[dict[str, Any]]:
+    synthetic_ids = DEMO_MARKET_ORG_IDS | KNOWN_TEST_ORG_IDS
+    suffix = " FOR UPDATE" if lock else ""
+    rows = (
+        await connection.execute(
+            text(
+                "SELECT id, product_id, delivery_point_id, availability_window, "
+                "to_jsonb(o) AS original_row FROM orderbook_orders AS o "
+                "WHERE owner_user_id IS NULL "
+                "AND organization_id = ANY(CAST(:organization_ids AS uuid[])) "
+                "AND status IN ('OPEN','PARTIALLY_FILLED') "
+                "AND (expires_at IS NULL OR "
+                "(status = 'PARTIALLY_FILLED' AND remaining_quantity_mt >= quantity_mt)) "
+                f"ORDER BY id{suffix}"
+            ),
+            {"organization_ids": [str(value) for value in synthetic_ids]},
+        )
+    ).mappings().all()
+    return [dict(row) for row in rows]
+
+
+def _synthetic_expiry_snapshot(rows: list[dict[str, Any]]) -> str:
+    payload = [row["original_row"] for row in rows]
+    return sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str).encode()
+    ).hexdigest()
+
+
+async def expire_invalid_legacy_synthetic_orders(
+    connection: AsyncConnection,
+    *,
+    context: OperatorContext,
+    apply: bool,
+    expected_snapshot: str | None = None,
+) -> SyntheticOrderExpiryReport:
+    """Expire only malformed ownerless orders from deterministic synthetic orgs."""
+    rows = await _legacy_synthetic_order_rows(connection, lock=False)
+    snapshot = _synthetic_expiry_snapshot(rows)
+    report = SyntheticOrderExpiryReport(len(rows), snapshot, False)
+    if not apply:
+        return report
+    if expected_snapshot != snapshot:
+        raise ValueError("synthetic expiry snapshot changed; repeat the dry-run")
+    if not rows:
+        return SyntheticOrderExpiryReport(0, snapshot, True)
+
+    await _acquire_quarantine_locks(
+        connection,
+        operation="expire-invalid-legacy-synthetic-orders",
+        source_ids=(UUID(str(row["id"])) for row in rows),
+        slices=(
+            (
+                UUID(str(row["product_id"])),
+                UUID(str(row["delivery_point_id"]))
+                if row["delivery_point_id"] is not None
+                else None,
+                str(row["availability_window"]),
+            )
+            for row in rows
+        ),
+    )
+    locked_rows = await _legacy_synthetic_order_rows(connection, lock=True)
+    if _synthetic_expiry_snapshot(locked_rows) != snapshot:
+        raise ValueError("synthetic expiry rows changed while acquiring locks")
+
+    now = datetime.now(UTC)
+    for row in locked_rows:
+        await _archive_market_row(
+            connection,
+            source_table="orderbook_orders_expired",
+            source_id=UUID(str(row["id"])),
+            original_row=dict(row["original_row"]),
+            dependencies={"action": "expired_in_place"},
+            context=context,
+        )
+    await connection.execute(
+        text(
+            "UPDATE orderbook_orders SET status = 'EXPIRED', "
+            "expires_at = COALESCE(expires_at, :now), updated_at = :now "
+            "WHERE id = ANY(CAST(:ids AS uuid[]))"
+        ),
+        {"ids": [str(row["id"]) for row in locked_rows], "now": now},
+    )
+    return SyntheticOrderExpiryReport(len(locked_rows), snapshot, True)
 
 
 async def quarantine_accepted_rfqs(

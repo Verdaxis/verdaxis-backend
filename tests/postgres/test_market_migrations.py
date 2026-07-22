@@ -362,6 +362,7 @@ async def test_parent_shape_sentinel_requires_explicit_cli_quarantine_then_upgra
     upgraded = await asyncio.to_thread(_alembic, database_url, "upgrade", "head")
     assert upgraded.returncode == 0, upgraded.stderr
 
+
     rename_dry_run = await asyncio.to_thread(
         _remediation_cli,
         database_url,
@@ -402,6 +403,92 @@ async def test_parent_shape_sentinel_requires_explicit_cli_quarantine_then_upgra
 
     checked = await asyncio.to_thread(_alembic, database_url, "check")
     assert checked.returncode == 0, f"{checked.stdout}\n{checked.stderr}"
+
+
+@pytest.mark.asyncio
+async def test_invalid_legacy_synthetic_order_requires_reviewed_expiry_snapshot(
+    migration_database,
+):
+    database_url, _database_name = migration_database
+    parent = await asyncio.to_thread(_alembic, database_url, "upgrade", _PARENT)
+    assert parent.returncode == 0, parent.stderr
+    order_id = uuid4()
+    engine = create_async_engine(database_url)
+    try:
+        async with engine.begin() as connection:
+            product_id = (
+                await connection.execute(
+                    text("SELECT id FROM products WHERE name = 'Bio Methanol'")
+                )
+            ).scalar_one()
+            await connection.execute(
+                text(
+                    "INSERT INTO organizations "
+                    "(id, name, type, verification_status) VALUES "
+                    "(:id, 'Legacy deterministic demo buyer', "
+                    "'FUEL_BUYER', 'APPROVED')"
+                ),
+                {"id": _DEMO_ORG},
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO orderbook_orders "
+                    "(id, organization_id, side, quantity_mt, "
+                    "remaining_quantity_mt, price_per_mt_usd, product_id, "
+                    "availability_window, status) VALUES "
+                    "(:id, :organization_id, 'BID', 500, 500, 650, "
+                    ":product_id, 'SPOT', 'OPEN')"
+                ),
+                {
+                    "id": order_id,
+                    "organization_id": _DEMO_ORG,
+                    "product_id": product_id,
+                },
+            )
+    finally:
+        await engine.dispose()
+
+    dry_run = await asyncio.to_thread(
+        _remediation_cli,
+        database_url,
+        "expire-invalid-legacy-synthetic-orders",
+    )
+    assert dry_run.returncode == 0, dry_run.stderr
+    report = json.loads(dry_run.stdout)["synthetic_order_expiry"]
+    assert report["matching_count"] == 1
+    assert report["applied"] is False
+
+    applied = await asyncio.to_thread(
+        _remediation_cli,
+        database_url,
+        "--operator",
+        "market-integrity-test",
+        "--reason",
+        "expire reviewed malformed synthetic order",
+        "--reference",
+        "TEST-SYNTHETIC-EXPIRY",
+        "--apply",
+        "expire-invalid-legacy-synthetic-orders",
+        "--expected-snapshot",
+        report["snapshot_sha256"],
+    )
+    assert applied.returncode == 0, applied.stderr
+    state = await _database_execute(
+        database_url,
+        "SELECT status, expires_at IS NOT NULL FROM orderbook_orders WHERE id = :id",
+        {"id": order_id},
+    )
+    assert state.one() == ("EXPIRED", True)
+    archive = await _database_execute(
+        database_url,
+        "SELECT source_table, reference FROM market_row_quarantines "
+        "WHERE source_id = :id",
+        {"id": order_id},
+    )
+    assert archive.one() == ("orderbook_orders_expired", "TEST-SYNTHETIC-EXPIRY")
+
+    upgraded = await asyncio.to_thread(_alembic, database_url, "upgrade", "head")
+    assert upgraded.returncode == 0, upgraded.stderr
 
 
 @pytest.mark.asyncio

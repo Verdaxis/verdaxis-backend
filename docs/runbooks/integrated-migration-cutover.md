@@ -269,6 +269,15 @@ declined and reopen them. Cancel, expire, or explicitly quarantine those rows
 first. Only `CANCELLED`/`EXPIRED` historical orders may retain their immutable
 provenance snapshot.
 
+Before `mi`, legacy deterministic DEMO/TEST orders may still violate the new
+expiry or partial-fill lifecycle constraints. Use
+`scripts/remediate_market_data.py expire-invalid-legacy-synthetic-orders`
+dry-run first, review its count and snapshot hash, then repeat with `--apply`
+and the exact `--expected-snapshot`. The command is restricted to ownerless
+rows under the compiled synthetic organization registries, archives every
+original row, and expires it in place. It cannot select real, mixed, or newly
+valid demo liquidity.
+
 For the first non-downgradable staging checkpoint and the production pre-`mi`
 checkpoint, restore the verified dump into an isolated database. Confirm the
 Alembic revision and critical row counts, validate constraints, and run a

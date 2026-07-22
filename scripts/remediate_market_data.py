@@ -21,6 +21,7 @@ from app.services.market_quarantine import (
     approve_real_organizations,
     connected_database_name,
     discover_order_ids,
+    expire_invalid_legacy_synthetic_orders,
     quarantine_accepted_rfqs,
     quarantine_orders,
     rename_known_demo_organizations,
@@ -128,6 +129,18 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     accepted_rfqs.add_argument(
         "--accepted-rfq-approval-reference",
         help="Required for apply and must exactly equal --reference",
+    )
+
+    synthetic_expiry = subparsers.add_parser(
+        "expire-invalid-legacy-synthetic-orders",
+        help=(
+            "Archive and expire malformed ownerless orders belonging only to "
+            "the deterministic DEMO/TEST organization registries"
+        ),
+    )
+    synthetic_expiry.add_argument(
+        "--expected-snapshot",
+        help="Required on apply and copied exactly from the reviewed dry-run",
     )
 
     subparsers.add_parser(
@@ -269,6 +282,21 @@ async def run(args: argparse.Namespace) -> dict[str, Any]:
                     "dry_run": not args.apply,
                     "database": actual_database,
                     "organizations": [report.as_json() for report in reports],
+                }
+
+            if args.command == "expire-invalid-legacy-synthetic-orders":
+                if args.apply and not args.expected_snapshot:
+                    raise ValueError("apply requires --expected-snapshot")
+                report = await expire_invalid_legacy_synthetic_orders(
+                    connection,
+                    context=context,
+                    apply=args.apply,
+                    expected_snapshot=args.expected_snapshot,
+                )
+                return {
+                    "dry_run": not args.apply,
+                    "database": actual_database,
+                    "synthetic_order_expiry": report.as_json(),
                 }
 
             if args.command == "rename-demo-organizations":
