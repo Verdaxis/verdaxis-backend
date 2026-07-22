@@ -31,6 +31,7 @@ from app.services.audit_actions import (
     RFQ_CANCELLED,
     RFQ_CREATED,
     RFQ_QUOTE_SUBMITTED,
+    RFQ_QUOTE_WITHDRAWN,
 )
 from app.services.market_admission import (
     MarketActorOwnership,

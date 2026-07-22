@@ -283,3 +283,21 @@
 - **Trigger:** Parent source-ownership review rejected backup producer code retained as a non-installable reference after the branch became monitor-only.
 - **Rule:** Once an operational responsibility is assigned to an external owner, delete local executable reference implementations and their tests instead of excluding them from promotion and calling them documentation.
 - **Why:** Dead executable references still create maintenance and authority ambiguity; a narrow data contract documents the integration seam without competing code ownership.
+
+### Pin Frameworks That Security Tests Introspect
+- **Date:** 2026-07-22
+- **Trigger:** An unpinned `fastapi>=0.100.0` resolved to 0.139.2 in a fresh environment, whose lazy `_IncludedRouter` objects broke `app.routes` introspection and the route-surface security tests while HTTP behavior stayed green.
+- **Rule:** Dependencies whose internal object model is asserted by tests (route tables, middleware stacks, schema internals) must be pinned or bounded, with the breakage documented next to the pin.
+- **Why:** Loose bounds turn a routine dependency resolution into a silent contract change that only surfaces in fresh environments, making CI results depend on install date rather than source.
+
+### Pin Content Hashes, Not Commit Hashes, For Same-Commit Tripwires
+- **Date:** 2026-07-22
+- **Trigger:** The source-ownership tripwire pinned runtime-owned files to a commit hash; the next stage legitimately changed a pinned file and could not reference its own unborn commit in the same single-commit change.
+- **Rule:** Ownership/tamper tripwires that must survive reviewed changes to the guarded files should pin per-file content hashes (git blob SHAs), updated deliberately in the same commit as the guarded change.
+- **Why:** A commit-hash pin creates an unresolvable self-reference for single-commit stages, forcing either a two-commit dance or silent disabling of the guard.
+
+### Assign Outbox Stream Sequences After Commit Via One Leader
+- **Date:** 2026-07-22
+- **Trigger:** Designing Last-Event-ID replay for the shared SSE transport: sequences assigned inside producing transactions become visible out of order (a lower sequence can commit after a higher one), so a subscriber cursor would silently skip events.
+- **Rule:** Durable stream cursors require sequence assignment that is serialized after the producing commit (single advisory-lock leader assigning from a database sequence); treat NOTIFY strictly as a lossy wake with a poll fallback, never as the delivery channel.
+- **Why:** Producer-assigned monotonic IDs plus `seq > cursor` reads form a classic visibility race; the failure is unobservable in single-process tests and loses committed events under real concurrency.

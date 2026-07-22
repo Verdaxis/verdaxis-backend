@@ -139,13 +139,19 @@ The branch has one linear head and four security revisions:
 
 ```text
 pa_20260715_analytics_facts
+  -> rh_20260720_runtime_metadata
   -> sec_20260720_identity
   -> sec_20260720_boundaries
   -> sec_20260720_fresh
-  -> sec_20260720_device (head)
+  -> sec_20260720_device
+  -> miq_20260720_market_quarantine
+  -> mi_20260720_market_integrity
+  -> sse_20260720_market_event_stream (head)
 ```
 
-For a database containing legacy plaintext email-verification tokens:
+Deployed environments apply these steps as allowlisted checkpoint
+transitions — see docs/runbooks/integrated-migration-cutover.md. For a
+database containing legacy plaintext email-verification tokens:
 
 1. Apply `alembic upgrade sec_20260720_identity`. It hashes token identifiers
    in bounded batches and sets every migrated token expiry to that migration

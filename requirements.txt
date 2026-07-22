@@ -1,4 +1,7 @@
-fastapi>=0.100.0
+# Pinned: fastapi 0.139.x wraps included routers in lazy _IncludedRouter
+# objects, breaking app.routes introspection (route-surface security tests
+# and admin tooling). Re-test introspection before moving this pin.
+fastapi==0.135.3
 uvicorn
 sqlalchemy[asyncio]>=2.0.0
 asyncpg
