@@ -17,7 +17,7 @@
 - action: String (index)
 - resource_type: String (index)
 - resource_id: String (nullable)
-- changes: JSONB (nullable)
+- changes: unknown (nullable)
 - ip_address: String (nullable)
 - request_id: String (nullable)
 - timestamp: DateTime (default, index)
@@ -72,6 +72,85 @@
 - description: String
 - reference_id: String
 - created_at: DateTime (default)
+
+### MarketSignalIngestionRun
+- id: UUID (pk, default)
+- signal_family: String
+- source: String
+- source_kind: String
+- started_at: DateTime (default)
+- verified_at: DateTime (nullable)
+- created_at: DateTime (default)
+
+### MarketIndication
+- id: UUID (pk, default)
+- market_product: String
+- delivery_point_id: UUID (fk)
+- availability_window: String
+- side: String
+- price_per_mt_usd: Numeric
+- quantity_mt: Numeric (nullable)
+- source: String
+- source_record_id: String (nullable)
+- source_event_id: String (nullable)
+- trusted_ingestion_run_id: UUID (fk, nullable)
+- is_demo: Boolean (default)
+- is_verified_real: Boolean (default)
+- verified_real_at: DateTime (nullable)
+- observed_at: DateTime
+- created_at: DateTime (default)
+
+### FairPriceBand
+- id: UUID (pk, default)
+- market_product: String
+- delivery_point_id: UUID (fk)
+- availability_window: String
+- low_price_per_mt_usd: Numeric
+- mid_price_per_mt_usd: Numeric
+- high_price_per_mt_usd: Numeric
+- model_name: String
+- model_version: String (nullable)
+- source: String
+- source_event_id: String (nullable)
+- trusted_ingestion_run_id: UUID (fk, nullable)
+- is_demo: Boolean (default)
+- is_verified_real: Boolean (default)
+- verified_real_at: DateTime (nullable)
+- observed_at: DateTime
+- created_at: DateTime (default)
+
+### PhysicalStem
+- id: UUID (pk, default)
+- market_product: String
+- delivery_point_id: UUID (fk)
+- availability_window: String
+- quantity_mt: Numeric
+- stem_start: DateTime (nullable)
+- stem_end: DateTime (nullable)
+- status: String
+- source: String
+- stem_uid: String
+- source_record_id: String (nullable)
+- source_event_id: String (nullable)
+- trusted_ingestion_run_id: UUID (fk, nullable)
+- is_demo: Boolean (default)
+- is_verified_real: Boolean (default)
+- verified_real_at: DateTime (nullable)
+- observed_at: DateTime
+- created_at: DateTime (default)
+
+### LiveSliceBenchmark
+- id: UUID (pk, default)
+- side: Enum
+- market_product: String
+- delivery_point_id: UUID (fk)
+- availability_window: String
+- benchmark_price_per_mt_usd: Numeric
+- total_remaining_quantity_mt: Numeric
+- order_count: Integer (default)
+- source: String (default)
+- created_at: DateTime (default)
+- updated_at: DateTime (default)
 
 ### InventoryItem
 - id: UUID (pk, default)
@@ -172,6 +251,8 @@
 - remaining_quantity_mt: Numeric
 - price_per_mt_usd: Numeric
 - availability_window: String (default)
+- delivery_window_start: Date (nullable)
+- delivery_window_end: Date (nullable)
 - certifications: JSON (default)
 - certification_declared: Boolean (default)
 - certification_scheme: String (nullable)
@@ -283,6 +364,26 @@
 - updated_at: DateTime (default)
 - _relations_: organization: Organization
 
+### UserLoginDay
+- id: UUID (pk, default)
+- activity_date: Date
+- user_id: unknown (fk)
+- organization_id: UUID (nullable)
+- role: Enum (nullable)
+- login_count: Integer (default)
+- first_login_at: DateTime
+- last_login_at: DateTime
+
+### UserStatusTransition
+- id: UUID (pk, default)
+- user_id: unknown (fk)
+- organization_id: UUID (nullable)
+- role: Enum (nullable)
+- from_status: Enum (nullable)
+- to_status: Enum
+- effective_at: DateTime (default)
+- provenance: String (default)
+
 ### Referral
 - id: UUID (pk, default)
 - referrer_id: UUID (fk)
@@ -351,6 +452,7 @@
 - organization_id: unknown (fk)
 - last_login: DateTime
 - password_changed_at: DateTime (nullable)
+- must_change_password: Boolean (default)
 - created_at: DateTime (default)
 - email_verified: Boolean (default)
 - email_verification_token: String (nullable)
@@ -360,7 +462,16 @@
 - password_reset_expires: DateTime (nullable)
 - referral_code: String (unique, nullable)
 - referred_by_id: UUID (fk, nullable)
+- onboarding_use_case: String (nullable)
+- onboarding_referral_source: String (nullable)
 - _relations_: organization: , referrals_made: , referral_received: 
+
+### UserPreference
+- id: UUID (pk, default)
+- user_id: UUID (fk, index)
+- namespace: String
+- value: JSON
+- updated_at: DateTime
 
 ### Watchlist
 - id: UUID (pk, default)

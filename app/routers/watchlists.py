@@ -10,7 +10,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.database import get_db
-from app.models.catalog import DeliveryPoint, MarketProduct, Product
+from app.market_catalog import MarketProduct
+from app.models.catalog import DeliveryPoint, Product
 from app.models.orderbook import OrderBookOrder
 from app.models.user import User
 from app.models.watchlist import (

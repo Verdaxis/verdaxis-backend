@@ -1,0 +1,57 @@
+[Unit]
+Description=Generate disclosed Verdaxis production demo market activity
+ConditionPathExists=!/home/verdaxis-prod/verdaxis/prod/be/.runtime-deploy/production.state
+After=postgresql.service verdaxis-backend.service
+Wants=postgresql.service
+
+[Service]
+Type=oneshot
+User=verdaxis-demo-production
+Group=verdaxis-demo-production
+WorkingDirectory=/home/verdaxis-prod/verdaxis/prod/be
+RuntimeDirectory=verdaxis-demo-production
+RuntimeDirectoryMode=0700
+EnvironmentFile=/etc/verdaxis-monitor/demo/production.env
+EnvironmentFile=/home/verdaxis-prod/verdaxis/prod/be/.runtime-release.env
+Environment=ENVIRONMENT=production
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/usr/bin/env ENVIRONMENT=production /usr/bin/python3 /usr/local/libexec/verdaxis-monitor/verify_runtime_identity.py --source-directory /home/verdaxis-prod/verdaxis/prod/be --expected-environment production --expected-release-sha ${RELEASE_SHA} --python-executable /home/verdaxis-prod/verdaxis/prod/be/venv/bin/python --script scripts/run_demo_activity.py --runtime-directory %t/verdaxis-demo-production
+UMask=0077
+TimeoutStartSec=600s
+MemoryMax=512M
+TasksMax=64
+Nice=10
+
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+PrivateTmp=yes
+PrivateDevices=yes
+PrivateMounts=yes
+ProtectSystem=strict
+ProtectHome=tmpfs
+BindReadOnlyPaths=/home/verdaxis-prod/verdaxis/prod/be
+InaccessiblePaths=/home/verdaxis-prod/verdaxis/prod/be/.env
+ProtectClock=yes
+ProtectHostname=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectProc=invisible
+ProcSubset=pid
+RestrictNamespaces=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RemoveIPC=yes
+KeyringMode=private
+DevicePolicy=closed
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+IPAddressDeny=any
+IPAddressAllow=127.0.0.0/8
+IPAddressAllow=::1

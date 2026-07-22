@@ -2,16 +2,17 @@
 Public demand signals endpoint for suppliers.
 Aggregates open BID orders into anonymized demand signals by fuel_type + region.
 """
-from typing import Optional, List
+from typing import Annotated, Optional, List
 from datetime import date
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.models.orderbook import OrderBookOrder, OrderSide, OrderBookStatus
-from app.models.catalog import Product, DeliveryPoint, derive_market_product
+from app.models.catalog import Product, DeliveryPoint
+from app.models.user import OrganizationProvenance
 from app.schemas.demand import DemandSignal, UrgencyLevel
 from app.services.availability_windows import (
     SPOT_WINDOW,
@@ -19,8 +20,16 @@ from app.services.availability_windows import (
     normalize_availability_window,
     window_start_date,
 )
+from app.schemas.market_activity import MarketScope, MarketSourceKind
+from app.services.market_data_eligibility import (
+    active_market_catalog_clauses,
+    canonical_market_product_expression,
+    current_public_order_clause,
+)
+from app.services.market_provenance import select_aggregate_evidence
 
 router = APIRouter(prefix="/demand", tags=["demand"])
+MAX_DEMAND_GROUPS = 512
 
 
 def _classify_urgency(availability_window: str) -> UrgencyLevel:
@@ -40,31 +49,53 @@ def _classify_urgency(availability_window: str) -> UrgencyLevel:
 async def get_demand_signals(
     fuel_type: Optional[str] = Query(None),
     region: Optional[str] = Query(None),
+    limit: Annotated[int, Query(ge=1, le=MAX_DEMAND_GROUPS)] = 256,
     db: AsyncSession = Depends(get_db),
 ):
     """
     Public: anonymized demand signals from buyer bids.
     Aggregated by tradable market product + delivery point + availability window.
     """
+    canonical_product = canonical_market_product_expression(Product)
+    identity_columns = (
+        canonical_product,
+        DeliveryPoint.id,
+        DeliveryPoint.name,
+        DeliveryPoint.region,
+        OrderBookOrder.availability_window,
+        OrderBookOrder.provenance,
+    )
     stmt = (
         select(
-            Product.fuel_type.label("fuel_type"),
-            Product.name.label("product_name"),
-            Product.fuel_grade.label("fuel_grade"),
+            canonical_product.label("market_product"),
             DeliveryPoint.id.label("delivery_point_id"),
             DeliveryPoint.name.label("delivery_point_name"),
             DeliveryPoint.region.label("region"),
-            OrderBookOrder.remaining_quantity_mt.label("remaining_quantity_mt"),
-            OrderBookOrder.price_per_mt_usd.label("price_per_mt_usd"),
             OrderBookOrder.availability_window.label("availability_window"),
-            OrderBookOrder.created_at.label("created_at"),
+            OrderBookOrder.provenance.label("provenance"),
+            func.sum(OrderBookOrder.remaining_quantity_mt).label("volume_mt"),
+            func.max(OrderBookOrder.price_per_mt_usd).label("max_price_per_mt"),
+            func.count(OrderBookOrder.id).label("order_count"),
+            func.max(OrderBookOrder.created_at).label("created_at"),
         )
         .join(Product, OrderBookOrder.product_id == Product.id)
-        .outerjoin(DeliveryPoint, OrderBookOrder.delivery_point_id == DeliveryPoint.id)
+        .join(DeliveryPoint, OrderBookOrder.delivery_point_id == DeliveryPoint.id)
         .where(
+            *active_market_catalog_clauses(Product, DeliveryPoint),
             OrderBookOrder.side == OrderSide.BID,
             OrderBookOrder.status.in_([OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED]),
+            current_public_order_clause(OrderBookOrder),
+            OrderBookOrder.provenance.in_(
+                (
+                    OrganizationProvenance.REAL.value,
+                    OrganizationProvenance.DEMO.value,
+                    OrganizationProvenance.UNKNOWN.value,
+                )
+            ),
         )
+        .group_by(*identity_columns)
+        .order_by(func.max(OrderBookOrder.created_at).desc(), canonical_product)
+        .limit(limit)
     )
 
     if fuel_type:
@@ -73,60 +104,48 @@ async def get_demand_signals(
         stmt = stmt.where(DeliveryPoint.region.ilike(f"%{region}%"))
 
     result = await db.execute(stmt)
-    rows = result.all()
-
-    groups: dict[tuple[str, str, str], dict[str, object]] = {}
-    for row in rows:
+    signals = []
+    for row in result.all():
         normalized_window = normalize_availability_window(str(row.availability_window))
-        market_product = derive_market_product(row.product_name or "", row.fuel_type or "", row.fuel_grade or "")
-        market_product_code = market_product.value if market_product else None
-        key = (
-            str(market_product_code or ""),
-            str(row.delivery_point_id or ""),
-            normalized_window,
+        provenance = (
+            row.provenance
+            if isinstance(row.provenance, OrganizationProvenance)
+            else OrganizationProvenance(str(row.provenance))
         )
-        if key not in groups:
-            groups[key] = {
-                "fuel_type": row.fuel_type or "",
-                "region": row.region or "",
-                "market_product_code": market_product_code,
-                "delivery_point_id": row.delivery_point_id,
-                "delivery_point_name": row.delivery_point_name,
-                "volume_mt": row.remaining_quantity_mt,
-                "max_price_per_mt": row.price_per_mt_usd,
-                "bid_count": 1,
-                "earliest_window": normalized_window,
-                "created_at": row.created_at,
-            }
-            continue
-
-        group = groups[key]
-        group["volume_mt"] += row.remaining_quantity_mt
-        group["max_price_per_mt"] = max(group["max_price_per_mt"], row.price_per_mt_usd)
-        group["bid_count"] += 1
-        if row.created_at > group["created_at"]:
-            group["created_at"] = row.created_at
-
-    signals = [
-        DemandSignal(
-            fuel_type=group["fuel_type"],
-            region=group["region"],
-            market_product_code=group["market_product_code"],
-            delivery_point_id=group["delivery_point_id"],
-            delivery_point_name=group["delivery_point_name"],
-            availability_window_code=group["earliest_window"],
-            volume_mt=group["volume_mt"],
-            max_price_per_mt=group["max_price_per_mt"],
-            urgency=_classify_urgency(group["earliest_window"]),
-            bid_count=group["bid_count"],
-            earliest_delivery=availability_window_display_label(group["earliest_window"]),
-            created_at=group["created_at"],
+        count = int(row.order_count or 0)
+        selection = select_aggregate_evidence(
+            real_count=count if provenance == OrganizationProvenance.REAL else 0,
+            demo_count=count if provenance == OrganizationProvenance.DEMO else 0,
+            unknown_count=count if provenance == OrganizationProvenance.UNKNOWN else 0,
+            real_source=MarketSourceKind.LIVE_ORDER,
         )
-        for group in groups.values()
-    ]
+        signals.append(DemandSignal(
+            fuel_type=row.market_product,
+            region=row.region or "",
+            market_product_code=row.market_product,
+            delivery_point_id=row.delivery_point_id,
+            delivery_point_name=row.delivery_point_name,
+            availability_window_code=normalized_window,
+            volume_mt=None if selection.scope is None else row.volume_mt,
+            max_price_per_mt=None if selection.scope is None else row.max_price_per_mt,
+            urgency=_classify_urgency(normalized_window),
+            bid_count=0 if selection.scope is None else count,
+            earliest_delivery=availability_window_display_label(normalized_window),
+            created_at=row.created_at,
+            source_kind=selection.source_kind,
+            scope=MarketScope.DELIVERY_POINT if row.delivery_point_id else MarketScope.UNKNOWN,
+            demo_status=selection.demo_status,
+            unknown_count=selection.unknown_count,
+        ))
 
     # Sort by urgency (HIGH first), then volume descending
     urgency_order = {UrgencyLevel.HIGH: 0, UrgencyLevel.MEDIUM: 1, UrgencyLevel.LOW: 2}
-    signals.sort(key=lambda s: (urgency_order.get(s.urgency, 2), -s.volume_mt))
+    signals.sort(
+        key=lambda signal: (
+            urgency_order.get(signal.urgency, 2),
+            signal.source_kind == MarketSourceKind.UNKNOWN,
+            -(signal.volume_mt or 0),
+        )
+    )
 
     return signals

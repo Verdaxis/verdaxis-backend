@@ -5,11 +5,11 @@ from datetime import datetime, UTC, timedelta
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
-from app.models.orderbook import OrderBookOrder, OrderBookStatus
+from app.models.catalog import DeliveryPoint, Product
+from app.models.orderbook import OrderBookOrder, OrderBookStatus, OrderSide
 from app.models.watchlist import (
     WatchlistEvent,
     WatchlistEventType,
@@ -18,7 +18,13 @@ from app.models.watchlist import (
 )
 from app.schemas.market_activity import MarketDemoStatus, MarketScope, MarketSourceKind
 from app.services.availability_windows import normalize_availability_window
-from app.services.demo_market import is_demo_market_organization
+from app.models.user import OrganizationProvenance
+from app.services.market_data_eligibility import (
+    active_market_catalog_clauses,
+    canonical_market_product_expression,
+    current_public_order_clause,
+)
+from app.services.market_provenance import order_market_provenance, select_aggregate_evidence
 from app.services.execution_policy import order_is_execution_qualified
 
 BEST_PRICE_MOVE_THRESHOLD_PCT = Decimal('1.0')
@@ -45,50 +51,82 @@ async def _best_slice_price_with_provenance(
     if not market_product_code or not delivery_point_id or not availability_window_code or not side:
         return None, _order_provenance_payload(None)
 
+    side_value = getattr(side, "value", side)
+    real_clause = OrderBookOrder.provenance == OrganizationProvenance.REAL.value
+    demo_clause = OrderBookOrder.provenance == OrganizationProvenance.DEMO.value
+    unknown_clause = OrderBookOrder.provenance == OrganizationProvenance.UNKNOWN.value
+    observed_at = func.coalesce(OrderBookOrder.updated_at, OrderBookOrder.created_at)
+    best = func.min if side_value == OrderSide.ASK.value else func.max
+    execution_filters = [OrderBookOrder.off_spec.is_(False)]
+    if side_value == OrderSide.ASK.value:
+        execution_filters.extend(
+            (
+                OrderBookOrder.certification_declared.is_(True),
+                func.length(func.trim(OrderBookOrder.certification_scheme)) > 0,
+            )
+        )
     stmt = (
-        select(OrderBookOrder)
-        .options(selectinload(OrderBookOrder.product))
+        select(
+            best(case((real_clause, OrderBookOrder.price_per_mt_usd))).label("real_price"),
+            best(case((demo_clause, OrderBookOrder.price_per_mt_usd))).label("demo_price"),
+            func.sum(case((real_clause, 1), else_=0)).label("real_count"),
+            func.sum(case((demo_clause, 1), else_=0)).label("demo_count"),
+            func.sum(case((unknown_clause, 1), else_=0)).label("unknown_count"),
+            func.max(case((real_clause, observed_at))).label("real_observed_at"),
+            func.max(case((demo_clause, observed_at))).label("demo_observed_at"),
+        )
+        .join(Product, OrderBookOrder.product_id == Product.id)
+        .join(DeliveryPoint, OrderBookOrder.delivery_point_id == DeliveryPoint.id)
         .where(
+            *active_market_catalog_clauses(Product, DeliveryPoint),
+            canonical_market_product_expression(Product) == market_product_code,
             OrderBookOrder.delivery_point_id == delivery_point_id,
             OrderBookOrder.availability_window == _normalized_window(availability_window_code),
-            OrderBookOrder.side == side,
+            OrderBookOrder.side == side_value,
             OrderBookOrder.status.in_([OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED]),
-            OrderBookOrder.off_spec.is_(False),
+            current_public_order_clause(OrderBookOrder),
+            OrderBookOrder.provenance.in_(
+                (
+                    OrganizationProvenance.REAL.value,
+                    OrganizationProvenance.DEMO.value,
+                    OrganizationProvenance.UNKNOWN.value,
+                )
+            ),
+            *execution_filters,
         )
     )
-    orders = (await db.execute(stmt)).scalars().all()
-    candidates = [
-        candidate
-        for candidate in orders
-        if candidate.market_product == market_product_code and order_is_execution_qualified(candidate)
-    ]
-    if not candidates:
-        return None, {
-            **_order_provenance_payload(None),
-            'source_kind': MarketSourceKind.NO_DATA.value,
-            'demo_status': MarketDemoStatus.NOT_APPLICABLE.value,
-        }
-    if getattr(side, 'value', side) == 'ASK':
-        best_price = min(candidate.price_per_mt_usd for candidate in candidates)
-    else:
-        best_price = max(candidate.price_per_mt_usd for candidate in candidates)
-    best_orders = [candidate for candidate in candidates if candidate.price_per_mt_usd == best_price]
-    demo_count = sum(1 for candidate in best_orders if is_demo_market_organization(candidate.organization_id))
-    real_count = len(best_orders) - demo_count
-    if demo_count and real_count:
-        source_kind = MarketSourceKind.MIXED_SOURCE
-        demo_status = MarketDemoStatus.MIXED
-    elif demo_count:
-        source_kind = MarketSourceKind.DEMO_SEED
-        demo_status = MarketDemoStatus.DEMO_ONLY
-    else:
-        source_kind = MarketSourceKind.LIVE_ORDER
-        demo_status = MarketDemoStatus.REAL_ONLY
-    representative_order = max(best_orders, key=lambda candidate: candidate.updated_at or candidate.created_at)
+    row = (await db.execute(stmt)).one()
+    selection = select_aggregate_evidence(
+        real_count=int(row.real_count or 0),
+        demo_count=int(row.demo_count or 0),
+        unknown_count=int(row.unknown_count or 0),
+        real_source=MarketSourceKind.LIVE_ORDER,
+    )
+    best_price = (
+        row.real_price
+        if selection.value_prefix == "real"
+        else row.demo_price
+        if selection.value_prefix == "demo"
+        else None
+    )
+    selected_observed_at = (
+        row.real_observed_at
+        if selection.value_prefix == "real"
+        else row.demo_observed_at
+        if selection.value_prefix == "demo"
+        else None
+    )
     return best_price, {
-        **_order_provenance_payload(representative_order),
-        'source_kind': source_kind.value,
-        'demo_status': demo_status.value,
+        "source_kind": selection.source_kind.value,
+        "demo_status": selection.demo_status.value,
+        "scope": MarketScope.DELIVERY_POINT.value,
+        "observed_at": selected_observed_at.isoformat() if selected_observed_at else None,
+        "market_product_code": market_product_code,
+        "delivery_point_id": str(delivery_point_id),
+        "availability_window_code": _normalized_window(availability_window_code),
+        "real_count": selection.real_count,
+        "demo_count": selection.demo_count,
+        "unknown_count": selection.unknown_count,
     }
 
 
@@ -130,11 +168,9 @@ def _order_provenance_payload(order: OrderBookOrder | None) -> dict:
             'scope': MarketScope.UNKNOWN.value,
             'observed_at': None,
         }
-    is_demo = is_demo_market_organization(order.organization_id)
+    policy = order_market_provenance(order)
     return {
-        'source_kind': MarketSourceKind.DEMO_SEED.value if is_demo else MarketSourceKind.LIVE_ORDER.value,
-        'demo_status': MarketDemoStatus.DEMO_ONLY.value if is_demo else MarketDemoStatus.REAL_ONLY.value,
-        'scope': MarketScope.DELIVERY_POINT.value if order.delivery_point_id else MarketScope.UNKNOWN.value,
+        **policy,
         'observed_at': (order.updated_at or order.created_at).isoformat() if (order.updated_at or order.created_at) else None,
         'market_product_code': order.market_product,
         'delivery_point_id': str(order.delivery_point_id) if order.delivery_point_id else None,

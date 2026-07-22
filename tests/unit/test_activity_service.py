@@ -1,20 +1,21 @@
 """Unit tests for activity event publishers and price alert checking."""
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch, call
+from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 from decimal import Decimal
 from datetime import datetime
 
 from app.schemas.market_activity import MarketDemoStatus, MarketScope, MarketSourceKind
 from app.services.activity import (
+    new_listing_event,
+    order_outbid_event,
     order_activity_provenance,
-    publish_new_listing,
-    publish_price_crossing,
-    publish_order_outbid,
+    price_crossing_event,
     trade_activity_provenance,
     check_price_alerts,
 )
 from app.services.demo_market import DEMO_ACTIVITY_BUYER_ORG_ID, DEMO_ACTIVITY_SELLER_ORG_ID
+from app.models.user import OrganizationProvenance
 
 
 # ---------------------------------------------------------------------------
@@ -25,6 +26,11 @@ def make_order(org_id=None):
     order = MagicMock()
     order.id = uuid4()
     order.organization_id = org_id or uuid4()
+    order.provenance = (
+        OrganizationProvenance.DEMO
+        if org_id in {DEMO_ACTIVITY_BUYER_ORG_ID, DEMO_ACTIVITY_SELLER_ORG_ID}
+        else OrganizationProvenance.REAL
+    )
     order.side = MagicMock(value="ASK")
     order.price_per_mt_usd = Decimal("750.00")
     order.remaining_quantity_mt = Decimal("1000")
@@ -36,6 +42,16 @@ def make_trade(*, buyer_id=None, seller_id=None):
     trade = MagicMock()
     trade.buyer_id = buyer_id or uuid4()
     trade.seller_id = seller_id or uuid4()
+    trade.buyer_provenance = (
+        OrganizationProvenance.DEMO
+        if buyer_id == DEMO_ACTIVITY_BUYER_ORG_ID
+        else OrganizationProvenance.REAL
+    )
+    trade.seller_provenance = (
+        OrganizationProvenance.DEMO
+        if seller_id == DEMO_ACTIVITY_SELLER_ORG_ID
+        else OrganizationProvenance.REAL
+    )
     trade.created_at = datetime.utcnow()
     trade.confirmed_at = None
     trade.delivered_at = None
@@ -63,36 +79,26 @@ def make_dp(name="Singapore"):
 
 
 # ---------------------------------------------------------------------------
-# publish_new_listing
+# new_listing_event
 # ---------------------------------------------------------------------------
 
-class TestPublishNewListing:
-    @pytest.mark.asyncio
-    async def test_publishes_to_activity_channel(self):
+class TestNewListingEvent:
+    def test_targets_activity_channel(self):
         order = make_order()
         product = make_product()
         dp = make_dp()
 
-        with patch("app.services.activity.event_bus") as mock_bus:
-            mock_bus.publish = AsyncMock()
-            await publish_new_listing(order, product, dp)
+        channel, event_type, _ = new_listing_event(order, product, dp)
 
-        mock_bus.publish.assert_awaited_once()
-        args = mock_bus.publish.call_args
-        assert args[0][0] == "activity"
-        assert args[0][1] == "new_listing"
+        assert channel.startswith("market-orgs:")
+        assert event_type == "new_listing"
 
-    @pytest.mark.asyncio
-    async def test_new_listing_data_contains_expected_keys(self):
+    def test_new_listing_data_contains_expected_keys(self):
         order = make_order()
         product = make_product("LNG Conventional")
         dp = make_dp("Rotterdam")
 
-        with patch("app.services.activity.event_bus") as mock_bus:
-            mock_bus.publish = AsyncMock()
-            await publish_new_listing(order, product, dp)
-
-        data = mock_bus.publish.call_args[0][2]
+        _, _, data = new_listing_event(order, product, dp)
         assert "order_id" in data
         assert "product_name" in data
         assert "delivery_point" in data
@@ -102,62 +108,48 @@ class TestPublishNewListing:
         assert data["demo_status"] == MarketDemoStatus.REAL_ONLY.value
         assert data["scope"] == MarketScope.UNKNOWN.value
 
-    @pytest.mark.asyncio
-    async def test_new_listing_marks_demo_orders(self):
+    def test_new_listing_marks_demo_orders(self):
         order = make_order(DEMO_ACTIVITY_SELLER_ORG_ID)
         product = make_product("Bio Methanol")
         dp = make_dp("Singapore")
 
-        with patch("app.services.activity.event_bus") as mock_bus:
-            mock_bus.publish = AsyncMock()
-            await publish_new_listing(order, product, dp)
-
-        data = mock_bus.publish.call_args[0][2]
+        _, _, data = new_listing_event(order, product, dp)
         assert data["source_kind"] == MarketSourceKind.DEMO_SEED.value
         assert data["demo_status"] == MarketDemoStatus.DEMO_ONLY.value
 
-    @pytest.mark.asyncio
-    async def test_new_listing_with_no_delivery_point(self):
-        """publish_new_listing with dp=None should not raise."""
+    def test_new_listing_with_no_delivery_point(self):
         order = make_order()
         product = make_product()
 
-        with patch("app.services.activity.event_bus") as mock_bus:
-            mock_bus.publish = AsyncMock()
-            await publish_new_listing(order, product, None)
+        channel, event_type, _ = new_listing_event(order, product, None)
 
-        mock_bus.publish.assert_awaited_once()
+        assert channel.startswith("market-orgs:")
+        assert event_type == "new_listing"
 
 
 # ---------------------------------------------------------------------------
-# publish_price_crossing
+# price_crossing_event
 # ---------------------------------------------------------------------------
 
-class TestPublishPriceCrossing:
-    @pytest.mark.asyncio
-    async def test_publishes_to_activity_channel(self):
+class TestPriceCrossingEvent:
+    def test_targets_activity_channel(self):
         product = make_product()
         dp = make_dp()
 
-        with patch("app.services.activity.event_bus") as mock_bus:
-            mock_bus.publish = AsyncMock()
-            await publish_price_crossing(product, dp)
+        channel, event_type, _ = price_crossing_event(
+            product, dp, participant_org_ids=(uuid4(),)
+        )
 
-        mock_bus.publish.assert_awaited_once()
-        args = mock_bus.publish.call_args
-        assert args[0][0] == "activity"
-        assert args[0][1] == "price_crossing"
+        assert channel.startswith("market-orgs:")
+        assert event_type == "price_crossing"
 
-    @pytest.mark.asyncio
-    async def test_price_crossing_data_keys(self):
+    def test_price_crossing_data_keys(self):
         product = make_product("Ammonia Green")
         dp = make_dp("Fujairah")
 
-        with patch("app.services.activity.event_bus") as mock_bus:
-            mock_bus.publish = AsyncMock()
-            await publish_price_crossing(product, dp)
-
-        data = mock_bus.publish.call_args[0][2]
+        _, _, data = price_crossing_event(
+            product, dp, participant_org_ids=(uuid4(),)
+        )
         assert "product_id" in data
         assert "product_name" in data
         assert data["product_name"] == "Ammonia Green"
@@ -165,13 +157,13 @@ class TestPublishPriceCrossing:
         assert data["demo_status"] == MarketDemoStatus.UNKNOWN.value
         assert data["observed_at"] is None
 
-    @pytest.mark.asyncio
-    async def test_price_crossing_with_no_delivery_point(self):
+    def test_price_crossing_with_no_delivery_point(self):
         product = make_product()
-        with patch("app.services.activity.event_bus") as mock_bus:
-            mock_bus.publish = AsyncMock()
-            await publish_price_crossing(product, None)
-        mock_bus.publish.assert_awaited_once()
+        channel, event_type, _ = price_crossing_event(
+            product, None, participant_org_ids=(uuid4(),)
+        )
+        assert channel.startswith("market-orgs:")
+        assert event_type == "price_crossing"
 
 
 class TestActivityProvenanceHelpers:
@@ -229,36 +221,26 @@ class TestActivityProvenanceHelpers:
 
 
 # ---------------------------------------------------------------------------
-# publish_order_outbid
+# order_outbid_event
 # ---------------------------------------------------------------------------
 
-class TestPublishOrderOutbid:
-    @pytest.mark.asyncio
-    async def test_publishes_to_org_specific_channel(self):
+class TestOrderOutbidEvent:
+    def test_targets_org_specific_channel(self):
         org_id = uuid4()
         order = make_order(org_id)
         new_price = Decimal("720.00")
 
-        with patch("app.services.activity.event_bus") as mock_bus:
-            mock_bus.publish = AsyncMock()
-            await publish_order_outbid(org_id, order, new_price)
+        channel, event_type, _ = order_outbid_event(org_id, order, new_price)
 
-        mock_bus.publish.assert_awaited_once()
-        args = mock_bus.publish.call_args
-        assert args[0][0] == f"activity:{org_id}"
-        assert args[0][1] == "order_outbid"
+        assert channel == f"market-orgs:{org_id}"
+        assert event_type == "order_outbid"
 
-    @pytest.mark.asyncio
-    async def test_outbid_data_contains_new_price(self):
+    def test_outbid_data_contains_new_price(self):
         org_id = uuid4()
         order = make_order(org_id)
         new_price = Decimal("699.50")
 
-        with patch("app.services.activity.event_bus") as mock_bus:
-            mock_bus.publish = AsyncMock()
-            await publish_order_outbid(org_id, order, new_price)
-
-        data = mock_bus.publish.call_args[0][2]
+        _, _, data = order_outbid_event(org_id, order, new_price)
         assert "new_price" in data
         assert str(new_price) in str(data["new_price"])
 
@@ -291,14 +273,13 @@ class TestCheckPriceAlerts:
         mock_result.scalars.return_value.all.return_value = [alert]
         mock_db.execute.return_value = mock_result
 
-        with patch("app.services.activity.event_bus") as mock_bus:
-            mock_bus.publish = AsyncMock()
-            await check_price_alerts(mock_db, product_id, dp_id, price)
+        events = await check_price_alerts(mock_db, product_id, dp_id, price)
 
         # Alert should be marked triggered
         assert alert.triggered_at is not None
         assert alert.is_active is False
-        mock_db.commit.assert_awaited_once()
+        mock_db.commit.assert_not_awaited()
+        assert events[0].routing_key == f"market-orgs:{alert.org_id}"
 
     @pytest.mark.asyncio
     async def test_triggers_below_alert_when_price_drops_below_threshold(self):
@@ -322,12 +303,12 @@ class TestCheckPriceAlerts:
         mock_result.scalars.return_value.all.return_value = [alert]
         mock_db.execute.return_value = mock_result
 
-        with patch("app.services.activity.event_bus") as mock_bus:
-            mock_bus.publish = AsyncMock()
-            await check_price_alerts(mock_db, product_id, None, price)
+        events = await check_price_alerts(mock_db, product_id, None, price)
 
         assert alert.triggered_at is not None
         assert alert.is_active is False
+        assert len(events) == 1
+        mock_db.commit.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_does_not_trigger_above_alert_when_price_below_threshold(self):
@@ -351,13 +332,12 @@ class TestCheckPriceAlerts:
         mock_result.scalars.return_value.all.return_value = [alert]
         mock_db.execute.return_value = mock_result
 
-        with patch("app.services.activity.event_bus") as mock_bus:
-            mock_bus.publish = AsyncMock()
-            await check_price_alerts(mock_db, product_id, None, price)
+        events = await check_price_alerts(mock_db, product_id, None, price)
 
         # Alert should NOT be triggered — price is below threshold
         assert alert.triggered_at is None
         assert alert.is_active is True
+        assert events == []
 
     @pytest.mark.asyncio
     async def test_no_alerts_is_noop(self):
@@ -367,15 +347,13 @@ class TestCheckPriceAlerts:
         mock_result.scalars.return_value.all.return_value = []
         mock_db.execute.return_value = mock_result
 
-        with patch("app.services.activity.event_bus") as mock_bus:
-            mock_bus.publish = AsyncMock()
-            await check_price_alerts(mock_db, uuid4(), None, Decimal("800.00"))
+        events = await check_price_alerts(mock_db, uuid4(), None, Decimal("800.00"))
 
         mock_db.commit.assert_not_awaited()
+        assert events == []
 
     @pytest.mark.asyncio
-    async def test_triggered_alert_publishes_to_org_channel(self):
-        """Triggered alert publishes notification to org-specific activity channel."""
+    async def test_triggered_alert_returns_org_event(self):
         product_id = uuid4()
         price = Decimal("900.00")
 
@@ -397,11 +375,9 @@ class TestCheckPriceAlerts:
         mock_result.scalars.return_value.all.return_value = [alert]
         mock_db.execute.return_value = mock_result
 
-        with patch("app.services.activity.event_bus") as mock_bus:
-            mock_bus.publish = AsyncMock()
-            await check_price_alerts(mock_db, product_id, None, price)
+        events = await check_price_alerts(mock_db, product_id, None, price)
 
-        mock_bus.publish.assert_awaited_once()
-        channel = mock_bus.publish.call_args[0][0]
-        assert channel == f"activity:{org_id}"
-        assert mock_bus.publish.call_args[0][1] == "price_alert_triggered"
+        channel, event_type, _ = events[0]
+        assert channel == f"market-orgs:{org_id}"
+        assert event_type == "price_alert_triggered"
+        mock_db.commit.assert_not_awaited()

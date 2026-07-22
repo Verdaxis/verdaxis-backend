@@ -1,26 +1,32 @@
 
 import asyncio
 import httpx
+import os
+import sys
+from pathlib import Path
 from uuid import uuid4
 
-BASE_URL = "http://144.126.151.136:8000"
+ROOT = str(Path(__file__).resolve().parents[1])
+if ROOT not in sys.path:
+    sys.path.insert(0, ROOT)
+from tests.disposable_target import attest, from_environment  # noqa: E402
+
+
+BASE_URL = ""
 
 # User Data - Randomize to avoid collisions on repeated runs
-SUPPLIER_EMAIL = f"remote_sup_{uuid4()}@test.com"
+SUPPLIER_EMAIL = f"remote_sup_{uuid4()}@disposable.invalid"
 SUPPLIER_PASSWORD = "password123"
-ADMIN_EMAIL = "admin@verdaxis.com" # Assuming this user exists or we need to creaet it differently? 
-# Actually, for test simplicity, I'll rely on the seed data or create an admin if not exists.
-# But wait, I don't know the admin credentials.
-# I'll create a new ADMIN user directly in DB or use a known one if I can find one. 
-# Let's assume I can register an ADMIN for testing purposes if I modify the code temporarily, 
-# OR I can just manually insert an admin into DB. 
-# Better: I'll register a user with ADMIN role first (since my register endpoint allows passing role).
-
-# Seeded Admin (Must exist on remote DB)
-ADMIN_EMAIL_TEST = "admin@verdaxis.com"
-ADMIN_PASSWORD = "***REMOVED***" 
+ADMIN_EMAIL_TEST = "itest-admin@disposable.invalid"
 
 async def test_auth_flow():
+    global BASE_URL
+    target = from_environment()
+    attest(target)
+    admin_password = os.environ.get("DISPOSABLE_ITEST_PASSWORD", "")
+    if not admin_password:
+        raise RuntimeError("DISPOSABLE_ITEST_PASSWORD is required")
+    BASE_URL = target.base_url
     async with httpx.AsyncClient(base_url=BASE_URL) as client:
         print(f"--- 1. Registering Supplier: {SUPPLIER_EMAIL} ---")
         response = await client.post("/api/auth/register", json={
@@ -52,7 +58,7 @@ async def test_auth_flow():
         # Login as admin
         response = await client.post("/api/auth/login", json={
             "email": ADMIN_EMAIL_TEST,
-            "password": ADMIN_PASSWORD
+            "password": admin_password
         })
         if response.status_code != 200:
             print(f"Admin Login Failed: {response.text}")

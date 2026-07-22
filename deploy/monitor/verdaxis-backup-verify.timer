@@ -1,0 +1,12 @@
+[Unit]
+Description=Verify Verdaxis backups after the daily backup window
+
+[Timer]
+OnCalendar=*-*-* 04:00:00 Asia/Singapore
+AccuracySec=1m
+RandomizedDelaySec=5m
+Persistent=true
+Unit=verdaxis-backup-verify.service
+
+[Install]
+WantedBy=timers.target

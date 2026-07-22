@@ -1,6 +1,7 @@
 """Email service using Resend REST API via httpx."""
 import httpx
 import structlog
+import hashlib
 from html import escape
 from app.config import settings
 
@@ -9,10 +10,15 @@ logger = structlog.get_logger()
 RESEND_API_URL = "https://api.resend.com/emails"
 
 
+def _recipient_hash(to_email: str) -> str:
+    return hashlib.sha256(to_email.strip().lower().encode("utf-8")).hexdigest()[:16]
+
+
 async def _send_email(to_email: str, subject: str, html: str) -> bool:
     """Low-level send. Returns True on success, False on failure."""
+    recipient_hash = _recipient_hash(to_email)
     if not settings.RESEND_API_KEY:
-        logger.warning("email_skipped", reason="RESEND_API_KEY not configured", to=to_email, subject=subject)
+        logger.warning("email_skipped", reason="configuration", recipient_hash=recipient_hash)
         return False
 
     payload = {
@@ -29,13 +35,19 @@ async def _send_email(to_email: str, subject: str, html: str) -> bool:
                 headers={"Authorization": f"Bearer {settings.RESEND_API_KEY}"},
             )
         if resp.status_code in (200, 201):
-            logger.info("email_sent", to=to_email, subject=subject)
+            logger.info("email_sent", recipient_hash=recipient_hash, status=resp.status_code)
             return True
         else:
-            logger.error("email_send_failed", to=to_email, status=resp.status_code, body=resp.text)
+            # Provider response bodies can contain recipient/provider secrets.
+            # Keep operational diagnostics bounded to status metadata.
+            logger.error("email_send_failed", recipient_hash=recipient_hash, status=resp.status_code)
             return False
     except Exception as exc:
-        logger.error("email_send_error", to=to_email, error=str(exc))
+        logger.error(
+            "email_send_error",
+            recipient_hash=recipient_hash,
+            exception_class=type(exc).__name__,
+        )
         return False
 
 

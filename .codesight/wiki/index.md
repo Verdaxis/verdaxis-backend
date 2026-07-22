@@ -1,6 +1,6 @@
 # be — Wiki
 
-_Generated 2026-04-14 — re-run `npx codesight --wiki` if the codebase has changed._
+_Generated 2026-07-19 — re-run `npx codesight --wiki` if the codebase has changed._
 
 Structural map compiled from source code via AST. No LLM — deterministic, 200ms.
 
@@ -25,10 +25,12 @@ Structural map compiled from source code via AST. No LLM — deterministic, 200m
 - [Inventory](./inventory.md)
 - [Kyc](./kyc.md)
 - [Matchmaking](./matchmaking.md)
+- [Monitor](./monitor.md)
 - [Negotiations](./negotiations.md)
 - [Notifications](./notifications.md)
 - [Orderbook](./orderbook.md)
 - [Ports](./ports.md)
+- [Preferences](./preferences.md)
 - [Price_discovery](./price_discovery.md)
 - [Rbac](./rbac.md)
 - [Referrals](./referrals.md)
@@ -44,10 +46,10 @@ Structural map compiled from source code via AST. No LLM — deterministic, 200m
 
 ## Quick Stats
 
-- Routes: **109**
-- Models: **30**
+- Routes: **129**
+- Models: **38**
 - Components: **0**
-- Env vars: **3** required, **15** with defaults
+- Env vars: **7** required, **36** with defaults
 
 ## How to Use
 
@@ -74,4 +76,4 @@ These exist in your codebase but are **not** reflected in wiki articles:
 When in doubt, search the source. The wiki is a starting point, not a complete inventory.
 
 ---
-_Last compiled: 2026-04-14 · 34 articles · [codesight](https://github.com/Houseofmvps/codesight)_
+_Last compiled: 2026-07-19 · 36 articles · [codesight](https://github.com/Houseofmvps/codesight)_

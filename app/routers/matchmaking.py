@@ -3,7 +3,7 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -12,6 +12,7 @@ from app.models.matchmaking import MatchStatus, MatchSuggestion
 from app.models.orderbook import OrderBookOrder, OrderBookStatus, OrderSide
 from app.models.user import User, UserRole
 from app.routers.auth_simple import get_current_user
+from app.middleware.execution import require_execution_eligible_user
 from app.services.execution_policy import order_is_execution_qualified
 from app.services.matchmaking import compute_match_score
 
@@ -44,6 +45,7 @@ async def list_suggestions(
             OrderBookOrder.organization_id == current_user.organization_id,
             OrderBookOrder.side == source_side,
             OrderBookOrder.status.in_([OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED]),
+            OrderBookOrder.expires_at.is_(None) | (OrderBookOrder.expires_at > func.now()),
         )
         .options(selectinload(OrderBookOrder.product), selectinload(OrderBookOrder.delivery_point))
     )
@@ -68,6 +70,7 @@ async def list_suggestions(
         .where(
             OrderBookOrder.side == candidate_side,
             OrderBookOrder.status.in_([OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED]),
+            OrderBookOrder.expires_at.is_(None) | (OrderBookOrder.expires_at > func.now()),
             OrderBookOrder.organization_id != current_user.organization_id,
             OrderBookOrder.off_spec.is_(False),
         )
@@ -146,7 +149,7 @@ async def list_suggestions(
 async def dismiss_suggestion(
     order_id: UUID,
     db: Annotated[AsyncSession, Depends(get_db)],
-    current_user: Annotated[User, Depends(get_current_user)],
+    current_user: Annotated[User, Depends(require_execution_eligible_user)],
 ):
     """Dismiss a recommendation by order ID."""
     order = (await db.execute(select(OrderBookOrder).where(OrderBookOrder.id == order_id))).scalar_one_or_none()

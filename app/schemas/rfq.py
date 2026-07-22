@@ -7,13 +7,14 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.services.availability_windows import SPOT_WINDOW, normalize_availability_window
+from app.schemas.market_integrity import finite_decimal
 
 
 class RFQCreateRequest(BaseModel):
     product_id: UUID
-    delivery_point_id: Optional[UUID] = None
-    quantity_mt: Decimal = Field(gt=0, le=100000)
-    target_price_per_mt: Optional[Decimal] = Field(None, gt=0)
+    delivery_point_id: UUID
+    quantity_mt: Decimal = Field(gt=0, le=100000, max_digits=12, decimal_places=2, allow_inf_nan=False)
+    target_price_per_mt: Optional[Decimal] = Field(None, gt=0, le=1000000, max_digits=10, decimal_places=2, allow_inf_nan=False)
     availability_window: str = SPOT_WINDOW
     notes: Optional[str] = Field(None, max_length=500)
     is_anonymous: bool = False
@@ -23,9 +24,19 @@ class RFQCreateRequest(BaseModel):
     @classmethod
     def _normalize_availability_window(cls, value: str) -> str:
         return normalize_availability_window(value)
+
+    @field_validator("quantity_mt", "target_price_per_mt")
+    @classmethod
+    def _finite_values(cls, value: Decimal | None, info):
+        return None if value is None else finite_decimal(value, field_name=info.field_name)
 class RFQQuoteRequest(BaseModel):
-    price_per_mt_usd: Decimal = Field(gt=0)
+    price_per_mt_usd: Decimal = Field(gt=0, le=1000000, max_digits=10, decimal_places=2, allow_inf_nan=False)
     notes: Optional[str] = Field(None, max_length=500)
+
+    @field_validator("price_per_mt_usd")
+    @classmethod
+    def _finite_price(cls, value: Decimal):
+        return finite_decimal(value, field_name="price_per_mt_usd")
 class RFQQuoteResponse(BaseModel):
     id: UUID
     seller_org_id: UUID
@@ -39,7 +50,7 @@ class RFQQuoteResponse(BaseModel):
 
 class RFQResponse(BaseModel):
     id: UUID
-    buyer_org_id: UUID
+    buyer_org_id: Optional[UUID] = None
     buyer_org_name: Optional[str] = None
     product_id: UUID
     product_name: Optional[str] = None

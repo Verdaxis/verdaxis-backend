@@ -5,11 +5,11 @@ import string
 import secrets
 from datetime import datetime, UTC
 
-from sqlalchemy import ForeignKey, Enum, String, DateTime, UniqueConstraint
+from sqlalchemy import ForeignKey, Enum, Index, String, DateTime, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.database import Base
+from app.model_base import Base
 
 
 class ReferralStatus(str, enum.Enum):
@@ -27,6 +27,7 @@ def generate_referral_code() -> str:
 
 class Referral(Base):
     __tablename__ = "referrals"
+    __table_args__ = (Index("ix_referrals_referrer_id", "referrer_id"),)
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
@@ -39,12 +40,13 @@ class Referral(Base):
     )
     referral_code_used: Mapped[str] = mapped_column(String, nullable=False)
     status: Mapped[ReferralStatus] = mapped_column(
-        Enum(ReferralStatus, native_enum=False),
+        Enum(ReferralStatus, native_enum=False, length=10),
         default=ReferralStatus.SIGNED_UP,
         nullable=False,
+        server_default="SIGNED_UP",
     )
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), server_default=func.now()
     )
     verified_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True

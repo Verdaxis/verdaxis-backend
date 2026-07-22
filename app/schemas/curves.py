@@ -139,9 +139,10 @@ class ForwardCurveBoardIndicationSummary(BaseModel):
 class ForwardCurveBoardFairPriceBand(BaseModel):
     """Verdaxis fair-price band for one canonical market slice."""
 
-    low_price_per_mt_usd: Decimal
-    mid_price_per_mt_usd: Decimal
-    high_price_per_mt_usd: Decimal
+    # UNKNOWN rows keep their quarantine label while economics stay redacted.
+    low_price_per_mt_usd: Optional[Decimal] = None
+    mid_price_per_mt_usd: Optional[Decimal] = None
+    high_price_per_mt_usd: Optional[Decimal] = None
     provenance: ForwardCurveSignalProvenance
 
     model_config = {"from_attributes": True}
@@ -360,6 +361,41 @@ class ForwardCurveMarketCell(BaseModel):
     physical_stem_summary: ForwardCurveBoardPhysicalStemSummary = Field(default_factory=ForwardCurveBoardPhysicalStemSummary)
 
 
+class ForwardCurveTableCell(BaseModel):
+    """Compact matrix projection; evidence detail belongs to ``/slice``."""
+
+    primary_value: Optional[Decimal] = None
+    primary_signal_type: MarketSignalType = MarketSignalType.NO_DATA
+    primary_source_kind: MarketSourceKind = MarketSourceKind.NO_DATA
+    public_source_label: str = "No data"
+    staleness_status: ForwardCurveStalenessStatus = ForwardCurveStalenessStatus.NO_DATA
+    is_executable: bool = False
+    is_reference: bool = False
+    demo_status: MarketDemoStatus = MarketDemoStatus.NOT_APPLICABLE
+    observed_at: Optional[datetime] = None
+    best_bid: Optional[Decimal] = None
+    best_ask: Optional[Decimal] = None
+    spread: Optional[Decimal] = None
+    volume_mt: Decimal = Decimal("0")
+    order_count: int = 0
+    real_order_count: int = 0
+    demo_order_count: int = 0
+    unknown_order_count: int = 0
+    # Retained in the in-process projection for policy tests, but omitted from
+    # the matrix wire payload. Exact evidence belongs to the bounded /slice
+    # response; repeating it in every 4x8xwindow cell caused ~MB responses.
+    real_best_bid: Optional[Decimal] = Field(default=None, exclude=True)
+    real_best_ask: Optional[Decimal] = Field(default=None, exclude=True)
+    demo_best_bid: Optional[Decimal] = Field(default=None, exclude=True)
+    demo_best_ask: Optional[Decimal] = Field(default=None, exclude=True)
+    benchmark_mid: Optional[Decimal] = Field(default=None, exclude=True)
+    benchmark_source_kind: MarketSourceKind = Field(
+        default=MarketSourceKind.NO_DATA,
+        exclude=True,
+    )
+    benchmark_observed_at: Optional[datetime] = Field(default=None, exclude=True)
+
+
 class ForwardCurveTableRow(BaseModel):
     """One product-port row keyed by canonical monitoring windows."""
 
@@ -371,7 +407,7 @@ class ForwardCurveTableRow(BaseModel):
     delivery_point_id: UUID
     delivery_point_name: str
     region: str
-    cells: dict[str, ForwardCurveMarketCell]
+    cells: dict[str, ForwardCurveTableCell]
 
 
 class ForwardCurveLatestSignal(BaseModel):

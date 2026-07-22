@@ -4,7 +4,7 @@ Integration tests for the /trades endpoints.
 Tests the full trade lifecycle: create -> confirm -> deliver -> pay,
 plus decline, role-based access, and edge cases.
 
-Tests against a running backend (Docker or remote).
+Tests only against an explicitly attested disposable backend.
 """
 import pytest
 import os
@@ -13,21 +13,21 @@ from httpx import AsyncClient
 import jwt
 from datetime import datetime, timedelta
 
-TEST_API_URL = os.environ.get("TEST_API_URL", "http://localhost:8000")
+TEST_API_URL = os.environ.get("TEST_API_URL")
 from app.config import settings
 JWT_SECRET = settings.JWT_SECRET
 
-# Dedicated integration-test users (seeded in the staging DB, NOT demo-market
+# Dedicated integration-test users (seeded in the disposable DB, NOT demo-market
 # orgs — demo-org listings cannot be traded, which silently breaks the whole
 # lifecycle suite if reused here).
 SUPPLIER_1_ID = "9e63f7a1-0000-4000-8000-000000000011"
-SUPPLIER_1_EMAIL = "itest-seller@staging.verdaxis.exchange"
+SUPPLIER_1_EMAIL = "itest-seller@disposable.invalid"
 SUPPLIER_2_ID = "9e63f7a1-0000-4000-8000-000000000013"
-SUPPLIER_2_EMAIL = "itest-seller2@staging.verdaxis.exchange"
+SUPPLIER_2_EMAIL = "itest-seller2@disposable.invalid"
 BUYER_1_ID = "9e63f7a1-0000-4000-8000-000000000012"
-BUYER_1_EMAIL = "itest-buyer@staging.verdaxis.exchange"
+BUYER_1_EMAIL = "itest-buyer@disposable.invalid"
 BUYER_2_ID = "9e63f7a1-0000-4000-8000-000000000012"
-BUYER_2_EMAIL = "itest-buyer@staging.verdaxis.exchange"
+BUYER_2_EMAIL = "itest-buyer@disposable.invalid"
 
 # Deterministic product/delivery point IDs from catalog_seed.py
 PRODUCT_METHANOL_GREEN = "b0f9b249-1ae4-5e02-adf5-e4964788ad8e"

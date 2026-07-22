@@ -311,6 +311,68 @@ async def test_forged_manual_real_row_downgrades_without_matching_trusted_run(db
     assert summary.provenance.signal_source_kind == ForwardCurveSignalSourceKind.UNKNOWN
     assert summary.provenance.demo_status == MarketDemoStatus.UNKNOWN
     assert summary.provenance.unknown_count == 1
+    assert summary.latest_bid_price_per_mt_usd is None
+    assert summary.latest_ask_price_per_mt_usd is None
+    assert summary.latest_mid_price_per_mt_usd is None
+    assert summary.total_quantity_mt is None
+    assert summary.indication_count == 0
+
+
+@pytest.mark.asyncio
+async def test_mixed_indications_prefer_real_without_blending_demo_values(db: AsyncSession):
+    point = await _delivery_point(db)
+    key = ("BIO_METHANOL", point.id, "SPOT")
+    trusted_run = MarketSignalIngestionRun(
+        signal_family="MARKET_INDICATION",
+        source="broker_feed",
+        source_kind="MARKET_INDICATION",
+        verified_at=_now(),
+    )
+    db.add(trusted_run)
+    await db.flush()
+    db.add_all(
+        [
+            MarketIndication(
+                market_product=key[0],
+                delivery_point_id=key[1],
+                availability_window=key[2],
+                side="BID",
+                price_per_mt_usd=Decimal("705.00"),
+                quantity_mt=Decimal("100.00"),
+                source="broker_feed",
+                source_event_id="mixed-real",
+                trusted_ingestion_run_id=trusted_run.id,
+                is_demo=False,
+                is_verified_real=True,
+                verified_real_at=_now(),
+                observed_at=_now() - timedelta(minutes=1),
+            ),
+            MarketIndication(
+                market_product=key[0],
+                delivery_point_id=key[1],
+                availability_window=key[2],
+                side="ASK",
+                price_per_mt_usd=Decimal("1.00"),
+                quantity_mt=Decimal("9999.00"),
+                source="demo_seed",
+                source_event_id="mixed-demo",
+                is_demo=True,
+                observed_at=_now(),
+            ),
+        ]
+    )
+    await db.commit()
+
+    summary = (await load_indication_summaries(db, [key]))[key]
+
+    assert summary.latest_bid_price_per_mt_usd == Decimal("705.00")
+    assert summary.latest_ask_price_per_mt_usd is None
+    assert summary.total_quantity_mt == Decimal("100.00")
+    assert summary.indication_count == 1
+    assert summary.provenance.signal_source_kind == ForwardCurveSignalSourceKind.MARKET_INDICATION
+    assert summary.provenance.demo_status == MarketDemoStatus.REAL_ONLY
+    assert summary.provenance.real_count == 1
+    assert summary.provenance.demo_count == 1
 
 
 @pytest.mark.asyncio
@@ -397,6 +459,7 @@ def test_openapi_contract_keeps_signal_sources_separate_from_market_sources():
     assert schemas["MarketSourceKind"]["enum"] == [
         "CONFIRMED_TRADE",
         "LIVE_ORDER",
+        "LIVE_INVENTORY",
         "DEMO_SEED",
         "BENCHMARK_REFERENCE",
         "MIXED_SOURCE",

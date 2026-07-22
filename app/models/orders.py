@@ -5,7 +5,7 @@ import uuid
 import enum
 from datetime import datetime, date
 from decimal import Decimal
-from app.database import Base
+from app.model_base import Base
 
 
 class CommissionStatus(str, enum.Enum):
@@ -23,15 +23,17 @@ class Commission(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
 
-    # Legacy FK to old orders table (kept for historical data)
-    match_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("orders.id"), unique=True, nullable=False)
+    # Legacy identifier retained for historical commission rows. The old
+    # ``orders`` table is not part of the current Alembic parent schema, so it
+    # is intentionally an identifier rather than a dangling ORM foreign key.
+    match_id: Mapped[uuid.UUID] = mapped_column(unique=True, nullable=False)
     # New FK to trades table
     trade_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("trades.id"), nullable=True)
 
     # Financials
     amount_usd: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     status: Mapped[CommissionStatus] = mapped_column(
-        Enum(CommissionStatus, native_enum=False),
+        Enum(CommissionStatus, native_enum=False, length=8),
         default=CommissionStatus.PENDING
     )
 

@@ -1,14 +1,18 @@
-from sqlalchemy import String, Integer, DateTime, Text
+from sqlalchemy import String, Integer, DateTime, Index, Text
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.dialects.postgresql import UUID
 import uuid
 from datetime import datetime, UTC
 from typing import Optional
-from app.database import Base
+from app.model_base import Base
 
 
 class NewsItem(Base):
     __tablename__ = "news_items"
+    __table_args__ = (
+        Index("ix_news_items_published_at", "published_at"),
+        Index("ix_news_items_category", "category"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4

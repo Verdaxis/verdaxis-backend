@@ -1,0 +1,344 @@
+"""Explicit Alembic comparison exclusions for owned legacy/system objects."""
+
+from __future__ import annotations
+
+import re
+from typing import Any
+from sqlalchemy import Enum, Float, Numeric, String
+
+
+# PostGIS owns spatial_ref_sys in public and the geocoder tables in its tiger
+# schema. Schema is part of every fingerprint so an application table such as
+# public.state can never be hidden by an extension table name.
+POSTGIS_SYSTEM_TABLES = {
+    ("public", "spatial_ref_sys"),
+    *(("tiger", name) for name in {
+        "addr", "addrfeat", "bg", "county", "county_lookup",
+        "countysub_lookup", "cousub", "direction_lookup", "edges", "faces",
+        "featnames", "geocode_settings", "geocode_settings_default", "layer",
+        "loader_lookuptables", "loader_platform", "loader_variables", "pagc_gaz",
+        "pagc_lex", "pagc_rules", "place", "place_lookup",
+        "secondary_unit_lookup", "state", "state_lookup", "street_type_lookup",
+        "tabblock", "tabblock20", "tract", "zcta5", "zip_lookup",
+        "zip_lookup_all", "zip_lookup_base", "zip_state", "zip_state_loc",
+    }),
+    ("topology", "topology"),
+}
+
+# PostgreSQL/PostGIS 17 may reflect topology extension tables through the
+# active search path without their schema. Suppress only their complete table
+# shapes; an application table reusing either name remains visible to drift.
+POSTGIS_IMPLICIT_TABLE_FINGERPRINTS = {
+    (
+        "layer",
+        (
+            "topology_id", "layer_id", "schema_name", "table_name",
+            "feature_column", "feature_type", "level", "child_id",
+        ),
+    ),
+    ("topology", ("id", "name", "srid", "precision", "hasz", "useslargeids")),
+}
+
+
+def _is_postgis_system_table(table: Any) -> bool:
+    schema = getattr(table, "schema", None)
+    name = getattr(table, "name", None)
+    if schema is not None:
+        return (schema, name) in POSTGIS_SYSTEM_TABLES
+    columns = tuple(column.name for column in getattr(table, "columns", ()))
+    return ("public", name) in POSTGIS_SYSTEM_TABLES or (
+        name,
+        columns,
+    ) in POSTGIS_IMPLICIT_TABLE_FINGERPRINTS
+
+# These three columns and the two named RFQ objects are present in the live
+# schemas but are owned by the security/market integration branches. They are
+# excluded only by exact table/name/type/default fingerprints until the
+# combined integration migration adopts them; this is not a category-wide
+# reflected-object suppression.
+EXTERNAL_SCHEMA_FINGERPRINTS = {
+    ("public", "rfqs", "reference_number", "column", "VARCHAR(20)", True, None, ()),
+    ("public", "rfqs", "daily_seq", "column", "INTEGER", True, None, ()),
+    ("public", "rfq_quotes", "last_counter_by", "column", "VARCHAR(10)", True, "NULL", ()),
+    ("public", "rfqs", "ix_rfqs_reference_number", "index", None, None, None, ("reference_number",)),
+    ("public", "rfqs", "reference_number_key", "unique_constraint", None, None, None, ("reference_number",)),
+}
+
+# Historical Verdaxis migrations retain these tables for data moves, but the
+# current ORM deliberately does not own them. Any future exclusion must name
+# its object here and be documented as legacy.
+LEGACY_TABLES = {
+    "contracts",
+    "demand_profiles",
+    "direct_order_offers",
+    "direct_orders",
+    "orders",
+    "public_listings",
+    "supply_listings",
+}
+
+
+def include_object(
+    object_: Any,
+    name: str,
+    type_: str,
+    reflected: bool,
+    compare_to: Any,
+) -> bool:
+    """Compare everything except explicitly documented non-application objects."""
+    object_schema = getattr(object_, "schema", None) or "public"
+    if type_ == "table" and _is_postgis_system_table(object_):
+        return False
+    if type_ == "table" and object_schema == "public" and name in LEGACY_TABLES:
+        return False
+
+    table = getattr(object_, "table", None)
+    table_name = getattr(table, "name", None)
+    table_schema = getattr(table, "schema", None) or "public"
+    if table is not None and _is_postgis_system_table(table):
+        return False
+    if table_schema == "public" and table_name in LEGACY_TABLES:
+        return False
+
+    if type_ == "foreign_key_constraint":
+        referred_table = getattr(object_, "referred_table", None)
+        if (
+            (getattr(referred_table, "schema", None) or "public") == "public"
+            and getattr(referred_table, "name", None) in LEGACY_TABLES
+        ):
+            return False
+
+    if reflected and compare_to is None:
+        column_collection = getattr(object_, "columns", None)
+        columns = (
+            tuple(column.name for column in column_collection)
+            if column_collection is not None
+            else ()
+        )
+        if type_ == "column":
+            type_name = str(getattr(object_, "type", "")).upper().replace(" ", "")
+            nullable = getattr(object_, "nullable", None)
+            default = _normalize_server_default(getattr(object_, "server_default", None))
+            fingerprint = (
+                table_schema, table_name, name, "column", type_name,
+                nullable, default, (),
+            )
+        else:
+            fingerprint = (
+                table_schema, table_name, name, type_, None, None, None, columns,
+            )
+        if fingerprint in EXTERNAL_SCHEMA_FINGERPRINTS:
+            return False
+
+    return True
+
+
+def compare_type(context: Any, inspected_column: Any, metadata_column: Any,
+                 inspected_type: Any, metadata_type: Any) -> bool | None:
+    """Delegate enum/string comparisons to Alembic's exact type comparator.
+
+    Non-native SQLAlchemy enums are intentionally stored as VARCHAR values.
+    The callback only returns a result for this precise Enum-to-VARCHAR
+    representation. A changed length or pure reflected value constraint is a
+    real diff; unrelated types use Alembic's normal comparison implementation.
+    """
+    if (
+        isinstance(metadata_type, Numeric)
+        and isinstance(inspected_type, Numeric)
+        and not isinstance(metadata_type, Float)
+        and not isinstance(inspected_type, Float)
+    ):
+        # Market numeric integrity pins exact typmods: a NUMERIC that gains or
+        # loses (precision, scale) silently changes rounding semantics.
+        actual_typmod = (inspected_type.precision, inspected_type.scale)
+        expected_typmod = (metadata_type.precision, metadata_type.scale)
+        return actual_typmod != expected_typmod
+    if isinstance(metadata_type, Enum) and isinstance(inspected_type, String):
+        if inspected_type.length != metadata_type.length:
+            return True
+        expected_values = tuple(str(value) for value in metadata_type.enums)
+        actual_values = _reflected_enum_values(inspected_column)
+        if actual_values is not None and actual_values != expected_values:
+            return True
+        return False
+    return None
+
+
+def _reflected_enum_values(inspected_column: Any) -> tuple[str, ...] | None:
+    """Read a pure reflected ``CHECK (column IN (...))`` value set, if present.
+
+    Only a constraint whose entire predicate is that single membership test is
+    consulted. Market domain/lifecycle CHECK constraints embed ``IN`` subsets
+    inside compound AND/OR expressions, so inferring enum membership from them
+    is ambiguous; those named constraints are owned by the market migration
+    and its integrity tests and are skipped here.
+    """
+    constraints = set(getattr(inspected_column, "constraints", ()) or ())
+    table = getattr(inspected_column, "table", None)
+    constraints.update(getattr(table, "constraints", ()) or ())
+    column_name = getattr(inspected_column, "name", "")
+    patterns = (
+        re.compile(
+            rf"\b{re.escape(column_name)}\b\s+IN\s*\((?P<values>[^)]*)\)",
+            flags=re.IGNORECASE,
+        ),
+        re.compile(
+            rf"\b{re.escape(column_name)}\b.*?ARRAY\s*\[(?P<values>[^]]*)\]",
+            flags=re.IGNORECASE,
+        ),
+    )
+    for constraint in constraints:
+        sqltext = str(getattr(constraint, "sqltext", ""))
+        unquoted = re.sub(r"'(?:''|[^'])*'", "''", sqltext)
+        if re.search(r"\b(AND|OR|NOT|CASE)\b", unquoted, flags=re.IGNORECASE):
+            continue
+        for pattern in patterns:
+            match = pattern.search(sqltext)
+            if match:
+                return tuple(
+                    value.replace("''", "'")
+                    for value in re.findall(r"'((?:''|[^'])*)'", match.group("values"))
+                )
+    return None
+
+
+def _normalize_server_default(value: Any) -> str | None:
+    """Normalize equivalent PostgreSQL default expressions without erasing values."""
+    if value is None:
+        return None
+    value = getattr(value, "arg", value)
+    expression = re.sub(r"\s+", " ", str(value).strip())
+    while expression.startswith("(") and expression.endswith(")"):
+        inner = expression[1:-1].strip()
+        if inner.count("(") != inner.count(")"):
+            break
+        expression = inner
+    expression = re.sub(
+        r"::(?:timestamp with time zone|character varying|double precision|varchar|text|boolean|json|jsonb|numeric|integer|timestamp)",
+        "",
+        expression,
+        flags=re.IGNORECASE,
+    )
+    expression = re.sub(r"\bCURRENT_TIMESTAMP\b", "now()", expression, flags=re.IGNORECASE)
+    expression = re.sub(r"\bNOW\s*\(\s*\)", "now()", expression, flags=re.IGNORECASE)
+    expression = re.sub(r"\b(TRUE|FALSE)\b", lambda match: match.group(1).lower(), expression, flags=re.IGNORECASE)
+    if re.fullmatch(r"'[-+]?\d+(?:\.\d+)?'", expression):
+        expression = expression[1:-1]
+    return expression
+
+
+def compare_server_default(
+    context: Any,
+    inspected_column: Any,
+    metadata_column: Any,
+    inspected_default: Any,
+    metadata_default: Any,
+    rendered_metadata_default: Any,
+) -> bool | None:
+    """Compare actual expressions and only ignore an absent Python-only default.
+
+    A Python default is not permission to suppress a database default: if the
+    database has an expression where the model does not, Alembic must report
+    it. Explicit server defaults are considered equal only after a narrow
+    expression normalization (casts, whitespace, and equivalent ``now()``).
+    """
+    actual = _normalize_server_default(inspected_default)
+    expected = _normalize_server_default(rendered_metadata_default or metadata_default)
+    if expected is None:
+        if actual is None and getattr(metadata_column, "default", None) is not None:
+            return False
+        if (
+            getattr(metadata_column, "default", None) is not None
+            and _python_default_compatibility_fingerprint(metadata_column, actual)
+        ):
+            return False
+        return None
+    if actual is not None and actual == expected:
+        return False
+    return None
+
+
+_PYTHON_DEFAULT_COMPATIBILITY = {
+    ("benchmarks", "source", "'manual_override'"),
+    ("benchmarks", "created_at", "now()"),
+    ("benchmarks", "updated_at", "now()"),
+    ("compliance_ledger", "id", "gen_random_uuid()"),
+    ("compliance_ledger", "currency", "'EUR'"),
+    ("compliance_ledger", "created_at", "now()"),
+    ("delivery_points", "is_active", "true"),
+    ("inventory_items", "id", "gen_random_uuid()"),
+    ("inventory_items", "is_certified", "false"),
+    ("inventory_items", "updated_at", "now()"),
+    ("live_slice_benchmarks", "order_count", "0"),
+    ("live_slice_benchmarks", "source", "'live_slice_vwap'"),
+    ("live_slice_benchmarks", "created_at", "now()"),
+    ("live_slice_benchmarks", "updated_at", "now()"),
+    ("match_suggestions", "id", "gen_random_uuid()"),
+    ("negotiation_rounds", "created_at", "now()"),
+    ("negotiations", "status", "'OPEN'"),
+    ("negotiations", "created_at", "now()"),
+    ("negotiations", "updated_at", "now()"),
+    ("news_items", "category", "'markets'"),
+    ("news_items", "relevance", "3"),
+    ("orderbook_orders", "id", "gen_random_uuid()"),
+    ("organization_join_requests", "status", "'PENDING'"),
+    ("organization_join_requests", "created_at", "now()"),
+    ("organizations", "id", "gen_random_uuid()"),
+    ("organizations", "verification_status", "'PENDING'"),
+    ("organizations", "created_at", "now()"),
+    ("port_intelligence", "id", "gen_random_uuid()"),
+    ("port_intelligence", "captured_at", "now()"),
+    ("pending_registrations", "created_at", "now()"),
+    ("ports", "is_active", "true"),
+    ("price_alerts", "is_active", "true"),
+    ("producer_projects", "id", "gen_random_uuid()"),
+    ("products", "unit", "'MT'"),
+    ("products", "min_lot_size", "100"),
+    ("products", "is_active", "true"),
+    ("refresh_sessions", "created_at", "now()"),
+    ("referrals", "id", "gen_random_uuid()"),
+    ("referrals", "status", "'SIGNED_UP'"),
+    ("referrals", "created_at", "now()"),
+    ("rfq_quotes", "status", "'PENDING'"),
+    ("rfq_quotes", "created_at", "now()"),
+    ("rfqs", "availability_window", "'SPOT'"),
+    ("rfqs", "is_anonymous", "false"),
+    ("rfqs", "status", "'OPEN'"),
+    ("rfqs", "created_at", "now()"),
+    ("subscriptions", "tier", "'free'"),
+    ("subscriptions", "is_active", "true"),
+    ("traceability_events", "id", "gen_random_uuid()"),
+    ("traceability_events", "is_verified", "false"),
+    ("trades", "id", "gen_random_uuid()"),
+    ("users", "id", "gen_random_uuid()"),
+    ("vessels", "id", "gen_random_uuid()"),
+    ("vessels", "updated_at", "now()"),
+    ("watchlist_entries", "created_at", "now()"),
+    ("watchlist_events", "event_payload", "'{}'"),
+    ("watchlist_events", "created_at", "now()"),
+    ("watchlist_targets", "created_at", "now()"),
+    ("watchlists", "created_at", "now()"),
+}
+
+
+def _python_default_compatibility_fingerprint(column: Any, actual: str | None) -> bool:
+    table = getattr(getattr(column, "table", None), "name", None)
+    schema = getattr(getattr(column, "table", None), "schema", None) or "public"
+    fingerprint = (table, getattr(column, "name", None), actual)
+    if schema != "public" or fingerprint not in _PYTHON_DEFAULT_COMPATIBILITY:
+        return False
+
+    default = getattr(getattr(column, "default", None), "arg", None)
+    if callable(default):
+        return True
+    if hasattr(default, "value"):
+        default = default.value
+    if isinstance(default, str):
+        expected = repr(default)
+    elif isinstance(default, bool):
+        expected = str(default).lower()
+    elif default is None:
+        expected = None
+    else:
+        expected = str(default)
+    return _normalize_server_default(expected) == actual

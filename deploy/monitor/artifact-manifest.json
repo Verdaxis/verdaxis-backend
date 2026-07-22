@@ -1,0 +1,149 @@
+{
+  "schema_version": 1,
+  "artifacts": [
+    {
+      "source": "alert.env.example",
+      "destination": "/usr/share/doc/verdaxis-monitor/alert.env.example",
+      "mode": "0644",
+      "sha256": "523958e11fbdbf92a462e0cd8965562992597bd83ff75c4b64cc10df226b2fba"
+    },
+    {
+      "source": "alert_dispatch.py",
+      "destination": "/usr/local/libexec/verdaxis-monitor/alert_dispatch.py",
+      "mode": "0755",
+      "sha256": "cc98df424a9c084eafa481e62ffc1aade75a3a886c4627454b359344b9fc2d84"
+    },
+    {
+      "source": "backup_verify.py",
+      "destination": "/usr/local/libexec/verdaxis-monitor/backup_verify.py",
+      "mode": "0755",
+      "sha256": "074856135655a95a4a656e73be3881d20b0d940f1e4668fd98d5c367b079059e"
+    },
+    {
+      "source": "legacy_retirement.py",
+      "destination": "/usr/local/libexec/verdaxis-monitor/legacy_retirement.py",
+      "mode": "0755",
+      "sha256": "59d4b6b6e2437efd97bff1a8df11e31a18042bab05e134525c2a504ec654059c"
+    },
+    {
+      "source": "local_health_check.py",
+      "destination": "/usr/local/libexec/verdaxis-monitor/local_health_check.py",
+      "mode": "0755",
+      "sha256": "41e459f3d291ae6fe8816938622fae8e50bd34cbcc48738ffd792c4103e257ac"
+    },
+    {
+      "source": "outbox_backlog_probe.py",
+      "destination": "/usr/local/libexec/verdaxis-monitor/outbox_backlog_probe.py",
+      "mode": "0755",
+      "sha256": "155c5b08a143d4dd40be454df5c14c9ebbf0fb234eee8416ad613ce1113dbda5"
+    },
+    {
+      "source": "retirement-evidence.example.json",
+      "destination": "/usr/share/doc/verdaxis-monitor/retirement-evidence.example.json",
+      "mode": "0644",
+      "sha256": "94ddcdbf206a9d373d55678778a28f64656ad0e07b782141f7f2604beee4d458"
+    },
+    {
+      "source": "runtime-identity.example",
+      "destination": "/usr/share/doc/verdaxis-monitor/runtime-identity.example",
+      "mode": "0644",
+      "sha256": "b95ad139cc8cc27031b33f9d18220b9d2e93296e4bf15ad427795c63725085e4"
+    },
+    {
+      "source": "runtime-v2-readiness-corpus.json",
+      "destination": "/usr/share/doc/verdaxis-monitor/runtime-v2-readiness-corpus.json",
+      "mode": "0644",
+      "sha256": "07172b9315750135599c7bae16d05754e718b09d1cb4bc87281e4a7fa526f50e"
+    },
+    {
+      "source": "status_state.py",
+      "destination": "/usr/local/libexec/verdaxis-monitor/status_state.py",
+      "mode": "0644",
+      "sha256": "c56120b579478b4eebcb2879e5c05b12d75aeb70c302b8d18926d49ba39a64bc"
+    },
+    {
+      "source": "verdaxis-backup-verify.service",
+      "destination": "/etc/systemd/system/verdaxis-backup-verify.service",
+      "mode": "0644",
+      "sha256": "383b66d98a57062b6956861123c528283b6c1e56c689096832e891ead6dcef38"
+    },
+    {
+      "source": "verdaxis-backup-verify.timer",
+      "destination": "/etc/systemd/system/verdaxis-backup-verify.timer",
+      "mode": "0644",
+      "sha256": "8fb9fa6da3b8502a9fee577a65438c442f2fdfe5f69fcc3f609d10003db4909c"
+    },
+    {
+      "source": "verdaxis-demo-activity-staging.service",
+      "destination": "/etc/systemd/system/verdaxis-demo-activity-staging.service",
+      "mode": "0644",
+      "sha256": "a0739fd83032dc110115200a5310ae53fa27d3d69e2a17ce27d3f1062647debb"
+    },
+    {
+      "source": "verdaxis-demo-activity-staging.timer",
+      "destination": "/etc/systemd/system/verdaxis-demo-activity-staging.timer",
+      "mode": "0644",
+      "sha256": "4e25897e15afb5fc896c309d9aaa4f629f2a91205a30df63c544174eb3a8184e"
+    },
+    {
+      "source": "verdaxis-demo-activity.service",
+      "destination": "/etc/systemd/system/verdaxis-demo-activity.service",
+      "mode": "0644",
+      "sha256": "b6ba201f1bc55e54d26c7aedd5c57e4b207e31cc730985c1232e09bec2843483"
+    },
+    {
+      "source": "verdaxis-demo-activity.timer",
+      "destination": "/etc/systemd/system/verdaxis-demo-activity.timer",
+      "mode": "0644",
+      "sha256": "5f3fefba55a4c1a6760b2de4ab14bd7595fefc80fab0d5f700a04127afa77dfc"
+    },
+    {
+      "source": "verdaxis-health.service",
+      "destination": "/etc/systemd/system/verdaxis-health.service",
+      "mode": "0644",
+      "sha256": "73a51f924189c6a7ee773705755379fa909da97c2dabf812769d93873d48ae7c"
+    },
+    {
+      "source": "verdaxis-health.timer",
+      "destination": "/etc/systemd/system/verdaxis-health.timer",
+      "mode": "0644",
+      "sha256": "eb9871b8a10bab460788986279bf9b2e020732fccfd98155a8dbec3495cef6c7"
+    },
+    {
+      "source": "verdaxis-monitor-alert-reminder.service",
+      "destination": "/etc/systemd/system/verdaxis-monitor-alert-reminder.service",
+      "mode": "0644",
+      "sha256": "f090d6803eb97ee4ca065069088827edd8c703e21b7a6cc3d62db3827f50922d"
+    },
+    {
+      "source": "verdaxis-monitor-alert-reminder.timer",
+      "destination": "/etc/systemd/system/verdaxis-monitor-alert-reminder.timer",
+      "mode": "0644",
+      "sha256": "3eb076b7f4ed7502b53e75505910d6892947a5b5cac7f23d3fd1e15be7250269"
+    },
+    {
+      "source": "verdaxis-monitor-alert@.service",
+      "destination": "/etc/systemd/system/verdaxis-monitor-alert@.service",
+      "mode": "0644",
+      "sha256": "8f3642f9a69ac375c120f627e8ef83f3a5379518c26cf534e1532d682b958f24"
+    },
+    {
+      "source": "verdaxis-monitor.sysusers",
+      "destination": "/usr/lib/sysusers.d/verdaxis-monitor.conf",
+      "mode": "0644",
+      "sha256": "5cfa4e9c66540f79632202abe67d9d4041b95620c4c2a4724d631e52065a031c"
+    },
+    {
+      "source": "verdaxis-monitor.tmpfiles",
+      "destination": "/usr/lib/tmpfiles.d/verdaxis-monitor.conf",
+      "mode": "0644",
+      "sha256": "95cfe784616814cd9686ba6f8e3cc2ae473bc476686088d2e55c201dec9b1f91"
+    },
+    {
+      "source": "verify_runtime_identity.py",
+      "destination": "/usr/local/libexec/verdaxis-monitor/verify_runtime_identity.py",
+      "mode": "0755",
+      "sha256": "d9dd256baa55927caa153d3957ec0a11427a0658d4971552c44beb13f149e6bd"
+    }
+  ]
+}

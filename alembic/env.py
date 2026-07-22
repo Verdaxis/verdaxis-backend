@@ -16,14 +16,17 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-from app.database import Base
+from app.database import Base, migrator_connect_args, verify_migrator_connection
 from app.models import *  # Import all models to register them
 from app.config import settings
+from app.migration_drift import compare_server_default, compare_type, include_object
 
 target_metadata = Base.metadata
 
 # Override sqlalchemy.url in config
-config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
+config.set_main_option(
+    "sqlalchemy.url", settings.MIGRATOR_DATABASE_URL or settings.DATABASE_URL
+)
 
 # other values from the config, defined by the needs of env.py,
 # can be acquired:
@@ -43,11 +46,6 @@ def run_migrations_offline() -> None:
     script output.
 
     """
-    def include_object(object, name, type_, reflected, compare_to):
-        if type_ == "table" and name == "spatial_ref_sys":
-            return False
-        return True
-
     url = config.get_main_option("sqlalchemy.url")
     context.configure(
         url=url,
@@ -55,6 +53,9 @@ def run_migrations_offline() -> None:
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
         include_object=include_object,
+        compare_type=compare_type,
+        compare_server_default=compare_server_default,
+        compare_comments=True,
     )
 
     with context.begin_transaction():
@@ -62,15 +63,17 @@ def run_migrations_offline() -> None:
 
 
 def do_run_migrations(connection: Connection) -> None:
-    def include_object(object, name, type_, reflected, compare_to):
-        if type_ == "table" and name == "spatial_ref_sys":
-            return False
-        return True
-
+    verify_migrator_connection(connection, settings)
+    # The attestation SELECT starts SQLAlchemy's implicit transaction. Close
+    # that read-only transaction so Alembic owns and commits its DDL boundary.
+    connection.commit()
     context.configure(
         connection=connection, 
         target_metadata=target_metadata,
-        include_object=include_object
+        include_object=include_object,
+        compare_type=compare_type,
+        compare_server_default=compare_server_default,
+        compare_comments=True,
     )
 
     with context.begin_transaction():
@@ -87,6 +90,8 @@ async def run_async_migrations() -> None:
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
+        connect_args=migrator_connect_args(settings),
+        hide_parameters=True,
     )
 
     async with connectable.connect() as connection:

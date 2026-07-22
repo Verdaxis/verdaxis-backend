@@ -2,14 +2,21 @@ import asyncio
 import os
 import time
 import uuid as _uuid
+import re
 from contextvars import ContextVar
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from slowapi.errors import RateLimitExceeded
+from sqlalchemy.exc import DBAPIError
 
 from app.config import settings
+from app.services.db_errors import (
+    database_error_log_fields,
+    is_contention_error,
+    is_market_path,
+)
 from app.rate_limit import limiter
 from app.routers.auth_simple import router as auth_router
 from app.admin import setup_admin
@@ -17,7 +24,6 @@ from app.admin import setup_admin
 from app.routers.ports import router as ports_router
 from app.routers.vessels import router as vessels_router
 from app.routers.inventory import router as inventory_router
-from app.routers.compliance import router as compliance_router
 from app.routers.ai import router as ai_router
 from app.routers.orders import router as orders_router
 from app.routers.notifications import router as notifications_router
@@ -79,26 +85,29 @@ _docs_url = "/docs" if os.getenv("ENVIRONMENT") != "production" else None
 _redoc_url = "/redoc" if os.getenv("ENVIRONMENT") != "production" else None
 
 # ---------------------------------------------------------------------------
-# Lifespan: background news feed refresh every 15 minutes
+# Lifespan: runtime identity attestation only. Scheduled jobs are external
+# singletons; never start one scheduler per Uvicorn worker.
 # ---------------------------------------------------------------------------
 from contextlib import asynccontextmanager
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    async def _news_refresh_loop():
-        from app.database import AsyncSessionLocal
-        from app.services.news_feed import refresh_news
-        while True:
-            try:
-                async with AsyncSessionLocal() as db:
-                    await refresh_news(db)
-            except Exception:
-                logger.warning("news_refresh_loop.error", exc_info=True)
-            await asyncio.sleep(900)  # 15 minutes
+    from app.database import engine, verify_database_runtime
+    from app.services.event_bus import event_bus
+    from app.services.market_event_dispatch import MarketEventDispatcher
 
-    task = asyncio.create_task(_news_refresh_loop())
-    yield
-    task.cancel()
+    await verify_database_runtime()
+    # Stage 5: durable shared SSE dispatch (outbox sequencer + hub fan-out).
+    # Self-disables on non-PostgreSQL engines (the SQLite unit harness). This
+    # is per-request-worker runtime, not a scheduler: exactly one worker
+    # holds the sequencer advisory lock at a time and failover is automatic.
+    dispatcher = MarketEventDispatcher(engine, event_bus)
+    await dispatcher.start()
+    try:
+        yield
+    finally:
+        await dispatcher.stop()
 
 app = FastAPI(
     title="Verdaxis Intelligence Cockpit",
@@ -119,6 +128,29 @@ async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
     return JSONResponse(
         status_code=429,
         content={"detail": f"Rate limit exceeded: {exc.detail}"},
+    )
+
+
+@app.exception_handler(DBAPIError)
+async def database_contention_handler(request: Request, exc: DBAPIError):
+    """Keep market contention bounded and retryable without leaking SQL."""
+    if is_market_path(request.url.path) and is_contention_error(exc):
+        return JSONResponse(
+            status_code=503,
+            content={"detail": "Market is temporarily busy; retry shortly."},
+            headers={"Retry-After": "1"},
+        )
+    logger.error(
+        "database_operation_failed",
+        **database_error_log_fields(
+            exc,
+            request_id=request_id_ctx.get(),
+            route=request.url.path,
+        ),
+    )
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Database operation failed."},
     )
 
 # Admin panel
@@ -146,7 +178,8 @@ app.middleware("http")(preauth_rate_limit_middleware)
 # ---------------------------------------------------------------------------
 @app.middleware("http")
 async def request_logging_middleware(request: Request, call_next):
-    rid = request.headers.get("X-Request-ID") or str(_uuid.uuid4())
+    supplied_rid = request.headers.get("X-Request-ID", "")
+    rid = supplied_rid if re.fullmatch(r"[A-Za-z0-9._:-]{1,36}", supplied_rid) else str(_uuid.uuid4())
     request_id_ctx.set(rid)
     structlog.contextvars.clear_contextvars()
     structlog.contextvars.bind_contextvars(request_id=rid)
@@ -175,7 +208,6 @@ app.include_router(auth_router, prefix=settings.API_V1_STR)
 app.include_router(ports_router, prefix=settings.API_V1_STR)
 app.include_router(vessels_router, prefix=settings.API_V1_STR)
 app.include_router(inventory_router, prefix=settings.API_V1_STR)
-app.include_router(compliance_router, prefix=settings.API_V1_STR)
 app.include_router(ai_router, prefix=settings.API_V1_STR)
 app.include_router(orders_router, prefix=settings.API_V1_STR)
 app.include_router(notifications_router, prefix=settings.API_V1_STR)
@@ -207,17 +239,14 @@ app.include_router(fleet_intel_router, prefix=settings.API_V1_STR)
 app.include_router(benchmarks_router, prefix=settings.API_V1_STR)
 app.include_router(monitor_router, prefix=settings.API_V1_STR)
 
-from app.routers import dashboard
-app.include_router(dashboard.router, prefix=settings.API_V1_STR)
-
-
 @app.get("/")
 async def root():
     return {"message": "Verdaxis API is running", "version": "1.0.0"}
 
 @app.get("/health")
 async def health_check():
-    return {"status": "ok"}
+    """Backward-compatible readiness alias; off-host checks use /health/ready."""
+    return await health_ready()
 
 @app.get("/health/live")
 async def health_live():
@@ -226,16 +255,36 @@ async def health_live():
 
 @app.get("/health/ready")
 async def health_ready():
-    """Readiness probe — checks DB connectivity."""
+    """Bounded readiness probe — checks DB connectivity without leaking errors."""
     from app.database import engine
     from sqlalchemy import text
+    provenance = {
+        "environment": settings.ENVIRONMENT,
+        "release_sha": settings.RELEASE_SHA,
+    }
     try:
-        async with engine.connect() as conn:
-            await conn.execute(text("SELECT 1"))
-        return {"status": "ok", "db": "connected"}
-    except Exception as e:
-        from fastapi.responses import JSONResponse
+        async with asyncio.timeout(settings.HEALTH_READINESS_TIMEOUT_SECONDS):
+            async with engine.connect() as conn:
+                await conn.execute(text("SELECT 1"))
+        return {"status": "ok", "db": "ok", **provenance}
+    except DBAPIError as exc:
+        logger.error(
+            "health_readiness_database_failed",
+            **database_error_log_fields(
+                exc,
+                request_id=request_id_ctx.get(),
+                route="/health/ready",
+            ),
+        )
+        # Failure responses stay sanitized: no deployment provenance leaves
+        # the process when the database is unavailable (security contract).
         return JSONResponse(
             status_code=503,
-            content={"status": "error", "db": str(e)},
+            content={"status": "error", "db": "unavailable"},
+        )
+    except Exception as exc:
+        logger.error("health_readiness_failed", error_class=type(exc).__name__)
+        return JSONResponse(
+            status_code=503,
+            content={"status": "error", "db": "unavailable"},
         )

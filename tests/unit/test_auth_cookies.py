@@ -14,6 +14,8 @@ from slowapi.errors import RateLimitExceeded
 
 from app.database import get_db
 from app.rate_limit import limiter
+from app.models.refresh_session import RefreshSession
+from app.routers import auth_simple
 from app.routers.auth_simple import router
 from app.models.user import UserRole, UserStatus
 
@@ -69,7 +71,11 @@ async def _auth_client(session: AsyncMock):
 
     app.dependency_overrides[get_db] = override_get_db
     try:
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="https://test") as client:
+        async with AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="https://test",
+            headers={"Origin": "https://test"},
+        ) as client:
             yield client
     finally:
         app.dependency_overrides.pop(get_db, None)
@@ -89,6 +95,7 @@ class TestRefreshCookieMigration:
             patch("app.routers.auth_simple.verify_password", return_value=True),
             patch("app.routers.auth_simple.create_access_token", return_value="access-token-login"),
             patch("app.routers.auth_simple.create_refresh_token", return_value="refresh-token-login"),
+            patch("app.routers.auth_simple._store_refresh_session", new=AsyncMock()),
         ):
             async with _auth_client(session) as client:
                 response = await client.post(
@@ -107,6 +114,68 @@ class TestRefreshCookieMigration:
         assert "Path=/api/auth" in cookie_header
 
     @pytest.mark.asyncio
+    async def test_login_sets_opaque_http_only_device_cookie_and_serializes_device_families(self, caplog):
+        user = _approved_user()
+        session = _mock_db_session(user)
+        raw_device_id = "D" * 43
+        device_hash = "a" * 64
+        acquire_lock = AsyncMock()
+        revoke_device = AsyncMock()
+
+        with (
+            patch("app.routers.auth_simple.verify_password", return_value=True),
+            patch("app.routers.auth_simple.create_access_token", return_value="access-token-login"),
+            patch("app.routers.auth_simple.create_refresh_token", return_value="refresh-token-login"),
+            patch("app.routers.auth_simple._new_device_session_id", return_value=raw_device_id),
+            patch("app.routers.auth_simple._device_session_hash", return_value=device_hash),
+            patch("app.routers.auth_simple._acquire_device_session_lock", new=acquire_lock),
+            patch("app.routers.auth_simple._revoke_device_refresh_sessions", new=revoke_device),
+            patch("app.routers.auth_simple._store_refresh_session", new=AsyncMock()),
+        ):
+            async with _auth_client(session) as client:
+                response = await client.post(
+                    "/api/auth/login",
+                    data={"username": user.email, "password": "password"},
+                )
+
+        assert response.status_code == 200
+        assert raw_device_id not in response.text
+        assert raw_device_id not in caplog.text
+        assert "device_session" not in response.json()
+        device_cookie = next(
+            value
+            for value in response.headers.get_list("set-cookie")
+            if value.startswith(f"{auth_simple.DEVICE_SESSION_COOKIE_NAME}=")
+        )
+        assert f"{auth_simple.DEVICE_SESSION_COOKIE_NAME}={raw_device_id}" in device_cookie
+        assert "HttpOnly" in device_cookie
+        assert "Secure" in device_cookie
+        assert "SameSite=lax" in device_cookie
+        assert "Path=/api/auth" in device_cookie
+        acquire_lock.assert_awaited_once_with(session, device_hash)
+        revoke_device.assert_awaited_once()
+
+    def test_refresh_session_persists_only_a_device_identifier_hash(self):
+        assert "device_id_hash" in RefreshSession.__table__.columns
+        column = RefreshSession.__table__.columns["device_id_hash"]
+        assert column.type.length == 64
+        # Legacy rows remain unknown and are revoked; they are never guessed/backfilled.
+        assert column.nullable is True
+
+    @pytest.mark.asyncio
+    async def test_refresh_without_device_cookie_fails_closed_for_legacy_transition(self):
+        user = _approved_user()
+        session = _mock_db_session(user)
+        token = auth_simple.create_refresh_token(str(user.id))
+
+        async with _auth_client(session) as client:
+            client.cookies.set(auth_simple.REFRESH_COOKIE_NAME, token, path="/api/auth")
+            response = await client.post("/api/auth/refresh")
+
+        assert response.status_code == 401
+        assert response.json()["detail"]["code"] == "REFRESH_DEVICE_REQUIRED"
+
+    @pytest.mark.asyncio
     async def test_refresh_uses_cookie_when_body_token_is_missing(self):
         user = _approved_user()
         session = _mock_db_session(user)
@@ -123,6 +192,8 @@ class TestRefreshCookieMigration:
             patch("app.routers.auth_simple.create_access_token", side_effect=lambda *args, **kwargs: next(access_tokens)),
             patch("app.routers.auth_simple.create_refresh_token", side_effect=lambda *args, **kwargs: next(refresh_tokens)),
             patch("app.routers.auth_simple.decode_token", side_effect=_decode_token),
+            patch("app.routers.auth_simple._store_refresh_session", new=AsyncMock()),
+            patch("app.routers.auth_simple._rotate_refresh_session", new=AsyncMock()),
         ):
             async with _auth_client(session) as client:
                 login_response = await client.post(
@@ -152,8 +223,14 @@ class TestRefreshCookieMigration:
             patch("app.routers.auth_simple.create_access_token", return_value="access-token-refresh"),
             patch("app.routers.auth_simple.create_refresh_token", return_value="refresh-token-next"),
             patch("app.routers.auth_simple.decode_token", side_effect=_decode_token),
+            patch("app.routers.auth_simple._rotate_refresh_session", new=AsyncMock()),
         ):
             async with _auth_client(session) as client:
+                client.cookies.set(
+                    auth_simple.DEVICE_SESSION_COOKIE_NAME,
+                    "D" * 43,
+                    path="/api/auth",
+                )
                 response = await client.post(
                     "/api/auth/refresh",
                     json={"refresh_token": "refresh-token-body"},
@@ -173,6 +250,9 @@ class TestRefreshCookieMigration:
             patch("app.routers.auth_simple.verify_password", return_value=True),
             patch("app.routers.auth_simple.create_access_token", return_value="access-token-login"),
             patch("app.routers.auth_simple.create_refresh_token", return_value="refresh-token-login"),
+            patch("app.routers.auth_simple.decode_token", return_value={"type": "refresh"}),
+            patch("app.routers.auth_simple._store_refresh_session", new=AsyncMock()),
+            patch("app.routers.auth_simple._revoke_refresh_family", new=AsyncMock()),
         ):
             async with _auth_client(session) as client:
                 login_response = await client.post(
@@ -186,6 +266,7 @@ class TestRefreshCookieMigration:
 
         assert logout_response.status_code == 200
         assert client.cookies.get("refresh_token") is None
+        assert client.cookies.get(auth_simple.DEVICE_SESSION_COOKIE_NAME) is None
         cookie_header = _cookie_header(logout_response).lower()
         assert "refresh_token=" in cookie_header
         assert "max-age=0" in cookie_header

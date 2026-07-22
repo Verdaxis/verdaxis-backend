@@ -1,9 +1,9 @@
 """
 Integration tests for API endpoints.
-Tests the full request/response cycle against the running Docker backend.
+Tests the full request/response cycle against an attested disposable backend.
 
-Run with: pytest tests/integration/ -v
-Requires: Docker backend running on localhost:8000
+Collection is skipped unless conftest receives explicit disposable opt-in,
+numeric-loopback ephemeral URL, marker, and matching identity token.
 """
 import pytest
 from httpx import AsyncClient
@@ -145,4 +145,3 @@ class TestProtectedEndpoints:
         assert response.status_code == 200
         data = response.json()
         assert data["email"] == admin_credentials["email"]
-

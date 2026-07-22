@@ -8,15 +8,14 @@ import uuid
 from decimal import Decimal
 from datetime import datetime, UTC, timedelta
 
-from sqlalchemy import create_engine, event
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
-from sqlalchemy.orm import Session
 
 from app.database import Base
-from app.models.user import User, Organization, UserRole, UserStatus, OrgType
+from app.models.user import User, Organization, UserRole, UserStatus, OrgType, OrganizationProvenance
 from app.models.catalog import Product, DeliveryPoint
 from app.models.orderbook import (
-    OrderBookOrder, Trade, OrderSide, OrderBookStatus, TradeStatus, Initiator,
+    OrderBookOrder, OrderSide, OrderBookStatus, TradeStatus, Initiator,
 )
 from app.models.notification import Notification
 from app.services.matching_engine import match_order
@@ -36,6 +35,28 @@ _REQUIRED_TABLES = [
 _TEST_PRODUCT_ID = uuid.uuid5(uuid.NAMESPACE_DNS, "test:product:Methanol Green")
 _TEST_PRODUCT_2_ID = uuid.uuid5(uuid.NAMESPACE_DNS, "test:product:LNG Conventional")
 _TEST_DP_ID = uuid.uuid5(uuid.NAMESPACE_DNS, "test:dp:Singapore")
+
+
+def _owner_user_id(organization_id: uuid.UUID) -> uuid.UUID:
+    return uuid.uuid5(uuid.NAMESPACE_URL, f"test:order-owner:{organization_id}")
+
+
+def _admitted_user(*, organization_id: uuid.UUID, role: UserRole, email: str) -> User:
+    user_id = _owner_user_id(organization_id)
+    return User(
+        id=user_id,
+        email=email,
+        password_hash="hashed",
+        role=role,
+        status=UserStatus.APPROVED,
+        organization_id=organization_id,
+        email_verified=True,
+        kyc_status="APPROVED",
+        kyc_external_evidence_reference="external-test-case",
+        kyc_review_note="Externally retained evidence reviewed for this test fixture.",
+        kyc_reviewed_by=user_id,
+        kyc_reviewed_at=datetime.now(UTC),
+    )
 
 
 # --------------- Fixtures ---------------
@@ -144,14 +165,13 @@ async def buyer_org(db, org_buyer_id):
         id=org_buyer_id,
         name="BuyerCorp",
         type=OrgType.SHIPPING_LINE,
+        verification_status="APPROVED",
     )
     db.add(org)
-    user = User(
-        email="buyer@buyercorp.com",
-        password_hash="hashed",
-        role=UserRole.BUYER,
-        status=UserStatus.APPROVED,
+    user = _admitted_user(
         organization_id=org_buyer_id,
+        role=UserRole.BUYER,
+        email="buyer@buyercorp.com",
     )
     db.add(user)
     await db.flush()
@@ -165,14 +185,13 @@ async def seller_org(db, org_seller_id):
         id=org_seller_id,
         name="SellerCorp",
         type=OrgType.FUEL_SUPPLIER,
+        verification_status="APPROVED",
     )
     db.add(org)
-    user = User(
-        email="seller@sellercorp.com",
-        password_hash="hashed",
-        role=UserRole.SUPPLIER,
-        status=UserStatus.APPROVED,
+    user = _admitted_user(
         organization_id=org_seller_id,
+        role=UserRole.SUPPLIER,
+        email="seller@sellercorp.com",
     )
     db.add(user)
     await db.flush()
@@ -186,14 +205,13 @@ async def seller_org2(db, org_seller2_id):
         id=org_seller2_id,
         name="SellerCorp2",
         type=OrgType.FUEL_SUPPLIER,
+        verification_status="APPROVED",
     )
     db.add(org)
-    user = User(
-        email="seller2@sellercorp2.com",
-        password_hash="hashed",
-        role=UserRole.SUPPLIER,
-        status=UserStatus.APPROVED,
+    user = _admitted_user(
         organization_id=org_seller2_id,
+        role=UserRole.SUPPLIER,
+        email="seller2@sellercorp2.com",
     )
     db.add(user)
     await db.flush()
@@ -214,6 +232,7 @@ def _make_order(
     certification_declared: bool | None = None,
     certification_scheme: str | None = None,
     off_spec: bool = False,
+    provenance: OrganizationProvenance = OrganizationProvenance.REAL,
 ) -> OrderBookOrder:
     """Helper to build an OrderBookOrder with sensible defaults."""
     certs = certifications or []
@@ -226,6 +245,8 @@ def _make_order(
 
     return OrderBookOrder(
         organization_id=org_id,
+        owner_user_id=_owner_user_id(org_id),
+        provenance=provenance,
         side=side,
         product_id=product_id,
         delivery_point_id=delivery_point_id,
@@ -496,39 +517,111 @@ class TestNoMatch:
         assert len(trades) == 0
 
     @pytest.mark.asyncio
-    async def test_no_match_crosses_demo_boundary(self, monkeypatch, db, buyer_org, seller_org, org_buyer_id, org_seller_id, test_product, test_dp):
+    async def test_no_match_crosses_demo_boundary(self, db, buyer_org, seller_org, org_buyer_id, org_seller_id, test_product, test_dp):
         """Real user orders must not auto-execute against preview/demo liquidity."""
-        ask = _make_order(org_seller_id, OrderSide.ASK, price=Decimal("550.00"))
+        ask = _make_order(
+            org_seller_id,
+            OrderSide.ASK,
+            price=Decimal("550.00"),
+            provenance=OrganizationProvenance.DEMO,
+        )
         db.add(ask)
         await db.flush()
 
         bid = _make_order(org_buyer_id, OrderSide.BID, price=Decimal("560.00"))
         db.add(bid)
         await db.flush()
-
-        monkeypatch.setattr(
-            "app.services.matching_engine.is_demo_market_organization",
-            lambda org_id: org_id == org_seller_id,
-        )
 
         trades = await match_order(db, bid)
         assert len(trades) == 0
 
     @pytest.mark.asyncio
-    async def test_no_auto_match_for_demo_orders(self, monkeypatch, db, buyer_org, seller_org, org_buyer_id, org_seller_id, test_product, test_dp):
-        """Demo liquidity is preview-only and must not auto-execute, even against other demo orders."""
-        ask = _make_order(org_seller_id, OrderSide.ASK, price=Decimal("550.00"))
+    async def test_provenance_is_filtered_before_candidate_cap(
+        self, db, buyer_org, seller_org, org_buyer_id, org_seller_id, test_product, test_dp
+    ):
+        incompatible = []
+        for index in range(101):
+            org = Organization(
+                name=f"Unknown Seller {index}-{uuid.uuid4().hex[:6]}",
+                type=OrgType.FUEL_SUPPLIER,
+                provenance=OrganizationProvenance.UNKNOWN,
+            )
+            db.add(org)
+            await db.flush()
+            incompatible.append(
+                _make_order(
+                    org.id,
+                    OrderSide.ASK,
+                    price=Decimal("500.00") + Decimal(index) / Decimal("100"),
+                    provenance=OrganizationProvenance.UNKNOWN,
+                )
+            )
+        compatible = _make_order(
+            org_seller_id,
+            OrderSide.ASK,
+            price=Decimal("550.00"),
+            provenance=OrganizationProvenance.REAL,
+        )
+        bid = _make_order(
+            org_buyer_id,
+            OrderSide.BID,
+            price=Decimal("600.00"),
+            provenance=OrganizationProvenance.REAL,
+        )
+        db.add_all([*incompatible, compatible, bid])
+        await db.flush()
+
+        trades = await match_order(db, bid)
+
+        assert len(trades) == 1
+        assert trades[0].ask_order_id == compatible.id
+
+    @pytest.mark.asyncio
+    async def test_expiry_work_is_scoped_to_exact_delivery_point(
+        self, db, buyer_org, seller_org, org_buyer_id, org_seller_id, test_product, test_dp
+    ):
+        other_point = DeliveryPoint(
+            name=f"Other Point {uuid.uuid4().hex[:6]}",
+            region="Europe",
+            timezone="UTC",
+        )
+        db.add(other_point)
+        await db.flush()
+        expired_elsewhere = _make_order(
+            org_seller_id,
+            OrderSide.ASK,
+            delivery_point_id=other_point.id,
+            price=Decimal("500.00"),
+        )
+        expired_elsewhere.expires_at = datetime.now(UTC) - timedelta(minutes=1)
+        bid = _make_order(org_buyer_id, OrderSide.BID, price=Decimal("600.00"))
+        db.add_all([expired_elsewhere, bid])
+        await db.flush()
+
+        await match_order(db, bid)
+
+        assert expired_elsewhere.status == OrderBookStatus.OPEN
+
+    @pytest.mark.asyncio
+    async def test_no_auto_match_for_unallowlisted_demo_orders(self, db, buyer_org, seller_org, org_buyer_id, org_seller_id, test_product, test_dp):
+        """Only the exact deterministic demo pair can execute DEMO/DEMO."""
+        ask = _make_order(
+            org_seller_id,
+            OrderSide.ASK,
+            price=Decimal("550.00"),
+            provenance=OrganizationProvenance.DEMO,
+        )
         db.add(ask)
         await db.flush()
 
-        bid = _make_order(org_buyer_id, OrderSide.BID, price=Decimal("560.00"))
+        bid = _make_order(
+            org_buyer_id,
+            OrderSide.BID,
+            price=Decimal("560.00"),
+            provenance=OrganizationProvenance.DEMO,
+        )
         db.add(bid)
         await db.flush()
-
-        monkeypatch.setattr(
-            "app.services.matching_engine.is_demo_market_organization",
-            lambda org_id: org_id in {org_buyer_id, org_seller_id},
-        )
 
         trades = await match_order(db, bid)
         assert len(trades) == 0
@@ -825,7 +918,8 @@ class TestTradeDetails:
         db.add(ask)
         await db.flush()
 
-        bid = _make_order(org_buyer_id, OrderSide.BID, price=Decimal("560.00"), quantity=Decimal("0"))
+        bid = _make_order(org_buyer_id, OrderSide.BID, price=Decimal("560.00"))
+        bid.remaining_quantity_mt = Decimal("0")
         db.add(bid)
         await db.flush()
 
@@ -850,10 +944,10 @@ class TestNotifications:
         trades = await match_order(db, bid)
         assert len(trades) == 1
 
-        # Check that notifications were added to the session
-        # (they won't be committed yet since we haven't committed)
-        new_objects = [o for o in db.new if isinstance(o, Notification)]
-        assert len(new_objects) >= 2  # At least one per party
+        # Notifications are durable transaction rows, but remain uncommitted
+        # until the route commits alongside the trade.
+        notifications = list((await db.execute(select(Notification))).scalars())
+        assert len(notifications) >= 2  # At least one per party
 
     @pytest.mark.asyncio
     async def test_matches_partially_filled_resting_order(self, db, buyer_org, seller_org, org_buyer_id, org_seller_id, test_product, test_dp):

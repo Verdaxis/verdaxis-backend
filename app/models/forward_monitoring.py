@@ -9,7 +9,7 @@ from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Index, Nu
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.database import Base
+from app.model_base import Base
 
 
 def _utcnow() -> datetime:

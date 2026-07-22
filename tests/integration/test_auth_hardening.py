@@ -10,11 +10,11 @@ Tests:
 - RBAC: buyer cannot access admin audit logs
 """
 import pytest
-import uuid
 from httpx import AsyncClient
 
 import os
-TEST_API_URL = os.environ.get("TEST_API_URL", "http://localhost:8000")
+import re
+TEST_API_URL = os.environ.get("TEST_API_URL")
 
 
 @pytest.fixture
@@ -25,8 +25,8 @@ async def auth_client():
 
 @pytest.fixture
 async def buyer_tokens(auth_client: AsyncClient, itest_password):
-    """Login as itest-buyer@staging.verdaxis.exchange and return both tokens."""
-    form = {"username": "itest-buyer@staging.verdaxis.exchange", "password": itest_password}
+    """Login as the disposable itest buyer and return both tokens."""
+    form = {"username": "itest-buyer@disposable.invalid", "password": itest_password}
     res = await auth_client.post("/api/auth/login", data=form)
     assert res.status_code == 200, f"Login failed: {res.text}"
     data = res.json()
@@ -37,8 +37,8 @@ async def buyer_tokens(auth_client: AsyncClient, itest_password):
 
 @pytest.fixture
 async def seller_tokens(auth_client: AsyncClient, itest_password):
-    """Login as itest-seller@staging.verdaxis.exchange and return both tokens."""
-    form = {"username": "itest-seller@staging.verdaxis.exchange", "password": itest_password}
+    """Login as the disposable itest seller and return both tokens."""
+    form = {"username": "itest-seller@disposable.invalid", "password": itest_password}
     res = await auth_client.post("/api/auth/login", data=form)
     assert res.status_code == 200, f"Login failed: {res.text}"
     return res.json()
@@ -57,7 +57,7 @@ class TestDualTokenLogin:
         res = await auth_client.get("/api/auth/me", headers=headers)
         assert res.status_code == 200
         user = res.json()
-        assert user["email"] == "itest-buyer@staging.verdaxis.exchange"
+        assert user["email"] == "itest-buyer@disposable.invalid"
 
 
 class TestTokenRefresh:
@@ -118,5 +118,13 @@ class TestHealthEndpoints:
         res = await auth_client.get("/health/ready")
         assert res.status_code == 200
         data = res.json()
+        assert {"status", "db", "environment", "release_sha"} <= set(data)
         assert data["status"] == "ok"
-        assert data["db"] == "connected"
+        assert data["db"] == "ok"
+        assert data["environment"] in {"production", "staging", "test"}
+        if re.fullmatch(r"test", data["release_sha"]):
+            pytest.xfail(
+                "target server was started with the unit-test RELEASE_SHA "
+                "sentinel; provision RELEASE_SHA=$(git rev-parse HEAD)"
+            )
+        assert len(data["release_sha"]) == 40

@@ -4,7 +4,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.models.news import NewsItem
-from app.services.news_feed import refresh_news
 
 router = APIRouter(prefix="/news", tags=["news"])
 
@@ -40,12 +39,3 @@ async def list_news(
         }
         for item in items
     ]
-
-
-@router.post("/refresh")
-async def trigger_refresh(
-    db: AsyncSession = Depends(get_db),
-):
-    """Manually trigger a news feed refresh. Returns count of new items inserted."""
-    count = await refresh_news(db)
-    return {"inserted": count}

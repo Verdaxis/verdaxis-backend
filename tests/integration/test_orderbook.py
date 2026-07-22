@@ -1,8 +1,8 @@
 """
 Integration tests for the /orderbook endpoints.
 
-Tests against a running backend (Docker or remote).
-Uses seeded user data and JWT tokens for authentication.
+Tests only against an explicitly attested disposable backend.
+Uses disposable fixture user data and JWT tokens for authentication.
 """
 import pytest
 import os
@@ -11,21 +11,21 @@ from httpx import AsyncClient
 import jwt
 from datetime import datetime, timedelta
 
-TEST_API_URL = os.environ.get("TEST_API_URL", "http://localhost:8000")
+TEST_API_URL = os.environ.get("TEST_API_URL")
 from app.config import settings
 JWT_SECRET = settings.JWT_SECRET
 
 # Seeded user IDs from scripts/seed.py
 SUPPLIER_1_ID = "9e63f7a1-0000-4000-8000-000000000011"
-SUPPLIER_1_EMAIL = "itest-seller@staging.verdaxis.exchange"
+SUPPLIER_1_EMAIL = "itest-seller@disposable.invalid"
 SUPPLIER_2_ID = "9e63f7a1-0000-4000-8000-000000000013"
-SUPPLIER_2_EMAIL = "itest-seller2@staging.verdaxis.exchange"
+SUPPLIER_2_EMAIL = "itest-seller2@disposable.invalid"
 BUYER_1_ID = "9e63f7a1-0000-4000-8000-000000000012"
-BUYER_1_EMAIL = "itest-buyer@staging.verdaxis.exchange"
+BUYER_1_EMAIL = "itest-buyer@disposable.invalid"
 BUYER_2_ID = "9e63f7a1-0000-4000-8000-000000000014"
-BUYER_2_EMAIL = "itest-buyer2@staging.verdaxis.exchange"
+BUYER_2_EMAIL = "itest-buyer2@disposable.invalid"
 
-# Live staging catalog IDs (the original LNG/MGO/biofuel/ammonia products and
+# Disposable catalog fixture IDs (the original LNG/MGO/biofuel/ammonia products and
 # ARA/Fujairah delivery points no longer exist — remapped 2026-07-04)
 PRODUCT_METHANOL_GREEN = "f9b20492-b445-59cd-b292-a386d913f488"   # e-Methanol
 PRODUCT_LNG_CONV = "c4a688be-f7c2-5edc-8f93-6b34e387609c"         # Bio-Ethanol

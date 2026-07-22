@@ -4,11 +4,12 @@ Populates the orderbook with ~105 orders across all fuel-type/port combos,
 ~40 matched trades, and ~10 RFQs with quotes.  Prices reflect 2025-2026
 marine fuel markets.
 
-Idempotent: checks for a sentinel order before inserting.  Clears old test
-data on first run.
+Idempotent: checks for a metadata seed-run marker before inserting. Clears
+only the explicitly authorized synthetic fixture on reset.
 """
 import random
 import uuid
+import os
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
@@ -24,38 +25,128 @@ from app.models.orderbook import (
     Initiator,
 )
 from app.models.rfq import RFQ, RFQQuote, RFQStatus, QuoteStatus
+from app.demo_identities import (
+    DEMO_ACCOUNT_BUYER_ORG_ID,
+    DEMO_ACCOUNT_SELLER_ORG_ID,
+    DEMO_SEED_BUYERS,
+    DEMO_SEED_SUPPLIERS,
+)
 from app.seeds.catalog_seed import PRODUCT_IDS, DELIVERY_POINT_IDS
-from app.services.availability_windows import SPOT_WINDOW, normalize_availability_window
+from app.services.availability_windows import (
+    SPOT_WINDOW,
+    availability_window_expiry,
+    normalize_availability_window,
+    tradable_availability_windows,
+)
 from app.services.execution_policy import normalize_certification_scheme
+from app.models.seed import SeedRun
+from app.environment_database import validate_database_target
 
 # ---------------------------------------------------------------------------
 # Deterministic seed for reproducibility
 # ---------------------------------------------------------------------------
 _RNG = random.Random(42)
 
-# Sentinel: if an order with this ID exists, seeding already happened.
-_SENTINEL_ID = uuid.UUID("00000000-dead-beef-0000-aaa0e15eed01")
+# Idempotency is metadata, never an economic row.
+MARKET_SEED_NAME = "market"
+_SENTINEL_ID = None
+
+
+def _seed_order(**values):
+    """Create a demo seed order with an explicit immutable snapshot."""
+    values.setdefault("provenance", "DEMO")
+    observed_at = values.get("created_at") or datetime.now(timezone.utc)
+    values.setdefault(
+        "expires_at",
+        availability_window_expiry(
+            values.get("availability_window", SPOT_WINDOW),
+            observed_at=observed_at,
+        ),
+    )
+    return OrderBookOrder(**values)
+
+
+def _seed_trade(**values):
+    """Create a demo seed trade with immutable party snapshots."""
+    values.setdefault("buyer_provenance", "DEMO")
+    values.setdefault("seller_provenance", "DEMO")
+    values.setdefault(
+        "initiator_org_id",
+        values["buyer_id"]
+        if values.get("initiated_by") == Initiator.BUYER
+        else values["seller_id"],
+    )
+    return Trade(**values)
+
+
+def validate_demo_reset(
+    *,
+    environment: str,
+    explicit_opt_in: bool,
+    database_url: str,
+    current_database: str,
+) -> None:
+    if environment.lower() == "production":
+        raise RuntimeError("demo reset is categorically forbidden in production")
+    if not explicit_opt_in:
+        raise RuntimeError("demo reset requires explicit opt-in")
+    try:
+        validate_database_target(
+            environment=environment,
+            database_url=database_url,
+            current_database=current_database,
+        )
+    except ValueError as exc:
+        raise RuntimeError(f"demo reset database attestation failed: {exc}") from exc
+
+
+def _demo_org_ids() -> tuple[str, ...]:
+    return tuple(str(org["id"]) for org in (*BUYER_ORGS, *SUPPLIER_ORGS)) + (
+        str(DEMO_BUYER_ORG_ID),
+        str(DEMO_SELLER_ORG_ID),
+        "7cc77115-0a9f-4ec4-8c74-05aa10050111",
+        "d1e43e55-3fb0-4b5e-9f0b-93aa10050222",
+    )
+
+
+async def reset_demo_market_data(db: AsyncSession) -> None:
+    """Delete only known synthetic/provenance-scoped rows in FK order."""
+    ids = ",".join(f"'{value}'" for value in _demo_org_ids())
+    demo_orders = f"SELECT id FROM orderbook_orders WHERE provenance = 'DEMO' AND organization_id IN ({ids})"
+    demo_trades = (
+        "SELECT id FROM trades WHERE buyer_id IN (" + ids + ") "
+        "AND seller_id IN (" + ids + ") "
+        "AND buyer_provenance = 'DEMO' AND seller_provenance = 'DEMO'"
+    )
+    await db.execute(text(f"DELETE FROM watchlist_events WHERE watchlist_target_id IN (SELECT id FROM watchlist_targets WHERE order_id IN ({demo_orders}))"))
+    await db.execute(text(f"DELETE FROM watchlist_targets WHERE order_id IN ({demo_orders})"))
+    await db.execute(text(f"DELETE FROM match_suggestions WHERE bid_order_id IN ({demo_orders}) OR ask_order_id IN ({demo_orders}) OR recipient_org_id IN ({ids})"))
+    await db.execute(text(f"DELETE FROM commissions WHERE trade_id IN ({demo_trades})"))
+    await db.execute(text(f"DELETE FROM trades WHERE id IN ({demo_trades})"))
+    await db.execute(text(f"DELETE FROM rfq_quotes WHERE seller_org_id IN ({ids}) OR rfq_id IN (SELECT id FROM rfqs WHERE buyer_org_id IN ({ids}))"))
+    await db.execute(text(f"DELETE FROM rfqs WHERE buyer_org_id IN ({ids})"))
+    await db.execute(text(f"DELETE FROM negotiation_rounds WHERE negotiation_id IN (SELECT id FROM negotiations WHERE initiator_org_id IN ({ids}) OR counterparty_org_id IN ({ids}))"))
+    await db.execute(text(f"DELETE FROM negotiations WHERE initiator_org_id IN ({ids}) OR counterparty_org_id IN ({ids})"))
+    await db.execute(text(f"DELETE FROM orderbook_orders WHERE id IN ({demo_orders})"))
+    await db.execute(text(
+        "DELETE FROM inventory_items AS inventory WHERE inventory.supplier_id IN (" + ids + ") "
+        "AND EXISTS (SELECT 1 FROM organizations AS organization "
+        "WHERE organization.id = inventory.supplier_id AND organization.provenance = 'DEMO')"
+    ))
 
 # ---------------------------------------------------------------------------
 # Fake organization IDs (buyers and suppliers)
 # ---------------------------------------------------------------------------
-_NS = uuid.UUID("b2c3d4e5-f6a7-8901-bcde-f12345678901")
 _SLICE_SCHEME_NS = uuid.UUID("c4d5e6f7-a8b9-4012-9abc-def123456789")
 
 BUYER_ORGS = [
-    {"id": uuid.uuid5(_NS, "buyer:maersk_fuel_procurement"), "name": "Maersk Fuel Procurement"},
-    {"id": uuid.uuid5(_NS, "buyer:evergreen_marine_bunkers"), "name": "Evergreen Marine Bunkers"},
-    {"id": uuid.uuid5(_NS, "buyer:cosco_energy_trading"), "name": "COSCO Energy Trading"},
-    {"id": uuid.uuid5(_NS, "buyer:msc_fuel_desk"), "name": "MSC Fuel Desk"},
-    {"id": uuid.uuid5(_NS, "buyer:cma_cgm_green_fuel"), "name": "CMA CGM Green Fuel"},
+    {"id": organization_id, "name": name}
+    for organization_id, name in DEMO_SEED_BUYERS
 ]
 
 SUPPLIER_ORGS = [
-    {"id": uuid.uuid5(_NS, "seller:vitol_bunkers"), "name": "Vitol Bunkers", "tier": "MAJOR_TRADER"},
-    {"id": uuid.uuid5(_NS, "seller:trafigura_marine"), "name": "Trafigura Marine", "tier": "MAJOR_TRADER"},
-    {"id": uuid.uuid5(_NS, "seller:oci_green_fuels"), "name": "OCI Green Fuels", "tier": "TIER_1_PRODUCER"},
-    {"id": uuid.uuid5(_NS, "seller:peninsula_petroleum"), "name": "Peninsula Petroleum", "tier": "REGIONAL_SUPPLIER"},
-    {"id": uuid.uuid5(_NS, "seller:bunker_holding_group"), "name": "Bunker Holding Group", "tier": "MAJOR_TRADER"},
+    {"id": organization_id, "name": name, "tier": tier}
+    for organization_id, name, tier in DEMO_SEED_SUPPLIERS
 ]
 
 # ---------------------------------------------------------------------------
@@ -114,8 +205,8 @@ CI_DATA: dict[str, tuple[float, float, float]] = {
 
 CERTIFICATION_SCHEMES = ("ISCC EU", "ISCC PLUS", "REDcert EU")
 
-DEMO_BUYER_ORG_ID = uuid.UUID("acc3f20a-fe94-4463-9029-a55e35634eb7")
-DEMO_SELLER_ORG_ID = uuid.UUID("c9c1ccbf-66fe-4a1b-b171-fe4f7ddc31a4")
+DEMO_BUYER_ORG_ID = DEMO_ACCOUNT_BUYER_ORG_ID
+DEMO_SELLER_ORG_ID = DEMO_ACCOUNT_SELLER_ORG_ID
 
 DEMO_SLICE_DEPTH_BIDS = [
     (0, Decimal("5000"), Decimal("5000"), Decimal("1048.00"), OrderBookStatus.OPEN),
@@ -143,24 +234,10 @@ DEMO_ACCOUNT_TRADE_CONFIGS = [
 ]
 
 def build_seed_windows(reference_date: date | None = None, *, quarter_count: int = 6) -> list[str]:
-    current = reference_date or date.today()
-    current_quarter = ((current.month - 1) // 3) + 1
-    current_quarter_end_month = current_quarter * 3
-
-    windows = [SPOT_WINDOW]
-    for month in range(current.month, current_quarter_end_month + 1):
-        windows.append(f"{current.year}-{month:02d}")
-
-    quarter_year = current.year
-    quarter = current_quarter + 1
-    for _ in range(quarter_count):
-        if quarter > 4:
-            quarter = 1
-            quarter_year += 1
-        windows.append(f"{quarter_year}-Q{quarter}")
-        quarter += 1
-
-    return windows
+    return tradable_availability_windows(
+        today=reference_date or date.today(),
+        quarter_count=quarter_count,
+    )
 
 
 WINDOWS = build_seed_windows()
@@ -348,34 +425,44 @@ def _demo_trade_timestamps(
 # Core seed function
 # ---------------------------------------------------------------------------
 
-async def seed_market_data(db: AsyncSession, *, force_reset: bool = False) -> None:
+async def seed_market_data(
+    db: AsyncSession,
+    *,
+    force_reset: bool = False,
+    allow_demo_reset: bool = False,
+) -> None:
     """Seed realistic market data. Idempotent unless force_reset is requested."""
 
-    # Check sentinel
-    existing = (await db.execute(
-        select(OrderBookOrder.id).where(OrderBookOrder.id == _SENTINEL_ID)
+    environment = os.environ.get("ENVIRONMENT", "production").strip().lower()
+    marker = (await db.execute(
+        select(SeedRun).where(SeedRun.seed_name == MARKET_SEED_NAME, SeedRun.environment == environment)
     )).scalar_one_or_none()
-
-    if existing is not None and not force_reset:
-        print("[market_seed] Sentinel found — already seeded, skipping.")
+    if marker is not None and not force_reset:
+        print("[market_seed] Seed run marker found — already seeded, skipping.")
         return
 
-    if existing is not None and force_reset:
-        print("[market_seed] Sentinel found — force reset requested, reseeding market data.")
+    if force_reset:
+        if environment == "production":
+            raise RuntimeError("demo reset is categorically forbidden in production")
+        if not allow_demo_reset:
+            raise RuntimeError("demo reset requires explicit opt-in")
+        bind = db.get_bind()
+        current_database = str(
+            (await db.execute(text("SELECT current_database()"))).scalar_one()
+        )
+        validate_demo_reset(
+            environment=environment,
+            explicit_opt_in=allow_demo_reset,
+            database_url=str(bind.url),
+            current_database=current_database,
+        )
+        print("[market_seed] Explicit synthetic reset requested.")
+        await reset_demo_market_data(db)
 
     # ------------------------------------------------------------------
     # Step 0: Clear old test data (reverse FK order)
     # ------------------------------------------------------------------
-    print("[market_seed] Clearing old test data...")
-    await db.execute(text("DELETE FROM watchlist_events WHERE watchlist_target_id IN (SELECT id FROM watchlist_targets WHERE order_id IS NOT NULL)"))
-    await db.execute(text("DELETE FROM watchlist_targets WHERE order_id IS NOT NULL"))
-    await db.execute(text("DELETE FROM commissions"))
-    await db.execute(text("DELETE FROM match_suggestions"))
-    await db.execute(text("DELETE FROM rfq_quotes"))
-    await db.execute(text("DELETE FROM rfqs"))
-    await db.execute(text("DELETE FROM trades"))
-    await db.execute(text("DELETE FROM orderbook_orders"))
-    await db.flush()
+    print("[market_seed] Preserving existing real market data...")
 
     # ------------------------------------------------------------------
     # Step 1: Ensure seed organizations exist
@@ -383,15 +470,15 @@ async def seed_market_data(db: AsyncSession, *, force_reset: bool = False) -> No
     print("[market_seed] Ensuring seed organizations...")
     for org in BUYER_ORGS:
         await db.execute(text(
-            "INSERT INTO organizations (id, name, type, verification_status) "
-            "VALUES (:id, :name, 'SHIPPING_LINE', 'APPROVED') "
+            "INSERT INTO organizations (id, name, type, verification_status, provenance) "
+            "VALUES (:id, :name, 'SHIPPING_LINE', 'APPROVED', 'DEMO') "
             "ON CONFLICT (id) DO NOTHING"
         ), {"id": org["id"], "name": org["name"]})
 
     for org in SUPPLIER_ORGS:
         await db.execute(text(
-            "INSERT INTO organizations (id, name, type, supplier_tier, verification_status) "
-            "VALUES (:id, :name, 'FUEL_SUPPLIER', :tier, 'APPROVED') "
+            "INSERT INTO organizations (id, name, type, supplier_tier, verification_status, provenance) "
+            "VALUES (:id, :name, 'FUEL_SUPPLIER', :tier, 'APPROVED', 'DEMO') "
             "ON CONFLICT (id) DO NOTHING"
         ), {"id": org["id"], "name": org["name"], "tier": org["tier"]})
 
@@ -435,7 +522,7 @@ async def seed_market_data(db: AsyncSession, *, force_reset: bool = False) -> No
 
                 created = _recent_seed_timestamp(window, reference_now)
 
-                order = OrderBookOrder(
+                order = _seed_order(
                     id=uuid.uuid4(),
                     organization_id=buyer["id"],
                     side=OrderSide.BID,
@@ -476,7 +563,7 @@ async def seed_market_data(db: AsyncSession, *, force_reset: bool = False) -> No
 
                 created = _recent_seed_timestamp(window, reference_now)
 
-                order = OrderBookOrder(
+                order = _seed_order(
                     id=uuid.uuid4(),
                     organization_id=supplier["id"],
                     side=OrderSide.ASK,
@@ -505,26 +592,8 @@ async def seed_market_data(db: AsyncSession, *, force_reset: bool = False) -> No
                 all_orders.append(order)
                 orders_by_product_port[key].append(order)
 
-    # Insert sentinel order (hidden — CANCELLED, qty 0)
-    sentinel = OrderBookOrder(
-        id=_SENTINEL_ID,
-        organization_id=BUYER_ORGS[0]["id"],
-        side=OrderSide.BID,
-        product_id=PRODUCT_IDS["Bio Methanol"],
-        delivery_point_id=DELIVERY_POINT_IDS["Singapore"],
-        quantity_mt=Decimal("0"),
-        remaining_quantity_mt=Decimal("0"),
-        price_per_mt_usd=Decimal("0"),
-        availability_window=SPOT_WINDOW,
-        status=OrderBookStatus.CANCELLED,
-        created_at=datetime(2020, 1, 1, tzinfo=timezone.utc),
-        updated_at=datetime(2020, 1, 1, tzinfo=timezone.utc),
-    )
-    db.add(sentinel)
-    await db.flush()
-
     total_orders = len(all_orders)
-    print(f"[market_seed] Created {total_orders} orders + sentinel.")
+    print(f"[market_seed] Created {total_orders} synthetic orders.")
 
     # ------------------------------------------------------------------
     # Step 2b: Coverage guarantee — ensure every window has orders
@@ -587,7 +656,7 @@ async def seed_market_data(db: AsyncSession, *, force_reset: bool = False) -> No
                     certification_scheme = _slice_certification_scheme(product_name, port_name, window)
                     bid_metadata = bid_seed_metadata(certification_scheme)
                     gap_qty = _qty()
-                    order = OrderBookOrder(
+                    order = _seed_order(
                         id=uuid.uuid4(),
                         organization_id=buyer["id"],
                         side=OrderSide.BID,
@@ -613,7 +682,7 @@ async def seed_market_data(db: AsyncSession, *, force_reset: bool = False) -> No
                     gap_qty = _qty()
                     certification_scheme = _slice_certification_scheme(product_name, port_name, window)
                     ask_metadata = ask_seed_metadata(certification_scheme)
-                    order = OrderBookOrder(
+                    order = _seed_order(
                         id=uuid.uuid4(),
                         organization_id=supplier["id"],
                         side=OrderSide.ASK,
@@ -726,12 +795,21 @@ async def seed_market_data(db: AsyncSession, *, force_reset: bool = False) -> No
         commission_rate = Decimal("0.500")
         commission_amt = (total_usd * commission_rate / Decimal("100")).quantize(Decimal("0.01"))
 
-        trade = Trade(
+        trade = _seed_trade(
             id=uuid.uuid4(),
             bid_order_id=bid.id,
             ask_order_id=ask.id,
             buyer_id=bid.organization_id,
             seller_id=ask.organization_id,
+            product_id=bid.product_id,
+            product_name=bid.product_name,
+            fuel_type=bid.fuel_type,
+            fuel_grade=bid.fuel_grade,
+            market_product=bid.market_product,
+            delivery_point_id=bid.delivery_point_id,
+            delivery_point_name=bid.delivery_point_name,
+            delivery_point_region=bid.region,
+            availability_window=bid.availability_window,
             initiated_by=_RNG.choice([Initiator.BUYER, Initiator.SELLER]),
             quantity_mt=trade_qty,
             price_per_mt_usd=trade_price,
@@ -825,7 +903,7 @@ async def seed_market_data(db: AsyncSession, *, force_reset: bool = False) -> No
                     certification_scheme = _slice_certification_scheme(product_name, port_name, window)
                     bid_metadata = bid_seed_metadata(certification_scheme)
                     gap_qty = _qty()
-                    order = OrderBookOrder(
+                    order = _seed_order(
                         id=uuid.uuid4(),
                         organization_id=buyer["id"],
                         side=OrderSide.BID,
@@ -849,7 +927,7 @@ async def seed_market_data(db: AsyncSession, *, force_reset: bool = False) -> No
                     gap_qty = _qty()
                     certification_scheme = _slice_certification_scheme(product_name, port_name, window)
                     ask_metadata = ask_seed_metadata(certification_scheme)
-                    order = OrderBookOrder(
+                    order = _seed_order(
                         id=uuid.uuid4(),
                         organization_id=supplier["id"],
                         side=OrderSide.ASK,
@@ -902,8 +980,8 @@ async def seed_market_data(db: AsyncSession, *, force_reset: bool = False) -> No
     for i, (product_name, port_name, qty, target_price) in enumerate(rfq_configs):
         buyer = _RNG.choice(BUYER_ORGS)
         status = _RNG.choices(
-            [RFQStatus.OPEN, RFQStatus.QUOTED, RFQStatus.ACCEPTED, RFQStatus.EXPIRED],
-            weights=[30, 35, 20, 15],
+            [RFQStatus.OPEN, RFQStatus.QUOTED, RFQStatus.EXPIRED],
+            weights=[40, 45, 15],
         )[0]
 
         created = _rand_date(
@@ -930,7 +1008,7 @@ async def seed_market_data(db: AsyncSession, *, force_reset: bool = False) -> No
         await db.flush()  # so rfq.id is available for quotes
 
         # Add 1-3 quotes per RFQ (only if status >= QUOTED)
-        if status in (RFQStatus.QUOTED, RFQStatus.ACCEPTED):
+        if status == RFQStatus.QUOTED:
             n_quotes = _RNG.randint(1, 3)
             pricing_range = PRICING.get(product_name, {}).get(port_name)
             for q_idx in range(n_quotes):
@@ -942,19 +1020,13 @@ async def seed_market_data(db: AsyncSession, *, force_reset: bool = False) -> No
                 else:
                     quote_price = _price(500, 900)
 
-                q_status = QuoteStatus.PENDING
-                if status == RFQStatus.ACCEPTED and q_idx == 0:
-                    q_status = QuoteStatus.ACCEPTED
-                elif status == RFQStatus.ACCEPTED and q_idx > 0:
-                    q_status = QuoteStatus.DECLINED
-
                 quote = RFQQuote(
                     id=uuid.uuid4(),
                     rfq_id=rfq.id,
                     seller_org_id=seller["id"],
                     price_per_mt_usd=quote_price,
                     notes=_RNG.choice(QUOTE_NOTES),
-                    status=q_status,
+                    status=QuoteStatus.PENDING,
                     created_at=created + timedelta(hours=_RNG.randint(2, 72)),
                 )
                 db.add(quote)
@@ -981,7 +1053,7 @@ async def seed_market_data(db: AsyncSession, *, force_reset: bool = False) -> No
     for org_index, quantity_mt, remaining_quantity_mt, price_per_mt_usd, status in DEMO_SLICE_DEPTH_BIDS:
         created = reference_now - timedelta(hours=12 + demo_depth_created)
         bid_metadata = bid_seed_metadata(demo_certification_scheme)
-        order = OrderBookOrder(
+        order = _seed_order(
             id=uuid.uuid4(),
             organization_id=BUYER_ORGS[org_index % len(BUYER_ORGS)]["id"],
             side=OrderSide.BID,
@@ -1002,7 +1074,7 @@ async def seed_market_data(db: AsyncSession, *, force_reset: bool = False) -> No
     for org_index, quantity_mt, remaining_quantity_mt, price_per_mt_usd, status in DEMO_SLICE_DEPTH_ASKS:
         created = reference_now - timedelta(hours=12 + demo_depth_created)
         ask_metadata = ask_seed_metadata(demo_certification_scheme)
-        order = OrderBookOrder(
+        order = _seed_order(
             id=uuid.uuid4(),
             organization_id=SUPPLIER_ORGS[org_index % len(SUPPLIER_ORGS)]["id"],
             side=OrderSide.ASK,
@@ -1039,18 +1111,18 @@ async def seed_market_data(db: AsyncSession, *, force_reset: bool = False) -> No
     # product, port, and window context without leaking demo liquidity onto the
     # public book.
     # ------------------------------------------------------------------
-    print("[market_seed] Creating Buy Corp / Sell Corp demo trades...")
+    print("[market_seed] Creating deterministic demo-account trades...")
 
     await db.execute(text(
-        "INSERT INTO organizations (id, name, type, verification_status) "
-        "VALUES (:id, :name, 'SHIPPING_LINE', 'APPROVED') "
+        "INSERT INTO organizations (id, name, type, verification_status, provenance) "
+        "VALUES (:id, :name, 'SHIPPING_LINE', 'APPROVED', 'DEMO') "
         "ON CONFLICT (id) DO NOTHING"
-    ), {"id": DEMO_BUYER_ORG_ID, "name": "Buy Corp"})
+    ), {"id": DEMO_BUYER_ORG_ID, "name": "Verdaxis Demo Buyer 06"})
     await db.execute(text(
-        "INSERT INTO organizations (id, name, type, supplier_tier, verification_status) "
-        "VALUES (:id, :name, 'FUEL_SUPPLIER', 'REGIONAL_SUPPLIER', 'APPROVED') "
+        "INSERT INTO organizations (id, name, type, supplier_tier, verification_status, provenance) "
+        "VALUES (:id, :name, 'FUEL_SUPPLIER', 'REGIONAL_SUPPLIER', 'APPROVED', 'DEMO') "
         "ON CONFLICT (id) DO NOTHING"
-    ), {"id": DEMO_SELLER_ORG_ID, "name": "Sell Corp"})
+    ), {"id": DEMO_SELLER_ORG_ID, "name": "Verdaxis Demo Supplier 06"})
     await db.flush()
 
     demo_trades_created = 0
@@ -1067,7 +1139,7 @@ async def seed_market_data(db: AsyncSession, *, force_reset: bool = False) -> No
         order_created_at = bid_created_at - timedelta(hours=2)
 
         ask_metadata = ask_seed_metadata(certification_scheme)
-        bid_order = OrderBookOrder(
+        bid_order = _seed_order(
             id=uuid.uuid4(),
             organization_id=DEMO_BUYER_ORG_ID,
             side=OrderSide.BID,
@@ -1082,7 +1154,7 @@ async def seed_market_data(db: AsyncSession, *, force_reset: bool = False) -> No
             created_at=order_created_at,
             updated_at=bid_created_at,
         )
-        ask_order = OrderBookOrder(
+        ask_order = _seed_order(
             id=uuid.uuid4(),
             organization_id=DEMO_SELLER_ORG_ID,
             side=OrderSide.ASK,
@@ -1115,12 +1187,21 @@ async def seed_market_data(db: AsyncSession, *, force_reset: bool = False) -> No
         commission_rate = Decimal("0.500")
         commission_amt = (total_usd * commission_rate / Decimal("100")).quantize(Decimal("0.01"))
 
-        trade = Trade(
+        trade = _seed_trade(
             id=uuid.uuid4(),
             bid_order_id=bid_order.id,
             ask_order_id=ask_order.id,
             buyer_id=DEMO_BUYER_ORG_ID,
             seller_id=DEMO_SELLER_ORG_ID,
+            product_id=bid_order.product_id,
+            product_name=bid_order.product_name,
+            fuel_type=bid_order.fuel_type,
+            fuel_grade=bid_order.fuel_grade,
+            market_product=bid_order.market_product,
+            delivery_point_id=bid_order.delivery_point_id,
+            delivery_point_name=bid_order.delivery_point_name,
+            delivery_point_region=bid_order.region,
+            availability_window=bid_order.availability_window,
             initiated_by=initiator,
             quantity_mt=trade_qty,
             price_per_mt_usd=trade_price,
@@ -1144,5 +1225,10 @@ async def seed_market_data(db: AsyncSession, *, force_reset: bool = False) -> No
     # ------------------------------------------------------------------
     # Commit everything
     # ------------------------------------------------------------------
+    if marker is None:
+        db.add(SeedRun(seed_name=MARKET_SEED_NAME, environment=environment, run_metadata={"provenance": "DEMO"}))
+    else:
+        marker.completed_at = datetime.now(timezone.utc)
+        marker.run_metadata = {"provenance": "DEMO"}
     await db.commit()
     print("[market_seed] Done. Market data seeded successfully.")

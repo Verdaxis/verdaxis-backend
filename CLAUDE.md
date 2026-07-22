@@ -4,11 +4,26 @@
 
 The live VPS deployment is systemd-based, not Docker-based:
 
-- Production backend: `/home/verdaxis-prod/verdaxis/prod/be`, branch `prod`, service `verdaxis-backend.service`, health `https://api.verdaxis.exchange/health`
-- Staging backend: `/home/verdaxis-prod/verdaxis/staging/be`, branch `staging`, service `verdaxis-backend-staging.service`, health `https://api-staging.verdaxis.exchange/health`
+- Production backend: `/home/verdaxis-prod/verdaxis/prod/be`, branch `prod`, service `verdaxis-backend.service`, readiness `https://api.verdaxis.exchange/health/ready`
+- Staging backend: `/home/verdaxis-prod/verdaxis/staging/be`, branch `staging`, service `verdaxis-backend-staging.service`, readiness `https://api-staging.verdaxis.exchange/health/ready`
+- Production Uvicorn binds `127.0.0.1:8000`; staging binds `127.0.0.1:8001`. Caddy/reverse-proxy health URLs are the public surfaces.
 - Deploy helper: `./scripts/deploy.sh`
+- Unit installer: `./scripts/install_systemd_units.sh --dry-run --environment <production|staging> --source-ref <approved-40-hex-sha>` from that environment's fixed, clean checkout. It stages the exact committed environment allowlist and unit bytes with a digest manifest in a private root-owned directory before preflight; production and staging refs are independent.
+- News refresh is owned only by `verdaxis-news-refresh.timer` in production and `verdaxis-news-refresh-staging.timer` in staging. Web workers do not schedule it, and the API has no manual refresh route.
+- Product-analytics pruning is owned only by its environment-specific timer. Its service requires PostgreSQL/network readiness, uses bounded retries and the news sandbox, and its destructive CLI requires an explicit deployed environment and full SHA matching `.runtime-release.env`; it has no development default.
 
-The deploy helper prints branch, SHA, service, and health target, refuses dirty worktrees by default, runs Alembic, restarts the correct systemd service, and checks live health. Use `./scripts/deploy.sh --dry-run` before real deploys. Use `ALLOW_DIRTY=1` only for an intentional hotfix deploy from a known dirty tree.
+The deploy helper always refuses dirty worktrees. Canonical checkouts fix their branch, guard directory, and trusted tool path and discard ambient Git/database routing overrides. Dry-run resolves and archives one remote full SHA, verifies only its immutable unit manifest, migration policy, ACL convergence bundle, and systemd bytes with trusted tooling, and never executes candidate Python/build/Alembic code or supplies it with `.env`, live DB, home, agent, or network access. It prints `APPROVED_RELEASE_SHA=<sha>`; real deploy requires that exact release SHA, the same exact `MIGRATION_APPROVED_SOURCE_SHA`, an exact expected current revision, and an allowlisted literal target from that SHA's `deploy/migration-checkpoints.tsv`. Missing values, aliases such as `head`, moved source, unexpected live state, and unlisted transitions refuse before source mutation. Checkpoint application and startup revision verification require explicit app/migrator URLs on the same database endpoint with distinct exact roles; they never fall back to `DATABASE_URL`. The release artifact publishes the exact target as `MIGRATION_REVISION`; backend units verify that revision rather than source head, so reviewed pauses remain startable. Actual deploy uses a durable per-environment flock and `.runtime-deploy/<environment>.state` before source mutation; every runtime service fails closed except the explicit restart-authorized phase. State remains through restart/readiness and any failure or interruption, then clears only after exact readiness. There is no identity-only rollback or destructive Git reset. It accepts readiness only when parsed JSON reports exact `status=ok`, `db=ok`, environment, and full release SHA. The app consumes this artifact from systemd and never invokes Git. Install the guard-aware unit bundle before relying on this contract. After dry-run, pass all four approval/checkpoint variables shown in `README.md`; never use `alembic upgrade head` for staging or production deployment.
+
+Integration gate: leave `rh_20260720_runtime_metadata` directly after `pa_20260715_analytics_facts`; the combined tree reparents `sec_20260720_identity` onto `rh` and keeps security linear through `sec_20260720_device` before market migrations. Add explicit checkpoint transitions at each reviewed identity/device/quarantine pause. At the security checkpoint, extend the ACL policy with exact pending-registration, organization-join, refresh-session, and user admission/KYC table/column writes; do not let new columns inherit authority. The combined immutable unit manifest must add both environments' audited auth-maintenance service/timer bytes without changing installer code. Audit/status history is app-append-only. Seed, quarantine, market evidence, and provenance mutation require integration-owned trusted writers; the legacy market-signal CLI needs a separately approved operator identity, never blanket app DML. Preserve four Uvicorn workers; the shared SSE transport is built (market_event_dispatch outbox sequencer + org-bound hub; see docs/market-event-dispatch.md) and its staging activation stays behind the combined gates. Do not retain local-monitor's identity-only failure rollback, which would pair stale SHA with new bytes.
+The local-monitor source does not modify or own the deploy helper, application
+settings/readiness producer, runtime release transaction, database preflight,
+or Alembic execution. Canonical runtime integration must atomically publish
+matching environment/full-SHA runtime and monitor identity, keep both aligned
+with the code that remains checked out after a failure, and validate the exact
+four-key `/health/ready` corpus before declaring a restart successful. The
+monitor contract and integration seams are in `deploy/monitor/README.md`.
+There is no monitor-owned installer or activation path in this branch. Any
+live deploy, even a dry run, requires separate operator authorization.
 
 Read ARCHITECTURE.md before exploring the codebase.
 
@@ -17,7 +32,7 @@ Read ARCHITECTURE.md before exploring the codebase.
 Backend API for Verdaxis -- a maritime intelligence and procurement platform. Handles fuel procurement (order book with BID/ASK matching), compliance auditing (EU ETS, FuelEU Maritime), port intelligence with geospatial data, AI copilot via Google Gemini, and a trade lifecycle (create -> confirm -> deliver -> pay).
 
 **Repo:** `jonathanjie/verdaxis-backend`
-**Runtime:** Python 3.10+ / FastAPI / PostgreSQL 15 with PostGIS / SQLAlchemy 2 (async) / Alembic
+**Runtime:** Python 3.10+ / FastAPI / PostgreSQL 17.9 with PostGIS 3.6.2 / SQLAlchemy 2 (async) / Alembic
 
 ## Development Commands
 
@@ -29,34 +44,55 @@ source ./venv/bin/activate
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
 # Run all unit tests (no DB required, uses sqlite in-memory)
-DATABASE_URL="sqlite+aiosqlite:///:memory:" pytest tests/unit/ -v
+ENVIRONMENT=test RELEASE_SHA=test \
+  JWT_SECRET=test-secret-key-for-testing-minimum-32-chars \
+  DATABASE_URL="sqlite+aiosqlite:///:memory:" pytest tests/unit/ -v
 
-# Run integration tests (requires running Docker backend)
-pytest tests/integration/ -v
+# Integration/E2E is mutating and requires an explicitly started disposable
+# server on a numeric-loopback ephemeral port. The source-tree producer is:
+ENVIRONMENT=test \
+RELEASE_SHA=$(git rev-parse HEAD) \
+DISPOSABLE_TEST_TOKEN=<32-plus-character-token> \
+venv/bin/python -m tests.disposable_server --port <ephemeral-port>
 
-# Run integration tests against production
-TEST_API_URL=http://144.126.151.136:8000 pytest tests/integration/ -v
+# Run pytest with the same token; without these flags collection skips the
+# integration/E2E suites. Staging/production are never integration targets.
+DISPOSABLE_ITEST_PASSWORD=... pytest tests/integration/ -v \
+  --run-disposable-integration \
+  --disposable-target-url http://127.0.0.1:<ephemeral-port> \
+  --disposable-target-token <matching-32-plus-character-token>
 
-# Run Alembic migrations
+# Build a disposable/development schema only; deployed environments use the
+# source-attested literal checkpoint helper, never `upgrade head`
 alembic upgrade head
 
 # Create a new migration
 alembic revision --autogenerate -m "description_here"
 
-# Seed the database
-python scripts/seed.py
+# Seed an explicitly attested staging/disposable database only; see README
+SEED_DATABASE_URL=... SEED_TARGET_DATABASE=verdaxis_staging \
+  SEED_RUNTIME_ENV=staging ALLOW_SEED_MUTATIONS=I_UNDERSTAND_SEED_MUTATIONS \
+  python scripts/seed.py
 
 # Full deploy script (on server, from prod/be or staging/be)
 ./scripts/deploy.sh --dry-run
 ./scripts/deploy.sh
+
+# No-change unit provenance/install preflight for one independently promoted env
+./scripts/install_systemd_units.sh --dry-run \
+  --environment staging --source-ref <approved-staging-40-hex-sha>
 ```
 
 ## Deployment
 
 **Server:** `verdaxis-prod@144.126.151.136`
-**API:** `https://api.verdaxis.exchange/api` (Caddy reverse proxy -> `localhost:8000`)
+**API:** `https://api.verdaxis.exchange/api` (Caddy reverse proxy -> `127.0.0.1:8000`; staging -> `127.0.0.1:8001`)
 **Swagger:** `https://api.verdaxis.exchange/docs`
 **Admin Panel:** `https://api.verdaxis.exchange/admin` (credentials from `ADMIN_USERNAME`/`ADMIN_PASSWORD` in `.env`)
+
+The production frontend (`app.verdaxis.exchange`) is hosted on Vercel. Caddy
+fronts the production API, staging API, and staging frontend; it does not serve
+the production frontend build.
 
 ### CI/CD (GitHub Actions)
 
@@ -77,7 +113,7 @@ cd /home/verdaxis-prod/verdaxis/staging/be   # or /home/verdaxis-prod/verdaxis/p
 - The database URL is assembled from individual env vars (`DATABASE_HOST`, `DATABASE_PORT`, `DATABASE_NAME`, `DATABASE_USER`, `DATABASE_PASSWORD`) unless `DATABASE_URL` is explicitly set
 - In Docker, `DATABASE_HOST=verdaxis-db` (the container name)
 - Alembic's `env.py` overrides `sqlalchemy.url` from Settings at runtime. The `alembic.ini` value (`driver://user:pass@localhost/dbname`) is never used.
-- Alembic `include_object` excludes `spatial_ref_sys` (PostGIS system table) from autogeneration
+- Alembic compares columns, foreign keys, indexes, types, defaults, and comments. It excludes only explicitly enumerated PostGIS/system or documented legacy objects; targeted callbacks cover non-native enum storage and Python-owned defaults.
 - All models MUST be imported in `app/models/__init__.py` or Alembic autogenerate will miss them
 
 ### Key Tables
@@ -113,7 +149,9 @@ cd /home/verdaxis-prod/verdaxis/staging/be   # or /home/verdaxis-prod/verdaxis/p
 - `GET /api/orderbook/with-ci` -- Orders enriched with CI-adjusted pricing
 - `GET /api/listings` -- Backward-compatible ASK listing view
 - `GET /` -- Health message
-- `GET /health` -- Status check
+- `GET /health/ready` -- Bounded database readiness; use for off-host monitoring
+- `GET /health/live` -- Process-only liveness
+- `GET /health` -- Backward-compatible readiness alias
 
 ### Auth (`/api/auth`)
 - `POST /api/auth/login` -- OAuth2 password form (email in `username` field) -> JWT
@@ -140,13 +178,10 @@ cd /home/verdaxis-prod/verdaxis/staging/be   # or /home/verdaxis-prod/verdaxis/p
 - `GET /api/inventory` -- Supplier's inventory
 - `POST /api/inventory` -- Add inventory item
 - `POST /api/inventory/{id}/publish` -- Convert inventory to ASK order
-- `GET /api/compliance/ledger` -- Org compliance records
-- `POST /api/compliance/verify` -- Upload document for AI verification (stub)
 - `POST /api/ai/chat` -- Gemini chat
 - `GET /api/matchmaking/suggestions` -- Match suggestions for org
 - `POST /api/matchmaking/generate/{order_id}` -- Trigger match generation
 - `PATCH /api/matchmaking/suggestions/{id}/dismiss`
-- `GET /api/dashboard/health` -- System metrics (CPU, RAM, disk)
 
 ### Admin Only
 - `GET /api/orders/admin/commissions` -- All commissions
@@ -211,11 +246,11 @@ cd /home/verdaxis-prod/verdaxis/staging/be   # or /home/verdaxis-prod/verdaxis/p
 
 11. **Availability windows are canonical strings, not a static enum.** Persist `SPOT`, `YYYY-MM`, `YYYY-QN`, and legacy-compatible `YYYY-CAL`. UI labels like `M`, `M+1`, and `Next Quarter` must be resolved to canonical codes before they hit the API.
 
-12. **`python-jose` is unmaintained.** Last release was 2022 (v3.5.0) with known CVEs. Recommend migrating to `PyJWT` or `joserfc` for JWT handling.
+12. **JWT helpers use the declared `PyJWT` dependency.** Do not reintroduce undeclared `python-jose` imports in scripts or tests.
 
 13. **`passlib` is unmaintained.** Last release was 2020 (v1.7.4). Depends on the deprecated `crypt` module removed in Python 3.13. Recommend migrating to direct `bcrypt` or `argon2-cffi`.
 
-14. **Redis container is running but unused.** `docker-compose.yml` provisions a Redis container, but no application code references Redis. It consumes memory and creates unnecessary attack surface. Should be removed or utilized.
+14. **Redis is an intentional Docker Compose dependency.** `docker-compose.yml` provisions Redis for the upcoming shared event/rate-limit work; keep the service and its configuration intact.
 
 15. **Never use `--reload` in production Docker.** The `docker-compose.yml` `command:` used to include `--reload`, which caused uvicorn's `StatReload` to poll all 11,243 files in the bind-mounted `/app` directory (including `venv/` with 3,267 `.py` files and `postgres_data/`). This burned 243% CPU doing nothing. The fix: production compose uses plain `uvicorn` without `--reload`; dev uses `docker-compose.override.yml` with `--reload-dir` targeting only source directories.
 
@@ -223,24 +258,43 @@ cd /home/verdaxis-prod/verdaxis/staging/be   # or /home/verdaxis-prod/verdaxis/p
 
 17. **Frontend polls `/api/notifications` even when unauthenticated.** The frontend has a polling loop that hits `GET /api/notifications` and receives `401 Unauthorized` repeatedly. This generates log noise and wastes request cycles. The frontend should check auth state before starting the polling interval, or the polling should stop after receiving a 401.
 
-18. **Server is exposed on `0.0.0.0:8000` and receives internet scanner traffic.** Random IPs probe for `/bins/`, `httpbin.org`, `/backup/`, etc. Consider restricting the backend port to `127.0.0.1:8000` in `docker-compose.yml` and letting Caddy handle external traffic exclusively.
+18. **Production backend exposure is systemd-loopback only.** Production binds `127.0.0.1:8000` and staging binds `127.0.0.1:8001`; Caddy handles external traffic. Docker Compose remains a development/disposable topology and is not the live service manager.
 
 ## Environment Variables
 
 Key variables in `.env` (loaded by `pydantic-settings`):
 
 ```
+ENVIRONMENT=production          # development/test/staging/production
+RELEASE_SHA=...                 # Full 40-hex SHA required in staging/production
 DATABASE_HOST=verdaxis-db       # "localhost" for non-Docker
 DATABASE_PORT=5432
 DATABASE_NAME=verdaxis
-DATABASE_USER=postgres
+DATABASE_USER=verdaxis_app       # prod exact; staging is verdaxis_app_staging
 DATABASE_PASSWORD=...
 DATABASE_URL=                   # Optional override (e.g. sqlite+aiosqlite:///:memory: for tests)
+MIGRATOR_DATABASE_URL=          # Required deployed: verdaxis_migrator[_staging], same DB, explicit non-placeholder password
 JWT_SECRET=...                  # MUST be strong in production
 GEMINI_API_KEY=...              # Optional, AI features degrade gracefully without it
 ADMIN_USERNAME=...              # For /admin panel login
 ADMIN_PASSWORD=...
 ENABLE_AUTH_BYPASS=false        # Never true in production
+DB_POOL_SIZE=2                  # Per-worker SQLAlchemy pool
+DB_MAX_OVERFLOW=1               # Per-worker overflow; see docs/runtime-hardening.md
+UVICORN_WORKERS=4               # Authoritative systemd/config/pool worker count
+DB_SERVICE_COUNT=2              # Immutable deployed prod + staging topology
+DB_MAX_CONNECTIONS=100
+DB_RESERVED_CONNECTIONS=20      # Deployed minimum maintenance reserve
+DB_STATEMENT_TIMEOUT_MS=30000
+DB_LOCK_TIMEOUT_MS=3000
+DB_IDLE_IN_TRANSACTION_SESSION_TIMEOUT_MS=60000
+MIGRATOR_STATEMENT_TIMEOUT_MS=300000
+MIGRATOR_LOCK_TIMEOUT_MS=30000
+MIGRATOR_IDLE_IN_TRANSACTION_SESSION_TIMEOUT_MS=300000
+KYC_MAX_FILE_BYTES=10485760   # 10 MiB per document
+KYC_MAX_TOTAL_BYTES=20971520  # 20 MiB per KYC request
+HEALTH_READINESS_TIMEOUT_SECONDS=2
+BACKEND_CORS_ORIGINS=          # Omit for exact environment-specific allowlist
 ```
 
 ## Git Workflow
@@ -272,9 +326,6 @@ Before exploring the tree, read:
 2. `.codesight/wiki/overview.md` — architecture and high-impact files
 3. Load topic articles on demand: `.codesight/wiki/<topic>.md` (auth, database, payments, users, ui, etc.)
 4. `.codesight/CODESIGHT.md` — full route/schema/lib map (fallback if wiki missing)
-2. `.codesight/libs.md` if present
-3. `.codesight/routes.md` if the task touches routes or handlers
-4. `.codesight/schema.md` if the task touches models or database code
 
 Only open full source files after consulting the wiki first.
 <!-- codesight-local:end -->

@@ -1,7 +1,12 @@
 [Unit]
 Description=Prune Verdaxis product analytics login-day facts (800-date retention, prod)
 Documentation=file:/home/verdaxis-prod/verdaxis/prod/fe/docs/product-analytics-runbook.md
-After=network-online.target
+Wants=network-online.target
+Requires=postgresql.service
+After=network-online.target postgresql.service
+RequiresMountsFor=/home/verdaxis-prod/verdaxis/prod/be
+StartLimitIntervalSec=15min
+StartLimitBurst=5
 
 [Service]
 Type=oneshot
@@ -9,9 +14,26 @@ User=verdaxis-prod
 Group=verdaxis-prod
 WorkingDirectory=/home/verdaxis-prod/verdaxis/prod/be
 EnvironmentFile=/home/verdaxis-prod/verdaxis/prod/be/.env
-ExecStart=/home/verdaxis-prod/verdaxis/prod/be/venv/bin/python scripts/prune_product_analytics.py
+EnvironmentFile=/home/verdaxis-prod/verdaxis/prod/be/.runtime-release.env
+ExecStartPre=/usr/bin/test -r /home/verdaxis-prod/verdaxis/prod/be/.env
+ExecStartPre=/usr/bin/test -r /home/verdaxis-prod/verdaxis/prod/be/.runtime-release.env
+ExecStartPre=/bin/sh -c 'test ! -e /home/verdaxis-prod/verdaxis/prod/be/.runtime-deploy/production.state || grep -qx DEPLOYMENT_STATE=restart-authorized /home/verdaxis-prod/verdaxis/prod/be/.runtime-deploy/production.state'
+ExecStartPre=/usr/bin/pg_isready --quiet --timeout=5
+ExecStart=/home/verdaxis-prod/verdaxis/prod/be/venv/bin/python scripts/prune_product_analytics.py --environment production --release-sha ${RELEASE_SHA}
 Nice=10
 IOSchedulingClass=idle
+Restart=on-failure
+RestartSec=30s
 NoNewPrivileges=true
 PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=read-only
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictSUIDSGID=true
+LockPersonality=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
 TimeoutStartSec=300

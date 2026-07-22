@@ -1,6 +1,39 @@
 from __future__ import annotations
 
 from app.models.orderbook import OrderBookOrder, OrderSide
+from app.models.user import Organization, User, UserRole, UserStatus
+from sqlalchemy import select
+
+
+async def execution_party_is_eligible(db, *, user: User, organization: Organization | None = None) -> bool:
+    """Return true only for a concrete admitted user and approved tenant."""
+    user_id = getattr(user, "id", None) if user else None
+    user_org_id = getattr(user, "organization_id", None) if user else None
+    if user_id is None or user_org_id is None:
+        return False
+    if getattr(user, "role", None) not in {UserRole.BUYER, UserRole.SUPPLIER}:
+        return False
+    if getattr(user, "status", None) != UserStatus.APPROVED or not getattr(user, "email_verified", False):
+        return False
+    if getattr(user, "must_change_password", False):
+        return False
+    # KYC remains advisory for pending/legacy users. An explicit human
+    # rejection revokes execution, and any org-bound state is valid only for
+    # the user's current organization.
+    if getattr(user, "kyc_status", None) == "REJECTED":
+        return False
+    kyc_organization_id = getattr(user, "kyc_organization_id", None)
+    if kyc_organization_id is not None and kyc_organization_id != user_org_id:
+        return False
+    if organization is None and hasattr(db, "execute"):
+        result = await db.execute(select(Organization).where(Organization.id == user.organization_id))
+        organization = result.scalar_one_or_none()
+    organization_id = getattr(organization, "id", None) if organization else None
+    return (
+        organization_id is not None
+        and organization_id == user_org_id
+        and getattr(organization, "verification_status", None) == "APPROVED"
+    )
 
 
 def normalize_certification_scheme(value: str | None) -> str | None:

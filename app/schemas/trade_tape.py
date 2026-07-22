@@ -6,6 +6,7 @@ from typing import Literal, Optional
 from uuid import UUID
 
 from pydantic import BaseModel
+from app.schemas.market_activity import MarketDemoStatus, MarketScope, MarketSourceKind
 
 
 class TradeTapeEntry(BaseModel):
@@ -24,7 +25,9 @@ class TradeTapeEntry(BaseModel):
     availability_window: str
     is_demo_trade: bool = False
     scope: Literal["DELIVERY_POINT", "REGION", "UNKNOWN"] = "UNKNOWN"
-    provenance_kind: Literal["CONFIRMED_TRADE", "DEMO_SEED"] = "CONFIRMED_TRADE"
+    provenance_kind: str = "UNKNOWN"
+    source_kind: MarketSourceKind = MarketSourceKind.UNKNOWN
+    demo_status: MarketDemoStatus = MarketDemoStatus.UNKNOWN
 
 
 class TradeTapeResponse(BaseModel):

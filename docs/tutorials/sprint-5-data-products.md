@@ -424,7 +424,7 @@ The server holds the connection open and pushes events as they happen:
 
 ```
 Client -> GET /api/auth/stream-token
-Client -> GET /api/stream/activity?token=eyJ...
+Client -> GET /api/stream/activity?stream_token=eyJ...
 Server -> HTTP 200, Content-Type: text/event-stream
 
 data: {"event": "new_listing", "data": {"fuel_type": "VLSFO", "quantity_mt": 5000}}
@@ -437,7 +437,7 @@ data: {"event": "trade_matched", "data": {"price": 520.50, "quantity_mt": 1000}}
 **Problem:** The `EventSource` API does not support custom headers (no `Authorization`).
 **Solution:** A 60-second `type="stream"` JWT is requested from
 `GET /api/auth/stream-token` using normal bearer auth, then passed as a query
-parameter: `?token=<stream JWT>`. Access and refresh tokens are not accepted in
+parameter: `?stream_token=<stream JWT>`. Access and refresh tokens are not accepted in
 the SSE query parameter.
 
 **File:** `app/routers/activity.py`

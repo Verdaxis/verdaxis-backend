@@ -13,6 +13,7 @@
 - `alembic/versions/a1b2c3d4e5f6_unified_orderbook_migration.py` — function upgrade: () -> None, function downgrade: () -> None
 - `alembic/versions/alerts_2026_03_add_price_alerts.py` — function upgrade: () -> None, function downgrade: () -> None
 - `alembic/versions/anon_trade_2026_03_add_trade_is_anonymous.py` — function upgrade: () -> None, function downgrade: () -> None
+- `alembic/versions/auth_2026_07_add_must_change_password.py` — function upgrade: () -> None, function downgrade: () -> None
 - `alembic/versions/b1c2d3e4f5g6_add_ci_fields_to_orderbook.py` — function upgrade: () -> None, function downgrade: () -> None
 - `alembic/versions/bm_2026_04_benchmarks.py` — function upgrade: () -> None, function downgrade: () -> None
 - `alembic/versions/c2d3e4f5g6h7_add_match_suggestions.py` — function upgrade: () -> None, function downgrade: () -> None
@@ -30,6 +31,7 @@
 - `alembic/versions/e4f5g6h7i8j9_widen_notification_type_column.py` — function upgrade: () -> None, function downgrade: () -> None
 - `alembic/versions/f10cf6fa2019_rename_rfq_to_orders.py` — function upgrade: () -> None, function downgrade: () -> None
 - `alembic/versions/f5g6h7i8j9k0_add_password_changed_at.py` — function upgrade: () -> None, function downgrade: () -> None
+- `alembic/versions/fc_2026_06_monitor_signals.py` — function upgrade: () -> None, function downgrade: () -> None
 - `alembic/versions/fk_orderbook_2026_03_orderbook_product_dp_fks.py` — function upgrade: () -> None, function downgrade: () -> None
 - `alembic/versions/g6h7i8j9k0l1_add_audit_logs_table.py` — function upgrade: () -> None, function downgrade: () -> None
 - `alembic/versions/h7i8j9k0l1m2_add_email_verification_and_kyc_fields.py` — function upgrade: () -> None, function downgrade: () -> None
@@ -39,18 +41,34 @@
 - `alembic/versions/news_2026_03_add_news_items.py` — function upgrade: () -> None, function downgrade: () -> None
 - `alembic/versions/ob_2026_04_availability_windows.py` — function upgrade: () -> None, function downgrade: () -> None
 - `alembic/versions/ob_2026_04_supplier_listing_metadata.py` — function upgrade: () -> None, function downgrade: () -> None
+- `alembic/versions/pa_20260715_add_product_analytics_facts.py` — function upgrade: () -> None, function downgrade: () -> None
+- `alembic/versions/pref_20260709_add_user_preferences.py` — function upgrade: () -> None, function downgrade: () -> None
 - `alembic/versions/pw_reset_2026_03_add_password_reset_fields.py` — function upgrade: () -> None, function downgrade: () -> None
 - `alembic/versions/ref_2026_03_add_referrals.py` — function upgrade: () -> None, function downgrade: () -> None
 - `alembic/versions/rfq_2026_03_add_rfq_tables.py` — function upgrade: () -> None, function downgrade: () -> None
+- `alembic/versions/rh_20260720_runtime_metadata.py` — function upgrade: () -> None, function downgrade: () -> None
+- `alembic/versions/sb_2026_04_live_slice_benchmarks.py` — function upgrade: () -> None, function downgrade: () -> None
 - `alembic/versions/sub_2026_03_add_subscriptions.py` — function upgrade: () -> None, function downgrade: () -> None
+- `alembic/versions/usr_2026_04_onboarding_survey.py` — function upgrade: () -> None, function downgrade: () -> None
 - `alembic/versions/wl_2026_03_add_watchlists.py` — function upgrade: () -> None, function downgrade: () -> None
 - `alembic/versions/wl_2026_04_market_radar.py` — function upgrade: () -> None, function downgrade: () -> None
 - `alembic/versions/wl_2026_04_watchlist_entry_uniqueness.py` — function upgrade: () -> None, function downgrade: () -> None
-- `find_buyer.py` — function check_buyers: ()
-- `fix_seller_status.py` — function fix_user: ()
-- `reset_buyer_password.py` — function reset_password: ()
+- `scripts/benchmark_product_analytics.py` — function main: () -> int
 - `scripts/check_users.py` — function main: ()
+- `scripts/explain_product_analytics.py` — function main: () -> int, function run: (days, output) -> int
 - `scripts/import_gena_csv.py` — function import_csv: (file_path, fuel_type)
+- `scripts/ingest_market_signals.py`
+  - function assert_staging_runtime: () -> None
+  - function assert_expected_database: (expected_name) -> None
+  - function read_rows: (file_path) -> list[dict]
+  - function print_report: (report) -> None
+  - function main: () -> None
+  - function run: (args) -> int
+- `scripts/prune_product_analytics.py`
+  - function compute_cutoff: (today) -> date
+  - function prune_login_days: (session, *, today) -> int
+  - function main: () -> int
+- `scripts/run_demo_activity.py` — function main: () -> None
 - `scripts/scrape_fleet_demand.py`
   - function run_batch: (commands, timeout) -> str
   - function extract_last_value: (raw) -> str
@@ -58,8 +76,9 @@
   - function get_page_body: (url) -> str
   - function extract_int: (text, patterns) -> int | None
   - function scrape: ()
-- `scripts/seed.py` — function main: () -> None
+- `scripts/seed.py` — function parse_args: () -> argparse.Namespace, function main: () -> None
 - `scripts/seed_compliance_data.py` — function add_entry: (org_key, transaction_type, amount, currency, units, description, reference_id, created_at)
+- `scripts/seed_forward_monitoring_demo.py` — function assert_catalog_ready: (db) -> None, function main: () -> None
 - `scripts/seed_maersk_vessels.py` — function seed_vessels: ()
 - `scripts/seed_port_inventory.py`
   - function get_region: (port_id)
@@ -88,4 +107,11 @@
   - function format_geography_point: (lng, lat)
   - function insert_vessels: (conn, vessels)
   - function main: ()
-- `scripts/test_purchase_flow.py` — function create_local_token: (email, role, user_id), function main: ()
+- `scripts/smoke_umami_product_analytics.py`
+  - function validate_event_data_events: (payload) -> dict[str, Any]
+  - function validate_event_data_properties: (payload) -> dict[str, Any]
+  - function validate_event_data_values: (payload) -> dict[str, Any]
+  - function validate_event_data_pivot_envelope: (payload) -> dict[str, Any]
+  - function ensure_permitted_base_url: (base_url, *, allow_remote_readonly) -> None
+  - function main: () -> int
+  - _...2 more_

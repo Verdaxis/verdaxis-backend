@@ -1,0 +1,10 @@
+[Unit]
+Description=Hourly Verdaxis authentication maintenance (production)
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+RandomizedDelaySec=10m
+
+[Install]
+WantedBy=timers.target

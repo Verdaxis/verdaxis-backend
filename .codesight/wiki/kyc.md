@@ -6,7 +6,7 @@ The Kyc subsystem handles **1 routes** and touches: auth, db.
 
 ## Routes
 
-- `POST` `/submit` → in: Annotated [auth, db, upload]
+- `POST` `/submit` [auth, db, upload]
   `app/routers/kyc.py`
 
 ## Source Files

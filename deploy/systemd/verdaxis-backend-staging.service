@@ -1,0 +1,49 @@
+[Unit]
+Description=Verdaxis Backend API (staging)
+Documentation=file:/home/verdaxis-prod/verdaxis/staging/be/README.md
+Wants=network-online.target
+Requires=postgresql.service
+After=network-online.target postgresql.service
+RequiresMountsFor=/home/verdaxis-prod/verdaxis/staging/be
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=verdaxis-prod
+Group=verdaxis-prod
+WorkingDirectory=/home/verdaxis-prod/verdaxis/staging/be
+EnvironmentFile=/home/verdaxis-prod/verdaxis/staging/be/.env
+EnvironmentFile=/home/verdaxis-prod/verdaxis/staging/be/.runtime-release.env
+Environment=UVICORN_WORKERS=4
+ExecStartPre=/usr/bin/test -r /home/verdaxis-prod/verdaxis/staging/be/.env
+ExecStartPre=/usr/bin/test -r /home/verdaxis-prod/verdaxis/staging/be/.runtime-release.env
+ExecStartPre=/bin/sh -c 'test ! -e /home/verdaxis-prod/verdaxis/staging/be/.runtime-deploy/staging.state || grep -qx DEPLOYMENT_STATE=restart-authorized /home/verdaxis-prod/verdaxis/staging/be/.runtime-deploy/staging.state'
+ExecStartPre=/home/verdaxis-prod/verdaxis/staging/be/venv/bin/python scripts/verify_migration_revision.py --expected ${MIGRATION_REVISION}
+ExecStart=/home/verdaxis-prod/verdaxis/staging/be/venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8001 --workers ${UVICORN_WORKERS} --no-access-log --proxy-headers --forwarded-allow-ips 127.0.0.1
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=5
+KillSignal=SIGTERM
+TimeoutStopSec=30
+TimeoutStartSec=120
+LimitNOFILE=65536
+TasksMax=256
+MemoryHigh=768M
+MemoryMax=1G
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=read-only
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictSUIDSGID=true
+LockPersonality=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+
+[Install]
+WantedBy=multi-user.target

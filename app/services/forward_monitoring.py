@@ -7,7 +7,7 @@ from decimal import Decimal
 from typing import TypeVar
 from uuid import UUID
 
-from sqlalchemy import Select, func, select, tuple_
+from sqlalchemy import Select, and_, case, func, select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.forward_monitoring import (
@@ -96,32 +96,74 @@ def _is_trusted_real(row, run: MarketSignalIngestionRun | None, signal_type: Mar
     )
 
 
+def _trusted_real_clause(model, signal_type: MarketSignalType):
+    expected_source_kind = _SIGNAL_TO_REAL_SOURCE_KIND[signal_type].value
+    return and_(
+        model.is_demo.is_(False),
+        model.is_verified_real.is_(True),
+        model.trusted_ingestion_run_id.is_not(None),
+        MarketSignalIngestionRun.id.is_not(None),
+        MarketSignalIngestionRun.verified_at.is_not(None),
+        MarketSignalIngestionRun.source == model.source,
+        MarketSignalIngestionRun.signal_family == signal_type.value,
+        MarketSignalIngestionRun.source_kind == expected_source_kind,
+    )
+
+
+def _evidence_class_expression(model, signal_type: MarketSignalType):
+    return case(
+        (model.is_demo.is_(True), "DEMO"),
+        (_trusted_real_clause(model, signal_type), "REAL"),
+        else_="UNKNOWN",
+    )
+
+
+def _partition_rows(
+    rows_with_runs: list[tuple[object, MarketSignalIngestionRun | None]],
+    signal_type: MarketSignalType,
+) -> tuple[
+    list[tuple[object, MarketSignalIngestionRun | None]],
+    list[tuple[object, MarketSignalIngestionRun | None]],
+    list[tuple[object, MarketSignalIngestionRun | None]],
+]:
+    real_rows: list[tuple[object, MarketSignalIngestionRun | None]] = []
+    demo_rows: list[tuple[object, MarketSignalIngestionRun | None]] = []
+    unknown_rows: list[tuple[object, MarketSignalIngestionRun | None]] = []
+    for item in rows_with_runs:
+        row, run = item
+        if bool(row.is_demo):
+            demo_rows.append(item)
+        elif _is_trusted_real(row, run, signal_type):
+            real_rows.append(item)
+        else:
+            unknown_rows.append(item)
+    return real_rows, demo_rows, unknown_rows
+
+
+def _selected_rows(
+    rows_with_runs: list[tuple[object, MarketSignalIngestionRun | None]],
+    signal_type: MarketSignalType,
+) -> list[tuple[object, MarketSignalIngestionRun | None]]:
+    real_rows, demo_rows, _unknown_rows = _partition_rows(rows_with_runs, signal_type)
+    return real_rows or demo_rows
+
+
 def _classify_rows(rows_with_runs: list[tuple[object, MarketSignalIngestionRun | None]], signal_type: MarketSignalType):
     if not rows_with_runs:
         return ForwardCurveSignalSourceKind.NO_DATA, MarketDemoStatus.NOT_APPLICABLE, 0, 0, 0, None
 
-    real_count = 0
-    demo_count = 0
-    unknown_count = 0
-    observed_at = None
-    for row, run in rows_with_runs:
-        if observed_at is None or row.observed_at > observed_at:
-            observed_at = row.observed_at
-        if bool(row.is_demo):
-            demo_count += 1
-        elif _is_trusted_real(row, run, signal_type):
-            real_count += 1
-        else:
-            unknown_count += 1
-
-    if unknown_count:
-        return ForwardCurveSignalSourceKind.UNKNOWN, MarketDemoStatus.UNKNOWN, real_count, demo_count, unknown_count, observed_at
-    if real_count and demo_count:
-        return ForwardCurveSignalSourceKind.MIXED_SOURCE, MarketDemoStatus.MIXED, real_count, demo_count, unknown_count, observed_at
+    real_rows, demo_rows, unknown_rows = _partition_rows(rows_with_runs, signal_type)
+    real_count = len(real_rows)
+    demo_count = len(demo_rows)
+    unknown_count = len(unknown_rows)
+    selected = real_rows or demo_rows or unknown_rows
+    observed_at = max((row.observed_at for row, _run in selected), default=None)
     if real_count:
         return _SIGNAL_TO_REAL_SOURCE_KIND[signal_type], MarketDemoStatus.REAL_ONLY, real_count, demo_count, unknown_count, observed_at
     if demo_count:
         return ForwardCurveSignalSourceKind.DEMO_SEED, MarketDemoStatus.DEMO_ONLY, real_count, demo_count, unknown_count, observed_at
+    if unknown_count:
+        return ForwardCurveSignalSourceKind.UNKNOWN, MarketDemoStatus.UNKNOWN, real_count, demo_count, unknown_count, observed_at
     return ForwardCurveSignalSourceKind.NO_DATA, MarketDemoStatus.NOT_APPLICABLE, 0, 0, 0, observed_at
 
 
@@ -148,19 +190,34 @@ def _lookback_cutoff(days: int) -> datetime:
     return datetime.now(timezone.utc) - timedelta(days=days)
 
 
-def _ranked_latest_stmt(model, *, keys: list[SignalKey], partition_by: list, lookback_days: int):
+def _ranked_latest_stmt(
+    model,
+    *,
+    keys: list[SignalKey],
+    partition_by: list,
+    lookback_days: int,
+    signal_type: MarketSignalType,
+    evidence_class: str | None = None,
+):
+    evidence_class_expression = _evidence_class_expression(model, signal_type)
     ranked = (
         select(
             model.id.label("id"),
             func.row_number()
             .over(
-                partition_by=partition_by,
+                partition_by=[*partition_by, evidence_class_expression],
                 order_by=(model.observed_at.desc(), model.created_at.desc(), model.id.desc()),
             )
             .label("rn"),
         )
+        .outerjoin(
+            MarketSignalIngestionRun,
+            model.trusted_ingestion_run_id == MarketSignalIngestionRun.id,
+        )
         .where(model.observed_at >= _lookback_cutoff(lookback_days))
     )
+    if evidence_class is not None:
+        ranked = ranked.where(evidence_class_expression == evidence_class)
     ranked = _apply_key_filters(ranked, model, keys).subquery()
     return (
         select(model, MarketSignalIngestionRun)
@@ -168,6 +225,39 @@ def _ranked_latest_stmt(model, *, keys: list[SignalKey], partition_by: list, loo
         .outerjoin(MarketSignalIngestionRun, model.trusted_ingestion_run_id == MarketSignalIngestionRun.id)
         .where(ranked.c.rn == 1)
     )
+
+
+async def _load_preferred_focus_rows(
+    db: AsyncSession,
+    model,
+    *,
+    key: SignalKey,
+    partition_by: list,
+    signal_type: MarketSignalType,
+    lookback_days: int,
+    limit: int,
+):
+    for evidence_class in ("REAL", "DEMO"):
+        stmt = (
+            _ranked_latest_stmt(
+                model,
+                keys=[key],
+                partition_by=partition_by,
+                lookback_days=lookback_days,
+                signal_type=signal_type,
+                evidence_class=evidence_class,
+            )
+            .order_by(
+                model.observed_at.desc(),
+                model.created_at.desc(),
+                model.id.desc(),
+            )
+            .limit(limit)
+        )
+        rows = (await db.execute(stmt)).all()
+        if rows:
+            return rows
+    return []
 
 
 async def load_indication_summaries(
@@ -190,6 +280,7 @@ async def load_indication_summaries(
             MarketIndication.side,
         ],
         lookback_days=lookback_days,
+        signal_type=MarketSignalType.MARKET_INDICATION,
     )
     result = await db.execute(stmt)
     grouped: dict[SignalKey, list[tuple[MarketIndication, MarketSignalIngestionRun | None]]] = {}
@@ -200,12 +291,16 @@ async def load_indication_summaries(
 
     summaries: dict[SignalKey, ForwardCurveBoardIndicationSummary] = {}
     for key, rows_with_runs in grouped.items():
+        selected_rows = _selected_rows(
+            rows_with_runs,
+            MarketSignalType.MARKET_INDICATION,
+        )
         latest_bid = None
         latest_ask = None
         latest_mid = None
         total_quantity = Decimal("0")
         has_quantity = False
-        for row, _run in rows_with_runs:
+        for row, _run in selected_rows:
             if row.side == ForwardCurveIndicationSide.BID.value:
                 latest_bid = row.price_per_mt_usd
             elif row.side == ForwardCurveIndicationSide.ASK.value:
@@ -222,7 +317,7 @@ async def load_indication_summaries(
             latest_ask_price_per_mt_usd=latest_ask,
             latest_mid_price_per_mt_usd=latest_mid,
             total_quantity_mt=total_quantity if has_quantity else None,
-            indication_count=len(rows_with_runs),
+            indication_count=len(selected_rows),
         )
     return summaries
 
@@ -237,18 +332,20 @@ async def load_latest_indications_for_focus(
     lookback_days: int = 7,
 ) -> list[ForwardCurveBoardIndication]:
     key = (market_product, delivery_point_id, availability_window)
-    stmt = _ranked_latest_stmt(
+    rows = await _load_preferred_focus_rows(
+        db,
         MarketIndication,
-        keys=[key],
+        key=key,
         partition_by=[
             MarketIndication.market_product,
             MarketIndication.delivery_point_id,
             MarketIndication.availability_window,
             MarketIndication.side,
         ],
+        signal_type=MarketSignalType.MARKET_INDICATION,
         lookback_days=lookback_days,
-    ).order_by(MarketIndication.observed_at.desc(), MarketIndication.created_at.desc(), MarketIndication.id.desc()).limit(limit)
-    result = await db.execute(stmt)
+        limit=limit,
+    )
     return [
         ForwardCurveBoardIndication(
             side=ForwardCurveIndicationSide(row.side),
@@ -256,7 +353,7 @@ async def load_latest_indications_for_focus(
             quantity_mt=row.quantity_mt,
             provenance=_single_row_provenance(row, run, MarketSignalType.MARKET_INDICATION),
         )
-        for row, run in result.all()
+        for row, run in rows
     ]
 
 
@@ -279,18 +376,27 @@ async def load_fair_price_bands(
             FairPriceBand.availability_window,
         ],
         lookback_days=lookback_days,
+        signal_type=MarketSignalType.FAIR_PRICE_BAND,
     )
     result = await db.execute(stmt)
-    bands: dict[SignalKey, ForwardCurveBoardFairPriceBand] = {}
+    grouped: dict[
+        SignalKey,
+        list[tuple[FairPriceBand, MarketSignalIngestionRun | None]],
+    ] = {}
     for row, run in result.all():
         key = _key_for_row(row)
-        if key not in normalized_keys:
-            continue
+        if key in normalized_keys:
+            grouped.setdefault(key, []).append((row, run))
+
+    bands: dict[SignalKey, ForwardCurveBoardFairPriceBand] = {}
+    for key, rows_with_runs in grouped.items():
+        selected = _selected_rows(rows_with_runs, MarketSignalType.FAIR_PRICE_BAND)
+        selected_row = selected[0][0] if selected else None
         bands[key] = ForwardCurveBoardFairPriceBand(
-            low_price_per_mt_usd=row.low_price_per_mt_usd,
-            mid_price_per_mt_usd=row.mid_price_per_mt_usd,
-            high_price_per_mt_usd=row.high_price_per_mt_usd,
-            provenance=_single_row_provenance(row, run, MarketSignalType.FAIR_PRICE_BAND),
+            low_price_per_mt_usd=(selected_row.low_price_per_mt_usd if selected_row else None),
+            mid_price_per_mt_usd=(selected_row.mid_price_per_mt_usd if selected_row else None),
+            high_price_per_mt_usd=(selected_row.high_price_per_mt_usd if selected_row else None),
+            provenance=_provenance(rows_with_runs, MarketSignalType.FAIR_PRICE_BAND),
         )
     return bands
 
@@ -316,6 +422,7 @@ async def load_physical_stem_summaries(
             PhysicalStem.stem_uid,
         ],
         lookback_days=lookback_days,
+        signal_type=MarketSignalType.PHYSICAL_STEM,
     )
     result = await db.execute(stmt)
     grouped: dict[SignalKey, list[tuple[PhysicalStem, MarketSignalIngestionRun | None]]] = {}
@@ -326,12 +433,13 @@ async def load_physical_stem_summaries(
 
     summaries: dict[SignalKey, ForwardCurveBoardPhysicalStemSummary] = {}
     for key, rows_with_runs in grouped.items():
+        selected_rows = _selected_rows(rows_with_runs, MarketSignalType.PHYSICAL_STEM)
         available_quantity = Decimal("0")
         tentative_quantity = Decimal("0")
         stem_count = 0
         earliest_start = None
         latest_end = None
-        for row, _run in rows_with_runs:
+        for row, _run in selected_rows:
             if row.status not in {
                 ForwardCurvePhysicalStemStatus.AVAILABLE.value,
                 ForwardCurvePhysicalStemStatus.TENTATIVE.value,
@@ -368,9 +476,10 @@ async def load_physical_stems_for_focus(
     lookback_days: int = 90,
 ) -> list[ForwardCurveBoardPhysicalStem]:
     key = (market_product, delivery_point_id, availability_window)
-    stmt = _ranked_latest_stmt(
+    rows = await _load_preferred_focus_rows(
+        db,
         PhysicalStem,
-        keys=[key],
+        key=key,
         partition_by=[
             PhysicalStem.market_product,
             PhysicalStem.delivery_point_id,
@@ -378,9 +487,10 @@ async def load_physical_stems_for_focus(
             PhysicalStem.source,
             PhysicalStem.stem_uid,
         ],
+        signal_type=MarketSignalType.PHYSICAL_STEM,
         lookback_days=lookback_days,
-    ).order_by(PhysicalStem.observed_at.desc(), PhysicalStem.created_at.desc(), PhysicalStem.id.desc()).limit(limit)
-    result = await db.execute(stmt)
+        limit=limit,
+    )
     return [
         ForwardCurveBoardPhysicalStem(
             quantity_mt=row.quantity_mt,
@@ -389,5 +499,5 @@ async def load_physical_stems_for_focus(
             stem_end=row.stem_end,
             provenance=_single_row_provenance(row, run, MarketSignalType.PHYSICAL_STEM),
         )
-        for row, run in result.all()
+        for row, run in rows
     ]

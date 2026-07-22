@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: postgis/postgis:15-3.3
+    image: postgis/postgis:17-3.6-alpine@sha256:49b4d46c9fb8b158ddecd14d1894871a21ed4acb7ef376e2050f43f79c7b7272
     container_name: verdaxis-db
     environment:
       POSTGRES_DB: ${DATABASE_NAME}
@@ -11,7 +11,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -U ${DATABASE_USER:-verdaxis_app} -d ${DATABASE_NAME:-verdaxis}"]
       interval: 5s
       timeout: 5s
       retries: 5

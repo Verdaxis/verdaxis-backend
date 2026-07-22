@@ -11,15 +11,7 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 import psycopg2
 from psycopg2.extras import execute_batch
-
-# Database connection
-DB_CONFIG = {
-    "host": "localhost",
-    "port": 5432,
-    "database": "verdaxis",
-    "user": "postgres",
-    "password": "Tealtent477"
-}
+from app.seeds.safety import seed_connection
 
 # Supplier organization IDs
 SUPPLIERS = {
@@ -350,7 +342,7 @@ def generate_port_intelligence():
 def main():
     """Main seeding function."""
     print("Connecting to Verdaxis database...")
-    conn = psycopg2.connect(**DB_CONFIG)
+    conn = seed_connection()
     conn.autocommit = False
 
     try:

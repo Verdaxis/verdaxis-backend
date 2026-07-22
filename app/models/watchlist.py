@@ -17,7 +17,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.database import Base
+from app.model_base import Base
 
 
 class WatchlistKind(str, enum.Enum):
@@ -47,6 +47,7 @@ class WatchlistEventType(str, enum.Enum):
 class Watchlist(Base):
     __tablename__ = "watchlists"
     __table_args__ = (
+        Index("ix_watchlists_user_id", "user_id"),
         Index(
             "uq_watchlists_user_default_radar",
             "user_id",
@@ -61,7 +62,7 @@ class Watchlist(Base):
     user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     kind: Mapped[WatchlistKind] = mapped_column(
-        Enum(WatchlistKind, native_enum=False),
+        Enum(WatchlistKind, native_enum=False, length=32),
         nullable=False,
         default=WatchlistKind.CUSTOM,
         server_default=WatchlistKind.CUSTOM.value,
@@ -76,6 +77,8 @@ class Watchlist(Base):
 class WatchlistEntry(Base):
     __tablename__ = "watchlist_entries"
     __table_args__ = (
+        Index("ix_watchlist_entries_watchlist_id", "watchlist_id"),
+        Index("ix_watchlist_entries_product_id", "product_id"),
         Index(
             "uq_watchlist_entries_watchlist_product_delivery_point",
             "watchlist_id",
@@ -96,7 +99,7 @@ class WatchlistEntry(Base):
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    watchlist_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("watchlists.id", ondelete="CASCADE"), nullable=False)
+    watchlist_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("watchlists.id"), nullable=False)
     product_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("products.id"), nullable=False)
     delivery_point_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("delivery_points.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
@@ -107,6 +110,8 @@ class WatchlistEntry(Base):
 class WatchlistTarget(Base):
     __tablename__ = "watchlist_targets"
     __table_args__ = (
+        Index("ix_watchlist_targets_watchlist_id", "watchlist_id"),
+        Index("ix_watchlist_targets_order_id", "order_id"),
         Index(
             "uq_watchlist_targets_slice_key",
             "watchlist_id",
@@ -125,8 +130,6 @@ class WatchlistTarget(Base):
             sqlite_where=text("target_type = 'PIN'"),
             postgresql_where=text("target_type = 'PIN'"),
         ),
-        Index("ix_watchlist_targets_watchlist_id", "watchlist_id"),
-        Index("ix_watchlist_targets_order_id", "order_id"),
         CheckConstraint(
             "(target_type = 'SLICE' AND order_id IS NULL AND market_product_code IS NOT NULL AND delivery_point_id IS NOT NULL AND availability_window_code IS NOT NULL) "
             "OR (target_type = 'PIN' AND order_id IS NOT NULL AND market_product_code IS NOT NULL AND delivery_point_id IS NOT NULL AND availability_window_code IS NOT NULL)",
@@ -136,7 +139,7 @@ class WatchlistTarget(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     watchlist_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("watchlists.id", ondelete="CASCADE"), nullable=False)
-    target_type: Mapped[WatchlistTargetType] = mapped_column(Enum(WatchlistTargetType, native_enum=False), nullable=False)
+    target_type: Mapped[WatchlistTargetType] = mapped_column(Enum(WatchlistTargetType, native_enum=False, length=16), nullable=False)
     market_product_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
     delivery_point_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("delivery_points.id"), nullable=True)
     availability_window_code: Mapped[str | None] = mapped_column(String(32), nullable=True)
@@ -161,16 +164,16 @@ class WatchlistTarget(Base):
 class WatchlistEvent(Base):
     __tablename__ = "watchlist_events"
     __table_args__ = (
-        Index("ix_watchlist_events_target_created_at", "watchlist_target_id", text("created_at DESC")),
-        Index("ix_watchlist_events_target_is_read_created", "watchlist_target_id", "is_read", text("created_at DESC")),
-        Index("ix_watchlist_events_watchlist_created_at", "watchlist_id", text("created_at DESC"), text("id DESC")),
-        Index("ix_watchlist_events_watchlist_is_read_created", "watchlist_id", "is_read", text("created_at DESC")),
+        Index("ix_watchlist_events_target_created_at", "watchlist_target_id", "created_at"),
+        Index("ix_watchlist_events_target_is_read_created", "watchlist_target_id", "is_read", "created_at"),
+        Index("ix_watchlist_events_watchlist_created_at", "watchlist_id", "created_at", "id"),
+        Index("ix_watchlist_events_watchlist_is_read_created", "watchlist_id", "is_read", "created_at"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     watchlist_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("watchlists.id", ondelete="CASCADE"), nullable=False)
     watchlist_target_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("watchlist_targets.id", ondelete="CASCADE"), nullable=False)
-    event_type: Mapped[WatchlistEventType] = mapped_column(Enum(WatchlistEventType, native_enum=False), nullable=False)
+    event_type: Mapped[WatchlistEventType] = mapped_column(Enum(WatchlistEventType, native_enum=False, length=32), nullable=False)
     event_payload: Mapped[dict] = mapped_column(JSON, default=dict)
     is_read: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))

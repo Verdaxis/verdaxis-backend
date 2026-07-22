@@ -19,8 +19,8 @@ def test_demo_status_precedence_marks_unknown_as_unknown():
     assert demo_status_from_counts(real_count=2, demo_count=1, unknown_count=1) == MarketDemoStatus.UNKNOWN
 
 
-def test_demo_status_precedence_marks_real_demo_mix():
-    assert demo_status_from_counts(real_count=2, demo_count=1) == MarketDemoStatus.MIXED
+def test_demo_status_fails_closed_if_a_caller_blends_real_and_demo():
+    assert demo_status_from_counts(real_count=2, demo_count=1) == MarketDemoStatus.UNKNOWN
 
 
 def test_source_kind_precedence_uses_unknown_before_mixed():

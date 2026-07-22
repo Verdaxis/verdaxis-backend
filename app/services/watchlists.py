@@ -172,6 +172,7 @@ async def _load_target_metrics(db: AsyncSession, targets: list[WatchlistTarget])
         .options(selectinload(OrderBookOrder.product))
         .where(
             OrderBookOrder.status.in_([OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED]),
+            OrderBookOrder.expires_at.is_(None) | (OrderBookOrder.expires_at > func.now()),
         )
     )
     active_counts: dict[UUID, int] = defaultdict(int)

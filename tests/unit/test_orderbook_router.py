@@ -94,7 +94,7 @@ class TestCreateOrder:
 
 
     @pytest.mark.asyncio
-    async def test_bid_persists_certification_preferences(self):
+    async def test_bid_persists_certification_preferences(self, monkeypatch):
         product_id = uuid4()
         delivery_point_id = uuid4()
         product = MagicMock(id=product_id, market_product='BIO_METHANOL')
@@ -104,6 +104,20 @@ class TestCreateOrder:
         product_result.scalars.return_value.first.return_value = product
         delivery_point_result = MagicMock()
         delivery_point_result.scalars.return_value.first.return_value = delivery_point
+        user = _make_buyer_user()
+        monkeypatch.setattr(
+            "app.routers.orderbook.lock_and_load_market_organizations",
+            AsyncMock(
+                return_value={
+                    user.organization_id: MagicMock(
+                        provenance="UNKNOWN", verification_status="APPROVED"
+                    )
+                }
+            ),
+        )
+        monkeypatch.setattr(
+            "app.routers.orderbook._best_slice_price", AsyncMock(return_value=None)
+        )
 
         captured: list[OrderBookOrder] = []
         db = AsyncMock()
@@ -124,7 +138,7 @@ class TestCreateOrder:
             await create_order(
                 request=_fake_request(),
                 order_data=order,
-                current_user=_make_buyer_user(),
+                current_user=user,
                 db=db,
             )
 

@@ -80,7 +80,7 @@ async def run(days: int, output: Path) -> int:
         print("EXPLAIN report requires a PostgreSQL DATABASE_URL", file=sys.stderr)
         return 2
 
-    engine = create_async_engine(database_url)
+    engine = create_async_engine(database_url, hide_parameters=True)
     report: dict[str, object] = {
         "generated_at": datetime.now(UTC).isoformat(),
         "window_days": days,

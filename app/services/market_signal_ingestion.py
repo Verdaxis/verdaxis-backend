@@ -20,7 +20,8 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.catalog import DeliveryPoint, MarketProduct
+from app.market_catalog import MarketProduct
+from app.models.catalog import DeliveryPoint
 from app.models.forward_monitoring import (
     FairPriceBand,
     MarketIndication,

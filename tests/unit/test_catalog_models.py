@@ -3,7 +3,6 @@
 Uses an in-memory SQLite database following the same pattern as test_matching_engine.py.
 """
 import pytest
-import uuid
 from decimal import Decimal
 
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
@@ -130,8 +129,8 @@ class TestProduct:
     @pytest.mark.parametrize(
         ("name", "fuel_type", "fuel_grade", "expected_market_product"),
         [
-            ("Methanol Green", "Methanol", "Green", "BIO_METHANOL"),
-            ("Ethanol Green", "Ethanol", "Green", "BIO_ETHANOL"),
+            ("Bio Methanol", "Methanol", "Bio", "BIO_METHANOL"),
+            ("Bio Ethanol", "Ethanol", "Bio", "BIO_ETHANOL"),
             ("e-Methanol", "Methanol", "E", "E_METHANOL"),
             ("Synthetic Ethanol", "Ethanol", "Synthetic", "SYNTHETIC_ETHANOL"),
         ],
@@ -159,6 +158,26 @@ class TestProduct:
         )
 
         assert product.market_product is None
+
+    @pytest.mark.parametrize(
+        ("name", "fuel_type", "fuel_grade"),
+        [
+            ("Methanol Green", "Methanol", "Green"),
+            ("Ethanol Green", "Ethanol", "Green"),
+            ("Bio Methanol", "Methanol", "Green"),
+        ],
+    )
+    def test_market_product_does_not_reinterpret_legacy_or_forged_labels(
+        self,
+        name,
+        fuel_type,
+        fuel_grade,
+    ):
+        assert Product(
+            name=name,
+            fuel_type=fuel_type,
+            fuel_grade=fuel_grade,
+        ).market_product is None
 
 
 class TestDeliveryPoint:

@@ -19,12 +19,16 @@ import time
 from fastapi import Request
 from fastapi.responses import JSONResponse
 
+from app.rate_limit import client_ip
+
 # (path prefix, max requests, window seconds). Checked in order; first
 # match wins. Limits are deliberately generous — they exist to stop
 # unauthenticated brute-force/replay loops, not to shape normal traffic.
 PREAUTH_LIMITS: tuple[tuple[str, int, int], ...] = (
     ("/api/auth/login", 30, 60),
     ("/api/auth/forgot-password", 15, 60),
+    ("/api/ai/chat", 60, 60),
+    ("/api/kyc/submit", 20, 60),
     ("/api/admin/", 300, 60),
 )
 
@@ -45,20 +49,6 @@ def _check(prefix: str, limit: int, window: int, client_ip: str, now: float) -> 
         _buckets.clear()  # crude but safe: reset under pathological load
     _buckets[key] = (started, count + 1)
     return True
-
-
-def client_ip(request: Request) -> str:
-    """Real client IP behind Caddy.
-
-    uvicorn runs without --proxy-headers, so request.client.host is always
-    the proxy (127.0.0.1). Caddy *appends* the peer address to any incoming
-    X-Forwarded-For, so the LAST entry is the address Caddy actually saw —
-    earlier entries are client-controlled and must not be trusted.
-    """
-    forwarded = request.headers.get("X-Forwarded-For", "")
-    if forwarded:
-        return forwarded.rsplit(",", 1)[-1].strip()
-    return request.client.host if request.client else "unknown"
 
 
 async def preauth_rate_limit_middleware(request: Request, call_next):

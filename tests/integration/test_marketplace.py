@@ -6,7 +6,7 @@ import jwt
 from datetime import datetime, timedelta
 
 # Fixtures and helpers
-TEST_API_URL = os.environ.get("TEST_API_URL", "http://localhost:8000")
+TEST_API_URL = os.environ.get("TEST_API_URL")
 from app.config import settings
 JWT_SECRET = settings.JWT_SECRET
 
@@ -30,7 +30,7 @@ async def test_inventory_publish_flow():
         # Using a seeded supplier from seed.py
         # Supplier 1 ID from seed.py
         supplier_id = "9e63f7a1-0000-4000-8000-000000000011"
-        supplier_email = "itest-seller@staging.verdaxis.exchange"
+        supplier_email = "itest-seller@disposable.invalid"
         token = create_test_token(supplier_id, supplier_email, "SUPPLIER")
         headers = {"Authorization": f"Bearer {token}"}
 
@@ -76,7 +76,7 @@ async def test_unauthorized_publish():
     """Ensure buyers cannot publish inventory."""
     async with AsyncClient(base_url=TEST_API_URL, timeout=10.0) as client:
         buyer_id = "9e63f7a1-0000-4000-8000-000000000012"
-        buyer_email = "itest-buyer@staging.verdaxis.exchange"
+        buyer_email = "itest-buyer@disposable.invalid"
         token = create_test_token(buyer_id, buyer_email, "BUYER")
         headers = {"Authorization": f"Bearer {token}"}
         

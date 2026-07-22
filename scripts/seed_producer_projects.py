@@ -9,11 +9,9 @@ import psycopg2
 from psycopg2.extras import execute_values
 from datetime import datetime
 from uuid import uuid4
+from app.seeds.safety import seed_connection
 
-conn = psycopg2.connect(
-    host="localhost", port=5432, dbname="verdaxis",
-    user="postgres", password="Tealtent477"
-)
+conn = seed_connection()
 conn.autocommit = False
 cursor = conn.cursor()
 
@@ -118,4 +116,3 @@ except Exception as e:
 finally:
     cursor.close()
     conn.close()
-

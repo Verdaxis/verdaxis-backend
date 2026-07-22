@@ -1,4 +1,4 @@
-"""Fixtures for the PostgreSQL Product Analytics correctness suite.
+"""Fixtures for the PostgreSQL 17/PostGIS 3.6 correctness suite.
 
 The disposable database comes from PRODUCT_ANALYTICS_TEST_DATABASE_URL
 (exported by scripts/run_product_analytics_postgres_tests.sh or the CI
@@ -21,6 +21,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 _URL_ENV = "PRODUCT_ANALYTICS_TEST_DATABASE_URL"
+_MARKET_URL_ENV = "MARKET_INTEGRITY_TEST_DATABASE_URL"
 _BACKEND_ROOT = Path(__file__).resolve().parents[2]
 
 _TRUNCATE_TABLES = (
@@ -51,14 +52,30 @@ def _validated_url() -> str:
     return url
 
 
+def _validated_market_url() -> str:
+    url = os.environ.get(_MARKET_URL_ENV, "").strip()
+    if not url:
+        pytest.skip(f"{_MARKET_URL_ENV} is not set")
+    database = urlsplit(url).path.lstrip("/")
+    if not database.endswith("_market_integrity_test"):
+        raise RuntimeError(
+            f"refusing to run against database {database!r}: "
+            "the name must end with _market_integrity_test"
+        )
+    return url
+
+
 @pytest.fixture(scope="session")
 def analytics_pg_url() -> str:
     url = _validated_url()
+    # MIGRATOR_DATABASE_URL wins over DATABASE_URL in alembic/env.py, so pin
+    # both to this fixture's database; an inherited migrator URL must never
+    # route the upgrade to a different database.
     subprocess.run(
         [sys.executable, "-m", "alembic", "upgrade", "head"],
         check=True,
         cwd=_BACKEND_ROOT,
-        env={**os.environ, "DATABASE_URL": url},
+        env={**os.environ, "DATABASE_URL": url, "MIGRATOR_DATABASE_URL": url},
     )
     return url
 
@@ -78,5 +95,38 @@ async def pg_session(analytics_pg_url):
         factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
         async with factory() as session:
             yield engine, session
+    finally:
+        await engine.dispose()
+
+
+@pytest.fixture(scope="session")
+def market_pg_url() -> str:
+    url = _validated_market_url()
+    subprocess.run(
+        [sys.executable, "-m", "alembic", "upgrade", "head"],
+        check=True,
+        cwd=_BACKEND_ROOT,
+        env={
+            **os.environ,
+            "DATABASE_URL": url,
+            "MIGRATOR_DATABASE_URL": url,
+            "ENVIRONMENT": "test",
+        },
+    )
+    return url
+
+
+@pytest.fixture
+async def market_pg(market_pg_url):
+    engine = create_async_engine(market_pg_url, pool_size=5, max_overflow=0)
+    try:
+        async with engine.begin() as connection:
+            await connection.execute(
+                text(
+                    "TRUNCATE TABLE trades, orderbook_orders, organizations, "
+                    "products, delivery_points RESTART IDENTITY CASCADE"
+                )
+            )
+        yield engine
     finally:
         await engine.dispose()

@@ -114,6 +114,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from app.database import Base, get_db
 from app.models.product_analytics import UserLoginDay
+from app.models.refresh_session import RefreshSession
 from app.models.user import Organization, OrgType, User, UserRole, UserStatus
 from app.rate_limit import limiter
 from app.routers.auth_simple import router as auth_router
@@ -128,7 +129,7 @@ def _disable_rate_limits(monkeypatch):
 @pytest.fixture
 async def login_db():
     engine = create_async_engine("sqlite+aiosqlite://", echo=False)
-    tables = [Organization.__table__, User.__table__, UserLoginDay.__table__]
+    tables = [Organization.__table__, User.__table__, UserLoginDay.__table__, RefreshSession.__table__]
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all, tables=tables)
     factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)

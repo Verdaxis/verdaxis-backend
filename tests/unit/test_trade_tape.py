@@ -39,7 +39,7 @@ def _make_mock_trade(
     delivery_point_id: uuid.UUID | None = None,
     availability_window: str = "SPOT",
 ) -> MagicMock:
-    """Build a mock Trade with nested order relationships."""
+    """Build a mock Trade with immutable market snapshots."""
     trade_id = trade_id or uuid.uuid4()
     trade = MagicMock()
     trade.id = trade_id
@@ -48,6 +48,16 @@ def _make_mock_trade(
     trade.confirmed_at = confirmed_at or datetime.now(timezone.utc)
     trade.buyer_id = uuid.uuid4()
     trade.seller_id = uuid.uuid4()
+    trade.buyer_provenance = "REAL"
+    trade.seller_provenance = "REAL"
+    trade.product_id = product_id or uuid.uuid4()
+    trade.market_product = market_product
+    trade.fuel_type = fuel_type
+    trade.fuel_grade = fuel_grade
+    trade.delivery_point_id = delivery_point_id or uuid.uuid4()
+    trade.delivery_point_name = region
+    trade.delivery_point_region = "Europe" if region in {"Amsterdam", "Rotterdam", "Antwerp"} else "Asia"
+    trade.availability_window = availability_window
 
     # Mock the related order
     order = MagicMock()
@@ -60,6 +70,10 @@ def _make_mock_trade(
     order.delivery_point_name = region
     order.availability_window = availability_window
 
+    # Conflicting mutable relationships prove the tape ignores them.
+    order.market_product = "MUTATED_PRODUCT"
+    order.fuel_type = "MUTATED_FUEL"
+    order.delivery_point_name = "Mutated Port"
     trade.ask_order = order
     trade.bid_order = None
 
@@ -90,12 +104,12 @@ class TestBuildTapeEntry:
         entry = _build_tape_entry(trade)
         assert entry.total_usd == Decimal("50000.00")
 
-    def test_fuel_type_from_order(self):
+    def test_fuel_type_from_snapshot(self):
         trade = _make_mock_trade(fuel_type="HSFO")
         entry = _build_tape_entry(trade)
         assert entry.fuel_type == "HSFO"
 
-    def test_market_product_from_order(self):
+    def test_market_product_from_snapshot(self):
         trade = _make_mock_trade(market_product="E_METHANOL")
         entry = _build_tape_entry(trade)
         assert entry.market_product == "E_METHANOL"
@@ -133,25 +147,25 @@ class TestBuildTapeEntry:
         entry = _build_tape_entry(trade)
         assert entry.fuel_grade == "Green"
 
-    def test_availability_window_from_order(self):
+    def test_availability_window_from_snapshot(self):
         trade = _make_mock_trade(availability_window="Q2 2026")
         entry = _build_tape_entry(trade)
         assert entry.availability_window == "2026-Q2"
 
-    def test_no_order_fallback_empty_strings(self):
+    def test_snapshot_only_trade_never_needs_order_relationships(self):
         trade = _make_mock_trade()
         trade.ask_order = None
         trade.bid_order = None
         entry = _build_tape_entry(trade)
-        assert entry.fuel_type == ""
-        assert entry.fuel_grade == ""
+        assert entry.fuel_type == "VLSFO"
+        assert entry.fuel_grade == "Conventional"
         assert entry.delivery_point_id is None
         assert entry.delivery_point_name is None
-        assert entry.region == ""
-        assert entry.availability_window == ""
-        assert entry.scope == "UNKNOWN"
+        assert entry.region == "Europe"
+        assert entry.availability_window == "SPOT"
+        assert entry.scope == "REGION"
 
-    def test_bid_order_used_when_no_ask_order(self):
+    def test_mutable_bid_order_is_ignored(self):
         trade = _make_mock_trade(fuel_type="MGO")
         # Move the ask_order to bid_order
         trade.bid_order = trade.ask_order
@@ -159,15 +173,21 @@ class TestBuildTapeEntry:
         entry = _build_tape_entry(trade)
         assert entry.fuel_type == "MGO"
 
-    def test_demo_trade_flagged_without_party_identity(self, monkeypatch):
+    def test_demo_trade_flagged_from_snapshot_provenance(self):
         trade = _make_mock_trade()
-        monkeypatch.setattr(
-            "app.routers.trade_tape.is_demo_market_organization",
-            lambda organization_id: organization_id in {trade.buyer_id, trade.seller_id},
-        )
+        trade.buyer_provenance = "DEMO"
+        trade.seller_provenance = "DEMO"
         entry = _build_tape_entry(trade)
         assert entry.is_demo_trade is True
         assert entry.provenance_kind == "DEMO_SEED"
+
+    def test_unknown_trade_is_never_presented_as_real(self):
+        trade = _make_mock_trade()
+        trade.buyer_provenance = "UNKNOWN"
+        trade.seller_provenance = "UNKNOWN"
+        entry = _build_tape_entry(trade)
+        assert entry.provenance_kind == "UNKNOWN"
+        assert entry.demo_status == "UNKNOWN"
 
 
 # ---------------------------------------------------------------------------
@@ -182,6 +202,7 @@ class TestTradeTapeSchemas:
             "quantity_mt", "price_per_mt_usd", "total_usd",
             "confirmed_at", "availability_window", "is_demo_trade",
             "scope", "provenance_kind",
+            "source_kind", "demo_status",
         }
         assert set(TradeTapeEntry.model_fields.keys()) == expected
 

@@ -7,7 +7,7 @@ requiring a running database.
 import pytest
 from decimal import Decimal
 from uuid import uuid4
-from datetime import datetime
+from datetime import datetime, UTC
 
 from app.schemas.orderbook import (
     OrderCreate,
@@ -71,7 +71,7 @@ class TestOrderCreate:
             origin="Netherlands",
             off_spec=True,
             off_spec_notes="Water content slightly above target",
-            expires_at=datetime(2026, 6, 1),
+            expires_at=datetime(2026, 8, 1, tzinfo=UTC),
         )
         assert order.side == OrderSide.ASK
         assert order.product_id == product_id
@@ -445,18 +445,24 @@ class TestAggregatedOrderbookResponse:
     def test_aggregated_data(self):
         agg = AggregatedOrderbookResponse(
             product_id=uuid4(),
-            product_name="Biofuel Bio",
-            fuel_type="Biofuel",
+            product_name="Bio Methanol",
+            market_product="BIO_METHANOL",
+            fuel_type="Methanol",
             region="Singapore",
             side=OrderSide.ASK,
             min_price=Decimal("750"),
             max_price=Decimal("800"),
             total_quantity=Decimal("15000"),
             order_count=5,
+            product_total_order_count=5,
+            evidence_class="REAL",
+            source_kind="LIVE_ORDER",
+            demo_status="REAL_ONLY",
+            observed_at=datetime.now(UTC),
         )
         assert agg.order_count == 5
         assert agg.min_price < agg.max_price
-        assert agg.product_name == "Biofuel Bio"
+        assert agg.product_name == "Bio Methanol"
 
 
 class TestEnumValues:

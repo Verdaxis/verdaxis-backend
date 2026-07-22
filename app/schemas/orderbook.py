@@ -11,6 +11,7 @@ from app.services.availability_windows import (
     SPOT_WINDOW,
     normalize_availability_window,
 )
+from app.schemas.market_integrity import finite_decimal, future_aware_datetime
 
 
 # Enums matching SQLAlchemy models
@@ -96,13 +97,23 @@ class OrderCreate(AvailabilityWindowMixin, SupplierListingMetadataMixin):
     delivery_point_id: UUID
     port_id: Optional[str] = None
     vessel_id: Optional[UUID] = None
-    quantity_mt: Decimal = Field(..., gt=0)
-    price_per_mt_usd: Decimal = Field(..., gt=0)
+    quantity_mt: Decimal = Field(..., gt=0, le=100000, max_digits=12, decimal_places=2, allow_inf_nan=False)
+    price_per_mt_usd: Decimal = Field(..., gt=0, le=1000000, max_digits=10, decimal_places=2, allow_inf_nan=False)
     availability_window: AvailabilityWindowCode = SPOT_WINDOW
     certifications: list[str] = Field(default_factory=list)
     certification_scheme: Optional[str] = None
     expires_at: Optional[datetime] = None
     is_anonymous: bool = True
+
+    @field_validator("quantity_mt", "price_per_mt_usd")
+    @classmethod
+    def _finite_economic_values(cls, value: Decimal, info):
+        return finite_decimal(value, field_name=info.field_name)
+
+    @field_validator("expires_at")
+    @classmethod
+    def _future_expiry(cls, value: datetime | None):
+        return future_aware_datetime(value)
 
     @model_validator(mode="after")
     def validate_execution_qualifiers(self):
@@ -122,8 +133,8 @@ class OrderCreate(AvailabilityWindowMixin, SupplierListingMetadataMixin):
 
 class OrderUpdate(AvailabilityWindowMixin):
     """Optional fields for modifying open orders."""
-    quantity_mt: Optional[Decimal] = Field(None, gt=0)
-    price_per_mt_usd: Optional[Decimal] = Field(None, gt=0)
+    quantity_mt: Optional[Decimal] = Field(None, gt=0, le=100000, max_digits=12, decimal_places=2, allow_inf_nan=False)
+    price_per_mt_usd: Optional[Decimal] = Field(None, gt=0, le=1000000, max_digits=10, decimal_places=2, allow_inf_nan=False)
     availability_window: Optional[AvailabilityWindowCode] = None
     certifications: Optional[list[str]] = None
     certification_declared: Optional[bool] = None
@@ -138,6 +149,16 @@ class OrderUpdate(AvailabilityWindowMixin):
     off_spec_notes: Optional[str] = None
     expires_at: Optional[datetime] = None
 
+    @field_validator("quantity_mt", "price_per_mt_usd")
+    @classmethod
+    def _finite_economic_values(cls, value: Decimal | None, info):
+        return None if value is None else finite_decimal(value, field_name=info.field_name)
+
+    @field_validator("expires_at")
+    @classmethod
+    def _future_expiry(cls, value: datetime | None):
+        return future_aware_datetime(value)
+
 
 class OrderResponse(AvailabilityWindowMixin, SupplierListingMetadataMixin):
     """Public/anonymized order for the book. organization_id is NOT included."""
@@ -150,7 +171,6 @@ class OrderResponse(AvailabilityWindowMixin, SupplierListingMetadataMixin):
     fuel_grade: str = ""
     delivery_point_id: Optional[UUID] = None
     delivery_point_name: Optional[str] = None
-    availability_window: str = "SPOT"
     region: str = ""
     port_id: Optional[str] = None
     quantity_mt: Decimal
@@ -168,6 +188,10 @@ class OrderResponse(AvailabilityWindowMixin, SupplierListingMetadataMixin):
     benchmark_source: Optional[str] = None
     is_crossed: bool = False
     is_demo_listing: bool = False
+    source_kind: MarketSourceKind = MarketSourceKind.UNKNOWN
+    scope: MarketScope = MarketScope.UNKNOWN
+    demo_status: MarketDemoStatus = MarketDemoStatus.UNKNOWN
+    unknown_count: int = 0
 
     class Config:
         from_attributes = True
@@ -196,7 +220,12 @@ class SupplierListingTemplateResponse(AvailabilityWindowMixin, SupplierListingMe
 class TradeCreate(BaseModel):
     """Hit an order to create a trade."""
     order_id: UUID
-    quantity_mt: Decimal = Field(..., gt=0)
+    quantity_mt: Decimal = Field(..., gt=0, le=100000, max_digits=12, decimal_places=2, allow_inf_nan=False)
+
+    @field_validator("quantity_mt")
+    @classmethod
+    def _finite_quantity(cls, value: Decimal):
+        return finite_decimal(value, field_name="quantity_mt")
 
 
 class TradeResponse(BaseModel):
@@ -230,8 +259,12 @@ class TradeResponse(BaseModel):
     fuel_grade: str = ""
     delivery_point_id: Optional[UUID] = None
     delivery_point_name: Optional[str] = None
-    availability_window: str = "SPOT"
+    availability_window: Optional[str] = None
     region: str = ""
+    source_kind: MarketSourceKind = MarketSourceKind.UNKNOWN
+    scope: MarketScope = MarketScope.UNKNOWN
+    demo_status: MarketDemoStatus = MarketDemoStatus.UNKNOWN
+    unknown_count: int = 0
 
     class Config:
         from_attributes = True
@@ -239,8 +272,13 @@ class TradeResponse(BaseModel):
 
 class TradeDeliverPayload(BaseModel):
     """Payload for marking a trade as delivered."""
-    final_quantity_mt: Decimal = Field(..., gt=0)
-    final_price_per_mt: Decimal = Field(..., gt=0)
+    final_quantity_mt: Decimal = Field(..., gt=0, le=100000, max_digits=12, decimal_places=2, allow_inf_nan=False)
+    final_price_per_mt: Decimal = Field(..., gt=0, le=1000000, max_digits=10, decimal_places=2, allow_inf_nan=False)
+
+    @field_validator("final_quantity_mt", "final_price_per_mt")
+    @classmethod
+    def _finite_final_values(cls, value: Decimal, info):
+        return finite_decimal(value, field_name=info.field_name)
 
 
 # ============== Aggregated Market Data ==============
@@ -249,6 +287,7 @@ class AggregatedOrderbookResponse(BaseModel):
     """Market data aggregated by product and delivery point."""
     product_id: UUID
     product_name: str = ""
+    market_product: str
     fuel_type: str = ""
     delivery_point_id: Optional[UUID] = None
     delivery_point_name: Optional[str] = None
@@ -259,6 +298,12 @@ class AggregatedOrderbookResponse(BaseModel):
     max_price: Decimal
     total_quantity: Decimal
     order_count: int
+    product_total_order_count: int
+    evidence_class: Literal["REAL", "DEMO"]
+    source_kind: MarketSourceKind
+    scope: MarketScope = MarketScope.DELIVERY_POINT
+    demo_status: MarketDemoStatus
+    observed_at: datetime
 
 
 # ============== Price Discovery ==============
@@ -314,6 +359,10 @@ class ReferencePriceItem(BaseModel):
     trade_count: int
     date: date
     visibility: Literal["internal", "external"] = "external"
+    source_kind: MarketSourceKind = MarketSourceKind.UNKNOWN
+    scope: MarketScope = MarketScope.UNKNOWN
+    demo_status: MarketDemoStatus = MarketDemoStatus.UNKNOWN
+    is_reference: bool = True
 
 
 class ReferencePriceResponse(BaseModel):

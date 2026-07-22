@@ -13,15 +13,10 @@ import uuid
 import json
 import random
 from datetime import datetime, timedelta
+from app.seeds.safety import seed_connection
 
 # Database connection
-conn = psycopg2.connect(
-    host="localhost",
-    port=5432,
-    dbname="verdaxis",
-    user="postgres",
-    password="Tealtent477",
-)
+conn = seed_connection()
 conn.autocommit = False
 cur = conn.cursor()
 

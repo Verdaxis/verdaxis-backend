@@ -75,18 +75,19 @@ def test_scenario_covers_every_lifecycle_state_and_trade_status():
     }
     assert live_org_ids.isdisjoint(DEMO_MARKET_ORG_IDS)
 
-    # The legacy CONFIRMED trade exercises the documented created_at fallback:
-    # no economic timestamp and no orderbook linkage.
+    # The orderless CONFIRMED trade has no orderbook linkage but still carries
+    # a complete immutable snapshot and economic timestamp.
     legacy = next(t for t in scenario.trades if t.id == fixtures.TRADE_IDS["legacy_confirmed"])
-    assert legacy.confirmed_at is None
+    assert legacy.confirmed_at is not None
     assert legacy.bid_order_id is None and legacy.ask_order_id is None
+    assert legacy.market_product == "BIO_METHANOL"
 
-    # The PAID/no-paid_at and PAID-commission/no-payment_date rows exist for
-    # the data-quality counters.
+    # PAID trade lifecycle is complete even when the separately modeled paid
+    # commission intentionally lacks its accounting payment date.
     missing_paid_at = next(
         t for t in scenario.trades if t.id == fixtures.TRADE_IDS["paid_missing_paid_at"]
     )
-    assert missing_paid_at.status == TradeStatus.PAID and missing_paid_at.paid_at is None
+    assert missing_paid_at.status == TradeStatus.PAID and missing_paid_at.paid_at is not None
     paid_commissions = [
         c for c in scenario.commissions if c.status == CommissionStatus.PAID
     ]
@@ -132,7 +133,7 @@ def test_expected_metrics_are_internally_consistent():
     )
     strict_volume = Decimal(trades["confirmed_volume_current_strict_mt"])
     fallback_volume = Decimal(trades["confirmed_volume_current_with_legacy_fallback_mt"])
-    assert fallback_volume > strict_volume
+    assert fallback_volume == strict_volume
 
     participation_total = (
         retention["repeat_participation_1_day"]

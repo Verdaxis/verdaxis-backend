@@ -21,7 +21,7 @@ from sqlalchemy import Date, DateTime, Enum, ForeignKey, Index, Integer, String,
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.database import Base
+from app.model_base import Base
 from app.models.user import UserRole, UserStatus
 
 STATUS_TRANSITION_PROVENANCE_WORKFLOW = "workflow"

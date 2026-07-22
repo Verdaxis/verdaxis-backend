@@ -3,3 +3,6 @@ asyncio_mode = "auto"
 testpaths = ["tests"]
 python_files = "test_*.py"
 pythonpath = ["."]
+markers = [
+    "disposable_integration: mutating integration/E2E test requiring an attested disposable server",
+]

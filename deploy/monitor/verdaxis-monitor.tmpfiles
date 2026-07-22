@@ -1,0 +1,10 @@
+d /etc/verdaxis-monitor 0755 root root -
+d /etc/verdaxis-monitor/runtime-identities 0755 root root -
+d /etc/verdaxis-monitor/demo 0711 root root -
+z /etc/verdaxis-monitor/alert.env 0600 root root -
+z /etc/verdaxis-monitor/demo/production.env 0600 verdaxis-demo-production verdaxis-demo-production -
+z /etc/verdaxis-monitor/demo/staging.env 0600 verdaxis-demo-staging verdaxis-demo-staging -
+d /var/lib/verdaxis-health 0700 verdaxis-health verdaxis-health -
+d /var/lib/verdaxis-backup-verify 0700 verdaxis-backup-reader verdaxis-backup-readers -
+d /var/lib/verdaxis-monitor-alert 0700 verdaxis-monitor-alert verdaxis-monitor-alert -
+d /var/lib/verdaxis-monitor 0700 root root -

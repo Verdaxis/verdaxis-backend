@@ -1,0 +1,12 @@
+[Unit]
+Description=Schedule Verdaxis staging demo market activity independently
+
+[Timer]
+OnCalendar=*-*-* *:00,30:00
+AccuracySec=1m
+RandomizedDelaySec=2m
+Persistent=true
+Unit=verdaxis-demo-activity-staging.service
+
+[Install]
+WantedBy=timers.target

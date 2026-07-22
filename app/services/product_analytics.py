@@ -34,6 +34,7 @@ itself the definition (e.g. "approved members who never logged in").
 
 from __future__ import annotations
 
+from collections import OrderedDict
 import statistics
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
@@ -68,7 +69,7 @@ from app.models.orderbook import (
     TradeStatus,
 )
 from app.models.orders import Commission, CommissionStatus
-from app.models.user import User, UserRole, UserStatus
+from app.models.user import User, UserRole, UserStatus, OrganizationProvenance
 from app.schemas.product_analytics import (
     AggregateCell,
     AnalyticsActivity,
@@ -103,6 +104,10 @@ from app.schemas.product_analytics import (
 from app.services.availability_windows import availability_window_display_label
 from app.services.benchmarks import get_benchmark_quotes
 from app.services.demo_market import DEMO_MARKET_ORG_IDS
+from app.services.market_data_eligibility import (
+    canonical_delivery_point_clause,
+    canonical_product_clause,
+)
 
 _MARKET_ROLES = (UserRole.BUYER, UserRole.SUPPLIER)
 _CONFIRMED_TRADE_STATUSES = (TradeStatus.CONFIRMED, TradeStatus.DELIVERED, TradeStatus.PAID)
@@ -219,22 +224,29 @@ def recognized_market_org_ids():
 
 
 def order_provenance_case():
-    recognized = recognized_market_org_ids()
     return case(
+        (OrderBookOrder.provenance == OrganizationProvenance.DEMO.value, "demo"),
         (OrderBookOrder.organization_id.in_(list(DEMO_MARKET_ORG_IDS)), "demo"),
-        (OrderBookOrder.organization_id.in_(recognized), "live"),
+        (OrderBookOrder.provenance == OrganizationProvenance.REAL.value, "live"),
         else_="unknown",
     )
 
 
 def trade_provenance_case():
     """Mixed live/demo trades are demo-contaminated, never live (rule 14)."""
-    recognized = recognized_market_org_ids()
     demo_ids = list(DEMO_MARKET_ORG_IDS)
     return case(
-        (or_(Trade.buyer_id.in_(demo_ids), Trade.seller_id.in_(demo_ids)), "demo"),
+        (or_(
+            Trade.buyer_provenance == OrganizationProvenance.DEMO.value,
+            Trade.buyer_id.in_(demo_ids),
+            Trade.seller_provenance == OrganizationProvenance.DEMO.value,
+            Trade.seller_id.in_(demo_ids),
+        ), "demo"),
         (
-            and_(Trade.buyer_id.in_(recognized), Trade.seller_id.in_(recognized)),
+            and_(
+                Trade.buyer_provenance == OrganizationProvenance.REAL.value,
+                Trade.seller_provenance == OrganizationProvenance.REAL.value,
+            ),
             "live",
         ),
         else_="unknown",
@@ -1392,7 +1404,7 @@ class _LoginFacts:
 
 # Successful authoritative aggregates may cache for at most 60 seconds per
 # normalized filter key (plan §2.2). Process-local, bounded, read-only values.
-_AUTHORITATIVE_CACHE: "OrderedDict[tuple, tuple[float, Any]]" = __import__("collections").OrderedDict()
+_AUTHORITATIVE_CACHE: OrderedDict[tuple, tuple[float, Any]] = OrderedDict()
 _AUTHORITATIVE_CACHE_TTL_SECONDS = 60
 _AUTHORITATIVE_CACHE_MAX_ENTRIES = 64
 
@@ -2341,7 +2353,10 @@ class ProductAnalyticsService:
                 DeliveryPoint.name.label("dp_name"),
             )
             .join(DeliveryPoint, literal(True))
-            .where(Product.is_active.is_(True), DeliveryPoint.is_active.is_(True))
+            .where(
+                canonical_product_clause(Product),
+                canonical_delivery_point_clause(DeliveryPoint),
+            )
         )
         if query.product_id is not None:
             products_stmt = products_stmt.where(Product.id == query.product_id)

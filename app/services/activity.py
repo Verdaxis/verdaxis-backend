@@ -1,59 +1,36 @@
-"""Activity event publishers and price alert checker."""
+"""Build market activity events without owning commit or publication."""
 from datetime import datetime, UTC
 from decimal import Decimal
-from typing import Optional
-from uuid import UUID
-
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.schemas.market_activity import MarketDemoStatus, MarketScope, MarketSourceKind
 from app.models.orderbook import TradeStatus
-from app.services.availability_windows import normalize_availability_window
-from app.services.demo_market import is_demo_market_organization
 from app.services.event_bus import event_bus
+from app.services.market_events import CommittedMarketEvent, participant_market_event
+from app.services.market_provenance import order_market_provenance, trade_market_provenance
+
+
+async def publish_trade_event(trade, event_type: str, data: dict) -> None:
+    """Publish lifecycle data only to the two participating org channels."""
+    channels = {f"trades:{trade.buyer_id}", f"trades:{trade.seller_id}"}
+    for channel in channels:
+        await event_bus.publish(channel, event_type, data)
 
 
 def order_activity_provenance(order) -> dict:
-    is_demo = is_demo_market_organization(getattr(order, "organization_id", None))
+    policy = order_market_provenance(order)
     observed_at = getattr(order, "updated_at", None) or getattr(order, "created_at", None)
-    delivery_point_id = getattr(order, "delivery_point_id", None)
-    if not isinstance(delivery_point_id, UUID):
-        delivery_point_id = None
-    market_product = getattr(order, "market_product", None)
-    if not isinstance(market_product, str):
-        market_product = None
     delivery_point_name = getattr(order, "delivery_point_name", None)
-    if not isinstance(delivery_point_name, str):
-        delivery_point_name = None
-    availability_window = getattr(order, "availability_window", None)
-    normalized_window = None
-    if isinstance(availability_window, str) and availability_window:
-        normalized_window = normalize_availability_window(availability_window)
     return {
-        "source_kind": MarketSourceKind.DEMO_SEED.value if is_demo else MarketSourceKind.LIVE_ORDER.value,
-        "demo_status": MarketDemoStatus.DEMO_ONLY.value if is_demo else MarketDemoStatus.REAL_ONLY.value,
-        "scope": MarketScope.DELIVERY_POINT.value if delivery_point_id else MarketScope.UNKNOWN.value,
+        **policy,
         "observed_at": observed_at.isoformat() if observed_at else None,
-        "market_product": market_product,
-        "delivery_point_id": str(delivery_point_id) if delivery_point_id else None,
         "delivery_point": delivery_point_name,
-        "availability_window": normalized_window,
     }
 
 
 def trade_activity_provenance(trade) -> dict:
-    buyer_demo = is_demo_market_organization(getattr(trade, "buyer_id", None))
-    seller_demo = is_demo_market_organization(getattr(trade, "seller_id", None))
-    if buyer_demo and seller_demo:
-        source_kind = MarketSourceKind.DEMO_SEED
-        demo_status = MarketDemoStatus.DEMO_ONLY
-    elif buyer_demo or seller_demo:
-        source_kind = MarketSourceKind.UNKNOWN
-        demo_status = MarketDemoStatus.UNKNOWN
-    else:
-        source_kind = MarketSourceKind.CONFIRMED_TRADE
-        demo_status = MarketDemoStatus.REAL_ONLY
+    policy = trade_market_provenance(trade)
     status = getattr(trade, "status", None)
     status_value = status.value if hasattr(status, "value") else status
     if status_value == TradeStatus.PAID.value:
@@ -64,40 +41,18 @@ def trade_activity_provenance(trade) -> dict:
         observed_at = getattr(trade, "confirmed_at", None) or getattr(trade, "created_at", None)
     else:
         observed_at = getattr(trade, "created_at", None)
-    order = getattr(trade, "ask_order", None) or getattr(trade, "bid_order", None)
-    payload = {
-        "source_kind": source_kind.value,
-        "demo_status": demo_status.value,
-        "scope": MarketScope.DELIVERY_POINT.value if order and getattr(order, "delivery_point_id", None) else MarketScope.UNKNOWN.value,
-        "observed_at": observed_at.isoformat() if observed_at else None,
-    }
-    if order is not None:
-        delivery_point_id = getattr(order, "delivery_point_id", None)
-        if not isinstance(delivery_point_id, UUID):
-            delivery_point_id = None
-        market_product = getattr(order, "market_product", None)
-        if not isinstance(market_product, str):
-            market_product = None
-        delivery_point_name = getattr(order, "delivery_point_name", None)
-        if not isinstance(delivery_point_name, str):
-            delivery_point_name = None
-        availability_window = getattr(order, "availability_window", None)
-        normalized_window = normalize_availability_window(availability_window) if isinstance(availability_window, str) and availability_window else None
-        payload.update({
-            "market_product": market_product,
-            "delivery_point_id": str(delivery_point_id) if delivery_point_id else None,
-            "delivery_point": delivery_point_name,
-            "availability_window": normalized_window,
-        })
+    payload = {**policy, "observed_at": observed_at.isoformat() if observed_at else None}
     return payload
 
 
-async def publish_new_listing(order, product, delivery_point) -> None:
-    """Publish a new-listing event to the public activity channel."""
-    await event_bus.publish(
-        "activity",
-        "new_listing",
-        {
+def new_listing_event(order, product, delivery_point) -> CommittedMarketEvent:
+    """Build a durable event scoped to the listing owner."""
+    return participant_market_event(
+        event_type="new_listing",
+        aggregate_type="order",
+        aggregate_id=order.id,
+        participant_org_ids=(order.organization_id,),
+        payload={
             **order_activity_provenance(order),
             "order_id": str(order.id),
             "side": order.side.value if hasattr(order.side, "value") else order.side,
@@ -112,12 +67,19 @@ async def publish_new_listing(order, product, delivery_point) -> None:
     )
 
 
-async def publish_price_crossing(product, delivery_point) -> None:
-    """Publish a bid/ask price-crossing event to the public activity channel."""
-    await event_bus.publish(
-        "activity",
-        "price_crossing",
-        {
+def price_crossing_event(
+    product,
+    delivery_point,
+    *,
+    participant_org_ids,
+) -> CommittedMarketEvent:
+    """Build a price-crossing event for explicitly named participants."""
+    return participant_market_event(
+        event_type="price_crossing",
+        aggregate_type="product",
+        aggregate_id=product.id,
+        participant_org_ids=participant_org_ids,
+        payload={
             "product_id": str(product.id),
             "product_name": product.name,
             "fuel_type": product.fuel_type,
@@ -131,12 +93,14 @@ async def publish_price_crossing(product, delivery_point) -> None:
     )
 
 
-async def publish_order_outbid(org_id, order, new_price: Decimal) -> None:
-    """Publish an outbid notification to the participant-specific activity channel."""
-    await event_bus.publish(
-        f"activity:{org_id}",
-        "order_outbid",
-        {
+def order_outbid_event(org_id, order, new_price: Decimal) -> CommittedMarketEvent:
+    """Build an outbid event for publication only after commit."""
+    return participant_market_event(
+        event_type="order_outbid",
+        aggregate_type="order",
+        aggregate_id=order.id,
+        participant_org_ids=(org_id,),
+        payload={
             "order_id": str(order.id),
             "new_price": str(new_price),
             "your_price": str(order.price_per_mt_usd),
@@ -149,17 +113,17 @@ async def check_price_alerts(
     product_id,
     delivery_point_id,
     price: Decimal,
-) -> None:
+) -> list[CommittedMarketEvent]:
     """Query active alerts for the product/dp and trigger any that cross the threshold.
 
     Triggered alerts are deactivated (is_active=False) and stamped with triggered_at.
-    A participant-specific SSE event is emitted for each triggered alert.
+    The caller owns commit and then publishes the returned event descriptors.
     """
     from app.models.alerts import PriceAlert
 
     query = select(PriceAlert).where(
         PriceAlert.product_id == product_id,
-        PriceAlert.is_active == True,
+        PriceAlert.is_active.is_(True),
     )
     if delivery_point_id is not None:
         # Match alerts for this specific dp OR alerts watching all delivery points (NULL)
@@ -182,22 +146,24 @@ async def check_price_alerts(
             triggered.append(alert)
 
     if not triggered:
-        return
+        return []
 
     now = datetime.now(UTC)
+    events: list[CommittedMarketEvent] = []
     for alert in triggered:
         alert.triggered_at = now
         alert.is_active = False
-        await event_bus.publish(
-            f"activity:{alert.org_id}",
-            "price_alert_triggered",
-            {
+        events.append(participant_market_event(
+            event_type="price_alert_triggered",
+            aggregate_type="price_alert",
+            aggregate_id=alert.id,
+            participant_org_ids=(alert.org_id,),
+            payload={
                 "alert_id": str(alert.id),
                 "product_id": str(alert.product_id),
                 "direction": alert.direction,
                 "threshold_usd": str(alert.threshold_usd),
                 "triggered_price": str(price),
             },
-        )
-
-    await db.commit()
+        ))
+    return events

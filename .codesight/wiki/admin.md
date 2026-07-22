@@ -2,7 +2,7 @@
 
 > **Navigation aid.** Route list and file locations extracted via AST. Read the source files listed below before implementing or modifying this subsystem.
 
-The Admin subsystem handles **9 routes** and touches: auth, db.
+The Admin subsystem handles **10 routes** and touches: auth, db.
 
 ## Routes
 
@@ -24,6 +24,8 @@ The Admin subsystem handles **9 routes** and touches: auth, db.
   `app/routers/subscriptions.py`
 - `PUT` `/admin/subscriptions/{org_id}` params(org_id) → in: uuid, out: SubscriptionResponse [auth, db]
   `app/routers/subscriptions.py`
+- `GET` `/api/admin/analytics/overview` [auth, db]
+  `tests/unit/test_preauth_rate_limit.py`
 
 ## Source Files
 
@@ -32,6 +34,7 @@ Read these before implementing or modifying this subsystem:
 - `app/routers/kyc.py`
 - `app/routers/orders.py`
 - `app/routers/subscriptions.py`
+- `tests/unit/test_preauth_rate_limit.py`
 
 ---
 _Back to [overview.md](./overview.md)_

@@ -1,5 +1,5 @@
 """Tests for watchlist event generation."""
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from uuid import uuid4
 
@@ -8,12 +8,13 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.database import Base
+from app.market_catalog import DELIVERY_POINTS_BY_NAME, PRODUCTS_BY_NAME
 from app.models.catalog import DeliveryPoint, Product
 from app.models.orderbook import OrderBookOrder, OrderBookStatus, OrderSide
-from app.models.user import OrgType, Organization, User, UserRole, UserStatus
-from app.models.watchlist import WatchlistEvent, WatchlistKind, WatchlistTarget, WatchlistTargetType
+from app.models.user import OrgType, Organization, User, UserRole, UserStatus, OrganizationProvenance
+from app.models.watchlist import WatchlistEvent, WatchlistTarget, WatchlistTargetType
 from app.schemas.market_activity import MarketDemoStatus, MarketScope, MarketSourceKind
-from app.services.demo_market import DEMO_ACTIVITY_SELLER_ORG_ID
+from app.services.demo_market import DEMO_ACTIVITY_SELLER_ORG_ID, is_demo_market_organization
 from app.services.watchlist_events import emit_benchmark_moved, emit_order_created, emit_order_updated, emit_pin_updated, emit_slice_state_changed, sync_target_snapshot
 from app.services.watchlists import ensure_market_radar, list_watchlist_events
 
@@ -55,7 +56,7 @@ async def db(async_engine, setup_tables):
 
 
 async def _make_org(db: AsyncSession, name: str, org_type: OrgType, *, org_id=None) -> Organization:
-    org = Organization(id=org_id or uuid4(), name=f'{name}-{uuid4().hex[:6]}', type=org_type)
+    org = Organization(id=org_id or uuid4(), name=f'{name}-{uuid4().hex[:6]}', type=org_type, provenance=OrganizationProvenance.REAL)
     db.add(org)
     await db.flush()
     return org
@@ -75,14 +76,22 @@ async def _make_user(db: AsyncSession, org: Organization, role: UserRole) -> Use
 
 
 async def _make_product(db: AsyncSession, *, name: str, fuel_type: str, fuel_grade: str) -> Product:
-    product = Product(name=f'{name}-{uuid4().hex[:6]}', fuel_type=fuel_type, fuel_grade=fuel_grade)
+    spec = PRODUCTS_BY_NAME[name]
+    assert (spec.fuel_type, spec.fuel_grade) == (fuel_type, fuel_grade)
+    product = Product(
+        id=spec.id,
+        name=spec.name,
+        fuel_type=spec.fuel_type,
+        fuel_grade=spec.fuel_grade,
+    )
     db.add(product)
     await db.flush()
     return product
 
 
 async def _make_delivery_point(db: AsyncSession, name: str) -> DeliveryPoint:
-    delivery_point = DeliveryPoint(name=f'{name}-{uuid4().hex[:6]}', region='Asia')
+    spec = DELIVERY_POINTS_BY_NAME[name]
+    delivery_point = DeliveryPoint(id=spec.id, name=spec.name, region=spec.region)
     db.add(delivery_point)
     await db.flush()
     return delivery_point
@@ -91,6 +100,7 @@ async def _make_delivery_point(db: AsyncSession, name: str) -> DeliveryPoint:
 async def _make_order(db: AsyncSession, *, org_id, product_id, delivery_point_id, price: str) -> OrderBookOrder:
     order = OrderBookOrder(
         organization_id=org_id,
+        provenance=(OrganizationProvenance.DEMO if is_demo_market_organization(org_id) else OrganizationProvenance.REAL),
         side=OrderSide.ASK,
         product_id=product_id,
         delivery_point_id=delivery_point_id,
@@ -100,6 +110,11 @@ async def _make_order(db: AsyncSession, *, org_id, product_id, delivery_point_id
         availability_window='SPOT',
         status=OrderBookStatus.OPEN,
         created_at=datetime.now(UTC),
+        expires_at=(
+            datetime.now(UTC) + timedelta(days=1)
+            if is_demo_market_organization(org_id)
+            else None
+        ),
         certification_declared=True,
         certification_scheme='ISCC EU',
         specification_standard='IMPCA',

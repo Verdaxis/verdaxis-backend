@@ -744,7 +744,7 @@ Find the line `return RegistrationResponse(status="created", user=new_user)` in 
 
 Also add `referral_code: str | None = None` field to `UserCreate` schema in `app/schemas/user.py`.
 
-Do the same in the `register_with_org` endpoint — after `db.add(new_user)` and before `await db.commit()`, add the same referral attribution block. The referral_code comes from `payload.get("referral_code")` (stored in the registration JWT).
+Do the same in the `register_with_org` endpoint — after `db.add(new_user)` and before `await db.commit()`, add the same referral attribution block. The referral code comes from the expiring server-side pending-registration row addressed by the opaque one-time token; it is never stored in a registration JWT.
 
 In the `register` endpoint's `requires_org` branch, add `referral_code` to `token_data`:
 

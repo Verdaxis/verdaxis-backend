@@ -19,7 +19,7 @@ from decimal import Decimal
 from httpx import AsyncClient
 
 import os
-TEST_API_URL = os.environ.get("TEST_API_URL", "http://localhost:8000")
+TEST_API_URL = os.environ.get("TEST_API_URL")
 
 # Deterministic product/delivery point IDs from catalog_seed.py
 PRODUCT_BIOFUEL_BIO = "c4a688be-f7c2-5edc-8f93-6b34e387609c"  # Bio-Ethanol (live catalog)
@@ -34,7 +34,7 @@ async def client():
 
 @pytest.fixture
 async def buyer_headers(client: AsyncClient, itest_password):
-    form = {"username": "itest-buyer@staging.verdaxis.exchange", "password": itest_password}
+    form = {"username": "itest-buyer@disposable.invalid", "password": itest_password}
     res = await client.post("/api/auth/login", data=form)
     assert res.status_code == 200, f"Buyer login failed: {res.text}"
     token = res.json()["access_token"]
@@ -43,7 +43,7 @@ async def buyer_headers(client: AsyncClient, itest_password):
 
 @pytest.fixture
 async def seller_headers(client: AsyncClient, itest_password):
-    form = {"username": "itest-seller@staging.verdaxis.exchange", "password": itest_password}
+    form = {"username": "itest-seller@disposable.invalid", "password": itest_password}
     res = await client.post("/api/auth/login", data=form)
     assert res.status_code == 200, f"Seller login failed: {res.text}"
     token = res.json()["access_token"]

@@ -308,7 +308,8 @@ async def get_overview(
     open_orders_q = await db.execute(
         select(func.count(OrderBookOrder.id)).where(
             OrderBookOrder.organization_id.in_(market_org_ids),
-            OrderBookOrder.status.in_([OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED])
+            OrderBookOrder.status.in_([OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED]),
+            OrderBookOrder.expires_at.is_(None) | (OrderBookOrder.expires_at > func.now()),
         )
     )
     open_orders = open_orders_q.scalar() or 0
@@ -534,17 +535,12 @@ async def reject_user(
 ):
     """Reject a pending or approved user. Admins cannot reject other admins."""
 
-    result = await db.execute(
-        select(User, Organization.name, Organization.type)
-        .outerjoin(Organization, User.organization_id == Organization.id)
-        .where(User.id == user_id)
-    )
-    row = result.one_or_none()
+    user = (
+        await db.execute(select(User).where(User.id == user_id).with_for_update())
+    ).scalar_one_or_none()
 
-    if row is None:
+    if user is None:
         raise HTTPException(status_code=404, detail="User not found")
-
-    user, org_name, org_type = row
 
     if user.role == UserRole.ADMIN:
         raise HTTPException(
@@ -563,17 +559,35 @@ async def reject_user(
     record_status_transition(
         db, user, from_status=previous_status, to_status=UserStatus.REJECTED
     )
+    audit_context = request_audit_context(request)
+    # A rejected user is fail-closed at execution time: every market mutation
+    # and the matching engine re-lock the concrete party and re-check
+    # execution_party_is_eligible in-transaction. Tenant-level cleanup of
+    # market state is owned by invalidate_organization_market_access on the
+    # organization rejection path.
     await record_audit(
         db,
         user_id=current_user.id,
         action=ADMIN_USER_REJECTED,
         resource_type="user",
         resource_id=user.id,
-        changes={"status": {"from": previous_status.value, "to": UserStatus.REJECTED.value}},
-        **request_audit_context(request),
+        changes={
+            "status": {"from": previous_status.value, "to": UserStatus.REJECTED.value},
+            "reason": "admin_analytics_user_rejected",
+        },
+        **audit_context,
     )
     await db.commit()
     await db.refresh(user)
+
+    organization = (
+        await db.execute(
+            select(Organization.name, Organization.type).where(
+                Organization.id == user.organization_id
+            )
+        )
+    ).one_or_none()
+    org_name, org_type = organization if organization is not None else (None, None)
 
     return _user_to_entry((user, org_name, org_type))
 

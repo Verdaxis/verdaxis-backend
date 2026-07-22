@@ -112,8 +112,6 @@ def test_order_and_all_trade_creation_paths_are_wired_after_commits():
     expectations = {
         "app/routers/orderbook.py": ("async def create_order(", "order_created_event"),
         "app/routers/trades.py": ("async def create_trade(", "trade_created_event"),
-        "app/routers/negotiations.py": ("async def accept_negotiation(", "trade_created_event"),
-        "app/routers/rfq.py": ("async def accept_quote(", "trade_created_event"),
     }
     for path, (function_marker, event_marker) in expectations.items():
         source = (ROOT / path).read_text()

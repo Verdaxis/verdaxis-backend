@@ -14,7 +14,7 @@ Golden hand-derivation (bio-methanol, CI 31 gCO2e/MJ, LCV 19.9 MJ/kg):
 import inspect
 import json
 from contextlib import asynccontextmanager
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from typing import AsyncIterator
@@ -29,8 +29,16 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from app.config import settings
 from app.database import Base, get_db
 from app.models.catalog import DeliveryPoint, Product
+from app.market_catalog import DELIVERY_POINTS_BY_NAME, PRODUCTS_BY_NAME
 from app.models.orderbook import OrderBookOrder, OrderBookStatus, OrderSide
-from app.models.user import OrgType, Organization, User, UserRole, UserStatus
+from app.models.user import (
+    OrganizationProvenance,
+    OrgType,
+    Organization,
+    User,
+    UserRole,
+    UserStatus,
+)
 from app.routers.auth_simple import get_current_user
 from app.routers.compliance_api import router as compliance_api_router
 from app.schemas.compliance_pricing import PricingOverlayResponse
@@ -390,7 +398,16 @@ async def overlay_client(db_session: AsyncSession, user: User | None = None) -> 
 
 
 async def _make_org(db: AsyncSession, name: str, org_type: OrgType, *, org_id=None) -> Organization:
-    org = Organization(name=f"{name}-{uuid4().hex[:6]}", type=org_type)
+    provenance = (
+        OrganizationProvenance.DEMO
+        if org_id is not None and is_demo_market_organization(org_id)
+        else OrganizationProvenance.REAL
+    )
+    org = Organization(
+        name=f"{name}-{uuid4().hex[:6]}",
+        type=org_type,
+        provenance=provenance,
+    )
     if org_id is not None:
         org.id = org_id
     db.add(org)
@@ -412,14 +429,27 @@ async def _make_user(db: AsyncSession, org: Organization, role: UserRole) -> Use
 
 
 async def _make_product(db: AsyncSession, *, name: str, fuel_type: str, fuel_grade: str) -> Product:
-    product = Product(name=f"{name}-{uuid4().hex[:6]}", fuel_type=fuel_type, fuel_grade=fuel_grade)
+    spec = PRODUCTS_BY_NAME.get(name)
+    product = Product(
+        id=spec.id if spec is not None else uuid4(),
+        name=name,
+        fuel_type=fuel_type,
+        fuel_grade=fuel_grade,
+        is_active=True,
+    )
     db.add(product)
     await db.flush()
     return product
 
 
 async def _make_delivery_point(db: AsyncSession, name: str) -> DeliveryPoint:
-    delivery_point = DeliveryPoint(name=f"{name}-{uuid4().hex[:6]}", region="Asia")
+    spec = DELIVERY_POINTS_BY_NAME.get(name)
+    delivery_point = DeliveryPoint(
+        id=spec.id if spec is not None else uuid4(),
+        name=name,
+        region=spec.region if spec is not None else "Asia",
+        is_active=True,
+    )
     db.add(delivery_point)
     await db.flush()
     return delivery_point
@@ -436,9 +466,11 @@ async def _make_order(
     ci: str | None = "31",
     lcv: str | None = None,
     off_spec: bool = False,
+    provenance: OrganizationProvenance = OrganizationProvenance.REAL,
 ) -> OrderBookOrder:
     order = OrderBookOrder(
         organization_id=organization_id,
+        provenance=provenance,
         side=side,
         product_id=product_id,
         delivery_point_id=delivery_point_id,
@@ -458,6 +490,11 @@ async def _make_order(
         feedstock="waste wood",
         origin="Netherlands",
         off_spec=off_spec,
+        expires_at=(
+            datetime.now(UTC) + timedelta(days=1)
+            if provenance == OrganizationProvenance.DEMO
+            else None
+        ),
     )
     db.add(order)
     await db.flush()
@@ -615,6 +652,7 @@ async def test_endpoint_demo_ask_is_priced(db: AsyncSession):
         organization_id=demo_org.id,
         product_id=product.id,
         delivery_point_id=singapore.id,
+        provenance=OrganizationProvenance.DEMO,
     )
     await db.commit()
 

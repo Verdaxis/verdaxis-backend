@@ -7,7 +7,12 @@ from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
-from app.routers.curves import _build_board_cell, build_forward_curve_board, compute_forward_curve
+from app.routers.curves import (
+    _aggregate_depth_levels,
+    _build_board_cell,
+    build_forward_curve_board,
+    compute_forward_curve,
+)
 from app.schemas.market_activity import MarketDemoStatus, MarketSourceKind
 from app.schemas.curves import (
     ForwardCurveBoardCell,
@@ -242,10 +247,9 @@ class TestForwardCurveBoardSchema:
                 delivery_point=delivery_point,
                 availability_window="SPOT",
                 orderbook_bucket={
-                    "best_bid": Decimal("1048.00"),
-                    "best_ask": Decimal("1056.00"),
-                    "volume_mt": Decimal("9000.00"),
-                    "order_count": 4,
+                    "real_best_bid": Decimal("1048.00"),
+                    "real_best_ask": Decimal("1056.00"),
+                    "real_volume_mt": Decimal("9000.00"),
                     "real_order_count": 1,
                 },
             )
@@ -259,8 +263,8 @@ class TestForwardCurveBoardSchema:
         assert cell.demo_status == MarketDemoStatus.REAL_ONLY
 
     @pytest.mark.asyncio
-    async def test_board_cell_marks_mixed_real_demo_depth_sources(self):
-        """A demo best price in a mixed cell must not be labelled purely live."""
+    async def test_board_cell_prefers_real_headline_without_blending_demo(self):
+        """REAL headline values and totals cannot include visible demo depth."""
         product = MagicMock()
         product.id = uuid4()
         product.market_product = "BIO_METHANOL"
@@ -277,28 +281,98 @@ class TestForwardCurveBoardSchema:
             delivery_point=delivery_point,
             availability_window="SPOT",
             orderbook_bucket={
-                "best_bid": Decimal("1050.00"),
                 "real_best_bid": Decimal("1045.00"),
                 "demo_best_bid": Decimal("1050.00"),
-                "best_ask": Decimal("1056.00"),
                 "real_best_ask": Decimal("1056.00"),
                 "demo_best_ask": Decimal("1062.00"),
-                "volume_mt": Decimal("9000.00"),
-                "order_count": 4,
+                "real_volume_mt": Decimal("3000.00"),
+                "demo_volume_mt": Decimal("6000.00"),
                 "real_order_count": 2,
                 "demo_order_count": 2,
             },
             benchmark_quote=None,
         )
 
-        assert cell.order_source_kind == MarketSourceKind.MIXED_SOURCE
-        assert cell.demo_status == MarketDemoStatus.MIXED
+        assert cell.order_source_kind == MarketSourceKind.LIVE_ORDER
+        assert cell.demo_status == MarketDemoStatus.REAL_ONLY
         assert cell.real_order_count == 2
         assert cell.demo_order_count == 2
         assert cell.real_best_bid == Decimal("1045.00")
         assert cell.demo_best_bid == Decimal("1050.00")
-        assert cell.best_bid_source_kind == MarketSourceKind.DEMO_SEED
+        assert cell.best_bid == Decimal("1045.00")
+        assert cell.best_ask == Decimal("1056.00")
+        assert cell.volume_mt == Decimal("3000.00")
+        assert cell.order_count == 2
+        assert cell.best_bid_source_kind == MarketSourceKind.LIVE_ORDER
         assert cell.best_ask_source_kind == MarketSourceKind.LIVE_ORDER
+
+    @pytest.mark.asyncio
+    async def test_board_cell_falls_back_to_visibly_demo_without_unknown_rows(self):
+        product = MagicMock()
+        product.id = uuid4()
+        product.market_product = "BIO_METHANOL"
+        product.name = "Bio Methanol"
+        delivery_point = MagicMock()
+        delivery_point.id = uuid4()
+        delivery_point.name = "Singapore"
+        delivery_point.region = "Asia"
+
+        cell = await _build_board_cell(
+            AsyncMock(),
+            product=product,
+            delivery_point=delivery_point,
+            availability_window="SPOT",
+            orderbook_bucket={
+                "demo_best_bid": Decimal("1050.00"),
+                "demo_best_ask": Decimal("1062.00"),
+                "demo_volume_mt": Decimal("6000.00"),
+                "demo_order_count": 2,
+                "unknown_order_count": 4,
+            },
+            benchmark_quote=None,
+        )
+
+        assert cell.order_source_kind == MarketSourceKind.DEMO_SEED
+        assert cell.demo_status == MarketDemoStatus.DEMO_ONLY
+        assert cell.best_bid == Decimal("1050.00")
+        assert cell.best_ask == Decimal("1062.00")
+        assert cell.volume_mt == Decimal("6000.00")
+        assert cell.order_count == 2
+
+    @pytest.mark.asyncio
+    async def test_depth_prefers_real_rows_without_blending_demo_levels(self):
+        db = AsyncMock()
+        result = MagicMock()
+        real_row = MagicMock()
+        real_row.side = "BID"
+        real_row.price_per_mt_usd = Decimal("1045.00")
+        real_row.quantity_mt = Decimal("100.00")
+        real_row.order_count = 1
+        real_row.real_order_count = 1
+        real_row.demo_order_count = 0
+        demo_row = MagicMock()
+        demo_row.side = "BID"
+        demo_row.price_per_mt_usd = Decimal("1050.00")
+        demo_row.quantity_mt = Decimal("900.00")
+        demo_row.order_count = 1
+        demo_row.real_order_count = 0
+        demo_row.demo_order_count = 1
+        result.all.return_value = [demo_row, real_row]
+        db.execute.return_value = result
+
+        bids, asks = await _aggregate_depth_levels(
+            db,
+            product_id=uuid4(),
+            delivery_point_id=uuid4(),
+            availability_window="SPOT",
+        )
+
+        assert asks == []
+        assert len(bids) == 1
+        assert bids[0].price_per_mt_usd == Decimal("1045.00")
+        assert bids[0].quantity_mt == Decimal("100.00")
+        assert bids[0].source_kind == MarketSourceKind.LIVE_ORDER
+        assert bids[0].demo_status == MarketDemoStatus.REAL_ONLY
 
     @pytest.mark.asyncio
     async def test_forward_board_batches_benchmark_quotes(self):
@@ -509,7 +583,9 @@ class TestComputeForwardCurve:
 
         await compute_forward_curve(mock_db, product_id=uuid4())
         stmt = mock_db.execute.call_args.args[0]
-        assert "organization_id NOT IN" in str(stmt).replace("(", " ").replace(")", " ")
+        rendered = str(stmt.compile(compile_kwargs={"literal_binds": True}))
+        assert "orderbook_orders.provenance = 'REAL'" in rendered
+        assert "organization_id NOT IN" not in rendered
 
     @pytest.mark.asyncio
     async def test_mid_price_rounded_to_two_decimal_places(self):

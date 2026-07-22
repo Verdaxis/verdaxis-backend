@@ -7,15 +7,17 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.database import Base
+from app.market_catalog import DELIVERY_POINTS_BY_NAME, PRODUCTS_BY_NAME
 from app.models.catalog import DeliveryPoint, Product
 from app.models.live_slice_benchmark import LiveSliceBenchmark
 from app.models.orderbook import OrderBookOrder, OrderBookStatus, OrderSide
-from app.models.user import OrgType, Organization
+from app.models.user import OrgType, Organization, OrganizationProvenance
 from app.routers.orderbook import list_asks, list_bids
 from app.services.live_benchmarks import rebuild_live_slice_benchmark
 
 REQUIRED_TABLES = [
     'organizations',
+    'users',
     'products',
     'delivery_points',
     'orderbook_orders',
@@ -58,21 +60,38 @@ async def db(async_engine, setup_tables):
 
 
 async def _make_org(db: AsyncSession, name: str) -> Organization:
-    org = Organization(name=name, type=OrgType.FUEL_SUPPLIER)
+    org = Organization(
+        name=name,
+        type=OrgType.FUEL_SUPPLIER,
+        provenance=OrganizationProvenance.REAL,
+    )
     db.add(org)
     await db.flush()
     return org
 
 
 async def _make_product(db: AsyncSession, *, name: str, fuel_type: str, fuel_grade: str) -> Product:
-    product = Product(name=f'{name} {uuid4().hex[:8]}', fuel_type=fuel_type, fuel_grade=fuel_grade)
+    spec = PRODUCTS_BY_NAME.get(name)
+    product = Product(
+        id=(spec.id if spec and (spec.fuel_type, spec.fuel_grade) == (fuel_type, fuel_grade) else uuid4()),
+        name=name,
+        fuel_type=fuel_type,
+        fuel_grade=fuel_grade,
+        is_active=True,
+    )
     db.add(product)
     await db.flush()
     return product
 
 
 async def _make_delivery_point(db: AsyncSession, name: str, region: str) -> DeliveryPoint:
-    delivery_point = DeliveryPoint(name=f'{name} {uuid4().hex[:8]}', region=region)
+    spec = DELIVERY_POINTS_BY_NAME.get(name)
+    delivery_point = DeliveryPoint(
+        id=(spec.id if spec and spec.region == region else uuid4()),
+        name=name,
+        region=region,
+        is_active=True,
+    )
     db.add(delivery_point)
     await db.flush()
     return delivery_point
@@ -81,6 +100,7 @@ async def _make_delivery_point(db: AsyncSession, name: str, region: str) -> Deli
 def _make_order(*, org_id, side: OrderSide, product_id, delivery_point_id, price: str, quantity: str = '1000') -> OrderBookOrder:
     payload = dict(
         organization_id=org_id,
+        provenance=OrganizationProvenance.REAL,
         side=side,
         product_id=product_id,
         delivery_point_id=delivery_point_id,

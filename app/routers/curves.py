@@ -18,12 +18,18 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
-from sqlalchemy import case, select, func
+from sqlalchemy import case, select, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.models.catalog import DeliveryPoint, MarketProduct, Product
+from app.market_catalog import (
+    DELIVERY_POINT_DISPLAY_ORDER,
+    MARKET_PRODUCT_CODES,
+    MarketProduct,
+)
+from app.models.catalog import DeliveryPoint, Product
 from app.models.orderbook import OrderBookOrder, OrderBookStatus, OrderSide
+from app.models.user import OrganizationProvenance
 from app.schemas.benchmark import BenchmarkQuote
 from app.schemas.curves import (
     ForwardCurveBoardCell,
@@ -45,8 +51,6 @@ from app.schemas.curves import (
 from app.schemas.market_activity import (
     MarketScope,
     MarketSourceKind,
-    demo_status_from_counts,
-    source_kind_from_counts,
 )
 from app.services.availability_windows import (
     SPOT_WINDOW,
@@ -54,7 +58,18 @@ from app.services.availability_windows import (
     normalize_availability_window,
 )
 from app.services.benchmarks import get_benchmark_quote, get_benchmark_quotes
-from app.services.demo_market import DEMO_MARKET_ORG_IDS
+from app.services.market_provenance import (
+    MarketEvidenceScope,
+    evidence_policy_for_scope,
+    order_evidence_clause,
+    public_order_evidence_clause,
+    select_aggregate_evidence,
+)
+from app.services.market_data_eligibility import (
+    canonical_delivery_point_clause,
+    canonical_product_clause,
+    current_public_order_clause,
+)
 from app.services.forward_monitoring import (
     SignalKey,
     load_fair_price_bands,
@@ -72,17 +87,8 @@ from app.services.forward_curve_market_slices import forward_curve_market_slices
 router = APIRouter(prefix="/curves/forward", tags=["forward-curve"])
 
 _ACTIVE_STATUSES = [OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED]
-_MARKET_PRODUCT_ORDER = [member.value for member in MarketProduct]
-_DELIVERY_POINT_DISPLAY_ORDER = {
-    "Dalian": 1,
-    "Busan": 2,
-    "Shanghai": 3,
-    "Singapore": 4,
-    "Rotterdam": 5,
-    "Houston": 6,
-    "Los Angeles": 7,
-    "Santos": 8,
-}
+_MARKET_PRODUCT_ORDER = list(MARKET_PRODUCT_CODES)
+_DELIVERY_POINT_DISPLAY_ORDER = DELIVERY_POINT_DISPLAY_ORDER
 
 
 def _add_month_offset(year: int, month: int, offset: int) -> tuple[int, int]:
@@ -129,11 +135,11 @@ _MISSING_BENCHMARK = object()
 
 
 def _is_demo_order_clause():
-    return OrderBookOrder.organization_id.in_(list(DEMO_MARKET_ORG_IDS))
+    return order_evidence_clause(OrderBookOrder.provenance, MarketEvidenceScope.DEMO)
 
 
 def _is_real_order_clause():
-    return OrderBookOrder.organization_id.notin_(list(DEMO_MARKET_ORG_IDS))
+    return order_evidence_clause(OrderBookOrder.provenance, MarketEvidenceScope.REAL)
 
 
 def _source_kind_for_best_price(
@@ -193,6 +199,7 @@ async def compute_forward_curve(
         )
         .where(
             OrderBookOrder.status.in_(_ACTIVE_STATUSES),
+            current_public_order_clause(OrderBookOrder),
             OrderBookOrder.product_id == product_id,
             # Real orders only: sibling endpoints (/table, /slice, /board)
             # segregate and label demo liquidity; this legacy curve has no
@@ -271,26 +278,26 @@ async def compute_forward_curve(
 
 
 async def _load_board_products(db: AsyncSession) -> list[Product]:
-    result = await db.execute(select(Product).where(Product.is_active.is_(True)))
-    products = [
-        product for product in result.scalars().all()
-        if product.market_product in _MARKET_PRODUCT_ORDER
-    ]
+    result = await db.execute(
+        select(Product).where(
+            canonical_product_clause(Product),
+        )
+    )
+    products = list(result.scalars().all())
     products.sort(key=lambda product: _MARKET_PRODUCT_ORDER.index(product.market_product or ""))
     return products
 
 
 async def _load_board_delivery_points(db: AsyncSession) -> list[DeliveryPoint]:
     display_order = case(
-        _DELIVERY_POINT_DISPLAY_ORDER,
+        dict(_DELIVERY_POINT_DISPLAY_ORDER),
         value=DeliveryPoint.name,
         else_=999,
     )
     result = await db.execute(
         select(DeliveryPoint)
         .where(
-            DeliveryPoint.is_active.is_(True),
-            DeliveryPoint.name.in_(_DELIVERY_POINT_DISPLAY_ORDER.keys()),
+            canonical_delivery_point_clause(DeliveryPoint),
         )
         .order_by(display_order, DeliveryPoint.name)
     )
@@ -309,38 +316,32 @@ async def _aggregate_orderbook_window(
 
     demo_order = _is_demo_order_clause()
     real_order = _is_real_order_clause()
+    unknown_order = OrderBookOrder.provenance == OrganizationProvenance.UNKNOWN.value
+    observed_at = func.coalesce(OrderBookOrder.updated_at, OrderBookOrder.created_at)
     stmt = (
         select(
             OrderBookOrder.product_id,
             OrderBookOrder.delivery_point_id,
             OrderBookOrder.side,
-            func.max(OrderBookOrder.price_per_mt_usd).label("max_price"),
-            func.min(OrderBookOrder.price_per_mt_usd).label("min_price"),
             func.max(case((real_order, OrderBookOrder.price_per_mt_usd))).label("real_max_price"),
             func.min(case((real_order, OrderBookOrder.price_per_mt_usd))).label("real_min_price"),
             func.max(case((demo_order, OrderBookOrder.price_per_mt_usd))).label("demo_max_price"),
             func.min(case((demo_order, OrderBookOrder.price_per_mt_usd))).label("demo_min_price"),
-            func.sum(OrderBookOrder.remaining_quantity_mt).label("total_volume"),
-            func.count(OrderBookOrder.id).label("order_count"),
-            func.sum(
-                case(
-                    (real_order, 1),
-                    else_=0,
-                )
-            ).label("real_order_count"),
-            func.sum(
-                case(
-                    (demo_order, 1),
-                    else_=0,
-                )
-            ).label("demo_order_count"),
-            func.max(func.coalesce(OrderBookOrder.updated_at, OrderBookOrder.created_at)).label("last_order_at"),
+            func.sum(case((real_order, OrderBookOrder.remaining_quantity_mt), else_=0)).label("real_volume_mt"),
+            func.sum(case((demo_order, OrderBookOrder.remaining_quantity_mt), else_=0)).label("demo_volume_mt"),
+            func.sum(case((real_order, 1), else_=0)).label("real_order_count"),
+            func.sum(case((demo_order, 1), else_=0)).label("demo_order_count"),
+            func.sum(case((unknown_order, 1), else_=0)).label("unknown_order_count"),
+            func.max(case((real_order, observed_at))).label("real_last_order_at"),
+            func.max(case((demo_order, observed_at))).label("demo_last_order_at"),
         )
         .where(
             OrderBookOrder.status.in_(_ACTIVE_STATUSES),
+            current_public_order_clause(OrderBookOrder),
             OrderBookOrder.product_id.in_(product_ids),
             OrderBookOrder.delivery_point_id.in_(delivery_point_ids),
             OrderBookOrder.availability_window == availability_window,
+            or_(public_order_evidence_clause(OrderBookOrder.provenance), unknown_order),
         )
         .group_by(OrderBookOrder.product_id, OrderBookOrder.delivery_point_id, OrderBookOrder.side)
     )
@@ -351,23 +352,27 @@ async def _aggregate_orderbook_window(
         if row.delivery_point_id is None:
             continue
         key = (row.product_id, row.delivery_point_id)
-        bucket = board.setdefault(key, {"volume_mt": Decimal("0"), "order_count": 0})
+        bucket = board.setdefault(
+            key,
+            {"real_volume_mt": Decimal("0"), "demo_volume_mt": Decimal("0")},
+        )
         side = row.side.value if hasattr(row.side, "value") else str(row.side)
         if side == OrderSide.BID.value:
-            bucket["best_bid"] = row.max_price
             bucket["real_best_bid"] = row.real_max_price
             bucket["demo_best_bid"] = row.demo_max_price
         elif side == OrderSide.ASK.value:
-            bucket["best_ask"] = row.min_price
             bucket["real_best_ask"] = row.real_min_price
             bucket["demo_best_ask"] = row.demo_min_price
-        bucket["volume_mt"] = Decimal(str(bucket["volume_mt"])) + (row.total_volume or Decimal("0"))
-        bucket["order_count"] = int(bucket["order_count"]) + int(row.order_count or 0)
+        bucket["real_volume_mt"] = Decimal(str(bucket["real_volume_mt"])) + (row.real_volume_mt or Decimal("0"))
+        bucket["demo_volume_mt"] = Decimal(str(bucket["demo_volume_mt"])) + (row.demo_volume_mt or Decimal("0"))
         bucket["real_order_count"] = int(bucket.get("real_order_count") or 0) + int(row.real_order_count or 0)
         bucket["demo_order_count"] = int(bucket.get("demo_order_count") or 0) + int(row.demo_order_count or 0)
-        current_last_order_at = bucket.get("last_order_at")
-        if row.last_order_at is not None and (current_last_order_at is None or row.last_order_at > current_last_order_at):
-            bucket["last_order_at"] = row.last_order_at
+        bucket["unknown_order_count"] = int(bucket.get("unknown_order_count") or 0) + int(row.unknown_order_count or 0)
+        for prefix in ("real", "demo"):
+            candidate = getattr(row, f"{prefix}_last_order_at")
+            current = bucket.get(f"{prefix}_last_order_at")
+            if candidate is not None and (current is None or candidate > current):
+                bucket[f"{prefix}_last_order_at"] = candidate
     return board
 
 
@@ -379,26 +384,30 @@ async def _aggregate_orderbook_focus_windows(
 ) -> dict[str, dict[str, object]]:
     demo_order = _is_demo_order_clause()
     real_order = _is_real_order_clause()
+    unknown_order = OrderBookOrder.provenance == OrganizationProvenance.UNKNOWN.value
+    observed_at = func.coalesce(OrderBookOrder.updated_at, OrderBookOrder.created_at)
     stmt = (
         select(
             OrderBookOrder.availability_window,
             OrderBookOrder.side,
-            func.max(OrderBookOrder.price_per_mt_usd).label("max_price"),
-            func.min(OrderBookOrder.price_per_mt_usd).label("min_price"),
             func.max(case((real_order, OrderBookOrder.price_per_mt_usd))).label("real_max_price"),
             func.min(case((real_order, OrderBookOrder.price_per_mt_usd))).label("real_min_price"),
             func.max(case((demo_order, OrderBookOrder.price_per_mt_usd))).label("demo_max_price"),
             func.min(case((demo_order, OrderBookOrder.price_per_mt_usd))).label("demo_min_price"),
-            func.sum(OrderBookOrder.remaining_quantity_mt).label("total_volume"),
-            func.count(OrderBookOrder.id).label("order_count"),
+            func.sum(case((real_order, OrderBookOrder.remaining_quantity_mt), else_=0)).label("real_volume_mt"),
+            func.sum(case((demo_order, OrderBookOrder.remaining_quantity_mt), else_=0)).label("demo_volume_mt"),
             func.sum(case((real_order, 1), else_=0)).label("real_order_count"),
             func.sum(case((demo_order, 1), else_=0)).label("demo_order_count"),
-            func.max(func.coalesce(OrderBookOrder.updated_at, OrderBookOrder.created_at)).label("last_order_at"),
+            func.sum(case((unknown_order, 1), else_=0)).label("unknown_order_count"),
+            func.max(case((real_order, observed_at))).label("real_last_order_at"),
+            func.max(case((demo_order, observed_at))).label("demo_last_order_at"),
         )
         .where(
             OrderBookOrder.status.in_(_ACTIVE_STATUSES),
+            current_public_order_clause(OrderBookOrder),
             OrderBookOrder.product_id == product_id,
             OrderBookOrder.delivery_point_id == delivery_point_id,
+            or_(public_order_evidence_clause(OrderBookOrder.provenance), unknown_order),
         )
         .group_by(OrderBookOrder.availability_window, OrderBookOrder.side)
     )
@@ -407,23 +416,27 @@ async def _aggregate_orderbook_focus_windows(
     buckets: dict[str, dict[str, object]] = {}
     for row in result.all():
         window = normalize_availability_window(str(row.availability_window))
-        bucket = buckets.setdefault(window, {"volume_mt": Decimal("0"), "order_count": 0})
+        bucket = buckets.setdefault(
+            window,
+            {"real_volume_mt": Decimal("0"), "demo_volume_mt": Decimal("0")},
+        )
         side = row.side.value if hasattr(row.side, "value") else str(row.side)
         if side == OrderSide.BID.value:
-            bucket["best_bid"] = row.max_price
             bucket["real_best_bid"] = row.real_max_price
             bucket["demo_best_bid"] = row.demo_max_price
         elif side == OrderSide.ASK.value:
-            bucket["best_ask"] = row.min_price
             bucket["real_best_ask"] = row.real_min_price
             bucket["demo_best_ask"] = row.demo_min_price
-        bucket["volume_mt"] = Decimal(str(bucket["volume_mt"])) + (row.total_volume or Decimal("0"))
-        bucket["order_count"] = int(bucket["order_count"]) + int(row.order_count or 0)
+        bucket["real_volume_mt"] = Decimal(str(bucket["real_volume_mt"])) + (row.real_volume_mt or Decimal("0"))
+        bucket["demo_volume_mt"] = Decimal(str(bucket["demo_volume_mt"])) + (row.demo_volume_mt or Decimal("0"))
         bucket["real_order_count"] = int(bucket.get("real_order_count") or 0) + int(row.real_order_count or 0)
         bucket["demo_order_count"] = int(bucket.get("demo_order_count") or 0) + int(row.demo_order_count or 0)
-        current_last_order_at = bucket.get("last_order_at")
-        if row.last_order_at is not None and (current_last_order_at is None or row.last_order_at > current_last_order_at):
-            bucket["last_order_at"] = row.last_order_at
+        bucket["unknown_order_count"] = int(bucket.get("unknown_order_count") or 0) + int(row.unknown_order_count or 0)
+        for prefix in ("real", "demo"):
+            candidate = getattr(row, f"{prefix}_last_order_at")
+            current = bucket.get(f"{prefix}_last_order_at")
+            if candidate is not None and (current is None or candidate > current):
+                bucket[f"{prefix}_last_order_at"] = candidate
     return buckets
 
 
@@ -431,11 +444,20 @@ def _orderbook_bucket_to_values(bucket: dict[str, object] | None) -> tuple[Decim
     if not bucket:
         return None, None, None, Decimal("0"), 0
 
-    best_bid = _money(bucket.get("best_bid"))
-    best_ask = _money(bucket.get("best_ask"))
+    selection = select_aggregate_evidence(
+        real_count=int(bucket.get("real_order_count") or 0),
+        demo_count=int(bucket.get("demo_order_count") or 0),
+        unknown_count=int(bucket.get("unknown_order_count") or 0),
+        real_source=MarketSourceKind.LIVE_ORDER,
+    )
+    if selection.value_prefix is None:
+        return None, None, None, Decimal("0"), 0
+    prefix = selection.value_prefix
+    best_bid = _money(bucket.get(f"{prefix}_best_bid"))
+    best_ask = _money(bucket.get(f"{prefix}_best_ask"))
     spread = _money(best_ask - best_bid) if best_bid is not None and best_ask is not None else None
-    volume_mt = _money(bucket.get("volume_mt")) or Decimal("0")
-    order_count = int(bucket.get("order_count") or 0)
+    volume_mt = _money(bucket.get(f"{prefix}_volume_mt")) or Decimal("0")
+    order_count = int(bucket.get(f"{prefix}_order_count") or 0)
     return best_bid, best_ask, spread, volume_mt, order_count
 
 
@@ -472,17 +494,15 @@ async def _build_board_cell(
     real_order_count = int(orderbook_bucket.get("real_order_count") or 0) if orderbook_bucket else 0
     demo_order_count = int(orderbook_bucket.get("demo_order_count") or 0) if orderbook_bucket else 0
     unknown_order_count = int(orderbook_bucket.get("unknown_order_count") or 0) if orderbook_bucket else 0
-    demo_status = demo_status_from_counts(
-        real_count=real_order_count,
-        demo_count=demo_order_count,
-        unknown_count=unknown_order_count,
-    )
-    order_source_kind = source_kind_from_counts(
+    selection = select_aggregate_evidence(
         real_count=real_order_count,
         demo_count=demo_order_count,
         unknown_count=unknown_order_count,
         real_source=MarketSourceKind.LIVE_ORDER,
     )
+    selected_scope = selection.scope
+    demo_status = selection.demo_status
+    order_source_kind = selection.source_kind
     real_best_bid = _money(orderbook_bucket.get("real_best_bid")) if orderbook_bucket else None
     real_best_ask = _money(orderbook_bucket.get("real_best_ask")) if orderbook_bucket else None
     demo_best_bid = _money(orderbook_bucket.get("demo_best_bid")) if orderbook_bucket else None
@@ -512,15 +532,23 @@ async def _build_board_cell(
         demo_best_ask=demo_best_ask,
         best_bid_source_kind=_source_kind_for_best_price(
             best_price=best_bid,
-            real_best=real_best_bid,
-            demo_best=demo_best_bid,
+            real_best=real_best_bid if selected_scope == MarketEvidenceScope.REAL else None,
+            demo_best=demo_best_bid if selected_scope == MarketEvidenceScope.DEMO else None,
         ),
         best_ask_source_kind=_source_kind_for_best_price(
             best_price=best_ask,
-            real_best=real_best_ask,
-            demo_best=demo_best_ask,
+            real_best=real_best_ask if selected_scope == MarketEvidenceScope.REAL else None,
+            demo_best=demo_best_ask if selected_scope == MarketEvidenceScope.DEMO else None,
         ),
-        order_observed_at=orderbook_bucket.get("last_order_at") if orderbook_bucket else None,
+        order_observed_at=(
+            orderbook_bucket.get(
+                "real_last_order_at"
+                if selected_scope == MarketEvidenceScope.REAL
+                else "demo_last_order_at"
+            )
+            if orderbook_bucket and selected_scope is not None
+            else None
+        ),
         benchmark_observed_at=getattr(quote, "observed_at", None) if quote and benchmark_mid is not None else None,
         indication_summary=indication_summary
         or no_data_summary_for_signal(MarketSignalType.MARKET_INDICATION),
@@ -547,6 +575,7 @@ async def _aggregate_depth_levels(
     stmt = (
         select(
             OrderBookOrder.side,
+            OrderBookOrder.provenance,
             OrderBookOrder.price_per_mt_usd,
             func.sum(OrderBookOrder.remaining_quantity_mt).label("quantity_mt"),
             func.count(OrderBookOrder.id).label("order_count"),
@@ -555,30 +584,43 @@ async def _aggregate_depth_levels(
         )
         .where(
             OrderBookOrder.status.in_(_ACTIVE_STATUSES),
+            current_public_order_clause(OrderBookOrder),
             OrderBookOrder.product_id == product_id,
             OrderBookOrder.delivery_point_id == delivery_point_id,
             OrderBookOrder.availability_window == availability_window,
+            public_order_evidence_clause(OrderBookOrder.provenance),
         )
-        .group_by(OrderBookOrder.side, OrderBookOrder.price_per_mt_usd)
+        .group_by(
+            OrderBookOrder.side,
+            OrderBookOrder.provenance,
+            OrderBookOrder.price_per_mt_usd,
+        )
     )
     result = await db.execute(stmt)
+    rows = result.all()
+    use_real = any(int(row.real_order_count or 0) > 0 for row in rows)
     bids: list[ForwardCurveBoardDepthLevel] = []
     asks: list[ForwardCurveBoardDepthLevel] = []
-    for row in result.all():
+    for row in rows:
         real_order_count = int(row.real_order_count or 0)
         demo_order_count = int(row.demo_order_count or 0)
-        demo_status = demo_status_from_counts(real_count=real_order_count, demo_count=demo_order_count)
-        source_kind = source_kind_from_counts(
-            real_count=real_order_count,
-            demo_count=demo_order_count,
+        if use_real and real_order_count == 0:
+            continue
+        if not use_real and demo_order_count == 0:
+            continue
+        evidence_scope = (
+            MarketEvidenceScope.REAL if use_real else MarketEvidenceScope.DEMO
+        )
+        policy = evidence_policy_for_scope(
+            evidence_scope,
             real_source=MarketSourceKind.LIVE_ORDER,
         )
         level = ForwardCurveBoardDepthLevel(
             price_per_mt_usd=_money(row.price_per_mt_usd) or Decimal("0"),
             quantity_mt=_money(row.quantity_mt) or Decimal("0"),
             order_count=int(row.order_count or 0),
-            source_kind=source_kind,
-            demo_status=demo_status,
+            source_kind=policy.source_kind,
+            demo_status=policy.demo_status,
             real_order_count=real_order_count,
             demo_order_count=demo_order_count,
         )
@@ -820,12 +862,29 @@ def build_csv(points: list[ForwardCurvePoint]) -> str:
 @router.get("/table", response_model=ForwardCurveTableResponse, summary="Forward curve monitoring table")
 async def get_forward_curve_table(
     windows: Optional[list[str]] = Query(None, description="Optional canonical windows. Repeat the query parameter to request multiple windows."),
+    market_products: Optional[list[MarketProduct]] = Query(
+        None,
+        description="Optional canonical market products. Repeat to filter the matrix.",
+    ),
+    delivery_point_ids: Optional[list[UUID]] = Query(
+        None,
+        description="Optional approved delivery point UUIDs. Repeat to filter the matrix.",
+    ),
     db: AsyncSession = Depends(get_db),
 ) -> ForwardCurveTableResponse:
-    """Return the canonical product-port-window monitoring matrix."""
+    """Return a compact matrix; use ``/slice`` for bounded evidence detail."""
 
     try:
-        return await forward_curve_market_slices.load_table(db, windows=windows)
+        return await forward_curve_market_slices.load_table(
+            db,
+            windows=windows,
+            market_products=(
+                [value.value for value in market_products]
+                if market_products
+                else None
+            ),
+            delivery_point_ids=delivery_point_ids,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 

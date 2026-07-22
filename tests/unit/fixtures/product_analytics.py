@@ -32,6 +32,8 @@ from sqlalchemy.dialects.postgresql import UUID as PgUUID
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import Base
+from app.market_catalog import DELIVERY_POINTS_BY_NAME, PRODUCTS_BY_NAME
+from app.market_catalog import MarketProduct
 from app.models.catalog import DeliveryPoint, Product
 from app.models.orderbook import (
     Initiator,
@@ -43,8 +45,11 @@ from app.models.orderbook import (
 )
 from app.models.orders import Commission, CommissionStatus
 from app.models.product_analytics import UserLoginDay, UserStatusTransition
-from app.models.user import Organization, OrgType, User, UserRole, UserStatus
-from app.services.demo_market import DEMO_ACTIVITY_BUYER_ORG_ID
+from app.models.user import Organization, OrgType, User, UserRole, UserStatus, OrganizationProvenance
+from app.services.demo_market import (
+    DEMO_ACTIVITY_BUYER_ORG_ID,
+    DEMO_ACTIVITY_SELLER_ORG_ID,
+)
 
 _NAMESPACE = UUID("6e3b4f52-9c1d-4f7a-9a2e-8f5d0c1b2a30")
 
@@ -76,6 +81,7 @@ LIVE_SUPPLIER_ORG_ID = fixture_uuid("org:live-supplier")
 RETURNING_ORG_ID = fixture_uuid("org:returning-trader")
 PENDING_ORG_ID = fixture_uuid("org:pending-prospect")
 DEMO_ORG_ID = DEMO_ACTIVITY_BUYER_ORG_ID  # member of DEMO_MARKET_ORG_IDS
+DEMO_SUPPLIER_ORG_ID = DEMO_ACTIVITY_SELLER_ORG_ID
 
 USER_IDS = {
     "buyer_active": fixture_uuid("user:buyer-active"),
@@ -89,10 +95,10 @@ USER_IDS = {
     "demo_buyer": fixture_uuid("user:demo-buyer"),
 }
 
-PRODUCT_BIO_METHANOL_ID = fixture_uuid("product:bio-methanol")
-PRODUCT_E_METHANOL_ID = fixture_uuid("product:e-methanol")
-DELIVERY_POINT_SINGAPORE_ID = fixture_uuid("delivery-point:singapore")
-DELIVERY_POINT_ROTTERDAM_ID = fixture_uuid("delivery-point:rotterdam")
+PRODUCT_BIO_METHANOL_ID = PRODUCTS_BY_NAME["Bio Methanol"].id
+PRODUCT_E_METHANOL_ID = PRODUCTS_BY_NAME["e-Methanol"].id
+DELIVERY_POINT_SINGAPORE_ID = DELIVERY_POINTS_BY_NAME["Singapore"].id
+DELIVERY_POINT_ROTTERDAM_ID = DELIVERY_POINTS_BY_NAME["Rotterdam"].id
 
 ORDER_IDS = {
     "bid_live_open": fixture_uuid("order:bid-live-open"),
@@ -192,15 +198,17 @@ def build_scenario() -> ProductAnalyticsScenario:
         # Explicit created_at values keep organization-to-first-order duration
         # metrics deterministic.
         Organization(id=LIVE_BUYER_ORG_ID, name="Live Buyer Shipping",
-                     type=OrgType.FUEL_BUYER, created_at=_utc(2026, 5, 9)),
+                     type=OrgType.FUEL_BUYER, provenance=OrganizationProvenance.REAL, created_at=_utc(2026, 5, 9)),
         Organization(id=LIVE_SUPPLIER_ORG_ID, name="Live Supplier Fuels",
-                     type=OrgType.FUEL_SUPPLIER, created_at=_utc(2026, 3, 10)),
+                     type=OrgType.FUEL_SUPPLIER, provenance=OrganizationProvenance.REAL, created_at=_utc(2026, 3, 10)),
         Organization(id=RETURNING_ORG_ID, name="Returning Trader",
-                     type=OrgType.FUEL_TRADER, created_at=_utc(2026, 3, 15)),
+                     type=OrgType.FUEL_TRADER, provenance=OrganizationProvenance.REAL, created_at=_utc(2026, 3, 15)),
         Organization(id=PENDING_ORG_ID, name="Pending Prospect",
                      type=OrgType.FUEL_BUYER, created_at=_utc(2026, 6, 4)),
         Organization(id=DEMO_ORG_ID, name="Demo Activity Buyer",
-                     type=OrgType.FUEL_BUYER, created_at=_utc(2026, 6, 1)),
+                     type=OrgType.FUEL_BUYER, provenance=OrganizationProvenance.DEMO, created_at=_utc(2026, 6, 1)),
+        Organization(id=DEMO_SUPPLIER_ORG_ID, name="Demo Activity Supplier",
+                     type=OrgType.FUEL_SUPPLIER, provenance=OrganizationProvenance.DEMO, created_at=_utc(2026, 6, 1)),
     ]
 
     def user(
@@ -251,7 +259,7 @@ def build_scenario() -> ProductAnalyticsScenario:
     scenario.products = [
         Product(id=PRODUCT_BIO_METHANOL_ID, name="Bio Methanol",
                 fuel_type="Methanol", fuel_grade="Bio", is_active=True),
-        Product(id=PRODUCT_E_METHANOL_ID, name="E-Methanol",
+        Product(id=PRODUCT_E_METHANOL_ID, name="e-Methanol",
                 fuel_type="Methanol", fuel_grade="E", is_active=True),
     ]
     scenario.delivery_points = [
@@ -275,6 +283,7 @@ def build_scenario() -> ProductAnalyticsScenario:
         return OrderBookOrder(
             id=ORDER_IDS[key],
             organization_id=org_id,
+            provenance=(OrganizationProvenance.DEMO if org_id == DEMO_ORG_ID else (OrganizationProvenance.UNKNOWN if org_id == PENDING_ORG_ID else OrganizationProvenance.REAL)),
             side=side,
             product_id=product_id,
             delivery_point_id=delivery_point_id,
@@ -317,7 +326,8 @@ def build_scenario() -> ProductAnalyticsScenario:
               _utc(2026, 6, 11, 12), price="700", quantity="50", remaining="50"),
         # Demo org: provenance DEMO, never mixed into live sections.
         order("bid_demo_open", DEMO_ORG_ID, OrderSide.BID, OrderBookStatus.OPEN,
-              _utc(2026, 6, 6, 12), price="770", quantity="100", remaining="100"),
+              _utc(2026, 6, 6, 12), price="770", quantity="100", remaining="100",
+              expires_at=_utc(2026, 7, 2)),
     ]
 
     def trade(
@@ -339,13 +349,27 @@ def build_scenario() -> ProductAnalyticsScenario:
         final_total: str | None = None,
         commission_amount: str | None = None,
     ) -> Trade:
+        demo_ids = {DEMO_ORG_ID, DEMO_SUPPLIER_ORG_ID}
         return Trade(
             id=TRADE_IDS[key],
             bid_order_id=ORDER_IDS[bid_order_key] if bid_order_key else None,
             ask_order_id=ORDER_IDS[ask_order_key] if ask_order_key else None,
             buyer_id=buyer_id,
             seller_id=seller_id,
+            initiator_org_id=buyer_id,
+            buyer_provenance=(OrganizationProvenance.DEMO if buyer_id in demo_ids else OrganizationProvenance.REAL),
+            seller_provenance=(OrganizationProvenance.DEMO if seller_id in demo_ids else OrganizationProvenance.REAL),
             initiated_by=Initiator.BUYER,
+            product_id=PRODUCT_BIO_METHANOL_ID,
+            product_name="Bio Methanol",
+            fuel_type="Methanol",
+            fuel_grade="Bio",
+            market_product=MarketProduct.BIO_METHANOL.value,
+            delivery_point_id=DELIVERY_POINT_SINGAPORE_ID,
+            delivery_point_name="Singapore",
+            delivery_point_region="Asia",
+            availability_window="SPOT",
+            market_snapshot_version=1,
             quantity_mt=Decimal(quantity),
             price_per_mt_usd=Decimal(price),
             status=status,
@@ -373,16 +397,20 @@ def build_scenario() -> ProductAnalyticsScenario:
         trade("pending", TradeStatus.PENDING_CONFIRMATION, _utc(2026, 6, 14, 12), "150", "805"),
         trade("cancelled", TradeStatus.CANCELLED, _utc(2026, 6, 8, 12), "100", "800"),
         trade("declined", TradeStatus.DECLINED, _utc(2026, 6, 9, 12), "120", "802"),
-        # Legacy import: economically confirmed but confirmed_at was never
-        # recorded and no orderbook link exists.
-        trade("legacy_confirmed", TradeStatus.CONFIRMED, _utc(2026, 6, 18, 12), "80", "799"),
-        # PAID but paid_at missing: excluded from period GMV, counted in
-        # data-quality metadata instead.
+        # Orderless execution: the immutable market snapshot, not an order
+        # relationship, carries its historical identity.
+        trade("legacy_confirmed", TradeStatus.CONFIRMED, _utc(2026, 6, 18, 12), "80", "799",
+              confirmed_at=_utc(2026, 6, 18, 12)),
+        # Paid in the following period, so it is confirmed activity in this
+        # period without contributing current-period realized GMV.
         trade("paid_missing_paid_at", TradeStatus.PAID, _utc(2026, 6, 15, 12), "120", "790",
-              confirmed_at=_utc(2026, 6, 16, 9), final_total="94800"),
-        # Mixed demo/live parties: demo-contaminated, classified DEMO.
+              confirmed_at=_utc(2026, 6, 16, 9), delivered_at=_utc(2026, 7, 1, 9),
+              paid_at=_utc(2026, 7, 2, 9), final_quantity="120", final_price="790",
+              final_total="94800"),
+        # Exact allowlisted DEMO/DEMO activity, never mixed into live metrics.
         trade("demo_mixed", TradeStatus.CONFIRMED, _utc(2026, 6, 14, 12), "100", "785",
-              buyer_id=DEMO_ORG_ID, confirmed_at=_utc(2026, 6, 15, 10)),
+              buyer_id=DEMO_ORG_ID, seller_id=DEMO_SUPPLIER_ORG_ID,
+              confirmed_at=_utc(2026, 6, 15, 10)),
     ]
 
     scenario.legacy_match_rows = [{"id": match_id} for match_id in LEGACY_MATCH_IDS.values()]
@@ -464,7 +492,23 @@ async def _insert_legacy_match_rows(session: AsyncSession, scenario: ProductAnal
 async def seed_product_analytics_scenario(session: AsyncSession) -> ProductAnalyticsScenario:
     """Insert the frozen scenario and commit. Tables must already exist."""
     scenario = build_scenario()
-    session.add_all(scenario.organizations)
+    if session.get_bind().dialect.name == "postgresql":
+        database_name = str(
+            (await session.execute(text("SELECT current_database()"))).scalar_one()
+        )
+        if not database_name.endswith("_analytics_test"):
+            raise RuntimeError(
+                "REAL analytics fixtures require a disposable *_analytics_test database"
+            )
+        # REAL provenance is assigned only by the externally approved operator
+        # boundary. The disposable database owner models that pre-approved
+        # state without adding an application promotion surface.
+        await session.execute(text("SET LOCAL session_replication_role = 'replica'"))
+        session.add_all(scenario.organizations)
+        await session.flush()
+        await session.execute(text("SET LOCAL session_replication_role = 'origin'"))
+    else:
+        session.add_all(scenario.organizations)
     session.add_all(scenario.users)
     session.add_all(scenario.products)
     session.add_all(scenario.delivery_points)
@@ -676,33 +720,32 @@ EXPECTED: dict[str, object] = {
     },
     "trades": {
         # Live trades with confirmed_at in [start, end): paid (6/6),
-        # confirmed (6/12), paid_missing_paid_at (6/16) = 3. The legacy row
-        # (confirmed_at NULL, created 6/18) joins only under the documented
-        # created_at fallback and must set legacy_timestamp_fallback=true.
-        "confirmed_current_strict": 3,
+        # confirmed (6/12), paid_missing_paid_at (6/16), and the orderless
+        # snapshot (6/18) = 4. Hardened rows no longer need timestamp fallback.
+        "confirmed_current_strict": 4,
         "confirmed_current_with_legacy_fallback": 4,
-        "legacy_timestamp_fallback_count": 1,
+        "legacy_timestamp_fallback_count": 0,
         # delivered_previous confirmed 5/20.
         "confirmed_previous_strict": 1,
         # coalesce(final_quantity_mt, quantity_mt) over the strict set:
-        # 400 (final) + 250 + 120 = 770.
-        "confirmed_volume_current_strict_mt": "770",
-        "confirmed_volume_current_with_legacy_fallback_mt": "850",  # +80 legacy
+        # 400 (final) + 250 + 120 + 80 = 850.
+        "confirmed_volume_current_strict_mt": "850",
+        "confirmed_volume_current_with_legacy_fallback_mt": "850",
         "confirmed_volume_previous_mt": "290",  # final quantity of delivered_previous
         # Distinct live buyer/seller organizations in the strict confirmed set.
         "trading_organizations_current": 2,
         "trading_organizations_previous": 2,
         # final_total_usd over PAID trades bucketed by paid_at: 316,000 (6/20).
-        # paid_missing_paid_at is excluded and counted below.
+        # paid_missing_paid_at settles in the following period.
         "realized_gmv_current_usd": "316000",
-        "missing_paid_at_count": 1,
+        "missing_paid_at_count": 0,
         # Commission.amount_usd where status=PAID bucketed by payment_date:
         # 1,580 (6/25). The PAID/no-date row is excluded and counted below.
         "realized_revenue_current_usd": "1580",
         "missing_commission_payment_date_count": 1,
         "commission_outstanding_pending_usd": "1012.50",
         "commission_outstanding_invoiced_usd": "1152.75",
-        "demo_trades_current": 1,     # demo_mixed — mixed parties are DEMO, never live
+        "demo_trades_current": 1,     # exact allowlisted DEMO/DEMO pair
         "unknown_trades_current": 0,
     },
     "retention": {

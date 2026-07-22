@@ -1,4 +1,4 @@
-from sqlalchemy import String, ForeignKey, Enum, Numeric, Date, DateTime, Text, Integer
+from sqlalchemy import String, ForeignKey, Enum, Numeric, Date, DateTime, Text, Integer, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import UUID
 from geoalchemy2 import Geography
@@ -6,7 +6,7 @@ import uuid
 import enum
 from datetime import datetime, date
 from decimal import Decimal
-from app.database import Base
+from app.model_base import Base
 
 
 class ProjectStatus(str, enum.Enum):
@@ -40,9 +40,11 @@ class ProducerProject(Base):
     cod_year: Mapped[int | None] = mapped_column(Integer, nullable=True, comment="COD year for filtering")
 
     # Status
-    status: Mapped[ProjectStatus] = mapped_column(
-        Enum(ProjectStatus, native_enum=False),
+    status: Mapped[ProjectStatus | None] = mapped_column(
+        Enum(ProjectStatus, native_enum=False, length=30),
         default=ProjectStatus.ANNOUNCED,
+        nullable=False,
+        server_default="ANNOUNCED",
     )
 
     # Data provenance
@@ -58,8 +60,8 @@ class ProducerProject(Base):
     carbon_intensity_gco2_mj: Mapped[Decimal | None] = mapped_column(Numeric(8, 2))
     notes: Mapped[str | None] = mapped_column(Text)
 
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, server_default=func.now(), nullable=False, onupdate=datetime.utcnow)
 
     # Relationships
     organization = relationship("Organization", foreign_keys=[organization_id])

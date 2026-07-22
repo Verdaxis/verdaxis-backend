@@ -1,11 +1,11 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, Enum, ForeignKey, Integer, Numeric, String, UniqueConstraint
+from sqlalchemy import DateTime, Enum, ForeignKey, Index, Integer, Numeric, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.database import Base
+from app.model_base import Base
 from app.models.orderbook import OrderSide
 
 
@@ -19,10 +19,17 @@ class LiveSliceBenchmark(Base):
             "availability_window",
             name="uq_live_slice_benchmarks_slice_key",
         ),
+        Index(
+            "ix_live_slice_benchmarks_lookup",
+            "side",
+            "market_product",
+            "delivery_point_id",
+            "availability_window",
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    side: Mapped[OrderSide] = mapped_column(Enum(OrderSide, native_enum=False), nullable=False)
+    side: Mapped[OrderSide] = mapped_column(Enum(OrderSide, native_enum=False, length=3), nullable=False)
     market_product: Mapped[str] = mapped_column(String(64), nullable=False)
     delivery_point_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("delivery_points.id"), nullable=False

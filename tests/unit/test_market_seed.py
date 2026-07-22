@@ -1,11 +1,28 @@
 """Unit tests for executable-market seed rules."""
 
 from datetime import date, datetime, timedelta, timezone
+from inspect import getsource
+
+import pytest
 
 from types import SimpleNamespace
 
-from app.seeds.market_seed import WINDOWS, ask_seed_metadata, bid_seed_metadata, build_seed_windows, _orders_share_executable_slice, _seed_price_for_slice, _slice_certification_scheme, _clamp_trade_timeline
-from app.models.orderbook import OrderSide
+from app.seeds.market_seed import (
+    BUYER_ORGS,
+    SUPPLIER_ORGS,
+    WINDOWS,
+    _clamp_trade_timeline,
+    _orders_share_executable_slice,
+    _seed_order,
+    _seed_trade,
+    _seed_price_for_slice,
+    _slice_certification_scheme,
+    ask_seed_metadata,
+    bid_seed_metadata,
+    build_seed_windows,
+    validate_demo_reset,
+)
+from app.models.orderbook import Initiator, OrderSide
 
 
 def test_market_seed_windows_cover_current_and_forward_slices():
@@ -24,6 +41,53 @@ def test_market_seed_windows_cover_current_and_forward_slices():
     assert current_month in WINDOWS
     assert all(month in WINDOWS for month in current_quarter_months)
     assert any(window.endswith(f"-Q{(current_quarter % 4) + 1}") for window in WINDOWS)
+
+
+def test_demo_seed_organizations_are_clearly_fictitious_and_deterministic():
+    assert [org["name"] for org in BUYER_ORGS] == [
+        f"Verdaxis Demo Buyer {index:02d}" for index in range(1, 6)
+    ]
+    assert [org["name"] for org in SUPPLIER_ORGS] == [
+        f"Verdaxis Demo Supplier {index:02d}" for index in range(1, 6)
+    ]
+    assert len({org["id"] for org in (*BUYER_ORGS, *SUPPLIER_ORGS)}) == 10
+
+
+def test_demo_seed_order_always_has_an_explicit_expiry():
+    observed_at = datetime(2026, 7, 20, 8, tzinfo=timezone.utc)
+    order = _seed_order(
+        availability_window="2026-07",
+        created_at=observed_at,
+    )
+
+    assert order.provenance == "DEMO"
+    assert order.expires_at is not None
+    assert order.expires_at > observed_at
+
+
+def test_seed_trade_derives_initiating_tenant_from_side():
+    buyer_id = BUYER_ORGS[0]["id"]
+    seller_id = SUPPLIER_ORGS[0]["id"]
+
+    buyer_trade = _seed_trade(
+        buyer_id=buyer_id,
+        seller_id=seller_id,
+        initiated_by=Initiator.BUYER,
+    )
+    seller_trade = _seed_trade(
+        buyer_id=buyer_id,
+        seller_id=seller_id,
+        initiated_by=Initiator.SELLER,
+    )
+
+    assert buyer_trade.initiator_org_id == buyer_id
+    assert seller_trade.initiator_org_id == seller_id
+
+
+def test_market_seed_never_generates_executable_rfq_acceptance():
+    source = getsource(__import__("app.seeds.market_seed", fromlist=["seed_market_data"]).seed_market_data)
+
+    assert "RFQStatus.ACCEPTED" not in source
 
 
 def test_market_seed_ask_metadata_declares_certification():
@@ -185,3 +249,28 @@ def test_clamp_trade_timeline_caps_seeded_trade_dates_at_now():
     assert confirmed == now
     assert delivered == now
     assert paid == now
+
+
+def test_demo_reset_attests_staging_url_and_connected_database():
+    validate_demo_reset(
+        environment="staging",
+        explicit_opt_in=True,
+        database_url="postgresql+asyncpg://seed:secret@db/verdaxis_staging",
+        current_database="verdaxis_staging",
+    )
+
+
+def test_demo_reset_rejects_production_database_under_staging_label_and_inverse():
+    for environment, database_name in (
+        ("staging", "verdaxis"),
+        ("production", "verdaxis_staging"),
+    ):
+        with pytest.raises(RuntimeError):
+            validate_demo_reset(
+                environment=environment,
+                explicit_opt_in=True,
+                database_url=(
+                    f"postgresql+asyncpg://seed:secret@db/{database_name}"
+                ),
+                current_database=database_name,
+            )
