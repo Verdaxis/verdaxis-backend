@@ -29,6 +29,11 @@ subscriber regardless of which Uvicorn worker serves the connection:
    sequences in the producing transaction). Sequence holes from crashed
    assignment transactions are allowed and meaningless. If the leader dies,
    its connection drops, the lock releases, and another worker takes over.
+   The assignment UPDATE runs on the exact session that holds the advisory
+   lock (the dedicated listener connection), never on a pool connection:
+   losing that connection aborts any in-flight assignment and releases the
+   lock atomically, so a successor leader can never assign concurrently
+   with a still-running assignment from the previous leader.
 3. **Hub (every worker).** Each worker fans newly sequenced rows out to the
    in-process bus on org-bound channels `trades:{organization_id}` derived
    from the row's persisted participant list.

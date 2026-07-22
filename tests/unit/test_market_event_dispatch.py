@@ -191,3 +191,52 @@ async def test_stream_trades_rejects_invalid_cursor_before_token_checks():
         )
     assert response.status_code == 400
     assert response.json()["detail"]["code"] == "STREAM_CURSOR_INVALID"
+
+
+class _FenceListenerConn:
+    """Records assignment statements executed on the lock-holder session."""
+
+    def __init__(self):
+        self.fetch_calls: list[tuple[str, tuple]] = []
+
+    def is_closed(self) -> bool:
+        return False
+
+    async def fetch(self, sql, *args):
+        self.fetch_calls.append((sql, args))
+        return [object(), object()]
+
+
+class _PoolForbiddenEngine:
+    """Any pool usage during sequence assignment is a fencing violation."""
+
+    def begin(self):  # pragma: no cover - reaching this IS the failure
+        raise AssertionError(
+            "sequence assignment must run on the advisory-lock session, "
+            "never on a pool connection"
+        )
+
+    connect = begin
+
+
+async def test_sequence_assignment_is_fenced_to_the_lock_holding_connection():
+    """Dual-assigner fence: the assignment UPDATE runs on the same
+
+    PostgreSQL session that holds the sequencer advisory lock. If it ran on
+    a pool connection, a selectively dropped listener connection would
+    release the lock mid-assignment and let a second leader assign
+    concurrently, committing sequences out of visibility order and
+    permanently skipping events past every hub cursor.
+    """
+    dispatcher = MarketEventDispatcher(_PoolForbiddenEngine(), bus=None)
+    listener = _FenceListenerConn()
+    dispatcher._listener_conn = listener
+
+    assigned = await dispatcher._assign_pending_sequences()
+
+    assert assigned == 2
+    assert len(listener.fetch_calls) == 1
+    sql, args = listener.fetch_calls[0]
+    assert "FOR UPDATE SKIP LOCKED" in sql
+    assert "nextval('market_event_stream_seq')" in sql
+    assert args == (dispatcher._batch_size,)

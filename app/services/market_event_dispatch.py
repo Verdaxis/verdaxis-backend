@@ -14,7 +14,9 @@ Design (Stage 5 integration):
   is serialized through the single leader, the visible maximum sequence only
   ever grows: a subscriber cursor of ``stream_seq > last_seen`` can never
   miss a row that becomes visible later. Sequence holes (crashed assignment
-  transactions) are permitted and meaningless.
+  transactions) are permitted and meaningless. The assignment UPDATE runs on
+  the exact session holding the advisory lock, so leadership can never be
+  lost while an assignment from the old leader is still in flight.
 - Every worker runs a **hub**: it LISTENs for wakes (with a poll fallback
   for lost notifies), reads newly sequenced rows, and fans them out to the
   in-process event bus on org-bound channels (``trades:{organization_id}``).
@@ -56,14 +58,16 @@ STREAM_CHANNEL_PREFIX = "trades:"
 _POLL_SECONDS = 2.0
 _BATCH_SIZE = 500
 
-_ASSIGN_SEQUENCES_SQL = text(
-    """
+# asyncpg statement (positional $1): assignment always runs on the leader's
+# dedicated listener connection, never on a pool connection (see
+# _assign_pending_sequences for the fencing rationale).
+_ASSIGN_SEQUENCES_SQL = """
     WITH pending AS (
         SELECT id
         FROM market_event_outbox
         WHERE stream_seq IS NULL
         ORDER BY created_at, id
-        LIMIT :batch
+        LIMIT $1
         FOR UPDATE SKIP LOCKED
     )
     UPDATE market_event_outbox AS outbox
@@ -73,8 +77,7 @@ _ASSIGN_SEQUENCES_SQL = text(
     FROM pending
     WHERE outbox.id = pending.id
     RETURNING outbox.stream_seq
-    """
-)
+"""
 
 
 def stream_channel_for_org(organization_id: UUID | str) -> str:
@@ -311,11 +314,19 @@ class MarketEventDispatcher:
                 await asyncio.sleep(self._poll_seconds)
 
     async def _assign_pending_sequences(self) -> int:
-        async with self._engine.begin() as conn:
-            result = await conn.execute(
-                _ASSIGN_SEQUENCES_SQL, {"batch": self._batch_size}
-            )
-            return len(result.fetchall())
+        # Leadership fence: the assignment UPDATE runs on the SAME
+        # PostgreSQL session that holds the sequencer advisory lock. A
+        # pool connection here would let a selectively-dropped listener
+        # connection release the lock while this worker's assignment is
+        # still in flight, so a new leader could assign concurrently and
+        # commit sequences out of visibility order — permanently skipping
+        # events past every hub cursor. On the lock-holder's own session,
+        # losing the connection aborts the in-flight statement and
+        # releases the lock atomically; no two assignments can overlap.
+        rows = await self._listener_conn.fetch(
+            _ASSIGN_SEQUENCES_SQL, self._batch_size
+        )
+        return len(rows)
 
     # -- hub (every worker) ---------------------------------------------------
 
