@@ -24,6 +24,7 @@ from app.services.market_quarantine import (
     expire_invalid_legacy_synthetic_orders,
     quarantine_accepted_rfqs,
     quarantine_orders,
+    quarantine_pending_rfq_quotes,
     rename_known_demo_organizations,
     validate_write_authorization,
 )
@@ -142,6 +143,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--expected-snapshot",
         help="Required on apply and copied exactly from the reviewed dry-run",
     )
+
+    quote_quarantine = subparsers.add_parser(
+        "quarantine-pending-rfq-quotes",
+        help="Archive and remove only explicitly repeated pending RFQ quote IDs",
+    )
+    quote_quarantine.add_argument("--quote-id", action="append", required=True)
 
     subparsers.add_parser(
         "rename-demo-organizations",
@@ -297,6 +304,19 @@ async def run(args: argparse.Namespace) -> dict[str, Any]:
                     "dry_run": not args.apply,
                     "database": actual_database,
                     "synthetic_order_expiry": report.as_json(),
+                }
+
+            if args.command == "quarantine-pending-rfq-quotes":
+                reports = await quarantine_pending_rfq_quotes(
+                    connection,
+                    args.quote_id,
+                    context=context,
+                    apply=args.apply,
+                )
+                return {
+                    "dry_run": not args.apply,
+                    "database": actual_database,
+                    "rfq_quotes": reports,
                 }
 
             if args.command == "rename-demo-organizations":

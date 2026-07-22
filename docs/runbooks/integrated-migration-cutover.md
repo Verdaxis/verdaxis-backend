@@ -278,6 +278,13 @@ rows under the compiled synthetic organization registries, archives every
 original row, and expires it in place. It cannot select real, mixed, or newly
 valid demo liquidity.
 
+If the integrity preflight reports duplicate seller quotes, identify the exact
+redundant pending quote and use
+`scripts/remediate_market_data.py quarantine-pending-rfq-quotes --quote-id`
+in dry-run/apply order. It accepts only exact pending quote IDs whose RFQ is
+still OPEN or QUOTED, archives each original row, and refuses accepted or
+terminal quote graphs.
+
 For the first non-downgradable staging checkpoint and the production pre-`mi`
 checkpoint, restore the verified dump into an isolated database. Confirm the
 Alembic revision and critical row counts, validate constraints, and run a

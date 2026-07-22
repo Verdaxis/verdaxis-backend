@@ -1043,6 +1043,67 @@ async def expire_invalid_legacy_synthetic_orders(
     return SyntheticOrderExpiryReport(len(locked_rows), snapshot, True)
 
 
+async def quarantine_pending_rfq_quotes(
+    connection: AsyncConnection,
+    quote_ids: Iterable[str | UUID],
+    *,
+    context: OperatorContext,
+    apply: bool,
+) -> tuple[dict[str, Any], ...]:
+    """Archive and remove exact pending quotes from non-accepted RFQs."""
+    ids = validate_rfq_ids(quote_ids)
+    suffix = " FOR UPDATE OF q, r" if apply else ""
+    rows = (
+        await connection.execute(
+            text(
+                "SELECT q.id, q.rfq_id, q.status, r.status AS rfq_status, "
+                "to_jsonb(q) AS original_row FROM rfq_quotes AS q "
+                "JOIN rfqs AS r ON r.id = q.rfq_id "
+                "WHERE q.id = ANY(CAST(:ids AS uuid[])) "
+                f"ORDER BY q.id{suffix}"
+            ),
+            {"ids": [str(value) for value in ids]},
+        )
+    ).mappings().all()
+    by_id = {UUID(str(row["id"])): dict(row) for row in rows}
+    missing = set(ids) - set(by_id)
+    if missing:
+        raise ValueError(
+            "RFQ quote IDs do not exist: "
+            + ", ".join(str(value) for value in sorted(missing, key=str))
+        )
+    if any(
+        str(row["status"]) != "PENDING"
+        or str(row["rfq_status"]) not in {"OPEN", "QUOTED"}
+        for row in rows
+    ):
+        raise ValueError("only pending quotes on OPEN/QUOTED RFQs may be quarantined")
+    reports = tuple(
+        {
+            "quote_id": str(row["id"]),
+            "rfq_id": str(row["rfq_id"]),
+            "status": str(row["status"]),
+        }
+        for row in rows
+    )
+    if not apply:
+        return reports
+    for row in rows:
+        await _archive_market_row(
+            connection,
+            source_table="rfq_quotes",
+            source_id=UUID(str(row["id"])),
+            original_row=dict(row["original_row"]),
+            dependencies={"rfq_id": str(row["rfq_id"])},
+            context=context,
+        )
+    await connection.execute(
+        text("DELETE FROM rfq_quotes WHERE id = ANY(CAST(:ids AS uuid[]))"),
+        {"ids": [str(value) for value in ids]},
+    )
+    return reports
+
+
 async def quarantine_accepted_rfqs(
     connection: AsyncConnection,
     rfq_ids: Iterable[str | UUID],
