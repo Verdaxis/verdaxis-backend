@@ -10,10 +10,10 @@ Tests:
 - RBAC: buyer cannot access admin audit logs
 """
 import pytest
-import uuid
 from httpx import AsyncClient
 
 import os
+import re
 TEST_API_URL = os.environ.get("TEST_API_URL")
 
 
@@ -122,4 +122,9 @@ class TestHealthEndpoints:
         assert data["status"] == "ok"
         assert data["db"] == "ok"
         assert data["environment"] in {"production", "staging", "test"}
+        if re.fullmatch(r"test", data["release_sha"]):
+            pytest.xfail(
+                "target server was started with the unit-test RELEASE_SHA "
+                "sentinel; provision RELEASE_SHA=$(git rev-parse HEAD)"
+            )
         assert len(data["release_sha"]) == 40

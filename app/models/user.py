@@ -9,6 +9,8 @@ from app.database import Base
 from app.market_constraints import ORGANIZATION_PROVENANCE_DOMAIN, postgresql_check
 
 if TYPE_CHECKING:
+    from app.models.orderbook import OrderBookOrder
+    from app.models.port import Vessel
     from app.models.referral import Referral
 
 

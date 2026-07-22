@@ -137,7 +137,9 @@ Integration/E2E suites additionally require explicit pytest opt-in and an
 attested disposable server on a numeric-loopback ephemeral port. Production,
 staging, `localhost`, and ports 8000/8001 are refused by collection guards.
 Start the source-tree producer with `ENVIRONMENT=test`, a matching
-`DISPOSABLE_TEST_TOKEN`, and
+`DISPOSABLE_TEST_TOKEN`, a real release identity
+`RELEASE_SHA=$(git rev-parse HEAD)` (the readiness assertions require a
+full 40-hex SHA; the producer refuses the unit-test `test` sentinel), and
 `python -m tests.disposable_server --port <ephemeral-port>`.
 
 Run the mutating suites only with the explicit opt-in flags; collection

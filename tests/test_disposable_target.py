@@ -115,12 +115,18 @@ def test_disposable_identity_rejects_duplicate_json_keys():
 def test_source_tree_server_config_is_test_only_numeric_loopback_ephemeral():
     from tests.disposable_server import ServerConfigError, validate_config
 
-    assert validate_config("test", TOKEN, "127.0.0.1", 59123) == TOKEN
+    real_sha = "0123456789abcdef0123456789abcdef01234567"
+    assert validate_config("test", TOKEN, "127.0.0.1", 59123, real_sha) == TOKEN
     for values in (
-        ("production", TOKEN, "127.0.0.1", 59123),
-        ("test", TOKEN, "0.0.0.0", 59123),
-        ("test", TOKEN, "127.0.0.1", 8000),
-        ("test", "short", "127.0.0.1", 59123),
+        ("production", TOKEN, "127.0.0.1", 59123, real_sha),
+        ("test", TOKEN, "0.0.0.0", 59123, real_sha),
+        ("test", TOKEN, "127.0.0.1", 8000, real_sha),
+        ("test", "short", "127.0.0.1", 59123, real_sha),
+        # Readiness asserts a full 40-hex release identity; the unit-test
+        # default sentinel and short prefixes are refused up front.
+        ("test", TOKEN, "127.0.0.1", 59123, "test"),
+        ("test", TOKEN, "127.0.0.1", 59123, ""),
+        ("test", TOKEN, "127.0.0.1", 59123, real_sha[:12]),
     ):
         with pytest.raises(ServerConfigError):
             validate_config(*values)

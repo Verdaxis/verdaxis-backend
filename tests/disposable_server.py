@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 from collections.abc import Awaitable, Callable
 
 from tests.disposable_target import (
@@ -17,18 +18,30 @@ from tests.disposable_target import (
 
 IDENTITY_PATH = "/.well-known/verdaxis-disposable-test"
 
+# The integration suite's readiness assertions require a real commit
+# identity: RELEASE_SHA=$(git rev-parse HEAD). The unit-test default
+# ("test") would make /health/ready fail confusingly mid-suite, so the
+# producer refuses to start without a full 40-hex SHA.
+RELEASE_SHA_PATTERN = re.compile(r"[0-9a-f]{40}")
+
 
 class ServerConfigError(ValueError):
     """The disposable server configuration could reach a non-test boundary."""
 
 
-def validate_config(environment: str, token: str, host: str, port: int) -> str:
+def validate_config(
+    environment: str, token: str, host: str, port: int, release_sha: str = ""
+) -> str:
     if environment != "test":
         raise ServerConfigError("disposable server requires ENVIRONMENT=test")
     if TOKEN_PATTERN.fullmatch(token or "") is None:
         raise ServerConfigError("disposable server requires a bounded token")
     if host != "127.0.0.1" or not MIN_DISPOSABLE_PORT <= port <= MAX_DISPOSABLE_PORT:
         raise ServerConfigError("disposable server requires numeric loopback ephemeral bind")
+    if RELEASE_SHA_PATTERN.fullmatch(release_sha or "") is None:
+        raise ServerConfigError(
+            "disposable server requires RELEASE_SHA=$(git rev-parse HEAD) (full 40-hex)"
+        )
     return token
 
 
@@ -74,6 +87,7 @@ def main(argv: list[str] | None = None) -> int:
         os.environ.get("DISPOSABLE_TEST_TOKEN", ""),
         host,
         args.port,
+        os.environ.get("RELEASE_SHA", ""),
     )
     from app.main import app
     import uvicorn

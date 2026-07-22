@@ -51,6 +51,7 @@ ENVIRONMENT=test RELEASE_SHA=test \
 # Integration/E2E is mutating and requires an explicitly started disposable
 # server on a numeric-loopback ephemeral port. The source-tree producer is:
 ENVIRONMENT=test \
+RELEASE_SHA=$(git rev-parse HEAD) \
 DISPOSABLE_TEST_TOKEN=<32-plus-character-token> \
 venv/bin/python -m tests.disposable_server --port <ephemeral-port>
 

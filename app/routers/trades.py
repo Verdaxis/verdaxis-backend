@@ -462,7 +462,10 @@ async def create_trade(
         user=parties.get(order.owner_user_id),
         organization=locked_organizations.get(order.organization_id),
     ):
-        raise HTTPException(status_code=409, detail="Trade parties are no longer execution-qualified")
+        # Deliberately identical to the generic unavailable-order response:
+        # a distinct message here would let any eligible caller probe a
+        # counterparty's rejection status by attempting a trade.
+        raise HTTPException(status_code=400, detail="Order is not available for trading")
 
     # Quantity check
     if payload.quantity_mt > order.remaining_quantity_mt:
