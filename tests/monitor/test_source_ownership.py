@@ -22,7 +22,7 @@ RUNTIME_OWNED_BLOBS = {
     "app/config.py": "48d7eece5ecc690ab6ba138125c7485eeabd85b5",
     "app/database.py": "43456b2c2079c07368359d4d54f5ce9629c9b57b",
     "app/main.py": "44a397bf9d615834082609482317eb4ff0e072e2",
-    "scripts/deploy.sh": "6ce6333ee1a5379fee7cab6174431c6772ccf174",
+    "scripts/deploy.sh": "c598bee19ddeb4dfbefce23c46a531cfe775eddb",
     "scripts/run_demo_activity.py": "f4b8cabedee10fc77fa87d0553443727a4dfe85a",
 }
 
