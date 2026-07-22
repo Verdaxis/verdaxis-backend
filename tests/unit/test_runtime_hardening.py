@@ -19,6 +19,7 @@ from app.config import Settings
 from app.database import (
     assert_migrator_connection_is_safe,
     assert_database_runtime_is_safe,
+    configured_connection_total,
     engine_options,
     migrator_connect_args,
 )
@@ -100,6 +101,10 @@ def test_pool_defaults_leave_headroom_for_four_workers_on_postgres_max_100():
     assert settings.DB_SERVICE_COUNT * settings.UVICORN_WORKERS * (settings.DB_POOL_SIZE + settings.DB_MAX_OVERFLOW) <= (
         settings.DB_MAX_CONNECTIONS - settings.DB_RESERVED_CONNECTIONS
     )
+    # The runtime guard also budgets one dedicated SSE dispatcher LISTEN
+    # connection per worker: 24 pool + 8 listener + 20 reserve = 52.
+    assert configured_connection_total(settings) == 52
+    assert configured_connection_total(settings) <= settings.DB_MAX_CONNECTIONS
 
 
 @pytest.mark.parametrize(

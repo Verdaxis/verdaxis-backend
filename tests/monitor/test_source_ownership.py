@@ -20,7 +20,7 @@ MANIFEST = MONITOR / "artifact-manifest.json"
 # Stage 5 updated app/main.py (shared SSE dispatcher lifespan wiring).
 RUNTIME_OWNED_BLOBS = {
     "app/config.py": "48d7eece5ecc690ab6ba138125c7485eeabd85b5",
-    "app/database.py": "bd0dd797c23c6e4431d5104161a11f9a385b4eee",
+    "app/database.py": "43456b2c2079c07368359d4d54f5ce9629c9b57b",
     "app/main.py": "44a397bf9d615834082609482317eb4ff0e072e2",
     "scripts/deploy.sh": "a287f9cbdcbd0f34a9ab40ca5bf98ebe4997dfb6",
     "scripts/run_demo_activity.py": "f4b8cabedee10fc77fa87d0553443727a4dfe85a",

@@ -47,10 +47,16 @@ def migrator_connect_args(config: Settings) -> dict:
 
 
 def configured_connection_total(config: Settings) -> int:
+    # Pool connections per worker, plus ONE dedicated non-pool LISTEN/
+    # leadership connection per worker for the market event dispatcher
+    # (app/services/market_event_dispatch.py — always on for PostgreSQL
+    # engines), plus the maintenance reserve. Deployed defaults:
+    # 2×4×(2+1) + 2×4 + 20 = 52 of max_connections=100.
     return (
         config.DB_SERVICE_COUNT
         * config.UVICORN_WORKERS
         * (config.DB_POOL_SIZE + config.DB_MAX_OVERFLOW)
+        + config.DB_SERVICE_COUNT * config.UVICORN_WORKERS
         + config.DB_RESERVED_CONNECTIONS
     )
 

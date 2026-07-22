@@ -51,7 +51,10 @@ Each worker holds **one** dedicated (non-pool) LISTEN/leadership connection;
 all queries use the normal engine pool in short transactions. With the
 deployed defaults that adds 4 connections per service on top of the
 documented `2 services x 4 workers x (2+1) + 20 reserve = 44`, i.e. 52 of
-`max_connections=100`. Revisit the budget doc if pool sizes change.
+`max_connections=100`. `app.database.configured_connection_total` models the
+listener connections, so the boot-time capacity guard fails closed if the
+full budget (pools + listeners + reserve) exceeds the server's
+`max_connections`. Revisit the budget doc if pool sizes change.
 
 ## Outbox prune policy (documented, NOT armed)
 
