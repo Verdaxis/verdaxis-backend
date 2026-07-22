@@ -28,13 +28,20 @@ class EventBus:
         if not self._channels[channel]:
             del self._channels[channel]
 
-    async def publish(self, channel: str, event_type: str, data: Any):
-        """Publish an event to all subscribers of a channel."""
+    async def publish(self, channel: str, event_type: str, data: Any, *, seq: int | None = None):
+        """Publish an event to all subscribers of a channel.
+
+        ``seq`` carries the durable stream sequence for messages fanned out
+        from the market event outbox (used as the SSE ``id:`` field); local
+        best-effort events omit it.
+        """
         message = {
             "event": event_type,
             "data": data,
             "timestamp": datetime.now(UTC).isoformat(),
         }
+        if seq is not None:
+            message["seq"] = seq
         dead_queues = []
         for queue in list(self._channels.get(channel, set())):
             try:

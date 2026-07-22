@@ -3,28 +3,28 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-import subprocess
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
 MONITOR = ROOT / "deploy/monitor"
 MANIFEST = MONITOR / "artifact-manifest.json"
-# Integration note (2026-07-20): on hardening/local-monitor-v2 this pin was
-# f31736d (the pre-hardening base) and proved the monitor branch never touched
-# runtime-owned source. On the integration tree runtime-owned files legitimately
-# changed in Stages 1-3, so the pin advances to the Stage 3 integration base.
-# The invariant is unchanged: applying monitor content (and any later monitor
-# work) must not modify runtime-owned files. A stage that deliberately changes
-# one of these files must bump this pin in the same reviewed commit.
-BASE_COMMIT = "229e4b8"
-RUNTIME_OWNED_PATHS = (
-    "app/config.py",
-    "app/database.py",
-    "app/main.py",
-    "scripts/deploy.sh",
-    "scripts/run_demo_activity.py",
-)
+# Integration note (2026-07-20): on hardening/local-monitor-v2 this compared
+# runtime-owned files against commit f31736d and proved the monitor branch
+# never touched runtime-owned source. On the integration tree those files
+# legitimately change in reviewed stages, and a single-commit stage cannot
+# pin its own commit hash, so the tripwire pins per-file git blob SHAs
+# instead. The invariant is unchanged: no monitor/test/tooling work may
+# modify a runtime-owned file silently — a stage that deliberately changes
+# one must update its pinned blob in the same reviewed commit.
+# Stage 5 updated app/main.py (shared SSE dispatcher lifespan wiring).
+RUNTIME_OWNED_BLOBS = {
+    "app/config.py": "48d7eece5ecc690ab6ba138125c7485eeabd85b5",
+    "app/database.py": "bd0dd797c23c6e4431d5104161a11f9a385b4eee",
+    "app/main.py": "44a397bf9d615834082609482317eb4ff0e072e2",
+    "scripts/deploy.sh": "a287f9cbdcbd0f34a9ab40ca5bf98ebe4997dfb6",
+    "scripts/run_demo_activity.py": "f4b8cabedee10fc77fa87d0553443727a4dfe85a",
+}
 
 EXPECTED_ARTIFACTS = {
     "alert.env.example": (
@@ -146,22 +146,11 @@ def test_monitor_has_no_competing_installer_runtime_transaction_or_producer_unit
     assert not {path.name for path in MONITOR.iterdir()} & forbidden
 
 
-def test_runtime_owned_source_matches_fixed_integration_base():
-    for relative_path in RUNTIME_OWNED_PATHS:
-        expected = subprocess.run(
-            [
-                "/usr/bin/git",
-                "-c",
-                f"safe.directory={ROOT}",
-                "-C",
-                str(ROOT),
-                "show",
-                f"{BASE_COMMIT}:{relative_path}",
-            ],
-            check=True,
-            capture_output=True,
-        ).stdout
-        assert (ROOT / relative_path).read_bytes() == expected, relative_path
+def test_runtime_owned_source_matches_pinned_blobs():
+    for relative_path, expected in RUNTIME_OWNED_BLOBS.items():
+        content = (ROOT / relative_path).read_bytes()
+        blob = hashlib.sha1(b"blob %d\x00" % len(content) + content).hexdigest()
+        assert blob == expected, relative_path
 
 
 def test_static_manifest_is_exact_byte_attested_and_non_promoting():

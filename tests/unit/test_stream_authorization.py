@@ -2,7 +2,6 @@
 
 import asyncio
 import inspect
-import time
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -184,7 +183,11 @@ async def test_trade_stream_org_move_revokes_and_unsubscribes_original_channel()
             organization_id=original_org_id,
             token_payload=token_payload,
         )
+        # Stage 5: the generator first yields an operational comment naming
+        # the serving worker; skip comments to reach the first real event.
         event = await generator.__anext__()
+        while event.startswith(":"):
+            event = await generator.__anext__()
         await generator.aclose()
 
     assert "auth_revoked" in event

@@ -101,3 +101,8 @@ CREATE TEMP TABLE app_sequence_policy (
     privileges text[] NOT NULL,
     CHECK (privileges <@ ARRAY['USAGE', 'SELECT', 'UPDATE']::text[])
 );
+
+-- Stage 5 (shared SSE transport): the in-worker sequencer assigns durable
+-- stream sequence numbers via nextval(); USAGE only, never SELECT/UPDATE.
+INSERT INTO app_sequence_policy (sequence_name, privileges) VALUES
+    ('market_event_stream_seq', ARRAY['USAGE']);

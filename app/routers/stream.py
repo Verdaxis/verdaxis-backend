@@ -1,6 +1,7 @@
 """Server-Sent Events endpoints for real-time data feeds."""
 import asyncio
 import json
+import os
 import time
 
 import uuid
@@ -18,6 +19,10 @@ from app.database import AsyncSessionLocal
 from app.models.user import User, Organization
 from app.routers.auth_simple import validate_authenticated_user_state
 from app.services.event_bus import event_bus
+from app.services.market_event_dispatch import (
+    fetch_events_for_org,
+    stream_channel_for_org,
+)
 
 router = APIRouter(prefix="/stream", tags=["real-time"])
 logger = logging.getLogger(__name__)
@@ -43,18 +48,60 @@ async def _sse_generator(request: Request, channel: str):
         event_bus.unsubscribe(channel, queue)
 
 
+def _format_market_event(seq, event_type: str, data) -> str:
+    """One SSE frame; ``id:`` carries the durable stream sequence."""
+    payload = json.dumps(data, default=str)
+    if seq is None:
+        return f"event: {event_type}\ndata: {payload}\n\n"
+    return f"id: {seq}\nevent: {event_type}\ndata: {payload}\n\n"
+
+
 async def _private_sse_generator(
     request: Request,
     channel: str,
     user_id: uuid.UUID,
     organization_id: uuid.UUID,
     token_payload: dict,
+    last_event_id: int | None = None,
 ):
-    """Private stream bounded by token expiry and mutable admission state."""
+    """Private stream bounded by token expiry and mutable admission state.
+
+    Durable delivery contract (Stage 5): messages fanned out from the market
+    event outbox carry a monotonic per-database ``seq`` used as the SSE
+    ``id:``. Reconnecting clients send ``Last-Event-ID`` and receive every
+    committed event for their organization after that cursor straight from
+    the outbox before live delivery resumes; the cursor also de-duplicates
+    events that arrive on the in-process bus during replay.
+    """
+    # Subscribe before replay so nothing slips between the replay query and
+    # live delivery; the sequence cursor drops any overlap.
     queue = event_bus.subscribe(channel)
     if queue is None:
         yield 'event: error\ndata: {"error": "Too many connections"}\n\n'
         return
+    # Operational comment (invisible to EventSource): lets tests/operators
+    # confirm which worker process serves this stream.
+    yield f": stream-origin pid={os.getpid()}\n\n"
+    cursor = last_event_id if last_event_id is not None else -1
+    if last_event_id is not None:
+        try:
+            async with AsyncSessionLocal() as db:
+                try:
+                    missed = await fetch_events_for_org(
+                        db, organization_id, after_seq=last_event_id
+                    )
+                finally:
+                    await db.rollback()
+        except DBAPIError:
+            logger.warning(
+                "private_sse_replay_failed", extra={"reason": "database_error"}
+            )
+            event_bus.unsubscribe(channel, queue)
+            yield 'event: error\ndata: {"error": "Replay is temporarily unavailable"}\n\n'
+            return
+        for event in missed:
+            cursor = max(cursor, event.stream_seq)
+            yield _format_market_event(event.stream_seq, event.event_type, event.payload)
     expires_at = float(token_payload["exp"])
     next_revalidation = 0.0
     try:
@@ -98,7 +145,12 @@ async def _private_sse_generator(
             timeout = min(30.0, max(0.1, expires_at - now), max(0.1, next_revalidation - now))
             try:
                 message = await asyncio.wait_for(queue.get(), timeout=timeout)
-                yield f"event: {message['event']}\ndata: {json.dumps(message['data'], default=str)}\n\n"
+                seq = message.get("seq")
+                if seq is not None:
+                    if seq <= cursor:
+                        continue  # already delivered by replay
+                    cursor = seq
+                yield _format_market_event(seq, message["event"], message["data"])
             except asyncio.TimeoutError:
                 yield ": keepalive\n\n"
     finally:
@@ -133,9 +185,34 @@ async def stream_orderbook(request: Request):
     )
 
 
+def _parse_last_event_id(request: Request, query_value: str | None) -> int | None:
+    """Resolve the replay cursor; the standard EventSource header wins."""
+    raw = request.headers.get("last-event-id") or query_value
+    if raw is None:
+        return None
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        value = -1
+    if value < 0:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "STREAM_CURSOR_INVALID",
+                "message": "Last-Event-ID must be a non-negative integer",
+            },
+        )
+    return value
+
+
 @router.get("/trades")
-async def stream_trades(request: Request, stream_token: str | None = None):
+async def stream_trades(
+    request: Request,
+    stream_token: str | None = None,
+    last_event_id: str | None = None,
+):
     """Tenant-private trade lifecycle stream; only 60-second stream tokens work."""
+    replay_after = _parse_last_event_id(request, last_event_id)
     if request.headers.get("authorization") or request.headers.get("Authorization"):
         raise HTTPException(
             status_code=400,
@@ -171,7 +248,7 @@ async def stream_trades(request: Request, stream_token: str | None = None):
                 ).scalar_one_or_none()
                 if organization is None or organization.verification_status != "APPROVED":
                     raise ValueError("organization is not approved")
-                channel = f"trades:{organization_id}"
+                channel = stream_channel_for_org(organization_id)
             finally:
                 await db.rollback()
     except (jwt.PyJWTError, ValueError, HTTPException) as exc:
@@ -188,7 +265,9 @@ async def stream_trades(request: Request, stream_token: str | None = None):
             },
         ) from exc
     return StreamingResponse(
-        _private_sse_generator(request, channel, user_id, organization_id, payload),
+        _private_sse_generator(
+            request, channel, user_id, organization_id, payload, replay_after
+        ),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",

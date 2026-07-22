@@ -4,7 +4,18 @@ from __future__ import annotations
 from datetime import UTC, datetime
 import uuid
 
-from sqlalchemy import DateTime, Index, Integer, JSON, String, Text, func
+from sqlalchemy import (
+    JSON,
+    BigInteger,
+    DateTime,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+    text,
+)
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -18,6 +29,14 @@ class MarketEventOutbox(Base):
     __tablename__ = "market_event_outbox"
     __table_args__ = (
         Index("ix_market_event_outbox_pending", "dispatched_at", "created_at"),
+        # Integration (Stage 5): the shared SSE dispatcher's sequencer claims
+        # rows where stream_seq IS NULL in created_at order.
+        Index(
+            "ix_market_event_outbox_unsequenced",
+            "created_at",
+            postgresql_where=text("stream_seq IS NULL"),
+        ),
+        UniqueConstraint("stream_seq", name="uq_market_event_outbox_stream_seq"),
         postgresql_check(
             "json_array_length(participant_org_ids) > 0",
             name="ck_market_event_outbox_participants",
@@ -41,6 +60,12 @@ class MarketEventOutbox(Base):
     dispatched_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # Integration (Stage 5): global monotonic delivery sequence, assigned by
+    # the single-leader sequencer after the producing transaction commits
+    # (values come from the migration-owned market_event_stream_seq
+    # sequence). NULL means not yet dispatched to the shared SSE transport;
+    # Last-Event-ID replay is `stream_seq > cursor` scoped to the org.
+    stream_seq: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     delivery_attempts: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, server_default="0"
     )

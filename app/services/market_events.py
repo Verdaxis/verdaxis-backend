@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.market_event import MarketEventOutbox
@@ -88,6 +89,17 @@ async def enqueue_market_events(
         rows.append(row)
     if rows:
         await db.flush()
+        # Integration (Stage 5): wake the shared dispatcher. PostgreSQL
+        # delivers NOTIFY only when this transaction commits, so the signal
+        # can never precede the durable rows. NOTIFY is best-effort; the
+        # dispatcher's poll fallback covers lost signals.
+        dialect_name = getattr(
+            getattr(getattr(db, "bind", None), "dialect", None), "name", None
+        )
+        if dialect_name == "postgresql":
+            from app.services.market_event_dispatch import MARKET_EVENT_WAKE_CHANNEL
+
+            await db.execute(text(f"NOTIFY {MARKET_EVENT_WAKE_CHANNEL}"))
     return tuple(row.id for row in rows)
 
 

@@ -93,10 +93,21 @@ from contextlib import asynccontextmanager
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    from app.database import verify_database_runtime
+    from app.database import engine, verify_database_runtime
+    from app.services.event_bus import event_bus
+    from app.services.market_event_dispatch import MarketEventDispatcher
 
     await verify_database_runtime()
-    yield
+    # Stage 5: durable shared SSE dispatch (outbox sequencer + hub fan-out).
+    # Self-disables on non-PostgreSQL engines (the SQLite unit harness). This
+    # is per-request-worker runtime, not a scheduler: exactly one worker
+    # holds the sequencer advisory lock at a time and failover is automatic.
+    dispatcher = MarketEventDispatcher(engine, event_bus)
+    await dispatcher.start()
+    try:
+        yield
+    finally:
+        await dispatcher.stop()
 
 app = FastAPI(
     title="Verdaxis Intelligence Cockpit",
