@@ -177,16 +177,22 @@ async def _load_trade(db: AsyncSession, trade_id: uuid.UUID, for_update: bool = 
 async def _revalidate_trade_parties(db: AsyncSession, trade: Trade) -> None:
     if not trade.buyer_user_id or not trade.seller_user_id:
         raise HTTPException(status_code=409, detail="Trade parties require fresh admission review")
+    # populate_existing: the acting party is already in the session identity
+    # map; the locked SELECT must observe a concurrent rejection.
     users_result = await db.execute(
         select(User)
         .where(User.id.in_([trade.buyer_user_id, trade.seller_user_id]))
+        .order_by(User.id)
         .with_for_update()
+        .execution_options(populate_existing=True)
     )
     users = {user.id: user for user in users_result.scalars().all()}
     orgs_result = await db.execute(
         select(Organization)
         .where(Organization.id.in_([trade.buyer_id, trade.seller_id]))
+        .order_by(Organization.id)
         .with_for_update()
+        .execution_options(populate_existing=True)
     )
     orgs = {org.id: org for org in orgs_result.scalars().all()}
     if not await execution_party_is_eligible(
@@ -455,13 +461,19 @@ async def create_trade(
     party_result = await db.execute(
         select(User)
         .where(User.id.in_([current_user.id, order.owner_user_id]))
+        .order_by(User.id)
         .with_for_update()
+        # current_user is already in the session identity map; refresh it
+        # under the lock so a mid-request rejection is observed.
+        .execution_options(populate_existing=True)
     )
     parties = {party.id: party for party in party_result.scalars().all()}
     org_result = await db.execute(
         select(Organization)
         .where(Organization.id.in_([current_user.organization_id, order.organization_id]))
+        .order_by(Organization.id)
         .with_for_update()
+        .execution_options(populate_existing=True)
     )
     locked_organizations = {organization.id: organization for organization in org_result.scalars().all()}
     if not await execution_party_is_eligible(

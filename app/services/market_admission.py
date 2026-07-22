@@ -65,6 +65,10 @@ async def lock_and_load_market_organizations(
                     .where(User.id.in_(user_ids))
                     .order_by(User.id)
                     .with_for_update()
+                    # The actor row is always already in the session identity
+                    # map (auth dependency); refresh it under the lock so a
+                    # mid-request rejection is observed.
+                    .execution_options(populate_existing=True)
                 )
             ).scalars()
         }
@@ -94,6 +98,7 @@ async def lock_and_load_market_organizations(
                 .where(Organization.id.in_(ids))
                 .order_by(Organization.id)
                 .with_for_update()
+                .execution_options(populate_existing=True)
             )
         ).scalars()
     }

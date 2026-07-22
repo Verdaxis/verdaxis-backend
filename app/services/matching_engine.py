@@ -211,16 +211,25 @@ async def match_order(
         if allowed_demo_counterparty_id is None:
             if not new_order.owner_user_id or not crossing.owner_user_id:
                 continue
+            # populate_existing: these party rows may already sit in the
+            # session identity map from the request preview; the locked
+            # SELECT must observe a concurrent rejection, not stale state.
             owners_result = await db.execute(
                 select(User)
                 .where(User.id.in_([new_order.owner_user_id, crossing.owner_user_id]))
+                .order_by(User.id)
                 .with_for_update()
+                .execution_options(populate_existing=True)
             )
             owners = {user.id: user for user in owners_result.scalars().all()}
             orgs_result = await db.execute(
-                select(Organization).where(
+                select(Organization)
+                .where(
                     Organization.id.in_([new_order.organization_id, crossing.organization_id])
-                ).with_for_update()
+                )
+                .order_by(Organization.id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
             )
             orgs = {org.id: org for org in orgs_result.scalars().all()}
             if not await execution_party_is_eligible(
