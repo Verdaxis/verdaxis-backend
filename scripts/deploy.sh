@@ -574,6 +574,7 @@ fi
 "${PYTHON_ENV[@]}" ENVIRONMENT="$DEPLOY_ENVIRONMENT" RELEASE_SHA="$CURRENT_SHA" \
     ./venv/bin/python scripts/apply_migration_checkpoint.py \
     --source-root "$BACKEND_DIR" \
+    --environment-file "$BACKEND_DIR/.env" \
     --source-sha "$CURRENT_SHA" \
     --approved-source-sha "$MIGRATION_APPROVED_SOURCE_SHA" \
     --expected-current "$MIGRATION_EXPECTED_CURRENT_REVISION" \

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import importlib
 import os
 from pathlib import Path
 import re
@@ -17,6 +18,7 @@ from alembic.config import Config
 from alembic.runtime.migration import MigrationContext
 from alembic.script import ScriptDirectory
 from alembic.script.revision import RangeNotAncestorError, ResolutionError
+from dotenv import dotenv_values
 from sqlalchemy import pool
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import ArgumentError
@@ -27,10 +29,51 @@ POLICY_PATH = "deploy/migration-checkpoints.tsv"
 _FULL_SHA = re.compile(r"[0-9a-f]{40}")
 _REVISION = re.compile(r"[A-Za-z0-9][A-Za-z0-9_]{0,127}")
 _SYMBOLIC_REVISIONS = {"base", "head", "heads"}
+_IGNORED_ENVIRONMENT_KEYS = {"BASH_ENV", "ENV", "HOME", "PATH", "PYTHONHOME", "PYTHONPATH"}
 
 
 class MigrationCheckpointError(RuntimeError):
     """The requested deployment migration is not exactly authorized."""
+
+
+def load_environment_file(path: Path) -> Path:
+    """Load application settings without accepting process-control overrides."""
+    if path.is_symlink():
+        raise MigrationCheckpointError("environment file must not be a symlink")
+    try:
+        resolved = path.resolve(strict=True)
+    except OSError as exc:
+        raise MigrationCheckpointError("environment file is unavailable") from exc
+    if not resolved.is_file():
+        raise MigrationCheckpointError("environment file must be a regular file")
+    for key, value in dotenv_values(resolved).items():
+        if (
+            value is None
+            or key in _IGNORED_ENVIRONMENT_KEYS
+            or key.startswith(("GIT_", "LD_"))
+        ):
+            continue
+        os.environ.setdefault(key, value)
+    return resolved
+
+
+def activate_source_root(source_root: Path) -> Path:
+    """Make the attested checkout the sole application import root."""
+    root = source_root.resolve(strict=True)
+    if not root.is_dir():
+        raise MigrationCheckpointError("migration source root must be a directory")
+    loaded_app_modules = [name for name in sys.modules if name == "app" or name.startswith("app.")]
+    if loaded_app_modules:
+        raise MigrationCheckpointError("application modules loaded before source activation")
+    os.chdir(root)
+    sys.path[:] = [str(root), *(entry for entry in sys.path if entry)]
+    return root
+
+
+def require_module_from_source(module: Any, source_root: Path) -> None:
+    module_file = getattr(module, "__file__", None)
+    if module_file is None or not Path(module_file).resolve().is_relative_to(source_root):
+        raise MigrationCheckpointError("application module resolved outside approved source")
 
 
 def _validate_revision(value: str) -> str:
@@ -198,7 +241,12 @@ def _require_explicit_migrator_url(settings: Any) -> str:
 
 async def _read_current_heads(settings: Any) -> tuple[str, ...]:
     migration_url = _require_explicit_migrator_url(settings)
-    from app.database import migrator_connect_args, verify_migrator_connection
+    database_module = importlib.import_module("app.database")
+    config_module = importlib.import_module("app.config")
+    source_root = Path(config_module.__file__).resolve().parents[1]
+    require_module_from_source(database_module, source_root)
+    migrator_connect_args = database_module.migrator_connect_args
+    verify_migrator_connection = database_module.verify_migrator_connection
 
     engine = create_async_engine(
         migration_url,
@@ -272,6 +320,7 @@ async def execute_checkpoint(
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--source-root", type=Path, required=True)
+    parser.add_argument("--environment-file", type=Path, required=True)
     parser.add_argument("--source-sha", required=True)
     parser.add_argument("--approved-source-sha", required=True)
     parser.add_argument("--expected-current", required=True)
@@ -279,14 +328,17 @@ def main() -> int:
     args = parser.parse_args()
 
     try:
+        load_environment_file(args.environment_file)
+        source_root = activate_source_root(args.source_root)
         policy_text = read_committed_checkpoint_policy(
-            args.source_root, args.source_sha
+            source_root, args.source_sha
         )
         policy = parse_checkpoint_policy(policy_text)
-        sys.path.insert(0, str(args.source_root.resolve(strict=True)))
-        from app.config import settings
+        config_module = importlib.import_module("app.config")
+        require_module_from_source(config_module, source_root)
+        settings = config_module.settings
 
-        config = Config(str(args.source_root / "alembic.ini"))
+        config = Config(str(source_root / "alembic.ini"))
         asyncio.run(
             execute_checkpoint(
                 config=config,

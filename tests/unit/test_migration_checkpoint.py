@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib.util
+import os
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -146,6 +147,35 @@ def test_checkpoint_git_identity_uses_absolute_trusted_binary():
     assert 'environment["GIT_CONFIG_GLOBAL"] = "/dev/null"' in source
     assert 'environment["GIT_CONFIG_NOSYSTEM"] = "1"' in source
     assert 'f"safe.directory={source_root}"' in source
+
+
+def test_checkpoint_environment_loader_ignores_process_control_keys(tmp_path, monkeypatch):
+    module = _load_checkpoint_module()
+    environment_file = tmp_path / ".env"
+    environment_file.write_text(
+        "DATABASE_URL=postgresql+asyncpg://app:secret@db/example\n"
+        "JWT_SECRET=real-secret\n"
+        "PYTHONPATH=/untrusted\n"
+        "GIT_CONFIG_GLOBAL=/untrusted\n"
+    )
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.delenv("JWT_SECRET", raising=False)
+    original_pythonpath = os.environ.get("PYTHONPATH")
+
+    module.load_environment_file(environment_file)
+
+    assert os.environ["DATABASE_URL"].endswith("@db/example")
+    assert os.environ["JWT_SECRET"] == "real-secret"
+    assert os.environ.get("PYTHONPATH") == original_pythonpath
+    assert os.environ.get("GIT_CONFIG_GLOBAL") != "/untrusted"
+
+
+def test_checkpoint_cli_and_deploy_require_explicit_environment_file():
+    checkpoint = (ROOT / "scripts/apply_migration_checkpoint.py").read_text()
+    deploy = (ROOT / "scripts/deploy.sh").read_text()
+
+    assert 'parser.add_argument("--environment-file", type=Path, required=True)' in checkpoint
+    assert '--environment-file "$BACKEND_DIR/.env"' in deploy
 
 
 def test_checkpoint_executor_pins_alembic_to_explicit_migrator_url(monkeypatch):

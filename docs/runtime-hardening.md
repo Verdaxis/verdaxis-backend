@@ -102,6 +102,10 @@ The selected SHA and approved target revision are published to
 migration checkpoint from the new tree.
 The checkpoint helper re-attests the clean checkout, source SHA, migrator
 identity, current revision, graph ancestry, and exact resulting revision. It
+loads settings from an explicit regular `--environment-file`, ignores process
+control keys in that file, activates the attested source root, and refuses if
+any `app` module resolves outside it. This prevents an operator checkout from
+mixing candidate and live namespace-package modules.
 requires an explicit `MIGRATOR_DATABASE_URL` whose role differs from
 `DATABASE_URL` before opening an engine; neither checkpoint application nor
 startup revision verification ever falls back to application credentials. It

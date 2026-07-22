@@ -38,7 +38,9 @@ reviewed and pushed:
    fixed live checkout and running legacy workers unchanged.
 2. Take and verify the backup required for `pa -> rh`, then apply that literal
    checkpoint with `scripts/apply_migration_checkpoint.py` from the operator
-   checkout. Repeat the backup gate and apply `rh -> sec_identity`. These
+   checkout, passing the selected environment's fixed live `.env` as the
+   explicit `--environment-file`. Repeat the backup gate and apply
+   `rh -> sec_identity`. These
    revisions are additive and retain the plaintext compatibility column.
    `sec_identity` installs a compatibility trigger that hashes and expiry-binds
    every token subsequently written by the legacy release, so signup, resend,
