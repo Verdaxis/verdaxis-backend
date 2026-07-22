@@ -64,7 +64,7 @@ async def grant_capability(
     await record_audit(
         db,
         user_id=current_user.id,
-        action=CAPABILITY_GRANTED,
+        action=MARKET_SUPPORT_CAPABILITY_GRANTED,
         resource_type="admin_capability_grant",
         resource_id=grant.id,
         changes={
@@ -111,7 +111,7 @@ async def revoke_capability(
         await record_audit(
             db,
             user_id=current_user.id,
-            action=CAPABILITY_REVOKED,
+            action=MARKET_SUPPORT_CAPABILITY_REVOKED,
             resource_type="admin_capability_grant",
             resource_id=grant.id,
             changes={"target_user_id": str(grant.user_id), "reason": body.reason},
