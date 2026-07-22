@@ -7,6 +7,8 @@ before deleting an active market row.
 
 from __future__ import annotations
 
+import json
+import re
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from hashlib import sha256
@@ -103,6 +105,29 @@ class AcceptedRFQQuarantineReport:
             ),
             "commission_rows": list(self.commission_rows),
             "blocking_dependencies": self.blocking_dependencies,
+        }
+
+
+@dataclass(frozen=True)
+class OrganizationMarketApprovalReport:
+    organization_id: UUID
+    previous_verification_status: str
+    eligible_user_ids: tuple[UUID, ...]
+    provenance: str | None
+    already_approved: bool
+    snapshot_sha256: str
+    reviewed_snapshot: dict[str, Any]
+
+    def as_json(self) -> dict[str, Any]:
+        return {
+            "organization_id": str(self.organization_id),
+            "previous_verification_status": self.previous_verification_status,
+            "eligible_trader_count": len(self.eligible_user_ids),
+            "eligible_user_ids": [str(value) for value in self.eligible_user_ids],
+            "provenance": self.provenance,
+            "already_approved": self.already_approved,
+            "snapshot_sha256": self.snapshot_sha256,
+            "reviewed_snapshot": self.reviewed_snapshot,
         }
 
 
@@ -213,6 +238,246 @@ async def _has_column(
             )
         ).scalar_one()
     )
+
+
+async def approve_real_organizations(
+    connection: AsyncConnection,
+    organization_ids: Iterable[str | UUID],
+    *,
+    context: OperatorContext,
+    apply: bool,
+    expected_snapshots: dict[UUID, str] | None = None,
+) -> tuple[OrganizationMarketApprovalReport, ...]:
+    """Approve exact eligible organizations and record REAL provenance authority."""
+    ids = validate_order_ids(organization_ids)
+    reserved_ids = set(DEMO_MARKET_ORG_IDS) | set(KNOWN_TEST_ORG_IDS)
+    if set(ids) & reserved_ids:
+        raise ValueError("demo/test organizations cannot be approved as REAL")
+    expected_snapshots = expected_snapshots or {}
+    if apply and set(expected_snapshots) != set(ids):
+        raise ValueError(
+            "apply requires one --expected-snapshot for every organization ID"
+        )
+    if any(not re.fullmatch(r"[0-9a-f]{64}", value) for value in expected_snapshots.values()):
+        raise ValueError("expected snapshot hashes must be lowercase SHA-256 values")
+
+    has_provenance = await _has_column(
+        connection,
+        table_name="organizations",
+        column_name="provenance",
+    )
+    provenance_projection = "provenance" if has_provenance else "NULL::text AS provenance"
+    organizations = (
+        await connection.execute(
+            text(
+                "SELECT id, name, domain, type, country_code, tax_id, verification_status, "
+                f"{provenance_projection} FROM organizations "
+                "WHERE id = ANY(CAST(:organization_ids AS uuid[])) "
+                "ORDER BY id FOR UPDATE"
+            ),
+            {"organization_ids": [str(value) for value in ids]},
+        )
+    ).mappings().all()
+    by_id = {UUID(str(row["id"])): row for row in organizations}
+    missing = set(ids) - set(by_id)
+    if missing:
+        raise ValueError(
+            "organization IDs do not exist: "
+            + ", ".join(str(value) for value in sorted(missing, key=str))
+        )
+
+    member_rows = (
+        await connection.execute(
+            text(
+                "SELECT id, organization_id, role, status, email_verified, "
+                "must_change_password, kyc_status, kyc_organization_id FROM users "
+                "WHERE organization_id = ANY(CAST(:organization_ids AS uuid[])) "
+                "ORDER BY organization_id, id FOR UPDATE"
+            ),
+            {"organization_ids": [str(value) for value in ids]},
+        )
+    ).mappings().all()
+    eligible_by_org: dict[UUID, list[UUID]] = {value: [] for value in ids}
+    for row in member_rows:
+        organization_id = UUID(str(row["organization_id"]))
+        if (
+            str(row["role"]) in {"BUYER", "SUPPLIER"}
+            and str(row["status"]) == "APPROVED"
+            and row["email_verified"] is True
+            and row["must_change_password"] is False
+            and str(row["kyc_status"] or "PENDING") != "REJECTED"
+            and (
+                row["kyc_organization_id"] is None
+                or UUID(str(row["kyc_organization_id"])) == organization_id
+            )
+        ):
+            eligible_by_org[organization_id].append(UUID(str(row["id"])))
+
+    existing = {
+        UUID(str(row["organization_id"])): row
+        for row in (
+            await connection.execute(
+                text(
+                    "SELECT organization_id, previous_verification_status, "
+                    "reviewed_snapshot, environment, database_name "
+                    "FROM organization_market_approvals "
+                    "WHERE organization_id = ANY(CAST(:organization_ids AS uuid[])) "
+                    "ORDER BY organization_id FOR UPDATE"
+                ),
+                {"organization_ids": [str(value) for value in ids]},
+            )
+        ).mappings()
+    }
+
+    if has_provenance:
+        active_unknown = (
+            await connection.execute(
+                text(
+                    "SELECT id FROM orderbook_orders "
+                    "WHERE organization_id = ANY(CAST(:organization_ids AS uuid[])) "
+                    "AND status NOT IN ('CANCELLED', 'EXPIRED') "
+                    "AND provenance = 'UNKNOWN' ORDER BY id FOR UPDATE"
+                ),
+                {"organization_ids": [str(value) for value in ids]},
+            )
+        ).scalars().all()
+        if active_unknown:
+            raise ValueError(
+                "post-integrity REAL approval requires quarantine, cancellation, "
+                "or expiry of nonterminal UNKNOWN orders: "
+                + ", ".join(str(value) for value in active_unknown)
+            )
+
+    reports: list[OrganizationMarketApprovalReport] = []
+    snapshots: dict[UUID, dict[str, Any]] = {}
+    for organization_id in ids:
+        organization = by_id[organization_id]
+        status = str(organization["verification_status"] or "").upper()
+        provenance = organization["provenance"]
+        eligible_user_ids = tuple(eligible_by_org[organization_id])
+        if status == "REJECTED":
+            raise ValueError(f"organization {organization_id} is rejected")
+        if not eligible_user_ids:
+            raise ValueError(
+                f"organization {organization_id} has no approved email-verified trader"
+            )
+        if provenance not in (None, "UNKNOWN", "REAL"):
+            raise ValueError(
+                f"organization {organization_id} has incompatible provenance {provenance}"
+            )
+        existing_approval = existing.get(organization_id)
+        already_approved = existing_approval is not None
+        snapshot = {
+            "organization": {
+                "id": str(organization_id),
+                "name": organization["name"],
+                "domain": organization["domain"],
+                "type": str(organization["type"]),
+                "country_code": organization["country_code"],
+                "tax_id": organization["tax_id"],
+                "verification_status": "APPROVED",
+            },
+            "eligible_user_ids": [str(value) for value in eligible_user_ids],
+        }
+        snapshots[organization_id] = snapshot
+        snapshot_json = json.dumps(snapshot, sort_keys=True, separators=(",", ":"))
+        snapshot_hash = sha256(snapshot_json.encode("utf-8")).hexdigest()
+        if existing_approval is not None:
+            if (
+                existing_approval["environment"] != context.environment
+                or existing_approval["database_name"] != context.database_name
+                or existing_approval["reviewed_snapshot"] != snapshot
+            ):
+                raise ValueError(
+                    f"organization {organization_id} approval record has drifted"
+                )
+            previous_status = existing_approval["previous_verification_status"]
+        else:
+            previous_status = status
+        if apply and expected_snapshots[organization_id] != snapshot_hash:
+            raise ValueError(
+                f"organization {organization_id} snapshot changed after dry-run review"
+            )
+        reports.append(
+            OrganizationMarketApprovalReport(
+                organization_id=organization_id,
+                previous_verification_status=previous_status,
+                eligible_user_ids=eligible_user_ids,
+                provenance=provenance,
+                already_approved=already_approved,
+                snapshot_sha256=snapshot_hash,
+                reviewed_snapshot=snapshot,
+            )
+        )
+
+    if not apply:
+        return tuple(reports)
+
+    for report in reports:
+        if not report.already_approved:
+            await connection.execute(
+                text(
+                    "INSERT INTO organization_market_approvals "
+                    "(organization_id, previous_verification_status, reviewed_snapshot, "
+                    "environment, database_name, reason, operator, reference) VALUES "
+                    "(:organization_id, :previous_status, CAST(:reviewed_snapshot AS json), "
+                    ":environment, :database_name, :reason, :operator, :reference)"
+                ),
+                {
+                    "organization_id": report.organization_id,
+                    "previous_status": report.previous_verification_status,
+                    "reviewed_snapshot": json.dumps(snapshots[report.organization_id]),
+                    "environment": context.environment,
+                    "database_name": context.database_name,
+                    "reason": context.reason,
+                    "operator": context.operator,
+                    "reference": context.reference,
+                },
+            )
+        await connection.execute(
+            text(
+                "UPDATE organizations SET verification_status = 'APPROVED' "
+                "WHERE id = :organization_id"
+            ),
+            {"organization_id": report.organization_id},
+        )
+        if not report.already_approved:
+            await connection.execute(
+                text(
+                    "INSERT INTO audit_logs "
+                    "(id, action, resource_type, resource_id, changes) VALUES "
+                    "(:id, 'MARKET_ORGANIZATION_APPROVED', 'organization', "
+                    ":resource_id, CAST(:changes AS jsonb))"
+                ),
+                {
+                    "id": uuid4(),
+                    "resource_id": str(report.organization_id),
+                    "changes": json.dumps(
+                        {
+                            "verification_status": {
+                                "from": report.previous_verification_status,
+                                "to": "APPROVED",
+                            },
+                            "provenance": {
+                                "from": report.provenance,
+                                "to": "REAL",
+                            },
+                            "operator": context.operator,
+                            "reason": context.reason,
+                            "reference": context.reference,
+                        }
+                    ),
+                },
+            )
+        if has_provenance:
+            await connection.execute(
+                text(
+                    "UPDATE organizations SET provenance = 'REAL' "
+                    "WHERE id = :organization_id AND provenance = 'UNKNOWN'"
+                ),
+                {"organization_id": report.organization_id},
+            )
+    return tuple(reports)
 
 
 async def discover_order_ids(

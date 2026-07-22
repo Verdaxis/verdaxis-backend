@@ -48,7 +48,22 @@ def upgrade() -> None:
     # every plaintext value. Refuse to remove the fallback while any of those
     # links can still be valid; operators must wait or intentionally expire
     # them before continuing.
-    active_legacy_tokens = op.get_bind().execute(
+    bind = op.get_bind()
+    unbound_legacy_tokens = bind.execute(
+        sa.text(
+            "SELECT count(*) FROM users WHERE email_verification_token IS NOT NULL AND ("
+            "email_verification_token_hash IS NULL OR "
+            "email_verification_token_expires_at IS NULL OR "
+            "email_verification_token_hash <> encode("
+            "sha256(convert_to(email_verification_token, 'UTF8')), 'hex'))"
+        )
+    ).scalar_one()
+    if unbound_legacy_tokens:
+        raise RuntimeError(
+            "Legacy email verification tokens are missing a matching hash or expiry; "
+            "repair the compatibility invariant before applying sec_20260720_boundaries"
+        )
+    active_legacy_tokens = bind.execute(
         sa.text(
             "SELECT count(*) FROM users WHERE email_verification_token IS NOT NULL "
             "AND email_verification_token_expires_at > CURRENT_TIMESTAMP"
@@ -59,6 +74,8 @@ def upgrade() -> None:
             "Legacy email verification compatibility window is still active; "
             "wait until all migration-time expiries pass before applying sec_20260720_boundaries"
         )
+    op.execute(sa.text("DROP TRIGGER trg_users_sync_legacy_verification_token ON users"))
+    op.execute(sa.text("DROP FUNCTION verdaxis_sync_legacy_verification_token()"))
     op.execute(sa.text("UPDATE users SET email_verification_token = NULL"))
     op.drop_column("users", "email_verification_token")
 
@@ -207,5 +224,39 @@ def downgrade() -> None:
     # retain their hash/expiry fields from the identity revision and must be
     # sent a new link by an old-code rollback.
     op.add_column("users", sa.Column("email_verification_token", sa.String(), nullable=True))
+    op.execute(
+        sa.text(
+            """
+            CREATE FUNCTION verdaxis_sync_legacy_verification_token()
+            RETURNS trigger
+            LANGUAGE plpgsql
+            AS $$
+            BEGIN
+                IF TG_OP = 'INSERT'
+                   OR NEW.email_verification_token IS DISTINCT FROM OLD.email_verification_token THEN
+                    IF NEW.email_verification_token IS NULL THEN
+                        NEW.email_verification_token_hash := NULL;
+                        NEW.email_verification_token_expires_at := NULL;
+                    ELSE
+                        NEW.email_verification_token_hash := encode(
+                            sha256(convert_to(NEW.email_verification_token, 'UTF8')), 'hex'
+                        );
+                        NEW.email_verification_token_expires_at :=
+                            CURRENT_TIMESTAMP + interval '24 hours';
+                    END IF;
+                END IF;
+                RETURN NEW;
+            END
+            $$
+            """
+        )
+    )
+    op.execute(
+        sa.text(
+            "CREATE TRIGGER trg_users_sync_legacy_verification_token "
+            "BEFORE INSERT OR UPDATE OF email_verification_token ON users "
+            "FOR EACH ROW EXECUTE FUNCTION verdaxis_sync_legacy_verification_token()"
+        )
+    )
     # Preserve VARCHAR(20) on rollback. The widening is backward compatible,
     # while narrowing can fail on valid values written after upgrade.

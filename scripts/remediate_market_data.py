@@ -18,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.services.market_quarantine import (
     MAX_QUARANTINE_IDS,
     OperatorContext,
+    approve_real_organizations,
     connected_database_name,
     discover_order_ids,
     quarantine_accepted_rfqs,
@@ -97,6 +98,26 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         metavar="RFQ_ID=TRADE_ID",
         help="Exact accepted-RFQ to dependent orderless trade binding",
     )
+
+    real_organizations = subparsers.add_parser(
+        "approve-real-organizations",
+        help=(
+            "Approve exact organizations with eligible traders and record "
+            "operator authority for REAL market provenance"
+        ),
+    )
+    real_organizations.add_argument(
+        "--organization-id",
+        action="append",
+        required=True,
+    )
+    real_organizations.add_argument(
+        "--expected-snapshot",
+        action="append",
+        default=[],
+        metavar="ORGANIZATION_ID=SHA256",
+        help="Required on apply and copied exactly from the reviewed dry-run",
+    )
     accepted_rfqs.add_argument(
         "--accepted-rfq-approval-reference",
         help="Required for apply and must exactly equal --reference",
@@ -128,6 +149,26 @@ def _rfq_trade_bindings(values: list[str]) -> dict:
         if rfq_id in bindings and bindings[rfq_id] != trade_id:
             raise ValueError(f"conflicting trade bindings for RFQ {rfq_id}")
         bindings[rfq_id] = trade_id
+    return bindings
+
+
+def _organization_snapshot_bindings(values: list[str]) -> dict:
+    from uuid import UUID
+
+    bindings: dict[UUID, str] = {}
+    for value in values:
+        try:
+            organization_value, snapshot_hash = value.split("=", 1)
+            organization_id = UUID(organization_value)
+        except (ValueError, AttributeError) as exc:
+            raise ValueError(
+                f"invalid --expected-snapshot {value!r}; expected ORGANIZATION_UUID=SHA256"
+            ) from exc
+        if organization_id in bindings and bindings[organization_id] != snapshot_hash:
+            raise ValueError(
+                f"conflicting expected snapshots for organization {organization_id}"
+            )
+        bindings[organization_id] = snapshot_hash
     return bindings
 
 
@@ -195,6 +236,22 @@ async def run(args: argparse.Namespace) -> dict[str, Any]:
                     "dry_run": not args.apply,
                     "database": actual_database,
                     "accepted_rfqs": [report.as_json() for report in reports],
+                }
+
+            if args.command == "approve-real-organizations":
+                reports = await approve_real_organizations(
+                    connection,
+                    args.organization_id,
+                    context=context,
+                    apply=args.apply,
+                    expected_snapshots=_organization_snapshot_bindings(
+                        args.expected_snapshot
+                    ),
+                )
+                return {
+                    "dry_run": not args.apply,
+                    "database": actual_database,
+                    "organizations": [report.as_json() for report in reports],
                 }
 
             if args.command == "rename-demo-organizations":

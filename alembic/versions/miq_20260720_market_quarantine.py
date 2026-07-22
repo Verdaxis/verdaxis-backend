@@ -46,11 +46,38 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("source_table", "source_id", name="uq_market_row_quarantines_source"),
     )
+    op.create_table(
+        "organization_market_approvals",
+        sa.Column(
+            "organization_id",
+            sa.UUID(),
+            sa.ForeignKey("organizations.id", ondelete="RESTRICT"),
+            nullable=False,
+        ),
+        sa.Column("previous_verification_status", sa.String(length=32), nullable=False),
+        sa.Column("reviewed_snapshot", sa.JSON(), nullable=False),
+        sa.Column("environment", sa.String(length=32), nullable=False),
+        sa.Column("database_name", sa.String(length=128), nullable=False),
+        sa.Column("reason", sa.Text(), nullable=False),
+        sa.Column("operator", sa.String(length=255), nullable=False),
+        sa.Column("reference", sa.String(length=255), nullable=False),
+        sa.Column("approved_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+        sa.PrimaryKeyConstraint("organization_id"),
+        sa.CheckConstraint(
+            "environment IN ('production','staging','test')",
+            name="ck_organization_market_approvals_environment",
+        ),
+        sa.CheckConstraint("trim(database_name) <> ''", name="ck_organization_market_approvals_database"),
+        sa.CheckConstraint("trim(reason) <> ''", name="ck_organization_market_approvals_reason"),
+        sa.CheckConstraint("trim(operator) <> ''", name="ck_organization_market_approvals_operator"),
+        sa.CheckConstraint("trim(reference) <> ''", name="ck_organization_market_approvals_reference"),
+    )
     # Deployment grants a distinct migrator/operator role explicitly. PUBLIC
     # (and therefore an ordinary least-privilege app role) cannot write seed
     # or quarantine control history.
     op.execute(sa.text("REVOKE ALL ON seed_runs FROM PUBLIC"))
     op.execute(sa.text("REVOKE ALL ON market_row_quarantines FROM PUBLIC"))
+    op.execute(sa.text("REVOKE ALL ON organization_market_approvals FROM PUBLIC"))
 
 
 def downgrade() -> None:

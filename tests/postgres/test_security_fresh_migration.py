@@ -7,9 +7,11 @@ and legacy rows intact) is exercised on a scratch database capped at the
 security head instead of the session database at head.
 """
 
+import hashlib
 import os
 import subprocess
 import sys
+from datetime import UTC, datetime
 from uuid import uuid4
 
 from sqlalchemy import text
@@ -58,7 +60,7 @@ async def test_unknown_kyc_is_not_bound_and_long_fuel_survives_downgrade(analyti
     def alembic(*args: str) -> None:
         subprocess.run([sys.executable, "-m", "alembic", *args], check=True, env=environment)
 
-    alembic("upgrade", "sec_20260720_boundaries")
+    alembic("upgrade", "sec_20260720_identity")
     engine = create_async_engine(scratch_url)
     user_id = uuid4()
     organization_id = uuid4()
@@ -78,10 +80,38 @@ async def test_unknown_kyc_is_not_bound_and_long_fuel_survives_downgrade(analyti
                 text(
                     "INSERT INTO users "
                     "(id, email, password_hash, role, status, organization_id, email_verified, "
-                    "kyc_status, must_change_password) VALUES "
-                    "(:id, :email, 'hash', 'BUYER', 'APPROVED', :org, true, 'APPROVED', false)"
+                    "kyc_status, must_change_password, email_verification_token) VALUES "
+                    "(:id, :email, 'hash', 'BUYER', 'APPROVED', :org, true, 'APPROVED', false, "
+                    ":verification_token)"
                 ),
-                {"id": user_id, "email": f"legacy-{user_id}@example.test", "org": organization_id},
+                {
+                    "id": user_id,
+                    "email": f"legacy-{user_id}@example.test",
+                    "org": organization_id,
+                    "verification_token": "legacy-worker-issued-token",
+                },
+            )
+            token_hash, expires_at = (
+                await connection.execute(
+                    text(
+                        "SELECT email_verification_token_hash, "
+                        "email_verification_token_expires_at FROM users WHERE id = :id"
+                    ),
+                    {"id": user_id},
+                )
+            ).one()
+            assert token_hash == hashlib.sha256(b"legacy-worker-issued-token").hexdigest()
+            assert expires_at is not None
+            assert expires_at > datetime.now(UTC)
+
+            # The boundary migration must remain blocked while the compatibility
+            # link is valid, then accept the same row once its expiry has passed.
+            await connection.execute(
+                text(
+                    "UPDATE users SET email_verification_token_expires_at = "
+                    "CURRENT_TIMESTAMP - interval '1 second' WHERE id = :id"
+                ),
+                {"id": user_id},
             )
             await connection.execute(
                 text(
@@ -104,6 +134,7 @@ async def test_unknown_kyc_is_not_bound_and_long_fuel_survives_downgrade(analyti
                     "jti_hash": "f" * 64,
                 },
             )
+        alembic("upgrade", "sec_20260720_boundaries")
         alembic("upgrade", _SECURITY_HEAD)
         async with engine.connect() as connection:
             status, bound_org = (

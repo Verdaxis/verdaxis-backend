@@ -715,6 +715,9 @@ async def test_raw_app_cannot_promote_rewrite_controls_set_role_or_delegate():
             "UPDATE public.user_status_transitions SET provenance = provenance",
             "DELETE FROM public.user_status_transitions",
             "UPDATE public.market_row_quarantines SET reason = 'accepted'",
+            "UPDATE public.organization_market_approvals SET reason = 'accepted'",
+            "DELETE FROM public.organization_market_approvals",
+            "SELECT * FROM public.organization_market_approvals",
             "DELETE FROM public.seed_runs",
             f"SET ROLE {migrator}",
         )

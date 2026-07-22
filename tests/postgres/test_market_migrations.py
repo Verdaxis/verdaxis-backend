@@ -78,6 +78,45 @@ async def _database_execute(database_url: str, statement: str, parameters=None):
         await engine.dispose()
 
 
+async def _seed_real_organization_candidate(
+    database_url: str,
+    *,
+    organization_id,
+    user_id,
+    suffix: str,
+) -> None:
+    engine = create_async_engine(database_url)
+    try:
+        async with engine.begin() as connection:
+            await connection.execute(
+                text(
+                    "INSERT INTO organizations "
+                    "(id, name, type, verification_status) VALUES "
+                    "(:organization_id, :name, 'FUEL_BUYER', 'PENDING')"
+                ),
+                {
+                    "organization_id": organization_id,
+                    "name": f"Real market candidate {suffix}",
+                },
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO users "
+                    "(id, email, password_hash, role, status, email_verified, "
+                    "must_change_password, organization_id) VALUES "
+                    "(:user_id, :email, 'not-a-real-hash', 'BUYER', "
+                    "'APPROVED', true, false, :organization_id)"
+                ),
+                {
+                    "user_id": user_id,
+                    "email": f"real-market-{suffix}@example.invalid",
+                    "organization_id": organization_id,
+                },
+            )
+    finally:
+        await engine.dispose()
+
+
 async def _seed_parent_sentinel(
     database_url: str,
     *,
@@ -483,3 +522,219 @@ async def test_accepted_rfq_requires_approved_exact_graph_quarantine_before_upgr
 
     upgraded = await asyncio.to_thread(_alembic, database_url, "upgrade", "head")
     assert upgraded.returncode == 0, upgraded.stderr
+
+
+@pytest.mark.asyncio
+async def test_exact_operator_approval_promotes_only_eligible_real_organizations(
+    migration_database,
+):
+    database_url, _database_name = migration_database
+    parent = await asyncio.to_thread(_alembic, database_url, "upgrade", _PARENT)
+    assert parent.returncode == 0, parent.stderr
+
+    organization_id, user_id = uuid4(), uuid4()
+    await _seed_real_organization_candidate(
+        database_url,
+        organization_id=organization_id,
+        user_id=user_id,
+        suffix="before-integrity",
+    )
+
+    dry_run = await asyncio.to_thread(
+        _remediation_cli,
+        database_url,
+        "approve-real-organizations",
+        "--organization-id",
+        str(organization_id),
+    )
+    assert dry_run.returncode == 0, dry_run.stderr
+    dry_payload = json.loads(dry_run.stdout)
+    assert dry_payload["dry_run"] is True
+    dry_organization = dry_payload["organizations"][0]
+    assert dry_organization["already_approved"] is False
+    assert dry_organization["eligible_trader_count"] == 1
+    assert dry_organization["eligible_user_ids"] == [str(user_id)]
+    assert dry_organization["organization_id"] == str(organization_id)
+    assert dry_organization["previous_verification_status"] == "PENDING"
+    assert dry_organization["provenance"] is None
+    assert len(dry_organization["snapshot_sha256"]) == 64
+    assert dry_organization["reviewed_snapshot"]["eligible_user_ids"] == [str(user_id)]
+
+    stale_hash = "0" * 64
+    stale_apply = await asyncio.to_thread(
+        _remediation_cli,
+        database_url,
+        "--operator",
+        "market-integrity-test",
+        "--reason",
+        "stale review must be rejected",
+        "--reference",
+        "TEST-ORG-REAL-STALE",
+        "--apply",
+        "approve-real-organizations",
+        "--organization-id",
+        str(organization_id),
+        "--expected-snapshot",
+        f"{organization_id}={stale_hash}",
+    )
+    assert stale_apply.returncode != 0
+    assert "snapshot changed after dry-run review" in stale_apply.stderr
+
+    applied = await asyncio.to_thread(
+        _remediation_cli,
+        database_url,
+        "--operator",
+        "market-integrity-test",
+        "--reason",
+        "approved verified trader grandfathering proof",
+        "--reference",
+        "TEST-ORG-REAL-001",
+        "--apply",
+        "approve-real-organizations",
+        "--organization-id",
+        str(organization_id),
+        "--expected-snapshot",
+        f"{organization_id}={dry_organization['snapshot_sha256']}",
+    )
+    assert applied.returncode == 0, applied.stderr
+    applied_payload = json.loads(applied.stdout)
+    assert applied_payload["dry_run"] is False
+
+    approval = await _database_execute(
+        database_url,
+        "SELECT previous_verification_status, operator, reason, reference, "
+        "reviewed_snapshot FROM organization_market_approvals "
+        "WHERE organization_id = :organization_id",
+        {"organization_id": organization_id},
+    )
+    approval_row = approval.mappings().one()
+    assert approval_row["previous_verification_status"] == "PENDING"
+    assert approval_row["operator"] == "market-integrity-test"
+    assert approval_row["reference"] == "TEST-ORG-REAL-001"
+    assert approval_row["reviewed_snapshot"] == dry_organization["reviewed_snapshot"]
+
+    audit = await _database_execute(
+        database_url,
+        "SELECT action, resource_id, changes->'verification_status'->>'to' AS status "
+        "FROM audit_logs WHERE action = 'MARKET_ORGANIZATION_APPROVED' "
+        "AND resource_id = :resource_id",
+        {"resource_id": str(organization_id)},
+    )
+    assert audit.one() == (
+        "MARKET_ORGANIZATION_APPROVED",
+        str(organization_id),
+        "APPROVED",
+    )
+
+    await _database_execute(
+        database_url,
+        "UPDATE users SET email_verified = false WHERE id = :user_id",
+        {"user_id": user_id},
+    )
+    drifted = await asyncio.to_thread(_alembic, database_url, "upgrade", "head")
+    assert drifted.returncode != 0
+    assert "organization approval snapshot drift" in (
+        f"{drifted.stdout}\n{drifted.stderr}"
+    )
+    await _database_execute(
+        database_url,
+        "UPDATE users SET email_verified = true WHERE id = :user_id",
+        {"user_id": user_id},
+    )
+
+    upgraded = await asyncio.to_thread(_alembic, database_url, "upgrade", "head")
+    assert upgraded.returncode == 0, upgraded.stderr
+    promoted = await _database_execute(
+        database_url,
+        "SELECT verification_status, provenance FROM organizations "
+        "WHERE id = :organization_id",
+        {"organization_id": organization_id},
+    )
+    assert promoted.one() == ("APPROVED", "REAL")
+
+    future_organization_id, future_user_id = uuid4(), uuid4()
+    await _seed_real_organization_candidate(
+        database_url,
+        organization_id=future_organization_id,
+        user_id=future_user_id,
+        suffix="after-integrity",
+    )
+    active_unknown_order_id = uuid4()
+    await _database_execute(
+        database_url,
+        "INSERT INTO orderbook_orders "
+        "(id, organization_id, owner_user_id, provenance, side, product_id, "
+        "quantity_mt, remaining_quantity_mt, price_per_mt_usd, "
+        "availability_window, status) SELECT :order_id, :organization_id, "
+        ":user_id, 'UNKNOWN', 'BID', id, 10, 10, 500, 'SPOT', 'OPEN' "
+        "FROM products WHERE name = 'Bio Methanol'",
+        {
+            "order_id": active_unknown_order_id,
+            "organization_id": future_organization_id,
+            "user_id": future_user_id,
+        },
+    )
+    active_unknown_refusal = await asyncio.to_thread(
+        _remediation_cli,
+        database_url,
+        "approve-real-organizations",
+        "--organization-id",
+        str(future_organization_id),
+    )
+    assert active_unknown_refusal.returncode != 0
+    assert "nonterminal UNKNOWN orders" in active_unknown_refusal.stderr
+    await _database_execute(
+        database_url,
+        "UPDATE orderbook_orders SET status = 'FILLED', remaining_quantity_mt = 0 "
+        "WHERE id = :order_id",
+        {"order_id": active_unknown_order_id},
+    )
+    filled_unknown_refusal = await asyncio.to_thread(
+        _remediation_cli,
+        database_url,
+        "approve-real-organizations",
+        "--organization-id",
+        str(future_organization_id),
+    )
+    assert filled_unknown_refusal.returncode != 0
+    assert "nonterminal UNKNOWN orders" in filled_unknown_refusal.stderr
+    await _database_execute(
+        database_url,
+        "UPDATE orderbook_orders SET status = 'CANCELLED' WHERE id = :order_id",
+        {"order_id": active_unknown_order_id},
+    )
+    future_dry_run = await asyncio.to_thread(
+        _remediation_cli,
+        database_url,
+        "approve-real-organizations",
+        "--organization-id",
+        str(future_organization_id),
+    )
+    assert future_dry_run.returncode == 0, future_dry_run.stderr
+    future_hash = json.loads(future_dry_run.stdout)["organizations"][0][
+        "snapshot_sha256"
+    ]
+    future = await asyncio.to_thread(
+        _remediation_cli,
+        database_url,
+        "--operator",
+        "market-integrity-test",
+        "--reason",
+        "future real participant approval proof",
+        "--reference",
+        "TEST-ORG-REAL-002",
+        "--apply",
+        "approve-real-organizations",
+        "--organization-id",
+        str(future_organization_id),
+        "--expected-snapshot",
+        f"{future_organization_id}={future_hash}",
+    )
+    assert future.returncode == 0, future.stderr
+    future_promoted = await _database_execute(
+        database_url,
+        "SELECT verification_status, provenance FROM organizations "
+        "WHERE id = :organization_id",
+        {"organization_id": future_organization_id},
+    )
+    assert future_promoted.one() == ("APPROVED", "REAL")

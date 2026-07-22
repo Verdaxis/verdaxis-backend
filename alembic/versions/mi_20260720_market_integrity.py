@@ -525,6 +525,71 @@ def upgrade() -> None:
         "organizations",
         sa.Column("provenance", sa.String(length=7), nullable=False, server_default="UNKNOWN"),
     )
+    op.execute(
+        sa.text(
+            "SELECT member.id FROM users AS member "
+            "WHERE member.organization_id IN ("
+            "SELECT organization_id FROM organization_market_approvals"
+            ") ORDER BY member.organization_id, member.id FOR UPDATE"
+        )
+    )
+    op.execute(
+        sa.text(
+            f"""
+            DO $$
+            DECLARE bad_ids text;
+            BEGIN
+                SELECT string_agg(approval.organization_id::text, ', ' ORDER BY approval.organization_id)
+                INTO bad_ids
+                FROM organization_market_approvals AS approval
+                JOIN organizations AS organization ON organization.id = approval.organization_id
+                WHERE approval.database_name <> current_database()
+                   OR NOT (
+                        (current_database() = 'verdaxis' AND approval.environment = 'production')
+                        OR (current_database() = 'verdaxis_staging' AND approval.environment = 'staging')
+                        OR (right(current_database(), length('_market_integrity_test'))
+                            = '_market_integrity_test'
+                            AND approval.environment = 'test')
+                   )
+                   OR approval.organization_id IN ({_quoted(_DEMO_IDS + _TEST_IDS)})
+                   OR approval.reviewed_snapshot::jsonb IS DISTINCT FROM jsonb_build_object(
+                        'organization', jsonb_build_object(
+                            'id', organization.id::text,
+                            'name', organization.name,
+                            'domain', organization.domain,
+                            'type', organization.type,
+                            'country_code', organization.country_code,
+                            'tax_id', organization.tax_id,
+                            'verification_status', organization.verification_status
+                        ),
+                        'eligible_user_ids', coalesce((
+                            SELECT jsonb_agg(member.id::text ORDER BY member.id::text)
+                            FROM users AS member
+                            WHERE member.organization_id = organization.id
+                              AND member.role IN ('BUYER', 'SUPPLIER')
+                              AND member.status = 'APPROVED'
+                              AND member.email_verified IS TRUE
+                              AND member.must_change_password IS FALSE
+                              AND coalesce(member.kyc_status, 'PENDING') <> 'REJECTED'
+                              AND (member.kyc_organization_id IS NULL
+                                   OR member.kyc_organization_id = organization.id)
+                        ), '[]'::jsonb)
+                    );
+                IF bad_ids IS NOT NULL THEN
+                    RAISE EXCEPTION 'market-integrity preflight: organization approval snapshot drift (ids): %', bad_ids;
+                END IF;
+            END $$
+            """
+        )
+    )
+    op.execute(
+        sa.text(
+            "UPDATE organizations AS organization SET provenance = 'REAL' "
+            "FROM organization_market_approvals AS approval "
+            "WHERE approval.organization_id = organization.id "
+            "AND organization.verification_status = 'APPROVED'"
+        )
+    )
     op.execute(sa.text(f"UPDATE organizations SET provenance = 'DEMO' WHERE id IN ({_quoted(_DEMO_IDS)})"))
     op.execute(sa.text(f"UPDATE organizations SET provenance = 'TEST' WHERE id IN ({_quoted(_TEST_IDS)})"))
 
@@ -838,7 +903,17 @@ def upgrade() -> None:
                         RAISE EXCEPTION 'CANARY provenance requires an external security-owned registry';
                     END IF;
                 ELSIF OLD.provenance IS DISTINCT FROM NEW.provenance THEN
-                    RAISE EXCEPTION 'organization provenance is immutable';
+                    IF NOT (
+                        OLD.provenance = 'UNKNOWN'
+                        AND NEW.provenance = 'REAL'
+                        AND NEW.verification_status = 'APPROVED'
+                        AND EXISTS (
+                            SELECT 1 FROM organization_market_approvals
+                            WHERE organization_id = NEW.id
+                        )
+                    ) THEN
+                        RAISE EXCEPTION 'organization provenance is immutable';
+                    END IF;
                 END IF;
                 RETURN NEW;
             END;

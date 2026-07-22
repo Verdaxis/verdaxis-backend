@@ -342,12 +342,16 @@ def test_auth_maintenance_is_independent_from_news_and_plaintext_fallback_is_rem
     auth_cli = ROOT / "app" / "cli" / "auth_maintenance.py"
     auth_service = ROOT / "app" / "services" / "auth_maintenance.py"
     auth_source = (ROOT / "app" / "routers" / "auth_simple.py").read_text()
+    identity_migration = (ROOT / "alembic" / "versions" / "sec_20260720_identity_hardening.py").read_text()
     boundary_migration = (ROOT / "alembic" / "versions" / "sec_20260720_admission_boundaries.py").read_text()
 
     assert auth_cli.exists()
     assert auth_service.exists()
     assert "cleanup_pending_registrations" not in news_cli
     assert "email_verification_token == token" not in auth_source
+    assert "verdaxis_sync_legacy_verification_token" in identity_migration
+    assert "sha256(convert_to(NEW.email_verification_token, 'UTF8'))" in identity_migration
+    assert "unbound_legacy_tokens" in boundary_migration
     assert 'drop_column("users", "email_verification_token")' in boundary_migration
 
 

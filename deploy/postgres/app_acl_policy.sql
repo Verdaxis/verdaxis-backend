@@ -1,7 +1,8 @@
 -- Central declarative application-role ACL policy.
 -- alembic_version and extension objects remain outside governed application
--- objects. Future seed_runs and market_row_quarantines are intentionally
--- read-only to the app when those integration-owned tables exist. Unknown
+-- objects. Seed, quarantine, and organization approval control tables are
+-- intentionally read-only to the app when those integration-owned tables
+-- exist. Unknown
 -- tables and sequences receive no app authority. Audit/status history is
 -- append-only. organizations.verification_status stays absent from the INSERT
 -- column policy (signup relies on the model server_default); the security

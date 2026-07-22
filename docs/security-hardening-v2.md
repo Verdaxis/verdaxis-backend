@@ -179,10 +179,12 @@ The boundary migration lowercases email only after aborting on
 case-insensitive duplicates. It normalizes only semantically equivalent legacy
 organization `VERIFIED` to canonical `APPROVED`; it never promotes `PENDING`
 users, organizations, joins, or KYC. Ownership columns remain nullable for
-schema compatibility and no owner is inferred. Legacy staging provenance is
-unresolved by design: product must choose either quarantine/cancellation of
-outstanding state or an explicit audited user mapping. Re-run the preflight
-after that decision.
+schema compatibility and no owner is inferred. Legacy market provenance is
+resolved only through exact operator decisions: quarantine/cancellation of
+outstanding state and the migrator-owned organization approval ledger. The
+approval CLI freezes organization identity plus the exact qualifying member
+set; `mi` fails on drift and promotes only ledgered organizations to REAL.
+Re-run the preflight after those decisions.
 
 When integrating another Alembic branch, linearize/rebase these revisions onto
 the selected predecessor and re-run fresh/realistic upgrades. Do not add an

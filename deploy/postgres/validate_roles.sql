@@ -301,7 +301,7 @@ SELECT pg_temp.assert_role_policy(
           AND (
               object.relname IN (
                   'alembic_version', 'spatial_ref_sys', 'seed_runs',
-                  'market_row_quarantines',
+                  'market_row_quarantines', 'organization_market_approvals',
                   'market_signal_ingestion_runs', 'market_indications',
                   'fair_price_bands', 'physical_stems'
               )

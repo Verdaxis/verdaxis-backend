@@ -2,7 +2,7 @@
 from datetime import UTC, datetime
 import uuid
 
-from sqlalchemy import DateTime, JSON, String, Text, UniqueConstraint, func
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, JSON, String, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -49,6 +49,53 @@ class MarketRowQuarantine(Base):
     operator: Mapped[str] = mapped_column(String(255), nullable=False)
     reference: Mapped[str] = mapped_column(String(255), nullable=False)
     quarantined_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+
+class OrganizationMarketApproval(Base):
+    """Operator-reviewed authority for one organization to trade as REAL."""
+
+    __tablename__ = "organization_market_approvals"
+    __table_args__ = (
+        CheckConstraint(
+            "environment IN ('production','staging','test')",
+            name="ck_organization_market_approvals_environment",
+        ),
+        CheckConstraint(
+            "trim(database_name) <> ''",
+            name="ck_organization_market_approvals_database",
+        ),
+        CheckConstraint(
+            "trim(reason) <> ''",
+            name="ck_organization_market_approvals_reason",
+        ),
+        CheckConstraint(
+            "trim(operator) <> ''",
+            name="ck_organization_market_approvals_operator",
+        ),
+        CheckConstraint(
+            "trim(reference) <> ''",
+            name="ck_organization_market_approvals_reference",
+        ),
+    )
+
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("organizations.id", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+    previous_verification_status: Mapped[str] = mapped_column(String(32), nullable=False)
+    reviewed_snapshot: Mapped[dict] = mapped_column(JSON, nullable=False)
+    environment: Mapped[str] = mapped_column(String(32), nullable=False)
+    database_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    operator: Mapped[str] = mapped_column(String(255), nullable=False)
+    reference: Mapped[str] = mapped_column(String(255), nullable=False)
+    approved_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(UTC),
         server_default=func.now(),

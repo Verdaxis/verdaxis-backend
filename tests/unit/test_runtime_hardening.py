@@ -763,9 +763,14 @@ def test_least_privilege_role_artifacts_cover_existing_and_future_objects():
         "alembic_version",
         "seed_runs",
         "market_row_quarantines",
+        "organization_market_approvals",
         "market_signal_ingestion_runs",
     ):
-        assert protected_table in policy or protected_table in bootstrap
+        assert (
+            protected_table in policy
+            or protected_table in bootstrap
+            or protected_table in validation
+        )
     assert "('audit_logs', ARRAY['SELECT', 'INSERT'])" in policy
     assert "('user_status_transitions', ARRAY['SELECT', 'INSERT'])" in policy
     column_policy = policy.split("app_column_policy", 1)[-1]

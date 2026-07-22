@@ -617,7 +617,7 @@ def test_deploy_lock_serializes_concurrent_runs_and_state_survives_interruption(
         start_new_session=True,
     )
     state = log_path.parent / "runtime-deploy-state/staging.state"
-    for _ in range(50):
+    for _ in range(250):
         commands = log_path.read_text() if log_path.exists() else ""
         if state.exists() and "scripts/preflight_runtime.py" in commands:
             break

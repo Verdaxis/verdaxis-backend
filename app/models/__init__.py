@@ -3,7 +3,7 @@
 # ruff: noqa: F401
 
 from app.models.user import User, Organization, OrganizationProvenance
-from app.models.seed import MarketRowQuarantine, SeedRun
+from app.models.seed import MarketRowQuarantine, OrganizationMarketApproval, SeedRun
 from app.models.market_event import MarketEventOutbox
 from app.models.audit import AuditLog
 from app.models.port import Port, PortIntelligence, Vessel
