@@ -561,8 +561,12 @@ write_release_artifact "$CURRENT_SHA" "$MIGRATION_TARGET_REVISION"
     --environment "$DEPLOY_ENVIRONMENT" --release-sha "$CURRENT_SHA"
 
 if [[ -f requirements.txt ]]; then
+    if [[ ! -f constraints.txt ]]; then
+        echo "constraints.txt is required for reproducible deployed dependency installation." >&2
+        exit 1
+    fi
     "${PYTHON_ENV[@]}" PIP_CONFIG_FILE=/dev/null \
-        ./venv/bin/python -m pip install -r requirements.txt
+        ./venv/bin/python -m pip install -r requirements.txt -c constraints.txt
     "${PYTHON_ENV[@]}" PIP_CONFIG_FILE=/dev/null \
         ./venv/bin/python -m pip check
 fi

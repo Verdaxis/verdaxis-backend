@@ -24,6 +24,35 @@ pa_20260715_analytics_facts
 Every revision from `mi` onward refuses downgrade by design; recovery from a
 bad step is a parent-schema backup restore, never `alembic downgrade`.
 
+## One-time bootstrap from the legacy deploy helper
+
+The pre-hardening live checkouts run a deploy helper and backend units that do
+not understand release identities, literal migration checkpoints, or durable
+deployment state. Do not invoke that legacy helper against this release: it
+would run `alembic upgrade head` and bypass every pause below.
+
+For the first promotion only, after the release branch and full SHA have been
+reviewed and pushed:
+
+1. Take and verify the backup required for the first `pa -> rh` checkpoint.
+2. In the fixed environment checkout, fetch the exact remote branch and
+   fast-forward to the approved SHA. Refuse a dirty tree, non-fast-forward, or
+   any SHA mismatch. Keep the already-running old workers in place during this
+   source-only bootstrap; do not restart them yet.
+3. From that exact clean checkout, run
+   `scripts/install_systemd_units.sh --dry-run`, then `--apply`, with the
+   environment and approved full SHA. This installs the guard-aware units but
+   does not restart or enable anything.
+4. Run the new `scripts/deploy.sh --dry-run`, then the real deploy for the
+   literal `pa_20260715_analytics_facts -> rh_20260720_runtime_metadata`
+   checkpoint. The new helper publishes `.runtime-release.env` before the
+   first restart, so the newly installed unit starts only with matching source,
+   schema, and release identity.
+
+Record the source fast-forward, installed unit digest manifest, and deploy
+verdict in the cutover log. After this bootstrap, every later promotion uses
+only the hardened deploy helper; do not repeat the manual source step.
+
 ## Backup gate (MANDATORY before every checkpoint from `sec_identity` on)
 
 Because restore-from-backup is the ONLY recovery for this chain, no

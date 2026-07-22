@@ -6,6 +6,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import signal
 import shutil
 import subprocess
 import tarfile
@@ -159,6 +160,7 @@ def _deployment_checkout(tmp_path: Path) -> tuple[Path, Path, str]:
         "venv/\n.runtime-release.env\n.runtime-deploy/\n"
     )
     (source / "requirements.txt").write_text("deployment-test==1\n")
+    (source / "constraints.txt").write_text("deployment-test==1\n")
     (source / "alembic.ini").write_text("[alembic]\n")
     (source / "release.txt").write_text("old release\n")
     _git(source, "add", ".")
@@ -612,29 +614,33 @@ def test_deploy_lock_serializes_concurrent_runs_and_state_survives_interruption(
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
+        start_new_session=True,
     )
     state = log_path.parent / "runtime-deploy-state/staging.state"
     for _ in range(50):
-        if state.exists():
+        commands = log_path.read_text() if log_path.exists() else ""
+        if state.exists() and "scripts/preflight_runtime.py" in commands:
             break
         import time
 
         time.sleep(0.02)
     assert state.exists()
+    assert "scripts/preflight_runtime.py" in commands
 
-    concurrent = subprocess.run(
-        ["bash", "scripts/deploy.sh"],
-        cwd=checkout,
-        env={**environment, "DEPLOY_BLOCK_PHASE": ""},
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert concurrent.returncode != 0
-    assert "already running" in concurrent.stderr
-
-    running.terminate()
-    running.wait(timeout=5)
+    try:
+        concurrent = subprocess.run(
+            ["bash", "scripts/deploy.sh"],
+            cwd=checkout,
+            env={**environment, "DEPLOY_BLOCK_PHASE": ""},
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert concurrent.returncode != 0
+        assert "already running" in concurrent.stderr
+    finally:
+        os.killpg(running.pid, signal.SIGTERM)
+        running.wait(timeout=5)
     assert state.exists()
     assert "DEPLOYMENT_STATE=blocked" in state.read_text()
 
@@ -649,6 +655,32 @@ def test_deploy_publishes_identity_before_selected_tree_execution():
     assert "alembic upgrade head" not in source
     assert "reset --hard" not in source
     assert '"${GIT[@]}" checkout --' not in source
+
+
+def test_real_deploy_refuses_unconstrained_dependency_install(tmp_path):
+    source, checkout, old_sha = _deployment_checkout(tmp_path)
+    (checkout / ".runtime-release.env").write_text(
+        f"ENVIRONMENT=staging\nRELEASE_SHA={old_sha}\n"
+    )
+    (source / "constraints.txt").unlink()
+    _git(source, "add", "-A")
+    _git(source, "commit", "-qm", "remove dependency constraints")
+    _git(source, "push", "-q", "origin", "staging")
+    new_sha = _git(source, "rev-parse", "HEAD").stdout.strip()
+    log_path = tmp_path / "commands.log"
+
+    result = subprocess.run(
+        ["bash", "scripts/deploy.sh"],
+        cwd=checkout,
+        env=_approved_deploy_environment(log_path, new_sha),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "constraints.txt is required" in result.stderr
+    assert "pip install" not in log_path.read_text()
 
 
 @pytest.mark.parametrize(
@@ -1079,7 +1111,7 @@ def test_live_deploy_uses_canonical_guard_state_and_trusted_tool_path():
     assert "unset PYTHONHOME PYTHONPATH" in source
     assert 'export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1' in source
     assert "PIP_CONFIG_FILE=/dev/null" in source
-    assert "./venv/bin/python -m pip install" in source
+    assert "./venv/bin/python -m pip install -r requirements.txt -c constraints.txt" in source
     assert "./venv/bin/python -m pip check" in source
     assert 'SCRIPT_DIR="$(cd -- "${BASH_SOURCE[0]%/*}" && pwd -P)"' in source
     assert 'dirname "${BASH_SOURCE[0]}"' not in source
