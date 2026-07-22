@@ -40,6 +40,32 @@ SELECT pg_temp.assert_role_policy(
     ),
     'alembic_version migration-control table has wrong owner'
 );
+SELECT pg_temp.assert_role_policy(
+    NOT EXISTS (
+        WITH actual AS (
+            SELECT COALESCE(grantee.rolname, 'PUBLIC') AS grantee_name,
+                   acl.privilege_type,
+                   acl.is_grantable,
+                   grantor.rolname AS grantor_name
+            FROM pg_catalog.pg_class AS object
+            CROSS JOIN LATERAL aclexplode(
+                COALESCE(object.relacl, acldefault('r'::"char", object.relowner))
+            ) AS acl
+            LEFT JOIN pg_catalog.pg_roles AS grantee ON grantee.oid = acl.grantee
+            JOIN pg_catalog.pg_roles AS grantor ON grantor.oid = acl.grantor
+            WHERE object.oid = 'public.alembic_version'::regclass
+              AND acl.grantee <> object.relowner
+        ), expected(grantee_name, privilege_type, is_grantable, grantor_name) AS (
+            VALUES (:'backup_role', 'SELECT', false, :'migrator_role')
+        ), differences AS (
+            (SELECT * FROM actual EXCEPT ALL SELECT * FROM expected)
+            UNION ALL
+            (SELECT * FROM expected EXCEPT ALL SELECT * FROM actual)
+        )
+        SELECT 1 FROM differences
+    ),
+    'alembic_version must grant exact read-only backup authority'
+);
 
 SELECT pg_temp.assert_role_policy(
     NOT EXISTS (

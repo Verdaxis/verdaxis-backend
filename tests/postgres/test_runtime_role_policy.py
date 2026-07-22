@@ -529,12 +529,24 @@ async def test_app_and_backup_cannot_mutate_control_or_extension_objects():
     app_url = os.environ["DATABASE_URL"]
     backup_url = os.environ["BACKUP_DATABASE_URL"]
 
+    backup_engine = create_async_engine(backup_url, hide_parameters=True)
+    try:
+        async with backup_engine.connect() as connection:
+            assert (
+                await connection.execute(
+                    text("SELECT version_num FROM public.alembic_version")
+                )
+            ).scalar_one()
+    finally:
+        await backup_engine.dispose()
+
     for url, statement in (
         (app_url, "UPDATE public.alembic_version SET version_num = version_num"),
         (
             app_url,
             "UPDATE public.spatial_ref_sys SET auth_name = auth_name WHERE srid = 4326",
         ),
+        (backup_url, "UPDATE public.alembic_version SET version_num = version_num"),
         (backup_url, "INSERT INTO public.organizations DEFAULT VALUES"),
     ):
         engine = create_async_engine(url, hide_parameters=True)

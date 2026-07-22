@@ -51,6 +51,43 @@ WHERE namespace.nspname = 'public'
   );
 CREATE UNIQUE INDEX governed_objects_oid_idx ON governed_objects (oid);
 
+-- alembic_version is migration control rather than an application-governed
+-- table, but a complete logical backup must still be able to lock and read it.
+-- Rebuild its non-owner ACL separately so the app remains denied and pg_dump
+-- can capture the database revision through the dedicated backup role.
+SELECT format(
+    'REVOKE ALL PRIVILEGES ON TABLE %I.%I FROM %s CASCADE',
+    namespace.nspname,
+    object.relname,
+    CASE WHEN acl.grantee = 0 THEN 'PUBLIC' ELSE format('%I', grantee.rolname) END
+)
+FROM pg_catalog.pg_class AS object
+JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = object.relnamespace
+CROSS JOIN LATERAL aclexplode(
+    COALESCE(object.relacl, acldefault('r'::"char", object.relowner))
+) AS acl
+LEFT JOIN pg_catalog.pg_roles AS grantee ON grantee.oid = acl.grantee
+WHERE namespace.nspname = 'public'
+  AND object.relname = 'alembic_version'
+  AND object.relkind IN ('r', 'p')
+  AND acl.grantee <> object.relowner
+GROUP BY namespace.nspname, object.relname, acl.grantee, grantee.rolname
+ORDER BY acl.grantee
+\gexec
+
+SELECT format(
+    'GRANT SELECT ON TABLE %I.%I TO %I',
+    namespace.nspname,
+    object.relname,
+    :'backup_role'
+)
+FROM pg_catalog.pg_class AS object
+JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = object.relnamespace
+WHERE namespace.nspname = 'public'
+  AND object.relname = 'alembic_version'
+  AND object.relkind IN ('r', 'p')
+\gexec
+
 -- Migrations run as the named owner. A wrong-owner object is not silently
 -- repaired with elevated credentials during deploy; convergence refuses.
 SELECT 1 / (

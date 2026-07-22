@@ -301,7 +301,10 @@ discovers grantees with `aclexplode`, removes stale global and `IN SCHEMA
 public` authority, restores PostgreSQL's hard-wired global defaults, and then
 reconstructs only the intended migrator-owned backup defaults. A future public
 table or sequence therefore gives the app no authority until an exact policy
-entry is reviewed; backup receives only table/sequence `SELECT`.
+entry is reviewed; backup receives only table/sequence `SELECT`. The migration
+control table is outside the application-governed object set but receives one
+separately validated backup-only `SELECT` grant so `pg_dump` can lock and
+capture the live revision.
 
 The app policy is fail closed. Normal application DML exists only on explicitly
 listed tables. `organizations` has table-level `SELECT`/`DELETE`, plus named
@@ -319,8 +322,8 @@ entries for integration-owned `seed_runs` and `market_row_quarantines` become
 read-only only if those tables exist; `organization_market_approvals` is not
 granted to the runtime at all. Their absence cannot create a broad grant. The
 bootstrap explicitly transfers the legacy `alembic_version` control table to
-the migrator role while denying app/backup writes. `spatial_ref_sys`,
-`spatial_ref_sys`, extension objects, seed/quarantine/approval controls,
+the migrator role while denying app and backup writes; the backup role retains
+read-only access. `spatial_ref_sys`, extension objects, seed/quarantine/approval controls,
 market evidence/provenance, and operator data are not app-writable. Unknown
 governed tables and sequences receive no app grant.
 Services that eventually need to mutate protected security or market state
