@@ -114,8 +114,7 @@ def test_checkpoint_executor_passes_only_literal_target_to_alembic(monkeypatch):
         lambda _config, revision: upgrade_targets.append(revision),
     )
 
-    asyncio.run(
-        module.execute_checkpoint(
+    module.execute_checkpoint(
             config=Config(str(ROOT / "alembic.ini")),
             settings=SimpleNamespace(
                 RELEASE_SHA=SOURCE_SHA,
@@ -133,7 +132,6 @@ def test_checkpoint_executor_passes_only_literal_target_to_alembic(monkeypatch):
             expected_current=EXPECTED,
             target=TARGET,
         )
-    )
 
     assert upgrade_targets == [TARGET]
     assert "head" not in upgrade_targets
@@ -203,8 +201,7 @@ def test_checkpoint_executor_pins_alembic_to_explicit_migrator_url(monkeypatch):
     monkeypatch.setattr(module.command, "upgrade", capture_upgrade)
     config = Config(str(ROOT / "alembic.ini"))
 
-    asyncio.run(
-        module.execute_checkpoint(
+    module.execute_checkpoint(
             config=config,
             settings=settings,
             policy={(EXPECTED, TARGET)},
@@ -213,7 +210,6 @@ def test_checkpoint_executor_pins_alembic_to_explicit_migrator_url(monkeypatch):
             expected_current=EXPECTED,
             target=TARGET,
         )
-    )
 
     assert observed_urls == [migration_url]
     assert app_url not in observed_urls
@@ -238,8 +234,7 @@ def test_checkpoint_executor_refuses_app_credential_before_alembic(monkeypatch):
     monkeypatch.setattr(module.command, "upgrade", forbidden_upgrade)
 
     with pytest.raises(module.MigrationCheckpointError, match="distinct .* role"):
-        asyncio.run(
-            module.execute_checkpoint(
+        module.execute_checkpoint(
                 config=Config(str(ROOT / "alembic.ini")),
                 settings=settings,
                 policy={(EXPECTED, TARGET)},
@@ -248,7 +243,6 @@ def test_checkpoint_executor_refuses_app_credential_before_alembic(monkeypatch):
                 expected_current=EXPECTED,
                 target=TARGET,
             )
-        )
 
 
 def test_runtime_revision_verifier_requires_exact_deployed_checkpoint(monkeypatch):

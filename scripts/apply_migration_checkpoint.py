@@ -280,7 +280,7 @@ async def verify_current_revision(settings: Any, expected: str) -> None:
         )
 
 
-async def execute_checkpoint(
+def execute_checkpoint(
     *,
     config: Config,
     settings: Any,
@@ -298,7 +298,7 @@ async def execute_checkpoint(
     migration_url = _require_explicit_migrator_url(settings)
     config.set_main_option("sqlalchemy.url", migration_url.replace("%", "%%"))
     script_directory = ScriptDirectory.from_config(config)
-    current_heads = await _read_current_heads(settings)
+    current_heads = asyncio.run(_read_current_heads(settings))
     validate_checkpoint_request(
         policy=policy,
         source_sha=source_sha,
@@ -310,7 +310,7 @@ async def execute_checkpoint(
     )
     if target != expected_current:
         command.upgrade(config, target)
-    resulting_heads = await _read_current_heads(settings)
+    resulting_heads = asyncio.run(_read_current_heads(settings))
     if resulting_heads != (target,):
         raise MigrationCheckpointError(
             "migration did not finish at the exact approved target revision"
@@ -339,16 +339,14 @@ def main() -> int:
         settings = config_module.settings
 
         config = Config(str(source_root / "alembic.ini"))
-        asyncio.run(
-            execute_checkpoint(
-                config=config,
-                settings=settings,
-                policy=policy,
-                source_sha=args.source_sha,
-                approved_source_sha=args.approved_source_sha,
-                expected_current=args.expected_current,
-                target=args.target,
-            )
+        execute_checkpoint(
+            config=config,
+            settings=settings,
+            policy=policy,
+            source_sha=args.source_sha,
+            approved_source_sha=args.approved_source_sha,
+            expected_current=args.expected_current,
+            target=args.target,
         )
     except (MigrationCheckpointError, OSError) as exc:
         print(f"migration checkpoint refused: {exc}", file=sys.stderr)
