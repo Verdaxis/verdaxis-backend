@@ -24,6 +24,52 @@ pa_20260715_analytics_facts
 Every revision from `mi` onward refuses downgrade by design; recovery from a
 bad step is a parent-schema backup restore, never `alembic downgrade`.
 
+## Backup gate (MANDATORY before every checkpoint from `sec_identity` on)
+
+Because restore-from-backup is the ONLY recovery for this chain, no
+checkpoint from `rh -> sec_identity` onward may be applied without a fresh,
+verified dump taken after the previous checkpoint settled. The gate is
+three steps, all recorded in the change log with the operator's name:
+
+1. **Fresh dump** (run as `verdaxis-prod` on the VPS; the read-only
+   `verdaxis_backup` / `verdaxis_backup_staging` role, plain format piped
+   through gzip so the verifier's `PostgreSQL database dump` marker check
+   applies):
+
+   ```bash
+   TS=$(date -u +%Y%m%d-%H%M%S)
+   # production:
+   pg_dump "dbname=verdaxis user=verdaxis_backup" \
+     | gzip > /home/verdaxis-prod/backups/verdaxis-${TS}.sql.gz
+   # staging:
+   pg_dump "dbname=verdaxis_staging user=verdaxis_backup_staging" \
+     | gzip > /home/verdaxis-prod/backups/verdaxis-staging-${TS}.sql.gz
+   ```
+
+2. **Verification green.** Run the attested verifier against the backup
+   directory and require exit 0 with every check `ok` (freshness, gzip
+   floor, dump marker, metadata/attempt consistency):
+
+   ```bash
+   ./venv/bin/python deploy/monitor/backup_verify.py \
+     --backup-directory /home/verdaxis-prod/backups \
+     --backup-status /home/verdaxis-prod/backups/status.json \
+     --output /tmp/pre-checkpoint-backup-verify.json
+   ```
+
+3. **Gate record.** Append to the cutover change log BEFORE running the
+   checkpoint: operator name, environment, target checkpoint, the dump
+   filename from step 1, and the verifier output path/verdict from step 2.
+   An unrecorded gate is a failed gate: do not proceed.
+
+Apply the gate before each of these transitions (each is destructive or
+non-downgradable): `rh -> sec_identity` (rewrites verification tokens),
+`sec_identity -> sec_device` (drops the plaintext token column),
+`miq` and `miq -> mi` (quarantine + integrity constraints; `mi` refuses
+downgrade), and `mi -> sse_20260720_market_event_stream` (non-downgradable
+head). A dump older than the previous checkpoint's application does NOT
+satisfy the gate for the next one.
+
 ## Staged identity cutover (the 24-hour window)
 
 `sec_20260720_identity` hashes legacy plaintext email-verification tokens in
@@ -32,12 +78,15 @@ plus 24 hours. `sec_20260720_boundaries` (the first revision of the
 `sec_identity -> sec_device` transition) HARD-FAILS while any of those
 compatibility tokens is unexpired — this is deliberate, not a defect.
 
-1. Apply checkpoint `rh_20260720_runtime_metadata -> sec_20260720_identity`.
+1. Backup gate (above), then apply checkpoint
+   `rh_20260720_runtime_metadata -> sec_20260720_identity`.
    Restart onto the paused revision; backend units verify the published
    `MIGRATION_REVISION`, so the pause is fully startable.
 2. Wait the full 24 hours (or deliberately expire the outstanding links and
    notify affected users).
-3. Apply checkpoint `sec_20260720_identity -> sec_20260720_device`. If the
+3. Backup gate again (a pre-`sec_identity` dump does not cover the token
+   rewrite), then apply checkpoint
+   `sec_20260720_identity -> sec_20260720_device`. If the
    window has not elapsed, the transition aborts with "Legacy email
    verification compatibility window is still active" and nothing mutates —
    wait and re-run.
@@ -52,6 +101,7 @@ legacy tokens.
 ## Market quarantine gate
 
 `miq -> mi` refuses while the known zero-value sentinel order exists. The
+backup gate applies before the quarantine CLI and before the checkpoint. The
 sentinel must first be archived with the explicit operator CLI
 (`scripts/remediate_market_data.py quarantine --order-id <exact id> --apply`
 with operator/reason/reference); the migration then proceeds. Accepted
@@ -60,7 +110,8 @@ owner approval.
 
 ## Shared SSE transport checkpoint
 
-`mi -> sse_20260720_market_event_stream` has no data preconditions: it adds
+`mi -> sse_20260720_market_event_stream` requires the backup gate (the head
+is non-downgradable) but has no data preconditions: it adds
 the stream sequence, the `stream_seq` column, and indexes. After restart the
 in-worker dispatcher starts automatically (PostgreSQL engines only). ACL
 convergence must run from the release's committed bundle as usual — the
