@@ -1,0 +1,103 @@
+{
+  "schema_version": 1,
+  "contract": {
+    "required_keys": ["status", "db", "environment", "release_sha"],
+    "status": "ok",
+    "db": "ok",
+    "environment": "production",
+    "release_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "cases": [
+    {
+      "name": "canonical",
+      "valid": true,
+      "payload": {
+        "status": "ok",
+        "db": "ok",
+        "environment": "production",
+        "release_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "name": "missing-db",
+      "valid": false,
+      "payload": {
+        "status": "ok",
+        "environment": "production",
+        "release_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "name": "extra-scalar",
+      "valid": false,
+      "payload": {
+        "status": "ok",
+        "db": "ok",
+        "environment": "production",
+        "release_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "build": 7
+      }
+    },
+    {
+      "name": "extra-nested",
+      "valid": false,
+      "payload": {
+        "status": "ok",
+        "db": "ok",
+        "environment": "production",
+        "release_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "debug": {"secret": true}
+      }
+    },
+    {
+      "name": "wrong-status",
+      "valid": false,
+      "payload": {
+        "status": "degraded",
+        "db": "ok",
+        "environment": "production",
+        "release_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "name": "wrong-db",
+      "valid": false,
+      "payload": {
+        "status": "ok",
+        "db": "connected",
+        "environment": "production",
+        "release_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "name": "wrong-environment",
+      "valid": false,
+      "payload": {
+        "status": "ok",
+        "db": "ok",
+        "environment": "staging",
+        "release_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "name": "wrong-sha",
+      "valid": false,
+      "payload": {
+        "status": "ok",
+        "db": "ok",
+        "environment": "production",
+        "release_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      }
+    },
+    {
+      "name": "sha-wrong-type",
+      "valid": false,
+      "payload": {
+        "status": "ok",
+        "db": "ok",
+        "environment": "production",
+        "release_sha": ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]
+      }
+    }
+  ]
+}

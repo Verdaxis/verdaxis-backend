@@ -1,0 +1,33 @@
+{
+  "schema_version": 2,
+  "first_green_at": "REPLACE_WITH_FIRST_GREEN_UTC_TIMESTAMP",
+  "history": [],
+  "local_alert_delivery": {
+    "signed_at": "REPLACE_AFTER_30_HOURS",
+    "signer": "",
+    "hourly_dedupe": false,
+    "receipts": []
+  },
+  "external_monitor": {
+    "signed_at": "REPLACE_AFTER_30_HOURS",
+    "signer": "",
+    "coverage": {
+      "vercel_production_frontend": false,
+      "caddy_production_api": false,
+      "caddy_staging_api": false,
+      "caddy_staging_frontend": false,
+      "dns": false,
+      "tls": false,
+      "rendered_page": false,
+      "alert_delivery": false,
+      "signup_canary": false,
+      "analytics_ingestion_canary": false
+    }
+  },
+  "scheduler": {
+    "signed_at": "REPLACE_AFTER_30_HOURS",
+    "signer": "",
+    "one_demo_scheduler_owner": false,
+    "legacy_monitor_active_during_history": false
+  }
+}

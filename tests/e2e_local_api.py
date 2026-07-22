@@ -1,19 +1,19 @@
 import httpx
-import os
 import time
 import uuid
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+ROOT = str(Path(__file__).resolve().parents[1])
+if ROOT not in sys.path:
+    sys.path.insert(0, ROOT)
+from tests.disposable_target import attest, from_environment  # noqa: E402
 
 # Configuration
-from tests.runtime_config import resolve_test_api_url
-
-BASE_URL = resolve_test_api_url(os.environ, require_mutation_opt_in=True) + "/api"
+BASE_URL = ""
 TIMEOUT = 30
 
-def generate_email(prefix, domain="test.com"):
+def generate_email(prefix, domain="disposable.invalid"):
     return f"{prefix}_{uuid.uuid4().hex[:8]}@{domain}"
 
 def get_auth_headers(token):
@@ -70,17 +70,21 @@ def register_user(client, email, role, org_name, org_type):
     sys.exit(1)
 
 def main():
+    global BASE_URL
+    target = from_environment()
+    attest(target)
+    BASE_URL = f"{target.base_url}/api"
     print("Starting E2E Local API Verification...")
     
     with httpx.Client(timeout=TIMEOUT) as client:
         # --- Seller Setup ---
-        seller_email = generate_email("seller", f"sell-{uuid.uuid4().hex[:4]}.com")
+        seller_email = generate_email("seller", f"sell-{uuid.uuid4().hex[:4]}.disposable.invalid")
         seller_token = register_user(client, seller_email, "SUPPLIER", f"SellerOrg_{uuid.uuid4().hex[:4]}", "FUEL_SUPPLIER")
         seller_headers = get_auth_headers(seller_token)
         print("Seller logged in successfully.")
         
         # --- Buyer Setup ---
-        buyer_email = generate_email("buyer", f"buy-{uuid.uuid4().hex[:4]}.com")
+        buyer_email = generate_email("buyer", f"buy-{uuid.uuid4().hex[:4]}.disposable.invalid")
         buyer_token = register_user(client, buyer_email, "BUYER", f"BuyerOrg_{uuid.uuid4().hex[:4]}", "SHIPPING_LINE")
         buyer_headers = get_auth_headers(buyer_token)
         print("Buyer logged in successfully.")

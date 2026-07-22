@@ -15,6 +15,15 @@ The live VPS deployment is systemd-based, not Docker-based:
 The deploy helper always refuses dirty worktrees. Canonical checkouts fix their branch, guard directory, and trusted tool path and discard ambient Git/database routing overrides. Dry-run resolves and archives one remote full SHA, verifies only its immutable unit manifest, migration policy, ACL convergence bundle, and systemd bytes with trusted tooling, and never executes candidate Python/build/Alembic code or supplies it with `.env`, live DB, home, agent, or network access. It prints `APPROVED_RELEASE_SHA=<sha>`; real deploy requires that exact release SHA, the same exact `MIGRATION_APPROVED_SOURCE_SHA`, an exact expected current revision, and an allowlisted literal target from that SHA's `deploy/migration-checkpoints.tsv`. Missing values, aliases such as `head`, moved source, unexpected live state, and unlisted transitions refuse before source mutation. Checkpoint application and startup revision verification require explicit app/migrator URLs on the same database endpoint with distinct exact roles; they never fall back to `DATABASE_URL`. The release artifact publishes the exact target as `MIGRATION_REVISION`; backend units verify that revision rather than source head, so reviewed pauses remain startable. Actual deploy uses a durable per-environment flock and `.runtime-deploy/<environment>.state` before source mutation; every runtime service fails closed except the explicit restart-authorized phase. State remains through restart/readiness and any failure or interruption, then clears only after exact readiness. There is no identity-only rollback or destructive Git reset. It accepts readiness only when parsed JSON reports exact `status=ok`, `db=ok`, environment, and full release SHA. The app consumes this artifact from systemd and never invokes Git. Install the guard-aware unit bundle before relying on this contract. After dry-run, pass all four approval/checkpoint variables shown in `README.md`; never use `alembic upgrade head` for staging or production deployment.
 
 Integration gate: leave `rh_20260720_runtime_metadata` directly after `pa_20260715_analytics_facts`; the combined tree reparents `sec_20260720_identity` onto `rh` and keeps security linear through `sec_20260720_device` before market migrations. Add explicit checkpoint transitions at each reviewed identity/device/quarantine pause. At the security checkpoint, extend the ACL policy with exact pending-registration, organization-join, refresh-session, and user admission/KYC table/column writes; do not let new columns inherit authority. The combined immutable unit manifest must add both environments' audited auth-maintenance service/timer bytes without changing installer code. Audit/status history is app-append-only. Seed, quarantine, market evidence, and provenance mutation require integration-owned trusted writers; the legacy market-signal CLI needs a separately approved operator identity, never blanket app DML. Preserve four Uvicorn workers; shared SSE transport remains combined-integration work. Do not retain local-monitor's identity-only failure rollback, which would pair stale SHA with new bytes.
+The local-monitor source does not modify or own the deploy helper, application
+settings/readiness producer, runtime release transaction, database preflight,
+or Alembic execution. Canonical runtime integration must atomically publish
+matching environment/full-SHA runtime and monitor identity, keep both aligned
+with the code that remains checked out after a failure, and validate the exact
+four-key `/health/ready` corpus before declaring a restart successful. The
+monitor contract and integration seams are in `deploy/monitor/README.md`.
+There is no monitor-owned installer or activation path in this branch. Any
+live deploy, even a dry run, requires separate operator authorization.
 
 Read ARCHITECTURE.md before exploring the codebase.
 
@@ -39,18 +48,18 @@ ENVIRONMENT=test RELEASE_SHA=test \
   JWT_SECRET=test-secret-key-for-testing-minimum-32-chars \
   DATABASE_URL="sqlite+aiosqlite:///:memory:" pytest tests/unit/ -v
 
-# Run integration tests against an explicitly selected disposable/local API
-TEST_API_URL=http://127.0.0.1:18765 \
-  ALLOW_TEST_MUTATIONS=I_UNDERSTAND_TEST_MUTATIONS \
-  TEST_RUNTIME_ENV=disposable \
-  TEST_DISPOSABLE_DB_NAME=verdaxis_runtime_test \
-  pytest tests/integration/ -v
+# Integration/E2E is mutating and requires an explicitly started disposable
+# server on a numeric-loopback ephemeral port. The source-tree producer is:
+ENVIRONMENT=test \
+DISPOSABLE_TEST_TOKEN=<32-plus-character-token> \
+venv/bin/python -m tests.disposable_server --port <ephemeral-port>
 
-# Approved staging mutation suites require both explicit guards
-TEST_API_URL=https://api-staging.verdaxis.exchange \
-  ALLOW_TEST_MUTATIONS=I_UNDERSTAND_TEST_MUTATIONS \
-  TEST_RUNTIME_ENV=staging \
-  pytest tests/integration/ -v
+# Run pytest with the same token; without these flags collection skips the
+# integration/E2E suites. Staging/production are never integration targets.
+DISPOSABLE_ITEST_PASSWORD=... pytest tests/integration/ -v \
+  --run-disposable-integration \
+  --disposable-target-url http://127.0.0.1:<ephemeral-port> \
+  --disposable-target-token <matching-32-plus-character-token>
 
 # Build a disposable/development schema only; deployed environments use the
 # source-attested literal checkpoint helper, never `upgrade head`
@@ -79,6 +88,10 @@ SEED_DATABASE_URL=... SEED_TARGET_DATABASE=verdaxis_staging \
 **API:** `https://api.verdaxis.exchange/api` (Caddy reverse proxy -> `127.0.0.1:8000`; staging -> `127.0.0.1:8001`)
 **Swagger:** `https://api.verdaxis.exchange/docs`
 **Admin Panel:** `https://api.verdaxis.exchange/admin` (credentials from `ADMIN_USERNAME`/`ADMIN_PASSWORD` in `.env`)
+
+The production frontend (`app.verdaxis.exchange`) is hosted on Vercel. Caddy
+fronts the production API, staging API, and staging frontend; it does not serve
+the production frontend build.
 
 ### CI/CD (GitHub Actions)
 

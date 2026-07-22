@@ -87,11 +87,27 @@ app/
     rbac.py                     # require_role() factory — FastAPI dependency for role-based access
 
 tests/unit/                     # Unit coverage (auth, matching, runtime, compliance, events, pricing, schemas)
-tests/integration/              # Auth hardening, trade lifecycle, orderbook E2E
-tests/runtime_config.py          # Explicit/validated API target policy for mutating suites
+tests/integration/              # Mutating API tests; skipped unless an attested disposable target is explicit
+tests/disposable_target.py      # Numeric-loopback ephemeral-port and exact identity-handshake guard
+tests/disposable_server.py      # Test-only ASGI wrapper producing the disposable identity endpoint
+tests/monitor/                  # Monitor artifact contract, ownership, and no-activation proof suites
+tests/runtime_config.py          # Explicit/validated API target policy (staging tooling; suites gate via disposable_target)
 deploy/systemd/                  # Backend plus singleton news/prune service-timer pairs per environment
 deploy/postgres/                 # Declarative app ACL policy, owner-only convergence, role bootstrap, and validation SQL
 deploy/migration-checkpoints.tsv # Exact expected-current/allowed-target cutover pairs
+deploy/monitor/
+  README.md                     # Source-only contract, ownership boundaries, integration seams
+  runtime-v2-readiness-corpus.json # Shared exact four-key readiness examples
+  local_health_check.py         # Fixed loopback runtime attestation + filesystem status; no secrets
+  status_state.py               # Bounded hostile JSON validation, quarantine, fail-closed status
+  backup_verify.py              # Read-only artifacts/status/attempt-journal verification
+  alert_dispatch.py             # Per-destination Telegram/Healthchecks receipts + hourly dedupe
+  legacy_retirement.py          # Config-derived 30-hour/signoff gate; validation-only by default
+  verify_runtime_identity.py    # Attested-commit snapshot launcher for demo jobs
+  artifact-manifest.json        # Static exact monitor-owned artifact inventory; no promotion logic
+  verdaxis-monitor.{sysusers,tmpfiles} # Declarative identities and directory modes
+  verdaxis-*.service            # Reader, alert, and isolated per-environment demo artifacts (never activated here)
+  verdaxis-*.timer              # Independent health, backup, alert, and demo schedules (never armed here)
 scripts/verify_migrations.sh    # Upgrade-to-head plus Alembic model/schema drift check
 scripts/preflight_runtime.py    # Read-only exact deployed config/database identity gate
 scripts/apply_migration_checkpoint.py # Source-attested literal deployment migration
@@ -127,6 +143,7 @@ alembic/versions/               # Migrations incl. canonical availability-window
 - **Database authority split:** Runtime and Alembic separately attest `current_database()`, `current_user`, exact role properties, and absence of memberships. The migrator owns the database, public schema, and application tables/sequences. Expanded database/schema/default ACL rows must exactly equal the migrator-owner, app, and backup allowlist including grantor and grantability; bootstrap revokes every unrelated explicit and delegated grantee with intentional deterministic `CASCADE`. A central governed-object relation covers every ordinary table, child partition, and sequence; object and `pg_attribute.attacl` column grants, including PUBLIC, are rebuilt from zero before exact declarative app/backup grants. The runtime app receives authority only for named tables, privileges, and organization columns; organization verification/provenance and unknown/future columns are not app-writable, and signup relies on the verification default. Audit and status history are append-only (`SELECT, INSERT`). Migrator defaults give backup read-only table/sequence access. `alembic_version`, seed/quarantine controls, market evidence/provenance, operator/control tables, and organization verification/provenance columns are not app-writable. Validation proves app/backup cannot retain write via column grants or delegate authority. Object ACLs exclude `alembic_version`, `spatial_ref_sys`, and extension-owned objects.
 - **Cross-branch runtime gate:** Runtime metadata stays directly after `pa_20260715_analytics_facts`; integration reparents `sec_20260720_identity` onto runtime and preserves security through `sec_20260720_device` before market revisions. Integration adds each reviewed identity/device/quarantine pause to the committed checkpoint policy and promotes one checkpoint at a time. At the security checkpoint it adds exact table/column policy for pending registration, organization-join, refresh-session, and user KYC/admission writes; unknown columns remain closed. The manifest-driven immutable installer accepts exact audited auth-maintenance service/timer entries and bytes without reopening the checkout. Combined integration must provide a separate approved operator identity for market-signal ingestion and other protected records, plus shared SSE transport, while preserving four Uvicorn workers. Identity-only rollback from local-monitor is forbidden after source changes because it would pair stale SHA with new bytes.
 - **KYC trust boundary:** Gemini document analysis is advisory only and every submission remains pending. Only trusted administrator approve/reject routes may change KYC/account status. The removed legacy compliance and dashboard routes stay unmounted.
+- **Local operational monitoring:** `deploy/monitor` is source-only and owns no application readiness producer, deploy transaction, backup producer, root installer, or activation path. Its reader requires the shared exact four-key runtime contract (`status=ok`, `db=ok`, exact environment, full SHA); the runtime owner must consume the corpus and publish matching identity. Hostile JSON rejects duplicate keys. Backup gzip evidence must meet a PostgreSQL marker and 1 KiB expanded floor. Readers atomically publish semantically consistent mode `0600` status and never receive alert secrets; alert dedupe is fixed hourly. Production and staging demo service/timer pairs are independent and execute source only from private read-only archives of the attested commit. The JSON manifest is static byte inventory for a future canonical immutable installer. Legacy retirement additionally requires healthy durable alert state with per-destination recovery newer than failure, and rechecks every timer immediately before the fixed disable command. Full owner seams: `deploy/monitor/README.md`.
 
 ## Revenue Streams
 

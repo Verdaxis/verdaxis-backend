@@ -112,6 +112,12 @@
 - **Rule:** Synthetic signup health checks must authenticate with a monitor token and suppress external email sends for narrowly scoped canary addresses only.
 - **Why:** Canary traffic should verify application flow without spending provider quotas or blocking real user onboarding.
 
+### Match the deployed runtime readiness contract
+- **Date:** 2026-07-20
+- **Trigger:** Integration review corrected readiness from `database=connected` with no extras to required `db=ok` fields plus bounded-compatible extras.
+- **Rule:** Require `status=ok`, `db=ok`, exact environment, and matching full 40-hex release SHA; bound extra keys/values and reject nested or collection extras instead of assuming a different exact payload.
+- **Why:** Local attestation must fail closed on identity and dangerous payload shapes while remaining compatible with the runtime-v2 producer contract.
+
 ### Honor Sprint-Level Test Skips Explicitly
 - **Date:** 2026-06-17
 - **Trigger:** User corrected the Forward Curve demo-seed sprint to skip writing and running tests for now.
@@ -254,3 +260,26 @@
 - **Trigger:** A follow-up review showed that cross-account login and refresh responses could arrive out of order, allowing a delayed cookie response to restore an older refresh family.
 - **Rule:** Bind refresh families to an opaque HttpOnly device identifier and serialize login, refresh, and logout with the same device-scoped PostgreSQL advisory lock; revoke every superseded device family before issuing a replacement.
 - **Why:** Token rotation alone orders database writes, not browser `Set-Cookie` application, so response reordering must leave every delayed token cryptographically and server-side unusable.
+### Require Attested Disposable Integration Targets
+- **Date:** 2026-07-20
+- **Trigger:** A review run inherited the test suite's implicit localhost API target and created a pending production registration while deploy identity, backup producer wiring, and retirement proof were still only partially integrated.
+- **Rule:** Integration and E2E tests must require an explicit disposable opt-in, loopback URL, non-live port, and matching disposable-server attestation; operational remediations must test the complete producer/deploy/cutover wiring rather than isolated consumers alone.
+- **Why:** Safe-looking defaults and source-only helpers can cross a live boundary or leave critical invariants unenforced when the caller, producer, and retirement path are not mechanically gated end to end.
+
+### Exercise Process and Promotion Boundaries End to End
+- **Date:** 2026-07-20
+- **Trigger:** Review found that a mocked backup writer concealed `pg_dump` bypassing `gzip.GzipFile`, while deploy and installer tests did not prove checkout/identity alignment or byte-safe rollback.
+- **Rule:** For subprocess streams and artifact promotion, add regression tests using real child processes and real staged filesystem transactions; never infer correctness from callback writes, self-reported contracts, or metadata-only rollback.
+- **Why:** File-descriptor inheritance and partial promotion behave below the mocked API boundary, so unit-shaped tests can report green while publishing corrupt or provenance-ambiguous artifacts.
+
+### Keep Operational Branches Inside Their Owner Boundary
+- **Date:** 2026-07-20
+- **Trigger:** Source review rejected the local-monitor branch for taking ownership of runtime deploy identity, a competing root installer, and an incomplete backup producer replacement.
+- **Rule:** A monitor branch may publish read-only contracts, readers, proof gates, and a static immutable-install inventory; runtime deploy, activation, and full producer responsibility stay with their canonical owners and are documented as integration seams.
+- **Why:** Duplicated partial ownership creates competing activation paths and can falsely claim rollback, backup success, or cutover safety without preserving the complete runtime responsibility graph.
+
+### Delete Non-Owned Reference Implementations
+- **Date:** 2026-07-20
+- **Trigger:** Parent source-ownership review rejected backup producer code retained as a non-installable reference after the branch became monitor-only.
+- **Rule:** Once an operational responsibility is assigned to an external owner, delete local executable reference implementations and their tests instead of excluding them from promotion and calling them documentation.
+- **Why:** Dead executable references still create maintenance and authority ambiguity; a narrow data contract documents the integration seam without competing code ownership.

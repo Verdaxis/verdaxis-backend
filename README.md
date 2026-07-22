@@ -133,25 +133,28 @@ ENVIRONMENT=test RELEASE_SHA=test \
   python -m pytest tests/unit/ -v
 ```
 
-Run the command above for the current test count.
+Integration/E2E suites additionally require explicit pytest opt-in and an
+attested disposable server on a numeric-loopback ephemeral port. Production,
+staging, `localhost`, and ports 8000/8001 are refused by collection guards.
+Start the source-tree producer with `ENVIRONMENT=test`, a matching
+`DISPOSABLE_TEST_TOKEN`, and
+`python -m tests.disposable_server --port <ephemeral-port>`.
 
-Integration tests require an explicit `TEST_API_URL`; they never default to a
-running service. Mutating helpers require both an exact acknowledgement and a
-positive `TEST_RUNTIME_ENV` attestation. A disposable local API example is:
+Run the mutating suites only with the explicit opt-in flags; collection
+skips them otherwise:
 
 ```bash
-TEST_API_URL=http://127.0.0.1:18765 \
-  ALLOW_TEST_MUTATIONS=I_UNDERSTAND_TEST_MUTATIONS \
-  TEST_RUNTIME_ENV=disposable \
-  TEST_DISPOSABLE_DB_NAME=verdaxis_runtime_test \
-  python -m pytest tests/integration -v
+DISPOSABLE_ITEST_PASSWORD=... \
+  python -m pytest tests/integration -v \
+  --run-disposable-integration \
+  --disposable-target-url http://127.0.0.1:59123 \
+  --disposable-target-token <token-provisioned-into-the-disposable-server>
 ```
 
-For approved staging only, use `TEST_API_URL=https://api-staging.verdaxis.exchange`
-with the same two guard variables and `TEST_RUNTIME_ENV=staging`. Production
-hosts, `144.126.151.136`, and localhost:8000 are categorically refused.
-The exact `http://127.0.0.1:8001` target is accepted only with
-`TEST_RUNTIME_ENV=staging`; disposable tests reject both live ports.
+There is no staging or production integration target: mutating suites accept
+only an attested `127.0.0.1` ephemeral-port disposable server. (The former
+`ALLOW_TEST_MUTATIONS`/`TEST_RUNTIME_ENV` resolver in `tests/runtime_config.py`
+remains for staging-scoped tooling but no suite consumes it.)
 
 Use `scripts/run_product_analytics_postgres_tests.sh` for a disposable
 PostGIS container. It binds a unique loopback port, runs migrations, checks

@@ -1,10 +1,9 @@
 """
 Integration tests for API endpoints.
-Tests the full request/response cycle against the explicitly selected backend.
+Tests the full request/response cycle against an attested disposable backend.
 
-Run with: pytest tests/integration/ -v
-Requires: an explicit TEST_API_URL targeting a disposable local or approved
-staging backend, plus both documented mutation guards for mutating tests.
+Collection is skipped unless conftest receives explicit disposable opt-in,
+numeric-loopback ephemeral URL, marker, and matching identity token.
 """
 import pytest
 from httpx import AsyncClient

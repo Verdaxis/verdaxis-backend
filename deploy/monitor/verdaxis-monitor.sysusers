@@ -1,0 +1,7 @@
+g verdaxis-backup-readers -
+u verdaxis-health - "Verdaxis local health reader" /nonexistent /usr/sbin/nologin
+u verdaxis-backup-reader -:verdaxis-backup-readers "Verdaxis backup reader" /nonexistent /usr/sbin/nologin
+u verdaxis-monitor-alert - "Verdaxis local alert dispatcher" /nonexistent /usr/sbin/nologin
+u verdaxis-demo-production - "Verdaxis production demo activity" /nonexistent /usr/sbin/nologin
+u verdaxis-demo-staging - "Verdaxis staging demo activity" /nonexistent /usr/sbin/nologin
+m verdaxis-prod verdaxis-backup-readers

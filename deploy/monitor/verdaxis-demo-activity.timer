@@ -1,0 +1,12 @@
+[Unit]
+Description=Schedule Verdaxis production demo market activity independently
+
+[Timer]
+OnCalendar=*-*-* *:15,45:00
+AccuracySec=1m
+RandomizedDelaySec=2m
+Persistent=true
+Unit=verdaxis-demo-activity.service
+
+[Install]
+WantedBy=timers.target

@@ -1,14 +1,15 @@
-"""
-Pytest configuration and fixtures for Verdaxis backend tests.
+"""Pytest configuration and fixtures for Verdaxis backend tests.
 
-For integration tests, we test against an explicitly selected local disposable,
-staging, or other read-only API target.
-Unit tests use mocks and don't require the database.
+Integration/E2E suites run only against an explicitly attested disposable
+server (tests/disposable_target.py). Unit tests use mocks/SQLite and never
+require a running API.
 """
-import pytest
 import asyncio
 import os
+from pathlib import Path
 from typing import Generator
+
+import pytest
 from httpx import AsyncClient
 
 # Tests must opt into an isolated JWT namespace. Production/staging startup
@@ -19,21 +20,61 @@ os.environ.setdefault("JWT_SECRET", "test-secret-key-for-testing-minimum-32-char
 os.environ.setdefault("JWT_ISSUER", "verdaxis-test-api")
 os.environ.setdefault("JWT_AUDIENCE", "verdaxis-test-web")
 
-# Black-box integration tests target an explicitly supplied running service.
-# Never guess localhost: that turns a missing external harness into hundreds
-# of misleading connection/setup failures during the self-contained suite.
-TEST_API_URL = os.environ.get("TEST_API_URL", "").strip()
+from tests.disposable_target import (  # noqa: E402
+    DisposableTargetError,
+    attest,
+    requires_disposable_target,
+    validate_target,
+)
+
+
+def pytest_addoption(parser):
+    group = parser.getgroup("verdaxis disposable integration")
+    group.addoption(
+        "--run-disposable-integration",
+        action="store_true",
+        help="run integration/E2E tests against an attested disposable server",
+    )
+    group.addoption("--disposable-target-url")
+    group.addoption("--disposable-target-token")
+
+
+def pytest_configure(config):
+    config.addinivalue_line(
+        "markers",
+        "disposable_integration: mutating integration/E2E test requiring an attested disposable server",
+    )
+    if not config.getoption("--run-disposable-integration"):
+        return
+    try:
+        target = validate_target(
+            config.getoption("--disposable-target-url"),
+            config.getoption("--disposable-target-token"),
+        )
+    except DisposableTargetError as exc:
+        raise pytest.UsageError(str(exc)) from exc
+    config._verdaxis_disposable_target = target
+    os.environ["TEST_API_URL"] = target.base_url
 
 
 def pytest_collection_modifyitems(config, items):
-    if TEST_API_URL:
+    guarded = [item for item in items if requires_disposable_target(Path(str(item.path)))]
+    for item in guarded:
+        item.add_marker(pytest.mark.disposable_integration)
+    if not guarded:
         return
-    skip_external = pytest.mark.skip(
-        reason="TEST_API_URL is not configured for black-box integration tests"
-    )
-    for item in items:
-        if "/tests/integration/" in str(item.path):
-            item.add_marker(skip_external)
+    if not config.getoption("--run-disposable-integration"):
+        reason = "requires --run-disposable-integration and an attested disposable target"
+        for item in guarded:
+            item.add_marker(pytest.mark.skip(reason=reason))
+        return
+    target = getattr(config, "_verdaxis_disposable_target", None)
+    if target is None:
+        raise pytest.UsageError("explicit disposable target configuration is required")
+    try:
+        attest(target)
+    except DisposableTargetError as exc:
+        raise pytest.UsageError(str(exc)) from exc
 
 
 @pytest.fixture(scope="session")
@@ -45,14 +86,15 @@ def event_loop() -> Generator[asyncio.AbstractEventLoop, None, None]:
 
 
 @pytest.fixture
-async def client() -> AsyncClient:
+async def client(request) -> AsyncClient:
     """
     Create an async HTTP client for testing API endpoints.
-    Tests against the explicitly configured running backend.
+    Tests only against the already-attested disposable backend.
     """
-    if not TEST_API_URL:
-        pytest.skip("TEST_API_URL is not configured")
-    async with AsyncClient(base_url=TEST_API_URL, timeout=10.0) as ac:
+    target = getattr(request.config, "_verdaxis_disposable_target", None)
+    if target is None:
+        pytest.fail("integration client requested without an attested disposable target")
+    async with AsyncClient(base_url=target.base_url, timeout=10.0) as ac:
         yield ac
 
 
@@ -66,7 +108,7 @@ def sample_user_data():
     import uuid
     unique_id = str(uuid.uuid4())[:8]
     return {
-        "email": f"test_{unique_id}@itest.staging.verdaxis.exchange",
+        "email": f"test_{unique_id}@disposable.invalid",
         "password": "securepassword123",
         "first_name": "Test",
         "last_name": "User",
@@ -91,25 +133,15 @@ def admin_credentials(itest_password):
     """Dedicated staging itest admin (the old seeded admin password was
     scrubbed from history and is unrecoverable)."""
     return {
-        "email": "itest-admin@staging.verdaxis.exchange",
+        "email": "itest-admin@disposable.invalid",
         "password": itest_password,
     }
 
 
-
 @pytest.fixture(scope="session")
 def itest_password() -> str:
-    """Password for the dedicated itest-* staging users.
-
-    Prefers the ITEST_PASSWORD env var; falls back to the secrets file kept
-    next to the repos on the staging VPS (see PILOT-RUNBOOK §9).
-    """
-    pw = os.environ.get("ITEST_PASSWORD")
+    """Password explicitly provisioned into the disposable test server."""
+    pw = os.environ.get("DISPOSABLE_ITEST_PASSWORD")
     if pw:
         return pw
-    secret_path = os.path.join(os.path.dirname(__file__), "..", "..", "..", ".staging-itest-password")
-    try:
-        with open(secret_path) as fh:
-            return fh.read().strip()
-    except OSError:
-        pytest.skip("No itest password available (set ITEST_PASSWORD or provision the secrets file)")
+    pytest.skip("set DISPOSABLE_ITEST_PASSWORD for the disposable server")
