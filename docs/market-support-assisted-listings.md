@@ -1,61 +1,72 @@
-# Market Support Assisted Listings
+# Market Support Organization Context
 
 ## Purpose
 
-Verdaxis administrators may set up a supplier ASK listing for an approved real
-customer organization without impersonating a customer or obtaining customer
-credentials. The organization remains the economic party, an approved supplier
-user in that organization remains the accountable principal, and the
-authenticated administrator is retained as the action actor.
+An authorized Verdaxis administrator may enter an approved real customer
+organization and use the normal customer-facing platform to create and cancel
+supplier ASK listings on its behalf. The administrator remains the
+authenticated actor. The customer organization remains the economic party, and
+an approved supplier in that organization remains the accountable principal.
+Verdaxis never requests customer credentials, mints a customer session, or
+attributes the administrator's action to the customer.
+
+## Product Contract
+
+Market Support is not a separate trading workspace. Entry begins from admin
+organization management and activates an opaque, server-owned context. The
+existing supplier routes, navigation, marketplace, order form, and own-order
+views then render with a persistent, non-dismissible banner:
+
+`Market Support - Acting for <organization> as Supplier`
+
+The banner identifies the accountable supplier, the signed-in administrator,
+the support reference, expiry, and an explicit Exit action. The real admin
+identity remains visible in the profile menu. The context never appears in the
+URL and the browser stores only its opaque ID in `sessionStorage`.
 
 ## Phase 1 Boundary
 
 - Approved `REAL` supplier organizations only.
-- ASK listings only.
-- One exact authorization creates at most one listing.
-- Administrators may create and cancel assisted listings. They may not edit,
-  hit, lift, negotiate, confirm, deliver, or pay for customer trades.
-- Changed terms require cancellation and a new authorization.
-- The feature is hidden unless `MARKET_SUPPORT_ENABLED=true`.
-- Ordinary `ADMIN` role membership is insufficient. The actor also needs the
-  relevant durable capability assignment.
+- One approved, email-verified, execution-eligible supplier principal is
+  selected when the context starts.
+- One active, absolute-expiry context per administrator.
+- Organization-scoped reads needed to render the supplier platform.
+- ASK creation through the normal order form.
+- Cancellation only for ASK listings created through Market Support.
+- No listing edits; changed terms require cancellation and replacement.
+- No hit/lift, negotiation, RFQ mutation, inventory mutation, trade lifecycle,
+  watchlist mutation, notification mutation, or customer settings mutation.
+- Every unallowlisted mutation carrying a Market Support context fails closed.
+- `MARKET_SUPPORT_ENABLED=true` and both durable Market Support capabilities
+  are required; `ADMIN` role alone is insufficient.
 
-## Authorization Contract
+## Request Identity
 
-An authorization records the exact normalized listing terms, selected
-accountable supplier, customer evidence reference and SHA-256 digest,
-commercial-consent version/reference, fixed expiry, and a canonical terms
-digest. Decimal values are scale-independent (`250` and `250.00` are
-equivalent), and timestamps are normalized to UTC before hashing so a database
-round trip cannot change the digest. Its lifecycle is `ACTIVE -> CONSUMED` or
-`ACTIVE/CONSUMED -> REVOKED`.
+Every context-aware request resolves an immutable request party:
 
-Publication atomically:
+- `actor`: the authenticated administrator;
+- `effective_organization`: the selected customer organization;
+- `accountable_principal`: the selected eligible supplier;
+- `effective_role`: `SUPPLIER`;
+- `mode`: `MARKET_SUPPORT`;
+- `support_context_id` and support reference;
+- `creation_method`: `MARKET_SUPPORT`.
 
-1. verifies the listing capability and idempotency key;
-2. locks the authorization namespace and market slice;
-3. locks and validates the authorization, candidate market rows, users, and
-   organizations in deterministic order;
-4. refuses if any executable opposing order would cross, or if the complete
-   crossing set cannot be assessed within the operational bound;
-5. inserts one resting ASK with immutable support attribution;
-6. marks the authorization consumed, records audit and notification rows,
-   updates market projections, and commits once.
+Ordinary requests resolve the authenticated user as actor, organization, and
+principal with `SELF_SERVICE` creation. Code must never mutate `current_user`,
+construct a fake customer user, or accept an organization/principal header on
+normal market endpoints.
 
-Revocation synchronously cancels the remaining quantity of the linked open
-listing. Completed trades stand. A consumed authorization remains valid for
-the uniquely linked order and later or partial fills until revoked or the order
-expires.
+The frontend sends:
 
-## Concurrency
+`X-Verdaxis-Market-Support-Context: <opaque UUID>`
 
-Support-created orders have a monotonically increasing `version`. Support and
-customer cancellation require `If-Match` with the order ETag. Missing,
-malformed, and stale preconditions return `428`, `400`, and `412` respectively.
-Ordinary customer edits of a support-created order are rejected; the customer
-must cancel and create a replacement.
+The header is only a locator. The server reloads the context and revalidates
+actor ownership, expiry, feature flag, capabilities, organization approval and
+`REAL` provenance, principal membership, role, and operation-specific
+eligibility. Unknown or foreign context IDs are non-enumerating.
 
-## API
+## Context Lifecycle API
 
 All routes use the existing `/api` prefix:
 
@@ -63,19 +74,66 @@ All routes use the existing `/api` prefix:
 - `POST /admin/market-support/capability-assignments`
 - `POST /admin/market-support/capability-assignments/{id}/revoke`
 - `GET /admin/market-support/organizations`
-- `GET /admin/market-support/organizations/{org_id}/context`
-- `POST|GET /admin/market-support/organizations/{org_id}/authorizations`
-- `POST /admin/market-support/organizations/{org_id}/authorizations/{id}/revoke`
-- `POST|GET /admin/market-support/organizations/{org_id}/listings`
-- `POST /admin/market-support/organizations/{org_id}/listings/{id}/cancel`
+- `GET /admin/market-support/organizations/{org_id}/entry`
+- `POST /admin/market-support/contexts`
+- `GET /admin/market-support/contexts/active`
+- `GET /admin/market-support/contexts/{context_id}`
+- `POST /admin/market-support/contexts/{context_id}/exit`
 
-Organization paths are authoritative. Public orderbook serializers never
-expose support authorization, evidence, actor, or customer-contact data.
+Context creation is the only route that accepts organization and principal IDs.
+They are lookup inputs, never authorization claims. Context exit is idempotent.
+Starting a different context requires an explicit replacement confirmation.
+
+## ASK Creation
+
+The existing `POST /orderbook` contract remains the customer-facing entry
+point. In Market Support mode it additionally requires:
+
+- an idempotency key;
+- `side=ASK`;
+- explicit order expiry;
+- the existing supplier metadata;
+- a final support confirmation containing an external instruction reference,
+  instruction time, transient evidence excerpt, and exact-terms/standing-order
+  acknowledgements.
+
+The server hashes the evidence excerpt and never stores or logs its plaintext.
+It obtains consent version/reference from server configuration. In one
+transaction it locks and revalidates the context and market slice, creates the
+exact one-use authorization, rejects any crossing ASK, inserts one post-only
+resting order with immutable dual attribution, consumes the authorization,
+records audit and notification rows, and commits.
+
+Public orderbook serializers never expose context, authorization, evidence,
+support reference, administrator, or accountable-principal details.
+
+## Cancellation And Concurrency
+
+The normal own-order interface uses `POST /orderbook/{id}/cancel` with a
+mandatory reason and `If-Match`. Market Support may cancel only an order whose
+organization matches the effective organization and whose creation method is
+`MARKET_SUPPORT`. Missing, malformed, and stale preconditions return `428`,
+`400`, and `412`. Cancellation remains available as a cleanup action when the
+principal later becomes ineligible, but every actor, context, organization,
+original principal, cancellation principal, reason, and order version is
+audited.
+
+## Session Behavior
+
+- Refresh blocks customer rendering until the stored context ID is revalidated.
+- Access-token refresh continues to authenticate only the real admin.
+- Explicit exit ends the server context, clears session storage, broadcasts an
+  invalidation to attached tabs, and returns to admin organization management.
+- Context expiry or revocation fails closed and removes the local attachment.
+- New tabs and bookmarked URLs do not infer a context.
+- A separate tab may explicitly resume the administrator's active context.
+- Logout best-effort ends the context and always clears local context state.
 
 ## Activation Gates
 
-Before enabling the feature, Verdaxis must approve the customer-authority
-wording, acceptable evidence, commercial-consent version, maximum listing
-lifetime, notification recipients, and erroneous-fill procedure. Migration and
-ACL changes must pass the disposable PostgreSQL suite and the reviewed
-migration-checkpoint process before staging activation.
+The migration and ACL changes must pass disposable PostgreSQL tests and the
+reviewed literal migration-checkpoint process. Staging activation requires
+approved customer-authority wording, evidence handling, consent
+version/reference, context TTL, notifications, erroneous-fill procedure,
+tenant-isolation tests, route-enumeration denial tests, normal-user regression
+tests, and browser dogfooding. Production requires a separate reviewed rollout.
