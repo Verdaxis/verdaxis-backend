@@ -17,13 +17,13 @@ from app.schemas.market_support import (
 )
 
 
-def test_context_contract_is_opaque_short_lived_and_phase_one_scoped():
+def test_context_contract_is_opaque_short_lived_and_organization_scoped():
     context = MarketSupportContext(
         actor_user_id=uuid4(),
         organization_id=uuid4(),
         accountable_user_id=uuid4(),
         support_reference="case-123",
-        scope=MarketSupportContextScope.ASK_LISTINGS,
+        scope=MarketSupportContextScope.ASSISTED_ORDER_ENTRY,
         expires_at=datetime.now(UTC) + timedelta(minutes=30),
         status=MarketSupportContextStatus.ACTIVE,
         version=1,
@@ -32,7 +32,7 @@ def test_context_contract_is_opaque_short_lived_and_phase_one_scoped():
     assert context.__table__.columns["id"].default is not None
     assert context.status == MarketSupportContextStatus.ACTIVE
     assert context.version == 1
-    assert context.scope == MarketSupportContextScope.ASK_LISTINGS
+    assert context.scope == MarketSupportContextScope.ASSISTED_ORDER_ENTRY
     assert settings.MARKET_SUPPORT_CONTEXT_TTL_MINUTES > 0
     assert "organization_id" in MarketSupportContext.__table__.columns
     assert "accountable_user_id" in MarketSupportContext.__table__.columns
@@ -44,7 +44,6 @@ def test_context_contract_is_opaque_short_lived_and_phase_one_scoped():
 def test_context_start_requires_explicit_replacement_confirmation_and_reference():
     base = {
         "organization_id": uuid4(),
-        "accountable_user_id": uuid4(),
         "support_reference": "case-123",
     }
     assert MarketSupportContextCreate(**base).confirm_replacement is False
@@ -54,16 +53,15 @@ def test_context_start_requires_explicit_replacement_confirmation_and_reference(
         MarketSupportContextCreate(**{**base, "support_reference": " "})
 
 
-def test_final_support_confirmation_carries_transient_instruction_evidence():
+def test_final_support_confirmation_does_not_require_evidence_text():
     confirmation = MarketSupportFinalConfirmation(
         external_instruction_reference="ticket-123",
         instruction_at=datetime.now(UTC),
-        evidence_excerpt="Customer confirmed exact terms by phone",
         acknowledge_exact_terms=True,
         acknowledge_executable_standing_order=True,
     )
 
-    assert confirmation.evidence_excerpt
+    assert confirmation.evidence_excerpt is None
     assert confirmation.instruction_at.tzinfo is not None
 
 
@@ -75,6 +73,18 @@ def test_context_migration_is_after_assisted_listings_and_links_authorizations()
     assert 'down_revision = "ms_20260723_assisted_listings"' in source
     assert "market_support_context_id" in source
     assert "market_support_contexts" in source
+
+
+def test_assisted_order_policy_migration_supports_both_sides_and_gtc():
+    source = (
+        Path(__file__).resolve().parents[2]
+        / "alembic/versions/ms_20260723_assisted_order_v2.py"
+    ).read_text()
+    assert 'down_revision = "ms_20260723_organization_context"' in source
+    assert "ASSISTED_ORDER_ENTRY" in source
+    assert 'server_default="ASSISTED_ORDER_ENTRY"' in source
+    assert "order_side IN ('BID', 'ASK')" in source
+    assert '"order_expires_at"' in source and "nullable=True" in source
 
 
 def test_forensic_confirmation_facts_are_persisted_without_plaintext_evidence():

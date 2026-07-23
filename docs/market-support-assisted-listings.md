@@ -4,35 +4,34 @@
 
 An authorized Verdaxis administrator may enter an approved real customer
 organization and use the normal customer-facing platform to create and cancel
-supplier ASK listings on its behalf. The administrator remains the
-authenticated actor. The customer organization remains the economic party, and
-an approved supplier in that organization remains the accountable principal.
-Verdaxis never requests customer credentials, mints a customer session, or
-attributes the administrator's action to the customer.
+BID and ASK listings on its behalf. The administrator remains the authenticated
+and accountable actor. The customer organization remains the economic party.
+Verdaxis never requests customer credentials, mints a customer session, selects
+a customer user as a proxy actor, or attributes the administrator's action to
+the customer.
 
 ## Product Contract
 
-Market Support is not a separate trading workspace. Entry begins from admin
+Assisted Order Entry is not a separate trading workspace. Entry begins from admin
 organization management and activates an opaque, server-owned context. The
-existing supplier routes, navigation, marketplace, order form, and own-order
+existing buyer and supplier routes, navigation, marketplace, order form, and own-order
 views then render with a persistent, non-dismissible banner:
 
-`Market Support - Acting for <organization> as Supplier`
+`Acting for <organization>`
 
-The banner identifies the accountable supplier, the signed-in administrator,
-the support reference, expiry, and an explicit Exit action. The real admin
+The banner identifies the signed-in administrator, support reference, expiry,
+and an explicit Exit action. The real admin
 identity remains visible in the profile menu. The context never appears in the
 URL and the browser stores only its opaque ID in `sessionStorage`.
 
 ## Phase 1 Boundary
 
-- Approved `REAL` supplier organizations only.
-- One approved, email-verified, execution-eligible supplier principal is
-  selected when the context starts.
+- Approved `REAL` organizations only.
 - One active, absolute-expiry context per administrator.
-- Organization-scoped reads needed to render the supplier platform.
-- ASK creation through the normal order form.
-- Cancellation only for ASK listings created through Market Support.
+- Organization-scoped reads needed to render the buyer and supplier platform.
+- BID and ASK creation through the normal order form.
+- GTC and explicitly dated orders.
+- Cancellation only for orders created through Assisted Order Entry.
 - No listing edits; changed terms require cancellation and replacement.
 - No hit/lift, negotiation, RFQ mutation, inventory mutation, trade lifecycle,
   watchlist mutation, notification mutation, or customer settings mutation.
@@ -46,16 +45,17 @@ Every context-aware request resolves an immutable request party:
 
 - `actor`: the authenticated administrator;
 - `effective_organization`: the selected customer organization;
-- `accountable_principal`: the selected eligible supplier;
-- `effective_role`: `SUPPLIER`;
+- no proxy customer principal;
+- `effective_role`: the buyer or supplier side selected for the order;
 - `mode`: `MARKET_SUPPORT`;
 - `support_context_id` and support reference;
 - `creation_method`: `MARKET_SUPPORT`.
 
 Ordinary requests resolve the authenticated user as actor, organization, and
-principal with `SELF_SERVICE` creation. Code must never mutate `current_user`,
-construct a fake customer user, or accept an organization/principal header on
-normal market endpoints.
+principal with `SELF_SERVICE` creation. Assisted requests intentionally have no
+customer principal. Code must never mutate `current_user`, construct a fake
+customer user, or accept an organization/principal header on normal market
+endpoints.
 
 The frontend sends:
 
@@ -63,11 +63,10 @@ The frontend sends:
 
 The header is only a locator. The server reloads the context and revalidates
 actor ownership, expiry, feature flag, capabilities, organization approval and
-`REAL` provenance, principal membership, role, and operation-specific
-eligibility. Unknown or foreign context IDs are non-enumerating.
+`REAL` provenance. Unknown or foreign context IDs are non-enumerating.
 
 The backend stores one active context row per administrator using a partial
-unique index. Phase 1 uses the fixed `ASK_LISTINGS` scope and configured short
+unique index. The context uses the fixed `ASSISTED_ORDER_ENTRY` scope and configured short
 TTL; expiry is persisted as `EXPIRED` before the request is rejected. Both
 durable listing and authorization capabilities are required for context entry
 and request-party resolution.
@@ -86,42 +85,40 @@ All routes use the existing `/api` prefix:
 - `GET /admin/market-support/contexts/{context_id}`
 - `POST /admin/market-support/contexts/{context_id}/exit`
 
-Context creation is the only route that accepts organization and principal IDs.
-They are lookup inputs, never authorization claims. Context exit is idempotent.
+Context creation is the only route that accepts an organization ID. It is a
+lookup input, never an authorization claim. Context exit is idempotent.
 Starting a different context requires an explicit replacement confirmation.
 
-## ASK Creation
+## Order Creation
 
 The existing `POST /orderbook` contract remains the customer-facing entry
 point. In Market Support mode it additionally requires:
 
 - an idempotency key;
-- `side=ASK`;
-- explicit order expiry;
-- the existing supplier metadata;
+- `side=BID` or `side=ASK`;
+- GTC or an explicit order expiry;
+- the existing supplier metadata for ASKs;
 - a final support confirmation containing an external instruction reference,
-  instruction time, transient evidence excerpt, and exact-terms/standing-order
-  acknowledgements.
+  instruction time and exact-terms/standing-order acknowledgements.
 
-The server hashes the evidence excerpt and never stores or logs its plaintext.
-It obtains consent version/reference from server configuration. In one
+No evidence excerpt is required or retained. The server obtains consent
+version/reference from server configuration. In one
 transaction it locks and revalidates the context and market slice, creates the
-exact one-use authorization, rejects any crossing ASK, inserts one post-only
+exact one-use authorization, rejects any crossing order, inserts one post-only
 resting order with immutable dual attribution, consumes the authorization,
 records audit and notification rows, and commits.
 
-Support ASK requests use only the canonical delivery point (never a port or
-vessel) and remain within the configured listing TTL. A recent customer
-instruction may predate context entry; the context limits when the admin may
-publish, not how long the resulting standing ASK may remain live.
-The authorization stores only the instruction timestamp, acknowledgement
-booleans, and evidence digest as forensic facts; the evidence excerpt is
-discarded after hashing. Legacy admin authorization/listing mutation routes
+Assisted orders use only the canonical delivery point (never a port or vessel).
+There is no artificial maximum order lifetime or instruction-age cutoff:
+context expiry limits when the admin may publish, not how long the resulting
+standing order may remain live. The authorization stores the instruction
+timestamp and acknowledgement booleans as forensic facts. Legacy admin
+authorization/listing mutation routes
 are retired while context mode is enabled; their read routes remain available
 for compatibility.
 
-Public orderbook serializers never expose context, authorization, evidence,
-support reference, administrator, or accountable-principal details.
+Public orderbook serializers never expose context, authorization, support
+reference, or administrator details.
 
 ## Cancellation And Concurrency
 
@@ -129,10 +126,9 @@ The normal own-order interface uses `POST /orderbook/{id}/cancel` with a
 mandatory reason and `If-Match`. Market Support may cancel only an order whose
 organization matches the effective organization and whose creation method is
 `MARKET_SUPPORT`. Missing, malformed, and stale preconditions return `428`,
-`400`, and `412`. Cancellation remains available as a cleanup action when the
-principal later becomes ineligible, but every actor, context, organization,
-original principal, cancellation principal, reason, and order version is
-audited.
+`400`, and `412`. Both sides are supported, but only assisted orders belonging
+to the active organization may be cancelled. Every actor, context,
+organization, reason, and order version is audited.
 
 ## Session Behavior
 

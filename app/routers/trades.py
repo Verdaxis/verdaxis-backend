@@ -32,6 +32,7 @@ from app.services import market_transactions
 from app.services.watchlist_events import _best_slice_price, emit_order_updated
 from app.services.execution_policy import (
     execution_party_is_eligible,
+    order_owner_is_execution_eligible,
     order_is_execution_qualified,
 )
 from app.services.live_benchmarks import rebuild_live_slice_benchmarks_for_keys
@@ -173,11 +174,33 @@ async def _revalidate_trade_parties(db: AsyncSession, trade: Trade) -> None:
         .execution_options(populate_existing=True)
     )
     orgs = {org.id: org for org in orgs_result.scalars().all()}
-    if not await execution_party_is_eligible(
-        db, user=users.get(trade.buyer_user_id), organization=orgs.get(trade.buyer_id)
-    ) or not await execution_party_is_eligible(
-        db, user=users.get(trade.seller_user_id), organization=orgs.get(trade.seller_id)
-    ):
+    buyer_order = trade.__dict__.get("bid_order")
+    seller_order = trade.__dict__.get("ask_order")
+    buyer_eligible = (
+        await order_owner_is_execution_eligible(
+            db,
+            order=buyer_order,
+            user=users.get(trade.buyer_user_id),
+            organization=orgs.get(trade.buyer_id),
+        )
+        if buyer_order is not None
+        else await execution_party_is_eligible(
+            db, user=users.get(trade.buyer_user_id), organization=orgs.get(trade.buyer_id)
+        )
+    )
+    seller_eligible = (
+        await order_owner_is_execution_eligible(
+            db,
+            order=seller_order,
+            user=users.get(trade.seller_user_id),
+            organization=orgs.get(trade.seller_id),
+        )
+        if seller_order is not None
+        else await execution_party_is_eligible(
+            db, user=users.get(trade.seller_user_id), organization=orgs.get(trade.seller_id)
+        )
+    )
+    if not buyer_eligible or not seller_eligible:
         raise HTTPException(status_code=409, detail="Trade parties are no longer execution-qualified")
 
 
@@ -466,8 +489,9 @@ async def create_trade(
         db,
         user=parties.get(current_user.id),
         organization=locked_organizations.get(initiator_org_id),
-    ) or not await execution_party_is_eligible(
+    ) or not await order_owner_is_execution_eligible(
         db,
+        order=order,
         user=parties.get(order.owner_user_id),
         organization=locked_organizations.get(order.organization_id),
     ):

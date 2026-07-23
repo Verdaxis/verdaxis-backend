@@ -21,6 +21,7 @@ from app.services.demo_market import (
 )
 from app.services.execution_policy import (
     execution_party_is_eligible,
+    order_owner_is_execution_eligible,
     order_is_execution_qualified,
     orders_execution_compatible,
 )
@@ -235,10 +236,16 @@ async def match_order(
                 .execution_options(populate_existing=True)
             )
             orgs = {org.id: org for org in orgs_result.scalars().all()}
-            if not await execution_party_is_eligible(
-                db, user=owners.get(new_order.owner_user_id), organization=orgs.get(new_order.organization_id)
-            ) or not await execution_party_is_eligible(
-                db, user=owners.get(crossing.owner_user_id), organization=orgs.get(crossing.organization_id)
+            if not await order_owner_is_execution_eligible(
+                db,
+                order=new_order,
+                user=owners.get(new_order.owner_user_id),
+                organization=orgs.get(new_order.organization_id),
+            ) or not await order_owner_is_execution_eligible(
+                db,
+                order=crossing,
+                user=owners.get(crossing.owner_user_id),
+                organization=orgs.get(crossing.organization_id),
             ):
                 continue
 

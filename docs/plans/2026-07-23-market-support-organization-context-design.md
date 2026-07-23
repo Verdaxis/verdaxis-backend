@@ -5,7 +5,8 @@
 Verdaxis will use an opaque, short-lived, database-backed Market Support
 context. The real admin bearer token remains the only authentication
 credential. The server resolves the context into the effective organization,
-accountable supplier, support reference, expiry, and narrow phase-1 scope.
+support reference, expiry, and assisted-order-entry scope. No customer user is
+selected or represented as the actor.
 
 ## Alternatives
 
@@ -19,29 +20,30 @@ accountable supplier, support reference, expiry, and narrow phase-1 scope.
 
 ## UX
 
-Admin Users/Organizations exposes `Enter supplier platform`. Entry selects an
-eligible supplier and requires a support reference. The normal supplier
-platform opens with a persistent acting-organization banner and Exit control.
-The normal ASK form is reused; after ordinary validation, an admin-only final
-confirmation captures instruction evidence and acknowledgements. Other
+Admin Users/Organizations exposes `Enter organization`. Entry requires a
+support reference. The normal platform opens with a persistent
+acting-organization banner and Exit control. Buyer and supplier views remain
+available. The normal BID/ASK form is reused; after ordinary validation, an
+admin-only final confirmation captures an instruction reference and
+acknowledgements. Other
 customer mutations are disabled in the UI and denied by the backend.
 
 ## Security Boundary
 
 The context header is an opaque locator and is meaningful only with the owning
 admin token. Every context-aware endpoint revalidates the context and target.
-An explicit request-party abstraction keeps actor, economic party, and
-accountable principal separate. A deny-by-default mutation allowlist prevents
+An explicit request-party abstraction keeps actor and economic party separate.
+A deny-by-default mutation allowlist prevents
 new or forgotten customer mutations from becoming available in support mode.
 
 ## Data And Audit
 
-The context records actor, organization, principal, support reference, scope,
-start, absolute expiry, end state, and lifecycle version. ASK creation retains
+The context records actor, organization, support reference, scope, start,
+absolute expiry, end state, and lifecycle version. BID and ASK creation retain
 the current exact one-use authorization, digest, post-only crossing check,
 idempotency, immutable order attribution, ETag, audit, notification, and market
-event behavior. Evidence plaintext is transient; only its digest and external
-reference persist.
+event behavior. No evidence plaintext is requested or retained; the external
+instruction reference persists.
 
 ## Rollout
 

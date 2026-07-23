@@ -145,10 +145,10 @@ class AuthorizationResponse(BaseModel):
     quantity_mt: Decimal
     price_per_mt_usd: Decimal
     authorization_expires_at: datetime
-    order_expires_at: datetime
+    order_expires_at: datetime | None
     terms_digest: str
     evidence_reference: str
-    evidence_sha256: str
+    evidence_sha256: str | None
     commercial_consent_version: str
     commercial_consent_reference: str
     support_case_reference: str | None
@@ -204,7 +204,6 @@ class AssistedListingResponse(BaseModel):
 
 class MarketSupportContextCreate(BaseModel):
     organization_id: UUID
-    accountable_user_id: UUID
     support_reference: str = Field(min_length=3, max_length=200)
     confirm_replacement: bool = False
 
@@ -236,9 +235,7 @@ class MarketSupportContextResponse(BaseModel):
     id: UUID
     actor_user_id: UUID
     organization_id: UUID
-    accountable_user_id: UUID
     organization: MarketSupportOrganization
-    accountable_principal: MarketSupportPrincipal
     actor: MarketSupportPrincipal
     support_reference: str
     scope: MarketSupportContextScope
@@ -251,7 +248,8 @@ class MarketSupportContextResponse(BaseModel):
 
 class MarketSupportEntryResponse(BaseModel):
     organization: MarketSupportOrganization
-    eligible_principals: list[MarketSupportPrincipal]
+    eligible: bool = True
+    reason: str | None = None
 
 
 class MarketSupportContext(BaseModel):

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from app.models.orderbook import OrderBookOrder, OrderSide
-from app.models.user import Organization, User, UserRole, UserStatus
+from app.models.orderbook import OrderBookOrder, OrderCreationMethod, OrderSide
+from app.models.user import Organization, OrganizationProvenance, User, UserRole, UserStatus
 from sqlalchemy import select
 
 
@@ -33,6 +33,28 @@ async def execution_party_is_eligible(db, *, user: User, organization: Organizat
         organization_id is not None
         and organization_id == user_org_id
         and getattr(organization, "verification_status", None) == "APPROVED"
+    )
+
+
+async def order_owner_is_execution_eligible(
+    db,
+    *,
+    order: OrderBookOrder,
+    user: User | None,
+    organization: Organization | None,
+) -> bool:
+    """Revalidate either a self-service principal or an assisted-order actor."""
+    if order.creation_method != OrderCreationMethod.MARKET_SUPPORT:
+        return await execution_party_is_eligible(db, user=user, organization=organization)
+    return bool(
+        user
+        and organization
+        and user.id == order.created_by_actor_user_id == order.owner_user_id
+        and user.role == UserRole.ADMIN
+        and user.status == UserStatus.APPROVED
+        and organization.id == order.organization_id
+        and organization.verification_status == "APPROVED"
+        and organization.provenance == OrganizationProvenance.REAL
     )
 
 

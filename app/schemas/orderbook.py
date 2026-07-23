@@ -93,17 +93,24 @@ class MarketSupportFinalConfirmation(BaseModel):
 
     external_instruction_reference: str = Field(min_length=3, max_length=500)
     instruction_at: datetime
-    evidence_excerpt: str = Field(min_length=1, max_length=4000)
+    evidence_excerpt: str | None = Field(default=None, max_length=4000)
     acknowledge_exact_terms: bool
     acknowledge_executable_standing_order: bool
 
-    @field_validator("external_instruction_reference", "evidence_excerpt")
+    @field_validator("external_instruction_reference")
     @classmethod
     def normalize_confirmation_text(cls, value: str) -> str:
         normalized = value.strip()
         if not normalized:
             raise ValueError("Confirmation text is required")
         return normalized
+
+    @field_validator("evidence_excerpt")
+    @classmethod
+    def normalize_optional_evidence(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return value.strip() or None
 
     @field_validator("instruction_at")
     @classmethod

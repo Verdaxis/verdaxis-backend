@@ -40,7 +40,7 @@ class MarketSupportAuthorizationStatus(str, enum.Enum):
 
 
 class MarketSupportContextScope(str, enum.Enum):
-    ASK_LISTINGS = "ASK_LISTINGS"
+    ASSISTED_ORDER_ENTRY = "ASSISTED_ORDER_ENTRY"
 
 
 class MarketSupportContextStatus(str, enum.Enum):
@@ -51,12 +51,12 @@ class MarketSupportContextStatus(str, enum.Enum):
 
 
 class MarketSupportContext(Base):
-    """Opaque, short-lived binding between an admin and a supplier org."""
+    """Opaque, short-lived binding between an admin and an organization."""
 
     __tablename__ = "market_support_contexts"
     __table_args__ = (
         CheckConstraint(
-            "scope IN ('ASK_LISTINGS')", name="ck_market_support_context_scope"
+            "scope IN ('ASSISTED_ORDER_ENTRY')", name="ck_market_support_context_scope"
         ),
         CheckConstraint(
             "status IN ('ACTIVE', 'EXITED', 'EXPIRED', 'REVOKED')",
@@ -104,8 +104,8 @@ class MarketSupportContext(Base):
     scope: Mapped[MarketSupportContextScope] = mapped_column(
         Enum(MarketSupportContextScope, native_enum=False, length=32),
         nullable=False,
-        default=MarketSupportContextScope.ASK_LISTINGS,
-        server_default=MarketSupportContextScope.ASK_LISTINGS.value,
+        default=MarketSupportContextScope.ASSISTED_ORDER_ENTRY,
+        server_default=MarketSupportContextScope.ASSISTED_ORDER_ENTRY.value,
     )
     started_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=lambda: datetime.now(UTC), server_default=func.now()
@@ -179,8 +179,12 @@ class MarketSupportAuthorization(Base):
             name="ck_market_support_auth_status",
         ),
         CheckConstraint(
-            "authorization_expires_at <= order_expires_at",
+            "order_expires_at IS NULL OR authorization_expires_at <= order_expires_at",
             name="ck_market_support_auth_expiry_order",
+        ),
+        CheckConstraint(
+            "order_side IN ('BID', 'ASK')",
+            name="ck_market_support_auth_order_side",
         ),
         UniqueConstraint(
             "organization_id",
@@ -232,10 +236,13 @@ class MarketSupportAuthorization(Base):
     availability_window: Mapped[str] = mapped_column(String(16), nullable=False)
     quantity_mt: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     price_per_mt_usd: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
+    order_side: Mapped[str] = mapped_column(
+        String(8), nullable=False, default="ASK", server_default="ASK"
+    )
     authorization_expires_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
     )
-    order_expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    order_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     is_anonymous: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default="true"
     )
@@ -244,19 +251,19 @@ class MarketSupportAuthorization(Base):
         JSON, nullable=False, default=list, server_default=text("'[]'::json")
     )
     certification_declared: Mapped[bool] = mapped_column(Boolean, nullable=False)
-    certification_scheme: Mapped[str] = mapped_column(String(120), nullable=False)
-    specification_standard: Mapped[str] = mapped_column(String(120), nullable=False)
+    certification_scheme: Mapped[str | None] = mapped_column(String(120))
+    specification_standard: Mapped[str | None] = mapped_column(String(120))
     msds_available: Mapped[bool] = mapped_column(Boolean, nullable=False)
-    carbon_intensity_gco2_mj: Mapped[Decimal] = mapped_column(Numeric(), nullable=False)
+    carbon_intensity_gco2_mj: Mapped[Decimal | None] = mapped_column(Numeric())
     carbon_intensity_method: Mapped[str | None] = mapped_column(String(120))
-    feedstock: Mapped[str] = mapped_column(String(255), nullable=False)
-    origin: Mapped[str] = mapped_column(String(255), nullable=False)
+    feedstock: Mapped[str | None] = mapped_column(String(255))
+    origin: Mapped[str | None] = mapped_column(String(255))
     off_spec: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     off_spec_notes: Mapped[str | None] = mapped_column(Text)
 
     terms_digest: Mapped[str] = mapped_column(String(64), nullable=False)
     evidence_reference: Mapped[str] = mapped_column(String(500), nullable=False)
-    evidence_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    evidence_sha256: Mapped[str | None] = mapped_column(String(64))
     commercial_consent_version: Mapped[str] = mapped_column(String(64), nullable=False)
     commercial_consent_reference: Mapped[str] = mapped_column(String(500), nullable=False)
     support_case_reference: Mapped[str | None] = mapped_column(String(200))

@@ -96,7 +96,7 @@ from app.services.market_support import (
     require_matching_etag,
     utc,
 )
-from app.services.market_support_post_only import assess_locked_ask
+from app.services.market_support_post_only import assess_locked_order
 from app.services.market_transactions import retry_market_transaction
 from app.services.org_notifications import notify_org_users_batched
 from app.services.provenance import snapshot_organization_provenance
@@ -216,17 +216,10 @@ async def _context_response(
     organization = (
         await db.execute(select(Organization).where(Organization.id == row.organization_id))
     ).scalar_one_or_none()
-    users = (
-        await db.execute(
-            select(User).where(
-                User.id.in_((row.actor_user_id, row.accountable_user_id))
-            )
-        )
-    ).scalars().all()
-    users_by_id = {user.id: user for user in users}
-    actor = users_by_id.get(row.actor_user_id)
-    principal = users_by_id.get(row.accountable_user_id)
-    if organization is None or actor is None or principal is None:
+    actor = (
+        await db.execute(select(User).where(User.id == row.actor_user_id))
+    ).scalar_one_or_none()
+    if organization is None or actor is None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Support context identities are no longer available",
@@ -235,14 +228,12 @@ async def _context_response(
         id=row.id,
         actor_user_id=row.actor_user_id,
         organization_id=row.organization_id,
-        accountable_user_id=row.accountable_user_id,
         organization=MarketSupportOrganization(
             id=organization.id,
             name=organization.name,
             domain=organization.domain,
             type=str(getattr(organization.type, "value", organization.type)),
         ),
-        accountable_principal=_principal_response(principal),
         actor=_principal_response(actor),
         support_reference=row.support_reference,
         scope=row.scope,
@@ -340,7 +331,7 @@ def _authorization_order(row: MarketSupportAuthorization):
     from app.schemas.orderbook import OrderCreate
 
     return OrderCreate(
-        side=OrderSide.ASK,
+        side=OrderSide(row.order_side),
         product_id=row.product_id,
         delivery_point_id=row.delivery_point_id,
         quantity_mt=row.quantity_mt,
@@ -589,26 +580,9 @@ async def organization_entry(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(require_market_support_admin)],
 ):
-    """Return only the supplier principals eligible for context entry."""
+    """Confirm that an approved real organization is eligible for assisted entry."""
     await _require_context_capabilities(db, current_user.id)
     organization = await _load_organization(db, organization_id)
-    users = (
-        await db.execute(
-            select(User)
-            .where(
-                User.organization_id == organization.id,
-                User.role == UserRole.SUPPLIER,
-                User.status == UserStatus.APPROVED,
-                User.email_verified.is_(True),
-            )
-            .order_by(User.email)
-        )
-    ).scalars().all()
-    eligible = [
-        user
-        for user in users
-        if await execution_party_is_eligible(db, user=user, organization=organization)
-    ]
     return MarketSupportEntryResponse(
         organization=MarketSupportOrganization(
             id=organization.id,
@@ -616,14 +590,7 @@ async def organization_entry(
             domain=organization.domain,
             type=str(getattr(organization.type, "value", organization.type)),
         ),
-        eligible_principals=[
-            MarketSupportPrincipal(
-                id=user.id,
-                email=user.email,
-                name=" ".join(filter(None, [user.first_name, user.last_name])) or user.email,
-            )
-            for user in eligible
-        ],
+        eligible=True,
     )
 
 
@@ -642,7 +609,6 @@ async def create_context(
 ):
     await _require_context_capabilities(db, current_user.id)
     organization = await _load_organization(db, body.organization_id)
-    supplier = await _load_supplier(db, body.accountable_user_id, organization)
     now = datetime.now(UTC)
     active_contexts = (
         await db.execute(
@@ -660,10 +626,7 @@ async def create_context(
             active.ended_at = now
             active.version += 1
             continue
-        if (
-            active.organization_id == organization.id
-            and active.accountable_user_id == supplier.id
-        ):
+        if active.organization_id == organization.id:
             return await _context_response(db, active)
         if not body.confirm_replacement:
             raise HTTPException(
@@ -689,9 +652,11 @@ async def create_context(
     context = MarketSupportContextModel(
         actor_user_id=current_user.id,
         organization_id=organization.id,
-        accountable_user_id=supplier.id,
+        # Legacy column retained for audit compatibility. In organization-scoped
+        # contexts it records the accountable administrator, never a proxy customer.
+        accountable_user_id=current_user.id,
         support_reference=body.support_reference,
-        scope=MarketSupportContextScope.ASK_LISTINGS,
+        scope=MarketSupportContextScope.ASSISTED_ORDER_ENTRY,
         started_at=now,
         expires_at=now + timedelta(minutes=settings.MARKET_SUPPORT_CONTEXT_TTL_MINUTES),
         status=MarketSupportContextStatus.ACTIVE,
@@ -707,7 +672,6 @@ async def create_context(
         resource_id=context.id,
         changes={
             "organization_id": str(organization.id),
-            "accountable_user_id": str(supplier.id),
             "support_reference": body.support_reference,
             "scope": context.scope.value,
             "expires_at": context.expires_at.isoformat(),
@@ -1121,9 +1085,7 @@ async def create_listing(
     supplier = await _load_supplier(db, authorization.accountable_user_id, organization)
     product, delivery_point = await _load_catalog(db, authorization.product_id, authorization.delivery_point_id)
     candidate = _candidate_from_authorization(authorization, organization, product, delivery_point)
-    assessment = await assess_locked_ask(
-        db, candidate, accountable_user=supplier, organization=organization
-    )
+    assessment = await assess_locked_order(db, candidate, organization=organization)
     if assessment.indeterminate:
         raise HTTPException(status_code=409, detail=_detail("POST_ONLY_CHECK_INDETERMINATE", "The complete crossing set could not be assessed; retry later"))
     if assessment.would_cross:

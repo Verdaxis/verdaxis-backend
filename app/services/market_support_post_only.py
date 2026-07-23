@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.orderbook import OrderBookOrder, OrderBookStatus, OrderSide
 from app.models.user import Organization, OrganizationProvenance, User
 from app.services.execution_policy import (
-    execution_party_is_eligible,
+    order_owner_is_execution_eligible,
     order_is_execution_qualified,
     orders_execution_compatible,
 )
@@ -25,31 +25,39 @@ class PostOnlyAssessment:
     best_executable_price: Decimal | None = None
 
 
-async def assess_locked_ask(
+async def assess_locked_order(
     db: AsyncSession,
     candidate: OrderBookOrder,
     *,
-    accountable_user: User,
     organization: Organization,
 ) -> PostOnlyAssessment:
-    """Assess a REAL ASK after the caller acquires its market-slice lock."""
+    """Assess a REAL assisted order after the caller acquires its market-slice lock."""
     if (
-        candidate.side != OrderSide.ASK
-        or candidate.remaining_quantity_mt <= 0
+        candidate.remaining_quantity_mt <= 0
         or not order_is_execution_qualified(candidate)
         or candidate.provenance != OrganizationProvenance.REAL
+        or organization.id != candidate.organization_id
+        or organization.verification_status != "APPROVED"
     ):
         return PostOnlyAssessment(would_cross=True, indeterminate=True)
 
     now = datetime.now(UTC)
+    if candidate.side == OrderSide.ASK:
+        opposite_side = OrderSide.BID
+        price_filter = OrderBookOrder.price_per_mt_usd >= candidate.price_per_mt_usd
+        price_order = OrderBookOrder.price_per_mt_usd.desc()
+    else:
+        opposite_side = OrderSide.ASK
+        price_filter = OrderBookOrder.price_per_mt_usd <= candidate.price_per_mt_usd
+        price_order = OrderBookOrder.price_per_mt_usd.asc()
     filters = (
-        OrderBookOrder.side == OrderSide.BID,
+        OrderBookOrder.side == opposite_side,
         OrderBookOrder.product_id == candidate.product_id,
         OrderBookOrder.delivery_point_id == candidate.delivery_point_id,
         OrderBookOrder.availability_window == candidate.availability_window,
         OrderBookOrder.status.in_((OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED)),
         OrderBookOrder.organization_id != candidate.organization_id,
-        OrderBookOrder.price_per_mt_usd >= candidate.price_per_mt_usd,
+        price_filter,
         or_(OrderBookOrder.expires_at.is_(None), OrderBookOrder.expires_at > now),
         OrderBookOrder.provenance == OrganizationProvenance.REAL,
         OrderBookOrder.organization.has(Organization.verification_status == "APPROVED"),
@@ -58,7 +66,7 @@ async def assess_locked_ask(
         await db.execute(
             select(OrderBookOrder.id)
             .where(*filters)
-            .order_by(OrderBookOrder.price_per_mt_usd.desc(), OrderBookOrder.created_at.asc())
+            .order_by(price_order, OrderBookOrder.created_at.asc())
             .limit(MAX_CROSSING_ORDERS_PER_MATCH + 1)
         )
     ).scalars().all()
@@ -80,7 +88,7 @@ async def assess_locked_ask(
             ).scalars().all()
         )
     owner_ids = sorted(
-        {accountable_user.id, *(order.owner_user_id for order in crossing_orders if order.owner_user_id)},
+        {order.owner_user_id for order in crossing_orders if order.owner_user_id},
         key=str,
     )
     organization_ids = sorted(
@@ -110,19 +118,18 @@ async def assess_locked_ask(
             )
         ).scalars().all()
     }
-    if not await execution_party_is_eligible(
-        db,
-        user=owners.get(accountable_user.id),
-        organization=organizations.get(organization.id),
-    ):
-        return PostOnlyAssessment(would_cross=True, indeterminate=True)
-
-    crossing_orders.sort(key=lambda order: (-order.price_per_mt_usd, order.created_at))
+    crossing_orders.sort(
+        key=lambda order: (
+            -order.price_per_mt_usd if candidate.side == OrderSide.ASK else order.price_per_mt_usd,
+            order.created_at,
+        )
+    )
     for crossing in crossing_orders:
         if crossing.owner_user_id is None or not orders_execution_compatible(candidate, crossing):
             continue
-        if await execution_party_is_eligible(
+        if await order_owner_is_execution_eligible(
             db,
+            order=crossing,
             user=owners.get(crossing.owner_user_id),
             organization=organizations.get(crossing.organization_id),
         ):

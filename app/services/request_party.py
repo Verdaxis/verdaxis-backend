@@ -203,36 +203,24 @@ async def resolve_request_party(
         context.version += 1
         await db.commit()
         raise _context_error("MARKET_SUPPORT_CONTEXT_INVALID", "Support context has expired")
-    if context.scope != MarketSupportContextScope.ASK_LISTINGS:
+    if context.scope != MarketSupportContextScope.ASSISTED_ORDER_ENTRY:
         raise _context_error("MARKET_SUPPORT_CONTEXT_INVALID", "Support scope is not permitted")
 
     organization = (
         await db.execute(select(Organization).where(Organization.id == context.organization_id))
     ).scalar_one_or_none()
-    principal = (
-        await db.execute(select(User).where(User.id == context.accountable_user_id))
-    ).scalar_one_or_none()
     if (
         organization is None
-        or principal is None
         or organization.verification_status != "APPROVED"
         or organization.provenance != OrganizationProvenance.REAL
-        or principal.organization_id != organization.id
-        or principal.role != UserRole.SUPPLIER
     ):
         raise _context_error("MARKET_SUPPORT_CONTEXT_INVALID", "Support context target is no longer valid")
-    # Cleanup cancellation remains available after the principal loses
-    # eligibility; context entry and all other operations remain strict.
-    if operation != "cancel_order" and not await execution_party_is_eligible(
-        db, user=principal, organization=organization
-    ):
-        raise _context_error("MARKET_SUPPORT_CONTEXT_INVALID", "Support context target is no longer eligible")
 
     return RequestParty(
         actor=current_user,
         effective_organization=organization,
-        accountable_principal=principal,
-        effective_role=UserRole.SUPPLIER,
+        accountable_principal=current_user,
+        effective_role=UserRole.ADMIN,
         mode=RequestPartyMode.MARKET_SUPPORT,
         support_context_id=context.id,
         support_reference=context.support_reference,

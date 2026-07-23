@@ -109,7 +109,7 @@ from app.services.request_party import (
     lock_request_party_context,
     resolve_request_party,
 )
-from app.services.market_support_post_only import assess_locked_ask
+from app.services.market_support_post_only import assess_locked_order
 
 router = APIRouter(prefix="/orderbook", tags=["orderbook"])
 
@@ -1116,27 +1116,23 @@ async def create_order(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Place a new order. BID requires BUYER role, ASK requires SUPPLIER role.
+    Place a new order. Self-service BID requires BUYER role and ASK requires
+    SUPPLIER role; an assisted context is authorized at organization level.
     """
     party = await resolve_request_party(request, db, current_user, operation="create_order")
     if party.mode == RequestPartyMode.SELF_SERVICE:
         if order_data.support_confirmation is not None:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Market Support confirmation requires an active support context",
+            detail="Assisted-order confirmation requires an active assisted workspace",
             )
         if isinstance(current_user, User):
             current_user = await require_execution_eligible_user(current_user=current_user, db=db)
     else:
-        if order_data.side != OrderSide.ASK:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Market Support permits ASK listings only",
-            )
         if order_data.support_confirmation is None:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Final Market Support confirmation is required",
+                detail="Final assisted-order confirmation is required",
             )
 
     effective_organization_id = (
@@ -1156,7 +1152,7 @@ async def create_order(
     if party.mode == RequestPartyMode.MARKET_SUPPORT and not idempotency_key:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Market Support ASK orders require Idempotency-Key",
+            detail="Assisted orders require Idempotency-Key",
         )
     request_hash = None
     if idempotency_key:
@@ -1201,13 +1197,21 @@ async def create_order(
                 raise HTTPException(status_code=409, detail="Idempotency-Key is bound to another request party")
             return await _order_response(db, existing_order)
 
-    if order_data.side == OrderSide.BID and party.effective_role != UserRole.BUYER:
+    if (
+        party.mode == RequestPartyMode.SELF_SERVICE
+        and order_data.side == OrderSide.BID
+        and party.effective_role != UserRole.BUYER
+    ):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only buyers can place BID orders",
         )
 
-    if order_data.side == OrderSide.ASK and party.effective_role != UserRole.SUPPLIER:
+    if (
+        party.mode == RequestPartyMode.SELF_SERVICE
+        and order_data.side == OrderSide.ASK
+        and party.effective_role != UserRole.SUPPLIER
+    ):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only suppliers can place ASK orders",
@@ -1290,7 +1294,9 @@ async def create_order(
         db,
         [effective_organization_id],
         actor_ownerships=(
-            MarketActorOwnership(party.accountable_principal.id, effective_organization_id),
+            ()
+            if party.mode == RequestPartyMode.MARKET_SUPPORT
+            else (MarketActorOwnership(party.accountable_principal.id, effective_organization_id),)
         ),
     )
     organization = organizations[effective_organization_id]
@@ -1327,36 +1333,26 @@ async def create_order(
     support_authorization = None
     if party.mode == RequestPartyMode.MARKET_SUPPORT:
         confirmation = order_data.support_confirmation
-        if confirmation is None or order_data.expires_at is None:
+        if confirmation is None:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Market Support ASK orders require final confirmation and explicit expiry",
+                detail="Assisted orders require final confirmation",
             )
         now = datetime.now(UTC)
         if order_data.port_id is not None or order_data.vessel_id is not None:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Market Support ASK orders use the canonical delivery point only",
+                detail="Assisted orders use the canonical delivery point only",
             )
-        if order_data.expires_at > now + timedelta(hours=settings.MARKET_SUPPORT_MAX_TTL_HOURS):
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail={
-                    "code": "MARKET_SUPPORT_TTL_EXCEEDED",
-                    "message": "Order expiry exceeds the Market Support limit",
-                },
-            )
-        if confirmation.instruction_at > now or confirmation.instruction_at < now - timedelta(
-            hours=settings.MARKET_SUPPORT_MAX_TTL_HOURS
-        ):
+        if confirmation.instruction_at > now:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail={
                     "code": "MARKET_SUPPORT_INSTRUCTION_TIME_INVALID",
-                    "message": "Instruction time must be recent and not in the future",
+                    "message": "Instruction time cannot be in the future",
                 },
             )
-        if order_data.expires_at <= confirmation.instruction_at:
+        if order_data.expires_at is not None and order_data.expires_at <= confirmation.instruction_at:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Order expiry must follow the instruction time",
@@ -1368,14 +1364,10 @@ async def create_order(
             .execution_options(populate_existing=True)
         )
         context_row = context_result.scalar_one()
-        # The customer instruction commonly predates the admin opening this
-        # support context. Context expiry limits privileged publication, not
-        # the lifetime of the resulting standing ASK.
         # Assess the complete crossing set while the canonical slice is held.
-        assessment = await assess_locked_ask(
+        assessment = await assess_locked_order(
             db,
             new_order,
-            accountable_user=party.accountable_principal,
             organization=organization,
         )
         if assessment.indeterminate:
@@ -1391,7 +1383,7 @@ async def create_order(
                 status_code=status.HTTP_409_CONFLICT,
                 detail={
                     "code": "POST_ONLY_WOULD_CROSS",
-                    "message": "Market Support publication must rest without immediate execution",
+                    "message": "Assisted order entry is post-only and must rest without immediate execution",
                     "best_executable_opposing_price": (
                         str(assessment.best_executable_price)
                         if assessment.best_executable_price is not None
@@ -1408,8 +1400,8 @@ async def create_order(
             availability_window=new_order.availability_window,
             quantity_mt=new_order.quantity_mt,
             price_per_mt_usd=new_order.price_per_mt_usd,
-            # Replaced with the active context expiry immediately below.
-            authorization_expires_at=order_data.expires_at,
+            order_side=new_order.side.value,
+            authorization_expires_at=context_row.expires_at,
             order_expires_at=order_data.expires_at,
             is_anonymous=order_data.is_anonymous,
             certifications=list(order_data.certifications),
@@ -1427,9 +1419,11 @@ async def create_order(
                 order_data.model_copy(update={"support_confirmation": None})
             ),
             evidence_reference=confirmation.external_instruction_reference,
-            evidence_sha256=hashlib.sha256(
-                confirmation.evidence_excerpt.encode("utf-8")
-            ).hexdigest(),
+            evidence_sha256=(
+                hashlib.sha256(confirmation.evidence_excerpt.encode("utf-8")).hexdigest()
+                if confirmation.evidence_excerpt
+                else None
+            ),
             instruction_at=confirmation.instruction_at,
             acknowledge_exact_terms=confirmation.acknowledge_exact_terms,
             acknowledge_executable_standing_order=confirmation.acknowledge_executable_standing_order,
@@ -1443,8 +1437,10 @@ async def create_order(
         )
         # The active context's expiry is intentionally the authorization bound.
         context_expiry = context_row.expires_at
-        support_authorization.authorization_expires_at = min(
-            context_expiry, order_data.expires_at
+        support_authorization.authorization_expires_at = (
+            min(context_expiry, order_data.expires_at)
+            if order_data.expires_at is not None
+            else context_expiry
         )
         db.add(support_authorization)
         await db.flush()
@@ -1463,7 +1459,6 @@ async def create_order(
                 "support_context_id": str(party.support_context_id),
                 "terms_digest": support_authorization.terms_digest,
                 "evidence_reference": support_authorization.evidence_reference,
-                "evidence_sha256": support_authorization.evidence_sha256,
                 "instruction_at": support_authorization.instruction_at.isoformat(),
                 "acknowledge_exact_terms": support_authorization.acknowledge_exact_terms,
                 "acknowledge_executable_standing_order": support_authorization.acknowledge_executable_standing_order,
@@ -1974,7 +1969,7 @@ async def cancel_order(
     if order.creation_method == OrderCreationMethod.MARKET_SUPPORT and not reason:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Cancellation reason is required for Market Support listings",
+            detail="Cancellation reason is required for assisted orders",
         )
     if request.method == "POST" and not reason:
         raise HTTPException(
@@ -1985,10 +1980,9 @@ async def cancel_order(
     if party is not None and party.mode == RequestPartyMode.MARKET_SUPPORT:
         if (
             order.creation_method != OrderCreationMethod.MARKET_SUPPORT
-            or order.side != OrderSide.ASK
             or order.organization_id != effective_organization_id
         ):
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only support-created ASK listings can be cancelled")
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only assisted orders for this organization can be cancelled")
         authorization_context = (
             await db.execute(
                 select(MarketSupportAuthorization.market_support_context_id).where(
