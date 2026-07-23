@@ -11,10 +11,18 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from app.models.market_support import (
     MarketSupportAuthorizationStatus,
     MarketSupportCapability,
+    MarketSupportContextScope,
+    MarketSupportContextStatus,
 )
 from app.models.orderbook import OrderCreationMethod, OrderSide
-from app.schemas.orderbook import OrderCreate, OrderResponse
+from app.schemas.orderbook import (
+    MarketSupportFinalConfirmation as _MarketSupportFinalConfirmation,
+    OrderCreate,
+    OrderResponse,
+)
 from app.schemas.pagination import PaginatedResponse
+
+MarketSupportFinalConfirmation = _MarketSupportFinalConfirmation
 
 
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
@@ -144,6 +152,9 @@ class AuthorizationResponse(BaseModel):
     commercial_consent_version: str
     commercial_consent_reference: str
     support_case_reference: str | None
+    instruction_at: datetime | None
+    acknowledge_exact_terms: bool | None
+    acknowledge_executable_standing_order: bool | None
     created_by_actor_user_id: UUID
     created_at: datetime
     consumed_at: datetime | None
@@ -191,6 +202,21 @@ class AssistedListingResponse(BaseModel):
     etag: str
 
 
+class MarketSupportContextCreate(BaseModel):
+    organization_id: UUID
+    accountable_user_id: UUID
+    support_reference: str = Field(min_length=3, max_length=200)
+    confirm_replacement: bool = False
+
+    @field_validator("support_reference")
+    @classmethod
+    def normalize_support_reference(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("support_reference is required")
+        return normalized
+
+
 class MarketSupportPrincipal(BaseModel):
     id: UUID
     email: str
@@ -202,6 +228,30 @@ class MarketSupportOrganization(BaseModel):
     name: str
     domain: str | None
     type: str
+
+
+class MarketSupportContextResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    actor_user_id: UUID
+    organization_id: UUID
+    accountable_user_id: UUID
+    organization: MarketSupportOrganization
+    accountable_principal: MarketSupportPrincipal
+    actor: MarketSupportPrincipal
+    support_reference: str
+    scope: MarketSupportContextScope
+    started_at: datetime
+    expires_at: datetime
+    ended_at: datetime | None
+    status: MarketSupportContextStatus
+    version: int
+
+
+class MarketSupportEntryResponse(BaseModel):
+    organization: MarketSupportOrganization
+    eligible_principals: list[MarketSupportPrincipal]
 
 
 class MarketSupportContext(BaseModel):

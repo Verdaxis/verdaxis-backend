@@ -33,8 +33,26 @@ def _canonical_digest_value(value):
     return value
 
 
+def economic_order_payload(order: OrderCreate) -> dict[str, object]:
+    """Return the pre-support canonical order payload.
+
+    ``support_confirmation`` is transient evidence, not an economic term. It
+    must not invalidate existing idempotency keys or authorization digests.
+    """
+    payload = order.model_dump(mode="python")
+    payload.pop("support_confirmation", None)
+    return payload
+
+
+def economic_order_idempotency_payload(order: OrderCreate) -> dict[str, object]:
+    """JSON-ready equivalent used by the legacy order idempotency contract."""
+    payload = order.model_dump(mode="json")
+    payload.pop("support_confirmation", None)
+    return payload
+
+
 def authorization_terms_digest(order: OrderCreate) -> str:
-    payload = _canonical_digest_value(order.model_dump(mode="python"))
+    payload = _canonical_digest_value(economic_order_payload(order))
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
     return hashlib.sha256(encoded).hexdigest()
 

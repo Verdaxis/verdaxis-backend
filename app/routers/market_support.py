@@ -18,6 +18,9 @@ from app.models.market_support import (
     MarketSupportAuthorization,
     MarketSupportAuthorizationStatus,
     MarketSupportCapability,
+    MarketSupportContext as MarketSupportContextModel,
+    MarketSupportContextScope,
+    MarketSupportContextStatus,
     StaffCapabilityAssignment,
 )
 from app.models.notification import NotificationType
@@ -34,7 +37,6 @@ from app.routers.orderbook import (
     _order_response,
     _require_supplier_certification,
     _require_supplier_metadata,
-    _supplier_metadata_payload,
     _watchlist_before_state,
 )
 from app.schemas.market_support import (
@@ -51,6 +53,9 @@ from app.schemas.market_support import (
     CapabilityAssignmentRevoke,
     MarketSupportContext,
     MarketSupportOrganization,
+    MarketSupportContextCreate,
+    MarketSupportContextResponse,
+    MarketSupportEntryResponse,
     MarketSupportPrincipal,
     OrganizationPage,
 )
@@ -60,6 +65,9 @@ from app.services.audit_actions import (
     MARKET_SUPPORT_AUTHORIZATION_REVOKED,
     MARKET_SUPPORT_CAPABILITY_GRANTED,
     MARKET_SUPPORT_CAPABILITY_REVOKED,
+    MARKET_SUPPORT_CONTEXT_EXITED,
+    MARKET_SUPPORT_CONTEXT_REVOKED,
+    MARKET_SUPPORT_CONTEXT_STARTED,
     ORDER_CANCELLED,
     ORDER_CREATED,
 )
@@ -172,6 +180,78 @@ async def _active_capabilities(db: AsyncSession, user_id: UUID) -> list[MarketSu
 async def _require_any_capability(db: AsyncSession, user_id: UUID) -> None:
     if not await _active_capabilities(db, user_id):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+
+
+async def _require_context_capabilities(db: AsyncSession, user_id: UUID) -> None:
+    await _lock_capability(
+        db, user_id, MarketSupportCapability.MARKET_SUPPORT_AUTHORIZATIONS
+    )
+    await _lock_capability(
+        db, user_id, MarketSupportCapability.MARKET_SUPPORT_LISTINGS
+    )
+
+
+def _reject_legacy_workspace_mutation() -> None:
+    if settings.MARKET_SUPPORT_ENABLED:
+        raise HTTPException(
+            status_code=status.HTTP_410_GONE,
+            detail=_detail(
+                "MARKET_SUPPORT_LEGACY_MUTATION_RETIRED",
+                "Use an active Market Support context and the normal customer route",
+            ),
+        )
+
+
+def _principal_response(user: User) -> MarketSupportPrincipal:
+    return MarketSupportPrincipal(
+        id=user.id,
+        email=user.email,
+        name=" ".join(filter(None, [user.first_name, user.last_name])) or user.email,
+    )
+
+
+async def _context_response(
+    db: AsyncSession, row: MarketSupportContextModel
+) -> MarketSupportContextResponse:
+    organization = (
+        await db.execute(select(Organization).where(Organization.id == row.organization_id))
+    ).scalar_one_or_none()
+    users = (
+        await db.execute(
+            select(User).where(
+                User.id.in_((row.actor_user_id, row.accountable_user_id))
+            )
+        )
+    ).scalars().all()
+    users_by_id = {user.id: user for user in users}
+    actor = users_by_id.get(row.actor_user_id)
+    principal = users_by_id.get(row.accountable_user_id)
+    if organization is None or actor is None or principal is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Support context identities are no longer available",
+        )
+    return MarketSupportContextResponse(
+        id=row.id,
+        actor_user_id=row.actor_user_id,
+        organization_id=row.organization_id,
+        accountable_user_id=row.accountable_user_id,
+        organization=MarketSupportOrganization(
+            id=organization.id,
+            name=organization.name,
+            domain=organization.domain,
+            type=str(getattr(organization.type, "value", organization.type)),
+        ),
+        accountable_principal=_principal_response(principal),
+        actor=_principal_response(actor),
+        support_reference=row.support_reference,
+        scope=row.scope,
+        started_at=row.started_at,
+        expires_at=row.expires_at,
+        ended_at=row.ended_at,
+        status=row.status,
+        version=row.version,
+    )
 
 
 def _require_bootstrap_operator(user: User) -> None:
@@ -418,21 +498,54 @@ async def revoke_capability_assignment(
     ).scalar_one_or_none()
     if assignment is None:
         raise HTTPException(status_code=404, detail="Capability assignment not found")
+    # The capability row is locked before any context row.  Every context
+    # created for this actor is then revoked in this same transaction, so a
+    # request cannot pass its final capability check after revocation commits.
+    active_contexts = (
+        await db.execute(
+            select(MarketSupportContextModel)
+            .where(
+                MarketSupportContextModel.actor_user_id == assignment.user_id,
+                MarketSupportContextModel.status == MarketSupportContextStatus.ACTIVE,
+            )
+            .order_by(MarketSupportContextModel.id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+    ).scalars().all()
     if assignment.revoked_at is None:
         assignment.revoked_at = datetime.now(UTC)
         assignment.revoked_by_user_id = current_user.id
         assignment.revocation_reason = body.reason
+    await record_audit(
+        db,
+        user_id=current_user.id,
+        action=MARKET_SUPPORT_CAPABILITY_REVOKED,
+        resource_type="staff_capability_assignment",
+        resource_id=assignment.id,
+        changes={"target_user_id": str(assignment.user_id), "capability": assignment.capability.value, "reason": body.reason},
+        **request_audit_context(request),
+    )
+    now = datetime.now(UTC)
+    for context in active_contexts:
+        context.status = MarketSupportContextStatus.REVOKED
+        context.ended_at = now
+        context.version += 1
         await record_audit(
             db,
             user_id=current_user.id,
-            action=MARKET_SUPPORT_CAPABILITY_REVOKED,
-            resource_type="staff_capability_assignment",
-            resource_id=assignment.id,
-            changes={"target_user_id": str(assignment.user_id), "capability": assignment.capability.value, "reason": body.reason},
+            action=MARKET_SUPPORT_CONTEXT_REVOKED,
+            resource_type="market_support_context",
+            resource_id=context.id,
+            changes={
+                "status": context.status.value,
+                "reason": body.reason,
+                "capability_assignment_id": str(assignment.id),
+            },
             **request_audit_context(request),
         )
-        await db.commit()
-        await db.refresh(assignment)
+    await db.commit()
+    await db.refresh(assignment)
     return assignment
 
 
@@ -466,6 +579,249 @@ async def organizations(
     )
 
 
+@router.get(
+    "/organizations/{organization_id}/entry",
+    response_model=MarketSupportEntryResponse,
+    operation_id="marketSupportOrganizationEntry",
+)
+async def organization_entry(
+    organization_id: UUID,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_market_support_admin)],
+):
+    """Return only the supplier principals eligible for context entry."""
+    await _require_context_capabilities(db, current_user.id)
+    organization = await _load_organization(db, organization_id)
+    users = (
+        await db.execute(
+            select(User)
+            .where(
+                User.organization_id == organization.id,
+                User.role == UserRole.SUPPLIER,
+                User.status == UserStatus.APPROVED,
+                User.email_verified.is_(True),
+            )
+            .order_by(User.email)
+        )
+    ).scalars().all()
+    eligible = [
+        user
+        for user in users
+        if await execution_party_is_eligible(db, user=user, organization=organization)
+    ]
+    return MarketSupportEntryResponse(
+        organization=MarketSupportOrganization(
+            id=organization.id,
+            name=organization.name,
+            domain=organization.domain,
+            type=str(getattr(organization.type, "value", organization.type)),
+        ),
+        eligible_principals=[
+            MarketSupportPrincipal(
+                id=user.id,
+                email=user.email,
+                name=" ".join(filter(None, [user.first_name, user.last_name])) or user.email,
+            )
+            for user in eligible
+        ],
+    )
+
+
+@router.post(
+    "/contexts",
+    response_model=MarketSupportContextResponse,
+    status_code=status.HTTP_201_CREATED,
+    operation_id="createMarketSupportContext",
+)
+@retry_market_transaction()
+async def create_context(
+    request: Request,
+    body: MarketSupportContextCreate,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_market_support_admin)],
+):
+    await _require_context_capabilities(db, current_user.id)
+    organization = await _load_organization(db, body.organization_id)
+    supplier = await _load_supplier(db, body.accountable_user_id, organization)
+    now = datetime.now(UTC)
+    active_contexts = (
+        await db.execute(
+            select(MarketSupportContextModel)
+            .where(
+                MarketSupportContextModel.actor_user_id == current_user.id,
+                MarketSupportContextModel.status == MarketSupportContextStatus.ACTIVE,
+            )
+            .with_for_update()
+        )
+    ).scalars().all()
+    for active in active_contexts:
+        if utc(active.expires_at) <= now:
+            active.status = MarketSupportContextStatus.EXPIRED
+            active.ended_at = now
+            active.version += 1
+            continue
+        if (
+            active.organization_id == organization.id
+            and active.accountable_user_id == supplier.id
+        ):
+            return await _context_response(db, active)
+        if not body.confirm_replacement:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=_detail(
+                    "MARKET_SUPPORT_CONTEXT_REPLACEMENT_REQUIRED",
+                    "Confirm replacement of the active support context",
+                ),
+            )
+        active.status = MarketSupportContextStatus.EXITED
+        active.ended_at = now
+        active.version += 1
+        await record_audit(
+            db,
+            user_id=current_user.id,
+            action=MARKET_SUPPORT_CONTEXT_EXITED,
+            resource_type="market_support_context",
+            resource_id=active.id,
+            changes={"status": active.status.value, "replacement": True},
+            **request_audit_context(request),
+        )
+
+    context = MarketSupportContextModel(
+        actor_user_id=current_user.id,
+        organization_id=organization.id,
+        accountable_user_id=supplier.id,
+        support_reference=body.support_reference,
+        scope=MarketSupportContextScope.ASK_LISTINGS,
+        started_at=now,
+        expires_at=now + timedelta(minutes=settings.MARKET_SUPPORT_CONTEXT_TTL_MINUTES),
+        status=MarketSupportContextStatus.ACTIVE,
+        version=1,
+    )
+    db.add(context)
+    await db.flush()
+    await record_audit(
+        db,
+        user_id=current_user.id,
+        action=MARKET_SUPPORT_CONTEXT_STARTED,
+        resource_type="market_support_context",
+        resource_id=context.id,
+        changes={
+            "organization_id": str(organization.id),
+            "accountable_user_id": str(supplier.id),
+            "support_reference": body.support_reference,
+            "scope": context.scope.value,
+            "expires_at": context.expires_at.isoformat(),
+        },
+        **request_audit_context(request),
+    )
+    await db.commit()
+    await db.refresh(context)
+    return await _context_response(db, context)
+
+
+async def _load_owned_context(
+    db: AsyncSession, actor_id: UUID, context_id: UUID, *, lock: bool = False
+) -> MarketSupportContextModel:
+    statement = select(MarketSupportContextModel).where(
+        MarketSupportContextModel.id == context_id,
+        MarketSupportContextModel.actor_user_id == actor_id,
+    )
+    if lock:
+        statement = statement.with_for_update().execution_options(populate_existing=True)
+    context = (await db.execute(statement)).scalar_one_or_none()
+    if context is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+    return context
+
+
+@router.get(
+    "/contexts/active",
+    response_model=MarketSupportContextResponse | None,
+    operation_id="activeMarketSupportContext",
+)
+async def active_context(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_market_support_admin)],
+):
+    await _require_context_capabilities(db, current_user.id)
+    context = (
+        await db.execute(
+            select(MarketSupportContextModel)
+            .where(
+                MarketSupportContextModel.actor_user_id == current_user.id,
+                MarketSupportContextModel.status == MarketSupportContextStatus.ACTIVE,
+            )
+            .order_by(MarketSupportContextModel.started_at.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if context is None:
+        return None
+    if utc(context.expires_at) <= datetime.now(UTC):
+        context.status = MarketSupportContextStatus.EXPIRED
+        context.ended_at = datetime.now(UTC)
+        context.version += 1
+        await db.commit()
+        return None
+    return await _context_response(db, context)
+
+
+@router.get(
+    "/contexts/{context_id}",
+    response_model=MarketSupportContextResponse,
+    operation_id="getMarketSupportContext",
+)
+async def get_context(
+    context_id: UUID,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_market_support_admin)],
+):
+    await _require_context_capabilities(db, current_user.id)
+    context = await _load_owned_context(db, current_user.id, context_id)
+    if context.status == MarketSupportContextStatus.ACTIVE and utc(context.expires_at) <= datetime.now(UTC):
+        context.status = MarketSupportContextStatus.EXPIRED
+        context.ended_at = datetime.now(UTC)
+        context.version += 1
+        await db.commit()
+    return await _context_response(db, context)
+
+
+@router.post(
+    "/contexts/{context_id}/exit",
+    response_model=MarketSupportContextResponse,
+    operation_id="exitMarketSupportContext",
+)
+@retry_market_transaction()
+async def exit_context(
+    context_id: UUID,
+    request: Request,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_market_support_admin)],
+):
+    await _require_context_capabilities(db, current_user.id)
+    context = await _load_owned_context(db, current_user.id, context_id, lock=True)
+    if context.status == MarketSupportContextStatus.ACTIVE:
+        context.status = (
+            MarketSupportContextStatus.EXPIRED
+            if utc(context.expires_at) <= datetime.now(UTC)
+            else MarketSupportContextStatus.EXITED
+        )
+        context.ended_at = datetime.now(UTC)
+        context.version += 1
+        await record_audit(
+            db,
+            user_id=current_user.id,
+            action=MARKET_SUPPORT_CONTEXT_EXITED,
+            resource_type="market_support_context",
+            resource_id=context.id,
+            changes={"status": context.status.value},
+            **request_audit_context(request),
+        )
+        await db.commit()
+        await db.refresh(context)
+    return await _context_response(db, context)
+
+
 @router.post(
     "/organizations/{organization_id}/authorizations",
     response_model=AuthorizationResponse,
@@ -481,9 +837,14 @@ async def create_authorization(
     current_user: Annotated[User, Depends(require_market_support_admin)],
     idempotency_key_header: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
 ):
+    _reject_legacy_workspace_mutation()
     await _lock_capability(db, current_user.id, MarketSupportCapability.MARKET_SUPPORT_AUTHORIZATIONS)
     key = _require_idempotency_key(idempotency_key_header)
-    request_hash = idempotency_request_hash(body.model_dump(mode="json"))
+    request_payload = body.model_dump(mode="json")
+    # The confirmation is transient evidence, not an authorization term or
+    # part of the pre-context idempotency contract.
+    request_payload.get("order", {}).pop("support_confirmation", None)
+    request_hash = idempotency_request_hash(request_payload)
     await acquire_idempotency_lock(db, tenant_id=organization_id, operation=AUTH_CREATE_OPERATION, key=key)
     existing = (
         await db.execute(
@@ -504,6 +865,19 @@ async def create_authorization(
         raise HTTPException(status_code=409, detail="Authorization and order expiry must be in the future")
     if order_expiry > now + timedelta(hours=settings.MARKET_SUPPORT_MAX_TTL_HOURS):
         raise HTTPException(status_code=409, detail=_detail("MARKET_SUPPORT_TTL_EXCEEDED", "Order expiry exceeds the pilot limit"))
+    confirmation = body.order.support_confirmation
+    if confirmation is not None and (
+        confirmation.instruction_at > now
+        or confirmation.instruction_at
+        < now - timedelta(hours=settings.MARKET_SUPPORT_MAX_TTL_HOURS)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=_detail(
+                "MARKET_SUPPORT_INSTRUCTION_TIME_INVALID",
+                "Instruction time must be recent and not in the future",
+            ),
+        )
     if not is_tradable_availability_window(body.order.availability_window):
         raise HTTPException(status_code=409, detail="Availability window is not open for new listings")
     scheme = normalize_certification_scheme(body.order.certification_scheme)
@@ -557,6 +931,15 @@ async def create_authorization(
         commercial_consent_version=body.commercial_consent_version,
         commercial_consent_reference=body.commercial_consent_reference,
         support_case_reference=body.support_case_reference,
+        instruction_at=confirmation.instruction_at if confirmation else None,
+        acknowledge_exact_terms=(
+            confirmation.acknowledge_exact_terms if confirmation else None
+        ),
+        acknowledge_executable_standing_order=(
+            confirmation.acknowledge_executable_standing_order
+            if confirmation
+            else None
+        ),
         idempotency_key=key,
         idempotency_request_hash=request_hash,
         created_by_actor_user_id=current_user.id,
@@ -575,6 +958,10 @@ async def create_authorization(
             "accountable_user_id": str(supplier.id),
             "terms_digest": row.terms_digest,
             "evidence_reference": row.evidence_reference,
+            "evidence_sha256": row.evidence_sha256,
+            "instruction_at": row.instruction_at.isoformat() if row.instruction_at else None,
+            "acknowledge_exact_terms": row.acknowledge_exact_terms,
+            "acknowledge_executable_standing_order": row.acknowledge_executable_standing_order,
             "commercial_consent_version": row.commercial_consent_version,
         },
         **request_audit_context(request),
@@ -666,6 +1053,7 @@ async def create_listing(
     current_user: Annotated[User, Depends(require_market_support_admin)],
     idempotency_key_header: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
 ):
+    _reject_legacy_workspace_mutation()
     await _lock_capability(db, current_user.id, MarketSupportCapability.MARKET_SUPPORT_LISTINGS)
     key = _require_idempotency_key(idempotency_key_header)
     request_hash = idempotency_request_hash(body.model_dump(mode="json"))
@@ -909,6 +1297,7 @@ async def cancel_listing(
     current_user: Annotated[User, Depends(require_market_support_admin)],
     if_match: Annotated[str | None, Header(alias="If-Match")] = None,
 ):
+    _reject_legacy_workspace_mutation()
     await _lock_capability(db, current_user.id, MarketSupportCapability.MARKET_SUPPORT_LISTINGS)
     preview = await _load_support_order(db, organization_id, order_id)
     require_matching_etag(if_match, order_id=order_id, version=preview.version)
@@ -939,6 +1328,7 @@ async def revoke_authorization(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(require_market_support_admin)],
 ):
+    _reject_legacy_workspace_mutation()
     await _lock_capability(db, current_user.id, MarketSupportCapability.MARKET_SUPPORT_AUTHORIZATIONS)
     await _authorization_namespace_lock(db, authorization_id)
     preview_order = (

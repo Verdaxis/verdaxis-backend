@@ -71,6 +71,7 @@ class AdminUserEntry(BaseModel):
     role: str
     status: str
     created_at: datetime
+    organization_id: Optional[_uuid.UUID]
     org_name: Optional[str]
     org_type: Optional[str]
 
@@ -471,6 +472,7 @@ def _user_to_entry(row) -> AdminUserEntry:
         role=user.role.value if user.role else "",
         status=user.status.value if user.status else "",
         created_at=user.created_at,
+        organization_id=user.organization_id,
         org_name=org_name,
         org_type=org_type.value if org_type else None,
     )

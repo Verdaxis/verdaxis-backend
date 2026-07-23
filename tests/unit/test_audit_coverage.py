@@ -19,6 +19,9 @@ EXPECTED_AUDIT_CONSTANTS = {
     "MARKET_SUPPORT_AUTHORIZATION_REVOKED": "market_support.authorization_revoked",
     "MARKET_SUPPORT_CAPABILITY_GRANTED": "market_support.capability_granted",
     "MARKET_SUPPORT_CAPABILITY_REVOKED": "market_support.capability_revoked",
+    "MARKET_SUPPORT_CONTEXT_STARTED": "market_support.context_started",
+    "MARKET_SUPPORT_CONTEXT_EXITED": "market_support.context_exited",
+    "MARKET_SUPPORT_CONTEXT_REVOKED": "market_support.context_revoked",
     # negotiation.accepted / rfq.accepted are intentionally unregistered:
     # negotiation and RFQ execution are disabled in this release.
     "NEGOTIATION_COUNTERED": "negotiation.countered",

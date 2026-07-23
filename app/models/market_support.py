@@ -13,6 +13,7 @@ from sqlalchemy import (
     Enum,
     ForeignKey,
     Index,
+    Integer,
     JSON,
     Numeric,
     String,
@@ -36,6 +37,90 @@ class MarketSupportAuthorizationStatus(str, enum.Enum):
     ACTIVE = "ACTIVE"
     CONSUMED = "CONSUMED"
     REVOKED = "REVOKED"
+
+
+class MarketSupportContextScope(str, enum.Enum):
+    ASK_LISTINGS = "ASK_LISTINGS"
+
+
+class MarketSupportContextStatus(str, enum.Enum):
+    ACTIVE = "ACTIVE"
+    EXITED = "EXITED"
+    EXPIRED = "EXPIRED"
+    REVOKED = "REVOKED"
+
+
+class MarketSupportContext(Base):
+    """Opaque, short-lived binding between an admin and a supplier org."""
+
+    __tablename__ = "market_support_contexts"
+    __table_args__ = (
+        CheckConstraint(
+            "scope IN ('ASK_LISTINGS')", name="ck_market_support_context_scope"
+        ),
+        CheckConstraint(
+            "status IN ('ACTIVE', 'EXITED', 'EXPIRED', 'REVOKED')",
+            name="ck_market_support_context_status",
+        ),
+        CheckConstraint(
+            "expires_at > started_at", name="ck_market_support_context_expiry"
+        ),
+        CheckConstraint("version >= 1", name="ck_market_support_context_version"),
+        Index(
+            "ix_market_support_context_actor_status",
+            "actor_user_id",
+            "status",
+            "expires_at",
+        ),
+        Index(
+            "ix_market_support_context_organization_status",
+            "organization_id",
+            "status",
+            "expires_at",
+        ),
+        Index(
+            "uq_market_support_context_actor_active",
+            "actor_user_id",
+            unique=True,
+            postgresql_where=text("status = 'ACTIVE'"),
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    actor_user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("organizations.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    accountable_user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    support_reference: Mapped[str] = mapped_column(String(200), nullable=False)
+    scope: Mapped[MarketSupportContextScope] = mapped_column(
+        Enum(MarketSupportContextScope, native_enum=False, length=32),
+        nullable=False,
+        default=MarketSupportContextScope.ASK_LISTINGS,
+        server_default=MarketSupportContextScope.ASK_LISTINGS.value,
+    )
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(UTC), server_default=func.now()
+    )
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    status: Mapped[MarketSupportContextStatus] = mapped_column(
+        Enum(MarketSupportContextStatus, native_enum=False, length=16),
+        nullable=False,
+        default=MarketSupportContextStatus.ACTIVE,
+        server_default=MarketSupportContextStatus.ACTIVE.value,
+    )
+    version: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1, server_default="1"
+    )
 
 
 class StaffCapabilityAssignment(Base):
@@ -108,6 +193,9 @@ class MarketSupportAuthorization(Base):
             "status",
             "created_at",
         ),
+        Index(
+            "ix_market_support_authorizations_context", "market_support_context_id"
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -120,6 +208,11 @@ class MarketSupportAuthorization(Base):
     )
     accountable_user_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    market_support_context_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("market_support_contexts.id", ondelete="RESTRICT"),
+        nullable=True,
     )
     status: Mapped[MarketSupportAuthorizationStatus] = mapped_column(
         Enum(MarketSupportAuthorizationStatus, native_enum=False, length=16),
@@ -167,6 +260,11 @@ class MarketSupportAuthorization(Base):
     commercial_consent_version: Mapped[str] = mapped_column(String(64), nullable=False)
     commercial_consent_reference: Mapped[str] = mapped_column(String(500), nullable=False)
     support_case_reference: Mapped[str | None] = mapped_column(String(200))
+    # Forensic facts for context-mode confirmations.  Nullable preserves
+    # compatibility with authorizations created before context mode existed.
+    instruction_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    acknowledge_exact_terms: Mapped[bool | None] = mapped_column(Boolean)
+    acknowledge_executable_standing_order: Mapped[bool | None] = mapped_column(Boolean)
 
     idempotency_key: Mapped[str] = mapped_column(String(255), nullable=False)
     idempotency_request_hash: Mapped[str] = mapped_column(String(64), nullable=False)

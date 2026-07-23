@@ -9,9 +9,15 @@ from pydantic import ValidationError
 
 from app.models.market_support import MarketSupportAuthorizationStatus
 from app.schemas.market_support import AuthorizationCreate
-from app.schemas.orderbook import OrderCreate, OrderResponse
+from app.schemas.orderbook import (
+    MarketSupportFinalConfirmation,
+    OrderCreate,
+    OrderResponse,
+)
+from app.services.idempotency import idempotency_request_hash
 from app.services.market_support import (
     authorization_terms_digest,
+    economic_order_idempotency_payload,
     order_etag,
     require_matching_etag,
 )
@@ -95,6 +101,26 @@ def test_terms_digest_ignores_persisted_decimal_scale():
     assert authorization_terms_digest(browser_order) == authorization_terms_digest(
         persisted_order
     )
+
+
+def test_pre_context_digests_ignore_transient_support_confirmation_fixture():
+    legacy = _order()
+    confirmed = legacy.model_copy(
+        update={
+            "support_confirmation": MarketSupportFinalConfirmation(
+                external_instruction_reference="case-123",
+                instruction_at=datetime.now(UTC),
+                evidence_excerpt="transient evidence must not enter terms",
+                acknowledge_exact_terms=True,
+                acknowledge_executable_standing_order=True,
+            )
+        }
+    )
+
+    assert authorization_terms_digest(legacy) == authorization_terms_digest(confirmed)
+    assert idempotency_request_hash(
+        economic_order_idempotency_payload(legacy)
+    ) == idempotency_request_hash(economic_order_idempotency_payload(confirmed))
 
 
 def test_support_etag_requires_exact_version():

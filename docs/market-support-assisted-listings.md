@@ -66,6 +66,12 @@ actor ownership, expiry, feature flag, capabilities, organization approval and
 `REAL` provenance, principal membership, role, and operation-specific
 eligibility. Unknown or foreign context IDs are non-enumerating.
 
+The backend stores one active context row per administrator using a partial
+unique index. Phase 1 uses the fixed `ASK_LISTINGS` scope and configured short
+TTL; expiry is persisted as `EXPIRED` before the request is rejected. Both
+durable listing and authorization capabilities are required for context entry
+and request-party resolution.
+
 ## Context Lifecycle API
 
 All routes use the existing `/api` prefix:
@@ -103,6 +109,16 @@ transaction it locks and revalidates the context and market slice, creates the
 exact one-use authorization, rejects any crossing ASK, inserts one post-only
 resting order with immutable dual attribution, consumes the authorization,
 records audit and notification rows, and commits.
+
+Support ASK requests use only the canonical delivery point (never a port or
+vessel) and remain within the configured listing TTL. A recent customer
+instruction may predate context entry; the context limits when the admin may
+publish, not how long the resulting standing ASK may remain live.
+The authorization stores only the instruction timestamp, acknowledgement
+booleans, and evidence digest as forensic facts; the evidence excerpt is
+discarded after hashing. Legacy admin authorization/listing mutation routes
+are retired while context mode is enabled; their read routes remain available
+for compatibility.
 
 Public orderbook serializers never expose context, authorization, evidence,
 support reference, administrator, or accountable-principal details.

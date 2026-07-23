@@ -15,6 +15,7 @@ from app.models.user_preference import UserPreference
 from app.models.orderbook import OrderBookOrder, Trade
 from app.models.market_support import (
     MarketSupportAuthorization,
+    MarketSupportContext,
     StaffCapabilityAssignment,
 )
 from app.models.matchmaking import MatchSuggestion

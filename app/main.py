@@ -3,9 +3,11 @@ import os
 import time
 import uuid as _uuid
 import re
+from contextlib import asynccontextmanager
 from contextvars import ContextVar
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.exception_handlers import http_exception_handler as fastapi_http_exception_handler
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from slowapi.errors import RateLimitExceeded
@@ -18,6 +20,9 @@ from app.services.db_errors import (
     is_market_path,
 )
 from app.rate_limit import limiter
+from app.middleware.market_support_scope import MarketSupportScopeMiddleware
+from app.middleware.preauth_rate_limit import preauth_rate_limit_middleware
+from app.services.request_party import MARKET_SUPPORT_CONTEXT_INVALID_HEADER
 from app.routers.auth_simple import router as auth_router
 from app.admin import setup_admin
 
@@ -89,9 +94,6 @@ _redoc_url = "/redoc" if os.getenv("ENVIRONMENT") != "production" else None
 # Lifespan: runtime identity attestation only. Scheduled jobs are external
 # singletons; never start one scheduler per Uvicorn worker.
 # ---------------------------------------------------------------------------
-from contextlib import asynccontextmanager
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     from app.database import engine, verify_database_runtime
@@ -119,6 +121,10 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# A context-bearing request may only reach the explicitly classified support
+# routes. The request-party dependency still performs database revalidation.
+app.add_middleware(MarketSupportScopeMiddleware)
+
 # ---------------------------------------------------------------------------
 # Rate limiter
 # ---------------------------------------------------------------------------
@@ -130,6 +136,17 @@ async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
         status_code=429,
         content={"detail": f"Rate limit exceeded: {exc.detail}"},
     )
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    response = await fastapi_http_exception_handler(request, exc)
+    detail = exc.detail if isinstance(exc.detail, dict) else {}
+    code = detail.get("code")
+    if isinstance(code, str) and code.startswith("MARKET_SUPPORT_CONTEXT_"):
+        response.headers[MARKET_SUPPORT_CONTEXT_INVALID_HEADER] = "true"
+        response.headers["X-Verdaxis-Market-Support-Context-Code"] = code
+    return response
 
 
 @app.exception_handler(DBAPIError)
@@ -170,8 +187,6 @@ app.add_middleware(
 # Pre-auth rate limiting (runs before routing/dependencies — catches the
 # invalid-token traffic that slowapi's in-endpoint limits never see)
 # ---------------------------------------------------------------------------
-from app.middleware.preauth_rate_limit import preauth_rate_limit_middleware
-
 app.middleware("http")(preauth_rate_limit_middleware)
 
 # ---------------------------------------------------------------------------

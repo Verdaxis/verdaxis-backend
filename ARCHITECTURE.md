@@ -25,7 +25,7 @@ app/
     port.py                     # Port (PostGIS), PortIntelligence, Vessel
     marketplace.py              # InventoryItem, FuelType enum
     orderbook.py                # OrderBookOrder (BID/ASK), Trade, canonical availability_window strings, enums (OrderSide, TradeStatus)
-    market_support.py           # Durable staff capabilities and exact one-use assisted-listing authorizations
+    market_support.py           # Durable staff capabilities, opaque contexts, and exact one-use assisted-listing authorizations
     live_slice_benchmark.py     # Persisted same-side slice VWAP aggregates for fast marketplace benchmark reads
     orders.py                   # Commission (legacy match_id + trade_id FKs)
     matchmaking.py              # MatchSuggestion
@@ -74,6 +74,7 @@ app/
     market_event_dispatch.py    # Durable shared SSE transport — outbox sequencer (advisory-lock leader), LISTEN/NOTIFY wake + poll, org-bound hub fan-out (docs/market-event-dispatch.md)
     matching_engine.py          # Match-on-insert — price-time priority within canonical market identity, partial fills, auto-confirm
     market_support.py           # Authorization digest, ETag parsing, deterministic party locks
+    request_party.py            # Immutable actor/effective-party resolution and support mutation allowlist
     market_support_post_only.py # Fail-closed crossing assessment for assisted ASK publication
     benchmarks.py               # External/manual benchmark lookup keyed by market_product + delivery_point + availability_window
     forward_curve_market_slices.py # Canonical public Forward Curve table/slice read models and label policy
@@ -91,6 +92,7 @@ app/
     ci_pricing.py               # Carbon intensity adjusted pricing
   middleware/
     rbac.py                     # require_role() factory — FastAPI dependency for role-based access
+    market_support_scope.py     # Fail-closed method/path gate for context-bearing mutations
 
 tests/unit/                     # Unit coverage (auth, matching, runtime, compliance, events, pricing, schemas)
 tests/integration/              # Mutating API tests; skipped unless an attested disposable target is explicit
@@ -130,6 +132,8 @@ alembic/versions/               # Migrations incl. canonical availability-window
 - **Match-on-insert:** `POST /orderbook` → `db.flush()` → `match_order()` → `db.commit()` (atomic); executable matches now require exact `product + delivery_point + availability_window`
 - **Supplier ASK invariants:** ASK creation/update requires explicit `certification_declared=true` plus a non-empty `certification_scheme`; `GET /orderbook/my/latest-ask-template` returns safe defaults for the next listing and resets off-spec state
 - **Assisted supplier listings:** When explicitly enabled, separately capability-gated administrators may publish one exact ASK for an approved real supplier from one immutable authorization. The supplier remains the economic party and accountable principal; the administrator is retained as actor. Publication is post-only and atomic, customer/admin cancellation requires the current ETag, support-created orders cannot be edited, and public serializers omit support evidence and attribution. See `docs/market-support-assisted-listings.md`.
+- **Market Support organization context:** The backend binds an approved real supplier organization and eligible supplier principal to the authenticated administrator through one opaque, short-lived database context. The normal `/orderbook/my`, latest ASK template, ASK creation, and canonical cancellation routes resolve an immutable request party from `X-Verdaxis-Market-Support-Context`; an early deny-by-default middleware rejects every unclassified context-bearing mutation. The context ID and evidence plaintext are never exposed through public order serializers.
+- **Market Support hardening:** Context mutations take deterministic capability/context locks and capability revocation atomically ends active contexts with audit. Transient support confirmations are excluded from legacy economic digests but included in context-mode idempotency, while instruction time and acknowledgement facts plus an evidence digest are persisted without plaintext evidence. Context-mode legacy admin mutation routes are retired; support ASK expiry is bounded by the configured listing TTL independently of the shorter publication context, and canonical delivery-point rules remain enforced. Context-invalid responses carry stable detail codes and `X-Verdaxis-Market-Support-Context-Invalid`.
 - **SSE broadcasting:** `event_bus.publish(channel, event_type, data)` → subscribers via AsyncIO queues; order/trade payloads are append-only enriched with market source/scope/demo provenance. Private market lifecycle events additionally flow through the durable `market_event_outbox` → sequencer → hub pipeline, so delivery and `Last-Event-ID` replay survive worker restarts and cross Uvicorn workers (docs/market-event-dispatch.md; prune policy documented, nothing armed)
 - **Compliance scoring:** Pure function `calculate_compliance_score()` — no DB, 100% testable
 - **JWT auth:** 15-min access + 7-day refresh, plus 60-second `type="stream"` tokens from `/auth/stream-token` for SSE query-param auth. Ordinary API auth only accepts access tokens; activity SSE query auth only accepts stream tokens.

@@ -36,7 +36,10 @@ INSERT INTO app_table_policy (table_name, privileges) VALUES
     ('market_indications', ARRAY['SELECT']),
     ('market_row_quarantines', ARRAY['SELECT']),
     ('market_signal_ingestion_runs', ARRAY['SELECT']),
-    ('market_support_authorizations', ARRAY['SELECT', 'INSERT', 'UPDATE']),
+    -- Identity, economic terms, and evidence are insert-only. Lifecycle
+    -- transitions are granted below as explicit update columns.
+    ('market_support_authorizations', ARRAY['SELECT', 'INSERT']),
+    ('market_support_contexts', ARRAY['SELECT', 'INSERT']),
     ('match_suggestions', ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE']),
     ('negotiation_rounds', ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE']),
     ('negotiations', ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE']),
@@ -60,7 +63,7 @@ INSERT INTO app_table_policy (table_name, privileges) VALUES
     ('rfqs', ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE']),
     ('seed_runs', ARRAY['SELECT']),
     ('subscriptions', ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE']),
-    ('staff_capability_assignments', ARRAY['SELECT', 'INSERT', 'UPDATE']),
+    ('staff_capability_assignments', ARRAY['SELECT', 'INSERT']),
     ('supply_listings', ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE']),
     ('traceability_events', ARRAY['SELECT']),
     ('trades', ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE']),
@@ -83,6 +86,21 @@ CREATE TEMP TABLE app_column_policy (
 );
 
 INSERT INTO app_column_policy (table_name, column_name, privilege_type) VALUES
+    ('market_support_contexts', 'status', 'UPDATE'),
+    ('market_support_contexts', 'ended_at', 'UPDATE'),
+    ('market_support_contexts', 'version', 'UPDATE'),
+    ('market_support_authorizations', 'status', 'UPDATE'),
+    ('market_support_authorizations', 'consumed_at', 'UPDATE'),
+    ('market_support_authorizations', 'revoked_at', 'UPDATE'),
+    ('market_support_authorizations', 'revoked_by_actor_user_id', 'UPDATE'),
+    ('market_support_authorizations', 'revocation_reason', 'UPDATE'),
+    ('staff_capability_assignments', 'reason', 'UPDATE'),
+    ('staff_capability_assignments', 'granted_by_user_id', 'UPDATE'),
+    ('staff_capability_assignments', 'granted_at', 'UPDATE'),
+    ('staff_capability_assignments', 'expires_at', 'UPDATE'),
+    ('staff_capability_assignments', 'revoked_at', 'UPDATE'),
+    ('staff_capability_assignments', 'revoked_by_user_id', 'UPDATE'),
+    ('staff_capability_assignments', 'revocation_reason', 'UPDATE'),
     ('organizations', 'id', 'INSERT'),
     ('organizations', 'name', 'INSERT'),
     ('organizations', 'domain', 'INSERT'),
