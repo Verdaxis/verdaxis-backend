@@ -78,6 +78,25 @@ def test_terms_digest_is_canonical_and_changes_with_terms():
     assert authorization_terms_digest(first) != authorization_terms_digest(changed)
 
 
+def test_terms_digest_ignores_persisted_decimal_scale():
+    browser_order = _order(
+        quantity_mt=Decimal("250"),
+        price_per_mt_usd=Decimal("725"),
+        carbon_intensity_gco2_mj=Decimal("18.5"),
+    )
+    persisted_order = browser_order.model_copy(
+        update={
+            "quantity_mt": Decimal("250.00"),
+            "price_per_mt_usd": Decimal("725.00"),
+            "carbon_intensity_gco2_mj": Decimal("18.500"),
+        }
+    )
+
+    assert authorization_terms_digest(browser_order) == authorization_terms_digest(
+        persisted_order
+    )
+
+
 def test_support_etag_requires_exact_version():
     order_id = uuid4()
     etag = order_etag(order_id, 3)

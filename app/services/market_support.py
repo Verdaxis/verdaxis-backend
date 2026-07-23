@@ -4,6 +4,8 @@ from __future__ import annotations
 import hashlib
 import json
 from datetime import UTC, datetime
+from decimal import Decimal
+from enum import Enum
 from uuid import UUID
 
 from fastapi import HTTPException, status
@@ -15,8 +17,24 @@ from app.models.user import Organization, User
 from app.schemas.orderbook import OrderCreate
 
 
+def _canonical_digest_value(value):
+    if isinstance(value, Decimal):
+        return format(value.normalize(), "f")
+    if isinstance(value, datetime):
+        return utc(value).isoformat().replace("+00:00", "Z")
+    if isinstance(value, UUID):
+        return str(value)
+    if isinstance(value, Enum):
+        return value.value
+    if isinstance(value, dict):
+        return {key: _canonical_digest_value(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_canonical_digest_value(item) for item in value]
+    return value
+
+
 def authorization_terms_digest(order: OrderCreate) -> str:
-    payload = order.model_dump(mode="json")
+    payload = _canonical_digest_value(order.model_dump(mode="python"))
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
     return hashlib.sha256(encoded).hexdigest()
 

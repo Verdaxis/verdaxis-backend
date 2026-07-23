@@ -25,7 +25,10 @@ authenticated administrator is retained as the action actor.
 An authorization records the exact normalized listing terms, selected
 accountable supplier, customer evidence reference and SHA-256 digest,
 commercial-consent version/reference, fixed expiry, and a canonical terms
-digest. Its lifecycle is `ACTIVE -> CONSUMED` or `ACTIVE/CONSUMED -> REVOKED`.
+digest. Decimal values are scale-independent (`250` and `250.00` are
+equivalent), and timestamps are normalized to UTC before hashing so a database
+round trip cannot change the digest. Its lifecycle is `ACTIVE -> CONSUMED` or
+`ACTIVE/CONSUMED -> REVOKED`.
 
 Publication atomically:
 
