@@ -229,6 +229,24 @@ async def test_simultaneous_authenticated_crossing_posts_are_one_coherent_trade(
     bid_response, ask_response = await asyncio.wait_for(
         asyncio.gather(bid_request, ask_request), timeout=15
     )
+
+    # The bounded market-slice lock may deliberately reject one contender
+    # under a loaded PostgreSQL runner. Retrying that idempotent request after
+    # the winning transaction commits must still produce one coherent trade.
+    if bid_response.status_code == 409:
+        assert bid_response.json()["detail"] == "Market slice is busy; retry the request"
+        bid_response = await client.post(
+            "/api/orderbook",
+            json=bid_payload,
+            headers=_headers(seeded["buyer_id"], "crossing-bid"),
+        )
+    if ask_response.status_code == 409:
+        assert ask_response.json()["detail"] == "Market slice is busy; retry the request"
+        ask_response = await client.post(
+            f"/api/inventory/{seeded['inventory_id']}/publish",
+            headers=_headers(seeded["seller_id"], "crossing-ask"),
+        )
+
     assert bid_response.status_code == 201, bid_response.text
     assert ask_response.status_code == 200, ask_response.text
 

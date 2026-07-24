@@ -146,7 +146,7 @@ def _authorization_payload(seeded) -> dict:
 
 
 @pytest.mark.asyncio
-async def test_exact_authorization_publishes_once_and_etag_guards_cancel(
+async def test_legacy_workspace_mutations_are_retired_in_context_mode(
     market_support_client,
 ):
     client, seeded = market_support_client
@@ -158,63 +158,5 @@ async def test_exact_authorization_publishes_once_and_etag_guards_cancel(
         headers=_headers(admin_id, "authorization-create-1"),
         json=_authorization_payload(seeded),
     )
-    assert created.status_code == 201, created.text
-    authorization = created.json()
-    assert authorization["status"] == "ACTIVE"
-    assert authorization["order"]["side"] == "ASK"
-
-    published = await client.post(
-        f"/api/admin/market-support/organizations/{org_id}/listings",
-        headers=_headers(admin_id, "listing-create-1"),
-        json={
-            "authorization_id": authorization["id"],
-            "acknowledge_executable_standing_order": True,
-        },
-    )
-    assert published.status_code == 201, published.text
-    listing = published.json()
-    assert listing["creation_method"] == "MARKET_SUPPORT"
-    assert listing["order"]["status"] == "OPEN"
-    assert published.headers["etag"] == listing["etag"]
-
-    replay = await client.post(
-        f"/api/admin/market-support/organizations/{org_id}/listings",
-        headers=_headers(admin_id, "listing-create-1"),
-        json={
-            "authorization_id": authorization["id"],
-            "acknowledge_executable_standing_order": True,
-        },
-    )
-    assert replay.status_code == 201, replay.text
-    assert replay.json()["order"]["id"] == listing["order"]["id"]
-
-    second_use = await client.post(
-        f"/api/admin/market-support/organizations/{org_id}/listings",
-        headers=_headers(admin_id, "listing-create-2"),
-        json={
-            "authorization_id": authorization["id"],
-            "acknowledge_executable_standing_order": True,
-        },
-    )
-    assert second_use.status_code == 409
-
-    cancel_url = (
-        f"/api/admin/market-support/organizations/{org_id}/listings/"
-        f"{listing['order']['id']}/cancel"
-    )
-    missing = await client.post(cancel_url, headers=_headers(admin_id), json={"reason": "Test cancel"})
-    assert missing.status_code == 428
-    stale = await client.post(
-        cancel_url,
-        headers={**_headers(admin_id), "If-Match": listing["etag"].replace("-v1", "-v9")},
-        json={"reason": "Test cancel"},
-    )
-    assert stale.status_code == 412
-    cancelled = await client.post(
-        cancel_url,
-        headers={**_headers(admin_id), "If-Match": listing["etag"]},
-        json={"reason": "Test cancel"},
-    )
-    assert cancelled.status_code == 200, cancelled.text
-    assert cancelled.json()["order"]["status"] == "CANCELLED"
-    assert cancelled.json()["version"] == 2
+    assert created.status_code == 410, created.text
+    assert created.json()["detail"]["code"] == "MARKET_SUPPORT_LEGACY_MUTATION_RETIRED"

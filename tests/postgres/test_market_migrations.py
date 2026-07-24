@@ -17,9 +17,9 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 _BACKEND_ROOT = Path(__file__).resolve().parents[2]
 _PARENT = "miq_20260720_market_quarantine"
-# The assisted-listing migration extends the linearized market chain. The
+# The assisted-order migrations extend the linearized market chain. The
 # mi-specific refusal/quarantine semantics exercised below are unchanged.
-_HEAD = "ms_20260723_assisted_listings"
+_HEAD = "ms_20260723_assisted_order_v2"
 _SENTINEL = UUID("00000000-dead-beef-0000-aaa0e15eed01")
 _DEMO_ORG = UUID("4da7b285-34ee-5443-9406-f96b4ed1a251")
 _DEMO_SELLER_ORG = UUID("0dbce576-2026-5925-ab66-674d505e98ad")
@@ -30,6 +30,11 @@ def _command_env(database_url: str) -> dict[str, str]:
     return {
         "PATH": os.environ.get("PATH", ""),
         "DATABASE_URL": database_url,
+        "MIGRATOR_DATABASE_URL": database_url,
+        "ENVIRONMENT": "test",
+        "RELEASE_SHA": "test",
+        "JWT_SECRET": "test-secret-key-that-is-at-least-32-characters-long",
+        "BACKEND_CORS_ORIGINS": "[]",
     }
 
 
