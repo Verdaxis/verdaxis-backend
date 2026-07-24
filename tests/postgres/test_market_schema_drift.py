@@ -22,6 +22,11 @@ def _alembic_check(database_url: str) -> subprocess.CompletedProcess[str]:
         env={
             "PATH": os.environ.get("PATH", ""),
             "DATABASE_URL": database_url,
+            "MIGRATOR_DATABASE_URL": database_url,
+            "ENVIRONMENT": "test",
+            "RELEASE_SHA": "test",
+            "JWT_SECRET": "test-secret-key-that-is-at-least-32-characters-long",
+            "BACKEND_CORS_ORIGINS": "[]",
         },
         text=True,
         capture_output=True,

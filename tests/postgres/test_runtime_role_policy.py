@@ -802,6 +802,32 @@ async def test_raw_app_cannot_promote_rewrite_controls_set_role_or_delegate():
         } | {
             ("organizations", column, app, "UPDATE", False)
             for column in update_columns
+        } | {
+            (table, column, app, "UPDATE", False)
+            for table, columns in {
+                "market_support_contexts": {
+                    "status",
+                    "ended_at",
+                    "version",
+                },
+                "market_support_authorizations": {
+                    "status",
+                    "consumed_at",
+                    "revoked_at",
+                    "revoked_by_actor_user_id",
+                    "revocation_reason",
+                },
+                "staff_capability_assignments": {
+                    "reason",
+                    "granted_by_user_id",
+                    "granted_at",
+                    "expires_at",
+                    "revoked_at",
+                    "revoked_by_user_id",
+                    "revocation_reason",
+                },
+            }.items()
+            for column in columns
         }
         assert column_acls == expected_column_acls
     finally:
