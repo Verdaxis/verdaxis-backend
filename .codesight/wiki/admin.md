@@ -2,12 +2,16 @@
 
 > **Navigation aid.** Route list and file locations extracted via AST. Read the source files listed below before implementing or modifying this subsystem.
 
-The Admin subsystem handles **10 routes** and touches: auth, db.
+The Admin subsystem handles **12 routes** and touches: auth, db, cache, queue, email.
 
 ## Routes
 
 - `GET` `/admin/audit-logs` → in: Annotated, out: list [auth, db]
   `app/routers/audit.py`
+- `GET` `/api/admin/review-queue` → out: RegistrationResponse [auth, db, cache, queue, email]
+  `app/routers/auth_simple.py`
+- `GET` `/api/admin/review-queue/{user_id}` params(user_id) → out: RegistrationResponse [auth, db, cache, queue, email]
+  `app/routers/auth_simple.py`
 - `PUT` `/admin/{user_id}/approve` params(user_id) → in: uuid [auth, db, upload]
   `app/routers/kyc.py`
 - `PUT` `/admin/{user_id}/reject` params(user_id) → in: uuid [auth, db, upload]
@@ -31,6 +35,7 @@ The Admin subsystem handles **10 routes** and touches: auth, db.
 
 Read these before implementing or modifying this subsystem:
 - `app/routers/audit.py`
+- `app/routers/auth_simple.py`
 - `app/routers/kyc.py`
 - `app/routers/orders.py`
 - `app/routers/subscriptions.py`

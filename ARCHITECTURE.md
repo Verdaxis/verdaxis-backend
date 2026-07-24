@@ -25,6 +25,7 @@ app/
     port.py                     # Port (PostGIS), PortIntelligence, Vessel
     marketplace.py              # InventoryItem, FuelType enum
     orderbook.py                # OrderBookOrder (BID/ASK), Trade, canonical availability_window strings, enums (OrderSide, TradeStatus)
+    market_support.py           # Durable staff capabilities, opaque contexts, and exact one-use assisted-listing authorizations
     live_slice_benchmark.py     # Persisted same-side slice VWAP aggregates for fast marketplace benchmark reads
     orders.py                   # Commission (legacy match_id + trade_id FKs)
     matchmaking.py              # MatchSuggestion
@@ -37,6 +38,7 @@ app/
   routers/
     auth_simple.py              # JWT auth — login/register, cookie-backed refresh rotation, password change, /me, RBAC
     orderbook.py                # Order/listing CRUD, supplier ASK template endpoint, certification guardrails
+    market_support.py           # ADMIN capability, authorization, assisted ASK publication, and ETag cancellation APIs
     trades.py                   # Trade lifecycle — create/confirm/decline/deliver/pay + SSE events
     matchmaking.py              # Match suggestions — generate, list, dismiss
     price_discovery.py          # Public price ticker + daily VWAP reference prices
@@ -63,6 +65,7 @@ app/
     preferences.py              # Strict namespace schemas for user preferences
     organization.py             # OrganizationCreate/Response
     orderbook.py                # Order/Trade schemas, price summaries, supplier metadata pack, ASK template response, canonical availability window validation
+    market_support.py           # Exact authorization, capability, organization-context, and assisted-listing schemas
     market_activity.py          # Shared source/scope/demo-status provenance enums for market data
     behavioral_analytics.py     # Typed privacy-bounded admin product-usage response
     [others unchanged]
@@ -70,6 +73,9 @@ app/
     event_bus.py                # AsyncIO pub/sub — per-channel queues, 200 subscriber cap, backpressure
     market_event_dispatch.py    # Durable shared SSE transport — outbox sequencer (advisory-lock leader), LISTEN/NOTIFY wake + poll, org-bound hub fan-out (docs/market-event-dispatch.md)
     matching_engine.py          # Match-on-insert — price-time priority within canonical market identity, partial fills, auto-confirm
+    market_support.py           # Authorization digest, ETag parsing, deterministic party locks
+    request_party.py            # Immutable actor/effective-party resolution and support mutation allowlist
+    market_support_post_only.py # Fail-closed crossing assessment for assisted ASK publication
     benchmarks.py               # External/manual benchmark lookup keyed by market_product + delivery_point + availability_window
     forward_curve_market_slices.py # Canonical public Forward Curve table/slice read models and label policy
     market_signal_ingestion.py    # Trusted signal importer: validate -> verified ingestion runs whose rows classify REAL (see docs/market-signal-ingestion.md)
@@ -86,6 +92,7 @@ app/
     ci_pricing.py               # Carbon intensity adjusted pricing
   middleware/
     rbac.py                     # require_role() factory — FastAPI dependency for role-based access
+    market_support_scope.py     # Fail-closed method/path gate for context-bearing mutations
 
 tests/unit/                     # Unit coverage (auth, matching, runtime, compliance, events, pricing, schemas)
 tests/integration/              # Mutating API tests; skipped unless an attested disposable target is explicit
@@ -124,6 +131,9 @@ alembic/versions/               # Migrations incl. canonical availability-window
 
 - **Match-on-insert:** `POST /orderbook` → `db.flush()` → `match_order()` → `db.commit()` (atomic); executable matches now require exact `product + delivery_point + availability_window`
 - **Supplier ASK invariants:** ASK creation/update requires explicit `certification_declared=true` plus a non-empty `certification_scheme`; `GET /orderbook/my/latest-ask-template` returns safe defaults for the next listing and resets off-spec state
+- **Assisted order entry:** When explicitly enabled, separately capability-gated administrators may publish exact post-only BID and ASK orders for an approved real organization. The organization is the economic party and the administrator is the accountable actor; no customer user is selected as a proxy. Orders may be GTC or dated, customer instructions have no artificial age cutoff, and confirmation requires a reference rather than evidence text. Customer/admin cancellation requires the current ETag, support-created orders cannot be edited, and public serializers omit support attribution. See `docs/market-support-assisted-listings.md`.
+- **Assisted organization context:** The backend binds an approved real organization to the authenticated administrator through one opaque, short-lived database context. The normal `/orderbook/my`, order creation, and canonical cancellation routes resolve an immutable request party from `X-Verdaxis-Market-Support-Context`; an early deny-by-default middleware rejects every unclassified context-bearing mutation.
+- **Assisted-context hardening:** Context mutations take deterministic capability/context locks and capability revocation atomically ends active contexts with audit. Final confirmations participate in context-mode idempotency, while instruction reference, time, and acknowledgement facts are persisted. Canonical delivery-point and post-only rules remain enforced. Context-invalid responses carry stable detail codes and `X-Verdaxis-Market-Support-Context-Invalid`.
 - **SSE broadcasting:** `event_bus.publish(channel, event_type, data)` → subscribers via AsyncIO queues; order/trade payloads are append-only enriched with market source/scope/demo provenance. Private market lifecycle events additionally flow through the durable `market_event_outbox` → sequencer → hub pipeline, so delivery and `Last-Event-ID` replay survive worker restarts and cross Uvicorn workers (docs/market-event-dispatch.md; prune policy documented, nothing armed)
 - **Compliance scoring:** Pure function `calculate_compliance_score()` — no DB, 100% testable
 - **JWT auth:** 15-min access + 7-day refresh, plus 60-second `type="stream"` tokens from `/auth/stream-token` for SSE query-param auth. Ordinary API auth only accepts access tokens; activity SSE query auth only accepts stream tokens.

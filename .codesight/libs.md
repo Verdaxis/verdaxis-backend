@@ -36,6 +36,9 @@
 - `alembic/versions/g6h7i8j9k0l1_add_audit_logs_table.py` — function upgrade: () -> None, function downgrade: () -> None
 - `alembic/versions/h7i8j9k0l1m2_add_email_verification_and_kyc_fields.py` — function upgrade: () -> None, function downgrade: () -> None
 - `alembic/versions/ix_2026_04_exec_watchlist_perf.py` — function upgrade: () -> None, function downgrade: () -> None
+- `alembic/versions/mi_20260720_market_integrity.py` — function upgrade: () -> None, function downgrade: () -> None
+- `alembic/versions/miq_20260720_market_quarantine.py` — function upgrade: () -> None, function downgrade: () -> None
+- `alembic/versions/ms_20260723_assisted_listings.py` — function upgrade: () -> None, function downgrade: () -> None
 - `alembic/versions/neg_2026_04_add_negotiations.py` — function upgrade: () -> None, function downgrade: () -> None
 - `alembic/versions/neg_2026_04b_negotiation_fixes.py` — function upgrade: () -> None, function downgrade: () -> None
 - `alembic/versions/news_2026_03_add_news_items.py` — function upgrade: () -> None, function downgrade: () -> None
@@ -48,13 +51,79 @@
 - `alembic/versions/rfq_2026_03_add_rfq_tables.py` — function upgrade: () -> None, function downgrade: () -> None
 - `alembic/versions/rh_20260720_runtime_metadata.py` — function upgrade: () -> None, function downgrade: () -> None
 - `alembic/versions/sb_2026_04_live_slice_benchmarks.py` — function upgrade: () -> None, function downgrade: () -> None
+- `alembic/versions/sec_20260720_admission_boundaries.py` — function upgrade: () -> None, function downgrade: () -> None
+- `alembic/versions/sec_20260720_device_sessions.py` — function upgrade: () -> None, function downgrade: () -> None
+- `alembic/versions/sec_20260720_fresh_remediation.py` — function upgrade: () -> None, function downgrade: () -> None
+- `alembic/versions/sec_20260720_identity_hardening.py` — function upgrade: () -> None, function downgrade: () -> None
+- `alembic/versions/sse_20260720_market_event_stream.py` — function upgrade: () -> None, function downgrade: () -> None
 - `alembic/versions/sub_2026_03_add_subscriptions.py` — function upgrade: () -> None, function downgrade: () -> None
 - `alembic/versions/usr_2026_04_onboarding_survey.py` — function upgrade: () -> None, function downgrade: () -> None
 - `alembic/versions/wl_2026_03_add_watchlists.py` — function upgrade: () -> None, function downgrade: () -> None
 - `alembic/versions/wl_2026_04_market_radar.py` — function upgrade: () -> None, function downgrade: () -> None
 - `alembic/versions/wl_2026_04_watchlist_entry_uniqueness.py` — function upgrade: () -> None, function downgrade: () -> None
+- `deploy/monitor/alert_dispatch.py`
+  - function valid_alert_state: (payload, now) -> bool
+  - function process_event: (event, state_directory, now, environ, str]) -> str
+  - function process_reminder: (check, state_directory, now, environ, str]) -> str
+  - function parse_args: (argv) -> argparse.Namespace
+  - function main: (argv) -> int
+- `deploy/monitor/backup_verify.py`
+  - function verify_backups: (status_file, backup_directory, attempt_directory, *, now, max_age_seconds, future_tolerance_seconds, max_timestamp_skew_seconds, max_metadata_bytes, max_attempt_records, max_attempt_bytes, max_artifacts, max_artifact_bytes, max_uncompressed_bytes, total_timeout_seconds) -> list[dict]
+  - function run_monitor: (args) -> dict
+  - function parse_args: (argv) -> argparse.Namespace
+  - function main: (argv) -> int
+- `deploy/monitor/legacy_retirement.py`
+  - function configured_receipt_matrix: (path) -> frozenset[tuple[str, str]]
+  - function validate_evidence: (payload, *, required_receipts, str]], now) -> dict
+  - function validate_evidence_file: (path, *, required_receipts, str]], now) -> dict
+  - function guarded_retirement: (evidence_path, *, alert_config_path, alert_state_directory, health_status_path, backup_status_path, execute, confirmation, runner, None], timer_checker, bool], now, clock, datetime]) -> str
+  - function parse_args: (argv) -> argparse.Namespace
+  - function main: (argv) -> int
+  - _...1 more_
+- `deploy/monitor/local_health_check.py`
+  - function validate_runtime_identities: (identities, tuple[str | None, str | None]]) -> None
+  - function load_runtime_identities: (production_file, staging_file) -> dict[str, tuple[str, str]]
+  - function validate_readiness_payload: (payload, expected_environment, expected_release_sha) -> None
+  - function check_readiness: (name, url, expected_environment, expected_release_sha, timeout_seconds, max_body_bytes) -> dict
+  - function check_filesystem: (name, path, warning_free_percent, critical_free_percent, *, disk_usage) -> dict
+  - function check_directory_size: (name, path, max_bytes, deadline, *, max_entries) -> dict
+  - _...4 more_
+- `deploy/monitor/outbox_backlog_probe.py`
+  - function run_backlog_query: (dsn, timeout) -> str
+  - function parse_backlog: (output) -> tuple[int, int]
+  - function evaluate: (pending_count, oldest_seconds, *, max_pending, max_age_seconds) -> dict
+  - function parse_args: (argv) -> argparse.Namespace
+  - function main: (argv, query_runner) -> int
+  - class ProbeError
+- `deploy/monitor/status_state.py`
+  - function reject_duplicate_keys: (pairs, object]]) -> dict
+  - function load_json: (path, max_bytes) -> JsonLoad
+  - function valid_monitor_status: (value) -> bool
+  - function load_monitor_status: (path, max_bytes) -> tuple[dict, bool]
+  - function quarantine: (path) -> Path | None
+  - function utc: (value) -> str
+  - _...4 more_
+- `deploy/monitor/verify_runtime_identity.py`
+  - function verify_identity: (source_directory, expected_environment, expected_release_sha, environ, str], *, resolve_head, str]) -> bool
+  - function run_attested_job: (source_directory, expected_environment, expected_release_sha, environ, str], *, python_executable, script, runtime_directory) -> int
+  - function parse_args: (argv) -> argparse.Namespace
+  - function main: (argv) -> int
+- `scripts/apply_migration_checkpoint.py`
+  - function load_environment_file: (path) -> Path
+  - function activate_source_root: (source_root) -> Path
+  - function require_module_from_source: (module, source_root) -> None
+  - function parse_checkpoint_policy: (text) -> set[tuple[str, str]]
+  - function validate_checkpoint_request: (*, policy, str]], source_sha, approved_source_sha, expected_current, target, current_heads, ...], script_directory) -> None
+  - function read_committed_checkpoint_policy: (source_root, source_sha) -> str
+  - _...4 more_
 - `scripts/benchmark_product_analytics.py` — function main: () -> int
 - `scripts/check_users.py` — function main: ()
+- `scripts/converge_runtime_acls.py`
+  - function resolve_acl_target: (environment, values, object]) -> RuntimeAclTarget
+  - function build_psql_invocation: (bundle_root, target) -> tuple[list[str], dict[str, str]]
+  - function main: () -> int
+  - class RuntimeAclConvergenceError
+  - class RuntimeAclTarget
 - `scripts/explain_product_analytics.py` — function main: () -> int, function run: (days, output) -> int
 - `scripts/import_gena_csv.py` — function import_csv: (file_path, fuel_type)
 - `scripts/ingest_market_signals.py`
@@ -64,10 +133,18 @@
   - function print_report: (report) -> None
   - function main: () -> None
   - function run: (args) -> int
+- `scripts/preflight_runtime.py` — function main: () -> int
 - `scripts/prune_product_analytics.py`
+  - function parse_cli_args: (argv) -> argparse.Namespace
+  - function assert_runtime_identity: (*, configured_environment, configured_release_sha, expected_environment, expected_release_sha) -> None
   - function compute_cutoff: (today) -> date
+  - function cli: (argv) -> int
   - function prune_login_days: (session, *, today) -> int
-  - function main: () -> int
+  - function main: (*, expected_environment, expected_release_sha) -> int
+- `scripts/remediate_market_data.py`
+  - function parse_args: (argv) -> argparse.Namespace
+  - function main: () -> None
+  - function run: (args) -> dict[str, Any]
 - `scripts/run_demo_activity.py` — function main: () -> None
 - `scripts/scrape_fleet_demand.py`
   - function run_batch: (commands, timeout) -> str
@@ -76,6 +153,7 @@
   - function get_page_body: (url) -> str
   - function extract_int: (text, patterns) -> int | None
   - function scrape: ()
+- `scripts/security_preflight.py` — function main: () -> int, function report: () -> int
 - `scripts/seed.py` — function parse_args: () -> argparse.Namespace, function main: () -> None
 - `scripts/seed_compliance_data.py` — function add_entry: (org_key, transaction_type, amount, currency, units, description, reference_id, created_at)
 - `scripts/seed_forward_monitoring_demo.py` — function assert_catalog_ready: (db) -> None, function main: () -> None
@@ -93,14 +171,6 @@
   - function rand_price_around: (mid, spread_pct, side)
   - function random_created_at: ()
   - function build_order: (side, product_key, dp_key, mid, spread_pct, min_lot, max_lot)
-- `scripts/seed_trade_tape.py`
-  - function get_connection: ()
-  - function clean_existing_trades: (conn)
-  - function generate_trade_dates: (num_trades, start_date, end_date)
-  - function get_status_for_date: (trade_date, end_date)
-  - function get_price_with_drift: (product_name, min_price, max_price, trade_date, start_date, end_date)
-  - function select_product: ()
-  - _...4 more_
 - `scripts/seed_vessels_fleet.py`
   - function get_db_connection: ()
   - function generate_vessel_data: ()
@@ -115,3 +185,13 @@
   - function ensure_permitted_base_url: (base_url, *, allow_remote_readonly) -> None
   - function main: () -> int
   - _...2 more_
+- `scripts/validate_health_response.py`
+  - function validate_health_response: (payload, *, expected_environment, expected_release_sha) -> None
+  - function main: () -> int
+  - class HealthResponseError
+- `scripts/verify_migration_revision.py` — function main: () -> int
+- `scripts/verify_systemd_source.py`
+  - function verify_source_provenance: (*, source_root, source_ref, environment) -> dict[str, str]
+  - function build_verified_unit_archive: (*, source_root, source_ref, environment) -> bytes
+  - function main: () -> int
+  - class SourceProvenanceError

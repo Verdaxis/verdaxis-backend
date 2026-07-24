@@ -10,6 +10,13 @@ ADMIN_USER_REJECTED = "admin.user_rejected"
 COMMISSION_UPDATED = "commission.updated"
 INVENTORY_PUBLISHED = "inventory.published"
 MARKET_ACCESS_INVALIDATED = "market.access_invalidated"
+MARKET_SUPPORT_AUTHORIZATION_CREATED = "market_support.authorization_created"
+MARKET_SUPPORT_AUTHORIZATION_REVOKED = "market_support.authorization_revoked"
+MARKET_SUPPORT_CAPABILITY_GRANTED = "market_support.capability_granted"
+MARKET_SUPPORT_CAPABILITY_REVOKED = "market_support.capability_revoked"
+MARKET_SUPPORT_CONTEXT_STARTED = "market_support.context_started"
+MARKET_SUPPORT_CONTEXT_EXITED = "market_support.context_exited"
+MARKET_SUPPORT_CONTEXT_REVOKED = "market_support.context_revoked"
 KYC_APPROVED = "kyc.approved"
 KYC_REJECTED = "kyc.rejected"
 KYC_SUBMITTED = "kyc.submitted"
@@ -55,6 +62,13 @@ AUDIT_ACTIONS = frozenset(
         COMMISSION_UPDATED,
         INVENTORY_PUBLISHED,
         MARKET_ACCESS_INVALIDATED,
+        MARKET_SUPPORT_AUTHORIZATION_CREATED,
+        MARKET_SUPPORT_AUTHORIZATION_REVOKED,
+        MARKET_SUPPORT_CAPABILITY_GRANTED,
+        MARKET_SUPPORT_CAPABILITY_REVOKED,
+        MARKET_SUPPORT_CONTEXT_STARTED,
+        MARKET_SUPPORT_CONTEXT_EXITED,
+        MARKET_SUPPORT_CONTEXT_REVOKED,
         KYC_APPROVED,
         KYC_REJECTED,
         KYC_SUBMITTED,

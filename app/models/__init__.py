@@ -13,6 +13,11 @@ from app.models.orders import Commission
 from app.models.notification import Notification
 from app.models.user_preference import UserPreference
 from app.models.orderbook import OrderBookOrder, Trade
+from app.models.market_support import (
+    MarketSupportAuthorization,
+    MarketSupportContext,
+    StaffCapabilityAssignment,
+)
 from app.models.matchmaking import MatchSuggestion
 from app.models.producer import ProducerProject
 from app.models.catalog import Product, DeliveryPoint

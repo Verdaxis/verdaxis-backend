@@ -359,6 +359,36 @@ class Settings(BaseSettings):
     # Order Matching Engine
     AUTO_MATCHING_ENABLED: bool = True  # Set to False to disable match-on-insert
 
+    # Organization-scoped assisted listings. This remains fail-closed until
+    # the commercial activation gates in docs/market-support-assisted-listings.md
+    # have been approved.
+    MARKET_SUPPORT_ENABLED: bool = False
+    MARKET_SUPPORT_MAX_TTL_HOURS: int = Field(default=168, ge=1, le=720)
+    MARKET_SUPPORT_CONTEXT_TTL_MINUTES: int = Field(default=60, ge=1, le=1440)
+    MARKET_SUPPORT_CONSENT_VERSION: str = "v1"
+    MARKET_SUPPORT_CONSENT_REFERENCE: str = "market-support/v1"
+    MARKET_SUPPORT_BOOTSTRAP_ADMIN_USER_IDS: str = ""
+
+    @model_validator(mode="after")
+    def validate_market_support_activation(self) -> "Settings":
+        if not self.MARKET_SUPPORT_ENABLED:
+            return self
+        version = self.MARKET_SUPPORT_CONSENT_VERSION.strip()
+        reference = self.MARKET_SUPPORT_CONSENT_REFERENCE.strip()
+        if not version or not reference:
+            raise ValueError(
+                "Market Support consent version and reference are required when enabled"
+            )
+        if self.ENVIRONMENT in {"staging", "production"} and (
+            version == "v1" or reference == "market-support/v1"
+        ):
+            raise ValueError(
+                "Market Support consent metadata must be explicitly configured"
+            )
+        self.MARKET_SUPPORT_CONSENT_VERSION = version
+        self.MARKET_SUPPORT_CONSENT_REFERENCE = reference
+        return self
+
     # Compliance pricing overlay: EUR/USD conversion override (defaults to
     # the ASSUMED rate in app/services/compliance_pricing.py when unset)
     COMPLIANCE_EUR_USD_RATE: Optional[Decimal] = None

@@ -1,7 +1,7 @@
 # Test Coverage
 
-> **27%** of routes and models are covered by tests
-> 101 test files found
+> **31%** of routes and models are covered by tests
+> 162 test files found
 
 ## Covered Routes
 
@@ -12,9 +12,14 @@
 - GET:/api/users
 - GET:
 - GET:/api/v1
+- POST:/organizations/{organization_id}/listings/{order_id}/cancel
 - POST:
 - GET:/api
+- GET:/api/prices
+- GET:/api/orderbook
+- GET:/api/trades
 - POST:/
+- POST:/upload
 - GET:/api/admin/analytics/overview
 
 ## Covered Models
@@ -29,9 +34,13 @@
 - FairPriceBand
 - PhysicalStem
 - LiveSliceBenchmark
+- MarketEventOutbox
+- StaffCapabilityAssignment
+- MarketSupportAuthorization
 - InventoryItem
 - MatchSuggestion
 - Negotiation
+- NegotiationRound
 - NewsItem
 - Notification
 - OrderBookOrder
@@ -43,8 +52,12 @@
 - UserLoginDay
 - UserStatusTransition
 - Referral
+- RefreshSession
+- PendingRegistration
+- OrganizationJoinRequest
 - RFQ
 - RFQQuote
+- SeedRun
 - Subscription
 - Organization
 - User

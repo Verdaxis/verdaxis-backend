@@ -21,6 +21,7 @@ from app.services.demo_market import (
 )
 from app.services.execution_policy import (
     execution_party_is_eligible,
+    order_owner_is_execution_eligible,
     order_is_execution_qualified,
     orders_execution_compatible,
 )
@@ -76,6 +77,7 @@ async def match_order(
     now = datetime.now(UTC)
     if new_order.expires_at is not None and new_order.expires_at <= now:
         new_order.status = OrderBookStatus.EXPIRED
+        new_order.bump_version()
         return trades_created
 
     new_order_provenance = getattr(new_order, "provenance", None) or OrganizationProvenance.UNKNOWN
@@ -189,6 +191,7 @@ async def match_order(
         crossing_provenance = coerce_provenance(crossing_provenance)
         if crossing.expires_at is not None and crossing.expires_at <= now:
             crossing.status = OrderBookStatus.EXPIRED
+            crossing.bump_version()
             continue
         if not execution_provenance_compatible(
             new_order_provenance,
@@ -233,10 +236,16 @@ async def match_order(
                 .execution_options(populate_existing=True)
             )
             orgs = {org.id: org for org in orgs_result.scalars().all()}
-            if not await execution_party_is_eligible(
-                db, user=owners.get(new_order.owner_user_id), organization=orgs.get(new_order.organization_id)
-            ) or not await execution_party_is_eligible(
-                db, user=owners.get(crossing.owner_user_id), organization=orgs.get(crossing.organization_id)
+            if not await order_owner_is_execution_eligible(
+                db,
+                order=new_order,
+                user=owners.get(new_order.owner_user_id),
+                organization=orgs.get(new_order.organization_id),
+            ) or not await order_owner_is_execution_eligible(
+                db,
+                order=crossing,
+                user=owners.get(crossing.owner_user_id),
+                organization=orgs.get(crossing.organization_id),
             ):
                 continue
 
@@ -321,6 +330,8 @@ async def match_order(
             crossing.status = OrderBookStatus.FILLED
         else:
             crossing.status = OrderBookStatus.PARTIALLY_FILLED
+        new_order.bump_version()
+        crossing.bump_version()
 
         trades_created.append(trade)
 

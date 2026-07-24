@@ -317,6 +317,8 @@ async def invalidate_organization_market_access(
                 if order.remaining_quantity_mt == order.quantity_mt
                 else OrderBookStatus.PARTIALLY_FILLED
             )
+        if restored or order.status != old_status:
+            order.bump_version()
 
         if order.inventory_item_id is not None and release > 0:
             releases[order.inventory_item_id] += release

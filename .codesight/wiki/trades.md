@@ -2,15 +2,15 @@
 
 > **Navigation aid.** Route list and file locations extracted via AST. Read the source files listed below before implementing or modifying this subsystem.
 
-The Trades subsystem handles **3 routes** and touches: auth, db.
+The Trades subsystem handles **3 routes** and touches: auth, db, queue.
 
 ## Routes
 
-- `PUT` `/{trade_id}/decline` params(trade_id) → in: UUID, out: TradeResponse [auth, db]
+- `PUT` `/{trade_id}/decline` params(trade_id) → out: TradeResponse [auth, db, queue]
   `app/routers/trades.py`
-- `PUT` `/{trade_id}/deliver` params(trade_id) → in: UUID, out: TradeResponse [auth, db]
+- `PUT` `/{trade_id}/deliver` params(trade_id) → out: TradeResponse [auth, db, queue]
   `app/routers/trades.py`
-- `POST` `/{trade_id}/pay` params(trade_id) → in: TradeCreate, out: TradeResponse [auth, db]
+- `POST` `/{trade_id}/pay` params(trade_id) → out: TradeResponse [auth, db, queue]
   `app/routers/trades.py`
 
 ## Source Files

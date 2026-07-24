@@ -2,9 +2,9 @@
 
 > **Stack:** fastapi | sqlalchemy | unknown | python
 
-> 129 routes | 38 models | 0 components | 66 lib files | 43 env vars | 7 middleware | 27% test coverage
-> **Token savings:** this file is ~10,600 tokens. Without it, AI exploration would cost ~111,700 tokens. **Saves ~101,000 tokens per conversation.**
-> **Last scanned:** 2026-07-19 22:35 — re-run after significant changes
+> 143 routes | 47 models | 0 components | 88 lib files | 63 env vars | 13 middleware | 31% test coverage
+> **Token savings:** this file is ~15,100 tokens. Without it, AI exploration would cost ~132,300 tokens. **Saves ~117,300 tokens per conversation.**
+> **Last scanned:** 2026-07-22 17:43 — re-run after significant changes
 
 ---
 
@@ -39,27 +39,31 @@
 - `GET` `/api/product-analytics/reliability` params() → out: ProductUsageResponse [auth, db]
 - `POST` `/ai/chat` params() [auth]
 - `GET` `/admin/audit-logs` params() → in: Annotated, out: list [auth, db]
-- `POST` `/api/login` params() → out: RegistrationResponse [auth, db, cache, email]
-- `POST` `/api/refresh` params() → out: RegistrationResponse [auth, db, cache, email]
-- `POST` `/api/logout` params() → out: RegistrationResponse [auth, db, cache, email]
-- `GET` `/api/stream-token` params() → out: RegistrationResponse [auth, db, cache, email]
-- `POST` `/api/register` params() → out: RegistrationResponse [auth, db, cache, email]
-- `POST` `/api/register-with-org` params() → out: RegistrationResponse [auth, db, cache, email]
-- `GET` `/api/verify-email` params() → out: RegistrationResponse [auth, db, cache, email]
-- `POST` `/api/resend-verification` params() → out: RegistrationResponse [auth, db, cache, email]
-- `POST` `/api/resend-verification-email` params() → out: RegistrationResponse [auth, db, cache, email]
-- `GET` `/api/me` params() → out: RegistrationResponse [auth, db, cache, email]
-- `PUT` `/api/me` params() → in: UserUpdate, out: RegistrationResponse [auth, db, cache, email]
-- `PUT` `/api/me/password` params() → in: UserUpdate, out: RegistrationResponse [auth, db, cache, email]
-- `POST` `/api/forgot-password` params() → out: RegistrationResponse [auth, db, cache, email]
-- `POST` `/api/reset-password` params() → out: RegistrationResponse [auth, db, cache, email]
-- `PUT` `/api/approve/{user_id}` params(user_id) → in: UserUpdate, out: RegistrationResponse [auth, db, cache, email]
-- `PUT` `/api/switch-role/{target_role}` params(target_role) → in: UserUpdate, out: RegistrationResponse [auth, db, cache, email]
-- `POST` `/api/survey` params() → out: RegistrationResponse [auth, db, cache, email]
+- `POST` `/api/login` params() → in: _Request, out: RegistrationResponse [auth, db, cache, queue, email]
+- `POST` `/api/refresh` params() → in: _Request, out: RegistrationResponse [auth, db, cache, queue, email]
+- `POST` `/api/logout` params() → in: _Request, out: RegistrationResponse [auth, db, cache, queue, email]
+- `GET` `/api/stream-token` params() → out: RegistrationResponse [auth, db, cache, queue, email]
+- `POST` `/api/register` params() → in: _Request, out: RegistrationResponse [auth, db, cache, queue, email]
+- `POST` `/api/register-with-org` params() → in: _Request, out: RegistrationResponse [auth, db, cache, queue, email]
+- `GET` `/api/verify-email` params() → out: RegistrationResponse [auth, db, cache, queue, email]
+- `POST` `/api/resend-verification-email` params() → in: _Request, out: RegistrationResponse [auth, db, cache, queue, email]
+- `GET` `/api/me` params() → out: RegistrationResponse [auth, db, cache, queue, email]
+- `PUT` `/api/me` params() → in: UserUpdate, out: RegistrationResponse [auth, db, cache, queue, email]
+- `PUT` `/api/me/password` params() → in: UserUpdate, out: RegistrationResponse [auth, db, cache, queue, email]
+- `POST` `/api/forgot-password` params() → in: _Request, out: RegistrationResponse [auth, db, cache, queue, email]
+- `POST` `/api/reset-password` params() → in: _Request, out: RegistrationResponse [auth, db, cache, queue, email]
+- `PUT` `/api/approve/{user_id}` params(user_id) → in: UserUpdate, out: RegistrationResponse [auth, db, cache, queue, email]
+- `PUT` `/api/organization/{organization_id}/approve` params(organization_id) → in: UserUpdate, out: RegistrationResponse [auth, db, cache, queue, email]
+- `PUT` `/api/organization/{organization_id}/reject` params(organization_id) → in: UserUpdate, out: RegistrationResponse [auth, db, cache, queue, email]
+- `PUT` `/api/reject/{user_id}` params(user_id) → in: UserUpdate, out: RegistrationResponse [auth, db, cache, queue, email]
+- `GET` `/api/admin/review-queue` params() → out: RegistrationResponse [auth, db, cache, queue, email]
+- `GET` `/api/admin/review-queue/{user_id}` params(user_id) → out: RegistrationResponse [auth, db, cache, queue, email]
+- `GET` `/api/organization-joins` params() → out: RegistrationResponse [auth, db, cache, queue, email]
+- `PUT` `/api/organization-joins/{join_request_id}/approve` params(join_request_id) → in: UserUpdate, out: RegistrationResponse [auth, db, cache, queue, email]
+- `PUT` `/api/organization-joins/{join_request_id}/reject` params(join_request_id) → in: UserUpdate, out: RegistrationResponse [auth, db, cache, queue, email]
+- `POST` `/api/survey` params() → in: _Request, out: RegistrationResponse [auth, db, cache, queue, email]
 - `GET` `/products` params() → in: AsyncSessio, out: list [auth, db]
 - `GET` `/delivery-points` params() → in: AsyncSessio, out: list [auth, db]
-- `GET` `/compliance/ledger` params() → in: Annotated, out: List [auth, db, upload]
-- `POST` `/compliance/verify` params() → in: Annotated, out: List [auth, db, upload]
 - `GET` `/api/vessels/{vessel_id}/score` params(vessel_id) → out: ComplianceScoreResponse [auth, db]
 - `GET` `/api/fleet` params() → out: ComplianceScoreResponse [auth, db]
 - `POST` `/api/scenario` params() → in: ScenarioInput, out: ComplianceScoreResponse [auth, db]
@@ -70,32 +74,41 @@
 - `GET` `/api/v1/board` params() → in: Optional, out: ForwardCurveTableResponse [auth, db]
 - `GET` `/api/v1` params() → in: Optional, out: ForwardCurveTableResponse [auth, db] ✓
 - `GET` `/api/v1/export` params() → in: Optional, out: ForwardCurveTableResponse [auth, db]
-- `GET` `/logs` params() → out: SystemHealth
-- `POST` `/inventory/{item_id}/publish` params(item_id) → in: InventoryCreate, out: List [auth, db]
-- `GET` `/listings` params() → in: Annotated, out: List [auth, db]
-- `GET` `/listings/my` params() → in: Annotated, out: List [auth, db]
+- `POST` `/inventory/{item_id}/publish` params(item_id) → out: List [auth, db, queue]
+- `GET` `/listings` params() → in: Annotated, out: List [auth, db, queue]
+- `GET` `/listings/my` params() → in: Annotated, out: List [auth, db, queue]
 - `POST` `/submit` params() [auth, db, upload]
 - `GET` `/status` params() → in: Annotated [auth, db, upload]
 - `PUT` `/admin/{user_id}/approve` params(user_id) → in: uuid [auth, db, upload]
 - `PUT` `/admin/{user_id}/reject` params(user_id) → in: uuid [auth, db, upload]
+- `GET` `/capabilities` params() → in: Annotated, out: list [auth, db, queue]
+- `POST` `/capability-assignments` params() → out: list [auth, db, queue]
+- `POST` `/capability-assignments/{assignment_id}/revoke` params(assignment_id) → out: list [auth, db, queue]
+- `GET` `/organizations` params() → in: Annotated, out: list [auth, db, queue]
+- `POST` `/organizations/{organization_id}/authorizations` params(organization_id) → out: list [auth, db, queue]
+- `GET` `/organizations/{organization_id}/authorizations` params(organization_id) → in: Annotated, out: list [auth, db, queue]
+- `POST` `/organizations/{organization_id}/listings` params(organization_id) → out: list [auth, db, queue]
+- `GET` `/organizations/{organization_id}/listings` params(organization_id) → in: Annotated, out: list [auth, db, queue]
+- `POST` `/organizations/{organization_id}/listings/{order_id}/cancel` params(organization_id, order_id) → out: list [auth, db, queue] ✓
+- `POST` `/organizations/{organization_id}/authorizations/{authorization_id}/revoke` params(organization_id, authorization_id) → out: list [auth, db, queue]
+- `GET` `/organizations/{organization_id}/context` params(organization_id) → in: Annotated, out: list [auth, db, queue]
 - `GET` `/suggestions` params() → in: Annotated [auth, db]
 - `PATCH` `/suggestions/{order_id}/dismiss` params(order_id) → in: UUID [auth, db]
 - `POST` `/signup-canary-cleanup` params() → in: CanaryCleanupRequest, out: CanaryCleanupResponse [auth, db]
-- `POST` `/{negotiation_id}/counter` params(negotiation_id) → out: NegotiationResponse [auth, db]
-- `POST` `/{negotiation_id}/accept` params(negotiation_id) → out: NegotiationResponse [auth, db]
-- `POST` `/{negotiation_id}/decline` params(negotiation_id) → out: NegotiationResponse [auth, db]
-- `POST` `/refresh` params() → in: AsyncSessio [auth, db]
+- `POST` `/{negotiation_id}/counter` params(negotiation_id) → out: NegotiationResponse [auth, db, queue]
+- `POST` `/{negotiation_id}/accept` params(negotiation_id) → out: NegotiationResponse [auth, db, queue]
+- `POST` `/{negotiation_id}/decline` params(negotiation_id) → out: NegotiationResponse [auth, db, queue]
 - `GET` `/unread-count` params() → in: in, out: List [auth, db]
 - `PATCH` `/{notification_id}/read` params(notification_id) → in: uuid, out: List [auth, db]
 - `PATCH` `/read-all` params() → in: uuid, out: List [auth, db]
-- `GET` `/bids` params() → in: Optional, out: PaginatedResponse [auth, db, cache]
-- `GET` `/asks` params() → in: Optional, out: PaginatedResponse [auth, db, cache]
-- `GET` `/with-ci` params() → in: Optional, out: PaginatedResponse [auth, db, cache]
-- `GET` `/my` params() → in: Optional, out: PaginatedResponse [auth, db, cache]
-- `GET` `/my/latest-ask-template` params() → in: Optional, out: PaginatedResponse [auth, db, cache]
-- `GET` `/aggregated` params() → in: Optional, out: PaginatedResponse [auth, db, cache]
-- `GET` `/regions` params() → in: Optional, out: PaginatedResponse [auth, db, cache]
-- `GET` `/fuel-types` params() → in: Optional, out: PaginatedResponse [auth, db, cache]
+- `GET` `/bids` params() → in: Optional, out: PaginatedResponse [auth, db, cache, queue]
+- `GET` `/asks` params() → in: Optional, out: PaginatedResponse [auth, db, cache, queue]
+- `GET` `/with-ci` params() → in: Optional, out: PaginatedResponse [auth, db, cache, queue]
+- `GET` `/my` params() → in: Optional, out: PaginatedResponse [auth, db, cache, queue]
+- `GET` `/my/latest-ask-template` params() → in: Optional, out: PaginatedResponse [auth, db, cache, queue]
+- `GET` `/aggregated` params() → in: Optional, out: PaginatedResponse [auth, db, cache, queue]
+- `GET` `/regions` params() → in: Optional, out: PaginatedResponse [auth, db, cache, queue]
+- `GET` `/fuel-types` params() → in: Optional, out: PaginatedResponse [auth, db, cache, queue]
 - `GET` `/admin/commissions` params() → in: Use, out: list [auth, db]
 - `GET` `/admin/commissions/summary` params() → in: Use, out: list [auth, db]
 - `PUT` `/admin/commissions/{commission_id}` params(commission_id) → in: UUID, out: list [auth, db]
@@ -110,18 +123,18 @@
 - `GET` `/leaderboard` params() → in: Annotated, out: ReferralCodeResponse [auth, db]
 - `POST` `/invite` params() → out: ReferralCodeResponse [auth, db]
 - `GET` `/resolve/{code}` params(code) → in: Annotated, out: ReferralCodeResponse [auth, db]
-- `POST` `/{rfq_id}/quote` params(rfq_id) → out: RFQResponse [auth, db]
-- `POST` `/{rfq_id}/accept/{quote_id}` params(rfq_id, quote_id) → out: RFQResponse [auth, db]
-- `POST` `/{rfq_id}/cancel` params(rfq_id) → out: RFQResponse [auth, db]
-- `GET` `/prices` params() [auth, cache, queue]
-- `GET` `/orderbook` params() [auth, cache, queue]
-- `GET` `/trades` params() [auth, cache, queue]
+- `POST` `/{rfq_id}/quote` params(rfq_id) → out: RFQResponse [auth, db, queue]
+- `POST` `/{rfq_id}/accept/{quote_id}` params(rfq_id, quote_id) → out: RFQResponse [auth, db, queue]
+- `POST` `/{rfq_id}/cancel` params(rfq_id) → out: RFQResponse [auth, db, queue]
+- `GET` `/api/prices` params() [auth, db, cache, queue] ✓
+- `GET` `/api/orderbook` params() [auth, db, cache, queue] ✓
+- `GET` `/api/trades` params() [auth, db, cache, queue] ✓
 - `GET` `/subscriptions/me` params() → in: Annotated, out: SubscriptionResponse [auth, db]
-- `POST` `/` params() → in: TradeCreate, out: TradeResponse [auth, db] ✓
-- `PUT` `/{trade_id}/confirm` params(trade_id) → in: UUID, out: TradeResponse [auth, db]
-- `PUT` `/{trade_id}/decline` params(trade_id) → in: UUID, out: TradeResponse [auth, db]
-- `PUT` `/{trade_id}/deliver` params(trade_id) → in: UUID, out: TradeResponse [auth, db]
-- `POST` `/{trade_id}/pay` params(trade_id) → in: TradeCreate, out: TradeResponse [auth, db]
+- `POST` `/` params() → out: TradeResponse [auth, db, queue] ✓
+- `PUT` `/{trade_id}/confirm` params(trade_id) → out: TradeResponse [auth, db, queue]
+- `PUT` `/{trade_id}/decline` params(trade_id) → out: TradeResponse [auth, db, queue]
+- `PUT` `/{trade_id}/deliver` params(trade_id) → out: TradeResponse [auth, db, queue]
+- `POST` `/{trade_id}/pay` params(trade_id) → out: TradeResponse [auth, db, queue]
 - `GET` `/vessels` params() → in: Annotated, out: List [auth, db]
 - `GET` `/vessels/{vessel_id}` params(vessel_id) → in: Annotated, out: List [auth, db]
 - `GET` `/me` params() → in: Annotated, out: list [auth, db]
@@ -131,6 +144,7 @@
 - `PATCH` `/{watchlist_id}/events/{event_id}` params(watchlist_id, event_id) → in: UUID, out: list [auth, db]
 - `POST` `/{watchlist_id}/entries` params(watchlist_id) → in: WatchlistCreateRequest, out: list [auth, db]
 - `DELETE` `/{watchlist_id}/entries/{entry_id}` params(watchlist_id, entry_id) → in: UUID, out: list [auth, db]
+- `POST` `/upload` params() → in: UploadFile [auth, db, upload] ✓
 - `GET` `/api/admin/analytics/overview` params() [auth, db] ✓
 
 ---
@@ -190,7 +204,7 @@
 
 ### TraceabilityEvent
 - id: UUID (pk, default)
-- direct_order_id: unknown (fk)
+- direct_order_id: UUID
 - stage: String
 - location_name: String
 - timestamp: DateTime
@@ -289,9 +303,74 @@
 - created_at: DateTime (default)
 - updated_at: DateTime (default)
 
+### MarketEventOutbox
+- id: UUID (pk, default)
+- event_type: String
+- aggregate_type: String
+- aggregate_id: String
+- participant_org_ids: JSON
+- payload: JSON
+- created_at: DateTime (default)
+- dispatched_at: DateTime (nullable)
+- stream_seq: BigInteger (nullable)
+- delivery_attempts: Integer (default)
+- last_error: Text (nullable)
+
+### StaffCapabilityAssignment
+- id: UUID (pk, default)
+- user_id: UUID (fk)
+- capability: Enum
+- reason: String
+- granted_by_user_id: UUID (fk)
+- granted_at: DateTime (default)
+- expires_at: DateTime
+- revoked_at: DateTime
+- revoked_by_user_id: UUID (fk)
+- revocation_reason: String
+
+### MarketSupportAuthorization
+- id: UUID (pk, default)
+- organization_id: UUID (fk)
+- accountable_user_id: UUID (fk)
+- status: Enum (default)
+- product_id: UUID (fk)
+- delivery_point_id: UUID (fk)
+- availability_window: String
+- quantity_mt: Numeric
+- price_per_mt_usd: Numeric
+- authorization_expires_at: DateTime
+- order_expires_at: DateTime
+- is_anonymous: Boolean (default)
+- certifications: JSON (default)
+- certification_declared: Boolean
+- certification_scheme: String
+- specification_standard: String
+- msds_available: Boolean
+- carbon_intensity_gco2_mj: Numeric
+- carbon_intensity_method: String
+- feedstock: String
+- origin: String
+- off_spec: Boolean
+- off_spec_notes: Text
+- terms_digest: String
+- evidence_reference: String
+- evidence_sha256: String
+- commercial_consent_version: String
+- commercial_consent_reference: String
+- support_case_reference: String
+- idempotency_key: String
+- idempotency_request_hash: String
+- created_by_actor_user_id: UUID (fk)
+- created_at: DateTime (default)
+- consumed_at: DateTime
+- revoked_at: DateTime
+- revoked_by_actor_user_id: UUID (fk)
+- revocation_reason: String
+
 ### InventoryItem
 - id: UUID (pk, default)
 - supplier_id: unknown (fk)
+- owner_user_id: unknown (fk, nullable)
 - port_id: unknown (fk)
 - fuel_type: Enum
 - product_name: String
@@ -331,8 +410,13 @@
 - ask_order_id: UUID (fk, nullable)
 - initiator_org_id: UUID (fk)
 - counterparty_org_id: UUID (fk)
+- initiator_user_id: UUID (fk, nullable, index)
+- counterparty_user_id: UUID (fk, nullable, index)
+- accepted_by_user_id: UUID (fk, nullable)
 - initiator_side: String
 - product_id: UUID (fk)
+- delivery_point_id: UUID (fk, nullable)
+- availability_window: String (default)
 - quantity_mt: Numeric
 - current_price: Numeric
 - status: Enum (default)
@@ -348,6 +432,7 @@
 - negotiation_id: UUID (fk)
 - round_number: Integer
 - proposer_org_id: UUID (fk)
+- proposer_user_id: UUID (fk, nullable)
 - proposed_price: Numeric
 - notes: Text (nullable)
 - created_at: DateTime (default)
@@ -379,6 +464,13 @@
 ### OrderBookOrder
 - id: UUID (pk, default)
 - organization_id: unknown (fk)
+- owner_user_id: unknown (fk, nullable, index)
+- created_by_actor_user_id: unknown (fk, nullable)
+- creation_method: Enum (default)
+- support_authorization_id: UUID (fk, nullable)
+- version: Integer (default)
+- inventory_item_id: unknown (fk, nullable, index)
+- provenance: Enum (default)
 - side: Enum
 - product_id: UUID (fk)
 - delivery_point_id: UUID (fk, nullable)
@@ -405,9 +497,12 @@
 - off_spec_notes: Text (nullable)
 - status: Enum (default)
 - expires_at: DateTime (nullable)
+- idempotency_key: String (nullable)
+- idempotency_operation: String (nullable)
+- idempotency_request_hash: String (nullable)
 - created_at: DateTime (default)
 - updated_at: DateTime (default)
-- _relations_: organization: Organization, product: Product, delivery_point: DeliveryPoint, vessel: Vessel, bid_trades: Trade, ask_trades: Trade
+- _relations_: organization: Organization, product: Product, delivery_point: DeliveryPoint, vessel: Vessel, inventory_item: InventoryItem, bid_trades: Trade, ask_trades: Trade
 
 ### Trade
 - id: UUID (pk, default)
@@ -415,8 +510,23 @@
 - ask_order_id: unknown (fk, nullable)
 - buyer_id: unknown (fk)
 - seller_id: unknown (fk)
+- buyer_user_id: unknown (fk, nullable, index)
+- seller_user_id: unknown (fk, nullable, index)
+- initiator_org_id: unknown (fk)
+- buyer_provenance: Enum (default)
+- seller_provenance: Enum (default)
 - initiated_by: Enum
 - is_anonymous: Boolean (default)
+- product_id: UUID (fk, nullable)
+- product_name: String (nullable)
+- fuel_type: String (nullable)
+- fuel_grade: String (nullable)
+- market_product: String (nullable)
+- delivery_point_id: UUID (fk, nullable)
+- delivery_point_name: String (nullable)
+- delivery_point_region: String (nullable)
+- availability_window: String (nullable)
+- market_snapshot_version: SmallInteger (nullable, default)
 - quantity_mt: Numeric
 - price_per_mt_usd: Numeric
 - status: Enum (default)
@@ -429,11 +539,14 @@
 - delivered_at: DateTime (nullable)
 - paid_at: DateTime (nullable)
 - created_at: DateTime (default)
+- idempotency_key: String (nullable)
+- idempotency_operation: String (nullable)
+- idempotency_request_hash: String (nullable)
 - _relations_: bid_order: OrderBookOrder, ask_order: OrderBookOrder, buyer: Organization, seller: Organization, commission: Commission
 
 ### Commission
 - id: UUID (pk, default)
-- match_id: unknown (fk, unique)
+- match_id: unknown (unique)
 - trade_id: unknown (fk, nullable)
 - amount_usd: Numeric
 - status: Enum (default)
@@ -532,9 +645,46 @@
 - activated_at: DateTime (nullable)
 - _relations_: referrer: , referred_user: 
 
+### RefreshSession
+- id: UUID (pk, default)
+- user_id: unknown (fk, index)
+- family_id: UUID (index)
+- jti_hash: String (unique)
+- device_id_hash: String (nullable, index)
+- replaced_by_jti_hash: String (nullable)
+- rotation_grace_until: DateTime (nullable)
+- revoked: Boolean (default)
+- expires_at: DateTime (index)
+- created_at: DateTime (default)
+- last_used_at: DateTime (nullable)
+
+### PendingRegistration
+- id: UUID (pk, default)
+- token_hash: String (unique)
+- email: String
+- password_hash: String
+- first_name: String (nullable)
+- last_name: String (nullable)
+- role: Enum (nullable)
+- referral_code: String (nullable)
+- expires_at: DateTime
+- used_at: DateTime (nullable)
+- created_at: DateTime (default)
+
+### OrganizationJoinRequest
+- id: UUID (pk, default)
+- user_id: unknown (fk, index)
+- organization_id: unknown (fk, index)
+- status: Enum (default)
+- reviewed_by: unknown (fk, nullable)
+- reviewed_at: DateTime (nullable)
+- review_note: Text (nullable)
+- created_at: DateTime (default)
+
 ### RFQ
 - id: UUID (pk, default)
 - buyer_org_id: UUID (fk)
+- buyer_user_id: unknown (fk, nullable, index)
 - product_id: UUID (fk)
 - delivery_point_id: UUID (fk, nullable)
 - quantity_mt: Numeric
@@ -543,6 +693,8 @@
 - notes: Text (nullable)
 - is_anonymous: Boolean (default)
 - status: Enum (default)
+- accepted_quote_id: UUID (fk, nullable)
+- trade_id: UUID (fk, nullable)
 - expires_at: DateTime
 - created_at: DateTime (default)
 - _relations_: quotes: 
@@ -551,11 +703,44 @@
 - id: UUID (pk, default)
 - rfq_id: UUID (fk)
 - seller_org_id: UUID (fk)
+- seller_user_id: unknown (fk, nullable, index)
 - price_per_mt_usd: Numeric
 - notes: Text (nullable)
 - status: Enum (default)
 - created_at: DateTime (default)
 - _relations_: rfq: 
+
+### SeedRun
+- id: UUID (pk, default)
+- seed_name: String
+- environment: String
+- run_metadata: JSON (nullable)
+- created_at: DateTime (default)
+- completed_at: DateTime (default)
+
+### MarketRowQuarantine
+- id: UUID (pk, default)
+- source_table: String
+- source_id: UUID
+- original_row: JSON
+- dependencies: JSON
+- environment: String
+- database_name: String
+- reason: Text
+- operator: String
+- reference: String
+- quarantined_at: DateTime (default)
+
+### OrganizationMarketApproval
+- organization_id: UUID (fk, pk)
+- previous_verification_status: String
+- reviewed_snapshot: JSON
+- environment: String
+- database_name: String
+- reason: Text
+- operator: String
+- reference: String
+- approved_at: DateTime (default)
 
 ### Subscription
 - id: UUID (pk, default)
@@ -574,7 +759,8 @@
 - supplier_tier: Enum (nullable, default)
 - tax_id: String
 - country_code: String
-- verification_status: String (default)
+- verification_status: String
+- provenance: Enum (default)
 - created_at: DateTime (default)
 - _relations_: users: , vessels: , orderbook_orders: 
 
@@ -592,9 +778,15 @@
 - must_change_password: Boolean (default)
 - created_at: DateTime (default)
 - email_verified: Boolean (default)
-- email_verification_token: String (nullable)
+- email_verification_token_hash: String (nullable, index)
+- email_verification_token_expires_at: DateTime (nullable)
 - kyc_status: String (default)
+- kyc_organization_id: UUID (fk, nullable, index)
 - kyc_rejection_reason: Text (nullable)
+- kyc_external_evidence_reference: String (nullable)
+- kyc_review_note: Text (nullable)
+- kyc_reviewed_by: UUID (fk, nullable)
+- kyc_reviewed_at: DateTime (nullable)
 - password_reset_token_hash: String (nullable)
 - password_reset_expires: DateTime (nullable)
 - referral_code: String (unique, nullable)
@@ -696,6 +888,9 @@
 - `alembic/versions/g6h7i8j9k0l1_add_audit_logs_table.py` — function upgrade: () -> None, function downgrade: () -> None
 - `alembic/versions/h7i8j9k0l1m2_add_email_verification_and_kyc_fields.py` — function upgrade: () -> None, function downgrade: () -> None
 - `alembic/versions/ix_2026_04_exec_watchlist_perf.py` — function upgrade: () -> None, function downgrade: () -> None
+- `alembic/versions/mi_20260720_market_integrity.py` — function upgrade: () -> None, function downgrade: () -> None
+- `alembic/versions/miq_20260720_market_quarantine.py` — function upgrade: () -> None, function downgrade: () -> None
+- `alembic/versions/ms_20260723_assisted_listings.py` — function upgrade: () -> None, function downgrade: () -> None
 - `alembic/versions/neg_2026_04_add_negotiations.py` — function upgrade: () -> None, function downgrade: () -> None
 - `alembic/versions/neg_2026_04b_negotiation_fixes.py` — function upgrade: () -> None, function downgrade: () -> None
 - `alembic/versions/news_2026_03_add_news_items.py` — function upgrade: () -> None, function downgrade: () -> None
@@ -708,13 +903,79 @@
 - `alembic/versions/rfq_2026_03_add_rfq_tables.py` — function upgrade: () -> None, function downgrade: () -> None
 - `alembic/versions/rh_20260720_runtime_metadata.py` — function upgrade: () -> None, function downgrade: () -> None
 - `alembic/versions/sb_2026_04_live_slice_benchmarks.py` — function upgrade: () -> None, function downgrade: () -> None
+- `alembic/versions/sec_20260720_admission_boundaries.py` — function upgrade: () -> None, function downgrade: () -> None
+- `alembic/versions/sec_20260720_device_sessions.py` — function upgrade: () -> None, function downgrade: () -> None
+- `alembic/versions/sec_20260720_fresh_remediation.py` — function upgrade: () -> None, function downgrade: () -> None
+- `alembic/versions/sec_20260720_identity_hardening.py` — function upgrade: () -> None, function downgrade: () -> None
+- `alembic/versions/sse_20260720_market_event_stream.py` — function upgrade: () -> None, function downgrade: () -> None
 - `alembic/versions/sub_2026_03_add_subscriptions.py` — function upgrade: () -> None, function downgrade: () -> None
 - `alembic/versions/usr_2026_04_onboarding_survey.py` — function upgrade: () -> None, function downgrade: () -> None
 - `alembic/versions/wl_2026_03_add_watchlists.py` — function upgrade: () -> None, function downgrade: () -> None
 - `alembic/versions/wl_2026_04_market_radar.py` — function upgrade: () -> None, function downgrade: () -> None
 - `alembic/versions/wl_2026_04_watchlist_entry_uniqueness.py` — function upgrade: () -> None, function downgrade: () -> None
+- `deploy/monitor/alert_dispatch.py`
+  - function valid_alert_state: (payload, now) -> bool
+  - function process_event: (event, state_directory, now, environ, str]) -> str
+  - function process_reminder: (check, state_directory, now, environ, str]) -> str
+  - function parse_args: (argv) -> argparse.Namespace
+  - function main: (argv) -> int
+- `deploy/monitor/backup_verify.py`
+  - function verify_backups: (status_file, backup_directory, attempt_directory, *, now, max_age_seconds, future_tolerance_seconds, max_timestamp_skew_seconds, max_metadata_bytes, max_attempt_records, max_attempt_bytes, max_artifacts, max_artifact_bytes, max_uncompressed_bytes, total_timeout_seconds) -> list[dict]
+  - function run_monitor: (args) -> dict
+  - function parse_args: (argv) -> argparse.Namespace
+  - function main: (argv) -> int
+- `deploy/monitor/legacy_retirement.py`
+  - function configured_receipt_matrix: (path) -> frozenset[tuple[str, str]]
+  - function validate_evidence: (payload, *, required_receipts, str]], now) -> dict
+  - function validate_evidence_file: (path, *, required_receipts, str]], now) -> dict
+  - function guarded_retirement: (evidence_path, *, alert_config_path, alert_state_directory, health_status_path, backup_status_path, execute, confirmation, runner, None], timer_checker, bool], now, clock, datetime]) -> str
+  - function parse_args: (argv) -> argparse.Namespace
+  - function main: (argv) -> int
+  - _...1 more_
+- `deploy/monitor/local_health_check.py`
+  - function validate_runtime_identities: (identities, tuple[str | None, str | None]]) -> None
+  - function load_runtime_identities: (production_file, staging_file) -> dict[str, tuple[str, str]]
+  - function validate_readiness_payload: (payload, expected_environment, expected_release_sha) -> None
+  - function check_readiness: (name, url, expected_environment, expected_release_sha, timeout_seconds, max_body_bytes) -> dict
+  - function check_filesystem: (name, path, warning_free_percent, critical_free_percent, *, disk_usage) -> dict
+  - function check_directory_size: (name, path, max_bytes, deadline, *, max_entries) -> dict
+  - _...4 more_
+- `deploy/monitor/outbox_backlog_probe.py`
+  - function run_backlog_query: (dsn, timeout) -> str
+  - function parse_backlog: (output) -> tuple[int, int]
+  - function evaluate: (pending_count, oldest_seconds, *, max_pending, max_age_seconds) -> dict
+  - function parse_args: (argv) -> argparse.Namespace
+  - function main: (argv, query_runner) -> int
+  - class ProbeError
+- `deploy/monitor/status_state.py`
+  - function reject_duplicate_keys: (pairs, object]]) -> dict
+  - function load_json: (path, max_bytes) -> JsonLoad
+  - function valid_monitor_status: (value) -> bool
+  - function load_monitor_status: (path, max_bytes) -> tuple[dict, bool]
+  - function quarantine: (path) -> Path | None
+  - function utc: (value) -> str
+  - _...4 more_
+- `deploy/monitor/verify_runtime_identity.py`
+  - function verify_identity: (source_directory, expected_environment, expected_release_sha, environ, str], *, resolve_head, str]) -> bool
+  - function run_attested_job: (source_directory, expected_environment, expected_release_sha, environ, str], *, python_executable, script, runtime_directory) -> int
+  - function parse_args: (argv) -> argparse.Namespace
+  - function main: (argv) -> int
+- `scripts/apply_migration_checkpoint.py`
+  - function load_environment_file: (path) -> Path
+  - function activate_source_root: (source_root) -> Path
+  - function require_module_from_source: (module, source_root) -> None
+  - function parse_checkpoint_policy: (text) -> set[tuple[str, str]]
+  - function validate_checkpoint_request: (*, policy, str]], source_sha, approved_source_sha, expected_current, target, current_heads, ...], script_directory) -> None
+  - function read_committed_checkpoint_policy: (source_root, source_sha) -> str
+  - _...4 more_
 - `scripts/benchmark_product_analytics.py` — function main: () -> int
 - `scripts/check_users.py` — function main: ()
+- `scripts/converge_runtime_acls.py`
+  - function resolve_acl_target: (environment, values, object]) -> RuntimeAclTarget
+  - function build_psql_invocation: (bundle_root, target) -> tuple[list[str], dict[str, str]]
+  - function main: () -> int
+  - class RuntimeAclConvergenceError
+  - class RuntimeAclTarget
 - `scripts/explain_product_analytics.py` — function main: () -> int, function run: (days, output) -> int
 - `scripts/import_gena_csv.py` — function import_csv: (file_path, fuel_type)
 - `scripts/ingest_market_signals.py`
@@ -724,10 +985,18 @@
   - function print_report: (report) -> None
   - function main: () -> None
   - function run: (args) -> int
+- `scripts/preflight_runtime.py` — function main: () -> int
 - `scripts/prune_product_analytics.py`
+  - function parse_cli_args: (argv) -> argparse.Namespace
+  - function assert_runtime_identity: (*, configured_environment, configured_release_sha, expected_environment, expected_release_sha) -> None
   - function compute_cutoff: (today) -> date
+  - function cli: (argv) -> int
   - function prune_login_days: (session, *, today) -> int
-  - function main: () -> int
+  - function main: (*, expected_environment, expected_release_sha) -> int
+- `scripts/remediate_market_data.py`
+  - function parse_args: (argv) -> argparse.Namespace
+  - function main: () -> None
+  - function run: (args) -> dict[str, Any]
 - `scripts/run_demo_activity.py` — function main: () -> None
 - `scripts/scrape_fleet_demand.py`
   - function run_batch: (commands, timeout) -> str
@@ -736,6 +1005,7 @@
   - function get_page_body: (url) -> str
   - function extract_int: (text, patterns) -> int | None
   - function scrape: ()
+- `scripts/security_preflight.py` — function main: () -> int, function report: () -> int
 - `scripts/seed.py` — function parse_args: () -> argparse.Namespace, function main: () -> None
 - `scripts/seed_compliance_data.py` — function add_entry: (org_key, transaction_type, amount, currency, units, description, reference_id, created_at)
 - `scripts/seed_forward_monitoring_demo.py` — function assert_catalog_ready: (db) -> None, function main: () -> None
@@ -753,14 +1023,6 @@
   - function rand_price_around: (mid, spread_pct, side)
   - function random_created_at: ()
   - function build_order: (side, product_key, dp_key, mid, spread_pct, min_lot, max_lot)
-- `scripts/seed_trade_tape.py`
-  - function get_connection: ()
-  - function clean_existing_trades: (conn)
-  - function generate_trade_dates: (num_trades, start_date, end_date)
-  - function get_status_for_date: (trade_date, end_date)
-  - function get_price_with_drift: (product_name, min_price, max_price, trade_date, start_date, end_date)
-  - function select_product: ()
-  - _...4 more_
 - `scripts/seed_vessels_fleet.py`
   - function get_db_connection: ()
   - function generate_vessel_data: ()
@@ -775,6 +1037,16 @@
   - function ensure_permitted_base_url: (base_url, *, allow_remote_readonly) -> None
   - function main: () -> int
   - _...2 more_
+- `scripts/validate_health_response.py`
+  - function validate_health_response: (payload, *, expected_environment, expected_release_sha) -> None
+  - function main: () -> int
+  - class HealthResponseError
+- `scripts/verify_migration_revision.py` — function main: () -> int
+- `scripts/verify_systemd_source.py`
+  - function verify_source_provenance: (*, source_root, source_ref, environment) -> dict[str, str]
+  - function build_verified_unit_archive: (*, source_root, source_ref, environment) -> bytes
+  - function main: () -> int
+  - class SourceProvenanceError
 
 ---
 
@@ -787,11 +1059,12 @@
 - `ADMIN_USERNAME` (has default) — .env.example
 - `ANALYTICS_ENABLED` (has default) — .env.example
 - `ANALYTICS_REQUEST_TIMEOUT_SECONDS` (has default) — .env.example
-- `BACKEND_CORS_ORIGINS` (has default) — .env.example
+- `BACKUP_DATABASE_URL` **required** — tests/postgres/test_runtime_role_policy.py
 - `DATABASE_HOST` (has default) — .env.example
 - `DATABASE_NAME` (has default) — .env.example
 - `DATABASE_PASSWORD` (has default) — .env.example
 - `DATABASE_PORT` (has default) — .env.example
+- `DATABASE_URL` **required** — tests/postgres/test_runtime_role_policy.py
 - `DATABASE_USER` (has default) — .env.example
 - `DB_IDLE_IN_TRANSACTION_SESSION_TIMEOUT_MS` (has default) — .env.example
 - `DB_LOCK_TIMEOUT_MS` (has default) — .env.example
@@ -803,23 +1076,42 @@
 - `DB_RESERVED_CONNECTIONS` (has default) — .env.example
 - `DB_SERVICE_COUNT` (has default) — .env.example
 - `DB_STATEMENT_TIMEOUT_MS` (has default) — .env.example
+- `DEMO_OUTPUT` **required** — tests/monitor/test_runtime_identity.py
+- `DISPOSABLE_ITEST_PASSWORD` **required** — tests/conftest.py
+- `DISPOSABLE_TEST_TOKEN` **required** — tests/disposable_server.py
 - `ENABLE_AUTH_BYPASS` (has default) — .env.example
+- `ENABLE_SQLADMIN` (has default) — .env.example
 - `ENVIRONMENT` (has default) — .env.example
 - `FRONTEND_URL` (has default) — .env.example
 - `GEMINI_API_KEY` **required** — .env.example
+- `GIT_CONFIG_GLOBAL` **required** — tests/unit/test_migration_checkpoint.py
 - `HEALTH_READINESS_TIMEOUT_SECONDS` (has default) — .env.example
 - `ITEST_PASSWORD` **required** — scripts/benchmark_product_analytics.py
 - `JWT_ALGORITHM` (has default) — .env.example
+- `JWT_AUDIENCE` (has default) — .env.example
+- `JWT_ISSUER` (has default) — .env.example
 - `JWT_SECRET` (has default) — .env.example
+- `JWT_SECRET_PREVIOUS` **required** — .env.example
 - `KYC_MAX_FILE_BYTES` (has default) — .env.example
 - `KYC_MAX_TOTAL_BYTES` (has default) — .env.example
+- `MARKET_INTEGRITY_TEST_DATABASE_URL` **required** — tests/postgres/test_market_integrity_concurrency.py
+- `MARKET_REMEDIATION_DATABASE_URL` **required** — scripts/remediate_market_data.py
+- `MARKET_SUPPORT_BOOTSTRAP_ADMIN_USER_IDS` **required** — .env.example
+- `MARKET_SUPPORT_ENABLED` (has default) — .env.example
+- `MARKET_SUPPORT_MAX_TTL_HOURS` (has default) — .env.example
 - `MIGRATOR_DATABASE_URL` **required** — .env.example
 - `MIGRATOR_IDLE_IN_TRANSACTION_SESSION_TIMEOUT_MS` (has default) — .env.example
 - `MIGRATOR_LOCK_TIMEOUT_MS` (has default) — .env.example
 - `MIGRATOR_STATEMENT_TIMEOUT_MS` (has default) — .env.example
-- `PATH` **required** — tests/unit/test_runtime_hardening.py
-- `PYTHONPATH` (has default) — .env.example
+- `PATH` **required** — tests/postgres/test_market_migrations.py
+- `POSTGRES_ADMIN_TEST_DATABASE_URL` **required** — tests/postgres/test_market_integrity_concurrency.py
+- `PYTHONPATH` **required** — tests/unit/test_migration_checkpoint.py
 - `RELEASE_SHA` (has default) — .env.example
+- `RUNTIME_TEST_APP_ROLE` **required** — tests/postgres/test_runtime_role_policy.py
+- `RUNTIME_TEST_BACKUP_ROLE` **required** — tests/postgres/test_runtime_role_policy.py
+- `RUNTIME_TEST_DATABASE_NAME` **required** — tests/postgres/test_runtime_role_policy.py
+- `RUNTIME_TEST_MIGRATOR_ROLE` **required** — tests/postgres/test_runtime_migration_roundtrip.py
+- `TEST_API_URL` **required** — tests/conftest.py
 - `UMAMI_API_PASSWORD` **required** — .env.example
 - `UMAMI_API_USERNAME` **required** — .env.example
 - `UMAMI_BASE_URL` (has default) — .env.example
@@ -839,23 +1131,31 @@
 
 ## auth
 - auth_2026_07_add_must_change_password — `alembic/versions/auth_2026_07_add_must_change_password.py`
+- auth_maintenance — `app/cli/auth_maintenance.py`
+- execution — `app/middleware/execution.py`
 - preauth_rate_limit — `app/middleware/preauth_rate_limit.py`
 - rbac — `app/middleware/rbac.py`
 - auth_simple — `app/routers/auth_simple.py`
+- auth_maintenance — `app/services/auth_maintenance.py`
+- auth-maintenance-timer — `docs/auth-maintenance-timer.md`
 - test_preauth_rate_limit — `tests/unit/test_preauth_rate_limit.py`
 
 ## custom
 - subscription — `app/middleware/subscription.py`
+- integrated-migration-cutover — `docs/runbooks/integrated-migration-cutover.md`
 
 ## rate-limit
 - rate_limit — `app/rate_limit.py`
+
+## cors
+- test_idempotency_cors — `tests/unit/test_idempotency_cors.py`
 
 ---
 
 # Test Coverage
 
-> **27%** of routes and models are covered by tests
-> 101 test files found
+> **31%** of routes and models are covered by tests
+> 162 test files found
 
 ## Covered Routes
 
@@ -866,9 +1166,14 @@
 - GET:/api/users
 - GET:
 - GET:/api/v1
+- POST:/organizations/{organization_id}/listings/{order_id}/cancel
 - POST:
 - GET:/api
+- GET:/api/prices
+- GET:/api/orderbook
+- GET:/api/trades
 - POST:/
+- POST:/upload
 - GET:/api/admin/analytics/overview
 
 ## Covered Models
@@ -883,9 +1188,13 @@
 - FairPriceBand
 - PhysicalStem
 - LiveSliceBenchmark
+- MarketEventOutbox
+- StaffCapabilityAssignment
+- MarketSupportAuthorization
 - InventoryItem
 - MatchSuggestion
 - Negotiation
+- NegotiationRound
 - NewsItem
 - Notification
 - OrderBookOrder
@@ -897,8 +1206,12 @@
 - UserLoginDay
 - UserStatusTransition
 - Referral
+- RefreshSession
+- PendingRegistration
+- OrganizationJoinRequest
 - RFQ
 - RFQQuote
+- SeedRun
 - Subscription
 - Organization
 - User

@@ -1,16 +1,19 @@
-from fastapi import APIRouter, Depends, HTTPException, Request, status, Query
+import hashlib
+
+from fastapi import APIRouter, Body, Depends, Header, HTTPException, Request, status, Query
 from app.services.audit_service import record_audit, request_audit_context
 from app.services.audit_actions import (
     ORDER_CANCELLED,
     ORDER_CREATED,
     ORDER_UPDATED,
+    MARKET_SUPPORT_AUTHORIZATION_CREATED,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, or_, and_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 from typing import Annotated, Optional
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from uuid import UUID
 
@@ -19,11 +22,18 @@ from app.config import settings
 from app.routers.auth_simple import get_authenticated_user, get_current_user
 from app.middleware.execution import require_execution_eligible_user
 from app.models.user import OrganizationProvenance, User, UserRole
-from app.models.orderbook import OrderBookOrder, OrderSide, OrderBookStatus
+from app.models.orderbook import OrderBookOrder, OrderSide, OrderBookStatus, OrderCreationMethod
+from app.models.market_support import (
+    MarketSupportAuthorization,
+    MarketSupportAuthorizationStatus,
+    MarketSupportContext as MarketSupportContextModel,
+)
+from app.models.notification import NotificationType
 from app.market_catalog import APPROVED_MARKET_PRODUCTS, MarketProduct
 from app.models.catalog import Product, DeliveryPoint
 from app.schemas.orderbook import (
     OrderCreate,
+    OrderCancelRequest,
     OrderUpdate,
     OrderResponse,
     OrderMyResponse,
@@ -41,6 +51,7 @@ from app.services.market_events import (
     participant_market_event,
 )
 from app.services.market_transactions import retry_market_transaction
+from app.services.org_notifications import notify_org_users_batched
 from app.services import market_transactions
 from app.services.availability_windows import (
     is_tradable_availability_window,
@@ -85,6 +96,20 @@ from app.services.market_admission import (
     MarketActorOwnership,
     lock_and_load_market_organizations,
 )
+from app.services.market_support import (
+    authorization_terms_digest,
+    economic_order_idempotency_payload,
+    lock_support_order_parties,
+    order_etag,
+    require_matching_etag,
+)
+from app.services.request_party import (
+    MARKET_SUPPORT_CONTEXT_HEADER,
+    RequestPartyMode,
+    lock_request_party_context,
+    resolve_request_party,
+)
+from app.services.market_support_post_only import assess_locked_order
 
 router = APIRouter(prefix="/orderbook", tags=["orderbook"])
 
@@ -370,13 +395,67 @@ async def _order_my_response(
     benchmark_cache: dict[LiveBenchmarkKey, Decimal | None] | None = None,
 ) -> OrderMyResponse:
     item = OrderMyResponse.model_validate(order, from_attributes=True).model_copy(
-        update=await _benchmark_payload(db, order, cache=benchmark_cache)
+        update={
+            **(await _benchmark_payload(db, order, cache=benchmark_cache)),
+            "etag": order_etag(order.id, order.version),
+        }
     )
     if order.side == OrderSide.BID:
         item.trade_count = len(order.bid_trades)
     else:
         item.trade_count = len(order.ask_trades)
     return item
+
+
+async def _replay_belongs_to_party(
+    db: AsyncSession, order: OrderBookOrder, party
+) -> bool:
+    """Prevent an idempotency key from replaying another principal's order."""
+    if order.creation_method != party.creation_method:
+        return False
+    if order.owner_user_id is not None:
+        if order.owner_user_id != party.accountable_principal.id:
+            return False
+    elif party.mode == RequestPartyMode.MARKET_SUPPORT:
+        return False
+    if (
+        order.created_by_actor_user_id is not None
+        and order.created_by_actor_user_id != party.actor.id
+    ):
+        return False
+    if party.mode == RequestPartyMode.MARKET_SUPPORT:
+        if order.support_authorization_id is None:
+            return False
+        authorization = (
+            await db.execute(
+                select(MarketSupportAuthorization).where(
+                    MarketSupportAuthorization.id == order.support_authorization_id
+                )
+            )
+        ).scalar_one_or_none()
+        return bool(
+            authorization is not None
+            and authorization.accountable_user_id == party.accountable_principal.id
+            and authorization.market_support_context_id == party.support_context_id
+        )
+    return True
+
+
+def _reject_admin_legacy_workspace_mutation(
+    request: Request, current_user: User
+) -> None:
+    if (
+        settings.MARKET_SUPPORT_ENABLED
+        and current_user.role == UserRole.ADMIN
+        and not request.headers.get(MARKET_SUPPORT_CONTEXT_HEADER)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_410_GONE,
+            detail={
+                "code": "MARKET_SUPPORT_LEGACY_MUTATION_RETIRED",
+                "message": "Use an active Market Support context for workspace mutations",
+            },
+        )
 
 
 async def _load_best_opposing_prices(
@@ -678,11 +757,20 @@ async def list_my_orders(
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+    request: Request = None,
 ):
     """
     List current user's own orders (both bids and asks).
     """
-    if not current_user.organization_id:
+    party = None
+    if request is not None and request.headers.get(MARKET_SUPPORT_CONTEXT_HEADER):
+        party = await resolve_request_party(request, db, current_user)
+    effective_organization_id = (
+        party.effective_organization.id
+        if party is not None and party.effective_organization is not None
+        else current_user.organization_id
+    )
+    if not effective_organization_id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="User must belong to an organization",
@@ -695,7 +783,7 @@ async def list_my_orders(
             selectinload(OrderBookOrder.bid_trades),
             selectinload(OrderBookOrder.ask_trades),
         )
-        .where(OrderBookOrder.organization_id == current_user.organization_id)
+        .where(OrderBookOrder.organization_id == effective_organization_id)
         .order_by(OrderBookOrder.created_at.desc())
         .offset(skip)
         .limit(limit)
@@ -717,8 +805,17 @@ async def list_my_orders(
 async def latest_supplier_listing_template(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+    request: Request = None,
 ):
-    if not current_user.organization_id:
+    party = None
+    if request is not None and request.headers.get(MARKET_SUPPORT_CONTEXT_HEADER):
+        party = await resolve_request_party(request, db, current_user)
+    effective_organization_id = (
+        party.effective_organization.id
+        if party is not None and party.effective_organization is not None
+        else current_user.organization_id
+    )
+    if not effective_organization_id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="User must belong to an organization",
@@ -727,7 +824,7 @@ async def latest_supplier_listing_template(
     result = await db.execute(
         select(OrderBookOrder)
         .where(
-            OrderBookOrder.organization_id == current_user.organization_id,
+            OrderBookOrder.organization_id == effective_organization_id,
             OrderBookOrder.side == OrderSide.ASK,
             or_(OrderBookOrder.expires_at.is_(None), OrderBookOrder.expires_at > func.now()),
         )
@@ -1015,13 +1112,35 @@ async def list_orders(
 async def create_order(
     request: Request,
     order_data: OrderCreate,
-    current_user: User = Depends(require_execution_eligible_user),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Place a new order. BID requires BUYER role, ASK requires SUPPLIER role.
+    Place a new order. Self-service BID requires BUYER role and ASK requires
+    SUPPLIER role; an assisted context is authorized at organization level.
     """
-    if not current_user.organization_id:
+    party = await resolve_request_party(request, db, current_user, operation="create_order")
+    if party.mode == RequestPartyMode.SELF_SERVICE:
+        if order_data.support_confirmation is not None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Assisted-order confirmation requires an active assisted workspace",
+            )
+        if isinstance(current_user, User):
+            current_user = await require_execution_eligible_user(current_user=current_user, db=db)
+    else:
+        if order_data.support_confirmation is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Final assisted-order confirmation is required",
+            )
+
+    effective_organization_id = (
+        party.effective_organization.id
+        if party.effective_organization is not None
+        else current_user.organization_id
+    )
+    if not effective_organization_id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="User must belong to an organization",
@@ -1030,15 +1149,34 @@ async def create_order(
     # A committed replay belongs to the initiating tenant and is returned
     # before current role/admission or target lifecycle checks.
     idempotency_key = request.headers.get("Idempotency-Key")
+    if party.mode == RequestPartyMode.MARKET_SUPPORT and not idempotency_key:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Assisted orders require Idempotency-Key",
+        )
     request_hash = None
     if idempotency_key:
         idempotency_key = idempotency_key.strip()
         if not idempotency_key or len(idempotency_key) > 255:
             raise HTTPException(status_code=400, detail="Idempotency-Key must be 1-255 characters")
-        request_hash = idempotency_request_hash(order_data.model_dump(mode="json"))
+        idempotency_payload: dict[str, object] = {
+            "order": economic_order_idempotency_payload(order_data)
+        }
+        if (
+            party.mode == RequestPartyMode.MARKET_SUPPORT
+            and order_data.support_confirmation is not None
+        ):
+            idempotency_payload["support_confirmation"] = (
+                order_data.support_confirmation.model_dump(mode="json")
+            )
+        request_hash = idempotency_request_hash(
+            idempotency_payload
+            if party.mode == RequestPartyMode.MARKET_SUPPORT
+            else idempotency_payload["order"]
+        )
         await acquire_idempotency_lock(
             db,
-            tenant_id=current_user.organization_id,
+            tenant_id=effective_organization_id,
             operation=ORDER_CREATE_OPERATION,
             key=idempotency_key,
         )
@@ -1046,7 +1184,7 @@ async def create_order(
             select(OrderBookOrder)
             .options(selectinload(OrderBookOrder.organization), selectinload(OrderBookOrder.product), selectinload(OrderBookOrder.delivery_point))
             .where(
-                OrderBookOrder.organization_id == current_user.organization_id,
+                OrderBookOrder.organization_id == effective_organization_id,
                 OrderBookOrder.idempotency_operation == ORDER_CREATE_OPERATION,
                 OrderBookOrder.idempotency_key == idempotency_key,
             )
@@ -1055,15 +1193,25 @@ async def create_order(
         if existing_order is not None:
             if existing_order.idempotency_request_hash != request_hash:
                 raise HTTPException(status_code=409, detail="Idempotency-Key was reused with a different request")
+            if not await _replay_belongs_to_party(db, existing_order, party):
+                raise HTTPException(status_code=409, detail="Idempotency-Key is bound to another request party")
             return await _order_response(db, existing_order)
 
-    if order_data.side == OrderSide.BID and current_user.role != UserRole.BUYER:
+    if (
+        party.mode == RequestPartyMode.SELF_SERVICE
+        and order_data.side == OrderSide.BID
+        and party.effective_role != UserRole.BUYER
+    ):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only buyers can place BID orders",
         )
 
-    if order_data.side == OrderSide.ASK and current_user.role != UserRole.SUPPLIER:
+    if (
+        party.mode == RequestPartyMode.SELF_SERVICE
+        and order_data.side == OrderSide.ASK
+        and party.effective_role != UserRole.SUPPLIER
+    ):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only suppliers can place ASK orders",
@@ -1132,7 +1280,7 @@ async def create_order(
     await market_transactions.transaction_boundary_hook(
         "before_market_slice_lock",
         operation="order_admission",
-        aggregate_id=current_user.organization_id,
+        aggregate_id=effective_organization_id,
     )
     await acquire_market_slice_lock(
         db,
@@ -1141,18 +1289,23 @@ async def create_order(
         delivery_point_id=order_data.delivery_point_id,
         availability_window=order_data.availability_window,
     )
+    await lock_request_party_context(db, party)
     organizations = await lock_and_load_market_organizations(
         db,
-        [current_user.organization_id],
+        [effective_organization_id],
         actor_ownerships=(
-            MarketActorOwnership(current_user.id, current_user.organization_id),
+            ()
+            if party.mode == RequestPartyMode.MARKET_SUPPORT
+            else (MarketActorOwnership(party.accountable_principal.id, effective_organization_id),)
         ),
     )
-    organization = organizations[current_user.organization_id]
+    organization = organizations[effective_organization_id]
 
     new_order = OrderBookOrder(
-        organization_id=current_user.organization_id,
-        owner_user_id=current_user.id,
+        organization_id=effective_organization_id,
+        owner_user_id=party.accountable_principal.id,
+        created_by_actor_user_id=party.actor.id,
+        creation_method=party.creation_method,
         provenance=snapshot_organization_provenance(organization),
         side=order_data.side,
         product_id=order_data.product_id,
@@ -1177,6 +1330,143 @@ async def create_order(
             setattr(new_order, field, value)
 
     new_order.product = product
+    support_authorization = None
+    if party.mode == RequestPartyMode.MARKET_SUPPORT:
+        confirmation = order_data.support_confirmation
+        if confirmation is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Assisted orders require final confirmation",
+            )
+        now = datetime.now(UTC)
+        if order_data.port_id is not None or order_data.vessel_id is not None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Assisted orders use the canonical delivery point only",
+            )
+        if confirmation.instruction_at > now:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "code": "MARKET_SUPPORT_INSTRUCTION_TIME_INVALID",
+                    "message": "Instruction time cannot be in the future",
+                },
+            )
+        if order_data.expires_at is not None and order_data.expires_at <= confirmation.instruction_at:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Order expiry must follow the instruction time",
+            )
+        context_result = await db.execute(
+            select(MarketSupportContextModel)
+            .where(MarketSupportContextModel.id == party.support_context_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        context_row = context_result.scalar_one()
+        # Assess the complete crossing set while the canonical slice is held.
+        assessment = await assess_locked_order(
+            db,
+            new_order,
+            organization=organization,
+        )
+        if assessment.indeterminate:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "code": "POST_ONLY_CHECK_INDETERMINATE",
+                    "message": "The complete crossing set could not be assessed; retry later",
+                },
+            )
+        if assessment.would_cross:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "code": "POST_ONLY_WOULD_CROSS",
+                    "message": "Assisted order entry is post-only and must rest without immediate execution",
+                    "best_executable_opposing_price": (
+                        str(assessment.best_executable_price)
+                        if assessment.best_executable_price is not None
+                        else None
+                    ),
+                },
+            )
+        support_authorization = MarketSupportAuthorization(
+            organization_id=effective_organization_id,
+            accountable_user_id=party.accountable_principal.id,
+            market_support_context_id=party.support_context_id,
+            product_id=new_order.product_id,
+            delivery_point_id=new_order.delivery_point_id,
+            availability_window=new_order.availability_window,
+            quantity_mt=new_order.quantity_mt,
+            price_per_mt_usd=new_order.price_per_mt_usd,
+            order_side=new_order.side.value,
+            authorization_expires_at=context_row.expires_at,
+            order_expires_at=order_data.expires_at,
+            is_anonymous=order_data.is_anonymous,
+            certifications=list(order_data.certifications),
+            certification_declared=order_data.certification_declared,
+            certification_scheme=normalized_certification_scheme,
+            specification_standard=order_data.specification_standard,
+            msds_available=order_data.msds_available,
+            carbon_intensity_gco2_mj=order_data.carbon_intensity_gco2_mj,
+            carbon_intensity_method=order_data.carbon_intensity_method,
+            feedstock=order_data.feedstock,
+            origin=order_data.origin,
+            off_spec=order_data.off_spec,
+            off_spec_notes=order_data.off_spec_notes,
+            terms_digest=authorization_terms_digest(
+                order_data.model_copy(update={"support_confirmation": None})
+            ),
+            evidence_reference=confirmation.external_instruction_reference,
+            evidence_sha256=(
+                hashlib.sha256(confirmation.evidence_excerpt.encode("utf-8")).hexdigest()
+                if confirmation.evidence_excerpt
+                else None
+            ),
+            instruction_at=confirmation.instruction_at,
+            acknowledge_exact_terms=confirmation.acknowledge_exact_terms,
+            acknowledge_executable_standing_order=confirmation.acknowledge_executable_standing_order,
+            commercial_consent_version=settings.MARKET_SUPPORT_CONSENT_VERSION,
+            commercial_consent_reference=settings.MARKET_SUPPORT_CONSENT_REFERENCE,
+            support_case_reference=party.support_reference,
+            idempotency_key=idempotency_key,
+            idempotency_request_hash=request_hash
+            or idempotency_request_hash(economic_order_idempotency_payload(order_data)),
+            created_by_actor_user_id=party.actor.id,
+        )
+        # The active context's expiry is intentionally the authorization bound.
+        context_expiry = context_row.expires_at
+        support_authorization.authorization_expires_at = (
+            min(context_expiry, order_data.expires_at)
+            if order_data.expires_at is not None
+            else context_expiry
+        )
+        db.add(support_authorization)
+        await db.flush()
+        new_order.support_authorization_id = support_authorization.id
+        support_authorization.status = MarketSupportAuthorizationStatus.CONSUMED
+        support_authorization.consumed_at = datetime.now(UTC)
+        await record_audit(
+            db,
+            user_id=party.actor.id,
+            action=MARKET_SUPPORT_AUTHORIZATION_CREATED,
+            resource_type="market_support_authorization",
+            resource_id=support_authorization.id,
+            changes={
+                "organization_id": str(effective_organization_id),
+                "accountable_user_id": str(party.accountable_principal.id),
+                "support_context_id": str(party.support_context_id),
+                "terms_digest": support_authorization.terms_digest,
+                "evidence_reference": support_authorization.evidence_reference,
+                "instruction_at": support_authorization.instruction_at.isoformat(),
+                "acknowledge_exact_terms": support_authorization.acknowledge_exact_terms,
+                "acknowledge_executable_standing_order": support_authorization.acknowledge_executable_standing_order,
+                "commercial_consent_version": support_authorization.commercial_consent_version,
+                "status": support_authorization.status.value,
+            },
+            **request_audit_context(request),
+        )
     previous_best_price = await _best_slice_price(
         db,
         market_product_code=new_order.market_product,
@@ -1205,7 +1495,7 @@ async def create_order(
             select(OrderBookOrder)
             .options(selectinload(OrderBookOrder.organization), selectinload(OrderBookOrder.product), selectinload(OrderBookOrder.delivery_point))
             .where(
-                OrderBookOrder.organization_id == current_user.organization_id,
+                OrderBookOrder.organization_id == effective_organization_id,
                 OrderBookOrder.idempotency_operation == ORDER_CREATE_OPERATION,
                 OrderBookOrder.idempotency_key == idempotency_key,
             )
@@ -1215,11 +1505,13 @@ async def create_order(
             raise
         if existing_order.idempotency_request_hash != request_hash:
             raise HTTPException(status_code=409, detail="Idempotency-Key was reused with a different request")
+        if not await _replay_belongs_to_party(db, existing_order, party):
+            raise HTTPException(status_code=409, detail="Idempotency-Key is bound to another request party")
         return await _order_response(db, existing_order)
 
     await record_audit(
         db,
-        user_id=current_user.id,
+        user_id=party.actor.id,
         action=ORDER_CREATED,
         resource_type="order",
         resource_id=new_order.id,
@@ -1232,14 +1524,34 @@ async def create_order(
             "quantity_mt": str(new_order.quantity_mt),
             "price_per_mt_usd": str(new_order.price_per_mt_usd),
             "status": new_order.status.value,
+            "actor_user_id": str(party.actor.id),
+            "effective_organization_id": str(effective_organization_id),
+            "accountable_user_id": str(party.accountable_principal.id),
+            "support_context_id": str(party.support_context_id) if party.support_context_id else None,
+            "creation_method": new_order.creation_method.value,
         },
         **request_audit_context(request),
     )
+    if party.mode == RequestPartyMode.MARKET_SUPPORT:
+        await notify_org_users_batched(
+            db,
+            [
+                (
+                    effective_organization_id,
+                    NotificationType.ORDER_UPDATE,
+                    "Listing set up by Verdaxis Support",
+                    "Verdaxis Support published an authorized listing for your organization.",
+                    {
+                        "order_id": str(new_order.id),
+                        "creation_method": OrderCreationMethod.MARKET_SUPPORT.value,
+                    },
+                )
+            ],
+        )
 
     # --- Match-on-insert: scan for crossing orders ---
     matched_trades: list = []
-    from app.config import settings
-    if settings.AUTO_MATCHING_ENABLED:
+    if settings.AUTO_MATCHING_ENABLED and party.mode == RequestPartyMode.SELF_SERVICE:
         from app.services.matching_engine import match_order
         matched_trades = await match_order(db, new_order, is_anonymous=order_data.is_anonymous)
 
@@ -1269,7 +1581,7 @@ async def create_order(
                 db,
                 triggering_order=new_order,
                 trades=matched_trades,
-                actor_user_id=current_user.id,
+                actor_user_id=party.actor.id,
                 audit_context=request_audit_context(request),
                 resting_side_previous_best_price=resting_side_previous_best_price,
             )
@@ -1308,7 +1620,7 @@ async def create_order(
             select(OrderBookOrder)
             .options(selectinload(OrderBookOrder.organization), selectinload(OrderBookOrder.product), selectinload(OrderBookOrder.delivery_point))
             .where(
-                OrderBookOrder.organization_id == current_user.organization_id,
+                OrderBookOrder.organization_id == effective_organization_id,
                 OrderBookOrder.idempotency_operation == ORDER_CREATE_OPERATION,
                 OrderBookOrder.idempotency_key == idempotency_key,
             )
@@ -1318,6 +1630,8 @@ async def create_order(
             raise
         if existing_order.idempotency_request_hash != request_hash:
             raise HTTPException(status_code=409, detail="Idempotency-Key was reused with a different request")
+        if not await _replay_belongs_to_party(db, existing_order, party):
+            raise HTTPException(status_code=409, detail="Idempotency-Key is bound to another request party")
         return await _order_response(db, existing_order)
     if new_order is not None:
         track_analytics_event(
@@ -1353,6 +1667,7 @@ async def update_order(
     """
     Update an own order. Only allowed if status is OPEN or PARTIALLY_FILLED.
     """
+    _reject_admin_legacy_workspace_mutation(request, current_user)
     result = await db.execute(
         select(OrderBookOrder)
         .options(
@@ -1380,6 +1695,12 @@ async def update_order(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You can only update your own orders",
+        )
+
+    if order.creation_method == OrderCreationMethod.MARKET_SUPPORT:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Assisted listings cannot be edited; cancel and create a replacement",
         )
 
     if (
@@ -1606,6 +1927,7 @@ async def update_order(
     return await _order_response(db, order)
 
 
+@router.post("/{order_id}/cancel", status_code=status.HTTP_204_NO_CONTENT)
 @router.delete("/{order_id}", status_code=status.HTTP_204_NO_CONTENT)
 @retry_market_transaction()
 async def cancel_order(
@@ -1613,10 +1935,24 @@ async def cancel_order(
     request: Request,
     current_user: User = Depends(get_authenticated_user),
     db: AsyncSession = Depends(get_db),
+    if_match: Annotated[str | None, Header(alias="If-Match")] = None,
+    body: OrderCancelRequest | None = Body(None),
 ):
     """
     Cancel an own order (soft cancel by setting status to CANCELLED).
     """
+    _reject_admin_legacy_workspace_mutation(request, current_user)
+    party = None
+    if request.headers.get(MARKET_SUPPORT_CONTEXT_HEADER):
+        party = await resolve_request_party(
+            request, db, current_user, operation="cancel_order"
+        )
+    effective_organization_id = (
+        party.effective_organization.id
+        if party is not None and party.effective_organization is not None
+        else current_user.organization_id
+    )
+    reason = body.reason if body is not None else None
     result = await db.execute(
         select(OrderBookOrder)
         .options(selectinload(OrderBookOrder.product), selectinload(OrderBookOrder.delivery_point))
@@ -1630,17 +1966,51 @@ async def cancel_order(
             detail="Order not found",
         )
 
-    owns_order = (
-        order.owner_user_id == current_user.id
-        if order.owner_user_id is not None
-        else current_user.organization_id is not None
-        and order.organization_id == current_user.organization_id
-    )
+    if order.creation_method == OrderCreationMethod.MARKET_SUPPORT and not reason:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cancellation reason is required for assisted orders",
+        )
+    if request.method == "POST" and not reason:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cancellation reason is required",
+        )
+
+    if party is not None and party.mode == RequestPartyMode.MARKET_SUPPORT:
+        if (
+            order.creation_method != OrderCreationMethod.MARKET_SUPPORT
+            or order.organization_id != effective_organization_id
+        ):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only assisted orders for this organization can be cancelled")
+        authorization_context = (
+            await db.execute(
+                select(MarketSupportAuthorization.market_support_context_id).where(
+                    MarketSupportAuthorization.id == order.support_authorization_id
+                )
+            )
+        ).scalar_one_or_none()
+        if order.support_authorization_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="The support authorization for this listing is unavailable",
+            )
+        owns_order = True
+    else:
+        owns_order = (
+            order.owner_user_id == current_user.id
+            if order.owner_user_id is not None
+            else current_user.organization_id is not None
+            and order.organization_id == current_user.organization_id
+        )
     if not owns_order:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You can only cancel your own orders",
         )
+
+    if order.creation_method == OrderCreationMethod.MARKET_SUPPORT:
+        require_matching_etag(if_match, order_id=order.id, version=order.version)
 
     if order.status not in (OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED):
         raise HTTPException(
@@ -1658,6 +2028,8 @@ async def cancel_order(
         delivery_point_id=order.delivery_point_id,
         availability_window=order.availability_window,
     )
+    if party is not None:
+        await lock_request_party_context(db, party)
     locked_result = await db.execute(
         select(OrderBookOrder)
         .options(selectinload(OrderBookOrder.product), selectinload(OrderBookOrder.delivery_point))
@@ -1675,13 +2047,17 @@ async def cancel_order(
     ):
         await db.rollback()
         raise HTTPException(status_code=409, detail="Order slice changed; retry the cancellation")
-    await lock_and_load_market_organizations(
-        db,
-        [current_user.organization_id],
-        actor_ownerships=(
-            MarketActorOwnership(current_user.id, current_user.organization_id),
-        ),
-    )
+    if order.creation_method == OrderCreationMethod.MARKET_SUPPORT:
+        require_matching_etag(if_match, order_id=order.id, version=order.version)
+        await lock_support_order_parties(db, order)
+    else:
+        await lock_and_load_market_organizations(
+            db,
+            [effective_organization_id],
+            actor_ownerships=(
+                MarketActorOwnership(current_user.id, effective_organization_id),
+            ),
+        )
 
     before_state = await _watchlist_before_state(db, order)
     benchmark_key: LiveBenchmarkKey | None = (
@@ -1693,6 +2069,7 @@ async def cancel_order(
     if order.inventory_item_id is not None and order.remaining_quantity_mt > 0:
         await release_inventory(db, order.inventory_item_id, order.remaining_quantity_mt)
     order.status = OrderBookStatus.CANCELLED
+    order.bump_version()
     await rebuild_live_slice_benchmarks_for_keys(db, [benchmark_key])
     await emit_order_updated(db, before=before_state, order=order)
     await record_audit(
@@ -1701,7 +2078,17 @@ async def cancel_order(
         action=ORDER_CANCELLED,
         resource_type="order",
         resource_id=order.id,
-        changes={"status": OrderBookStatus.CANCELLED.value},
+        changes={
+            "status": OrderBookStatus.CANCELLED.value,
+            "reason": reason,
+            "actor_user_id": str(party.actor.id) if party else str(current_user.id),
+            "effective_organization_id": str(effective_organization_id),
+            "original_principal_user_id": str(order.owner_user_id) if order.owner_user_id else None,
+            "cancellation_principal_user_id": str(party.accountable_principal.id) if party else str(current_user.id),
+            "support_context_id": str(party.support_context_id) if party else None,
+            "original_support_context_id": str(authorization_context) if party and authorization_context else None,
+            "version": order.version,
+        },
         **request_audit_context(request),
     )
     await commit_market_events(

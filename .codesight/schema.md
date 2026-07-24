@@ -53,7 +53,7 @@
 
 ### TraceabilityEvent
 - id: UUID (pk, default)
-- direct_order_id: unknown (fk)
+- direct_order_id: UUID
 - stage: String
 - location_name: String
 - timestamp: DateTime
@@ -152,9 +152,74 @@
 - created_at: DateTime (default)
 - updated_at: DateTime (default)
 
+### MarketEventOutbox
+- id: UUID (pk, default)
+- event_type: String
+- aggregate_type: String
+- aggregate_id: String
+- participant_org_ids: JSON
+- payload: JSON
+- created_at: DateTime (default)
+- dispatched_at: DateTime (nullable)
+- stream_seq: BigInteger (nullable)
+- delivery_attempts: Integer (default)
+- last_error: Text (nullable)
+
+### StaffCapabilityAssignment
+- id: UUID (pk, default)
+- user_id: UUID (fk)
+- capability: Enum
+- reason: String
+- granted_by_user_id: UUID (fk)
+- granted_at: DateTime (default)
+- expires_at: DateTime
+- revoked_at: DateTime
+- revoked_by_user_id: UUID (fk)
+- revocation_reason: String
+
+### MarketSupportAuthorization
+- id: UUID (pk, default)
+- organization_id: UUID (fk)
+- accountable_user_id: UUID (fk)
+- status: Enum (default)
+- product_id: UUID (fk)
+- delivery_point_id: UUID (fk)
+- availability_window: String
+- quantity_mt: Numeric
+- price_per_mt_usd: Numeric
+- authorization_expires_at: DateTime
+- order_expires_at: DateTime
+- is_anonymous: Boolean (default)
+- certifications: JSON (default)
+- certification_declared: Boolean
+- certification_scheme: String
+- specification_standard: String
+- msds_available: Boolean
+- carbon_intensity_gco2_mj: Numeric
+- carbon_intensity_method: String
+- feedstock: String
+- origin: String
+- off_spec: Boolean
+- off_spec_notes: Text
+- terms_digest: String
+- evidence_reference: String
+- evidence_sha256: String
+- commercial_consent_version: String
+- commercial_consent_reference: String
+- support_case_reference: String
+- idempotency_key: String
+- idempotency_request_hash: String
+- created_by_actor_user_id: UUID (fk)
+- created_at: DateTime (default)
+- consumed_at: DateTime
+- revoked_at: DateTime
+- revoked_by_actor_user_id: UUID (fk)
+- revocation_reason: String
+
 ### InventoryItem
 - id: UUID (pk, default)
 - supplier_id: unknown (fk)
+- owner_user_id: unknown (fk, nullable)
 - port_id: unknown (fk)
 - fuel_type: Enum
 - product_name: String
@@ -194,8 +259,13 @@
 - ask_order_id: UUID (fk, nullable)
 - initiator_org_id: UUID (fk)
 - counterparty_org_id: UUID (fk)
+- initiator_user_id: UUID (fk, nullable, index)
+- counterparty_user_id: UUID (fk, nullable, index)
+- accepted_by_user_id: UUID (fk, nullable)
 - initiator_side: String
 - product_id: UUID (fk)
+- delivery_point_id: UUID (fk, nullable)
+- availability_window: String (default)
 - quantity_mt: Numeric
 - current_price: Numeric
 - status: Enum (default)
@@ -211,6 +281,7 @@
 - negotiation_id: UUID (fk)
 - round_number: Integer
 - proposer_org_id: UUID (fk)
+- proposer_user_id: UUID (fk, nullable)
 - proposed_price: Numeric
 - notes: Text (nullable)
 - created_at: DateTime (default)
@@ -242,6 +313,13 @@
 ### OrderBookOrder
 - id: UUID (pk, default)
 - organization_id: unknown (fk)
+- owner_user_id: unknown (fk, nullable, index)
+- created_by_actor_user_id: unknown (fk, nullable)
+- creation_method: Enum (default)
+- support_authorization_id: UUID (fk, nullable)
+- version: Integer (default)
+- inventory_item_id: unknown (fk, nullable, index)
+- provenance: Enum (default)
 - side: Enum
 - product_id: UUID (fk)
 - delivery_point_id: UUID (fk, nullable)
@@ -268,9 +346,12 @@
 - off_spec_notes: Text (nullable)
 - status: Enum (default)
 - expires_at: DateTime (nullable)
+- idempotency_key: String (nullable)
+- idempotency_operation: String (nullable)
+- idempotency_request_hash: String (nullable)
 - created_at: DateTime (default)
 - updated_at: DateTime (default)
-- _relations_: organization: Organization, product: Product, delivery_point: DeliveryPoint, vessel: Vessel, bid_trades: Trade, ask_trades: Trade
+- _relations_: organization: Organization, product: Product, delivery_point: DeliveryPoint, vessel: Vessel, inventory_item: InventoryItem, bid_trades: Trade, ask_trades: Trade
 
 ### Trade
 - id: UUID (pk, default)
@@ -278,8 +359,23 @@
 - ask_order_id: unknown (fk, nullable)
 - buyer_id: unknown (fk)
 - seller_id: unknown (fk)
+- buyer_user_id: unknown (fk, nullable, index)
+- seller_user_id: unknown (fk, nullable, index)
+- initiator_org_id: unknown (fk)
+- buyer_provenance: Enum (default)
+- seller_provenance: Enum (default)
 - initiated_by: Enum
 - is_anonymous: Boolean (default)
+- product_id: UUID (fk, nullable)
+- product_name: String (nullable)
+- fuel_type: String (nullable)
+- fuel_grade: String (nullable)
+- market_product: String (nullable)
+- delivery_point_id: UUID (fk, nullable)
+- delivery_point_name: String (nullable)
+- delivery_point_region: String (nullable)
+- availability_window: String (nullable)
+- market_snapshot_version: SmallInteger (nullable, default)
 - quantity_mt: Numeric
 - price_per_mt_usd: Numeric
 - status: Enum (default)
@@ -292,11 +388,14 @@
 - delivered_at: DateTime (nullable)
 - paid_at: DateTime (nullable)
 - created_at: DateTime (default)
+- idempotency_key: String (nullable)
+- idempotency_operation: String (nullable)
+- idempotency_request_hash: String (nullable)
 - _relations_: bid_order: OrderBookOrder, ask_order: OrderBookOrder, buyer: Organization, seller: Organization, commission: Commission
 
 ### Commission
 - id: UUID (pk, default)
-- match_id: unknown (fk, unique)
+- match_id: unknown (unique)
 - trade_id: unknown (fk, nullable)
 - amount_usd: Numeric
 - status: Enum (default)
@@ -395,9 +494,46 @@
 - activated_at: DateTime (nullable)
 - _relations_: referrer: , referred_user: 
 
+### RefreshSession
+- id: UUID (pk, default)
+- user_id: unknown (fk, index)
+- family_id: UUID (index)
+- jti_hash: String (unique)
+- device_id_hash: String (nullable, index)
+- replaced_by_jti_hash: String (nullable)
+- rotation_grace_until: DateTime (nullable)
+- revoked: Boolean (default)
+- expires_at: DateTime (index)
+- created_at: DateTime (default)
+- last_used_at: DateTime (nullable)
+
+### PendingRegistration
+- id: UUID (pk, default)
+- token_hash: String (unique)
+- email: String
+- password_hash: String
+- first_name: String (nullable)
+- last_name: String (nullable)
+- role: Enum (nullable)
+- referral_code: String (nullable)
+- expires_at: DateTime
+- used_at: DateTime (nullable)
+- created_at: DateTime (default)
+
+### OrganizationJoinRequest
+- id: UUID (pk, default)
+- user_id: unknown (fk, index)
+- organization_id: unknown (fk, index)
+- status: Enum (default)
+- reviewed_by: unknown (fk, nullable)
+- reviewed_at: DateTime (nullable)
+- review_note: Text (nullable)
+- created_at: DateTime (default)
+
 ### RFQ
 - id: UUID (pk, default)
 - buyer_org_id: UUID (fk)
+- buyer_user_id: unknown (fk, nullable, index)
 - product_id: UUID (fk)
 - delivery_point_id: UUID (fk, nullable)
 - quantity_mt: Numeric
@@ -406,6 +542,8 @@
 - notes: Text (nullable)
 - is_anonymous: Boolean (default)
 - status: Enum (default)
+- accepted_quote_id: UUID (fk, nullable)
+- trade_id: UUID (fk, nullable)
 - expires_at: DateTime
 - created_at: DateTime (default)
 - _relations_: quotes: 
@@ -414,11 +552,44 @@
 - id: UUID (pk, default)
 - rfq_id: UUID (fk)
 - seller_org_id: UUID (fk)
+- seller_user_id: unknown (fk, nullable, index)
 - price_per_mt_usd: Numeric
 - notes: Text (nullable)
 - status: Enum (default)
 - created_at: DateTime (default)
 - _relations_: rfq: 
+
+### SeedRun
+- id: UUID (pk, default)
+- seed_name: String
+- environment: String
+- run_metadata: JSON (nullable)
+- created_at: DateTime (default)
+- completed_at: DateTime (default)
+
+### MarketRowQuarantine
+- id: UUID (pk, default)
+- source_table: String
+- source_id: UUID
+- original_row: JSON
+- dependencies: JSON
+- environment: String
+- database_name: String
+- reason: Text
+- operator: String
+- reference: String
+- quarantined_at: DateTime (default)
+
+### OrganizationMarketApproval
+- organization_id: UUID (fk, pk)
+- previous_verification_status: String
+- reviewed_snapshot: JSON
+- environment: String
+- database_name: String
+- reason: Text
+- operator: String
+- reference: String
+- approved_at: DateTime (default)
 
 ### Subscription
 - id: UUID (pk, default)
@@ -437,7 +608,8 @@
 - supplier_tier: Enum (nullable, default)
 - tax_id: String
 - country_code: String
-- verification_status: String (default)
+- verification_status: String
+- provenance: Enum (default)
 - created_at: DateTime (default)
 - _relations_: users: , vessels: , orderbook_orders: 
 
@@ -455,9 +627,15 @@
 - must_change_password: Boolean (default)
 - created_at: DateTime (default)
 - email_verified: Boolean (default)
-- email_verification_token: String (nullable)
+- email_verification_token_hash: String (nullable, index)
+- email_verification_token_expires_at: DateTime (nullable)
 - kyc_status: String (default)
+- kyc_organization_id: UUID (fk, nullable, index)
 - kyc_rejection_reason: Text (nullable)
+- kyc_external_evidence_reference: String (nullable)
+- kyc_review_note: Text (nullable)
+- kyc_reviewed_by: UUID (fk, nullable)
+- kyc_reviewed_at: DateTime (nullable)
 - password_reset_token_hash: String (nullable)
 - password_reset_expires: DateTime (nullable)
 - referral_code: String (unique, nullable)

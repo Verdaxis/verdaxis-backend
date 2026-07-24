@@ -1,7 +1,7 @@
 from pydantic import BaseModel, Field, field_validator, model_validator
 from typing import Optional, Literal, Annotated
 from uuid import UUID
-from datetime import datetime, date
+from datetime import UTC, datetime, date
 from decimal import Decimal
 from enum import Enum
 
@@ -88,6 +88,48 @@ class SupplierListingMetadataMixin(BaseModel):
     off_spec_notes: Optional[str] = None
 
 
+class MarketSupportFinalConfirmation(BaseModel):
+    """Transient confirmation accepted only with an active support context."""
+
+    external_instruction_reference: str = Field(min_length=3, max_length=500)
+    instruction_at: datetime
+    evidence_excerpt: str | None = Field(default=None, max_length=4000)
+    acknowledge_exact_terms: bool
+    acknowledge_executable_standing_order: bool
+
+    @field_validator("external_instruction_reference")
+    @classmethod
+    def normalize_confirmation_text(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("Confirmation text is required")
+        return normalized
+
+    @field_validator("evidence_excerpt")
+    @classmethod
+    def normalize_optional_evidence(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return value.strip() or None
+
+    @field_validator("instruction_at")
+    @classmethod
+    def require_timezone(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("instruction_at must include a timezone")
+        if value.astimezone(UTC) > datetime.now(UTC):
+            raise ValueError("instruction_at cannot be in the future")
+        return value
+
+    @model_validator(mode="after")
+    def require_acknowledgements(self):
+        if not self.acknowledge_exact_terms:
+            raise ValueError("Exact-terms acknowledgement is required")
+        if not self.acknowledge_executable_standing_order:
+            raise ValueError("Executable standing-order acknowledgement is required")
+        return self
+
+
 # ============== Order Schemas ==============
 
 class OrderCreate(AvailabilityWindowMixin, SupplierListingMetadataMixin):
@@ -104,6 +146,7 @@ class OrderCreate(AvailabilityWindowMixin, SupplierListingMetadataMixin):
     certification_scheme: Optional[str] = None
     expires_at: Optional[datetime] = None
     is_anonymous: bool = True
+    support_confirmation: MarketSupportFinalConfirmation | None = None
 
     @field_validator("quantity_mt", "price_per_mt_usd")
     @classmethod
@@ -160,6 +203,18 @@ class OrderUpdate(AvailabilityWindowMixin):
         return future_aware_datetime(value)
 
 
+class OrderCancelRequest(BaseModel):
+    reason: str = Field(min_length=3, max_length=500)
+
+    @field_validator("reason")
+    @classmethod
+    def normalize_reason(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("Cancellation reason is required")
+        return normalized
+
+
 class OrderResponse(AvailabilityWindowMixin, SupplierListingMetadataMixin):
     """Public/anonymized order for the book. organization_id is NOT included."""
     id: UUID
@@ -203,6 +258,9 @@ class OrderMyResponse(OrderResponse):
     vessel_id: Optional[UUID] = None
     updated_at: datetime
     trade_count: int = 0
+    creation_method: str = "LEGACY_UNKNOWN"
+    version: int = 1
+    etag: str | None = None
 
 
 class SupplierListingTemplateResponse(AvailabilityWindowMixin, SupplierListingMetadataMixin):

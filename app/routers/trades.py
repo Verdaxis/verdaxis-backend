@@ -32,6 +32,7 @@ from app.services import market_transactions
 from app.services.watchlist_events import _best_slice_price, emit_order_updated
 from app.services.execution_policy import (
     execution_party_is_eligible,
+    order_owner_is_execution_eligible,
     order_is_execution_qualified,
 )
 from app.services.live_benchmarks import rebuild_live_slice_benchmarks_for_keys
@@ -43,6 +44,7 @@ from app.services.idempotency import (
     idempotency_request_hash,
 )
 from app.services.market_locks import acquire_market_slice_lock
+from app.services.request_party import resolve_request_party
 from app.services.market_provenance import trade_market_provenance
 from app.services.inventory_reservations import consume_inventory, release_inventory
 from app.services.audit_service import record_audit, request_audit_context
@@ -172,11 +174,33 @@ async def _revalidate_trade_parties(db: AsyncSession, trade: Trade) -> None:
         .execution_options(populate_existing=True)
     )
     orgs = {org.id: org for org in orgs_result.scalars().all()}
-    if not await execution_party_is_eligible(
-        db, user=users.get(trade.buyer_user_id), organization=orgs.get(trade.buyer_id)
-    ) or not await execution_party_is_eligible(
-        db, user=users.get(trade.seller_user_id), organization=orgs.get(trade.seller_id)
-    ):
+    buyer_order = trade.__dict__.get("bid_order")
+    seller_order = trade.__dict__.get("ask_order")
+    buyer_eligible = (
+        await order_owner_is_execution_eligible(
+            db,
+            order=buyer_order,
+            user=users.get(trade.buyer_user_id),
+            organization=orgs.get(trade.buyer_id),
+        )
+        if buyer_order is not None
+        else await execution_party_is_eligible(
+            db, user=users.get(trade.buyer_user_id), organization=orgs.get(trade.buyer_id)
+        )
+    )
+    seller_eligible = (
+        await order_owner_is_execution_eligible(
+            db,
+            order=seller_order,
+            user=users.get(trade.seller_user_id),
+            organization=orgs.get(trade.seller_id),
+        )
+        if seller_order is not None
+        else await execution_party_is_eligible(
+            db, user=users.get(trade.seller_user_id), organization=orgs.get(trade.seller_id)
+        )
+    )
+    if not buyer_eligible or not seller_eligible:
         raise HTTPException(status_code=409, detail="Trade parties are no longer execution-qualified")
 
 
@@ -294,7 +318,8 @@ async def create_trade(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(require_execution_eligible_user)],
 ):
-    if not current_user.organization_id:
+    initiator_org_id = current_user.organization_id
+    if not initiator_org_id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="User must belong to an organization to trade",
@@ -307,10 +332,10 @@ async def create_trade(
         if not idempotency_key or len(idempotency_key) > 255:
             raise HTTPException(status_code=400, detail="Idempotency-Key must be 1-255 characters")
         request_hash = idempotency_request_hash(payload.model_dump(mode="json"))
-        await acquire_idempotency_lock(db, tenant_id=current_user.organization_id, operation=TRADE_CREATE_OPERATION, key=idempotency_key)
+        await acquire_idempotency_lock(db, tenant_id=initiator_org_id, operation=TRADE_CREATE_OPERATION, key=idempotency_key)
         replay = (await db.execute(
             select(Trade).options(selectinload(Trade.buyer), selectinload(Trade.seller)).where(
-                Trade.initiator_org_id == current_user.organization_id,
+                Trade.initiator_org_id == initiator_org_id,
                 Trade.idempotency_operation == TRADE_CREATE_OPERATION,
                 Trade.idempotency_key == idempotency_key,
             )
@@ -318,6 +343,13 @@ async def create_trade(
         if replay is not None:
             if replay.idempotency_request_hash != request_hash:
                 raise HTTPException(status_code=409, detail="Idempotency-Key was reused with a different request")
+            replay_actor_id = (
+                replay.buyer_user_id
+                if replay.initiated_by == Initiator.BUYER
+                else replay.seller_user_id
+            )
+            if replay_actor_id != current_user.id:
+                raise HTTPException(status_code=409, detail="Idempotency-Key is bound to another request principal")
             return build_trade_response(replay)
 
     # The canonical market lock is always acquired before the target row lock.
@@ -356,9 +388,9 @@ async def create_trade(
         raise HTTPException(status_code=409, detail="Order slice changed; retry the trade")
     organizations = await lock_and_load_market_organizations(
         db,
-        [current_user.organization_id, order.organization_id],
+        [initiator_org_id, order.organization_id],
         actor_ownerships=(
-            MarketActorOwnership(current_user.id, current_user.organization_id),
+            MarketActorOwnership(current_user.id, initiator_org_id),
         ),
     )
 
@@ -391,7 +423,7 @@ async def create_trade(
     # Determine sides
     if order.side == OrderSide.ASK:
         # User is the BUYER hitting a seller's ask
-        buyer_org_id = current_user.organization_id
+        buyer_org_id = initiator_org_id
         seller_org_id = order.organization_id
         initiated_by = Initiator.BUYER
         ask_order_id = order.id
@@ -406,7 +438,7 @@ async def create_trade(
     else:
         # order.side == BID -- User is the SELLER hitting a buyer's bid
         buyer_org_id = order.organization_id
-        seller_org_id = current_user.organization_id
+        seller_org_id = initiator_org_id
         initiated_by = Initiator.SELLER
         bid_order_id = order.id
         ask_order_id = None
@@ -419,15 +451,15 @@ async def create_trade(
             )
 
     # Prevent self-trade
-    if order.organization_id == current_user.organization_id:
+    if order.organization_id == initiator_org_id:
         raise HTTPException(status_code=400, detail="Cannot trade with your own order")
 
-    initiator_org = organizations.get(current_user.organization_id)
+    initiator_org = organizations.get(initiator_org_id)
     initiator_provenance = snapshot_organization_provenance(initiator_org)
     if not execution_provenance_compatible(
         initiator_provenance,
         target_provenance,
-        left_org_id=current_user.organization_id,
+        left_org_id=initiator_org_id,
         right_org_id=order.organization_id,
     ):
         raise HTTPException(status_code=400, detail="Synthetic and live trades cannot be mixed")
@@ -447,7 +479,7 @@ async def create_trade(
     parties = {party.id: party for party in party_result.scalars().all()}
     org_result = await db.execute(
         select(Organization)
-        .where(Organization.id.in_([current_user.organization_id, order.organization_id]))
+        .where(Organization.id.in_([initiator_org_id, order.organization_id]))
         .order_by(Organization.id)
         .with_for_update()
         .execution_options(populate_existing=True)
@@ -456,9 +488,10 @@ async def create_trade(
     if not await execution_party_is_eligible(
         db,
         user=parties.get(current_user.id),
-        organization=locked_organizations.get(current_user.organization_id),
-    ) or not await execution_party_is_eligible(
+        organization=locked_organizations.get(initiator_org_id),
+    ) or not await order_owner_is_execution_eligible(
         db,
+        order=order,
         user=parties.get(order.owner_user_id),
         organization=locked_organizations.get(order.organization_id),
     ):
@@ -484,7 +517,7 @@ async def create_trade(
         seller_id=seller_org_id,
         buyer_user_id=current_user.id if initiated_by == Initiator.BUYER else order.owner_user_id,
         seller_user_id=current_user.id if initiated_by == Initiator.SELLER else order.owner_user_id,
-        initiator_org_id=current_user.organization_id,
+        initiator_org_id=initiator_org_id,
         buyer_provenance=(target_provenance if order.side == OrderSide.BID else initiator_provenance),
         seller_provenance=(initiator_provenance if order.side == OrderSide.BID else target_provenance),
         initiated_by=initiated_by,
@@ -513,6 +546,7 @@ async def create_trade(
         order.status = OrderBookStatus.FILLED
     elif order.status == OrderBookStatus.OPEN:
         order.status = OrderBookStatus.PARTIALLY_FILLED
+    order.bump_version()
 
     await rebuild_live_slice_benchmarks_for_keys(
         db,
@@ -536,7 +570,7 @@ async def create_trade(
                 selectinload(Trade.ask_order).selectinload(OrderBookOrder.product),
             )
             .where(
-                Trade.initiator_org_id == current_user.organization_id,
+                Trade.initiator_org_id == initiator_org_id,
                 Trade.idempotency_operation == TRADE_CREATE_OPERATION,
                 Trade.idempotency_key == idempotency_key,
             )
@@ -546,6 +580,13 @@ async def create_trade(
             raise
         if existing_trade.idempotency_request_hash != request_hash:
             raise HTTPException(status_code=409, detail="Idempotency-Key was reused with a different request")
+        replay_actor_id = (
+            existing_trade.buyer_user_id
+            if existing_trade.initiated_by == Initiator.BUYER
+            else existing_trade.seller_user_id
+        )
+        if replay_actor_id != current_user.id:
+            raise HTTPException(status_code=409, detail="Idempotency-Key is bound to another request principal")
         return build_trade_response(existing_trade)
     await emit_order_updated(db, before=before_state, order=order)
 
@@ -610,12 +651,23 @@ async def create_trade(
 
 @router.get("/my", response_model=PaginatedResponse[TradeResponse])
 async def list_my_trades(
+    request: Request,
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user)],
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
 ):
-    org_id = current_user.organization_id
+    party = await resolve_request_party(request, db, current_user)
+    org_id = (
+        party.effective_organization.id
+        if party.effective_organization is not None
+        else current_user.organization_id
+    )
+    if org_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="User must belong to an organization",
+        )
 
     org_filter = or_(Trade.buyer_id == org_id, Trade.seller_id == org_id)
 
@@ -847,6 +899,7 @@ async def decline_trade(
                     order.remaining_quantity_mt,
                 )
             order.status = OrderBookStatus.EXPIRED
+            order.bump_version()
             await rebuild_live_slice_benchmarks_for_keys(
                 db,
                 [(order.side, order.market_product, order.delivery_point_id, order.availability_window)],
@@ -873,6 +926,7 @@ async def decline_trade(
             order.status = OrderBookStatus.OPEN
         else:
             order.status = OrderBookStatus.PARTIALLY_FILLED
+        order.bump_version()
         await rebuild_live_slice_benchmarks_for_keys(
             db,
             [(order.side, order.market_product, order.delivery_point_id, order.availability_window)],

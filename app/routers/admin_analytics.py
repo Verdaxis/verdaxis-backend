@@ -71,8 +71,10 @@ class AdminUserEntry(BaseModel):
     role: str
     status: str
     created_at: datetime
+    organization_id: Optional[_uuid.UUID]
     org_name: Optional[str]
     org_type: Optional[str]
+    org_provenance: Optional[str]
 
     class Config:
         from_attributes = True
@@ -461,8 +463,8 @@ async def get_daily_stats(
 # ---------------------------------------------------------------------------
 
 def _user_to_entry(row) -> AdminUserEntry:
-    """Map a (User, org_name, org_type) row to AdminUserEntry."""
-    user, org_name, org_type = row
+    """Map a user and its organization projection to AdminUserEntry."""
+    user, org_name, org_type, org_provenance = row
     return AdminUserEntry(
         id=user.id,
         email=user.email,
@@ -471,8 +473,10 @@ def _user_to_entry(row) -> AdminUserEntry:
         role=user.role.value if user.role else "",
         status=user.status.value if user.status else "",
         created_at=user.created_at,
+        organization_id=user.organization_id,
         org_name=org_name,
         org_type=org_type.value if org_type else None,
+        org_provenance=org_provenance.value if org_provenance else None,
     )
 
 
@@ -490,7 +494,12 @@ async def list_users(
     """List platform users for admin review. Filterable by status and searchable by name/email."""
 
     base = (
-        select(User, Organization.name, Organization.type)
+        select(
+            User,
+            Organization.name,
+            Organization.type,
+            Organization.provenance,
+        )
         .outerjoin(Organization, User.organization_id == Organization.id)
         .where(User.role != UserRole.ADMIN)  # Admins manage non-admin accounts
     )
@@ -582,14 +591,20 @@ async def reject_user(
 
     organization = (
         await db.execute(
-            select(Organization.name, Organization.type).where(
+            select(
+                Organization.name,
+                Organization.type,
+                Organization.provenance,
+            ).where(
                 Organization.id == user.organization_id
             )
         )
     ).one_or_none()
-    org_name, org_type = organization if organization is not None else (None, None)
+    org_name, org_type, org_provenance = (
+        organization if organization is not None else (None, None, None)
+    )
 
-    return _user_to_entry((user, org_name, org_type))
+    return _user_to_entry((user, org_name, org_type, org_provenance))
 
 
 # ---------------------------------------------------------------------------

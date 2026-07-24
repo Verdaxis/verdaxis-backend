@@ -306,3 +306,8 @@
 - **Trigger:** I described the identity cutover as necessarily invalidating active verification links before checking the hash-only verifier and migration behavior.
 - **Rule:** Before claiming an auth migration invalidates links, inspect both the migration and the post-cutover verifier; distinguish link validity from old-worker and rollback compatibility guards.
 - **Why:** `sec_boundaries` retains token hashes that the hardened verifier accepts, while its expiry guard protects the plaintext-writing legacy release and rollback path rather than proving the links are unusable.
+### Keep Assisted Operations In The Customer Product Context
+- **Date:** 2026-07-23
+- **Trigger:** Market Support was implemented as a separate administrative authorization console, but the requested workflow was for an administrator to enter a customer's organization and use the normal customer-facing product on its behalf.
+- **Rule:** Assisted-operation features should reuse the customer workflow under an explicit, audited organization context; keep authorization machinery behind the workflow instead of exposing it as the primary staff interface.
+- **Why:** A parallel operations console duplicates product behavior, exposes internal controls, and makes staff learn a different workflow from the customer whose experience they are supporting.

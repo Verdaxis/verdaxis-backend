@@ -123,6 +123,8 @@ cd /home/verdaxis-prod/verdaxis/staging/be   # or /home/verdaxis-prod/verdaxis/p
 | `users`              | Auth, role (BUYER/SUPPLIER/ADMIN), status         |
 | `organizations`      | Companies. Users belong to orgs. Has `domain` for auto-matching on registration |
 | `orderbook_orders`   | Unified order book. side=BID (buyer wants) or ASK (seller offers) |
+| `market_support_authorizations` | Exact, one-use customer authority and evidence for an assisted ASK |
+| `staff_capability_assignments` | Revocable, expiring administrator capabilities for market support |
 | `trades`             | Matched transactions. Lifecycle: PENDING -> CONFIRMED -> DELIVERED -> PAID |
 | `match_suggestions`  | AI-scored potential matches between BID and ASK orders |
 | `commissions`        | Verdaxis revenue tracking per trade (0.5% default rate) |
