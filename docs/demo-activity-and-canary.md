@@ -82,6 +82,17 @@ Rules:
 - Demo orders do not auto-match with real orders.
 - Demo trade-tape entries are labelled as demo.
 - Activity is limited to the approved products, ports, and availability windows.
+- The scheduler reconciles a rolling baseline across every approved
+  product/port/window/side combination. It maintains 16 price levels per side
+  for each product/port pair, assigning second levels to the nearest windows
+  first. With the current four products and eight ports, this keeps 1,024
+  disclosed demo orders throughout each quarter and rolls automatically as
+  windows change.
+- Demo prices are indicative reference bands, not Verdaxis assessments or
+  executable market indications. The July 2026 bands use public ethanol
+  FOB/C&F benchmarks, public low-carbon methanol reporting, and published
+  renewable-fuel production-cost ranges. Synthetic ethanol is modelled because
+  no liquid public marine-fuel benchmark is available.
 - Old generated demo activity is pruned so the market looks current without growing indefinitely.
 
 The system must never use synthetic signups to imply real user growth. Signup canaries are monitoring data only; demo trades are sample market data only.

@@ -150,48 +150,53 @@ SUPPLIER_ORGS = [
 ]
 
 # ---------------------------------------------------------------------------
-# Pricing matrix — product name -> delivery point -> (bid_lo, bid_hi, ask_lo, ask_hi)
+# Indicative demo bands as at 2026-07-28, in USD/MT. These are not Verdaxis
+# assessments. Public anchors: S&P low-carbon methanol reporting, USGBC
+# ethanol FOB/C&F data, and IRENA renewable-methanol production-cost ranges.
+# Synthetic ethanol is modelled at a premium because no liquid public marine
+# benchmark exists.
+# Product name -> delivery point -> (bid_lo, bid_hi, ask_lo, ask_hi)
 # ---------------------------------------------------------------------------
 PRICING: dict[str, dict[str, tuple[float, float, float, float]]] = {
     "Bio Methanol": {
-        "Dalian": (955, 1005, 1025, 1075),
-        "Busan": (1000, 1050, 1065, 1115),
-        "Shanghai": (980, 1035, 1050, 1105),
-        "Singapore": (1020, 1070, 1090, 1140),
-        "Rotterdam": (545, 585, 600, 645),
-        "Houston": (780, 830, 845, 895),
-        "Los Angeles": (850, 900, 920, 970),
-        "Santos": (720, 765, 780, 830),
+        "Dalian": (890, 930, 950, 990),
+        "Busan": (910, 950, 970, 1010),
+        "Shanghai": (885, 925, 945, 985),
+        "Singapore": (930, 975, 995, 1040),
+        "Rotterdam": (900, 950, 975, 1025),
+        "Houston": (860, 910, 935, 985),
+        "Los Angeles": (900, 950, 975, 1025),
+        "Santos": (820, 870, 895, 945),
     },
     "e-Methanol": {
-        "Dalian": (1020, 1070, 1085, 1135),
-        "Busan": (1060, 1110, 1125, 1175),
-        "Shanghai": (1045, 1095, 1110, 1160),
-        "Singapore": (1090, 1140, 1160, 1210),
-        "Rotterdam": (615, 655, 670, 715),
-        "Houston": (880, 930, 950, 1000),
-        "Los Angeles": (930, 985, 1005, 1055),
-        "Santos": (820, 870, 890, 940),
+        "Dalian": (1040, 1110, 1140, 1210),
+        "Busan": (1070, 1140, 1170, 1240),
+        "Shanghai": (1010, 1080, 1110, 1180),
+        "Singapore": (1090, 1170, 1205, 1285),
+        "Rotterdam": (1190, 1280, 1320, 1410),
+        "Houston": (1040, 1120, 1155, 1235),
+        "Los Angeles": (1110, 1190, 1225, 1305),
+        "Santos": (990, 1070, 1105, 1185),
     },
     "Bio Ethanol": {
-        "Dalian": (575, 620, 635, 680),
-        "Busan": (600, 645, 660, 705),
-        "Shanghai": (590, 635, 650, 695),
-        "Singapore": (610, 655, 670, 715),
-        "Rotterdam": (565, 605, 620, 660),
-        "Houston": (520, 560, 575, 615),
-        "Los Angeles": (545, 585, 600, 640),
-        "Santos": (480, 520, 535, 575),
+        "Dalian": (800, 840, 855, 895),
+        "Busan": (810, 850, 865, 905),
+        "Shanghai": (795, 835, 850, 890),
+        "Singapore": (815, 855, 870, 910),
+        "Rotterdam": (780, 820, 835, 875),
+        "Houston": (680, 710, 725, 755),
+        "Los Angeles": (740, 780, 795, 835),
+        "Santos": (730, 760, 775, 805),
     },
     "Synthetic Ethanol": {
-        "Dalian": (665, 710, 725, 775),
-        "Busan": (690, 735, 750, 800),
-        "Shanghai": (680, 725, 740, 790),
-        "Singapore": (700, 745, 760, 810),
-        "Rotterdam": (655, 695, 710, 750),
-        "Houston": (625, 670, 685, 735),
-        "Los Angeles": (650, 695, 710, 760),
-        "Santos": (585, 630, 645, 695),
+        "Dalian": (1140, 1210, 1245, 1315),
+        "Busan": (1170, 1240, 1275, 1345),
+        "Shanghai": (1120, 1190, 1225, 1295),
+        "Singapore": (1190, 1260, 1295, 1365),
+        "Rotterdam": (1240, 1320, 1360, 1440),
+        "Houston": (1070, 1140, 1175, 1245),
+        "Los Angeles": (1130, 1200, 1235, 1305),
+        "Santos": (1090, 1160, 1195, 1265),
     },
 }
 

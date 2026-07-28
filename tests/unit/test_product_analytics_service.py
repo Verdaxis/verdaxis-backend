@@ -433,8 +433,8 @@ async def test_marketplace_reference_is_coverage_not_activity(seeded_engine):
         assert row.benchmark_price_usd_per_mt is not None
         assert row.observed_at is None
     by_key = {(row.product_key, row.delivery_point_key): row for row in rows}
-    # Seed matrix midpoint for Bio Methanol / Singapore: (1020+1070+1090+1140)/4.
-    assert by_key[("BIO_METHANOL", "singapore")].benchmark_price_usd_per_mt == Decimal("1080.00")
+    # July 2026 seed-band midpoint for Bio Methanol / Singapore.
+    assert by_key[("BIO_METHANOL", "singapore")].benchmark_price_usd_per_mt == Decimal("985.00")
 
 
 async def test_marketplace_statement_budgets(seeded_engine):

@@ -4,7 +4,12 @@ from datetime import UTC, datetime
 
 from inspect import getsource
 
-from app.services.demo_activity import activity_windows, generate_demo_market_activity
+from app.models.orderbook import OrderSide
+from app.services.demo_activity import (
+    activity_windows,
+    build_demo_market_coverage,
+    generate_demo_market_activity,
+)
 
 
 def test_activity_windows_roll_forward_without_past_months():
@@ -34,3 +39,34 @@ def test_demo_activity_builder_does_not_own_commit_or_rollback():
     assert ".commit(" not in source
     assert ".rollback(" not in source
     assert "ensure_demo_activity_organizations" not in source
+
+
+def test_demo_market_coverage_restores_full_non_crossed_book():
+    orders = build_demo_market_coverage(datetime(2026, 7, 28, 12, tzinfo=UTC))
+
+    assert len(orders) == 1024
+    assert (
+        len(build_demo_market_coverage(datetime(2026, 8, 15, 12, tzinfo=UTC)))
+        == 1024
+    )
+    assert (
+        len(build_demo_market_coverage(datetime(2026, 9, 15, 12, tzinfo=UTC)))
+        == 1024
+    )
+    assert len({order.idempotency_key for order in orders}) == len(orders)
+
+    slices: dict[tuple[object, object, str], list] = {}
+    for order in orders:
+        key = (order.product_id, order.delivery_point_id, order.availability_window)
+        slices.setdefault(key, []).append(order)
+
+    assert len(slices) == 4 * 8 * 12
+    for (_product, _port, window), slice_orders in slices.items():
+        bids = [order for order in slice_orders if order.side == OrderSide.BID]
+        asks = [order for order in slice_orders if order.side == OrderSide.ASK]
+        expected_depth = 2 if window == "SPOT" or window.startswith("2026-0") else 1
+        assert len(bids) == expected_depth
+        assert len(asks) == expected_depth
+        assert max(order.price_per_mt_usd for order in bids) < min(
+            order.price_per_mt_usd for order in asks
+        )
