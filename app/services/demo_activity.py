@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import random
+from hashlib import sha256
 from datetime import datetime, timedelta, UTC
 from decimal import Decimal
 from uuid import UUID
@@ -11,9 +12,22 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.catalog import DeliveryPoint, Product
-from app.models.orderbook import OrderBookOrder, OrderBookStatus, OrderSide, Trade
+from app.demo_identities import DEMO_SEED_BUYERS, DEMO_SEED_SUPPLIERS
+from app.models.orderbook import (
+    OrderBookOrder,
+    OrderBookStatus,
+    OrderCreationMethod,
+    OrderSide,
+    Trade,
+)
 from app.models.user import OrgType, Organization, OrganizationProvenance, TierLabel
-from app.seeds.market_seed import CI_DATA, PRICING, _slice_certification_scheme
+from app.seeds.catalog_seed import DELIVERY_POINT_IDS, PRODUCT_IDS
+from app.seeds.market_seed import (
+    CI_DATA,
+    PRICING,
+    _seed_price_for_slice,
+    _slice_certification_scheme,
+)
 from app.services.availability_windows import (
     availability_window_expiry,
     normalize_availability_window,
@@ -31,6 +45,8 @@ from app.services.market_locks import acquire_market_slice_lock
 MAX_GENERATED_TRADES = 80
 MAX_GENERATED_ORDERS = MAX_GENERATED_TRADES * 3
 RETENTION_DAYS = 7
+DEMO_COVERAGE_OPERATION = "DEMO_COVERAGE"
+DEMO_COVERAGE_LEVELS_PER_SIDE = 16
 
 _RNG = random.Random()
 
@@ -44,6 +60,186 @@ def activity_windows(now: datetime) -> tuple[str, ...]:
     """Current canonical windows, derived from the injected activity clock."""
     reference = now if now.tzinfo else now.replace(tzinfo=UTC)
     return tuple(tradable_availability_windows(today=reference.date()))
+
+
+def build_demo_market_coverage(now: datetime) -> list[OrderBookOrder]:
+    """Build the rolling disclosed baseline without touching historical rows."""
+    reference = now if now.tzinfo else now.replace(tzinfo=UTC)
+    reference = reference.astimezone(UTC)
+    buyer_ids = tuple(organization_id for organization_id, _name in DEMO_SEED_BUYERS)
+    supplier_ids = tuple(
+        organization_id for organization_id, _name, _tier in DEMO_SEED_SUPPLIERS
+    )
+    orders: list[OrderBookOrder] = []
+    windows = activity_windows(reference)
+    second_level_windows = set(
+        windows[: max(DEMO_COVERAGE_LEVELS_PER_SIDE - len(windows), 0)]
+    )
+
+    for product_name, ports in PRICING.items():
+        ci_lo, ci_hi, energy_density = CI_DATA[product_name]
+        for port_name, (bid_lo, bid_hi, ask_lo, ask_hi) in ports.items():
+            for window in windows:
+                depth = 2 if window in second_level_windows else 1
+                scheme = _slice_certification_scheme(product_name, port_name, window)
+                for side in (OrderSide.BID, OrderSide.ASK):
+                    for depth_index in range(depth):
+                        ordinal = len(orders)
+                        quantity = Decimal("1500") if depth_index == 0 else Decimal("1000")
+                        key = (
+                            f"{product_name}|{port_name}|{window}|"
+                            f"{side.value}|{depth_index}"
+                        )
+                        values: dict[str, object] = {
+                            "organization_id": (
+                                buyer_ids[ordinal % len(buyer_ids)]
+                                if side == OrderSide.BID
+                                else supplier_ids[ordinal % len(supplier_ids)]
+                            ),
+                            "creation_method": OrderCreationMethod.SYSTEM,
+                            "provenance": OrganizationProvenance.DEMO,
+                            "side": side,
+                            "product_id": PRODUCT_IDS[product_name],
+                            "delivery_point_id": DELIVERY_POINT_IDS[port_name],
+                            "quantity_mt": quantity,
+                            "remaining_quantity_mt": quantity,
+                            "price_per_mt_usd": _seed_price_for_slice(
+                                side,
+                                bid_lo=bid_lo,
+                                bid_hi=bid_hi,
+                                ask_lo=ask_lo,
+                                ask_hi=ask_hi,
+                                window=window,
+                                depth_index=depth_index,
+                            ),
+                            "availability_window": window,
+                            "certifications": [],
+                            "certification_declared": False,
+                            "certification_scheme": scheme,
+                            "specification_standard": None,
+                            "msds_available": False,
+                            "is_verdaxis_verified": False,
+                            "carbon_intensity_gco2_mj": None,
+                            "carbon_intensity_method": None,
+                            "energy_density_mj_kg": None,
+                            "feedstock": None,
+                            "origin": None,
+                            "off_spec": False,
+                            "status": OrderBookStatus.OPEN,
+                            "expires_at": availability_window_expiry(
+                                window, observed_at=reference
+                            ),
+                            "idempotency_operation": DEMO_COVERAGE_OPERATION,
+                            "idempotency_key": key,
+                            "idempotency_request_hash": sha256(
+                                key.encode("utf-8")
+                            ).hexdigest(),
+                            "created_at": reference
+                            - timedelta(minutes=ordinal % 360),
+                            "updated_at": reference,
+                        }
+                        if side == OrderSide.ASK:
+                            values.update(
+                                {
+                                    "certifications": [scheme],
+                                    "certification_declared": True,
+                                    "specification_standard": "Supplier specification",
+                                    "msds_available": True,
+                                    "is_verdaxis_verified": True,
+                                    "carbon_intensity_gco2_mj": _decimal(
+                                        (ci_lo + ci_hi) / 2
+                                    ),
+                                    "carbon_intensity_method": "Indicative demo pathway",
+                                    "energy_density_mj_kg": _decimal(energy_density),
+                                    "feedstock": "Indicative demo feedstock",
+                                    "origin": f"{port_name} demo terminal",
+                                    "off_spec": False,
+                                }
+                            )
+                        orders.append(OrderBookOrder(**values))
+
+    return orders
+
+
+async def ensure_demo_market_coverage(
+    db: AsyncSession, *, now: datetime | None = None
+) -> dict[str, int]:
+    """Create or refresh the current canonical demo book idempotently."""
+    reference = now or datetime.now(UTC)
+    desired = build_demo_market_coverage(reference)
+    existing = (
+        await db.execute(
+            select(OrderBookOrder).where(
+                OrderBookOrder.provenance == OrganizationProvenance.DEMO,
+                OrderBookOrder.idempotency_operation == DEMO_COVERAGE_OPERATION,
+            )
+        )
+    ).scalars().all()
+    existing_by_key = {order.idempotency_key: order for order in existing}
+    desired_keys = {order.idempotency_key for order in desired}
+    created = 0
+    refreshed = 0
+
+    copied_fields = (
+        "organization_id",
+        "creation_method",
+        "provenance",
+        "side",
+        "product_id",
+        "delivery_point_id",
+        "quantity_mt",
+        "remaining_quantity_mt",
+        "price_per_mt_usd",
+        "availability_window",
+        "certifications",
+        "certification_declared",
+        "certification_scheme",
+        "specification_standard",
+        "msds_available",
+        "is_verdaxis_verified",
+        "carbon_intensity_gco2_mj",
+        "carbon_intensity_method",
+        "energy_density_mj_kg",
+        "feedstock",
+        "origin",
+        "off_spec",
+        "status",
+        "expires_at",
+        "idempotency_request_hash",
+    )
+    for target in desired:
+        current = existing_by_key.get(target.idempotency_key)
+        if current is None:
+            db.add(target)
+            created += 1
+            continue
+
+        changed = False
+        for field in copied_fields:
+            value = getattr(target, field)
+            if getattr(current, field) != value:
+                setattr(current, field, value)
+                changed = True
+        if changed:
+            current.updated_at = reference
+            refreshed += 1
+
+    expired = 0
+    for order in existing:
+        if (
+            order.idempotency_key not in desired_keys
+            and order.status in (OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED)
+        ):
+            order.status = OrderBookStatus.EXPIRED
+            order.updated_at = reference
+            expired += 1
+
+    return {
+        "coverage_orders": len(desired),
+        "coverage_created": created,
+        "coverage_refreshed": refreshed,
+        "coverage_expired": expired,
+    }
 
 
 async def _tick_trade_exists(db: AsyncSession, reference: datetime) -> bool:

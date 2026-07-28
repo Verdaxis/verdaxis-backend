@@ -318,3 +318,14 @@
 - **Trigger:** Market Support was implemented as a separate administrative authorization console, but the requested workflow was for an administrator to enter a customer's organization and use the normal customer-facing product on its behalf.
 - **Rule:** Assisted-operation features should reuse the customer workflow under an explicit, audited organization context; keep authorization machinery behind the workflow instead of exposing it as the primary staff interface.
 - **Why:** A parallel operations console duplicates product behavior, exposes internal controls, and makes staff learn a different workflow from the customer whose experience they are supporting.
+### Activate Split Demo Schedulers During Cutover
+- **Date:** 2026-07-28
+- **Trigger:** The user found only one production listing after the shared demo scheduler was retired.
+- **Rule:** A cutover that retires a shared synthetic-data scheduler is incomplete until each approved environment-specific replacement is installed, started, enabled, and verified against live listing counts.
+- **Why:** The legacy timer was correctly disabled, but its split production replacement was never activated, so every demo listing eventually expired.
+
+### Restore Demo Coverage, Not Just Scheduler Activity
+- **Date:** 2026-07-28
+- **Trigger:** The user clarified that 17 generated listings did not restore the much broader demo book used in earlier demonstrations.
+- **Rule:** When recovering demo liquidity, compare against the prior visible coverage and restore canonical product-port-window depth rather than stopping at a small active count.
+- **Why:** Restarting a one-listing-per-tick generator repairs ongoing activity but does not recreate the seeded breadth users expect during a demo.
