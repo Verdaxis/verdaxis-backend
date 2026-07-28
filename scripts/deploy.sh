@@ -561,6 +561,7 @@ write_release_artifact "$CURRENT_SHA" "$MIGRATION_TARGET_REVISION"
     --environment "$DEPLOY_ENVIRONMENT" --release-sha "$CURRENT_SHA"
 
 if [[ -f requirements.txt ]]; then
+    umask 022
     if [[ ! -f constraints.txt ]]; then
         echo "constraints.txt is required for reproducible deployed dependency installation." >&2
         exit 1

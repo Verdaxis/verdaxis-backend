@@ -123,6 +123,9 @@ disabled and supplies only the exact selected source root as `safe.directory`,
 so a root-owned or deployment-user-owned fixed checkout remains attestable
 without trusting any ambient repository. Health attempt and delay controls are bounded decimal integers
 before they can reach shell arithmetic.
+Dependency installation explicitly restores umask `022` so the deployed
+virtualenv remains readable by least-privilege service identities that execute
+attested application jobs.
 The application never shells out to Git.
 
 Immediately after the checkpoint succeeds and before any service restart,
