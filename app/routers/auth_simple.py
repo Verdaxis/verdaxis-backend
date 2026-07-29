@@ -1133,6 +1133,7 @@ async def register_with_org(
 
     email = pending.email.strip().lower()
     email_domain = registration_organization_domain(str(email))
+    is_monitor_canary = _should_skip_verification_email_for_canary(http_request, email)
 
     stmt_org = select(Organization).where(Organization.domain == email_domain) if email_domain else None
     result_org = await db.execute(stmt_org) if stmt_org is not None else None
@@ -1192,30 +1193,33 @@ async def register_with_org(
             status_code=409,
             detail={"code": "REGISTRATION_CONFLICT", "message": "Registration changed concurrently; please retry"},
         ) from exc
-    join_request = OrganizationJoinRequest(user_id=new_user.id, organization_id=new_org.id)
-    db.add(join_request)
-    await db.flush()
     pending.used_at = datetime.now(UTC)
     record_initial_status(db, new_user)
-    await record_audit(
-        db,
-        user_id=new_user.id,
-        action=USER_REGISTERED,
-        resource_type="user",
-        resource_id=new_user.id,
-        changes={
-            "role": new_user.role.value if new_user.role else None,
-            "organization_id": None,
-            "email": str(new_user.email),
-            "via": "new_org",
-        },
-        **request_audit_context(http_request),
-    )
-    await record_audit(
-        db, user_id=new_user.id, action=ORGANIZATION_JOIN_REQUESTED,
-        resource_type="organization_join_request", resource_id=join_request.id,
-        changes={"organization_id": str(new_org.id)}, **request_audit_context(http_request),
-    )
+    # Monitor canaries are synthetic and immediately deleted. Avoid creating
+    # immutable audit/join rows that would make their narrow cleanup impossible.
+    if not is_monitor_canary:
+        join_request = OrganizationJoinRequest(user_id=new_user.id, organization_id=new_org.id)
+        db.add(join_request)
+        await db.flush()
+        await record_audit(
+            db,
+            user_id=new_user.id,
+            action=USER_REGISTERED,
+            resource_type="user",
+            resource_id=new_user.id,
+            changes={
+                "role": new_user.role.value if new_user.role else None,
+                "organization_id": None,
+                "email": str(new_user.email),
+                "via": "new_org",
+            },
+            **request_audit_context(http_request),
+        )
+        await record_audit(
+            db, user_id=new_user.id, action=ORGANIZATION_JOIN_REQUESTED,
+            resource_type="organization_join_request", resource_id=join_request.id,
+            changes={"organization_id": str(new_org.id)}, **request_audit_context(http_request),
+        )
     try:
         await db.commit()
     except IntegrityError as exc:
@@ -1235,7 +1239,7 @@ async def register_with_org(
     # Referral attribution
     await _attribute_referral(db, new_user, pending.referral_code)
 
-    if not _should_skip_verification_email_for_canary(http_request, str(new_user.email)):
+    if not is_monitor_canary:
         await send_verification_email(new_user.email, new_user.first_name or "there", verification_token)
 
     return new_user

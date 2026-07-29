@@ -24,6 +24,9 @@ The canary checks:
 Canary users and organizations must use obvious synthetic identifiers and must not be counted as real market participants.
 Canary requests include the private monitor token and use `canary+...@*.canary.verdaxis.exchange`
 addresses so the backend can exercise signup persistence without sending Resend verification emails.
+Because these synthetic records are deleted immediately, they do not create
+organization-join or immutable audit rows; real registrations always create
+both before commit.
 Real user signups must always continue through the normal verification-email path.
 
 The same migration rule applies to the analytics ingestion canary: it remains

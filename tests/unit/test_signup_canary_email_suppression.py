@@ -1,4 +1,5 @@
 from unittest.mock import Mock
+from pathlib import Path
 
 from app.routers.auth_simple import _should_skip_verification_email_for_canary
 from app.services.monitor_canary import get_monitor_canary_domain, is_monitor_canary_email
@@ -39,3 +40,16 @@ def test_canary_email_does_not_skip_without_monitor_token(monkeypatch):
         request,
         "canary+prod-123@prod-123.canary.verdaxis.exchange",
     ) is False
+
+
+def test_registration_canary_remains_cleanup_safe():
+    source = Path("app/routers/auth_simple.py").read_text()
+    registration = source.split("async def register_with_org(", 1)[1].split(
+        "# ---------------------------------------------------------------------------\n# Email verification",
+        1,
+    )[0]
+
+    assert "if not is_monitor_canary:" in registration
+    guarded = registration.split("if not is_monitor_canary:", 1)[1]
+    assert "OrganizationJoinRequest(" in guarded
+    assert "await record_audit(" in guarded
