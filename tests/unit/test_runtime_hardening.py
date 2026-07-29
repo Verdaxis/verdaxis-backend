@@ -830,7 +830,12 @@ def test_organization_registration_columns_match_existing_write_paths():
     assert "('organizations', 'verification_status', 'UPDATE')" in policy
 
     from sqlalchemy.dialects import postgresql
-    from app.models.user import Organization, OrgType
+    from app.models.user import Organization, OrganizationProvenance, OrgType
+
+    provenance = Organization.__table__.c.provenance
+    assert provenance.default is None
+    assert provenance.server_default is not None
+    assert str(provenance.server_default.arg) == OrganizationProvenance.UNKNOWN.value
 
     insert_sql = str(
         Organization.__table__.insert()
@@ -838,6 +843,7 @@ def test_organization_registration_columns_match_existing_write_paths():
         .compile(dialect=postgresql.dialect())
     )
     assert "verification_status" not in insert_sql
+    assert "provenance" not in insert_sql
 
 
 def test_organization_column_acl_is_the_exact_reviewed_set():
