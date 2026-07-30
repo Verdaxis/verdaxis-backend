@@ -47,6 +47,7 @@ _CREDENTIALED_ORIGINS: dict[str, tuple[str, ...]] = {
     "production": (
         "https://app.verdaxis.exchange",
         "https://verdaxis.exchange",
+        "https://canary.verdaxis.exchange",
     ),
     "staging": ("https://staging.verdaxis.exchange",),
     "development": (

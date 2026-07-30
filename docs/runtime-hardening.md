@@ -427,7 +427,8 @@ SHA; wrong database status, environment, SHA, malformed JSON, and degraded
 status all fail.
 
 Credentialed CORS has exact environment allowlists: production permits only
-`https://verdaxis.exchange` and `https://app.verdaxis.exchange`; staging only
+`https://verdaxis.exchange`, `https://app.verdaxis.exchange`, and the stable
+pre-promotion origin `https://canary.verdaxis.exchange`; staging only
 `https://staging.verdaxis.exchange`; development/test only enumerated localhost
 origins. Cross-environment values, URL credentials/paths, and wildcards fail
 settings initialization.

@@ -40,7 +40,11 @@ def test_production_and_staging_credentialed_origins_are_exact_and_disjoint():
     production = _origins("production")
     staging = _origins("staging")
 
-    assert production == ("https://app.verdaxis.exchange", "https://verdaxis.exchange")
+    assert production == (
+        "https://app.verdaxis.exchange",
+        "https://verdaxis.exchange",
+        "https://canary.verdaxis.exchange",
+    )
     assert staging == ("https://staging.verdaxis.exchange",)
     assert set(production).isdisjoint(staging)
 

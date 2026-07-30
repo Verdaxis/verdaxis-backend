@@ -82,8 +82,9 @@ protected by a case-insensitive unique index. Register/change/reset passwords
 are capped at 1024 UTF-8 bytes, and auth requests are capped at 128 KiB.
 
 Credentialed CORS is a closed environment-derived set: production accepts
-only `https://app.verdaxis.exchange` and `https://verdaxis.exchange`; staging
-accepts only `https://staging.verdaxis.exchange`. Cookie-backed auth reads and
+only `https://app.verdaxis.exchange`, `https://verdaxis.exchange`, and the
+stable pre-promotion origin `https://canary.verdaxis.exchange`; staging accepts
+only `https://staging.verdaxis.exchange`. Cookie-backed auth reads and
 mutations require an exact allowed `Origin`; native bearer clients without a
 cookie may omit it. Production and staging API units listen on loopback, and
 forwarded client addresses are honored only from a loopback reverse proxy.

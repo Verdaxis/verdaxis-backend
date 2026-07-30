@@ -307,7 +307,14 @@ def test_non_deployed_environments_allow_only_their_explicit_placeholder(
 @pytest.mark.parametrize(
     "environment, expected",
     [
-        ("production", {"https://verdaxis.exchange", "https://app.verdaxis.exchange"}),
+        (
+            "production",
+            {
+                "https://verdaxis.exchange",
+                "https://app.verdaxis.exchange",
+                "https://canary.verdaxis.exchange",
+            },
+        ),
         ("staging", {"https://staging.verdaxis.exchange"}),
         (
             "development",
