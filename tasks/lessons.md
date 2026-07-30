@@ -2,6 +2,12 @@
 <!-- Self-improvement-loop: Add corrections here as Trigger → Rule → Why -->
 <!-- Read at session start. Write after ANY user correction. -->
 
+### Prioritize live onboarding blockers over strategic migrations
+- **Date:** 2026-07-30
+- **Trigger:** The user shelved the Supabase migration because a real Hapag-Lloyd signup could not be approved.
+- **Rule:** When a real customer onboarding path is blocked, isolate strategic work and resolve the live flow end to end before resuming it.
+- **Why:** Platform migration planning has lower immediate value than restoring a revenue-critical user journey.
+
 ## Format
 - **Date:** YYYY-MM-DD
 - **Trigger:** What happened
