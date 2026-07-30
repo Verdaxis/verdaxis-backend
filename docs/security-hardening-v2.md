@@ -99,6 +99,10 @@ These are independent audited transitions:
 4. KYC review: submission sets `SUBMITTED`; only a trusted admin can approve or
    reject it.
 
+Email links open the frontend verification page, which exchanges the one-time
+token through `POST /api/auth/verify-email`. Verification is a mutation and is
+never exposed as a state-changing `GET`.
+
 Admin membership review uses:
 
 - `GET /api/auth/organization-joins?status=PENDING`

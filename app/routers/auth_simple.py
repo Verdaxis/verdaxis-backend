@@ -1248,7 +1248,7 @@ async def register_with_org(
 # Email verification
 # ---------------------------------------------------------------------------
 
-@router.get("/verify-email")
+@router.post("/verify-email")
 async def verify_email(token: str, db: AsyncSession = Depends(get_db)):
     """Verify email address using the token sent at registration."""
     token_hash = hash_token_identifier(token)
