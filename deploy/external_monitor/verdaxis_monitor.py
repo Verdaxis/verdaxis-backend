@@ -184,13 +184,20 @@ def check_caddyfile() -> list[str]:
     if "import " not in contents and size < min_bytes:
         errors.append(f"{caddyfile} is only {size} bytes; expected at least {min_bytes}")
 
-    validate = run(["/usr/bin/caddy", "validate", "--config", str(caddyfile)], timeout=20)
+    caddy_command = ["/usr/sbin/runuser", "-u", "caddy", "--", "/usr/bin/caddy"]
+    validate = run(
+        caddy_command + ["validate", "--config", str(caddyfile)],
+        timeout=20,
+    )
     if validate.returncode != 0:
         details = (validate.stderr or validate.stdout).strip().splitlines()
         errors.append("caddy validate failed: " + (details[-1] if details else "unknown error"))
         return errors
 
-    adapt = run(["/usr/bin/caddy", "adapt", "--config", str(caddyfile)], timeout=20)
+    adapt = run(
+        caddy_command + ["adapt", "--config", str(caddyfile)],
+        timeout=20,
+    )
     if adapt.returncode != 0:
         details = (adapt.stderr or adapt.stdout).strip().splitlines()
         errors.append("caddy adapt failed: " + (details[-1] if details else "unknown error"))
@@ -794,6 +801,13 @@ def write_status(ok: bool, errors: list[str], endpoint_statuses: list[dict]) -> 
 
 
 def telegram_alert(message: str) -> None:
+    if os.getenv("TELEGRAM_DISABLED", "").lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }:
+        return
     token = os.getenv("TELEGRAM_BOT_TOKEN")
     chat_id = os.getenv("TELEGRAM_CHAT_ID")
     if not token or not chat_id:
@@ -806,7 +820,7 @@ def telegram_alert(message: str) -> None:
         with urllib.request.urlopen(req, timeout=10) as response:
             response.read()
     except Exception as exc:
-        log(f"telegram alert failed: {exc}")
+        log(f"telegram alert failed: {str(exc).replace(token, '[redacted]')}")
 
 
 def healthchecks_ping(ok: bool, message: str) -> None:
@@ -820,7 +834,7 @@ def healthchecks_ping(ok: bool, message: str) -> None:
         with urllib.request.urlopen(req, timeout=10) as response:
             response.read()
     except Exception as exc:
-        log(f"healthchecks ping failed: {exc}")
+        log(f"healthchecks ping failed: {str(exc).replace(base, '[redacted]')}")
 
 
 def maybe_alert(ok: bool, errors: list[str]) -> None:

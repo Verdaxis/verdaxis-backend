@@ -16,6 +16,7 @@ SPEC.loader.exec_module(autodiag)
 def test_same_failure_runs_once_and_redacts_incident(tmp_path, monkeypatch):
     status_file = tmp_path / "monitor-status.json"
     state_dir = tmp_path / "state"
+    recovery_state_dir = tmp_path / "recovery-state"
     counter_file = tmp_path / "counter"
     output_schema = tmp_path / "schema.json"
     workspace = tmp_path / "workspace"
@@ -36,6 +37,30 @@ def test_same_failure_runs_once_and_redacts_incident(tmp_path, monkeypatch):
                         "ok": False,
                         "http_status": 502,
                         "expected_status": 200,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    status_payload = json.loads(status_file.read_text(encoding="utf-8"))
+    fingerprint = autodiag.failure_fingerprint(
+        autodiag.normalized_monitor_status(status_payload)
+    )
+    recovery_state_dir.mkdir()
+    (recovery_state_dir / "recovery-test.json").write_text(
+        json.dumps(
+            {
+                "incident_id": "recovery-test",
+                "fingerprint": fingerprint,
+                "outcome": "failed",
+                "requested_targets": ["production_api"],
+                "verification_returncode": 2,
+                "actions": [
+                    {
+                        "name": "production_api_restart",
+                        "returncode": 0,
+                        "output": "restart attempted",
                     }
                 ],
             }
@@ -64,6 +89,9 @@ def test_same_failure_runs_once_and_redacts_incident(tmp_path, monkeypatch):
 
     monkeypatch.setenv("AUTODIAG_STATUS_FILE", str(status_file))
     monkeypatch.setenv("AUTODIAG_STATE_DIR", str(state_dir))
+    monkeypatch.setenv(
+        "AUTODIAG_RECOVERY_STATE_DIR", str(recovery_state_dir)
+    )
     monkeypatch.setenv("AUTODIAG_SCHEMA_FILE", str(output_schema))
     monkeypatch.setenv("AUTODIAG_WORKSPACE", str(workspace))
     monkeypatch.setenv("AUTODIAG_COLLECT_COMMANDS", "0")
@@ -78,3 +106,4 @@ def test_same_failure_runs_once_and_redacts_incident(tmp_path, monkeypatch):
     assert "secret-token" not in incident
     assert "token=secret" not in incident
     assert "[redacted]" in incident
+    assert "production_api_restart" in incident

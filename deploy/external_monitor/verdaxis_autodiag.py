@@ -21,6 +21,7 @@ from typing import Any
 
 DEFAULT_STATUS_FILE = "/var/lib/verdaxis-monitor/status.json"
 DEFAULT_STATE_DIR = "/var/lib/verdaxis-autodiag"
+DEFAULT_RECOVERY_STATE_DIR = "/var/lib/verdaxis-recovery"
 DEFAULT_SCHEMA_FILE = "/usr/local/share/verdaxis-monitor/diagnosis.schema.json"
 DEFAULT_WORKSPACE = "/home/verdaxis-prod/verdaxis"
 DEFAULT_CODEX_BIN = "/home/jons-openclaw/.local/bin/codex"
@@ -55,6 +56,7 @@ REPOSITORIES = (
 )
 SERVICE_UNITS = (
     "verdaxis-monitor.service",
+    "verdaxis-recover.service",
     "verdaxis-backend.service",
     "verdaxis-backend-staging.service",
     "caddy.service",
@@ -195,13 +197,63 @@ def failure_fingerprint(monitor_status: dict[str, Any]) -> str:
     return hashlib.sha256(serialized.encode()).hexdigest()
 
 
+def latest_recovery_report(fingerprint: str) -> dict[str, Any] | None:
+    state_dir = Path(
+        os.getenv("AUTODIAG_RECOVERY_STATE_DIR", DEFAULT_RECOVERY_STATE_DIR)
+    )
+    try:
+        reports = sorted(state_dir.glob("recovery-*.json"), reverse=True)
+    except OSError:
+        return None
+    for path in reports[:5]:
+        try:
+            report = read_json(path)
+        except (OSError, ValueError, json.JSONDecodeError):
+            continue
+        if report.get("fingerprint") != fingerprint:
+            continue
+        actions = []
+        for action in report.get("actions", [])[:12]:
+            if not isinstance(action, dict):
+                continue
+            actions.append(
+                {
+                    key: (
+                        redact(str(action[key]), 1_000)
+                        if key in {"detail", "output"}
+                        else action[key]
+                    )
+                    for key in (
+                        "name",
+                        "outcome",
+                        "detail",
+                        "returncode",
+                        "output",
+                    )
+                    if key in action
+                }
+            )
+        return {
+            "incident_id": report.get("incident_id"),
+            "outcome": report.get("outcome"),
+            "requested_targets": report.get("requested_targets", [])[:4],
+            "verification_returncode": report.get(
+                "verification_returncode"
+            ),
+            "actions": actions,
+        }
+    return None
+
+
 def collect_incident(
     monitor_status: dict[str, Any],
     fingerprint: str,
 ) -> dict[str, Any]:
     now = datetime.now(timezone.utc)
     incident_id = f"{now:%Y%m%dT%H%M%SZ}-{fingerprint[:12]}"
-    diagnostics: dict[str, Any] = {}
+    diagnostics: dict[str, Any] = {
+        "recovery": latest_recovery_report(fingerprint)
+    }
     if os.getenv("AUTODIAG_COLLECT_COMMANDS", "1").lower() not in {
         "0",
         "false",
@@ -398,7 +450,8 @@ def telegram_send(message: str) -> bool:
             response.read()
         return True
     except Exception as exc:
-        log(f"Telegram delivery failed: {redact(str(exc), 500)}")
+        detail = redact(str(exc).replace(token, "[redacted]"), 500)
+        log(f"Telegram delivery failed: {detail}")
         return False
 
 
@@ -421,7 +474,8 @@ def diagnosis_message(
         f"Likely cause: {diagnosis['likely_root_cause']}\n\n"
         f"Evidence:\n{evidence}\n\n"
         f"Recommended next steps:\n{actions}\n\n"
-        "No files, services, deployments, or production data were changed."
+        "The diagnosis process made no further changes. Any preceding "
+        "allowlisted service recovery is recorded in the incident evidence."
     )
 
 

@@ -1,0 +1,28 @@
+[Unit]
+Description=Ask the Verdaxis host to run its guarded monitor
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=1h
+StartLimitBurst=1
+
+[Service]
+Type=oneshot
+User=verdaxis-monitor
+Group=verdaxis-monitor
+Environment=HOME=/var/lib/verdaxis-external-monitor
+ExecStart=/usr/bin/ssh -T -i /etc/verdaxis-external-monitor/recovery_ed25519 -o BatchMode=yes -o ConnectTimeout=10 -o ConnectionAttempts=1 -o IdentitiesOnly=yes -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o StrictHostKeyChecking=yes -o UpdateHostKeys=no -o UserKnownHostsFile=/etc/verdaxis-external-monitor/known_hosts jons-openclaw@194.233.68.86 true
+TimeoutStartSec=30s
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+PrivateDevices=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictRealtime=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+MemoryMax=64M
+TasksMax=16

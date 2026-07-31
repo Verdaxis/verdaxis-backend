@@ -44,10 +44,14 @@ remaining legacy responsibility have signed-off replacement coverage. Rollback
 restores and verifies the root timer first. See `deploy/monitor/README.md`.
 
 The tracked legacy external-monitor source is under `deploy/external_monitor`.
-Its systemd `OnFailure` path may invoke a bounded, redacted, read-only Codex
-diagnosis and send the result to Telegram. That path has no production
-remediation or deployment authority; the original monitor result remains the
-alerting source of truth.
+Its systemd `OnFailure` path first permits one hourly allowlisted backend,
+validated Caddy, or backup recovery attempt and reruns the complete monitor.
+Recovery cannot mutate application data, source, configuration, deployment
+state, migrations, DNS, credentials, Vercel, or storage. Failed and ineligible
+incidents proceed to bounded, redacted, read-only Codex diagnosis and Telegram;
+the original monitor result remains the alerting source of truth. A separate
+VPS checks critical public routes and can invoke only the monitor through a
+forced SSH command.
 
 ## Demo market activity
 

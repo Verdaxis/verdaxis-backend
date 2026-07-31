@@ -25,10 +25,14 @@ monitor contract and integration seams are in `deploy/monitor/README.md`.
 There is no monitor-owned installer or activation path in this branch. Any
 live deploy, even a dry run, requires separate operator authorization.
 
-The legacy public monitor and its read-only automatic incident diagnosis source
-are tracked separately under `deploy/external_monitor`. That diagnosis path may
-collect bounded operational evidence and send a structured Telegram report,
-but it has no production mutation or deployment authority.
+The legacy public monitor, guarded recovery runner, independent public-monitor
+trigger, and read-only automatic incident diagnosis source are tracked
+separately under `deploy/external_monitor`. Recovery is limited to one hourly
+attempt of the documented backend restart, validated Caddy reload/restart, or
+existing backup service runbook; it cannot operate during a deployment
+transaction. It must rerun the complete public monitor. Every other failure
+goes to the bounded read-only diagnosis path, which has no production mutation
+or deployment authority.
 
 Read ARCHITECTURE.md before exploring the codebase.
 
