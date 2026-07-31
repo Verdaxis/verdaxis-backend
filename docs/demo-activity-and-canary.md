@@ -43,6 +43,12 @@ disable the root timer until local alert delivery, the public monitor, and every
 remaining legacy responsibility have signed-off replacement coverage. Rollback
 restores and verifies the root timer first. See `deploy/monitor/README.md`.
 
+The tracked legacy external-monitor source is under `deploy/external_monitor`.
+Its systemd `OnFailure` path may invoke a bounded, redacted, read-only Codex
+diagnosis and send the result to Telegram. That path has no production
+remediation or deployment authority; the original monitor result remains the
+alerting source of truth.
+
 ## Demo market activity
 
 Demo market activity is generated only from system-owned demo organizations. It must remain visibly labelled as demo/preview liquidity in user-facing surfaces.

@@ -1,0 +1,10 @@
+[Unit]
+Description=Verdaxis route and uptime monitor
+Wants=network-online.target
+After=network-online.target caddy.service
+OnFailure=verdaxis-codex-diagnose.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/verdaxis-monitor.env
+ExecStart=/usr/local/sbin/verdaxis-monitor
