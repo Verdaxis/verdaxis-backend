@@ -865,7 +865,7 @@ async def list_aggregated_orderbook(
     region: Optional[str] = Query(None, description="Filter by region or delivery point name"),
     availability_window: Optional[str] = Query(None, description="Filter by availability window"),
     include_off_spec: bool = Query(False, description="Include off-spec orders"),
-    limit: Annotated[int, Query(ge=1, le=512)] = 256,
+    limit: Annotated[int, Query(ge=1, le=2048)] = 1024,
     db: AsyncSession = Depends(get_db),
 ):
     """

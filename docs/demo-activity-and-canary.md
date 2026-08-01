@@ -91,6 +91,13 @@ Rules:
   first. With the current four products and eight ports, this keeps 1,024
   disclosed demo orders throughout each quarter and rolls automatically as
   windows change.
+- Reconciliation never rewrites an existing order's immutable organization,
+  provenance, side, product, delivery point, availability window, or inventory
+  snapshot. It refreshes only mutable Demo presentation and lifecycle fields
+  and inserts missing canonical slices.
+- The bounded public aggregate defaults to 1,024 rows, enough for the current
+  768 product/port/window/side groups without starving later canonical
+  products by sort order.
 - Demo prices are indicative reference bands, not Verdaxis assessments or
   executable market indications. The July 2026 bands use public ethanol
   FOB/C&F benchmarks, public low-carbon methanol reporting, and published

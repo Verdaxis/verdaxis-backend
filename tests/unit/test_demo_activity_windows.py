@@ -6,10 +6,23 @@ from inspect import getsource
 
 from app.models.orderbook import OrderSide
 from app.services.demo_activity import (
+    DEMO_COVERAGE_REFRESH_FIELDS,
     activity_windows,
     build_demo_market_coverage,
     generate_demo_market_activity,
 )
+
+
+def test_demo_coverage_refresh_preserves_immutable_order_identity():
+    assert set(DEMO_COVERAGE_REFRESH_FIELDS).isdisjoint({
+        "organization_id",
+        "provenance",
+        "side",
+        "product_id",
+        "delivery_point_id",
+        "availability_window",
+        "inventory_item_id",
+    })
 
 
 def test_activity_windows_roll_forward_without_past_months():
