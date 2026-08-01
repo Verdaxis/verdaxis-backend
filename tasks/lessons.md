@@ -329,3 +329,9 @@
 - **Trigger:** The user clarified that 17 generated listings did not restore the much broader demo book used in earlier demonstrations.
 - **Rule:** When recovering demo liquidity, compare against the prior visible coverage and restore canonical product-port-window depth rather than stopping at a small active count.
 - **Why:** Restarting a one-listing-per-tick generator repairs ongoing activity but does not recreate the seeded breadth users expect during a demo.
+
+### Preserve Immutable Fields During Demo Reconciliation
+- **Date:** 2026-08-01
+- **Trigger:** The rolling Demo coverage job attempted to copy ownership and slice fields onto existing orders after the market-integrity migration made those fields immutable.
+- **Rule:** Reconciliation may insert missing Demo orders and refresh explicitly mutable presentation/lifecycle fields, but must never rewrite immutable order identity or market-slice fields.
+- **Why:** An older reconciler contract crossed a newer database trust boundary, causing the entire coverage transaction to roll back and leaving products absent.

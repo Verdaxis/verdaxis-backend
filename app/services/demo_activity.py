@@ -47,6 +47,27 @@ MAX_GENERATED_ORDERS = MAX_GENERATED_TRADES * 3
 RETENTION_DAYS = 7
 DEMO_COVERAGE_OPERATION = "DEMO_COVERAGE"
 DEMO_COVERAGE_LEVELS_PER_SIDE = 16
+DEMO_COVERAGE_REFRESH_FIELDS = (
+    "creation_method",
+    "quantity_mt",
+    "remaining_quantity_mt",
+    "price_per_mt_usd",
+    "certifications",
+    "certification_declared",
+    "certification_scheme",
+    "specification_standard",
+    "msds_available",
+    "is_verdaxis_verified",
+    "carbon_intensity_gco2_mj",
+    "carbon_intensity_method",
+    "energy_density_mj_kg",
+    "feedstock",
+    "origin",
+    "off_spec",
+    "status",
+    "expires_at",
+    "idempotency_request_hash",
+)
 
 _RNG = random.Random()
 
@@ -180,33 +201,6 @@ async def ensure_demo_market_coverage(
     created = 0
     refreshed = 0
 
-    copied_fields = (
-        "organization_id",
-        "creation_method",
-        "provenance",
-        "side",
-        "product_id",
-        "delivery_point_id",
-        "quantity_mt",
-        "remaining_quantity_mt",
-        "price_per_mt_usd",
-        "availability_window",
-        "certifications",
-        "certification_declared",
-        "certification_scheme",
-        "specification_standard",
-        "msds_available",
-        "is_verdaxis_verified",
-        "carbon_intensity_gco2_mj",
-        "carbon_intensity_method",
-        "energy_density_mj_kg",
-        "feedstock",
-        "origin",
-        "off_spec",
-        "status",
-        "expires_at",
-        "idempotency_request_hash",
-    )
     for target in desired:
         current = existing_by_key.get(target.idempotency_key)
         if current is None:
@@ -215,7 +209,7 @@ async def ensure_demo_market_coverage(
             continue
 
         changed = False
-        for field in copied_fields:
+        for field in DEMO_COVERAGE_REFRESH_FIELDS:
             value = getattr(target, field)
             if getattr(current, field) != value:
                 setattr(current, field, value)
