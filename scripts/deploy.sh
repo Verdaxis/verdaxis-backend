@@ -565,10 +565,12 @@ if [[ -f requirements.txt ]]; then
         echo "constraints.txt is required for reproducible deployed dependency installation." >&2
         exit 1
     fi
+    umask 022
     "${PYTHON_ENV[@]}" PIP_CONFIG_FILE=/dev/null \
         ./venv/bin/python -m pip install -r requirements.txt -c constraints.txt
     "${PYTHON_ENV[@]}" PIP_CONFIG_FILE=/dev/null \
         ./venv/bin/python -m pip check
+    chmod -R a+rX venv
 fi
 
 "${PYTHON_ENV[@]}" ENVIRONMENT="$DEPLOY_ENVIRONMENT" RELEASE_SHA="$CURRENT_SHA" \

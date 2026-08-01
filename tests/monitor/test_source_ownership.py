@@ -19,11 +19,11 @@ MANIFEST = MONITOR / "artifact-manifest.json"
 # one must update its pinned blob in the same reviewed commit.
 # Market Support adds feature-flag settings and one feature-flagged router.
 RUNTIME_OWNED_BLOBS = {
-    "app/config.py": "ce21275460088cf7fa444a2871790581a8cb8fca",
+    "app/config.py": "8d79897edd02bc13ed5a7c482a2696f8ace841b1",
     "app/database.py": "43456b2c2079c07368359d4d54f5ce9629c9b57b",
-    "app/main.py": "12ea796399dc855124a9be4c02739a7f8e658f51",
-    "scripts/deploy.sh": "c598bee19ddeb4dfbefce23c46a531cfe775eddb",
-    "scripts/run_demo_activity.py": "f4b8cabedee10fc77fa87d0553443727a4dfe85a",
+    "app/main.py": "fbf219d5ac62887a06504887773ca9932ad52fa3",
+    "scripts/deploy.sh": "6267e6b03cdeb0098f17e903ca63a00815fbfb41",
+    "scripts/run_demo_activity.py": "aac20936cd1b01adcebf8097762cae136b6eb0bf",
 }
 
 EXPECTED_ARTIFACTS = {

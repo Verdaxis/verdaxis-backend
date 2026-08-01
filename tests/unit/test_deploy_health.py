@@ -1118,6 +1118,10 @@ def test_live_deploy_uses_canonical_guard_state_and_trusted_tool_path():
     assert "PIP_CONFIG_FILE=/dev/null" in source
     assert "./venv/bin/python -m pip install -r requirements.txt -c constraints.txt" in source
     assert "./venv/bin/python -m pip check" in source
+    assert source.index("umask 022", source.index("if [[ -f requirements.txt ]]")) < source.index(
+        "pip install", source.index("if [[ -f requirements.txt ]]")
+    )
+    assert "chmod -R a+rX venv" in source
     assert 'SCRIPT_DIR="$(cd -- "${BASH_SOURCE[0]%/*}" && pwd -P)"' in source
     assert 'dirname "${BASH_SOURCE[0]}"' not in source
     assert "HEALTH_ATTEMPTS must be an integer from 1 to 120" in source
