@@ -570,6 +570,7 @@ if [[ -f requirements.txt ]]; then
         ./venv/bin/python -m pip install -r requirements.txt -c constraints.txt
     "${PYTHON_ENV[@]}" PIP_CONFIG_FILE=/dev/null \
         ./venv/bin/python -m pip check
+    chmod -R a+rX venv
 fi
 
 "${PYTHON_ENV[@]}" ENVIRONMENT="$DEPLOY_ENVIRONMENT" RELEASE_SHA="$CURRENT_SHA" \
