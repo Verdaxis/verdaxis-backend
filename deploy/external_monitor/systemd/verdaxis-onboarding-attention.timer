@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Verdaxis onboarding attention monitor every five minutes
+
+[Timer]
+OnCalendar=*-*-* *:00/5:00
+AccuracySec=10s
+Persistent=true
+RandomizedDelaySec=15s
+
+[Install]
+WantedBy=timers.target

@@ -130,6 +130,40 @@ VERDAXIS_RECOVERY_COOLDOWN_SECONDS=3600
 monitor alert path. Never put application, database, Vercel, GitHub, or SSH
 credentials in the diagnosis environment.
 
+## Onboarding attention monitor
+
+The production-only onboarding monitor checks database state every five minutes
+and sends one Telegram alert per user and actionable stage. It reports rejected
+onboarding, expiring organization setup, stalled email verification, approval
+required, and no first login within two hours of full approval. Demo, test,
+canary, and administrator accounts are excluded. Its state file contains only
+user identifiers, stages, and timestamps.
+
+Install the units, inspect current candidates without sending, then silently
+baseline historical cases before enabling the timer:
+
+```bash
+sudo install -o root -g root -m 0644 \
+  deploy/external_monitor/systemd/verdaxis-onboarding-attention.service \
+  /etc/systemd/system/verdaxis-onboarding-attention.service
+sudo install -o root -g root -m 0644 \
+  deploy/external_monitor/systemd/verdaxis-onboarding-attention.timer \
+  /etc/systemd/system/verdaxis-onboarding-attention.timer
+sudo install -d -o verdaxis-prod -g verdaxis-prod -m 0700 \
+  /var/lib/verdaxis-onboarding-attention
+sudo systemctl daemon-reload
+sudo -u verdaxis-prod ./venv/bin/python -m app.cli.onboarding_attention \
+  --dry-run
+sudo -u verdaxis-prod ./venv/bin/python -m app.cli.onboarding_attention \
+  --bootstrap
+sudo systemctl enable --now verdaxis-onboarding-attention.timer
+sudo systemctl start verdaxis-onboarding-attention.service
+```
+
+Bootstrap is a one-time activation step: existing stages are suppressed without
+later recovery messages. New accounts and stage changes alert normally. Review
+runs with `journalctl -u verdaxis-onboarding-attention.service`.
+
 Luna is the automatic default to keep recurring incident cost bounded. Set
 `CODEX_AUTODIAG_MODEL=gpt-5.6-sol` only for a deliberate deeper diagnostic
 pass after reviewing the first report.
@@ -190,7 +224,9 @@ systemd-analyze verify \
   deploy/external_monitor/systemd/verdaxis-codex-diagnose.service \
   deploy/external_monitor/systemd/verdaxis-external-monitor.service \
   deploy/external_monitor/systemd/verdaxis-external-monitor.timer \
-  deploy/external_monitor/systemd/verdaxis-external-recover.service
+  deploy/external_monitor/systemd/verdaxis-external-recover.service \
+  deploy/external_monitor/systemd/verdaxis-onboarding-attention.service \
+  deploy/external_monitor/systemd/verdaxis-onboarding-attention.timer
 pytest tests/monitor/test_external_autodiag.py \
   tests/monitor/test_external_recovery.py -q
 ```
