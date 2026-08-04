@@ -102,7 +102,10 @@ These are independent audited transitions:
 
 Email links open the frontend verification page, which exchanges the one-time
 token through `POST /api/auth/verify-email`. Verification is a mutation and is
-never exposed as a state-changing `GET`.
+never exposed as a state-changing `GET`. The token hash remains valid until its
+original expiry so repeated POSTs are idempotent; this prevents corporate email
+link scanners or a browser retry from replacing a successful verification with
+an invalid-link result.
 
 Admin membership review uses:
 

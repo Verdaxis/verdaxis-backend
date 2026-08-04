@@ -1260,8 +1260,6 @@ async def verify_email(token: str, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=400, detail="Invalid or expired verification link")
 
     user.email_verified = True
-    user.email_verification_token_hash = None
-    user.email_verification_token_expires_at = None
 
     # Progress referral status if this user was referred
     if user.referred_by_id:

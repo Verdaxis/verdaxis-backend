@@ -26,7 +26,7 @@ class _VerificationDb:
 
     async def execute(self, _statement):
         self.execute_count += 1
-        return _Result(self.user if self.execute_count == 1 else None)
+        return _Result(self.user)
 
     async def commit(self):
         self.committed = True
@@ -56,10 +56,12 @@ async def test_email_verification_is_a_post_mutation():
         transport=ASGITransport(app=app), base_url="https://test"
     ) as client:
         response = await client.post(f"/api/auth/verify-email?token={token}")
+        repeated = await client.post(f"/api/auth/verify-email?token={token}")
         legacy_get = await client.get(f"/api/auth/verify-email?token={token}")
 
     assert response.status_code == 200
+    assert repeated.status_code == 200
     assert legacy_get.status_code == 405
     assert user.email_verified is True
-    assert user.email_verification_token_hash is None
+    assert user.email_verification_token_hash == hash_token_identifier(token)
     assert db.committed is True

@@ -7,7 +7,7 @@ requiring a running database.
 import pytest
 from decimal import Decimal
 from uuid import uuid4
-from datetime import datetime, UTC
+from datetime import datetime, timedelta, UTC
 
 from app.schemas.orderbook import (
     OrderCreate,
@@ -71,7 +71,7 @@ class TestOrderCreate:
             origin="Netherlands",
             off_spec=True,
             off_spec_notes="Water content slightly above target",
-            expires_at=datetime(2026, 8, 1, tzinfo=UTC),
+            expires_at=datetime.now(UTC) + timedelta(days=30),
         )
         assert order.side == OrderSide.ASK
         assert order.product_id == product_id
