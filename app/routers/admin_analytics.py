@@ -75,6 +75,10 @@ class AdminUserEntry(BaseModel):
     org_name: Optional[str]
     org_type: Optional[str]
     org_provenance: Optional[str]
+    # Journey fields: how far this account has actually gotten.
+    email_verified: bool = False
+    last_login: Optional[datetime] = None
+    org_has_orders: bool = False
 
     class Config:
         from_attributes = True
@@ -464,7 +468,7 @@ async def get_daily_stats(
 
 def _user_to_entry(row) -> AdminUserEntry:
     """Map a user and its organization projection to AdminUserEntry."""
-    user, org_name, org_type, org_provenance = row
+    user, org_name, org_type, org_provenance, org_has_orders = row
     return AdminUserEntry(
         id=user.id,
         email=user.email,
@@ -477,6 +481,9 @@ def _user_to_entry(row) -> AdminUserEntry:
         org_name=org_name,
         org_type=org_type.value if org_type else None,
         org_provenance=org_provenance.value if org_provenance else None,
+        email_verified=bool(user.email_verified),
+        last_login=user.last_login,
+        org_has_orders=bool(org_has_orders),
     )
 
 
@@ -493,12 +500,19 @@ async def list_users(
 ):
     """List platform users for admin review. Filterable by status and searchable by name/email."""
 
+    org_has_orders = (
+        select(func.count(OrderBookOrder.id) > 0)
+        .where(OrderBookOrder.organization_id == User.organization_id)
+        .correlate(User)
+        .scalar_subquery()
+    )
     base = (
         select(
             User,
             Organization.name,
             Organization.type,
             Organization.provenance,
+            org_has_orders.label("org_has_orders"),
         )
         .outerjoin(Organization, User.organization_id == Organization.id)
         .where(User.role != UserRole.ADMIN)  # Admins manage non-admin accounts
