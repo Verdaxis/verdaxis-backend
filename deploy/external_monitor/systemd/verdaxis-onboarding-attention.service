@@ -1,0 +1,42 @@
+[Unit]
+Description=Verdaxis production onboarding attention monitor
+Wants=network-online.target
+Requires=postgresql.service
+After=network-online.target postgresql.service
+ConditionPathExists=/home/verdaxis-prod/verdaxis/prod/be/.env
+
+[Service]
+Type=oneshot
+User=verdaxis-prod
+Group=verdaxis-prod
+WorkingDirectory=/home/verdaxis-prod/verdaxis/prod/be
+EnvironmentFile=/home/verdaxis-prod/verdaxis/prod/be/.env
+EnvironmentFile=-/etc/verdaxis-monitor.env
+ExecStart=/home/verdaxis-prod/verdaxis/prod/be/venv/bin/python -m app.cli.onboarding_attention --state-file /var/lib/verdaxis-onboarding-attention/state.json
+StateDirectory=verdaxis-onboarding-attention
+StateDirectoryMode=0700
+TimeoutStartSec=5min
+UMask=0077
+NoNewPrivileges=true
+PrivateDevices=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadOnlyPaths=/home/verdaxis-prod/verdaxis/prod/be
+ReadWritePaths=/var/lib/verdaxis-onboarding-attention
+InaccessiblePaths=-/home/verdaxis-prod/.ssh
+InaccessiblePaths=-/home/jons-openclaw/.ssh
+InaccessiblePaths=-/run/docker.sock
+InaccessiblePaths=-/var/run/docker.sock
+ProtectControlGroups=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectClock=true
+ProtectHostname=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+LockPersonality=true
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+AmbientCapabilities=
