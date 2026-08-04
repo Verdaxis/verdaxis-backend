@@ -33,6 +33,8 @@ from app.routers.ai import router as ai_router
 from app.routers.orders import router as orders_router
 from app.routers.notifications import router as notifications_router
 from app.routers.preferences import router as preferences_router
+from app.routers.feedback import router as feedback_router
+from app.routers.admin_attention import router as admin_attention_router
 from app.routers.orderbook import router as orderbook_router
 from app.routers.market_support import router as market_support_router
 from app.routers.trades import router as trades_router
@@ -228,6 +230,8 @@ app.include_router(ai_router, prefix=settings.API_V1_STR)
 app.include_router(orders_router, prefix=settings.API_V1_STR)
 app.include_router(notifications_router, prefix=settings.API_V1_STR)
 app.include_router(preferences_router, prefix=settings.API_V1_STR)
+app.include_router(feedback_router, prefix=settings.API_V1_STR)
+app.include_router(admin_attention_router, prefix=settings.API_V1_STR)
 app.include_router(orderbook_router, prefix=settings.API_V1_STR)
 app.include_router(market_support_router, prefix=settings.API_V1_STR)
 app.include_router(trades_router, prefix=settings.API_V1_STR)
