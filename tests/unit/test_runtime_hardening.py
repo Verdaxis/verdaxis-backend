@@ -726,6 +726,25 @@ def test_postgres_helper_is_digest_pinned_and_checks_numeric_versions():
     assert 'POSTGRES_VERSION_NUM" -ge 180000' in script
 
 
+def test_app_acl_policy_declares_every_model_table():
+    """A model table absent from the ACL policy fails at runtime with 42501
+    even though deploy-time validation and health checks pass (this caught
+    feedback_entries on 2026-08-04). Every ORM table must be declared."""
+    import re
+
+    from app import models  # noqa: F401 — import registers all tables
+    from app.model_base import Base
+
+    root = Path(__file__).parents[2]
+    policy = (root / "deploy/postgres/app_acl_policy.sql").read_text()
+    declared = set(re.findall(r"^\s*\('([a-z_]+)', ARRAY", policy, re.M))
+    missing = sorted(set(Base.metadata.tables) - declared)
+    assert missing == [], (
+        f"tables missing from deploy/postgres/app_acl_policy.sql: {missing}; "
+        "the app role gets no authority on undeclared tables"
+    )
+
+
 def test_least_privilege_role_artifacts_cover_existing_and_future_objects():
     root = Path(__file__).parents[2]
     bootstrap = (root / "deploy/postgres/bootstrap_roles.sql").read_text()

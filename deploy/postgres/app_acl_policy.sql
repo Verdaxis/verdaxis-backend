@@ -30,6 +30,8 @@ INSERT INTO app_table_policy (table_name, privileges) VALUES
     ('direct_order_offers', ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE']),
     ('direct_orders', ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE']),
     ('fair_price_bands', ARRAY['SELECT']),
+    -- Feedback is append-only from the app; admins read, never edit.
+    ('feedback_entries', ARRAY['SELECT', 'INSERT']),
     ('inventory_items', ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE']),
     ('live_slice_benchmarks', ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE']),
     ('market_event_outbox', ARRAY['SELECT', 'INSERT', 'UPDATE']),
@@ -47,6 +49,9 @@ INSERT INTO app_table_policy (table_name, privileges) VALUES
     ('notifications', ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE']),
     ('orderbook_orders', ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE']),
     ('orders', ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE']),
+    -- Integration-owned approval control table: read-only to the app
+    -- (policy header rule; previously undeclared entirely).
+    ('organization_market_approvals', ARRAY['SELECT']),
     ('organization_join_requests', ARRAY['SELECT', 'INSERT', 'UPDATE']),
     ('organizations', ARRAY['SELECT', 'DELETE']),
     ('pending_registrations', ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE']),
