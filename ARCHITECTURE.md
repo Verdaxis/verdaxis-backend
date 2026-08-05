@@ -36,7 +36,7 @@ app/
     producer.py                 # ProducerProject (PostGIS, GENA import)
     audit.py                    # AuditLog (JSONB changes, indexed action/resource/timestamp)
   routers/
-    auth_simple.py              # JWT auth — login/register, cookie-backed refresh rotation, password change, /me, RBAC
+    auth_simple.py              # JWT auth, registration, admin pre-approved invitations, refresh rotation, password change, /me
     orderbook.py                # Order/listing CRUD, supplier ASK template endpoint, certification guardrails
     market_support.py           # ADMIN capability, authorization, assisted ASK publication, and ETag cancellation APIs
     trades.py                   # Trade lifecycle — create/confirm/decline/deliver/pay + SSE events
@@ -139,6 +139,7 @@ alembic/versions/               # Migrations incl. canonical availability-window
 - **Compliance scoring:** Pure function `calculate_compliance_score()` — no DB, 100% testable
 - **JWT auth:** 15-min access + 7-day refresh, plus 60-second `type="stream"` tokens from `/auth/stream-token` for SSE query-param auth. Ordinary API auth only accepts access tokens; activity SSE query auth only accepts stream tokens.
 - **Cookie-backed refresh:** refresh token is also rotated through an HttpOnly `refresh_token` cookie scoped to `/api/auth`, while access tokens remain bearer tokens
+- **Admin pre-approved invitations:** An administrator may prepare a `BUYER` or `SUPPLIER` account only inside an approved real organization. The seven-day claim secret reuses the existing hashed one-time password-reset slot, while the unclaimed state is explicitly `APPROVED + unverified + must_change_password`; acceptance verifies mailbox ownership, records Terms/Privacy agreement in the append-only audit trail, progresses referral attribution, and issues the normal device-bound session. Ordinary password reset excludes unverified accounts so the two token purposes cannot be confused. See `docs/plans/2026-08-05-admin-preapproved-invites-design.md`.
 - **Rate limiting:** slowapi per-route (5/min login, 3/min password, 60/min prices, 30/min reference)
 - **Availability windows:** Persist canonical codes (`SPOT`, `YYYY-MM`, `YYYY-QN`, legacy-compatible `YYYY-CAL`); UI-relative labels like `M+1` must be resolved before persistence
 - **Green-fuels market model:** Matching and live slice benchmarks key on `side + market_product + delivery_point + availability_window`; supplier sustainability/compliance fields stay out of the hard market key

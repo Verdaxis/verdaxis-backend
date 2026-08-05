@@ -1,6 +1,7 @@
 """Canonical audit action registry."""
 
 ADMIN_USER_APPROVED = "admin.user_approved"
+ADMIN_USER_INVITED = "admin.user_invited"
 ADMIN_ORGANIZATION_APPROVED = "admin.organization_approved"
 ADMIN_ORGANIZATION_REJECTED = "admin.organization_rejected"
 ORGANIZATION_JOIN_REQUESTED = "organization.join_requested"
@@ -46,6 +47,7 @@ TRADE_PAID = "trade.paid"
 USER_PASSWORD_CHANGED = "user.password_changed"
 USER_PASSWORD_RESET_COMPLETED = "user.password_reset_completed"
 USER_PASSWORD_RESET_REQUESTED = "user.password_reset_requested"
+USER_INVITATION_ACCEPTED = "user.invitation_accepted"
 USER_REGISTERED = "user.registered"
 
 # Login success/failure is deliberately excluded: the event volume would drown
@@ -53,6 +55,7 @@ USER_REGISTERED = "user.registered"
 AUDIT_ACTIONS = frozenset(
     {
         ADMIN_USER_APPROVED,
+        ADMIN_USER_INVITED,
         ADMIN_ORGANIZATION_APPROVED,
         ADMIN_ORGANIZATION_REJECTED,
         ORGANIZATION_JOIN_REQUESTED,
@@ -95,6 +98,7 @@ AUDIT_ACTIONS = frozenset(
         USER_PASSWORD_CHANGED,
         USER_PASSWORD_RESET_COMPLETED,
         USER_PASSWORD_RESET_REQUESTED,
+        USER_INVITATION_ACCEPTED,
         USER_REGISTERED,
     }
 )

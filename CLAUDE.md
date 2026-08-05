@@ -159,6 +159,8 @@ cd /home/verdaxis-prod/verdaxis/staging/be   # or /home/verdaxis-prod/verdaxis/p
 - `POST /api/auth/login` -- OAuth2 password form (email in `username` field) -> JWT
 - `POST /api/auth/register` -- Returns `{status: "created", user}` or `{status: "requires_org", registration_token}` if org not found by email domain
 - `POST /api/auth/register-with-org` -- Complete registration with new org creation
+- `POST /api/auth/invitations/resolve` -- Resolve a valid admin-issued invitation secret
+- `POST /api/auth/invitations/accept` -- Accept a pre-approved invitation, set a password, and issue a session
 - `GET /api/auth/me` -- Current user info
 
 ### Authenticated
@@ -186,6 +188,8 @@ cd /home/verdaxis-prod/verdaxis/staging/be   # or /home/verdaxis-prod/verdaxis/p
 - `PATCH /api/matchmaking/suggestions/{id}/dismiss`
 
 ### Admin Only
+- `GET /api/auth/admin/invitations/organizations` -- Eligible real organizations for pre-approved invitations
+- `POST /api/auth/admin/invitations` -- Create or rotate a single-use pre-approved invitation
 - `GET /api/orders/admin/commissions` -- All commissions
 - `GET /api/orders/admin/commissions/summary` -- Commission stats
 - `PUT /api/orders/admin/commissions/{id}` -- Update commission status
@@ -200,6 +204,7 @@ cd /home/verdaxis-prod/verdaxis/staging/be   # or /home/verdaxis-prod/verdaxis/p
   - `app/routers/auth_simple.py` -- The active one. Used by most routers. Decodes JWT `sub` claim as user UUID.
   - `app/core/auth.py` -- Legacy. Has JIT provisioning and dev bypass logic. Used only by `vessels`, `inventory`, `compliance`, and `ai` routers.
 - **Registration flow:** If the user's email domain matches an existing `Organization.domain`, the user is created immediately linked to that org. Otherwise, a short-lived registration token is returned and the user must call `/register-with-org` to create their org first.
+- **Admin invitation flow:** An admin may prepare a buyer or supplier account in an existing approved real organization. The recipient accepts the single-use link, agrees to Terms/Privacy, sets a password, and receives a normal session without another approval. The admin is responsible for delivering the copied link securely to the intended recipient.
 - **Auth bypass:** Controlled by `ENABLE_AUTH_BYPASS=true` in `.env`. Creates/returns a `dev@admin.com` user. Only works with the legacy `core/auth.py` path.
 
 ### Test Credentials
