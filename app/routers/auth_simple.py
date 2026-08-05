@@ -16,7 +16,13 @@ import secrets
 from dataclasses import dataclass
 from app.database import get_db
 from app.config import settings
-from app.models.user import User, UserRole, UserStatus, Organization
+from app.models.user import (
+    Organization,
+    OrganizationProvenance,
+    User,
+    UserRole,
+    UserStatus,
+)
 from app.models.refresh_session import RefreshSession
 from app.models.registration import PendingRegistration, OrganizationJoinRequest, JoinRequestStatus
 from app.schemas.user import UserCreate, UserResponse, UserUpdate, RegistrationResponse, PasswordChangeRequest
@@ -30,7 +36,7 @@ from app.core.security import (
     validate_password_bytes as _validate_password_bytes,
     MAX_PASSWORD_BYTES,
 )
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 import uuid
 
 from app.models.referral import Referral, ReferralStatus, generate_referral_code
@@ -42,10 +48,12 @@ from app.services.product_analytics import is_retryable_transaction_error, recor
 from app.services.user_status_transition import record_initial_status, record_status_transition
 from app.services.audit_actions import (
     ADMIN_USER_APPROVED,
+    ADMIN_USER_INVITED,
     ADMIN_USER_REJECTED,
     ADMIN_ORGANIZATION_APPROVED,
     ADMIN_ORGANIZATION_REJECTED,
     USER_PASSWORD_CHANGED,
+    USER_INVITATION_ACCEPTED,
     USER_PASSWORD_RESET_COMPLETED,
     USER_PASSWORD_RESET_REQUESTED,
     USER_REGISTERED,
@@ -125,6 +133,80 @@ class ResetPasswordRequest(BaseModel):
         return validate_password_bytes(value)
 
 
+class AdminInvitationCreate(BaseModel):
+    email: EmailStr
+    first_name: str = Field(min_length=1, max_length=100)
+    last_name: str | None = Field(default=None, max_length=100)
+    role: UserRole
+    organization_id: uuid.UUID
+
+    @field_validator("email")
+    @classmethod
+    def normalize_email(cls, value: EmailStr) -> str:
+        return str(value).strip().lower()
+
+    @field_validator("first_name", "last_name")
+    @classmethod
+    def normalize_name(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("Name must not be blank")
+        return normalized
+
+    @field_validator("role")
+    @classmethod
+    def restrict_role(cls, value: UserRole) -> UserRole:
+        if value not in ALLOWED_REGISTRATION_ROLES:
+            raise ValueError("Invitation role must be BUYER or SUPPLIER")
+        return value
+
+
+class InvitationTokenRequest(BaseModel):
+    token: str = Field(min_length=32, max_length=128)
+
+
+class InvitationAcceptRequest(InvitationTokenRequest):
+    new_password: str = Field(min_length=8)
+    accept_terms: bool
+
+    @field_validator("new_password")
+    @classmethod
+    def validate_password_size(cls, value: str) -> str:
+        return validate_password_bytes(value)
+
+
+class InvitationOrganizationResponse(BaseModel):
+    id: uuid.UUID
+    name: str
+    type: str
+
+
+class InvitationOrganizationListResponse(BaseModel):
+    items: list[InvitationOrganizationResponse]
+
+
+class AdminInvitationResponse(BaseModel):
+    user_id: uuid.UUID
+    email: str
+    role: str
+    organization_name: str
+    acceptance_url: str
+    expires_at: datetime
+    reissued: bool
+
+
+class InvitationResolveResponse(BaseModel):
+    email: str
+    first_name: str | None
+    last_name: str | None
+    role: str
+    organization_name: str
+    invited_by_name: str | None
+    expires_at: datetime
+
+
 class _AuthBodyLimitRoute(BodySizeLimitRoute):
     max_body_bytes = 128 * 1024
     body_too_large_detail = "Authentication request is too large"
@@ -144,6 +226,7 @@ DEVICE_SESSION_COOKIE_NAME = "device_session"
 DEVICE_SESSION_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{43}$")
 EMAIL_VERIFICATION_TTL = timedelta(hours=24)
 REGISTRATION_TTL = timedelta(minutes=30)
+ADMIN_INVITATION_TTL = timedelta(days=7)
 REFRESH_ROTATION_GRACE = timedelta(seconds=5)
 TERMINAL_REFRESH_ERROR_CODES = frozenset(
     {
@@ -945,6 +1028,329 @@ async def _assign_referral_code(db: AsyncSession, user: User):
 ALLOWED_REGISTRATION_ROLES = {UserRole.BUYER, UserRole.SUPPLIER}
 
 
+def _invalid_invitation() -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="This invitation is invalid, expired, or has already been accepted.",
+    )
+
+
+def _is_eligible_invitation_organization(organization: Organization | None) -> bool:
+    return bool(
+        organization
+        and organization.verification_status == "APPROVED"
+        and organization.provenance == OrganizationProvenance.REAL
+    )
+
+
+def _is_unclaimed_admin_invitation(user: User, organization: Organization | None) -> bool:
+    return bool(
+        user.status == UserStatus.APPROVED
+        and not user.email_verified
+        and user.must_change_password
+        and user.organization_id is not None
+        and user.organization_id == getattr(organization, "id", None)
+        and user.role in ALLOWED_REGISTRATION_ROLES
+        and _is_eligible_invitation_organization(organization)
+    )
+
+
+def _new_admin_invitation_token() -> tuple[str, str, datetime]:
+    raw_token = secrets.token_urlsafe(32)
+    return raw_token, hash_token_identifier(raw_token), datetime.now(UTC) + ADMIN_INVITATION_TTL
+
+
+def _invitation_url(token: str) -> str:
+    # Fragments are not sent to the frontend host or included in its access logs.
+    return f"{settings.FRONTEND_URL.rstrip('/')}/accept-invite#token={token}"
+
+
+@router.get(
+    "/admin/invitations/organizations",
+    response_model=InvitationOrganizationListResponse,
+)
+@limiter.limit("60/minute")
+async def list_invitation_organizations(
+    request: _Request,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    if current_user.role != UserRole.ADMIN:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+    organizations = (
+        await db.execute(
+            select(Organization)
+            .where(
+                Organization.verification_status == "APPROVED",
+                Organization.provenance == OrganizationProvenance.REAL,
+            )
+            .order_by(Organization.name)
+        )
+    ).scalars().all()
+    return InvitationOrganizationListResponse(
+        items=[
+            InvitationOrganizationResponse(
+                id=organization.id,
+                name=organization.name,
+                type=organization.type.value,
+            )
+            for organization in organizations
+        ]
+    )
+
+
+@router.post(
+    "/admin/invitations",
+    response_model=AdminInvitationResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+@limiter.limit("30/minute")
+async def create_admin_invitation(
+    request: _Request,
+    response: Response,
+    body: AdminInvitationCreate,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    if current_user.role != UserRole.ADMIN:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+
+    locked_admin = (
+        await db.execute(select(User).where(User.id == current_user.id).with_for_update())
+    ).scalar_one_or_none()
+    if locked_admin is None or locked_admin.role != UserRole.ADMIN:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+
+    organization = (
+        await db.execute(select(Organization).where(Organization.id == body.organization_id))
+    ).scalar_one_or_none()
+    if not _is_eligible_invitation_organization(organization):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Eligible organization not found")
+
+    normalized_email = str(body.email).strip().lower()
+    invited_user = (
+        await db.execute(select(User).where(User.email == normalized_email).with_for_update())
+    ).scalar_one_or_none()
+    reissued = invited_user is not None
+
+    if invited_user is not None:
+        if (
+            not _is_unclaimed_admin_invitation(invited_user, organization)
+            or invited_user.organization_id != body.organization_id
+            or invited_user.role != body.role
+        ):
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already registered")
+    else:
+        if not locked_admin.referral_code:
+            await _assign_referral_code(db, locked_admin)
+        if not locked_admin.referral_code:
+            raise HTTPException(status_code=503, detail="Could not create invitation")
+
+        invited_user = User(
+            email=normalized_email,
+            password_hash=get_password_hash(secrets.token_urlsafe(48)),
+            first_name=body.first_name,
+            last_name=body.last_name,
+            role=body.role,
+            status=UserStatus.APPROVED,
+            organization_id=body.organization_id,
+            email_verified=False,
+            must_change_password=True,
+            referred_by_id=locked_admin.id,
+        )
+        db.add(invited_user)
+        await db.flush()
+        record_initial_status(db, invited_user)
+        db.add(
+            Referral(
+                referrer_id=locked_admin.id,
+                referred_user_id=invited_user.id,
+                referral_code_used=locked_admin.referral_code,
+            )
+        )
+
+    raw_token, token_hash, expires_at = _new_admin_invitation_token()
+    invited_user.password_reset_token_hash = token_hash
+    invited_user.password_reset_expires = expires_at
+    await record_audit(
+        db,
+        user_id=locked_admin.id,
+        action=ADMIN_USER_INVITED,
+        resource_type="user",
+        resource_id=invited_user.id,
+        changes={
+            "email": _mask_email_for_audit(normalized_email),
+            "organization_id": str(organization.id),
+            "role": invited_user.role.value,
+            "reissued": reissued,
+        },
+        **request_audit_context(request),
+    )
+    try:
+        await db.commit()
+    except IntegrityError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already registered") from exc
+    except SQLAlchemyError as exc:
+        await db.rollback()
+        logger.error("admin_invitation_persistence_failed (%s)", type(exc).__name__)
+        raise HTTPException(status_code=503, detail="Invitation service is temporarily unavailable") from exc
+
+    if reissued:
+        response.status_code = status.HTTP_200_OK
+    return AdminInvitationResponse(
+        user_id=invited_user.id,
+        email=invited_user.email,
+        role=invited_user.role.value,
+        organization_name=organization.name,
+        acceptance_url=_invitation_url(raw_token),
+        expires_at=expires_at,
+        reissued=reissued,
+    )
+
+
+@router.post("/invitations/resolve", response_model=InvitationResolveResponse)
+@limiter.limit("20/minute")
+async def resolve_admin_invitation(
+    request: _Request,
+    body: InvitationTokenRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    user = (
+        await db.execute(
+            select(User).where(
+                User.password_reset_token_hash == hash_token_identifier(body.token),
+                User.password_reset_expires > datetime.now(UTC),
+            )
+        )
+    ).scalar_one_or_none()
+    if user is None:
+        raise _invalid_invitation()
+    organization = await db.get(Organization, user.organization_id)
+    if not _is_unclaimed_admin_invitation(user, organization):
+        raise _invalid_invitation()
+    inviter = await db.get(User, user.referred_by_id) if user.referred_by_id else None
+    inviter_name = " ".join(
+        part for part in (getattr(inviter, "first_name", None), getattr(inviter, "last_name", None)) if part
+    ) or None
+    return InvitationResolveResponse(
+        email=user.email,
+        first_name=user.first_name,
+        last_name=user.last_name,
+        role=user.role.value,
+        organization_name=organization.name,
+        invited_by_name=inviter_name,
+        expires_at=user.password_reset_expires,
+    )
+
+
+@router.post("/invitations/accept")
+@limiter.limit("5/minute")
+async def accept_admin_invitation(
+    request: _Request,
+    response: Response,
+    body: InvitationAcceptRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    if body.accept_terms is not True:
+        raise HTTPException(status_code=422, detail="Terms and Privacy Policy acceptance is required")
+    require_trusted_browser_origin(
+        request,
+        environment=settings.ENVIRONMENT,
+        cookie_authenticated=bool(request.cookies.get(REFRESH_COOKIE_NAME)),
+    )
+
+    presented_refresh_payload = _refresh_payload_if_valid(request.cookies.get(REFRESH_COOKIE_NAME))
+    presented_device_id = request.cookies.get(DEVICE_SESSION_COOKIE_NAME)
+    raw_device_id = presented_device_id if _valid_device_session_id(presented_device_id) else _new_device_session_id()
+    device_id_hash = _device_session_hash(raw_device_id)
+    await _acquire_device_session_lock(db, device_id_hash)
+
+    user = (
+        await db.execute(
+            select(User)
+            .where(
+                User.password_reset_token_hash == hash_token_identifier(body.token),
+                User.password_reset_expires > datetime.now(UTC),
+            )
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
+    if user is None:
+        raise _invalid_invitation()
+    organization = await db.get(Organization, user.organization_id)
+    if not _is_unclaimed_admin_invitation(user, organization):
+        raise _invalid_invitation()
+
+    now = datetime.now(UTC)
+    try:
+        user.password_hash = get_password_hash(body.new_password)
+        user.password_reset_token_hash = None
+        user.password_reset_expires = None
+        user.password_changed_at = now
+        user.must_change_password = False
+        user.email_verified = True
+        user.last_login = now
+
+        referral = (
+            await db.execute(
+                select(Referral)
+                .where(Referral.referred_user_id == user.id)
+                .with_for_update()
+            )
+        ).scalar_one_or_none()
+        if referral and referral.status == ReferralStatus.SIGNED_UP:
+            referral.status = ReferralStatus.VERIFIED
+            referral.verified_at = now
+        if not user.referral_code:
+            await _assign_referral_code(db, user)
+
+        await record_login_day(db, user, at=now)
+        await _revoke_device_refresh_sessions(
+            db,
+            device_id_hash,
+            presented_payload=presented_refresh_payload,
+            lock_already_held=True,
+        )
+        await db.execute(
+            update(RefreshSession).where(RefreshSession.user_id == user.id).values(revoked=True)
+        )
+        access_token, refresh_token = _build_token_pair(str(user.id))
+        await _store_refresh_session(
+            db,
+            user.id,
+            refresh_token,
+            device_id_hash=device_id_hash,
+        )
+        frontend_url = settings.FRONTEND_URL.rstrip("/")
+        await record_audit(
+            db,
+            user_id=user.id,
+            action=USER_INVITATION_ACCEPTED,
+            resource_type="user",
+            resource_id=user.id,
+            changes={
+                "terms_accepted": True,
+                "terms_url": f"{frontend_url}/en/terms",
+                "privacy_url": f"{frontend_url}/en/privacy",
+                "agreement_version": "2026-08-05",
+                "organization_id": str(user.organization_id),
+            },
+            **request_audit_context(request),
+        )
+        await db.commit()
+    except HTTPException:
+        raise
+    except (SQLAlchemyError, ValueError) as exc:
+        await db.rollback()
+        logger.error("invitation_acceptance_persistence_failed (%s)", type(exc).__name__)
+        raise HTTPException(status_code=503, detail="Invitation service is temporarily unavailable") from exc
+
+    _set_refresh_cookie(response, refresh_token)
+    _set_device_session_cookie(response, raw_device_id)
+    return {"access_token": access_token, "token_type": "bearer"}
+
+
 def _should_skip_verification_email_for_canary(request: _Request, email: str) -> bool:
     token = request.headers.get("X-Monitor-Token")
     return bool(
@@ -1443,7 +1849,7 @@ async def forgot_password(
     result = await db.execute(stmt)
     user = result.scalar_one_or_none()
 
-    if not user or user.status != UserStatus.APPROVED:
+    if not user or user.status != UserStatus.APPROVED or not user.email_verified:
         await record_audit(
             db,
             user_id=user.id if user else None,
@@ -1499,6 +1905,7 @@ async def reset_password(
         .where(
             User.password_reset_token_hash == token_hash,
             User.password_reset_expires > datetime.now(UTC),
+            User.email_verified.is_(True),
         )
         .with_for_update()
     )

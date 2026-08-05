@@ -77,6 +77,7 @@ class AdminUserEntry(BaseModel):
     org_provenance: Optional[str]
     # Journey fields: how far this account has actually gotten.
     email_verified: bool = False
+    must_change_password: bool = False
     last_login: Optional[datetime] = None
     org_has_orders: bool = False
 
@@ -482,6 +483,7 @@ def _user_to_entry(row) -> AdminUserEntry:
         org_type=org_type.value if org_type else None,
         org_provenance=org_provenance.value if org_provenance else None,
         email_verified=bool(user.email_verified),
+        must_change_password=bool(user.must_change_password),
         last_login=user.last_login,
         org_has_orders=bool(org_has_orders),
     )
