@@ -16,6 +16,10 @@ not repeat signup or wait for a second administrator approval.
 - The target organization must already be approved and classified as real.
 - The administrator may assign only `BUYER` or `SUPPLIER`; this path cannot
   create another administrator.
+- The assigned role must match the organization's trading side: `SUPPLIER`
+  only for `FUEL_SUPPLIER`, and `BUYER` only for the supported buy-side
+  organization types. The backend enforces this independently of the dialog
+  and rejects previously issued mismatched invitations during resolution.
 - The recipient remains unable to authenticate until the claim secret is
   accepted. Because an administrator copies and delivers the link, acceptance
   proves possession of that secret rather than independently proving mailbox
@@ -55,15 +59,20 @@ acceptance, including the terms/privacy URLs accepted by the recipient.
 
 Invitation tokens are generated with `secrets`, stored only as SHA-256 hashes,
 never logged, and placed in the URL fragment so they are not sent to the
-frontend host in HTTP requests. Invalid, expired, used, or ineligible tokens
-share one public error response.
+frontend host in HTTP requests. The browser removes the fragment immediately
+and keeps the token only in the current history entry so a reload can recover
+without placing the secret in a request URL. Query-string tokens are rejected.
+Invalid, expired, used, or ineligible tokens share one public error response.
 
 ## Frontend Flow
 
 The admin Users tab gets an `Invite user` command. Its dialog captures name,
-email, buyer/supplier role, and one eligible organization, then presents a
-copyable acceptance link. The public `/accept-invite` page shows the prepared
-account details, password controls, and an explicit Terms/Privacy checkbox.
+email, buyer/supplier role, and one eligible organization. Role and organization
+have no implicit defaults, eligible options are filtered by trading side, and
+the organization domain is shown so the administrator can verify the tenant.
+It then presents a copyable acceptance link. The public `/accept-invite` page
+shows the prepared account details, password controls, and an explicit
+Terms/Privacy checkbox.
 Success signs the recipient in and opens `/app`; an unavailable link offers
 Sign In and Forgot Password routes.
 

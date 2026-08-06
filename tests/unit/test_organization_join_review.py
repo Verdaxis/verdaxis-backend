@@ -147,6 +147,30 @@ async def test_user_and_org_admission_do_not_grant_membership(join_db: AsyncSess
 
 
 @pytest.mark.asyncio
+async def test_membership_approval_rejects_opposite_side(join_db: AsyncSession):
+    organization, admin, candidate, join_request = await _seed(join_db)
+    organization.verification_status = "APPROVED"
+    candidate.status = UserStatus.APPROVED
+    candidate.email_verified = True
+    candidate.role = UserRole.SUPPLIER
+    await join_db.commit()
+
+    with pytest.raises(Exception) as exc_info:
+        await approve_organization_join(
+            request=_request(f"/api/auth/organization-joins/{join_request.id}/approve"),
+            join_request_id=join_request.id,
+            body=JoinReviewBody(review_note="Role and organization checked."),
+            current_user=admin,
+            db=join_db,
+        )
+
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.detail["code"] == "ORGANIZATION_JOIN_ROLE_MISMATCH"
+    assert candidate.organization_id is None
+    assert join_request.status == JoinRequestStatus.PENDING
+
+
+@pytest.mark.asyncio
 async def test_join_rejection_changes_only_the_join_transition(join_db: AsyncSession):
     organization, admin, candidate, join_request = await _seed(join_db)
     original_user_status = candidate.status
