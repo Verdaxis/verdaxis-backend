@@ -26,7 +26,7 @@ from app.models.user import (
 from app.models.refresh_session import RefreshSession
 from app.models.registration import PendingRegistration, OrganizationJoinRequest, JoinRequestStatus
 from app.schemas.user import UserCreate, UserResponse, UserUpdate, RegistrationResponse, PasswordChangeRequest
-from app.schemas.organization import OrganizationCreate
+from app.schemas.organization import OrganizationCreate, organization_type_matches_role
 from app.schemas.errors import AUTH_RESPONSES
 from app.core.security import (
     verify_password, get_password_hash,
@@ -173,13 +173,17 @@ class InvitationAcceptRequest(InvitationTokenRequest):
 
     @field_validator("new_password")
     @classmethod
-    def validate_password_size(cls, value: str) -> str:
-        return validate_password_bytes(value)
+    def validate_password(cls, value: str) -> str:
+        validate_password_bytes(value)
+        if not re.search(r"[A-Z]", value) or not re.search(r"\d", value):
+            raise ValueError("Password must contain an uppercase letter and a number")
+        return value
 
 
 class InvitationOrganizationResponse(BaseModel):
     id: uuid.UUID
     name: str
+    domain: str | None
     type: str
 
 
@@ -1052,6 +1056,7 @@ def _is_unclaimed_admin_invitation(user: User, organization: Organization | None
         and user.organization_id == getattr(organization, "id", None)
         and user.role in ALLOWED_REGISTRATION_ROLES
         and _is_eligible_invitation_organization(organization)
+        and organization_type_matches_role(user.role, organization.type)
     )
 
 
@@ -1092,6 +1097,7 @@ async def list_invitation_organizations(
             InvitationOrganizationResponse(
                 id=organization.id,
                 name=organization.name,
+                domain=organization.domain,
                 type=organization.type.value,
             )
             for organization in organizations
@@ -1126,6 +1132,11 @@ async def create_admin_invitation(
     ).scalar_one_or_none()
     if not _is_eligible_invitation_organization(organization):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Eligible organization not found")
+    if not organization_type_matches_role(body.role, organization.type):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Organization type does not match the selected account role",
+        )
 
     normalized_email = str(body.email).strip().lower()
     invited_user = (
@@ -1372,7 +1383,8 @@ def _mask_email_for_audit(email: str) -> str:
 @limiter.limit("5/minute")
 async def register(request: _Request, user_in: UserCreate, db: AsyncSession = Depends(get_db)):
     # Prevent privilege escalation — only BUYER/SUPPLIER allowed via self-registration
-    if user_in.role and UserRole(user_in.role.value) not in ALLOWED_REGISTRATION_ROLES:
+    registration_role = UserRole(user_in.role.value)
+    if registration_role not in ALLOWED_REGISTRATION_ROLES:
         raise HTTPException(status_code=403, detail="Invalid role for self-registration")
 
     normalized_email = str(user_in.email).strip().lower()
@@ -1409,12 +1421,11 @@ async def register(request: _Request, user_in: UserCreate, db: AsyncSession = De
         existing_org = result_org.scalar_one_or_none()
 
     if existing_org:
-        role_enum = None
-        if user_in.role:
-            try:
-                role_enum = UserRole(user_in.role.value)
-            except ValueError:
-                pass
+        if not organization_type_matches_role(registration_role, existing_org.type):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="Organization type does not match the selected account role",
+            )
 
         verification_token, verification_hash, verification_expires = _new_email_verification_token()
         new_user = User(
@@ -1422,7 +1433,7 @@ async def register(request: _Request, user_in: UserCreate, db: AsyncSession = De
             password_hash=hashed_pw,
             first_name=user_in.first_name,
             last_name=user_in.last_name,
-            role=role_enum,
+            role=registration_role,
             # A domain match is only a join request hint. It never grants
             # tenant membership before an explicit organization review.
             organization_id=None,
@@ -1502,7 +1513,7 @@ async def register(request: _Request, user_in: UserCreate, db: AsyncSession = De
             password_hash=hashed_pw,
             first_name=user_in.first_name,
             last_name=user_in.last_name,
-            role=user_in.role,
+            role=registration_role,
             referral_code=user_in.referral_code,
             expires_at=token.expires_at,
         ))
@@ -1541,6 +1552,21 @@ async def register_with_org(
     email_domain = registration_organization_domain(str(email))
     is_monitor_canary = _should_skip_verification_email_for_canary(http_request, email)
 
+    role_str = pending.role
+    final_role = UserRole.BUYER
+    if role_str:
+        try:
+            parsed_role = UserRole(role_str.value if hasattr(role_str, "value") else role_str)
+            if parsed_role in ALLOWED_REGISTRATION_ROLES:
+                final_role = parsed_role
+        except ValueError:
+            pass
+    if not organization_type_matches_role(final_role, request.organization.type):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Organization type does not match the selected account role",
+        )
+
     stmt_org = select(Organization).where(Organization.domain == email_domain) if email_domain else None
     result_org = await db.execute(stmt_org) if stmt_org is not None else None
     if result_org is not None and result_org.scalar_one_or_none():
@@ -1566,16 +1592,6 @@ async def register_with_org(
                 "message": "An organization was created for this domain; restart registration",
             },
         ) from exc
-
-    role_str = pending.role
-    final_role = UserRole.BUYER
-    if role_str:
-        try:
-            parsed_role = UserRole(role_str.value if hasattr(role_str, "value") else role_str)
-            if parsed_role in ALLOWED_REGISTRATION_ROLES:
-                final_role = parsed_role
-        except ValueError:
-            pass
 
     verification_token, verification_hash, verification_expires = _new_email_verification_token()
     new_user = User(
@@ -2382,6 +2398,11 @@ async def approve_organization_join(
         raise _join_conflict(
             "ORGANIZATION_JOIN_ORG_INELIGIBLE",
             "Organization verification must be complete before membership approval",
+        )
+    if not organization_type_matches_role(user.role, organization.type):
+        raise _join_conflict(
+            "ORGANIZATION_JOIN_ROLE_MISMATCH",
+            "User role does not match the organization's trading side",
         )
     if user.organization_id is not None and user.organization_id != organization.id:
         raise _join_conflict(

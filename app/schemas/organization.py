@@ -1,18 +1,27 @@
-from pydantic import BaseModel
-from pydantic import field_validator
 from typing import Optional
 from uuid import UUID
-from enum import Enum
-from app.models.user import OrgType, TierLabel
+
+from pydantic import BaseModel, field_validator
+
+from app.models.user import OrgType, TierLabel, UserRole
 
 
-SIGNUP_ORG_TYPES = {
+BUY_SIDE_ORG_TYPES = {
     OrgType.SHIPPING_LINE,
     OrgType.SHIP_MANAGER,
     OrgType.FUEL_BUYER,
     OrgType.CHARTERER,
+}
+SIGNUP_ORG_TYPES = BUY_SIDE_ORG_TYPES | {
     OrgType.FUEL_SUPPLIER,
 }
+
+
+def organization_type_matches_role(role: UserRole, org_type: OrgType) -> bool:
+    if role == UserRole.SUPPLIER:
+        return org_type == OrgType.FUEL_SUPPLIER
+    return role == UserRole.BUYER and org_type in BUY_SIDE_ORG_TYPES
+
 
 class OrganizationBase(BaseModel):
     name: str

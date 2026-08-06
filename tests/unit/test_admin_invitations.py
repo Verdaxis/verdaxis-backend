@@ -1,5 +1,6 @@
 """Admin-created, recipient-claimed account flow."""
 
+from datetime import UTC, datetime, timedelta
 from urllib.parse import parse_qs, urlsplit
 from unittest.mock import AsyncMock
 from uuid import uuid4
@@ -10,12 +11,13 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from app.core.security import get_password_hash, verify_password
+from app.core.security import get_password_hash, hash_token_identifier, verify_password
 from app.database import Base, get_db
 from app.models.audit import AuditLog
 from app.models.product_analytics import UserLoginDay, UserStatusTransition
 from app.models.referral import Referral, ReferralStatus
 from app.models.refresh_session import RefreshSession
+from app.models.registration import PendingRegistration
 from app.models.user import (
     Organization,
     OrganizationProvenance,
@@ -39,6 +41,7 @@ async def invitation_db():
         AuditLog.__table__,
         UserLoginDay.__table__,
         UserStatusTransition.__table__,
+        PendingRegistration.__table__,
     ]
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all, tables=tables)
@@ -204,6 +207,114 @@ async def test_invite_requires_admin_and_eligible_real_organization(invitation_c
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         ineligible = await client.post("/api/auth/admin/invitations", json=_payload(organization.id))
     assert ineligible.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_invite_role_must_match_organization_side(invitation_context):
+    app, _admin, organization = invitation_context
+    payload = _payload(organization.id)
+    payload["role"] = "BUYER"
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post("/api/auth/admin/invitations", json=payload)
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "Organization type does not match the selected account role"
+
+
+@pytest.mark.asyncio
+async def test_previously_issued_mismatched_invitation_is_not_resolvable(invitation_context, invitation_db):
+    app, _admin, organization = invitation_context
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        created = await client.post("/api/auth/admin/invitations", json=_payload(organization.id))
+        token = _token(created)
+        invited_user = (
+            await invitation_db.execute(select(User).where(User.email == _payload(organization.id)["email"]))
+        ).scalar_one()
+        invited_user.role = UserRole.BUYER
+        await invitation_db.commit()
+        resolved = await client.post("/api/auth/invitations/resolve", json={"token": token})
+
+    assert resolved.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_invitation_password_policy_is_enforced(invitation_context):
+    app, _admin, organization = invitation_context
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        created = await client.post("/api/auth/admin/invitations", json=_payload(organization.id))
+        token = _token(created)
+        weak = await client.post(
+            "/api/auth/invitations/accept",
+            json={"token": token, "new_password": "alllowercase", "accept_terms": True},
+        )
+        still_valid = await client.post("/api/auth/invitations/resolve", json={"token": token})
+
+    assert weak.status_code == 422
+    assert still_valid.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_registration_rejects_opposite_side_before_creating_organization(invitation_db):
+    token = "registration-token-with-enough-entropy"
+    pending = PendingRegistration(
+        token_hash=hash_token_identifier(token),
+        email="buyer@new-company.example",
+        password_hash=get_password_hash("Buyer-password-9"),
+        first_name="Buyer",
+        role=UserRole.BUYER,
+        expires_at=datetime.now(UTC) + timedelta(hours=1),
+    )
+    invitation_db.add(pending)
+    await invitation_db.commit()
+
+    app = FastAPI()
+    app.include_router(auth_router, prefix="/api")
+
+    async def override_db():
+        yield invitation_db
+
+    app.dependency_overrides[get_db] = override_db
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post(
+            "/api/auth/register-with-org",
+            json={
+                "registration_token": token,
+                "organization": {
+                    "name": "Wrong Side Supplier",
+                    "type": "FUEL_SUPPLIER",
+                    "country_code": "SG",
+                },
+            },
+        )
+
+    created = (
+        await invitation_db.execute(select(Organization).where(Organization.name == "Wrong Side Supplier"))
+    ).scalar_one_or_none()
+    await invitation_db.refresh(pending)
+    assert response.status_code == 422
+    assert created is None
+    assert pending.used_at is None
+
+
+@pytest.mark.asyncio
+async def test_domain_join_rejects_opposite_side_before_creating_user(invitation_context, invitation_db):
+    app, _admin, organization = invitation_context
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post(
+            "/api/auth/register",
+            json={
+                "email": f"buyer@{organization.domain}",
+                "password": "Buyer-password-9",
+                "first_name": "Buyer",
+                "role": "BUYER",
+            },
+        )
+
+    created = (
+        await invitation_db.execute(select(User).where(User.email == f"buyer@{organization.domain}"))
+    ).scalar_one_or_none()
+    assert response.status_code == 422
+    assert created is None
 
 
 @pytest.mark.asyncio

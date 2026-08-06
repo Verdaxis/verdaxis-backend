@@ -1,7 +1,8 @@
 import pytest
 from pydantic import ValidationError
 
-from app.schemas.organization import OrganizationCreate
+from app.models.user import OrgType, UserRole
+from app.schemas.organization import OrganizationCreate, organization_type_matches_role
 
 
 SIGNUP_ORG_TYPES = [
@@ -51,3 +52,16 @@ def test_ambiguous_or_non_trading_organization_types_are_not_signup_options(org_
             type=org_type,
             country_code="SG",
         )
+
+
+@pytest.mark.parametrize(
+    ("role", "org_type", "allowed"),
+    [
+        (UserRole.BUYER, OrgType.SHIPPING_LINE, True),
+        (UserRole.BUYER, OrgType.FUEL_SUPPLIER, False),
+        (UserRole.SUPPLIER, OrgType.FUEL_SUPPLIER, True),
+        (UserRole.SUPPLIER, OrgType.FUEL_BUYER, False),
+    ],
+)
+def test_signup_organization_type_must_match_account_side(role, org_type, allowed):
+    assert organization_type_matches_role(role, org_type) is allowed
