@@ -321,9 +321,9 @@ future column until reviewed.
 `audit_logs` and `user_status_transitions` are explicitly append-only
 (`SELECT, INSERT`) for normal request transactions, with no app
 `UPDATE`/`DELETE` and no backup write. The current sequence policy is empty. Policy
-entries for integration-owned `seed_runs` and `market_row_quarantines` become
-read-only only if those tables exist; `organization_market_approvals` is not
-granted to the runtime at all. Their absence cannot create a broad grant. The
+entries for integration-owned `seed_runs`, `market_row_quarantines`, and
+`organization_market_approvals` become read-only only if those tables exist.
+Their absence cannot create a broad grant. The
 bootstrap explicitly transfers the legacy `alembic_version` control table to
 the migrator role while denying app and backup writes; the backup role retains
 read-only access. `spatial_ref_sys`, extension objects, seed/quarantine/approval controls,

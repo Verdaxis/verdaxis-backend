@@ -730,7 +730,6 @@ async def test_raw_app_cannot_promote_rewrite_controls_set_role_or_delegate():
             "UPDATE public.market_row_quarantines SET reason = 'accepted'",
             "UPDATE public.organization_market_approvals SET reason = 'accepted'",
             "DELETE FROM public.organization_market_approvals",
-            "SELECT * FROM public.organization_market_approvals",
             "DELETE FROM public.seed_runs",
             f"SET ROLE {migrator}",
         )
@@ -746,6 +745,21 @@ async def test_raw_app_cannot_promote_rewrite_controls_set_role_or_delegate():
                     pytest.fail(f"raw app unexpectedly allowed: {statement}")
             finally:
                 await engine.dispose()
+
+        read_engine = create_async_engine(app_url, hide_parameters=True)
+        try:
+            async with read_engine.connect() as connection:
+                approval_count = (
+                    await connection.execute(
+                        text(
+                            "SELECT count(*) FROM public."
+                            "organization_market_approvals"
+                        )
+                    )
+                ).scalar_one()
+            assert isinstance(approval_count, int)
+        finally:
+            await read_engine.dispose()
 
         delegate_engine = create_async_engine(app_url, hide_parameters=True)
         try:
