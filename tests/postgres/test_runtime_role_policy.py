@@ -526,6 +526,7 @@ async def test_global_and_public_default_acls_are_repaired_for_all_policy_owners
 
 @pytest.mark.asyncio
 async def test_app_and_backup_cannot_mutate_control_or_extension_objects():
+    _policy_values()
     app_url = os.environ["DATABASE_URL"]
     backup_url = os.environ["BACKUP_DATABASE_URL"]
 
