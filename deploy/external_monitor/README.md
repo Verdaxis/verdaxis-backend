@@ -36,14 +36,20 @@ has a separately credentialed, independently verified runbook.
 The diagnosis service:
 
 1. reads the sanitized monitor status;
-2. fingerprints the failure and suppresses the same fingerprint for one hour;
-3. collects the preceding recovery report plus bounded service state, recent
-   journals, Git revisions, Verdaxis Caddy route parsing, and disk state;
-4. redacts email addresses, credentials, authorization values, and URL query
+2. exits without diagnosis if the current monitor status is healthy;
+3. fingerprints the failure and suppresses the same fingerprint for one hour;
+4. collects the preceding recovery report plus bounded service state, recent
+   journals, Git revisions, Verdaxis-scoped Caddy repository status and route
+   parsing, and disk state;
+5. redacts email addresses, credentials, authorization values, and URL query
    strings;
-5. invokes `codex exec` with an ephemeral session, a read-only sandbox, a hard
+6. invokes `codex exec` with an ephemeral session, a read-only sandbox, a hard
    timeout, and a strict JSON output schema; and
-6. sends the structured diagnosis to the existing Telegram destination.
+7. sends the structured diagnosis to the existing Telegram destination.
+
+The shared `/etc/caddy` repository snapshot is limited to the Caddy entrypoint,
+Verdaxis route and enabled symlink, and required-host registry. Changes to
+unrelated project routes are not Verdaxis incident evidence.
 
 Codex cannot edit files, use `sudo`, restart services, deploy, commit, push, or
 mutate production. The systemd unit runs as `jons-openclaw` with

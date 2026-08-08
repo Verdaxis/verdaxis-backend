@@ -13,6 +13,55 @@ autodiag = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(autodiag)
 
 
+def test_healthy_monitor_status_skips_diagnosis(tmp_path, monkeypatch):
+    status_file = tmp_path / "monitor-status.json"
+    state_dir = tmp_path / "state"
+    status_file.write_text(
+        json.dumps(
+            {
+                "ok": True,
+                "checked_at": 1,
+                "checked_at_utc": "2026-08-08T00:00:00Z",
+                "errors": [],
+                "endpoints": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv("AUTODIAG_STATUS_FILE", str(status_file))
+    monkeypatch.setenv("AUTODIAG_STATE_DIR", str(state_dir))
+    monkeypatch.setenv("AUTODIAG_COLLECT_COMMANDS", "0")
+    monkeypatch.setenv("CODEX_BIN", "/bin/false")
+    monkeypatch.setenv("TELEGRAM_DISABLED", "1")
+
+    assert autodiag.main() == 0
+    assert not list(state_dir.glob("incident-*.json"))
+    assert not (state_dir / "state.json").exists()
+
+
+def test_git_snapshot_scopes_shared_caddy_status(monkeypatch):
+    commands: list[list[str]] = []
+
+    def fake_run(command, timeout=30):
+        commands.append(command)
+        return {"command": command, "returncode": 0, "output": ""}
+
+    monkeypatch.setattr(autodiag, "run_command", fake_run)
+    paths = (
+        "Caddyfile",
+        "sites-available/050-verdaxis.caddy",
+        "sites-enabled/050-verdaxis.caddy",
+        "required-hosts.d/all-active-hosts.txt",
+    )
+
+    snapshot = autodiag.git_snapshot("/etc/caddy", paths)
+
+    assert autodiag.REPOSITORY_SCOPES[-1] == ("/etc/caddy", paths)
+    assert commands[1][-5:] == ["--", *paths]
+    assert snapshot["pathspecs"] == list(paths)
+
+
 def test_same_failure_runs_once_and_redacts_incident(tmp_path, monkeypatch):
     status_file = tmp_path / "monitor-status.json"
     state_dir = tmp_path / "state"

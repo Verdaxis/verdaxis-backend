@@ -335,3 +335,9 @@
 - **Trigger:** The rolling Demo coverage job attempted to copy ownership and slice fields onto existing orders after the market-integrity migration made those fields immutable.
 - **Rule:** Reconciliation may insert missing Demo orders and refresh explicitly mutable presentation/lifecycle fields, but must never rewrite immutable order identity or market-slice fields.
 - **Why:** An older reconciler contract crossed a newer database trust boundary, causing the entire coverage transaction to roll back and leaving products absent.
+
+### Scope Shared-Infrastructure Evidence To Verdaxis
+- **Date:** 2026-08-08
+- **Trigger:** A diagnosis started against a healthy monitor and reported an unrelated TrekTogether Caddy route as Verdaxis configuration drift.
+- **Rule:** Skip automatic diagnosis when the current monitor status is healthy, and path-scope shared-infrastructure evidence to files owned by Verdaxis.
+- **Why:** Whole-repository status from shared infrastructure can include unrelated or unreadable project files and turn harmless cross-project state into misleading incident evidence.

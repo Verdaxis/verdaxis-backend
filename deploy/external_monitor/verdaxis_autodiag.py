@@ -47,12 +47,20 @@ ALLOWED_CATEGORIES = {
 }
 ALLOWED_SEVERITIES = {"warning", "degraded", "outage"}
 ALLOWED_CONFIDENCE = {"low", "medium", "high"}
-REPOSITORIES = (
-    "/home/verdaxis-prod/verdaxis/prod/fe",
-    "/home/verdaxis-prod/verdaxis/prod/be",
-    "/home/verdaxis-prod/verdaxis/staging/fe",
-    "/home/verdaxis-prod/verdaxis/staging/be",
-    "/etc/caddy",
+REPOSITORY_SCOPES = (
+    ("/home/verdaxis-prod/verdaxis/prod/fe", ()),
+    ("/home/verdaxis-prod/verdaxis/prod/be", ()),
+    ("/home/verdaxis-prod/verdaxis/staging/fe", ()),
+    ("/home/verdaxis-prod/verdaxis/staging/be", ()),
+    (
+        "/etc/caddy",
+        (
+            "Caddyfile",
+            "sites-available/050-verdaxis.caddy",
+            "sites-enabled/050-verdaxis.caddy",
+            "required-hosts.d/all-active-hosts.txt",
+        ),
+    ),
 )
 SERVICE_UNITS = (
     "verdaxis-monitor.service",
@@ -137,14 +145,23 @@ def run_command(command: list[str], timeout: int = 30) -> dict[str, Any]:
     }
 
 
-def git_snapshot(path: str) -> dict[str, Any]:
+def git_snapshot(
+    path: str,
+    pathspecs: tuple[str, ...] = (),
+) -> dict[str, Any]:
     common = ["/usr/bin/git", "-c", f"safe.directory={path}", "-C", path]
     revision = run_command(common + ["rev-parse", "HEAD"])
-    status_result = run_command(
-        common + ["status", "--porcelain=v1", "--untracked-files=no"]
-    )
+    status_command = common + [
+        "status",
+        "--porcelain=v1",
+        "--untracked-files=no",
+    ]
+    if pathspecs:
+        status_command.extend(["--", *pathspecs])
+    status_result = run_command(status_command)
     return {
         "path": path,
+        "pathspecs": list(pathspecs),
         "revision": revision,
         "status": status_result,
     }
@@ -297,7 +314,8 @@ def collect_incident(
             ["/bin/df", "-h", "/", "/home/verdaxis-prod/verdaxis"]
         )
         diagnostics["repositories"] = [
-            git_snapshot(path) for path in REPOSITORIES
+            git_snapshot(path, pathspecs)
+            for path, pathspecs in REPOSITORY_SCOPES
         ]
 
     return {
@@ -508,6 +526,9 @@ def main() -> int:
                 "errors": [f"monitor status unavailable: {redact(str(exc), 500)}"],
                 "endpoints": [],
             }
+        if monitor_status["ok"]:
+            log("monitor status is healthy; no diagnosis needed")
+            return 0
         fingerprint = failure_fingerprint(monitor_status)
         state_file = state_dir / "state.json"
         try:
