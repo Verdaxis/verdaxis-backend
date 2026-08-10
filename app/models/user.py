@@ -1,12 +1,14 @@
-from sqlalchemy import String, ForeignKey, Enum, DateTime, Boolean, Index, Text, func, text
+from sqlalchemy import JSON, String, ForeignKey, Enum, DateTime, Boolean, Index, Text, func, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 import uuid
 import enum
 from datetime import datetime, UTC
 from typing import Optional, TYPE_CHECKING
 from app.database import Base
 from app.market_constraints import ORGANIZATION_PROVENANCE_DOMAIN, postgresql_check
+
+_JSON_VARIANT = JSON().with_variant(JSONB(), "postgresql")
 
 if TYPE_CHECKING:
     from app.models.orderbook import OrderBookOrder
@@ -94,6 +96,11 @@ class User(Base):
         Index("uq_users_email_lower", text("lower(email)"), unique=True),
         Index("ix_users_email_verification_token_expires_at", "email_verification_token_expires_at"),
         Index("ix_users_password_reset_expires", "password_reset_expires"),
+        Index(
+            "ix_users_pending_approval_email_retry",
+            "pending_approval_email_retry_at",
+            postgresql_where=text("pending_approval_email_transition_id IS NOT NULL"),
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -105,6 +112,15 @@ class User(Base):
     status: Mapped[UserStatus] = mapped_column(
         Enum(UserStatus, native_enum=False, length=8), default=UserStatus.PENDING,
         server_default="PENDING", nullable=False,
+    )
+    pending_approval_email_transition_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True
+    )
+    pending_approval_email_payload: Mapped[dict | None] = mapped_column(
+        _JSON_VARIANT, nullable=True
+    )
+    pending_approval_email_retry_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
     )
     organization_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("organizations.id"))
     last_login: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

@@ -1,6 +1,7 @@
 """Behavioral contracts for independent tenant-membership review."""
 
 from datetime import UTC, datetime, timedelta
+from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import pytest
@@ -19,6 +20,7 @@ from app.models.orderbook import OrderBookOrder
 from app.models.rfq import RFQ, RFQQuote
 from app.models.negotiation import Negotiation
 from app.routers.auth_simple import (
+    AdminDecisionBody,
     JoinReviewBody,
     approve_organization,
     approve_organization_join,
@@ -26,6 +28,7 @@ from app.routers.auth_simple import (
     admin_review_detail,
     admin_review_queue,
     reject_organization_join,
+    reject_user,
 )
 from app.services.audit_actions import ORGANIZATION_JOIN_APPROVED, ORGANIZATION_JOIN_REJECTED
 
@@ -144,6 +147,162 @@ async def test_user_and_org_admission_do_not_grant_membership(join_db: AsyncSess
         select(AuditLog).where(AuditLog.action == ORGANIZATION_JOIN_APPROVED)
     )
     assert audit is not None
+
+
+@pytest.mark.asyncio
+async def test_account_approval_sends_email_once_after_commit(
+    join_db: AsyncSession,
+    monkeypatch,
+):
+    _organization, admin, candidate, _join_request = await _seed(join_db)
+    committed = False
+    original_commit = join_db.commit
+
+    async def tracked_commit():
+        nonlocal committed
+        await original_commit()
+        committed = True
+
+    async def deliver_approval_email(_db, *, user_id, transition_id) -> str:
+        assert committed is True
+        assert user_id == candidate.id
+        assert transition_id == candidate.pending_approval_email_transition_id
+        return "sent"
+
+    monkeypatch.setattr(join_db, "commit", tracked_commit)
+    deliver = AsyncMock(side_effect=deliver_approval_email)
+    monkeypatch.setattr(
+        "app.routers.auth_simple.deliver_account_approval_email",
+        deliver,
+    )
+
+    await approve_user(
+        request=_request(f"/api/auth/approve/{candidate.id}"),
+        user_id=candidate.id,
+        current_user=admin,
+        db=join_db,
+    )
+    await approve_user(
+        request=_request(f"/api/auth/approve/{candidate.id}"),
+        user_id=candidate.id,
+        current_user=admin,
+        db=join_db,
+    )
+
+    assert candidate.status == UserStatus.APPROVED
+    assert candidate.pending_approval_email_transition_id is not None
+    assert candidate.pending_approval_email_payload["to"] == [candidate.email]
+    assert candidate.pending_approval_email_retry_at is not None
+    deliver.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_account_approval_survives_email_provider_failure(
+    join_db: AsyncSession,
+    monkeypatch,
+):
+    _organization, admin, candidate, _join_request = await _seed(join_db)
+    deliver = AsyncMock(return_value=False)
+    monkeypatch.setattr(
+        "app.routers.auth_simple.deliver_account_approval_email",
+        deliver,
+    )
+
+    approved = await approve_user(
+        request=_request(f"/api/auth/approve/{candidate.id}"),
+        user_id=candidate.id,
+        current_user=admin,
+        db=join_db,
+    )
+
+    assert approved.status == UserStatus.APPROVED
+    assert candidate.pending_approval_email_transition_id is not None
+    assert candidate.pending_approval_email_payload is not None
+    assert candidate.pending_approval_email_retry_at is not None
+    deliver.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_account_approval_survives_unexpected_delivery_failure(
+    join_db: AsyncSession,
+    monkeypatch,
+):
+    _organization, admin, candidate, _join_request = await _seed(join_db)
+    deliver = AsyncMock(side_effect=RuntimeError("unexpected delivery failure"))
+    monkeypatch.setattr(
+        "app.routers.auth_simple.deliver_account_approval_email",
+        deliver,
+    )
+
+    approved = await approve_user(
+        request=_request(f"/api/auth/approve/{candidate.id}"),
+        user_id=candidate.id,
+        current_user=admin,
+        db=join_db,
+    )
+
+    assert approved.status == UserStatus.APPROVED
+    assert candidate.pending_approval_email_transition_id is not None
+    assert candidate.pending_approval_email_payload is not None
+    deliver.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_rejected_account_reapproval_creates_a_new_delivery_marker(
+    join_db: AsyncSession,
+    monkeypatch,
+):
+    _organization, admin, candidate, _join_request = await _seed(join_db)
+    candidate.status = UserStatus.REJECTED
+    await join_db.commit()
+    deliver = AsyncMock(return_value=False)
+    monkeypatch.setattr(
+        "app.routers.auth_simple.deliver_account_approval_email",
+        deliver,
+    )
+
+    await approve_user(
+        request=_request(f"/api/auth/approve/{candidate.id}"),
+        user_id=candidate.id,
+        current_user=admin,
+        db=join_db,
+    )
+
+    assert candidate.status == UserStatus.APPROVED
+    assert candidate.pending_approval_email_transition_id is not None
+    assert candidate.pending_approval_email_payload is not None
+    deliver.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_rejection_invalidates_unsent_account_approval_email(
+    join_db: AsyncSession,
+    monkeypatch,
+):
+    _organization, admin, candidate, _join_request = await _seed(join_db)
+    monkeypatch.setattr(
+        "app.routers.auth_simple.deliver_account_approval_email",
+        AsyncMock(return_value="deferred"),
+    )
+    await approve_user(
+        request=_request(f"/api/auth/approve/{candidate.id}"),
+        user_id=candidate.id,
+        current_user=admin,
+        db=join_db,
+    )
+
+    await reject_user(
+        request=_request(f"/api/auth/reject/{candidate.id}"),
+        user_id=candidate.id,
+        body=AdminDecisionBody(reason="Approval was entered in error."),
+        current_user=admin,
+        db=join_db,
+    )
+
+    assert candidate.status == UserStatus.REJECTED
+    assert candidate.pending_approval_email_transition_id is None
+    assert candidate.pending_approval_email_payload is None
+    assert candidate.pending_approval_email_retry_at is None
 
 
 @pytest.mark.asyncio

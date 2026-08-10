@@ -41,7 +41,15 @@ import uuid
 
 from app.models.referral import Referral, ReferralStatus, generate_referral_code
 from app.services.email_domains import registration_organization_domain
-from app.services.email import send_verification_email, send_password_reset_email
+from app.services.email import (
+    build_account_approved_email_payload,
+    send_password_reset_email,
+    send_verification_email,
+)
+from app.services.account_approval_email import (
+    clear_pending_account_approval_email,
+    deliver_account_approval_email,
+)
 from app.services.monitor_canary import is_monitor_canary_email
 from app.services.audit_service import record_audit, request_audit_context
 from app.services.product_analytics import is_retryable_transaction_error, record_login_day
@@ -2004,9 +2012,19 @@ async def approve_user(
     # Re-approving a REJECTED user is allowed (admin error correction).
     previous_status = user_to_approve.status
     user_to_approve.status = UserStatus.APPROVED
-    record_status_transition(
+    approval_transition = record_status_transition(
         db, user_to_approve, from_status=previous_status, to_status=UserStatus.APPROVED
     )
+    if approval_transition is not None:
+        await db.flush()
+        user_to_approve.pending_approval_email_transition_id = approval_transition.id
+        user_to_approve.pending_approval_email_payload = (
+            build_account_approved_email_payload(
+                user_to_approve.email,
+                user_to_approve.first_name or "there",
+            )
+        )
+        user_to_approve.pending_approval_email_retry_at = datetime.now(UTC)
     await record_audit(
         db,
         user_id=current_user.id,
@@ -2017,6 +2035,19 @@ async def approve_user(
         **request_audit_context(request),
     )
     await db.commit()
+    if approval_transition is not None:
+        try:
+            await deliver_account_approval_email(
+                db,
+                user_id=user_to_approve.id,
+                transition_id=approval_transition.id,
+            )
+        except Exception as exc:
+            await db.rollback()
+            logger.error(
+                "account_approval_email_ack_failed (%s)",
+                type(exc).__name__,
+            )
     await db.refresh(user_to_approve)
     return user_to_approve
 
@@ -2113,6 +2144,7 @@ async def reject_user(
         raise HTTPException(status_code=404, detail="User not found")
     previous = target.status
     target.status = UserStatus.REJECTED
+    clear_pending_account_approval_email(target)
     # A rejected user is fail-closed at execution time: market mutations and
     # the matching engine re-check execution_party_is_eligible under row locks.
     # Tenant-level market cleanup is owned by the organization-rejection path.

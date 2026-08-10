@@ -2,7 +2,9 @@
 import httpx
 import structlog
 import hashlib
+import uuid
 from html import escape
+from typing import Any, Mapping
 from app.config import settings
 
 logger = structlog.get_logger()
@@ -14,25 +16,67 @@ def _recipient_hash(to_email: str) -> str:
     return hashlib.sha256(to_email.strip().lower().encode("utf-8")).hexdigest()[:16]
 
 
-async def _send_email(to_email: str, subject: str, html: str) -> bool:
+async def _send_email(
+    to_email: str,
+    subject: str,
+    html: str,
+    *,
+    idempotency_key: str | None = None,
+) -> bool:
     """Low-level send. Returns True on success, False on failure."""
-    recipient_hash = _recipient_hash(to_email)
-    if not settings.RESEND_API_KEY:
-        logger.warning("email_skipped", reason="configuration", recipient_hash=recipient_hash)
-        return False
-
     payload = {
         "from": settings.EMAIL_FROM,
         "to": [to_email],
         "subject": subject,
         "html": html,
     }
+    return await _send_email_payload(payload, idempotency_key=idempotency_key)
+
+
+def _canonical_email_payload(payload: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Validate and normalize a persisted payload into stable key order."""
+    recipients = payload.get("to")
+    if (
+        not isinstance(payload.get("from"), str)
+        or not isinstance(recipients, list)
+        or len(recipients) != 1
+        or not isinstance(recipients[0], str)
+        or not isinstance(payload.get("subject"), str)
+        or not isinstance(payload.get("html"), str)
+    ):
+        return None
+    return {
+        "from": payload["from"],
+        "to": [recipients[0]],
+        "subject": payload["subject"],
+        "html": payload["html"],
+    }
+
+
+async def _send_email_payload(
+    payload: Mapping[str, Any],
+    *,
+    idempotency_key: str | None = None,
+) -> bool:
+    """Send a validated payload without rebuilding mutable message fields."""
+    canonical_payload = _canonical_email_payload(payload)
+    if canonical_payload is None:
+        logger.error("email_payload_invalid")
+        return False
+    recipient_hash = _recipient_hash(canonical_payload["to"][0])
+    if not settings.RESEND_API_KEY:
+        logger.warning("email_skipped", reason="configuration", recipient_hash=recipient_hash)
+        return False
+
+    headers = {"Authorization": f"Bearer {settings.RESEND_API_KEY}"}
+    if idempotency_key is not None:
+        headers["Idempotency-Key"] = idempotency_key
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.post(
                 RESEND_API_URL,
-                json=payload,
-                headers={"Authorization": f"Bearer {settings.RESEND_API_KEY}"},
+                json=canonical_payload,
+                headers=headers,
             )
         if resp.status_code in (200, 201):
             logger.info("email_sent", recipient_hash=recipient_hash, status=resp.status_code)
@@ -118,12 +162,64 @@ async def send_password_reset_email(to_email: str, name: str, token: str) -> boo
     return await _send_email(to_email, "Reset your Verdaxis password", html)
 
 
+def build_account_approved_email_payload(to_email: str, name: str) -> dict[str, Any]:
+    """Freeze the approval message at the time the approval is committed."""
+    login_url = f"{settings.FRONTEND_URL.rstrip('/')}/login"
+    html = f"""\
+<div style="font-family: 'Segoe UI', Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #0F172A; border-radius: 16px; overflow: hidden;">
+  <div style="background: linear-gradient(135deg, #059669, #0F172A); padding: 32px 24px; text-align: center;">
+    <h1 style="color: #fff; margin: 0; font-size: 24px; font-weight: 300;">Verdaxis</h1>
+    <p style="color: rgba(255,255,255,0.5); margin: 6px 0 0; font-size: 13px;">Maritime Fuel Marketplace</p>
+  </div>
+  <div style="padding: 32px 24px;">
+    <h2 style="color: #fff; font-size: 18px; margin: 0 0 12px;">Your account has been approved</h2>
+    <p style="color: rgba(255,255,255,0.7); font-size: 14px; line-height: 1.6;">
+      Hi {escape(name)},<br><br>
+      Your Verdaxis account has been approved. You can now sign in and continue your onboarding.
+    </p>
+    <p style="margin: 28px 0; text-align: center;">
+      <a href="{login_url}"
+         style="display: inline-block; background: #10b981; color: #0F172A;
+                padding: 14px 32px; text-decoration: none; border-radius: 10px;
+                font-weight: 700; font-size: 15px;">
+        Sign in to Verdaxis
+      </a>
+    </p>
+    <p style="color: rgba(255,255,255,0.3); font-size: 11px; margin-top: 8px; word-break: break-all;">
+      Or copy this link: <a href="{login_url}" style="color: #10b981;">{login_url}</a>
+    </p>
+  </div>
+  <div style="border-top: 1px solid rgba(255,255,255,0.06); padding: 16px 24px; text-align: center;">
+    <p style="color: rgba(255,255,255,0.2); font-size: 11px; margin: 0;">
+      Verdaxis &middot; Maritime Fuel Marketplace
+    </p>
+  </div>
+</div>"""
+    return {
+        "from": settings.EMAIL_FROM,
+        "to": [to_email],
+        "subject": "Your Verdaxis account has been approved",
+        "html": html,
+    }
+
+
+async def send_account_approved_email(
+    payload: Mapping[str, Any],
+    transition_id: uuid.UUID,
+) -> bool:
+    """Replay one frozen approval message with transition-scoped deduplication."""
+    return await _send_email_payload(
+        payload,
+        idempotency_key=f"account-approval/{transition_id}",
+    )
+
+
 async def send_kyc_approved_email(to_email: str, name: str) -> bool:
     """Send KYC approval notification."""
     html = f"""
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
       <h2 style="color: #1a1a2e;">KYC Approved, {escape(name)}!</h2>
-      <p>Your identity verification has been approved. Your Verdaxis account is now fully active.</p>
+      <p>Your identity verification has been approved. You can continue with the remaining Verdaxis onboarding steps.</p>
       <p style="margin: 24px 0;">
         <a href="{settings.FRONTEND_URL}/login"
            style="background-color: #00aa66; color: white; padding: 12px 24px;

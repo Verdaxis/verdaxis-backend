@@ -190,6 +190,7 @@ cd /home/verdaxis-prod/verdaxis/staging/be   # or /home/verdaxis-prod/verdaxis/p
 ### Admin Only
 - `GET /api/auth/admin/invitations/organizations` -- Eligible real organizations for pre-approved invitations
 - `POST /api/auth/admin/invitations` -- Create or rotate a single-use pre-approved invitation
+- `PUT /api/auth/approve/{user_id}` -- Approve a verified account and queue a frozen, transition-scoped sign-in email for row-serialized post-commit delivery
 - `GET /api/orders/admin/commissions` -- All commissions
 - `GET /api/orders/admin/commissions/summary` -- Commission stats
 - `PUT /api/orders/admin/commissions/{id}` -- Update commission status

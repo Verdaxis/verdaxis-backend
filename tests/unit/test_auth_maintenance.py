@@ -1,6 +1,7 @@
 """Bounded cleanup contracts for authentication state."""
 
 from datetime import UTC, datetime, timedelta
+from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import pytest
@@ -143,3 +144,55 @@ async def test_auth_maintenance_rejects_unbounded_batch_sizes(maintenance_db: As
         await run_auth_maintenance(maintenance_db, batch_size=0)
     with pytest.raises(ValueError):
         await run_auth_maintenance(maintenance_db, batch_size=10_001)
+
+
+@pytest.mark.asyncio
+async def test_auth_maintenance_cli_commits_cleanup_before_email_retry(monkeypatch):
+    from app.cli import auth_maintenance as cli
+
+    events = []
+    db = AsyncMock()
+
+    async def commit():
+        events.append("commit")
+
+    async def cleanup(_db, *, batch_size):
+        assert batch_size == 10
+        events.append("cleanup")
+        return {"refresh_sessions_deleted": 1}
+
+    async def retry(_db, *, batch_size):
+        assert batch_size == 3
+        assert events == ["cleanup", "commit"]
+        events.append("retry")
+        return {
+            "approval_emails_attempted": 1,
+            "approval_emails_completed": 1,
+            "approval_emails_discarded": 0,
+        }
+
+    class SessionContext:
+        async def __aenter__(self):
+            return db
+
+        async def __aexit__(self, *_args):
+            return None
+
+    db.commit = AsyncMock(side_effect=commit)
+    monkeypatch.setattr(cli, "AsyncSessionLocal", lambda: SessionContext())
+    monkeypatch.setattr(cli, "run_auth_maintenance", AsyncMock(side_effect=cleanup))
+    monkeypatch.setattr(
+        cli,
+        "retry_pending_account_approval_emails",
+        AsyncMock(side_effect=retry),
+    )
+
+    report = await cli.run_once(batch_size=10, email_batch_size=3)
+
+    assert report == {
+        "refresh_sessions_deleted": 1,
+        "approval_emails_attempted": 1,
+        "approval_emails_completed": 1,
+        "approval_emails_discarded": 0,
+    }
+    assert events == ["cleanup", "commit", "retry"]
