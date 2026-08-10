@@ -1,13 +1,14 @@
 # Authentication maintenance timer contract
 
 Authentication cleanup is independent from news ingestion and web workers.
-Run one bounded transaction with:
+Run bounded cleanup followed by bounded approval-email retry with:
 
 ```text
 ./venv/bin/python -m app.cli.auth_maintenance --batch-size 1000
 ```
 
-Each category removes/clears at most the requested batch size (1-10,000):
+Each cleanup category removes/clears at most the requested batch size
+(1-10,000):
 
 - expired refresh sessions;
 - fully revoked refresh families older than 24 hours, while retaining revoked
@@ -15,10 +16,16 @@ Each category removes/clears at most the requested batch size (1-10,000):
 - expired or consumed pending registrations and their password hashes/PII;
 - expired/malformed password-reset and email-verification hashes; and
 - expired legacy plaintext email tokens while the identity compatibility
-  revision still exists.
+  revision still exists; and
+- up to 20 due account-approval emails whose transition-scoped delivery state
+  remains pending after an immediate provider or acknowledgement failure.
 
-The command prints counts only. It never selects or logs token values, password
-hashes, email addresses, provider keys, or database exception text.
+Approval emails replay an immutable provider payload using the persisted
+status-transition UUID as Resend's `Idempotency-Key`. Delivery row-locks and
+revalidates the account before sending. Failed rows are deferred by one hour
+so they cannot starve newer approvals; rejected or otherwise ineligible rows
+are discarded. The command prints counts only. It never logs token values,
+password hashes, email addresses, provider keys, or database exception text.
 
 ## Installation and runbook
 

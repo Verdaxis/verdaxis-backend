@@ -70,6 +70,7 @@ app/
     behavioral_analytics.py     # Typed privacy-bounded admin product-usage response
     [others unchanged]
   services/
+    account_approval_email.py   # Transition-scoped Resend delivery and bounded durable retry
     event_bus.py                # AsyncIO pub/sub — per-channel queues, 200 subscriber cap, backpressure
     market_event_dispatch.py    # Durable shared SSE transport — outbox sequencer (advisory-lock leader), LISTEN/NOTIFY wake + poll, org-bound hub fan-out (docs/market-event-dispatch.md)
     matching_engine.py          # Match-on-insert — price-time priority within canonical market identity, partial fills, auto-confirm
@@ -140,6 +141,7 @@ alembic/versions/               # Migrations incl. canonical availability-window
 - **JWT auth:** 15-min access + 7-day refresh, plus 60-second `type="stream"` tokens from `/auth/stream-token` for SSE query-param auth. Ordinary API auth only accepts access tokens; activity SSE query auth only accepts stream tokens.
 - **Cookie-backed refresh:** refresh token is also rotated through an HttpOnly `refresh_token` cookie scoped to `/api/auth`, while access tokens remain bearer tokens
 - **Account-side organization binding:** New-organization registration, domain-derived join requests, membership approval, and admin pre-approved invitations enforce the same account-role to organization-type boundary in the backend: supported buy-side organization types belong to `BUYER`; `FUEL_SUPPLIER` belongs to `SUPPLIER`.
+- **Account approval email:** The canonical administrator account-approval route persists the exact pending status-transition UUID, immutable provider payload, and due time with account status and audit state. After commit, delivery locks and revalidates the user before replaying that payload with the transition UUID as Resend's idempotency key. Failures move the due time forward so one bad recipient cannot starve the queue; rejection invalidates unsent approval mail. Idempotent re-approval does not enqueue again, and email failure cannot roll back admission. Organization, membership, KYC, and trading-access approvals remain independent gates.
 - **Admin pre-approved invitations:** An administrator may prepare a `BUYER` or `SUPPLIER` account only inside an approved real organization. The seven-day claim secret reuses the existing hashed one-time password-reset slot, while the unclaimed state is explicitly `APPROVED + unverified + must_change_password`; acceptance records possession of the administrator-delivered secret as email verification, records Terms/Privacy agreement in the append-only audit trail, progresses referral attribution, and issues the normal device-bound session. Ordinary password reset excludes unverified accounts so the two token purposes cannot be confused. See `docs/plans/2026-08-05-admin-preapproved-invites-design.md`.
 - **Rate limiting:** slowapi per-route (5/min login, 3/min password, 60/min prices, 30/min reference)
 - **Availability windows:** Persist canonical codes (`SPOT`, `YYYY-MM`, `YYYY-QN`, legacy-compatible `YYYY-CAL`); UI-relative labels like `M+1` must be resolved before persistence
