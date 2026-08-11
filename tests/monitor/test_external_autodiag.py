@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 from pathlib import Path
 
 
@@ -11,6 +12,70 @@ SPEC = importlib.util.spec_from_file_location("verdaxis_autodiag", MODULE_PATH)
 assert SPEC and SPEC.loader
 autodiag = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(autodiag)
+
+
+def test_sync_codex_auth_replaces_stale_dedicated_copy(tmp_path, monkeypatch):
+    source = tmp_path / "source-auth.json"
+    codex_home = tmp_path / "codex-home"
+    codex_home.mkdir()
+    target = codex_home / "auth.json"
+    stale = {
+        "auth_mode": "chatgpt",
+        "tokens": {
+            "access_token": "old-access",
+            "id_token": "old-id",
+            "refresh_token": "revoked-refresh",
+            "account_id": "account",
+        },
+    }
+    current = {
+        "auth_mode": "chatgpt",
+        "tokens": {
+            "access_token": "current-access",
+            "id_token": "current-id",
+            "refresh_token": "current-refresh",
+            "account_id": "account",
+        },
+    }
+    source.write_text(json.dumps(current), encoding="utf-8")
+    source.chmod(0o600)
+    target.write_text(json.dumps(stale), encoding="utf-8")
+    target.chmod(0o600)
+    monkeypatch.setenv("CODEX_AUTH_SOURCE", str(source))
+    monkeypatch.setenv("CODEX_HOME", str(codex_home))
+
+    autodiag.sync_codex_auth()
+
+    assert json.loads(target.read_text(encoding="utf-8")) == current
+    assert os.stat(target).st_mode & 0o777 == 0o600
+
+
+def test_sync_codex_auth_rejects_exposed_source(tmp_path, monkeypatch):
+    source = tmp_path / "source-auth.json"
+    source.write_text(
+        json.dumps(
+            {
+                "auth_mode": "chatgpt",
+                "tokens": {
+                    "access_token": "access",
+                    "id_token": "id",
+                    "refresh_token": "refresh",
+                    "account_id": "account",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    source.chmod(0o644)
+    monkeypatch.setenv("CODEX_AUTH_SOURCE", str(source))
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "codex-home"))
+
+    try:
+        autodiag.sync_codex_auth()
+    except ValueError as exc:
+        assert "owner-only" in str(exc)
+    else:
+        raise AssertionError("exposed Codex auth source was accepted")
 
 
 def test_healthy_monitor_status_skips_diagnosis(tmp_path, monkeypatch):
@@ -145,6 +210,7 @@ def test_same_failure_runs_once_and_redacts_incident(tmp_path, monkeypatch):
     monkeypatch.setenv("AUTODIAG_WORKSPACE", str(workspace))
     monkeypatch.setenv("AUTODIAG_COLLECT_COMMANDS", "0")
     monkeypatch.setenv("CODEX_BIN", str(fake_codex))
+    monkeypatch.setenv("CODEX_AUTH_SYNC", "0")
     monkeypatch.setenv("TELEGRAM_DISABLED", "1")
 
     assert autodiag.main() == 0

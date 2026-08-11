@@ -174,8 +174,11 @@ Luna is the automatic default to keep recurring incident cost bounded. Set
 `CODEX_AUTODIAG_MODEL=gpt-5.6-sol` only for a deliberate deeper diagnostic
 pass after reviewing the first report.
 
-If the interactive Codex login is replaced or revoked, refresh the dedicated
-copy of `auth.json` with the two `install` commands above. Do not copy Codex
+Before every diagnosis, the wrapper validates the owner-only central
+`/home/jons-openclaw/.codex/auth.json` and atomically synchronizes it into the
+dedicated Codex home. This prevents a rotated central refresh token from
+leaving automatic diagnosis on a revoked credential. Set `CODEX_AUTH_SOURCE`
+only when deliberately relocating the central credential. Do not copy Codex
 history, sessions, configuration, logs, or plugin state into this directory.
 
 ## Independent monitor installation

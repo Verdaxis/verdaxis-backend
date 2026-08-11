@@ -26,6 +26,7 @@ DEFAULT_SCHEMA_FILE = "/usr/local/share/verdaxis-monitor/diagnosis.schema.json"
 DEFAULT_WORKSPACE = "/home/verdaxis-prod/verdaxis"
 DEFAULT_CODEX_BIN = "/home/jons-openclaw/.local/bin/codex"
 DEFAULT_CODEX_HOME = "/var/lib/verdaxis-autodiag/codex-home"
+DEFAULT_CODEX_AUTH_SOURCE = "/home/jons-openclaw/.codex/auth.json"
 DEFAULT_MODEL = "gpt-5.6-luna"
 DEFAULT_COOLDOWN_SECONDS = 3600
 DEFAULT_TIMEOUT_SECONDS = 600
@@ -124,6 +125,37 @@ def write_json(path: Path, payload: dict[str, Any]) -> None:
     )
     temporary.chmod(0o600)
     temporary.replace(path)
+
+
+def sync_codex_auth() -> None:
+    if os.getenv("CODEX_AUTH_SYNC", "1").lower() in {"0", "false", "no", "off"}:
+        return
+
+    source = Path(os.getenv("CODEX_AUTH_SOURCE", DEFAULT_CODEX_AUTH_SOURCE))
+    metadata = source.stat(follow_symlinks=False)
+    if not stat.S_ISREG(metadata.st_mode):
+        raise ValueError("Codex auth source must be a regular file")
+    if metadata.st_uid != os.getuid():
+        raise ValueError("Codex auth source must be owned by the diagnosis user")
+    if stat.S_IMODE(metadata.st_mode) & 0o077:
+        raise ValueError("Codex auth source must have owner-only permissions")
+
+    payload = read_json(source)
+    tokens = payload.get("tokens")
+    required = ("access_token", "id_token", "refresh_token", "account_id")
+    if payload.get("auth_mode") != "chatgpt" or not isinstance(tokens, dict):
+        raise ValueError("Codex auth source is not a ChatGPT credential")
+    if any(not isinstance(tokens.get(key), str) or not tokens[key] for key in required):
+        raise ValueError("Codex auth source is missing required tokens")
+
+    codex_home = Path(os.getenv("CODEX_HOME", DEFAULT_CODEX_HOME))
+    target = codex_home / "auth.json"
+    try:
+        if read_json(target) == payload and stat.S_IMODE(target.stat().st_mode) == 0o600:
+            return
+    except (OSError, ValueError, json.JSONDecodeError):
+        pass
+    write_json(target, payload)
 
 
 def run_command(command: list[str], timeout: int = 30) -> dict[str, Any]:
@@ -374,6 +406,11 @@ def run_codex(
     incident: dict[str, Any],
     state_dir: Path,
 ) -> tuple[dict[str, Any] | None, str | None]:
+    try:
+        sync_codex_auth()
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        return None, redact(f"Codex credential sync failed: {exc}", 800)
+
     codex_bin = os.getenv("CODEX_BIN", DEFAULT_CODEX_BIN)
     schema_file = os.getenv("AUTODIAG_SCHEMA_FILE", DEFAULT_SCHEMA_FILE)
     workspace = os.getenv("AUTODIAG_WORKSPACE", DEFAULT_WORKSPACE)
