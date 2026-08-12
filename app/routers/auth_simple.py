@@ -1091,6 +1091,17 @@ def _is_eligible_invitation_organization(organization: Organization | None) -> b
     )
 
 
+def _is_invitation_acceptance_organization(organization: Organization | None) -> bool:
+    return bool(
+        organization
+        and organization.verification_status == "APPROVED"
+        and organization.provenance in {
+            OrganizationProvenance.REAL,
+            OrganizationProvenance.UNKNOWN,
+        }
+    )
+
+
 def _is_unclaimed_admin_invitation(user: User, organization: Organization | None) -> bool:
     return bool(
         user.status == UserStatus.APPROVED
@@ -1099,7 +1110,7 @@ def _is_unclaimed_admin_invitation(user: User, organization: Organization | None
         and user.organization_id is not None
         and user.organization_id == getattr(organization, "id", None)
         and user.role in ALLOWED_REGISTRATION_ROLES
-        and _is_eligible_invitation_organization(organization)
+        and _is_invitation_acceptance_organization(organization)
         and organization_type_matches_role(user.role, organization.type)
     )
 

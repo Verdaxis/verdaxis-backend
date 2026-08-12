@@ -202,6 +202,39 @@ async def test_admin_invite_atomically_creates_preapproved_organization(
 
 
 @pytest.mark.asyncio
+async def test_recipient_accepts_invitation_for_new_onboarding_approved_organization(
+    invitation_context,
+    invitation_db,
+):
+    app, _admin, _existing_organization = invitation_context
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        created = await client.post(
+            "/api/auth/admin/invitations",
+            json=_new_organization_payload(),
+        )
+        token = _token(created)
+
+        resolved = await client.post("/api/auth/invitations/resolve", json={"token": token})
+        accepted = await client.post(
+            "/api/auth/invitations/accept",
+            json={"token": token, "new_password": "Accepted-password-9", "accept_terms": True},
+        )
+
+    assert created.status_code == 201, created.text
+    assert resolved.status_code == 200, resolved.text
+    assert resolved.json()["organization_name"] == "Northstar Shipping"
+    assert accepted.status_code == 200, accepted.text
+
+    organization = (
+        await invitation_db.execute(
+            select(Organization).where(Organization.name == "Northstar Shipping")
+        )
+    ).scalar_one()
+    assert organization.verification_status == "APPROVED"
+    assert organization.provenance == OrganizationProvenance.UNKNOWN
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "payload",
     [
