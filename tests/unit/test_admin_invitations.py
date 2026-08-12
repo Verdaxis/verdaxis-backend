@@ -98,6 +98,23 @@ def _payload(organization_id):
     }
 
 
+def _new_organization_payload(**overrides):
+    payload = {
+        "email": "new.user@northstar.example",
+        "first_name": "New",
+        "last_name": "User",
+        "role": "BUYER",
+        "new_organization": {
+            "name": "Northstar Shipping",
+            "type": "SHIPPING_LINE",
+            "country_code": "SG",
+            "tax_id": "SG-2026-001",
+        },
+    }
+    payload.update(overrides)
+    return payload
+
+
 def _token(response) -> str:
     fragment = parse_qs(urlsplit(response.json()["acceptance_url"]).fragment)
     return fragment["token"][0]
@@ -134,6 +151,174 @@ async def test_admin_invite_is_preapproved_reissuable_and_attributed(invitation_
 
     actions = (await invitation_db.execute(select(AuditLog.action))).scalars().all()
     assert actions.count(ADMIN_USER_INVITED) == 2
+
+
+@pytest.mark.asyncio
+async def test_admin_invite_atomically_creates_preapproved_organization(
+    invitation_context,
+    invitation_db,
+):
+    app, admin, _existing_organization = invitation_context
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post(
+            "/api/auth/admin/invitations",
+            json=_new_organization_payload(),
+        )
+
+    assert response.status_code == 201, response.text
+    assert response.json()["organization_name"] == "Northstar Shipping"
+    assert response.json()["organization_created"] is True
+
+    organization = (
+        await invitation_db.execute(
+            select(Organization).where(Organization.name == "Northstar Shipping")
+        )
+    ).scalar_one()
+    assert organization.domain == "northstar.example"
+    assert organization.type == OrgType.SHIPPING_LINE
+    assert organization.country_code == "SG"
+    assert organization.tax_id == "SG-2026-001"
+    assert organization.verification_status == "APPROVED"
+    assert organization.provenance == OrganizationProvenance.UNKNOWN
+
+    user = (
+        await invitation_db.execute(
+            select(User).where(User.email == "new.user@northstar.example")
+        )
+    ).scalar_one()
+    assert user.organization_id == organization.id
+    assert user.status == UserStatus.APPROVED
+    assert user.referred_by_id == admin.id
+
+    audit = (
+        await invitation_db.execute(
+            select(AuditLog).where(AuditLog.action == ADMIN_USER_INVITED)
+        )
+    ).scalar_one()
+    assert audit.changes["organization_created"] is True
+    assert audit.changes["organization_type"] == "SHIPPING_LINE"
+    assert audit.changes["organization_country_code"] == "SG"
+    assert "tax" not in str(audit.changes).lower()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {
+            "email": "missing@organization.example",
+            "first_name": "Missing",
+            "role": "BUYER",
+        },
+        _new_organization_payload(organization_id=str(uuid4())),
+    ],
+)
+async def test_admin_invite_requires_exactly_one_organization_source(
+    invitation_context,
+    payload,
+):
+    app, _admin, _organization = invitation_context
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post("/api/auth/admin/invitations", json=payload)
+
+    assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_admin_invite_new_organization_rejects_role_mismatch_without_writes(
+    invitation_context,
+    invitation_db,
+):
+    app, _admin, _organization = invitation_context
+    payload = _new_organization_payload(
+        new_organization={
+            "name": "Wrong Side Fuels",
+            "type": "FUEL_SUPPLIER",
+            "country_code": "SG",
+        }
+    )
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post("/api/auth/admin/invitations", json=payload)
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "Organization type does not match the selected account role"
+    assert (
+        await invitation_db.execute(
+            select(Organization).where(Organization.name == "Wrong Side Fuels")
+        )
+    ).scalar_one_or_none() is None
+
+
+@pytest.mark.asyncio
+async def test_admin_invite_new_organization_rejects_owned_domain_without_writes(
+    invitation_context,
+    invitation_db,
+):
+    app, _admin, existing_organization = invitation_context
+    payload = _new_organization_payload(
+        email=f"new.supplier@{existing_organization.domain}",
+        role="SUPPLIER",
+        new_organization={
+            "name": "Duplicate Domain Supplier",
+            "type": "FUEL_SUPPLIER",
+            "country_code": "SG",
+        },
+    )
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post("/api/auth/admin/invitations", json=payload)
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "ORGANIZATION_DOMAIN_CONFLICT"
+    assert (
+        await invitation_db.execute(
+            select(Organization).where(Organization.name == "Duplicate Domain Supplier")
+        )
+    ).scalar_one_or_none() is None
+    assert (
+        await invitation_db.execute(
+            select(User).where(User.email == payload["email"])
+        )
+    ).scalar_one_or_none() is None
+
+
+@pytest.mark.asyncio
+async def test_admin_invite_existing_email_does_not_leave_orphan_organization(
+    invitation_context,
+    invitation_db,
+):
+    app, _admin, existing_organization = invitation_context
+    existing = User(
+        id=uuid4(),
+        email="registered@other.example",
+        password_hash=get_password_hash("Registered-password-9"),
+        first_name="Registered",
+        role=UserRole.BUYER,
+        status=UserStatus.APPROVED,
+        email_verified=True,
+        organization_id=existing_organization.id,
+    )
+    invitation_db.add(existing)
+    await invitation_db.commit()
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post(
+            "/api/auth/admin/invitations",
+            json=_new_organization_payload(
+                email="registered@other.example",
+                new_organization={
+                    "name": "Must Roll Back",
+                    "type": "SHIPPING_LINE",
+                    "country_code": "SG",
+                },
+            ),
+        )
+
+    assert response.status_code == 409
+    assert (
+        await invitation_db.execute(
+            select(Organization).where(Organization.name == "Must Roll Back")
+        )
+    ).scalar_one_or_none() is None
 
 
 @pytest.mark.asyncio

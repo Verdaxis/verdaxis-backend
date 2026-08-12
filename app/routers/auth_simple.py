@@ -19,6 +19,7 @@ from app.config import settings
 from app.models.user import (
     Organization,
     OrganizationProvenance,
+    OrgType,
     User,
     UserRole,
     UserStatus,
@@ -36,7 +37,7 @@ from app.core.security import (
     validate_password_bytes as _validate_password_bytes,
     MAX_PASSWORD_BYTES,
 )
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 import uuid
 
 from app.models.referral import Referral, ReferralStatus, generate_referral_code
@@ -141,12 +142,40 @@ class ResetPasswordRequest(BaseModel):
         return validate_password_bytes(value)
 
 
+class AdminInvitationOrganizationCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    type: OrgType
+    country_code: str = Field(min_length=2, max_length=2, pattern=r"^[A-Za-z]{2}$")
+    tax_id: str | None = Field(default=None, max_length=100)
+
+    @field_validator("name")
+    @classmethod
+    def normalize_name(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("Organization name must not be blank")
+        return normalized
+
+    @field_validator("tax_id")
+    @classmethod
+    def normalize_tax_id(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return value.strip() or None
+
+    @field_validator("country_code")
+    @classmethod
+    def normalize_country_code(cls, value: str) -> str:
+        return value.upper()
+
+
 class AdminInvitationCreate(BaseModel):
     email: EmailStr
     first_name: str = Field(min_length=1, max_length=100)
     last_name: str | None = Field(default=None, max_length=100)
     role: UserRole
-    organization_id: uuid.UUID
+    organization_id: uuid.UUID | None = None
+    new_organization: AdminInvitationOrganizationCreate | None = None
 
     @field_validator("email")
     @classmethod
@@ -169,6 +198,12 @@ class AdminInvitationCreate(BaseModel):
         if value not in ALLOWED_REGISTRATION_ROLES:
             raise ValueError("Invitation role must be BUYER or SUPPLIER")
         return value
+
+    @model_validator(mode="after")
+    def require_one_organization_source(self) -> "AdminInvitationCreate":
+        if (self.organization_id is None) == (self.new_organization is None):
+            raise ValueError("Provide exactly one of organization_id or new_organization")
+        return self
 
 
 class InvitationTokenRequest(BaseModel):
@@ -204,6 +239,7 @@ class AdminInvitationResponse(BaseModel):
     email: str
     role: str
     organization_name: str
+    organization_created: bool
     acceptance_url: str
     expires_at: datetime
     reissued: bool
@@ -1135,27 +1171,76 @@ async def create_admin_invitation(
     if locked_admin is None or locked_admin.role != UserRole.ADMIN:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
 
-    organization = (
-        await db.execute(select(Organization).where(Organization.id == body.organization_id))
-    ).scalar_one_or_none()
-    if not _is_eligible_invitation_organization(organization):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Eligible organization not found")
-    if not organization_type_matches_role(body.role, organization.type):
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="Organization type does not match the selected account role",
-        )
-
     normalized_email = str(body.email).strip().lower()
     invited_user = (
         await db.execute(select(User).where(User.email == normalized_email).with_for_update())
     ).scalar_one_or_none()
     reissued = invited_user is not None
+    organization_created = body.new_organization is not None
+
+    if organization_created:
+        if invited_user is not None:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already registered")
+        requested_organization = body.new_organization
+        assert requested_organization is not None
+        if not organization_type_matches_role(body.role, requested_organization.type):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="Organization type does not match the selected account role",
+            )
+        organization_domain = registration_organization_domain(normalized_email)
+        if organization_domain:
+            existing_domain = (
+                await db.execute(
+                    select(Organization.id).where(Organization.domain == organization_domain)
+                )
+            ).scalar_one_or_none()
+            if existing_domain is not None:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail={
+                        "code": "ORGANIZATION_DOMAIN_CONFLICT",
+                        "message": "An organization already owns this email domain",
+                    },
+                )
+        organization = Organization(
+            name=requested_organization.name,
+            domain=organization_domain,
+            type=requested_organization.type,
+            tax_id=requested_organization.tax_id,
+            country_code=requested_organization.country_code,
+            verification_status="APPROVED",
+        )
+        db.add(organization)
+        try:
+            await db.flush()
+        except IntegrityError as exc:
+            await db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "code": "ORGANIZATION_DOMAIN_CONFLICT",
+                    "message": "An organization already owns this email domain",
+                },
+            ) from exc
+    else:
+        organization = (
+            await db.execute(select(Organization).where(Organization.id == body.organization_id))
+        ).scalar_one_or_none()
+        if not _is_eligible_invitation_organization(organization):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Eligible organization not found")
+        if not organization_type_matches_role(body.role, organization.type):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="Organization type does not match the selected account role",
+            )
+
+    assert organization is not None
 
     if invited_user is not None:
         if (
             not _is_unclaimed_admin_invitation(invited_user, organization)
-            or invited_user.organization_id != body.organization_id
+            or invited_user.organization_id != organization.id
             or invited_user.role != body.role
         ):
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already registered")
@@ -1172,7 +1257,7 @@ async def create_admin_invitation(
             last_name=body.last_name,
             role=body.role,
             status=UserStatus.APPROVED,
-            organization_id=body.organization_id,
+            organization_id=organization.id,
             email_verified=False,
             must_change_password=True,
             referred_by_id=locked_admin.id,
@@ -1202,6 +1287,9 @@ async def create_admin_invitation(
             "organization_id": str(organization.id),
             "role": invited_user.role.value,
             "reissued": reissued,
+            "organization_created": organization_created,
+            "organization_type": organization.type.value,
+            "organization_country_code": organization.country_code,
         },
         **request_audit_context(request),
     )
@@ -1222,6 +1310,7 @@ async def create_admin_invitation(
         email=invited_user.email,
         role=invited_user.role.value,
         organization_name=organization.name,
+        organization_created=organization_created,
         acceptance_url=_invitation_url(raw_token),
         expires_at=expires_at,
         reissued=reissued,
