@@ -1209,7 +1209,6 @@ async def create_admin_invitation(
             type=requested_organization.type,
             tax_id=requested_organization.tax_id,
             country_code=requested_organization.country_code,
-            verification_status="APPROVED",
         )
         db.add(organization)
         try:
@@ -1223,6 +1222,7 @@ async def create_admin_invitation(
                     "message": "An organization already owns this email domain",
                 },
             ) from exc
+        organization.verification_status = "APPROVED"
     else:
         organization = (
             await db.execute(select(Organization).where(Organization.id == body.organization_id))
