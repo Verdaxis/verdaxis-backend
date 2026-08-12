@@ -24,6 +24,9 @@ organization creation, email verification, or account approval steps.
 - Organization creation, user creation, referral attribution, audit evidence,
   and invitation issuance are one database transaction. Any failure rolls back
   the entire operation.
+- The runtime role inserts the organization with database-owned provenance and
+  verification defaults, then uses its narrowly granted verification-status
+  update in the same transaction; protected columns are never inserted.
 - The normalized business email domain is attached only when it is eligible as
   a tenant boundary and is not already owned. A domain already owned by another
   organization is a conflict; public mailbox domains remain unclaimed.
