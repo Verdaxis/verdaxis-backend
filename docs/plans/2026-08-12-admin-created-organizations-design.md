@@ -5,7 +5,7 @@
 
 ## Goal
 
-Allow an administrator to prepare a new real organization and its first user in
+Allow an administrator to prepare a new onboarding-approved organization and its first user in
 the existing invitation flow. The recipient receives the same single-use link,
 accepts the platform terms, creates a password, and enters Verdaxis without
 organization creation, email verification, or account approval steps.
@@ -16,7 +16,9 @@ organization creation, email verification, or account approval steps.
   an existing `organization_id`, or a nested `new_organization` containing
   name, type, country code, and optional tax ID.
 - Only authenticated `ADMIN` users may use either path. The new organization
-  path creates `provenance = REAL` and `verification_status = APPROVED`.
+  path creates `verification_status = APPROVED` and retains the database-owned
+  `provenance = UNKNOWN` default. Market provenance remains subject to the
+  separate trusted operator approval after the invited user accepts.
 - The requested account role must match the organization type. A supplier may
   create only `FUEL_SUPPLIER`; a buyer may use the supported buy-side types.
 - Organization creation, user creation, referral attribution, audit evidence,
@@ -43,7 +45,7 @@ copyable, seven-day acceptance link. The acceptance page does not change.
 ## Verification
 
 - Backend tests cover admin authorization, mutually exclusive organization
-  sources, role/type boundaries, approved-real creation, domain conflicts,
+  sources, role/type boundaries, onboarding-approved creation, domain conflicts,
   transaction rollback, audit evidence, and existing invitation regression.
 - Frontend tests cover both modes, role-compatible types, request shape, mode
   resets, and translated labels.

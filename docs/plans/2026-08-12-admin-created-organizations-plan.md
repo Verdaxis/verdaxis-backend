@@ -4,7 +4,7 @@
    source and bounded new-organization fields.
 2. Add backend contract tests before implementation, then create and approve
    the organization inside the existing invitation transaction with domain,
-   side, provenance, conflict, and audit enforcement.
+   side, database-owned provenance, conflict, and audit enforcement.
 3. Update backend architecture and route documentation.
 4. Extend the Admin Users dialog and API types with existing/new organization
    modes, country selection, role-compatible type selection, and translations.
