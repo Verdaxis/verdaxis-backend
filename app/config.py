@@ -397,6 +397,32 @@ class Settings(BaseSettings):
     # Gemini AI
     GEMINI_API_KEY: Optional[str] = None
 
+    # Licensed open-web news discovery. The token is consumed only by the
+    # singleton news-refresh process and must never be exposed to clients.
+    WEBZ_API_TOKEN: Optional[SecretStr] = None
+    WEBZ_API_URL: str = "https://api.webz.io/filterWebContent"
+    WEBZ_API_TIMEOUT_SECONDS: float = Field(default=15.0, gt=0, le=30.0)
+
+    @field_validator("WEBZ_API_URL")
+    @classmethod
+    def validate_webz_api_url(cls, value: str) -> str:
+        normalized = value.strip()
+        parsed = urlparse(normalized)
+        if (
+            parsed.scheme != "https"
+            or parsed.hostname != "api.webz.io"
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.port not in {None, 443}
+            or parsed.path != "/filterWebContent"
+            or parsed.query
+            or parsed.fragment
+        ):
+            raise ValueError(
+                "WEBZ_API_URL must be https://api.webz.io/filterWebContent"
+            )
+        return normalized
+
     # Email (Resend)
     RESEND_API_KEY: Optional[str] = None
     EMAIL_FROM: str = "Verdaxis <noreply@verdaxis.exchange>"

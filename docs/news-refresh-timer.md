@@ -8,6 +8,23 @@ only through the process entrypoint:
 ./venv/bin/python -m app.cli.refresh_news
 ```
 
+Production uses the licensed Webz.io News API as the primary open-web source
+when `WEBZ_API_TOKEN` is configured. The request is one bounded page with no
+pagination or automatic retry. Missing credentials, provider failure, invalid
+responses, and zero usable records fall back to the source-controlled maritime
+RSS feeds. Staging normally leaves `WEBZ_API_TOKEN` unset and therefore uses
+RSS; supply the token only transiently for an explicit integration check.
+
+Both environment timers run at 00:00, 06:00, 12:00, and 18:00 UTC. With the
+token configured only in production, this caps scheduled Webz usage at 120 to
+124 calls per month. Manual service starts consume an additional call. Keep the
+token only in the protected backend `.env`; it must never appear in source,
+logs, database rows, public API responses, or frontend configuration.
+
+Webz.io is a news-discovery source only. Articles never enter the trusted
+market-signal ingestion path and cannot create benchmarks, indications,
+fair-price bands, physical stems, orders, or trades.
+
 Production and staging each have exactly one source-controlled systemd timer
 and matching `Type=oneshot` service in `deploy/systemd/`. A PostgreSQL
 transaction advisory lock makes concurrent timer or CLI invocations mutually

@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, UTC
 from time import mktime
 from typing import Optional
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, urlunsplit
 
 import structlog
 import httpx
@@ -44,6 +44,25 @@ NEWS_PROVIDER_MAX_CONCURRENT = 2
 NEWS_REFRESH_ADVISORY_LOCK_ID = 6216461178696259923
 NEWS_TITLE_MAX_CHARS = 500
 NEWS_URL_MAX_CHARS = 1000
+NEWS_SOURCE_MAX_CHARS = 100
+NEWS_SUMMARY_MAX_CHARS = 1000
+WEBZ_MAX_ENTRIES_PER_RUN = 100
+WEBZ_MAX_RESPONSE_BYTES = 8 * 1024 * 1024
+_WEBZ_FUELS = (
+    '("bio methanol" OR biomethanol OR "e-methanol" OR "e methanol" OR '
+    '"synthetic methanol" OR "bio ethanol" OR bioethanol OR "e-ethanol" '
+    'OR "e ethanol" OR "synthetic ethanol")'
+)
+_WEBZ_MARITIME = "(marine OR maritime OR bunker OR bunkering OR shipping)"
+_WEBZ_REGULATION = (
+    '("FuelEU Maritime" OR "marine EU ETS" OR "IMO GFI" OR '
+    '"marine fuel regulation")'
+)
+WEBZ_QUERY = (
+    f"site_type:news AND (((title:{_WEBZ_FUELS} OR summary:{_WEBZ_FUELS}) "
+    f"AND (title:{_WEBZ_MARITIME} OR summary:{_WEBZ_MARITIME})) OR "
+    f"title:{_WEBZ_REGULATION} OR summary:{_WEBZ_REGULATION})"
+)
 _news_provider_capacity = ProviderCapacity(NEWS_PROVIDER_MAX_CONCURRENT)
 
 RSS_FEEDS = [
@@ -178,12 +197,14 @@ def _parse_published(entry: dict) -> datetime:
     return datetime.now(UTC)
 
 
-def _validated_article_url(raw_url: object, allowed_domains: tuple[str, ...]) -> str | None:
-    """Return a bounded publisher URL, rejecting browser-dangerous destinations."""
+def _validated_public_http_url(
+    raw_url: object, *, max_chars: int = NEWS_URL_MAX_CHARS
+) -> str | None:
+    """Return a bounded public HTTP(S) URL safe to expose as a browser link."""
     if not isinstance(raw_url, str):
         return None
     candidate = raw_url.strip()
-    if not candidate or len(candidate) > NEWS_URL_MAX_CHARS:
+    if not candidate or len(candidate) > max_chars:
         return None
     if any(char.isspace() or ord(char) < 0x20 or ord(char) == 0x7F for char in candidate):
         return None
@@ -198,11 +219,6 @@ def _validated_article_url(raw_url: object, allowed_domains: tuple[str, ...]) ->
         return None
     if parsed.username is not None or parsed.password is not None:
         return None
-    if not any(
-        hostname == domain or hostname.endswith(f".{domain}")
-        for domain in allowed_domains
-    ):
-        return None
     try:
         address = ipaddress.ip_address(hostname.strip("[]"))
     except ValueError:
@@ -211,6 +227,20 @@ def _validated_article_url(raw_url: object, allowed_domains: tuple[str, ...]) ->
         return None
     if hostname == "localhost" or hostname.endswith(
         (".localhost", ".local", ".internal", ".home", ".lan")
+    ):
+        return None
+    return candidate
+
+
+def _validated_article_url(raw_url: object, allowed_domains: tuple[str, ...]) -> str | None:
+    """Return a bounded URL belonging to the configured RSS publisher."""
+    candidate = _validated_public_http_url(raw_url)
+    if candidate is None:
+        return None
+    hostname = (urlsplit(candidate).hostname or "").rstrip(".").casefold()
+    if not any(
+        hostname == domain or hostname.endswith(f".{domain}")
+        for domain in allowed_domains
     ):
         return None
     return candidate
@@ -280,16 +310,164 @@ async def fetch_all_feeds() -> list[dict]:
     return items
 
 
-async def _read_feed_body(response: httpx.Response) -> bytes | None:
-    """Read a decoded response incrementally without crossing the hard cap."""
+def _bounded_plain_text(
+    raw_value: object, max_chars: int, *, allow_line_breaks: bool = False
+) -> str | None:
+    if not isinstance(raw_value, str):
+        return None
+    if any(
+        (ord(char) < 0x20 and not (allow_line_breaks and char in "\t\r\n"))
+        or ord(char) == 0x7F
+        for char in raw_value
+    ):
+        return None
+    value = " ".join(raw_value.split())
+    if not value or len(value) > max_chars:
+        return None
+    return value
+
+
+def _parse_webz_published(raw_value: object) -> datetime:
+    if isinstance(raw_value, (int, float)) and raw_value >= 0:
+        try:
+            timestamp = raw_value / 1000 if raw_value > 10_000_000_000 else raw_value
+            return datetime.fromtimestamp(timestamp, tz=UTC)
+        except (OSError, OverflowError, ValueError):
+            return datetime.now(UTC)
+    if isinstance(raw_value, str):
+        try:
+            parsed = datetime.fromisoformat(raw_value.strip().replace("Z", "+00:00"))
+            if parsed.tzinfo is not None:
+                return parsed.astimezone(UTC)
+        except ValueError:
+            pass
+    return datetime.now(UTC)
+
+
+def _validated_webz_post(post: object) -> dict | None:
+    if not isinstance(post, dict):
+        return None
+    thread = post.get("thread")
+    if not isinstance(thread, dict):
+        thread = {}
+
+    title = _bounded_plain_text(
+        post.get("title") or thread.get("title"), NEWS_TITLE_MAX_CHARS
+    )
+    article_url = _validated_public_http_url(post.get("url") or thread.get("url"))
+    if title is None or article_url is None:
+        return None
+
+    parsed_url = urlsplit(article_url)
+    source = _bounded_plain_text(
+        thread.get("site") or thread.get("site_full") or parsed_url.hostname,
+        NEWS_SOURCE_MAX_CHARS,
+    )
+    if source is None:
+        return None
+    source_url = urlunsplit((parsed_url.scheme, parsed_url.netloc, "", "", ""))
+
+    return {
+        "title": title,
+        "url": article_url,
+        "source": source,
+        "source_url": source_url,
+        "published_at": _parse_webz_published(
+            post.get("published") or thread.get("published")
+        ),
+        "summary": _bounded_plain_text(
+            post.get("summary"), NEWS_SUMMARY_MAX_CHARS, allow_line_breaks=True
+        ),
+    }
+
+
+async def fetch_webz_items() -> list[dict] | None:
+    """Fetch and normalize one bounded Webz.io page.
+
+    None means the provider request failed. An empty list is a valid response
+    with no usable records. Neither state exposes provider details or secrets.
+    """
+    if settings.WEBZ_API_TOKEN is None:
+        return None
+
+    params = {
+        "token": settings.WEBZ_API_TOKEN.get_secret_value(),
+        "format": "json",
+        "q": WEBZ_QUERY,
+        "sort": "published",
+        "order": "desc",
+        "size": WEBZ_MAX_ENTRIES_PER_RUN,
+        "includeSyndicated": "false",
+    }
+    try:
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(settings.WEBZ_API_TIMEOUT_SECONDS)
+        ) as client:
+            async with client.stream(
+                "GET", settings.WEBZ_API_URL, params=params
+            ) as response:
+                response.raise_for_status()
+                body = await _read_bounded_body(
+                    response, max_bytes=WEBZ_MAX_RESPONSE_BYTES
+                )
+        if body is None:
+            logger.warning("news_feed.webz_unavailable", reason="body_too_large")
+            return None
+        payload = json.loads(body)
+    except httpx.HTTPError:
+        logger.warning("news_feed.webz_unavailable", reason="http_error")
+        return None
+    except (TypeError, ValueError):
+        logger.warning("news_feed.webz_unavailable", reason="invalid_response")
+        return None
+
+    if not isinstance(payload, dict) or not isinstance(payload.get("posts"), list):
+        logger.warning("news_feed.webz_unavailable", reason="invalid_response")
+        return None
+
+    posts = payload["posts"][:WEBZ_MAX_ENTRIES_PER_RUN]
+    items = [item for post in posts if (item := _validated_webz_post(post)) is not None]
+    logger.info(
+        "news_feed.webz_fetched",
+        fetched=len(posts),
+        accepted=len(items),
+        rejected=len(posts) - len(items),
+    )
+    return items
+
+
+async def fetch_news_items() -> list[dict]:
+    """Use licensed Webz.io when configured, with RSS as a safe fallback."""
+    if settings.WEBZ_API_TOKEN is not None:
+        webz_items = await fetch_webz_items()
+        if webz_items:
+            return webz_items
+        logger.info(
+            "news_feed.fallback",
+            from_provider="webz",
+            reason="empty" if webz_items == [] else "unavailable",
+        )
+    else:
+        logger.info("news_feed.webz_unconfigured")
+    return await fetch_all_feeds()
+
+
+async def _read_bounded_body(
+    response: httpx.Response, *, max_bytes: int
+) -> bytes | None:
+    """Read a decoded response incrementally without crossing a hard cap."""
     chunks: list[bytes] = []
     total = 0
     async for chunk in response.aiter_bytes(chunk_size=RSS_READ_CHUNK_BYTES):
         total += len(chunk)
-        if total > RSS_MAX_BYTES_PER_FEED:
+        if total > max_bytes:
             return None
         chunks.append(chunk)
     return b"".join(chunks)
+
+
+async def _read_feed_body(response: httpx.Response) -> bytes | None:
+    return await _read_bounded_body(response, max_bytes=RSS_MAX_BYTES_PER_FEED)
 
 
 def _bounded_feed_entries(entries) -> list:
@@ -436,7 +614,7 @@ async def refresh_news(db: AsyncSession) -> int:
             if not acquired:
                 raise NewsRefreshInProgress("A news refresh is already running")
 
-        raw_items = await fetch_all_feeds()
+        raw_items = await fetch_news_items()
         if not raw_items:
             logger.info("news_feed.no_items_fetched")
             return 0
@@ -474,7 +652,7 @@ async def refresh_news(db: AsyncSession) -> int:
                     "published_at": item["published_at"],
                     "category": cat_result["category"],
                     "relevance": cat_result["relevance"],
-                    "summary": cat_result["summary"],
+                    "summary": cat_result["summary"] or item.get("summary"),
                     "fetched_at": datetime.now(UTC),
                 }
             )
