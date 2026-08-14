@@ -299,7 +299,10 @@ async def test_streamed_feed_reader_rejects_body_over_byte_cap():
 def test_high_item_feed_and_run_are_bounded():
     entries = list(range(news_feed.RSS_MAX_ENTRIES_PER_FEED + 50))
     assert len(news_feed._bounded_feed_entries(entries)) == news_feed.RSS_MAX_ENTRIES_PER_FEED
-    items = [_raw_item(f"https://example.com/{index}") for index in range(news_feed.RSS_MAX_ENTRIES_PER_RUN + 50)]
+    items = [
+        _raw_item(f"https://example.com/{index}", title=f"Headline {index}")
+        for index in range(news_feed.RSS_MAX_ENTRIES_PER_RUN + 50)
+    ]
     assert len(news_feed._dedupe_fetched_items(items)) == news_feed.RSS_MAX_ENTRIES_PER_RUN
 
 
@@ -323,6 +326,32 @@ class TestRefreshNewsDedupe:
         assert inserted == 1
         count = await db.scalar(select(func.count()).select_from(NewsItem))
         assert count == 1
+
+    @pytest.mark.asyncio
+    async def test_deduplicates_same_source_and_title_under_different_urls(
+        self, db, monkeypatch
+    ):
+        first = _raw_item(
+            "https://publisher.example/news/story",
+            title="FuelEU Maritime update",
+        )
+        first["source"] = "Publisher"
+        second = {
+            **first,
+            "url": "https://publisher.example/news/story?output=amp",
+        }
+
+        async def fake_fetch_news_items():
+            return [first, second]
+
+        async def fake_categorize_headline(_title: str):
+            return {"category": "regulation", "relevance": 4, "summary": None}
+
+        monkeypatch.setattr(news_feed, "fetch_news_items", fake_fetch_news_items)
+        monkeypatch.setattr(news_feed, "categorize_headline", fake_categorize_headline)
+
+        assert await news_feed.refresh_news(db) == 1
+        assert await db.scalar(select(func.count()).select_from(NewsItem)) == 1
 
     @pytest.mark.asyncio
     async def test_preserves_validated_provider_summary_when_classifier_has_none(

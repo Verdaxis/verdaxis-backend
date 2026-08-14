@@ -493,14 +493,17 @@ def _extract_json(text: str) -> Optional[dict]:
 
 
 def _dedupe_fetched_items(raw_items: list[dict]) -> list[dict]:
-    """Collapse duplicate URLs within a single fetch batch before categorization."""
+    """Collapse duplicate URLs and same-publisher headlines within one batch."""
     unique_items: list[dict] = []
     seen_urls: set[str] = set()
+    seen_source_titles: set[tuple[str, str]] = set()
     for item in raw_items:
         url = item["url"]
-        if url in seen_urls:
+        source_title = (item["source"].casefold(), item["title"].casefold())
+        if url in seen_urls or source_title in seen_source_titles:
             continue
         seen_urls.add(url)
+        seen_source_titles.add(source_title)
         unique_items.append(item)
         if len(unique_items) >= RSS_MAX_ENTRIES_PER_RUN:
             break

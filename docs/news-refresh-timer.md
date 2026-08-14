@@ -15,11 +15,12 @@ responses, and zero usable records fall back to the source-controlled maritime
 RSS feeds. Staging normally leaves `WEBZ_API_TOKEN` unset and therefore uses
 RSS; supply the token only transiently for an explicit integration check.
 
-Both environment timers run at 00:00, 06:00, 12:00, and 18:00 UTC. With the
-token configured only in production, this caps scheduled Webz usage at 120 to
-124 calls per month. Manual service starts consume an additional call. Keep the
-token only in the protected backend `.env`; it must never appear in source,
-logs, database rows, public API responses, or frontend configuration.
+Both environment timers run at 00:00, 06:00, 12:00, and 18:00 in the server's
+Asia/Singapore timezone. With the token configured only in production, this
+caps scheduled Webz usage at 120 to 124 calls per month. Manual service starts
+consume an additional call. Keep the token only in the protected backend
+`.env`; it must never appear in source, logs, database rows, public API
+responses, or frontend configuration.
 
 Webz.io is a news-discovery source only. Articles never enter the trusted
 market-signal ingestion path and cannot create benchmarks, indications,
