@@ -2,11 +2,14 @@
 from datetime import UTC, datetime
 from types import SimpleNamespace
 
+import httpx
 import pytest
+from pydantic import SecretStr
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
+from app.config import Settings
 from app.database import Base
 from app.models.news import NewsItem
 from app.services import news_feed
@@ -59,6 +62,194 @@ def _raw_item(url: str, title: str = "Headline") -> dict:
         "source_url": "https://shipandbunker.com/rss",
         "published_at": datetime.now(UTC),
     }
+
+
+def test_webz_endpoint_is_locked_to_prevent_token_exfiltration():
+    with pytest.raises(ValueError, match="WEBZ_API_URL"):
+        Settings(
+            ENVIRONMENT="test",
+            JWT_SECRET="x" * 32,
+            WEBZ_API_URL="https://attacker.example/collect",
+        )
+
+
+def _webz_post(**overrides) -> dict:
+    post = {
+        "title": "Bio-methanol bunkering expands in Singapore",
+        "url": "https://publisher.example/news/bio-methanol-singapore",
+        "published": "2026-08-14T01:02:03.000+0000",
+        "summary": "A supplier announced additional certified marine-fuel capacity.",
+        "thread": {
+            "site": "Publisher News",
+            "site_full": "publisher.example",
+        },
+    }
+    post.update(overrides)
+    return post
+
+
+class _WebzClient:
+    def __init__(self, response: httpx.Response | Exception, captured: dict):
+        self.response = response
+        self.captured = captured
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_args):
+        return None
+
+    def stream(self, _method, url, *, params):
+        self.captured.update({"url": url, "params": params})
+        response = self.response
+
+        class Stream:
+            async def __aenter__(self):
+                if isinstance(response, Exception):
+                    raise response
+                return response
+
+            async def __aexit__(self, *_args):
+                return None
+
+        return Stream()
+
+
+@pytest.mark.asyncio
+async def test_webz_is_primary_and_normalizes_bounded_provider_records(monkeypatch):
+    captured = {}
+    request = httpx.Request("GET", "https://api.webz.io/filterWebContent")
+    response = httpx.Response(200, request=request, json={"posts": [_webz_post()]})
+    monkeypatch.setattr(news_feed.settings, "WEBZ_API_TOKEN", SecretStr("provider-secret"))
+    monkeypatch.setattr(
+        news_feed.httpx,
+        "AsyncClient",
+        lambda **_kwargs: _WebzClient(response, captured),
+    )
+
+    async def rss_must_not_run():
+        raise AssertionError("RSS should not run after a usable Webz response")
+
+    monkeypatch.setattr(news_feed, "fetch_all_feeds", rss_must_not_run)
+
+    assert await news_feed.fetch_news_items() == [
+        {
+            "title": "Bio-methanol bunkering expands in Singapore",
+            "url": "https://publisher.example/news/bio-methanol-singapore",
+            "source": "Publisher News",
+            "source_url": "https://publisher.example",
+            "published_at": datetime(2026, 8, 14, 1, 2, 3, tzinfo=UTC),
+            "summary": "A supplier announced additional certified marine-fuel capacity.",
+        }
+    ]
+    assert captured["url"] == "https://api.webz.io/filterWebContent"
+    assert captured["params"]["token"] == "provider-secret"
+    assert captured["params"]["size"] == news_feed.WEBZ_MAX_ENTRIES_PER_RUN
+    assert captured["params"]["includeSyndicated"] == "false"
+    assert "bio methanol" in captured["params"]["q"]
+    assert "synthetic ethanol" in captured["params"]["q"]
+
+
+@pytest.mark.asyncio
+async def test_webz_rejects_malformed_records_but_keeps_valid_records(monkeypatch):
+    request = httpx.Request("GET", "https://api.webz.io/filterWebContent")
+    response = httpx.Response(
+        200,
+        request=request,
+        json={
+            "posts": [
+                _webz_post(url="http://127.0.0.1/private"),
+                _webz_post(title="Bad\nTitle"),
+                _webz_post(url="https://publisher.example/news/valid"),
+            ]
+        },
+    )
+    monkeypatch.setattr(news_feed.settings, "WEBZ_API_TOKEN", SecretStr("provider-secret"))
+    monkeypatch.setattr(
+        news_feed.httpx,
+        "AsyncClient",
+        lambda **_kwargs: _WebzClient(response, {}),
+    )
+
+    items = await news_feed.fetch_webz_items()
+
+    assert items is not None
+    assert [item["url"] for item in items] == ["https://publisher.example/news/valid"]
+
+
+@pytest.mark.asyncio
+async def test_webz_response_body_is_streamed_under_a_hard_byte_cap(monkeypatch):
+    request = httpx.Request("GET", "https://api.webz.io/filterWebContent")
+    response = httpx.Response(200, request=request, content=b"123456789")
+    monkeypatch.setattr(news_feed.settings, "WEBZ_API_TOKEN", SecretStr("provider-secret"))
+    monkeypatch.setattr(news_feed, "WEBZ_MAX_RESPONSE_BYTES", 8)
+    monkeypatch.setattr(
+        news_feed.httpx,
+        "AsyncClient",
+        lambda **_kwargs: _WebzClient(response, {}),
+    )
+
+    assert await news_feed.fetch_webz_items() is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "provider_result",
+    [
+        httpx.ConnectTimeout("provider timed out"),
+        httpx.Response(
+            503,
+            request=httpx.Request("GET", "https://api.webz.io/filterWebContent"),
+        ),
+        httpx.Response(
+            200,
+            request=httpx.Request("GET", "https://api.webz.io/filterWebContent"),
+            content=b"not-json",
+        ),
+        httpx.Response(
+            200,
+            request=httpx.Request("GET", "https://api.webz.io/filterWebContent"),
+            json={"posts": []},
+        ),
+    ],
+)
+async def test_webz_failure_or_empty_result_falls_back_to_rss(
+    monkeypatch, provider_result
+):
+    monkeypatch.setattr(news_feed.settings, "WEBZ_API_TOKEN", SecretStr("provider-secret"))
+    monkeypatch.setattr(
+        news_feed.httpx,
+        "AsyncClient",
+        lambda **_kwargs: _WebzClient(provider_result, {}),
+    )
+    rss_items = [_raw_item("https://shipandbunker.com/news/fallback")]
+
+    async def fake_rss():
+        return rss_items
+
+    monkeypatch.setattr(news_feed, "fetch_all_feeds", fake_rss)
+
+    assert await news_feed.fetch_news_items() == rss_items
+
+
+@pytest.mark.asyncio
+async def test_unconfigured_webz_uses_rss_without_provider_request(monkeypatch):
+    monkeypatch.setattr(news_feed.settings, "WEBZ_API_TOKEN", None)
+    rss_items = [_raw_item("https://shipandbunker.com/news/unconfigured")]
+
+    async def fake_rss():
+        return rss_items
+
+    monkeypatch.setattr(news_feed, "fetch_all_feeds", fake_rss)
+    monkeypatch.setattr(
+        news_feed.httpx,
+        "AsyncClient",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            AssertionError("Webz client must not be constructed without a token")
+        ),
+    )
+
+    assert await news_feed.fetch_news_items() == rss_items
 
 
 def test_malicious_and_oversized_feed_entries_are_rejected_before_storage():
@@ -132,6 +323,27 @@ class TestRefreshNewsDedupe:
         assert inserted == 1
         count = await db.scalar(select(func.count()).select_from(NewsItem))
         assert count == 1
+
+    @pytest.mark.asyncio
+    async def test_preserves_validated_provider_summary_when_classifier_has_none(
+        self, db, monkeypatch
+    ):
+        item = _raw_item("https://example.com/news-summary")
+        item["summary"] = "Licensed provider summary"
+
+        async def fake_fetch_news_items():
+            return [item]
+
+        async def fake_categorize_headline(_title: str):
+            return {"category": "bunkers", "relevance": 5, "summary": None}
+
+        monkeypatch.setattr(news_feed, "fetch_news_items", fake_fetch_news_items)
+        monkeypatch.setattr(news_feed, "categorize_headline", fake_categorize_headline)
+
+        assert await news_feed.refresh_news(db) == 1
+        stored = await db.scalar(select(NewsItem))
+        assert stored is not None
+        assert stored.summary == "Licensed provider summary"
 
     @pytest.mark.asyncio
     async def test_ignores_duplicate_insert_race_after_initial_url_check(self, db, session_factory, monkeypatch):

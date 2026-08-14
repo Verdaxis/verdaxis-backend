@@ -68,7 +68,7 @@ def test_exactly_one_news_timer_owner_exists_for_each_environment():
         assert f"WorkingDirectory={deploy_root}" in service
         assert "python -m app.cli.refresh_news" in service
         assert f"Unit={service_name}" in timer
-        assert "OnCalendar=*:0/15" in timer
+        assert "OnCalendar=*-*-* 00,06,12,18:00:00" in timer
 
 
 def test_refresh_cli_is_the_documented_process_entrypoint():

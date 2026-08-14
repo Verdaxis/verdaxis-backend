@@ -37,9 +37,9 @@ small fetch functions and one selector.
 - Authentication: backend-only `WEBZ_API_TOKEN`, sent only to Webz.io.
 - Query: a source-controlled Boolean query for canonical fuels, marine-fuel
   trading, bunkering, and maritime decarbonisation regulation.
-- Bounds: one request per scheduled refresh, at most 100 records, 15-second
-  provider timeout, bounded title/URL/summary lengths, and no response-body
-  logging.
+- Bounds: one request per scheduled refresh, at most 100 records, an 8 MiB
+  streamed response cap, 15-second provider timeout, bounded title/URL/summary
+  lengths, and no response-body logging.
 - Deduplication: request `includeSyndicated=false`; retain URL-based in-process
   and database deduplication.
 - Ordering: request newest published records first.

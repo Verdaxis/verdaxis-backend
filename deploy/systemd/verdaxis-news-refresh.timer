@@ -1,9 +1,9 @@
 [Unit]
-Description=Every-15-minute Verdaxis news refresh (production)
+Description=Six-hourly Verdaxis news refresh (production)
 
 [Timer]
 Unit=verdaxis-news-refresh.service
-OnCalendar=*:0/15
+OnCalendar=*-*-* 00,06,12,18:00:00
 Persistent=true
 
 [Install]

@@ -18,8 +18,9 @@ MANIFEST = MONITOR / "artifact-manifest.json"
 # modify a runtime-owned file silently — a stage that deliberately changes
 # one must update its pinned blob in the same reviewed commit.
 # Market Support adds feature-flag settings and one feature-flagged router.
+# Licensed Webz.io news discovery adds a backend-only token and locked endpoint.
 RUNTIME_OWNED_BLOBS = {
-    "app/config.py": "8d79897edd02bc13ed5a7c482a2696f8ace841b1",
+    "app/config.py": "d6ada1776e7a89d0bf08fd2e5db997b7f990e1eb",
     "app/database.py": "43456b2c2079c07368359d4d54f5ce9629c9b57b",
     "app/main.py": "ee803a97bfb8739d3c660fb714a8fe4ca96f8dc8",
     "scripts/deploy.sh": "eda3a0b9020ddecb023c4cfe727417d8dea6b162",
