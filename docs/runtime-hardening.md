@@ -313,11 +313,12 @@ The app policy is fail closed. Normal application DML exists only on explicitly
 listed tables. `organizations` has table-level `SELECT`/`DELETE`, plus named
 column `INSERT`/`UPDATE`. Its exact insert list is `id`, `name`, `domain`,
 `type`, `supplier_tier`, `tax_id`, `country_code`, and
-`created_at`; its exact update list is `name`, `domain`, `type`,
-`supplier_tier`, `tax_id`, and `country_code`. Signup relies on the database
-default for `verification_status`; verification and provenance columns require
-a trusted writer and are denied to the runtime app, as is every absent or
-future column until reviewed.
+`created_at`, and `provenance`; its exact update list is `name`, `domain`,
+`type`, `supplier_tier`, `tax_id`, `country_code`, and
+`verification_status`. Ordinary signup omits provenance and relies on the
+database-owned `UNKNOWN` default. The authenticated admin invitation path may
+insert `REAL` for a new organization. Provenance updates remain denied to the
+runtime app, as does every absent or future column until reviewed.
 `audit_logs` and `user_status_transitions` are explicitly append-only
 (`SELECT, INSERT`) for normal request transactions, with no app
 `UPDATE`/`DELETE` and no backup write. The current sequence policy is empty. Policy
@@ -327,7 +328,7 @@ Their absence cannot create a broad grant. The
 bootstrap explicitly transfers the legacy `alembic_version` control table to
 the migrator role while denying app and backup writes; the backup role retains
 read-only access. `spatial_ref_sys`, extension objects, seed/quarantine/approval controls,
-market evidence/provenance, and operator data are not app-writable. Unknown
+market evidence, provenance updates, and operator data are not app-writable. Unknown
 governed tables and sequences receive no app grant.
 Services that eventually need to mutate protected security or market state
 must use an integration-owned trusted writer boundary; widening the ordinary

@@ -31,7 +31,7 @@ def test_approval_email_migration_and_checkpoint_are_linear():
     assert '"pending_approval_email_retry_at"' in source
     assert "ix_users_pending_approval_email_retry" in source
     assert "fb_20260804_feedback_entries\tae_20260811_approval_email" in checkpoints
-    assert "ae_20260811_approval_email\tae_20260811_approval_email" in checkpoints
+    assert "ae_20260811_approval_email\tai_20260831_invite_real_orgs" in checkpoints
 
 
 def test_staging_environment_example_uses_staging_frontend():
