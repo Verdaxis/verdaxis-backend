@@ -114,6 +114,7 @@ INSERT INTO app_column_policy (table_name, column_name, privilege_type) VALUES
     ('organizations', 'tax_id', 'INSERT'),
     ('organizations', 'country_code', 'INSERT'),
     ('organizations', 'created_at', 'INSERT'),
+    ('organizations', 'provenance', 'INSERT'),
     ('organizations', 'name', 'UPDATE'),
     ('organizations', 'domain', 'UPDATE'),
     ('organizations', 'type', 'UPDATE'),

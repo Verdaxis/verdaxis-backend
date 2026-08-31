@@ -179,7 +179,7 @@ async def test_admin_invite_atomically_creates_preapproved_organization(
     assert organization.country_code == "SG"
     assert organization.tax_id == "SG-2026-001"
     assert organization.verification_status == "APPROVED"
-    assert organization.provenance == OrganizationProvenance.UNKNOWN
+    assert organization.provenance == OrganizationProvenance.REAL
 
     user = (
         await invitation_db.execute(
@@ -199,6 +199,79 @@ async def test_admin_invite_atomically_creates_preapproved_organization(
     assert audit.changes["organization_type"] == "SHIPPING_LINE"
     assert audit.changes["organization_country_code"] == "SG"
     assert "tax" not in str(audit.changes).lower()
+    assert audit.changes["organization_provenance"] == "REAL"
+
+
+@pytest.mark.asyncio
+async def test_admin_can_invite_second_user_to_new_organization_before_acceptance(
+    invitation_context,
+    invitation_db,
+):
+    app, _admin, _existing_organization = invitation_context
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        first = await client.post("/api/auth/admin/invitations", json=_new_organization_payload())
+        organization = (
+            await invitation_db.execute(
+                select(Organization).where(Organization.name == "Northstar Shipping")
+            )
+        ).scalar_one()
+        second = await client.post(
+            "/api/auth/admin/invitations",
+            json={
+                "email": "second.user@northstar.example",
+                "first_name": "Second",
+                "last_name": "User",
+                "role": "BUYER",
+                "organization_id": str(organization.id),
+            },
+        )
+
+    assert first.status_code == 201, first.text
+    assert second.status_code == 201, second.text
+    assert second.json()["organization_name"] == "Northstar Shipping"
+
+
+@pytest.mark.asyncio
+async def test_admin_invitation_organization_list_includes_approved_live_and_pending_market_status(
+    invitation_context,
+    invitation_db,
+):
+    app, _admin, real_organization = invitation_context
+    pending_market = Organization(
+        id=uuid4(),
+        name="Pending Market Review",
+        domain="pending.example",
+        type=OrgType.FUEL_SUPPLIER,
+        verification_status="APPROVED",
+        provenance=OrganizationProvenance.UNKNOWN,
+    )
+    unapproved = Organization(
+        id=uuid4(),
+        name="Unapproved Organization",
+        domain="unapproved.example",
+        type=OrgType.FUEL_SUPPLIER,
+        verification_status="PENDING",
+        provenance=OrganizationProvenance.REAL,
+    )
+    demo = Organization(
+        id=uuid4(),
+        name="Demo Organization",
+        domain="demo.example",
+        type=OrgType.FUEL_SUPPLIER,
+        verification_status="APPROVED",
+        provenance=OrganizationProvenance.DEMO,
+    )
+    invitation_db.add_all([pending_market, unapproved, demo])
+    await invitation_db.commit()
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get("/api/auth/admin/invitations/organizations")
+
+    assert response.status_code == 200, response.text
+    items = {item["name"]: item for item in response.json()["items"]}
+    assert set(items) == {real_organization.name, pending_market.name}
+    assert items[real_organization.name]["provenance"] == "REAL"
+    assert items[pending_market.name]["provenance"] == "UNKNOWN"
 
 
 @pytest.mark.asyncio
@@ -231,7 +304,7 @@ async def test_recipient_accepts_invitation_for_new_onboarding_approved_organiza
         )
     ).scalar_one()
     assert organization.verification_status == "APPROVED"
-    assert organization.provenance == OrganizationProvenance.UNKNOWN
+    assert organization.provenance == OrganizationProvenance.REAL
 
 
 @pytest.mark.asyncio

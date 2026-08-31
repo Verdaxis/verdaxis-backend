@@ -567,6 +567,7 @@ async def test_raw_app_cannot_promote_rewrite_controls_set_role_or_delegate():
     delegated = "verdaxis_raw_app_delegate_test"
     app_url = os.environ["DATABASE_URL"]
     registration_org_id = uuid4()
+    admin_invited_org_id = uuid4()
     registration_user_id = uuid4()
 
     # Integration note: organizations.provenance, seed_runs, and
@@ -620,6 +621,15 @@ async def test_raw_app_cannot_promote_rewrite_controls_set_role_or_delegate():
                         "'SHIPPING_LINE')"
                     ),
                     {"org_id": registration_org_id},
+                )
+                await connection.execute(
+                    text(
+                        "INSERT INTO public.organizations "
+                        "(id, name, type, provenance) "
+                        "VALUES (:org_id, 'Runtime ACL admin invitation proof', "
+                        "'SHIPPING_LINE', 'REAL')"
+                    ),
+                    {"org_id": admin_invited_org_id},
                 )
                 await connection.execute(
                     text(
@@ -713,6 +723,11 @@ async def test_raw_app_cannot_promote_rewrite_controls_set_role_or_delegate():
         )
         assert status_and_append_counts == ("PENDING", "APPROVED", 2, 2)
 
+        assert await _fetch_admin(
+            "SELECT provenance FROM public.organizations "
+            f"WHERE id = '{admin_invited_org_id}'"
+        ) == ("REAL",)
+
         # organizations.verification_status is NOT rejected: the security
         # admission review endpoints (auth_simple organization approve/reject)
         # are an app-role write path, so the integrated ACL grants that single
@@ -798,6 +813,7 @@ async def test_raw_app_cannot_promote_rewrite_controls_set_role_or_delegate():
             "tax_id",
             "country_code",
             "created_at",
+            "provenance",
         }
         update_columns = {
             "name",

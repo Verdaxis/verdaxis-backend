@@ -796,11 +796,12 @@ def test_least_privilege_role_artifacts_cover_existing_and_future_objects():
     assert "('audit_logs', ARRAY['SELECT', 'INSERT'])" in policy
     assert "('user_status_transitions', ARRAY['SELECT', 'INSERT'])" in policy
     column_policy = policy.split("app_column_policy", 1)[-1]
-    # The security checkpoint's admin organization admission review is the
-    # single app-role write path for verification_status: UPDATE only.
+    # Admin admission can update verification status and can set provenance
+    # only when it inserts a new organization. Existing provenance is immutable.
     assert "('organizations', 'verification_status', 'INSERT')" not in column_policy
     assert "('organizations', 'verification_status', 'UPDATE')" in column_policy
-    assert "provenance" not in column_policy
+    assert "('organizations', 'provenance', 'INSERT')" in column_policy
+    assert "('organizations', 'provenance', 'UPDATE')" not in column_policy
 
     assert "\\ir app_acl_policy.sql" in convergence
     assert "\\ir converge_runtime_object_acls.sql" in bootstrap
@@ -885,6 +886,7 @@ def test_organization_column_acl_is_the_exact_reviewed_set():
         ("tax_id", "INSERT"),
         ("country_code", "INSERT"),
         ("created_at", "INSERT"),
+        ("provenance", "INSERT"),
         ("name", "UPDATE"),
         ("domain", "UPDATE"),
         ("type", "UPDATE"),
