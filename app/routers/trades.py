@@ -70,34 +70,58 @@ router = APIRouter(prefix="/trades", tags=["trades"], responses=AUTH_RESPONSES)
 # stay within this band around the confirmed trade price. Guards commission
 # and GMV integrity until a two-sided delivery confirmation flow exists.
 MAX_FINAL_PRICE_DEVIATION_PCT = Decimal("10")
+ANONYMOUS_TRADE_HANDOFF_STATUSES = frozenset(
+    {TradeStatus.CONFIRMED, TradeStatus.DELIVERED, TradeStatus.PAID}
+)
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
-def build_trade_response(trade: Trade) -> TradeResponse:
+def build_trade_response(
+    trade: Trade,
+    *,
+    viewer_org_id: UUID | None = None,
+) -> TradeResponse:
     """Build a response without triggering async lazy loads.
 
     Market identity is always read from immutable trade snapshots. Party names
-    are used only when the caller eagerly loaded those relationships.
+    are used only when the caller eagerly loaded those relationships. Anonymous
+    trades reveal only the viewer's own party before confirmation, and reveal
+    both parties after the confirmation handoff.
     """
     buyer = trade.__dict__.get("buyer")
     seller = trade.__dict__.get("seller")
     buyer_name = buyer.name if buyer is not None else ""
     seller_name = seller.name if seller is not None else ""
     is_anonymous = bool(trade.is_anonymous)
-    if is_anonymous and trade.status == TradeStatus.PENDING_CONFIRMATION:
-        buyer_name = "Anonymous"
-        seller_name = "Anonymous"
+    buyer_id = trade.buyer_id
+    seller_id = trade.seller_id
+    if is_anonymous:
+        viewer_is_buyer = viewer_org_id == trade.buyer_id
+        viewer_is_seller = viewer_org_id == trade.seller_id
+        viewer_is_party = viewer_is_buyer or viewer_is_seller
+        handoff_complete = trade.status in ANONYMOUS_TRADE_HANDOFF_STATUSES
+
+        if not viewer_is_party:
+            buyer_id = seller_id = None
+            buyer_name = seller_name = "Anonymous"
+        elif not handoff_complete:
+            if viewer_is_buyer:
+                seller_id = None
+                seller_name = "Anonymous"
+            else:
+                buyer_id = None
+                buyer_name = "Anonymous"
 
     provenance = trade_market_provenance(trade)
     return TradeResponse(
         id=trade.id,
         bid_order_id=trade.bid_order_id,
         ask_order_id=trade.ask_order_id,
-        buyer_id=trade.buyer_id,
-        seller_id=trade.seller_id,
+        buyer_id=buyer_id,
+        seller_id=seller_id,
         buyer_name=buyer_name,
         seller_name=seller_name,
         initiated_by=trade.initiated_by,
@@ -350,7 +374,7 @@ async def create_trade(
             )
             if replay_actor_id != current_user.id:
                 raise HTTPException(status_code=409, detail="Idempotency-Key is bound to another request principal")
-            return build_trade_response(replay)
+            return build_trade_response(replay, viewer_org_id=initiator_org_id)
 
     # The canonical market lock is always acquired before the target row lock.
     target_identity = await db.execute(
@@ -587,7 +611,7 @@ async def create_trade(
         )
         if replay_actor_id != current_user.id:
             raise HTTPException(status_code=409, detail="Idempotency-Key is bound to another request principal")
-        return build_trade_response(existing_trade)
+        return build_trade_response(existing_trade, viewer_org_id=initiator_org_id)
     await emit_order_updated(db, before=before_state, order=order)
 
     # Notify counterparty organization
@@ -642,7 +666,7 @@ async def create_trade(
     # Reload with relationships for response
     loaded_trade = await _load_trade(db, trade.id)
 
-    return build_trade_response(loaded_trade)
+    return build_trade_response(loaded_trade, viewer_org_id=initiator_org_id)
 
 
 # ---------------------------------------------------------------------------
@@ -692,7 +716,7 @@ async def list_my_trades(
     result = await db.execute(stmt)
     trades = result.unique().scalars().all()
 
-    items = [build_trade_response(t) for t in trades]
+    items = [build_trade_response(t, viewer_org_id=org_id) for t in trades]
     return PaginatedResponse(items=items, total=total, skip=skip, limit=limit)
 
 
@@ -808,7 +832,7 @@ async def confirm_trade(
 
     loaded_trade = await _load_trade(db, trade.id)
 
-    return build_trade_response(loaded_trade)
+    return build_trade_response(loaded_trade, viewer_org_id=org_id)
 
 
 # ---------------------------------------------------------------------------
@@ -972,7 +996,7 @@ async def decline_trade(
     await db.commit()
 
     loaded_trade = await _load_trade(db, trade.id)
-    return build_trade_response(loaded_trade)
+    return build_trade_response(loaded_trade, viewer_org_id=org_id)
 
 
 # ---------------------------------------------------------------------------
@@ -1088,7 +1112,7 @@ async def deliver_trade(
 
     loaded_trade = await _load_trade(db, trade.id)
 
-    return build_trade_response(loaded_trade)
+    return build_trade_response(loaded_trade, viewer_org_id=org_id)
 
 
 # ---------------------------------------------------------------------------
@@ -1168,4 +1192,4 @@ async def pay_trade(
 
     loaded_trade = await _load_trade(db, trade.id)
 
-    return build_trade_response(loaded_trade)
+    return build_trade_response(loaded_trade, viewer_org_id=org_id)
