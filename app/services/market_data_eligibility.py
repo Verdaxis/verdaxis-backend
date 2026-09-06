@@ -8,6 +8,7 @@ from __future__ import annotations
 from sqlalchemy import and_, case, func, or_, select
 
 from app.market_catalog import CANONICAL_DELIVERY_POINTS, CANONICAL_PRODUCTS
+from app.models.orderbook import OrderCreationMethod
 from app.models.user import (
     Organization,
     OrganizationProvenance,
@@ -20,13 +21,15 @@ from app.models.user import (
 def public_order_owner_admission_clause(order):
     """Exclude orders whose recorded owner can no longer execute.
 
-    Query-surface mirror of ``execution_party_is_eligible``: an order whose
+    Query-surface mirror of the fill-time owner policies: an order whose
     concrete owner was KYC- or admin-rejected (or is unverified, forced into
     a password change, moved to another organization, or whose organization
     lost approval) is permanently inert at fill time, so it must not appear
-    as public liquidity nor weigh in any benchmark. Rows with no recorded
-    owner (synthetic DEMO liquidity, pre-ownership legacy rows) keep the
-    existing provenance-clause posture; they already cannot fill.
+    as public liquidity nor weigh in any benchmark. Assisted orders use the
+    narrower ``order_owner_is_execution_eligible`` ADMIN actor policy.
+    Rows with no recorded owner (synthetic DEMO liquidity, pre-ownership
+    legacy rows) keep the existing provenance-clause posture; they already
+    cannot fill.
     """
     eligible_owner = (
         select(User.id)
@@ -47,11 +50,35 @@ def public_order_owner_admission_clause(order):
                 Organization.id == order.organization_id,
                 Organization.verification_status == "APPROVED",
             )
+            .correlate(order)
             .exists(),
         )
         .exists()
     )
-    return or_(order.owner_user_id.is_(None), eligible_owner)
+    assisted_owner = (
+        select(User.id)
+        .where(
+            order.creation_method == OrderCreationMethod.MARKET_SUPPORT,
+            User.id == order.owner_user_id,
+            User.id == order.created_by_actor_user_id,
+            User.role == UserRole.ADMIN,
+            User.status == UserStatus.APPROVED,
+            select(Organization.id)
+            .where(
+                Organization.id == order.organization_id,
+                Organization.verification_status == "APPROVED",
+                Organization.provenance == OrganizationProvenance.REAL.value,
+            )
+            .correlate(order)
+            .exists(),
+        )
+        .exists()
+    )
+    return or_(
+        order.owner_user_id.is_(None),
+        and_(order.creation_method != OrderCreationMethod.MARKET_SUPPORT, eligible_owner),
+        assisted_owner,
+    )
 
 
 def market_data_eligible_organization_clause(organization):

@@ -11,13 +11,19 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import uuid4
 
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.database import Base
 from app.market_catalog import DELIVERY_POINTS_BY_NAME, PRODUCTS_BY_NAME
 from app.models.catalog import DeliveryPoint, Product
-from app.models.orderbook import OrderBookOrder, OrderBookStatus, OrderSide
+from app.models.live_slice_benchmark import LiveSliceBenchmark
+from app.models.orderbook import (
+    OrderBookOrder,
+    OrderBookStatus,
+    OrderCreationMethod,
+    OrderSide,
+)
 from app.models.user import (
     Organization,
     OrganizationProvenance,
@@ -27,7 +33,10 @@ from app.models.user import (
     UserStatus,
 )
 from app.routers.orderbook import list_aggregated_orderbook, list_asks, list_bids
-from app.services.live_benchmarks import rebuild_live_slice_benchmark
+from app.services.live_benchmarks import (
+    get_live_slice_benchmark_price,
+    rebuild_live_slice_benchmark,
+)
 
 
 REQUIRED_TABLES = [
@@ -155,6 +164,8 @@ def _make_order(
     side: OrderSide = OrderSide.ASK,
     price: str = '1000',
     quantity: str = '1000',
+    creation_method: OrderCreationMethod = OrderCreationMethod.LEGACY_UNKNOWN,
+    created_by_actor_user_id=None,
 ) -> OrderBookOrder:
     is_ask = side == OrderSide.ASK
     return OrderBookOrder(
@@ -170,6 +181,8 @@ def _make_order(
         availability_window='SPOT',
         status=OrderBookStatus.OPEN,
         created_at=datetime.now(UTC),
+        creation_method=creation_method,
+        created_by_actor_user_id=created_by_actor_user_id,
         certification_scheme='ISCC EU' if is_ask else None,
         certification_declared=is_ask,
         specification_standard='ISO 8217' if is_ask else None,
@@ -211,6 +224,181 @@ async def _list_bids(db: AsyncSession):
 
 
 class TestRejectedOwnerPublicVisibility:
+    @pytest.mark.asyncio
+    async def test_approved_market_support_admin_owner_is_public(self, db: AsyncSession):
+        target_org = await _make_org(db, 'Customer Org')
+        staff_org = await _make_org(db, 'Support Org')
+        support_admin = await _make_user(db, staff_org, role=UserRole.ADMIN)
+        product, delivery_point = await _make_catalog(db)
+        db.add(
+            _make_order(
+                org_id=target_org.id,
+                owner_user_id=support_admin.id,
+                created_by_actor_user_id=support_admin.id,
+                creation_method=OrderCreationMethod.MARKET_SUPPORT,
+                product_id=product.id,
+                delivery_point_id=delivery_point.id,
+            )
+        )
+        await db.commit()
+
+        asks = await _list_asks(db)
+
+        assert asks.total == 1
+
+    @pytest.mark.asyncio
+    async def test_market_support_visibility_matches_execution_admission(self, db: AsyncSession):
+        target_org = await _make_org(db, 'Customer Org')
+        unapproved_org = await _make_org(db, 'Unapproved Customer', verification_status='PENDING')
+        unknown_org = await _make_org(db, 'Unknown Customer')
+        unknown_org.provenance = OrganizationProvenance.UNKNOWN
+        staff_org = await _make_org(db, 'Support Org')
+        approved_admin = await _make_user(db, staff_org, role=UserRole.ADMIN)
+        other_admin = await _make_user(db, staff_org, role=UserRole.ADMIN)
+        rejected_admin = await _make_user(db, staff_org, role=UserRole.ADMIN, status=UserStatus.REJECTED)
+        supplier = await _make_user(db, target_org, role=UserRole.SUPPLIER)
+        product, delivery_point = await _make_catalog(db)
+        db.add_all(
+            [
+                _make_order(
+                    org_id=target_org.id,
+                    owner_user_id=approved_admin.id,
+                    created_by_actor_user_id=approved_admin.id,
+                    creation_method=OrderCreationMethod.MARKET_SUPPORT,
+                    product_id=product.id,
+                    delivery_point_id=delivery_point.id,
+                    price='1100',
+                ),
+                _make_order(
+                    org_id=target_org.id,
+                    owner_user_id=approved_admin.id,
+                    created_by_actor_user_id=None,
+                    creation_method=OrderCreationMethod.SELF_SERVICE,
+                    product_id=product.id,
+                    delivery_point_id=delivery_point.id,
+                    price='900',
+                ),
+                _make_order(
+                    org_id=target_org.id,
+                    owner_user_id=rejected_admin.id,
+                    created_by_actor_user_id=rejected_admin.id,
+                    creation_method=OrderCreationMethod.MARKET_SUPPORT,
+                    product_id=product.id,
+                    delivery_point_id=delivery_point.id,
+                    price='800',
+                ),
+                _make_order(
+                    org_id=target_org.id,
+                    owner_user_id=approved_admin.id,
+                    created_by_actor_user_id=other_admin.id,
+                    creation_method=OrderCreationMethod.MARKET_SUPPORT,
+                    product_id=product.id,
+                    delivery_point_id=delivery_point.id,
+                    price='700',
+                ),
+                _make_order(
+                    org_id=target_org.id,
+                    owner_user_id=supplier.id,
+                    created_by_actor_user_id=supplier.id,
+                    creation_method=OrderCreationMethod.MARKET_SUPPORT,
+                    product_id=product.id,
+                    delivery_point_id=delivery_point.id,
+                    price='400',
+                ),
+                _make_order(
+                    org_id=target_org.id,
+                    owner_user_id=supplier.id,
+                    created_by_actor_user_id=None,
+                    creation_method=OrderCreationMethod.MARKET_SUPPORT,
+                    product_id=product.id,
+                    delivery_point_id=delivery_point.id,
+                    price='300',
+                ),
+                _make_order(
+                    org_id=unapproved_org.id,
+                    owner_user_id=approved_admin.id,
+                    created_by_actor_user_id=approved_admin.id,
+                    creation_method=OrderCreationMethod.MARKET_SUPPORT,
+                    product_id=product.id,
+                    delivery_point_id=delivery_point.id,
+                    price='600',
+                ),
+                _make_order(
+                    org_id=unknown_org.id,
+                    owner_user_id=approved_admin.id,
+                    created_by_actor_user_id=approved_admin.id,
+                    creation_method=OrderCreationMethod.MARKET_SUPPORT,
+                    product_id=product.id,
+                    delivery_point_id=delivery_point.id,
+                    price='500',
+                ),
+            ]
+        )
+        await db.commit()
+
+        asks = await _list_asks(db)
+
+        assert asks.total == 1
+        assert asks.items[0].price_per_mt_usd == Decimal('1100')
+
+    @pytest.mark.asyncio
+    async def test_qualified_market_support_order_included_in_live_vwap(self, db: AsyncSession):
+        target_org = await _make_org(db, 'Customer Org')
+        staff_org = await _make_org(db, 'Support Org')
+        support_admin = await _make_user(db, staff_org, role=UserRole.ADMIN)
+        supplier = await _make_user(db, target_org, role=UserRole.SUPPLIER)
+        product, delivery_point = await _make_catalog(db)
+        db.add_all(
+            [
+                _make_order(
+                    org_id=target_org.id,
+                    owner_user_id=support_admin.id,
+                    created_by_actor_user_id=support_admin.id,
+                    creation_method=OrderCreationMethod.MARKET_SUPPORT,
+                    product_id=product.id,
+                    delivery_point_id=delivery_point.id,
+                    price='900',
+                    quantity='100',
+                ),
+                _make_order(
+                    org_id=target_org.id,
+                    owner_user_id=supplier.id,
+                    product_id=product.id,
+                    delivery_point_id=delivery_point.id,
+                    price='1100',
+                    quantity='100',
+                ),
+            ]
+        )
+        await db.commit()
+
+        benchmark = await rebuild_live_slice_benchmark(
+            db,
+            side=OrderSide.ASK,
+            market_product='BIO_METHANOL',
+            delivery_point_id=delivery_point.id,
+            availability_window='SPOT',
+        )
+
+        assert benchmark == Decimal('1000.00')
+
+        supplier.kyc_status = 'REJECTED'
+        await db.flush()
+
+        fresh_price = await get_live_slice_benchmark_price(
+            db,
+            side=OrderSide.ASK,
+            market_product='BIO_METHANOL',
+            delivery_point_id=delivery_point.id,
+            availability_window='SPOT',
+        )
+
+        assert fresh_price == Decimal('900.00')
+        assert not db.new
+        assert not db.dirty
+        stored = (await db.execute(select(LiveSliceBenchmark))).scalar_one()
+        assert stored.benchmark_price_per_mt_usd == Decimal('1000.00')
+
     @pytest.mark.asyncio
     async def test_kyc_rejected_owner_ask_hidden_from_asks_and_aggregated(self, db: AsyncSession):
         org = await _make_org(db, 'Supplier Org')
