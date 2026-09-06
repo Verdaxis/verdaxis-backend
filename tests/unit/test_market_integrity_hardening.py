@@ -247,7 +247,7 @@ def test_trade_response_uses_snapshots_without_touching_lazy_orders():
         created_at=datetime.now(UTC),
     )
 
-    response = build_trade_response(trade)
+    response = build_trade_response(trade, viewer_org_id=trade.buyer_id)
 
     assert response.product_name == "Immutable Product"
     assert response.market_product == "BIO_METHANOL"

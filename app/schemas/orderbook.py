@@ -287,12 +287,12 @@ class TradeCreate(BaseModel):
 
 
 class TradeResponse(BaseModel):
-    """Full trade detail with de-anonymized party names."""
+    """Trade detail with viewer-aware party identity."""
     id: UUID
     bid_order_id: Optional[UUID] = None
     ask_order_id: Optional[UUID] = None
-    buyer_id: UUID
-    seller_id: UUID
+    buyer_id: Optional[UUID] = None
+    seller_id: Optional[UUID] = None
     buyer_name: str = ""
     seller_name: str = ""
     initiated_by: Initiator
