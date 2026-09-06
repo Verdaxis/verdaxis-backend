@@ -44,23 +44,10 @@ jobs:
           pip-audit --strict -r constraints.txt --no-deps
 
   postgres-analytics:
-    # Product Analytics correctness suite against the deployed database image.
-    # SQLite (unit job) is the fast harness; PostgreSQL is the authority.
+    # Product Analytics and market correctness suites against the deployed
+    # database image. SQLite (unit job) is the fast harness; PostgreSQL is the
+    # authority.
     runs-on: ubuntu-latest
-
-    services:
-      postgres:
-        image: postgis/postgis:17-3.6-alpine@sha256:49b4d46c9fb8b158ddecd14d1894871a21ed4acb7ef376e2050f43f79c7b7272
-        env:
-          POSTGRES_PASSWORD: analytics-test
-          POSTGRES_DB: verdaxis_analytics_test
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U postgres"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 20
 
     steps:
       - uses: actions/checkout@v4
@@ -75,48 +62,13 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt -c constraints.txt
 
-      - name: Run PostgreSQL analytics tests
+      - name: Run PostgreSQL correctness tests
         env:
           ENVIRONMENT: test
           RELEASE_SHA: test
           JWT_SECRET: "test-secret-key-that-is-at-least-32-characters-long"
-          PGPASSWORD: "analytics-test"
-          DATABASE_URL: "postgresql+asyncpg://verdaxis_app_test:analytics-test@localhost:5432/verdaxis_analytics_test"
-          MIGRATOR_DATABASE_URL: "postgresql+asyncpg://verdaxis_migrator_test:analytics-test@localhost:5432/verdaxis_analytics_test"
-          PRODUCT_ANALYTICS_TEST_DATABASE_URL: "postgresql+asyncpg://verdaxis_migrator_test:analytics-test@localhost:5432/verdaxis_analytics_test"
-          BACKUP_DATABASE_URL: "postgresql+asyncpg://verdaxis_backup_test:analytics-test@localhost:5432/verdaxis_analytics_test"
-          POSTGRES_ADMIN_TEST_DATABASE_URL: "postgresql+asyncpg://postgres:analytics-test@localhost:5432/verdaxis_analytics_test"
-          RUNTIME_TEST_DATABASE_NAME: "verdaxis_analytics_test"
-          RUNTIME_TEST_APP_ROLE: "verdaxis_app_test"
-          RUNTIME_TEST_MIGRATOR_ROLE: "verdaxis_migrator_test"
-          RUNTIME_TEST_BACKUP_ROLE: "verdaxis_backup_test"
+          PYTEST_BIN: pytest
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq postgresql-client
-          psql -h localhost -U postgres -d verdaxis_analytics_test -v ON_ERROR_STOP=1 -c "CREATE EXTENSION IF NOT EXISTS postgis"
-          psql -h localhost -U postgres -d verdaxis_analytics_test \
-            -v database_name=verdaxis_analytics_test \
-            -v app_role=verdaxis_app_test \
-            -v migrator_role=verdaxis_migrator_test \
-            -v backup_role=verdaxis_backup_test \
-            -f deploy/postgres/bootstrap_roles.sql
-          psql -h localhost -U postgres -d verdaxis_analytics_test -v ON_ERROR_STOP=1 \
-            -c "ALTER ROLE verdaxis_app_test PASSWORD 'analytics-test'; ALTER ROLE verdaxis_migrator_test PASSWORD 'analytics-test'; ALTER ROLE verdaxis_backup_test PASSWORD 'analytics-test';"
-          # Fixtures create reviewed historical provenance that runtime triggers
-          # intentionally reject. This grant is confined to the disposable CI role.
-          psql -h localhost -U postgres -d verdaxis_analytics_test -v ON_ERROR_STOP=1 \
-            -c "GRANT SET ON PARAMETER session_replication_role TO verdaxis_migrator_test;"
-          ./scripts/verify_migrations.sh
-          psql -h localhost -U postgres -d verdaxis_analytics_test \
-            -v database_name=verdaxis_analytics_test \
-            -v app_role=verdaxis_app_test \
-            -v migrator_role=verdaxis_migrator_test \
-            -v backup_role=verdaxis_backup_test \
-            -f deploy/postgres/bootstrap_roles.sql
-          psql -h localhost -U postgres -d verdaxis_analytics_test \
-            -v database_name=verdaxis_analytics_test \
-            -v app_role=verdaxis_app_test \
-            -v migrator_role=verdaxis_migrator_test \
-            -v backup_role=verdaxis_backup_test \
-            -f deploy/postgres/validate_roles.sql
-          pytest tests/postgres -q
+          ./scripts/run_product_analytics_postgres_tests.sh tests/postgres
