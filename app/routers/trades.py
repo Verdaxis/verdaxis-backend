@@ -211,18 +211,28 @@ def _trade_action_required_filter(current_user: User, org_id: UUID):
         )
         .exists(),
     ).exists()
+    seller_support_linked = select(OrderBookOrder.id).where(
+        OrderBookOrder.id == Trade.ask_order_id,
+        OrderBookOrder.creation_method == OrderCreationMethod.MARKET_SUPPORT,
+    ).exists()
+    buyer_support_linked = select(OrderBookOrder.id).where(
+        OrderBookOrder.id == Trade.bid_order_id,
+        OrderBookOrder.creation_method == OrderCreationMethod.MARKET_SUPPORT,
+    ).exists()
     normal_authority = or_(
         and_(
             Trade.seller_id == org_id,
             initiator_org == Trade.buyer_id,
             current_user.role == UserRole.SUPPLIER,
             Trade.seller_user_id == current_user.id,
+            ~seller_support_linked,
         ),
         and_(
             Trade.buyer_id == org_id,
             initiator_org == Trade.seller_id,
             current_user.role == UserRole.BUYER,
             Trade.buyer_user_id == current_user.id,
+            ~buyer_support_linked,
         ),
     ) if current_user_can_execute else False
     normal_authority = and_(normal_authority, current_user_admitted)
@@ -258,6 +268,7 @@ def _trade_action_required_filter(current_user: User, org_id: UUID):
             buyer_support_order_exists,
         ),
     ) if _can_manage_assisted_trade(current_user, org_id) else False
+    assisted_authority = and_(assisted_authority, current_user_admitted)
     return and_(
         Trade.status == TradeStatus.PENDING_CONFIRMATION,
         or_(normal_authority, assisted_authority),
