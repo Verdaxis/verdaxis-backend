@@ -37,6 +37,30 @@ _TRUNCATE_TABLES = (
 )
 
 
+def pytest_configure(config: pytest.Config) -> None:
+    """Keep CI from turning a missing database into a green skipped suite."""
+    if os.environ.get("CI", "").lower() not in {"1", "true", "yes"}:
+        return
+    required = (
+        "PRODUCT_ANALYTICS_TEST_DATABASE_URL",
+        "MARKET_INTEGRITY_TEST_DATABASE_URL",
+        "DATABASE_URL",
+        "MIGRATOR_DATABASE_URL",
+        "BACKUP_DATABASE_URL",
+        "POSTGRES_ADMIN_TEST_DATABASE_URL",
+        "RUNTIME_TEST_DATABASE_NAME",
+        "RUNTIME_TEST_APP_ROLE",
+        "RUNTIME_TEST_MIGRATOR_ROLE",
+        "RUNTIME_TEST_BACKUP_ROLE",
+    )
+    missing = [name for name in required if not os.environ.get(name, "").strip()]
+    if missing:
+        raise pytest.UsageError(
+            "CI PostgreSQL tests require these environment variables: "
+            + ", ".join(missing)
+        )
+
+
 def _validated_url() -> str:
     url = os.environ.get(_URL_ENV, "").strip()
     if not url:
