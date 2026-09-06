@@ -328,6 +328,13 @@ class TradeResponse(BaseModel):
         from_attributes = True
 
 
+class TradeSummaryResponse(BaseModel):
+    total_count: int
+    action_required_count: int
+    awaiting_counterparty_count: int
+    confirmed_count: int
+
+
 class TradeDeliverPayload(BaseModel):
     """Payload for marking a trade as delivered."""
     final_quantity_mt: Decimal = Field(..., gt=0, le=100000, max_digits=12, decimal_places=2, allow_inf_nan=False)
