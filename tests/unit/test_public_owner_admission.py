@@ -7,7 +7,7 @@ appear in public order collections, never anchor best-bid/ask (is_crossed),
 and never weigh in live VWAP benchmarks.
 """
 import pytest
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from uuid import uuid4
 
@@ -224,6 +224,47 @@ async def _list_bids(db: AsyncSession):
 
 
 class TestRejectedOwnerPublicVisibility:
+    @pytest.mark.parametrize(('provenance', 'has_expiry', 'expected_price'), [
+        (OrganizationProvenance.UNKNOWN, True, Decimal('1000.00')),
+        (OrganizationProvenance.DEMO, False, Decimal('1000.00')),
+        (OrganizationProvenance.DEMO, True, Decimal('750.00')),
+    ])
+    @pytest.mark.asyncio
+    async def test_benchmark_matches_visible_book_provenance(
+        self, db: AsyncSession, provenance, has_expiry, expected_price
+    ):
+        organization = await _make_org(db, 'Supplier')
+        supplier = await _make_user(db, organization, role=UserRole.SUPPLIER)
+        product, delivery_point = await _make_catalog(db)
+        live_order = _make_order(
+            org_id=organization.id,
+            owner_user_id=supplier.id,
+            product_id=product.id,
+            delivery_point_id=delivery_point.id,
+            price='1000',
+        )
+        comparison_order = _make_order(
+            org_id=organization.id,
+            owner_user_id=None,
+            product_id=product.id,
+            delivery_point_id=delivery_point.id,
+            price='500',
+        )
+        comparison_order.provenance = provenance
+        comparison_order.expires_at = datetime.now(UTC) + timedelta(hours=1) if has_expiry else None
+        db.add_all([live_order, comparison_order])
+        await db.commit()
+
+        price = await get_live_slice_benchmark_price(
+            db,
+            side=OrderSide.ASK,
+            market_product='BIO_METHANOL',
+            delivery_point_id=delivery_point.id,
+            availability_window='SPOT',
+        )
+
+        assert price == expected_price
+
     @pytest.mark.asyncio
     async def test_approved_market_support_admin_owner_is_public(self, db: AsyncSession):
         target_org = await _make_org(db, 'Customer Org')
@@ -313,6 +354,15 @@ class TestRejectedOwnerPublicVisibility:
                     product_id=product.id,
                     delivery_point_id=delivery_point.id,
                     price='300',
+                ),
+                _make_order(
+                    org_id=target_org.id,
+                    owner_user_id=None,
+                    created_by_actor_user_id=None,
+                    creation_method=OrderCreationMethod.MARKET_SUPPORT,
+                    product_id=product.id,
+                    delivery_point_id=delivery_point.id,
+                    price='200',
                 ),
                 _make_order(
                     org_id=unapproved_org.id,

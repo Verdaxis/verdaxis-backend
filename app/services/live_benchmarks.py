@@ -4,7 +4,7 @@ from decimal import Decimal
 from typing import Iterable
 from uuid import UUID
 
-from sqlalchemy import select, or_, func
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -17,7 +17,8 @@ from app.services.market_data_eligibility import (
     canonical_delivery_point_clause,
     canonical_market_product_expression,
     canonical_product_clause,
-    public_order_owner_admission_clause,
+    current_public_order_clause,
+    public_order_collection_provenance_clause,
 )
 
 APPROVED_MARKETPLACE_FUEL_TYPES = ("Methanol", "Ethanol")
@@ -94,12 +95,11 @@ async def _calculate_live_slice_benchmark(
             OrderBookOrder.availability_window == normalized_window,
             OrderBookOrder.status.in_((OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED)),
             OrderBookOrder.remaining_quantity_mt > 0,
-            or_(OrderBookOrder.expires_at.is_(None), OrderBookOrder.expires_at > func.now()),
+            current_public_order_clause(OrderBookOrder),
+            public_order_collection_provenance_clause(OrderBookOrder),
             canonical_market_product_expression(Product) == normalized_market_product,
             canonical_product_clause(Product),
             canonical_delivery_point_clause(DeliveryPoint),
-            # A rejected owner's inert orders never weigh in the public VWAP.
-            public_order_owner_admission_clause(OrderBookOrder),
         )
     )
     qualifying_orders = [
