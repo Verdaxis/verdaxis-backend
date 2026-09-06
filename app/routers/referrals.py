@@ -51,7 +51,7 @@ def _display_name(user: User) -> str:
     return f"{user.first_name or ''} {user.last_name or ''}".strip() or "Anonymous"
 
 
-@router.get("/my-code", response_model=ReferralCodeResponse)
+@router.post("/my-code", response_model=ReferralCodeResponse)
 async def get_my_referral_code(
     current_user: Annotated[User, Depends(get_current_user)],
     db: AsyncSession = Depends(get_db),

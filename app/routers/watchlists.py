@@ -155,7 +155,7 @@ async def list_watchlists(
     return responses
 
 
-@router.get("/me", response_model=WatchlistSummaryResponse)
+@router.post("/me", response_model=WatchlistSummaryResponse)
 async def get_market_radar(
     current_user: Annotated[User, Depends(get_current_user)],
     db: AsyncSession = Depends(get_db),
