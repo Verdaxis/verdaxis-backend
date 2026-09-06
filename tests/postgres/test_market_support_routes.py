@@ -327,6 +327,9 @@ async def test_assisted_bid_confirm_and_decline_are_symmetric(market_support_cli
     )
     assert declined.status_code == 200, declined.text
     assert declined.json()["status"] == "DECLINED"
+    async with seeded["factory"]() as session:
+        order = await session.get(OrderBookOrder, decline_order_id)
+        assert order.remaining_quantity_mt == Decimal("10.00")
 
 
 @pytest.mark.asyncio
@@ -356,6 +359,9 @@ async def test_assisted_decline_allows_revoked_support_owner_and_rejected_initia
     )
     assert declined.status_code == 200, declined.text
     assert declined.json()["status"] == "DECLINED"
+    async with seeded["factory"]() as session:
+        order = await session.get(OrderBookOrder, order_id)
+        assert order.remaining_quantity_mt == Decimal("10.00")
 
 
 @pytest.mark.asyncio
