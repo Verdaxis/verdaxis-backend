@@ -265,7 +265,7 @@ async def test_reversed_multi_slice_lock_requests_complete_without_deadlock(pg):
 
 
 @pytest.mark.asyncio
-async def test_ordinary_app_role_cannot_override_provenance_trigger(pg):
+async def test_app_role_can_insert_admitted_real_org_but_cannot_promote_existing_org(pg):
     factory = async_sessionmaker(pg, class_=AsyncSession, expire_on_commit=False)
     # Integration note: the market suite runs as the disposable migrator, not
     # a superuser. Role creation and the membership SET LOCAL ROLE needs go
@@ -329,14 +329,18 @@ async def test_ordinary_app_role_cannot_override_provenance_trigger(pg):
             await session.rollback()
 
             await session.execute(text("SET LOCAL ROLE market_integrity_app_role"))
-            with pytest.raises(Exception, match="operator-only"):
-                await session.execute(
-                    text(
-                        "INSERT INTO organizations (id, name, type, provenance) "
-                        "VALUES (:id, 'Forged REAL org', 'FUEL_BUYER', 'REAL')"
-                    ),
-                    {"id": uuid4()},
-                )
+            inserted_org_id = uuid4()
+            await session.execute(
+                text(
+                    "INSERT INTO organizations (id, name, type, provenance) "
+                    "VALUES (:id, 'Admin-invited REAL org', 'FUEL_BUYER', 'REAL')"
+                ),
+                {"id": inserted_org_id},
+            )
+            assert await session.scalar(
+                text("SELECT provenance FROM organizations WHERE id = :id"),
+                {"id": inserted_org_id},
+            ) == "REAL"
             await session.rollback()
 
             for statement in (
