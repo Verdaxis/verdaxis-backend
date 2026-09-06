@@ -326,22 +326,60 @@ async def test_assisted_action_filter_requires_side_role_and_admitted_owner():
     try:
         buyer_org, seller_org = uuid4(), uuid4()
         buyer_user_id, seller_user_id = uuid4(), uuid4()
+        buyer_support_admin_id, seller_support_admin_id = uuid4(), uuid4()
         bid_id, ask_id = uuid4(), uuid4()
         buyer_user = _eligible_user(buyer_user_id, buyer_org, UserRole.BUYER)
         seller_user = _eligible_user(seller_user_id, seller_org, UserRole.SUPPLIER)
+        buyer_support_admin = _eligible_user(
+            buyer_support_admin_id, buyer_org, UserRole.ADMIN
+        )
+        seller_support_admin = _eligible_user(
+            seller_support_admin_id, seller_org, UserRole.ADMIN
+        )
         bid = _order(price="500", remaining="100", created_at=datetime.now(UTC))
         bid.id = bid_id
         bid.organization_id = buyer_org
-        bid.owner_user_id = buyer_user_id
-        bid.created_by_actor_user_id = buyer_user_id
+        bid.owner_user_id = buyer_support_admin_id
+        bid.created_by_actor_user_id = buyer_support_admin_id
         bid.creation_method = OrderCreationMethod.MARKET_SUPPORT
         ask = _order(price="500", remaining="100", created_at=datetime.now(UTC))
         ask.id = ask_id
         ask.organization_id = seller_org
-        ask.owner_user_id = seller_user_id
-        ask.created_by_actor_user_id = seller_user_id
+        ask.side = OrderSide.ASK
+        ask.owner_user_id = seller_support_admin_id
+        ask.created_by_actor_user_id = seller_support_admin_id
         ask.creation_method = OrderCreationMethod.MARKET_SUPPORT
         seller_action = Trade(
+            id=uuid4(),
+            ask_order_id=ask_id,
+            buyer_id=buyer_org,
+            seller_id=seller_org,
+            buyer_user_id=buyer_user_id,
+            seller_user_id=seller_support_admin_id,
+            initiator_org_id=buyer_org,
+            initiated_by=Initiator.BUYER,
+            status=TradeStatus.PENDING_CONFIRMATION,
+            buyer_provenance=OrganizationProvenance.REAL,
+            seller_provenance=OrganizationProvenance.REAL,
+            quantity_mt=100,
+            price_per_mt_usd=500,
+        )
+        buyer_action = Trade(
+            id=uuid4(),
+            bid_order_id=bid_id,
+            buyer_id=buyer_org,
+            seller_id=seller_org,
+            buyer_user_id=buyer_support_admin_id,
+            seller_user_id=seller_user_id,
+            initiator_org_id=seller_org,
+            initiated_by=Initiator.SELLER,
+            status=TradeStatus.PENDING_CONFIRMATION,
+            buyer_provenance=OrganizationProvenance.REAL,
+            seller_provenance=OrganizationProvenance.REAL,
+            quantity_mt=100,
+            price_per_mt_usd=500,
+        )
+        malformed_seller_action = Trade(
             id=uuid4(),
             ask_order_id=ask_id,
             buyer_id=buyer_org,
@@ -356,7 +394,7 @@ async def test_assisted_action_filter_requires_side_role_and_admitted_owner():
             quantity_mt=100,
             price_per_mt_usd=500,
         )
-        buyer_action = Trade(
+        malformed_buyer_action = Trade(
             id=uuid4(),
             bid_order_id=bid_id,
             buyer_id=buyer_org,
@@ -377,10 +415,14 @@ async def test_assisted_action_filter_requires_side_role_and_admitted_owner():
                 _approved_org(seller_org),
                 buyer_user,
                 seller_user,
+                buyer_support_admin,
+                seller_support_admin,
                 bid,
                 ask,
                 seller_action,
                 buyer_action,
+                malformed_seller_action,
+                malformed_buyer_action,
             ])
             await session.commit()
 
@@ -405,6 +447,9 @@ async def test_assisted_action_filter_requires_side_role_and_admitted_owner():
                 kyc_organization_id=None,
             )
             wrong_role_view = SimpleNamespace(**{**supplier_view.__dict__, "role": UserRole.BUYER})
+            wrong_org_view = SimpleNamespace(
+                **{**supplier_view.__dict__, "organization_id": buyer_org}
+            )
 
             async def matching_ids(view, org_id):
                 return (
@@ -416,8 +461,9 @@ async def test_assisted_action_filter_requires_side_role_and_admitted_owner():
             assert await matching_ids(supplier_view, seller_org) == [seller_action.id]
             assert await matching_ids(buyer_view, buyer_org) == [buyer_action.id]
             assert await matching_ids(wrong_role_view, seller_org) == []
+            assert await matching_ids(wrong_org_view, seller_org) == []
 
-            seller_user.status = UserStatus.REJECTED
+            seller_support_admin.status = UserStatus.REJECTED
             await session.commit()
             assert await matching_ids(supplier_view, seller_org) == []
     finally:
