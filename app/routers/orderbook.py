@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, or_, and_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
-from typing import Annotated, Optional
+from typing import Annotated, Literal, Optional
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from uuid import UUID
@@ -127,6 +127,7 @@ SUPPLIER_METADATA_FIELDS = (
 )
 
 APPROVED_MARKETPLACE_FUEL_TYPES = ("Methanol", "Ethanol")
+OrderbookSort = Literal["price_asc", "price_desc", "quantity_desc", "newest"]
 EXECUTION_QUALIFIER_FIELDS = ("certification_scheme",)
 ASK_ONLY_METADATA_FIELDS = tuple(field for field in SUPPLIER_METADATA_FIELDS if field not in EXECUTION_QUALIFIER_FIELDS)
 REQUIRED_ASK_METADATA_FIELDS = (
@@ -180,6 +181,29 @@ def _normalize_market_product_query(value: MarketProduct | str | None) -> str | 
     if normalized not in APPROVED_MARKET_PRODUCTS:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid market_product")
     return normalized
+
+
+def _orderbook_sort_clauses(sort_by: OrderbookSort) -> tuple[object, ...]:
+    """Return stable SQL ordering for paginated public order-book reads."""
+    if sort_by == "price_asc":
+        return (
+            OrderBookOrder.price_per_mt_usd.asc(),
+            OrderBookOrder.created_at.desc(),
+            OrderBookOrder.id.desc(),
+        )
+    if sort_by == "price_desc":
+        return (
+            OrderBookOrder.price_per_mt_usd.desc(),
+            OrderBookOrder.created_at.desc(),
+            OrderBookOrder.id.desc(),
+        )
+    if sort_by == "quantity_desc":
+        return (
+            OrderBookOrder.remaining_quantity_mt.desc(),
+            OrderBookOrder.created_at.desc(),
+            OrderBookOrder.id.desc(),
+        )
+    return (OrderBookOrder.created_at.desc(), OrderBookOrder.id.desc())
 
 
 def _market_product_filter_condition(market_product: str):
@@ -539,6 +563,7 @@ async def list_bids(
     region: Optional[str] = Query(None, description="Filter by region"),
     availability_window: Optional[str] = Query(None, description="Filter by availability window"),
     include_off_spec: bool = Query(False, description="Include off-spec orders"),
+    sort_by: Annotated[OrderbookSort, Query()] = "newest",
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
@@ -586,7 +611,7 @@ async def list_bids(
     )
     for join_target, join_cond in joins:
         query = query.join(join_target, join_cond)
-    query = query.where(*filters).order_by(OrderBookOrder.created_at.desc()).offset(skip).limit(limit)
+    query = query.where(*filters).order_by(*_orderbook_sort_clauses(sort_by)).offset(skip).limit(limit)
     result = await db.execute(query)
     orders = result.unique().scalars().all()
 
@@ -621,6 +646,7 @@ async def list_asks(
     region: Optional[str] = Query(None, description="Filter by region"),
     availability_window: Optional[str] = Query(None, description="Filter by availability window"),
     include_off_spec: bool = Query(False, description="Include off-spec orders"),
+    sort_by: Annotated[OrderbookSort, Query()] = "newest",
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
@@ -668,7 +694,7 @@ async def list_asks(
     )
     for join_target, join_cond in joins:
         query = query.join(join_target, join_cond)
-    query = query.where(*filters).order_by(OrderBookOrder.created_at.desc()).offset(skip).limit(limit)
+    query = query.where(*filters).order_by(*_orderbook_sort_clauses(sort_by)).offset(skip).limit(limit)
     result = await db.execute(query)
     orders = result.unique().scalars().all()
 

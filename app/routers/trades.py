@@ -1,10 +1,10 @@
 import uuid
 from datetime import datetime, UTC
 from decimal import Decimal
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status, Query
-from sqlalchemy import select, or_, func
+from sqlalchemy import and_, case, select, or_, func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
@@ -13,7 +13,7 @@ from uuid import UUID
 from app.database import get_db
 from app.routers.auth_simple import get_authenticated_user, get_current_user
 from app.middleware.execution import require_execution_eligible_user
-from app.models.user import Organization, User, UserRole, OrganizationProvenance
+from app.models.user import Organization, User, UserRole, UserStatus, OrganizationProvenance
 from app.models.orderbook import (
     OrderBookOrder,
     Trade,
@@ -21,9 +21,10 @@ from app.models.orderbook import (
     OrderBookStatus,
     TradeStatus,
     Initiator,
+    OrderCreationMethod,
 )
 from app.models.notification import NotificationType
-from app.schemas.orderbook import TradeCreate, TradeResponse, TradeDeliverPayload
+from app.schemas.orderbook import TradeCreate, TradeResponse, TradeDeliverPayload, TradeSummaryResponse
 from app.schemas.pagination import PaginatedResponse
 from app.services.activity import trade_activity_provenance
 from app.services.market_events import enqueue_market_events, participant_market_event
@@ -46,6 +47,7 @@ from app.services.idempotency import (
 from app.services.market_locks import acquire_market_slice_lock
 from app.services.request_party import resolve_request_party
 from app.services.market_provenance import trade_market_provenance
+from app.services.market_data_eligibility import public_order_owner_admission_clause
 from app.services.inventory_reservations import consume_inventory, release_inventory
 from app.services.audit_service import record_audit, request_audit_context
 from app.services.audit_actions import (
@@ -73,6 +75,12 @@ MAX_FINAL_PRICE_DEVIATION_PCT = Decimal("10")
 ANONYMOUS_TRADE_HANDOFF_STATUSES = frozenset(
     {TradeStatus.CONFIRMED, TradeStatus.DELIVERED, TradeStatus.PAID}
 )
+CONFIRMED_TRADE_STATUSES = (
+    TradeStatus.CONFIRMED,
+    TradeStatus.DELIVERED,
+    TradeStatus.PAID,
+)
+TradeStatusGroup = Literal["all", "active", "completed"]
 
 
 # ---------------------------------------------------------------------------
@@ -152,6 +160,131 @@ def build_trade_response(
         demo_status=provenance["demo_status"],
         unknown_count=provenance["unknown_count"],
     )
+
+
+def _trade_initiator_org_expression():
+    """Use the stored initiator organization, with a legacy side fallback."""
+    return func.coalesce(
+        Trade.initiator_org_id,
+        case(
+            (Trade.initiated_by == Initiator.BUYER, Trade.buyer_id),
+            else_=Trade.seller_id,
+        ),
+    )
+
+
+def _can_manage_assisted_trade(current_user: User, org_id: UUID) -> bool:
+    """Match the execution gate for an eligible member on a support order."""
+    return (
+        current_user.organization_id == org_id
+        and current_user.role in {UserRole.BUYER, UserRole.SUPPLIER}
+        and current_user.status == UserStatus.APPROVED
+        and current_user.email_verified
+        and not current_user.must_change_password
+        and current_user.kyc_status != "REJECTED"
+        and (
+            current_user.kyc_organization_id is None
+            or current_user.kyc_organization_id == current_user.organization_id
+        )
+    )
+
+
+def _trade_action_required_filter(current_user: User, org_id: UUID):
+    initiator_org = _trade_initiator_org_expression()
+    current_user_can_execute = _can_manage_assisted_trade(current_user, org_id)
+    current_user_admitted = select(User.id).where(
+        User.id == current_user.id,
+        User.organization_id == org_id,
+        User.role.in_((UserRole.BUYER, UserRole.SUPPLIER)),
+        User.status == UserStatus.APPROVED,
+        User.email_verified.is_(True),
+        User.must_change_password.is_(False),
+        User.kyc_status != "REJECTED",
+        or_(
+            User.kyc_organization_id.is_(None),
+            User.kyc_organization_id == org_id,
+        ),
+        select(Organization.id)
+        .where(
+            Organization.id == org_id,
+            Organization.verification_status == "APPROVED",
+        )
+        .exists(),
+    ).exists()
+    normal_authority = or_(
+        and_(
+            Trade.seller_id == org_id,
+            initiator_org == Trade.buyer_id,
+            current_user.role == UserRole.SUPPLIER,
+            Trade.seller_user_id == current_user.id,
+        ),
+        and_(
+            Trade.buyer_id == org_id,
+            initiator_org == Trade.seller_id,
+            current_user.role == UserRole.BUYER,
+            Trade.buyer_user_id == current_user.id,
+        ),
+    ) if current_user_can_execute else False
+    normal_authority = and_(normal_authority, current_user_admitted)
+    seller_support_order_exists = select(OrderBookOrder.id).where(
+        OrderBookOrder.id == Trade.ask_order_id,
+        OrderBookOrder.side == OrderSide.ASK,
+        OrderBookOrder.creation_method == OrderCreationMethod.MARKET_SUPPORT,
+        public_order_owner_admission_clause(OrderBookOrder),
+        OrderBookOrder.organization_id == Trade.seller_id,
+        OrderBookOrder.owner_user_id == Trade.seller_user_id,
+        OrderBookOrder.created_by_actor_user_id == OrderBookOrder.owner_user_id,
+    ).exists()
+    buyer_support_order_exists = select(OrderBookOrder.id).where(
+        OrderBookOrder.id == Trade.bid_order_id,
+        OrderBookOrder.side == OrderSide.BID,
+        OrderBookOrder.creation_method == OrderCreationMethod.MARKET_SUPPORT,
+        public_order_owner_admission_clause(OrderBookOrder),
+        OrderBookOrder.organization_id == Trade.buyer_id,
+        OrderBookOrder.owner_user_id == Trade.buyer_user_id,
+        OrderBookOrder.created_by_actor_user_id == OrderBookOrder.owner_user_id,
+    ).exists()
+    assisted_authority = or_(
+        and_(
+            Trade.seller_id == org_id,
+            initiator_org == Trade.buyer_id,
+            current_user.role == UserRole.SUPPLIER,
+            seller_support_order_exists,
+        ),
+        and_(
+            Trade.buyer_id == org_id,
+            initiator_org == Trade.seller_id,
+            current_user.role == UserRole.BUYER,
+            buyer_support_order_exists,
+        ),
+    ) if _can_manage_assisted_trade(current_user, org_id) else False
+    return and_(
+        Trade.status == TradeStatus.PENDING_CONFIRMATION,
+        or_(normal_authority, assisted_authority),
+    )
+
+
+def _trade_list_filter(
+    current_user: User,
+    org_id: UUID,
+    *,
+    action_required: bool,
+    status_group: TradeStatusGroup,
+):
+    trade_filter = or_(Trade.buyer_id == org_id, Trade.seller_id == org_id)
+    if status_group == "active":
+        trade_filter = and_(
+            trade_filter,
+            Trade.status == TradeStatus.PENDING_CONFIRMATION,
+        )
+    elif status_group == "completed":
+        trade_filter = and_(
+            trade_filter,
+            Trade.status.in_((TradeStatus.CONFIRMED, TradeStatus.DELIVERED, TradeStatus.PAID)),
+        )
+    if action_required:
+        trade_filter = and_(trade_filter, _trade_action_required_filter(current_user, org_id))
+    return trade_filter
 
 
 async def _load_trade(db: AsyncSession, trade_id: uuid.UUID, for_update: bool = False) -> Trade:
@@ -670,16 +803,14 @@ async def create_trade(
 
 
 # ---------------------------------------------------------------------------
-# 2. GET /my -- List my trades (as buyer or seller)
+# 2. GET /summary and /my -- Tenant-scoped dashboard trade reads
 # ---------------------------------------------------------------------------
 
-@router.get("/my", response_model=PaginatedResponse[TradeResponse])
-async def list_my_trades(
+@router.get("/summary", response_model=TradeSummaryResponse)
+async def trade_summary(
     request: Request,
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user)],
-    skip: int = Query(0, ge=0),
-    limit: int = Query(20, ge=1, le=100),
 ):
     party = await resolve_request_party(request, db, current_user)
     org_id = (
@@ -694,15 +825,67 @@ async def list_my_trades(
         )
 
     org_filter = or_(Trade.buyer_id == org_id, Trade.seller_id == org_id)
+    initiator_org = _trade_initiator_org_expression()
+    awaiting_counterparty = and_(
+        org_filter,
+        Trade.status == TradeStatus.PENDING_CONFIRMATION,
+        initiator_org == org_id,
+    )
+    action_required = and_(org_filter, _trade_action_required_filter(current_user, org_id))
+    confirmed = and_(org_filter, Trade.status.in_(CONFIRMED_TRADE_STATUSES))
+    result = await db.execute(
+        select(
+            func.count(Trade.id).label("total_count"),
+            func.sum(case((action_required, 1), else_=0)).label("action_required_count"),
+            func.sum(case((awaiting_counterparty, 1), else_=0)).label("awaiting_counterparty_count"),
+            func.sum(case((confirmed, 1), else_=0)).label("confirmed_count"),
+        ).select_from(Trade).where(org_filter)
+    )
+    row = result.one()
+    return TradeSummaryResponse(
+        total_count=int(row.total_count or 0),
+        action_required_count=int(row.action_required_count or 0),
+        awaiting_counterparty_count=int(row.awaiting_counterparty_count or 0),
+        confirmed_count=int(row.confirmed_count or 0),
+    )
+
+@router.get("/my", response_model=PaginatedResponse[TradeResponse])
+async def list_my_trades(
+    request: Request,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+    skip: int = Query(0, ge=0),
+    limit: int = Query(20, ge=1, le=100),
+    action_required: Annotated[bool, Query()] = False,
+    status_group: Annotated[TradeStatusGroup, Query()] = "all",
+):
+    party = await resolve_request_party(request, db, current_user)
+    org_id = (
+        party.effective_organization.id
+        if party.effective_organization is not None
+        else current_user.organization_id
+    )
+    if org_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="User must belong to an organization",
+        )
+
+    trade_filter = _trade_list_filter(
+        current_user,
+        org_id,
+        action_required=action_required,
+        status_group=status_group,
+    )
 
     # Count query (same filter, no pagination)
-    count_query = select(func.count(Trade.id)).where(org_filter)
+    count_query = select(func.count(Trade.id)).where(trade_filter)
     total = (await db.execute(count_query)).scalar()
 
     # Data query with pagination
     stmt = (
         select(Trade)
-        .where(org_filter)
+        .where(trade_filter)
         .options(
             joinedload(Trade.buyer),
             joinedload(Trade.seller),
