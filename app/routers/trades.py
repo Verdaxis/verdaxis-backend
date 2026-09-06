@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, UTC
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status, Query
@@ -18,11 +18,12 @@ from app.models.orderbook import (
     OrderBookOrder,
     Trade,
     OrderSide,
+    OrderCreationMethod,
     OrderBookStatus,
     TradeStatus,
     Initiator,
-    OrderCreationMethod,
 )
+from app.models.catalog import DeliveryPoint, Product
 from app.models.notification import NotificationType
 from app.schemas.orderbook import TradeCreate, TradeResponse, TradeDeliverPayload, TradeSummaryResponse
 from app.schemas.pagination import PaginatedResponse
@@ -47,7 +48,10 @@ from app.services.idempotency import (
 from app.services.market_locks import acquire_market_slice_lock
 from app.services.request_party import resolve_request_party
 from app.services.market_provenance import trade_market_provenance
-from app.services.market_data_eligibility import public_order_owner_admission_clause
+from app.services.market_data_eligibility import (
+    active_market_catalog_clauses,
+    public_order_owner_admission_clause,
+)
 from app.services.inventory_reservations import consume_inventory, release_inventory
 from app.services.audit_service import record_audit, request_audit_context
 from app.services.audit_actions import (
@@ -81,6 +85,7 @@ CONFIRMED_TRADE_STATUSES = (
     TradeStatus.PAID,
 )
 TradeStatusGroup = Literal["all", "active", "completed"]
+MONEY_QUANTUM = Decimal("0.01")
 
 
 # ---------------------------------------------------------------------------
@@ -324,8 +329,9 @@ async def _load_trade(db: AsyncSession, trade_id: uuid.UUID, for_update: bool = 
 async def _revalidate_trade_parties(db: AsyncSession, trade: Trade) -> None:
     if not trade.buyer_user_id or not trade.seller_user_id:
         raise HTTPException(status_code=409, detail="Trade parties require fresh admission review")
-    # populate_existing: the acting party is already in the session identity
-    # map; the locked SELECT must observe a concurrent rejection.
+    # The caller already serialized the market rows. Re-lock concrete users
+    # and organizations so an uncommitted admission rejection cannot be
+    # bypassed by an old MVCC version.
     users_result = await db.execute(
         select(User)
         .where(User.id.in_([trade.buyer_user_id, trade.seller_user_id]))
@@ -370,6 +376,95 @@ async def _revalidate_trade_parties(db: AsyncSession, trade: Trade) -> None:
     )
     if not buyer_eligible or not seller_eligible:
         raise HTTPException(status_code=409, detail="Trade parties are no longer execution-qualified")
+
+
+def _assisted_trade_side(
+    trade: Trade, linked_order: OrderBookOrder
+) -> tuple[OrderSide, UUID, UserRole, UUID] | None:
+    """Return the economic side represented by a valid assisted order."""
+    if linked_order.creation_method != OrderCreationMethod.MARKET_SUPPORT:
+        return None
+    if linked_order.side == OrderSide.ASK:
+        valid = (
+            trade.ask_order_id == linked_order.id
+            and trade.seller_id == linked_order.organization_id
+            and trade.seller_user_id == linked_order.owner_user_id
+            and linked_order.created_by_actor_user_id == linked_order.owner_user_id
+        )
+        if valid and linked_order.owner_user_id is not None:
+            return OrderSide.ASK, trade.seller_id, UserRole.SUPPLIER, linked_order.owner_user_id
+    elif linked_order.side == OrderSide.BID:
+        valid = (
+            trade.bid_order_id == linked_order.id
+            and trade.buyer_id == linked_order.organization_id
+            and trade.buyer_user_id == linked_order.owner_user_id
+            and linked_order.created_by_actor_user_id == linked_order.owner_user_id
+        )
+        if valid and linked_order.owner_user_id is not None:
+            return OrderSide.BID, trade.buyer_id, UserRole.BUYER, linked_order.owner_user_id
+    raise HTTPException(status_code=403, detail="Trade support ownership is not valid")
+
+
+async def _authorize_assisted_trade_actor(
+    db: AsyncSession,
+    *,
+    trade: Trade,
+    linked_order: OrderBookOrder | None,
+    current_user: User,
+    expected_side: OrderSide | None = None,
+) -> bool:
+    """Authorize a qualified customer member for a linked support side.
+
+    False means that the caller must use the ordinary exact-principal path for
+    the other trade side. True means the caller is the customer actor for the
+    assisted side. Support admins never pass this path.
+    """
+    if linked_order is None or linked_order.creation_method != OrderCreationMethod.MARKET_SUPPORT:
+        return False
+    support_side, organization_id, expected_role, owner_user_id = _assisted_trade_side(
+        trade, linked_order
+    )
+
+    users_result = await db.execute(
+        select(User)
+        .where(User.id == current_user.id)
+        .execution_options(populate_existing=True)
+    )
+    actor = users_result.scalar_one_or_none()
+    organization_result = await db.execute(
+        select(Organization)
+        .where(Organization.id == organization_id)
+        .execution_options(populate_existing=True)
+    )
+    organization = organization_result.scalar_one_or_none()
+    if actor is None or organization is None:
+        raise HTTPException(status_code=409, detail="Trade support ownership is no longer valid")
+
+    actor_is_support_member = bool(
+        actor
+        and actor.organization_id == organization_id
+        and actor.role == expected_role
+    )
+    if current_user.id == owner_user_id:
+        raise HTTPException(status_code=403, detail="Support administrators cannot change trade lifecycle")
+    if not actor_is_support_member:
+        return False
+    if expected_side is not None and support_side != expected_side:
+        raise HTTPException(status_code=403, detail="Trade side is not authorized for this action")
+    if not await execution_party_is_eligible(db, user=actor, organization=organization):
+        raise HTTPException(status_code=409, detail="Trade parties are no longer execution-qualified")
+    return True
+
+
+def _delivery_amounts(
+    quantity: Decimal, price: Decimal, commission_rate_pct: Decimal
+) -> tuple[Decimal, Decimal]:
+    """Return stored money values using one explicit half-up rounding policy."""
+    total = (quantity * price).quantize(MONEY_QUANTUM, rounding=ROUND_HALF_UP)
+    commission = (
+        total * commission_rate_pct / Decimal("100")
+    ).quantize(MONEY_QUANTUM, rounding=ROUND_HALF_UP)
+    return total, commission
 
 
 def _trade_market_slice(
@@ -554,6 +649,17 @@ async def create_trade(
     ):
         await db.rollback()
         raise HTTPException(status_code=409, detail="Order slice changed; retry the trade")
+
+    catalog_result = await db.execute(
+        select(Product.id)
+        .join(DeliveryPoint, DeliveryPoint.id == order.delivery_point_id)
+        .where(
+            Product.id == order.product_id,
+            *active_market_catalog_clauses(Product, DeliveryPoint),
+        )
+    )
+    if catalog_result.scalar_one_or_none() is None:
+        raise HTTPException(status_code=400, detail="Order is not available for trading")
     organizations = await lock_and_load_market_organizations(
         db,
         [initiator_org_id, order.organization_id],
@@ -931,7 +1037,15 @@ async def confirm_trade(
     )
     await lock_and_load_market_organizations(
         db,
-        [trade.buyer_id, trade.seller_id],
+        [
+            trade.buyer_id,
+            trade.seller_id,
+            *(
+                [current_user.organization_id]
+                if current_user.organization_id not in {trade.buyer_id, trade.seller_id}
+                else []
+            ),
+        ],
         actor_ownerships=(
             MarketActorOwnership(current_user.id, current_user.organization_id),
         ),
@@ -951,15 +1065,23 @@ async def confirm_trade(
             detail="Trade provenance is not eligible for execution",
         )
 
+    assisted_actor = await _authorize_assisted_trade_actor(
+        db,
+        trade=trade,
+        linked_order=confirmed_order,
+        current_user=current_user,
+        expected_side=(OrderSide.ASK if trade.initiated_by == Initiator.BUYER else OrderSide.BID),
+    )
+
     # Only the counterparty (non-initiator) can confirm
     if trade.initiated_by == Initiator.BUYER:
         # Buyer initiated, so seller confirms
-        if trade.seller_id != org_id or trade.seller_user_id != current_user.id:
+        if not assisted_actor and (trade.seller_id != org_id or trade.seller_user_id != current_user.id):
             raise HTTPException(status_code=403, detail="Only the seller can confirm this trade")
         initiator_org_id = trade.buyer_id
     else:
         # Seller initiated, so buyer confirms
-        if trade.buyer_id != org_id or trade.buyer_user_id != current_user.id:
+        if not assisted_actor and (trade.buyer_id != org_id or trade.buyer_user_id != current_user.id):
             raise HTTPException(status_code=403, detail="Only the buyer can confirm this trade")
         initiator_org_id = trade.seller_id
 
@@ -1041,17 +1163,45 @@ async def decline_trade(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(get_authenticated_user)],
 ):
-    # Load without a row lock; decline takes the market-slice lock before
-    # locking either the trade or its order.
-    trade = await _load_trade(db, trade_id, for_update=False)
-    org_id = current_user.organization_id
-
+    trade, order = await _lock_trade_market_rows(
+        db, trade_id, operation="trade_decline"
+    )
     if trade.status != TradeStatus.PENDING_CONFIRMATION:
+        await db.rollback()
         raise HTTPException(status_code=400, detail="Trade is not pending confirmation")
+    org_id = current_user.organization_id
+    assisted_side = (
+        _assisted_trade_side(trade, order)
+        if order is not None and order.creation_method == OrderCreationMethod.MARKET_SUPPORT
+        else None
+    )
+    acting_for_assisted_side = bool(
+        assisted_side
+        and current_user.organization_id == assisted_side[1]
+        and current_user.role == assisted_side[2]
+    )
+    await lock_and_load_market_organizations(
+        db,
+        [trade.buyer_id, trade.seller_id],
+        require_approved=False,
+        actor_ownerships=(
+            (MarketActorOwnership(current_user.id, current_user.organization_id),)
+            if acting_for_assisted_side
+            else ()
+        ),
+    )
+    assisted_actor = await _authorize_assisted_trade_actor(
+        db,
+        trade=trade,
+        linked_order=order,
+        current_user=current_user,
+        expected_side=(OrderSide.ASK if trade.initiated_by == Initiator.BUYER else OrderSide.BID),
+    )
 
-    # Only the counterparty (non-initiator) can decline
+    # Only the counterparty (non-initiator) can decline. Ordinary trades keep
+    # the legacy exact-principal cleanup path, including rejected users.
     if trade.initiated_by == Initiator.BUYER:
-        is_counterparty = (
+        is_counterparty = assisted_actor or (
             trade.seller_user_id == current_user.id
             if trade.seller_user_id is not None
             else trade.seller_id == org_id
@@ -1060,7 +1210,7 @@ async def decline_trade(
             raise HTTPException(status_code=403, detail="Only the seller can decline this trade")
         initiator_org_id = trade.buyer_id
     else:
-        is_counterparty = (
+        is_counterparty = assisted_actor or (
             trade.buyer_user_id == current_user.id
             if trade.buyer_user_id is not None
             else trade.buyer_id == org_id
@@ -1069,24 +1219,11 @@ async def decline_trade(
             raise HTTPException(status_code=403, detail="Only the buyer can decline this trade")
         initiator_org_id = trade.seller_id
 
-    trade, order = await _lock_trade_market_rows(
-        db, trade_id, operation="trade_decline"
-    )
-    if trade.status != TradeStatus.PENDING_CONFIRMATION:
-        await db.rollback()
-        raise HTTPException(status_code=400, detail="Trade is not pending confirmation")
     locked_slice = _trade_market_slice(trade)
     locked_identity = (
         (locked_slice[1], locked_slice[2], locked_slice[3])
         if locked_slice is not None
         else None
-    )
-    await lock_and_load_market_organizations(
-        db,
-        [trade.buyer_id, trade.seller_id],
-        actor_ownerships=(
-            MarketActorOwnership(current_user.id, current_user.organization_id),
-        ),
     )
     trade.status = TradeStatus.DECLINED
 
@@ -1212,7 +1349,15 @@ async def deliver_trade(
     org_id = current_user.organization_id
     await lock_and_load_market_organizations(
         db,
-        [trade.buyer_id, trade.seller_id],
+        [
+            trade.buyer_id,
+            trade.seller_id,
+            *(
+                [org_id]
+                if org_id not in {trade.buyer_id, trade.seller_id}
+                else []
+            ),
+        ],
         actor_ownerships=(MarketActorOwnership(current_user.id, org_id),),
     )
 
@@ -1220,7 +1365,13 @@ async def deliver_trade(
         raise HTTPException(status_code=400, detail="Trade must be confirmed before delivery")
 
     # Either party can mark as delivered
-    if (
+    assisted_actor = await _authorize_assisted_trade_actor(
+        db,
+        trade=trade,
+        linked_order=_linked_order,
+        current_user=current_user,
+    )
+    if not assisted_actor and (
         (org_id, current_user.id)
         not in (
             (trade.buyer_id, trade.buyer_user_id),
@@ -1250,12 +1401,13 @@ async def deliver_trade(
 
     trade.final_quantity_mt = payload.final_quantity_mt
     trade.final_price_per_mt = payload.final_price_per_mt
-    trade.final_total_usd = payload.final_quantity_mt * payload.final_price_per_mt
+    trade.final_total_usd, trade.commission_amount_usd = _delivery_amounts(
+        payload.final_quantity_mt,
+        payload.final_price_per_mt,
+        trade.commission_rate_pct,
+    )
     trade.delivered_at = datetime.now(UTC)
     trade.status = TradeStatus.DELIVERED
-
-    # Calculate commission on the trade (stored on the Trade record itself for Phase 1)
-    trade.commission_amount_usd = trade.final_total_usd * (trade.commission_rate_pct / Decimal("100"))
 
     # Notify the other party
     counterparty_org_id = trade.seller_id if org_id == trade.buyer_id else trade.buyer_id
@@ -1327,7 +1479,15 @@ async def pay_trade(
     org_id = current_user.organization_id
     await lock_and_load_market_organizations(
         db,
-        [trade.buyer_id, trade.seller_id],
+        [
+            trade.buyer_id,
+            trade.seller_id,
+            *(
+                [org_id]
+                if org_id not in {trade.buyer_id, trade.seller_id}
+                else []
+            ),
+        ],
         actor_ownerships=(MarketActorOwnership(current_user.id, org_id),),
     )
 
@@ -1335,7 +1495,14 @@ async def pay_trade(
         raise HTTPException(status_code=400, detail="Trade must be delivered before payment")
 
     # Only the seller can mark as paid
-    if trade.seller_id != org_id or trade.seller_user_id != current_user.id:
+    assisted_actor = await _authorize_assisted_trade_actor(
+        db,
+        trade=trade,
+        linked_order=_linked_order,
+        current_user=current_user,
+        expected_side=OrderSide.ASK,
+    )
+    if not assisted_actor and (trade.seller_id != org_id or trade.seller_user_id != current_user.id):
         raise HTTPException(status_code=403, detail="Only the seller can mark a trade as paid")
 
     if current_user.role != UserRole.SUPPLIER:
