@@ -27,6 +27,11 @@ from app.rate_limit import client_ip
 PREAUTH_LIMITS: tuple[tuple[str, int, int], ...] = (
     ("/api/auth/login", 30, 60),
     ("/api/auth/forgot-password", 15, 60),
+    ("/api/auth/admin/", 300, 60),
+    ("/api/auth/approve/", 300, 60),
+    ("/api/auth/reject/", 300, 60),
+    ("/api/auth/organization/", 300, 60),
+    ("/api/auth/organization-joins", 300, 60),
     ("/api/ai/chat", 60, 60),
     ("/api/kyc/submit", 20, 60),
     ("/api/admin/", 300, 60),

@@ -72,6 +72,42 @@ class TestClientIp:
 
 
 class TestMiddlewareIntegration:
+    @pytest.mark.parametrize("path", [
+        "/api/auth/admin/invitations",
+        "/api/auth/admin/review-queue",
+        "/api/auth/approve/user-id",
+        "/api/auth/reject/user-id",
+        "/api/auth/organization/org-id/approve",
+        "/api/auth/organization-joins",
+        "/api/auth/organization-joins/request-id/reject",
+    ])
+    @pytest.mark.asyncio
+    async def test_limits_auth_admin_paths_before_dependencies(self, path):
+        from fastapi import Depends, FastAPI, HTTPException
+        from httpx import ASGITransport, AsyncClient
+
+        app = FastAPI()
+        app.middleware("http")(prl.preauth_rate_limit_middleware)
+
+        def reject_invalid_token():
+            raise HTTPException(status_code=401, detail="Invalid token")
+
+        @app.get(path, dependencies=[Depends(reject_invalid_token)])
+        async def protected_endpoint():
+            pytest.fail("Unauthenticated request reached the endpoint")
+
+        prefix, limit, window = next(
+            rule for rule in prl.PREAUTH_LIMITS if path.startswith(rule[0])
+        )
+        transport = ASGITransport(app=app, client=("198.51.100.7", 1234))
+        async with AsyncClient(transport=transport, base_url="http://t") as client:
+            assert (await client.get(path)).status_code == 401
+            started, _ = prl._buckets[(prefix, "198.51.100.7")]
+            prl._buckets[(prefix, "198.51.100.7")] = (started, limit)
+            response = await client.get(path)
+            assert response.status_code == 429
+            assert response.headers["Retry-After"] == str(window)
+
     @pytest.mark.asyncio
     async def test_limits_unauthenticated_admin_requests(self):
         from fastapi import FastAPI
