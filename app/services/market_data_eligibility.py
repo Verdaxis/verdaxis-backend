@@ -74,10 +74,9 @@ def public_order_owner_admission_clause(order):
         )
         .exists()
     )
-    return or_(
-        order.owner_user_id.is_(None),
-        and_(order.creation_method != OrderCreationMethod.MARKET_SUPPORT, eligible_owner),
-        assisted_owner,
+    return case(
+        (order.creation_method == OrderCreationMethod.MARKET_SUPPORT, assisted_owner),
+        else_=or_(order.owner_user_id.is_(None), eligible_owner),
     )
 
 
