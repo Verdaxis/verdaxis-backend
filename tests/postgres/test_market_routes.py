@@ -398,6 +398,9 @@ async def test_direct_trade_replay_is_snapshot_only_and_hash_conflict_is_immutab
     assert len({body["id"] for body in bodies}) == 1
     assert all(body["market_product"] == "BIO_METHANOL" for body in bodies)
     assert all(body["delivery_point_name"] == "Singapore" for body in bodies)
+    assert all(body["is_anonymous"] is True for body in bodies)
+    assert all(body["seller_id"] is None for body in bodies)
+    assert all(body["seller_name"] == "Anonymous" for body in bodies)
 
     conflict = await client.post(
         "/api/trades/",

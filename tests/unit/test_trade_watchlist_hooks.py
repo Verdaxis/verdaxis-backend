@@ -296,6 +296,9 @@ async def test_create_trade_emits_pin_and_slice_events(monkeypatch, db: AsyncSes
     response = await trades_router.create_trade(payload=payload, request=_fake_request(), db=db, current_user=current_user)
 
     assert response.status == 'PENDING_CONFIRMATION'
+    assert response.is_anonymous is True
+    assert response.seller_id is None
+    assert response.seller_name == 'Anonymous'
     events = (await db.execute(select(WatchlistEvent).order_by(WatchlistEvent.created_at.asc()))).scalars().all()
     event_types = [event.event_type.value for event in events]
     assert 'PIN_FILLED' in event_types
