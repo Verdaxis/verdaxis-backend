@@ -5,6 +5,9 @@ from decimal import Decimal
 from types import SimpleNamespace
 from uuid import uuid4
 
+import pytest
+from pydantic import ValidationError
+
 
 def _trade(status):
     from app.models.orderbook import Initiator, Trade
@@ -55,6 +58,20 @@ def test_order_create_schema_has_is_anonymous():
 def test_order_create_schema_defaults_is_anonymous_to_true():
     from app.schemas.orderbook import OrderCreate
     assert OrderCreate.model_fields["is_anonymous"].default is True
+
+
+def test_order_create_schema_rejects_non_anonymous_orders():
+    from app.schemas.orderbook import OrderCreate, OrderSide
+
+    with pytest.raises(ValidationError):
+        OrderCreate(
+            side=OrderSide.BID,
+            product_id=uuid4(),
+            delivery_point_id=uuid4(),
+            quantity_mt=Decimal("100"),
+            price_per_mt_usd=Decimal("500"),
+            is_anonymous=False,
+        )
 
 
 def test_anonymous_pending_trade_shows_only_buyers_own_identity():

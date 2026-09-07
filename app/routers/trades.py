@@ -798,6 +798,7 @@ async def create_trade(
         quantity_mt=payload.quantity_mt,
         price_per_mt_usd=order.price_per_mt_usd,
         status=TradeStatus.PENDING_CONFIRMATION,
+        is_anonymous=True,
         idempotency_key=idempotency_key,
         idempotency_operation=(TRADE_CREATE_OPERATION if idempotency_key else None),
         idempotency_request_hash=request_hash,

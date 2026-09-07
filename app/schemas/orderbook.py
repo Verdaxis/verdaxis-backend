@@ -145,7 +145,7 @@ class OrderCreate(AvailabilityWindowMixin, SupplierListingMetadataMixin):
     certifications: list[str] = Field(default_factory=list)
     certification_scheme: Optional[str] = None
     expires_at: Optional[datetime] = None
-    is_anonymous: bool = True
+    is_anonymous: Literal[True] = True
     support_confirmation: MarketSupportFinalConfirmation | None = None
 
     @field_validator("quantity_mt", "price_per_mt_usd")

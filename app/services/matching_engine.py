@@ -42,7 +42,7 @@ MAX_CROSSING_ORDERS_PER_MATCH = 100
 async def match_order(
     db: AsyncSession,
     new_order: OrderBookOrder,
-    is_anonymous: bool = False,
+    is_anonymous: bool = True,
     allowed_demo_order_pair: frozenset[uuid.UUID] | None = None,
 ) -> list[Trade]:
     """
