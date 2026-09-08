@@ -155,7 +155,7 @@ async def _seed_login_user(session, *, role=UserRole.BUYER, password="correct-ho
     org = Organization(id=uuid4(), name=f"Org {uuid4()}", type=OrgType.FUEL_BUYER)
     user = User(
         id=uuid4(),
-        email=f"{uuid4()}@example.test",
+        email=f"{uuid4()}@example.com",
         password_hash=get_password_hash(password),
         role=role,
         status=UserStatus.APPROVED,
