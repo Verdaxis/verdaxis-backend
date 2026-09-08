@@ -106,6 +106,18 @@ class TestRefreshCookieMigration:
         assert response.status_code == 200
         data = response.json()
         assert data["access_token"] == "access-token-login"
+        assert data["profile"] == {
+            "id": str(user.id),
+            "email": user.email,
+            "first_name": "Test",
+            "last_name": "User",
+            "role": "BUYER",
+            "status": "APPROVED",
+            "organization_id": None,
+            "referral_code": None,
+            "must_change_password": False,
+        }
+        assert "password_hash" not in response.text
         # The refresh token must travel ONLY in the HttpOnly cookie.
         assert "refresh_token" not in data
         cookie_header = _cookie_header(response)

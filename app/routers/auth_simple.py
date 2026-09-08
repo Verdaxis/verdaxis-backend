@@ -26,7 +26,7 @@ from app.models.user import (
 )
 from app.models.refresh_session import RefreshSession
 from app.models.registration import PendingRegistration, OrganizationJoinRequest, JoinRequestStatus
-from app.schemas.user import UserCreate, UserResponse, UserUpdate, RegistrationResponse, PasswordChangeRequest
+from app.schemas.user import LoginResponse, UserCreate, UserResponse, UserUpdate, RegistrationResponse, PasswordChangeRequest
 from app.schemas.organization import OrganizationCreate, organization_type_matches_role
 from app.schemas.errors import AUTH_RESPONSES
 from app.core.security import (
@@ -586,6 +586,25 @@ PASSWORD_CHANGE_ALLOWED_PATHS = {
     "/api/auth/me/password",
 }
 
+# Only audited, high-traffic read routes may share the user-row lock. New and
+# unclassified routes stay exclusive until their full dependency chain has
+# been checked for writes and lock upgrades.
+AUTHENTICATED_SHARED_LOCK_PATHS = frozenset(
+    {
+        "/api/auth/me",
+        "/api/notifications",
+        "/api/notifications/unread-count",
+        "/api/orderbook/my",
+        "/api/orderbook/my/latest-ask-template",
+        "/api/trades/my",
+        "/api/trades/summary",
+        "/api/users/me/preferences",
+        "/api/watchlists",
+        "/api/watchlists/{watchlist_id}",
+        "/api/watchlists/{watchlist_id}/events",
+    }
+)
+
 
 def _token_issued_at(payload: dict) -> datetime | None:
     issued_at_us = payload.get("iat_us")
@@ -649,9 +668,20 @@ async def _resolve_authenticated_user(
     except ValueError:
         raise credentials_exception
 
-    # This lock is also acquired by rotation/logout/password changes. Mutable
-    # account checks and rotation therefore operate on one serialized state.
-    stmt = select(User).where(User.id == user_uuid).with_for_update()
+    # Read-only requests share the user-row lock, so concurrent page loads do
+    # not serialize. Account/session writers still conflict with FOR SHARE and
+    # all mutating requests retain FOR UPDATE.
+    route = request.scope.get("route")
+    route_path = getattr(route, "path", request.url.path)
+    has_market_support_context = bool(
+        request.headers.get("X-Verdaxis-Market-Support-Context")
+    )
+    use_shared_lock = (
+        request.method == "GET"
+        and route_path in AUTHENTICATED_SHARED_LOCK_PATHS
+        and not has_market_support_context
+    )
+    stmt = select(User).where(User.id == user_uuid).with_for_update(read=use_shared_lock)
     result = await db.execute(stmt)
     user = result.scalar_one_or_none()
 
@@ -690,7 +720,7 @@ async def get_current_user(
 # Login — returns access token in body and refresh token in both body + cookie
 # ---------------------------------------------------------------------------
 
-@router.post("/login")
+@router.post("/login", response_model=LoginResponse)
 @limiter.limit("5/minute")
 async def login(
     request: _Request,
@@ -784,6 +814,7 @@ async def login(
     return {
         "access_token": access_token,
         "token_type": "bearer",
+        "profile": UserResponse.model_validate(user),
     }
 
 # ---------------------------------------------------------------------------

@@ -54,6 +54,11 @@ class Token(BaseModel):
     access_token: str
     token_type: str
 
+
+class LoginResponse(Token):
+    profile: UserResponse
+
+
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str
