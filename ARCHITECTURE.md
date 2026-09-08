@@ -26,7 +26,7 @@ app/
     marketplace.py              # InventoryItem, FuelType enum
     orderbook.py                # OrderBookOrder (BID/ASK), Trade, canonical availability_window strings, enums (OrderSide, TradeStatus)
     market_support.py           # Durable staff capabilities, opaque contexts, and exact one-use assisted-listing authorizations
-    live_slice_benchmark.py     # Persisted same-side slice VWAP aggregates for fast marketplace benchmark reads
+    live_slice_benchmark.py     # Persisted same-side slice VWAP aggregates maintained by explicit rebuilds
     orders.py                   # Commission (legacy match_id + trade_id FKs)
     matchmaking.py              # MatchSuggestion
     watchlist.py                 # Watchlist, typed targets, event feed for Market Radar
@@ -80,7 +80,7 @@ app/
     benchmarks.py               # External/manual benchmark lookup keyed by market_product + delivery_point + availability_window
     forward_curve_market_slices.py # Canonical public Forward Curve table/slice read models and label policy
     market_signal_ingestion.py    # Trusted signal importer: validate -> verified ingestion runs whose rows classify REAL (see docs/market-signal-ingestion.md)
-    live_benchmarks.py          # Persisted live same-side slice VWAP rebuilds + read-through fallback
+    live_benchmarks.py          # Explicit VWAP rebuilds and batched read-only calculations from eligible orders
     availability_windows.py     # Canonical availability code parsing, sorting, display labels, legacy alias normalization
     compliance_scoring.py       # Pure function scoring — FuelEU/ETS/CII, 9 fuels, scenario engine
     audit_service.py            # record_audit() — non-committing async audit logging (call inside the caller's transaction, before its commit)
@@ -139,6 +139,7 @@ alembic/versions/               # Migrations incl. canonical availability-window
 - **SSE broadcasting:** `event_bus.publish(channel, event_type, data)` → subscribers via AsyncIO queues; order/trade payloads are append-only enriched with market source/scope/demo provenance. Private market lifecycle events additionally flow through the durable `market_event_outbox` → sequencer → hub pipeline, so delivery and `Last-Event-ID` replay survive worker restarts and cross Uvicorn workers (docs/market-event-dispatch.md; prune policy documented, nothing armed)
 - **Compliance scoring:** Pure function `calculate_compliance_score()` — no DB, 100% testable
 - **JWT auth:** 15-min access + 7-day refresh, plus 60-second `type="stream"` tokens from `/auth/stream-token` for SSE query-param auth. Ordinary API auth only accepts access tokens; activity SSE query auth only accepts stream tokens.
+- **Authentication locks:** Only audited normal GET route templates share the user-row lock. Mutations, unclassified routes, and all assisted-context requests keep exclusive locks. Account/session writes still conflict with shared readers. Password login returns the same sanitized profile as `/auth/me` with its access token.
 - **Cookie-backed refresh:** refresh token is also rotated through an HttpOnly `refresh_token` cookie scoped to `/api/auth`, while access tokens remain bearer tokens
 - **Account-side organization binding:** New-organization registration, domain-derived join requests, membership approval, and admin pre-approved invitations enforce the same account-role to organization-type boundary in the backend: supported buy-side organization types belong to `BUYER`; `FUEL_SUPPLIER` belongs to `SUPPLIER`.
 - **Account approval email:** The canonical administrator account-approval route persists the exact pending status-transition UUID, immutable provider payload, and due time with account status and audit state. After commit, delivery locks and revalidates the user before replaying that payload with the transition UUID as Resend's idempotency key. Failures move the due time forward so one bad recipient cannot starve the queue; rejection invalidates unsent approval mail. Idempotent re-approval does not enqueue again, and email failure cannot roll back admission. Organization, membership, KYC, and trading-access approvals remain independent gates.
@@ -146,6 +147,7 @@ alembic/versions/               # Migrations incl. canonical availability-window
 - **Rate limiting:** slowapi per-route (5/min login, 3/min password, 60/min prices, 30/min reference)
 - **Availability windows:** Persist canonical codes (`SPOT`, `YYYY-MM`, `YYYY-QN`, legacy-compatible `YYYY-CAL`); UI-relative labels like `M+1` must be resolved before persistence
 - **Green-fuels market model:** Matching and live slice benchmarks key on `side + market_product + delivery_point + availability_window`; supplier sustainability/compliance fields stay out of the hard market key
+- **Orderbook read performance:** List responses reuse joined product/delivery-point rows and eager-load organization data. Benchmark inputs are fetched once for all requested slices, including cached missing results within the request. `/orderbook/map-summary` returns all eligible compact groups and the latest ASK per delivery point; `/orderbook/product-counts` uses the public listing filters for all four product totals.
 - **Market provenance contract:** Market-data responses use shared `source_kind`, `scope`, and `demo_status` fields. Aggregate data exposes real/demo/unknown counts; unknown contributors remain `UNKNOWN` rather than being collapsed into real/demo/mixed.
 - **Forward Curve monitoring:** `/curves/forward/table` and `/curves/forward/slice` use `forward_curve_market_slices.py` as the canonical public read model for approved `market_product + delivery_point + availability_window` slices. Products aggregate by canonical market product, delivery points are restricted to the approved trading ports, and public cells expose server-owned label policy plus redacted source/demo/staleness fields. `/curves/forward/board` remains for older clients.
 - **Real signal ingestion:** `scripts/ingest_market_signals.py` (staging-guarded, dry-run default) + `services/market_signal_ingestion.py` produce verified `market_signal_ingestion_runs` whose rows satisfy the trust predicate in `forward_monitoring.py` and render as REAL. CSV formats, staleness semantics, redaction invariants, and rollback SQL: `docs/market-signal-ingestion.md`.
