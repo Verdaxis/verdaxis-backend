@@ -1,9 +1,10 @@
 import pytest
-from datetime import UTC, datetime
+from contextlib import contextmanager
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from uuid import uuid4
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, event, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.database import Base
@@ -23,6 +24,20 @@ REQUIRED_TABLES = [
     'orderbook_orders',
     'live_slice_benchmarks',
 ]
+
+
+@contextmanager
+def _count_sql_statements(async_engine):
+    statements: list[str] = []
+
+    def record_statement(_connection, _cursor, statement, _parameters, _context, _executemany):
+        statements.append(statement)
+
+    event.listen(async_engine.sync_engine, 'before_cursor_execute', record_statement)
+    try:
+        yield statements
+    finally:
+        event.remove(async_engine.sync_engine, 'before_cursor_execute', record_statement)
 
 
 @pytest.fixture(scope='module')
@@ -233,3 +248,128 @@ class TestLiveSliceBenchmarks:
         remaining = (await db.execute(select(LiveSliceBenchmark))).scalars().all()
         assert price is None
         assert remaining == []
+
+    @pytest.mark.asyncio
+    async def test_list_asks_batches_distinct_slice_benchmarks_with_bounded_queries(
+        self,
+        db: AsyncSession,
+        async_engine,
+    ):
+        supplier = await _make_org(db, 'Batch Supplier')
+        products = [
+            await _make_product(db, name='Bio Methanol', fuel_type='Methanol', fuel_grade='Bio'),
+            await _make_product(db, name='Bio Ethanol', fuel_type='Ethanol', fuel_grade='Bio'),
+        ]
+        delivery_points = [
+            await _make_delivery_point(db, 'Dalian', 'Asia'),
+            await _make_delivery_point(db, 'Busan', 'Asia'),
+            await _make_delivery_point(db, 'Rotterdam', 'Europe'),
+            await _make_delivery_point(db, 'Houston', 'Americas'),
+        ]
+        now = datetime.now(UTC)
+
+        expected_benchmarks: dict[tuple[str, str], Decimal] = {}
+        for index, (product, delivery_point) in enumerate(
+            (product, delivery_point)
+            for product in products
+            for delivery_point in delivery_points
+        ):
+            base_price = Decimal('700') + Decimal(index * 25)
+            expected_benchmarks[(product.market_product, str(delivery_point.id))] = base_price + Decimal('15')
+            for offset, (quantity, premium) in enumerate((('100', '0'), ('300', '20'))):
+                order = _make_order(
+                    org_id=supplier.id,
+                    side=OrderSide.ASK,
+                    product_id=product.id,
+                    delivery_point_id=delivery_point.id,
+                    price=str(base_price + Decimal(premium)),
+                    quantity=quantity,
+                )
+                order.certifications = ['ISCC EU']
+                order.created_at = now + timedelta(seconds=index * 2 + offset)
+                if index == 7:
+                    order.provenance = OrganizationProvenance.DEMO
+                    order.expires_at = now + timedelta(hours=1)
+                db.add(order)
+
+        off_spec = _make_order(
+            org_id=supplier.id,
+            side=OrderSide.ASK,
+            product_id=products[0].id,
+            delivery_point_id=delivery_points[0].id,
+            price='999',
+            quantity='50',
+        )
+        off_spec.availability_window = '2027-Q1'
+        off_spec.off_spec = True
+        off_spec.created_at = now + timedelta(minutes=1)
+
+        uncertified = _make_order(
+            org_id=supplier.id,
+            side=OrderSide.ASK,
+            product_id=products[0].id,
+            delivery_point_id=delivery_points[0].id,
+            price='1',
+        )
+        uncertified.certification_declared = False
+
+        expired_demo = _make_order(
+            org_id=supplier.id,
+            side=OrderSide.ASK,
+            product_id=products[0].id,
+            delivery_point_id=delivery_points[0].id,
+            price='1',
+        )
+        expired_demo.provenance = OrganizationProvenance.DEMO
+        expired_demo.expires_at = now - timedelta(seconds=1)
+        db.add_all([off_spec, uncertified, expired_demo])
+        await db.commit()
+
+        with _count_sql_statements(async_engine) as short_statements:
+            short_page = await list_asks(
+                product_id=None,
+                delivery_point_id=None,
+                fuel_type=None,
+                market_product=None,
+                region=None,
+                availability_window=None,
+                include_off_spec=True,
+                sort_by='newest',
+                skip=0,
+                limit=4,
+                db=db,
+            )
+        with _count_sql_statements(async_engine) as full_statements:
+            full_page = await list_asks(
+                product_id=None,
+                delivery_point_id=None,
+                fuel_type=None,
+                market_product=None,
+                region=None,
+                availability_window=None,
+                include_off_spec=True,
+                sort_by='newest',
+                skip=0,
+                limit=100,
+                db=db,
+            )
+
+        assert len(short_page.items) == 4
+        assert len(full_page.items) == 17
+        assert len(short_statements) == len(full_statements) == 4
+        assert off_spec.id in {item.id for item in full_page.items}
+        assert next(item for item in full_page.items if item.id == off_spec.id).benchmark_price_per_mt_usd is None
+        assert uncertified.id not in {item.id for item in full_page.items}
+        assert expired_demo.id not in {item.id for item in full_page.items}
+
+        qualified_items = [item for item in full_page.items if item.id != off_spec.id]
+        for item in qualified_items:
+            assert item.benchmark_price_per_mt_usd == expected_benchmarks[
+                (item.market_product, str(item.delivery_point_id))
+            ]
+            assert item.certifications == ['ISCC EU']
+        demo_items = [item for item in qualified_items if item.is_demo_listing]
+        assert len(demo_items) == 2
+        assert {item.source_kind for item in demo_items} == {'DEMO_SEED'}
+        assert not db.new
+        assert not db.dirty
