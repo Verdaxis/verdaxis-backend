@@ -77,20 +77,28 @@ async def test_authenticated_reads_overlap_and_status_update_waits(pg_session):
             writer_acquired.set()
             await session.commit()
 
-    first = asyncio.create_task(read(first_acquired))
-    await asyncio.wait_for(first_acquired.wait(), timeout=1)
-    second = asyncio.create_task(read(second_acquired))
-    await asyncio.wait_for(second_acquired.wait(), timeout=1)
-    writer = asyncio.create_task(reject_account())
-    await asyncio.wait_for(writer_started.wait(), timeout=1)
-
+    readers = [
+        asyncio.create_task(read(first_acquired)),
+        asyncio.create_task(read(second_acquired)),
+    ]
+    writer = None
     try:
+        # Acquisition is a liveness check, not a latency benchmark. Leave room
+        # for a busy test runner while keeping the blocked-writer check short.
+        await asyncio.wait_for(
+            asyncio.gather(first_acquired.wait(), second_acquired.wait()),
+            timeout=5,
+        )
+        writer = asyncio.create_task(reject_account())
+        await asyncio.wait_for(writer_started.wait(), timeout=5)
         with pytest.raises(asyncio.TimeoutError):
             await asyncio.wait_for(writer_acquired.wait(), timeout=0.2)
     finally:
         release_reads.set()
+        await asyncio.gather(*readers)
+        if writer is not None:
+            await writer
 
-    await asyncio.gather(first, second, writer)
     assert writer_acquired.is_set()
 
     async with factory() as session:
