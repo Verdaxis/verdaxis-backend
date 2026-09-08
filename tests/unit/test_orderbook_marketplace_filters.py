@@ -12,13 +12,16 @@ from app.market_catalog import DELIVERY_POINTS_BY_NAME, PRODUCTS_BY_NAME
 from app.models.catalog import DeliveryPoint, Product
 from app.models.orderbook import OrderBookOrder, OrderBookStatus, OrderSide
 from app.models.user import OrganizationProvenance, OrgType, Organization
+from app.schemas.market_activity import MarketDemoStatus, MarketSourceKind
 from app.routers.orderbook import (
+    get_map_summary,
     list_active_products,
     list_aggregated_orderbook,
     list_asks,
     list_fuel_types,
     list_orders,
     list_orders_with_ci,
+    list_product_counts,
     list_regions,
 )
 
@@ -715,3 +718,149 @@ class TestMarketplaceFuelFiltering:
         assert {row.demo_status.value for row in result} == {'REAL_ONLY', 'DEMO_ONLY'}
         assert sorted(row.total_quantity for row in result) == [Decimal('100'), Decimal('200')]
         assert all(row.product_total_order_count == 1 for row in result)
+
+    @pytest.mark.asyncio
+    async def test_product_counts_apply_listing_side_port_and_window_filters(self, db: AsyncSession):
+        supplier = await _make_org(db, 'Count Supplier')
+        singapore = await _make_delivery_point(db, 'Singapore', 'Asia')
+        santos = await _make_delivery_point(db, 'Santos', 'Americas')
+        bio_methanol = await _make_product(
+            db,
+            name='Bio Methanol',
+            fuel_type='Methanol',
+            fuel_grade='Bio',
+        )
+        e_methanol = await _make_product(
+            db,
+            name='e-Methanol',
+            fuel_type='Methanol',
+            fuel_grade='E',
+        )
+        matching_orders = [
+            _make_order(
+                org_id=supplier.id,
+                product_id=product.id,
+                delivery_point_id=singapore.id,
+                price='1000',
+            )
+            for product in (bio_methanol, e_methanol)
+        ]
+        bid = _make_order(
+            org_id=supplier.id,
+            product_id=bio_methanol.id,
+            delivery_point_id=singapore.id,
+            price='950',
+        )
+        bid.side = OrderSide.BID
+        wrong_window = _make_order(
+            org_id=supplier.id,
+            product_id=bio_methanol.id,
+            delivery_point_id=singapore.id,
+            price='1010',
+            availability_window='2027-Q1',
+        )
+        wrong_port = _make_order(
+            org_id=supplier.id,
+            product_id=e_methanol.id,
+            delivery_point_id=santos.id,
+            price='1020',
+        )
+        db.add_all([*matching_orders, bid, wrong_window, wrong_port])
+        await db.commit()
+
+        asks = await list_product_counts(
+            side=OrderSide.ASK,
+            delivery_point_id=singapore.id,
+            region=None,
+            availability_window='SPOT',
+            include_off_spec=False,
+            db=db,
+        )
+        bids = await list_product_counts(
+            side=OrderSide.BID,
+            delivery_point_id=None,
+            region='Singapore',
+            availability_window='SPOT',
+            include_off_spec=False,
+            db=db,
+        )
+
+        assert asks.counts == {
+            'BIO_METHANOL': 1,
+            'E_METHANOL': 1,
+            'BIO_ETHANOL': 0,
+            'SYNTHETIC_ETHANOL': 0,
+        }
+        assert asks.total == 2
+        assert bids.counts['BIO_METHANOL'] == 1
+        assert bids.total == 1
+
+    @pytest.mark.asyncio
+    async def test_map_summary_uses_all_eligible_rows_and_latest_ask_per_port(self, db: AsyncSession):
+        real_supplier = await _make_org(db, 'Map Real Supplier')
+        demo_supplier = await _make_org(db, 'Map Demo Supplier')
+        demo_supplier.provenance = OrganizationProvenance.DEMO
+        singapore = await _make_delivery_point(db, 'Singapore', 'Asia')
+        rotterdam = await _make_delivery_point(db, 'Rotterdam', 'Europe')
+        bio_methanol = await _make_product(
+            db,
+            name='Bio Methanol',
+            fuel_type='Methanol',
+            fuel_grade='Bio',
+        )
+        now = datetime.now(UTC)
+        older = _make_order(
+            org_id=real_supplier.id,
+            product_id=bio_methanol.id,
+            delivery_point_id=singapore.id,
+            price='1000',
+            quantity='1000',
+        )
+        older.remaining_quantity_mt = Decimal('400')
+        older.created_at = now - timedelta(minutes=2)
+        latest_demo = _make_order(
+            org_id=demo_supplier.id,
+            product_id=bio_methanol.id,
+            delivery_point_id=singapore.id,
+            price='1100',
+            quantity='300',
+            provenance=OrganizationProvenance.DEMO,
+        )
+        latest_demo.created_at = now - timedelta(minutes=1)
+        rotterdam_ask = _make_order(
+            org_id=real_supplier.id,
+            product_id=bio_methanol.id,
+            delivery_point_id=rotterdam.id,
+            price='1050',
+            quantity='200',
+        )
+        rotterdam_ask.created_at = now
+        excluded = _make_order(
+            org_id=real_supplier.id,
+            product_id=bio_methanol.id,
+            delivery_point_id=singapore.id,
+            price='1',
+        )
+        excluded.off_spec = True
+        excluded.created_at = now + timedelta(minutes=1)
+        db.add_all([older, latest_demo, rotterdam_ask, excluded])
+        await db.commit()
+
+        summary = await get_map_summary(db=db)
+
+        assert len(summary.groups) == 3
+        singapore_quantity = sum(
+            row.total_quantity
+            for row in summary.groups
+            if row.delivery_point_id == singapore.id and row.side == OrderSide.ASK
+        )
+        assert singapore_quantity == Decimal('700')
+        assert len(summary.recent_asks) == 2
+        singapore_latest = next(
+            row for row in summary.recent_asks if row.delivery_point_id == singapore.id
+        )
+        assert singapore_latest.price_per_mt_usd == Decimal('1100')
+        assert singapore_latest.remaining_quantity_mt == Decimal('300')
+        assert singapore_latest.evidence_class == 'DEMO'
+        assert singapore_latest.source_kind == MarketSourceKind.DEMO_SEED
+        assert singapore_latest.demo_status == MarketDemoStatus.DEMO_ONLY

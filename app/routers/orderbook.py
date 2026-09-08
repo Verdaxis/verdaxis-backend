@@ -11,7 +11,7 @@ from app.services.audit_actions import (
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, or_, and_
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import contains_eager, joinedload, selectinload
 from typing import Annotated, Literal, Optional
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
@@ -39,7 +39,10 @@ from app.schemas.orderbook import (
     OrderMyResponse,
     SupplierListingTemplateResponse,
     AggregatedOrderbookResponse,
+    MapRecentAskResponse,
+    MapSummaryResponse,
     OrderResponseWithCI,
+    ProductCountResponse,
 )
 from app.schemas.pagination import PaginatedResponse
 from app.schemas.market_activity import MarketDemoStatus, MarketScope, MarketSourceKind
@@ -84,6 +87,8 @@ from app.services.market_data_eligibility import (
 from app.services.live_benchmarks import (
     LiveBenchmarkKey,
     get_live_slice_benchmark_price,
+    get_live_slice_benchmark_prices,
+    live_benchmark_key_for_order,
     rebuild_live_slice_benchmarks_for_keys,
 )
 from app.services.behavioral_analytics import (
@@ -174,6 +179,25 @@ def _apply_public_marketplace_scope(
     filters.append(or_(OrderBookOrder.side != OrderSide.ASK, func.length(func.trim(func.coalesce(OrderBookOrder.origin, ""))) > 0))
 
 
+def _public_order_scope(
+    *,
+    side: OrderSide | None = None,
+    include_off_spec: bool = False,
+) -> tuple[list[object], list[tuple[object, object]]]:
+    filters: list[object] = [
+        OrderBookOrder.status.in_((OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED))
+    ]
+    if side is not None:
+        filters.append(OrderBookOrder.side == side)
+    joins: list[tuple[object, object]] = []
+    _apply_public_marketplace_scope(
+        filters,
+        joins,
+        include_off_spec=include_off_spec,
+    )
+    return filters, joins
+
+
 def _normalize_market_product_query(value: MarketProduct | str | None) -> str | None:
     if value is None or not isinstance(value, (str, MarketProduct)):
         return None
@@ -244,6 +268,17 @@ def _normalize_query_window(value: str | None) -> str | None:
         return normalize_availability_window(value)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+def _market_evidence_fields(provenance: object) -> dict[str, object]:
+    evidence_class = getattr(provenance, "value", provenance)
+    is_real = evidence_class == OrganizationProvenance.REAL.value
+    return {
+        "evidence_class": evidence_class,
+        "source_kind": MarketSourceKind.LIVE_ORDER if is_real else MarketSourceKind.DEMO_SEED,
+        "scope": MarketScope.DELIVERY_POINT,
+        "demo_status": MarketDemoStatus.REAL_ONLY if is_real else MarketDemoStatus.DEMO_ONLY,
+    }
 
 
 def _supplier_metadata_payload(source: object) -> dict[str, object]:
@@ -431,6 +466,16 @@ async def _order_my_response(
     return item
 
 
+async def _load_benchmark_prices(
+    db: AsyncSession,
+    orders: list[OrderBookOrder],
+) -> dict[LiveBenchmarkKey, Decimal | None]:
+    return await get_live_slice_benchmark_prices(
+        db,
+        (live_benchmark_key_for_order(order) for order in orders),
+    )
+
+
 async def _replay_belongs_to_party(
     db: AsyncSession, order: OrderBookOrder, party
 ) -> bool:
@@ -572,12 +617,10 @@ async def list_bids(
     List all open BID orders with pagination.
     """
     # Build shared filter conditions
-    filters = [
-        OrderBookOrder.status.in_([OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED]),
-        OrderBookOrder.side == OrderSide.BID,
-    ]
-    joins = []
-    _apply_public_marketplace_scope(filters, joins, include_off_spec=include_off_spec)
+    filters, joins = _public_order_scope(
+        side=OrderSide.BID,
+        include_off_spec=include_off_spec,
+    )
     if product_id:
         filters.append(OrderBookOrder.product_id == product_id)
     if fuel_type:
@@ -607,7 +650,11 @@ async def list_bids(
     # Data query with pagination
     query = (
         select(OrderBookOrder)
-        .options(selectinload(OrderBookOrder.organization))
+        .options(
+            contains_eager(OrderBookOrder.product),
+            contains_eager(OrderBookOrder.delivery_point),
+            joinedload(OrderBookOrder.organization),
+        )
     )
     for join_target, join_cond in joins:
         query = query.join(join_target, join_cond)
@@ -617,7 +664,7 @@ async def list_bids(
 
     best_ask_prices = await _load_best_opposing_prices(db, orders, opposing_side=OrderSide.ASK)
 
-    benchmark_cache: dict[LiveBenchmarkKey, Decimal | None] = {}
+    benchmark_cache = await _load_benchmark_prices(db, orders)
 
     items = []
     for order in orders:
@@ -655,12 +702,10 @@ async def list_asks(
     List all open ASK orders with pagination.
     """
     # Build shared filter conditions
-    filters = [
-        OrderBookOrder.status.in_([OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED]),
-        OrderBookOrder.side == OrderSide.ASK,
-    ]
-    joins = []
-    _apply_public_marketplace_scope(filters, joins, include_off_spec=include_off_spec)
+    filters, joins = _public_order_scope(
+        side=OrderSide.ASK,
+        include_off_spec=include_off_spec,
+    )
     if product_id:
         filters.append(OrderBookOrder.product_id == product_id)
     if fuel_type:
@@ -690,7 +735,11 @@ async def list_asks(
     # Data query with pagination
     query = (
         select(OrderBookOrder)
-        .options(selectinload(OrderBookOrder.organization))
+        .options(
+            contains_eager(OrderBookOrder.product),
+            contains_eager(OrderBookOrder.delivery_point),
+            joinedload(OrderBookOrder.organization),
+        )
     )
     for join_target, join_cond in joins:
         query = query.join(join_target, join_cond)
@@ -700,7 +749,7 @@ async def list_asks(
 
     best_bid_prices = await _load_best_opposing_prices(db, orders, opposing_side=OrderSide.BID)
 
-    benchmark_cache: dict[LiveBenchmarkKey, Decimal | None] = {}
+    benchmark_cache = await _load_benchmark_prices(db, orders)
 
     items = []
     for order in orders:
@@ -735,9 +784,7 @@ async def list_orders_with_ci(
     Orders that have carbon_intensity and energy_density populated
     will include the ci_adjusted_price object.
     """
-    filters = [OrderBookOrder.status.in_([OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED])]
-    joins: list[tuple[object, object]] = []
-    _apply_public_marketplace_scope(filters, joins, include_off_spec=include_off_spec)
+    filters, joins = _public_order_scope(include_off_spec=include_off_spec)
     if product_id:
         filters.append(OrderBookOrder.product_id == product_id)
     if delivery_point_id:
@@ -745,7 +792,11 @@ async def list_orders_with_ci(
     if side:
         filters.append(OrderBookOrder.side == side)
 
-    query = select(OrderBookOrder).options(selectinload(OrderBookOrder.organization))
+    query = select(OrderBookOrder).options(
+        contains_eager(OrderBookOrder.product),
+        contains_eager(OrderBookOrder.delivery_point),
+        joinedload(OrderBookOrder.organization),
+    )
     for join_target, join_cond in joins:
         query = query.join(join_target, join_cond)
     query = (
@@ -758,7 +809,7 @@ async def list_orders_with_ci(
     result = await db.execute(query)
     orders = result.unique().scalars().all()
 
-    benchmark_cache: dict[LiveBenchmarkKey, Decimal | None] = {}
+    benchmark_cache = await _load_benchmark_prices(db, orders)
 
     enriched = []
     for order in orders:
@@ -805,7 +856,9 @@ async def list_my_orders(
     query = (
         select(OrderBookOrder)
         .options(
-            selectinload(OrderBookOrder.organization),
+            joinedload(OrderBookOrder.organization),
+            joinedload(OrderBookOrder.product),
+            joinedload(OrderBookOrder.delivery_point),
             selectinload(OrderBookOrder.bid_trades),
             selectinload(OrderBookOrder.ask_trades),
         )
@@ -818,7 +871,7 @@ async def list_my_orders(
     result = await db.execute(query)
     orders = result.scalars().all()
 
-    benchmark_cache: dict[LiveBenchmarkKey, Decimal | None] = {}
+    benchmark_cache = await _load_benchmark_prices(db, orders)
 
     result_list = []
     for order in orders:
@@ -882,28 +935,19 @@ async def latest_supplier_listing_template(
     return payload
 
 
-@router.get("/aggregated", response_model=list[AggregatedOrderbookResponse])
-async def list_aggregated_orderbook(
-    product_id: Optional[UUID] = Query(None, description="Filter by product"),
-    delivery_point_id: Optional[UUID] = Query(None, description="Filter by delivery point"),
-    fuel_type: Optional[str] = Query(None, description="Filter by fuel type"),
-    market_product: Optional[MarketProduct] = Query(None, description="Filter by canonical market product"),
-    region: Optional[str] = Query(None, description="Filter by region or delivery point name"),
-    availability_window: Optional[str] = Query(None, description="Filter by availability window"),
-    include_off_spec: bool = Query(False, description="Include off-spec orders"),
-    limit: Annotated[int, Query(ge=1, le=2048)] = 1024,
-    db: AsyncSession = Depends(get_db),
-):
-    """
-    Market data aggregated by product, delivery point, and side.
-    """
-    filters = [
-        OrderBookOrder.status.in_(
-            [OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED]
-        )
-    ]
-    joins = [(Product, OrderBookOrder.product_id == Product.id)]
-    _apply_public_marketplace_scope(filters, joins, include_off_spec=include_off_spec)
+async def _aggregate_orderbook(
+    db: AsyncSession,
+    *,
+    product_id: UUID | None = None,
+    delivery_point_id: UUID | None = None,
+    fuel_type: str | None = None,
+    market_product: MarketProduct | str | None = None,
+    region: str | None = None,
+    availability_window: str | None = None,
+    include_off_spec: bool = False,
+    limit: int | None = None,
+) -> list[AggregatedOrderbookResponse]:
+    filters, joins = _public_order_scope(include_off_spec=include_off_spec)
     filters.append(public_order_evidence_clause(OrderBookOrder.provenance))
     if product_id:
         filters.append(OrderBookOrder.product_id == product_id)
@@ -957,27 +1001,25 @@ async def list_aggregated_orderbook(
         OrderBookOrder.provenance,
     ).subquery("eligible_orderbook_aggregate")
 
-    query = (
-        select(
-            grouped,
-            func.sum(grouped.c.order_count)
-            .over(
-                partition_by=(
-                    grouped.c.market_product,
-                    grouped.c.evidence_class,
-                )
+    query = select(
+        grouped,
+        func.sum(grouped.c.order_count)
+        .over(
+            partition_by=(
+                grouped.c.market_product,
+                grouped.c.evidence_class,
             )
-            .label("product_total_order_count"),
         )
-        .order_by(
-            grouped.c.market_product,
-            grouped.c.delivery_point_name,
-            grouped.c.availability_window,
-            grouped.c.side,
-            grouped.c.evidence_class,
-        )
-        .limit(limit)
+        .label("product_total_order_count"),
+    ).order_by(
+        grouped.c.market_product,
+        grouped.c.delivery_point_name,
+        grouped.c.availability_window,
+        grouped.c.side,
+        grouped.c.evidence_class,
     )
+    if limit is not None:
+        query = query.limit(limit)
 
     result = await db.execute(query)
     rows = result.all()
@@ -1000,23 +1042,140 @@ async def list_aggregated_orderbook(
                 total_quantity=row.total_quantity,
                 order_count=row.order_count,
                 product_total_order_count=row.product_total_order_count,
-                evidence_class=row.evidence_class,
-                source_kind=(
-                    MarketSourceKind.LIVE_ORDER
-                    if row.evidence_class == OrganizationProvenance.REAL.value
-                    else MarketSourceKind.DEMO_SEED
-                ),
-                scope=MarketScope.DELIVERY_POINT,
-                demo_status=(
-                    MarketDemoStatus.REAL_ONLY
-                    if row.evidence_class == OrganizationProvenance.REAL.value
-                    else MarketDemoStatus.DEMO_ONLY
-                ),
+                **_market_evidence_fields(row.evidence_class),
                 observed_at=row.observed_at,
             )
         )
 
     return aggregated_data
+
+
+@router.get("/aggregated", response_model=list[AggregatedOrderbookResponse])
+async def list_aggregated_orderbook(
+    product_id: Optional[UUID] = Query(None, description="Filter by product"),
+    delivery_point_id: Optional[UUID] = Query(None, description="Filter by delivery point"),
+    fuel_type: Optional[str] = Query(None, description="Filter by fuel type"),
+    market_product: Optional[MarketProduct] = Query(None, description="Filter by canonical market product"),
+    region: Optional[str] = Query(None, description="Filter by region or delivery point name"),
+    availability_window: Optional[str] = Query(None, description="Filter by availability window"),
+    include_off_spec: bool = Query(False, description="Include off-spec orders"),
+    limit: Annotated[int, Query(ge=1, le=2048)] = 1024,
+    db: AsyncSession = Depends(get_db),
+):
+    """Return market data grouped by product, delivery point, and side."""
+    return await _aggregate_orderbook(
+        db,
+        product_id=product_id,
+        delivery_point_id=delivery_point_id,
+        fuel_type=fuel_type,
+        market_product=market_product,
+        region=region,
+        availability_window=availability_window,
+        include_off_spec=include_off_spec,
+        limit=limit,
+    )
+
+
+@router.get("/product-counts", response_model=ProductCountResponse)
+async def list_product_counts(
+    side: OrderSide = Query(..., description="Listing side to count"),
+    delivery_point_id: Optional[UUID] = Query(None, description="Filter by delivery point"),
+    region: Optional[str] = Query(None, description="Filter by region or delivery point name"),
+    availability_window: Optional[str] = Query(None, description="Filter by availability window"),
+    include_off_spec: bool = Query(False, description="Include off-spec orders"),
+    db: AsyncSession = Depends(get_db),
+) -> ProductCountResponse:
+    """Count all canonical products under the public listing filters."""
+    filters, joins = _public_order_scope(
+        side=side,
+        include_off_spec=include_off_spec,
+    )
+    filters.append(public_order_evidence_clause(OrderBookOrder.provenance))
+    if delivery_point_id:
+        filters.append(OrderBookOrder.delivery_point_id == delivery_point_id)
+    if region:
+        filters.append(or_(DeliveryPoint.region == region, DeliveryPoint.name == region))
+    normalized_window = _normalize_query_window(availability_window)
+    if normalized_window:
+        filters.append(OrderBookOrder.availability_window == normalized_window)
+
+    market_product = canonical_market_product_expression(Product).label("market_product")
+    query = select(
+        market_product,
+        func.count(OrderBookOrder.id).label("order_count"),
+    ).select_from(OrderBookOrder)
+    for join_target, join_cond in joins:
+        query = query.join(join_target, join_cond)
+    query = query.where(*filters).group_by(market_product)
+
+    counts = dict.fromkeys(APPROVED_MARKET_PRODUCTS, 0)
+    for row in (await db.execute(query)).all():
+        counts[row.market_product] = row.order_count
+    return ProductCountResponse(counts=counts, total=sum(counts.values()))
+
+
+async def _latest_public_asks_by_delivery_point(
+    db: AsyncSession,
+) -> list[MapRecentAskResponse]:
+    filters, joins = _public_order_scope(side=OrderSide.ASK)
+    filters.append(public_order_evidence_clause(OrderBookOrder.provenance))
+    market_product = canonical_market_product_expression(Product).label("market_product")
+    ranked = select(
+        OrderBookOrder.id,
+        OrderBookOrder.product_id,
+        Product.name.label("product_name"),
+        market_product,
+        Product.fuel_type.label("fuel_type"),
+        OrderBookOrder.delivery_point_id,
+        DeliveryPoint.name.label("delivery_point_name"),
+        DeliveryPoint.region.label("region"),
+        OrderBookOrder.price_per_mt_usd,
+        OrderBookOrder.remaining_quantity_mt,
+        OrderBookOrder.created_at,
+        OrderBookOrder.provenance.label("evidence_class"),
+        func.row_number()
+        .over(
+            partition_by=OrderBookOrder.delivery_point_id,
+            order_by=(OrderBookOrder.created_at.desc(), OrderBookOrder.id.desc()),
+        )
+        .label("delivery_point_rank"),
+    )
+    for join_target, join_cond in joins:
+        ranked = ranked.join(join_target, join_cond)
+    ranked = ranked.where(*filters).subquery("ranked_public_asks")
+
+    rows = (
+        await db.execute(
+            select(ranked)
+            .where(ranked.c.delivery_point_rank == 1)
+            .order_by(ranked.c.delivery_point_name)
+        )
+    ).all()
+    return [
+        MapRecentAskResponse(
+            product_id=row.product_id,
+            product_name=row.product_name,
+            market_product=row.market_product,
+            fuel_type=row.fuel_type,
+            delivery_point_id=row.delivery_point_id,
+            delivery_point_name=row.delivery_point_name,
+            region=row.region,
+            price_per_mt_usd=row.price_per_mt_usd,
+            remaining_quantity_mt=row.remaining_quantity_mt,
+            created_at=row.created_at,
+            **_market_evidence_fields(row.evidence_class),
+        )
+        for row in rows
+    ]
+
+
+@router.get("/map-summary", response_model=MapSummaryResponse)
+async def get_map_summary(db: AsyncSession = Depends(get_db)) -> MapSummaryResponse:
+    """Return all compact public order data used by the buyer map."""
+    return MapSummaryResponse(
+        groups=await _aggregate_orderbook(db),
+        recent_asks=await _latest_public_asks_by_delivery_point(db),
+    )
 
 
 @router.get("/products", response_model=list[str])
@@ -1097,11 +1256,7 @@ async def list_orders(
     """
     List all open and partially filled executable orders (bids + asks).
     """
-    filters = [
-        OrderBookOrder.status.in_([OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED]),
-    ]
-    joins: list[tuple[object, object]] = []
-    _apply_public_marketplace_scope(filters, joins, include_off_spec=include_off_spec)
+    filters, joins = _public_order_scope(include_off_spec=include_off_spec)
     if product_id:
         filters.append(OrderBookOrder.product_id == product_id)
     if delivery_point_id:
@@ -1118,7 +1273,11 @@ async def list_orders(
         if page is not None
         else skip
     )
-    query = select(OrderBookOrder).options(selectinload(OrderBookOrder.organization))
+    query = select(OrderBookOrder).options(
+        contains_eager(OrderBookOrder.product),
+        contains_eager(OrderBookOrder.delivery_point),
+        joinedload(OrderBookOrder.organization),
+    )
     for join_target, join_cond in joins:
         query = query.join(join_target, join_cond)
     query = (
@@ -1129,7 +1288,7 @@ async def list_orders(
     )
     result = await db.execute(query)
     orders = result.unique().scalars().all()
-    benchmark_cache: dict[LiveBenchmarkKey, Decimal | None] = {}
+    benchmark_cache = await _load_benchmark_prices(db, orders)
     return [await _order_response(db, order, benchmark_cache=benchmark_cache) for order in orders]
 
 

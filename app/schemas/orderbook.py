@@ -371,6 +371,33 @@ class AggregatedOrderbookResponse(BaseModel):
     observed_at: datetime
 
 
+class ProductCountResponse(BaseModel):
+    counts: dict[str, int]
+    total: int
+
+
+class MapRecentAskResponse(BaseModel):
+    product_id: UUID
+    product_name: str
+    market_product: str
+    fuel_type: str
+    delivery_point_id: UUID
+    delivery_point_name: str
+    region: str
+    price_per_mt_usd: Decimal
+    remaining_quantity_mt: Decimal
+    created_at: datetime
+    evidence_class: Literal["REAL", "DEMO"]
+    source_kind: MarketSourceKind
+    scope: MarketScope = MarketScope.DELIVERY_POINT
+    demo_status: MarketDemoStatus
+
+
+class MapSummaryResponse(BaseModel):
+    groups: list[AggregatedOrderbookResponse]
+    recent_asks: list[MapRecentAskResponse]
+
+
 # ============== Price Discovery ==============
 
 class PriceSummary(BaseModel):

@@ -4,9 +4,9 @@ from decimal import Decimal
 from typing import Iterable
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import contains_eager, selectinload
 
 from app.models.catalog import DeliveryPoint, Product
 from app.models.live_slice_benchmark import LiveSliceBenchmark
@@ -36,7 +36,10 @@ def public_slice_order_qualified(order: OrderBookOrder) -> bool:
         return False
     if order.expires_at is not None:
         from datetime import datetime, UTC
-        if order.expires_at <= datetime.now(UTC):
+        expires_at = order.expires_at
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=UTC)
+        if expires_at <= datetime.now(UTC):
             return False
     if order.remaining_quantity_mt <= 0 or order.off_spec:
         return False
@@ -83,43 +86,70 @@ async def _calculate_live_slice_benchmark(
     db: AsyncSession,
     key: LiveBenchmarkKey,
 ) -> tuple[Decimal, Decimal, int] | None:
-    normalized_side, normalized_market_product, normalized_delivery_point_id, normalized_window = key
+    calculations = await _calculate_live_slice_benchmarks(db, [key])
+    return calculations.get(key)
+
+
+async def _calculate_live_slice_benchmarks(
+    db: AsyncSession,
+    keys: Iterable[LiveBenchmarkKey],
+) -> dict[LiveBenchmarkKey, tuple[Decimal, Decimal, int]]:
+    requested_keys = set(keys)
+    if not requested_keys:
+        return {}
+
+    key_clauses = [
+        and_(
+            OrderBookOrder.side == side,
+            OrderBookOrder.delivery_point_id == delivery_point_id,
+            OrderBookOrder.availability_window == availability_window,
+            canonical_market_product_expression(Product) == market_product,
+        )
+        for side, market_product, delivery_point_id, availability_window in requested_keys
+    ]
     result = await db.execute(
         select(OrderBookOrder)
         .join(Product, OrderBookOrder.product_id == Product.id)
         .join(DeliveryPoint, OrderBookOrder.delivery_point_id == DeliveryPoint.id)
-        .options(selectinload(OrderBookOrder.product))
+        .options(
+            contains_eager(OrderBookOrder.product),
+            contains_eager(OrderBookOrder.delivery_point),
+        )
         .where(
-            OrderBookOrder.side == normalized_side,
-            OrderBookOrder.delivery_point_id == normalized_delivery_point_id,
-            OrderBookOrder.availability_window == normalized_window,
+            or_(*key_clauses),
             OrderBookOrder.status.in_((OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED)),
             OrderBookOrder.remaining_quantity_mt > 0,
             current_public_order_clause(OrderBookOrder),
             public_order_collection_provenance_clause(OrderBookOrder),
-            canonical_market_product_expression(Product) == normalized_market_product,
             canonical_product_clause(Product),
             canonical_delivery_point_clause(DeliveryPoint),
         )
     )
-    qualifying_orders = [
-        order
-        for order in result.unique().scalars().all()
-        if public_slice_order_qualified(order)
-    ]
-    if not qualifying_orders:
-        return None
+    orders_by_key: dict[LiveBenchmarkKey, list[OrderBookOrder]] = {}
+    for order in result.unique().scalars().all():
+        key = live_benchmark_key_for_order(order)
+        if key in requested_keys and public_slice_order_qualified(order):
+            orders_by_key.setdefault(key, []).append(order)
 
-    total_qty = sum((order.remaining_quantity_mt for order in qualifying_orders), Decimal("0.00"))
-    weighted_sum = sum(
-        (order.remaining_quantity_mt * order.price_per_mt_usd for order in qualifying_orders),
-        Decimal("0.00"),
-    )
-    return (
-        (weighted_sum / total_qty).quantize(Decimal("0.01")),
-        total_qty.quantize(Decimal("0.01")),
-        len(qualifying_orders),
-    )
+    calculations: dict[LiveBenchmarkKey, tuple[Decimal, Decimal, int]] = {}
+    for key, qualifying_orders in orders_by_key.items():
+        total_qty = sum(
+            (order.remaining_quantity_mt for order in qualifying_orders),
+            Decimal("0.00"),
+        )
+        weighted_sum = sum(
+            (
+                order.remaining_quantity_mt * order.price_per_mt_usd
+                for order in qualifying_orders
+            ),
+            Decimal("0.00"),
+        )
+        calculations[key] = (
+            (weighted_sum / total_qty).quantize(Decimal("0.01")),
+            total_qty.quantize(Decimal("0.01")),
+            len(qualifying_orders),
+        )
+    return calculations
 
 
 async def rebuild_live_slice_benchmark(
@@ -205,13 +235,34 @@ async def get_live_slice_benchmark_price(
     if cache is not None and key in cache:
         return cache[key]
 
-    # ponytail: per-slice scan preserves one eligibility rule; use aggregate SQL
-    # or transition invalidation/cache when public traffic makes it necessary.
-    calculation = await _calculate_live_slice_benchmark(db, key)
-    benchmark_price = calculation[0] if calculation is not None else None
-    if cache is not None:
-        cache[key] = benchmark_price
-    return benchmark_price
+    prices = await get_live_slice_benchmark_prices(db, [key], cache=cache)
+    return prices[key]
+
+
+async def get_live_slice_benchmark_prices(
+    db: AsyncSession,
+    keys: Iterable[LiveBenchmarkKey | None],
+    *,
+    cache: dict[LiveBenchmarkKey, Decimal | None] | None = None,
+) -> dict[LiveBenchmarkKey, Decimal | None]:
+    prices = cache if cache is not None else {}
+    requested_keys: set[LiveBenchmarkKey] = set()
+    for key in keys:
+        if key is None:
+            continue
+        normalized_key = normalize_live_benchmark_key(*key)
+        if normalized_key is not None:
+            requested_keys.add(normalized_key)
+    missing_keys = requested_keys - prices.keys()
+    if missing_keys:
+        calculations = await _calculate_live_slice_benchmarks(db, missing_keys)
+        prices.update(
+            {
+                key: calculations[key][0] if key in calculations else None
+                for key in missing_keys
+            }
+        )
+    return prices
 
 
 async def rebuild_all_live_slice_benchmarks(db: AsyncSession) -> int:
