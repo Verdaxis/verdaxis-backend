@@ -70,6 +70,7 @@ app/
     behavioral_analytics.py     # Typed privacy-bounded admin product-usage response
     [others unchanged]
   services/
+    email.py                   # Shared light-mode email layout, seven message types, admin Reply-To, and Resend transport
     account_approval_email.py   # Transition-scoped Resend delivery and bounded durable retry
     event_bus.py                # AsyncIO pub/sub — per-channel queues, 200 subscriber cap, backpressure
     market_event_dispatch.py    # Durable shared SSE transport — outbox sequencer (advisory-lock leader), LISTEN/NOTIFY wake + poll, org-bound hub fan-out (docs/market-event-dispatch.md)
