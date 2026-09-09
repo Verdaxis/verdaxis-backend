@@ -45,6 +45,7 @@ from app.services.email_domains import registration_organization_domain
 from app.services.email import (
     build_account_approved_email_payload,
     send_password_reset_email,
+    send_signup_alert_email,
     send_verification_email,
 )
 from app.services.account_approval_email import (
@@ -1629,6 +1630,13 @@ async def register(request: _Request, user_in: UserCreate, db: AsyncSession = De
         await _attribute_referral(db, new_user, user_in.referral_code)
 
         if not _should_skip_verification_email_for_canary(request, str(new_user.email)):
+            await send_signup_alert_email(
+                user_id=new_user.id,
+                email=new_user.email,
+                name=" ".join(filter(None, [new_user.first_name, new_user.last_name])) or "New applicant",
+                role=new_user.role.value,
+                organization=existing_org.name,
+            )
             await send_verification_email(new_user.email, new_user.first_name or "there", verification_token)
 
         return RegistrationResponse(status="created", user=new_user)
@@ -1800,6 +1808,13 @@ async def register_with_org(
     await _attribute_referral(db, new_user, pending.referral_code)
 
     if not is_monitor_canary:
+        await send_signup_alert_email(
+            user_id=new_user.id,
+            email=new_user.email,
+            name=" ".join(filter(None, [new_user.first_name, new_user.last_name])) or "New applicant",
+            role=new_user.role.value,
+            organization=new_org.name,
+        )
         await send_verification_email(new_user.email, new_user.first_name or "there", verification_token)
 
     return new_user
