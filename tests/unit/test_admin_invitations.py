@@ -17,7 +17,7 @@ from app.models.audit import AuditLog
 from app.models.product_analytics import UserLoginDay, UserStatusTransition
 from app.models.referral import Referral, ReferralStatus
 from app.models.refresh_session import RefreshSession
-from app.models.registration import PendingRegistration
+from app.models.registration import OrganizationJoinRequest, PendingRegistration
 from app.models.user import (
     Organization,
     OrganizationProvenance,
@@ -42,6 +42,7 @@ async def invitation_db():
         UserLoginDay.__table__,
         UserStatusTransition.__table__,
         PendingRegistration.__table__,
+        OrganizationJoinRequest.__table__,
     ]
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all, tables=tables)
@@ -632,3 +633,74 @@ async def test_unclaimed_invitation_cannot_fall_into_ordinary_password_reset(inv
     assert after_hash == before_hash
     assert invited_token
     send_reset.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("existing_org", [True, False])
+@pytest.mark.parametrize("canary", [True, False])
+async def test_signup_alert_after_committed_application(
+    invitation_context, invitation_db, monkeypatch, existing_org, canary,
+):
+    from app.config import settings
+
+    app, _admin, organization = invitation_context
+    provider = AsyncMock(return_value=False)
+    monkeypatch.setattr("app.services.email._send_email", provider)
+    monkeypatch.setattr(settings, "ENVIRONMENT", "staging")
+    monkeypatch.setattr(settings, "FRONTEND_URL", "https://staging.verdaxis.exchange")
+    monkeypatch.setattr(settings, "MONITOR_TOKEN", "monitor-test-secret")
+    domain = "signup.canary.verdaxis.exchange" if canary else "signup.example.com"
+    organization.domain = domain if existing_org else "other.example.com"
+    organization.name = "Fuel & Shipping"
+    await invitation_db.commit()
+    applicant_email = f"canary+signup@{domain}" if canary else f"applicant@{domain}"
+    headers = {"X-Monitor-Token": "monitor-test-secret"} if canary else {}
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post(
+            "/api/auth/register",
+            headers=headers,
+            json={
+                "email": applicant_email,
+                "password": "Supplier-password-9",
+                "first_name": "<New>",
+                "last_name": "Applicant",
+                "role": "SUPPLIER",
+            },
+        )
+        assert response.status_code == 200, response.text
+        if not existing_org:
+            assert response.json()["status"] == "requires_org"
+            provider.assert_not_awaited()
+            response = await client.post(
+                "/api/auth/register-with-org",
+                headers=headers,
+                json={
+                    "registration_token": response.json()["registration_token"],
+                    "organization": {
+                        "name": "Fuel & Shipping",
+                        "type": "FUEL_SUPPLIER",
+                        "country_code": "SG",
+                    },
+                },
+            )
+            assert response.status_code == 200, response.text
+
+    user = (await invitation_db.execute(
+        select(User).where(User.email == applicant_email)
+    )).scalar_one()
+    assert user.status == UserStatus.PENDING
+    if canary:
+        provider.assert_not_awaited()
+    else:
+        # Provider failure must not remove the submitted application or prevent verification.
+        assert provider.await_count == 2
+        alert = provider.await_args_list[0].kwargs
+        assert alert["to_email"] == "admin@verdaxis.exchange"
+        assert alert["subject"] == "[staging] New Verdaxis account application"
+        assert "&lt;New&gt; Applicant" in alert["html"]
+        assert "Fuel &amp; Shipping" in alert["html"]
+        assert applicant_email in alert["html"]
+        assert "SUPPLIER" in alert["html"]
+        assert "https://staging.verdaxis.exchange/app/admin/users" in alert["html"]
+        assert alert["idempotency_key"] == f"signup-alert/staging/{user.id}"
+        assert provider.await_args_list[1].args[0] == applicant_email

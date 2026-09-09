@@ -122,6 +122,33 @@ async def send_verification_email(to_email: str, name: str, token: str) -> bool:
     return await _send_email(to_email, "Verify your Verdaxis email address", html)
 
 
+async def send_signup_alert_email(
+    *, user_id: uuid.UUID, email: str, name: str, role: str, organization: str,
+) -> bool:
+    """Notify the admin mailbox after an application has been committed."""
+    review_url = f"{settings.FRONTEND_URL.rstrip('/')}/app/admin/users"
+    environment_label = "" if settings.ENVIRONMENT == "production" else f"[{settings.ENVIRONMENT}] "
+    html = f"""
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+      <h2>New Verdaxis account application</h2>
+      <p>A new application has been submitted. Email verification and onboarding review may still be pending.</p>
+      <dl>
+        <dt>Name</dt><dd>{escape(name)}</dd>
+        <dt>Email</dt><dd>{escape(email)}</dd>
+        <dt>Role</dt><dd>{escape(role)}</dd>
+        <dt>Organization</dt><dd>{escape(organization)}</dd>
+      </dl>
+      <p><a href="{escape(review_url, quote=True)}">Review applications in Verdaxis</a></p>
+    </div>
+    """
+    return await _send_email(
+        to_email="admin@verdaxis.exchange",
+        subject=f"{environment_label}New Verdaxis account application",
+        html=html,
+        idempotency_key=f"signup-alert/{settings.ENVIRONMENT}/{user_id}",
+    )
+
+
 async def send_password_reset_email(to_email: str, name: str, token: str) -> bool:
     """Send a password reset link with Verdaxis branding."""
     reset_url = f"{settings.FRONTEND_URL}/reset-password?token={token}"
