@@ -21,7 +21,7 @@ class CapturingLogger:
 
 
 @pytest.mark.asyncio
-async def test_account_approval_email_links_to_sign_in_and_escapes_name(monkeypatch):
+async def test_account_approval_email_links_to_marketplace_and_escapes_name(monkeypatch):
     send = AsyncMock(return_value=True)
     monkeypatch.setattr(email, "_send_email_payload", send)
     monkeypatch.setattr(email.settings, "FRONTEND_URL", "https://staging.verdaxis.exchange/")
@@ -34,8 +34,13 @@ async def test_account_approval_email_links_to_sign_in_and_escapes_name(monkeypa
     )
     assert payload["from"] == "Verdaxis <approval@example.test>"
     assert payload["to"] == ["approved@example.test"]
+    assert payload["reply_to"] == "admin@verdaxis.exchange"
+    assert email._canonical_email_payload(payload) == payload
+    legacy_payload = {key: value for key, value in payload.items() if key != "reply_to"}
+    assert email._canonical_email_payload(legacy_payload) == legacy_payload
+    assert email._canonical_email_payload({**payload, "reply_to": 123}) is None
     assert payload["subject"] == "Your Verdaxis account has been approved"
-    assert 'href="https://staging.verdaxis.exchange/login"' in payload["html"]
+    assert 'href="https://staging.verdaxis.exchange/app/marketplace"' in payload["html"]
     assert "&lt;Merna &amp; Team&gt;" in payload["html"]
     assert "<Merna & Team>" not in payload["html"]
 
@@ -126,3 +131,51 @@ async def test_email_logs_hash_recipient_and_bound_exception_metadata(monkeypatc
     assert "Alice@Example.Test" not in rendered
     assert "alice@example.test" not in rendered
     assert "secret body" not in rendered
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "kind, extra, action_path",
+    [
+        ("verification", {"token": "token&value"}, "/verify-email?token=token%26value"),
+        ("password_reset", {"token": "token&value"}, "/reset-password?token=token%26value"),
+        ("account_approved", {}, "/app/marketplace"),
+        ("kyc_approved", {}, "/login"),
+        ("kyc_rejected", {"reason": "<Update & retry>"}, "/kyc"),
+        ("referral_invite", {"referral_code": "VDX-SAMPLE"}, "/invite/VDX-SAMPLE"),
+        ("signup_alert", {}, "/app/admin/users"),
+    ],
+)
+async def test_automated_emails_share_light_brand_and_support(monkeypatch, kind, extra, action_path):
+    send = AsyncMock(return_value=True)
+    monkeypatch.setattr(email, "_send_email_payload", send)
+    monkeypatch.setattr(email.settings, "FRONTEND_URL", "https://staging.verdaxis.exchange/")
+    name = "<Team & Co>"
+    if kind == "account_approved":
+        payload = email.build_account_approved_email_payload("member@example.com", name)
+        await email.send_account_approved_email(payload, uuid4())
+    elif kind == "signup_alert":
+        await email.send_signup_alert_email(
+            user_id=uuid4(), email="member@example.com", name=name,
+            role="BUYER", organization="<Shipping & Co>",
+        )
+    elif kind == "referral_invite":
+        await email.send_referral_invite_email("member@example.com", name, **extra)
+    else:
+        await getattr(email, f"send_{kind}_email")("member@example.com", name, **extra)
+
+    payload = send.await_args.args[0]
+    html = payload["html"]
+    assert payload["reply_to"] == "admin@verdaxis.exchange"
+    assert 'bgcolor="#FFFFFF"' in html and 'bgcolor="#F8FAFC"' in html
+    assert 'alt="Verdaxis"' in html
+    assert 'mailto:admin@verdaxis.exchange' in html
+    assert "Reply to this email" in html
+    assert f'href="https://staging.verdaxis.exchange{action_path}"' in html
+    assert "&lt;Team &amp; Co&gt;" in html and name not in html
+    if kind == "kyc_rejected":
+        assert "&lt;Update &amp; retry&gt;" in html
+    if kind == "verification":
+        assert "expires in 24 hours" in html
+    if kind == "password_reset":
+        assert "expires in 1 hour" in html
