@@ -2214,7 +2214,17 @@ async def approve_organization(
     previous = organization.verification_status
     previous_provenance = organization.provenance
     organization.verification_status = "APPROVED"
-    await db.flush()
+    try:
+        await db.flush()
+    except DBAPIError as exc:
+        await db.rollback()
+        # VD001 is the provenance trigger's unresolved legacy-order guard.
+        if getattr(exc.orig, "sqlstate", None) == "VD001":
+            raise HTTPException(
+                status_code=409,
+                detail="Close unresolved legacy orders before approving this company.",
+            ) from exc
+        raise
     # The database classifies UNKNOWN companies on this approval transition.
     await db.refresh(organization, attribute_names=["provenance"])
     changes = {"verification_status": {"from": previous, "to": "APPROVED"}}

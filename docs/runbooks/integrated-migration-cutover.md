@@ -250,7 +250,8 @@ not backfill historical approvals or alter existing order/trade snapshots;
 use this exact command for a previously approved UNKNOWN company. Account,
 membership, and execution eligibility checks remain in force.
 
-Before continuing to SSE, require all three checks to return no rows or zero:
+At the initial `mi_20260720_market_integrity` checkpoint, before continuing
+to SSE, require all three checks to return no rows or zero:
 
 ```sql
 (SELECT id FROM organizations WHERE provenance = 'REAL'
@@ -268,6 +269,12 @@ JOIN organizations ON organizations.id = orders.organization_id
 WHERE orders.status NOT IN ('CANCELLED', 'EXPIRED')
   AND orders.provenance IS DISTINCT FROM organizations.provenance;
 ```
+
+The ledger-equality and approved-status checks above apply only to that
+initial cutover. Later administrator invitations and automatic company
+classifications record authority in the application audit instead of the
+operator ledger, and a later rejection preserves immutable REAL provenance.
+The nonterminal order/organization snapshot check remains an ongoing invariant.
 
 After `mi`, approval refuses an organization while it owns any nonterminal
 `UNKNOWN` order, including `FILLED` orders whose pending trade could still be

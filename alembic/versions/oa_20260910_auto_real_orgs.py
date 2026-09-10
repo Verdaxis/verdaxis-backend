@@ -47,7 +47,8 @@ _TEST_IDS = """
 
 
 def _provenance_function(*, auto_classify: bool) -> str:
-    approval_transition = f"""
+    approval_transition = (
+        f"""
             -- Company approval is the trust decision. The trigger sets this
             -- field so the app still has no direct UPDATE grant on provenance.
             IF TG_OP = 'UPDATE'
@@ -58,9 +59,22 @@ def _provenance_function(*, auto_classify: bool) -> str:
                     SELECT value::uuid FROM unnest(ARRAY[{_DEMO_IDS}, {_TEST_IDS}]) AS value
                 )
             THEN
+                -- FILLED orders can reopen when a pending trade is declined.
+                IF EXISTS (
+                    SELECT 1 FROM orderbook_orders
+                    WHERE organization_id = NEW.id
+                        AND provenance = 'UNKNOWN'
+                        AND status NOT IN ('CANCELLED', 'EXPIRED')
+                ) THEN
+                    RAISE EXCEPTION 'close unresolved UNKNOWN orders before company approval'
+                        USING ERRCODE = 'VD001';
+                END IF;
                 NEW.provenance := 'REAL';
             END IF;
-    """ if auto_classify else ""
+    """
+        if auto_classify
+        else ""
+    )
     return f"""
         CREATE OR REPLACE FUNCTION verdaxis_immutable_org_provenance()
         RETURNS trigger LANGUAGE plpgsql AS $$
