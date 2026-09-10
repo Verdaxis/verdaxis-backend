@@ -2212,10 +2212,20 @@ async def approve_organization(
     if organization is None:
         raise HTTPException(status_code=404, detail="Organization not found")
     previous = organization.verification_status
+    previous_provenance = organization.provenance
     organization.verification_status = "APPROVED"
+    await db.flush()
+    # The database classifies UNKNOWN companies on this approval transition.
+    await db.refresh(organization, attribute_names=["provenance"])
+    changes = {"verification_status": {"from": previous, "to": "APPROVED"}}
+    if organization.provenance != previous_provenance:
+        changes["provenance"] = {
+            "from": previous_provenance,
+            "to": organization.provenance,
+        }
     await record_audit(db, user_id=current_user.id, action=ADMIN_ORGANIZATION_APPROVED,
                        resource_type="organization", resource_id=organization.id,
-                       changes={"verification_status": {"from": previous, "to": "APPROVED"}},
+                       changes=changes,
                        **request_audit_context(request))
     await db.commit()
     return {"organization_id": str(organization.id), "verification_status": organization.verification_status}
