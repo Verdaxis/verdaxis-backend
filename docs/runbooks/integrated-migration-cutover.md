@@ -241,8 +241,14 @@ no approved email-verified BUYER/SUPPLIER are refused.
 The `mi` migration aborts if any reviewed organization identity or qualifying
 member set changed after approval. It promotes only ledgered exact IDs to
 `REAL`, then snapshots that provenance into existing orders. After `mi`, the
-same command is the only allowed `UNKNOWN -> REAL` transition and remains
-subject to the exact snapshot and operator controls.
+same command supports exact historical `UNKNOWN -> REAL` remediation and remains
+subject to the exact snapshot and operator controls. From checkpoint
+`oa_20260910_auto_real_orgs`, a new administrator company-approval transition
+automatically classifies ordinary UNKNOWN companies as REAL within the same
+transaction and audit. Synthetic identities are excluded. The migration does
+not backfill historical approvals or alter existing order/trade snapshots;
+use this exact command for a previously approved UNKNOWN company. Account,
+membership, and execution eligibility checks remain in force.
 
 Before continuing to SSE, require all three checks to return no rows or zero:
 

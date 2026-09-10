@@ -19,7 +19,7 @@ _BACKEND_ROOT = Path(__file__).resolve().parents[2]
 _PARENT = "miq_20260720_market_quarantine"
 # Later product migrations extend the linearized market chain. The mi-specific
 # refusal/quarantine semantics exercised below are unchanged.
-_HEAD = "ai_20260831_invite_real_orgs"
+_HEAD = "oa_20260910_auto_real_orgs"
 _SENTINEL = UUID("00000000-dead-beef-0000-aaa0e15eed01")
 _DEMO_ORG = UUID("4da7b285-34ee-5443-9406-f96b4ed1a251")
 _DEMO_SELLER_ORG = UUID("0dbce576-2026-5925-ab66-674d505e98ad")
@@ -890,3 +890,36 @@ async def test_exact_operator_approval_promotes_only_eligible_real_organizations
         {"organization_id": future_organization_id},
     )
     assert future_promoted.one() == ("APPROVED", "REAL")
+
+
+@pytest.mark.asyncio
+async def test_automatic_org_classification_downgrade_restores_prior_guard(migration_database):
+    database_url, _ = migration_database
+    previous = "ai_20260831_invite_real_orgs"
+    upgraded = await asyncio.to_thread(_alembic, database_url, "upgrade", previous)
+    assert upgraded.returncode == 0, upgraded.stderr
+    definition_sql = "SELECT pg_get_functiondef('verdaxis_immutable_org_provenance()'::regprocedure)"
+    original = (await _database_execute(database_url, definition_sql)).scalar_one()
+
+    upgraded = await asyncio.to_thread(_alembic, database_url, "upgrade", _HEAD)
+    assert upgraded.returncode == 0, upgraded.stderr
+    organization_id = uuid4()
+    await _database_execute(
+        database_url,
+        "INSERT INTO organizations (id, name, type) VALUES (:id, 'Approval roundtrip', 'FUEL_BUYER')",
+        {"id": organization_id},
+    )
+    result = await _database_execute(
+        database_url,
+        "UPDATE organizations SET verification_status='APPROVED' WHERE id=:id RETURNING provenance",
+        {"id": organization_id},
+    )
+    assert result.scalar_one() == "REAL"
+    downgraded = await asyncio.to_thread(_alembic, database_url, "downgrade", previous)
+    assert downgraded.returncode == 0, downgraded.stderr
+    restored = (await _database_execute(database_url, definition_sql)).scalar_one()
+    assert " ".join(restored.split()) == " ".join(original.split())
+    result = await _database_execute(
+        database_url, "SELECT provenance FROM organizations WHERE id=:id", {"id": organization_id},
+    )
+    assert result.scalar_one() == "REAL"
