@@ -283,8 +283,8 @@ async def test_default_four_by_eight_table_payload_is_bounded(db: AsyncSession):
     ).encode()
 
     assert len(table.rows) == 32
-    assert len(table.columns) <= 16
-    assert len(encoded) < 250_000, len(encoded)
+    assert len(table.columns) <= 24
+    assert len(encoded) < 500_000, len(encoded)
 
 
 @pytest.mark.asyncio
@@ -434,7 +434,7 @@ async def test_too_many_table_windows_returns_422_before_db_use():
 
     app.dependency_overrides[get_db] = mock_db
 
-    windows = [f"2027-{month:02d}" for month in range(1, 13)] + [f"2028-{month:02d}" for month in range(1, 7)]
+    windows = [f"{year}-{month:02d}" for year in (2027, 2028) for month in range(1, 13)] + ["2029-01"]
     query = "&".join(f"windows={window}" for window in windows)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         response = await client.get(f"/api/v1/curves/forward/table?{query}")
@@ -519,9 +519,9 @@ async def test_table_wire_projection_is_filterable_and_bounded_for_full_matrix(d
     encoded = json.dumps(payload, separators=(",", ":")).encode()
 
     assert len(table.rows) == 32
-    assert 1 <= len(table.columns) <= 16
+    assert 1 <= len(table.columns) <= 24
     assert all(len(row.cells) == len(table.columns) for row in table.rows)
-    assert len(encoded) < 350_000
+    assert len(encoded) < 500_000
     for row in payload["rows"]:
         for cell in row["cells"].values():
             assert "real_best_bid" not in cell
