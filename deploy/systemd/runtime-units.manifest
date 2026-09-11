@@ -13,3 +13,7 @@ staging	verdaxis-auth-maintenance-staging.service
 staging	verdaxis-auth-maintenance-staging.timer
 staging	verdaxis-product-analytics-prune-staging.service
 staging	verdaxis-product-analytics-prune-staging.timer
+production	verdaxis-order-expiry-reminders.service
+production	verdaxis-order-expiry-reminders.timer
+staging	verdaxis-order-expiry-reminders-staging.service
+staging	verdaxis-order-expiry-reminders-staging.timer

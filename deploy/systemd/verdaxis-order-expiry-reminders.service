@@ -1,0 +1,17 @@
+[Unit]
+Description=Verdaxis order expiry reminders (production)
+After=postgresql.service
+ConditionPathExists=!/home/verdaxis-prod/verdaxis/prod/be/.runtime-deploy/production.state
+
+[Service]
+Type=oneshot
+User=verdaxis-prod
+Group=verdaxis-prod
+WorkingDirectory=/home/verdaxis-prod/verdaxis/prod/be
+EnvironmentFile=/home/verdaxis-prod/verdaxis/prod/be/.env
+EnvironmentFile=/home/verdaxis-prod/verdaxis/prod/be/.runtime-release.env
+Environment=ENVIRONMENT=production
+ExecStart=/home/verdaxis-prod/verdaxis/prod/be/venv/bin/python -m app.cli.order_expiry_reminders
+NoNewPrivileges=true
+PrivateTmp=true
+TimeoutStartSec=300

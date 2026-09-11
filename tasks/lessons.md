@@ -341,3 +341,9 @@
 - **Trigger:** A diagnosis started against a healthy monitor and reported an unrelated TrekTogether Caddy route as Verdaxis configuration drift.
 - **Rule:** Skip automatic diagnosis when the current monitor status is healthy, and path-scope shared-infrastructure evidence to files owned by Verdaxis.
 - **Why:** Whole-repository status from shared infrastructure can include unrelated or unreadable project files and turn harmless cross-project state into misleading incident evidence.
+
+### Verify Git Read Access Under the Scheduled Job Account
+- **Date:** 2026-09-11
+- **Trigger:** The demo refresh reported a corrupt Git object, but the object checksum was valid and only the repository owner could read it.
+- **Rule:** Reproduce Git failures as the service account before diagnosing corruption. Preserve the release identity check; grant only the required read access and test a newly written object under a restrictive umask.
+- **Resolution:** Production uses named read ACLs for `verdaxis-demo-production` on Git objects and refs, inherited ACLs for new entries, and `core.sharedRepository=0640` to preserve the ACL read mask. The job successfully refreshed Spot coverage without changing real-order expiry.

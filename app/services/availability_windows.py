@@ -7,6 +7,7 @@ from typing import Final
 
 
 SPOT_WINDOW: Final[str] = "SPOT"
+FORWARD_QUARTER_COUNT: Final[int] = 5 * 4  # Rolling five-year delivery horizon.
 
 MONTH_WINDOW_RE: Final[re.Pattern[str]] = re.compile(r"^(?P<year>\d{4})-(?P<month>0[1-9]|1[0-2])$")
 QUARTER_WINDOW_RE: Final[re.Pattern[str]] = re.compile(r"^(?P<year>\d{4})-Q(?P<quarter>[1-4])$")
@@ -147,7 +148,7 @@ def availability_window_display_label(value: str) -> str:
 def tradable_availability_windows(
     *,
     today: date | None = None,
-    quarter_count: int = 8,
+    quarter_count: int = FORWARD_QUARTER_COUNT,
 ) -> list[str]:
     current = today or date.today()
     current_quarter = ((current.month - 1) // 3) + 1
@@ -170,7 +171,7 @@ def is_tradable_availability_window(
     value: str,
     *,
     today: date | None = None,
-    quarter_count: int = 8,
+    quarter_count: int = FORWARD_QUARTER_COUNT,
 ) -> bool:
     """Return whether a canonical window is currently open for new orders."""
     normalized = normalize_availability_window(value)

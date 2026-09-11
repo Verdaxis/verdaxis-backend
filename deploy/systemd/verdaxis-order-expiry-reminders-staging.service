@@ -1,0 +1,17 @@
+[Unit]
+Description=Verdaxis order expiry reminders (staging)
+After=postgresql.service
+ConditionPathExists=!/home/verdaxis-prod/verdaxis/staging/be/.runtime-deploy/staging.state
+
+[Service]
+Type=oneshot
+User=verdaxis-prod
+Group=verdaxis-prod
+WorkingDirectory=/home/verdaxis-prod/verdaxis/staging/be
+EnvironmentFile=/home/verdaxis-prod/verdaxis/staging/be/.env
+EnvironmentFile=/home/verdaxis-prod/verdaxis/staging/be/.runtime-release.env
+Environment=ENVIRONMENT=staging
+ExecStart=/home/verdaxis-prod/verdaxis/staging/be/venv/bin/python -m app.cli.order_expiry_reminders
+NoNewPrivileges=true
+PrivateTmp=true
+TimeoutStartSec=300
