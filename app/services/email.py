@@ -321,3 +321,28 @@ async def send_kyc_rejected_email(to_email: str, name: str, reason: str) -> bool
         action_url=f"{settings.FRONTEND_URL.rstrip('/')}/kyc",
     )
     return await _send_email(to_email, "Action required: Verdaxis KYC verification", html)
+
+
+def build_order_expiry_email_payload(to_email: str, message: str) -> dict[str, Any]:
+    """Freeze the reminder so retries use the identical provider payload."""
+    return {
+        "from": settings.EMAIL_FROM,
+        "reply_to": SUPPORT_EMAIL,
+        "to": [to_email],
+        "subject": "Your Verdaxis order expires within 48 hours",
+        "html": _render_email(
+            title="Your order is nearing expiry.",
+            preview=message,
+            label="ORDER EXPIRY REMINDER",
+            body_html=f"<p>{escape(message)}</p>",
+            action_label="Review your orders",
+            action_url=f"{settings.FRONTEND_URL.rstrip('/')}/app/home",
+            note="Your order will expire normally unless you take action.",
+        ),
+    }
+
+
+async def send_order_expiry_email(payload: Mapping[str, Any], notification_id: uuid.UUID) -> bool:
+    return await _send_email_payload(
+        payload, idempotency_key=f"order-expiry/{notification_id}",
+    )

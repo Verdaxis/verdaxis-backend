@@ -347,3 +347,7 @@
 - **Trigger:** The demo refresh reported a corrupt Git object, but the object checksum was valid and only the repository owner could read it.
 - **Rule:** Reproduce Git failures as the service account before diagnosing corruption. Preserve the release identity check; grant only the required read access and test a newly written object under a restrictive umask.
 - **Resolution:** Production uses named read ACLs for `verdaxis-demo-production` on Git objects and refs, inherited ACLs for new entries, and `core.sharedRepository=0640` to preserve the ACL read mask. The job successfully refreshed Spot coverage without changing real-order expiry.
+
+### Respect Notification Preferences Without Holding Customer Locks During Email
+- **Date:** 2026-09-11
+- **Rule:** Check existing channel preferences when queueing and claiming notifications. Commit a short delivery lease before provider I/O, recheck against a fresh clock per message, and remove frozen payloads after terminal delivery. Keep retries inside the provider idempotency lifetime.
