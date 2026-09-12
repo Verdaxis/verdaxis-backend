@@ -286,8 +286,8 @@ async def test_password_change_persistence_failure_never_sets_untracked_cookie()
     response = Response()
 
     with (
-        patch.object(auth_simple, "verify_password", return_value=True),
-        patch.object(auth_simple, "get_password_hash", return_value="new-hash"),
+        patch.object(auth_simple, "verify_password_async", return_value=True),
+        patch.object(auth_simple, "get_password_hash_async", return_value="new-hash"),
         pytest.raises(HTTPException) as exc_info,
     ):
         await auth_simple.change_password(

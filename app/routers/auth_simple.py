@@ -30,7 +30,7 @@ from app.schemas.user import LoginResponse, UserCreate, UserResponse, UserUpdate
 from app.schemas.organization import OrganizationCreate, organization_type_matches_role
 from app.schemas.errors import AUTH_RESPONSES
 from app.core.security import (
-    verify_password, get_password_hash,
+    verify_password_async, get_password_hash_async,
     create_access_token, create_refresh_token, create_stream_token, decode_token,
     REFRESH_TOKEN_EXPIRE_DAYS,
     hash_token_identifier,
@@ -758,7 +758,7 @@ async def login(
                     select(User).where(User.email == normalized_email).with_for_update()
                 )
             ).scalar_one_or_none()
-            if not user or not verify_password(form_data.password, user.password_hash):
+            if not user or not await verify_password_async(form_data.password, user.password_hash):
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
                     detail="Incorrect username or password",
@@ -1293,7 +1293,7 @@ async def create_admin_invitation(
 
         invited_user = User(
             email=normalized_email,
-            password_hash=get_password_hash(secrets.token_urlsafe(48)),
+            password_hash=await get_password_hash_async(secrets.token_urlsafe(48)),
             first_name=body.first_name,
             last_name=body.last_name,
             role=body.role,
@@ -1434,7 +1434,7 @@ async def accept_admin_invitation(
 
     now = datetime.now(UTC)
     try:
-        user.password_hash = get_password_hash(body.new_password)
+        user.password_hash = await get_password_hash_async(body.new_password)
         user.password_reset_token_hash = None
         user.password_reset_expires = None
         user.password_changed_at = now
@@ -1547,7 +1547,7 @@ async def register(request: _Request, user_in: UserCreate, db: AsyncSession = De
             status_code=422,
             detail=f"Password must be no more than {MAX_PASSWORD_BYTES} UTF-8 bytes",
         ) from exc
-    hashed_pw = get_password_hash(user_in.password)
+    hashed_pw = await get_password_hash_async(user_in.password)
 
     # Public mailbox domains are never tenant boundaries.
     email_domain = registration_organization_domain(str(user_in.email))
@@ -1937,7 +1937,7 @@ async def change_password(
     if locked_user is None:
         raise HTTPException(status_code=401, detail="Account is no longer available")
 
-    if not verify_password(payload.current_password, locked_user.password_hash):
+    if not await verify_password_async(payload.current_password, locked_user.password_hash):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Current password is incorrect",
@@ -1950,7 +1950,7 @@ async def change_password(
         )
 
     try:
-        locked_user.password_hash = get_password_hash(payload.new_password)
+        locked_user.password_hash = await get_password_hash_async(payload.new_password)
     except ValueError as exc:
         raise HTTPException(
             status_code=422,
@@ -2088,7 +2088,7 @@ async def reset_password(
         )
 
     try:
-        user.password_hash = get_password_hash(body.new_password)
+        user.password_hash = await get_password_hash_async(body.new_password)
     except ValueError as exc:
         raise HTTPException(
             status_code=422,

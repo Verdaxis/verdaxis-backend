@@ -92,7 +92,7 @@ class TestRefreshCookieMigration:
         session = _mock_db_session(user)
 
         with (
-            patch("app.routers.auth_simple.verify_password", return_value=True),
+            patch("app.routers.auth_simple.verify_password_async", return_value=True),
             patch("app.routers.auth_simple.create_access_token", return_value="access-token-login"),
             patch("app.routers.auth_simple.create_refresh_token", return_value="refresh-token-login"),
             patch("app.routers.auth_simple._store_refresh_session", new=AsyncMock()),
@@ -135,7 +135,7 @@ class TestRefreshCookieMigration:
         revoke_device = AsyncMock()
 
         with (
-            patch("app.routers.auth_simple.verify_password", return_value=True),
+            patch("app.routers.auth_simple.verify_password_async", return_value=True),
             patch("app.routers.auth_simple.create_access_token", return_value="access-token-login"),
             patch("app.routers.auth_simple.create_refresh_token", return_value="refresh-token-login"),
             patch("app.routers.auth_simple._new_device_session_id", return_value=raw_device_id),
@@ -200,7 +200,7 @@ class TestRefreshCookieMigration:
             return {"sub": str(user.id), "type": "refresh"}
 
         with (
-            patch("app.routers.auth_simple.verify_password", return_value=True),
+            patch("app.routers.auth_simple.verify_password_async", return_value=True),
             patch("app.routers.auth_simple.create_access_token", side_effect=lambda *args, **kwargs: next(access_tokens)),
             patch("app.routers.auth_simple.create_refresh_token", side_effect=lambda *args, **kwargs: next(refresh_tokens)),
             patch("app.routers.auth_simple.decode_token", side_effect=_decode_token),
@@ -259,7 +259,7 @@ class TestRefreshCookieMigration:
         session = _mock_db_session(user)
 
         with (
-            patch("app.routers.auth_simple.verify_password", return_value=True),
+            patch("app.routers.auth_simple.verify_password_async", return_value=True),
             patch("app.routers.auth_simple.create_access_token", return_value="access-token-login"),
             patch("app.routers.auth_simple.create_refresh_token", return_value="refresh-token-login"),
             patch("app.routers.auth_simple.decode_token", return_value={"type": "refresh"}),

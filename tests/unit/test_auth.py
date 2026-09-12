@@ -2,9 +2,14 @@
 Unit tests for security/authentication utilities.
 Updated for PyJWT + direct bcrypt (2026-03-01).
 """
+import asyncio
+import threading
+
+import anyio
 import bcrypt as _bcrypt
 import pytest
 
+from app.core import security as security_module
 from app.core.security import (
     verify_password, get_password_hash,
     create_access_token, create_refresh_token, decode_token,
@@ -51,6 +56,80 @@ class TestPasswordHashing:
         hashed = get_password_hash("")
         assert hashed is not None
         assert len(hashed) > 0
+
+    @pytest.mark.asyncio
+    async def test_async_password_work_stays_responsive_and_bounded_after_cancellation(
+        self,
+        monkeypatch,
+    ):
+        started = threading.Event()
+        second_started = threading.Event()
+        release = threading.Event()
+        call_count = 0
+        active_calls = 0
+        maximum_active_calls = 0
+        passwords_checked = []
+
+        def blocking_verify(_plain_password: str, _hashed_password: str) -> bool:
+            nonlocal call_count, active_calls, maximum_active_calls
+            call_count += 1
+            passwords_checked.append(_plain_password)
+            active_calls += 1
+            maximum_active_calls = max(maximum_active_calls, active_calls)
+            (started if call_count == 1 else second_started).set()
+            try:
+                release.wait(timeout=2)
+                return True
+            finally:
+                active_calls -= 1
+
+        async def event_is_set(event: threading.Event) -> None:
+            while not event.is_set():
+                await asyncio.sleep(0.001)
+
+        monkeypatch.setattr(security_module, "verify_password", blocking_verify)
+        monkeypatch.setattr(
+            security_module,
+            "_password_worker_limiter",
+            anyio.CapacityLimiter(1),
+            raising=False,
+        )
+
+        first = asyncio.create_task(
+            security_module.verify_password_async("first", "stored")
+        )
+        second = None
+        try:
+            # This wait can complete only if password verification left the event loop.
+            await asyncio.wait_for(event_is_set(started), timeout=0.5)
+            second = asyncio.create_task(
+                security_module.verify_password_async("second", "stored")
+            )
+            await asyncio.sleep(0.02)
+            assert not second_started.is_set()
+
+            queued = asyncio.create_task(
+                security_module.verify_password_async("cancelled-queued", "stored")
+            )
+            await asyncio.sleep(0.02)
+            queued.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await queued
+
+            first.cancel()
+            await asyncio.sleep(0.02)
+            assert not second_started.is_set()
+        finally:
+            release.set()
+
+        with pytest.raises(asyncio.CancelledError):
+            await first
+        assert second is not None
+        assert await asyncio.wait_for(second, timeout=0.5) is True
+        assert maximum_active_calls == 1
+        # Drain admitted work and prove the cancelled waiter never reached bcrypt.
+        await asyncio.sleep(0.02)
+        assert passwords_checked == ["first", "second"]
 
 
 class TestTokenCreation:
