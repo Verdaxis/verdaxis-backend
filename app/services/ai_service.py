@@ -1,10 +1,12 @@
 """Bounded, failure-isolated Gemini copilot calls."""
 
+from time import monotonic
+
 from app.config import settings
 from app.services.gemini_provider import (
+    DEFAULT_GEMINI_MODEL,
     ProviderCapacity,
-    get_gemini_model,
-    request_options,
+    generate_content,
     run_provider_call,
 )
 
@@ -17,13 +19,16 @@ class AIProviderUnavailable(RuntimeError):
     pass
 
 
-def _chat_sync(message: str) -> str:
+def _chat_sync(message: str, deadline: float | None = None) -> str:
     if not settings.GEMINI_API_KEY:
         raise AIProviderUnavailable("AI provider is not configured")
-    model = get_gemini_model("gemini-2.0-flash-lite")
-    response = model.generate_content(
+    timeout_seconds = AI_PROVIDER_TIMEOUT_SECONDS if deadline is None else int(deadline - monotonic())
+    if timeout_seconds < 1:
+        raise AIProviderUnavailable("AI provider deadline expired")
+    response = generate_content(
+        DEFAULT_GEMINI_MODEL,
         message,
-        request_options=request_options(AI_PROVIDER_TIMEOUT_SECONDS),
+        timeout_seconds,
     )
     text = getattr(response, "text", None)
     if not isinstance(text, str) or not text.strip():
@@ -35,12 +40,15 @@ async def chat_with_copilot(message: str, history: list | None = None):
     del history
     if not settings.GEMINI_API_KEY:
         raise AIProviderUnavailable("AI provider is not configured")
+    deadline = monotonic() + AI_PROVIDER_TIMEOUT_SECONDS
     try:
         return await run_provider_call(
             _provider_capacity,
             _chat_sync,
             message,
+            deadline,
             busy_error=AIProviderUnavailable("AI provider is busy"),
+            deadline=deadline,
         )
     except AIProviderUnavailable:
         raise
