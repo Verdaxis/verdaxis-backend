@@ -11,8 +11,8 @@ the two numbers that make that failure visible:
 
 It runs one read-only SELECT through ``psql`` (peer/.pgpass auth; never a
 password argument), prints a single JSON object, and exits 0 (ok),
-1 (threshold breached), or 2 (probe error). It is NOT armed: no service or
-timer in this repository invokes it, per the Stage 6c review decision.
+1 (threshold breached), or 2 (probe error). The canonical five-minute monitor
+invokes the installed probe for production and staging.
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ from datetime import datetime, timezone
 BACKLOG_QUERY = (
     "SELECT count(*),"
     " COALESCE(EXTRACT(EPOCH FROM (now() - min(created_at))), 0)::bigint"
-    " FROM market_event_outbox WHERE stream_seq IS NULL"
+    " FROM public.market_event_outbox WHERE stream_seq IS NULL"
 )
 
 
@@ -60,7 +60,7 @@ def run_backlog_query(dsn: str, timeout: int) -> str:
     except subprocess.TimeoutExpired as exc:
         raise ProbeError("backlog query timed out") from exc
     if completed.returncode != 0:
-        raise ProbeError(f"psql failed: {completed.stderr.strip()[:200]}")
+        raise ProbeError("psql query failed")
     return completed.stdout
 
 

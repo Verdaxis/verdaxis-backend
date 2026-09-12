@@ -3,7 +3,32 @@
 This directory is the tracked source for the public Verdaxis monitor installed
 as `/usr/local/sbin/verdaxis-monitor`. The monitor checks public routes,
 rendered frontend behavior, frontend API targets, signup and analytics
-canaries, backups, storage, and Caddy integrity every five minutes.
+canaries, event-delivery progress, backups, storage, and Caddy integrity every
+five minutes.
+
+## Event outbox backlog
+
+The monitor invokes the byte-attested
+`/usr/local/libexec/verdaxis-monitor/outbox_backlog_probe.py` once for each
+deployed database. Production uses `dbname=verdaxis user=verdaxis_backup` and
+staging uses
+`dbname=verdaxis_staging user=verdaxis_backup_staging`. Both targets pin
+`host=127.0.0.1 port=5432`; ambient libpq host, port, service, password, and
+options cannot redirect the child. Only an explicit `PGPASSFILE` is preserved
+for authentication. These identities match the runtime ACL source and have
+read-only table access. A count above 1,000 or an oldest pending age above 300
+seconds is a monitor failure. Missing probe bytes, invalid output, timeout, or
+database access failure also fails closed. The alert error is a stable category
+so changing measurements cannot bypass the hourly incident cooldown. Counts
+and ages stay in the structured status detail, and database diagnostics are not
+copied into monitor status or alerts.
+
+This source change does not activate the check. Before an operator-approved
+release, the canonical immutable installer must promote the matching probe
+artifact from `deploy/monitor/artifact-manifest.json` and provide noninteractive
+libpq authentication outside command arguments, such as an owner-only
+`PGPASSFILE`. Do not place a database password in the monitor command line or
+the monitor status.
 
 ## Guarded recovery
 
@@ -80,7 +105,20 @@ returns.
 
 ## Local installation
 
-Install only from a reviewed, committed source revision:
+Install only from a reviewed, committed source revision. **Stop before this
+recipe** unless both prerequisites are complete:
+
+1. The canonical immutable installer has promoted the exact
+   `outbox_backlog_probe.py` artifact attested by
+   `deploy/monitor/artifact-manifest.json` to
+   `/usr/local/libexec/verdaxis-monitor/outbox_backlog_probe.py`.
+2. An owner-only pgpass file contains production and staging backup-role
+   authentication, and `/etc/verdaxis-monitor.env` sets `PGPASSFILE` to its
+   absolute path.
+
+Do not replace the monitor executable or reload, enable, start, or restart its
+timer before both prerequisites are verified. Probe promotion belongs to the
+canonical installer; this recipe does not copy that artifact.
 
 ```bash
 sudo install -o root -g root -m 0755 \
@@ -119,17 +157,23 @@ sudo install -d -o jons-openclaw -g jons-openclaw -m 0700 \
 sudo install -o jons-openclaw -g jons-openclaw -m 0600 \
   /home/jons-openclaw/.codex/auth.json \
   /var/lib/verdaxis-autodiag/codex-home/auth.json
-sudo systemctl daemon-reload
-sudo systemctl enable --now verdaxis-monitor.timer
 ```
 
-Optional settings in `/etc/verdaxis-monitor.env`:
+This recipe deliberately stops before systemd activation. A separately
+authorized operator may reload and enable the existing timer only after the
+installed probe digest matches the manifest, the owner and mode of its pgpass
+file are verified without printing the file, and the source verification checks
+below pass.
+
+The first four settings in `/etc/verdaxis-monitor.env` are optional.
+`PGPASSFILE` is required before monitor replacement or activation:
 
 ```dotenv
 CODEX_AUTODIAG_MODEL=gpt-5.6-luna
 CODEX_AUTODIAG_TIMEOUT_SECONDS=600
 CODEX_AUTODIAG_COOLDOWN_SECONDS=3600
 VERDAXIS_RECOVERY_COOLDOWN_SECONDS=3600
+PGPASSFILE=/etc/verdaxis-monitor/pgpass
 ```
 
 `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` are shared with the existing
@@ -236,6 +280,8 @@ systemd-analyze verify \
   deploy/external_monitor/systemd/verdaxis-external-recover.service \
   deploy/external_monitor/systemd/verdaxis-onboarding-attention.service \
   deploy/external_monitor/systemd/verdaxis-onboarding-attention.timer
-pytest tests/monitor/test_external_autodiag.py \
+pytest tests/monitor/test_external_monitor.py \
+  tests/monitor/test_outbox_backlog_probe.py \
+  tests/monitor/test_external_autodiag.py \
   tests/monitor/test_external_recovery.py -q
 ```

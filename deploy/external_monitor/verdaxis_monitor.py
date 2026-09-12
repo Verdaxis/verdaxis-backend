@@ -103,6 +103,24 @@ DEFAULT_ANALYTICS_MAX_DATA_BYTES = 5 * 1024 * 1024 * 1024
 DEFAULT_MIN_DISK_FREE_PERCENT = 10.0
 DEFAULT_BACKUP_STATUS_FILE = "/home/verdaxis-prod/backups/status.json"
 DEFAULT_BACKUP_MAX_AGE_SECONDS = 30 * 60 * 60
+DEFAULT_OUTBOX_BACKLOG_PROBE = (
+    "/usr/local/libexec/verdaxis-monitor/outbox_backlog_probe.py"
+)
+OUTBOX_BACKLOG_TARGETS = (
+    (
+        "production",
+        "host=127.0.0.1 port=5432 dbname=verdaxis user=verdaxis_backup",
+    ),
+    (
+        "staging",
+        "host=127.0.0.1 port=5432 dbname=verdaxis_staging "
+        "user=verdaxis_backup_staging",
+    ),
+)
+OUTBOX_MAX_PENDING = 1_000
+OUTBOX_MAX_AGE_SECONDS = 300
+OUTBOX_QUERY_TIMEOUT_SECONDS = 20
+OUTBOX_MAX_OUTPUT_BYTES = 4_096
 
 FRONTEND_BUNDLE_CHECKS = [
     {
@@ -138,7 +156,11 @@ RENDERED_PAGE_CHECKS = [
 ]
 
 
-def run(cmd: list[str], timeout: int = 20) -> subprocess.CompletedProcess[str]:
+def run(
+    cmd: list[str],
+    timeout: int = 20,
+    env: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         cmd,
         text=True,
@@ -146,6 +168,7 @@ def run(cmd: list[str], timeout: int = 20) -> subprocess.CompletedProcess[str]:
         stderr=subprocess.PIPE,
         timeout=timeout,
         check=False,
+        env=env,
     )
 
 
@@ -471,6 +494,127 @@ def check_backup_status() -> list[str]:
     return errors
 
 
+def check_outbox_backlogs() -> tuple[list[str], list[dict]]:
+    """Report a stalled event sequencer in either deployed environment."""
+    probe = Path(DEFAULT_OUTBOX_BACKLOG_PROBE)
+    try:
+        if not probe.is_file():
+            return ["event outbox backlog probe is missing"], [
+                {
+                    "environment": environment,
+                    "ok": False,
+                    "error": "probe_missing",
+                }
+                for environment, _ in OUTBOX_BACKLOG_TARGETS
+            ]
+    except OSError:
+        return ["event outbox backlog probe is unavailable"], [
+            {
+                "environment": environment,
+                "ok": False,
+                "error": "probe_unavailable",
+            }
+            for environment, _ in OUTBOX_BACKLOG_TARGETS
+        ]
+
+    errors: list[str] = []
+    statuses: list[dict] = []
+    child_environment = {
+        "LANG": "C",
+        "LC_ALL": "C",
+        "PATH": os.defpath,
+    }
+    passfile = os.getenv("PGPASSFILE", "").strip()
+    if passfile:
+        child_environment["PGPASSFILE"] = passfile
+    for environment, dsn in OUTBOX_BACKLOG_TARGETS:
+        status = {
+            "environment": environment,
+            "ok": False,
+            "max_pending": OUTBOX_MAX_PENDING,
+            "max_age_seconds": OUTBOX_MAX_AGE_SECONDS,
+        }
+        statuses.append(status)
+        command = [
+            sys.executable,
+            str(probe),
+            "--dsn",
+            dsn,
+            "--max-pending",
+            str(OUTBOX_MAX_PENDING),
+            "--max-age-seconds",
+            str(OUTBOX_MAX_AGE_SECONDS),
+            "--query-timeout",
+            str(OUTBOX_QUERY_TIMEOUT_SECONDS),
+        ]
+        try:
+            result = run(
+                command,
+                timeout=OUTBOX_QUERY_TIMEOUT_SECONDS + 5,
+                env=child_environment,
+            )
+        except subprocess.TimeoutExpired:
+            status["error"] = "probe_timeout"
+            errors.append(f"{environment} event outbox backlog probe timed out")
+            continue
+        except OSError:
+            status["error"] = "probe_unavailable"
+            errors.append(f"{environment} event outbox backlog probe is unavailable")
+            continue
+
+        if result.returncode not in {0, 1}:
+            status["error"] = "probe_unavailable"
+            errors.append(f"{environment} event outbox backlog probe is unavailable")
+            continue
+        if (
+            not isinstance(result.stdout, str)
+            or len(result.stdout.encode()) > OUTBOX_MAX_OUTPUT_BYTES
+        ):
+            status["error"] = "invalid_output"
+            errors.append(f"{environment} event outbox backlog probe returned invalid output")
+            continue
+
+        try:
+            payload = json.loads(result.stdout)
+            pending_count = payload["pending_count"]
+            oldest_seconds = payload["oldest_pending_seconds"]
+            if (
+                not isinstance(payload, dict)
+                or type(payload.get("ok")) is not bool
+                or type(pending_count) is not int
+                or type(oldest_seconds) is not int
+                or pending_count < 0
+                or oldest_seconds < 0
+            ):
+                raise ValueError
+        except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+            status["error"] = "invalid_output"
+            errors.append(f"{environment} event outbox backlog probe returned invalid output")
+            continue
+
+        status["pending_count"] = pending_count
+        status["oldest_pending_seconds"] = oldest_seconds
+
+        breached = (
+            pending_count > OUTBOX_MAX_PENDING
+            or oldest_seconds > OUTBOX_MAX_AGE_SECONDS
+        )
+        expected_ok = not breached
+        if (
+            result.returncode != (1 if breached else 0)
+            or payload["ok"] is not expected_ok
+        ):
+            status["error"] = "invalid_output"
+            errors.append(f"{environment} event outbox backlog probe returned invalid output")
+            continue
+        if breached:
+            status["error"] = "threshold_breached"
+            errors.append(f"{environment} event outbox backlog threshold breached")
+            continue
+        status["ok"] = True
+    return errors, statuses
+
+
 def find_chromium() -> str | None:
     configured = os.getenv("CHROMIUM_BIN")
     if configured:
@@ -784,7 +928,12 @@ def check_signup_canaries() -> list[str]:
     return errors
 
 
-def write_status(ok: bool, errors: list[str], endpoint_statuses: list[dict]) -> None:
+def write_status(
+    ok: bool,
+    errors: list[str],
+    endpoint_statuses: list[dict],
+    outbox_statuses: list[dict] | None = None,
+) -> None:
     status_file = Path(os.getenv("STATUS_FILE", DEFAULT_STATUS_FILE))
     now = int(time.time())
     payload = {
@@ -793,6 +942,7 @@ def write_status(ok: bool, errors: list[str], endpoint_statuses: list[dict]) -> 
         "checked_at_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now)),
         "errors": errors,
         "endpoints": endpoint_statuses,
+        "outbox_backlogs": outbox_statuses or [],
         "alert_cooldown_seconds": int(
             os.getenv("ALERT_COOLDOWN_SECONDS", str(DEFAULT_ALERT_COOLDOWN_SECONDS))
         ),
@@ -876,6 +1026,7 @@ def maybe_alert(ok: bool, errors: list[str]) -> None:
 def main() -> int:
     errors = check_caddyfile()
     endpoint_errors, endpoint_statuses = check_endpoints()
+    outbox_statuses: list[dict] = []
     errors.extend(endpoint_errors)
     try:
         errors.extend(check_frontend_bundles())
@@ -890,6 +1041,11 @@ def main() -> int:
     except Exception as exc:
         errors.append(f"backup status check crashed: {exc}")
     try:
+        outbox_errors, outbox_statuses = check_outbox_backlogs()
+        errors.extend(outbox_errors)
+    except Exception:
+        errors.append("event outbox backlog checks crashed")
+    try:
         errors.extend(check_signup_canaries())
     except Exception as exc:
         errors.append(f"signup canaries crashed: {exc}")
@@ -902,7 +1058,7 @@ def main() -> int:
     except Exception as exc:
         errors.append(f"analytics storage check crashed: {exc}")
     ok = not errors
-    write_status(ok, errors, endpoint_statuses)
+    write_status(ok, errors, endpoint_statuses, outbox_statuses)
     maybe_alert(ok, errors)
     if ok:
         print("Verdaxis monitor OK")

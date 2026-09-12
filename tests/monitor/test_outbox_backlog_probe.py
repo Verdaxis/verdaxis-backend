@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -84,12 +85,31 @@ def test_query_is_read_only_and_targets_unsequenced_rows():
     module = load_module()
     query = module.BACKLOG_QUERY.upper()
     assert query.startswith("SELECT ")
+    assert "PUBLIC.MARKET_EVENT_OUTBOX" in query
     assert "STREAM_SEQ IS NULL" in query
     for verb in ("INSERT", "UPDATE", "DELETE", "TRUNCATE", "DROP"):
         assert verb not in query
 
 
-def test_probe_is_not_armed_by_any_unit():
+def test_query_failure_does_not_expose_psql_diagnostics(monkeypatch):
+    module = load_module()
+    monkeypatch.setattr(module.shutil, "which", lambda name: "/usr/bin/psql")
+    monkeypatch.setattr(
+        module.subprocess,
+        "run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(
+            args[0],
+            1,
+            stdout="",
+            stderr="postgresql://user:do-not-report@127.0.0.1/verdaxis",
+        ),
+    )
+
+    with pytest.raises(module.ProbeError, match="^psql query failed$"):
+        module.run_backlog_query("dbname=verdaxis user=verdaxis_backup", 20)
+
+
+def test_probe_has_no_competing_scheduler_unit():
     monitor = ROOT / "deploy/monitor"
     for unit in list(monitor.glob("*.service")) + list(monitor.glob("*.timer")):
         assert "outbox_backlog_probe" not in unit.read_text(), unit.name

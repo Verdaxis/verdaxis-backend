@@ -8,6 +8,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 RECOVERY_PATH = ROOT / "deploy" / "external_monitor" / "verdaxis_recover.py"
+AUTODIAG_PATH = ROOT / "deploy" / "external_monitor" / "verdaxis_autodiag.py"
 
 
 def load_module(name: str, path: Path):
@@ -97,6 +98,48 @@ def test_recovery_is_allowlisted_and_hourly(tmp_path, monkeypatch):
     report = reports[0].read_text(encoding="utf-8")
     assert "frontend" not in report
     assert "analytics volume" not in report
+
+
+def test_changing_backlog_measurements_keep_one_cooldown_fingerprint(
+    tmp_path, monkeypatch
+):
+    recovery = load_module("verdaxis_recover_outbox", RECOVERY_PATH)
+    autodiag = load_module("verdaxis_autodiag_outbox", AUTODIAG_PATH)
+    status_file = tmp_path / "status.json"
+    state_dir = tmp_path / "state"
+    status = {
+        "ok": False,
+        "errors": ["production event outbox backlog threshold breached"],
+        "endpoints": [],
+        "outbox_backlogs": [
+            {
+                "environment": "production",
+                "ok": False,
+                "pending_count": 1001,
+                "oldest_pending_seconds": 301,
+                "error": "threshold_breached",
+            }
+        ],
+    }
+    status_file.write_text(json.dumps(status), encoding="utf-8")
+    monkeypatch.setenv("RECOVERY_STATUS_FILE", str(status_file))
+    monkeypatch.setenv("RECOVERY_STATE_DIR", str(state_dir))
+    monkeypatch.setattr(recovery, "deployment_active", lambda: False)
+
+    assert recovery.main() == 2
+    first_fingerprint = recovery.failure_fingerprint(status)
+    first_diagnosis_fingerprint = autodiag.failure_fingerprint(status)
+
+    status["outbox_backlogs"][0].update(
+        pending_count=5000,
+        oldest_pending_seconds=900,
+    )
+    status_file.write_text(json.dumps(status), encoding="utf-8")
+
+    assert recovery.failure_fingerprint(status) == first_fingerprint
+    assert autodiag.failure_fingerprint(status) == first_diagnosis_fingerprint
+    assert recovery.main() == 2
+    assert len(list(state_dir.glob("recovery-*.json"))) == 1
 
 
 def test_frontend_and_capacity_fail_closed(tmp_path, monkeypatch):

@@ -97,8 +97,14 @@ for it exists or is installed.
   `deploy/monitor/outbox_backlog_probe.py` exposes
   `count(*) WHERE stream_seq IS NULL` plus the oldest pending age via a
   read-only psql query (exit 1 on threshold breach). It ships in the
-  attested monitor manifest but is deliberately NOT armed by any
-  service/timer in this repository.
+  attested monitor manifest, and the canonical public monitor invokes the
+  installed artifact for production and staging during its existing
+  five-minute run. There is no separate probe service or timer. The source
+  wiring remains inactive until an operator-approved release promotes both
+  monitor and probe bytes and supplies noninteractive libpq authentication.
+  Alert categories remain stable while the changing count and age stay in
+  structured monitor status, so a growing backlog cannot bypass the hourly
+  recovery and diagnosis cooldown.
 
 ## Proof
 
