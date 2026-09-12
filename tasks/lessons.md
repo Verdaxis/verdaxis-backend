@@ -351,3 +351,15 @@
 ### Respect Notification Preferences Without Holding Customer Locks During Email
 - **Date:** 2026-09-11
 - **Rule:** Check existing channel preferences when queueing and claiming notifications. Commit a short delivery lease before provider I/O, recheck against a fresh clock per message, and remove frozen payloads after terminal delivery. Keep retries inside the provider idempotency lifetime.
+
+### Distinguish Queued Cancellation From Running Password Work
+- **Date:** 2026-09-12
+- **Trigger:** Review found a shielded password task could outlive a cancelled request while still waiting for worker capacity.
+- **Rule:** Acquire bounded capacity in the cancellable caller; shield only admitted work. Hold capacity until that work finishes, and test cancellation both before and after admission.
+- **Why:** Shielding the queue runs abandoned work later; releasing a running worker's slot early defeats the concurrency limit.
+
+### Make Financial Constraints and Destructive Downgrades Fail Closed
+- **Date:** 2026-09-12
+- **Trigger:** Fee review found that SQL three-valued logic admitted a partial snapshot and that a downgrade could lose fee data or deadlock with active trade paths.
+- **Rule:** Write CHECK branches with explicit `IS NOT NULL` requirements, and acquire destructive-migration locks with fail-fast semantics before data-loss checks or DDL. Prove both historical-data refusal and conflicting runtime lock orders on PostgreSQL.
+- **Why:** `UNKNOWN` can satisfy a CHECK, while count-before-lock and waiting multi-table locks can silently erase committed financial state or abort live work.

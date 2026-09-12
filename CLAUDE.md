@@ -118,9 +118,9 @@ cd /home/verdaxis-prod/verdaxis/staging/be   # or /home/verdaxis-prod/verdaxis/p
 
 ## Database & Migrations
 
-- **Docker Compose maps port 5433 -> 5432** (not the default 5432 on host)
+- **Current deployed databases use host PostgreSQL 17 on loopback port 5432.** The optional Compose database mapping `5433 -> 5432` is not the current production/staging app database.
 - The database URL is assembled from individual env vars (`DATABASE_HOST`, `DATABASE_PORT`, `DATABASE_NAME`, `DATABASE_USER`, `DATABASE_PASSWORD`) unless `DATABASE_URL` is explicitly set
-- In Docker, `DATABASE_HOST=verdaxis-db` (the container name)
+- Only the optional Compose topology uses `DATABASE_HOST=verdaxis-db`; do not infer a deployed database target from that file.
 - Alembic's `env.py` overrides `sqlalchemy.url` from Settings at runtime. The `alembic.ini` value (`driver://user:pass@localhost/dbname`) is never used.
 - Alembic compares columns, foreign keys, indexes, types, defaults, and comments. It excludes only explicitly enumerated PostGIS/system or documented legacy objects; targeted callbacks cover non-native enum storage and Python-owned defaults.
 - All models MUST be imported in `app/models/__init__.py` or Alembic autogenerate will miss them
@@ -136,7 +136,7 @@ cd /home/verdaxis-prod/verdaxis/staging/be   # or /home/verdaxis-prod/verdaxis/p
 | `staff_capability_assignments` | Revocable, expiring administrator capabilities for market support |
 | `trades`             | Matched transactions. Lifecycle: PENDING -> CONFIRMED -> DELIVERED -> PAID |
 | `match_suggestions`  | AI-scored potential matches between BID and ASK orders |
-| `commissions`        | Verdaxis revenue tracking per trade (0.5% default rate) |
+| `commissions`        | Verdaxis revenue tracking per trade; new seller-paid per-MT rates are stored on `trades` (see `docs/transaction-fees.md`) |
 | `ports`              | PostGIS POINT geometry. ID format: `SGSIN`, `NLRTM`, etc. |
 | `vessels`            | Buyer fleet. PostGIS current/previous location    |
 | `inventory_items`    | Supplier stock per port per fuel type              |
@@ -243,21 +243,21 @@ cd /home/verdaxis-prod/verdaxis/staging/be   # or /home/verdaxis-prod/verdaxis/p
 
 1. **API returns numbers as strings.** Pydantic serializes `Decimal` fields as strings by default. The frontend must wrap numeric fields with `Number()` before arithmetic. Affected fields: `quantity_mt`, `price_per_mt_usd`, `final_quantity_mt`, `final_price_per_mt`, `final_total_usd`, etc.
 
-2. **Two `get_current_user` implementations.** Most routers import from `app.routers.auth_simple`. A few older routers (`vessels`, `inventory`, `compliance`, `ai`) import from `app.core.auth`. Both decode JWT but the legacy one also supports auth bypass and JIT user provisioning. Be careful which one a router uses.
+2. **Authentication is centralized in `app.routers.auth_simple`.** The old `app.core.auth` module is absent. Reuse the current authenticated-user and execution-eligibility dependencies; do not restore legacy bypass or just-in-time user provisioning.
 
 3. **`scripts/seed.py` is now a thin runner over `app.seeds.seed_all()`.** If you need to change demo market data, update `app/seeds/catalog_seed.py` and `app/seeds/market_seed.py` rather than reintroducing ad hoc legacy seed logic in the script itself.
 
 4. **PostGIS serialization.** Never return a raw `Geography`/`Geometry` column to Pydantic. Always extract coordinates with `ST_X`/`ST_Y`, set them as attributes, and null out the geography column before returning. See `routers/ports.py` for the pattern.
 
-5. **Docker Compose postgres port is 5433 on host**, not 5432. If connecting from host machine, use `localhost:5433`. Inside Docker network, containers use `verdaxis-db:5432`.
+5. **Deployed database authority is explicit.** Production and staging use host PostgreSQL on `127.0.0.1:5432`, with separate app, migrator, and backup roles. Do not substitute optional Compose port 5433 or app credentials for a migrator operation.
 
 6. **`alembic.ini` sqlalchemy.url is a dummy.** The real URL comes from `app.config.settings.DATABASE_URL` and is set in `alembic/env.py`. Do not edit the URL in `alembic.ini`.
 
 7. **Authentik is deprecated.** References to Authentik in config and old code are dead. Auth is purely self-managed JWT. Do not re-enable Authentik integration.
 
-8. **Commission model has dual FKs.** `Commission.match_id` points to legacy `orders` table (NOT nullable). `Commission.trade_id` points to the new `trades` table (nullable). Legacy FK is kept for historical data.
+8. **Commission retains a legacy identifier.** `Commission.match_id` is a non-null unique identifier, not a foreign key to the absent legacy `orders` table. `Commission.trade_id` is the nullable foreign key to `trades`.
 
-9. **`datetime.utcnow()` is used throughout** for timestamps. This is deprecated in Python 3.12+ in favor of `datetime.now(timezone.utc)`. Active deprecation warnings on Python 3.12. Will break on Python 3.13. Should be migrated soon.
+9. **Legacy UTC helpers produce deprecation warnings.** Prefer timezone-aware UTC timestamps in new code. Check existing column and comparison semantics before replacing naive timestamps across the application.
 
 10. **Trade lifecycle is strict.** The state machine is: `PENDING_CONFIRMATION -> CONFIRMED -> DELIVERED -> PAID`. Decline from PENDING restores order quantity. Only the counterparty (non-initiator) can confirm/decline. Only the seller can mark as paid.
 
@@ -265,7 +265,7 @@ cd /home/verdaxis-prod/verdaxis/staging/be   # or /home/verdaxis-prod/verdaxis/p
 
 12. **JWT helpers use the declared `PyJWT` dependency.** Do not reintroduce undeclared `python-jose` imports in scripts or tests.
 
-13. **`passlib` is unmaintained.** Last release was 2020 (v1.7.4). Depends on the deprecated `crypt` module removed in Python 3.13. Recommend migrating to direct `bcrypt` or `argon2-cffi`.
+13. **Password helpers already use direct `bcrypt`.** Async request handlers use the bounded offload wrappers in `app/core/security.py`; synchronous maintenance callers retain the synchronous helpers. Do not reintroduce `passlib`.
 
 14. **Redis is an intentional Docker Compose dependency.** `docker-compose.yml` provisions Redis for the upcoming shared event/rate-limit work; keep the service and its configuration intact.
 
