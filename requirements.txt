@@ -17,7 +17,7 @@ pydantic-settings
 email-validator
 PyJWT>=2.8.0
 bcrypt>=4.0.0
-google-generativeai
+google-genai==2.23.0
 pytest
 pytest-asyncio
 httpx

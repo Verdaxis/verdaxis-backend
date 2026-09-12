@@ -23,15 +23,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.models.news import NewsItem
 from app.services.gemini_provider import (
+    DEFAULT_GEMINI_MODEL,
     ProviderCapacity,
-    get_gemini_model,
-    request_options,
+    generate_content,
     run_provider_call,
 )
 
 logger = structlog.get_logger()
 
-GEMINI_MODEL = "gemini-2.5-flash-lite"
+GEMINI_MODEL = DEFAULT_GEMINI_MODEL
 NEWS_PROVIDER_TIMEOUT_SECONDS = 15
 RSS_FETCH_TIMEOUT_SECONDS = 15
 RSS_MAX_CONCURRENT = 4
@@ -510,8 +510,7 @@ def _dedupe_fetched_items(raw_items: list[dict]) -> list[dict]:
     return unique_items
 
 
-def _categorize_headline_sync(title: str) -> str:
-    model = get_gemini_model(GEMINI_MODEL)
+def _categorize_headline_sync(title: str, deadline: float | None = None) -> str:
     prompt = (
         "Categorize this shipping/maritime headline into exactly ONE category. "
         "Pick the single best category from this list: shipping, bunkers, regulation, carbon, commodities, markets. "
@@ -522,9 +521,13 @@ def _categorize_headline_sync(title: str) -> str:
         "Do NOT wrap in markdown. Do NOT include explanation.\n"
         f"Headline: {title}"
     )
-    response = model.generate_content(
+    timeout_seconds = NEWS_PROVIDER_TIMEOUT_SECONDS if deadline is None else int(deadline - time.monotonic())
+    if timeout_seconds < 1:
+        raise RuntimeError("news provider deadline expired")
+    response = generate_content(
+        GEMINI_MODEL,
         prompt,
-        request_options=request_options(NEWS_PROVIDER_TIMEOUT_SECONDS),
+        timeout_seconds,
     )
     return response.text
 
@@ -551,15 +554,16 @@ async def categorize_headline(title: str) -> dict:
         return _local_categorize_headline(title)
 
     try:
-        # Do not wrap this in asyncio.wait_for: cancellation would abandon a
-        # worker thread while releasing the capacity slot. RequestOptions
-        # supplies the provider-native deadline and the slot remains held
-        # until the call actually returns.
+        # The shared wrapper applies the outer deadline without releasing the
+        # capacity slot until the provider thread actually exits.
+        deadline = time.monotonic() + NEWS_PROVIDER_TIMEOUT_SECONDS
         raw_text = await run_provider_call(
             _news_provider_capacity,
             _categorize_headline_sync,
             title,
+            deadline,
             busy_error=RuntimeError("news provider is busy"),
+            deadline=deadline,
         )
         _gemini_breaker.success()
         result = _extract_json(raw_text)

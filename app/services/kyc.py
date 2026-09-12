@@ -1,15 +1,17 @@
 """Fail-closed, bounded Google Gemini KYC verification."""
 
 import json
+from time import monotonic
 from typing import Any
 
 import structlog
 
 from app.config import settings
 from app.services.gemini_provider import (
+    DEFAULT_GEMINI_MODEL,
     ProviderCapacity,
-    get_gemini_model,
-    request_options,
+    generate_content,
+    inline_data_part,
     run_provider_call,
 )
 
@@ -47,24 +49,37 @@ def _parse_provider_result(raw_text: str) -> dict[str, Any]:
     }
 
 
-def _verify_document_with_gemini_sync(image_bytes: bytes, mime_type: str, doc_type: str) -> dict[str, Any]:
+def _verify_document_with_gemini_sync(
+    image_bytes: bytes,
+    mime_type: str,
+    doc_type: str,
+    deadline: float | None = None,
+) -> dict[str, Any]:
     prompt = f"""You are a KYC document verification system for a maritime fuel marketplace. Carefully examine this {doc_type} document image.
 
 Respond with ONLY valid JSON (no markdown, no explanation):
 {{"valid": true, "readable": true, "tampered": false, "confidence": 0.85, "issues": []}}
 
 Fields: valid recognizable official document; readable clearly legible; tampered signs of manipulation; confidence 0.0-1.0; issues specific problems."""
-    image_part = {"mime_type": mime_type, "data": image_bytes}
-    for model_name in ("gemini-2.0-flash-lite", "gemini-1.5-flash-8b"):
+    image_part = inline_data_part(image_bytes, mime_type)
+    if deadline is None:
+        deadline = monotonic() + KYC_PROVIDER_TIMEOUT_SECONDS
+    for model_name in (DEFAULT_GEMINI_MODEL, "gemini-3.1-flash-lite"):
+        remaining_seconds = int(deadline - monotonic())
+        if remaining_seconds < 1:
+            break
         try:
-            response = get_gemini_model(model_name).generate_content(
+            response = generate_content(
+                model_name,
                 [prompt, image_part],
-                request_options=request_options(KYC_PROVIDER_TIMEOUT_SECONDS),
+                remaining_seconds,
             )
             return _parse_provider_result(response.text.strip())
         except Exception as exc:
             message = str(exc).lower()
-            if "model" in message and ("not found" in message or "404" in message):
+            if getattr(exc, "code", None) == 404 or (
+                "model" in message and ("not found" in message or "404" in message)
+            ):
                 logger.warning("kyc_model_fallback", attempted=model_name, error_type=type(exc).__name__)
                 continue
             raise
@@ -74,6 +89,7 @@ Fields: valid recognizable official document; readable clearly legible; tampered
 async def verify_document_with_gemini(image_bytes: bytes, mime_type: str, doc_type: str) -> dict:
     if not settings.GEMINI_API_KEY:
         raise KYCProviderUnavailable("KYC provider is not configured")
+    deadline = monotonic() + KYC_PROVIDER_TIMEOUT_SECONDS
     try:
         result = await run_provider_call(
             _provider_capacity,
@@ -81,7 +97,9 @@ async def verify_document_with_gemini(image_bytes: bytes, mime_type: str, doc_ty
             image_bytes,
             mime_type,
             doc_type,
+            deadline,
             busy_error=KYCProviderUnavailable("KYC provider is busy"),
+            deadline=deadline,
         )
         logger.info("kyc_gemini_result", doc_type=doc_type, passed=result["passed"], confidence=result["confidence"])
         return result

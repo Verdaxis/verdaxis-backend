@@ -1,48 +1,88 @@
-"""PID-aware Gemini model cache and cancellation-safe thread capacity."""
+"""PID-aware Gemini client cache and cancellation-safe thread capacity."""
 
 import asyncio
 from collections.abc import Callable
 import os
 import threading
+from time import monotonic
 from typing import TypeVar
 
-import google.generativeai as genai
-from google.api_core import retry as google_retry
-from google.generativeai.types import RequestOptions
+from google import genai
+from google.genai import types
 
 from app.config import settings
 
 T = TypeVar("T")
 
-_model_lock = threading.RLock()
-_model_pid: int | None = None
-_models: dict[str, object] = {}
+DEFAULT_GEMINI_MODEL = "gemini-2.5-flash-lite"
+PROVIDER_ATTEMPTS = 2
+PROVIDER_RETRY_DELAY_SECONDS = 0.1
+
+_client_lock = threading.RLock()
+_client_pid: int | None = None
+_client: genai.Client | None = None
 
 
-def get_gemini_model(model_name: str):
-    """Return one initialized model per process and name, safe after fork."""
-    global _model_pid
+def _close_cached_client() -> None:
+    global _client
+    if _client is not None:
+        try:
+            _client.close()
+        except Exception:
+            pass
+    _client = None
+
+
+def _client_for_process() -> genai.Client:
+    """Return one shared client per process."""
+    global _client, _client_pid
     if not settings.GEMINI_API_KEY:
         raise RuntimeError("Gemini provider is not configured")
+
     process_id = os.getpid()
-    with _model_lock:
-        if _model_pid != process_id:
-            _models.clear()
-            _model_pid = process_id
-        model = _models.get(model_name)
-        if model is None:
-            genai.configure(api_key=settings.GEMINI_API_KEY)
-            model = genai.GenerativeModel(model_name)
-            _models[model_name] = model
-        return model
+    with _client_lock:
+        if _client_pid != process_id:
+            _close_cached_client()
+            _client_pid = process_id
+        if _client is None:
+            _client = genai.Client(api_key=settings.GEMINI_API_KEY)
+        return _client
 
 
-def request_options(timeout_seconds: float) -> RequestOptions:
-    """Build a provider-native RPC timeout and bounded retry deadline."""
-    return RequestOptions(
-        timeout=timeout_seconds,
-        retry=google_retry.Retry(deadline=timeout_seconds),
+def _request_options(timeout_seconds: float) -> types.HttpOptions:
+    total_timeout_ms = int(timeout_seconds * 1_000)
+    retry_delay_ms = int(PROVIDER_RETRY_DELAY_SECONDS * 1_000)
+    attempt_timeout_ms = (total_timeout_ms - retry_delay_ms) // PROVIDER_ATTEMPTS
+    if attempt_timeout_ms < 1:
+        raise TimeoutError("Gemini provider deadline expired")
+    return types.HttpOptions(
+        timeout=attempt_timeout_ms,
+        retry_options=types.HttpRetryOptions(
+            attempts=PROVIDER_ATTEMPTS,
+            initial_delay=PROVIDER_RETRY_DELAY_SECONDS,
+            max_delay=PROVIDER_RETRY_DELAY_SECONDS,
+            exp_base=1,
+            jitter=0,
+        ),
     )
+
+
+def generate_content(model_name: str, contents: object, timeout_seconds: float):
+    """Generate content within the caller's total timeout budget."""
+    config = types.GenerateContentConfig(
+        automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
+        http_options=_request_options(timeout_seconds),
+    )
+    return _client_for_process().models.generate_content(
+        model=model_name,
+        contents=contents,
+        config=config,
+    )
+
+
+def inline_data_part(data: bytes, mime_type: str) -> types.Part:
+    """Build an SDK-native inline binary part."""
+    return types.Part.from_bytes(data=data, mime_type=mime_type)
 
 
 class ProviderCapacity:
@@ -67,11 +107,17 @@ def _call_and_release(capacity: ProviderCapacity, call: Callable[..., T], args: 
         capacity.release()
 
 
+def _consume_worker_exception(worker: asyncio.Task) -> None:
+    if not worker.cancelled():
+        worker.exception()
+
+
 async def run_provider_call(
     capacity: ProviderCapacity,
     call: Callable[..., T],
     *args,
     busy_error: Exception,
+    deadline: float | None = None,
 ) -> T:
     if not capacity.acquire():
         raise busy_error
@@ -80,4 +126,8 @@ async def run_provider_call(
     except BaseException:
         capacity.release()
         raise
-    return await asyncio.shield(worker)
+    worker.add_done_callback(_consume_worker_exception)
+    protected_worker = asyncio.shield(worker)
+    if deadline is None:
+        return await protected_worker
+    return await asyncio.wait_for(protected_worker, timeout=max(0, deadline - monotonic()))
