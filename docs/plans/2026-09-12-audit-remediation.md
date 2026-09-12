@@ -76,4 +76,5 @@ Run tests from this worktree with explicit `ENVIRONMENT=test`, `RELEASE_SHA=test
 - [x] R8 supported Gemini SDK: isolated dependency checks, 24 focused adapter tests, specification, and quality review passed; commit `5274aa4`. Release must plan a clean venv or approved retired-SDK cleanup.
 - [x] R9 seller fees: unit and disposable PostgreSQL route/migration/concurrency checks, specification, and quality review passed; commit `b19d28b`. Active Enterprise sellers require reviewed negotiated rates before rollout.
 - [x] Final regression gate: 1,390 unit tests and 223 monitor tests passed on the final source; diff check passed. Remaining provider test-double signatures match the reviewed deadline argument.
+- [x] Final complete PostgreSQL trade-route suite: 16 passed on committed source; the pinned disposable harness completed migration, ACL, and cleanup checks without live database access.
 - [ ] Separate operator release authorized (not part of this request).
