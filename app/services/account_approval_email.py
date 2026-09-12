@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from typing import Literal
 import uuid
@@ -15,6 +16,8 @@ from app.services.email import send_account_approved_email
 
 DEFAULT_APPROVAL_EMAIL_BATCH_SIZE = 20
 MAX_APPROVAL_EMAIL_BATCH_SIZE = 100
+# Leave headroom over the provider's 10-second phase timeouts, without a long crash delay.
+APPROVAL_EMAIL_CLAIM_DURATION = timedelta(minutes=5)
 APPROVAL_EMAIL_RETRY_DELAY = timedelta(hours=1)
 
 DeliveryResult = Literal["sent", "deferred", "discarded", "skipped"]
@@ -41,7 +44,7 @@ async def deliver_account_approval_email(
     user_id: uuid.UUID,
     transition_id: uuid.UUID,
 ) -> DeliveryResult:
-    """Lock, revalidate, and deliver one exact due approval notification."""
+    """Claim one due notification, send without a user lock, and finalize that claim."""
     now = datetime.now(UTC)
     user = (
         await db.execute(
@@ -66,10 +69,30 @@ async def deliver_account_approval_email(
         await db.commit()
         return "discarded"
 
-    accepted = await send_account_approved_email(
-        user.pending_approval_email_payload,
-        transition_id,
-    )
+    payload = deepcopy(user.pending_approval_email_payload)
+    claim_until = datetime.now(UTC) + APPROVAL_EMAIL_CLAIM_DURATION
+    user.pending_approval_email_retry_at = claim_until
+    await db.commit()
+
+    accepted = await send_account_approved_email(payload, transition_id)
+
+    # A rejection, re-approval, or expired-lease retry can replace this claim during I/O.
+    user = (
+        await db.execute(
+            select(User)
+            .where(
+                User.id == user_id,
+                User.pending_approval_email_transition_id == transition_id,
+                User.pending_approval_email_retry_at == claim_until,
+            )
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+    ).scalar_one_or_none()
+    if user is None:
+        await db.rollback()
+        return "skipped"
+
     if accepted:
         clear_pending_account_approval_email(user)
         await db.commit()

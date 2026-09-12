@@ -95,7 +95,12 @@ async def test_retry_replays_frozen_payload_and_clears_pending_state(
     frozen_payload = dict(user.pending_approval_email_payload)
     user.first_name = "Changed after approval"
     await approval_email_db.commit()
-    send = AsyncMock(return_value=True)
+
+    async def send_without_transaction(*_args):
+        assert not approval_email_db.in_transaction()
+        return True
+
+    send = AsyncMock(side_effect=send_without_transaction)
     monkeypatch.setattr(
         "app.services.account_approval_email.send_account_approved_email",
         send,
@@ -116,6 +121,86 @@ async def test_retry_replays_frozen_payload_and_clears_pending_state(
 
 
 @pytest.mark.asyncio
+async def test_interrupted_delivery_keeps_a_claim_that_can_be_retried(
+    approval_email_db: AsyncSession,
+    monkeypatch,
+):
+    user = await _pending_user(approval_email_db)
+    user_id = user.id
+    transition_id = user.pending_approval_email_transition_id
+    frozen_payload = dict(user.pending_approval_email_payload)
+    send = AsyncMock(side_effect=RuntimeError("interrupted worker"))
+    monkeypatch.setattr(
+        "app.services.account_approval_email.send_account_approved_email", send
+    )
+
+    with pytest.raises(RuntimeError, match="interrupted worker"):
+        await deliver_account_approval_email(
+            approval_email_db, user_id=user_id, transition_id=transition_id
+        )
+
+    assert not approval_email_db.in_transaction()
+    await approval_email_db.refresh(user)
+    retry_at = user.pending_approval_email_retry_at.replace(tzinfo=UTC)
+    assert retry_at > datetime.now(UTC)
+    assert user.pending_approval_email_transition_id == transition_id
+    assert user.pending_approval_email_payload == frozen_payload
+
+    # Simulate the persisted lease expiring before the next maintenance run.
+    user.pending_approval_email_retry_at = datetime.now(UTC) - timedelta(seconds=1)
+    await approval_email_db.commit()
+    send.side_effect = None
+    send.return_value = True
+    result = await deliver_account_approval_email(
+        approval_email_db, user_id=user_id, transition_id=transition_id
+    )
+
+    assert result == "sent"
+    assert send.await_count == 2
+    send.assert_awaited_with(frozen_payload, transition_id)
+    await approval_email_db.refresh(user)
+    assert user.pending_approval_email_transition_id is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("accepted", [True, False])
+async def test_stale_completion_preserves_a_newer_claim_for_the_same_transition(
+    approval_email_db: AsyncSession,
+    monkeypatch,
+    accepted: bool,
+):
+    user = await _pending_user(approval_email_db)
+    user_id = user.id
+    transition_id = user.pending_approval_email_transition_id
+    frozen_payload = dict(user.pending_approval_email_payload)
+    newer_retry_at = datetime.now(UTC) + timedelta(minutes=10)
+
+    async def reclaim_during_send(*_args):
+        async with AsyncSession(
+            approval_email_db.bind, expire_on_commit=False
+        ) as newer_session:
+            newer_user = await newer_session.get(User, user_id)
+            newer_user.pending_approval_email_retry_at = newer_retry_at
+            await newer_session.commit()
+        return accepted
+
+    send = AsyncMock(side_effect=reclaim_during_send)
+    monkeypatch.setattr(
+        "app.services.account_approval_email.send_account_approved_email", send
+    )
+    result = await deliver_account_approval_email(
+        approval_email_db, user_id=user_id, transition_id=transition_id
+    )
+
+    assert result == "skipped"
+    send.assert_awaited_once_with(frozen_payload, transition_id)
+    await approval_email_db.refresh(user)
+    assert user.pending_approval_email_transition_id == transition_id
+    assert user.pending_approval_email_payload == frozen_payload
+    assert user.pending_approval_email_retry_at.replace(tzinfo=UTC) == newer_retry_at
+
+
+@pytest.mark.asyncio
 async def test_provider_failure_defers_row_so_it_cannot_starve_newer_work(
     approval_email_db: AsyncSession,
     monkeypatch,
@@ -127,6 +212,7 @@ async def test_provider_failure_defers_row_so_it_cannot_starve_newer_work(
         send,
     )
 
+    retry_not_before = datetime.now(UTC) + timedelta(hours=1)
     first = await retry_pending_account_approval_emails(approval_email_db, batch_size=20)
     second = await retry_pending_account_approval_emails(approval_email_db, batch_size=20)
 
@@ -139,7 +225,7 @@ async def test_provider_failure_defers_row_so_it_cannot_starve_newer_work(
         retry_at = user.pending_approval_email_retry_at
         if retry_at.tzinfo is None:  # SQLite drops timezone metadata in unit tests.
             retry_at = retry_at.replace(tzinfo=UTC)
-        assert retry_at > datetime.now(UTC)
+        assert retry_at >= retry_not_before
 
 
 @pytest.mark.asyncio
