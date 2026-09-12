@@ -360,6 +360,15 @@ class Settings(BaseSettings):
     # Order Matching Engine
     AUTO_MATCHING_ENABLED: bool = True  # Set to False to disable match-on-insert
 
+    # Seller-paid transaction fees. These rates are snapshotted onto each new
+    # trade, so changing configuration affects future trades only.
+    SELLER_FEE_PILOT_PER_MT_USD: Decimal = Field(
+        default=Decimal("2.00"), ge=0, le=100000, decimal_places=2
+    )
+    SELLER_FEE_PROFESSIONAL_PER_MT_USD: Decimal = Field(
+        default=Decimal("1.50"), ge=0, le=100000, decimal_places=2
+    )
+
     # Organization-scoped assisted listings. This remains fail-closed until
     # the commercial activation gates in docs/market-support-assisted-listings.md
     # have been approved.

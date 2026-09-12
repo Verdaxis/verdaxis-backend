@@ -1,5 +1,6 @@
 """Unit tests for subscription model, tier gating, and endpoints."""
 import pytest
+from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock, patch
 from types import SimpleNamespace
 from uuid import uuid4
@@ -73,7 +74,10 @@ class TestSubscriptionSchemas:
 
     def test_subscription_update_schema(self):
         from app.schemas.subscription import SubscriptionUpdate
-        update = SubscriptionUpdate(tier=SubscriptionTier.ENTERPRISE)
+        update = SubscriptionUpdate(
+            tier=SubscriptionTier.ENTERPRISE,
+            seller_fee_per_mt_usd="0.75",
+        )
         assert update.tier == SubscriptionTier.ENTERPRISE
 
     def test_subscription_update_requires_tier(self):
@@ -352,7 +356,10 @@ class TestSubscriptionRouter:
         mock_db.add = MagicMock()
         mock_db.execute.return_value = mock_result
 
-        update = SubscriptionUpdate(tier=SubscriptionTier.ENTERPRISE)
+        update = SubscriptionUpdate(
+            tier=SubscriptionTier.ENTERPRISE,
+            seller_fee_per_mt_usd="0.75",
+        )
         result = await update_subscription(
             org_id=org_id,
             request=_fake_request(),
@@ -362,6 +369,10 @@ class TestSubscriptionRouter:
         )
 
         assert result.tier == SubscriptionTier.ENTERPRISE
+        assert result.seller_fee_per_mt_usd == Decimal("0.75")
+        statement = mock_db.execute.await_args.args[0]
+        assert statement._for_update_arg is not None
+        assert statement.get_execution_options()["populate_existing"] is True
         mock_db.commit.assert_awaited_once()
         mock_db.refresh.assert_awaited_once()
 

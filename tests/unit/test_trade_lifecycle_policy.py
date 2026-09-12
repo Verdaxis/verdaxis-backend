@@ -64,3 +64,12 @@ def test_delivery_amounts_round_total_then_commission_half_up():
     assert _delivery_amounts(
         Decimal("1.00"), Decimal("1.00"), Decimal("0.5")
     ) == (Decimal("1.00"), Decimal("0.01"))
+    assert _delivery_amounts(
+        Decimal("995"),
+        Decimal("558"),
+        Decimal("0"),
+        Decimal("1.50"),
+    ) == (Decimal("555210.00"), Decimal("1492.50"))
+    assert _delivery_amounts(
+        Decimal("995"), Decimal("558"), Decimal("0"), Decimal("0")
+    ) == (Decimal("555210.00"), Decimal("0.00"))

@@ -83,8 +83,15 @@ TRADE_NUMERIC_VALUES = " AND ".join(
         _optional_numeric("final_price_per_mt", minimum="0.01", maximum="1000000.00", scale=2),
         _optional_numeric("final_total_usd", minimum="0", maximum="100000000000.00", scale=2),
         _required_numeric("commission_rate_pct", minimum="0", maximum="100", scale=3),
+        _optional_numeric("commission_fee_per_mt_usd", minimum="0", maximum="100000.00", scale=2),
         _optional_numeric("commission_amount_usd", minimum="0", maximum="100000000000.00", scale=2),
     )
+)
+TRADE_COMMISSION_SNAPSHOT = (
+    "(commission_fee_per_mt_usd IS NULL AND commission_plan IS NULL) OR "
+    "(commission_fee_per_mt_usd IS NOT NULL AND commission_rate_pct = 0 "
+    "AND commission_plan IS NOT NULL "
+    "AND commission_plan IN ('free','standard','enterprise'))"
 )
 TRADE_LIFECYCLE = (
     "(final_quantity_mt IS NULL OR final_quantity_mt <= quantity_mt) AND ("

@@ -23,6 +23,7 @@ from app.models.marketplace import FuelType, InventoryItem
 from app.models.negotiation import Negotiation, NegotiationStatus
 from app.models.orderbook import OrderBookOrder, OrderBookStatus, Trade, TradeStatus
 from app.models.port import Port
+from app.models.subscription import Subscription, SubscriptionTier
 from app.models.user import (
     Organization,
     OrganizationProvenance,
@@ -290,6 +291,9 @@ async def test_simultaneous_authenticated_crossing_posts_are_one_coherent_trade(
     assert trade.availability_window == "SPOT"
     assert trade.buyer_provenance == OrganizationProvenance.REAL
     assert trade.seller_provenance == OrganizationProvenance.REAL
+    assert trade.commission_plan == SubscriptionTier.FREE.value
+    assert trade.commission_fee_per_mt_usd == Decimal("2.00")
+    assert trade.commission_rate_pct == Decimal("0")
     assert inventory.current_stock_mt == Decimal("0.00")
     assert inventory.reserved_stock_mt == Decimal("0.00")
     assert auto_match_audits == 1
@@ -318,6 +322,98 @@ async def test_simultaneous_authenticated_crossing_posts_are_one_coherent_trade(
     assert tape.status_code == 200, tape.text
     assert tape.json()["total"] == 1
     assert tape.json()["items"][0]["market_product"] == "BIO_METHANOL"
+
+
+@pytest.mark.asyncio
+async def test_manual_trade_keeps_seller_fee_snapshot_and_hides_it_from_buyer(
+    route_market,
+):
+    client, seeded = route_market
+    async with seeded["factory"]() as session:
+        session.add_all(
+            [
+                Subscription(
+                    org_id=seeded["buyer_org_id"],
+                    tier=SubscriptionTier.FREE,
+                    started_at=datetime.now(UTC),
+                ),
+                Subscription(
+                    org_id=seeded["seller_org_id"],
+                    tier=SubscriptionTier.STANDARD,
+                    started_at=datetime.now(UTC),
+                ),
+            ]
+        )
+        await session.commit()
+
+    published = await client.post(
+        f"/api/inventory/{seeded['inventory_id']}/publish",
+        headers=_headers(seeded["seller_id"], "seller-fee-lifecycle-publish"),
+    )
+    assert published.status_code == 200, published.text
+    listing_id = published.json()["listing_id"]
+
+    created = await client.post(
+        "/api/trades/",
+        json={"order_id": listing_id, "quantity_mt": "80.00"},
+        headers=_headers(seeded["buyer_id"], "seller-fee-lifecycle-create"),
+    )
+    assert created.status_code == 200, created.text
+    trade_id = created.json()["id"]
+    buyer_pending = created.json()
+    assert buyer_pending["commission_payer"] == "SELLER"
+    assert buyer_pending["commission_plan"] is None
+    assert buyer_pending["commission_fee_per_mt_usd"] is None
+    assert Decimal(buyer_pending["commission_rate_pct"]) == Decimal("0")
+
+    confirmed = await client.put(
+        f"/api/trades/{trade_id}/confirm",
+        headers=_headers(seeded["seller_id"], "seller-fee-lifecycle-confirm"),
+    )
+    assert confirmed.status_code == 200, confirmed.text
+    seller_confirmed = confirmed.json()
+    assert seller_confirmed["commission_payer"] == "SELLER"
+    assert seller_confirmed["commission_plan"] == SubscriptionTier.STANDARD.value
+    assert Decimal(seller_confirmed["commission_fee_per_mt_usd"]) == Decimal("1.50")
+    assert Decimal(seller_confirmed["commission_rate_pct"]) == Decimal("0")
+
+    async with seeded["factory"]() as session:
+        seller_subscription = (
+            await session.execute(
+                select(Subscription).where(
+                    Subscription.org_id == seeded["seller_org_id"]
+                )
+            )
+        ).scalar_one()
+        seller_subscription.tier = SubscriptionTier.ENTERPRISE
+        seller_subscription.seller_fee_per_mt_usd = Decimal("0.75")
+        await session.commit()
+
+    delivered = await client.put(
+        f"/api/trades/{trade_id}/deliver",
+        json={"final_quantity_mt": "50.00", "final_price_per_mt": "700.00"},
+        headers=_headers(seeded["seller_id"], "seller-fee-lifecycle-deliver"),
+    )
+    assert delivered.status_code == 200, delivered.text
+    seller_delivered = delivered.json()
+    assert seller_delivered["commission_payer"] == "SELLER"
+    assert seller_delivered["commission_plan"] == SubscriptionTier.STANDARD.value
+    assert Decimal(seller_delivered["commission_fee_per_mt_usd"]) == Decimal("1.50")
+    assert Decimal(seller_delivered["commission_amount_usd"]) == Decimal("75.00")
+    assert Decimal(seller_delivered["final_total_usd"]) == Decimal("35000.00")
+
+    buyer_trades = await client.get(
+        "/api/trades/my",
+        headers=_headers(seeded["buyer_id"], "seller-fee-lifecycle-buyer-read"),
+    )
+    assert buyer_trades.status_code == 200, buyer_trades.text
+    buyer_view = next(
+        item for item in buyer_trades.json()["items"] if item["id"] == trade_id
+    )
+    assert buyer_view["commission_payer"] == "SELLER"
+    assert buyer_view["commission_plan"] is None
+    assert buyer_view["commission_fee_per_mt_usd"] is None
+    assert buyer_view["commission_amount_usd"] is None
 
 
 @pytest.mark.asyncio

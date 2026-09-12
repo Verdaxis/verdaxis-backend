@@ -3,6 +3,7 @@ Match-on-insert engine. When a new order is placed, scan for crossing orders
 and automatically create trades. Uses price-time priority (FIFO at each price level).
 """
 from datetime import datetime, UTC
+from decimal import Decimal
 import uuid
 
 from fastapi import HTTPException
@@ -31,6 +32,7 @@ from app.models.user import OrganizationProvenance
 from app.services.inventory_reservations import lock_inventory_items
 from app.services.market_admission import lock_and_load_market_organizations
 from app.services.org_notifications import OrgNotification, notify_org_users_batched
+from app.services.trade_fees import resolve_seller_trade_fee
 
 # A single transaction must not hold an unbounded number of market rows. This
 # is a conservative operational cap: callers can retry the remainder in a
@@ -184,6 +186,7 @@ async def match_order(
         [new_order.organization_id, *(row.organization_id for row in crossing_orders)],
     )
 
+    seller_fee_snapshots = {}
     for crossing in crossing_orders:
         if new_order.remaining_quantity_mt <= 0:
             break
@@ -252,6 +255,26 @@ async def match_order(
         # Determine trade quantity (minimum of both remaining quantities)
         trade_qty = min(new_order.remaining_quantity_mt, crossing.remaining_quantity_mt)
 
+        # Determine buyer/seller before changing inventory or order quantities.
+        if new_order.side == OrderSide.BID:
+            buyer_org = new_order.organization_id
+            seller_org = crossing.organization_id
+            bid_order_id = new_order.id
+            ask_order_id = crossing.id
+            initiated_by = Initiator.BUYER
+        else:
+            buyer_org = crossing.organization_id
+            seller_org = new_order.organization_id
+            bid_order_id = crossing.id
+            ask_order_id = new_order.id
+            initiated_by = Initiator.SELLER
+
+        if seller_org not in seller_fee_snapshots:
+            seller_fee_snapshots[seller_org] = await resolve_seller_trade_fee(
+                db, seller_org, now=now
+            )
+        commission_plan, commission_fee_per_mt_usd = seller_fee_snapshots[seller_org]
+
         # Inventory rows participate in the same deterministic lifecycle
         # ledger as order quantities. Lock all affected rows by UUID before
         # consuming any reserved quantity.
@@ -271,20 +294,6 @@ async def match_order(
 
         # Trade price = the resting order's price (price improvement for aggressor)
         trade_price = crossing.price_per_mt_usd
-
-        # Determine buyer/seller
-        if new_order.side == OrderSide.BID:
-            buyer_org = new_order.organization_id
-            seller_org = crossing.organization_id
-            bid_order_id = new_order.id
-            ask_order_id = crossing.id
-            initiated_by = Initiator.BUYER
-        else:
-            buyer_org = crossing.organization_id
-            seller_org = new_order.organization_id
-            bid_order_id = crossing.id
-            ask_order_id = new_order.id
-            initiated_by = Initiator.SELLER
 
         # Create trade (auto-confirmed since both sides agreed via price)
         trade = Trade(
@@ -312,6 +321,9 @@ async def match_order(
             delivery_point_name=new_order.delivery_point_name,
             delivery_point_region=new_order.region,
             availability_window=new_order.availability_window,
+            commission_rate_pct=Decimal("0"),
+            commission_fee_per_mt_usd=commission_fee_per_mt_usd,
+            commission_plan=commission_plan.value,
         )
         db.add(trade)
         await db.flush()

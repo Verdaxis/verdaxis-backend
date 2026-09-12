@@ -69,6 +69,7 @@ from app.services.market_admission import (
     lock_and_load_market_organizations,
 )
 from app.services.org_notifications import notify_org_users
+from app.services.trade_fees import resolve_seller_trade_fee
 
 router = APIRouter(prefix="/trades", tags=["trades"], responses=AUTH_RESPONSES)
 
@@ -96,6 +97,7 @@ def build_trade_response(
     trade: Trade,
     *,
     viewer_org_id: UUID | None = None,
+    viewer_is_admin: bool = False,
 ) -> TradeResponse:
     """Build a response without triggering async lazy loads.
 
@@ -129,6 +131,8 @@ def build_trade_response(
                 buyer_name = "Anonymous"
 
     provenance = trade_market_provenance(trade)
+    has_seller_fee_snapshot = trade.commission_fee_per_mt_usd is not None
+    can_view_seller_fee = viewer_is_admin or viewer_org_id == trade.seller_id
     return TradeResponse(
         id=trade.id,
         bid_order_id=trade.bid_order_id,
@@ -145,8 +149,21 @@ def build_trade_response(
         final_quantity_mt=trade.final_quantity_mt,
         final_price_per_mt=trade.final_price_per_mt,
         final_total_usd=trade.final_total_usd,
-        commission_rate_pct=trade.commission_rate_pct or Decimal("0.5"),
-        commission_amount_usd=trade.commission_amount_usd,
+        commission_rate_pct=(
+            trade.commission_rate_pct
+            if trade.commission_rate_pct is not None
+            else Decimal("0.5")
+        ),
+        commission_fee_per_mt_usd=(
+            trade.commission_fee_per_mt_usd if can_view_seller_fee else None
+        ),
+        commission_plan=trade.commission_plan if can_view_seller_fee else None,
+        commission_payer="SELLER" if has_seller_fee_snapshot else None,
+        commission_amount_usd=(
+            trade.commission_amount_usd
+            if can_view_seller_fee or not has_seller_fee_snapshot
+            else None
+        ),
         confirmed_at=trade.confirmed_at,
         delivered_at=trade.delivered_at,
         paid_at=trade.paid_at,
@@ -457,13 +474,21 @@ async def _authorize_assisted_trade_actor(
 
 
 def _delivery_amounts(
-    quantity: Decimal, price: Decimal, commission_rate_pct: Decimal
+    quantity: Decimal,
+    price: Decimal,
+    commission_rate_pct: Decimal,
+    commission_fee_per_mt_usd: Decimal | None = None,
 ) -> tuple[Decimal, Decimal]:
     """Return stored money values using one explicit half-up rounding policy."""
     total = (quantity * price).quantize(MONEY_QUANTUM, rounding=ROUND_HALF_UP)
-    commission = (
-        total * commission_rate_pct / Decimal("100")
-    ).quantize(MONEY_QUANTUM, rounding=ROUND_HALF_UP)
+    if commission_fee_per_mt_usd is not None:
+        commission = (quantity * commission_fee_per_mt_usd).quantize(
+            MONEY_QUANTUM, rounding=ROUND_HALF_UP
+        )
+    else:
+        commission = (
+            total * commission_rate_pct / Decimal("100")
+        ).quantize(MONEY_QUANTUM, rounding=ROUND_HALF_UP)
     return total, commission
 
 
@@ -613,7 +638,11 @@ async def create_trade(
             )
             if replay_actor_id != current_user.id:
                 raise HTTPException(status_code=409, detail="Idempotency-Key is bound to another request principal")
-            return build_trade_response(replay, viewer_org_id=initiator_org_id)
+            return build_trade_response(
+                replay,
+                viewer_org_id=initiator_org_id,
+                viewer_is_admin=current_user.role == UserRole.ADMIN,
+            )
 
     # The canonical market lock is always acquired before the target row lock.
     target_identity = await db.execute(
@@ -783,6 +812,10 @@ async def create_trade(
 
     before_state = await _watchlist_before_state(db, order)
 
+    commission_plan, commission_fee_per_mt_usd = await resolve_seller_trade_fee(
+        db, seller_org_id
+    )
+
     # Create the trade
     trade = Trade(
         bid_order_id=bid_order_id,
@@ -811,6 +844,9 @@ async def create_trade(
         delivery_point_name=order.delivery_point_name,
         delivery_point_region=order.region,
         availability_window=order.availability_window,
+        commission_rate_pct=Decimal("0"),
+        commission_fee_per_mt_usd=commission_fee_per_mt_usd,
+        commission_plan=commission_plan.value,
     )
     db.add(trade)
 
@@ -862,7 +898,11 @@ async def create_trade(
         )
         if replay_actor_id != current_user.id:
             raise HTTPException(status_code=409, detail="Idempotency-Key is bound to another request principal")
-        return build_trade_response(existing_trade, viewer_org_id=initiator_org_id)
+        return build_trade_response(
+            existing_trade,
+            viewer_org_id=initiator_org_id,
+            viewer_is_admin=current_user.role == UserRole.ADMIN,
+        )
     await emit_order_updated(db, before=before_state, order=order)
 
     # Notify counterparty organization
@@ -917,7 +957,11 @@ async def create_trade(
     # Reload with relationships for response
     loaded_trade = await _load_trade(db, trade.id)
 
-    return build_trade_response(loaded_trade, viewer_org_id=initiator_org_id)
+    return build_trade_response(
+        loaded_trade,
+        viewer_org_id=initiator_org_id,
+        viewer_is_admin=current_user.role == UserRole.ADMIN,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1017,7 +1061,14 @@ async def list_my_trades(
     result = await db.execute(stmt)
     trades = result.unique().scalars().all()
 
-    items = [build_trade_response(t, viewer_org_id=org_id) for t in trades]
+    items = [
+        build_trade_response(
+            trade,
+            viewer_org_id=org_id,
+            viewer_is_admin=current_user.role == UserRole.ADMIN,
+        )
+        for trade in trades
+    ]
     return PaginatedResponse(items=items, total=total, skip=skip, limit=limit)
 
 
@@ -1149,7 +1200,11 @@ async def confirm_trade(
 
     loaded_trade = await _load_trade(db, trade.id)
 
-    return build_trade_response(loaded_trade, viewer_org_id=org_id)
+    return build_trade_response(
+        loaded_trade,
+        viewer_org_id=org_id,
+        viewer_is_admin=current_user.role == UserRole.ADMIN,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1328,7 +1383,11 @@ async def decline_trade(
     await db.commit()
 
     loaded_trade = await _load_trade(db, trade.id)
-    return build_trade_response(loaded_trade, viewer_org_id=org_id)
+    return build_trade_response(
+        loaded_trade,
+        viewer_org_id=org_id,
+        viewer_is_admin=current_user.role == UserRole.ADMIN,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1406,6 +1465,7 @@ async def deliver_trade(
         payload.final_quantity_mt,
         payload.final_price_per_mt,
         trade.commission_rate_pct,
+        trade.commission_fee_per_mt_usd,
     )
     trade.delivered_at = datetime.now(UTC)
     trade.status = TradeStatus.DELIVERED
@@ -1459,7 +1519,11 @@ async def deliver_trade(
 
     loaded_trade = await _load_trade(db, trade.id)
 
-    return build_trade_response(loaded_trade, viewer_org_id=org_id)
+    return build_trade_response(
+        loaded_trade,
+        viewer_org_id=org_id,
+        viewer_is_admin=current_user.role == UserRole.ADMIN,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1554,4 +1618,8 @@ async def pay_trade(
 
     loaded_trade = await _load_trade(db, trade.id)
 
-    return build_trade_response(loaded_trade, viewer_org_id=org_id)
+    return build_trade_response(
+        loaded_trade,
+        viewer_org_id=org_id,
+        viewer_is_admin=current_user.role == UserRole.ADMIN,
+    )

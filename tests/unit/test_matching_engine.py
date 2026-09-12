@@ -18,6 +18,7 @@ from app.models.orderbook import (
     OrderBookOrder, OrderSide, OrderBookStatus, TradeStatus, Initiator,
 )
 from app.models.notification import Notification
+from app.models.subscription import Subscription, SubscriptionTier
 from app.services.matching_engine import match_order
 
 # Tables needed for our tests (avoids loading models with broken FK refs)
@@ -29,6 +30,7 @@ _REQUIRED_TABLES = [
     "orderbook_orders",
     "trades",
     "notifications",
+    "subscriptions",
 ]
 
 # Deterministic test IDs for product and delivery point
@@ -278,6 +280,13 @@ class TestBasicMatching:
 
         bid = _make_order(org_buyer_id, OrderSide.BID, price=Decimal("560.00"))
         db.add(bid)
+        db.add(
+            Subscription(
+                org_id=org_seller_id,
+                tier=SubscriptionTier.STANDARD,
+                started_at=datetime.now(UTC),
+            )
+        )
         await db.flush()
 
         trades = await match_order(db, bid)
@@ -291,6 +300,9 @@ class TestBasicMatching:
         assert trade.seller_id == org_seller_id
         assert trade.bid_order_id == bid.id
         assert trade.ask_order_id == ask.id
+        assert trade.commission_plan == SubscriptionTier.STANDARD.value
+        assert trade.commission_fee_per_mt_usd == Decimal("1.50")
+        assert trade.commission_rate_pct == Decimal("0")
 
     @pytest.mark.asyncio
     async def test_ask_matches_bid_when_bid_gte_ask(self, db, buyer_org, seller_org, org_buyer_id, org_seller_id, test_product, test_dp):
@@ -301,6 +313,14 @@ class TestBasicMatching:
 
         ask = _make_order(org_seller_id, OrderSide.ASK, price=Decimal("540.00"))
         db.add(ask)
+        db.add(
+            Subscription(
+                org_id=org_buyer_id,
+                tier=SubscriptionTier.ENTERPRISE,
+                seller_fee_per_mt_usd=Decimal("0.25"),
+                started_at=datetime.now(UTC),
+            )
+        )
         await db.flush()
 
         trades = await match_order(db, ask)
@@ -313,6 +333,8 @@ class TestBasicMatching:
         assert trade.buyer_id == org_buyer_id
         assert trade.seller_id == org_seller_id
         assert trade.initiated_by == Initiator.SELLER
+        assert trade.commission_plan == SubscriptionTier.FREE.value
+        assert trade.commission_fee_per_mt_usd == Decimal("2.00")
 
     @pytest.mark.asyncio
     async def test_exact_price_match(self, db, buyer_org, seller_org, org_buyer_id, org_seller_id, test_product, test_dp):

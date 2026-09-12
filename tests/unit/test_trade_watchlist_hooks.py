@@ -15,6 +15,7 @@ from app.models.audit import AuditLog  # noqa: F401 — registers audit_logs on 
 from app.models.catalog import DeliveryPoint, Product
 from app.models.orderbook import OrderBookOrder, OrderBookStatus, OrderSide, Trade
 from app.models.market_event import MarketEventOutbox
+from app.models.subscription import Subscription, SubscriptionTier
 from app.models.user import (
     OrganizationProvenance,
     OrgType,
@@ -42,6 +43,7 @@ REQUIRED_TABLES = [
     'delivery_points',
     'orderbook_orders',
     'trades',
+    'subscriptions',
     'live_slice_benchmarks',
     'watchlists',
     'watchlist_targets',
@@ -71,7 +73,7 @@ async def db(async_engine, setup_tables):
     async with session_factory() as session:
         yield session
         await session.rollback()
-        for table in ('audit_logs', 'watchlist_events', 'watchlist_targets', 'watchlists', 'market_event_outbox', 'live_slice_benchmarks', 'trades', 'orderbook_orders', 'users', 'delivery_points', 'products', 'organizations'):
+        for table in ('audit_logs', 'watchlist_events', 'watchlist_targets', 'watchlists', 'market_event_outbox', 'live_slice_benchmarks', 'trades', 'subscriptions', 'orderbook_orders', 'users', 'delivery_points', 'products', 'organizations'):
             await session.execute(delete(Base.metadata.tables[table]))
         await session.commit()
 
@@ -292,6 +294,14 @@ async def test_create_trade_emits_pin_and_slice_events(monkeypatch, db: AsyncSes
 
     payload = trades_router.TradeCreate(order_id=ask.id, quantity_mt=Decimal('1000'))
     current_user = buyer
+    db.add(
+        Subscription(
+            org_id=supplier_org.id,
+            tier=SubscriptionTier.STANDARD,
+            started_at=datetime.now(UTC),
+        )
+    )
+    await db.flush()
 
     response = await trades_router.create_trade(payload=payload, request=_fake_request(), db=db, current_user=current_user)
 
@@ -299,6 +309,10 @@ async def test_create_trade_emits_pin_and_slice_events(monkeypatch, db: AsyncSes
     assert response.is_anonymous is True
     assert response.seller_id is None
     assert response.seller_name == 'Anonymous'
+    assert response.commission_payer == 'SELLER'
+    assert response.commission_plan is None
+    assert response.commission_fee_per_mt_usd is None
+    assert response.commission_rate_pct == Decimal('0')
     events = (await db.execute(select(WatchlistEvent).order_by(WatchlistEvent.created_at.asc()))).scalars().all()
     event_types = [event.event_type.value for event in events]
     assert 'PIN_FILLED' in event_types

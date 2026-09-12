@@ -131,6 +131,10 @@ class TestCreateTrade:
             assert trade["seller_name"] != ""
             assert trade["fuel_type"] == "Methanol"
             assert trade["product_name"] == "Methanol Green"
+            assert trade["commission_payer"] == "SELLER"
+            assert trade["commission_plan"] is None
+            assert trade["commission_fee_per_mt_usd"] is None
+            assert float(trade["commission_rate_pct"]) == 0.0
 
     @pytest.mark.asyncio
     async def test_seller_hits_bid_order(self):
@@ -145,6 +149,9 @@ class TestCreateTrade:
             assert trade["initiated_by"] == "SELLER"
             assert trade["bid_order_id"] == bid["id"]
             assert trade["ask_order_id"] is None
+            assert trade["commission_payer"] == "SELLER"
+            assert trade["commission_plan"] == "free"
+            assert float(trade["commission_fee_per_mt_usd"]) == 2.0
 
     @pytest.mark.asyncio
     async def test_order_remaining_quantity_decreases(self):
@@ -424,8 +431,8 @@ class TestDeliverTrade:
             # 995 * 558 = 555,210
             assert float(data["final_total_usd"]) == 555210
             assert data["delivered_at"] is not None
-            # Commission = 555210 * 0.5 / 100 = 2776.05
-            assert float(data["commission_amount_usd"]) == pytest.approx(2776.05, rel=0.01)
+            # Seller fee = 995 MT * USD 2/MT = USD 1,990.
+            assert float(data["commission_amount_usd"]) == pytest.approx(1990.00)
 
     @pytest.mark.asyncio
     async def test_cannot_deliver_unconfirmed_trade(self):

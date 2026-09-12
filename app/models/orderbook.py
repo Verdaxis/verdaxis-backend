@@ -30,6 +30,7 @@ from app.market_constraints import (
     ORDER_LIFECYCLE,
     ORDER_NUMERIC_VALUES,
     TRADE_DOMAIN,
+    TRADE_COMMISSION_SNAPSHOT,
     TRADE_LIFECYCLE,
     TRADE_NUMERIC_VALUES,
     TRADE_SNAPSHOT,
@@ -331,6 +332,10 @@ class Trade(Base):
         postgresql_check(TRADE_NUMERIC_VALUES, name="ck_trades_numeric_values"),
         postgresql_check(TRADE_LIFECYCLE, name="ck_trades_lifecycle"),
         postgresql_check(TRADE_SNAPSHOT, name="ck_trades_snapshot"),
+        postgresql_check(
+            TRADE_COMMISSION_SNAPSHOT,
+            name="ck_trades_commission_snapshot",
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -396,6 +401,10 @@ class Trade(Base):
     commission_rate_pct: Mapped[Decimal] = mapped_column(
         Numeric(), nullable=False, default=Decimal("0.5"), server_default="0.5"
     )
+    commission_fee_per_mt_usd: Mapped[Decimal | None] = mapped_column(
+        Numeric(), nullable=True
+    )
+    commission_plan: Mapped[str | None] = mapped_column(String(20), nullable=True)
     commission_amount_usd: Mapped[Decimal | None] = mapped_column(Numeric(), nullable=True)
 
     # Lifecycle timestamps
