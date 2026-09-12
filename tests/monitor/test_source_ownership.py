@@ -20,7 +20,7 @@ MANIFEST = MONITOR / "artifact-manifest.json"
 # Market Support adds feature-flag settings and one feature-flagged router.
 # Licensed Webz.io news discovery adds a backend-only token and locked endpoint.
 RUNTIME_OWNED_BLOBS = {
-    "app/config.py": "d6ada1776e7a89d0bf08fd2e5db997b7f990e1eb",
+    "app/config.py": "1147d3407d8fc9a0b68df02e5b349645d6e40cd3",
     "app/database.py": "43456b2c2079c07368359d4d54f5ce9629c9b57b",
     "app/main.py": "ee803a97bfb8739d3c660fb714a8fe4ca96f8dc8",
     "scripts/deploy.sh": "eda3a0b9020ddecb023c4cfe727417d8dea6b162",

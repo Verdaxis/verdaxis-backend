@@ -255,6 +255,94 @@ def test_trade_response_uses_snapshots_without_touching_lazy_orders():
     assert response.region == "Asia"
 
 
+def test_trade_response_limits_seller_fee_snapshot_to_seller_and_admin():
+    from datetime import UTC, datetime
+    from uuid import uuid4
+
+    from app.models.orderbook import Initiator, TradeStatus
+    from app.routers.trades import build_trade_response
+
+    trade = Trade(
+        id=uuid4(),
+        buyer_id=uuid4(),
+        seller_id=uuid4(),
+        initiator_org_id=uuid4(),
+        buyer_provenance=OrganizationProvenance.REAL,
+        seller_provenance=OrganizationProvenance.REAL,
+        initiated_by=Initiator.BUYER,
+        quantity_mt=Decimal("10"),
+        price_per_mt_usd=Decimal("700"),
+        commission_rate_pct=Decimal("0"),
+        commission_fee_per_mt_usd=Decimal("1.50"),
+        commission_plan="standard",
+        commission_amount_usd=Decimal("15.00"),
+        status=TradeStatus.CONFIRMED,
+        product_name="Bio Methanol",
+        fuel_type="Methanol",
+        fuel_grade="Bio",
+        market_product="BIO_METHANOL",
+        delivery_point_region="Asia",
+        availability_window="SPOT",
+        created_at=datetime.now(UTC),
+    )
+
+    buyer_view = build_trade_response(trade, viewer_org_id=trade.buyer_id)
+    seller_view = build_trade_response(trade, viewer_org_id=trade.seller_id)
+    admin_view = build_trade_response(
+        trade,
+        viewer_org_id=uuid4(),
+        viewer_is_admin=True,
+    )
+
+    assert buyer_view.commission_fee_per_mt_usd is None
+    assert buyer_view.commission_plan is None
+    assert buyer_view.commission_amount_usd is None
+    assert buyer_view.commission_payer == "SELLER"
+    assert seller_view.commission_fee_per_mt_usd == Decimal("1.50")
+    assert seller_view.commission_plan == "standard"
+    assert seller_view.commission_amount_usd == Decimal("15.00")
+    assert admin_view.commission_fee_per_mt_usd == Decimal("1.50")
+    assert admin_view.commission_plan == "standard"
+    assert admin_view.commission_amount_usd == Decimal("15.00")
+
+
+def test_legacy_trade_response_does_not_invent_a_fee_payer():
+    from datetime import UTC, datetime
+    from uuid import uuid4
+
+    from app.models.orderbook import Initiator, TradeStatus
+    from app.routers.trades import build_trade_response
+
+    trade = Trade(
+        id=uuid4(),
+        buyer_id=uuid4(),
+        seller_id=uuid4(),
+        initiator_org_id=uuid4(),
+        buyer_provenance=OrganizationProvenance.REAL,
+        seller_provenance=OrganizationProvenance.REAL,
+        initiated_by=Initiator.BUYER,
+        quantity_mt=Decimal("10"),
+        price_per_mt_usd=Decimal("700"),
+        commission_rate_pct=Decimal("0.5"),
+        commission_amount_usd=Decimal("35.00"),
+        status=TradeStatus.CONFIRMED,
+        product_name="Bio Methanol",
+        fuel_type="Methanol",
+        fuel_grade="Bio",
+        market_product="BIO_METHANOL",
+        delivery_point_region="Asia",
+        availability_window="SPOT",
+        created_at=datetime.now(UTC),
+    )
+
+    response = build_trade_response(trade, viewer_org_id=trade.seller_id)
+
+    assert response.commission_payer is None
+    assert response.commission_fee_per_mt_usd is None
+    assert response.commission_plan is None
+    assert response.commission_amount_usd == Decimal("35.00")
+
+
 def test_idempotency_lock_is_bounded_and_maps_database_timeouts():
     source = Path("app/services/idempotency.py").read_text()
     assert "SET LOCAL lock_timeout" in source

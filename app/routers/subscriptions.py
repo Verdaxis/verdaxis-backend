@@ -12,11 +12,22 @@ from app.middleware.subscription import get_or_create_subscription
 from app.models.subscription import Subscription, SubscriptionTier
 from app.models.user import User, UserRole
 from app.routers.auth_simple import get_current_user
-from app.schemas.subscription import SubscriptionResponse, SubscriptionUpdate
+from app.schemas.subscription import (
+    FeeScheduleResponse,
+    SubscriptionResponse,
+    SubscriptionUpdate,
+)
 from app.services.audit_service import record_audit, request_audit_context
 from app.services.audit_actions import SUBSCRIPTION_UPDATED
+from app.services.trade_fees import public_fee_schedule
 
 router = APIRouter(tags=["subscriptions"])
+
+
+@router.get("/subscriptions/fees", response_model=FeeScheduleResponse)
+async def get_fee_schedule() -> dict:
+    """Return the public buyer-free, seller-paid fee schedule."""
+    return public_fee_schedule()
 
 
 # ---------------------------------------------------------------------------
@@ -75,17 +86,50 @@ async def update_subscription(
 ) -> Subscription:
     """Create or update an organisation's subscription tier (admin only)."""
     result = await db.execute(
-        select(Subscription).where(Subscription.org_id == org_id)
+        select(Subscription)
+        .where(Subscription.org_id == org_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
     )
     sub = result.scalar_one_or_none()
 
     if sub is None:
-        sub = Subscription(org_id=org_id, tier=body.tier)
+        sub = Subscription(
+            org_id=org_id,
+            tier=body.tier,
+            seller_fee_per_mt_usd=body.seller_fee_per_mt_usd,
+        )
         db.add(sub)
         previous_tier = None
+        previous_seller_fee = None
     else:
         previous_tier = sub.tier
+        previous_seller_fee = sub.seller_fee_per_mt_usd
         sub.tier = body.tier
+        if "seller_fee_per_mt_usd" in body.model_fields_set:
+            sub.seller_fee_per_mt_usd = body.seller_fee_per_mt_usd
+
+    if (
+        sub.tier == SubscriptionTier.ENTERPRISE
+        and sub.seller_fee_per_mt_usd is None
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Enterprise subscriptions require a negotiated seller fee per MT",
+        )
+
+    changes = {
+        "org_id": str(org_id),
+        "tier": {
+            "from": previous_tier.value if hasattr(previous_tier, "value") else previous_tier,
+            "to": sub.tier.value if hasattr(sub.tier, "value") else sub.tier,
+        },
+    }
+    if "seller_fee_per_mt_usd" in body.model_fields_set:
+        changes["seller_fee_per_mt_usd"] = {
+            "from": str(previous_seller_fee) if previous_seller_fee is not None else None,
+            "to": str(sub.seller_fee_per_mt_usd) if sub.seller_fee_per_mt_usd is not None else None,
+        }
 
     await record_audit(
         db,
@@ -93,13 +137,7 @@ async def update_subscription(
         action=SUBSCRIPTION_UPDATED,
         resource_type="subscription",
         resource_id=org_id,
-        changes={
-            "org_id": str(org_id),
-            "tier": {
-                "from": previous_tier.value if hasattr(previous_tier, "value") else previous_tier,
-                "to": sub.tier.value if hasattr(sub.tier, "value") else sub.tier,
-            },
-        },
+        changes=changes,
         **request_audit_context(request),
     )
     await db.commit()

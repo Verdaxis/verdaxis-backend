@@ -19,7 +19,7 @@ _BACKEND_ROOT = Path(__file__).resolve().parents[2]
 _PARENT = "miq_20260720_market_quarantine"
 # Later product migrations extend the linearized market chain. The mi-specific
 # refusal/quarantine semantics exercised below are unchanged.
-_HEAD = "oa_20260910_auto_real_orgs"
+_HEAD = "fee_20260912_seller_per_mt"
 _SENTINEL = UUID("00000000-dead-beef-0000-aaa0e15eed01")
 _DEMO_ORG = UUID("4da7b285-34ee-5443-9406-f96b4ed1a251")
 _DEMO_SELLER_ORG = UUID("0dbce576-2026-5925-ab66-674d505e98ad")
@@ -78,6 +78,61 @@ async def _database_execute(database_url: str, statement: str, parameters=None):
     try:
         async with engine.begin() as connection:
             return await connection.execute(text(statement), parameters or {})
+    finally:
+        await engine.dispose()
+
+
+async def _insert_seller_fee_snapshot(connection) -> None:
+    buyer_id = uuid4()
+    seller_id = uuid4()
+    trade_id = uuid4()
+    await connection.execute(
+        text(
+            "INSERT INTO organizations "
+            "(id, name, type, verification_status, provenance) VALUES "
+            "(:buyer, 'Fee downgrade buyer', 'FUEL_BUYER', 'APPROVED', 'REAL'), "
+            "(:seller, 'Fee downgrade seller', 'FUEL_SUPPLIER', 'APPROVED', 'REAL')"
+        ),
+        {"buyer": buyer_id, "seller": seller_id},
+    )
+    await connection.execute(
+        text(
+            "INSERT INTO delivery_points "
+            "(id, name, region, timezone, is_active) VALUES "
+            "(:id, 'Singapore', 'Asia', 'Asia/Singapore', true) "
+            "ON CONFLICT DO NOTHING"
+        ),
+        {"id": _SINGAPORE_POINT},
+    )
+    await connection.execute(
+        text(
+            "INSERT INTO trades ("
+            "id, buyer_id, seller_id, initiator_org_id, buyer_provenance, "
+            "seller_provenance, initiated_by, quantity_mt, price_per_mt_usd, "
+            "status, confirmed_at, product_id, product_name, fuel_type, "
+            "fuel_grade, market_product, delivery_point_id, delivery_point_name, "
+            "delivery_point_region, availability_window, market_snapshot_version, "
+            "commission_rate_pct, commission_fee_per_mt_usd, commission_plan"
+            ") SELECT :trade, :buyer, :seller, :buyer, 'REAL', 'REAL', "
+            "'BUYER', 10, 700, 'CONFIRMED', now(), id, name, fuel_type, "
+            "fuel_grade, 'BIO_METHANOL', :point, 'Singapore', 'Asia', "
+            "'SPOT', 1, 0, 2.00, 'free' FROM products "
+            "WHERE name = 'Bio Methanol' AND is_active = true"
+        ),
+        {
+            "trade": trade_id,
+            "buyer": buyer_id,
+            "seller": seller_id,
+            "point": _SINGAPORE_POINT,
+        },
+    )
+
+
+async def _seed_seller_fee_snapshot(database_url: str) -> None:
+    engine = create_async_engine(database_url)
+    try:
+        async with engine.begin() as connection:
+            await _insert_seller_fee_snapshot(connection)
     finally:
         await engine.dispose()
 
@@ -285,6 +340,142 @@ async def test_fresh_database_upgrades_and_checks_without_application_secrets(
     assert _HEAD in current.stdout
     checked = await asyncio.to_thread(_alembic, database_url, "check")
     assert checked.returncode == 0, f"{checked.stdout}\n{checked.stderr}"
+
+
+@pytest.mark.asyncio
+async def test_fee_migration_downgrades_when_no_fee_data_would_be_lost(
+    migration_database,
+):
+    database_url, _database_name = migration_database
+    upgraded = await asyncio.to_thread(_alembic, database_url, "upgrade", _HEAD)
+    assert upgraded.returncode == 0, upgraded.stderr
+
+    downgraded = await asyncio.to_thread(
+        _alembic,
+        database_url,
+        "downgrade",
+        "oa_20260910_auto_real_orgs",
+    )
+    assert downgraded.returncode == 0, downgraded.stderr
+    missing_columns = await _database_execute(
+        database_url,
+        "SELECT count(*) FROM information_schema.columns "
+        "WHERE table_schema = 'public' "
+        "AND ((table_name = 'trades' AND column_name IN "
+        "('commission_fee_per_mt_usd', 'commission_plan')) "
+        "OR (table_name = 'subscriptions' AND column_name = 'seller_fee_per_mt_usd'))",
+    )
+    assert missing_columns.scalar_one() == 0
+
+    reupgraded = await asyncio.to_thread(_alembic, database_url, "upgrade", _HEAD)
+    assert reupgraded.returncode == 0, reupgraded.stderr
+
+
+@pytest.mark.asyncio
+async def test_fee_migration_refuses_downgrade_that_would_lose_fee_data(
+    migration_database,
+):
+    database_url, _database_name = migration_database
+    upgraded = await asyncio.to_thread(_alembic, database_url, "upgrade", _HEAD)
+    assert upgraded.returncode == 0, upgraded.stderr
+
+    subscription_org_id = uuid4()
+    await _database_execute(
+        database_url,
+        "INSERT INTO organizations "
+        "(id, name, type, verification_status, provenance) VALUES "
+        "(:id, 'Negotiated fee seller', 'FUEL_SUPPLIER', 'APPROVED', 'REAL')",
+        {"id": subscription_org_id},
+    )
+    await _database_execute(
+        database_url,
+        "INSERT INTO subscriptions "
+        "(id, org_id, tier, is_active, seller_fee_per_mt_usd) VALUES "
+        "(:id, :org_id, 'enterprise', true, 0.80)",
+        {"id": uuid4(), "org_id": subscription_org_id},
+    )
+
+    negotiated_refusal = await asyncio.to_thread(
+        _alembic,
+        database_url,
+        "downgrade",
+        "oa_20260910_auto_real_orgs",
+    )
+    assert negotiated_refusal.returncode != 0
+    assert "cannot downgrade seller per-tonne fees" in (
+        f"{negotiated_refusal.stdout}\n{negotiated_refusal.stderr}"
+    )
+    await _database_execute(
+        database_url,
+        "UPDATE subscriptions SET seller_fee_per_mt_usd = NULL WHERE org_id = :org_id",
+        {"org_id": subscription_org_id},
+    )
+
+    await _seed_seller_fee_snapshot(database_url)
+    snapshot_refusal = await asyncio.to_thread(
+        _alembic,
+        database_url,
+        "downgrade",
+        "oa_20260910_auto_real_orgs",
+    )
+    assert snapshot_refusal.returncode != 0
+    assert "cannot downgrade seller per-tonne fees" in (
+        f"{snapshot_refusal.stdout}\n{snapshot_refusal.stderr}"
+    )
+    current = await asyncio.to_thread(_alembic, database_url, "current")
+    assert current.returncode == 0, current.stderr
+    assert _HEAD in current.stdout
+    preserved = await _database_execute(
+        database_url,
+        "SELECT count(*) FROM trades WHERE commission_fee_per_mt_usd = 2.00 "
+        "AND commission_plan = 'free'",
+    )
+    assert preserved.scalar_one() == 1
+
+
+@pytest.mark.asyncio
+async def test_fee_downgrade_fails_fast_during_idempotent_trade_read(
+    migration_database,
+):
+    database_url, _database_name = migration_database
+    upgraded = await asyncio.to_thread(_alembic, database_url, "upgrade", _HEAD)
+    assert upgraded.returncode == 0, upgraded.stderr
+
+    engine = create_async_engine(database_url)
+    downgrade_task = None
+    try:
+        async with engine.begin() as connection:
+            # Idempotent manual creation reads trades before resolving the
+            # seller subscription. Keep that first read lock open.
+            await connection.execute(text("SELECT count(*) FROM trades"))
+            downgrade_task = asyncio.create_task(
+                asyncio.to_thread(
+                    _alembic,
+                    database_url,
+                    "downgrade",
+                    "oa_20260910_auto_real_orgs",
+                )
+            )
+            refused = await asyncio.wait_for(downgrade_task, timeout=5)
+            assert refused.returncode != 0
+            assert "could not obtain lock on relation" in (
+                f"{refused.stdout}\n{refused.stderr}"
+            )
+
+            # The runtime transaction can continue through subscription
+            # resolution and trade insertion after the fail-closed downgrade.
+            await connection.execute(text("SELECT count(*) FROM subscriptions"))
+            await asyncio.wait_for(
+                _insert_seller_fee_snapshot(connection),
+                timeout=5,
+            )
+    finally:
+        await engine.dispose()
+
+    assert downgrade_task is not None
+    current = await asyncio.to_thread(_alembic, database_url, "current")
+    assert current.returncode == 0, current.stderr
+    assert _HEAD in current.stdout
 
 
 @pytest.mark.asyncio

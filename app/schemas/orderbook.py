@@ -304,6 +304,9 @@ class TradeResponse(BaseModel):
     final_price_per_mt: Optional[Decimal] = None
     final_total_usd: Optional[Decimal] = None
     commission_rate_pct: Decimal = Decimal("0.5")
+    commission_fee_per_mt_usd: Optional[Decimal] = None
+    commission_plan: Optional[Literal["free", "standard", "enterprise"]] = None
+    commission_payer: Optional[Literal["SELLER"]] = None
     commission_amount_usd: Optional[Decimal] = None
     confirmed_at: Optional[datetime] = None
     delivered_at: Optional[datetime] = None

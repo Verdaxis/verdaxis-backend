@@ -92,6 +92,9 @@ async def market_rows(market_pg):
             delivery_point_region=point.region,
             availability_window="SPOT",
             market_snapshot_version=1,
+            commission_rate_pct=Decimal("0"),
+            commission_fee_per_mt_usd=Decimal("2.00"),
+            commission_plan="free",
         )
         session.add(trade)
         await session.commit()
@@ -122,6 +125,8 @@ async def test_exact_market_constraints_exist(market_pg):
         "ck_trades_numeric_values",
         "ck_trades_lifecycle",
         "ck_trades_snapshot",
+        "ck_trades_commission_snapshot",
+        "ck_subscriptions_seller_fee_per_mt",
         "ck_inventory_items_numeric_values",
         "ck_rfqs_domain",
         "ck_rfqs_numeric_values",
@@ -180,6 +185,36 @@ async def test_direct_sql_rejects_invalid_provenance_and_snapshot_mutation(marke
         market_pg,
         "UPDATE trades SET product_name = 'Mutated history' WHERE id = :id",
         id=market_rows["trade"],
+    )
+    await _rejected(
+        market_pg,
+        "UPDATE trades SET commission_fee_per_mt_usd = 1.50 WHERE id = :id",
+        id=market_rows["trade"],
+    )
+    await _rejected(
+        market_pg,
+        "INSERT INTO subscriptions (id, org_id, tier, is_active, seller_fee_per_mt_usd) "
+        "VALUES (:id, :org_id, 'enterprise', true, 1.001)",
+        id=uuid4(),
+        org_id=market_rows["seller"],
+    )
+    await _rejected(
+        market_pg,
+        "INSERT INTO trades ("
+        "id, buyer_id, seller_id, initiator_org_id, buyer_provenance, "
+        "seller_provenance, initiated_by, quantity_mt, price_per_mt_usd, "
+        "status, confirmed_at, product_id, product_name, fuel_type, fuel_grade, "
+        "market_product, delivery_point_id, delivery_point_name, "
+        "delivery_point_region, availability_window, market_snapshot_version, "
+        "commission_rate_pct, commission_fee_per_mt_usd, commission_plan"
+        ") SELECT :new_id, buyer_id, seller_id, initiator_org_id, "
+        "buyer_provenance, seller_provenance, initiated_by, quantity_mt, "
+        "price_per_mt_usd, status, confirmed_at, product_id, product_name, "
+        "fuel_type, fuel_grade, market_product, delivery_point_id, "
+        "delivery_point_name, delivery_point_region, availability_window, "
+        "market_snapshot_version, 0, 2.00, NULL FROM trades WHERE id = :source_id",
+        new_id=uuid4(),
+        source_id=market_rows["trade"],
     )
 
 
