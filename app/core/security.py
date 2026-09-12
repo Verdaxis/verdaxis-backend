@@ -5,14 +5,17 @@ Migrated from python-jose + passlib to PyJWT + direct bcrypt (2026-03-01).
 - python-jose: unmaintained since 2022, known CVEs
 - passlib: unmaintained since 2020, breaks on Python 3.13
 """
+import asyncio
+from collections.abc import Callable
 from datetime import datetime, timedelta, UTC
-from typing import Any, Union
+from typing import Any, TypeVar, Union
 import hashlib
 import secrets
 import uuid
 
 import bcrypt
 import jwt
+from anyio import CapacityLimiter, to_thread
 
 from app.config import settings
 
@@ -21,6 +24,9 @@ from app.config import settings
 ACCESS_TOKEN_EXPIRE_MINUTES = settings.ACCESS_TOKEN_EXPIRE_MINUTES  # 15 min
 REFRESH_TOKEN_EXPIRE_DAYS = settings.REFRESH_TOKEN_EXPIRE_DAYS      # 7 days
 MAX_PASSWORD_BYTES = 1024
+PASSWORD_WORKER_LIMIT = 4
+_password_worker_limiter = CapacityLimiter(PASSWORD_WORKER_LIMIT)
+T = TypeVar("T")
 
 
 # ---------------------------------------------------------------------------
@@ -41,6 +47,45 @@ def get_password_hash(password: str) -> str:
         _bcrypt_input(password),
         bcrypt.gensalt(),
     ).decode("utf-8")
+
+
+async def verify_password_async(plain_password: str, hashed_password: str) -> bool:
+    """Verify a password off the event loop with bounded worker capacity."""
+    return await _run_password_work(verify_password, plain_password, hashed_password)
+
+
+async def get_password_hash_async(password: str) -> str:
+    """Hash a password off the event loop with bounded worker capacity."""
+    return await _run_password_work(get_password_hash, password)
+
+
+async def _run_password_work(call: Callable[..., T], *args: str) -> T:
+    limiter = _password_worker_limiter
+    borrower = object()
+    # Waiting requests remain cancellable; only admitted work gets a shield.
+    await limiter.acquire_on_behalf_of(borrower)
+
+    async def run_admitted_work() -> T:
+        try:
+            return await to_thread.run_sync(call, *args, abandon_on_cancel=False)
+        finally:
+            limiter.release_on_behalf_of(borrower)
+
+    try:
+        worker = asyncio.create_task(run_admitted_work())
+    except BaseException:
+        limiter.release_on_behalf_of(borrower)
+        raise
+    try:
+        return await asyncio.shield(worker)
+    except asyncio.CancelledError:
+        worker.add_done_callback(_consume_abandoned_password_result)
+        raise
+
+
+def _consume_abandoned_password_result(worker: asyncio.Task) -> None:
+    if not worker.cancelled():
+        worker.exception()
 
 
 def _bcrypt_input(password: str) -> bytes:
