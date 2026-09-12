@@ -16,6 +16,8 @@ outstanding integration owned by the canonical immutable runtime installer.
 | Database dump, B2 upload, local/remote retention, restore drills | Existing backup system |
 | Local-versus-remote deletion authority | Existing backup system |
 | Public Vercel/Caddy/DNS/TLS/rendered checks | External monitor |
+| Event-outbox probe source and attested artifact | Local monitor contract |
+| Event-outbox probe invocation, status, and alerting | External monitor |
 | Signup and analytics ingestion canaries | Legacy monitor until separately replaced |
 | Immutable artifact promotion and activation | Canonical runtime installer/operator |
 
@@ -191,6 +193,18 @@ Sysusers/tmpfiles declarations are idempotent source definitions for
 monitor-owned identities, state directories, and per-environment credential
 ownership. Merely having those files in source does not create users or change
 permissions.
+
+The manifest includes the read-only outbox backlog probe. The canonical public
+monitor is its only scheduler: it invokes the installed artifact for production
+and staging during its existing five-minute run. The probe has no separate
+service or timer. Each query qualifies `public.market_event_outbox`. The caller
+pins the local database host and port, strips ambient libpq routing and password
+variables, and passes only an explicit `PGPASSFILE` for authentication. Source
+wiring alone does not prove that the artifact or its libpq authentication has
+been released. The external-monitor installation recipe must stop before
+replacing or enabling the monitor until the canonical installer has promoted
+the exact manifest-attested probe and an owner-only `PGPASSFILE` covers both
+backup roles. This local monitor contract does not install either prerequisite.
 
 ## Dual-run and retirement gate
 
