@@ -75,6 +75,7 @@ app/
     event_bus.py                # AsyncIO pub/sub — per-channel queues, 200 subscriber cap, backpressure
     market_event_dispatch.py    # Durable shared SSE transport — outbox sequencer (advisory-lock leader), LISTEN/NOTIFY wake + poll, org-bound hub fan-out (docs/market-event-dispatch.md)
     matching_engine.py          # Match-on-insert — price-time priority within canonical market identity, partial fills, auto-confirm
+    trade_fees.py               # Seller-only plan resolution and public per-MT fee schedule; immutable trade snapshots
     market_support.py           # Authorization digest, ETag parsing, deterministic party locks
     request_party.py            # Immutable actor/effective-party resolution and support mutation allowlist
     market_support_post_only.py # Fail-closed crossing assessment for assisted ASK publication
@@ -86,7 +87,9 @@ app/
     compliance_scoring.py       # Pure function scoring — FuelEU/ETS/CII, 9 fuels, scenario engine
     audit_service.py            # record_audit() — non-committing async audit logging (call inside the caller's transaction, before its commit)
     audit_actions.py            # THE source of truth for covered audit actions (registry of constants; meta-test forbids string literals at call sites)
-    ai_service.py               # Gemini chat + document analysis (stub)
+    gemini_provider.py          # PID-scoped google-genai client, per-request retry/timeout budget, cancellation-safe worker capacity
+    ai_service.py               # Bounded Gemini chat; unavailable providers fail without exposing provider details
+    kyc.py                      # Advisory-only document extraction with deadline-bound model fallback
     matchmaking.py              # Score-based BID/ASK matching (0-100)
     watchlists.py               # Market Radar helpers: default container, typed targets, slice summaries
     watchlist_events.py         # Slice/pin event emission from order lifecycle changes
@@ -141,6 +144,8 @@ alembic/versions/               # Migrations incl. canonical availability-window
 - **Compliance scoring:** Pure function `calculate_compliance_score()` — no DB, 100% testable
 - **JWT auth:** 15-min access + 7-day refresh, plus 60-second `type="stream"` tokens from `/auth/stream-token` for SSE query-param auth. Ordinary API auth only accepts access tokens; activity SSE query auth only accepts stream tokens.
 - **Authentication locks:** Only audited normal GET route templates share the user-row lock. Mutations, unclassified routes, and all assisted-context requests keep exclusive locks. Account/session writes still conflict with shared readers. Password login returns the same sanitized profile as `/auth/me` with its access token.
+- **Password workers:** Async authentication paths offload bcrypt through one four-slot process-local limiter. Queued requests can cancel before admission. Admitted work retains its slot until completion, even if the caller cancels; synchronous maintenance tools retain the synchronous helpers.
+- **AI provider bounds:** Chat, news classification, and advisory KYC use the pinned `google-genai` adapter and one client per process. A monotonic deadline starts before thread scheduling and covers SDK retries and KYC model fallback. Each request carries its own timeout options; cancelled or timed-out callers do not release capacity while the provider thread still runs. Automatic function calling is disabled.
 - **Cookie-backed refresh:** refresh token is also rotated through an HttpOnly `refresh_token` cookie scoped to `/api/auth`, while access tokens remain bearer tokens
 - **Account-side organization binding:** New-organization registration, domain-derived join requests, membership approval, and admin pre-approved invitations enforce the same account-role to organization-type boundary in the backend: supported buy-side organization types belong to `BUYER`; `FUEL_SUPPLIER` belongs to `SUPPLIER`.
 - **Account approval email:** The canonical administrator account-approval route persists the exact pending status-transition UUID, immutable provider payload, and due time with account status and audit state. After commit, delivery locks and revalidates the user before replaying that payload with the transition UUID as Resend's idempotency key. Failures move the due time forward so one bad recipient cannot starve the queue; rejection invalidates unsent approval mail. Idempotent re-approval does not enqueue again, and email failure cannot roll back admission. Organization, membership, KYC, and trading-access approvals remain independent gates.
@@ -167,7 +172,7 @@ alembic/versions/               # Migrations incl. canonical availability-window
 
 ## Revenue Streams
 
-1. **Transaction fees (0.5%)** — commission_amount_usd on Trade model
+1. **Transaction fees** — buyers are free; new trades snapshot the seller's per-MT rate and plan. Defaults are Pilot $2/MT and Professional $1.50/MT, with configurable future rates and negotiated Enterprise rates. Delivery uses the stored rate and final quantity; legacy trades retain their stored percentage basis. See `docs/transaction-fees.md`.
 2. **Compliance SaaS ($200-500/vessel/mo)** — /compliance/fleet, /compliance/scenario
 3. **Data products ($1K-5K/seat/mo)** — /prices/reference (daily VWAP)
 4. **Platform analytics** — /admin/analytics/overview, /admin/analytics/daily, /admin/analytics/product-usage

@@ -172,7 +172,7 @@ async def test_ai_provider_call_runs_off_event_loop(monkeypatch):
     loop_thread = threading.get_ident()
     provider_thread = None
 
-    def provider(_message):
+    def provider(_message, *_args):
         nonlocal provider_thread
         provider_thread = threading.get_ident()
         return "ok"
@@ -200,7 +200,7 @@ async def test_news_auth_failure_disables_provider_for_refresh_run(monkeypatch):
     monkeypatch.setattr(news_feed.settings, "GEMINI_API_KEY", "revoked-key")
     calls = 0
 
-    def revoked_provider(_title):
+    def revoked_provider(_title, *_args):
         nonlocal calls
         calls += 1
         raise PermissionError("API key was reported as leaked")
