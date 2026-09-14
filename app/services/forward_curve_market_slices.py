@@ -51,6 +51,7 @@ from app.schemas.market_activity import (
 )
 from app.services.availability_windows import (
     CALENDAR_WINDOW_RE,
+    FORWARD_QUARTER_COUNT,
     MONTH_WINDOW_RE,
     QUARTER_WINDOW_RE,
     SPOT_WINDOW,
@@ -89,7 +90,7 @@ ACTIVE_ORDER_STATUSES = [OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED]
 CONFIRMED_TRADE_STATUSES = [TradeStatus.CONFIRMED, TradeStatus.DELIVERED, TradeStatus.PAID]
 TRADE_LOOKBACK_DAYS = 30
 FRESH_DAYS = 7
-MAX_TABLE_WINDOWS = 16
+MAX_TABLE_WINDOWS = FORWARD_QUARTER_COUNT + 4  # Spot and up to three current-quarter months.
 MAX_DEPTH_LEVELS = 10
 MAX_SLICE_TRADES = 8
 MAX_SLICE_INDICATIONS = 10

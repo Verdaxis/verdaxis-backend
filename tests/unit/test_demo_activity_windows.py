@@ -57,14 +57,14 @@ def test_demo_activity_builder_does_not_own_commit_or_rollback():
 def test_demo_market_coverage_restores_full_non_crossed_book():
     orders = build_demo_market_coverage(datetime(2026, 7, 28, 12, tzinfo=UTC))
 
-    assert len(orders) == 1024
+    assert len(orders) == 1792
     assert (
         len(build_demo_market_coverage(datetime(2026, 8, 15, 12, tzinfo=UTC)))
-        == 1024
+        == 1792
     )
     assert (
         len(build_demo_market_coverage(datetime(2026, 9, 15, 12, tzinfo=UTC)))
-        == 1024
+        == 1792
     )
     assert len({order.idempotency_key for order in orders}) == len(orders)
 
@@ -73,7 +73,7 @@ def test_demo_market_coverage_restores_full_non_crossed_book():
         key = (order.product_id, order.delivery_point_id, order.availability_window)
         slices.setdefault(key, []).append(order)
 
-    assert len(slices) == 4 * 8 * 12
+    assert len(slices) == 4 * 8 * 24
     for (_product, _port, window), slice_orders in slices.items():
         bids = [order for order in slice_orders if order.side == OrderSide.BID]
         asks = [order for order in slice_orders if order.side == OrderSide.ASK]
