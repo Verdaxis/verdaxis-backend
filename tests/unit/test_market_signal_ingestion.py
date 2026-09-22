@@ -473,13 +473,45 @@ async def test_unknown_family_rejected():
     ("FAIR_PRICE_BAND", _band_row),
     ("PHYSICAL_STEM", _stem_row),
 ])
-async def test_rfq_only_fame_cannot_be_ingested_as_price_evidence(db: AsyncSession, family, row_factory):
+async def test_b100_signals_use_the_shared_ingestion_path(db: AsyncSession, family, row_factory):
+    from app.market_catalog import DELIVERY_POINTS_BY_NAME
     point = await _delivery_point(db)
+    point.id = DELIVERY_POINTS_BY_NAME["Singapore"].id
+    await db.commit()
     report = await ingest_signals(
         db, family=family, source="pilot-test",
-        rows=[row_factory(point, event_id="fame-not-evidence", market_product="UCOME_B100")],
+        rows=[row_factory(point, event_id="b100-indication", market_product="UCOME_B100")],
+        dry_run=False,
+    )
+    assert report.inserted == 1
+    assert not report.errors
+
+
+@pytest.mark.asyncio
+async def test_b100_signal_rejects_unsupported_delivery_lane(db: AsyncSession):
+    point = await _delivery_point(db, name="Rotterdam")
+    report = await ingest_signals(
+        db, family="MARKET_INDICATION", source="pilot-test",
+        rows=[_indication_row(point, event_id="b100-wrong-lane", market_product="UCOME_B100")],
         dry_run=False,
     )
     assert report.inserted == 0
     assert len(report.errors) == 1
-    assert "UCOME_B100" in report.errors[0].reason
+    assert "delivery point" in report.errors[0].reason
+
+
+@pytest.mark.asyncio
+async def test_insert_constraint_failure_is_not_reported_as_duplicate(db: AsyncSession):
+    from sqlalchemy import text
+    from sqlalchemy.exc import IntegrityError
+
+    point = await _delivery_point(db)
+    await db.execute(text("""
+        CREATE TRIGGER reject_invalid_signal BEFORE INSERT ON market_indications
+        BEGIN SELECT RAISE(ABORT, 'test constraint failure'); END
+    """))
+    with pytest.raises(IntegrityError):
+        await ingest_signals(
+            db, family="MARKET_INDICATION", source="constraint-test",
+            rows=[_indication_row(point, event_id="must-fail")], dry_run=False,
+        )

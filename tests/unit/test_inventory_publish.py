@@ -55,6 +55,7 @@ def _make_inventory_item():
     item.origin = "Iceland"
     item.off_spec = False
     item.off_spec_notes = None
+    item.fame_terms = None
     return item
 
 
@@ -258,6 +259,7 @@ class TestListingPayload:
         order.origin = "Iceland"
         order.off_spec = True
         order.off_spec_notes = "Water content under review"
+        order.fame_terms = None
         order.status = OrderBookStatus.OPEN
 
         payload = _listing_payload(order, match_count=2)

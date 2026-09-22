@@ -1,4 +1,5 @@
 """Negotiation models — buyer/seller counteroffer flow alongside the orderbook."""
+
 import enum
 import uuid
 from datetime import datetime, UTC
@@ -10,6 +11,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    JSON,
     Numeric,
     String,
     Text,
@@ -21,7 +23,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.model_base import Base
 from app.market_constraints import (
-    ORDERBOOK_PRODUCT_EXECUTION,
+    NEGOTIATION_FAME_TERMS,
     NEGOTIATION_DOMAIN,
     NEGOTIATION_LIFECYCLE,
     NEGOTIATION_NUMERIC_VALUES,
@@ -31,17 +33,17 @@ from app.market_constraints import (
 
 
 class NegotiationStatus(str, enum.Enum):
-    OPEN = "OPEN"           # Initiated, awaiting counterparty response
-    COUNTERED = "COUNTERED" # Counterparty submitted a counter-price
-    AGREED = "AGREED"       # One party accepted → trade created
-    DECLINED = "DECLINED"   # Explicitly declined
-    EXPIRED = "EXPIRED"     # Time limit exceeded
+    OPEN = "OPEN"  # Initiated, awaiting counterparty response
+    COUNTERED = "COUNTERED"  # Counterparty submitted a counter-price
+    AGREED = "AGREED"  # One party accepted → trade created
+    DECLINED = "DECLINED"  # Explicitly declined
+    EXPIRED = "EXPIRED"  # Time limit exceeded
 
 
 class Negotiation(Base):
     __tablename__ = "negotiations"
     __table_args__ = (
-        postgresql_check(ORDERBOOK_PRODUCT_EXECUTION, name="ck_negotiations_execution_product"),
+        postgresql_check(NEGOTIATION_FAME_TERMS, name="ck_negotiations_fame_terms"),
         Index("ix_negotiations_initiator_org", "initiator_org_id"),
         Index("ix_negotiations_counterparty_org", "counterparty_org_id"),
         Index("ix_negotiations_status", "status"),
@@ -60,7 +62,9 @@ class Negotiation(Base):
             postgresql_where=text("status IN ('OPEN', 'COUNTERED')"),
         ).ddl_if(dialect="postgresql"),
         postgresql_check(NEGOTIATION_DOMAIN, name="ck_negotiations_domain"),
-        postgresql_check(NEGOTIATION_NUMERIC_VALUES, name="ck_negotiations_numeric_values"),
+        postgresql_check(
+            NEGOTIATION_NUMERIC_VALUES, name="ck_negotiations_numeric_values"
+        ),
         postgresql_check(NEGOTIATION_LIFECYCLE, name="ck_negotiations_lifecycle"),
     )
 
@@ -68,10 +72,14 @@ class Negotiation(Base):
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     bid_order_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("orderbook_orders.id", ondelete="SET NULL"), nullable=True
+        UUID(as_uuid=True),
+        ForeignKey("orderbook_orders.id", ondelete="SET NULL"),
+        nullable=True,
     )
     ask_order_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("orderbook_orders.id", ondelete="SET NULL"), nullable=True
+        UUID(as_uuid=True),
+        ForeignKey("orderbook_orders.id", ondelete="SET NULL"),
+        nullable=True,
     )
     initiator_org_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("organizations.id"), nullable=False
@@ -104,6 +112,9 @@ class Negotiation(Base):
     availability_window: Mapped[str] = mapped_column(
         String(16), nullable=False, default="SPOT", server_default="SPOT"
     )
+    fame_terms_snapshot: Mapped[dict | None] = mapped_column(
+        JSON(none_as_null=True), nullable=True
+    )
     quantity_mt: Mapped[Decimal] = mapped_column(Numeric(), nullable=False)
     # The current "live" price on the table — updated each round
     current_price: Mapped[Decimal] = mapped_column(Numeric(), nullable=False)
@@ -119,7 +130,9 @@ class Negotiation(Base):
     trade_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("trades.id", ondelete="SET NULL"), nullable=True
     )
-    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC)
     )
@@ -145,7 +158,10 @@ class NegotiationRound(Base):
             name="uq_neg_rounds_negotiation_round",
         ),
         Index("ix_negotiation_rounds_negotiation", "negotiation_id"),
-        postgresql_check(NEGOTIATION_ROUND_NUMERIC_VALUES, name="ck_negotiation_rounds_numeric_values"),
+        postgresql_check(
+            NEGOTIATION_ROUND_NUMERIC_VALUES,
+            name="ck_negotiation_rounds_numeric_values",
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(

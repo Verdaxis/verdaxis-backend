@@ -5,20 +5,35 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import joinedload, selectinload
 
 from app.database import get_db
+from app.middleware.execution import require_execution_eligible_user
 from app.models.matchmaking import MatchStatus, MatchSuggestion
 from app.models.orderbook import OrderBookOrder, OrderBookStatus, OrderSide
 from app.models.user import User, UserRole
 from app.routers.auth_simple import get_current_user
-from app.middleware.execution import require_execution_eligible_user
-from app.services.execution_policy import order_is_execution_qualified
+from app.schemas.orderbook import OrderResponse
+from app.services.execution_policy import (
+    order_is_execution_qualified,
+    orders_execution_compatible,
+)
+from app.services.market_provenance import order_market_provenance
 from app.services.matchmaking import compute_match_score
 
 router = APIRouter(prefix="/matchmaking", tags=["matchmaking"])
 
 MAX_SUGGESTIONS = 20
+
+
+def _public_order(order: OrderBookOrder | None) -> OrderResponse | None:
+    """Project nested orders through the same private-field boundary as the book."""
+    if order is None:
+        return None
+    payload = OrderResponse.model_validate(order, from_attributes=True).model_dump()
+    return OrderResponse.model_validate(
+        {**payload, **order_market_provenance(order)}
+    )
 
 
 @router.get("/suggestions")
@@ -47,7 +62,11 @@ async def list_suggestions(
             OrderBookOrder.status.in_([OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED]),
             OrderBookOrder.expires_at.is_(None) | (OrderBookOrder.expires_at > func.now()),
         )
-        .options(selectinload(OrderBookOrder.product), selectinload(OrderBookOrder.delivery_point))
+        .options(
+            selectinload(OrderBookOrder.product),
+            selectinload(OrderBookOrder.delivery_point),
+            joinedload(OrderBookOrder.organization),
+        )
     )
     source_orders = [order for order in (await db.execute(source_stmt)).scalars().all() if order_is_execution_qualified(order)]
     if not source_orders:
@@ -74,7 +93,11 @@ async def list_suggestions(
             OrderBookOrder.organization_id != current_user.organization_id,
             OrderBookOrder.off_spec.is_(False),
         )
-        .options(selectinload(OrderBookOrder.product), selectinload(OrderBookOrder.delivery_point))
+        .options(
+            selectinload(OrderBookOrder.product),
+            selectinload(OrderBookOrder.delivery_point),
+            joinedload(OrderBookOrder.organization),
+        )
     )
     candidate_orders = [
         order
@@ -89,6 +112,8 @@ async def list_suggestions(
         if not source_order.market_product or not source_order.delivery_point_id:
             continue
         for candidate in candidate_orders:
+            if not orders_execution_compatible(source_order, candidate):
+                continue
             score_points, reasons = compute_match_score(
                 target_market_product=source_order.market_product,
                 candidate_market_product=candidate.market_product,
@@ -138,8 +163,8 @@ async def list_suggestions(
             "status": "SUGGESTED",
             "recipient_org_id": str(current_user.organization_id),
             "created_at": candidate.created_at.isoformat() if candidate.created_at else None,
-            "bid_order": bid_order,
-            "ask_order": ask_order,
+            "bid_order": _public_order(bid_order),
+            "ask_order": _public_order(ask_order),
         })
 
     return results

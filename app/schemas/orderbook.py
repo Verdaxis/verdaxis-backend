@@ -12,6 +12,9 @@ from app.services.availability_windows import (
     normalize_availability_window,
 )
 from app.schemas.market_integrity import finite_decimal, future_aware_datetime
+from app.schemas.fame_order import (
+    FameOrderTerms, FamePublicOrderTerms, FameTradeSnapshot, FamePublicTradeSnapshot,
+)
 
 
 # Enums matching SQLAlchemy models
@@ -147,6 +150,7 @@ class OrderCreate(AvailabilityWindowMixin, SupplierListingMetadataMixin):
     expires_at: Optional[datetime] = None
     is_anonymous: Literal[True] = True
     support_confirmation: MarketSupportFinalConfirmation | None = None
+    fame_terms: FameOrderTerms | None = None
 
     @field_validator("quantity_mt", "price_per_mt_usd")
     @classmethod
@@ -191,6 +195,7 @@ class OrderUpdate(AvailabilityWindowMixin):
     off_spec: Optional[bool] = None
     off_spec_notes: Optional[str] = None
     expires_at: Optional[datetime] = None
+    fame_terms: FameOrderTerms | None = None
 
     @field_validator("quantity_mt", "price_per_mt_usd")
     @classmethod
@@ -218,6 +223,8 @@ class OrderCancelRequest(BaseModel):
 class OrderResponse(AvailabilityWindowMixin, SupplierListingMetadataMixin):
     """Public/anonymized order for the book. organization_id is NOT included."""
     id: UUID
+    version: int = 1
+    fame_terms: FamePublicOrderTerms | None = None
     side: OrderSide
     product_id: UUID
     product_name: str = ""
@@ -255,6 +262,7 @@ class OrderResponse(AvailabilityWindowMixin, SupplierListingMetadataMixin):
 class OrderMyResponse(OrderResponse):
     """Owner view with extra detail (includes org ID and vessel)."""
     organization_id: UUID
+    fame_terms: FameOrderTerms | None = None
     vessel_id: Optional[UUID] = None
     updated_at: datetime
     trade_count: int = 0
@@ -266,6 +274,7 @@ class OrderMyResponse(OrderResponse):
 class SupplierListingTemplateResponse(AvailabilityWindowMixin, SupplierListingMetadataMixin):
     """Safe supplier defaults for creating the next ASK listing."""
     product_id: UUID
+    fame_terms: FameOrderTerms | None = None
     delivery_point_id: UUID
     quantity_mt: Decimal
     price_per_mt_usd: Decimal
@@ -278,6 +287,10 @@ class SupplierListingTemplateResponse(AvailabilityWindowMixin, SupplierListingMe
 class TradeCreate(BaseModel):
     """Hit an order to create a trade."""
     order_id: UUID
+    expected_order_version: int | None = Field(None, ge=1)
+    fame_terms: FameOrderTerms | None = None
+    certification_declared: bool = False
+    msds_available: bool = False
     quantity_mt: Decimal = Field(..., gt=0, le=100000, max_digits=12, decimal_places=2, allow_inf_nan=False)
 
     @field_validator("quantity_mt")
@@ -289,6 +302,7 @@ class TradeCreate(BaseModel):
 class TradeResponse(BaseModel):
     """Trade detail with viewer-aware party identity."""
     id: UUID
+    fame_terms_snapshot: FameTradeSnapshot | FamePublicTradeSnapshot | None = None
     bid_order_id: Optional[UUID] = None
     ask_order_id: Optional[UUID] = None
     buyer_id: Optional[UUID] = None

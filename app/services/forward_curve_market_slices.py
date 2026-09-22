@@ -72,6 +72,7 @@ from app.services.market_data_eligibility import (
     canonical_delivery_point_clause,
     canonical_product_clause,
     current_public_order_clause,
+    market_product_supports_delivery_point,
 )
 from app.services.forward_monitoring import (
     SignalKey,
@@ -338,6 +339,7 @@ class ForwardCurveMarketSliceService:
             for group in product_groups
             for point in delivery_points
             for window in normalized_windows
+            if market_product_supports_delivery_point(group.market_product, point.id)
         ]
         cells = await self.load_many(
             db,
@@ -351,6 +353,8 @@ class ForwardCurveMarketSliceService:
         rows: list[ForwardCurveTableRow] = []
         for group in product_groups:
             for point in delivery_points:
+                if not market_product_supports_delivery_point(group.market_product, point.id):
+                    continue
                 row_cells = {
                     window: ForwardCurveTableCell.model_validate(
                         cells[
@@ -410,6 +414,9 @@ class ForwardCurveMarketSliceService:
             raise ValueError("market_product is not active")
         if point is None:
             raise ValueError("delivery_point_id is not approved or active")
+
+        if not market_product_supports_delivery_point(market_product, delivery_point_id):
+            raise ValueError("market_product is not available at this delivery point")
 
         key = SliceKey(market_product, delivery_point_id, window)
         cell = (
@@ -486,7 +493,9 @@ class ForwardCurveMarketSliceService:
         allowed_keys = [
             key
             for key in normalized_keys
-            if key.market_product in groups_by_product and key.delivery_point_id in allowed_point_ids
+            if key.market_product in groups_by_product
+            and key.delivery_point_id in allowed_point_ids
+            and market_product_supports_delivery_point(key.market_product, key.delivery_point_id)
         ]
         if not allowed_keys:
             return {}
@@ -810,6 +819,19 @@ class ForwardCurveMarketSliceService:
                 benchmark_observed_at=benchmark_observed_at,
             )
         )
+        if key.market_product == "UCOME_B100":
+            # The curve groups product/port/window, not each contracted grade.
+            # Individual orders execute only after their specifications match.
+            policy.disclaimer = (
+                "B100 prices may reflect different specifications and delivery terms. "
+                "Review the order terms; the aggregate price is not an executable quote."
+            )
+            if is_executable:
+                label = "Orderbook midpoint"
+                policy.public_label = label
+                policy.allowed_terms = ["orderbook", "midpoint"]
+                is_executable = False
+                is_reference = True
         observed_at = _aware_utc(observed_at)
         benchmark_observed_at = _aware_utc(benchmark_observed_at)
 

@@ -467,7 +467,7 @@ async def test_supplier_can_withdraw_after_kyc_approval_is_revoked(fame_market):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("table", ["orderbook_orders", "negotiations"])
-async def test_direct_sql_rejects_ucome_executable_market_rows(fame_market, table):
+async def test_direct_sql_rejects_ucome_market_rows_without_terms(fame_market, table):
     _, seeded = fame_market
     common = {
         "product_id": seeded["product_id"],
@@ -494,11 +494,12 @@ async def test_direct_sql_rejects_ucome_executable_market_rows(fame_market, tabl
     with pytest.raises(IntegrityError) as error:
         async with seeded["runtime_engine"].begin() as connection:
             await connection.execute(statement)
-    assert f"ck_{table}_execution_product" in str(error.value.orig)
+    assert error.value.orig.sqlstate == "23514"
+    assert f"ck_{table}_fame_terms" in str(error.value.orig)
 
 
 @pytest.mark.asyncio
-async def test_direct_sql_rejects_ucome_trade_snapshot(fame_market):
+async def test_direct_sql_rejects_ucome_trade_without_terms_snapshot(fame_market):
     _, seeded = fame_market
     product = PRODUCTS_BY_CODE["UCOME_B100"]
     point = DELIVERY_POINTS_BY_NAME["Singapore"]
@@ -528,10 +529,8 @@ async def test_direct_sql_rejects_ucome_trade_snapshot(fame_market):
     with pytest.raises(DBAPIError) as error:
         async with seeded["runtime_engine"].begin() as connection:
             await connection.execute(statement)
-    assert error.value.orig.sqlstate == "P0001"
-    assert "trade product snapshot must reference an active canonical product" in str(
-        error.value.orig
-    )
+    assert error.value.orig.sqlstate == "23514"
+    assert "ck_trades_fame_terms" in str(error.value.orig)
 
 
 @pytest.mark.asyncio

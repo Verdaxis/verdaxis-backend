@@ -21,6 +21,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.market_catalog import ORDERBOOK_MARKET_PRODUCTS
+from app.services.market_data_eligibility import market_product_supports_delivery_point
 from app.models.catalog import DeliveryPoint
 from app.models.forward_monitoring import (
     FairPriceBand,
@@ -191,6 +192,8 @@ def _validate_common(row: dict, resolver: _DeliveryPointResolver) -> dict:
             f"{sorted(_MARKET_PRODUCTS)}"
         )
     delivery_point_id = resolver.resolve(_required_text(row, "delivery_point"))
+    if not market_product_supports_delivery_point(product, delivery_point_id):
+        raise _RowInvalid("market_product is not available at this delivery point")
     try:
         window = normalize_availability_window(_required_text(row, "availability_window"))
     except ValueError as exc:
@@ -364,9 +367,14 @@ async def ingest_signals(
                 db.add(record)
                 await db.flush()
         except IntegrityError:
-            # Unique (source, source_event_id) collision: skip-and-continue via
-            # the savepoint; a raw IntegrityError would poison the whole
-            # transaction on Postgres.
+            # Only the idempotency identity proves a duplicate. A schema or
+            # lane constraint failure must not be reported as successful reuse.
+            existing_id = await db.scalar(select(model.id).where(
+                model.source == source,
+                model.source_event_id == planned["source_event_id"],
+            ))
+            if existing_id is None:
+                raise
             report.skipped_duplicates += 1
             continue
         report.inserted += 1

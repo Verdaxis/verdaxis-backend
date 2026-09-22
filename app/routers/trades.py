@@ -70,6 +70,13 @@ from app.services.market_admission import (
 )
 from app.services.org_notifications import notify_org_users
 from app.services.trade_fees import resolve_seller_trade_fee
+from app.services.fame_order import (
+    is_fame_product,
+    redact_fame_trade_snapshot,
+    require_fame_counterparty_terms,
+    validate_fame_order_terms,
+    validate_fame_trade_snapshot,
+)
 
 router = APIRouter(prefix="/trades", tags=["trades"], responses=AUTH_RESPONSES)
 
@@ -133,6 +140,10 @@ def build_trade_response(
     provenance = trade_market_provenance(trade)
     has_seller_fee_snapshot = trade.commission_fee_per_mt_usd is not None
     can_view_seller_fee = viewer_is_admin or viewer_org_id == trade.seller_id
+    can_view_supplier_fuel = viewer_org_id == trade.seller_id or (
+        viewer_org_id == trade.buyer_id
+        and (not is_anonymous or trade.status in ANONYMOUS_TRADE_HANDOFF_STATUSES)
+    )
     return TradeResponse(
         id=trade.id,
         bid_order_id=trade.bid_order_id,
@@ -181,7 +192,59 @@ def build_trade_response(
         scope=provenance["scope"],
         demo_status=provenance["demo_status"],
         unknown_count=provenance["unknown_count"],
+        fame_terms_snapshot=redact_fame_trade_snapshot(
+            getattr(trade, "fame_terms_snapshot", None),
+            reveal_supplier_identity=can_view_supplier_fuel,
+        ),
     )
+
+
+def _revalidate_trade_fame_terms(
+    trade: Trade, linked_order: OrderBookOrder | None
+) -> None:
+    """Recheck the frozen pair before confirmation without changing its terms."""
+    try:
+        snapshot = validate_fame_trade_snapshot(
+            trade.product_id,
+            getattr(trade, "fame_terms_snapshot", None),
+            trade.availability_window,
+        )
+        if snapshot is None:
+            return
+        if linked_order is None:
+            raise HTTPException(status_code=409, detail="Trade order no longer exists")
+        if not order_is_execution_qualified(linked_order):
+            raise HTTPException(status_code=409, detail="Trade order is no longer eligible")
+        current_terms = validate_fame_order_terms(
+            linked_order.product_id,
+            linked_order.side,
+            getattr(linked_order, "fame_terms", None),
+            linked_order.availability_window,
+        )
+    except HTTPException as exc:
+        raise HTTPException(
+            status_code=409,
+            detail="Trade fuel terms are no longer eligible for confirmation",
+        ) from exc
+
+    snapshot_side = "bid" if linked_order.side == OrderSide.BID else "ask"
+    if current_terms != snapshot[snapshot_side]:
+        raise HTTPException(
+            status_code=409,
+            detail="Trade order fuel terms changed; create a new trade request",
+        )
+
+
+def trade_create_idempotency_payload(payload: TradeCreate) -> dict[str, object]:
+    """Preserve legacy replay hashes while binding explicit B100 declarations."""
+    values = payload.model_dump(mode="json")
+    for field in ("fame_terms", "expected_order_version"):
+        if values[field] is None:
+            values.pop(field)
+    for field in ("certification_declared", "msds_available"):
+        if values[field] is False:
+            values.pop(field)
+    return values
 
 
 def _trade_initiator_org_expression():
@@ -619,7 +682,7 @@ async def create_trade(
         idempotency_key = idempotency_key.strip()
         if not idempotency_key or len(idempotency_key) > 255:
             raise HTTPException(status_code=400, detail="Idempotency-Key must be 1-255 characters")
-        request_hash = idempotency_request_hash(payload.model_dump(mode="json"))
+        request_hash = idempotency_request_hash(trade_create_idempotency_payload(payload))
         await acquire_idempotency_lock(db, tenant_id=initiator_org_id, operation=TRADE_CREATE_OPERATION, key=idempotency_key)
         replay = (await db.execute(
             select(Trade).options(selectinload(Trade.buyer), selectinload(Trade.seller)).where(
@@ -803,12 +866,34 @@ async def create_trade(
         # counterparty's rejection status by attempting a trade.
         raise HTTPException(status_code=400, detail="Order is not available for trading")
 
+    if is_fame_product(order.product_id):
+        if payload.expected_order_version is None:
+            raise HTTPException(
+                status_code=422,
+                detail="B100 trades require the reviewed order version",
+            )
+        if payload.expected_order_version != order.version:
+            raise HTTPException(
+                status_code=409,
+                detail="Order changed; refresh and review the order before trading",
+            )
+
     # Quantity check
     if payload.quantity_mt > order.remaining_quantity_mt:
         raise HTTPException(
             status_code=400,
             detail=f"Requested quantity ({payload.quantity_mt}) exceeds remaining ({order.remaining_quantity_mt})",
         )
+
+    if is_fame_product(order.product_id):
+        if order.side == OrderSide.BID and not (
+            payload.certification_declared and payload.msds_available
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail="B100 suppliers must declare certification and MSDS availability",
+            )
+    fame_terms_snapshot = require_fame_counterparty_terms(order, payload.fame_terms)
 
     before_state = await _watchlist_before_state(db, order)
 
@@ -844,6 +929,7 @@ async def create_trade(
         delivery_point_name=order.delivery_point_name,
         delivery_point_region=order.region,
         availability_window=order.availability_window,
+        fame_terms_snapshot=fame_terms_snapshot,
         commission_rate_pct=Decimal("0"),
         commission_fee_per_mt_usd=commission_fee_per_mt_usd,
         commission_plan=commission_plan.value,
@@ -925,6 +1011,9 @@ async def create_trade(
             "order_id": str(order.id),
             "quantity_mt": str(payload.quantity_mt),
             "price_per_mt_usd": str(order.price_per_mt_usd),
+            "fame_terms_snapshot": fame_terms_snapshot,
+            "certification_declared": payload.certification_declared,
+            "msds_available": payload.msds_available,
         },
         **request_audit_context(request),
     )
@@ -1138,6 +1227,7 @@ async def confirm_trade(
         initiator_org_id = trade.seller_id
 
     await _revalidate_trade_parties(db, trade)
+    _revalidate_trade_fame_terms(trade, confirmed_order)
 
     trade.status = TradeStatus.CONFIRMED
     trade.confirmed_at = datetime.now(UTC)

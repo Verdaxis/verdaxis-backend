@@ -7,14 +7,14 @@ from app.seeds.market_seed import CI_DATA, PRICING
 from app.routers.catalog import DELIVERY_POINT_DISPLAY_ORDER
 
 
-EXPECTED_ORDERBOOK_PRODUCT_NAMES = {
+EXPECTED_DEMO_PRODUCT_NAMES = {
     "Bio Methanol",
     "e-Methanol",
     "Bio Ethanol",
     "Synthetic Ethanol",
 }
 
-EXPECTED_CATALOG_PRODUCT_NAMES = EXPECTED_ORDERBOOK_PRODUCT_NAMES | {"UCOME B100"}
+EXPECTED_CATALOG_PRODUCT_NAMES = EXPECTED_DEMO_PRODUCT_NAMES | {"UCOME B100"}
 
 EXPECTED_PRODUCT_IDS = {
     "UCOME B100": UUID("e561e43f-d9b2-598e-981c-f1d28d515ddc"),
@@ -51,9 +51,9 @@ def test_catalog_seed_only_contains_approved_market_products():
     assert {product.name for product in PRODUCTS} == EXPECTED_CATALOG_PRODUCT_NAMES
     assert {
         product.name for product in PRODUCTS if product.execution_mode == "ORDERBOOK"
-    } == EXPECTED_ORDERBOOK_PRODUCT_NAMES
+    } == EXPECTED_CATALOG_PRODUCT_NAMES
     ucome = next(product for product in PRODUCTS if product.name == "UCOME B100")
-    assert ucome.execution_mode == "RFQ_ONLY"
+    assert ucome.execution_mode == "ORDERBOOK"
     assert ucome.available_delivery_point_ids == (DELIVERY_POINT_IDS["Singapore"],)
 
 
@@ -74,7 +74,7 @@ def test_catalog_seed_exposes_deterministic_ids_for_approved_delivery_points_onl
 
 
 def test_market_seed_pricing_only_references_catalog_products():
-    assert set(PRICING.keys()) == EXPECTED_ORDERBOOK_PRODUCT_NAMES
+    assert set(PRICING.keys()) == EXPECTED_DEMO_PRODUCT_NAMES
 
 
 def test_market_seed_pricing_only_references_catalog_delivery_points():
@@ -83,4 +83,4 @@ def test_market_seed_pricing_only_references_catalog_delivery_points():
 
 
 def test_market_seed_ci_only_references_catalog_products():
-    assert set(CI_DATA.keys()) == EXPECTED_ORDERBOOK_PRODUCT_NAMES
+    assert set(CI_DATA.keys()) == EXPECTED_DEMO_PRODUCT_NAMES

@@ -157,6 +157,21 @@ def _make_order(
             feedstock="Waste biomass",
             origin="Singapore",
         )
+    if product_id == PRODUCTS_BY_NAME["UCOME B100"].id:
+        from app.services.fame_order import validate_fame_order_terms
+        terms = {
+            "side": side.value, "neat_fame": True,
+            "standard": "EN_14214", "standard_edition": "2012+A2:2019",
+            "sustainability_scheme": "ISCC_EU", "evidence_due": "BEFORE_LOADING",
+        }
+        if side == OrderSide.ASK:
+            terms.update(
+                uco_mass_pct=100, certificate_reference="curve-cert",
+                certificate_holder="Curve supplier",
+                certificate_valid_until=str((datetime.now(UTC) + timedelta(days=365)).date()),
+                evidence_status="PENDING", batch_reference="batch", producing_site="site",
+            )
+        payload["fame_terms"] = validate_fame_order_terms(product_id, side, terms)
     return OrderBookOrder(**payload)
 
 
@@ -527,3 +542,77 @@ async def test_table_wire_projection_is_filterable_and_bounded_for_full_matrix(d
             assert "real_best_bid" not in cell
             assert "demo_best_ask" not in cell
             assert "benchmark_mid" not in cell
+
+
+@pytest.mark.asyncio
+async def test_b100_curve_is_visible_without_prices_and_only_on_approved_lane(db: AsyncSession):
+    await _make_product(db, "UCOME B100", fuel_type="FAME", grade="UCOME")
+    singapore = await _make_delivery_point(db, "Singapore")
+    await _make_delivery_point(db, "Rotterdam")
+    table = await forward_curve_market_slices.load_table(
+        db, market_products=["UCOME_B100"], windows=["SPOT"],
+    )
+    assert [(row.market_product, row.delivery_point_id) for row in table.rows] == [
+        ("UCOME_B100", singapore.id),
+    ]
+    cell = table.rows[0].cells["SPOT"]
+    assert cell.primary_value is None
+    assert cell.is_executable is False
+    assert cell.order_count == 0
+    detail = await forward_curve_market_slices.load_slice(
+        db, market_product="UCOME_B100", delivery_point_id=singapore.id, availability_window="SPOT",
+    )
+    assert detail.cell.primary_value is None
+    assert "specification" in detail.cell.label_policy.disclaimer.lower()
+
+
+@pytest.mark.asyncio
+async def test_b100_curve_refuses_unsupported_delivery_lane(db: AsyncSession):
+    await _make_product(db, "UCOME B100", fuel_type="FAME", grade="UCOME")
+    rotterdam = await _make_delivery_point(db, "Rotterdam")
+    with pytest.raises(ValueError, match="not available"):
+        await forward_curve_market_slices.load_slice(
+            db, market_product="UCOME_B100", delivery_point_id=rotterdam.id, availability_window="SPOT",
+        )
+
+
+@pytest.mark.asyncio
+async def test_b100_product_midpoint_does_not_claim_specification_compatible_execution(db: AsyncSession):
+    org = await _make_org(db, "B100 curve supplier")
+    product = await _make_product(db, "UCOME B100", fuel_type="FAME", grade="UCOME")
+    singapore = await _make_delivery_point(db, "Singapore")
+    db.add_all([
+        _make_order(org_id=org.id, side=side, product_id=product.id,
+                    delivery_point_id=singapore.id, price=price)
+        for side, price in [(OrderSide.BID, "1000"), (OrderSide.ASK, "1100")]
+    ])
+    await db.commit()
+    detail = await forward_curve_market_slices.load_slice(
+        db, market_product="UCOME_B100", delivery_point_id=singapore.id, availability_window="SPOT",
+    )
+    assert detail.cell.primary_value == Decimal("1050.00")
+    assert detail.cell.public_source_label == "Orderbook midpoint"
+    assert detail.cell.is_executable is False
+    assert detail.cell.is_reference is True
+    assert "specifications" in detail.cell.label_policy.disclaimer
+
+
+@pytest.mark.asyncio
+async def test_b100_expired_operator_declaration_cannot_set_curve_price_or_depth(db: AsyncSession):
+    org = await _make_org(db, "B100 expired supplier")
+    product = await _make_product(db, "UCOME B100", fuel_type="FAME", grade="UCOME")
+    singapore = await _make_delivery_point(db, "Singapore")
+    bid = _make_order(org_id=org.id, side=OrderSide.BID, product_id=product.id,
+                      delivery_point_id=singapore.id, price="1000")
+    ask = _make_order(org_id=org.id, side=OrderSide.ASK, product_id=product.id,
+                      delivery_point_id=singapore.id, price="1100")
+    ask.fame_terms = {**ask.fame_terms, "certificate_valid_until": "2020-01-01"}
+    db.add_all([bid, ask])
+    await db.commit()
+    detail = await forward_curve_market_slices.load_slice(
+        db, market_product="UCOME_B100", delivery_point_id=singapore.id, availability_window="SPOT",
+    )
+    assert detail.cell.best_ask is None
+    assert detail.cell.primary_value is None
+    assert detail.cell.order_count == 1
+    assert detail.depth_asks == []

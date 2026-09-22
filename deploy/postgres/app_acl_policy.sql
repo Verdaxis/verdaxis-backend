@@ -44,7 +44,7 @@ INSERT INTO app_table_policy (table_name, privileges) VALUES
     ('market_support_contexts', ARRAY['SELECT', 'INSERT']),
     ('match_suggestions', ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE']),
     ('negotiation_rounds', ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE']),
-    ('negotiations', ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE']),
+    ('negotiations', ARRAY['SELECT', 'INSERT', 'DELETE']),
     ('news_items', ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE']),
     ('notifications', ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE']),
     ('orderbook_orders', ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE']),
@@ -91,9 +91,30 @@ CREATE TEMP TABLE app_column_policy (
     FOREIGN KEY (table_name) REFERENCES app_table_policy (table_name)
 );
 
+-- Negotiation fuel snapshots and assisted authorization terms are insert-only.
 -- RFQ terms and offer revisions have explicit write authority. New columns
 -- cannot silently inherit mutable contract authority.
 INSERT INTO app_column_policy (table_name, column_name, privilege_type) VALUES
+    ('negotiations', 'id', 'UPDATE'),
+    ('negotiations', 'bid_order_id', 'UPDATE'),
+    ('negotiations', 'ask_order_id', 'UPDATE'),
+    ('negotiations', 'initiator_org_id', 'UPDATE'),
+    ('negotiations', 'counterparty_org_id', 'UPDATE'),
+    ('negotiations', 'initiator_user_id', 'UPDATE'),
+    ('negotiations', 'counterparty_user_id', 'UPDATE'),
+    ('negotiations', 'accepted_by_user_id', 'UPDATE'),
+    ('negotiations', 'initiator_side', 'UPDATE'),
+    ('negotiations', 'product_id', 'UPDATE'),
+    ('negotiations', 'delivery_point_id', 'UPDATE'),
+    ('negotiations', 'availability_window', 'UPDATE'),
+    ('negotiations', 'quantity_mt', 'UPDATE'),
+    ('negotiations', 'current_price', 'UPDATE'),
+    ('negotiations', 'status', 'UPDATE'),
+    ('negotiations', 'last_actor_org_id', 'UPDATE'),
+    ('negotiations', 'trade_id', 'UPDATE'),
+    ('negotiations', 'expires_at', 'UPDATE'),
+    ('negotiations', 'created_at', 'UPDATE'),
+    ('negotiations', 'updated_at', 'UPDATE'),
     ('supplier_offers', 'id', 'INSERT'),
     ('supplier_offers', 'supplier_org_id', 'INSERT'),
     ('supplier_offers', 'supplier_user_id', 'INSERT'),

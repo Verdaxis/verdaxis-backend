@@ -1,4 +1,5 @@
 """Pydantic schemas for Negotiation endpoints."""
+
 from datetime import datetime
 from decimal import Decimal
 from typing import Optional
@@ -6,6 +7,11 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from app.schemas.market_integrity import finite_decimal
+from app.schemas.fame_order import (
+    FameOrderTerms,
+    FamePublicTradeSnapshot,
+    FameTradeSnapshot,
+)
 from app.services.availability_windows import (
     JSON_SCHEMA_PATTERN,
     normalize_availability_window,
@@ -19,15 +25,24 @@ class NegotiationCreateRequest(BaseModel):
     product_id: UUID
     delivery_point_id: UUID
     availability_window: str = Field(default="SPOT", pattern=JSON_SCHEMA_PATTERN)
-    quantity_mt: Decimal = Field(gt=0, le=100000, decimal_places=2, max_digits=12, allow_inf_nan=False)
-    proposed_price: Decimal = Field(gt=0, le=1000000, decimal_places=2, max_digits=10, allow_inf_nan=False)
+    quantity_mt: Decimal = Field(
+        gt=0, le=100000, decimal_places=2, max_digits=12, allow_inf_nan=False
+    )
+    proposed_price: Decimal = Field(
+        gt=0, le=1000000, decimal_places=2, max_digits=10, allow_inf_nan=False
+    )
     notes: Optional[str] = Field(None, max_length=500)
     expires_in_hours: int = Field(default=1, ge=1, le=72)
+    fame_terms: FameOrderTerms | None = None
+    certification_declared: bool = False
+    msds_available: bool = False
 
-    @model_validator(mode='after')
-    def require_at_least_one_order(self) -> 'NegotiationCreateRequest':
+    @model_validator(mode="after")
+    def require_at_least_one_order(self) -> "NegotiationCreateRequest":
         if self.bid_order_id is None and self.ask_order_id is None:
-            raise ValueError('At least one of bid_order_id or ask_order_id must be provided')
+            raise ValueError(
+                "At least one of bid_order_id or ask_order_id must be provided"
+            )
         return self
 
     @field_validator("availability_window", mode="before")
@@ -38,17 +53,25 @@ class NegotiationCreateRequest(BaseModel):
     @model_validator(mode="after")
     def validate_economic_values(self) -> "NegotiationCreateRequest":
         self.quantity_mt = finite_decimal(self.quantity_mt, field_name="quantity_mt")
-        self.proposed_price = finite_decimal(self.proposed_price, field_name="proposed_price")
+        self.proposed_price = finite_decimal(
+            self.proposed_price, field_name="proposed_price"
+        )
         return self
 
 
 class NegotiationCounterRequest(BaseModel):
-    proposed_price: Decimal = Field(gt=0, le=1000000, decimal_places=2, max_digits=10, allow_inf_nan=False)
+    model_config = ConfigDict(extra="forbid")
+
+    proposed_price: Decimal = Field(
+        gt=0, le=1000000, decimal_places=2, max_digits=10, allow_inf_nan=False
+    )
     notes: Optional[str] = Field(None, max_length=500)
 
     @model_validator(mode="after")
     def validate_economic_values(self) -> "NegotiationCounterRequest":
-        self.proposed_price = finite_decimal(self.proposed_price, field_name="proposed_price")
+        self.proposed_price = finite_decimal(
+            self.proposed_price, field_name="proposed_price"
+        )
         return self
 
 
@@ -90,6 +113,7 @@ class NegotiationResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     rounds: list[NegotiationRoundResponse] = []
+    fame_terms_snapshot: FameTradeSnapshot | FamePublicTradeSnapshot | None = None
 
     model_config = ConfigDict(from_attributes=True)
 

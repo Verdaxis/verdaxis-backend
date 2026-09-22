@@ -29,8 +29,11 @@ from app.models.market_support import (
     MarketSupportContext as MarketSupportContextModel,
 )
 from app.models.notification import NotificationType
-from app.market_catalog import APPROVED_MARKET_PRODUCTS, MarketProduct
+from app.market_catalog import APPROVED_MARKET_PRODUCTS, MarketProduct, PRODUCT_IDS, PRODUCTS_BY_ID
 from app.services.market_catalog_validation import require_orderbook_product
+from app.services.fame_order import (
+    fame_metadata_fields, is_fame_product, public_fame_terms, validate_fame_order_terms,
+)
 from app.models.catalog import Product, DeliveryPoint
 from app.schemas.orderbook import (
     OrderCreate,
@@ -132,7 +135,7 @@ SUPPLIER_METADATA_FIELDS = (
     "off_spec_notes",
 )
 
-APPROVED_MARKETPLACE_FUEL_TYPES = ("Methanol", "Ethanol")
+APPROVED_MARKETPLACE_FUEL_TYPES = ("Methanol", "Ethanol", "FAME")
 OrderbookSort = Literal["price_asc", "price_desc", "quantity_desc", "newest"]
 EXECUTION_QUALIFIER_FIELDS = ("certification_scheme",)
 ASK_ONLY_METADATA_FIELDS = tuple(field for field in SUPPLIER_METADATA_FIELDS if field not in EXECUTION_QUALIFIER_FIELDS)
@@ -175,9 +178,9 @@ def _apply_public_marketplace_scope(
     filters.append(or_(OrderBookOrder.side != OrderSide.ASK, OrderBookOrder.certification_declared.is_(True)))
     filters.append(or_(OrderBookOrder.side != OrderSide.ASK, func.length(func.trim(func.coalesce(OrderBookOrder.specification_standard, ""))) > 0))
     filters.append(or_(OrderBookOrder.side != OrderSide.ASK, OrderBookOrder.msds_available.is_(True)))
-    filters.append(or_(OrderBookOrder.side != OrderSide.ASK, OrderBookOrder.carbon_intensity_gco2_mj.is_not(None)))
+    filters.append(or_(OrderBookOrder.side != OrderSide.ASK, OrderBookOrder.product_id == PRODUCT_IDS["UCOME_B100"], OrderBookOrder.carbon_intensity_gco2_mj.is_not(None)))
     filters.append(or_(OrderBookOrder.side != OrderSide.ASK, func.length(func.trim(func.coalesce(OrderBookOrder.feedstock, ""))) > 0))
-    filters.append(or_(OrderBookOrder.side != OrderSide.ASK, func.length(func.trim(func.coalesce(OrderBookOrder.origin, ""))) > 0))
+    filters.append(or_(OrderBookOrder.side != OrderSide.ASK, OrderBookOrder.product_id == PRODUCT_IDS["UCOME_B100"], func.length(func.trim(func.coalesce(OrderBookOrder.origin, ""))) > 0))
 
 
 def _public_order_scope(
@@ -936,6 +939,7 @@ async def latest_supplier_listing_template(
         origin=latest_ask.origin,
         off_spec=False,
         off_spec_notes=None,
+        fame_terms=getattr(latest_ask, "fame_terms", None),
     )
     return payload
 
@@ -1309,6 +1313,9 @@ async def create_order(
     Place a new order. Self-service BID requires BUYER role and ASK requires
     SUPPLIER role; an assisted context is authorized at organization level.
     """
+    # Each transaction attempt derives display metadata independently. Keep
+    # the caller's payload unchanged so retries retain the same request hash.
+    order_data = order_data.model_copy(deep=True)
     party = await resolve_request_party(request, db, current_user, operation="create_order")
     if party.mode == RequestPartyMode.SELF_SERVICE:
         if order_data.support_confirmation is not None:
@@ -1413,6 +1420,15 @@ async def create_order(
             detail="Availability window is no longer open for new orders",
         )
 
+    fame_terms = validate_fame_order_terms(
+        order_data.product_id, order_data.side, order_data.fame_terms, order_data.availability_window
+    )
+    if fame_terms is not None:
+        if order_data.quantity_mt < 1:
+            raise HTTPException(422, "UCOME B100 orders require at least 1 MT")
+        for field, value in fame_metadata_fields(fame_terms).items():
+            if field in OrderCreate.model_fields:
+                setattr(order_data, field, value)
     normalized_certification_scheme = normalize_certification_scheme(order_data.certification_scheme)
 
     if order_data.side != OrderSide.ASK:
@@ -1427,13 +1443,17 @@ async def create_order(
             certification_declared=order_data.certification_declared,
             certification_scheme=normalized_certification_scheme,
         )
-        _require_supplier_metadata(
-            specification_standard=order_data.specification_standard,
-            msds_available=order_data.msds_available,
-            carbon_intensity_gco2_mj=order_data.carbon_intensity_gco2_mj,
-            feedstock=order_data.feedstock,
-            origin=order_data.origin,
-        )
+        if fame_terms is not None:
+            if not order_data.msds_available:
+                raise HTTPException(422, "ASK orders require an available safety data sheet")
+        else:
+            _require_supplier_metadata(
+                specification_standard=order_data.specification_standard,
+                msds_available=order_data.msds_available,
+                carbon_intensity_gco2_mj=order_data.carbon_intensity_gco2_mj,
+                feedstock=order_data.feedstock,
+                origin=order_data.origin,
+            )
 
     # Validate product_id exists
     product_result = await db.execute(
@@ -1451,6 +1471,9 @@ async def create_order(
         )
 
     require_orderbook_product(product)
+    spec = PRODUCTS_BY_ID.get(product.id)
+    if spec is not None and spec.available_delivery_point_ids is not None and order_data.delivery_point_id not in spec.available_delivery_point_ids:
+        raise HTTPException(400, "This product is not available at the selected delivery point")
 
     # Validate delivery_point_id if provided
     if order_data.delivery_point_id:
@@ -1510,6 +1533,7 @@ async def create_order(
         availability_window=order_data.availability_window,
         expires_at=order_data.expires_at,
         certification_scheme=normalized_certification_scheme,
+        fame_terms=fame_terms,
         idempotency_key=idempotency_key,
         idempotency_operation=(ORDER_CREATE_OPERATION if idempotency_key else None),
         idempotency_request_hash=(request_hash if idempotency_key else None),
@@ -1519,6 +1543,9 @@ async def create_order(
 
     if order_data.side == OrderSide.ASK:
         for field, value in _supplier_metadata_payload(order_data).items():
+            setattr(new_order, field, value)
+    if fame_terms is not None:
+        for field, value in fame_metadata_fields(fame_terms).items():
             setattr(new_order, field, value)
 
     new_order.product = product
@@ -1599,6 +1626,7 @@ async def create_order(
             certifications=list(order_data.certifications),
             certification_declared=order_data.certification_declared,
             certification_scheme=normalized_certification_scheme,
+            fame_terms=fame_terms,
             specification_standard=order_data.specification_standard,
             msds_available=order_data.msds_available,
             carbon_intensity_gco2_mj=order_data.carbon_intensity_gco2_mj,
@@ -1716,6 +1744,7 @@ async def create_order(
             "quantity_mt": str(new_order.quantity_mt),
             "price_per_mt_usd": str(new_order.price_per_mt_usd),
             "status": new_order.status.value,
+            "fame_terms": new_order.fame_terms,
             "actor_user_id": str(party.actor.id),
             "effective_organization_id": str(effective_organization_id),
             "accountable_user_id": str(party.accountable_principal.id),
@@ -1918,6 +1947,16 @@ async def update_order(
             detail="Executable order market identity is immutable; cancel and create a new order",
         )
     update_dict.pop("availability_window", None)
+    fame_terms = validate_fame_order_terms(
+        order.product_id, order.side,
+        update_dict.get("fame_terms", getattr(order, "fame_terms", None)),
+        order.availability_window,
+    )
+    if fame_terms is not None:
+        if update_dict.get("quantity_mt", order.quantity_mt) < 1:
+            raise HTTPException(422, "UCOME B100 orders require at least 1 MT")
+        update_dict["fame_terms"] = fame_terms
+        update_dict.update(fame_metadata_fields(fame_terms))
     if "certification_scheme" in update_dict:
         update_dict["certification_scheme"] = normalize_certification_scheme(update_dict["certification_scheme"])
     if order.side != OrderSide.ASK:
@@ -1928,13 +1967,17 @@ async def update_order(
             certification_declared=bool(update_dict.get("certification_declared", order.certification_declared)),
             certification_scheme=update_dict.get("certification_scheme", order.certification_scheme),
         )
-        _require_supplier_metadata(
-            specification_standard=update_dict.get("specification_standard", order.specification_standard),
-            msds_available=bool(update_dict.get("msds_available", order.msds_available)),
-            carbon_intensity_gco2_mj=update_dict.get("carbon_intensity_gco2_mj", order.carbon_intensity_gco2_mj),
-            feedstock=update_dict.get("feedstock", order.feedstock),
-            origin=update_dict.get("origin", order.origin),
-        )
+        if fame_terms is not None:
+            if not update_dict.get("msds_available", order.msds_available):
+                raise HTTPException(422, "ASK orders require an available safety data sheet")
+        else:
+            _require_supplier_metadata(
+                specification_standard=update_dict.get("specification_standard", order.specification_standard),
+                msds_available=bool(update_dict.get("msds_available", order.msds_available)),
+                carbon_intensity_gco2_mj=update_dict.get("carbon_intensity_gco2_mj", order.carbon_intensity_gco2_mj),
+                feedstock=update_dict.get("feedstock", order.feedstock),
+                origin=update_dict.get("origin", order.origin),
+            )
 
     # Read/validate first, then serialize every affected slice, then take the
     # order row lock. This ordering is shared with match/cancel paths.
@@ -1950,6 +1993,7 @@ async def update_order(
                 "price_per_mt_usd",
                 "expires_at",
                 "certifications",
+                "fame_terms",
             }
         )
     )
@@ -2008,6 +2052,17 @@ async def update_order(
         ),
     )
 
+    # Recheck the complete effective declaration after the row lock. A partial
+    # update must not overwrite a concurrent fuel revision from its preview.
+    locked_terms = validate_fame_order_terms(
+        order.product_id, order.side,
+        update_data.fame_terms if "fame_terms" in update_data.model_fields_set else getattr(order, "fame_terms", None),
+        order.availability_window,
+    )
+    if locked_terms is not None:
+        update_dict["fame_terms"] = locked_terms
+        update_dict.update(fame_metadata_fields(locked_terms))
+
     # Recompute quantity against the locked row; the preview may have waited
     # behind another update on the same slice.
     if "quantity_mt" in update_dict:
@@ -2040,14 +2095,21 @@ async def update_order(
     )
     audit_fields = set(update_dict)
     audit_fields.update({"remaining_quantity_mt", "status"})
+    if is_fame_product(order.product_id):
+        audit_fields.add("version")
     audit_before = {
         field: getattr(order, field)
         for field in audit_fields
         if hasattr(order, field)
     }
 
+    terms_changed = any(
+        getattr(order, field) != value for field, value in update_dict.items()
+    )
     for field, value in update_dict.items():
         setattr(order, field, value)
+    if terms_changed:
+        order.bump_version()
 
     matched_trades: list = []
     resting_side_previous_best_price = None

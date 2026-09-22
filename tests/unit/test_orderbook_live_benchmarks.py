@@ -373,3 +373,34 @@ class TestLiveSliceBenchmarks:
         assert {item.source_kind for item in demo_items} == {'DEMO_SEED'}
         assert not db.new
         assert not db.dirty
+
+
+@pytest.mark.asyncio
+async def test_b100_live_reference_uses_valid_terms_without_alcohol_metadata(db: AsyncSession):
+    from app.services.live_benchmarks import public_slice_order_qualified
+    from app.services.fame_order import validate_fame_order_terms
+    from datetime import date
+
+    supplier = await _make_org(db, 'B100 supplier')
+    product = await _make_product(db, name='UCOME B100', fuel_type='FAME', fuel_grade='UCOME')
+    point = await _make_delivery_point(db, 'Singapore', 'Asia')
+    order = _make_order(org_id=supplier.id, side=OrderSide.ASK, product_id=product.id,
+                        delivery_point_id=point.id, price='1100')
+    order.product = product
+    order.fame_terms = validate_fame_order_terms(product.id, 'ASK', {
+        'side': 'ASK', 'neat_fame': True, 'uco_mass_pct': 100,
+        'standard': 'EN_14214', 'standard_edition': '2012+A2:2019',
+        'sustainability_scheme': 'ISCC_EU', 'certificate_reference': 'supplier-cert',
+        'certificate_holder': 'Supplier', 'certificate_valid_until': str(date.today() + timedelta(days=365)),
+        'evidence_status': 'PENDING', 'evidence_due': 'BEFORE_LOADING',
+        'batch_reference': 'batch', 'producing_site': 'site',
+    })
+    order.carbon_intensity_gco2_mj = None
+    order.origin = None
+    order.msds_available = True
+    assert public_slice_order_qualified(order)
+    order.delivery_point_id = DELIVERY_POINTS_BY_NAME['Rotterdam'].id
+    assert not public_slice_order_qualified(order)
+    order.delivery_point_id = point.id
+    order.fame_terms = None
+    assert not public_slice_order_qualified(order)

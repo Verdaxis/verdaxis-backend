@@ -5,9 +5,12 @@ formal evidence. UNKNOWN remains quarantined. No name/domain heuristics.
 """
 from __future__ import annotations
 
-from sqlalchemy import and_, case, func, or_, select
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
-from app.market_catalog import CANONICAL_DELIVERY_POINTS, CANONICAL_PRODUCTS, ORDERBOOK_MARKET_PRODUCTS
+from sqlalchemy import String, and_, case, cast, func, or_, select
+
+from app.market_catalog import CANONICAL_DELIVERY_POINTS, CANONICAL_PRODUCTS, ORDERBOOK_MARKET_PRODUCTS, PRODUCTS_BY_CODE
 from app.models.orderbook import OrderCreationMethod
 from app.models.user import (
     Organization,
@@ -150,11 +153,37 @@ def canonical_delivery_point_clause(delivery_point):
     )
 
 
+def market_product_supports_delivery_point(market_product: str, delivery_point_id) -> bool:
+    """Use the catalog lane contract in reads as well as order execution."""
+    spec = PRODUCTS_BY_CODE.get(market_product)
+    if spec is None or spec.execution_mode != "ORDERBOOK":
+        return False
+    return (
+        spec.available_delivery_point_ids is None
+        or delivery_point_id in spec.available_delivery_point_ids
+    )
+
+
+def canonical_product_delivery_lane_clause(product, delivery_point):
+    return or_(
+        *(
+            and_(
+                product.id == spec.id,
+                delivery_point.id.in_(spec.available_delivery_point_ids)
+                if spec.available_delivery_point_ids is not None else True,
+            )
+            for spec in CANONICAL_PRODUCTS
+            if spec.execution_mode == "ORDERBOOK"
+        )
+    )
+
+
 def active_market_catalog_clauses(product, delivery_point):
     return (
         canonical_product_clause(product),
         canonical_market_product_expression(product).in_(ORDERBOOK_MARKET_PRODUCTS),
         canonical_delivery_point_clause(delivery_point),
+        canonical_product_delivery_lane_clause(product, delivery_point),
     )
 
 
@@ -168,6 +197,25 @@ def current_public_order_clause(order, *, now_expression=None):
     collection, so a rejected owner's inert orders never surface.
     """
     now_value = now_expression if now_expression is not None else func.now()
+    singapore_date = datetime.now(ZoneInfo("Asia/Singapore")).date().isoformat()
+    b100 = PRODUCTS_BY_CODE["UCOME_B100"]
+    b100_declaration_is_current = or_(
+        order.product_id != b100.id,
+        and_(
+            order.delivery_point_id.in_(b100.available_delivery_point_ids),
+            order.fame_terms["side"].as_string() == cast(order.side, String),
+            order.off_spec.is_(False),
+            or_(
+                order.side != "ASK",
+                and_(
+                    order.fame_terms["certificate_valid_until"].as_string() >= singapore_date,
+                    order.msds_available.is_(True),
+                    order.certification_declared.is_(True),
+                    func.length(func.trim(func.coalesce(order.certification_scheme, ""))) > 0,
+                ),
+            ),
+        ),
+    )
     return and_(
         or_(
             order.expires_at > now_value,
@@ -183,6 +231,7 @@ def current_public_order_clause(order, *, now_expression=None):
         ),
         # Every public collection also refuses inert owner-rejected liquidity.
         public_order_owner_admission_clause(order),
+        b100_declaration_is_current,
     )
 
 

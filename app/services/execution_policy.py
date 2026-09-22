@@ -4,6 +4,10 @@ from app.market_catalog import PRODUCTS_BY_ID, PRODUCTS_BY_CODE
 from app.models.orderbook import OrderBookOrder, OrderCreationMethod, OrderSide
 from app.models.user import Organization, OrganizationProvenance, User, UserRole, UserStatus
 from sqlalchemy import select
+from fastapi import HTTPException
+from app.services.fame_order import (
+    fame_terms_compatible, is_fame_product, validate_fame_order_terms,
+)
 
 
 async def execution_party_is_eligible(db, *, user: User, organization: Organization | None = None) -> bool:
@@ -74,6 +78,16 @@ def order_is_execution_qualified(order: OrderBookOrder) -> bool:
         return False
     if getattr(order, "off_spec", False):
         return False
+    if is_fame_product(getattr(order, "product_id", None)):
+        if getattr(order, "side", None) == OrderSide.ASK and not getattr(order, "msds_available", False):
+            return False
+        try:
+            validate_fame_order_terms(
+                order.product_id, order.side, getattr(order, "fame_terms", None),
+                getattr(order, "availability_window", "SPOT"),
+            )
+        except HTTPException:
+            return False
 
     normalized_scheme = normalize_certification_scheme(getattr(order, "certification_scheme", None))
 
@@ -92,6 +106,13 @@ def orders_execution_compatible(left: OrderBookOrder, right: OrderBookOrder) -> 
 
     bid_order = left if getattr(left, "side", None) == OrderSide.BID else right
     ask_order = right if bid_order is left else left
+
+    if is_fame_product(getattr(bid_order, "product_id", None)) or is_fame_product(getattr(ask_order, "product_id", None)):
+        if bid_order.product_id != ask_order.product_id:
+            return False
+        # B100's structured scheme and specification are the canonical terms;
+        # legacy display aliases must not introduce a second matching rule.
+        return fame_terms_compatible(getattr(bid_order, "fame_terms", None), getattr(ask_order, "fame_terms", None))
 
     ask_scheme = normalize_certification_scheme(ask_order.certification_scheme)
     if ask_scheme is None:

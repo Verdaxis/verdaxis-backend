@@ -158,7 +158,7 @@ alembic/versions/               # Migrations incl. canonical availability-window
 - **Admin pre-approved invitations:** An administrator may prepare a `BUYER` or `SUPPLIER` account in an existing approved `REAL` or `UNKNOWN` organization, or atomically create a `REAL`, onboarding-approved organization and an invited account. The audited administrator action is the trust decision for a new live-market organization; ordinary registration still receives database-owned `UNKNOWN` provenance, and a later administrator company-approval transition automatically classifies ordinary UNKNOWN organizations as REAL. The database trigger preserves synthetic identities and direct provenance-write restrictions; the company approval audit records the classification. Previously approved UNKNOWN records still use exact operator remediation. Role/type validation and owned-domain collision checks happen before persistence; any account or organization conflict rolls back the entire operation. The seven-day claim secret reuses the existing hashed one-time password-reset slot, while the unclaimed state is explicitly `APPROVED + unverified + must_change_password`; acceptance records possession of the administrator-delivered secret as email verification, records Terms/Privacy agreement in the append-only audit trail, progresses referral attribution, and issues the normal device-bound session. Ordinary password reset excludes unverified accounts so the two token purposes cannot be confused. See `docs/plans/2026-08-05-admin-preapproved-invites-design.md` and `docs/plans/2026-08-12-admin-created-organizations-design.md`.
 - **Rate limiting:** slowapi per-route (5/min login, 3/min password, 60/min prices, 30/min reference)
 - **Availability windows:** Persist canonical codes (`SPOT`, `YYYY-MM`, `YYYY-QN`, legacy-compatible `YYYY-CAL`); UI-relative labels like `M+1` must be resolved before persistence
-- **FAME RFQ pilot:** UCOME B100 has its own canonical product identity and a Singapore-only wholesale RFQ lane. The catalog exposes `execution_mode=RFQ_ONLY`, the permitted delivery point IDs, and a 1 MT platform input minimum; contract minimum fill is negotiated. The four alcohol products retain their execution and history. API policy and PostgreSQL constraints exclude UCOME from executable orders, assisted orders, and negotiations; price evidence, demo signals, and forward curves remain alcohol-only. RFQ terms, targeted request snapshots and independent supplier offers use explicit runtime column grants. Deploy to `fame_20260922_supplier_offers` through the committed checkpoint policy.
+- **B100 shared orderbook:** UCOME B100 is ORDERBOOK-enabled on the existing Singapore lane, with typed side-specific `fame_terms`, shared execution compatibility and immutable trade/negotiation snapshots. Marketplace, Map, price evidence and forward curves use the same catalog identity. Prior indicative supplier offers/RFQs retain their original meaning and are not converted into executable orders. The deployment checkpoint is `fame_20260922_b100_orderbook`.
 - **Green-fuels market model:** Matching and live slice benchmarks key on `side + market_product + delivery_point + availability_window`; supplier sustainability/compliance fields stay out of the hard market key
 - **Orderbook read performance:** List responses reuse joined product/delivery-point rows and eager-load organization data. Benchmark inputs are fetched once for all requested slices, including cached missing results within the request. `/orderbook/map-summary` returns all eligible compact groups and the latest ASK per delivery point; `/orderbook/product-counts` uses the public listing filters for all four product totals.
 - **Market provenance contract:** Market-data responses use shared `source_kind`, `scope`, and `demo_status` fields. Aggregate data exposes real/demo/unknown counts; unknown contributors remain `UNKNOWN` rather than being collapsed into real/demo/mixed.
@@ -177,38 +177,19 @@ alembic/versions/               # Migrations incl. canonical availability-window
 - **Local operational monitoring:** `deploy/monitor` is source-only and owns no application readiness producer, deploy transaction, backup producer, root installer, or activation path. Its reader requires the shared exact four-key runtime contract (`status=ok`, `db=ok`, exact environment, full SHA); the runtime owner must consume the corpus and publish matching identity. Hostile JSON rejects duplicate keys. Backup gzip evidence must meet a PostgreSQL marker and 1 KiB expanded floor. Readers atomically publish semantically consistent mode `0600` status and never receive alert secrets; alert dedupe is fixed hourly. Production and staging demo service/timer pairs are independent and execute source only from private read-only archives of the attested commit. The JSON manifest is static byte inventory for a future canonical immutable installer. Legacy retirement additionally requires healthy durable alert state with per-destination recovery newer than failure, and rechecks every timer immediately before the fixed disable command. Full owner seams: `deploy/monitor/README.md`.
 - **Onboarding attention:** A production-only five-minute oneshot reads canonical account, organization, join-request, approval-transition, and login state to alert operators about actionable onboarding stages. Demo/test/canary/admin accounts are excluded; persisted dedupe state contains no email or organization data. Initial activation silently baselines historical cases, while new stages alert once and non-baselined recoveries notify once.
 
-## UCOME B100 staging pilot
+## UCOME B100 shared execution
 
-The canonical catalog adds UCOME B100 (`e561e43f-d9b2-598e-981c-f1d28d515ddc`)
-as `RFQ_ONLY`, restricted to wholesale Singapore. The four alcohol product IDs
-remain unchanged. `ORDERBOOK_MARKET_PRODUCTS` excludes RFQ-only products from
-execution, public prices, curves and synthetic market evidence. Application
-entry guards and PostgreSQL constraints reject UCOME orders, assisted
-authorizations, negotiations and trade snapshots.
+The canonical B100 ID remains `e561e43f-d9b2-598e-981c-f1d28d515ddc`. Its execution mode is `ORDERBOOK`; the existing wholesale Singapore lane and 1 MT initial order minimum remain. Standard fractional fills use the same rules as other fuels. No synthetic B100 liquidity is seeded.
 
-`app/schemas/fame.py` validates versioned physical and commercial requirements
-separately from supplier declarations. Unknown CI is nullable. Documentary
-availability is not verification. RFQs preserve their contract terms; supplier
-revisions require the expected revision and record complete old/new audit
-snapshots. Quote deadlines cannot exceed the RFQ or Singapore delivery deadline.
-Suppliers see only their own quote details and retain history after expiry.
-Cancellation and withdrawal preserve actor ownership while allowing retraction
-after execution eligibility is revoked. RFQ acceptance remains disabled, so no
-physical or sustainability allocation is reserved.
+`app/schemas/fame_order.py` defines BID requirements and ASK declarations within the standard order contract. `app/services/fame_order.py` validates current declarations, compares standard/edition/grade, cold-flow limits, comparable CI and certification/evidence requirements, and forms immutable trade snapshots. Matching and direct taking use the same checks. B100 direct takes bind the reviewed order version under the row lock; changed offers require a fresh review, while committed idempotent requests remain replayable. Inventory and assisted publication carry the same terms. Negotiation acceptance remains disabled for all fuels under the existing policy.
 
-Independent supplier offers use `supplier_offers`, separate from executable
-orders and inventory. Versioned listing terms carry optional batch nomination,
-fuel-specific results with fixed units, and distinct certificate, quality and
-consignment evidence. Discovery returns an anonymous projection; owners receive
-the full declaration. A buyer-created targeted RFQ records the source offer,
-its immutable revision snapshot and the supplier organization. Visibility and
-quote admission enforce that target. Offer edits do not alter existing requests.
+Public order responses redact private certificate, batch, site and documentary references; owner and authorized trade responses retain them. Unknown measurements remain null, zero remains zero, and declared evidence is not platform verification. Operator certificates must be current at execution; availability windows remain matching buckets, not promised delivery dates. Required batch/consignment evidence has an explicit loading/delivery milestone.
 
-Deploy to the literal checkpoint `fame_20260922_supplier_offers`, either from
-`fee_20260912_seller_per_mt` or the current `fame_20260922_rfq_contract` checkpoint.
-Intermediate catalog/RFQ revisions remain migration ancestry, not restart
-checkpoints for this source. Runtime column grants explicitly cover offer writes
-and RFQ source fields. Downgrade refuses to remove stored offer or request history.
+Market-data queries enforce the catalog lane and current B100 declarations. The curve shows B100 with no price data when appropriate. Product/port/window aggregates can combine different specifications, so the B100 midpoint is labelled as a reference and does not claim executable compatibility. Individual B100 orders remain executable through the shared trading path.
+
+Historical `supplier_offers` and RFQs preserve their commercial terms, revisions, private visibility and withdrawal/cancellation semantics. They do not reserve inventory or become standing orders. New UI order entry uses the standard order API.
+
+Deploy through `fame_20260922_supplier_offers` to the literal checkpoint `fame_20260922_b100_orderbook`. Exact runtime column grants cover the new terms; database checks enforce side/version/lane and immutable snapshots. Downgrade refuses to remove stored B100 execution or signal history.
 
 FuelEU targets use the shared regulatory schedule. Lifecycle CI reductions do
 not imply ETS cash savings. Unprovided in-scope combustion emissions produce

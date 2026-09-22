@@ -53,6 +53,11 @@ from app.services.security_market_admission import require_security_market_admis
 from app.services import market_transactions
 from app.services.market_transactions import retry_market_transaction
 from app.services.org_notifications import notify_org_users as _notify_org_users
+from app.services.fame_order import (
+    is_fame_product,
+    redact_fame_trade_snapshot,
+    require_fame_counterparty_terms,
+)
 
 router = APIRouter(prefix="/negotiations", tags=["negotiations"])
 
@@ -101,7 +106,12 @@ async def _batch_org_names(db: AsyncSession, org_ids: set[uuid.UUID]) -> dict[uu
     return {row.id: row.name for row in result}
 
 
-async def _build_response(db: AsyncSession, neg: Negotiation) -> NegotiationResponse:
+async def _build_response(
+    db: AsyncSession,
+    neg: Negotiation,
+    *,
+    viewer_org_id: uuid.UUID | None = None,
+) -> NegotiationResponse:
     # Collect all org IDs we need in one batch
     org_ids: set[uuid.UUID] = {neg.initiator_org_id, neg.counterparty_org_id}
     rounds_list = neg.rounds if hasattr(neg, "rounds") and neg.rounds else []
@@ -128,6 +138,7 @@ async def _build_response(db: AsyncSession, neg: Negotiation) -> NegotiationResp
         for r in rounds_list
     ]
 
+    _, supplier_org_id = _resolve_trade_roles(neg)
     return NegotiationResponse(
         id=neg.id,
         bid_order_id=neg.bid_order_id,
@@ -153,7 +164,38 @@ async def _build_response(db: AsyncSession, neg: Negotiation) -> NegotiationResp
         created_at=neg.created_at,
         updated_at=neg.updated_at,
         rounds=rounds,
+        fame_terms_snapshot=redact_fame_trade_snapshot(
+            getattr(neg, "fame_terms_snapshot", None),
+            reveal_supplier_identity=viewer_org_id == supplier_org_id,
+        ),
     )
+
+
+def _negotiation_fame_snapshot(
+    payload: NegotiationCreateRequest,
+    bid_order: OrderBookOrder | None,
+    ask_order: OrderBookOrder | None,
+) -> dict | None:
+    """Freeze the linked declarations and any required missing-side terms."""
+    canonical_order = bid_order or ask_order
+    if is_fame_product(canonical_order.product_id):
+        if ask_order is None and not (
+            payload.certification_declared and payload.msds_available
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail="B100 suppliers must declare certification and MSDS availability",
+            )
+    if bid_order is not None and ask_order is not None:
+        if payload.fame_terms is not None:
+            raise HTTPException(
+                status_code=422,
+                detail="Fuel terms must come from the two linked orders",
+            )
+        return require_fame_counterparty_terms(
+            bid_order, getattr(ask_order, "fame_terms", None)
+        )
+    return require_fame_counterparty_terms(bid_order or ask_order, payload.fame_terms)
 
 
 def _assert_active(neg: Negotiation) -> None:
@@ -605,6 +647,8 @@ async def create_negotiation(
     ):
         raise HTTPException(status_code=409, detail="Negotiation party is not execution-qualified")
 
+    fame_terms_snapshot = _negotiation_fame_snapshot(payload, bid_order, ask_order)
+
     # Reject duplicate active negotiation between the same two parties for the same product
     duplicate = await db.execute(
         select(Negotiation).where(
@@ -641,6 +685,7 @@ async def create_negotiation(
         product_id=payload.product_id,
         delivery_point_id=canonical_order.delivery_point_id,
         availability_window=canonical_order.availability_window,
+        fame_terms_snapshot=fame_terms_snapshot,
         quantity_mt=payload.quantity_mt,
         current_price=payload.proposed_price,
         last_actor_org_id=org_id,
@@ -686,6 +731,9 @@ async def create_negotiation(
             "quantity_mt": str(neg.quantity_mt),
             "price_per_mt_usd": str(neg.current_price),
             "status": neg.status.value,
+            "fame_terms_snapshot": fame_terms_snapshot,
+            "certification_declared": payload.certification_declared,
+            "msds_available": payload.msds_available,
         },
         **request_audit_context(request),
     )
@@ -701,7 +749,7 @@ async def create_negotiation(
         {"negotiation_id": str(neg.id)},
     )
 
-    response = await _build_response(db, neg)
+    response = await _build_response(db, neg, viewer_org_id=org_id)
     await enqueue_market_events(
         db,
         [
@@ -775,7 +823,7 @@ async def list_negotiations(
     result = await db.execute(stmt)
     negotiations = result.unique().scalars().all()
 
-    items = [await _build_response(db, neg) for neg in negotiations]
+    items = [await _build_response(db, neg, viewer_org_id=org_id) for neg in negotiations]
     return NegotiationListResponse(items=items, total=total)
 
 
@@ -793,7 +841,7 @@ async def get_negotiation(
         raise HTTPException(status_code=403, detail="User must belong to an organization")
 
     neg = await _load_negotiation(db, negotiation_id, current_user.organization_id, with_rounds=True)
-    return await _build_response(db, neg)
+    return await _build_response(db, neg, viewer_org_id=current_user.organization_id)
 
 
 # ---------------------------------------------------------------------------
@@ -895,7 +943,7 @@ async def counter_negotiation(
     await db.commit()
 
     neg.rounds.append(new_round)
-    return await _build_response(db, neg)
+    return await _build_response(db, neg, viewer_org_id=org_id)
 
 
 # ---------------------------------------------------------------------------
@@ -992,4 +1040,4 @@ async def decline_negotiation(
     )
     await db.commit()
 
-    return await _build_response(db, neg)
+    return await _build_response(db, neg, viewer_org_id=org_id)

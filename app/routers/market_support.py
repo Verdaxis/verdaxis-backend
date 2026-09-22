@@ -2,27 +2,39 @@
 from __future__ import annotations
 
 import hashlib
+from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    Header,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+    status,
+)
 from sqlalchemy import func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.config import settings
 from app.database import get_db
-from app.services.market_catalog_validation import require_orderbook_product
+from app.market_catalog import PRODUCTS_BY_ID
 from app.models.catalog import DeliveryPoint, Product
 from app.models.market_support import (
     MarketSupportAuthorization,
     MarketSupportAuthorizationStatus,
     MarketSupportCapability,
-    MarketSupportContext as MarketSupportContextModel,
     MarketSupportContextScope,
     MarketSupportContextStatus,
     StaffCapabilityAssignment,
+)
+from app.models.market_support import (
+    MarketSupportContext as MarketSupportContextModel,
 )
 from app.models.notification import NotificationType
 from app.models.orderbook import (
@@ -31,7 +43,13 @@ from app.models.orderbook import (
     OrderCreationMethod,
     OrderSide,
 )
-from app.models.user import Organization, OrganizationProvenance, User, UserRole, UserStatus
+from app.models.user import (
+    Organization,
+    OrganizationProvenance,
+    User,
+    UserRole,
+    UserStatus,
+)
 from app.routers.auth_simple import get_current_user
 from app.routers.orderbook import (
     _best_slice_price,
@@ -53,10 +71,10 @@ from app.schemas.market_support import (
     CapabilityAssignmentResponse,
     CapabilityAssignmentRevoke,
     MarketSupportContext,
-    MarketSupportOrganization,
     MarketSupportContextCreate,
     MarketSupportContextResponse,
     MarketSupportEntryResponse,
+    MarketSupportOrganization,
     MarketSupportPrincipal,
     OrganizationPage,
 )
@@ -78,12 +96,17 @@ from app.services.execution_policy import (
     execution_party_is_eligible,
     normalize_certification_scheme,
 )
+from app.services.fame_order import fame_metadata_fields, validate_fame_order_terms
 from app.services.idempotency import (
     acquire_idempotency_lock,
     idempotency_request_hash,
 )
 from app.services.live_benchmarks import rebuild_live_slice_benchmarks_for_keys
-from app.services.market_admission import MarketActorOwnership, lock_and_load_market_organizations
+from app.services.market_admission import (
+    MarketActorOwnership,
+    lock_and_load_market_organizations,
+)
+from app.services.market_catalog_validation import require_orderbook_product
 from app.services.market_data_eligibility import (
     canonical_delivery_point_clause,
     canonical_market_product_expression,
@@ -92,6 +115,7 @@ from app.services.market_events import enqueue_market_events, participant_market
 from app.services.market_locks import acquire_market_slice_lock
 from app.services.market_support import (
     authorization_terms_digest,
+    economic_order_idempotency_payload,
     lock_support_order_parties,
     order_etag,
     require_matching_etag,
@@ -102,7 +126,6 @@ from app.services.market_transactions import retry_market_transaction
 from app.services.org_notifications import notify_org_users_batched
 from app.services.provenance import snapshot_organization_provenance
 from app.services.watchlist_events import emit_order_created, emit_order_updated
-
 
 router = APIRouter(prefix="/admin/market-support", tags=["admin-market-support"])
 ACTIVE_ORDER_STATUSES = (OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED)
@@ -326,6 +349,13 @@ async def _load_catalog(db: AsyncSession, product_id: UUID, delivery_point_id: U
     if product is None or delivery_point is None:
         raise HTTPException(status_code=400, detail="Invalid product or delivery point")
     require_orderbook_product(product)
+    product_spec = PRODUCTS_BY_ID.get(product.id)
+    if (
+        product_spec is not None
+        and product_spec.available_delivery_point_ids is not None
+        and delivery_point.id not in product_spec.available_delivery_point_ids
+    ):
+        raise HTTPException(400, detail="This product is available in Singapore only")
     return product, delivery_point
 
 
@@ -352,6 +382,7 @@ def _authorization_order(row: MarketSupportAuthorization):
         origin=row.origin,
         off_spec=row.off_spec,
         off_spec_notes=row.off_spec_notes,
+        fame_terms=deepcopy(row.fame_terms),
     )
 
 
@@ -809,7 +840,7 @@ async def create_authorization(
     request_payload = body.model_dump(mode="json")
     # The confirmation is transient evidence, not an authorization term or
     # part of the pre-context idempotency contract.
-    request_payload.get("order", {}).pop("support_confirmation", None)
+    request_payload["order"] = economic_order_idempotency_payload(body.order)
     request_hash = idempotency_request_hash(request_payload)
     await acquire_idempotency_lock(db, tenant_id=organization_id, operation=AUTH_CREATE_OPERATION, key=key)
     existing = (
@@ -846,18 +877,39 @@ async def create_authorization(
         )
     if not is_tradable_availability_window(body.order.availability_window):
         raise HTTPException(status_code=409, detail="Availability window is not open for new listings")
+    fame_terms = validate_fame_order_terms(
+        body.order.product_id,
+        body.order.side,
+        body.order.fame_terms,
+        body.order.availability_window,
+    )
+    if fame_terms is not None:
+        body = body.model_copy(
+            update={
+                "order": body.order.model_copy(
+                    update={
+                        field: value
+                        for field, value in fame_metadata_fields(fame_terms).items()
+                        if field in type(body.order).model_fields
+                    }
+                )
+            }
+        )
     scheme = normalize_certification_scheme(body.order.certification_scheme)
     _require_supplier_certification(
         certification_declared=body.order.certification_declared,
         certification_scheme=scheme,
     )
-    _require_supplier_metadata(
-        specification_standard=body.order.specification_standard.strip(),
-        msds_available=body.order.msds_available,
-        carbon_intensity_gco2_mj=body.order.carbon_intensity_gco2_mj,
-        feedstock=body.order.feedstock,
-        origin=body.order.origin,
-    )
+    if fame_terms is None:
+        _require_supplier_metadata(
+            specification_standard=body.order.specification_standard.strip(),
+            msds_available=body.order.msds_available,
+            carbon_intensity_gco2_mj=body.order.carbon_intensity_gco2_mj,
+            feedstock=body.order.feedstock,
+            origin=body.order.origin,
+        )
+    elif not body.order.msds_available:
+        raise HTTPException(400, detail="Supplier listings require an MSDS declaration")
     organization = await _load_organization(db, organization_id)
     supplier = await _load_supplier(db, body.accountable_user_id, organization)
     await _load_catalog(db, body.order.product_id, body.order.delivery_point_id)
@@ -887,10 +939,11 @@ async def create_authorization(
         msds_available=body.order.msds_available,
         carbon_intensity_gco2_mj=body.order.carbon_intensity_gco2_mj,
         carbon_intensity_method=(body.order.carbon_intensity_method.strip() if body.order.carbon_intensity_method else None),
-        feedstock=body.order.feedstock.strip(),
-        origin=body.order.origin.strip(),
+        feedstock=(body.order.feedstock.strip() if body.order.feedstock else None),
+        origin=(body.order.origin.strip() if body.order.origin else None),
         off_spec=body.order.off_spec,
         off_spec_notes=(body.order.off_spec_notes.strip() if body.order.off_spec_notes else None),
+        fame_terms=deepcopy(fame_terms),
         terms_digest="0" * 64,
         evidence_reference=body.evidence_reference,
         evidence_sha256=body.evidence_sha256,
@@ -999,6 +1052,12 @@ def _candidate_from_authorization(
         origin=authorization.origin,
         off_spec=authorization.off_spec,
         off_spec_notes=authorization.off_spec_notes,
+        fame_terms=deepcopy(authorization.fame_terms),
+        energy_density_mj_kg=(
+            fame_metadata_fields(authorization.fame_terms).get("energy_density_mj_kg")
+            if authorization.fame_terms is not None
+            else None
+        ),
     )
     return order
 

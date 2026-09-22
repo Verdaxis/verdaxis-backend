@@ -52,9 +52,8 @@ CANONICAL_PRODUCTS: tuple[ProductSpec, ...] = (
         "UCOME",
         "MT",
         Decimal("1"),
-        "Neat B100 used cooking oil methyl ester for wholesale Singapore RFQs. "
-        "1 MT is the platform input minimum; contract minimum fill and quality terms are negotiated.",
-        execution_mode="RFQ_ONLY",
+        "Neat B100 used cooking oil methyl ester for wholesale Singapore trading. "
+        "1 MT is the platform input minimum; orders require compatible quality and delivery terms.",
         available_delivery_point_ids=(UUID("73835e92-820e-584b-8280-bb61c63aa28e"),),
     ),
     ProductSpec(
@@ -171,7 +170,8 @@ DELIVERY_POINT_IDS = MappingProxyType(
     {spec.name: spec.id for spec in CANONICAL_DELIVERY_POINTS}
 )
 MARKET_PRODUCT_CODES: tuple[str, ...] = tuple(PRODUCTS_BY_CODE)
-# RFQ catalog products must never become executable liquidity or price curves.
+# Execution eligibility follows the catalog, while demo price seeds remain a
+# separate, explicit dataset. Adding a product does not create market evidence.
 ORDERBOOK_MARKET_PRODUCTS: tuple[str, ...] = tuple(
     spec.market_product.value for spec in CANONICAL_PRODUCTS
     if spec.execution_mode == "ORDERBOOK"

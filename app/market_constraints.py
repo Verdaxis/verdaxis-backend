@@ -14,10 +14,53 @@ def postgresql_check(expression: str, *, name: str) -> CheckConstraint:
     """Keep production checks in metadata without emitting them on SQLite."""
     return CheckConstraint(expression, name=name).ddl_if(dialect="postgresql")
 
-ORDERBOOK_PRODUCT_EXECUTION = f"product_id <> '{PRODUCT_IDS['UCOME_B100']}'"
 FAME_RFQ_DELIVERY_LANE = (
     f"product_id <> '{PRODUCT_IDS['UCOME_B100']}' OR "
     f"(delivery_point_id IS NOT NULL AND delivery_point_id = '{DELIVERY_POINT_IDS['Singapore']}')"
+)
+
+
+def _fame_terms_object(column: str, side: str) -> str:
+    """Require a versioned side-specific JSON object, rejecting absent keys."""
+    return (
+        f"(json_typeof({column}) = 'object' "
+        f"AND ({column}->'schema_version')::jsonb = '1'::jsonb "
+        f"AND {column}->>'side' = {side}) IS TRUE"
+    )
+
+
+def _fame_pair_snapshot(column: str) -> str:
+    bid_shape = _fame_terms_object(f"({column}->'bid')", "'BID'")
+    ask_shape = _fame_terms_object(f"({column}->'ask')", "'ASK'")
+    return (
+        f"(json_typeof({column}) = 'object' "
+        f"AND ({column}->'schema_version')::jsonb = '1'::jsonb "
+        f"AND ({bid_shape}) AND ({ask_shape})) IS TRUE"
+    )
+
+
+def _fame_product_terms(column: str, shape: str, *, minimum_quantity: str = "1") -> str:
+    return (
+        f"(product_id IS DISTINCT FROM '{PRODUCT_IDS['UCOME_B100']}' AND {column} IS NULL) OR "
+        f"(product_id = '{PRODUCT_IDS['UCOME_B100']}' "
+        f"AND delivery_point_id = '{DELIVERY_POINT_IDS['Singapore']}' "
+        f"AND delivery_point_id IS NOT NULL AND quantity_mt >= {minimum_quantity} "
+        f"AND {column} IS NOT NULL AND ({shape})) IS TRUE"
+    )
+
+
+ORDER_FAME_TERMS = _fame_product_terms("fame_terms", _fame_terms_object("fame_terms", "side"))
+# A standing order has a 1 MT input minimum; partial fills use the shared
+# 0.01 MT execution precision, including the final remainder.
+TRADE_FAME_TERMS = _fame_product_terms(
+    "fame_terms_snapshot", _fame_pair_snapshot("fame_terms_snapshot"), minimum_quantity="0.01",
+)
+NEGOTIATION_FAME_TERMS = TRADE_FAME_TERMS
+MARKET_SUPPORT_FAME_TERMS = _fame_product_terms("fame_terms", _fame_terms_object("fame_terms", "order_side"))
+INVENTORY_FAME_TERMS = (
+    "(product_name IS DISTINCT FROM 'UCOME B100' AND fame_terms IS NULL) OR "
+    "(product_name = 'UCOME B100' AND fuel_type = 'FAME' AND fame_terms IS NOT NULL "
+    "AND (" + _fame_terms_object("fame_terms", "'ASK'") + ")) IS TRUE"
 )
 
 PROVENANCE_VALUES = "'UNKNOWN','REAL','DEMO','TEST','CANARY'"

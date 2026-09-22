@@ -885,6 +885,12 @@ async def test_raw_app_cannot_promote_rewrite_controls_set_role_or_delegate():
             (table, column, app, "UPDATE", False)
             for table, columns in {
                 "rfqs": {"status", "accepted_quote_id", "trade_id"},
+                "negotiations": {
+                    "id", "bid_order_id", "ask_order_id", "initiator_org_id", "counterparty_org_id",
+                    "initiator_user_id", "counterparty_user_id", "accepted_by_user_id", "initiator_side",
+                    "product_id", "delivery_point_id", "availability_window", "quantity_mt", "current_price",
+                    "status", "last_actor_org_id", "trade_id", "expires_at", "created_at", "updated_at",
+                },
                 "supplier_offers": {
                     "quantity_mt", "min_fill_mt", "price_per_mt_usd", "availability_window", "listing_terms",
                     "status", "revision", "expires_at", "updated_at",

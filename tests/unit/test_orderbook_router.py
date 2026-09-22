@@ -236,6 +236,7 @@ class TestLatestSupplierListingTemplate:
         latest_order.origin = "Brazil"
         latest_order.off_spec = True
         latest_order.off_spec_notes = "Do not carry"
+        latest_order.fame_terms = None
 
         result = MagicMock()
         result.scalars.return_value.first.return_value = latest_order

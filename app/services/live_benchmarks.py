@@ -8,6 +8,7 @@ from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import contains_eager, selectinload
 
+from app.market_catalog import PRODUCTS_BY_ID
 from app.models.catalog import DeliveryPoint, Product
 from app.models.live_slice_benchmark import LiveSliceBenchmark
 from app.models.orderbook import OrderBookOrder, OrderBookStatus, OrderSide
@@ -19,9 +20,9 @@ from app.services.market_data_eligibility import (
     canonical_product_clause,
     current_public_order_clause,
     public_order_collection_provenance_clause,
+    market_product_supports_delivery_point,
 )
 
-APPROVED_MARKETPLACE_FUEL_TYPES = ("Methanol", "Ethanol")
 LiveBenchmarkKey = tuple[OrderSide, str | None, UUID | None, str | None]
 
 
@@ -30,7 +31,13 @@ def _text_present(value: str | None) -> bool:
 
 
 def public_slice_order_qualified(order: OrderBookOrder) -> bool:
-    if order.product is None or order.product.fuel_type not in APPROVED_MARKETPLACE_FUEL_TYPES:
+    product = order.product
+    spec = PRODUCTS_BY_ID.get(order.product_id)
+    if product is None or spec is None or not product.is_active:
+        return False
+    if (product.name, product.fuel_type, product.fuel_grade) != (spec.name, spec.fuel_type, spec.fuel_grade):
+        return False
+    if not market_product_supports_delivery_point(spec.market_product, order.delivery_point_id):
         return False
     if order.status not in (OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED):
         return False
@@ -43,6 +50,10 @@ def public_slice_order_qualified(order: OrderBookOrder) -> bool:
             return False
     if order.remaining_quantity_mt <= 0 or order.off_spec:
         return False
+    if spec.market_product == "UCOME_B100":
+        # B100 qualification comes from its typed fuel declaration. Optional
+        # CI/origin values must not acquire the alcohol listing requirements.
+        return order_is_execution_qualified(order)
     if order.side != OrderSide.ASK:
         return True
     if not order_is_execution_qualified(order):

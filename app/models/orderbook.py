@@ -23,10 +23,12 @@ import enum
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from app.model_base import Base
+from app.market_catalog import PRODUCT_IDS
 from app.services.availability_windows import SPOT_WINDOW
 from app.models.user import OrganizationProvenance
 from app.market_constraints import (
-    ORDERBOOK_PRODUCT_EXECUTION,
+    ORDER_FAME_TERMS,
+    TRADE_FAME_TERMS,
     ORDER_DOMAIN,
     ORDER_LIFECYCLE,
     ORDER_NUMERIC_VALUES,
@@ -88,7 +90,7 @@ class OrderBookOrder(Base):
     """
     __tablename__ = "orderbook_orders"
     __table_args__ = (
-        postgresql_check(ORDERBOOK_PRODUCT_EXECUTION, name="ck_orderbook_orders_execution_product"),
+        postgresql_check(ORDER_FAME_TERMS, name="ck_orderbook_orders_fame_terms"),
         Index(
             "ix_orderbook_orders_active_slice_lookup",
             "side",
@@ -211,6 +213,7 @@ class OrderBookOrder(Base):
     )
     certification_declared: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     certification_scheme: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    fame_terms: Mapped[dict | None] = mapped_column(JSON(none_as_null=True), nullable=True)
     specification_standard: Mapped[str | None] = mapped_column(String(120), nullable=True)
     msds_available: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     is_verdaxis_verified: Mapped[bool] = mapped_column(
@@ -275,8 +278,11 @@ class OrderBookOrder(Base):
         return TierLabel.INDEPENDENT
 
     def bump_version(self) -> None:
-        """Advance optimistic concurrency only for support-managed orders."""
-        if self.creation_method == OrderCreationMethod.MARKET_SUPPORT:
+        """Invalidate reviewed terms for assisted orders and executable B100."""
+        if (
+            self.creation_method == OrderCreationMethod.MARKET_SUPPORT
+            or self.product_id == PRODUCT_IDS["UCOME_B100"]
+        ):
             self.version += 1
 
     # ---- Denormalized accessors for backward compatibility ----
@@ -334,6 +340,7 @@ class Trade(Base):
         postgresql_check(TRADE_NUMERIC_VALUES, name="ck_trades_numeric_values"),
         postgresql_check(TRADE_LIFECYCLE, name="ck_trades_lifecycle"),
         postgresql_check(TRADE_SNAPSHOT, name="ck_trades_snapshot"),
+        postgresql_check(TRADE_FAME_TERMS, name="ck_trades_fame_terms"),
         postgresql_check(
             TRADE_COMMISSION_SNAPSHOT,
             name="ck_trades_commission_snapshot",
@@ -383,6 +390,7 @@ class Trade(Base):
         default=1,
         server_default="1",
     )
+    fame_terms_snapshot: Mapped[dict | None] = mapped_column(JSON(none_as_null=True), nullable=True)
     quantity_mt: Mapped[Decimal] = mapped_column(Numeric(), nullable=False)
     price_per_mt_usd: Mapped[Decimal] = mapped_column(Numeric(), nullable=False)
 
