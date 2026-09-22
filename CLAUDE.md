@@ -85,7 +85,8 @@ SEED_DATABASE_URL=... SEED_TARGET_DATABASE=verdaxis_staging \
 
 ## Deployment
 
-**Server:** `verdaxis-prod@144.126.151.136`
+**SSH login:** `jons-openclaw@194.233.68.86` (verified 2026-09-22).
+**Service account:** Run `sudo su - verdaxis-prod` after login; no password is required.
 **API:** `https://api.verdaxis.exchange/api` (Caddy reverse proxy -> `127.0.0.1:8000`; staging -> `127.0.0.1:8001`)
 **Swagger:** `https://api.verdaxis.exchange/docs`
 **Admin Panel:** `https://api.verdaxis.exchange/admin` (credentials from `ADMIN_USERNAME`/`ADMIN_PASSWORD` in `.env`)
@@ -94,6 +95,11 @@ The production frontend (`app.verdaxis.exchange`) is hosted on Vercel. Caddy
 fronts the production API, staging API, and staging frontend; it does not serve
 the production frontend build.
 
+Before deployment, confirm current DNS for the target site/API and the live
+systemd unit's `User` and `WorkingDirectory`. The verified runtime host is
+`194.233.68.86` (`vmi1840561`); historical `144.126.151.136` references are
+not deployment authority. Keep the SSH login and service account distinct.
+
 ### CI/CD (GitHub Actions)
 
 CI (`.github/workflows/backend-ci.yml`) runs the unit-test suite and a strict `pip-audit` dependency gate on pushes and PRs to `staging` and `prod` — the branches that are actually deployed. CI does NOT deploy: deploys are operator-run on the VPS via `scripts/deploy.sh` against the systemd services described above. Any remaining docs referring to Docker-based CI or a `main` deploy branch are legacy.
@@ -101,7 +107,8 @@ CI (`.github/workflows/backend-ci.yml`) runs the unit-test suite and a strict `p
 ### Manual Deploy
 
 ```bash
-ssh verdaxis-prod@144.126.151.136
+ssh jons-openclaw@194.233.68.86
+sudo su - verdaxis-prod
 cd /home/verdaxis-prod/verdaxis/staging/be   # or /home/verdaxis-prod/verdaxis/prod/be
 ./scripts/deploy.sh --dry-run
 ./scripts/deploy.sh

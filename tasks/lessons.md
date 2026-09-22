@@ -348,3 +348,9 @@
 - **Trigger:** Isolated app-role RFQ tests passed after manual database setup, but CI failed because its market database never received ACL convergence after migration.
 - **Rule:** Run the repository's complete disposable PostgreSQL runner when adding app-role route tests. Migrate each test database before applying and validating its exact ACL policy; keep migration-head assertions current.
 - **Why:** Manual setup can supply permissions absent from CI and conceal a test-harness ordering defect.
+
+### Verify The Verdaxis Host And Login Account
+- **Date:** 2026-09-22
+- **Trigger:** The user corrected direct SSH as verdaxis-prod. The old documented IP then lacked that service account; DNS and live checks confirmed the runtime on 194.233.68.86.
+- **Rule:** Verify target DNS and live systemd `User`/`WorkingDirectory` before using a recorded IP. The 2026-09-22 verified route is `ssh jons-openclaw@194.233.68.86`, then passwordless `sudo su - verdaxis-prod`. Keep staging operations in its fixed checkout.
+- **Why:** The SSH login differs from the service owner, and a reachable historical host does not prove it serves the target environment.
