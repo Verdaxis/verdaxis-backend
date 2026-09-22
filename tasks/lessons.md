@@ -342,3 +342,9 @@
 - **Trigger:** Review found that withdrawing a quote left its revision unchanged, so a previously opened form could republish it.
 - **Rule:** Increment the quote revision for every material state change, including withdrawal. Require the current revision when editing, and verify stale rejection and deliberate resubmission through real database routes.
 - **Why:** Row locks serialize requests but cannot identify a stale client without a changed version.
+
+### Verify The Complete PostgreSQL Test Runner
+- **Date:** 2026-09-22
+- **Trigger:** Isolated app-role RFQ tests passed after manual database setup, but CI failed because its market database never received ACL convergence after migration.
+- **Rule:** Run the repository's complete disposable PostgreSQL runner when adding app-role route tests. Migrate each test database before applying and validating its exact ACL policy; keep migration-head assertions current.
+- **Why:** Manual setup can supply permissions absent from CI and conceal a test-harness ordering defect.

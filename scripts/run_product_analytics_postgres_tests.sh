@@ -53,6 +53,7 @@ validate_url() {
 }
 
 apply_role_policy() {
+  local database_name="${1:-$DB_NAME}"
   local policy_dir="/tmp/verdaxis-runtime-role-policy"
   docker exec "$CONTAINER" mkdir -p "$policy_dir"
   docker cp "$BACKEND_ROOT/deploy/postgres/app_acl_policy.sql" \
@@ -61,8 +62,8 @@ apply_role_policy() {
     "$CONTAINER:$policy_dir/converge_runtime_object_acls.sql" >/dev/null
   docker cp "$BACKEND_ROOT/deploy/postgres/bootstrap_roles.sql" \
     "$CONTAINER:$policy_dir/bootstrap_roles.sql" >/dev/null
-  docker exec "$CONTAINER" psql -X -U postgres -d "$DB_NAME" \
-    -v database_name="$DB_NAME" \
+  docker exec "$CONTAINER" psql -X -U postgres -d "$database_name" \
+    -v database_name="$database_name" \
     -v app_role="$APP_ROLE" \
     -v migrator_role="$MIGRATOR_ROLE" \
     -v backup_role="$BACKUP_ROLE" \
@@ -70,13 +71,14 @@ apply_role_policy() {
 }
 
 validate_role_policy() {
+  local database_name="${1:-$DB_NAME}"
   local policy_dir="/tmp/verdaxis-runtime-role-policy"
   docker cp "$BACKEND_ROOT/deploy/postgres/app_acl_policy.sql" \
     "$CONTAINER:$policy_dir/app_acl_policy.sql" >/dev/null
   docker cp "$BACKEND_ROOT/deploy/postgres/validate_roles.sql" \
     "$CONTAINER:$policy_dir/validate_roles.sql" >/dev/null
-  docker exec "$CONTAINER" psql -X -U postgres -d "$DB_NAME" \
-    -v database_name="$DB_NAME" \
+  docker exec "$CONTAINER" psql -X -U postgres -d "$database_name" \
+    -v database_name="$database_name" \
     -v app_role="$APP_ROLE" \
     -v migrator_role="$MIGRATOR_ROLE" \
     -v backup_role="$BACKUP_ROLE" \
@@ -156,12 +158,7 @@ else
     -c "CREATE DATABASE $MARKET_DB_NAME;" >/dev/null
   docker exec "$CONTAINER" psql -U postgres -d "$MARKET_DB_NAME" -v ON_ERROR_STOP=1 \
     -c "CREATE EXTENSION IF NOT EXISTS postgis;" >/dev/null
-  docker exec "$CONTAINER" psql -X -U postgres -d "$MARKET_DB_NAME" \
-    -v database_name="$MARKET_DB_NAME" \
-    -v app_role="$APP_ROLE" \
-    -v migrator_role="$MIGRATOR_ROLE" \
-    -v backup_role="$BACKUP_ROLE" \
-    -f /tmp/verdaxis-runtime-role-policy/bootstrap_roles.sql >/dev/null
+  apply_role_policy "$MARKET_DB_NAME" >/dev/null
 
   export MARKET_INTEGRITY_TEST_DATABASE_URL="postgresql+asyncpg://${MIGRATOR_ROLE}:${DB_PASSWORD}@127.0.0.1:${PORT}/${MARKET_DB_NAME}"
   export PRODUCT_ANALYTICS_TEST_DATABASE_URL="postgresql+asyncpg://${MIGRATOR_ROLE}:${DB_PASSWORD}@127.0.0.1:${PORT}/${DB_NAME}"
@@ -179,7 +176,15 @@ export RUNTIME_TEST_BACKUP_ROLE="${RUNTIME_TEST_BACKUP_ROLE:-$BACKUP_ROLE}"
 cd "$BACKEND_ROOT"
 ./scripts/verify_migrations.sh
 if [[ -n "${CONTAINER:-}" ]]; then
-  apply_role_policy
-  validate_role_policy
+  # Both databases need their final tables before exact runtime ACLs can be
+  # applied. Migrator default privileges deliberately grant no app authority
+  # to newly created tables, including the market app-role route fixtures.
+  DATABASE_URL="$MARKET_INTEGRITY_TEST_DATABASE_URL" \
+    MIGRATOR_DATABASE_URL="$MARKET_INTEGRITY_TEST_DATABASE_URL" \
+    ./scripts/verify_migrations.sh
+  for database_name in "$DB_NAME" "$MARKET_DB_NAME"; do
+    apply_role_policy "$database_name"
+    validate_role_policy "$database_name"
+  done
 fi
 PYTHONDONTWRITEBYTECODE=1 "$PYTEST_BIN" -p no:cacheprovider "${PYTEST_PATHS[@]}" -q
