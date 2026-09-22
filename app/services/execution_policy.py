@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from app.market_catalog import PRODUCTS_BY_ID, PRODUCTS_BY_CODE
 from app.models.orderbook import OrderBookOrder, OrderCreationMethod, OrderSide
 from app.models.user import Organization, OrganizationProvenance, User, UserRole, UserStatus
 from sqlalchemy import select
@@ -66,6 +67,11 @@ def normalize_certification_scheme(value: str | None) -> str | None:
 
 
 def order_is_execution_qualified(order: OrderBookOrder) -> bool:
+    spec = PRODUCTS_BY_ID.get(getattr(order, "product_id", None))
+    if spec is None:
+        spec = PRODUCTS_BY_CODE.get(getattr(order, "market_product", None))
+    if spec is not None and spec.execution_mode != "ORDERBOOK":
+        return False
     if getattr(order, "off_spec", False):
         return False
 

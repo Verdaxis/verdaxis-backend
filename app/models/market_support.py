@@ -1,6 +1,8 @@
 """Durable capability and exact customer authorization records."""
 from __future__ import annotations
 
+from app.market_constraints import ORDERBOOK_PRODUCT_EXECUTION, postgresql_check
+
 import enum
 import uuid
 from datetime import UTC, datetime
@@ -172,6 +174,7 @@ class StaffCapabilityAssignment(Base):
 class MarketSupportAuthorization(Base):
     __tablename__ = "market_support_authorizations"
     __table_args__ = (
+        postgresql_check(ORDERBOOK_PRODUCT_EXECUTION, name="ck_market_support_auth_execution_product"),
         CheckConstraint("quantity_mt > 0", name="ck_market_support_auth_quantity"),
         CheckConstraint("price_per_mt_usd > 0", name="ck_market_support_auth_price"),
         CheckConstraint(

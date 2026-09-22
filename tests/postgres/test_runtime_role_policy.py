@@ -860,6 +860,29 @@ async def test_raw_app_cannot_promote_rewrite_controls_set_role_or_delegate():
             }.items()
             for column in columns
         }
+        expected_column_acls |= {
+            (table, column, app, "INSERT", False)
+            for table, columns in {
+                "rfqs": {
+                    "id", "buyer_org_id", "buyer_user_id", "product_id", "delivery_point_id",
+                    "quantity_mt", "target_price_per_mt", "availability_window", "notes",
+                    "contract_terms", "is_anonymous", "status", "accepted_quote_id", "trade_id",
+                    "expires_at", "created_at",
+                },
+                "rfq_quotes": {
+                    "id", "rfq_id", "seller_org_id", "seller_user_id", "price_per_mt_usd",
+                    "notes", "offer_terms", "expires_at", "revision", "status", "created_at",
+                },
+            }.items()
+            for column in columns
+        } | {
+            (table, column, app, "UPDATE", False)
+            for table, columns in {
+                "rfqs": {"status", "accepted_quote_id", "trade_id"},
+                "rfq_quotes": {"price_per_mt_usd", "notes", "status", "offer_terms", "expires_at", "revision"},
+            }.items()
+            for column in columns
+        }
         assert column_acls == expected_column_acls
     finally:
         _psql("bootstrap_roles.sql")

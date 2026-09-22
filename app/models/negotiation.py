@@ -21,6 +21,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.model_base import Base
 from app.market_constraints import (
+    ORDERBOOK_PRODUCT_EXECUTION,
     NEGOTIATION_DOMAIN,
     NEGOTIATION_LIFECYCLE,
     NEGOTIATION_NUMERIC_VALUES,
@@ -40,6 +41,7 @@ class NegotiationStatus(str, enum.Enum):
 class Negotiation(Base):
     __tablename__ = "negotiations"
     __table_args__ = (
+        postgresql_check(ORDERBOOK_PRODUCT_EXECUTION, name="ck_negotiations_execution_product"),
         Index("ix_negotiations_initiator_org", "initiator_org_id"),
         Index("ix_negotiations_counterparty_org", "counterparty_org_id"),
         Index("ix_negotiations_status", "status"),

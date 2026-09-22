@@ -26,6 +26,7 @@ from app.model_base import Base
 from app.services.availability_windows import SPOT_WINDOW
 from app.models.user import OrganizationProvenance
 from app.market_constraints import (
+    ORDERBOOK_PRODUCT_EXECUTION,
     ORDER_DOMAIN,
     ORDER_LIFECYCLE,
     ORDER_NUMERIC_VALUES,
@@ -87,6 +88,7 @@ class OrderBookOrder(Base):
     """
     __tablename__ = "orderbook_orders"
     __table_args__ = (
+        postgresql_check(ORDERBOOK_PRODUCT_EXECUTION, name="ck_orderbook_orders_execution_product"),
         Index(
             "ix_orderbook_orders_active_slice_lookup",
             "side",

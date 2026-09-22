@@ -1,22 +1,8 @@
-"""Tests for the compliance-adjusted pricing overlay service + endpoint (H1.2).
-
-Golden hand-derivation (bio-methanol, CI 31 gCO2e/MJ, LCV 19.9 MJ/kg):
-
-    CB improvement per MT  = (91.16 - 31) * 19.9 * 1000
-                           = 60.16 * 19.9 * 1000 = 1,197,184 gCO2e
-    marginal penalty rate  = 2400 EUR / (91.16 * 41000)
-                           = 2400 / 3,737,560 EUR per gram of CB
-    penalty avoided EUR/MT = 1,197,184 * 2400 / 3,737,560
-                           = 2,873,241,600 / 3,737,560 = 768.74795... -> 768.75
-    penalty avoided USD/MT = 768.74795... * 1.08 = 830.2478...       -> 830.25
-    tCO2e avoided per MT   = 1,197,184 / 1,000,000 = 1.197184        -> 1.197
-"""
-import inspect
+"""Lifecycle comparisons must not invent consignment CI or cash benefits."""
 import json
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from pathlib import Path
 from typing import AsyncIterator
 from uuid import uuid4
 
@@ -52,275 +38,110 @@ from app.services.compliance_pricing import (
 )
 
 
-# ============== Pure service: penalty avoided / tCO2e avoided ==============
+@pytest.mark.parametrize("product", [
+    "BIO_METHANOL", "E_METHANOL", "BIO_ETHANOL", "SYNTHETIC_ETHANOL", "UCOME_B100", None,
+])
+def test_unknown_ci_stays_unknown(product):
+    assert compute_listing_overlay(
+        market_product=product, listing_ci_gco2_mj=None,
+        listing_lcv_mj_kg=Decimal("37"),
+    ) is None
 
 
-def test_golden_bio_methanol_product_default():
-    # See module docstring for the full hand-derivation: 768.75 EUR/MT,
-    # 830.25 USD/MT at EUR/USD 1.08, 1.197 tCO2e avoided/MT.
-    overlay = compute_listing_overlay(
-        market_product="BIO_METHANOL",
-        listing_ci_gco2_mj=None,
-        listing_lcv_mj_kg=None,
-    )
-
-    assert overlay is not None
-    assert overlay.penalty_avoided_eur_per_mt == Decimal("768.75")
-    assert overlay.penalty_avoided_usd_per_mt == Decimal("830.25")
-    assert overlay.tco2e_avoided_per_mt == Decimal("1.197")
-    assert overlay.ci_gco2_mj == Decimal("31")
-    assert overlay.ci_basis == "PRODUCT_DEFAULT"
-    assert overlay.lcv_mj_kg == Decimal("19.9")
-    assert overlay.lcv_basis == "PRODUCT_DEFAULT"
-
-
-def test_golden_bio_methanol_listing_ci():
-    # Same golden numbers when the listing itself declares CI 31: the value
-    # matches the product default but the basis must say LISTING.
-    overlay = compute_listing_overlay(
-        market_product="BIO_METHANOL",
-        listing_ci_gco2_mj=Decimal("31"),
-        listing_lcv_mj_kg=None,
-    )
-
-    assert overlay is not None
-    assert overlay.penalty_avoided_eur_per_mt == Decimal("768.75")
-    assert overlay.penalty_avoided_usd_per_mt == Decimal("830.25")
-    assert overlay.tco2e_avoided_per_mt == Decimal("1.197")
-    assert overlay.ci_basis == "LISTING"
-    assert overlay.lcv_basis == "PRODUCT_DEFAULT"
-
-
-def test_listing_ci_and_lcv_override_product_defaults():
-    # CI 20, LCV 21: (91.16 - 20) * 21 * 1000 = 1,494,360 g
-    # EUR = 1,494,360 * 2400 / 3,737,560 = 3,586,464,000 / 3,737,560
-    #     = 959.5735... -> 959.57;  USD = 959.5735 * 1.08 = 1036.339 -> 1036.34
-    # tCO2e = 1.49436 -> 1.494
-    overlay = compute_listing_overlay(
-        market_product="BIO_METHANOL",
-        listing_ci_gco2_mj=Decimal("20"),
-        listing_lcv_mj_kg=Decimal("21"),
-    )
-
-    assert overlay is not None
-    assert overlay.penalty_avoided_eur_per_mt == Decimal("959.57")
-    assert overlay.penalty_avoided_usd_per_mt == Decimal("1036.34")
-    assert overlay.tco2e_avoided_per_mt == Decimal("1.494")
-    assert overlay.ci_gco2_mj == Decimal("20")
-    assert overlay.ci_basis == "LISTING"
-    assert overlay.lcv_mj_kg == Decimal("21")
-    assert overlay.lcv_basis == "LISTING"
-
-
-def test_e_methanol_product_default():
-    # (91.16 - 8) * 19.9 * 1000 = 1,654,884 g
-    # EUR = 1,654,884 * 2400 / 3,737,560 = 3,971,721,600 / 3,737,560
-    #     = 1062.65093... -> 1062.65;  USD = 1062.65093 * 1.08 -> 1147.66
-    # tCO2e = 1.654884 -> 1.655
-    overlay = compute_listing_overlay(
-        market_product="E_METHANOL",
-        listing_ci_gco2_mj=None,
-        listing_lcv_mj_kg=None,
-    )
-
-    assert overlay is not None
-    assert overlay.penalty_avoided_eur_per_mt == Decimal("1062.65")
-    assert overlay.penalty_avoided_usd_per_mt == Decimal("1147.66")
-    assert overlay.tco2e_avoided_per_mt == Decimal("1.655")
-    assert overlay.ci_gco2_mj == Decimal("8")
-    assert overlay.lcv_mj_kg == Decimal("19.9")
-
-
-def test_bio_ethanol_uses_class_proxy_defaults():
-    # Biofuel-class proxy CI 35, ethanol-family LCV 26.8:
-    # (91.16 - 35) * 26.8 * 1000 = 1,505,088 g
-    # EUR = 1,505,088 * 2400 / 3,737,560 = 3,612,211,200 / 3,737,560
-    #     = 966.4624... -> 966.46;  USD = 966.4624 * 1.08 = 1043.779 -> 1043.78
-    # tCO2e = 1.505088 -> 1.505
-    overlay = compute_listing_overlay(
-        market_product="BIO_ETHANOL",
-        listing_ci_gco2_mj=None,
-        listing_lcv_mj_kg=None,
-    )
-
-    assert overlay is not None
-    assert overlay.penalty_avoided_eur_per_mt == Decimal("966.46")
-    assert overlay.penalty_avoided_usd_per_mt == Decimal("1043.78")
-    assert overlay.tco2e_avoided_per_mt == Decimal("1.505")
-
-
-def test_synthetic_ethanol_not_zeroed_by_unknown_fuel_fallback():
-    # e-fuel-class proxy CI 10: (91.16 - 10) * 26.8 * 1000 = 2,175,088 g
-    # EUR = 2,175,088 * 2400 / 3,737,560 = 1396.6896... -> 1396.69
-    # Routing through FUEL_GHG_INTENSITIES.get(fuel, 91.16) would have
-    # silently produced 0.00 here.
-    overlay = compute_listing_overlay(
-        market_product="SYNTHETIC_ETHANOL",
-        listing_ci_gco2_mj=None,
-        listing_lcv_mj_kg=None,
-    )
-
-    assert overlay is not None
-    assert overlay.penalty_avoided_eur_per_mt == Decimal("1396.69")
-    assert overlay.tco2e_avoided_per_mt == Decimal("2.175")
-
-
-def test_zero_floor_when_ci_at_or_above_baseline():
-    for ci in (Decimal("91.16"), Decimal("95")):
-        overlay = compute_listing_overlay(
-            market_product="BIO_METHANOL",
-            listing_ci_gco2_mj=ci,
-            listing_lcv_mj_kg=None,
-        )
-        assert overlay is not None
-        assert overlay.penalty_avoided_eur_per_mt == Decimal("0.00")
-        assert overlay.penalty_avoided_usd_per_mt == Decimal("0.00")
-        assert overlay.tco2e_avoided_per_mt == Decimal("0.000")
-
-
-def test_unresolvable_rows_return_none():
-    # Unknown market product and no listing data: neither CI nor LCV resolves.
-    assert (
-        compute_listing_overlay(
-            market_product=None,
-            listing_ci_gco2_mj=None,
-            listing_lcv_mj_kg=None,
-        )
-        is None
-    )
-    # Listing CI alone does not help when the LCV has no product default.
-    assert (
-        compute_listing_overlay(
-            market_product=None,
-            listing_ci_gco2_mj=Decimal("31"),
-            listing_lcv_mj_kg=None,
-        )
-        is None
-    )
-    # Full listing data prices fine even without a recognized market product.
+@pytest.mark.parametrize("ci,lcv,expected", [
+    ("31", "19.9", "1.197"),
+    ("20", "37", "2.633"),
+    ("91.16", "37", "0.000"),
+    ("95", "37", "0.000"),
+    ("0", "37", "3.373"),
+])
+def test_equal_energy_lifecycle_comparison_does_not_create_cash_benefits(ci, lcv, expected):
     overlay = compute_listing_overlay(
         market_product=None,
-        listing_ci_gco2_mj=Decimal("31"),
-        listing_lcv_mj_kg=Decimal("19.9"),
+        listing_ci_gco2_mj=Decimal(ci), listing_lcv_mj_kg=Decimal(lcv),
     )
     assert overlay is not None
-    assert overlay.penalty_avoided_eur_per_mt == Decimal("768.75")
+    assert overlay.tco2e_avoided_per_mt == Decimal(expected)
     assert overlay.ci_basis == "LISTING"
     assert overlay.lcv_basis == "LISTING"
+    assert overlay.penalty_avoided_eur_per_mt == Decimal("0.00")
+    assert overlay.penalty_avoided_usd_per_mt == Decimal("0.00")
 
 
-def test_service_never_references_fuel_ghg_intensities():
-    # FUEL_GHG_INTENSITIES has no Ethanol entry and its .get(fuel, 91.16)
-    # fallback silently zeroes the advantage of unknown fuels; the overlay
-    # service must resolve CI via PRODUCT_DEFAULT_CI instead. Comments may
-    # name the constant to document the trap; imports may not.
-    import app.services.compliance_pricing as module
-
-    assert not hasattr(module, "FUEL_GHG_INTENSITIES")
-    source = Path(inspect.getsourcefile(module)).read_text()
-    assert "from app.services.compliance_scoring" not in source
-    assert "import compliance_scoring" not in source
-
-    from app.services.compliance_scoring import FUEL_GHG_INTENSITIES
-
-    assert "Ethanol" not in FUEL_GHG_INTENSITIES  # the trap this guards against
+def test_physical_family_lcv_remains_explicitly_labelled():
+    overlay = compute_listing_overlay(
+        market_product="BIO_METHANOL",
+        listing_ci_gco2_mj=Decimal("31"), listing_lcv_mj_kg=None,
+    )
+    assert overlay is not None
+    assert overlay.lcv_mj_kg == Decimal("19.9")
+    assert overlay.lcv_basis == "PRODUCT_DEFAULT"
+    assert overlay.ci_basis == "LISTING"
 
 
-# ============== Assumptions object ==============
+@pytest.mark.parametrize("ci,lcv", [
+    ("31", None), ("31", "0"), ("31", "-1"), ("31", "NaN"), ("NaN", "37"),
+])
+def test_unresolvable_or_invalid_data_has_no_comparison(ci, lcv):
+    assert compute_listing_overlay(
+        market_product=None, listing_ci_gco2_mj=Decimal(ci),
+        listing_lcv_mj_kg=Decimal(lcv) if lcv is not None else None,
+    ) is None
 
 
-def test_year_target_step_function():
-    # Explicit steps (2025-2029 -> 89.34, 2030-2034 -> 80.04,
-    # 2035-2049 -> 65.08, 2050+ -> 9.12); FUELEU_TARGETS.get(year, default)
-    # would mis-report 2031+ as 89.34.
-    assert fueleu_year_target(2025) == Decimal("89.34")
-    assert fueleu_year_target(2029) == Decimal("89.34")
-    assert fueleu_year_target(2030) == Decimal("80.04")
-    assert fueleu_year_target(2031) == Decimal("80.04")
-    assert fueleu_year_target(2034) == Decimal("80.04")
-    assert fueleu_year_target(2035) == Decimal("65.08")
-    assert fueleu_year_target(2036) == Decimal("65.08")
-    assert fueleu_year_target(2049) == Decimal("65.08")
-    assert fueleu_year_target(2050) == Decimal("9.12")
-    assert fueleu_year_target(2060) == Decimal("9.12")
+@pytest.mark.parametrize("year,target", [
+    (2025, "89.3368"), (2029, "89.3368"),
+    (2030, "85.6904"), (2034, "85.6904"),
+    (2035, "77.94180"), (2039, "77.94180"),
+    (2040, "62.9004"), (2044, "62.9004"),
+    (2045, "34.6408"), (2049, "34.6408"),
+    (2050, "18.2320"), (2060, "18.2320"),
+])
+def test_year_target_steps_and_both_sides_of_each_boundary(year, target):
+    assert fueleu_year_target(year) == Decimal(target)
 
 
-def test_assumptions_contents_default_fleet():
-    assumptions = overlay_assumptions(year=2026, fleet_vessel_count=0)
+def test_year_before_regulation_is_not_reported_as_2025():
+    with pytest.raises(ValueError, match="starts in 2025"):
+        fueleu_year_target(2024)
 
-    assert assumptions.eur_usd_rate == Decimal("1.08")
-    assert assumptions.vlsfo_baseline_gco2_mj == Decimal("91.16")
-    assert assumptions.ghgie_actual_gco2_mj == Decimal("91.16")
+
+@pytest.mark.parametrize("vessel_count", [0, 3])
+def test_vessels_do_not_turn_assumed_intensity_into_measured_fleet_data(vessel_count):
+    assumptions = overlay_assumptions(year=2031, fleet_vessel_count=vessel_count)
     assert assumptions.fleet_intensity_basis == "DEFAULT_VLSFO"
-    assert assumptions.fleet_vessel_count == 0
-    assert assumptions.penalty_eur_per_tonne == Decimal("2400")
-    assert assumptions.year == 2026
-    assert assumptions.year_target == Decimal("89.34")
+    assert assumptions.fleet_vessel_count == vessel_count
+    assert assumptions.ghgie_actual_gco2_mj == Decimal("91.16")
+    assert assumptions.year_target == Decimal("85.6904")
     assert assumptions.excluded_factors == [
-        "RFNBO_MULTIPLIER",
-        "DEFICIT_ESCALATION",
-        "EXTRA_EU_VOYAGE_SCOPE",
+        "RFNBO_MULTIPLIER", "DEFICIT_ESCALATION", "EXTRA_EU_VOYAGE_SCOPE",
     ]
 
 
-def test_assumptions_org_fleet_basis_keeps_prototype_ghgie():
-    # Vessels present flips the basis label only; the prototype still
-    # computes with GHGIE_actual = 91.16 (H1.1 changes the number, not the
-    # API shape).
-    assumptions = overlay_assumptions(year=2031, fleet_vessel_count=3)
-
-    assert assumptions.fleet_intensity_basis == "ORG_FLEET"
-    assert assumptions.fleet_vessel_count == 3
-    assert assumptions.ghgie_actual_gco2_mj == Decimal("91.16")
-    assert assumptions.year_target == Decimal("80.04")
-
-
-def test_eur_usd_rate_settings_override(monkeypatch):
-    # 768.74795... * 1.10 = 845.6227... -> 845.62
+def test_eur_usd_override_does_not_create_unsubstantiated_cash_benefit(monkeypatch):
     monkeypatch.setattr(settings, "COMPLIANCE_EUR_USD_RATE", Decimal("1.10"))
-
     overlay = compute_listing_overlay(
-        market_product="BIO_METHANOL",
-        listing_ci_gco2_mj=None,
+        market_product="BIO_METHANOL", listing_ci_gco2_mj=Decimal("31"),
         listing_lcv_mj_kg=None,
     )
-    assert overlay is not None
-    assert overlay.penalty_avoided_eur_per_mt == Decimal("768.75")
-    assert overlay.penalty_avoided_usd_per_mt == Decimal("845.62")
-
-    assumptions = overlay_assumptions(year=2026, fleet_vessel_count=0)
-    assert assumptions.eur_usd_rate == Decimal("1.10")
-
-    # Module constant stays the ASSUMED default, untouched by the override.
+    assert overlay.penalty_avoided_usd_per_mt == Decimal("0.00")
+    assert overlay_assumptions(2026, 0).eur_usd_rate == Decimal("1.10")
     assert EUR_USD_RATE == Decimal("1.08")
 
 
-def test_json_emits_decimals_as_strings():
-    # The fe coerces with Number(); pin the string contract so a pydantic
-    # config change cannot silently switch to JSON floats.
-    priced_id = uuid4()
+def test_json_preserves_decimal_string_contract_and_unknown_rows():
+    priced_id, unknown_id = uuid4(), uuid4()
     response = PricingOverlayResponse(
-        overlays={
-            priced_id: compute_listing_overlay(
-                market_product="BIO_METHANOL",
-                listing_ci_gco2_mj=None,
-                listing_lcv_mj_kg=None,
-            ),
-            uuid4(): None,
-        },
+        overlays={priced_id: compute_listing_overlay(
+            market_product="BIO_METHANOL", listing_ci_gco2_mj=Decimal("31"),
+            listing_lcv_mj_kg=None,
+        ), unknown_id: None},
         assumptions=overlay_assumptions(year=2026, fleet_vessel_count=0),
     )
-
     payload = json.loads(response.model_dump_json())
-    row = payload["overlays"][str(priced_id)]
-    assert row["penalty_avoided_eur_per_mt"] == "768.75"
-    assert row["penalty_avoided_usd_per_mt"] == "830.25"
-    assert row["tco2e_avoided_per_mt"] == "1.197"
-    assert payload["assumptions"]["eur_usd_rate"] == "1.08"
-    assert payload["assumptions"]["vlsfo_baseline_gco2_mj"] == "91.16"
-    assert payload["assumptions"]["penalty_eur_per_tonne"] == "2400"
-    nulled = [value for value in payload["overlays"].values() if value is None]
-    assert len(nulled) == 1
+    assert payload["overlays"][str(priced_id)]["penalty_avoided_usd_per_mt"] == "0.00"
+    assert payload["overlays"][str(priced_id)]["tco2e_avoided_per_mt"] == "1.197"
+    assert payload["overlays"][str(unknown_id)] is None
 
 
 # ============== Endpoint: POST /api/compliance/pricing-overlay ==============
@@ -543,7 +364,7 @@ async def test_endpoint_rejects_unknown_fields(db: AsyncSession):
     assert response.status_code == 422
 
 
-async def test_endpoint_prices_visible_ask_with_golden_values(db: AsyncSession):
+async def test_endpoint_compares_visible_ask_without_financial_benefits(db: AsyncSession):
     buyer, supplier_org, product, singapore = await _marketplace_fixture(db)
     ask = await _make_order(
         db,
@@ -564,8 +385,9 @@ async def test_endpoint_prices_visible_ask_with_golden_values(db: AsyncSession):
     payload = response.json()
     row = payload["overlays"][str(ask.id)]
     # Decimal-as-string over the wire (fe coerces with Number()).
-    assert row["penalty_avoided_eur_per_mt"] == "768.75"
-    assert row["penalty_avoided_usd_per_mt"] == "830.25"
+    assert row["financial_benefit_status"] == "UNPRICED"
+    assert row["penalty_avoided_eur_per_mt"] == "0.00"
+    assert row["penalty_avoided_usd_per_mt"] == "0.00"
     assert row["tco2e_avoided_per_mt"] == "1.197"
     assert Decimal(row["ci_gco2_mj"]) == Decimal("31")
     assert row["ci_basis"] == "LISTING"
@@ -577,7 +399,7 @@ async def test_endpoint_prices_visible_ask_with_golden_values(db: AsyncSession):
     assert assumptions["fleet_intensity_basis"] == "DEFAULT_VLSFO"
     assert assumptions["fleet_vessel_count"] == 0
     assert assumptions["year"] == 2026
-    assert assumptions["year_target"] == "89.34"
+    assert assumptions["year_target"] == "89.3368"
     assert assumptions["excluded_factors"] == [
         "RFNBO_MULTIPLIER",
         "DEFICIT_ESCALATION",
@@ -665,10 +487,10 @@ async def test_endpoint_demo_ask_is_priced(db: AsyncSession):
     assert response.status_code == 200
     row = response.json()["overlays"][str(demo_ask.id)]
     assert row is not None
-    assert row["penalty_avoided_usd_per_mt"] == "830.25"
+    assert row["penalty_avoided_usd_per_mt"] == "0.00"
 
 
-async def test_endpoint_org_fleet_basis_when_org_has_vessels(db: AsyncSession):
+async def test_endpoint_registered_vessels_still_use_assumed_intensity(db: AsyncSession):
     buyer, supplier_org, product, singapore = await _marketplace_fixture(db)
     ask = await _make_order(
         db,
@@ -701,11 +523,44 @@ async def test_endpoint_org_fleet_basis_when_org_has_vessels(db: AsyncSession):
     assert response.status_code == 200
     payload = response.json()
     assumptions = payload["assumptions"]
-    assert assumptions["fleet_intensity_basis"] == "ORG_FLEET"
+    assert assumptions["fleet_intensity_basis"] == "DEFAULT_VLSFO"
     assert assumptions["fleet_vessel_count"] == 1
-    # Prototype-honest: the basis label changes, the number does not.
+    # Registered vessels do not establish a measured fleet intensity.
     assert assumptions["ghgie_actual_gco2_mj"] == "91.16"
     assert assumptions["year"] == 2031
-    assert assumptions["year_target"] == "80.04"
+    assert assumptions["year_target"] == "85.6904"
     # year is annotation-only: the marginal math has no year term.
-    assert payload["overlays"][str(ask.id)]["penalty_avoided_usd_per_mt"] == "830.25"
+    assert payload["overlays"][str(ask.id)]["penalty_avoided_usd_per_mt"] == "0.00"
+
+
+async def test_endpoint_rejects_pre_regulation_year(db: AsyncSession):
+    buyer, _, _, _ = await _marketplace_fixture(db)
+    await db.commit()
+    async with overlay_client(db, user=buyer) as client:
+        response = await client.post("/api/compliance/pricing-overlay", json={
+            "order_ids": [], "year": 2024,
+        })
+    assert response.status_code == 422
+
+
+async def test_endpoint_does_not_infer_ci_from_product(db: AsyncSession):
+    buyer, supplier_org, product, singapore = await _marketplace_fixture(db)
+    ask = await _make_order(db, organization_id=supplier_org.id,
+        product_id=product.id, delivery_point_id=singapore.id, ci=None)
+    await db.commit()
+    async with overlay_client(db, user=buyer) as client:
+        response = await client.post("/api/compliance/pricing-overlay", json={
+            "order_ids": [str(ask.id)],
+        })
+    assert response.status_code == 200
+    assert response.json()["overlays"][str(ask.id)] is None
+
+
+def test_vessel_response_preserves_unpriced_ets_instead_of_zero_cash_cost():
+    from app.routers.compliance_api import _score_to_response
+    from app.services.compliance_scoring import calculate_compliance_score
+    score = calculate_compliance_score("vessel", "No emissions data")
+    payload = _score_to_response(score).model_dump(mode="json")
+    assert payload["eu_ets"]["calculation_status"] == "UNPRICED"
+    assert payload["eu_ets"]["total_co2_tonnes"] is None
+    assert payload["eu_ets"]["estimated_cost_eur"] is None

@@ -13,6 +13,7 @@ from sqlalchemy.orm import selectinload
 
 from app.config import settings
 from app.database import get_db
+from app.services.market_catalog_validation import require_orderbook_product
 from app.models.catalog import DeliveryPoint, Product
 from app.models.market_support import (
     MarketSupportAuthorization,
@@ -324,6 +325,7 @@ async def _load_catalog(db: AsyncSession, product_id: UUID, delivery_point_id: U
     ).scalar_one_or_none()
     if product is None or delivery_point is None:
         raise HTTPException(status_code=400, detail="Invalid product or delivery point")
+    require_orderbook_product(product)
     return product, delivery_point
 
 

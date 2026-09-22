@@ -39,6 +39,7 @@ async def lock_and_load_market_organizations(
     actor_ownerships: Iterable[MarketActorOwnership] = (),
     require_approved: bool = True,
     require_approved_ids: Iterable[UUID] = (),
+    require_execution_eligible: bool = True,
 ) -> dict[UUID, Organization]:
     """Lock users, then organizations, after every affected market row.
 
@@ -46,6 +47,9 @@ async def lock_and_load_market_organizations(
     market owns this transaction-local revalidation and exact user ownership
     check.  Future security ``owner_user_id`` columns can be passed here
     without introducing another lock namespace.
+
+    A withdrawal may disable execution eligibility and approval checks. It
+    still revalidates the actor's current membership under the same locks.
     """
     ids = tuple(sorted(set(organization_ids), key=str))
     if not ids:
@@ -109,7 +113,7 @@ async def lock_and_load_market_organizations(
             detail="Organization is not approved for market activity",
         )
     for user_id, organization_id in ownership_by_user.items():
-        if not await execution_party_is_eligible(
+        if require_execution_eligible and not await execution_party_is_eligible(
             db,
             user=users[user_id],
             organization=organizations[organization_id],

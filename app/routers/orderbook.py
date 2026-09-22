@@ -30,6 +30,7 @@ from app.models.market_support import (
 )
 from app.models.notification import NotificationType
 from app.market_catalog import APPROVED_MARKET_PRODUCTS, MarketProduct
+from app.services.market_catalog_validation import require_orderbook_product
 from app.models.catalog import Product, DeliveryPoint
 from app.schemas.orderbook import (
     OrderCreate,
@@ -814,7 +815,11 @@ async def list_orders_with_ci(
     enriched = []
     for order in orders:
         ci_price = None
-        if order.carbon_intensity_gco2_mj and order.energy_density_mj_kg:
+        if (
+            order.carbon_intensity_gco2_mj is not None
+            and order.energy_density_mj_kg is not None
+            and order.energy_density_mj_kg > 0
+        ):
             ci_price = calculate_ci_adjusted_price(
                 base_price_per_mt=order.price_per_mt_usd,
                 carbon_intensity_gco2_mj=order.carbon_intensity_gco2_mj,
@@ -1445,6 +1450,8 @@ async def create_order(
             detail="Invalid product_id",
         )
 
+    require_orderbook_product(product)
+
     # Validate delivery_point_id if provided
     if order_data.delivery_point_id:
         dp_result = await db.execute(
@@ -1881,6 +1888,8 @@ async def update_order(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You can only update your own orders",
         )
+
+    require_orderbook_product(order.product)
 
     if order.creation_method == OrderCreationMethod.MARKET_SUPPORT:
         raise HTTPException(

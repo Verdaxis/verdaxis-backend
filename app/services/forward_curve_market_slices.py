@@ -13,7 +13,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.market_catalog import (
     APPROVED_MARKET_PRODUCTS,
     DELIVERY_POINT_DISPLAY_ORDER,
-    MARKET_PRODUCT_CODES,
     PRODUCTS_BY_CODE,
 )
 from app.models.benchmark import Benchmark
@@ -97,7 +96,7 @@ MAX_SLICE_INDICATIONS = 10
 MAX_SLICE_STEMS = 6
 
 MARKET_PRODUCT_DISPLAY_NAMES = {
-    code: PRODUCTS_BY_CODE[code].name for code in MARKET_PRODUCT_CODES
+    code: PRODUCTS_BY_CODE[code].name for code in APPROVED_MARKET_PRODUCTS
 }
 MARKET_PRODUCT_BY_DISPLAY_NAME = {
     display_name: market_product

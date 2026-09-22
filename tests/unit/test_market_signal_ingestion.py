@@ -465,3 +465,21 @@ async def test_unknown_family_rejected():
         await ingest_signals(
             None, family="ORDERBOOK_BID", source="broker-sheet-a", rows=[], dry_run=True
         )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("family,row_factory", [
+    ("MARKET_INDICATION", _indication_row),
+    ("FAIR_PRICE_BAND", _band_row),
+    ("PHYSICAL_STEM", _stem_row),
+])
+async def test_rfq_only_fame_cannot_be_ingested_as_price_evidence(db: AsyncSession, family, row_factory):
+    point = await _delivery_point(db)
+    report = await ingest_signals(
+        db, family=family, source="pilot-test",
+        rows=[row_factory(point, event_id="fame-not-evidence", market_product="UCOME_B100")],
+        dry_run=False,
+    )
+    assert report.inserted == 0
+    assert len(report.errors) == 1
+    assert "UCOME_B100" in report.errors[0].reason

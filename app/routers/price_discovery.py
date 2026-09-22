@@ -19,7 +19,7 @@ from fastapi import Request as _Request
 from app.rate_limit import limiter
 from app.database import get_db
 from app.models.orderbook import Trade, TradeStatus
-from app.market_catalog import MARKET_PRODUCT_CODES
+from app.market_catalog import ORDERBOOK_MARKET_PRODUCTS
 from app.models.user import OrganizationProvenance
 from app.schemas.orderbook import (
     PriceSummary,
@@ -48,8 +48,8 @@ def _market_product_filter_clause(market_product: Optional[str]):
         return None
 
     normalized = market_product.strip().upper()
-    if normalized not in MARKET_PRODUCT_CODES:
-        raise ValueError(f"market_product must be one of {', '.join(MARKET_PRODUCT_CODES)}")
+    if normalized not in ORDERBOOK_MARKET_PRODUCTS:
+        raise ValueError(f"market_product must be one of {', '.join(ORDERBOOK_MARKET_PRODUCTS)}")
     return Trade.market_product == normalized
 
 
@@ -58,8 +58,8 @@ def _trade_market_product_filter_clause(market_product: Optional[str]):
     if not market_product:
         return None
     normalized = market_product.strip().upper()
-    if normalized not in MARKET_PRODUCT_CODES:
-        raise ValueError(f"market_product must be one of {', '.join(MARKET_PRODUCT_CODES)}")
+    if normalized not in ORDERBOOK_MARKET_PRODUCTS:
+        raise ValueError(f"market_product must be one of {', '.join(ORDERBOOK_MARKET_PRODUCTS)}")
     return Trade.market_product == normalized
 
 

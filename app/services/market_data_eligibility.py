@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from sqlalchemy import and_, case, func, or_, select
 
-from app.market_catalog import CANONICAL_DELIVERY_POINTS, CANONICAL_PRODUCTS
+from app.market_catalog import CANONICAL_DELIVERY_POINTS, CANONICAL_PRODUCTS, ORDERBOOK_MARKET_PRODUCTS
 from app.models.orderbook import OrderCreationMethod
 from app.models.user import (
     Organization,
@@ -95,7 +95,7 @@ def market_data_eligible_trade_clauses(buyer_organization, seller_organization):
 
 
 def canonical_market_product_expression(product):
-    """Strict SQL identity for the four active canonical catalog products.
+    """Strict SQL identity for canonical catalog products.
 
     Public market queries deliberately do not infer a canonical product from
     legacy grades or inactive aliases such as ``Methanol Green``.
@@ -153,6 +153,7 @@ def canonical_delivery_point_clause(delivery_point):
 def active_market_catalog_clauses(product, delivery_point):
     return (
         canonical_product_clause(product),
+        canonical_market_product_expression(product).in_(ORDERBOOK_MARKET_PRODUCTS),
         canonical_delivery_point_clause(delivery_point),
     )
 

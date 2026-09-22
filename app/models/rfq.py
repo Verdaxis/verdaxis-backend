@@ -4,13 +4,27 @@ import uuid
 from datetime import datetime, UTC
 from decimal import Decimal
 
-from sqlalchemy import ForeignKey, Enum, String, Numeric, DateTime, Text, Boolean, Index, UniqueConstraint
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    Enum,
+    ForeignKey,
+    Index,
+    Integer,
+    JSON,
+    Numeric,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.model_base import Base
 from app.services.availability_windows import SPOT_WINDOW
 from app.market_constraints import (
+    FAME_RFQ_DELIVERY_LANE,
     RFQ_DOMAIN,
     RFQ_LIFECYCLE,
     RFQ_NUMERIC_VALUES,
@@ -43,6 +57,7 @@ class RFQ(Base):
         postgresql_check(RFQ_DOMAIN, name="ck_rfqs_domain"),
         postgresql_check(RFQ_NUMERIC_VALUES, name="ck_rfqs_numeric_values"),
         postgresql_check(RFQ_LIFECYCLE, name="ck_rfqs_lifecycle"),
+        postgresql_check(FAME_RFQ_DELIVERY_LANE, name="ck_rfqs_fame_delivery_lane"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -62,6 +77,7 @@ class RFQ(Base):
     target_price_per_mt: Mapped[Decimal | None] = mapped_column(Numeric(), nullable=True)
     availability_window: Mapped[str] = mapped_column(String(16), nullable=False, default=SPOT_WINDOW)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    contract_terms: Mapped[dict | None] = mapped_column(JSON(none_as_null=True), nullable=True)
     is_anonymous: Mapped[bool] = mapped_column(Boolean, default=False)
     status: Mapped[RFQStatus] = mapped_column(
         Enum(RFQStatus, native_enum=False), default=RFQStatus.OPEN, nullable=False
@@ -93,6 +109,7 @@ class RFQQuote(Base):
         UniqueConstraint("rfq_id", "seller_org_id", name="uq_rfq_quotes_rfq_seller"),
         postgresql_check(RFQ_QUOTE_DOMAIN, name="ck_rfq_quotes_domain"),
         postgresql_check(RFQ_QUOTE_NUMERIC_VALUES, name="ck_rfq_quotes_numeric_values"),
+        CheckConstraint("revision >= 1", name="ck_rfq_quotes_revision"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -107,6 +124,9 @@ class RFQQuote(Base):
     seller_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
     price_per_mt_usd: Mapped[Decimal] = mapped_column(Numeric(), nullable=False)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    offer_terms: Mapped[dict | None] = mapped_column(JSON(none_as_null=True), nullable=True)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
     status: Mapped[QuoteStatus] = mapped_column(
         Enum(QuoteStatus, native_enum=False), default=QuoteStatus.PENDING, nullable=False
     )

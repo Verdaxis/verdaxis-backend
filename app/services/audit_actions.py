@@ -34,6 +34,7 @@ ORDER_EXPIRED = "order.expired"
 ORDER_UPDATED = "order.updated"
 RFQ_CANCELLED = "rfq.cancelled"
 RFQ_CREATED = "rfq.created"
+RFQ_QUOTE_REVISED = "rfq.quote_revised"
 RFQ_QUOTE_SUBMITTED = "rfq.quote_submitted"
 RFQ_QUOTE_WITHDRAWN = "rfq.quote_withdrawn"
 SUBSCRIPTION_UPDATED = "subscription.updated"
@@ -85,6 +86,7 @@ AUDIT_ACTIONS = frozenset(
         ORDER_UPDATED,
         RFQ_CANCELLED,
         RFQ_CREATED,
+        RFQ_QUOTE_REVISED,
         RFQ_QUOTE_SUBMITTED,
         RFQ_QUOTE_WITHDRAWN,
         SUBSCRIPTION_UPDATED,

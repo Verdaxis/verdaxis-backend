@@ -336,3 +336,9 @@
 - **Trigger:** The rolling Demo coverage job attempted to copy ownership and slice fields onto existing orders after the market-integrity migration made those fields immutable.
 - **Rule:** Reconciliation may insert missing Demo orders and refresh explicitly mutable presentation/lifecycle fields, but must never rewrite immutable order identity or market-slice fields.
 - **Why:** An older reconciler contract crossed a newer database trust boundary, causing the entire coverage transaction to roll back and leaving products absent.
+
+### Version All Quote State Changes
+- **Date:** 2026-09-22
+- **Trigger:** Review found that withdrawing a quote left its revision unchanged, so a previously opened form could republish it.
+- **Rule:** Increment the quote revision for every material state change, including withdrawal. Require the current revision when editing, and verify stale rejection and deliberate resubmission through real database routes.
+- **Why:** Row locks serialize requests but cannot identify a stale client without a changed version.

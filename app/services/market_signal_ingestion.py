@@ -20,7 +20,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.market_catalog import MarketProduct
+from app.market_catalog import ORDERBOOK_MARKET_PRODUCTS
 from app.models.catalog import DeliveryPoint
 from app.models.forward_monitoring import (
     FairPriceBand,
@@ -52,7 +52,7 @@ FAMILY_STALENESS_DAYS = {
 
 _INDICATION_SIDES = {"BID", "ASK", "MID"}
 _STEM_STATUSES = {"AVAILABLE", "TENTATIVE", "ALLOCATED", "CANCELLED"}
-_MARKET_PRODUCTS = {member.value for member in MarketProduct}
+_MARKET_PRODUCTS = frozenset(ORDERBOOK_MARKET_PRODUCTS)
 _FUTURE_TOLERANCE = timedelta(minutes=5)
 _MAX_PRICE = Decimal("10") ** 8
 
@@ -187,7 +187,7 @@ def _validate_common(row: dict, resolver: _DeliveryPointResolver) -> dict:
     product = _required_text(row, "market_product")
     if product not in _MARKET_PRODUCTS:
         raise _RowInvalid(
-            f"market_product {product!r} is not one of the canonical products "
+            f"market_product {product!r} is not one of the orderbook products "
             f"{sorted(_MARKET_PRODUCTS)}"
         )
     delivery_point_id = resolver.resolve(_required_text(row, "delivery_point"))

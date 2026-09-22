@@ -470,12 +470,13 @@ class ReferencePriceResponse(BaseModel):
 
 class CIAdjustedPrice(BaseModel):
     """
-    CI-adjusted effective price for an orderbook order.
+    Declared lifecycle CI comparison with the 91.16 gCO2e/MJ reference.
 
-    effective_price = base_price + compliance_cost_differential
-    where compliance_cost accounts for the carbon intensity gap
-    vs FuelEU Maritime reference value (91 gCO2eq/MJ for 2025).
+    Legacy financial fields carry no inferred regulatory benefit: compliance
+    cost is zero and effective price equals base price. CI alone cannot
+    establish maritime ETS savings or owned FuelEU pooling income.
     """
+    financial_benefit_status: Literal["UNPRICED"] = "UNPRICED"
     base_price_per_mt: Decimal
     carbon_intensity_gco2_mj: Decimal
     fueleu_ghg_intensity: Decimal

@@ -24,7 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.market_catalog import (
     DELIVERY_POINT_DISPLAY_ORDER,
-    MARKET_PRODUCT_CODES,
+    ORDERBOOK_MARKET_PRODUCTS,
     MarketProduct,
 )
 from app.models.catalog import DeliveryPoint, Product
@@ -68,6 +68,7 @@ from app.services.market_provenance import (
 from app.services.market_data_eligibility import (
     canonical_delivery_point_clause,
     canonical_product_clause,
+    canonical_market_product_expression,
     current_public_order_clause,
 )
 from app.services.forward_monitoring import (
@@ -87,7 +88,7 @@ from app.services.forward_curve_market_slices import forward_curve_market_slices
 router = APIRouter(prefix="/curves/forward", tags=["forward-curve"])
 
 _ACTIVE_STATUSES = [OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED]
-_MARKET_PRODUCT_ORDER = list(MARKET_PRODUCT_CODES)
+_MARKET_PRODUCT_ORDER = list(ORDERBOOK_MARKET_PRODUCTS)
 _DELIVERY_POINT_DISPLAY_ORDER = DELIVERY_POINT_DISPLAY_ORDER
 
 
@@ -281,6 +282,7 @@ async def _load_board_products(db: AsyncSession) -> list[Product]:
     result = await db.execute(
         select(Product).where(
             canonical_product_clause(Product),
+            canonical_market_product_expression(Product).in_(ORDERBOOK_MARKET_PRODUCTS),
         )
     )
     products = list(result.scalars().all())

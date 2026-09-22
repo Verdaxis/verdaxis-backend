@@ -3,6 +3,7 @@ Compliance scoring API endpoints.
 Provides vessel-level compliance assessments.
 """
 from decimal import Decimal
+from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -42,10 +43,11 @@ class FuelEUResponse(BaseModel):
     score: int
 
 class EUETSResponse(BaseModel):
-    total_co2_tonnes: Decimal
+    calculation_status: Literal["UNPRICED", "SCENARIO"]
+    total_co2_tonnes: Decimal | None
     ets_price_per_tonne_eur: Decimal
     phase_in_pct: Decimal
-    estimated_cost_eur: Decimal
+    estimated_cost_eur: Decimal | None
     score: int
 
 class CIIResponse(BaseModel):
@@ -80,7 +82,7 @@ class FuelMixInput(BaseModel):
 class ScenarioInput(BaseModel):
     vessel_id: str
     fuel_mix: dict[str, Decimal]
-    year: int = 2026
+    year: int = Field(2026, ge=2025)
 
 
 # --- Endpoints ---
@@ -204,14 +206,11 @@ async def get_pricing_overlay(
     POST is used for a read: up to 100 order ids do not fit reliably in a
     query string. Nothing is persisted.
 
-    Prices what the green premium buys the buyer under FuelEU Maritime when
-    the listed fuel displaces VLSFO: marginal penalty avoided per MT (EUR and
-    USD) and tCO2e avoided per MT. Distinct from GET /orderbook/with-ci,
-    whose CIAdjustedPrice values avoided CO2 at the EU ETS carbon price -- a
-    much smaller number than FuelEU penalty avoidance. Indicative estimate:
-    the RFNBO reward multiplier, consecutive-deficit escalation and the 50%
-    extra-EU voyage scope are excluded and named in
-    assumptions.excluded_factors.
+    Compares declared lifecycle CI against the reference on an equal-energy
+    basis. Financial benefits remain unpriced: legacy penalty-avoided fields
+    are zero until annual eligible consumption, deficit and owned pooling
+    value are established. GET /orderbook/with-ci also leaves price unchanged;
+    neither endpoint treats WtW reductions as maritime ETS savings.
 
     Only ASK rows visible in the public marketplace book are priced. Bid
     ids, unknown ids, cancelled/hidden/off-spec rows and rows whose CI or
@@ -245,7 +244,7 @@ async def get_pricing_overlay(
 
     # Org awareness mirrors /fleet reads: admins see the whole fleet, other
     # users their organization's vessels. Count only -- the prototype always
-    # computes with the default GHGIE_actual (see overlay_assumptions).
+    # uses the default GHGIE_actual (see overlay_assumptions), never measured fleet data.
     vessel_count_stmt = select(func.count()).select_from(Vessel)
     if current_user.role != UserRole.ADMIN:
         if current_user.organization_id is None:
@@ -270,7 +269,7 @@ async def list_fuel_intensities():
     return {
         "fuels": {k: str(v) for k, v in FUEL_GHG_INTENSITIES.items()},
         "unit": "gCO2eq/MJ",
-        "source": "FuelEU Maritime Regulation (EU) 2023/1805",
+        "source": "Illustrative fuel-category assumptions; not verified consignment CI. Only year targets derive from Regulation (EU) 2023/1805 Article 4.",
     }
 
 
@@ -290,6 +289,7 @@ def _score_to_response(score: ComplianceScore) -> ComplianceScoreResponse:
             score=score.fueleu.score,
         ),
         eu_ets=EUETSResponse(
+            calculation_status=score.eu_ets.calculation_status,
             total_co2_tonnes=score.eu_ets.total_co2_tonnes,
             ets_price_per_tonne_eur=score.eu_ets.ets_price_per_tonne_eur,
             phase_in_pct=score.eu_ets.phase_in_pct,

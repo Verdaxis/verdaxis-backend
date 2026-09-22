@@ -19,6 +19,8 @@ from dataclasses import dataclass, field
 from typing import Optional
 from enum import Enum
 
+from app.services.fueleu import FUELEU_TARGETS, fueleu_year_target
+
 
 class ComplianceStatus(str, Enum):
     EXCELLENT = "EXCELLENT"
@@ -48,10 +50,11 @@ class FuelEUResult:
 @dataclass
 class EUETSResult:
     """EU ETS maritime emission cost estimate."""
-    total_co2_tonnes: Decimal
-    ets_price_per_tonne_eur: Decimal = Decimal("68")  # Current EUA price
-    phase_in_pct: Decimal = Decimal("70")  # 2026: 70% of emissions covered
-    estimated_cost_eur: Decimal = Decimal("0")
+    total_co2_tonnes: Optional[Decimal]
+    ets_price_per_tonne_eur: Decimal = Decimal("68")  # Illustrative EUA price, not a live quote
+    phase_in_pct: Decimal = Decimal("100")  # 2026 emissions, surrendered in 2027
+    estimated_cost_eur: Optional[Decimal] = None
+    calculation_status: str = "UNPRICED"
     score: int = 50  # 0-100
 
 
@@ -77,18 +80,6 @@ class ComplianceScore:
     cii: CIIResult
     recommendations: list[str] = field(default_factory=list)
 
-
-# FuelEU Maritime GHG intensity targets by year (gCO2eq/MJ)
-# Reference: Regulation (EU) 2023/1805, Annex I
-FUELEU_TARGETS = {
-    2025: Decimal("89.34"),  # -2% from 91.16 reference
-    2026: Decimal("89.34"),
-    2030: Decimal("80.04"),  # -6%
-    2035: Decimal("65.08"),  # -14.5%
-    2040: Decimal("45.58"),  # -31%
-    2045: Decimal("27.35"),  # -62%
-    2050: Decimal("9.12"),   # -80%
-}
 
 # FuelEU penalty: EUR 2,400 per tonne of VLSFO equivalent
 FUELEU_PENALTY_PER_TONNE = Decimal("2400")
@@ -122,7 +113,7 @@ def calculate_fueleu_score(
     total_energy_mj: Optional[Decimal] = None,
 ) -> FuelEUResult:
     """Calculate FuelEU Maritime compliance for a vessel's fuel mix."""
-    target = FUELEU_TARGETS.get(year, Decimal("89.34"))
+    target = fueleu_year_target(year)
     total_energy = total_energy_mj or DEFAULT_ENERGY_MJ["default"]
 
     # Calculate weighted average GHG intensity
@@ -138,15 +129,16 @@ def calculate_fueleu_score(
         reduction_pct = Decimal("0")
 
     # Compliance balance in gCO2 (positive = surplus, negative = deficit)
-    compliance_balance = (target - weighted_intensity) * total_energy / Decimal("1000000")
+    compliance_balance = (target - weighted_intensity) * total_energy
 
-    # Penalty estimate
-    if weighted_intensity > target:
-        # Penalty = excess emissions * EUR 2,400/tonne VLSFO equivalent
-        excess_gco2_mj = weighted_intensity - target
-        # Convert to tonnes: excess * energy / 10^6 (to get tonnes CO2)
-        excess_tonnes = excess_gco2_mj * total_energy / Decimal("1000000000")
-        penalty = excess_tonnes * FUELEU_PENALTY_PER_TONNE
+    # Annex IV Part B: first-year deficit penalty for the assumed eligible
+    # annual energy. This scenario excludes banking, borrowing and pooling.
+    if compliance_balance < 0:
+        penalty = (
+            -compliance_balance
+            * FUELEU_PENALTY_PER_TONNE
+            / (weighted_intensity * Decimal("41000"))
+        )
     else:
         penalty = Decimal("0")
 
@@ -177,14 +169,28 @@ def calculate_fueleu_score(
 
 
 def calculate_ets_score(
-    total_co2_tonnes: Decimal,
+    total_co2_tonnes: Optional[Decimal],
     ets_price_eur: Decimal = Decimal("68"),
     year: int = 2026,
 ) -> EUETSResult:
-    """Calculate EU ETS maritime cost estimate."""
+    """Price declared in-scope emissions for the emissions year, not surrender year.
+
+    This simplified scenario requires the caller to establish voyage coverage
+    and all applicable gases; WtW CI cannot establish those emissions.
+    """
     # Phase-in schedule
     phase_in = {2024: Decimal("40"), 2025: Decimal("70"), 2026: Decimal("100")}
     pct = phase_in.get(year, Decimal("100"))
+
+    if total_co2_tonnes is None:
+        return EUETSResult(
+            total_co2_tonnes=None,
+            ets_price_per_tonne_eur=ets_price_eur,
+            phase_in_pct=pct,
+            estimated_cost_eur=None,
+            calculation_status="UNPRICED",
+            score=50,
+        )
 
     cost = total_co2_tonnes * ets_price_eur * pct / Decimal("100")
 
@@ -208,6 +214,7 @@ def calculate_ets_score(
 
     return EUETSResult(
         total_co2_tonnes=total_co2_tonnes,
+        calculation_status="SCENARIO",
         ets_price_per_tonne_eur=ets_price_eur,
         phase_in_pct=pct,
         estimated_cost_eur=cost.quantize(Decimal("0.01")),
@@ -241,12 +248,8 @@ def calculate_compliance_score(
     if not fuel_mix:
         fuel_mix = {"VLSFO": Decimal("1.0")}
 
-    # Default CO2 estimate based on vessel type
-    if total_co2_tonnes is None:
-        energy = DEFAULT_ENERGY_MJ.get(vessel_type, DEFAULT_ENERGY_MJ["default"])
-        # Rough: 91.16 gCO2/MJ * MJ / 10^6 = tonnes
-        total_co2_tonnes = (Decimal("91.16") * energy / Decimal("1000000")).quantize(Decimal("1"))
-
+    # Vessel category and WtW CI cannot establish in-scope combustion
+    # emissions. An absent emissions input stays unpriced, never inferred.
     fueleu = calculate_fueleu_score(fuel_mix, year)
     eu_ets = calculate_ets_score(total_co2_tonnes, year=year)
     cii = calculate_cii_score(cii_rating)
@@ -280,7 +283,7 @@ def calculate_compliance_score(
     if cii.score < 60:
         recommendations.append("CII rating declining — implement speed reduction or efficiency measures")
     if fueleu.estimated_penalty_eur > 0:
-        recommendations.append(f"Projected FuelEU penalty: EUR {fueleu.estimated_penalty_eur:,.0f}. Switch to compliant fuels to avoid.")
+        recommendations.append(f"Illustrative FuelEU deficit penalty: EUR {fueleu.estimated_penalty_eur:,.0f}. Verify annual eligible energy and flexibility measures.")
 
     return ComplianceScore(
         vessel_id=vessel_id,

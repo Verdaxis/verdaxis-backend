@@ -10,6 +10,7 @@ from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.orm import selectinload
 
 from app.database import get_db
+from app.services.market_catalog_validation import require_orderbook_product
 from app.models.catalog import DeliveryPoint, Product
 from app.models.marketplace import InventoryItem, FuelType as ModelFuelType
 from app.models.orderbook import (
@@ -360,6 +361,8 @@ async def publish_inventory_item(
     product = await _resolve_catalog_product(db, item)
     if not product:
         raise HTTPException(status_code=400, detail="Unable to map inventory item to a catalog product")
+
+    require_orderbook_product(product)
 
     delivery_point = await _resolve_delivery_point(db, item)
     if delivery_point is None:

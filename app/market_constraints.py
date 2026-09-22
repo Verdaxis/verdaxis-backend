@@ -7,15 +7,21 @@ therefore provide the only reliable reject-instead-of-round contract.
 
 from sqlalchemy import CheckConstraint
 from app.demo_identities import DEMO_MARKET_ORG_IDS
-from app.market_catalog import MARKET_PRODUCT_CODES
+from app.market_catalog import ORDERBOOK_MARKET_PRODUCTS, PRODUCT_IDS, DELIVERY_POINT_IDS
 
 
 def postgresql_check(expression: str, *, name: str) -> CheckConstraint:
     """Keep production checks in metadata without emitting them on SQLite."""
     return CheckConstraint(expression, name=name).ddl_if(dialect="postgresql")
 
+ORDERBOOK_PRODUCT_EXECUTION = f"product_id <> '{PRODUCT_IDS['UCOME_B100']}'"
+FAME_RFQ_DELIVERY_LANE = (
+    f"product_id <> '{PRODUCT_IDS['UCOME_B100']}' OR "
+    f"(delivery_point_id IS NOT NULL AND delivery_point_id = '{DELIVERY_POINT_IDS['Singapore']}')"
+)
+
 PROVENANCE_VALUES = "'UNKNOWN','REAL','DEMO','TEST','CANARY'"
-MARKET_PRODUCT_VALUES = ",".join(f"'{value}'" for value in MARKET_PRODUCT_CODES)
+MARKET_PRODUCT_VALUES = ",".join(f"'{value}'" for value in ORDERBOOK_MARKET_PRODUCTS)
 DEMO_ORG_VALUES = ",".join(f"'{organization_id}'" for organization_id in sorted(DEMO_MARKET_ORG_IDS, key=str))
 
 

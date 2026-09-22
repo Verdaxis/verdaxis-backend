@@ -14,6 +14,7 @@ from uuid import UUID
 
 
 class MarketProduct(str, Enum):
+    UCOME_B100 = "UCOME_B100"
     BIO_METHANOL = "BIO_METHANOL"
     E_METHANOL = "E_METHANOL"
     BIO_ETHANOL = "BIO_ETHANOL"
@@ -30,6 +31,8 @@ class ProductSpec:
     unit: str
     min_lot_size: Decimal
     spec_description: str
+    execution_mode: str = "ORDERBOOK"
+    available_delivery_point_ids: tuple[UUID, ...] | None = None
 
 
 @dataclass(frozen=True)
@@ -41,6 +44,19 @@ class DeliveryPointSpec:
 
 
 CANONICAL_PRODUCTS: tuple[ProductSpec, ...] = (
+    ProductSpec(
+        UUID("e561e43f-d9b2-598e-981c-f1d28d515ddc"),
+        MarketProduct.UCOME_B100,
+        "UCOME B100",
+        "FAME",
+        "UCOME",
+        "MT",
+        Decimal("1"),
+        "Neat B100 used cooking oil methyl ester for wholesale Singapore RFQs. "
+        "1 MT is the platform input minimum; contract minimum fill and quality terms are negotiated.",
+        execution_mode="RFQ_ONLY",
+        available_delivery_point_ids=(UUID("73835e92-820e-584b-8280-bb61c63aa28e"),),
+    ),
     ProductSpec(
         UUID("9510c713-6e39-5080-add3-0a7c29657b79"),
         MarketProduct.BIO_METHANOL,
@@ -155,9 +171,12 @@ DELIVERY_POINT_IDS = MappingProxyType(
     {spec.name: spec.id for spec in CANONICAL_DELIVERY_POINTS}
 )
 MARKET_PRODUCT_CODES: tuple[str, ...] = tuple(PRODUCTS_BY_CODE)
-# Single source for "which market products are publicly tradable" — router
-# and service layers must import this rather than re-deriving it.
-APPROVED_MARKET_PRODUCTS: tuple[str, ...] = MARKET_PRODUCT_CODES
+# RFQ catalog products must never become executable liquidity or price curves.
+ORDERBOOK_MARKET_PRODUCTS: tuple[str, ...] = tuple(
+    spec.market_product.value for spec in CANONICAL_PRODUCTS
+    if spec.execution_mode == "ORDERBOOK"
+)
+APPROVED_MARKET_PRODUCTS: tuple[str, ...] = ORDERBOOK_MARKET_PRODUCTS
 CANONICAL_PRODUCT_IDS: tuple[UUID, ...] = tuple(PRODUCTS_BY_ID)
 CANONICAL_DELIVERY_POINT_IDS: tuple[UUID, ...] = tuple(DELIVERY_POINTS_BY_ID)
 DELIVERY_POINT_DISPLAY_ORDER = MappingProxyType(

@@ -495,6 +495,33 @@ class TestMarketplaceFuelFiltering:
         assert result[0].off_spec is False
 
     @pytest.mark.asyncio
+    async def test_with_ci_preserves_declared_zero_without_cash_adjustment(self, db: AsyncSession):
+        supplier = await _make_org(db, 'Supplier')
+        singapore = await _make_delivery_point(db, 'Singapore', 'Asia')
+        methanol = await _make_product(db, name='Bio Methanol', fuel_type='Methanol', fuel_grade='Bio')
+        order = _make_order(
+            org_id=supplier.id, product_id=methanol.id,
+            delivery_point_id=singapore.id, price='1100',
+        )
+        order.carbon_intensity_gco2_mj = Decimal('0')
+        order.energy_density_mj_kg = Decimal('19.9')
+        db.add(order)
+        await db.commit()
+
+        result = await list_orders_with_ci(
+            product_id=None, delivery_point_id=None, side=None,
+            include_off_spec=False, skip=0, limit=50, db=db,
+        )
+
+        assert len(result) == 1
+        comparison = result[0].ci_adjusted_price
+        assert comparison is not None
+        assert comparison.carbon_intensity_gco2_mj == Decimal('0')
+        assert comparison.ghg_reduction_pct == Decimal('100')
+        assert comparison.effective_price_per_mt == Decimal('1100')
+        assert comparison.compliance_cost_per_mt == Decimal('0')
+
+    @pytest.mark.asyncio
     async def test_aggregated_excludes_off_spec_by_default(self, db: AsyncSession):
         supplier = await _make_org(db, 'Supplier')
         singapore = await _make_delivery_point(db, 'Singapore', 'Asia')

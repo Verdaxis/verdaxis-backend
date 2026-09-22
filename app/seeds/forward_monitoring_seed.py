@@ -20,7 +20,7 @@ DEMO_FORWARD_MONITORING_EVENT_PREFIX = "forward-monitoring-demo:"
 _PRODUCT_TO_MARKET_PRODUCT = {
     product.name: product.market_product
     for product in PRODUCTS
-    if product.market_product is not None
+    if product.market_product is not None and product.execution_mode == "ORDERBOOK"
 }
 
 

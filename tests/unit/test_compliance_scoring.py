@@ -18,15 +18,15 @@ class TestFuelEUScore:
     """Tests for FuelEU Maritime compliance scoring."""
 
     def test_100pct_vlsfo_barely_noncompliant(self):
-        """100% VLSFO (91.16 gCO2/MJ) is above the 2026 target (89.34).
+        """100% VLSFO (91.16 gCO2/MJ) is above the 2026 target (89.3368).
         Should be non-compliant with a penalty and a score below 70."""
         result = calculate_fueleu_score(
             fuel_mix={"VLSFO": Decimal("1.0")},
             year=2026,
         )
-        # VLSFO intensity (91.16) > target (89.34), so reduction_pct is negative
+        # VLSFO intensity (91.16) > target (89.3368), so reduction_pct is negative
         assert result.ghg_intensity_gco2_mj == Decimal("91.16")
-        assert result.target_intensity_gco2_mj == Decimal("89.34")
+        assert result.target_intensity_gco2_mj == Decimal("89.3368")
         assert result.reduction_pct < Decimal("0")
         assert result.estimated_penalty_eur > Decimal("0")
         # Slightly over target -> score 40 (within -5% band)
@@ -34,7 +34,7 @@ class TestFuelEUScore:
 
     def test_50pct_methanol_50pct_vlsfo_high_score(self):
         """50% Bio-methanol (31 gCO2/MJ) + 50% VLSFO (91.16 gCO2/MJ)
-        = weighted 61.08 gCO2/MJ, well below 89.34 target."""
+        = weighted 61.08 gCO2/MJ, well below 89.3368 target."""
         result = calculate_fueleu_score(
             fuel_mix={"Methanol": Decimal("0.5"), "VLSFO": Decimal("0.5")},
             year=2026,
@@ -58,7 +58,7 @@ class TestFuelEUScore:
         assert result.score == 100
 
     def test_100pct_lng_compliant(self):
-        """100% LNG (69 gCO2/MJ) is below the 2026 target (89.34). Score >= 70."""
+        """100% LNG (69 gCO2/MJ) is below the 2026 target (89.3368). Score >= 70."""
         result = calculate_fueleu_score(
             fuel_mix={"LNG": Decimal("1.0")},
             year=2026,
@@ -69,7 +69,7 @@ class TestFuelEUScore:
         assert result.score >= 70
 
     def test_2030_target_stricter(self):
-        """The 2030 target (80.04) is stricter than 2026 (89.34).
+        """The 2030 target (85.6904) is stricter than 2026 (89.3368).
         100% LNG should still be compliant in 2030 but with less margin."""
         result_2026 = calculate_fueleu_score(
             fuel_mix={"LNG": Decimal("1.0")},
@@ -79,12 +79,12 @@ class TestFuelEUScore:
             fuel_mix={"LNG": Decimal("1.0")},
             year=2030,
         )
-        assert result_2030.target_intensity_gco2_mj == Decimal("80.04")
+        assert result_2030.target_intensity_gco2_mj == Decimal("85.6904")
         # Both compliant, but 2026 has more reduction margin
         assert result_2026.reduction_pct > result_2030.reduction_pct
 
     def test_2025_vs_2026_same_target(self):
-        """2025 and 2026 have the same target: 89.34 gCO2/MJ."""
+        """2025 and 2026 have the same target: 89.3368 gCO2/MJ."""
         result_2025 = calculate_fueleu_score(
             fuel_mix={"VLSFO": Decimal("1.0")},
             year=2025,
@@ -101,7 +101,7 @@ class TestFuelEUScore:
             fuel_mix={"VLSFO": Decimal("1.0")},
             year=2026,
         )
-        # VLSFO 91.16 > target 89.34 => penalty > 0
+        # VLSFO 91.16 > target 89.3368 => penalty > 0
         assert result.estimated_penalty_eur > Decimal("0")
         # Penalty should be a reasonable number (not astronomical)
         assert result.estimated_penalty_eur < Decimal("10000000")
@@ -137,14 +137,10 @@ class TestFuelEUScore:
 
     def test_score_bands_boundary(self):
         """Verify score bands at reduction percentage boundaries."""
-        # Build a fuel mix that achieves exactly 0% reduction
-        # Target is 89.34, so need intensity == 89.34
-        # Use a blend of E-Methanol (8) and VLSFO (91.16) to hit 89.34
-        # 8*x + 91.16*(1-x) = 89.34 -> 8x + 91.16 - 91.16x = 89.34
-        # -83.16x = -1.82 -> x = 1.82/83.16 = 0.02189...
-        # At exactly 0% reduction, score should be 70
+        # Choose an energy mix just below the exact 2026 limit.
+        # (91.16 - 89.3368) / (91.16 - 8) = 0.021923... .
         result = calculate_fueleu_score(
-            fuel_mix={"E-Methanol": Decimal("0.02189"), "VLSFO": Decimal("0.97811")},
+            fuel_mix={"E-Methanol": Decimal("0.021924"), "VLSFO": Decimal("0.978076")},
             year=2026,
         )
         # Should be very close to 0% reduction (compliant but barely)
@@ -354,8 +350,8 @@ class TestOverallComplianceScore:
         )
         assert len(score.recommendations) == 0
 
-    def test_vessel_type_affects_default_co2(self):
-        """Different vessel types should get different default CO2 estimates."""
+    def test_vessel_type_does_not_invent_ets_emissions(self):
+        """No category can supply missing in-scope ETS emissions."""
         container = calculate_compliance_score(
             vessel_id="c",
             vessel_name="Container Ship",
@@ -366,8 +362,10 @@ class TestOverallComplianceScore:
             vessel_name="Bulk Carrier",
             vessel_type="bulk_carrier",
         )
-        # Container (500M MJ) > Bulk (300M MJ) -> more CO2
-        assert container.eu_ets.total_co2_tonnes > bulk.eu_ets.total_co2_tonnes
+        for score in (container, bulk):
+            assert score.eu_ets.total_co2_tonnes is None
+            assert score.eu_ets.estimated_cost_eur is None
+            assert score.eu_ets.calculation_status == "UNPRICED"
 
     def test_unknown_vessel_type_uses_default(self):
         """Unknown vessel type should use the default energy assumption."""
@@ -426,3 +424,35 @@ class TestOverallComplianceScore:
             assert result.ghg_intensity_gco2_mj == expected_intensity.quantize(Decimal("0.01")), (
                 f"Fuel {fuel_name}: expected {expected_intensity}, got {result.ghg_intensity_gco2_mj}"
             )
+
+
+@pytest.mark.parametrize("year,target", [
+    (2029, "89.3368"), (2030, "85.6904"), (2034, "85.6904"),
+    (2035, "77.9418"), (2039, "77.9418"), (2040, "62.9004"),
+    (2044, "62.9004"), (2045, "34.6408"), (2049, "34.6408"),
+    (2050, "18.2320"), (2060, "18.2320"),
+])
+def test_scoring_uses_same_reporting_year_limits_as_overlay(year, target):
+    result = calculate_fueleu_score({"VLSFO": Decimal("1")}, year)
+    assert result.target_intensity_gco2_mj == Decimal(target)
+
+
+def test_annex_iv_deficit_balance_units_and_first_year_penalty():
+    result = calculate_fueleu_score(
+        {"VLSFO": Decimal("1")}, 2025, total_energy_mj=Decimal("41000"),
+    )
+    # 1 MT VLSFO energy: (89.3368 - 91.16) * 41000 = -74751.2 gCO2e.
+    # 74751.2 * 2400 / (91.16 * 41000) = EUR 48.
+    assert result.compliance_balance_gco2 == Decimal("-74751.20")
+    assert result.estimated_penalty_eur == Decimal("48.00")
+
+
+def test_low_lifecycle_ci_does_not_establish_missing_ets_combustion_emissions():
+    score = calculate_compliance_score(
+        vessel_id="vessel", vessel_name="Declared low-CI fuel",
+        fuel_mix={"E-Methanol": Decimal("1")}, year=2026,
+    )
+    assert score.eu_ets.total_co2_tonnes is None
+    assert score.eu_ets.estimated_cost_eur is None
+    assert score.eu_ets.calculation_status == "UNPRICED"
+    assert score.eu_ets.phase_in_pct == Decimal("100")
