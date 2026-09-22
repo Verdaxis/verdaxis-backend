@@ -363,3 +363,30 @@ def test_deploy_converges_acl_policy_after_migration_before_restart():
     assert "deploy/postgres/converge_runtime_object_acls.sql" in source
     assert "deploy/postgres/app_acl_policy.sql" in source
     assert "bootstrap_roles.sql" not in source
+
+
+def test_fame_release_checkpoints_require_complete_supplier_schema():
+    module = _load_checkpoint_module()
+    policy = module.parse_checkpoint_policy(
+        (ROOT / "deploy/migration-checkpoints.tsv").read_text()
+    )
+    script = ScriptDirectory.from_config(Config(str(ROOT / "alembic.ini")))
+    target = "fame_20260922_supplier_offers"
+    for current in (
+        "fee_20260912_seller_per_mt", "fame_20260922_rfq_contract", target,
+    ):
+        module.validate_checkpoint_request(
+            policy=policy,
+            source_sha=SOURCE_SHA,
+            approved_source_sha=SOURCE_SHA,
+            expected_current=current,
+            target=target,
+            current_heads=(current,),
+            script_directory=script,
+        )
+    # The release reads the supplier fields; the catalog and original
+    # RFQ contract revisions remain migration ancestors, never release targets.
+    assert not any(
+        target in {"fame_20260922_catalog", "fame_20260922_rfq_contract"}
+        for _current, target in policy
+    )

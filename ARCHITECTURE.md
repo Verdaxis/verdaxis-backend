@@ -34,6 +34,7 @@ app/
     user_preference.py          # Per-user JSON preferences by namespace (market_watch, notifications, tutorial)
     compliance.py               # TraceabilityEvent, ComplianceLedger
     rfq.py                      # RFQ contract JSON, supplier offer JSON, expiry and revision; no acceptance
+    supplier_offer.py           # Independent indicative UCOME supplier offers, revisions and idempotency identity
     producer.py                 # ProducerProject (PostGIS, GENA import)
     audit.py                    # AuditLog (JSONB changes, indexed action/resource/timestamp)
   routers/
@@ -48,6 +49,7 @@ app/
     stream.py                   # SSE endpoints — /stream/prices, /stream/orderbook, /stream/trades (durable id/Last-Event-ID replay)
     compliance_api.py           # Compliance scoring — fleet scores, vessel scores, what-if scenarios
     rfq.py                      # Admitted RFQ create/list/detail/cancel and private supplier quote/revise/withdraw
+    supplier_offers.py          # Supplier offer discovery and owner lifecycle; never invokes matching
     admin_analytics.py          # Platform and product-usage aggregates (ADMIN only; Umami degrades independently)
     availability.py             # Fuel availability by port
     demand.py                   # Anonymized BID demand signals
@@ -156,7 +158,7 @@ alembic/versions/               # Migrations incl. canonical availability-window
 - **Admin pre-approved invitations:** An administrator may prepare a `BUYER` or `SUPPLIER` account in an existing approved `REAL` or `UNKNOWN` organization, or atomically create a `REAL`, onboarding-approved organization and an invited account. The audited administrator action is the trust decision for a new live-market organization; ordinary registration still receives database-owned `UNKNOWN` provenance, and a later administrator company-approval transition automatically classifies ordinary UNKNOWN organizations as REAL. The database trigger preserves synthetic identities and direct provenance-write restrictions; the company approval audit records the classification. Previously approved UNKNOWN records still use exact operator remediation. Role/type validation and owned-domain collision checks happen before persistence; any account or organization conflict rolls back the entire operation. The seven-day claim secret reuses the existing hashed one-time password-reset slot, while the unclaimed state is explicitly `APPROVED + unverified + must_change_password`; acceptance records possession of the administrator-delivered secret as email verification, records Terms/Privacy agreement in the append-only audit trail, progresses referral attribution, and issues the normal device-bound session. Ordinary password reset excludes unverified accounts so the two token purposes cannot be confused. See `docs/plans/2026-08-05-admin-preapproved-invites-design.md` and `docs/plans/2026-08-12-admin-created-organizations-design.md`.
 - **Rate limiting:** slowapi per-route (5/min login, 3/min password, 60/min prices, 30/min reference)
 - **Availability windows:** Persist canonical codes (`SPOT`, `YYYY-MM`, `YYYY-QN`, legacy-compatible `YYYY-CAL`); UI-relative labels like `M+1` must be resolved before persistence
-- **FAME RFQ pilot:** UCOME B100 has its own canonical product identity and a Singapore-only wholesale RFQ lane. The catalog exposes `execution_mode=RFQ_ONLY`, the permitted delivery point IDs, and a 1 MT platform input minimum; contract minimum fill is negotiated. The four alcohol products retain their execution and history. API policy and PostgreSQL constraints exclude UCOME from executable orders, assisted orders, and negotiations; price evidence, demo signals, and forward curves remain alcohol-only. RFQ terms and quote revisions use explicit runtime column grants. Deploy both FAME revisions atomically from `fee_20260912_seller_per_mt` to `fame_20260922_rfq_contract`.
+- **FAME RFQ pilot:** UCOME B100 has its own canonical product identity and a Singapore-only wholesale RFQ lane. The catalog exposes `execution_mode=RFQ_ONLY`, the permitted delivery point IDs, and a 1 MT platform input minimum; contract minimum fill is negotiated. The four alcohol products retain their execution and history. API policy and PostgreSQL constraints exclude UCOME from executable orders, assisted orders, and negotiations; price evidence, demo signals, and forward curves remain alcohol-only. RFQ terms, targeted request snapshots and independent supplier offers use explicit runtime column grants. Deploy to `fame_20260922_supplier_offers` through the committed checkpoint policy.
 - **Green-fuels market model:** Matching and live slice benchmarks key on `side + market_product + delivery_point + availability_window`; supplier sustainability/compliance fields stay out of the hard market key
 - **Orderbook read performance:** List responses reuse joined product/delivery-point rows and eager-load organization data. Benchmark inputs are fetched once for all requested slices, including cached missing results within the request. `/orderbook/map-summary` returns all eligible compact groups and the latest ASK per delivery point; `/orderbook/product-counts` uses the public listing filters for all four product totals.
 - **Market provenance contract:** Market-data responses use shared `source_kind`, `scope`, and `demo_status` fields. Aggregate data exposes real/demo/unknown counts; unknown contributors remain `UNKNOWN` rather than being collapsed into real/demo/mixed.
@@ -194,11 +196,19 @@ Cancellation and withdrawal preserve actor ownership while allowing retraction
 after execution eligibility is revoked. RFQ acceptance remains disabled, so no
 physical or sustainability allocation is reserved.
 
-Deploy both catalog and RFQ migrations in one literal checkpoint transition:
-`fee_20260912_seller_per_mt` to `fame_20260922_rfq_contract`. The intermediate
-catalog revision is migration ancestry, not a restart checkpoint for this
-source. Runtime INSERT/UPDATE grants explicitly list the new RFQ columns.
-Downgrade refuses to remove stored contract or quote history.
+Independent supplier offers use `supplier_offers`, separate from executable
+orders and inventory. Versioned listing terms carry optional batch nomination,
+fuel-specific results with fixed units, and distinct certificate, quality and
+consignment evidence. Discovery returns an anonymous projection; owners receive
+the full declaration. A buyer-created targeted RFQ records the source offer,
+its immutable revision snapshot and the supplier organization. Visibility and
+quote admission enforce that target. Offer edits do not alter existing requests.
+
+Deploy to the literal checkpoint `fame_20260922_supplier_offers`, either from
+`fee_20260912_seller_per_mt` or the current `fame_20260922_rfq_contract` checkpoint.
+Intermediate catalog/RFQ revisions remain migration ancestry, not restart
+checkpoints for this source. Runtime column grants explicitly cover offer writes
+and RFQ source fields. Downgrade refuses to remove stored offer or request history.
 
 FuelEU targets use the shared regulatory schedule. Lifecycle CI reductions do
 not imply ETS cash savings. Unprovided in-scope combustion emissions produce

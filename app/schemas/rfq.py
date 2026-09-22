@@ -3,15 +3,19 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Literal, Optional
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.services.availability_windows import SPOT_WINDOW, normalize_availability_window
 from app.schemas.market_integrity import finite_decimal
 from app.schemas.fame import FameContractTerms, FameOfferTerms
+from app.schemas.supplier_offer import SupplierOfferPublicSnapshot, SupplierOfferSnapshot
 
 
 class RFQCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     product_id: UUID
     delivery_point_id: UUID
     quantity_mt: Decimal = Field(gt=0, le=100000, max_digits=12, decimal_places=2, allow_inf_nan=False)
@@ -21,9 +25,13 @@ class RFQCreateRequest(BaseModel):
     is_anonymous: bool = False
     expires_in_hours: int = Field(default=24, ge=1, le=168)
     contract_terms: FameContractTerms | None = None
+    source_offer_id: UUID | None = None
+    expected_source_offer_revision: int | None = Field(None, ge=1)
 
     @model_validator(mode="after")
     def _validate_minimum_fill(self):
+        if (self.source_offer_id is None) != (self.expected_source_offer_revision is None):
+            raise ValueError("source_offer_id and expected_source_offer_revision must be supplied together")
         if self.contract_terms and self.contract_terms.min_fill_mt > self.quantity_mt:
             raise ValueError("min_fill_mt must not exceed quantity_mt")
         return self
@@ -44,6 +52,23 @@ class RFQQuoteRequest(BaseModel):
     notes: Optional[str] = Field(None, max_length=500)
     expires_at: AwareDatetime | None = None
     offer_terms: FameOfferTerms | None = None
+
+    @model_validator(mode="after")
+    def _validate_new_declaration(self):
+        # Apply new ingress rules here so historical stored quotes still read.
+        offer = self.offer_terms
+        if offer is None:
+            return self
+        if offer.standard == "ASTM_D6751" and offer.astm_grade is None:
+            raise ValueError("ASTM D6751 quotes require the declared grade")
+        if offer.standard != "ASTM_D6751" and offer.astm_grade is not None:
+            raise ValueError("ASTM grade requires ASTM D6751 as the standard")
+        if offer.quality_evidence:
+            today = datetime.now(ZoneInfo("Asia/Singapore")).date()
+            for evidence_date in (offer.quality_evidence.sampled_on, offer.quality_evidence.tested_on):
+                if evidence_date and evidence_date > today:
+                    raise ValueError("Quality evidence sampling and test dates must not be in the future")
+        return self
 
     @field_validator("price_per_mt_usd")
     @classmethod
@@ -91,6 +116,9 @@ class RFQResponse(BaseModel):
     quote_count: int = 0
     quotes: list[RFQQuoteResponse] = Field(default_factory=list)
     contract_terms: FameContractTerms | None = None
+    source_offer_id: UUID | None = None
+    target_supplier_org_id: UUID | None = None
+    source_offer_snapshot: SupplierOfferSnapshot | SupplierOfferPublicSnapshot | None = None
     execution_enabled: Literal[False] = False
     can_cancel: bool = False
 

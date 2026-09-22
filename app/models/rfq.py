@@ -58,6 +58,11 @@ class RFQ(Base):
         postgresql_check(RFQ_NUMERIC_VALUES, name="ck_rfqs_numeric_values"),
         postgresql_check(RFQ_LIFECYCLE, name="ck_rfqs_lifecycle"),
         postgresql_check(FAME_RFQ_DELIVERY_LANE, name="ck_rfqs_fame_delivery_lane"),
+        CheckConstraint(
+            "(source_offer_id IS NULL AND target_supplier_org_id IS NULL AND source_offer_snapshot IS NULL) OR "
+            "(source_offer_id IS NOT NULL AND target_supplier_org_id IS NOT NULL AND source_offer_snapshot IS NOT NULL)",
+            name="ck_rfqs_source_offer",
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -78,6 +83,13 @@ class RFQ(Base):
     availability_window: Mapped[str] = mapped_column(String(16), nullable=False, default=SPOT_WINDOW)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     contract_terms: Mapped[dict | None] = mapped_column(JSON(none_as_null=True), nullable=True)
+    source_offer_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("supplier_offers.id", name="fk_rfqs_source_offer_id"), nullable=True
+    )
+    target_supplier_org_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("organizations.id", name="fk_rfqs_target_supplier_org_id"), nullable=True
+    )
+    source_offer_snapshot: Mapped[dict | None] = mapped_column(JSON(none_as_null=True), nullable=True)
     is_anonymous: Mapped[bool] = mapped_column(Boolean, default=False)
     status: Mapped[RFQStatus] = mapped_column(
         Enum(RFQStatus, native_enum=False), default=RFQStatus.OPEN, nullable=False

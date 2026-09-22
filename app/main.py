@@ -57,6 +57,7 @@ from app.routers.subscriptions import router as subscriptions_router
 from app.routers.referrals import router as referrals_router
 from app.routers.trade_tape import router as trade_tape_router
 from app.routers.rfq import router as rfq_router
+from app.routers.supplier_offers import router as supplier_offers_router
 from app.routers.negotiations import router as negotiations_router
 from app.routers.watchlists import router as watchlists_router
 from app.routers.news import router as news_router
@@ -254,6 +255,7 @@ app.include_router(referrals_router, prefix=settings.API_V1_STR)
 app.include_router(trade_tape_router, prefix=settings.API_V1_STR)
 app.include_router(watchlists_router, prefix=settings.API_V1_STR)
 app.include_router(rfq_router, prefix=settings.API_V1_STR)
+app.include_router(supplier_offers_router, prefix=settings.API_V1_STR)
 app.include_router(negotiations_router, prefix=settings.API_V1_STR)
 app.include_router(news_router, prefix=settings.API_V1_STR)
 app.include_router(fleet_intel_router, prefix=settings.API_V1_STR)

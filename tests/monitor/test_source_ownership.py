@@ -19,10 +19,11 @@ MANIFEST = MONITOR / "artifact-manifest.json"
 # one must update its pinned blob in the same reviewed commit.
 # Market Support adds feature-flag settings and one feature-flagged router.
 # Licensed Webz.io news discovery adds a backend-only token and locked endpoint.
+# B100 supplier listings add an authenticated, non-executable offer router.
 RUNTIME_OWNED_BLOBS = {
     "app/config.py": "1147d3407d8fc9a0b68df02e5b349645d6e40cd3",
     "app/database.py": "43456b2c2079c07368359d4d54f5ce9629c9b57b",
-    "app/main.py": "ee803a97bfb8739d3c660fb714a8fe4ca96f8dc8",
+    "app/main.py": "1daa53af873be1d017f51144a09c8f214faf5234",
     "scripts/deploy.sh": "eda3a0b9020ddecb023c4cfe727417d8dea6b162",
     "scripts/run_demo_activity.py": "aac20936cd1b01adcebf8097762cae136b6eb0bf",
 }

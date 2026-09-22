@@ -98,6 +98,32 @@ def test_same_compatibility_predicate_rejects_incompatible_quotes(contract_data,
     assert any(message in error for error in errors)
 
 
+@pytest.mark.parametrize("request_type", [RFQQuoteRequest, RFQQuoteRevisionRequest])
+@pytest.mark.parametrize("evidence_due", [None, "BEFORE_LOADING", "BEFORE_DELIVERY"])
+def test_new_and_revised_quotes_respect_contract_evidence_deadline(
+    contract_data, offer_data, request_type, evidence_due,
+):
+    if evidence_due is not None:
+        offer_data = offer_data | {"sustainability_evidence": {
+            "status": "PENDING", "document_type": "POS", "due": evidence_due,
+        }}
+    deadline = datetime.now(UTC) + timedelta(hours=2)
+    rfq = SimpleNamespace(
+        contract_terms=contract_data, quantity_mt=Decimal("500"), expires_at=deadline,
+    )
+    revision_fields = {"expected_revision": 1} if request_type is RFQQuoteRevisionRequest else {}
+    payload = request_type(
+        price_per_mt_usd=900, expires_at=deadline, offer_terms=offer_data, **revision_fields,
+    )
+    if evidence_due == "BEFORE_DELIVERY":
+        with pytest.raises(HTTPException) as error:
+            router._validate_quote_payload(rfq, payload)
+        assert error.value.status_code == 422
+        assert "evidence due" in error.value.detail
+    else:
+        assert router._validate_quote_payload(rfq, payload) == deadline
+
+
 def test_quote_expiry_is_explicit_bounded_and_timezone_aware():
     now = datetime.now(UTC)
     deadline = now + timedelta(hours=24)
@@ -112,6 +138,39 @@ def test_quote_expiry_is_explicit_bounded_and_timezone_aware():
 
 def test_delivery_deadline_uses_whole_singapore_calendar_day():
     assert delivery_deadline(date(2026, 9, 22)) == datetime(2026, 9, 22, 16, tzinfo=UTC)
+
+
+def test_new_astm_quotes_require_grade_without_breaking_stored_declarations(offer_data):
+    legacy = offer_data | {"standard": "ASTM_D6751", "standard_edition": "2024"}
+    assert FameOfferTerms.model_validate(legacy).astm_grade is None
+    with pytest.raises(ValidationError, match="grade"):
+        RFQQuoteRequest(price_per_mt_usd=900, offer_terms=legacy)
+    assert RFQQuoteRequest(
+        price_per_mt_usd=900, offer_terms=legacy | {"astm_grade": "2-B S15"}
+    ).offer_terms.astm_grade == "2-B S15"
+    with pytest.raises(ValidationError, match="grade"):
+        RFQQuoteRequest(price_per_mt_usd=900, offer_terms=offer_data | {"astm_grade": "2-B S15"})
+
+
+@pytest.mark.parametrize("field", ["sampled_on", "tested_on"])
+def test_new_quote_quality_evidence_cannot_have_future_dates(offer_data, field):
+    quality = {"status": "PENDING", field: (date.today() + timedelta(days=2)).isoformat()}
+    with pytest.raises(ValidationError, match="future"):
+        RFQQuoteRequest(price_per_mt_usd=900, offer_terms=offer_data | {"quality_evidence": quality})
+
+
+@pytest.mark.parametrize("standard, field, wanted, declared", [
+    ("ASTM_D6751", "astm_grade", "1-B S15", "2-B S15"),
+    ("EN_14214", "en_climate_class", "A", "B"),
+])
+def test_quote_compatibility_checks_explicit_grade_and_climate_class(
+    contract_data, offer_data, standard, field, wanted, declared,
+):
+    contract = FameContractTerms.model_validate(contract_data | {"standard": standard, field: wanted})
+    offer = FameOfferTerms.model_validate(offer_data | {"standard": standard, field: declared})
+    assert quote_compatibility_errors(contract, offer, Decimal("500"))
+    contract = contract.model_copy(update={field: None})
+    assert not quote_compatibility_errors(contract, offer, Decimal("500"))
 
 
 def test_supplier_history_retains_own_quote_but_hides_unrelated_closed_rfq():

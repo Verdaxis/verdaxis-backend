@@ -38,6 +38,9 @@ RFQ_QUOTE_REVISED = "rfq.quote_revised"
 RFQ_QUOTE_SUBMITTED = "rfq.quote_submitted"
 RFQ_QUOTE_WITHDRAWN = "rfq.quote_withdrawn"
 SUBSCRIPTION_UPDATED = "subscription.updated"
+SUPPLIER_OFFER_CREATED = "supplier_offer.created"
+SUPPLIER_OFFER_UPDATED = "supplier_offer.updated"
+SUPPLIER_OFFER_WITHDRAWN = "supplier_offer.withdrawn"
 TRADE_AUTO_MATCHED = "trade.auto_matched"
 TRADE_CANCELLED = "trade.cancelled"
 TRADE_CONFIRMED = "trade.confirmed"
@@ -90,6 +93,9 @@ AUDIT_ACTIONS = frozenset(
         RFQ_QUOTE_SUBMITTED,
         RFQ_QUOTE_WITHDRAWN,
         SUBSCRIPTION_UPDATED,
+        SUPPLIER_OFFER_CREATED,
+        SUPPLIER_OFFER_UPDATED,
+        SUPPLIER_OFFER_WITHDRAWN,
         TRADE_AUTO_MATCHED,
         TRADE_CANCELLED,
         TRADE_CONFIRMED,

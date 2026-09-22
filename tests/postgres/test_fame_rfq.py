@@ -23,6 +23,7 @@ from app.models.negotiation import Negotiation
 from app.models.orderbook import OrderBookOrder, Trade
 from app.models.rfq import RFQ, RFQQuote
 from app.models.user import Organization, OrgType, User, UserRole, UserStatus
+from app.schemas.fame import FameContractTerms, FameOfferTerms
 from app.services.audit_actions import (
     RFQ_CREATED,
     RFQ_QUOTE_REVISED,
@@ -223,7 +224,10 @@ async def test_fame_lifecycle_preserves_declared_terms_and_quote_versions(fame_m
     rfq = await _create_rfq(client, seeded)
     assert rfq["execution_enabled"] is False
     assert rfq["can_cancel"] is True
-    assert rfq["contract_terms"] == _create_payload(seeded)["contract_terms"]
+    expected_contract_terms = FameContractTerms.model_validate(
+        _create_payload(seeded)["contract_terms"]
+    ).model_dump(mode="json")
+    assert rfq["contract_terms"] == expected_contract_terms
     quote = await _submit_quote(client, seeded, rfq)
     assert quote["revision"] == 1
     assert quote["status"] == "PENDING"
@@ -233,13 +237,16 @@ async def test_fame_lifecycle_preserves_declared_terms_and_quote_versions(fame_m
     updated_payload = _revision_payload(rfq["contract_terms"], quote)
     updated_payload["price_per_mt_usd"] = "1080.00"
     updated_payload["offer_terms"]["batch_reference"] = "SG-UCOME-2026-002"
+    expected_offer_terms = FameOfferTerms.model_validate(
+        updated_payload["offer_terms"]
+    ).model_dump(mode="json")
     revised = await client.put(
         f"/api/rfq/{rfq['id']}/quotes/{quote['id']}", json=updated_payload,
         headers=_headers(seeded["seller_id"]),
     )
     assert revised.status_code == 200, revised.text
     assert revised.json()["revision"] == 2
-    assert revised.json()["offer_terms"] == updated_payload["offer_terms"]
+    assert revised.json()["offer_terms"] == expected_offer_terms
     stale_revision = await client.put(
         f"/api/rfq/{rfq['id']}/quotes/{quote['id']}", json=updated_payload,
         headers=_headers(seeded["seller_id"]),
@@ -267,7 +274,7 @@ async def test_fame_lifecycle_preserves_declared_terms_and_quote_versions(fame_m
         assert stored_rfq.contract_terms == rfq["contract_terms"]
         assert stored_rfq.trade_id is None
         assert stored_rfq.accepted_quote_id is None
-        assert stored_quote.offer_terms == updated_payload["offer_terms"]
+        assert stored_quote.offer_terms == expected_offer_terms
         assert stored_quote.revision == 3
         assert stored_quote.price_per_mt_usd == Decimal("1080.00")
         audits = (await session.execute(select(AuditLog).where(
@@ -278,7 +285,7 @@ async def test_fame_lifecycle_preserves_declared_terms_and_quote_versions(fame_m
         assert by_action[RFQ_QUOTE_SUBMITTED]["quote"]["offer_terms"] == quote["offer_terms"]
         assert by_action[RFQ_QUOTE_REVISED]["from"]["revision"] == 1
         assert by_action[RFQ_QUOTE_REVISED]["from"]["offer_terms"] == quote["offer_terms"]
-        assert by_action[RFQ_QUOTE_REVISED]["to"]["offer_terms"] == updated_payload["offer_terms"]
+        assert by_action[RFQ_QUOTE_REVISED]["to"]["offer_terms"] == expected_offer_terms
         assert by_action[RFQ_QUOTE_WITHDRAWN]["to"]["status"] == "WITHDRAWN"
 
 

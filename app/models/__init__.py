@@ -26,6 +26,7 @@ from app.models.subscription import Subscription, SubscriptionTier
 from app.models.alerts import PriceAlert
 from app.models.referral import Referral, ReferralStatus
 from app.models.rfq import RFQ, RFQQuote, RFQStatus, QuoteStatus
+from app.models.supplier_offer import SupplierOffer
 from app.models.watchlist import Watchlist, WatchlistEntry, WatchlistTarget, WatchlistEvent
 from app.models.negotiation import Negotiation, NegotiationRound, NegotiationStatus
 from app.models.news import NewsItem

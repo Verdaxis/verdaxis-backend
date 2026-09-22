@@ -22,8 +22,14 @@ def quote_compatibility_errors(
     errors = []
     if offer.standard != contract.standard or offer.standard_edition != contract.standard_edition:
         errors.append("Declared fuel standard and edition must match the RFQ")
+    if contract.astm_grade is not None and offer.astm_grade != contract.astm_grade:
+        errors.append("Declared ASTM grade must match the RFQ")
+    if contract.en_climate_class is not None and offer.en_climate_class != contract.en_climate_class:
+        errors.append("Declared EN climate class must match the RFQ")
     if offer.sustainability_scheme != contract.sustainability_scheme:
         errors.append("Declared sustainability scheme must match the RFQ")
+    if offer.sustainability_evidence and offer.sustainability_evidence.due != contract.evidence_due:
+        errors.append("Declared sustainability evidence due milestone must match the RFQ")
     # This pilot has no partial allocation or acceptance workflow.
     if offer.available_quantity_mt < max(quantity_mt, contract.min_fill_mt):
         errors.append("Available quantity must cover the full RFQ quantity")
