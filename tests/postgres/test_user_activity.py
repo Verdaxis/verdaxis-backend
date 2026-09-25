@@ -23,7 +23,6 @@ async def test_app_role_deduplicates_per_user_and_prunes_only_expired_browsing(p
 
     def batch(event_id, page):
         return BrowsingEventsIn.model_validate({
-            "consent_version": 2,
             "events": [{"id": str(event_id), "action": "page_view", "page": page}],
         })
 
