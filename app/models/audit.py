@@ -2,7 +2,7 @@
 from datetime import datetime, UTC
 import uuid
 
-from sqlalchemy import JSON, String, ForeignKey, DateTime, Text, func
+from sqlalchemy import JSON, String, ForeignKey, DateTime, Index, Text, func
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 
 # JSONB on Postgres (matches the live column), plain JSON elsewhere so the
@@ -15,6 +15,9 @@ from app.model_base import Base
 
 class AuditLog(Base):
     __tablename__ = "audit_logs"
+    __table_args__ = (
+        Index("ix_audit_logs_user_timestamp", "user_id", "timestamp"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)

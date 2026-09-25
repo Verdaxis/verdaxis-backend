@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from app.database import Base
 from app.market_catalog import DELIVERY_POINTS_BY_NAME, PRODUCTS_BY_NAME
 from app.models.catalog import DeliveryPoint, Product
+from app.models.audit import AuditLog
 from app.models.orderbook import OrderBookOrder, OrderBookStatus, OrderSide
 from app.models.user import OrganizationProvenance, OrgType, Organization, User, UserRole, UserStatus
 from app.models.watchlist import Watchlist, WatchlistEvent, WatchlistEventType, WatchlistKind, WatchlistTarget
@@ -22,6 +23,7 @@ from app.services.watchlists import ensure_market_radar
 REQUIRED_TABLES = [
     'organizations',
     'users',
+    'audit_logs',
     'products',
     'delivery_points',
     'orderbook_orders',
@@ -57,7 +59,7 @@ async def db(async_engine, setup_tables):
     )
     async with session_factory() as session:
         yield session
-        for table in ('watchlist_events', 'watchlist_targets', 'watchlist_entries', 'watchlists', 'orderbook_orders', 'users', 'delivery_points', 'products', 'organizations'):
+        for table in ('audit_logs', 'watchlist_events', 'watchlist_targets', 'watchlist_entries', 'watchlists', 'orderbook_orders', 'users', 'delivery_points', 'products', 'organizations'):
             await session.execute(delete(Base.metadata.tables[table]))
         await session.commit()
 
@@ -202,6 +204,15 @@ class TestMarketRadarEndpoints:
 
         await db.refresh(radar, ['targets'])
         assert {target.target_type.value for target in radar.targets} == {'SLICE', 'PIN'}
+        audit = await db.scalar(select(AuditLog).where(AuditLog.resource_id == str(response.id)))
+        assert audit.action == 'watchlist.pinned'
+        assert audit.changes == {
+            'target_type': 'PIN',
+            'market_product': 'BIO_METHANOL',
+            'delivery_point_id': str(singapore.id),
+            'availability_window': 'SPOT',
+            'order_id': str(order.id),
+        }
 
     @pytest.mark.asyncio
     async def test_legacy_add_entry_translates_into_market_radar_slice(self, db: AsyncSession):
@@ -423,6 +434,12 @@ class TestMarketRadarEndpoints:
         radar = await ensure_market_radar(db, supplier.id)
         await db.refresh(radar, ['targets'])
         assert radar.targets == []
+        actions = set(
+            (await db.execute(select(AuditLog.action).where(AuditLog.user_id == supplier.id)))
+            .scalars()
+            .all()
+        )
+        assert {'watchlist.removed_target', 'watchlist.unpinned'} <= actions
 
     @pytest.mark.asyncio
     async def test_duplicate_slice_target_returns_conflict(self, db: AsyncSession):

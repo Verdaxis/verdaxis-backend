@@ -34,6 +34,7 @@ class UserLoginDay(Base):
         UniqueConstraint("activity_date", "user_id", name="uq_user_login_days_date_user"),
         Index("ix_user_login_days_date_role", "activity_date", "role"),
         Index("ix_user_login_days_org_date", "organization_id", "activity_date"),
+        Index("ix_user_login_days_user_last_login", "user_id", "last_login_at"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)

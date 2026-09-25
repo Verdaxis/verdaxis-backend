@@ -33,6 +33,7 @@ from app.models.benchmark import Benchmark
 from app.models.live_slice_benchmark import LiveSliceBenchmark
 from app.models.forward_monitoring import FairPriceBand, MarketIndication, MarketSignalIngestionRun, PhysicalStem
 from app.models.product_analytics import UserLoginDay, UserStatusTransition
+from app.models.user_activity import UserBrowsingEvent
 from app.models.legacy import orders, direct_orders
 from app.models.refresh_session import RefreshSession
 from app.models.registration import PendingRegistration, OrganizationJoinRequest, JoinRequestStatus

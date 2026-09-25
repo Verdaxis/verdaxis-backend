@@ -62,6 +62,7 @@ from app.routers.watchlists import router as watchlists_router
 from app.routers.news import router as news_router
 from app.routers.benchmarks import router as benchmarks_router
 from app.routers.monitor import router as monitor_router
+from app.routers.user_activity import router as user_activity_router
 
 # ---------------------------------------------------------------------------
 # Structured logging
@@ -253,6 +254,7 @@ app.include_router(subscriptions_router, prefix=settings.API_V1_STR)
 app.include_router(referrals_router, prefix=settings.API_V1_STR)
 app.include_router(trade_tape_router, prefix=settings.API_V1_STR)
 app.include_router(watchlists_router, prefix=settings.API_V1_STR)
+app.include_router(user_activity_router, prefix=settings.API_V1_STR)
 app.include_router(rfq_router, prefix=settings.API_V1_STR)
 app.include_router(negotiations_router, prefix=settings.API_V1_STR)
 app.include_router(news_router, prefix=settings.API_V1_STR)
