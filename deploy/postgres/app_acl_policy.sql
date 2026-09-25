@@ -73,6 +73,8 @@ INSERT INTO app_table_policy (table_name, privileges) VALUES
     ('traceability_events', ARRAY['SELECT']),
     ('trades', ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE']),
     ('user_login_days', ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE']),
+    -- Browsing intake is append-only; the existing prune job owns deletes.
+    ('user_browsing_events', ARRAY['SELECT', 'INSERT', 'DELETE']),
     ('user_preferences', ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE']),
     ('user_status_transitions', ARRAY['SELECT', 'INSERT']),
     ('users', ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE']),

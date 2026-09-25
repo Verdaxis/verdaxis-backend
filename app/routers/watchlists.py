@@ -3,7 +3,7 @@ from datetime import datetime, UTC
 from typing import Annotated
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -39,6 +39,13 @@ from app.schemas.watchlist import (
 )
 from app.services.availability_windows import SPOT_WINDOW, normalize_availability_window
 from app.services.watchlist_events import sync_target_snapshot
+from app.services.audit_actions import (
+    WATCHLIST_PINNED,
+    WATCHLIST_REMOVED_TARGET,
+    WATCHLIST_SAVED_TARGET,
+    WATCHLIST_UNPINNED,
+)
+from app.services.audit_service import record_audit, request_audit_context
 from app.services.watchlists import (
     build_watchlist_event_response,
     build_watchlist_detail,
@@ -96,6 +103,16 @@ def _validate_market_product_code(value: str) -> str:
     if value not in valid:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Invalid market_product_code")
     return value
+
+
+def _target_audit_changes(target: WatchlistTarget) -> dict:
+    return {
+        "target_type": target.target_type.value,
+        "market_product": target.market_product_code,
+        "delivery_point_id": str(target.delivery_point_id),
+        "availability_window": target.availability_window_code,
+        "order_id": str(target.order_id) if target.order_id else None,
+    }
 
 
 @router.get("", response_model=list[WatchlistResponse])
@@ -205,6 +222,7 @@ async def create_watchlist_target(
     body: WatchlistTargetCreate,
     current_user: Annotated[User, Depends(get_current_user)],
     db: AsyncSession = Depends(get_db),
+    request: Request = None,
 ):
     watchlist = await load_watchlist_or_404(db, watchlist_id, current_user.id)
     if watchlist is None:
@@ -274,6 +292,28 @@ async def create_watchlist_target(
 
     db.add(target)
     try:
+        await db.flush()
+        audit_context = request_audit_context(request) if request else {}
+        if target.target_type == WatchlistTargetType.PIN:
+            await record_audit(
+                db,
+                user_id=current_user.id,
+                action=WATCHLIST_PINNED,
+                resource_type="watchlist_target",
+                resource_id=target.id,
+                changes=_target_audit_changes(target),
+                **audit_context,
+            )
+        else:
+            await record_audit(
+                db,
+                user_id=current_user.id,
+                action=WATCHLIST_SAVED_TARGET,
+                resource_type="watchlist_target",
+                resource_id=target.id,
+                changes=_target_audit_changes(target),
+                **audit_context,
+            )
         await db.commit()
     except IntegrityError:
         await db.rollback()
@@ -293,6 +333,7 @@ async def delete_watchlist_target(
     target_id: UUID,
     current_user: Annotated[User, Depends(get_current_user)],
     db: AsyncSession = Depends(get_db),
+    request: Request = None,
 ):
     watchlist = await load_watchlist_or_404(db, watchlist_id, current_user.id)
     if watchlist is None:
@@ -311,8 +352,38 @@ async def delete_watchlist_target(
             WatchlistTarget.availability_window_code == target.availability_window_code,
         )
         for pin in (await db.execute(pin_stmt)).scalars().all():
+            await record_audit(
+                db,
+                user_id=current_user.id,
+                action=WATCHLIST_UNPINNED,
+                resource_type="watchlist_target",
+                resource_id=pin.id,
+                changes=_target_audit_changes(pin),
+                **(request_audit_context(request) if request else {}),
+            )
             await db.delete(pin)
 
+    audit_context = request_audit_context(request) if request else {}
+    if target.target_type == WatchlistTargetType.PIN:
+        await record_audit(
+            db,
+            user_id=current_user.id,
+            action=WATCHLIST_UNPINNED,
+            resource_type="watchlist_target",
+            resource_id=target.id,
+            changes=_target_audit_changes(target),
+            **audit_context,
+        )
+    else:
+        await record_audit(
+            db,
+            user_id=current_user.id,
+            action=WATCHLIST_REMOVED_TARGET,
+            resource_type="watchlist_target",
+            resource_id=target.id,
+            changes=_target_audit_changes(target),
+            **audit_context,
+        )
     await db.delete(target)
     await db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)

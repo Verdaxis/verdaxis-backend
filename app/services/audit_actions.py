@@ -44,6 +44,11 @@ TRADE_CREATED = "trade.created"
 TRADE_DECLINED = "trade.declined"
 TRADE_DELIVERED = "trade.delivered"
 TRADE_PAID = "trade.paid"
+WATCHLIST_SAVED_TARGET = "watchlist.saved_target"
+WATCHLIST_REMOVED_TARGET = "watchlist.removed_target"
+WATCHLIST_PINNED = "watchlist.pinned"
+WATCHLIST_UNPINNED = "watchlist.unpinned"
+MARKET_WATCH_PREFERENCES_SAVED = "preferences.market_watch_saved"
 USER_PASSWORD_CHANGED = "user.password_changed"
 USER_PASSWORD_RESET_COMPLETED = "user.password_reset_completed"
 USER_PASSWORD_RESET_REQUESTED = "user.password_reset_requested"
@@ -95,6 +100,11 @@ AUDIT_ACTIONS = frozenset(
         TRADE_DECLINED,
         TRADE_DELIVERED,
         TRADE_PAID,
+        WATCHLIST_SAVED_TARGET,
+        WATCHLIST_REMOVED_TARGET,
+        WATCHLIST_PINNED,
+        WATCHLIST_UNPINNED,
+        MARKET_WATCH_PREFERENCES_SAVED,
         USER_PASSWORD_CHANGED,
         USER_PASSWORD_RESET_COMPLETED,
         USER_PASSWORD_RESET_REQUESTED,

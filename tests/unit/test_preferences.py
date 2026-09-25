@@ -16,6 +16,7 @@ from slowapi.errors import RateLimitExceeded
 
 from app.database import get_db
 from app.models.user_preference import UserPreference
+from app.models.audit import AuditLog
 from app.rate_limit import limiter
 from app.routers.auth_simple import get_current_user
 from app.routers.preferences import router as preferences_router
@@ -54,6 +55,7 @@ class _ExecuteResult:
 class PreferenceSession:
     def __init__(self):
         self.preferences: dict[tuple[object, str], UserPreference] = {}
+        self.audit_entries: list[AuditLog] = []
         self.execute_count = 0
         self.commit_count = 0
 
@@ -72,6 +74,9 @@ class PreferenceSession:
         )
 
     def add(self, preference: UserPreference):
+        if isinstance(preference, AuditLog):
+            self.audit_entries.append(preference)
+            return
         self.preferences[(preference.user_id, preference.namespace)] = preference
 
     async def commit(self):
@@ -216,6 +221,26 @@ async def test_second_put_overwrites_and_bumps_updated_at():
     assert second_updated_at > first_updated_at
     assert second_response.json()["value"] == {"completed": True}
     assert get_response.json() == {"tutorial": {"completed": True}}
+
+
+@pytest.mark.asyncio
+async def test_market_watch_audits_only_actual_preference_changes():
+    user = make_user()
+    session = PreferenceSession()
+    payload = {"products": ["BIO_METHANOL"], "portIds": ["Singapore"]}
+
+    async with preference_client(session=session, user=user) as client:
+        first = await client.put("/api/users/me/preferences/market_watch", json=payload)
+        second = await client.put("/api/users/me/preferences/market_watch", json=payload)
+
+    assert first.status_code == second.status_code == 200
+    assert first.json()["updated_at"] == second.json()["updated_at"]
+    assert len(session.audit_entries) == 1
+    assert session.audit_entries[0].action == "preferences.market_watch_saved"
+    assert session.audit_entries[0].changes == {
+        "products": ["BIO_METHANOL"],
+        "port_ids": ["Singapore"],
+    }
 
 
 @pytest.mark.asyncio

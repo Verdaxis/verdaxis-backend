@@ -603,6 +603,7 @@ AUTHENTICATED_SHARED_LOCK_PATHS = frozenset(
         "/api/watchlists",
         "/api/watchlists/{watchlist_id}",
         "/api/watchlists/{watchlist_id}/events",
+        "/api/admin/users/{user_id}/activity",
     }
 )
 
