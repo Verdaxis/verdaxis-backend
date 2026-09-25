@@ -87,7 +87,6 @@ async def _client(*, db=None, user=None):
 def _payload(event_id, *, page="marketplace") -> BrowsingEventsIn:
     return BrowsingEventsIn.model_validate(
         {
-            "consent_version": 2,
             "events": [{"id": str(event_id), "action": "page_view", "page": page}],
         }
     )
@@ -106,7 +105,6 @@ async def test_ingestion_requires_authentication_and_rejects_identity_or_time_fi
         spoofed = await client.post(
             "/api/activity/events",
             json={
-                "consent_version": 2,
                 "user_id": str(uuid4()),
                 "events": [
                     {
@@ -229,10 +227,14 @@ async def test_ingestion_is_per_user_idempotent_and_timeline_never_crosses_users
     )
     assert first.items[0].details["page"] == "marketplace"
     assert second.items[0].details["page"] == "trades"
-    assert await activity_db.scalar(select(UserBrowsingEvent).where(
-        UserBrowsingEvent.user_id == first_user,
-        UserBrowsingEvent.event_id == shared_event_id,
-    )) is not None
+    stored = await activity_db.scalar(
+        select(UserBrowsingEvent).where(
+            UserBrowsingEvent.user_id == first_user,
+            UserBrowsingEvent.event_id == shared_event_id,
+        )
+    )
+    assert stored is not None
+    assert stored.consent_version is None
 
 
 async def test_timeline_pagination_is_stable_and_reports_last_activity(activity_db):
@@ -281,7 +283,6 @@ async def test_database_event_quota_counts_unique_events_per_account(activity_db
     first_id = uuid4()
     payload = BrowsingEventsIn.model_validate(
         {
-            "consent_version": 2,
             "events": [
                 {"id": str(first_id), "action": "page_view", "page": "home"},
                 {"id": str(first_id), "action": "page_view", "page": "home"},
@@ -430,19 +431,30 @@ async def test_business_and_login_filters_use_safe_legacy_facts_without_duplicat
     assert sum(item.action == "watchlist.saved_target" for item in deduplicated.items) == 1
 
 
-def test_schema_rejects_unknown_page_consent_and_extra_event_fields():
+def test_schema_accepts_policy_covered_events_and_legacy_marker_but_rejects_invalid_fields():
     from pydantic import ValidationError
+
+    without_consent = BrowsingEventsIn.model_validate(
+        {"events": [{"id": str(uuid4()), "action": "page_view", "page": "home"}]}
+    )
+    assert without_consent.consent_version is None
+    with_legacy_marker = BrowsingEventsIn.model_validate(
+        {
+            "consent_version": 2,
+            "events": [{"id": str(uuid4()), "action": "page_view", "page": "home"}],
+        }
+    )
+    assert with_legacy_marker.consent_version == 2
 
     for payload in (
         {"consent_version": 1, "events": [{"id": str(uuid4()), "action": "page_view", "page": "home"}]},
-        {"consent_version": 2, "events": [{"id": str(uuid4()), "action": "page_view", "page": "free-form"}]},
-        {"consent_version": 2, "events": [{"id": str(uuid4()), "action": "page_view", "page": "home", "query": "secret"}]},
+        {"events": [{"id": str(uuid4()), "action": "page_view", "page": "free-form"}]},
+        {"events": [{"id": str(uuid4()), "action": "page_view", "page": "home", "query": "secret"}]},
     ):
         with pytest.raises(ValidationError):
             BrowsingEventsIn.model_validate(payload)
 
     too_many = {
-        "consent_version": 2,
         "events": [
             {"id": str(uuid4()), "action": "page_view", "page": "home"}
             for _ in range(51)

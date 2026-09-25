@@ -67,19 +67,19 @@ async def test_app_role_can_insert_read_delete_but_cannot_update_browsing(pg_ses
             await connection.execute(
                 text(
                     "INSERT INTO user_browsing_events "
-                    "(user_id, event_id, consent_version, action, page) "
-                    "VALUES (:user_id, :event_id, 2, 'page_view', 'home')"
+                    "(user_id, event_id, action, page) "
+                    "VALUES (:user_id, :event_id, 'page_view', 'home')"
                 ),
                 {"user_id": user.id, "event_id": event_id},
             )
         async with app_engine.connect() as connection:
             assert await connection.scalar(
                 text(
-                    "SELECT page FROM user_browsing_events "
+                    "SELECT consent_version FROM user_browsing_events "
                     "WHERE user_id = :user_id AND event_id = :event_id"
                 ),
                 {"user_id": user.id, "event_id": event_id},
-            ) == "home"
+            ) is None
         with pytest.raises(DBAPIError):
             async with app_engine.begin() as connection:
                 await connection.execute(

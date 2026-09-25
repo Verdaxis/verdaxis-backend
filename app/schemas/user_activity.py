@@ -46,7 +46,9 @@ class BrowsingEventIn(BaseModel):
 class BrowsingEventsIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    consent_version: Literal[2]
+    # Deprecated compatibility marker. New clients use the separate privacy
+    # policy and omit this field.
+    consent_version: Literal[2] | None = None
     events: list[BrowsingEventIn] = Field(min_length=1, max_length=50)
 
 

@@ -1,4 +1,4 @@
-"""Consent-linked browsing and market-interest events."""
+"""Authenticated browsing and market-interest events."""
 
 from __future__ import annotations
 
@@ -47,7 +47,9 @@ class UserBrowsingEvent(Base):
         ForeignKey("users.id", ondelete="CASCADE"),
     )
     event_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True))
-    consent_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    # Deprecated compatibility marker. New intake stores NULL because privacy
+    # terms are maintained outside this application.
+    consent_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
     action: Mapped[str] = mapped_column(String(32), nullable=False)
     page: Mapped[str] = mapped_column(String(64), nullable=False)
     market_product: Mapped[str | None] = mapped_column(String(32), nullable=True)
