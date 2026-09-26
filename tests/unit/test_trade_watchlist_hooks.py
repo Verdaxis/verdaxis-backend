@@ -1,5 +1,5 @@
 """Tests for trade-path watchlist event propagation."""
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from types import SimpleNamespace
 from uuid import uuid4
@@ -15,6 +15,9 @@ from app.models.audit import AuditLog  # noqa: F401 — registers audit_logs on 
 from app.models.catalog import DeliveryPoint, Product
 from app.models.orderbook import OrderBookOrder, OrderBookStatus, OrderSide, Trade
 from app.models.market_event import MarketEventOutbox
+from app.models.negotiation import Negotiation, NegotiationStatus
+from app.models.orders import Commission
+from app.models.rfq import RFQ, RFQQuote, RFQStatus, QuoteStatus
 from app.models.subscription import Subscription, SubscriptionTier
 from app.models.user import (
     OrganizationProvenance,
@@ -26,6 +29,8 @@ from app.models.user import (
 )
 from app.models.watchlist import WatchlistEvent, WatchlistTarget, WatchlistTargetType
 from app.routers import trades as trades_router
+from app.services import demo_activity
+from app.services.demo_market import DEMO_ACTIVITY_BUYER_ORG_ID, DEMO_ACTIVITY_SELLER_ORG_ID
 from app.services.watchlists import ensure_market_radar
 from app.services.watchlist_events import sync_target_snapshot
 
@@ -49,6 +54,11 @@ REQUIRED_TABLES = [
     'watchlist_targets',
     'watchlist_events',
     'market_event_outbox',
+    'match_suggestions',
+    'negotiations',
+    'rfqs',
+    'rfq_quotes',
+    'commissions',
 ]
 
 
@@ -73,7 +83,7 @@ async def db(async_engine, setup_tables):
     async with session_factory() as session:
         yield session
         await session.rollback()
-        for table in ('audit_logs', 'watchlist_events', 'watchlist_targets', 'watchlists', 'market_event_outbox', 'live_slice_benchmarks', 'trades', 'subscriptions', 'orderbook_orders', 'users', 'delivery_points', 'products', 'organizations'):
+        for table in ('commissions', 'rfq_quotes', 'rfqs', 'negotiations', 'match_suggestions', 'audit_logs', 'watchlist_events', 'watchlist_targets', 'watchlists', 'market_event_outbox', 'live_slice_benchmarks', 'trades', 'subscriptions', 'orderbook_orders', 'users', 'delivery_points', 'products', 'organizations'):
             await session.execute(delete(Base.metadata.tables[table]))
         await session.commit()
 
@@ -468,3 +478,126 @@ async def test_biofuel_direct_bid_fill_requires_qualified_ask_but_buyers_can_fil
     assert response.status == "PENDING_CONFIRMATION"
     assert response.market_product == product_name
     assert ask.remaining_quantity_mt == Decimal("900")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("prune_path", ["age", "cap", "linked_age", "linked_cap"])
+async def test_demo_pruning_preserves_customer_pins_and_removes_unreferenced_orders(monkeypatch, db, prune_path):
+    now = datetime(2026, 9, 27, 0, tzinfo=UTC)
+    created_at = now - timedelta(days=8 if "age" in prune_path else 1)
+    viewer_org = await _make_org(db, "Viewer", OrgType.SHIPPING_LINE)
+    viewer = await _make_user(db, viewer_org, UserRole.BUYER)
+    for organization_id, kind in (
+        (DEMO_ACTIVITY_BUYER_ORG_ID, OrgType.SHIPPING_LINE),
+        (DEMO_ACTIVITY_SELLER_ORG_ID, OrgType.FUEL_SUPPLIER),
+    ):
+        db.add(Organization(
+            id=organization_id, name=f"Demo {kind.value}", type=kind,
+            provenance=OrganizationProvenance.DEMO, verification_status="APPROVED",
+        ))
+    product = await _make_product(db)
+    port = await _make_delivery_point(db)
+    pinned, unreferenced = [
+        await _make_ask(db, org_id=DEMO_ACTIVITY_SELLER_ORG_ID, product_id=product.id, delivery_point_id=port.id)
+        for _ in range(2)
+    ]
+    for order in (pinned, unreferenced):
+        order.provenance = OrganizationProvenance.DEMO
+        order.created_at = created_at
+        order.expires_at = now + timedelta(days=1)
+    radar = await ensure_market_radar(db, viewer.id)
+    pin = WatchlistTarget(
+        watchlist_id=radar.id, target_type=WatchlistTargetType.PIN, order_id=pinned.id,
+        market_product_code="BIO_METHANOL", delivery_point_id=port.id, availability_window_code="SPOT",
+    )
+    db.add(pin)
+    if prune_path.startswith("linked"):
+        for order in (pinned, unreferenced):
+            trade = _pending_trade(
+                order, buyer_id=DEMO_ACTIVITY_BUYER_ORG_ID,
+                seller_id=DEMO_ACTIVITY_SELLER_ORG_ID, quantity="100",
+            )
+            trade.created_at = created_at
+            trade.buyer_provenance = trade.seller_provenance = OrganizationProvenance.DEMO
+            db.add(trade)
+    if "cap" in prune_path:
+        cap_name = "MAX_GENERATED_TRADES" if prune_path.startswith("linked") else "MAX_GENERATED_ORDERS"
+        monkeypatch.setattr(demo_activity, cap_name, 0)
+    await db.commit()
+
+    result = await demo_activity.prune_demo_activity(db, now=now)
+    await db.commit()
+
+    assert result["orders_pruned"] == 1
+    assert result["trades_pruned"] == (2 if prune_path.startswith("linked") else 0)
+    assert (await db.execute(select(OrderBookOrder.id))).scalars().all() == [pinned.id]
+    assert (await db.execute(select(WatchlistTarget.order_id))).scalars().all() == [pinned.id]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("prune_path", ["age", "cap"])
+async def test_demo_pruning_preserves_commission_rfq_and_negotiation_trade_history(monkeypatch, db, prune_path):
+    now = datetime(2026, 9, 27, 0, tzinfo=UTC)
+    created_at = now - timedelta(days=8 if prune_path == "age" else 1)
+    for organization_id, kind in (
+        (DEMO_ACTIVITY_BUYER_ORG_ID, OrgType.SHIPPING_LINE),
+        (DEMO_ACTIVITY_SELLER_ORG_ID, OrgType.FUEL_SUPPLIER),
+    ):
+        db.add(Organization(
+            id=organization_id, name=f"Demo {kind.value}", type=kind,
+            provenance=OrganizationProvenance.DEMO, verification_status="APPROVED",
+        ))
+    product = await _make_product(db)
+    port = await _make_delivery_point(db)
+    orders, trades = [], []
+    for _ in range(4):
+        order = await _make_ask(
+            db, org_id=DEMO_ACTIVITY_SELLER_ORG_ID, product_id=product.id, delivery_point_id=port.id,
+        )
+        order.provenance = OrganizationProvenance.DEMO
+        order.created_at = created_at
+        order.expires_at = now + timedelta(days=1)
+        trade = _pending_trade(
+            order, buyer_id=DEMO_ACTIVITY_BUYER_ORG_ID,
+            seller_id=DEMO_ACTIVITY_SELLER_ORG_ID, quantity="100",
+        )
+        trade.buyer_provenance = trade.seller_provenance = OrganizationProvenance.DEMO
+        trade.created_at = created_at
+        db.add(trade)
+        orders.append(order)
+        trades.append(trade)
+    await db.flush()
+    commission = Commission(trade_id=trades[0].id, match_id=uuid4(), amount_usd=Decimal("200"))
+    rfq_id, quote_id = uuid4(), uuid4()
+    rfq = RFQ(
+        id=rfq_id, buyer_org_id=DEMO_ACTIVITY_BUYER_ORG_ID, product_id=product.id,
+        delivery_point_id=port.id, quantity_mt=Decimal("100"), availability_window="SPOT",
+        status=RFQStatus.ACCEPTED, trade_id=trades[1].id, accepted_quote_id=quote_id,
+        expires_at=now + timedelta(days=1),
+    )
+    quote = RFQQuote(
+        id=quote_id, rfq_id=rfq_id, seller_org_id=DEMO_ACTIVITY_SELLER_ORG_ID,
+        price_per_mt_usd=Decimal("1090"), status=QuoteStatus.ACCEPTED,
+    )
+    negotiation = Negotiation(
+        initiator_org_id=DEMO_ACTIVITY_BUYER_ORG_ID, counterparty_org_id=DEMO_ACTIVITY_SELLER_ORG_ID,
+        initiator_side="BUYER", last_actor_org_id=DEMO_ACTIVITY_BUYER_ORG_ID,
+        product_id=product.id, delivery_point_id=port.id, availability_window="SPOT",
+        quantity_mt=Decimal("100"), current_price=Decimal("1090"),
+        status=NegotiationStatus.AGREED, trade_id=trades[2].id,
+        expires_at=now + timedelta(days=1),
+    )
+    db.add_all([commission, rfq, quote, negotiation])
+    if prune_path == "cap":
+        monkeypatch.setattr(demo_activity, "MAX_GENERATED_TRADES", 0)
+    await db.commit()
+
+    result = await demo_activity.prune_demo_activity(db, now=now)
+    await db.commit()
+
+    assert result == {"trades_pruned": 1, "orders_pruned": 1}
+    assert set((await db.execute(select(Trade.id))).scalars()) == {trade.id for trade in trades[:3]}
+    assert set((await db.execute(select(OrderBookOrder.id))).scalars()) == {order.id for order in orders[:3]}
+    assert (await db.execute(select(Commission.trade_id))).scalar_one() == trades[0].id
+    assert (await db.execute(select(RFQ.trade_id))).scalar_one() == trades[1].id
+    assert (await db.execute(select(Negotiation.trade_id))).scalar_one() == trades[2].id
