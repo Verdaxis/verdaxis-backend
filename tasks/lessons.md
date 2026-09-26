@@ -333,7 +333,7 @@
 ### Preserve Immutable Fields During Demo Reconciliation
 - **Date:** 2026-08-01
 - **Trigger:** The rolling Demo coverage job attempted to copy ownership and slice fields onto existing orders after the market-integrity migration made those fields immutable.
-- **Rule:** Reconciliation may insert missing Demo orders and refresh explicitly mutable presentation/lifecycle fields, but must never rewrite immutable order identity or market-slice fields.
+- **Rule:** Reconciliation may insert missing Demo orders and refresh explicitly mutable presentation/lifecycle fields, but must never rewrite immutable order identity or market-slice fields. Cleanup must retain orders and trades referenced by customer or financial records, and recheck references in every delete path.
 - **Why:** An older reconciler contract crossed a newer database trust boundary, causing the entire coverage transaction to roll back and leaving products absent.
 
 ### Scope Shared-Infrastructure Evidence To Verdaxis
