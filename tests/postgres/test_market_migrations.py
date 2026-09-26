@@ -1191,8 +1191,13 @@ async def test_biofuel_downgrade_preserves_cascade_linked_price_alert(migration_
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("product_name", ["B30", "B100"])
-async def test_biofuel_downgrade_preserves_unpublished_inventory(migration_database, product_name):
+@pytest.mark.parametrize(
+    ("product_name", "fuel_type"),
+    [("B30", "Biofuel"), ("B100", "Biofuel"), (" B30\t", "Methanol")],
+)
+async def test_biofuel_downgrade_preserves_unpublished_inventory(
+    migration_database, product_name, fuel_type
+):
     database_url, _ = migration_database
     upgraded = await asyncio.to_thread(_alembic, database_url, "upgrade", _HEAD)
     assert upgraded.returncode == 0, upgraded.stderr
@@ -1200,8 +1205,8 @@ async def test_biofuel_downgrade_preserves_unpublished_inventory(migration_datab
     await _database_execute(
         database_url,
         "INSERT INTO inventory_items (id, fuel_type, product_name, current_stock_mt) "
-        "VALUES (:id, 'Biofuel', :product_name, 200)",
-        {"id": inventory_id, "product_name": product_name},
+        "VALUES (:id, :fuel_type, :product_name, 200)",
+        {"id": inventory_id, "product_name": product_name, "fuel_type": fuel_type},
     )
 
     refused = await asyncio.to_thread(
@@ -1216,8 +1221,8 @@ async def test_biofuel_downgrade_preserves_unpublished_inventory(migration_datab
     )
     assert tuple(preserved.one()) == (product_name, 200)
     product = await _database_execute(
-        database_url, "SELECT name FROM products WHERE name = :name", {"name": product_name}
+        database_url, "SELECT name FROM products WHERE name = :name", {"name": product_name.strip()}
     )
-    assert product.scalar_one() == product_name
+    assert product.scalar_one() == product_name.strip()
     current = await _database_execute(database_url, "SELECT version_num FROM alembic_version")
     assert current.scalar_one() == _HEAD

@@ -33,7 +33,8 @@ _BIOFUEL_REFERENCES = (
     ("negotiations", "product_id IN (:b30_id, :b100_id)"),
     ("contracts", "product_id IN (:b30_id, :b100_id)"),
     ("supply_listings", "product_id IN (:b30_id, :b100_id)"),
-    ("inventory_items", "fuel_type = 'Biofuel' AND trim(product_name) IN ('B30', 'B100')"),
+    # Inventory publishing strips whitespace and resolves name independently of fuel_type.
+    ("inventory_items", "trim(product_name, ' \t\r\n\f\v') IN ('B30', 'B100')"),
     ("market_support_authorizations", "product_id IN (:b30_id, :b100_id)"),
     ("price_alerts", "product_id IN (:b30_id, :b100_id)"),
     ("watchlist_entries", "product_id IN (:b30_id, :b100_id)"),
