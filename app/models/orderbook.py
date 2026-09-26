@@ -44,6 +44,8 @@ class FuelGrade(str, enum.Enum):
     BIO = "Bio"
     E = "E"
     SYNTHETIC = "Synthetic"
+    B30 = "B30"
+    B100 = "B100"
 
 
 class OrderSide(str, enum.Enum):

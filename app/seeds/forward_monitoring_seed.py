@@ -81,6 +81,8 @@ def _demo_slices(reference_now: datetime) -> list[tuple[str, str, str]]:
     curve_windows = _default_curve_windows(reference_now)
     for window in curve_windows:
         add("Bio Methanol", "Singapore", window)
+        add("B30", "Singapore", window)
+        add("B100", "Singapore", window)
 
     if len(curve_windows) > 1:
         add("e-Methanol", "Rotterdam", curve_windows[1])

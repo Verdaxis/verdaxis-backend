@@ -76,6 +76,7 @@ from app.services.availability_windows import is_tradable_availability_window
 from app.services.execution_policy import (
     execution_party_is_eligible,
     normalize_certification_scheme,
+    supplier_product_metadata_error,
 )
 from app.services.idempotency import (
     acquire_idempotency_lock,
@@ -855,6 +856,8 @@ async def create_authorization(
         carbon_intensity_gco2_mj=body.order.carbon_intensity_gco2_mj,
         feedstock=body.order.feedstock,
         origin=body.order.origin,
+        product_id=body.order.product_id,
+        carbon_intensity_method=body.order.carbon_intensity_method,
     )
     organization = await _load_organization(db, organization_id)
     supplier = await _load_supplier(db, body.accountable_user_id, organization)
@@ -1085,6 +1088,13 @@ async def create_listing(
     supplier = await _load_supplier(db, authorization.accountable_user_id, organization)
     product, delivery_point = await _load_catalog(db, authorization.product_id, authorization.delivery_point_id)
     candidate = _candidate_from_authorization(authorization, organization, product, delivery_point)
+    product_error = supplier_product_metadata_error(
+        candidate.product_id,
+        specification_standard=candidate.specification_standard,
+        carbon_intensity_method=candidate.carbon_intensity_method,
+    )
+    if product_error:
+        raise HTTPException(status_code=400, detail=product_error)
     assessment = await assess_locked_order(db, candidate, organization=organization)
     if assessment.indeterminate:
         raise HTTPException(status_code=409, detail=_detail("POST_ONLY_CHECK_INDETERMINATE", "The complete crossing set could not be assessed; retry later"))

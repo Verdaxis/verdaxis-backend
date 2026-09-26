@@ -1,14 +1,6 @@
-from typing import Literal
-
 from pydantic import BaseModel, ConfigDict, StrictBool, StrictStr
 
-
-MarketProduct = Literal[
-    "BIO_METHANOL",
-    "E_METHANOL",
-    "BIO_ETHANOL",
-    "SYNTHETIC_ETHANOL",
-]
+from app.market_catalog import MarketProduct
 
 
 class MarketWatchPreferences(BaseModel):

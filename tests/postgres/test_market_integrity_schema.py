@@ -18,7 +18,7 @@ from tests.postgres.market_test_support import assign_fixture_real_provenance
 
 
 @pytest.fixture
-async def market_rows(market_pg):
+async def market_rows(market_pg, request):
     factory = async_sessionmaker(market_pg, class_=AsyncSession, expire_on_commit=False)
     async with factory() as session:
         buyer = Organization(
@@ -29,7 +29,7 @@ async def market_rows(market_pg):
             name=f"Schema Seller {uuid4()}",
             type=OrgType.FUEL_SUPPLIER,
         )
-        product_spec = PRODUCTS_BY_CODE["BIO_METHANOL"]
+        product_spec = PRODUCTS_BY_CODE[getattr(request, "param", "BIO_METHANOL")]
         point_spec = DELIVERY_POINTS_BY_NAME["Singapore"]
         product = Product(
             id=product_spec.id,
@@ -62,9 +62,15 @@ async def market_rows(market_pg):
             status=OrderBookStatus.OPEN,
             certification_declared=True,
             certification_scheme="ISCC EU",
-            specification_standard="IMPCA",
+            specification_standard=(
+                {
+                    "B30": "ISO 8217:2024 RF 380",
+                    "B100": "ISO 8217:2024 DFA",
+                }.get(product_spec.name, "IMPCA")
+            ),
             msds_available=True,
             carbon_intensity_gco2_mj=Decimal("20.00"),
+            carbon_intensity_method="RED lifecycle calculation for supplied fuel",
             feedstock="biogenic",
             origin="schema-test",
         )
@@ -86,7 +92,7 @@ async def market_rows(market_pg):
             product_name=product.name,
             fuel_type=product.fuel_type,
             fuel_grade=product.fuel_grade,
-            market_product="BIO_METHANOL",
+            market_product=product_spec.market_product.value,
             delivery_point_id=point.id,
             delivery_point_name=point.name,
             delivery_point_region=point.region,
@@ -447,3 +453,75 @@ async def test_rfq_quote_and_negotiation_domains_fail_closed(market_pg, market_r
         point=market_rows["point"],
         expires=datetime.now(UTC) + timedelta(days=1),
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("market_rows", ["B30", "B100"], indirect=True)
+async def test_biofuel_snapshot_rejects_forged_identity_and_remains_immutable(
+    market_pg, market_rows
+):
+    # The fixture has already persisted a valid canonical biofuel trade.
+    async with market_pg.connect() as connection:
+        snapshot = (await connection.execute(
+            text("SELECT product_name, fuel_type, fuel_grade, market_product "
+                 "FROM trades WHERE id = :id"),
+            {"id": market_rows["trade"]},
+        )).one()
+    code = snapshot.market_product
+    assert code in {"B30", "B100"}
+    assert tuple(snapshot) == (code, "Biofuel", code, code)
+
+    parameters = _valid_snapshot_parameters(market_rows)
+    parameters.update(
+        product_name=code, fuel_type="Biofuel", fuel_grade=code, market_product=code
+    )
+    forged = {**parameters, "fuel_grade": "B100" if code == "B30" else "B30"}
+    await _rejected(market_pg, _TRADE_INSERT, **forged)
+
+    # A catalog row edited to look like another grade is not canonical either.
+    with pytest.raises(DBAPIError, match="active canonical product"):
+        async with market_pg.begin() as connection:
+            await connection.execute(
+                text("UPDATE products SET fuel_grade = :grade WHERE id = :id"),
+                {"id": market_rows["product"], "grade": forged["fuel_grade"]},
+            )
+            await connection.execute(text(_TRADE_INSERT), forged)
+
+    await _rejected(
+        market_pg,
+        "UPDATE trades SET market_product = 'BIO_METHANOL' WHERE id = :id",
+        id=market_rows["trade"],
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("market_product", ["B30", "B100"])
+async def test_biofuel_forward_signal_checks_accept_known_and_reject_unknown_product(
+    market_pg, market_rows, market_product
+):
+    statements = {
+        "market_indications": "INSERT INTO market_indications "
+            "(id, market_product, delivery_point_id, availability_window, side, price_per_mt_usd, source, observed_at) "
+            "VALUES (:id, :market_product, :point, 'SPOT', 'ASK', 800, 'Biofuel test', now())",
+        "fair_price_bands": "INSERT INTO fair_price_bands "
+            "(id, market_product, delivery_point_id, availability_window, "
+            "low_price_per_mt_usd, mid_price_per_mt_usd, high_price_per_mt_usd, "
+            "model_name, source, observed_at) "
+            "VALUES (:id, :market_product, :point, 'SPOT', 790, 800, 810, 'Biofuel model', 'Biofuel test', now())",
+        "physical_stems": "INSERT INTO physical_stems "
+            "(id, market_product, delivery_point_id, availability_window, quantity_mt, status, source, stem_uid, observed_at) "
+            "VALUES (:id, :market_product, :point, 'SPOT', 200, 'AVAILABLE', 'Biofuel test', 'Biofuel stem', now())",
+    }
+    for table, statement in statements.items():
+        row_id = uuid4()
+        async with market_pg.begin() as connection:
+            result = await connection.execute(
+                text(statement),
+                {"id": row_id, "point": market_rows["point"], "market_product": market_product}
+            )
+            assert result.rowcount == 1
+        await _rejected(
+            market_pg,
+            f"UPDATE {table} SET market_product = 'B31' WHERE id = :id",
+            id=row_id,
+        )

@@ -255,12 +255,14 @@ async def test_table_cells_are_compact_and_filters_preserve_matrix_identity(db: 
 
 
 @pytest.mark.asyncio
-async def test_default_four_by_eight_table_payload_is_bounded(db: AsyncSession):
+async def test_default_six_by_eight_table_payload_is_bounded(db: AsyncSession):
     for name, fuel_type, grade in (
         ("Bio Methanol", "Methanol", "Bio"),
         ("e-Methanol", "Methanol", "E"),
         ("Bio Ethanol", "Ethanol", "Bio"),
         ("Synthetic Ethanol", "Ethanol", "Synthetic"),
+        ("B30", "Biofuel", "B30"),
+        ("B100", "Biofuel", "B100"),
     ):
         await _make_product(db, name, fuel_type=fuel_type, grade=grade)
     for name, region in (
@@ -282,7 +284,7 @@ async def test_default_four_by_eight_table_payload_is_bounded(db: AsyncSession):
         separators=(",", ":"),
     ).encode()
 
-    assert len(table.rows) == 32
+    assert len(table.rows) == 48
     assert len(table.columns) <= 24
     assert len(encoded) < 500_000, len(encoded)
 
@@ -499,6 +501,8 @@ async def test_table_wire_projection_is_filterable_and_bounded_for_full_matrix(d
         ("e-Methanol", "Methanol", "E"),
         ("Bio Ethanol", "Ethanol", "Bio"),
         ("Synthetic Ethanol", "Ethanol", "Synthetic"),
+        ("B30", "Biofuel", "B30"),
+        ("B100", "Biofuel", "B100"),
     ):
         await _make_product(db, name, grade=grade, fuel_type=fuel_type)
     for name, region in (
@@ -518,7 +522,7 @@ async def test_table_wire_projection_is_filterable_and_bounded_for_full_matrix(d
     payload = table.model_dump(mode="json")
     encoded = json.dumps(payload, separators=(",", ":")).encode()
 
-    assert len(table.rows) == 32
+    assert len(table.rows) == 48
     assert 1 <= len(table.columns) <= 24
     assert all(len(row.cells) == len(table.columns) for row in table.rows)
     assert len(encoded) < 500_000

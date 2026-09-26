@@ -18,6 +18,12 @@ class MarketProduct(str, Enum):
     E_METHANOL = "E_METHANOL"
     BIO_ETHANOL = "BIO_ETHANOL"
     SYNTHETIC_ETHANOL = "SYNTHETIC_ETHANOL"
+    B30 = "B30"
+    B100 = "B100"
+
+
+B30_SPECIFICATION_STANDARD = "ISO 8217:2024 RF 380"
+B100_SPECIFICATION_STANDARD = "ISO 8217:2024 DFA"
 
 
 @dataclass(frozen=True)
@@ -80,6 +86,28 @@ CANONICAL_PRODUCTS: tuple[ProductSpec, ...] = (
         "MT",
         Decimal("200"),
         "Synthetic ethanol produced via power-to-liquids or equivalent synthetic pathways",
+    ),
+    ProductSpec(
+        UUID("c4cecebc-3d2d-5840-8021-57a9a11bc673"),
+        MarketProduct.B30,
+        "B30",
+        "Biofuel",
+        "B30",
+        "MT",
+        Decimal("200"),
+        "30% FAME by volume blended with 70% VLSFO; finished blend meets "
+        "ISO 8217:2024 RF 380 with sulphur at most 0.50% by mass",
+    ),
+    ProductSpec(
+        UUID("74eb9cb5-f0e3-55f1-b82c-fe29b7c45bf5"),
+        MarketProduct.B100,
+        "B100",
+        "Biofuel",
+        "B100",
+        "MT",
+        Decimal("200"),
+        "100% FAME, excluding HVO; finished fuel meets ISO 8217:2024 DFA "
+        "with sulphur at most 0.10% by mass",
     ),
 )
 
@@ -145,6 +173,10 @@ PRODUCTS_BY_NAME = MappingProxyType({spec.name: spec for spec in CANONICAL_PRODU
 PRODUCT_IDS = MappingProxyType(
     {spec.market_product.value: spec.id for spec in CANONICAL_PRODUCTS}
 )
+BIOFUEL_SPECIFICATION_STANDARDS = MappingProxyType({
+    PRODUCT_IDS["B30"]: B30_SPECIFICATION_STANDARD,
+    PRODUCT_IDS["B100"]: B100_SPECIFICATION_STANDARD,
+})
 DELIVERY_POINTS_BY_ID = MappingProxyType(
     {spec.id: spec for spec in CANONICAL_DELIVERY_POINTS}
 )

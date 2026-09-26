@@ -133,6 +133,8 @@ class TestProduct:
             ("Bio Ethanol", "Ethanol", "Bio", "BIO_ETHANOL"),
             ("e-Methanol", "Methanol", "E", "E_METHANOL"),
             ("Synthetic Ethanol", "Ethanol", "Synthetic", "SYNTHETIC_ETHANOL"),
+            ("B30", "Biofuel", "B30", "B30"),
+            ("B100", "Biofuel", "B100", "B100"),
         ],
     )
     def test_market_product_maps_supported_products(

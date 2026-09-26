@@ -11,6 +11,7 @@ from sqlalchemy.orm import joinedload, selectinload
 from uuid import UUID
 
 from app.database import get_db
+from app.market_catalog import BIOFUEL_SPECIFICATION_STANDARDS
 from app.routers.auth_simple import get_authenticated_user, get_current_user
 from app.middleware.execution import require_execution_eligible_user
 from app.models.user import Organization, User, UserRole, UserStatus, OrganizationProvenance
@@ -751,6 +752,11 @@ async def create_trade(
             raise HTTPException(
                 status_code=403,
                 detail="Only suppliers can hit a BID order",
+            )
+        if order.product_id in BIOFUEL_SPECIFICATION_STANDARDS:
+            raise HTTPException(
+                status_code=400,
+                detail="Place a qualified ASK order with the required fuel specification and supplier details to fill this biofuel BID.",
             )
 
     # Prevent self-trade

@@ -61,6 +61,9 @@ PRODUCT_DEFAULT_CI: dict[str, Decimal] = {
     "SYNTHETIC_ETHANOL": Decimal("10"),
 }
 
+# B30 and B100 intentionally have no default CI or LCV: a computed overlay
+# requires declared lifecycle CI and calorific value for the supplied batch.
+
 # Default lower calorific value per market product (MJ/kg).
 PRODUCT_DEFAULT_LCV: dict[str, Decimal] = {
     "BIO_METHANOL": Decimal("19.9"),

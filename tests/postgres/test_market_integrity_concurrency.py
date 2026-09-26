@@ -745,3 +745,105 @@ async def test_market_revocation_uses_lifecycle_locks_and_conserves_inventory(pg
         assert item.reserved_stock_mt == Decimal("0.00")
         assert events[0].event_type == "market_access_invalidated"
         assert set(events[0].participant_org_ids) == {buyer.id, seller.id}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("market_product", ["B30", "B100"])
+async def test_biofuels_match_only_the_same_product_and_persist_canonical_snapshot(
+    pg, market_product
+):
+    factory = async_sessionmaker(pg, class_=AsyncSession, expire_on_commit=False)
+    standards = {"B30": "ISO 8217:2024 RF 380", "B100": "ISO 8217:2024 DFA"}
+    async with factory() as session:
+        buyer = Organization(
+            name="Biofuel buyer", type=OrgType.FUEL_BUYER, verification_status="APPROVED"
+        )
+        seller = Organization(
+            name="Biofuel seller", type=OrgType.FUEL_SUPPLIER, verification_status="APPROVED"
+        )
+        spec = PRODUCTS_BY_CODE[market_product]
+        point_spec = DELIVERY_POINTS_BY_NAME["Singapore"]
+        product = Product(
+            id=spec.id, name=spec.name, fuel_type=spec.fuel_type,
+            fuel_grade=spec.fuel_grade, unit=spec.unit,
+            min_lot_size=spec.min_lot_size, is_active=True,
+        )
+        point = DeliveryPoint(
+            id=point_spec.id, name=point_spec.name, region=point_spec.region,
+            timezone=point_spec.timezone, is_active=True,
+        )
+        session.add_all([buyer, seller, product, point])
+        await assign_fixture_real_provenance(session, (buyer, seller))
+        buyer_user = User(
+            email="biofuel-buyer@example.invalid", password_hash="unused",
+            role=UserRole.BUYER, status=UserStatus.APPROVED,
+            organization_id=buyer.id, email_verified=True,
+        )
+        seller_user = User(
+            email="biofuel-seller@example.invalid", password_hash="unused",
+            role=UserRole.SUPPLIER, status=UserStatus.APPROVED,
+            organization_id=seller.id, email_verified=True,
+        )
+        session.add_all([buyer_user, seller_user])
+        await session.flush()
+        other_code = "B100" if market_product == "B30" else "B30"
+        other_spec = PRODUCTS_BY_CODE[other_code]
+        other_product = Product(
+            id=other_spec.id, name=other_spec.name, fuel_type=other_spec.fuel_type,
+            fuel_grade=other_spec.fuel_grade, unit=other_spec.unit, is_active=True,
+        )
+        cheaper_other_ask = OrderBookOrder(
+            organization_id=seller.id, owner_user_id=seller_user.id,
+            provenance=OrganizationProvenance.REAL, side=OrderSide.ASK,
+            product=other_product, delivery_point=point,
+            quantity_mt=Decimal("200"), remaining_quantity_mt=Decimal("200"),
+            price_per_mt_usd=Decimal("700"), availability_window="SPOT",
+            status=OrderBookStatus.OPEN, certification_declared=True,
+            certification_scheme="ISCC EU",
+            specification_standard=standards[other_code],
+            msds_available=True, carbon_intensity_gco2_mj=Decimal("60"),
+            carbon_intensity_method="RED lifecycle calculation for supplied fuel",
+            feedstock="Used cooking oil", origin="Singapore",
+        )
+        ask = OrderBookOrder(
+            organization_id=seller.id, owner_user_id=seller_user.id,
+            provenance=OrganizationProvenance.REAL, side=OrderSide.ASK,
+            product=product, delivery_point=point,
+            quantity_mt=Decimal("200"), remaining_quantity_mt=Decimal("200"),
+            price_per_mt_usd=Decimal("800"), availability_window="SPOT",
+            status=OrderBookStatus.OPEN, certification_declared=True,
+            certification_scheme="ISCC EU",
+            specification_standard=standards[market_product],
+            msds_available=True, carbon_intensity_gco2_mj=Decimal("60"),
+            carbon_intensity_method="RED lifecycle calculation for supplied fuel",
+            feedstock="Used cooking oil", origin="Singapore",
+        )
+        bid = OrderBookOrder(
+            organization_id=buyer.id, owner_user_id=buyer_user.id,
+            provenance=OrganizationProvenance.REAL, side=OrderSide.BID,
+            product=product, delivery_point=point,
+            quantity_mt=Decimal("200"), remaining_quantity_mt=Decimal("200"),
+            price_per_mt_usd=Decimal("810"), availability_window="SPOT",
+            status=OrderBookStatus.OPEN,
+        )
+        session.add_all([other_product, cheaper_other_ask, ask, bid])
+        await session.flush()
+        trades = await match_order(session, bid)
+        await session.commit()
+
+        assert len(trades) == 1
+        trade = await session.get(Trade, trades[0].id, populate_existing=True)
+        assert trade.ask_order_id == ask.id and trade.bid_order_id == bid.id
+        assert (
+            trade.product_id, trade.product_name, trade.fuel_type,
+            trade.fuel_grade, trade.market_product,
+        ) == (
+            spec.id, market_product, "Biofuel", market_product, market_product,
+        )
+        assert trade.price_per_mt_usd == Decimal("800")
+        assert trade.quantity_mt == Decimal("200")
+        assert trade.market_snapshot_version == 1
+        assert ask.status == bid.status == OrderBookStatus.FILLED
+        assert ask.remaining_quantity_mt == bid.remaining_quantity_mt == 0
+        assert cheaper_other_ask.status == OrderBookStatus.OPEN
+        assert cheaper_other_ask.remaining_quantity_mt == Decimal("200")

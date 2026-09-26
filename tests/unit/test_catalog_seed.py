@@ -10,6 +10,8 @@ EXPECTED_PRODUCT_NAMES = {
     "e-Methanol",
     "Bio Ethanol",
     "Synthetic Ethanol",
+    "B30",
+    "B100",
 }
 
 EXPECTED_DELIVERY_POINT_NAMES = {

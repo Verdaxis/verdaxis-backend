@@ -136,7 +136,7 @@ async def test_preferences_require_authentication_for_get_and_put():
     [
         (
             "market_watch",
-            {"products": ["BIO_METHANOL", "E_METHANOL"], "portIds": ["sg-sin", "nl-rtm"]},
+            {"products": ["BIO_METHANOL", "E_METHANOL", "B30", "B100"], "portIds": ["sg-sin", "nl-rtm"]},
         ),
         ("notifications", NOTIFICATION_PREFS),
         ("tutorial", {"completed": True}),

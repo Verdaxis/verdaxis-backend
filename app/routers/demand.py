@@ -6,7 +6,7 @@ from typing import Annotated, Optional, List
 from datetime import date
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -99,7 +99,8 @@ async def get_demand_signals(
     )
 
     if fuel_type:
-        stmt = stmt.where(Product.fuel_type.ilike(f"%{fuel_type}%"))
+        pattern = f"%{fuel_type}%"
+        stmt = stmt.where(or_(Product.fuel_type.ilike(pattern), Product.name.ilike(pattern)))
     if region:
         stmt = stmt.where(DeliveryPoint.region.ilike(f"%{region}%"))
 
