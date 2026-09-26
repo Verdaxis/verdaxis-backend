@@ -48,6 +48,8 @@ class FuelGrade(str, Enum):
     BIO = "Bio"
     E = "E"
     SYNTHETIC = "Synthetic"
+    B30 = "B30"
+    B100 = "B100"
 
 
 class TierLabel(str, Enum):
@@ -78,10 +80,10 @@ class AvailabilityWindowMixin(BaseModel):
 class SupplierListingMetadataMixin(BaseModel):
     certification_declared: bool = False
     certification_scheme: Optional[str] = None
-    specification_standard: Optional[str] = None
+    specification_standard: Optional[str] = Field(None, max_length=120)
     msds_available: bool = False
     carbon_intensity_gco2_mj: Optional[Decimal] = Field(None, ge=0)
-    carbon_intensity_method: Optional[str] = None
+    carbon_intensity_method: Optional[str] = Field(None, max_length=120)
     feedstock: Optional[str] = None
     origin: Optional[str] = None
     off_spec: bool = False
@@ -182,10 +184,10 @@ class OrderUpdate(AvailabilityWindowMixin):
     certifications: Optional[list[str]] = None
     certification_declared: Optional[bool] = None
     certification_scheme: Optional[str] = None
-    specification_standard: Optional[str] = None
+    specification_standard: Optional[str] = Field(None, max_length=120)
     msds_available: Optional[bool] = None
     carbon_intensity_gco2_mj: Optional[Decimal] = Field(None, ge=0)
-    carbon_intensity_method: Optional[str] = None
+    carbon_intensity_method: Optional[str] = Field(None, max_length=120)
     feedstock: Optional[str] = None
     origin: Optional[str] = None
     off_spec: Optional[bool] = None

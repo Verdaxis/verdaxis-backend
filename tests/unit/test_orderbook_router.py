@@ -7,10 +7,12 @@ from uuid import uuid4
 
 from fastapi import HTTPException
 
+from app.market_catalog import BIOFUEL_SPECIFICATION_STANDARDS, PRODUCT_IDS
 from app.models.user import UserRole
 from app.routers.orderbook import create_order, latest_supplier_listing_template
 from app.models.orderbook import OrderBookOrder
 from app.schemas.orderbook import OrderCreate, OrderSide
+from app.services.execution_policy import order_is_execution_qualified
 
 
 def _make_buyer_user():
@@ -266,3 +268,56 @@ class TestLatestSupplierListingTemplate:
         )
 
         assert payload is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("product_name", ["B30", "B100"])
+@pytest.mark.parametrize("bad_field", ["specification_standard", "carbon_intensity_method"])
+async def test_biofuel_admission_rejects_wrong_contract_or_missing_whole_fuel_method(product_name, bad_field):
+    product_id = PRODUCT_IDS[product_name]
+    metadata = dict(
+        certification_declared=True,
+        certification_scheme="ISCC EU",
+        specification_standard=BIOFUEL_SPECIFICATION_STANDARDS[product_id],
+        msds_available=True,
+        carbon_intensity_gco2_mj=Decimal("70"),
+        carbon_intensity_method="Lifecycle calculation for the whole supplied fuel",
+        feedstock="Used cooking oil FAME",
+        origin="Singapore",
+    )
+    metadata[bad_field] = "IMPCA" if bad_field == "specification_standard" else " "
+    order = OrderCreate(
+        side=OrderSide.ASK,
+        product_id=product_id,
+        delivery_point_id=uuid4(),
+        quantity_mt=Decimal("1000"),
+        price_per_mt_usd=Decimal("800"),
+        **metadata,
+    )
+    with pytest.raises(HTTPException, match=bad_field) as failure:
+        await create_order(
+            request=_fake_request(), order_data=order,
+            current_user=_make_supplier_user(), db=AsyncMock(),
+        )
+    assert failure.value.status_code == 400
+    assert not order_is_execution_qualified(OrderBookOrder(
+        product_id=product_id, side=OrderSide.ASK, **metadata,
+    ))
+
+
+@pytest.mark.parametrize("product_name", ["B30", "B100"])
+def test_biofuel_execution_requires_complete_metadata_and_accepts_case_and_outer_whitespace(product_name):
+    product_id = PRODUCT_IDS[product_name]
+    order = OrderBookOrder(
+        product_id=product_id, side=OrderSide.ASK,
+        certification_declared=True, certification_scheme="ISCC EU",
+        specification_standard=f" {BIOFUEL_SPECIFICATION_STANDARDS[product_id].lower()} ",
+        msds_available=True, carbon_intensity_gco2_mj=Decimal("70"),
+        carbon_intensity_method="Lifecycle calculation for the whole supplied fuel",
+        feedstock="Used cooking oil FAME", origin="Singapore",
+    )
+    assert order_is_execution_qualified(order)
+    order.msds_available = False
+    assert not order_is_execution_qualified(order)
+    order.side = OrderSide.BID
+    assert order_is_execution_qualified(order)

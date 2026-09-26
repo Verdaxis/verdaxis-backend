@@ -37,6 +37,7 @@ from app.services.market_data_eligibility import (
 from app.services.execution_policy import (
     execution_party_is_eligible,
     order_is_execution_qualified,
+    supplier_product_metadata_error,
 )
 from app.services.market_locks import acquire_market_slice_lock
 from app.services.inventory_reservations import assert_inventory_mutable, reserve_inventory
@@ -476,6 +477,13 @@ async def publish_inventory_item(
     listing.product = product
     listing.delivery_point = delivery_point
     listing.organization = organization
+    product_error = supplier_product_metadata_error(
+        product.id,
+        specification_standard=listing.specification_standard,
+        carbon_intensity_method=listing.carbon_intensity_method,
+    )
+    if product_error:
+        raise HTTPException(status_code=400, detail=product_error)
     if not order_is_execution_qualified(listing):
         raise HTTPException(status_code=400, detail="Inventory is not execution-qualified for marketplace publication")
 

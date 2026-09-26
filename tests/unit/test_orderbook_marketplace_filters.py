@@ -8,11 +8,13 @@ from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.database import Base
-from app.market_catalog import DELIVERY_POINTS_BY_NAME, PRODUCTS_BY_NAME
+from app.market_catalog import BIOFUEL_SPECIFICATION_STANDARDS, DELIVERY_POINTS_BY_NAME, PRODUCTS_BY_NAME
 from app.models.catalog import DeliveryPoint, Product
 from app.models.orderbook import OrderBookOrder, OrderBookStatus, OrderSide
 from app.models.user import OrganizationProvenance, OrgType, Organization
 from app.schemas.market_activity import MarketDemoStatus, MarketSourceKind
+from app.routers.curves import _aggregate_orderbook_window
+from app.routers.demand import get_demand_signals
 from app.routers.orderbook import (
     get_map_summary,
     list_active_products,
@@ -790,6 +792,8 @@ class TestMarketplaceFuelFiltering:
             'E_METHANOL': 1,
             'BIO_ETHANOL': 0,
             'SYNTHETIC_ETHANOL': 0,
+            'B30': 0,
+            'B100': 0,
         }
         assert asks.total == 2
         assert bids.counts['BIO_METHANOL'] == 1
@@ -864,3 +868,49 @@ class TestMarketplaceFuelFiltering:
         assert singapore_latest.evidence_class == 'DEMO'
         assert singapore_latest.source_kind == MarketSourceKind.DEMO_SEED
         assert singapore_latest.demo_status == MarketDemoStatus.DEMO_ONLY
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("product_name", ["B30", "B100"])
+async def test_biofuel_public_surfaces_and_live_benchmark_share_fixed_contract(db, product_name):
+    supplier = await _make_org(db, f"{product_name} Supplier")
+    port = await _make_delivery_point(db, "Singapore", "Asia")
+    product = await _make_product(db, name=product_name, fuel_type="Biofuel", fuel_grade=product_name)
+    valid = _make_order(org_id=supplier.id, product_id=product.id, delivery_point_id=port.id, price="800")
+    valid.specification_standard = BIOFUEL_SPECIFICATION_STANDARDS[product.id]
+    valid.carbon_intensity_method = "Whole supplied fuel lifecycle calculation"
+    invalid = _make_order(org_id=supplier.id, product_id=product.id, delivery_point_id=port.id, price="1")
+    invalid.specification_standard = "IMPCA"
+    invalid.carbon_intensity_method = valid.carbon_intensity_method
+    db.add_all([valid, invalid])
+    await db.commit()
+
+    asks = await list_asks(
+        product_id=None, delivery_point_id=port.id, fuel_type="Biofuel",
+        market_product=product_name, region="Asia", availability_window="SPOT",
+        include_off_spec=False, skip=0, limit=20, db=db,
+    )
+    assert asks.total == 1
+    assert asks.items[0].market_product == product_name
+    assert asks.items[0].benchmark_price_per_mt_usd == Decimal("800")
+    assert await list_fuel_types(db=db) == ["Biofuel"]
+    counts = await list_product_counts(
+        side=OrderSide.ASK, delivery_point_id=port.id, region="Asia",
+        availability_window="SPOT", include_off_spec=False, db=db,
+    )
+    assert counts.counts[product_name] == 1
+    summary = await get_map_summary(db=db)
+    assert len(summary.groups) == 1
+    assert summary.groups[0].market_product == product_name
+    assert summary.recent_asks[0].market_product == product_name
+    curve = await _aggregate_orderbook_window(
+        db, product_ids=[product.id], delivery_point_ids=[port.id], availability_window="SPOT",
+    )
+    assert curve[(product.id, port.id)]["real_best_ask"] == Decimal("800")
+    bid = _make_order(org_id=supplier.id, product_id=product.id, delivery_point_id=port.id, price="790")
+    bid.side = OrderSide.BID
+    db.add(bid)
+    await db.commit()
+    demand = await get_demand_signals(fuel_type=product_name, region="Asia", db=db)
+    assert len(demand) == 1
+    assert demand[0].market_product_code == product_name

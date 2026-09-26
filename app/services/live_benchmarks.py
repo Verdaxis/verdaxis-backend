@@ -21,7 +21,6 @@ from app.services.market_data_eligibility import (
     public_order_collection_provenance_clause,
 )
 
-APPROVED_MARKETPLACE_FUEL_TYPES = ("Methanol", "Ethanol")
 LiveBenchmarkKey = tuple[OrderSide, str | None, UUID | None, str | None]
 
 
@@ -30,7 +29,7 @@ def _text_present(value: str | None) -> bool:
 
 
 def public_slice_order_qualified(order: OrderBookOrder) -> bool:
-    if order.product is None or order.product.fuel_type not in APPROVED_MARKETPLACE_FUEL_TYPES:
+    if order.product is None or order.product.market_product is None:
         return False
     if order.status not in (OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED):
         return False

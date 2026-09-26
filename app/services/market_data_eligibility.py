@@ -8,7 +8,8 @@ from __future__ import annotations
 from sqlalchemy import and_, case, func, or_, select
 
 from app.market_catalog import CANONICAL_DELIVERY_POINTS, CANONICAL_PRODUCTS
-from app.models.orderbook import OrderCreationMethod
+from app.services.execution_policy import biofuel_supplier_metadata_clause
+from app.models.orderbook import OrderCreationMethod, OrderSide
 from app.models.user import (
     Organization,
     OrganizationProvenance,
@@ -95,7 +96,7 @@ def market_data_eligible_trade_clauses(buyer_organization, seller_organization):
 
 
 def canonical_market_product_expression(product):
-    """Strict SQL identity for the four active canonical catalog products.
+    """Strict SQL identity for the active canonical catalog products.
 
     Public market queries deliberately do not infer a canonical product from
     legacy grades or inactive aliases such as ``Methanol Green``.
@@ -182,6 +183,10 @@ def current_public_order_clause(order, *, now_expression=None):
         ),
         # Every public collection also refuses inert owner-rejected liquidity.
         public_order_owner_admission_clause(order),
+        or_(
+            order.side != OrderSide.ASK,
+            biofuel_supplier_metadata_clause(order, order.product_id),
+        ),
     )
 
 

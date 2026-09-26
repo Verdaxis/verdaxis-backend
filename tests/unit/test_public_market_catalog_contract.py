@@ -16,14 +16,16 @@ from app.models.catalog import Product
 from app.seeds.catalog_seed import seed_catalog
 
 
-def test_market_catalog_is_one_exact_four_by_eight_identity_contract():
-    assert len(CANONICAL_PRODUCTS) == 4
+def test_market_catalog_is_one_exact_six_by_eight_identity_contract():
+    assert len(CANONICAL_PRODUCTS) == 6
     assert len(CANONICAL_DELIVERY_POINTS) == 8
     assert set(PRODUCT_IDS) == {
         "BIO_METHANOL",
         "E_METHANOL",
         "BIO_ETHANOL",
         "SYNTHETIC_ETHANOL",
+        "B30",
+        "B100",
     }
     assert set(DELIVERY_POINT_IDS) == {
         "Dalian",

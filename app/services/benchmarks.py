@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import OperationalError, ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.market_catalog import PRODUCTS_BY_CODE
 from app.models.benchmark import Benchmark
 from app.models.catalog import DeliveryPoint
 from app.schemas.benchmark import BenchmarkQuote
@@ -20,20 +21,13 @@ _WINDOW_MONTH_RE = re.compile(r"^(?P<year>\d{4})-(?P<month>\d{2})$")
 _WINDOW_QUARTER_RE = re.compile(r"^(?P<year>\d{4})-Q(?P<quarter>[1-4])$")
 _WINDOW_CAL_RE = re.compile(r"^(?P<year>\d{4})-CAL$")
 
-MARKET_PRODUCT_NAMES = {
-    "BIO_METHANOL": "Bio Methanol",
-    "E_METHANOL": "e-Methanol",
-    "BIO_ETHANOL": "Bio Ethanol",
-    "SYNTHETIC_ETHANOL": "Synthetic Ethanol",
-}
-
 
 def _base_benchmark_price(market_product: str, delivery_point_name: str) -> Decimal | None:
-    product_name = MARKET_PRODUCT_NAMES.get(market_product)
-    if not product_name:
+    product = PRODUCTS_BY_CODE.get(market_product)
+    if product is None:
         return None
 
-    port_prices = PRICING.get(product_name, {}).get(delivery_point_name)
+    port_prices = PRICING.get(product.name, {}).get(delivery_point_name)
     if not port_prices:
         return None
 

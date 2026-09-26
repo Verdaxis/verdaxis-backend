@@ -29,10 +29,10 @@ class InventoryBase(BaseModel):
     is_certified: bool = False
     certification_declared: bool = False
     certification_scheme: Optional[str] = None
-    specification_standard: Optional[str] = None
+    specification_standard: Optional[str] = Field(None, max_length=120)
     msds_available: bool = False
     carbon_intensity_gco2_mj: Optional[Decimal] = Field(None, ge=0, le=10000, max_digits=8, decimal_places=2, allow_inf_nan=False)
-    carbon_intensity_method: Optional[str] = None
+    carbon_intensity_method: Optional[str] = Field(None, max_length=120)
     feedstock: Optional[str] = None
     origin: Optional[str] = None
     off_spec: bool = False
@@ -55,10 +55,10 @@ class InventoryItemUpdate(BaseModel):
     price_per_mt_usd: Optional[Decimal] = Field(None, gt=0, le=1000000, max_digits=10, decimal_places=2, allow_inf_nan=False)
     certification_declared: Optional[bool] = None
     certification_scheme: Optional[str] = None
-    specification_standard: Optional[str] = None
+    specification_standard: Optional[str] = Field(None, max_length=120)
     msds_available: Optional[bool] = None
     carbon_intensity_gco2_mj: Optional[Decimal] = Field(None, ge=0, le=10000, max_digits=8, decimal_places=2, allow_inf_nan=False)
-    carbon_intensity_method: Optional[str] = None
+    carbon_intensity_method: Optional[str] = Field(None, max_length=120)
     feedstock: Optional[str] = None
     origin: Optional[str] = None
     off_spec: Optional[bool] = None

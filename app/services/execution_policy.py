@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+from uuid import UUID
+
+from app.market_catalog import BIOFUEL_SPECIFICATION_STANDARDS, PRODUCTS_BY_ID
 from app.models.orderbook import OrderBookOrder, OrderCreationMethod, OrderSide
 from app.models.user import Organization, OrganizationProvenance, User, UserRole, UserStatus
-from sqlalchemy import select
+from sqlalchemy import and_, func, or_, select
 
 
 async def execution_party_is_eligible(db, *, user: User, organization: Organization | None = None) -> bool:
@@ -65,6 +68,48 @@ def normalize_certification_scheme(value: str | None) -> str | None:
     return normalized or None
 
 
+def supplier_product_metadata_error(
+    product_id: UUID | None,
+    *,
+    specification_standard: str | None,
+    carbon_intensity_method: str | None,
+) -> str | None:
+    """Check fixed biofuel contracts without changing other product terms."""
+    required_standard = BIOFUEL_SPECIFICATION_STANDARDS.get(product_id)
+    if required_standard is None:
+        return None
+    product_name = PRODUCTS_BY_ID[product_id].name
+    if (specification_standard or "").strip().upper() != required_standard:
+        return f"{product_name} ASK orders require specification_standard {required_standard}"
+    if not (carbon_intensity_method or "").strip():
+        return f"{product_name} ASK orders require a lifecycle carbon_intensity_method for the whole supplied fuel"
+    return None
+
+
+def biofuel_supplier_metadata_clause(record, product_id):
+    """SQL mirror for fixed biofuel contracts in public market projections."""
+    return or_(
+        product_id.not_in(tuple(BIOFUEL_SPECIFICATION_STANDARDS)),
+        and_(
+            record.off_spec.is_(False),
+            or_(*(
+                and_(
+                    product_id == identity,
+                    func.upper(func.trim(record.specification_standard, " \t\r\n\f\v")) == standard,
+                )
+                for identity, standard in BIOFUEL_SPECIFICATION_STANDARDS.items()
+            )),
+            func.length(func.trim(record.carbon_intensity_method, " \t\r\n\f\v")) > 0,
+            record.certification_declared.is_(True),
+            func.length(func.trim(record.certification_scheme, " \t\r\n\f\v")) > 0,
+            record.msds_available.is_(True),
+            record.carbon_intensity_gco2_mj.is_not(None),
+            func.length(func.trim(record.feedstock, " \t\r\n\f\v")) > 0,
+            func.length(func.trim(record.origin, " \t\r\n\f\v")) > 0,
+        ),
+    )
+
+
 def order_is_execution_qualified(order: OrderBookOrder) -> bool:
     if getattr(order, "off_spec", False):
         return False
@@ -76,6 +121,17 @@ def order_is_execution_qualified(order: OrderBookOrder) -> bool:
             return False
         if not bool(getattr(order, "certification_declared", False)):
             return False
+        if getattr(order, "product_id", None) in BIOFUEL_SPECIFICATION_STANDARDS:
+            if supplier_product_metadata_error(
+                order.product_id,
+                specification_standard=order.specification_standard,
+                carbon_intensity_method=order.carbon_intensity_method,
+            ):
+                return False
+            if not order.msds_available or order.carbon_intensity_gco2_mj is None:
+                return False
+            if not (order.feedstock or "").strip() or not (order.origin or "").strip():
+                return False
 
     return True
 

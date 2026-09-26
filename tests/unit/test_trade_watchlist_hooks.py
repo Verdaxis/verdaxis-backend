@@ -10,7 +10,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.database import Base
-from app.market_catalog import DELIVERY_POINTS_BY_NAME, PRODUCTS_BY_NAME
+from app.market_catalog import BIOFUEL_SPECIFICATION_STANDARDS, DELIVERY_POINTS_BY_NAME, PRODUCTS_BY_NAME
 from app.models.audit import AuditLog  # noqa: F401 — registers audit_logs on Base.metadata
 from app.models.catalog import DeliveryPoint, Product
 from app.models.orderbook import OrderBookOrder, OrderBookStatus, OrderSide, Trade
@@ -105,8 +105,8 @@ async def _make_user(db: AsyncSession, org: Organization, role: UserRole) -> Use
     return user
 
 
-async def _make_product(db: AsyncSession) -> Product:
-    spec = PRODUCTS_BY_NAME['Bio Methanol']
+async def _make_product(db: AsyncSession, name: str = 'Bio Methanol') -> Product:
+    spec = PRODUCTS_BY_NAME[name]
     product = Product(
         id=spec.id,
         name=spec.name,
@@ -419,3 +419,52 @@ async def test_decline_trade_restores_watchlist_state(monkeypatch, db: AsyncSess
     assert 'PIN_QUANTITY_CHANGED' in event_types or 'PIN_PARTIALLY_FILLED' in event_types
     refreshed_pin = await db.get(WatchlistTarget, pin_target.id)
     assert refreshed_pin.snapshot_remaining_quantity_mt == 1000.0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("product_name", ["B30", "B100"])
+async def test_biofuel_direct_bid_fill_requires_qualified_ask_but_buyers_can_fill_asks(monkeypatch, db, product_name):
+    buyer_org = await _make_org(db, "Biofuel Buyer", OrgType.SHIPPING_LINE)
+    buyer = await _make_user(db, buyer_org, UserRole.BUYER)
+    supplier_org = await _make_org(db, "Biofuel Supplier", OrgType.FUEL_SUPPLIER)
+    supplier = await _make_user(db, supplier_org, UserRole.SUPPLIER)
+    product = await _make_product(db, product_name)
+    port = await _make_delivery_point(db)
+    bid = await _make_ask(
+        db, org_id=buyer_org.id, product_id=product.id,
+        delivery_point_id=port.id, owner_user_id=buyer.id,
+    )
+    bid.side = OrderSide.BID
+    await db.commit()
+
+    with pytest.raises(HTTPException, match="Place a qualified ASK") as failure:
+        await trades_router.create_trade(
+            payload=trades_router.TradeCreate(order_id=bid.id, quantity_mt=Decimal("100")),
+            request=_fake_request(), db=db, current_user=supplier,
+        )
+    assert failure.value.status_code == 400
+    assert bid.remaining_quantity_mt == Decimal("1000")
+    assert (await db.execute(select(Trade))).scalars().all() == []
+
+    ask = await _make_ask(
+        db, org_id=supplier_org.id, product_id=product.id,
+        delivery_point_id=port.id, owner_user_id=supplier.id,
+    )
+    ask.specification_standard = BIOFUEL_SPECIFICATION_STANDARDS[product.id]
+    ask.carbon_intensity_gco2_mj = Decimal("70")
+    ask.carbon_intensity_method = "Lifecycle calculation for the whole supplied fuel"
+    ask.feedstock = "Used cooking oil FAME"
+    ask.origin = "Singapore"
+    await db.commit()
+
+    async def no_notification(*args, **kwargs):
+        pass
+
+    monkeypatch.setattr(trades_router, "notify_org_users", no_notification)
+    response = await trades_router.create_trade(
+        payload=trades_router.TradeCreate(order_id=ask.id, quantity_mt=Decimal("100")),
+        request=_fake_request(), db=db, current_user=buyer,
+    )
+    assert response.status == "PENDING_CONFIRMATION"
+    assert response.market_product == product_name
+    assert ask.remaining_quantity_mt == Decimal("900")

@@ -709,3 +709,18 @@ async def test_endpoint_org_fleet_basis_when_org_has_vessels(db: AsyncSession):
     assert assumptions["year_target"] == "80.04"
     # year is annotation-only: the marginal math has no year term.
     assert payload["overlays"][str(ask.id)]["penalty_avoided_usd_per_mt"] == "830.25"
+
+
+@pytest.mark.parametrize("market_product", ["B30", "B100"])
+def test_biofuel_compliance_requires_declared_whole_fuel_ci_and_lcv(market_product):
+    assert compute_listing_overlay(
+        market_product=market_product, listing_ci_gco2_mj=Decimal("70"), listing_lcv_mj_kg=None,
+    ) is None
+    assert compute_listing_overlay(
+        market_product=market_product, listing_ci_gco2_mj=None, listing_lcv_mj_kg=Decimal("39.5"),
+    ) is None
+    overlay = compute_listing_overlay(
+        market_product=market_product, listing_ci_gco2_mj=Decimal("70"), listing_lcv_mj_kg=Decimal("39.5"),
+    )
+    assert overlay is not None
+    assert overlay.ci_basis == overlay.lcv_basis == "LISTING"
