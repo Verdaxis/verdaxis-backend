@@ -12,6 +12,11 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.catalog import DeliveryPoint, Product
+from app.models.matchmaking import MatchSuggestion
+from app.models.negotiation import Negotiation
+from app.models.orders import Commission
+from app.models.rfq import RFQ
+from app.models.watchlist import WatchlistTarget
 from app.demo_identities import DEMO_SEED_BUYERS, DEMO_SEED_SUPPLIERS
 from app.models.orderbook import (
     OrderBookOrder,
@@ -350,31 +355,64 @@ async def _delete_trades_and_linked_orders(
     if not trade_rows:
         return 0, 0
 
-    trade_ids = [row[0] for row in trade_rows]
-    order_ids = {order_id for _, bid_order_id, ask_order_id in trade_rows for order_id in (bid_order_id, ask_order_id) if order_id}
-
-    await db.execute(delete(Trade).where(Trade.id.in_(trade_ids)))
+    deleted_trade_ids = set((
+        await db.execute(
+            delete(Trade)
+            .where(Trade.id.in_([row[0] for row in trade_rows]), *_unreferenced_demo_trade_filter())
+            .returning(Trade.id)
+        )
+    ).scalars().all())
+    order_ids = {
+        order_id
+        for trade_id, bid_order_id, ask_order_id in trade_rows
+        if trade_id in deleted_trade_ids
+        for order_id in (bid_order_id, ask_order_id)
+        if order_id is not None
+    }
     if order_ids:
         deleted_orders = (
             await db.execute(
                 delete(OrderBookOrder)
-                .where(OrderBookOrder.id.in_(order_ids))
+                .where(OrderBookOrder.id.in_(order_ids), *_unreferenced_demo_order_filter())
                 .returning(OrderBookOrder.id)
             )
         ).all()
     else:
         deleted_orders = []
 
-    return len(trade_ids), len(deleted_orders)
+    return len(deleted_trade_ids), len(deleted_orders)
 
 
 def _unreferenced_demo_order_filter():
-    referenced_bid_orders = select(Trade.bid_order_id).where(Trade.bid_order_id.is_not(None))
-    referenced_ask_orders = select(Trade.ask_order_id).where(Trade.ask_order_id.is_not(None))
+    referenced_order_columns = (
+        Trade.bid_order_id,
+        Trade.ask_order_id,
+        WatchlistTarget.order_id,
+        MatchSuggestion.bid_order_id,
+        MatchSuggestion.ask_order_id,
+        Negotiation.bid_order_id,
+        Negotiation.ask_order_id,
+    )
     return (
         OrderBookOrder.organization_id.in_(DEMO_ACTIVITY_ORG_IDS),
-        OrderBookOrder.id.not_in(referenced_bid_orders),
-        OrderBookOrder.id.not_in(referenced_ask_orders),
+        OrderBookOrder.provenance == OrganizationProvenance.DEMO,
+        *(
+            OrderBookOrder.id.not_in(select(column).where(column.is_not(None)))
+            for column in referenced_order_columns
+        ),
+    )
+
+
+def _unreferenced_demo_trade_filter():
+    return (
+        Trade.buyer_id.in_(DEMO_ACTIVITY_ORG_IDS),
+        Trade.seller_id.in_(DEMO_ACTIVITY_ORG_IDS),
+        Trade.buyer_provenance == OrganizationProvenance.DEMO,
+        Trade.seller_provenance == OrganizationProvenance.DEMO,
+        *(
+            Trade.id.not_in(select(column).where(column.is_not(None)))
+            for column in (Commission.trade_id, RFQ.trade_id, Negotiation.trade_id)
+        ),
     )
 
 
@@ -386,8 +424,7 @@ async def prune_demo_activity(db: AsyncSession, *, now: datetime | None = None) 
         await db.execute(
             select(Trade.id, Trade.bid_order_id, Trade.ask_order_id)
             .where(
-                Trade.buyer_id.in_(DEMO_ACTIVITY_ORG_IDS),
-                Trade.seller_id.in_(DEMO_ACTIVITY_ORG_IDS),
+                *_unreferenced_demo_trade_filter(),
                 Trade.created_at < cutoff,
             )
         )
@@ -405,6 +442,8 @@ async def prune_demo_activity(db: AsyncSession, *, now: datetime | None = None) 
         )
     ).all()
 
+    # ponytail: retention caps are soft while customer/history references remain.
+    # Referenced records become eligible after those references are removed.
     total_trades = (
         await db.execute(
             select(func.count()).where(
@@ -420,8 +459,7 @@ async def prune_demo_activity(db: AsyncSession, *, now: datetime | None = None) 
             await db.execute(
                 select(Trade.id, Trade.bid_order_id, Trade.ask_order_id)
                 .where(
-                    Trade.buyer_id.in_(DEMO_ACTIVITY_ORG_IDS),
-                    Trade.seller_id.in_(DEMO_ACTIVITY_ORG_IDS),
+                    *_unreferenced_demo_trade_filter(),
                 )
                 .order_by(Trade.created_at.asc())
                 .limit(total_trades - MAX_GENERATED_TRADES)
@@ -448,7 +486,7 @@ async def prune_demo_activity(db: AsyncSession, *, now: datetime | None = None) 
             capped_orders = (
                 await db.execute(
                     delete(OrderBookOrder)
-                    .where(OrderBookOrder.id.in_(stale_order_ids))
+                    .where(OrderBookOrder.id.in_(stale_order_ids), *_unreferenced_demo_order_filter())
                     .returning(OrderBookOrder.id)
                 )
             ).all()
