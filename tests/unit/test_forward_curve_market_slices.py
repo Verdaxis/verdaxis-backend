@@ -18,10 +18,15 @@ from app.models.catalog import DeliveryPoint, Product
 from app.models.orderbook import Initiator, OrderBookOrder, OrderBookStatus, OrderSide, Trade, TradeStatus
 from app.models.user import Organization, OrgType, OrganizationProvenance
 from app.routers.curves import router
-from app.schemas.curves import ForwardCurveEvidenceLayer, MarketSignalType
+from app.schemas.curves import ForwardCurveEvidenceLayer, ForwardCurveMarketCell, ForwardCurveTableCell, MarketSignalType
 from app.schemas.market_activity import MarketDemoStatus, MarketSourceKind
 from app.services.demo_market import DEMO_ACTIVITY_BUYER_ORG_ID, DEMO_ACTIVITY_SELLER_ORG_ID, is_demo_market_organization
-from app.services.forward_curve_market_slices import forward_curve_market_slices
+from app.services.forward_curve_market_slices import (
+    ProductGroup,
+    SliceKey,
+    ViewerContext,
+    forward_curve_market_slices,
+)
 from app.services.provenance import execution_provenance_compatible
 
 
@@ -173,6 +178,72 @@ def _make_order(
             )
         payload["fame_terms"] = validate_fame_order_terms(product_id, side, terms)
     return OrderBookOrder(**payload)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("sides", [(OrderSide.BID,), (OrderSide.ASK,), (OrderSide.BID, OrderSide.ASK)])
+@pytest.mark.parametrize("include_demo", [False, True])
+async def test_orderbook_aggregate_combines_sides_and_product_ids_without_blending_evidence(
+    db: AsyncSession, sides, include_demo,
+):
+    real_org = await _make_org(db, "Real Supplier")
+    demo_org = await _make_demo_org(db, DEMO_ACTIVITY_SELLER_ORG_ID, "Demo Supplier")
+    point = await _make_delivery_point(db, "Singapore")
+    product = await _make_product(db, "Bio Methanol")
+    # Exercise the service's multi-product group fold without changing the
+    # separate canonical catalog admission rules used by its public callers.
+    second_product = Product(
+        id=uuid4(), name="Second group member", fuel_type="Methanol", fuel_grade="Bio", is_active=True,
+    )
+    db.add(second_product)
+    await db.flush()
+    now = datetime.now(UTC)
+    for provenance, base_price in (
+        (OrganizationProvenance.REAL, 700),
+        (OrganizationProvenance.DEMO, 900),
+        (OrganizationProvenance.UNKNOWN, 2000),
+    ):
+        for index, product_id in enumerate((product.id, second_product.id)):
+            for side in sides:
+                price = base_price + (index * 10 if side == OrderSide.BID else 60 - index * 10)
+                order = _make_order(
+                    org_id=demo_org.id if provenance == OrganizationProvenance.DEMO else real_org.id,
+                    side=side, product_id=product_id, delivery_point_id=point.id, price=str(price),
+                )
+                order.provenance = provenance
+                order.updated_at = now - timedelta(minutes=index)
+                if provenance == OrganizationProvenance.DEMO and index == 0:
+                    order.idempotency_operation = "DEMO_COVERAGE"
+                db.add(order)
+    expired = _make_order(
+        org_id=real_org.id, side=OrderSide.BID, product_id=product.id,
+        delivery_point_id=point.id, price="9999",
+    )
+    expired.expires_at = now - timedelta(days=1)
+    db.add(expired)
+    await db.commit()
+    group = ProductGroup("BIO_METHANOL", product.name, product.id, (product.id, second_product.id))
+    key = SliceKey("BIO_METHANOL", point.id, "SPOT")
+
+    buckets = await forward_curve_market_slices._load_orderbook(
+        db, [key], {group.market_product: group}, ViewerContext(include_demo=include_demo),
+    )
+
+    assert set(buckets) == {key}
+    bucket = buckets[key]
+    assert bucket["real_order_count"] == 2 * len(sides)
+    assert bucket["real_volume_mt"] == Decimal("2000") * len(sides)
+    assert bucket["real_best_bid"] == (Decimal("710") if OrderSide.BID in sides else None)
+    assert bucket["real_best_ask"] == (Decimal("750") if OrderSide.ASK in sides else None)
+    assert bucket["real_last_order_at"].replace(tzinfo=UTC) == now
+    assert bucket["demo_order_count"] == (2 * len(sides) if include_demo else 0)
+    assert bucket["unknown_order_count"] == (2 * len(sides) if include_demo else 0)
+    assert bucket["managed_demo_order_count"] == (len(sides) if include_demo else 0)
+    assert bucket["demo_volume_mt"] == (Decimal("2000") * len(sides) if include_demo else Decimal("0"))
+    assert bucket["demo_best_bid"] == (Decimal("910") if include_demo and OrderSide.BID in sides else None)
+    assert bucket["demo_best_ask"] == (Decimal("950") if include_demo and OrderSide.ASK in sides else None)
+    if include_demo:
+        assert bucket["demo_last_order_at"].replace(tzinfo=UTC) == now
 
 
 @pytest.mark.asyncio
@@ -493,6 +564,79 @@ async def test_real_trade_keeps_precedence_over_managed_demo_book(db, managed_de
     assert response.cell.demo_status == MarketDemoStatus.REAL_ONLY
     assert response.cell.observed_at == trade.confirmed_at
     assert response.trades[0].source_kind == MarketSourceKind.CONFIRMED_TRADE
+
+
+@pytest.mark.asyncio
+async def test_table_projection_preserves_fields_without_dumping_full_cells(db, managed_demo_slice, monkeypatch):
+    _product, point, _bid, _ask, _trade = managed_demo_slice
+    response = await forward_curve_market_slices.load_slice(
+        db, market_product="BIO_METHANOL", delivery_point_id=point.id, availability_window="SPOT",
+    )
+    expected = ForwardCurveTableCell.model_validate(response.cell.model_dump())
+
+    def reject_full_dump(*_args, **_kwargs):
+        raise AssertionError("Table projection must not serialize full market cells")
+
+    monkeypatch.setattr(ForwardCurveMarketCell, "model_dump", reject_full_dump)
+    table = await forward_curve_market_slices.load_table(db, windows=["SPOT"])
+    actual = next(row for row in table.rows if row.market_product == "BIO_METHANOL").cells["SPOT"]
+    # Also compare fields excluded from the wire payload, which policy tests use.
+    assert actual.__dict__ == expected.__dict__
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("real_count", [0, 1, 9])
+async def test_slice_trade_history_reads_once_and_selects_real_before_limit(
+    db, managed_demo_slice, monkeypatch, real_count,
+):
+    product, point, _bid, _ask, demo_trade = managed_demo_slice
+    real_buyer = await _make_org(db, "History Buyer")
+    real_seller = await _make_org(db, "History Seller")
+    now = datetime.now(UTC)
+    for scope, count in (("REAL", real_count), ("DEMO", 9), ("MIXED", 9)):
+        for index in range(count):
+            real_buyer_scope = scope in {"REAL", "MIXED"}
+            buyer_id = real_buyer.id if real_buyer_scope else demo_trade.buyer_id
+            confirmed_at = now - timedelta(days=1 if scope == "REAL" else 0, minutes=index)
+            db.add(Trade(
+                buyer_id=buyer_id,
+                seller_id=real_seller.id if scope == "REAL" else demo_trade.seller_id,
+                initiator_org_id=buyer_id,
+                buyer_provenance=OrganizationProvenance.REAL if real_buyer_scope else OrganizationProvenance.DEMO,
+                seller_provenance=OrganizationProvenance.REAL if scope == "REAL" else OrganizationProvenance.DEMO,
+                initiated_by=Initiator.BUYER,
+                product_id=product.id, product_name=product.name,
+                fuel_type=product.fuel_type, fuel_grade=product.fuel_grade,
+                market_product="BIO_METHANOL",
+                delivery_point_id=point.id, delivery_point_name=point.name,
+                delivery_point_region=point.region, availability_window="SPOT",
+                market_snapshot_version=1,
+                quantity_mt=Decimal("100"), price_per_mt_usd=Decimal("700") + index,
+                status=TradeStatus.CONFIRMED,
+                created_at=confirmed_at - timedelta(minutes=1), confirmed_at=confirmed_at,
+            ))
+    await db.commit()
+    group = next(
+        group for group in await forward_curve_market_slices.load_product_groups(db)
+        if group.market_product == "BIO_METHANOL"
+    )
+    execute = db.execute
+    query_count = 0
+
+    async def count_query(*args, **kwargs):
+        nonlocal query_count
+        query_count += 1
+        return await execute(*args, **kwargs)
+
+    monkeypatch.setattr(db, "execute", count_query)
+    result = await forward_curve_market_slices._load_slice_trades(db, group=group, point=point, window="SPOT")
+
+    assert query_count == 1
+    expected_count = min(real_count, 8) if real_count else 8
+    assert len(result) == expected_count
+    expected_status = MarketDemoStatus.REAL_ONLY if real_count else MarketDemoStatus.DEMO_ONLY
+    assert all(item.demo_status == expected_status for item in result)
+    assert [item.price_per_mt_usd for item in result] == [Decimal("700") + index for index in range(expected_count)]
 
 
 @pytest.mark.asyncio

@@ -973,19 +973,15 @@ async def _aggregate_orderbook(
     if normalized_window:
         filters.append(OrderBookOrder.availability_window == normalized_window)
 
-    canonical_market_product = canonical_market_product_expression(Product).label(
-        "market_product"
-    )
+    # Aggregate on narrow order keys first. Product and delivery-point labels
+    # are functionally dependent on their canonical IDs, so carrying their
+    # text and the canonical CASE expression through the eligible-row sort
+    # only increases database work.
     grouped = (
         select(
             OrderBookOrder.product_id,
-            Product.name.label("product_name"),
-            canonical_market_product,
-            Product.fuel_type.label("fuel_type"),
             OrderBookOrder.availability_window,
             OrderBookOrder.delivery_point_id,
-            DeliveryPoint.name.label("delivery_point_name"),
-            DeliveryPoint.region.label("region"),
             OrderBookOrder.side,
             OrderBookOrder.provenance.label("evidence_class"),
             func.min(OrderBookOrder.price_per_mt_usd).label("min_price"),
@@ -999,33 +995,41 @@ async def _aggregate_orderbook(
         grouped = grouped.join(join_target, join_cond)
     grouped = grouped.where(*filters).group_by(
         OrderBookOrder.product_id,
-        Product.name,
-        canonical_market_product,
-        Product.fuel_type,
         OrderBookOrder.availability_window,
         OrderBookOrder.delivery_point_id,
-        DeliveryPoint.name,
-        DeliveryPoint.region,
         OrderBookOrder.side,
         OrderBookOrder.provenance,
     ).subquery("eligible_orderbook_aggregate")
 
-    query = select(
-        grouped,
-        func.sum(grouped.c.order_count)
-        .over(
-            partition_by=(
-                grouped.c.market_product,
-                grouped.c.evidence_class,
+    canonical_market_product = canonical_market_product_expression(Product).label(
+        "market_product"
+    )
+    query = (
+        select(
+            grouped,
+            Product.name.label("product_name"),
+            canonical_market_product,
+            Product.fuel_type.label("fuel_type"),
+            DeliveryPoint.name.label("delivery_point_name"),
+            DeliveryPoint.region.label("region"),
+            func.sum(grouped.c.order_count)
+            .over(
+                partition_by=(
+                    grouped.c.product_id,
+                    grouped.c.evidence_class,
+                )
             )
+            .label("product_total_order_count"),
         )
-        .label("product_total_order_count"),
-    ).order_by(
-        grouped.c.market_product,
-        grouped.c.delivery_point_name,
-        grouped.c.availability_window,
-        grouped.c.side,
-        grouped.c.evidence_class,
+        .join(Product, grouped.c.product_id == Product.id)
+        .join(DeliveryPoint, grouped.c.delivery_point_id == DeliveryPoint.id)
+        .order_by(
+            canonical_market_product,
+            DeliveryPoint.name,
+            grouped.c.availability_window,
+            grouped.c.side,
+            grouped.c.evidence_class,
+        )
     )
     if limit is not None:
         query = query.limit(limit)
@@ -1128,16 +1132,12 @@ async def _latest_public_asks_by_delivery_point(
 ) -> list[MapRecentAskResponse]:
     filters, joins = _public_order_scope(side=OrderSide.ASK)
     filters.append(public_order_evidence_clause(OrderBookOrder.provenance))
-    market_product = canonical_market_product_expression(Product).label("market_product")
+    # Keep the port-wide window sort narrow; catalog labels are needed only
+    # for the one surviving ASK at each delivery point.
     ranked = select(
         OrderBookOrder.id,
         OrderBookOrder.product_id,
-        Product.name.label("product_name"),
-        market_product,
-        Product.fuel_type.label("fuel_type"),
         OrderBookOrder.delivery_point_id,
-        DeliveryPoint.name.label("delivery_point_name"),
-        DeliveryPoint.region.label("region"),
         OrderBookOrder.price_per_mt_usd,
         OrderBookOrder.remaining_quantity_mt,
         OrderBookOrder.created_at,
@@ -1153,11 +1153,21 @@ async def _latest_public_asks_by_delivery_point(
         ranked = ranked.join(join_target, join_cond)
     ranked = ranked.where(*filters).subquery("ranked_public_asks")
 
+    market_product = canonical_market_product_expression(Product).label("market_product")
     rows = (
         await db.execute(
-            select(ranked)
+            select(
+                ranked,
+                Product.name.label("product_name"),
+                market_product,
+                Product.fuel_type.label("fuel_type"),
+                DeliveryPoint.name.label("delivery_point_name"),
+                DeliveryPoint.region.label("region"),
+            )
+            .join(Product, ranked.c.product_id == Product.id)
+            .join(DeliveryPoint, ranked.c.delivery_point_id == DeliveryPoint.id)
             .where(ranked.c.delivery_point_rank == 1)
-            .order_by(ranked.c.delivery_point_name)
+            .order_by(DeliveryPoint.name)
         )
     ).all()
     return [

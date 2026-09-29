@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from app.database import Base
 from app.main import app
 from app.market_catalog import (
+    CANONICAL_PRODUCTS,
     DELIVERY_POINTS_BY_NAME,
     PRODUCTS_BY_NAME,
 )
@@ -477,6 +478,91 @@ class TestAggregateFunction:
         finally:
             async with engine.begin() as conn:
                 await conn.run_sync(Base.metadata.drop_all, tables=tables)
+            await engine.dispose()
+
+
+    @pytest.mark.asyncio
+    async def test_all_product_spot_batch_matches_individual_public_summaries(self):
+        """The ticker can batch products without changing economics or scope order."""
+        engine = create_async_engine("sqlite+aiosqlite://", echo=False)
+        tables = [Base.metadata.tables[name] for name in _PRICE_DISCOVERY_TABLES]
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all, tables=tables)
+        session_factory = async_sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
+
+        try:
+            async with session_factory() as db:
+                delivery_point = None
+                for spec in CANONICAL_PRODUCTS:
+                    product = None
+                    for case, price in (
+                        ("real", "1000.00"),
+                        ("demo", "1200.00"),
+                        ("unknown", "9000.00"),
+                        ("test", "9001.00"),
+                        ("canary", "9002.00"),
+                        ("invalid_snapshot", "9003.00"),
+                        ("forward", "9004.00"),
+                    ):
+                        product, delivery_point, _, trade = await _seed_confirmed_trade(
+                            db,
+                            product_name=spec.name,
+                            fuel_type=spec.fuel_type,
+                            fuel_grade=spec.fuel_grade,
+                            delivery_point_name="Singapore",
+                            region="Asia",
+                            availability_window="2026-Q4" if case == "forward" else "SPOT",
+                            price=price,
+                            product=product,
+                            delivery_point=delivery_point,
+                        )
+                        if case in {"demo", "unknown", "test", "canary"}:
+                            provenance = OrganizationProvenance(case.upper())
+                            trade.buyer_provenance = provenance
+                            trade.seller_provenance = provenance
+                        elif case == "invalid_snapshot":
+                            trade.product_name = "Mismatched snapshot"
+                        await db.commit()
+
+                # An additional supported alcohol port must survive batching unchanged.
+                # UCOME B100 keeps its existing Singapore-only lane.
+                spec = PRODUCTS_BY_NAME["Bio Methanol"]
+                product = await db.get(Product, spec.id)
+                await _seed_confirmed_trade(
+                    db,
+                    product_name=spec.name,
+                    fuel_type=spec.fuel_type,
+                    fuel_grade=spec.fuel_grade,
+                    delivery_point_name="Rotterdam",
+                    region="Europe",
+                    availability_window="SPOT",
+                    price="1300.00",
+                    product=product,
+                )
+                batch = await aggregate_trade_prices(db, availability_window="SPOT", hours=168)
+
+                for spec in CANONICAL_PRODUCTS:
+                    individual = await aggregate_trade_prices(
+                        db,
+                        market_product=spec.market_product.value,
+                        availability_window="SPOT",
+                        hours=168,
+                    )
+                    matching_batch = [row for row in batch if row.market_product == spec.market_product.value]
+                    assert [row.model_dump() for row in matching_batch] == [row.model_dump() for row in individual]
+                    singapore = [row for row in matching_batch if row.delivery_point_id == delivery_point.id]
+                    assert [row.demo_status for row in singapore] == [
+                        MarketDemoStatus.REAL_ONLY,
+                        MarketDemoStatus.DEMO_ONLY,
+                        MarketDemoStatus.UNKNOWN,
+                    ]
+                    assert [row.last_price for row in singapore] == [Decimal("1000.00"), Decimal("1200.00"), None]
+                    assert [row.trade_count_24h for row in singapore] == [1, 1, 0]
+                    assert singapore[-1].unknown_trade_count_24h == 1
+                    assert singapore[-1].volume_24h == 0
+                assert len(batch) == len(CANONICAL_PRODUCTS) * 3 + 1
+                assert all(row.availability_window == "SPOT" for row in batch)
+        finally:
             await engine.dispose()
 
 
