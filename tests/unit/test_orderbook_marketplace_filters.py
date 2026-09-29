@@ -903,6 +903,7 @@ class TestMarketplaceFuelFiltering:
         demo_supplier.provenance = OrganizationProvenance.DEMO
         singapore = await _make_delivery_point(db, 'Singapore', 'Asia')
         rotterdam = await _make_delivery_point(db, 'Rotterdam', 'Europe')
+        await _make_delivery_point(db, 'Santos', 'Americas')
         inactive_port = await _make_delivery_point(db, 'Fujairah', 'Middle East')
         inactive_port.is_active = False
         bio_methanol = await _make_product(
