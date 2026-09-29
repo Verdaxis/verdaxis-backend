@@ -7,7 +7,7 @@ from decimal import Decimal
 from typing import TypeVar
 from uuid import UUID
 
-from sqlalchemy import Select, and_, case, func, select, tuple_
+from sqlalchemy import Select, and_, case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.forward_monitoring import (
@@ -30,6 +30,7 @@ from app.schemas.curves import (
     no_data_signal_provenance,
 )
 from app.schemas.market_activity import MarketDemoStatus, MarketScope
+from app.services.market_slice_filters import exact_market_slice_clause
 
 
 SignalKey = tuple[str, UUID, str]
@@ -77,9 +78,7 @@ def _key_for_row(row) -> SignalKey:
 
 
 def _apply_key_filters(stmt: Select, model: type[_T], keys: list[SignalKey]) -> Select:
-    return stmt.where(
-        tuple_(model.market_product, model.delivery_point_id, model.availability_window).in_(keys)
-    )
+    return stmt.where(exact_market_slice_clause(model, keys))
 
 
 def _is_trusted_real(row, run: MarketSignalIngestionRun | None, signal_type: MarketSignalType) -> bool:
@@ -197,7 +196,6 @@ def _ranked_latest_stmt(
     partition_by: list,
     lookback_days: int,
     signal_type: MarketSignalType,
-    evidence_class: str | None = None,
 ):
     evidence_class_expression = _evidence_class_expression(model, signal_type)
     ranked = (
@@ -216,8 +214,6 @@ def _ranked_latest_stmt(
         )
         .where(model.observed_at >= _lookback_cutoff(lookback_days))
     )
-    if evidence_class is not None:
-        ranked = ranked.where(evidence_class_expression == evidence_class)
     ranked = _apply_key_filters(ranked, model, keys).subquery()
     return (
         select(model, MarketSignalIngestionRun)
@@ -237,27 +233,30 @@ async def _load_preferred_focus_rows(
     lookback_days: int,
     limit: int,
 ):
-    for evidence_class in ("REAL", "DEMO"):
-        stmt = (
-            _ranked_latest_stmt(
-                model,
-                keys=[key],
-                partition_by=partition_by,
-                lookback_days=lookback_days,
-                signal_type=signal_type,
-                evidence_class=evidence_class,
-            )
-            .order_by(
-                model.observed_at.desc(),
-                model.created_at.desc(),
-                model.id.desc(),
-            )
-            .limit(limit)
+    stmt = (
+        _ranked_latest_stmt(
+            model,
+            keys=[key],
+            partition_by=partition_by,
+            lookback_days=lookback_days,
+            signal_type=signal_type,
         )
-        rows = (await db.execute(stmt)).all()
-        if rows:
-            return rows
-    return []
+        .where(or_(model.is_demo.is_(True), _trusted_real_clause(model, signal_type)))
+        .order_by(
+            model.is_demo.asc(),
+            model.observed_at.desc(),
+            model.created_at.desc(),
+            model.id.desc(),
+        )
+        .limit(limit)
+    )
+    rows = (await db.execute(stmt)).all()
+    if not rows:
+        return []
+    # REAL sorts first, so the limit cannot hide a REAL row behind newer DEMO
+    # rows. A short REAL result must not be padded with DEMO evidence.
+    selected_is_demo = bool(rows[0][0].is_demo)
+    return [(row, run) for row, run in rows if bool(row.is_demo) == selected_is_demo]
 
 
 async def load_indication_summaries(

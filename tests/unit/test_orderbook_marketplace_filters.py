@@ -2,7 +2,7 @@
 import pytest
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -605,10 +605,10 @@ class TestMarketplaceFuelFiltering:
 
         result = await list_aggregated_orderbook(
             product_id=None,
-            fuel_type=None,
+            fuel_type='Methanol',
             market_product='BIO_METHANOL',
             delivery_point_id=singapore.id,
-            region=None,
+            region='Singapore',
             availability_window='SPOT',
             include_off_spec=False,
             limit=256,
@@ -892,3 +892,162 @@ class TestMarketplaceFuelFiltering:
         assert singapore_latest.evidence_class == 'DEMO'
         assert singapore_latest.source_kind == MarketSourceKind.DEMO_SEED
         assert singapore_latest.demo_status == MarketDemoStatus.DEMO_ONLY
+
+    @pytest.mark.asyncio
+    async def test_map_summary_preserves_eligibility_windows_provenance_and_latest_tie_break(
+        self,
+        db: AsyncSession,
+    ):
+        real_supplier = await _make_org(db, 'Map Contract Real')
+        demo_supplier = await _make_org(db, 'Map Contract Demo')
+        demo_supplier.provenance = OrganizationProvenance.DEMO
+        singapore = await _make_delivery_point(db, 'Singapore', 'Asia')
+        rotterdam = await _make_delivery_point(db, 'Rotterdam', 'Europe')
+        await _make_delivery_point(db, 'Santos', 'Americas')
+        inactive_port = await _make_delivery_point(db, 'Fujairah', 'Middle East')
+        inactive_port.is_active = False
+        bio_methanol = await _make_product(
+            db,
+            name='Bio Methanol',
+            fuel_type='Methanol',
+            fuel_grade='Bio',
+        )
+        invalid_product = await _make_product(
+            db,
+            name='Bio Methanol Alias',
+            fuel_type='Methanol',
+            fuel_grade='Bio',
+        )
+        observed_at = datetime(2026, 9, 29, 12, 0, tzinfo=UTC)
+
+        real_spot = _make_order(
+            org_id=real_supplier.id,
+            product_id=bio_methanol.id,
+            delivery_point_id=singapore.id,
+            price='1000',
+            quantity='400',
+        )
+        real_spot.created_at = observed_at - timedelta(minutes=2)
+        real_spot.remaining_quantity_mt = Decimal('350')
+        demo_forward = _make_order(
+            org_id=demo_supplier.id,
+            product_id=bio_methanol.id,
+            delivery_point_id=singapore.id,
+            price='1100',
+            quantity='300',
+            availability_window='2027-Q1',
+            provenance=OrganizationProvenance.DEMO,
+        )
+        demo_forward.created_at = observed_at
+        tied_newest = _make_order(
+            org_id=real_supplier.id,
+            product_id=bio_methanol.id,
+            delivery_point_id=singapore.id,
+            price='1200',
+            quantity='200',
+            availability_window='2027-CAL',
+        )
+        tied_newest.id = UUID('ffffffff-ffff-ffff-ffff-ffffffffffff')
+        tied_newest.created_at = observed_at
+        singapore_bid = _make_order(
+            org_id=real_supplier.id,
+            product_id=bio_methanol.id,
+            delivery_point_id=singapore.id,
+            price='900',
+            quantity='500',
+        )
+        singapore_bid.side = OrderSide.BID
+        singapore_bid.created_at = observed_at + timedelta(minutes=1)
+        rotterdam_ask = _make_order(
+            org_id=real_supplier.id,
+            product_id=bio_methanol.id,
+            delivery_point_id=rotterdam.id,
+            price='1050',
+            quantity='250',
+        )
+        rotterdam_ask.created_at = observed_at - timedelta(minutes=1)
+
+        def excluded_order(price: str) -> OrderBookOrder:
+            order = _make_order(
+                org_id=real_supplier.id,
+                product_id=bio_methanol.id,
+                delivery_point_id=singapore.id,
+                price=price,
+            )
+            order.created_at = observed_at + timedelta(minutes=2)
+            return order
+
+        unknown_order = excluded_order('1')
+        unknown_order.provenance = OrganizationProvenance.UNKNOWN
+        test_order = excluded_order('2')
+        test_order.provenance = OrganizationProvenance.TEST
+        expired_demo = excluded_order('3')
+        expired_demo.provenance = OrganizationProvenance.DEMO
+        expired_demo.expires_at = datetime.now(UTC) - timedelta(seconds=1)
+        off_spec_order = excluded_order('4')
+        off_spec_order.off_spec = True
+        invalid_window_order = excluded_order('5')
+        invalid_window_order.availability_window = 'NEXT-WEEK'
+        incomplete_ask = excluded_order('6')
+        incomplete_ask.certification_declared = False
+        cancelled_order = excluded_order('7')
+        cancelled_order.status = OrderBookStatus.CANCELLED
+        invalid_catalog_order = _make_order(
+            org_id=real_supplier.id,
+            product_id=invalid_product.id,
+            delivery_point_id=singapore.id,
+            price='8',
+        )
+        inactive_port_order = _make_order(
+            org_id=real_supplier.id,
+            product_id=bio_methanol.id,
+            delivery_point_id=inactive_port.id,
+            price='9',
+        )
+        db.add_all([
+            real_spot,
+            demo_forward,
+            tied_newest,
+            singapore_bid,
+            rotterdam_ask,
+            unknown_order,
+            test_order,
+            expired_demo,
+            off_spec_order,
+            invalid_window_order,
+            incomplete_ask,
+            cancelled_order,
+            invalid_catalog_order,
+            inactive_port_order,
+        ])
+        await db.commit()
+
+        summary = await get_map_summary(db=db)
+
+        assert [
+            (
+                group.market_product,
+                group.delivery_point_name,
+                group.availability_window,
+                group.side,
+                group.evidence_class,
+                group.order_count,
+                group.total_quantity,
+                group.product_total_order_count,
+            )
+            for group in summary.groups
+        ] == [
+            ('BIO_METHANOL', 'Rotterdam', 'SPOT', OrderSide.ASK, 'REAL', 1, Decimal('250'), 4),
+            ('BIO_METHANOL', 'Singapore', '2027-CAL', OrderSide.ASK, 'REAL', 1, Decimal('200'), 4),
+            ('BIO_METHANOL', 'Singapore', '2027-Q1', OrderSide.ASK, 'DEMO', 1, Decimal('300'), 1),
+            ('BIO_METHANOL', 'Singapore', 'SPOT', OrderSide.ASK, 'REAL', 1, Decimal('350'), 4),
+            ('BIO_METHANOL', 'Singapore', 'SPOT', OrderSide.BID, 'REAL', 1, Decimal('500'), 4),
+        ]
+        assert [row.delivery_point_name for row in summary.recent_asks] == [
+            'Rotterdam',
+            'Singapore',
+        ]
+        singapore_latest = summary.recent_asks[1]
+        assert singapore_latest.price_per_mt_usd == Decimal('1200')
+        assert singapore_latest.created_at.replace(tzinfo=UTC) == observed_at
+        assert singapore_latest.evidence_class == 'REAL'
