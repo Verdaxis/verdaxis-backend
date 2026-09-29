@@ -327,7 +327,7 @@
 ### Restore Demo Coverage, Not Just Scheduler Activity
 - **Date:** 2026-07-28
 - **Trigger:** The user clarified that 17 generated listings did not restore the much broader demo book used in earlier demonstrations.
-- **Rule:** When recovering demo liquidity, compare against the prior visible coverage and restore canonical product-port-window depth rather than stopping at a small active count.
+- **Rule:** When recovering demo liquidity, verify depth per canonical product-port-window slice across the full rolling horizon. Price by delivery dates with one valuation clock; a fixed total row budget or shorter pricing lookup does not prove complete coverage. Use the same coverage builder for bootstrap and scheduled refresh. Test month, quarter and year rollover.
 - **Why:** Restarting a one-listing-per-tick generator repairs ongoing activity but does not recreate the seeded breadth users expect during a demo.
 
 ### Preserve Immutable Fields During Demo Reconciliation

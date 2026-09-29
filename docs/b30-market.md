@@ -53,3 +53,5 @@ The initial seed uses ENGINE's 25 September 2026 physical bunker-price snapshot:
 Synthetic bid/ask spreads and forward scenarios surround these anchors. Other ports use disclosed demonstration proxies rather than claimed local assessments. All such orders remain DEMO and non-executable; automatic expiry refresh does not turn the source date into a new market observation. No assessed-price feed or continuing price update service is added.
 
 Source: [ENGINE, 25 September 2026](https://www.engine.online/news/biofuel-bunker-snapshot-rotterdams-b30-vlsfo-at-steep-discount-to-antwerps-blend-81dc). The B100 observation does not state its feedstock. No calorific-value-adjusted or compliance-adjusted USD/VLSFO-equivalent price is used as USD per physical tonne.
+
+The rolling demo book maintains ten bids and ten asks per fuel, port and delivery window. Its forward prices use an illustrative 3% simple annual premium on the Spot midpoint, based on actual delivery dates across the full five-year horizon. This does not represent observed B30/B100 forward quotes. See [demo activity rules](demo-activity-and-canary.md).

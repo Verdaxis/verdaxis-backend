@@ -8,13 +8,15 @@ import pytest
 from fastapi import HTTPException
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.orm.attributes import set_committed_value
 
 from app.database import Base
 from app.market_catalog import BIOFUEL_SPECIFICATION_STANDARDS, DELIVERY_POINTS_BY_NAME, PRODUCTS_BY_NAME
 from app.models.audit import AuditLog  # noqa: F401 — registers audit_logs on Base.metadata
 from app.models.catalog import DeliveryPoint, Product
-from app.models.orderbook import OrderBookOrder, OrderBookStatus, OrderSide, Trade
+from app.models.orderbook import OrderBookOrder, OrderBookStatus, OrderCreationMethod, OrderSide, Trade
 from app.models.market_event import MarketEventOutbox
+from app.models.matchmaking import MatchSuggestion
 from app.models.negotiation import Negotiation, NegotiationStatus
 from app.models.orders import Commission
 from app.models.rfq import RFQ, RFQQuote, RFQStatus, QuoteStatus
@@ -601,3 +603,126 @@ async def test_demo_pruning_preserves_commission_rfq_and_negotiation_trade_histo
     assert (await db.execute(select(Commission.trade_id))).scalar_one() == trades[0].id
     assert (await db.execute(select(RFQ.trade_id))).scalar_one() == trades[1].id
     assert (await db.execute(select(Negotiation.trade_id))).scalar_one() == trades[2].id
+
+
+@pytest.mark.asyncio
+async def test_demo_coverage_refresh_retains_identity_and_adds_depth_only_once(monkeypatch, db):
+    now = datetime(2026, 9, 29, 12, tzinfo=UTC)
+    monkeypatch.setattr(demo_activity, "PRICING", {
+        "B30": {"Singapore": demo_activity.PRICING["B30"]["Singapore"]},
+    })
+    for organization_id, name in demo_activity.DEMO_SEED_BUYERS:
+        db.add(Organization(id=organization_id, name=name, type=OrgType.SHIPPING_LINE,
+                            provenance=OrganizationProvenance.DEMO, verification_status="APPROVED"))
+    for organization_id, name, _tier in demo_activity.DEMO_SEED_SUPPLIERS:
+        db.add(Organization(id=organization_id, name=name, type=OrgType.FUEL_SUPPLIER,
+                            provenance=OrganizationProvenance.DEMO, verification_status="APPROVED"))
+    await _make_product(db, "B30")
+    await _make_delivery_point(db)
+    original, obsolete = demo_activity.build_demo_market_coverage(now)[:2]
+    # Existing ownership must survive a depth expansion that changes ordinals.
+    original.organization_id = demo_activity.DEMO_SEED_BUYERS[-1][0]
+    original.price_per_mt_usd = Decimal("1")
+    original.expires_at = now - timedelta(days=1)
+    original.status = OrderBookStatus.EXPIRED
+    obsolete.availability_window = "2026-08"
+    obsolete.idempotency_key = obsolete.idempotency_key.replace("SPOT", "2026-08")
+    db.add_all([original, obsolete])
+    await db.commit()
+    original_id, original_owner, original_created = original.id, original.organization_id, original.created_at
+
+    first = await demo_activity.ensure_demo_market_coverage(db, now=now)
+    await db.commit()
+    # SQLite drops timezone information; restore the PostgreSQL UTC semantics
+    # without dirtying records, and retain them in the session identity map.
+    current_rows = (await db.execute(select(OrderBookOrder))).scalars().all()
+    for row in current_rows:
+        if row.expires_at.tzinfo is None:
+            set_committed_value(row, "expires_at", row.expires_at.replace(tzinfo=UTC))
+    second = await demo_activity.ensure_demo_market_coverage(db, now=now)
+    await db.commit()
+
+    assert first == {
+        "coverage_orders": 440, "coverage_created": 439, "coverage_refreshed": 1,
+        "coverage_expired": 1, "legacy_activity_expired": 0,
+    }
+    assert second == {
+        "coverage_orders": 440, "coverage_created": 0, "coverage_refreshed": 0,
+        "coverage_expired": 0, "legacy_activity_expired": 0,
+    }
+    rows = (await db.execute(select(OrderBookOrder))).scalars().all()
+    assert len(rows) == len({row.idempotency_key for row in rows}) == 441
+    assert original.id == original_id
+    assert original.organization_id == original_owner
+    assert original.created_at == original_created
+    assert original.price_per_mt_usd == Decimal("1095")
+    assert original.status == OrderBookStatus.OPEN
+    assert original.expires_at > now
+    assert obsolete.status == OrderBookStatus.EXPIRED
+
+
+@pytest.mark.asyncio
+async def test_legacy_demo_quote_expiry_preserves_pins_history_and_customer_orders(db):
+    now = datetime(2026, 9, 29, 12, tzinfo=UTC)
+    viewer_org = await _make_org(db, "Viewer", OrgType.SHIPPING_LINE)
+    viewer = await _make_user(db, viewer_org, UserRole.BUYER)
+    for organization_id, kind in (
+        (DEMO_ACTIVITY_BUYER_ORG_ID, OrgType.SHIPPING_LINE),
+        (DEMO_ACTIVITY_SELLER_ORG_ID, OrgType.FUEL_SUPPLIER),
+    ):
+        db.add(Organization(id=organization_id, name=f"Demo {kind.value}", type=kind,
+                            provenance=OrganizationProvenance.DEMO, verification_status="APPROVED"))
+    product, port = await _make_product(db), await _make_delivery_point(db)
+    names = ("pinned", "unreferenced", "real", "other_org", "user_created", "part_filled", "marked", "trade", "negotiation", "match")
+    orders = {}
+    for name in names:
+        order = await _make_ask(db, org_id=DEMO_ACTIVITY_SELLER_ORG_ID,
+                               product_id=product.id, delivery_point_id=port.id)
+        order.provenance = OrganizationProvenance.DEMO
+        order.creation_method = OrderCreationMethod.LEGACY_UNKNOWN
+        order.created_at = now - timedelta(days=1)
+        order.expires_at = now + timedelta(days=1)
+        orders[name] = order
+    orders["real"].provenance = OrganizationProvenance.REAL
+    orders["other_org"].organization_id = viewer_org.id
+    orders["user_created"].creation_method = OrderCreationMethod.SELF_SERVICE
+    orders["user_created"].owner_user_id = viewer.id
+    orders["user_created"].created_by_actor_user_id = viewer.id
+    orders["part_filled"].remaining_quantity_mt = Decimal("900")
+    orders["marked"].idempotency_operation = "CUSTOM_ORDER"
+    radar = await ensure_market_radar(db, viewer.id)
+    pin = WatchlistTarget(
+        watchlist_id=radar.id, target_type=WatchlistTargetType.PIN, order_id=orders["pinned"].id,
+        market_product_code="BIO_METHANOL", delivery_point_id=port.id, availability_window_code="SPOT",
+    )
+    trade = _pending_trade(orders["trade"], buyer_id=DEMO_ACTIVITY_BUYER_ORG_ID,
+                           seller_id=DEMO_ACTIVITY_SELLER_ORG_ID, quantity="100")
+    negotiation = Negotiation(
+        initiator_org_id=DEMO_ACTIVITY_BUYER_ORG_ID, counterparty_org_id=DEMO_ACTIVITY_SELLER_ORG_ID,
+        initiator_side="BUYER", last_actor_org_id=DEMO_ACTIVITY_BUYER_ORG_ID,
+        product_id=product.id, delivery_point_id=port.id, availability_window="SPOT",
+        quantity_mt=Decimal("100"), current_price=Decimal("1090"),
+        status=NegotiationStatus.OPEN, ask_order_id=orders["negotiation"].id,
+        expires_at=now + timedelta(days=1),
+    )
+    match = MatchSuggestion(
+        bid_order_id=orders["marked"].id, ask_order_id=orders["match"].id,
+        score=Decimal("90"), recipient_org_id=DEMO_ACTIVITY_BUYER_ORG_ID,
+    )
+    db.add_all([pin, trade, negotiation, match])
+    await db.commit()
+
+    assert await demo_activity._expire_legacy_activity_quotes(db, now) == 2
+    await db.commit()
+    assert await demo_activity._expire_legacy_activity_quotes(db, now) == 0
+    await db.commit()
+
+    for name, order in orders.items():
+        await db.refresh(order)
+        assert order.status == (OrderBookStatus.EXPIRED if name in {"pinned", "unreferenced"} else OrderBookStatus.OPEN)
+        assert order.price_per_mt_usd == Decimal("1090")
+    assert len((await db.execute(select(OrderBookOrder.id))).scalars().all()) == len(names)
+    assert (await db.execute(select(WatchlistTarget.order_id))).scalar_one() == orders["pinned"].id
+    assert (await db.execute(select(Trade.ask_order_id))).scalar_one() == orders["trade"].id
+    assert (await db.execute(select(Negotiation.ask_order_id))).scalar_one() == orders["negotiation"].id
+    assert (await db.execute(select(MatchSuggestion.ask_order_id))).scalar_one() == orders["match"].id
