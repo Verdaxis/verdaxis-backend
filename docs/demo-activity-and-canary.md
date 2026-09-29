@@ -95,24 +95,33 @@ Rules:
 - Demo orders do not auto-match with real orders.
 - Demo trade-tape entries are labelled as demo.
 - Activity is limited to the approved products, ports, and availability windows.
-- The scheduler reconciles a rolling baseline across every approved
-  product/port/window/side combination. It maintains 16 price levels per side
-  for each product/port pair, assigning second levels to the nearest windows
-  first. With the current four products and eight ports, this keeps 1,024
-  disclosed demo orders throughout each quarter and rolls automatically as
-  windows change.
+- The scheduler maintains ten bids and ten asks for every approved
+  product/port/window combination. Six products, eight ports and 22–24
+  rolling windows require 21,120–23,040 current demo orders. Windows include
+  Spot, the remaining current-quarter months and twenty forward quarters.
+- Spot anchors stay unchanged. Forward demo prices add 3% simple annual
+  carry on the Spot midpoint, measured to the midpoint of the remaining
+  delivery period using ACT/365. Both sides receive the same premium.
+  This is an illustrative convention, not an observed forward rate or forecast.
+- Activity ticks create a matched synthetic pair at that window's current
+  demo midpoint. Baseline coverage supplies the resting quotes. Reconciliation
+  expires the old unfilled activity quotes only when exact demo identity and
+  legacy system markers match and no trade, negotiation or match references
+  them; their rows and watchlist pins remain.
+- The forward curve prefers the current two-sided managed demo midpoint over
+  an old demo trade only when every selected demo order is managed coverage.
+  Historical trades remain in the history view. Real-trade precedence is unchanged.
 - Reconciliation never rewrites an existing order's immutable organization,
   provenance, side, product, delivery point, availability window, or inventory
   snapshot. It refreshes only mutable Demo presentation and lifecycle fields
   and inserts missing canonical slices.
-- The bounded public aggregate defaults to 1,024 rows, enough for the current
-  768 product/port/window/side groups without starving later canonical
-  products by sort order.
+- The intelligence map uses the complete compact map-summary projection;
+  the paginated order listing is not its source of market coverage.
 - Demo prices are indicative reference bands, not Verdaxis assessments or
   executable market indications. The July 2026 bands use public ethanol
   FOB/C&F benchmarks, public low-carbon methanol reporting, and published
   renewable-fuel production-cost ranges. Synthetic ethanol is modelled because
   no liquid public marine-fuel benchmark is available.
-- Old generated demo activity is pruned so the market looks current without growing indefinitely.
+- Old generated demo activity uses the existing reference-aware retention limits. Obsolete coverage orders expire and remain stored; this change adds no historical deletion policy.
 
 The system must never use synthetic signups to imply real user growth. Signup canaries are monitoring data only; demo trades are sample market data only.

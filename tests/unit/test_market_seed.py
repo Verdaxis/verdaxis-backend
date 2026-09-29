@@ -1,6 +1,7 @@
 """Unit tests for executable-market seed rules."""
 
 from datetime import date, datetime, timedelta, timezone
+from decimal import Decimal
 from inspect import getsource
 
 import pytest
@@ -9,6 +10,7 @@ from types import SimpleNamespace
 
 from app.seeds.market_seed import (
     BUYER_ORGS,
+    PRICING,
     SUPPLIER_ORGS,
     WINDOWS,
     _clamp_trade_timeline,
@@ -26,7 +28,7 @@ from app.models.orderbook import Initiator, OrderSide
 
 
 def test_market_seed_windows_cover_current_and_forward_slices():
-    today = date.today()
+    today = datetime.now(timezone.utc).date()
     expected = build_seed_windows(today)
     current_month = f"{today.year}-{today.month:02d}"
     current_quarter = ((today.month - 1) // 3) + 1
@@ -168,73 +170,51 @@ def test_seed_price_for_slice_keeps_resting_book_non_crossed():
     assert best_ask > best_bid
 
 
-def test_seed_price_for_slice_builds_plausible_contango():
-    month_window = next(window for window in WINDOWS if len(window) == 7 and window[4] == '-')
-    quarter_window = next(window for window in WINDOWS if '-Q' in window)
+@pytest.mark.parametrize(
+    "reference_date,window,expected_premium",
+    [
+        (date(2026, 9, 1), "2026-09", "1.23"),  # 15 days to delivery midpoint.
+        (date(2026, 9, 30), "2026-09", "0.04"),  # Half of the remaining day.
+        (date(2026, 9, 30), "2026-Q4", "3.86"),  # 47 days.
+        (date(2026, 12, 31), "2027-Q1", "3.78"),  # 46 days.
+        (date(2028, 2, 29), "2028-Q2", "6.37"),  # 77.5 days; ACT/365 in leap years.
+        (date(2027, 1, 1), "2028-CAL", "45.04"),  # 548 days; no compounding.
+    ],
+)
+def test_seed_prices_apply_three_percent_carry_to_remaining_delivery_midpoint(
+    reference_date, window, expected_premium,
+):
+    # A $1,000 Spot midpoint earns $30 per 365 days on both sides.
+    for side, spot_quote in ((OrderSide.BID, "990"), (OrderSide.ASK, "1010")):
+        price = _seed_price_for_slice(
+            side,
+            bid_lo=990,
+            bid_hi=990,
+            ask_lo=1010,
+            ask_hi=1010,
+            window=window,
+            reference_date=reference_date,
+        )
+        assert price == Decimal(spot_quote) + Decimal(expected_premium)
 
-    spot_mid = (
-        _seed_price_for_slice(
-            OrderSide.BID,
-            bid_lo=1020,
-            bid_hi=1070,
-            ask_lo=1090,
-            ask_hi=1140,
-            window='SPOT',
-            depth_index=0,
-        )
-        + _seed_price_for_slice(
-            OrderSide.ASK,
-            bid_lo=1020,
-            bid_hi=1070,
-            ask_lo=1090,
-            ask_hi=1140,
-            window='SPOT',
-            depth_index=0,
-        )
-    ) / 2
-    month_mid = (
-        _seed_price_for_slice(
-            OrderSide.BID,
-            bid_lo=1020,
-            bid_hi=1070,
-            ask_lo=1090,
-            ask_hi=1140,
-            window=month_window,
-            depth_index=0,
-        )
-        + _seed_price_for_slice(
-            OrderSide.ASK,
-            bid_lo=1020,
-            bid_hi=1070,
-            ask_lo=1090,
-            ask_hi=1140,
-            window=month_window,
-            depth_index=0,
-        )
-    ) / 2
-    quarter_mid = (
-        _seed_price_for_slice(
-            OrderSide.BID,
-            bid_lo=1020,
-            bid_hi=1070,
-            ask_lo=1090,
-            ask_hi=1140,
-            window=quarter_window,
-            depth_index=0,
-        )
-        + _seed_price_for_slice(
-            OrderSide.ASK,
-            bid_lo=1020,
-            bid_hi=1070,
-            ask_lo=1090,
-            ask_hi=1140,
-            window=quarter_window,
-            depth_index=0,
-        )
-    ) / 2
 
-    assert month_mid > spot_mid
-    assert quarter_mid > month_mid
+def test_seed_prices_preserve_every_spot_market_anchor():
+    for product_name, ports in PRICING.items():
+        for port_name, (bid_lo, bid_hi, ask_lo, ask_hi) in ports.items():
+            for side, low, high in (
+                (OrderSide.BID, bid_lo, bid_hi),
+                (OrderSide.ASK, ask_lo, ask_hi),
+            ):
+                price = _seed_price_for_slice(
+                    side,
+                    bid_lo=bid_lo,
+                    bid_hi=bid_hi,
+                    ask_lo=ask_lo,
+                    ask_hi=ask_hi,
+                    window="SPOT",
+                    reference_date=date(2032, 1, 1),
+                )
+                assert price == Decimal(str((low + high) / 2)), (product_name, port_name, side)
 
 
 def test_clamp_trade_timeline_caps_seeded_trade_dates_at_now():

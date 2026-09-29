@@ -15,12 +15,12 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from app.database import Base, get_db
 from app.market_catalog import DELIVERY_POINTS_BY_NAME, PRODUCTS_BY_NAME
 from app.models.catalog import DeliveryPoint, Product
-from app.models.orderbook import OrderBookOrder, OrderBookStatus, OrderSide
+from app.models.orderbook import Initiator, OrderBookOrder, OrderBookStatus, OrderSide, Trade, TradeStatus
 from app.models.user import Organization, OrgType, OrganizationProvenance
 from app.routers.curves import router
 from app.schemas.curves import ForwardCurveEvidenceLayer, MarketSignalType
 from app.schemas.market_activity import MarketDemoStatus, MarketSourceKind
-from app.services.demo_market import DEMO_ACTIVITY_SELLER_ORG_ID, is_demo_market_organization
+from app.services.demo_market import DEMO_ACTIVITY_BUYER_ORG_ID, DEMO_ACTIVITY_SELLER_ORG_ID, is_demo_market_organization
 from app.services.forward_curve_market_slices import forward_curve_market_slices
 from app.services.provenance import execution_provenance_compatible
 
@@ -399,6 +399,130 @@ async def test_demo_only_orderbook_remains_visible_and_explicitly_demo(db: Async
     assert cell.primary_value == Decimal("715.00")
     assert cell.primary_source_kind == MarketSourceKind.DEMO_SEED
     assert cell.demo_status == MarketDemoStatus.DEMO_ONLY
+
+
+@pytest.fixture
+async def managed_demo_slice(db: AsyncSession):
+    buyer = await _make_demo_org(db, DEMO_ACTIVITY_BUYER_ORG_ID, "Demo Buyer")
+    seller = await _make_demo_org(db, DEMO_ACTIVITY_SELLER_ORG_ID, "Demo Seller")
+    product = await _make_product(db, "Bio Methanol")
+    point = await _make_delivery_point(db, "Singapore")
+    observed_at = datetime.now(UTC) - timedelta(minutes=2)
+    bid = _make_order(org_id=buyer.id, side=OrderSide.BID, product_id=product.id,
+                      delivery_point_id=point.id, price="700")
+    ask = _make_order(org_id=seller.id, side=OrderSide.ASK, product_id=product.id,
+                      delivery_point_id=point.id, price="730")
+    for order in (bid, ask):
+        order.idempotency_operation = "DEMO_COVERAGE"
+        order.updated_at = observed_at
+    confirmed_at = observed_at - timedelta(days=1)
+    trade = Trade(
+        buyer_id=buyer.id, seller_id=seller.id, initiator_org_id=buyer.id,
+        buyer_provenance=OrganizationProvenance.DEMO,
+        seller_provenance=OrganizationProvenance.DEMO,
+        initiated_by=Initiator.BUYER,
+        product_id=product.id, product_name=product.name,
+        fuel_type=product.fuel_type, fuel_grade=product.fuel_grade,
+        market_product="BIO_METHANOL",
+        delivery_point_id=point.id, delivery_point_name=point.name,
+        delivery_point_region=point.region, availability_window="SPOT",
+        market_snapshot_version=1,
+        quantity_mt=Decimal("100"), price_per_mt_usd=Decimal("990"),
+        status=TradeStatus.CONFIRMED,
+        created_at=confirmed_at - timedelta(minutes=1), confirmed_at=confirmed_at,
+    )
+    db.add_all([bid, ask, trade])
+    await db.commit()
+    return product, point, bid, ask, trade
+
+
+@pytest.mark.asyncio
+async def test_managed_demo_book_is_primary_without_rewriting_trade_history(db, managed_demo_slice):
+    _product, point, bid, _ask, trade = managed_demo_slice
+    table = await forward_curve_market_slices.load_table(db, windows=["SPOT"])
+    table_cell = next(row for row in table.rows if row.market_product == "BIO_METHANOL").cells["SPOT"]
+    response = await forward_curve_market_slices.load_slice(
+        db, market_product="BIO_METHANOL", delivery_point_id=point.id, availability_window="SPOT",
+    )
+    for cell in (table_cell, response.cell):
+        assert cell.primary_value == Decimal("715.00")
+        assert cell.primary_signal_type == MarketSignalType.ORDERBOOK_BID
+        assert cell.primary_source_kind == MarketSourceKind.DEMO_SEED
+        assert cell.public_source_label == "Demo orderbook midpoint"
+        assert cell.demo_status == MarketDemoStatus.DEMO_ONLY
+        assert cell.observed_at == bid.updated_at
+        assert cell.is_executable is False
+    assert len(response.trades) == 1
+    assert response.trades[0].price_per_mt_usd == trade.price_per_mt_usd
+    assert response.trades[0].confirmed_at == trade.confirmed_at
+    prints = [item for item in response.evidence_points if item.layer == ForwardCurveEvidenceLayer.HISTORICAL_TRADE]
+    assert len(prints) == 1
+    assert prints[0].price_per_mt_usd == trade.price_per_mt_usd
+    assert prints[0].observed_at == trade.confirmed_at
+    await db.refresh(trade)
+    assert trade.price_per_mt_usd == Decimal("990")
+
+
+@pytest.mark.asyncio
+async def test_real_trade_keeps_precedence_over_managed_demo_book(db, managed_demo_slice):
+    _product, point, _bid, _ask, trade = managed_demo_slice
+    buyer = await _make_org(db, "Real Trade Buyer")
+    seller = await _make_org(db, "Real Trade Seller")
+    trade.buyer_id, trade.seller_id = buyer.id, seller.id
+    trade.buyer_provenance = trade.seller_provenance = OrganizationProvenance.REAL
+    await db.commit()
+    response = await forward_curve_market_slices.load_slice(
+        db, market_product="BIO_METHANOL", delivery_point_id=point.id, availability_window="SPOT",
+    )
+    assert response.cell.primary_value == Decimal("990.00")
+    assert response.cell.primary_signal_type == MarketSignalType.CONFIRMED_TRADE
+    assert response.cell.primary_source_kind == MarketSourceKind.CONFIRMED_TRADE
+    assert response.cell.demo_status == MarketDemoStatus.REAL_ONLY
+    assert response.cell.observed_at == trade.confirmed_at
+    assert response.trades[0].source_kind == MarketSourceKind.CONFIRMED_TRADE
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("book_case", [
+    "unmanaged", "unmanaged_extra", "one_managed_side", "one_sided", "expired_ask", "real_book", "unknown_book",
+])
+async def test_demo_trade_precedence_is_unchanged_outside_managed_two_sided_book(db, managed_demo_slice, book_case):
+    product, point, bid, ask, trade = managed_demo_slice
+    if book_case == "unmanaged":
+        bid.idempotency_operation = ask.idempotency_operation = None
+    elif book_case == "unmanaged_extra":
+        db.add(_make_order(org_id=bid.organization_id, side=OrderSide.BID, product_id=product.id,
+                           delivery_point_id=point.id, price="690"))
+    elif book_case == "one_managed_side":
+        ask.idempotency_operation = None
+    elif book_case == "one_sided":
+        ask.status = OrderBookStatus.CANCELLED
+    elif book_case == "expired_ask":
+        ask.expires_at = datetime.now(UTC) - timedelta(minutes=1)
+    elif book_case == "real_book":
+        real_org = await _make_org(db, "Real Book")
+        for side, price in ((OrderSide.BID, "650"), (OrderSide.ASK, "660")):
+            order = _make_order(org_id=real_org.id, side=side, product_id=product.id,
+                                delivery_point_id=point.id, price=price)
+            order.idempotency_operation = "DEMO_COVERAGE"
+            db.add(order)
+    elif book_case == "unknown_book":
+        bid.provenance = ask.provenance = OrganizationProvenance.UNKNOWN
+    await db.commit()
+    response = await forward_curve_market_slices.load_slice(
+        db, market_product="BIO_METHANOL", delivery_point_id=point.id, availability_window="SPOT",
+    )
+    assert response.cell.primary_value == Decimal("990.00")
+    assert response.cell.primary_signal_type == MarketSignalType.CONFIRMED_TRADE
+    assert response.cell.observed_at == trade.confirmed_at
+    assert response.trades[0].price_per_mt_usd == trade.price_per_mt_usd
+    if book_case == "real_book":
+        assert response.cell.best_bid == Decimal("650.00")
+        assert response.cell.best_ask == Decimal("660.00")
+        assert all(level.demo_status == MarketDemoStatus.REAL_ONLY for level in response.depth_bids + response.depth_asks)
+    if book_case == "unknown_book":
+        assert response.cell.demo_order_count == 0
+        assert not response.depth_bids and not response.depth_asks
 
 
 def test_mixed_demo_real_trade_snapshot_fails_closed_in_execution_policy():

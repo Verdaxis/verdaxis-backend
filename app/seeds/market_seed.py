@@ -10,7 +10,7 @@ only the explicitly authorized synthetic fixture on reset.
 import random
 import uuid
 import os
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
 
 from sqlalchemy import text, select
@@ -34,10 +34,12 @@ from app.demo_identities import (
 from app.seeds.catalog_seed import PRODUCT_IDS, DELIVERY_POINT_IDS
 from app.market_catalog import B30_SPECIFICATION_STANDARD, B100_SPECIFICATION_STANDARD
 from app.services.availability_windows import (
+    FORWARD_QUARTER_COUNT,
     SPOT_WINDOW,
     availability_window_expiry,
     normalize_availability_window,
     tradable_availability_windows,
+    window_start_date,
 )
 from app.services.execution_policy import normalize_certification_scheme
 from app.models.seed import SeedRun
@@ -275,14 +277,17 @@ DEMO_ACCOUNT_TRADE_CONFIGS = [
     ("Bio Methanol", "Los Angeles", "2026-Q3", Decimal("1800"), Decimal("934.00"), TradeStatus.CONFIRMED, Initiator.BUYER, 15),
 ]
 
-def build_seed_windows(reference_date: date | None = None, *, quarter_count: int = 6) -> list[str]:
+def build_seed_windows(reference_date: date | None = None, *, quarter_count: int = FORWARD_QUARTER_COUNT) -> list[str]:
     return tradable_availability_windows(
-        today=reference_date or date.today(),
+        today=reference_date or datetime.now(timezone.utc).date(),
         quarter_count=quarter_count,
     )
 
 
 WINDOWS = build_seed_windows()
+
+# Synthetic forward carry only; this is not an assessed forward-price forecast.
+DEMO_ANNUAL_CONTANGO_RATE = Decimal("0.03")
 
 QUANTITIES = [500, 1000, 1500, 2000, 2500, 3000, 3500, 4000, 4500, 5000]
 
@@ -322,8 +327,8 @@ def _qty() -> Decimal:
     return Decimal(str(_RNG.choice(QUANTITIES)))
 
 
-def _window() -> str:
-    return _RNG.choice(WINDOWS)
+def _window(reference_date: date | None = None) -> str:
+    return _RNG.choice(build_seed_windows(reference_date))
 
 
 def _rand_date(start: datetime, end: datetime) -> datetime:
@@ -347,17 +352,23 @@ def _seed_price_for_slice(
     ask_hi: float,
     window: str,
     depth_index: int = 0,
+    reference_date: date | None = None,
 ) -> Decimal:
-    normalized_window = normalize_availability_window(window)
-    premium = _window_premium(normalized_window, ask_lo=ask_lo, ask_hi=ask_hi)
-    best_bid = Decimal(str(round((bid_lo + bid_hi) / 2, 2))) + premium
-    natural_ask = Decimal(str(round((ask_lo + ask_hi) / 2, 2))) + premium
+    best_bid = Decimal(str(round((bid_lo + bid_hi) / 2, 2)))
+    natural_ask = Decimal(str(round((ask_lo + ask_hi) / 2, 2)))
     spread_floor = Decimal(str(max(round((ask_lo - bid_hi) * 0.6, 2), 12.0)))
     ladder_step = Decimal(str(max(round((ask_hi - ask_lo) * 0.18, 2), 4.0)))
     best_ask = max(natural_ask, best_bid + spread_floor)
-
-    price = best_bid - (ladder_step * depth_index) if side == OrderSide.BID else best_ask + (ladder_step * depth_index)
-    return price.quantize(Decimal('0.01'))
+    premium = _window_premium(
+        window,
+        spot_midpoint=(best_bid + best_ask) / Decimal("2"),
+        reference_date=reference_date or datetime.now(timezone.utc).date(),
+    )
+    if side == OrderSide.BID:
+        price = best_bid + premium - (ladder_step * depth_index)
+    else:
+        price = best_ask + premium + (ladder_step * depth_index)
+    return price.quantize(Decimal("0.01"))
 
 
 def _recent_seed_timestamp(window: str, reference_now: datetime, *, trade: bool = False) -> datetime:
@@ -447,23 +458,25 @@ def ask_seed_metadata(
     }
 
 
-def _window_premium(window: str, *, ask_lo: float, ask_hi: float) -> Decimal:
-    if window == SPOT_WINDOW:
+def _window_premium(
+    window: str, *, spot_midpoint: Decimal, reference_date: date
+) -> Decimal:
+    normalized_window = normalize_availability_window(window)
+    if normalized_window == SPOT_WINDOW:
         return Decimal("0")
 
-    try:
-        index = WINDOWS.index(window)
-    except ValueError:
+    valuation = datetime.combine(reference_date, time.min, timezone.utc)
+    start = datetime.combine(window_start_date(normalized_window), time.min, timezone.utc)
+    end = availability_window_expiry(normalized_window, observed_at=valuation)
+    remaining_start = max(start, valuation)
+    if remaining_start >= end:
         return Decimal("0")
 
-    spread = ask_hi - ask_lo
-    step = max(index - 1, 0)
-    if len(window) == 7 and window[4] == "-":
-        premium = spread * (0.12 + (0.08 * step))
-    else:
-        premium = spread * (0.35 + (0.1 * step))
-    premium = round(premium, 2)
-    return Decimal(str(premium))
+    # Use the midpoint of the remaining delivery period, so the current month
+    # stays just above Spot. ACT/365 carry continues through the full horizon.
+    delivery = remaining_start + (end - remaining_start) / 2
+    years = Decimal(str((delivery - valuation).total_seconds())) / Decimal(365 * 86400)
+    return spot_midpoint * DEMO_ANNUAL_CONTANGO_RATE * years
 
 
 def _orders_share_executable_slice(bid: OrderBookOrder, ask: OrderBookOrder) -> bool:
@@ -551,6 +564,7 @@ async def seed_market_data(
     await db.flush()
 
     reference_now = datetime.now(timezone.utc)
+    windows = build_seed_windows(reference_now.date())
 
     # ------------------------------------------------------------------
     # Step 2: Create orders
@@ -572,7 +586,7 @@ async def seed_market_data(
             n_bids = _RNG.randint(3, 5)
             for _ in range(n_bids):
                 buyer = _RNG.choice(BUYER_ORGS)
-                window = _window()
+                window = _window(reference_now.date())
                 certification_scheme = _slice_certification_scheme(product_name, port_name, window)
                 bid_metadata = bid_seed_metadata(certification_scheme)
                 qty = _qty()
@@ -596,7 +610,7 @@ async def seed_market_data(
                     delivery_point_id=dp_id,
                     quantity_mt=qty,
                     remaining_quantity_mt=remaining,
-                    price_per_mt_usd=_seed_price_for_slice(OrderSide.BID, bid_lo=bid_lo, bid_hi=bid_hi, ask_lo=ask_lo, ask_hi=ask_hi, window=window, depth_index=_RNG.randint(0, 2)),
+                    price_per_mt_usd=_seed_price_for_slice(OrderSide.BID, bid_lo=bid_lo, bid_hi=bid_hi, ask_lo=ask_lo, ask_hi=ask_hi, window=window, depth_index=_RNG.randint(0, 2), reference_date=reference_now.date()),
                     availability_window=window,
                     certification_scheme=bid_metadata["certification_scheme"],
                     status=status,
@@ -622,7 +636,7 @@ async def seed_market_data(
                 if remaining <= 0:
                     remaining = Decimal("500")
 
-                window = _window()
+                window = _window(reference_now.date())
                 certification_scheme = _slice_certification_scheme(product_name, port_name, window)
                 ci_value = Decimal(str(round(_RNG.uniform(ci_lo, ci_hi), 2)))
                 ask_metadata = ask_seed_metadata(certification_scheme, product_name=product_name)
@@ -637,7 +651,7 @@ async def seed_market_data(
                     delivery_point_id=dp_id,
                     quantity_mt=qty,
                     remaining_quantity_mt=remaining,
-                    price_per_mt_usd=_seed_price_for_slice(OrderSide.ASK, bid_lo=bid_lo, bid_hi=bid_hi, ask_lo=ask_lo, ask_hi=ask_hi, window=window, depth_index=_RNG.randint(0, 2)),
+                    price_per_mt_usd=_seed_price_for_slice(OrderSide.ASK, bid_lo=bid_lo, bid_hi=bid_hi, ask_lo=ask_lo, ask_hi=ask_hi, window=window, depth_index=_RNG.randint(0, 2), reference_date=reference_now.date()),
                     availability_window=window,
                     status=status,
                     certifications=ask_metadata["certifications"],
@@ -680,7 +694,7 @@ async def seed_market_data(
                 if o.status in (OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED)
             ]
 
-            for window in WINDOWS:
+            for window in windows:
                 anchor_bid_price = _seed_price_for_slice(
                     OrderSide.BID,
                     bid_lo=bid_lo,
@@ -689,6 +703,7 @@ async def seed_market_data(
                     ask_hi=ask_hi,
                     window=window,
                     depth_index=0,
+                    reference_date=reference_now.date(),
                 )
                 anchor_ask_price = _seed_price_for_slice(
                     OrderSide.ASK,
@@ -698,6 +713,7 @@ async def seed_market_data(
                     ask_hi=ask_hi,
                     window=window,
                     depth_index=0,
+                    reference_date=reference_now.date(),
                 )
                 needs_bid = not any(
                     o.side == OrderSide.BID
@@ -730,7 +746,7 @@ async def seed_market_data(
                         delivery_point_id=dp_id,
                         quantity_mt=gap_qty,
                         remaining_quantity_mt=gap_qty,
-                        price_per_mt_usd=_seed_price_for_slice(OrderSide.BID, bid_lo=bid_lo, bid_hi=bid_hi, ask_lo=ask_lo, ask_hi=ask_hi, window=window, depth_index=0),
+                        price_per_mt_usd=_seed_price_for_slice(OrderSide.BID, bid_lo=bid_lo, bid_hi=bid_hi, ask_lo=ask_lo, ask_hi=ask_hi, window=window, depth_index=0, reference_date=reference_now.date()),
                         availability_window=window,
                         certification_scheme=bid_metadata["certification_scheme"],
                         status=OrderBookStatus.OPEN,
@@ -756,7 +772,7 @@ async def seed_market_data(
                         delivery_point_id=dp_id,
                         quantity_mt=gap_qty,
                         remaining_quantity_mt=gap_qty,
-                        price_per_mt_usd=_seed_price_for_slice(OrderSide.ASK, bid_lo=bid_lo, bid_hi=bid_hi, ask_lo=ask_lo, ask_hi=ask_hi, window=window, depth_index=0),
+                        price_per_mt_usd=_seed_price_for_slice(OrderSide.ASK, bid_lo=bid_lo, bid_hi=bid_hi, ask_lo=ask_lo, ask_hi=ask_hi, window=window, depth_index=0, reference_date=reference_now.date()),
                         availability_window=window,
                         status=OrderBookStatus.OPEN,
                         certification_declared=ask_metadata["certification_declared"],
@@ -931,7 +947,7 @@ async def seed_market_data(
                 if o.status in (OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED)
             ]
 
-            for window in WINDOWS:
+            for window in windows:
                 created = _recent_seed_timestamp(window, reference_now)
                 anchor_bid_price = _seed_price_for_slice(
                     OrderSide.BID,
@@ -941,6 +957,7 @@ async def seed_market_data(
                     ask_hi=ask_hi,
                     window=window,
                     depth_index=0,
+                    reference_date=reference_now.date(),
                 )
                 anchor_ask_price = _seed_price_for_slice(
                     OrderSide.ASK,
@@ -950,6 +967,7 @@ async def seed_market_data(
                     ask_hi=ask_hi,
                     window=window,
                     depth_index=0,
+                    reference_date=reference_now.date(),
                 )
                 needs_bid = not any(
                     o.side == OrderSide.BID
@@ -977,7 +995,7 @@ async def seed_market_data(
                         delivery_point_id=dp_id,
                         quantity_mt=gap_qty,
                         remaining_quantity_mt=gap_qty,
-                        price_per_mt_usd=_seed_price_for_slice(OrderSide.BID, bid_lo=bid_lo, bid_hi=bid_hi, ask_lo=ask_lo, ask_hi=ask_hi, window=window, depth_index=0),
+                        price_per_mt_usd=_seed_price_for_slice(OrderSide.BID, bid_lo=bid_lo, bid_hi=bid_hi, ask_lo=ask_lo, ask_hi=ask_hi, window=window, depth_index=0, reference_date=reference_now.date()),
                         availability_window=window,
                         certification_scheme=bid_metadata["certification_scheme"],
                         status=OrderBookStatus.OPEN,
@@ -1001,7 +1019,7 @@ async def seed_market_data(
                         delivery_point_id=dp_id,
                         quantity_mt=gap_qty,
                         remaining_quantity_mt=gap_qty,
-                        price_per_mt_usd=_seed_price_for_slice(OrderSide.ASK, bid_lo=bid_lo, bid_hi=bid_hi, ask_lo=ask_lo, ask_hi=ask_hi, window=window, depth_index=0),
+                        price_per_mt_usd=_seed_price_for_slice(OrderSide.ASK, bid_lo=bid_lo, bid_hi=bid_hi, ask_lo=ask_lo, ask_hi=ask_hi, window=window, depth_index=0, reference_date=reference_now.date()),
                         availability_window=window,
                         status=OrderBookStatus.OPEN,
                         certifications=ask_metadata["certifications"],
@@ -1063,7 +1081,7 @@ async def seed_market_data(
             delivery_point_id=DELIVERY_POINT_IDS[port_name],
             quantity_mt=Decimal(str(qty)),
             target_price_per_mt=Decimal(str(target_price)) if target_price else None,
-            availability_window=_window(),
+            availability_window=_window(reference_now.date()),
             notes=RFQ_NOTES[i],
             is_anonymous=_RNG.random() < 0.3,
             status=status,
