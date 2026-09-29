@@ -252,22 +252,6 @@ CERTIFICATION_SCHEMES = ("ISCC EU", "ISCC PLUS", "REDcert EU")
 DEMO_BUYER_ORG_ID = DEMO_ACCOUNT_BUYER_ORG_ID
 DEMO_SELLER_ORG_ID = DEMO_ACCOUNT_SELLER_ORG_ID
 
-DEMO_SLICE_DEPTH_BIDS = [
-    (0, Decimal("5000"), Decimal("5000"), Decimal("1048.00"), OrderBookStatus.OPEN),
-    (1, Decimal("3500"), Decimal("3500"), Decimal("1045.00"), OrderBookStatus.OPEN),
-    (2, Decimal("2500"), Decimal("2000"), Decimal("1041.00"), OrderBookStatus.PARTIALLY_FILLED),
-    (3, Decimal("2000"), Decimal("2000"), Decimal("1036.00"), OrderBookStatus.OPEN),
-    (4, Decimal("1500"), Decimal("1000"), Decimal("1032.00"), OrderBookStatus.PARTIALLY_FILLED),
-]
-
-DEMO_SLICE_DEPTH_ASKS = [
-    (0, Decimal("4000"), Decimal("4000"), Decimal("1056.00"), OrderBookStatus.OPEN),
-    (1, Decimal("3000"), Decimal("3000"), Decimal("1061.00"), OrderBookStatus.OPEN),
-    (2, Decimal("2500"), Decimal("1800"), Decimal("1067.00"), OrderBookStatus.PARTIALLY_FILLED),
-    (3, Decimal("2000"), Decimal("2000"), Decimal("1074.00"), OrderBookStatus.OPEN),
-    (4, Decimal("1500"), Decimal("1200"), Decimal("1082.00"), OrderBookStatus.PARTIALLY_FILLED),
-]
-
 DEMO_ACCOUNT_TRADE_CONFIGS = [
     ("Bio Methanol", "Singapore", SPOT_WINDOW, Decimal("500"), Decimal("1056.00"), TradeStatus.PENDING_CONFIRMATION, Initiator.BUYER, 1),
     ("Bio Methanol", "Rotterdam", SPOT_WINDOW, Decimal("750"), Decimal("602.00"), TradeStatus.PENDING_CONFIRMATION, Initiator.SELLER, 2),
@@ -564,7 +548,6 @@ async def seed_market_data(
     await db.flush()
 
     reference_now = datetime.now(timezone.utc)
-    windows = build_seed_windows(reference_now.date())
 
     # ------------------------------------------------------------------
     # Step 2: Create orders
@@ -674,127 +657,6 @@ async def seed_market_data(
 
     total_orders = len(all_orders)
     print(f"[market_seed] Created {total_orders} synthetic orders.")
-
-    # ------------------------------------------------------------------
-    # Step 2b: Coverage guarantee — ensure every window has orders
-    # ------------------------------------------------------------------
-    print("[market_seed] Running coverage guarantee pass...")
-    coverage_created = 0
-    for product_name, ports in PRICING.items():
-        product_id = PRODUCT_IDS[product_name]
-        ci_lo, ci_hi, energy_density = CI_DATA[product_name]
-
-        for port_name, (bid_lo, bid_hi, ask_lo, ask_hi) in ports.items():
-            dp_id = DELIVERY_POINT_IDS[port_name]
-            key = f"{product_name}|{port_name}"
-            existing_orders = orders_by_product_port.get(key, [])
-
-            active_orders = [
-                o for o in existing_orders
-                if o.status in (OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED)
-            ]
-
-            for window in windows:
-                anchor_bid_price = _seed_price_for_slice(
-                    OrderSide.BID,
-                    bid_lo=bid_lo,
-                    bid_hi=bid_hi,
-                    ask_lo=ask_lo,
-                    ask_hi=ask_hi,
-                    window=window,
-                    depth_index=0,
-                    reference_date=reference_now.date(),
-                )
-                anchor_ask_price = _seed_price_for_slice(
-                    OrderSide.ASK,
-                    bid_lo=bid_lo,
-                    bid_hi=bid_hi,
-                    ask_lo=ask_lo,
-                    ask_hi=ask_hi,
-                    window=window,
-                    depth_index=0,
-                    reference_date=reference_now.date(),
-                )
-                needs_bid = not any(
-                    o.side == OrderSide.BID
-                    and normalize_availability_window(o.availability_window) == normalize_availability_window(window)
-                    and o.price_per_mt_usd >= anchor_bid_price
-                    for o in active_orders
-                )
-                needs_ask = not any(
-                    o.side == OrderSide.ASK
-                    and normalize_availability_window(o.availability_window) == normalize_availability_window(window)
-                    and o.price_per_mt_usd <= anchor_ask_price
-                    for o in active_orders
-                )
-
-                if not needs_bid and not needs_ask:
-                    continue
-
-                created = _recent_seed_timestamp(window, reference_now)
-
-                if needs_bid:
-                    buyer = _RNG.choice(BUYER_ORGS)
-                    certification_scheme = _slice_certification_scheme(product_name, port_name, window)
-                    bid_metadata = bid_seed_metadata(certification_scheme)
-                    gap_qty = _qty()
-                    order = _seed_order(
-                        id=uuid.uuid4(),
-                        organization_id=buyer["id"],
-                        side=OrderSide.BID,
-                        product_id=product_id,
-                        delivery_point_id=dp_id,
-                        quantity_mt=gap_qty,
-                        remaining_quantity_mt=gap_qty,
-                        price_per_mt_usd=_seed_price_for_slice(OrderSide.BID, bid_lo=bid_lo, bid_hi=bid_hi, ask_lo=ask_lo, ask_hi=ask_hi, window=window, depth_index=0, reference_date=reference_now.date()),
-                        availability_window=window,
-                        certification_scheme=bid_metadata["certification_scheme"],
-                        status=OrderBookStatus.OPEN,
-                        created_at=created,
-                        updated_at=created,
-                    )
-                    db.add(order)
-                    all_orders.append(order)
-                    orders_by_product_port.setdefault(key, []).append(order)
-                    coverage_created += 1
-
-                if needs_ask:
-                    supplier = _RNG.choice(SUPPLIER_ORGS)
-                    ci_value = Decimal(str(round(_RNG.uniform(ci_lo, ci_hi), 2)))
-                    gap_qty = _qty()
-                    certification_scheme = _slice_certification_scheme(product_name, port_name, window)
-                    ask_metadata = ask_seed_metadata(certification_scheme, product_name=product_name)
-                    order = _seed_order(
-                        id=uuid.uuid4(),
-                        organization_id=supplier["id"],
-                        side=OrderSide.ASK,
-                        product_id=product_id,
-                        delivery_point_id=dp_id,
-                        quantity_mt=gap_qty,
-                        remaining_quantity_mt=gap_qty,
-                        price_per_mt_usd=_seed_price_for_slice(OrderSide.ASK, bid_lo=bid_lo, bid_hi=bid_hi, ask_lo=ask_lo, ask_hi=ask_hi, window=window, depth_index=0, reference_date=reference_now.date()),
-                        availability_window=window,
-                        status=OrderBookStatus.OPEN,
-                        certification_declared=ask_metadata["certification_declared"],
-                        certification_scheme=ask_metadata["certification_scheme"],
-                        certifications=ask_metadata["certifications"],
-                        specification_standard=ask_metadata["specification_standard"],
-                        msds_available=ask_metadata["msds_available"],
-                        carbon_intensity_method=ask_metadata["carbon_intensity_method"],
-                        feedstock=ask_metadata["feedstock"],
-                        origin=f"{port_name} hub",
-                        carbon_intensity_gco2_mj=ci_value,
-                        energy_density_mj_kg=Decimal(str(energy_density)),
-                        created_at=created,
-                        updated_at=created,
-                    )
-                    db.add(order)
-                    all_orders.append(order)
-                    orders_by_product_port.setdefault(key, []).append(order)
-                    coverage_created += 1
-
-    await db.flush()
-    print(f"[market_seed] Coverage pass: created {coverage_created} gap-filling orders.")
 
     # ------------------------------------------------------------------
     # Step 3: Create trades from crossed orders
@@ -926,121 +788,13 @@ async def seed_market_data(
     await db.flush()
     print(f"[market_seed] Created {trades_created} trades.")
 
-    # ------------------------------------------------------------------
-    # Step 3b: Post-trade coverage safety net
-    # Some gap-fill orders may have been consumed by trades above.
-    # Re-check and fill any windows that lost all active orders.
-    # ------------------------------------------------------------------
-    print("[market_seed] Post-trade coverage check...")
-    post_trade_created = 0
-    for product_name, ports in PRICING.items():
-        product_id = PRODUCT_IDS[product_name]
-        ci_lo, ci_hi, energy_density = CI_DATA[product_name]
-
-        for port_name, (bid_lo, bid_hi, ask_lo, ask_hi) in ports.items():
-            dp_id = DELIVERY_POINT_IDS[port_name]
-            key = f"{product_name}|{port_name}"
-            existing_orders = orders_by_product_port.get(key, [])
-
-            active_orders = [
-                o for o in existing_orders
-                if o.status in (OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED)
-            ]
-
-            for window in windows:
-                created = _recent_seed_timestamp(window, reference_now)
-                anchor_bid_price = _seed_price_for_slice(
-                    OrderSide.BID,
-                    bid_lo=bid_lo,
-                    bid_hi=bid_hi,
-                    ask_lo=ask_lo,
-                    ask_hi=ask_hi,
-                    window=window,
-                    depth_index=0,
-                    reference_date=reference_now.date(),
-                )
-                anchor_ask_price = _seed_price_for_slice(
-                    OrderSide.ASK,
-                    bid_lo=bid_lo,
-                    bid_hi=bid_hi,
-                    ask_lo=ask_lo,
-                    ask_hi=ask_hi,
-                    window=window,
-                    depth_index=0,
-                    reference_date=reference_now.date(),
-                )
-                needs_bid = not any(
-                    o.side == OrderSide.BID
-                    and normalize_availability_window(o.availability_window) == normalize_availability_window(window)
-                    and o.price_per_mt_usd >= anchor_bid_price
-                    for o in active_orders
-                )
-                needs_ask = not any(
-                    o.side == OrderSide.ASK
-                    and normalize_availability_window(o.availability_window) == normalize_availability_window(window)
-                    and o.price_per_mt_usd <= anchor_ask_price
-                    for o in active_orders
-                )
-
-                if needs_bid:
-                    buyer = _RNG.choice(BUYER_ORGS)
-                    certification_scheme = _slice_certification_scheme(product_name, port_name, window)
-                    bid_metadata = bid_seed_metadata(certification_scheme)
-                    gap_qty = _qty()
-                    order = _seed_order(
-                        id=uuid.uuid4(),
-                        organization_id=buyer["id"],
-                        side=OrderSide.BID,
-                        product_id=product_id,
-                        delivery_point_id=dp_id,
-                        quantity_mt=gap_qty,
-                        remaining_quantity_mt=gap_qty,
-                        price_per_mt_usd=_seed_price_for_slice(OrderSide.BID, bid_lo=bid_lo, bid_hi=bid_hi, ask_lo=ask_lo, ask_hi=ask_hi, window=window, depth_index=0, reference_date=reference_now.date()),
-                        availability_window=window,
-                        certification_scheme=bid_metadata["certification_scheme"],
-                        status=OrderBookStatus.OPEN,
-                        created_at=created,
-                        updated_at=created,
-                    )
-                    db.add(order)
-                    post_trade_created += 1
-
-                if needs_ask:
-                    supplier = _RNG.choice(SUPPLIER_ORGS)
-                    ci_value = Decimal(str(round(_RNG.uniform(ci_lo, ci_hi), 2)))
-                    gap_qty = _qty()
-                    certification_scheme = _slice_certification_scheme(product_name, port_name, window)
-                    ask_metadata = ask_seed_metadata(certification_scheme, product_name=product_name)
-                    order = _seed_order(
-                        id=uuid.uuid4(),
-                        organization_id=supplier["id"],
-                        side=OrderSide.ASK,
-                        product_id=product_id,
-                        delivery_point_id=dp_id,
-                        quantity_mt=gap_qty,
-                        remaining_quantity_mt=gap_qty,
-                        price_per_mt_usd=_seed_price_for_slice(OrderSide.ASK, bid_lo=bid_lo, bid_hi=bid_hi, ask_lo=ask_lo, ask_hi=ask_hi, window=window, depth_index=0, reference_date=reference_now.date()),
-                        availability_window=window,
-                        status=OrderBookStatus.OPEN,
-                        certifications=ask_metadata["certifications"],
-                        certification_declared=ask_metadata["certification_declared"],
-                        certification_scheme=ask_metadata["certification_scheme"],
-                        specification_standard=ask_metadata["specification_standard"],
-                        msds_available=ask_metadata["msds_available"],
-                        carbon_intensity_gco2_mj=Decimal(str(round(_RNG.uniform(ci_lo, ci_hi), 2))),
-                        carbon_intensity_method=ask_metadata["carbon_intensity_method"],
-                        feedstock=ask_metadata["feedstock"],
-                        origin=f"{port_name} hub",
-                        energy_density_mj_kg=Decimal(str(energy_density)),
-                        created_at=created,
-                        updated_at=created,
-                    )
-                    db.add(order)
-                    post_trade_created += 1
-
-    if post_trade_created > 0:
-        await db.flush()
-    print(f"[market_seed] Post-trade safety net: created {post_trade_created} orders.")
+    # These records exist only to support synthetic history. Keep them and
+    # their trade links, but let the shared coverage book own resting quotes.
+    for order in all_orders:
+        if order.status in (OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED):
+            order.status = OrderBookStatus.EXPIRED
+            order.updated_at = reference_now
+    await db.flush()
 
     # ------------------------------------------------------------------
     # Step 4: Create RFQs with quotes
@@ -1119,75 +873,6 @@ async def seed_market_data(
 
     await db.flush()
     print(f"[market_seed] Created {rfqs_created} RFQs.")
-
-    # ------------------------------------------------------------------
-    # Step 4b: Add explicit demo depth for Bio Methanol / Singapore / Spot
-    # using only non-demo organizations so the recording accounts stay clean.
-    # ------------------------------------------------------------------
-    print("[market_seed] Creating explicit Bio Methanol / Singapore / Spot depth...")
-
-    demo_depth_created = 0
-    demo_product_name = "Bio Methanol"
-    demo_port_name = "Singapore"
-    demo_product_id = PRODUCT_IDS[demo_product_name]
-    demo_delivery_point_id = DELIVERY_POINT_IDS[demo_port_name]
-    demo_certification_scheme = _slice_certification_scheme(demo_product_name, demo_port_name, SPOT_WINDOW)
-    demo_ci_lo, demo_ci_hi, demo_energy_density = CI_DATA[demo_product_name]
-
-    for org_index, quantity_mt, remaining_quantity_mt, price_per_mt_usd, status in DEMO_SLICE_DEPTH_BIDS:
-        created = reference_now - timedelta(hours=12 + demo_depth_created)
-        bid_metadata = bid_seed_metadata(demo_certification_scheme)
-        order = _seed_order(
-            id=uuid.uuid4(),
-            organization_id=BUYER_ORGS[org_index % len(BUYER_ORGS)]["id"],
-            side=OrderSide.BID,
-            product_id=demo_product_id,
-            delivery_point_id=demo_delivery_point_id,
-            quantity_mt=quantity_mt,
-            remaining_quantity_mt=remaining_quantity_mt,
-            price_per_mt_usd=price_per_mt_usd,
-            availability_window=SPOT_WINDOW,
-            certification_scheme=bid_metadata["certification_scheme"],
-            status=status,
-            created_at=created,
-            updated_at=created,
-        )
-        db.add(order)
-        demo_depth_created += 1
-
-    for org_index, quantity_mt, remaining_quantity_mt, price_per_mt_usd, status in DEMO_SLICE_DEPTH_ASKS:
-        created = reference_now - timedelta(hours=12 + demo_depth_created)
-        ask_metadata = ask_seed_metadata(demo_certification_scheme, product_name=demo_product_name)
-        order = _seed_order(
-            id=uuid.uuid4(),
-            organization_id=SUPPLIER_ORGS[org_index % len(SUPPLIER_ORGS)]["id"],
-            side=OrderSide.ASK,
-            product_id=demo_product_id,
-            delivery_point_id=demo_delivery_point_id,
-            quantity_mt=quantity_mt,
-            remaining_quantity_mt=remaining_quantity_mt,
-            price_per_mt_usd=price_per_mt_usd,
-            availability_window=SPOT_WINDOW,
-            status=status,
-            certifications=ask_metadata["certifications"],
-            certification_declared=ask_metadata["certification_declared"],
-            certification_scheme=ask_metadata["certification_scheme"],
-            specification_standard=ask_metadata["specification_standard"],
-            msds_available=ask_metadata["msds_available"],
-            carbon_intensity_method=ask_metadata["carbon_intensity_method"],
-            feedstock=ask_metadata["feedstock"],
-            origin=f"{demo_port_name} hub",
-            is_verdaxis_verified=True,
-            carbon_intensity_gco2_mj=Decimal(str(round(_RNG.uniform(demo_ci_lo, demo_ci_hi), 2))),
-            energy_density_mj_kg=Decimal(str(demo_energy_density)),
-            created_at=created,
-            updated_at=created,
-        )
-        db.add(order)
-        demo_depth_created += 1
-
-    await db.flush()
-    print(f"[market_seed] Created {demo_depth_created} explicit depth orders for the demo slice.")
 
     # ------------------------------------------------------------------
     # Step 5: Create resettable demo-account trades across lifecycle states.
@@ -1305,6 +990,12 @@ async def seed_market_data(
 
     await db.flush()
     print(f"[market_seed] Created {demo_trades_created} Buy Corp / Sell Corp demo trades.")
+
+    # Local import avoids the seed-pricing/demo-activity module dependency cycle.
+    from app.services.demo_activity import ensure_demo_market_coverage
+
+    coverage = await ensure_demo_market_coverage(db, now=reference_now)
+    print(f"[market_seed] Managed resting demo orders: {coverage['coverage_orders']}")
 
     # ------------------------------------------------------------------
     # Commit everything

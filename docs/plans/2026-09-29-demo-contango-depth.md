@@ -14,13 +14,14 @@ The user is running a live demo. Prepare code, tests and a pull request only. Do
 
 ## 1. Shared pricing and complete depth
 
-Files: `app/seeds/market_seed.py`, `app/services/demo_activity.py`, `tests/unit/test_market_seed.py`, `tests/unit/test_demo_activity_windows.py`.
+Files: `app/seeds/market_seed.py`, `app/services/demo_activity.py`, `tests/unit/test_market_seed.py`, `tests/unit/test_demo_activity_windows.py`, `tests/postgres/test_demo_market_seed.py`.
 
 - Replace the six-quarter pricing lookup with canonical delivery-date arithmetic. Keep Spot bid and ask anchors unchanged.
 - Use a documented 3% simple annual premium on the Spot midpoint: `premium = spot_midpoint * Decimal("0.03") * delivery_days / Decimal(365)`.
 - Delivery time is the midpoint from the later of window start or valuation date to exclusive window end. This keeps the current monthly window above Spot even on its last day.
 - Translate both ladders by the same premium. Keep ten distinct, positive, uncrossed levels per side in every canonical slice.
 - Retain deterministic coverage keys and immutable fields. Refresh only the existing mutable-field allowlist.
+- Route the supported fresh/reset market bootstrap through the same reconciler. Remove its separate gap-fill and special Spot depth passes. After synthetic trades are built, expire only the active residual orders created during that invocation; retain their rows and history.
 - Generate only the existing synthetic matched pair per activity tick, at that window's current midpoint. Coverage supplies resting quotes; remove the redundant third visible order.
 - Expire only unfilled legacy generated activity quotes with exact demo organization/provenance markers and no customer actor, support authority, idempotency marker, or trade/match/negotiation reference. Keep rows and watchlist pins.
 - Verify full coverage at month, quarter and year rollover, refresh idempotence, expiry scope, references and matched-pair isolation.
