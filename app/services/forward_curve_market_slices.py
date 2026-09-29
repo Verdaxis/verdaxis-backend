@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import and_, case, func, or_, select, text, tuple_
+from sqlalchemy import and_, case, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.market_catalog import (
@@ -67,7 +67,6 @@ from app.services.market_provenance import (
     public_order_evidence_clause,
     public_trade_evidence_clause,
     select_aggregate_evidence,
-    trade_evidence_clause,
 )
 from app.services.market_data_eligibility import (
     canonical_delivery_point_clause,
@@ -84,6 +83,7 @@ from app.services.forward_monitoring import (
     no_data_fair_price_band_provenance,
     no_data_summary_for_signal,
 )
+from app.services.market_slice_filters import exact_market_slice_clause
 
 
 ACTIVE_ORDER_STATUSES = [OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED]
@@ -356,7 +356,8 @@ class ForwardCurveMarketSliceService:
                     window: ForwardCurveTableCell.model_validate(
                         cells[
                             SliceKey(group.market_product, point.id, window)
-                        ].model_dump()
+                        ],
+                        from_attributes=True,
                     )
                     for window in normalized_windows
                 }
@@ -509,12 +510,14 @@ class ForwardCurveMarketSliceService:
             benchmark = benchmarks.get(key)
             indication = indication_summaries.get(
                 (key.market_product, key.delivery_point_id, key.availability_window),
-                _no_data_indication_summary(),
             )
+            if indication is None:
+                indication = _no_data_indication_summary()
             physical = physical_summaries.get(
                 (key.market_product, key.delivery_point_id, key.availability_window),
-                _no_data_stem_summary(),
             )
+            if physical is None:
+                physical = _no_data_stem_summary()
             fair_band = fair_bands.get((key.market_product, key.delivery_point_id, key.availability_window))
             cells[key] = self._build_cell(
                 key=key,
@@ -579,17 +582,26 @@ class ForwardCurveMarketSliceService:
             demo_clause,
             OrderBookOrder.idempotency_operation == "DEMO_COVERAGE",
         )
+        bid_clause = OrderBookOrder.side == OrderSide.BID
+        ask_clause = OrderBookOrder.side == OrderSide.ASK
         observed_at = func.coalesce(OrderBookOrder.updated_at, OrderBookOrder.created_at)
         stmt = (
             select(
                 OrderBookOrder.product_id,
                 OrderBookOrder.delivery_point_id,
                 OrderBookOrder.availability_window,
-                OrderBookOrder.side,
-                func.max(case((real_clause, OrderBookOrder.price_per_mt_usd))).label("real_max_price"),
-                func.min(case((real_clause, OrderBookOrder.price_per_mt_usd))).label("real_min_price"),
-                func.max(case((demo_clause, OrderBookOrder.price_per_mt_usd))).label("demo_max_price"),
-                func.min(case((demo_clause, OrderBookOrder.price_per_mt_usd))).label("demo_min_price"),
+                func.max(
+                    case((and_(real_clause, bid_clause), OrderBookOrder.price_per_mt_usd))
+                ).label("real_best_bid"),
+                func.min(
+                    case((and_(real_clause, ask_clause), OrderBookOrder.price_per_mt_usd))
+                ).label("real_best_ask"),
+                func.max(
+                    case((and_(demo_clause, bid_clause), OrderBookOrder.price_per_mt_usd))
+                ).label("demo_best_bid"),
+                func.min(
+                    case((and_(demo_clause, ask_clause), OrderBookOrder.price_per_mt_usd))
+                ).label("demo_best_ask"),
                 func.sum(case((real_clause, OrderBookOrder.remaining_quantity_mt), else_=0)).label("real_volume_mt"),
                 func.sum(case((demo_clause, OrderBookOrder.remaining_quantity_mt), else_=0)).label("demo_volume_mt"),
                 func.sum(case((real_clause, 1), else_=0)).label("real_order_count"),
@@ -618,7 +630,6 @@ class ForwardCurveMarketSliceService:
                 OrderBookOrder.product_id,
                 OrderBookOrder.delivery_point_id,
                 OrderBookOrder.availability_window,
-                OrderBookOrder.side,
             )
         )
         previous_jit = None
@@ -644,13 +655,10 @@ class ForwardCurveMarketSliceService:
                 key,
                 {"real_volume_mt": Decimal("0"), "demo_volume_mt": Decimal("0")},
             )
-            side = row.side.value if hasattr(row.side, "value") else str(row.side)
-            if side == OrderSide.BID.value:
-                bucket["real_best_bid"] = _max_money(bucket.get("real_best_bid"), row.real_max_price)
-                bucket["demo_best_bid"] = _max_money(bucket.get("demo_best_bid"), row.demo_max_price)
-            elif side == OrderSide.ASK.value:
-                bucket["real_best_ask"] = _min_money(bucket.get("real_best_ask"), row.real_min_price)
-                bucket["demo_best_ask"] = _min_money(bucket.get("demo_best_ask"), row.demo_min_price)
+            bucket["real_best_bid"] = _max_money(bucket.get("real_best_bid"), row.real_best_bid)
+            bucket["demo_best_bid"] = _max_money(bucket.get("demo_best_bid"), row.demo_best_bid)
+            bucket["real_best_ask"] = _min_money(bucket.get("real_best_ask"), row.real_best_ask)
+            bucket["demo_best_ask"] = _min_money(bucket.get("demo_best_ask"), row.demo_best_ask)
             bucket["real_volume_mt"] = Decimal(str(bucket["real_volume_mt"])) + (row.real_volume_mt or Decimal("0"))
             bucket["demo_volume_mt"] = Decimal(str(bucket["demo_volume_mt"])) + (row.demo_volume_mt or Decimal("0"))
             bucket["real_order_count"] = int(bucket.get("real_order_count") or 0) + int(row.real_order_count or 0)
@@ -754,7 +762,7 @@ class ForwardCurveMarketSliceService:
         if not key_tuples:
             return {}
         stmt = select(Benchmark).where(
-            tuple_(Benchmark.market_product, Benchmark.delivery_point_id, Benchmark.availability_window).in_(key_tuples)
+            exact_market_slice_clause(Benchmark, key_tuples)
         )
         result = await db.execute(stmt)
         return {
@@ -1125,43 +1133,44 @@ class ForwardCurveMarketSliceService:
         window: str,
     ) -> list[ForwardCurveSliceTrade]:
         cutoff = datetime.now(timezone.utc) - timedelta(days=TRADE_LOOKBACK_DAYS)
-        for scope in (MarketEvidenceScope.REAL, MarketEvidenceScope.DEMO):
-            policy = evidence_policy_for_scope(
-                scope,
-                real_source=MarketSourceKind.CONFIRMED_TRADE,
+        real_trade = Trade.buyer_provenance == OrganizationProvenance.REAL
+        stmt = (
+            select(Trade)
+            .where(
+                Trade.status.in_(CONFIRMED_TRADE_STATUSES),
+                Trade.confirmed_at.isnot(None),
+                Trade.confirmed_at >= cutoff,
+                Trade.market_product == group.market_product,
+                Trade.delivery_point_id == point.id,
+                Trade.availability_window == window,
+                public_trade_evidence_clause(Trade, confirmed_since=cutoff),
             )
-            stmt = (
-                select(Trade)
-                .where(
-                    Trade.status.in_(CONFIRMED_TRADE_STATUSES),
-                    Trade.confirmed_at.isnot(None),
-                    Trade.confirmed_at >= cutoff,
-                    Trade.market_product == group.market_product,
-                    Trade.delivery_point_id == point.id,
-                    Trade.availability_window == window,
-                    trade_evidence_clause(
-                        Trade,
-                        scope,
-                        confirmed_since=cutoff,
-                    ),
-                )
-                .order_by(Trade.confirmed_at.desc(), Trade.id.desc())
-                .limit(MAX_SLICE_TRADES)
+            .order_by(real_trade.desc(), Trade.confirmed_at.desc(), Trade.id.desc())
+            .limit(MAX_SLICE_TRADES)
+        )
+        rows = (await db.execute(stmt)).scalars().all()
+        if not rows:
+            return []
+        # Prioritize the evidence class before applying the bound. If REAL
+        # history exists, do not fill its remaining slots with DEMO prints.
+        selected_provenance = rows[0].buyer_provenance
+        scope = (
+            MarketEvidenceScope.REAL
+            if selected_provenance == OrganizationProvenance.REAL
+            else MarketEvidenceScope.DEMO
+        )
+        policy = evidence_policy_for_scope(scope, real_source=MarketSourceKind.CONFIRMED_TRADE)
+        return [
+            ForwardCurveSliceTrade(
+                price_per_mt_usd=_money(trade.price_per_mt_usd) or Decimal("0"),
+                quantity_mt=_money(trade.quantity_mt) or Decimal("0"),
+                confirmed_at=trade.confirmed_at,
+                source_kind=policy.source_kind,
+                demo_status=policy.demo_status,
             )
-            result = await db.execute(stmt)
-            trades = [
-                ForwardCurveSliceTrade(
-                    price_per_mt_usd=_money(trade.price_per_mt_usd) or Decimal("0"),
-                    quantity_mt=_money(trade.quantity_mt) or Decimal("0"),
-                    confirmed_at=trade.confirmed_at,
-                    source_kind=policy.source_kind,
-                    demo_status=policy.demo_status,
-                )
-                for trade in result.scalars().all()
-            ]
-            if trades:
-                return trades
-        return []
+            for trade in rows
+            if trade.buyer_provenance == selected_provenance
+        ]
 
     def _latest_signals(self, cells: Iterable[ForwardCurveMarketCell]) -> list[ForwardCurveLatestSignal]:
         populated = [cell for cell in cells if cell.primary_value is not None and cell.observed_at is not None]
