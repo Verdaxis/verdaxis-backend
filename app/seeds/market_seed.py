@@ -32,7 +32,12 @@ from app.demo_identities import (
     DEMO_SEED_SUPPLIERS,
 )
 from app.seeds.catalog_seed import PRODUCT_IDS, DELIVERY_POINT_IDS
-from app.market_catalog import B30_SPECIFICATION_STANDARD, B100_SPECIFICATION_STANDARD
+from app.market_catalog import (
+    B30_SPECIFICATION_STANDARD,
+    B100_SPECIFICATION_STANDARD,
+    PRODUCTS_BY_ID,
+    DELIVERY_POINTS_BY_ID,
+)
 from app.services.availability_windows import (
     FORWARD_QUARTER_COUNT,
     SPOT_WINDOW,
@@ -70,7 +75,17 @@ def _seed_order(**values):
 
 
 def _seed_trade(**values):
-    """Create a demo seed trade with immutable party snapshots."""
+    """Create a demo trade with canonical market and immutable party snapshots."""
+    product = PRODUCTS_BY_ID[values["product_id"]]
+    delivery_point = DELIVERY_POINTS_BY_ID[values["delivery_point_id"]]
+    values.update(
+        product_name=product.name,
+        fuel_type=product.fuel_type,
+        fuel_grade=product.fuel_grade,
+        market_product=product.market_product.value,
+        delivery_point_name=delivery_point.name,
+        delivery_point_region=delivery_point.region,
+    )
     values.setdefault("buyer_provenance", "DEMO")
     values.setdefault("seller_provenance", "DEMO")
     values.setdefault(
@@ -746,13 +761,7 @@ async def seed_market_data(
             buyer_id=bid.organization_id,
             seller_id=ask.organization_id,
             product_id=bid.product_id,
-            product_name=bid.product_name,
-            fuel_type=bid.fuel_type,
-            fuel_grade=bid.fuel_grade,
-            market_product=bid.market_product,
             delivery_point_id=bid.delivery_point_id,
-            delivery_point_name=bid.delivery_point_name,
-            delivery_point_region=bid.region,
             availability_window=bid.availability_window,
             initiated_by=_RNG.choice([Initiator.BUYER, Initiator.SELLER]),
             quantity_mt=trade_qty,
@@ -849,8 +858,7 @@ async def seed_market_data(
         if status == RFQStatus.QUOTED:
             n_quotes = _RNG.randint(1, 3)
             pricing_range = PRICING.get(product_name, {}).get(port_name)
-            for q_idx in range(n_quotes):
-                seller = _RNG.choice(SUPPLIER_ORGS)
+            for seller in _RNG.sample(SUPPLIER_ORGS, n_quotes):
                 # Quote price near the ask range
                 if pricing_range:
                     _, _, ask_lo, ask_hi = pricing_range
@@ -963,13 +971,7 @@ async def seed_market_data(
             buyer_id=DEMO_BUYER_ORG_ID,
             seller_id=DEMO_SELLER_ORG_ID,
             product_id=bid_order.product_id,
-            product_name=bid_order.product_name,
-            fuel_type=bid_order.fuel_type,
-            fuel_grade=bid_order.fuel_grade,
-            market_product=bid_order.market_product,
             delivery_point_id=bid_order.delivery_point_id,
-            delivery_point_name=bid_order.delivery_point_name,
-            delivery_point_region=bid_order.region,
             availability_window=bid_order.availability_window,
             initiated_by=initiator,
             quantity_mt=trade_qty,

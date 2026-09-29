@@ -25,6 +25,7 @@ from app.seeds.market_seed import (
     validate_demo_reset,
 )
 from app.models.orderbook import Initiator, OrderSide
+from app.seeds.catalog_seed import PRODUCT_IDS, DELIVERY_POINT_IDS
 
 
 def test_market_seed_windows_cover_current_and_forward_slices():
@@ -75,15 +76,23 @@ def test_seed_trade_derives_initiating_tenant_from_side():
         buyer_id=buyer_id,
         seller_id=seller_id,
         initiated_by=Initiator.BUYER,
+        product_id=PRODUCT_IDS["B30"],
+        delivery_point_id=DELIVERY_POINT_IDS["Singapore"],
     )
     seller_trade = _seed_trade(
         buyer_id=buyer_id,
         seller_id=seller_id,
         initiated_by=Initiator.SELLER,
+        product_id=PRODUCT_IDS["B100"],
+        delivery_point_id=DELIVERY_POINT_IDS["Rotterdam"],
     )
 
     assert buyer_trade.initiator_org_id == buyer_id
     assert seller_trade.initiator_org_id == seller_id
+    assert (buyer_trade.product_name, buyer_trade.market_product, buyer_trade.fuel_type, buyer_trade.fuel_grade) == ("B30", "B30", "Biofuel", "B30")
+    assert (buyer_trade.delivery_point_name, buyer_trade.delivery_point_region) == ("Singapore", "Asia")
+    assert (seller_trade.product_name, seller_trade.market_product, seller_trade.fuel_type, seller_trade.fuel_grade) == ("B100", "B100", "Biofuel", "B100")
+    assert (seller_trade.delivery_point_name, seller_trade.delivery_point_region) == ("Rotterdam", "Europe")
 
 
 def test_market_seed_never_generates_executable_rfq_acceptance():
