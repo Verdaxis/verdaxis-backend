@@ -22,7 +22,9 @@ from app.schemas.market_activity import MarketDemoStatus
 from app.services.forward_monitoring import (
     load_fair_price_bands,
     load_indication_summaries,
+    load_latest_indications_for_focus,
     load_physical_stem_summaries,
+    load_physical_stems_for_focus,
 )
 
 
@@ -69,6 +71,68 @@ async def _delivery_point(db: AsyncSession) -> DeliveryPoint:
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("signal_family", ["MARKET_INDICATION", "PHYSICAL_STEM"])
+@pytest.mark.parametrize("real_count", [0, 1, 3])
+async def test_focus_reads_once_and_prefers_older_real_evidence_before_limit(
+    db: AsyncSession, monkeypatch, signal_family, real_count,
+):
+    point = await _delivery_point(db)
+    now = _now()
+    run = MarketSignalIngestionRun(
+        signal_family=signal_family,
+        source="trusted_feed",
+        source_kind=signal_family,
+        verified_at=now,
+    )
+    db.add(run)
+    await db.flush()
+    model = MarketIndication if signal_family == "MARKET_INDICATION" else PhysicalStem
+    loader = (
+        load_latest_indications_for_focus
+        if signal_family == "MARKET_INDICATION"
+        else load_physical_stems_for_focus
+    )
+    for evidence_class, count in (("REAL", real_count), ("DEMO", 3), ("UNKNOWN", 3)):
+        for index in range(count):
+            values = dict(
+                market_product="BIO_METHANOL",
+                delivery_point_id=point.id,
+                availability_window="SPOT",
+                quantity_mt=Decimal("100") + index,
+                source="trusted_feed" if evidence_class == "REAL" else "other_feed",
+                source_event_id=f"{evidence_class}-{index}",
+                is_demo=evidence_class == "DEMO",
+                is_verified_real=evidence_class == "REAL",
+                trusted_ingestion_run_id=run.id if evidence_class == "REAL" else None,
+                observed_at=now - timedelta(days=1 if evidence_class == "REAL" else 0, minutes=index),
+            )
+            if model is MarketIndication:
+                values.update(side=("BID", "ASK", "MID")[index], price_per_mt_usd=Decimal("700") + index)
+            else:
+                values.update(stem_uid=f"{evidence_class}-{index}", status="AVAILABLE")
+            db.add(model(**values))
+    await db.commit()
+
+    execute = db.execute
+    query_count = 0
+
+    async def count_query(*args, **kwargs):
+        nonlocal query_count
+        query_count += 1
+        return await execute(*args, **kwargs)
+
+    monkeypatch.setattr(db, "execute", count_query)
+    result = await loader(db, "BIO_METHANOL", point.id, "SPOT", limit=2)
+
+    assert query_count == 1
+    expected_count = min(real_count, 2) if real_count else 2
+    assert len(result) == expected_count
+    expected_status = MarketDemoStatus.REAL_ONLY if real_count else MarketDemoStatus.DEMO_ONLY
+    assert all(item.provenance.demo_status == expected_status for item in result)
+    assert [item.quantity_mt for item in result] == [Decimal("100") + index for index in range(len(result))]
 
 
 @pytest.mark.asyncio
