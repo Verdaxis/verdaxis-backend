@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import case, func, or_, select, tuple_
+from sqlalchemy import and_, case, func, or_, select, text, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.market_catalog import (
@@ -583,6 +583,10 @@ class ForwardCurveMarketSliceService:
             MarketEvidenceScope.REAL,
         )
         unknown_clause = OrderBookOrder.provenance == OrganizationProvenance.UNKNOWN.value
+        managed_demo_clause = and_(
+            demo_clause,
+            OrderBookOrder.idempotency_operation == "DEMO_COVERAGE",
+        )
         observed_at = func.coalesce(OrderBookOrder.updated_at, OrderBookOrder.created_at)
         stmt = (
             select(
@@ -598,6 +602,7 @@ class ForwardCurveMarketSliceService:
                 func.sum(case((demo_clause, OrderBookOrder.remaining_quantity_mt), else_=0)).label("demo_volume_mt"),
                 func.sum(case((real_clause, 1), else_=0)).label("real_order_count"),
                 func.sum(case((demo_clause, 1), else_=0)).label("demo_order_count"),
+                func.sum(case((managed_demo_clause, 1), else_=0)).label("managed_demo_order_count"),
                 func.sum(case((unknown_clause, 1), else_=0)).label("unknown_order_count"),
                 func.max(case((real_clause, observed_at))).label("real_last_order_at"),
                 func.max(case((demo_clause, observed_at))).label("demo_last_order_at"),
@@ -624,7 +629,17 @@ class ForwardCurveMarketSliceService:
                 OrderBookOrder.side,
             )
         )
+        previous_jit = None
+        if db.get_bind().dialect.name == "postgresql":
+            # Compiling the admission predicates costs more than this bounded
+            # aggregate. Keep the policy intact and disable JIT for this read.
+            previous_jit = await db.scalar(text("SHOW jit"))
+            await db.execute(text("SET LOCAL jit = off"))
+        # On a SQL error, the caller's rollback restores the transaction-local
+        # setting. Do not mask that error with a command in an aborted transaction.
         result = await db.execute(stmt)
+        if previous_jit is not None:
+            await db.execute(select(func.set_config("jit", previous_jit, True)))
         buckets: dict[SliceKey, dict[str, object]] = {}
         for row in result.all():
             market_product = product_id_to_market_product.get(row.product_id)
@@ -648,6 +663,7 @@ class ForwardCurveMarketSliceService:
             bucket["demo_volume_mt"] = Decimal(str(bucket["demo_volume_mt"])) + (row.demo_volume_mt or Decimal("0"))
             bucket["real_order_count"] = int(bucket.get("real_order_count") or 0) + int(row.real_order_count or 0)
             bucket["demo_order_count"] = int(bucket.get("demo_order_count") or 0) + int(row.demo_order_count or 0)
+            bucket["managed_demo_order_count"] = int(bucket.get("managed_demo_order_count") or 0) + int(row.managed_demo_order_count or 0)
             bucket["unknown_order_count"] = int(bucket.get("unknown_order_count") or 0) + int(row.unknown_order_count or 0)
             for prefix in ("real", "demo"):
                 candidate = getattr(row, f"{prefix}_last_order_at")
@@ -812,6 +828,10 @@ class ForwardCurveMarketSliceService:
                 demo_best_bid=demo_best_bid,
                 demo_best_ask=demo_best_ask,
                 demo_status=demo_status,
+                managed_demo_book=(
+                    demo_order_count > 0
+                    and int(order_bucket.get("managed_demo_order_count") or 0) == demo_order_count
+                ),
                 order_observed_at=order_observed_at,
                 indication_summary=indication_summary,
                 fair_price_band=fair_price_band,
@@ -893,6 +913,7 @@ class ForwardCurveMarketSliceService:
         fair_price_band: ForwardCurveBoardFairPriceBand | None,
         benchmark_mid: Decimal | None,
         benchmark_observed_at,
+        managed_demo_book: bool = False,
     ) -> tuple[
         Decimal | None,
         MarketSignalType,
@@ -903,7 +924,16 @@ class ForwardCurveMarketSliceService:
         bool,
         bool,
     ]:
-        if trade is not None:
+        has_demo_two_sided = demo_best_bid is not None and demo_best_ask is not None
+        # A fully managed demo book describes the current scenario. Retain old
+        # demo prints as history without letting them pin its current curve.
+        prefer_managed_demo_book = (
+            managed_demo_book
+            and demo_status == MarketDemoStatus.DEMO_ONLY
+            and has_demo_two_sided
+            and (trade is None or trade.get("demo_status") == MarketDemoStatus.DEMO_ONLY)
+        )
+        if trade is not None and not prefer_managed_demo_book:
             label = "Historical confirmed trade"
             return (
                 _money(trade.get("price_per_mt_usd")),
@@ -921,7 +951,6 @@ class ForwardCurveMarketSliceService:
             )
 
         has_real_two_sided = real_best_bid is not None and real_best_ask is not None
-        has_demo_two_sided = demo_best_bid is not None and demo_best_ask is not None
         if has_real_two_sided:
             midpoint = _money((real_best_bid + real_best_ask) / Decimal("2"))
             source_kind = MarketSourceKind.MIXED_SOURCE if demo_status == MarketDemoStatus.MIXED else MarketSourceKind.LIVE_ORDER

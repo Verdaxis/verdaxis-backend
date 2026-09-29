@@ -8,10 +8,15 @@ from datetime import datetime, timedelta, UTC
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.catalog import DeliveryPoint, Product
+from app.models.matchmaking import MatchSuggestion
+from app.models.negotiation import Negotiation
+from app.models.orders import Commission
+from app.models.rfq import RFQ
+from app.models.watchlist import WatchlistTarget
 from app.demo_identities import DEMO_SEED_BUYERS, DEMO_SEED_SUPPLIERS
 from app.models.orderbook import (
     OrderBookOrder,
@@ -46,7 +51,7 @@ MAX_GENERATED_TRADES = 80
 MAX_GENERATED_ORDERS = MAX_GENERATED_TRADES * 3
 RETENTION_DAYS = 7
 DEMO_COVERAGE_OPERATION = "DEMO_COVERAGE"
-DEMO_COVERAGE_LEVELS_PER_SIDE = 28  # Preserve near-term depth across 20 forward quarters.
+DEMO_COVERAGE_LEVELS_PER_SIDE = 10
 DEMO_COVERAGE_REFRESH_FIELDS = (
     "creation_method",
     "quantity_mt",
@@ -80,7 +85,7 @@ def _activity_tick(now: datetime) -> datetime:
 def activity_windows(now: datetime) -> tuple[str, ...]:
     """Current canonical windows, derived from the injected activity clock."""
     reference = now if now.tzinfo else now.replace(tzinfo=UTC)
-    return tuple(tradable_availability_windows(today=reference.date()))
+    return tuple(tradable_availability_windows(today=reference.astimezone(UTC).date()))
 
 
 def build_demo_market_coverage(now: datetime) -> list[OrderBookOrder]:
@@ -93,18 +98,14 @@ def build_demo_market_coverage(now: datetime) -> list[OrderBookOrder]:
     )
     orders: list[OrderBookOrder] = []
     windows = activity_windows(reference)
-    second_level_windows = set(
-        windows[: max(DEMO_COVERAGE_LEVELS_PER_SIDE - len(windows), 0)]
-    )
 
     for product_name, ports in PRICING.items():
         ci_lo, ci_hi, energy_density = CI_DATA[product_name]
         for port_name, (bid_lo, bid_hi, ask_lo, ask_hi) in ports.items():
             for window in windows:
-                depth = 2 if window in second_level_windows else 1
                 scheme = _slice_certification_scheme(product_name, port_name, window)
                 for side in (OrderSide.BID, OrderSide.ASK):
-                    for depth_index in range(depth):
+                    for depth_index in range(DEMO_COVERAGE_LEVELS_PER_SIDE):
                         ordinal = len(orders)
                         quantity = Decimal("1500") if depth_index == 0 else Decimal("1000")
                         key = (
@@ -132,6 +133,7 @@ def build_demo_market_coverage(now: datetime) -> list[OrderBookOrder]:
                                 ask_hi=ask_hi,
                                 window=window,
                                 depth_index=depth_index,
+                                reference_date=reference.date(),
                             ),
                             "availability_window": window,
                             "certifications": [],
@@ -182,22 +184,63 @@ def build_demo_market_coverage(now: datetime) -> list[OrderBookOrder]:
     return orders
 
 
+async def _expire_legacy_activity_quotes(db: AsyncSession, reference: datetime) -> int:
+    """Retire old flat-price system quotes while preserving records and pins."""
+    referenced_columns = (
+        Trade.bid_order_id,
+        Trade.ask_order_id,
+        Negotiation.bid_order_id,
+        Negotiation.ask_order_id,
+        MatchSuggestion.bid_order_id,
+        MatchSuggestion.ask_order_id,
+    )
+    expired_ids = (
+        await db.execute(
+            update(OrderBookOrder)
+            .where(
+                OrderBookOrder.organization_id.in_(DEMO_ACTIVITY_ORG_IDS),
+                OrderBookOrder.provenance == OrganizationProvenance.DEMO,
+                OrderBookOrder.creation_method == OrderCreationMethod.LEGACY_UNKNOWN,
+                OrderBookOrder.owner_user_id.is_(None),
+                OrderBookOrder.created_by_actor_user_id.is_(None),
+                OrderBookOrder.support_authorization_id.is_(None),
+                OrderBookOrder.idempotency_operation.is_(None),
+                OrderBookOrder.idempotency_key.is_(None),
+                OrderBookOrder.idempotency_request_hash.is_(None),
+                OrderBookOrder.status == OrderBookStatus.OPEN,
+                OrderBookOrder.remaining_quantity_mt == OrderBookOrder.quantity_mt,
+                *(
+                    OrderBookOrder.id.not_in(select(column).where(column.is_not(None)))
+                    for column in referenced_columns
+                ),
+            )
+            .values(status=OrderBookStatus.EXPIRED, updated_at=reference)
+            .returning(OrderBookOrder.id)
+        )
+    ).scalars().all()
+    return len(expired_ids)
+
+
 async def ensure_demo_market_coverage(
     db: AsyncSession, *, now: datetime | None = None
 ) -> dict[str, int]:
     """Create or refresh the current canonical demo book idempotently."""
     reference = now or datetime.now(UTC)
     desired = build_demo_market_coverage(reference)
+    desired_keys = {order.idempotency_key for order in desired}
     existing = (
         await db.execute(
             select(OrderBookOrder).where(
                 OrderBookOrder.provenance == OrganizationProvenance.DEMO,
                 OrderBookOrder.idempotency_operation == DEMO_COVERAGE_OPERATION,
+                or_(
+                    OrderBookOrder.idempotency_key.in_(desired_keys),
+                    OrderBookOrder.status.in_((OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED)),
+                ),
             )
         )
     ).scalars().all()
     existing_by_key = {order.idempotency_key: order for order in existing}
-    desired_keys = {order.idempotency_key for order in desired}
     created = 0
     refreshed = 0
 
@@ -228,11 +271,13 @@ async def ensure_demo_market_coverage(
             order.updated_at = reference
             expired += 1
 
+    legacy_activity_expired = await _expire_legacy_activity_quotes(db, reference)
     return {
         "coverage_orders": len(desired),
         "coverage_created": created,
         "coverage_refreshed": refreshed,
         "coverage_expired": expired,
+        "legacy_activity_expired": legacy_activity_expired,
     }
 
 
@@ -289,16 +334,28 @@ def _activity_slice(now: datetime) -> tuple[str, str, str]:
     return product_name, port_name, normalize_availability_window(window)
 
 
-def _price(product_name: str, port_name: str, side: OrderSide) -> Decimal:
+def _price(product_name: str, port_name: str, window: str, now: datetime) -> Decimal:
+    """Price the synthetic matched pair at the current demo book midpoint."""
     bid_lo, bid_hi, ask_lo, ask_hi = PRICING[product_name][port_name]
-    lo, hi = (bid_lo, bid_hi) if side == OrderSide.BID else (ask_lo, ask_hi)
-    return _decimal(round(_RNG.uniform(lo, hi), 2))
+    prices = [
+        _seed_price_for_slice(
+            side,
+            bid_lo=bid_lo,
+            bid_hi=bid_hi,
+            ask_lo=ask_lo,
+            ask_hi=ask_hi,
+            window=window,
+            reference_date=now.astimezone(UTC).date(),
+        )
+        for side in (OrderSide.BID, OrderSide.ASK)
+    ]
+    return ((prices[0] + prices[1]) / Decimal("2")).quantize(Decimal("0.01"))
 
 
 def _ask_metadata(product_name: str, port_name: str, window: str) -> dict[str, object]:
     ci_lo, ci_hi, energy_density = CI_DATA[product_name]
     scheme = _slice_certification_scheme(product_name, port_name, window)
-    return {
+    metadata = {
         "certifications": [scheme],
         "certification_declared": True,
         "certification_scheme": scheme,
@@ -312,6 +369,7 @@ def _ask_metadata(product_name: str, port_name: str, window: str) -> dict[str, o
         "origin": f"{port_name} demo terminal",
         "off_spec": False,
     }
+    return metadata
 
 
 async def _load_product_and_port(
@@ -342,31 +400,64 @@ async def _delete_trades_and_linked_orders(
     if not trade_rows:
         return 0, 0
 
-    trade_ids = [row[0] for row in trade_rows]
-    order_ids = {order_id for _, bid_order_id, ask_order_id in trade_rows for order_id in (bid_order_id, ask_order_id) if order_id}
-
-    await db.execute(delete(Trade).where(Trade.id.in_(trade_ids)))
+    deleted_trade_ids = set((
+        await db.execute(
+            delete(Trade)
+            .where(Trade.id.in_([row[0] for row in trade_rows]), *_unreferenced_demo_trade_filter())
+            .returning(Trade.id)
+        )
+    ).scalars().all())
+    order_ids = {
+        order_id
+        for trade_id, bid_order_id, ask_order_id in trade_rows
+        if trade_id in deleted_trade_ids
+        for order_id in (bid_order_id, ask_order_id)
+        if order_id is not None
+    }
     if order_ids:
         deleted_orders = (
             await db.execute(
                 delete(OrderBookOrder)
-                .where(OrderBookOrder.id.in_(order_ids))
+                .where(OrderBookOrder.id.in_(order_ids), *_unreferenced_demo_order_filter())
                 .returning(OrderBookOrder.id)
             )
         ).all()
     else:
         deleted_orders = []
 
-    return len(trade_ids), len(deleted_orders)
+    return len(deleted_trade_ids), len(deleted_orders)
 
 
 def _unreferenced_demo_order_filter():
-    referenced_bid_orders = select(Trade.bid_order_id).where(Trade.bid_order_id.is_not(None))
-    referenced_ask_orders = select(Trade.ask_order_id).where(Trade.ask_order_id.is_not(None))
+    referenced_order_columns = (
+        Trade.bid_order_id,
+        Trade.ask_order_id,
+        WatchlistTarget.order_id,
+        MatchSuggestion.bid_order_id,
+        MatchSuggestion.ask_order_id,
+        Negotiation.bid_order_id,
+        Negotiation.ask_order_id,
+    )
     return (
         OrderBookOrder.organization_id.in_(DEMO_ACTIVITY_ORG_IDS),
-        OrderBookOrder.id.not_in(referenced_bid_orders),
-        OrderBookOrder.id.not_in(referenced_ask_orders),
+        OrderBookOrder.provenance == OrganizationProvenance.DEMO,
+        *(
+            OrderBookOrder.id.not_in(select(column).where(column.is_not(None)))
+            for column in referenced_order_columns
+        ),
+    )
+
+
+def _unreferenced_demo_trade_filter():
+    return (
+        Trade.buyer_id.in_(DEMO_ACTIVITY_ORG_IDS),
+        Trade.seller_id.in_(DEMO_ACTIVITY_ORG_IDS),
+        Trade.buyer_provenance == OrganizationProvenance.DEMO,
+        Trade.seller_provenance == OrganizationProvenance.DEMO,
+        *(
+            Trade.id.not_in(select(column).where(column.is_not(None)))
+            for column in (Commission.trade_id, RFQ.trade_id, Negotiation.trade_id)
+        ),
     )
 
 
@@ -378,8 +469,7 @@ async def prune_demo_activity(db: AsyncSession, *, now: datetime | None = None) 
         await db.execute(
             select(Trade.id, Trade.bid_order_id, Trade.ask_order_id)
             .where(
-                Trade.buyer_id.in_(DEMO_ACTIVITY_ORG_IDS),
-                Trade.seller_id.in_(DEMO_ACTIVITY_ORG_IDS),
+                *_unreferenced_demo_trade_filter(),
                 Trade.created_at < cutoff,
             )
         )
@@ -397,6 +487,8 @@ async def prune_demo_activity(db: AsyncSession, *, now: datetime | None = None) 
         )
     ).all()
 
+    # ponytail: retention caps are soft while customer/history references remain.
+    # Referenced records become eligible after those references are removed.
     total_trades = (
         await db.execute(
             select(func.count()).where(
@@ -412,8 +504,7 @@ async def prune_demo_activity(db: AsyncSession, *, now: datetime | None = None) 
             await db.execute(
                 select(Trade.id, Trade.bid_order_id, Trade.ask_order_id)
                 .where(
-                    Trade.buyer_id.in_(DEMO_ACTIVITY_ORG_IDS),
-                    Trade.seller_id.in_(DEMO_ACTIVITY_ORG_IDS),
+                    *_unreferenced_demo_trade_filter(),
                 )
                 .order_by(Trade.created_at.asc())
                 .limit(total_trades - MAX_GENERATED_TRADES)
@@ -440,7 +531,7 @@ async def prune_demo_activity(db: AsyncSession, *, now: datetime | None = None) 
             capped_orders = (
                 await db.execute(
                     delete(OrderBookOrder)
-                    .where(OrderBookOrder.id.in_(stale_order_ids))
+                    .where(OrderBookOrder.id.in_(stale_order_ids), *_unreferenced_demo_order_filter())
                     .returning(OrderBookOrder.id)
                 )
             ).all()
@@ -454,7 +545,7 @@ async def prune_demo_activity(db: AsyncSession, *, now: datetime | None = None) 
 async def generate_demo_market_activity(
     db: AsyncSession, *, now: datetime | None = None
 ) -> dict[str, object]:
-    """Create one visible demo order and one confirmed demo trade."""
+    """Create one disclosed matched pair; coverage owns the resting demo book."""
     reference = _activity_tick(now or datetime.now(UTC))
     tick_key = int(reference.timestamp() // 300)
     _RNG.seed(tick_key)
@@ -499,16 +590,17 @@ async def generate_demo_market_activity(
     await lock_and_load_market_organizations(db, DEMO_ACTIVITY_ORG_IDS)
 
     trade_qty = _quantity()
-    ask_price = _price(product_name, port_name, OrderSide.ASK)
+    trade_price = _price(product_name, port_name, window, reference)
     ask_order = OrderBookOrder(
         organization_id=DEMO_ACTIVITY_SELLER_ORG_ID,
         provenance=OrganizationProvenance.DEMO,
+        creation_method=OrderCreationMethod.SYSTEM,
         side=OrderSide.ASK,
         product_id=product.id,
         delivery_point_id=delivery_point.id,
         quantity_mt=trade_qty,
         remaining_quantity_mt=trade_qty,
-        price_per_mt_usd=ask_price,
+        price_per_mt_usd=trade_price,
         availability_window=window,
         status=OrderBookStatus.OPEN,
         expires_at=availability_window_expiry(window, observed_at=reference),
@@ -522,12 +614,13 @@ async def generate_demo_market_activity(
     bid_order = OrderBookOrder(
         organization_id=DEMO_ACTIVITY_BUYER_ORG_ID,
         provenance=OrganizationProvenance.DEMO,
+        creation_method=OrderCreationMethod.SYSTEM,
         side=OrderSide.BID,
         product_id=product.id,
         delivery_point_id=delivery_point.id,
         quantity_mt=trade_qty,
         remaining_quantity_mt=trade_qty,
-        price_per_mt_usd=max(_price(product_name, port_name, OrderSide.BID), ask_price),
+        price_per_mt_usd=trade_price,
         availability_window=window,
         status=OrderBookStatus.OPEN,
         expires_at=availability_window_expiry(window, observed_at=reference),
@@ -553,28 +646,8 @@ async def generate_demo_market_activity(
     bid_order.updated_at = reference
     ask_order.updated_at = reference
 
-    visible_side = OrderSide.BID if int(reference.timestamp() // 300) % 2 == 0 else OrderSide.ASK
-    visible_qty = _quantity()
-    visible_order = OrderBookOrder(
-        organization_id=DEMO_ACTIVITY_BUYER_ORG_ID if visible_side == OrderSide.BID else DEMO_ACTIVITY_SELLER_ORG_ID,
-        provenance=OrganizationProvenance.DEMO,
-        side=visible_side,
-        product_id=product.id,
-        delivery_point_id=delivery_point.id,
-        quantity_mt=visible_qty,
-        remaining_quantity_mt=visible_qty,
-        price_per_mt_usd=_price(product_name, port_name, visible_side),
-        availability_window=window,
-        status=OrderBookStatus.OPEN,
-        expires_at=availability_window_expiry(window, observed_at=reference),
-        created_at=reference,
-        updated_at=reference,
-        **(_ask_metadata(product_name, port_name, window) if visible_side == OrderSide.ASK else {}),
-    )
-    db.add(visible_order)
-
     return {
-        "created_orders": 3,
+        "created_orders": 2,
         "created_trades": 1,
         "product": product_name,
         "delivery_point": port_name,
