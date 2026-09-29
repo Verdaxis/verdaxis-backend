@@ -33,6 +33,7 @@ Files: `app/services/forward_curve_market_slices.py`, `tests/unit/test_forward_c
 - Prefer a two-sided managed demo book midpoint over a historical demo print only when all selected demo orders have `idempotency_operation == "DEMO_COVERAGE"`.
 - Keep real/mixed/unknown behavior and all raw history unchanged.
 - Test table/slice consistency, old demo outliers, real-trade precedence and unmanaged/one-sided exclusions.
+- The full-depth PostgreSQL benchmark identified JIT compilation as the slow aggregate cost. Disable JIT only for this aggregate with a transaction-local setting and restore the prior value after success. Keep the query and its admission checks unchanged; normal rollback restores settings on failure. Verify prior on/off values and unchanged output on PostgreSQL.
 
 ## 3. Verify and prepare review
 

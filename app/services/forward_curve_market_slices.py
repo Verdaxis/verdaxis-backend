@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import and_, case, func, or_, select, tuple_
+from sqlalchemy import and_, case, func, or_, select, text, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.market_catalog import (
@@ -621,7 +621,17 @@ class ForwardCurveMarketSliceService:
                 OrderBookOrder.side,
             )
         )
+        previous_jit = None
+        if db.get_bind().dialect.name == "postgresql":
+            # Compiling the admission predicates costs more than this bounded
+            # aggregate. Keep the policy intact and disable JIT for this read.
+            previous_jit = await db.scalar(text("SHOW jit"))
+            await db.execute(text("SET LOCAL jit = off"))
+        # On a SQL error, the caller's rollback restores the transaction-local
+        # setting. Do not mask that error with a command in an aborted transaction.
         result = await db.execute(stmt)
+        if previous_jit is not None:
+            await db.execute(select(func.set_config("jit", previous_jit, True)))
         buckets: dict[SliceKey, dict[str, object]] = {}
         for row in result.all():
             market_product = product_id_to_market_product.get(row.product_id)
