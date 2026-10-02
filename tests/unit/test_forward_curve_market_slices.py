@@ -598,13 +598,15 @@ async def test_table_projection_preserves_fields_without_dumping_full_cells(db, 
 
 @pytest.mark.parametrize(
     "evidence_case",
-    ["no_data", "reference", "indication", "fair_band", "live", "demo", "formal_print"],
+    ["no_data", "reference", "indication", "fair_band", "live", "demo", "formal_print", "ucome_live"],
 )
 def test_direct_table_cell_exactly_matches_original_full_cell_projection(evidence_case):
     generated_at = datetime(2026, 10, 2, 6, tzinfo=UTC)
     product_id = uuid4()
     point = DeliveryPoint(id=uuid4(), name="Singapore", region="Asia", is_active=True)
-    group = ProductGroup("BIO_METHANOL", "Bio Methanol", product_id, (product_id,))
+    market_product = "UCOME_B100" if evidence_case == "ucome_live" else "BIO_METHANOL"
+    product_name = "UCOME B100" if evidence_case == "ucome_live" else "Bio Methanol"
+    group = ProductGroup(market_product, product_name, product_id, (product_id,))
     key = SliceKey(group.market_product, point.id, "SPOT")
     order_bucket = {}
     trade = None
@@ -622,7 +624,7 @@ def test_direct_table_cell_exactly_matches_original_full_cell_projection(evidenc
             created_at=generated_at - timedelta(days=1),
             updated_at=generated_at - timedelta(hours=1),
         )
-    elif evidence_case == "live":
+    elif evidence_case in {"live", "ucome_live"}:
         order_bucket = {
             "real_best_bid": Decimal("700"),
             "real_best_ask": Decimal("730"),
@@ -689,6 +691,7 @@ def test_direct_table_cell_exactly_matches_original_full_cell_projection(evidenc
     original_projection = ForwardCurveTableCell.model_validate(full_cell, from_attributes=True)
 
     direct_projection = forward_curve_market_slices._build_table_cell(
+        market_product=group.market_product,
         order_bucket=order_bucket,
         trade=trade,
         benchmark=benchmark,
@@ -716,6 +719,7 @@ def test_direct_table_cell_skips_detail_only_label_policy_models(monkeypatch):
     indication = _no_data_indication_summary()
 
     no_data = forward_curve_market_slices._build_table_cell(
+        market_product="BIO_METHANOL",
         order_bucket={},
         trade=None,
         benchmark=None,
@@ -724,6 +728,7 @@ def test_direct_table_cell_skips_detail_only_label_policy_models(monkeypatch):
         generated_at=generated_at,
     )
     live = forward_curve_market_slices._build_table_cell(
+        market_product="BIO_METHANOL",
         order_bucket={
             "real_best_bid": Decimal("700"),
             "real_best_ask": Decimal("730"),
@@ -1047,10 +1052,17 @@ async def test_b100_product_midpoint_does_not_claim_specification_compatible_exe
     detail = await forward_curve_market_slices.load_slice(
         db, market_product="UCOME_B100", delivery_point_id=singapore.id, availability_window="SPOT",
     )
-    assert detail.cell.primary_value == Decimal("1050.00")
-    assert detail.cell.public_source_label == "Orderbook midpoint"
-    assert detail.cell.is_executable is False
-    assert detail.cell.is_reference is True
+    table = await forward_curve_market_slices.load_table(
+        db, market_products=["UCOME_B100"], windows=["SPOT"],
+    )
+    compact = table.rows[0].cells["SPOT"]
+    for cell in (compact, detail.cell):
+        assert cell.primary_value == Decimal("1050.00")
+        assert cell.public_source_label == "Orderbook midpoint"
+        assert cell.is_executable is False
+        assert cell.is_reference is True
+    expected = ForwardCurveTableCell.model_validate(detail.cell, from_attributes=True)
+    assert compact.__dict__ == expected.__dict__
     assert "specifications" in detail.cell.label_policy.disclaimer
 
 

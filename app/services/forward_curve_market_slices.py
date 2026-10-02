@@ -523,6 +523,7 @@ class ForwardCurveMarketSliceService:
             fair_band = fair_bands.get((key.market_product, key.delivery_point_id, key.availability_window))
             if table_projection:
                 cells[key] = self._build_table_cell(
+                    market_product=key.market_product,
                     order_bucket=order_bucket,
                     trade=trade,
                     benchmark=benchmark,
@@ -806,6 +807,7 @@ class ForwardCurveMarketSliceService:
         generated_at: datetime,
     ) -> ForwardCurveMarketCell:
         values, policy = self._cell_values(
+            market_product=key.market_product,
             order_bucket=order_bucket,
             trade=trade,
             benchmark=benchmark,
@@ -816,6 +818,16 @@ class ForwardCurveMarketSliceService:
         )
         if policy is None:
             raise RuntimeError("Full Forward Curve cells require a label policy")
+        if key.market_product == "UCOME_B100":
+            # The curve groups product/port/window, not each contracted grade.
+            # Individual orders execute only after their specifications match.
+            policy.disclaimer = (
+                "B100 prices may reflect different specifications and delivery terms. "
+                "Review the order terms; the aggregate price is not an executable quote."
+            )
+            if values["public_source_label"] == "Orderbook midpoint":
+                policy.public_label = "Orderbook midpoint"
+                policy.allowed_terms = ["orderbook", "midpoint"]
         return ForwardCurveMarketCell(
             market_product=key.market_product,
             product_name=group.product_name,
@@ -840,6 +852,7 @@ class ForwardCurveMarketSliceService:
     def _build_table_cell(
         self,
         *,
+        market_product: str,
         order_bucket: dict[str, object],
         trade: dict[str, object] | None,
         benchmark: Benchmark | None,
@@ -848,6 +861,7 @@ class ForwardCurveMarketSliceService:
         generated_at: datetime,
     ) -> ForwardCurveTableCell:
         values, _policy = self._cell_values(
+            market_product=market_product,
             order_bucket=order_bucket,
             trade=trade,
             benchmark=benchmark,
@@ -861,6 +875,7 @@ class ForwardCurveMarketSliceService:
     def _cell_values(
         self,
         *,
+        market_product: str,
         order_bucket: dict[str, object],
         trade: dict[str, object] | None,
         benchmark: Benchmark | None,
@@ -925,19 +940,10 @@ class ForwardCurveMarketSliceService:
                 include_label_policy=include_label_policy,
             )
         )
-        if key.market_product == "UCOME_B100":
-            # The curve groups product/port/window, not each contracted grade.
-            # Individual orders execute only after their specifications match.
-            policy.disclaimer = (
-                "B100 prices may reflect different specifications and delivery terms. "
-                "Review the order terms; the aggregate price is not an executable quote."
-            )
-            if is_executable:
-                label = "Orderbook midpoint"
-                policy.public_label = label
-                policy.allowed_terms = ["orderbook", "midpoint"]
-                is_executable = False
-                is_reference = True
+        if market_product == "UCOME_B100" and is_executable:
+            label = "Orderbook midpoint"
+            is_executable = False
+            is_reference = True
         observed_at = _aware_utc(observed_at)
         benchmark_observed_at = _aware_utc(benchmark_observed_at)
 
