@@ -369,8 +369,8 @@
 
 ### Keep Response Schemas Aligned With Transitional Account States
 
-- **Trigger:** Review found approved legacy users with `role=NULL` could not serialize login or profile responses, so they could not reach the one-time role-selection flow.
-- **Rule:** When onboarding supports a transitional database state, response schemas must represent it while create and privilege-changing inputs remain strict.
+- **Trigger:** Review found a nullable legacy role missing from responses, and CI later hid reserved-domain fixture validation behind generic ASGI 500 responses.
+- **Rule:** When onboarding supports a transitional database state, response schemas must represent it while create and privilege-changing inputs remain strict. Response-level tests must use schema-valid fixtures and keep ASGI exceptions visible.
 - **Why:** A stricter response model can make the intended recovery path unreachable before its guard runs.
 
 ### Keep Committed Create Replays Ahead of Elapsed-Time Admission
