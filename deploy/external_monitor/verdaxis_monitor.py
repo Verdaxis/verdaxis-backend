@@ -1025,7 +1025,7 @@ def demo_trade_canary(
     if not isinstance(confirmed_at, str):
         return f"{name} demo trade canary returned an invalid timestamp"
     try:
-        confirmed = datetime.fromisoformat(confirmed_at)
+        confirmed = datetime.fromisoformat(confirmed_at.replace("Z", "+00:00"))
     except ValueError:
         return f"{name} demo trade canary returned an invalid timestamp"
     if confirmed.tzinfo is None or confirmed.utcoffset() != timedelta(0):

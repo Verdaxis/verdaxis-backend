@@ -195,6 +195,34 @@ def test_demo_trade_canary_queries_latest_disclosed_demo_trade(monkeypatch):
     ]
 
 
+def test_demo_trade_canary_normalizes_utc_z_for_python_310(monkeypatch):
+    module = load_module()
+    now = datetime(2026, 10, 3, 0, 0, tzinfo=timezone.utc)
+    parsed_values = []
+
+    class Python310DateTime:
+        @staticmethod
+        def fromisoformat(value):
+            parsed_values.append(value)
+            if value.endswith("Z"):
+                raise ValueError("Invalid isoformat string")
+            return datetime.fromisoformat(value)
+
+    monkeypatch.setattr(module, "datetime", Python310DateTime)
+    monkeypatch.setattr(
+        module,
+        "text_request",
+        lambda url, timeout=20: (200, _demo_trade_body("2026-10-03T00:00:00Z")),
+    )
+
+    assert module.demo_trade_canary(
+        "prod",
+        "https://api.example/api",
+        now=now,
+    ) is None
+    assert parsed_values == ["2026-10-03T00:00:00+00:00"]
+
+
 @pytest.mark.parametrize(
     ("confirmed_at", "expected_error"),
     [
