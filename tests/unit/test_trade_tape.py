@@ -270,6 +270,36 @@ class _TradeResult:
 
 class TestTradeTapeEndpointContract:
     @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("demo_only", "expected_real_count"),
+        [(False, 2), (True, 0)],
+    )
+    async def test_demo_only_selects_exact_demo_evidence(
+        self,
+        demo_only,
+        expected_real_count,
+    ):
+        db = MagicMock()
+        db.execute = AsyncMock(side_effect=[_ScalarResult(0), _TradeResult()])
+
+        await get_trade_tape(
+            db=db,
+            fuel_type=None,
+            market_product=None,
+            delivery_point_id=None,
+            region=None,
+            availability_window=None,
+            demo_only=demo_only,
+            skip=0,
+            limit=1,
+        )
+
+        data_stmt = db.execute.await_args_list[1].args[0]
+        params = list(data_stmt.compile().params.values())
+        assert params.count("DEMO") == 2
+        assert params.count("REAL") == expected_real_count
+
+    @pytest.mark.asyncio
     async def test_delivery_point_filter_is_applied_to_query(self):
         delivery_point_id = uuid.uuid4()
         db = MagicMock()
@@ -338,7 +368,7 @@ class TestTradeTapeEndpointContract:
         assert entry.delivery_point_id == delivery_point_id
         assert entry.delivery_point_name == "Singapore"
 
-    def test_openapi_exposes_exact_delivery_point_filter(self):
+    def test_openapi_exposes_trade_tape_filters(self):
         from fastapi import FastAPI
         from app.routers.trade_tape import router
 
@@ -349,3 +379,5 @@ class TestTradeTapeEndpointContract:
 
         assert "delivery_point_id" in params
         assert "uuid" in str(params["delivery_point_id"]["schema"])
+        assert params["demo_only"]["schema"]["type"] == "boolean"
+        assert params["demo_only"]["schema"]["default"] is False

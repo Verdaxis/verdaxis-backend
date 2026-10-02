@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import os
 import subprocess
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -157,6 +159,158 @@ def test_signup_canary_cleans_up_once_after_signup_exception(monkeypatch):
         "https://api.example/api/auth/register",
         "https://api.example/api/monitor/signup-canary-cleanup",
     ]
+
+
+def _demo_trade_body(confirmed_at: str, **overrides) -> str:
+    item = {
+        "id": "sensitive-trade-id",
+        "confirmed_at": confirmed_at,
+        "is_demo_trade": True,
+        "demo_status": "DEMO_ONLY",
+        "source_kind": "DEMO_SEED",
+        "provenance_kind": "DEMO_SEED",
+        **overrides,
+    }
+    return json.dumps({"items": [item], "body_secret": "must-not-be-reported"})
+
+
+def test_demo_trade_canary_queries_latest_disclosed_demo_trade(monkeypatch):
+    module = load_module()
+    now = datetime(2026, 10, 3, 0, 0, tzinfo=timezone.utc)
+    calls = []
+
+    def request(url, *, timeout=20):
+        calls.append((url, timeout))
+        return 200, _demo_trade_body((now - timedelta(minutes=30)).isoformat())
+
+    monkeypatch.setattr(module, "text_request", request)
+
+    assert module.demo_trade_canary(
+        "prod",
+        "https://api.example/api",
+        now=now,
+    ) is None
+    assert calls == [
+        ("https://api.example/api/trade-tape?demo_only=true&limit=1", 20)
+    ]
+
+
+@pytest.mark.parametrize(
+    ("confirmed_at", "expected_error"),
+    [
+        ("2026-10-02T23:15:00+00:00", None),
+        ("2026-10-02T23:14:59+00:00", "is stale"),
+        ("2026-10-03T00:05:00+00:00", None),
+        ("2026-10-03T00:05:01+00:00", "too far in the future"),
+        ("2026-10-03T00:00:00", "timestamp is not UTC"),
+        ("2026-10-03T08:00:00+08:00", "timestamp is not UTC"),
+        ("not-a-timestamp", "returned an invalid timestamp"),
+    ],
+)
+def test_demo_trade_canary_enforces_utc_freshness_bounds(
+    monkeypatch,
+    confirmed_at,
+    expected_error,
+):
+    module = load_module()
+    now = datetime(2026, 10, 3, 0, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr(
+        module,
+        "text_request",
+        lambda url, timeout=20: (200, _demo_trade_body(confirmed_at)),
+    )
+
+    error = module.demo_trade_canary("prod", "https://api.example/api", now=now)
+
+    if expected_error is None:
+        assert error is None
+    else:
+        assert expected_error in error
+        assert "sensitive-trade-id" not in error
+        assert "must-not-be-reported" not in error
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("is_demo_trade", False),
+        ("demo_status", "UNKNOWN"),
+        ("source_kind", "CONFIRMED_TRADE"),
+        ("provenance_kind", "UNKNOWN"),
+    ],
+)
+def test_demo_trade_canary_requires_all_explicit_demo_fields(
+    monkeypatch,
+    field,
+    value,
+):
+    module = load_module()
+    now = datetime(2026, 10, 3, 0, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr(
+        module,
+        "text_request",
+        lambda url, timeout=20: (
+            200,
+            _demo_trade_body(now.isoformat(), **{field: value}),
+        ),
+    )
+
+    error = module.demo_trade_canary("prod", "https://api.example/api", now=now)
+
+    assert error == "prod demo trade canary returned invalid DEMO evidence"
+    assert "sensitive-trade-id" not in error
+
+
+@pytest.mark.parametrize(
+    ("response", "expected_error"),
+    [
+        ((503, "body-secret"), "prod demo trade canary returned HTTP 503"),
+        ((200, "not-json-body-secret"), "prod demo trade canary returned invalid JSON"),
+        (
+            (200, '{"items":[]}'),
+            "prod demo trade canary returned an invalid item list",
+        ),
+        (
+            (200, '{"items":["trade-id-secret"]}'),
+            "prod demo trade canary returned an invalid item list",
+        ),
+    ],
+)
+def test_demo_trade_canary_fails_closed_without_response_data(
+    monkeypatch,
+    response,
+    expected_error,
+):
+    module = load_module()
+    monkeypatch.setattr(
+        module,
+        "text_request",
+        lambda url, timeout=20: response,
+    )
+
+    error = module.demo_trade_canary(
+        "prod",
+        "https://api.example/api",
+        now=datetime(2026, 10, 3, tzinfo=timezone.utc),
+    )
+
+    assert error == expected_error
+    assert "secret" not in error
+
+
+def test_demo_trade_canaries_use_existing_prod_and_staging_targets(monkeypatch):
+    module = load_module()
+    monkeypatch.delenv("SIGNUP_CANARY_TARGETS", raising=False)
+    monkeypatch.delenv("DEMO_TRADE_CANARY_ENABLED", raising=False)
+    observed = []
+    monkeypatch.setattr(
+        module,
+        "demo_trade_canary",
+        lambda name, api_base: observed.append((name, api_base)),
+    )
+
+    assert module.check_demo_trade_canaries() == []
+    assert observed == list(module.DEFAULT_SIGNUP_CANARY_TARGETS.items())
 
 
 def test_outbox_check_invokes_both_deployed_database_targets(monkeypatch, tmp_path):
@@ -321,6 +475,11 @@ def test_main_aggregates_outbox_failures_into_existing_status_path(monkeypatch):
     monkeypatch.setattr(module, "check_rendered_pages", lambda: [])
     monkeypatch.setattr(module, "check_backup_status", lambda: [])
     monkeypatch.setattr(module, "check_signup_canaries", lambda: [])
+    monkeypatch.setattr(
+        module,
+        "check_demo_trade_canaries",
+        lambda: ["production demo trade canary is stale"],
+    )
     monkeypatch.setattr(module, "check_analytics_collector", lambda: [])
     monkeypatch.setattr(module, "check_analytics_storage", lambda: [])
     monkeypatch.setattr(
@@ -351,7 +510,10 @@ def test_main_aggregates_outbox_failures_into_existing_status_path(monkeypatch):
     assert module.main() == 2
     assert observed == {
         "ok": False,
-        "errors": ["production event outbox backlog threshold breached"],
+        "errors": [
+            "production event outbox backlog threshold breached",
+            "production demo trade canary is stale",
+        ],
         "endpoints": [],
         "outboxes": [
             {
