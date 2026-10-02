@@ -48,6 +48,7 @@ from app.services.email import (
     send_signup_alert_email,
     send_verification_email,
 )
+from app.services.auth_revocation import invalidate_locked_user_authentication
 from app.services.account_approval_email import (
     clear_pending_account_approval_email,
     deliver_account_approval_email,
@@ -321,13 +322,27 @@ def validate_password_bytes(password: str) -> str:
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
 
 
-def _build_token_pair(subject: str, *, family_id: str | None = None) -> tuple[str, str]:
+def _build_token_pair(
+    subject: str,
+    *,
+    family_id: str | None = None,
+    issued_after: datetime | None = None,
+) -> tuple[str, str]:
     # Deliberately no role claim: authorization always reads the role from
     # the DB (require_role), so a claim here would only invite a future
     # regression where something trusts the client-visible token instead
     # (Sprint 3 item 3).
-    access_token = create_access_token(subject=subject)
-    refresh_token = create_refresh_token(subject=subject, family_id=family_id)
+    issued_at = datetime.now(UTC)
+    if issued_after is not None:
+        cutoff = _as_utc(issued_after)
+        if issued_at <= cutoff:
+            issued_at = cutoff + timedelta(microseconds=1)
+    access_token = create_access_token(subject=subject, issued_at=issued_at)
+    refresh_token = create_refresh_token(
+        subject=subject,
+        family_id=family_id,
+        issued_at=issued_at,
+    )
     return access_token, refresh_token
 
 
@@ -608,36 +623,74 @@ AUTHENTICATED_SHARED_LOCK_PATHS = frozenset(
 )
 
 
+def _as_utc(value: datetime) -> datetime:
+    return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+
+
 def _token_issued_at(payload: dict) -> datetime | None:
     issued_at_us = payload.get("iat_us")
     if isinstance(issued_at_us, int) and issued_at_us >= 0:
-        return datetime.fromtimestamp(issued_at_us / 1_000_000, tz=UTC)
+        seconds, microseconds = divmod(issued_at_us, 1_000_000)
+        return datetime.fromtimestamp(seconds, tz=UTC).replace(microsecond=microseconds)
     issued_at = payload.get("iat")
     if isinstance(issued_at, (int, float)) and not isinstance(issued_at, bool):
         return datetime.fromtimestamp(issued_at, tz=UTC)
     return None
 
 
+def _token_is_cut_off(token_payload: dict, cutoff: datetime) -> bool:
+    issued_at = _token_issued_at(token_payload)
+    return issued_at is None or issued_at <= _as_utc(cutoff)
+
+
+def _latest_session_cutoff(user: User) -> datetime | None:
+    cutoffs = [
+        _as_utc(value)
+        for value in (
+            getattr(user, "password_changed_at", None),
+            getattr(user, "authentication_revoked_at", None),
+        )
+        if value is not None
+    ]
+    return max(cutoffs) if cutoffs else None
+
+
 def _validate_password_cutoff(user: User, token_payload: dict) -> None:
-    if user.password_changed_at is not None:
-        issued_at = _token_issued_at(token_payload)
-        cutoff = user.password_changed_at
-        if cutoff.tzinfo is None:
-            cutoff = cutoff.replace(tzinfo=UTC)
-        if issued_at is None or issued_at <= cutoff:
-            raise HTTPException(
-                status_code=401,
-                detail={
-                    "code": "AUTH_PASSWORD_CHANGED",
-                    "message": "Password was changed; sign in again",
-                },
-                headers={"WWW-Authenticate": "Bearer"},
-            )
+    password_changed_at = getattr(user, "password_changed_at", None)
+    if password_changed_at is not None and _token_is_cut_off(
+        token_payload, password_changed_at
+    ):
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "code": "AUTH_PASSWORD_CHANGED",
+                "message": "Password was changed; sign in again",
+            },
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+
+def _validate_authentication_revocation_cutoff(
+    user: User, token_payload: dict
+) -> None:
+    authentication_revoked_at = getattr(user, "authentication_revoked_at", None)
+    if authentication_revoked_at is not None and _token_is_cut_off(
+        token_payload, authentication_revoked_at
+    ):
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "code": "AUTH_SESSION_REVOKED",
+                "message": "Session was revoked; sign in again",
+            },
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
 
 def validate_authenticated_user_state(user: User, token_payload: dict, *, request_path: str) -> None:
     """Validate mutable account state for an already-decoded signed token."""
     _validate_password_cutoff(user, token_payload)
+    _validate_authentication_revocation_cutoff(user, token_payload)
     if user.status != UserStatus.APPROVED:
         raise HTTPException(status_code=403, detail=f"Account is {user.status.value}. Please wait for admin approval.")
     if user.must_change_password and request_path not in PASSWORD_CHANGE_ALLOWED_PATHS:
@@ -784,7 +837,9 @@ async def login(
                 presented_payload=presented_refresh_payload,
                 lock_already_held=True,
             )
-            access_token, refresh_token = _build_token_pair(str(user.id))
+            access_token, refresh_token = _build_token_pair(
+                str(user.id), issued_after=_latest_session_cutoff(user)
+            )
             await _store_refresh_session(
                 db,
                 user.id,
@@ -886,22 +941,31 @@ async def refresh_tokens(
             "Account is not active; sign in again after account access is restored",
         )
 
-    # Check password_changed_at invalidation on refresh too
-    if user.password_changed_at is not None:
-        issued_at = _token_issued_at(payload)
-        if issued_at is None:
-            raise _terminal_refresh_error("REFRESH_TOKEN_INVALID", "Refresh token is invalid")
-        cutoff = user.password_changed_at
-        if cutoff.tzinfo is None:
-            cutoff = cutoff.replace(tzinfo=UTC)
-        if issued_at <= cutoff:
-            raise _terminal_refresh_error(
-                "REFRESH_PASSWORD_CHANGED",
-                "Password changed after this session was issued; sign in again",
-            )
+    # Password and administrative revocation are separate contracts. Exact
+    # owner-cleanup routes enforce only the password cutoff; refresh enforces both.
+    password_changed_at = getattr(user, "password_changed_at", None)
+    if password_changed_at is not None and _token_is_cut_off(
+        payload, password_changed_at
+    ):
+        raise _terminal_refresh_error(
+            "REFRESH_PASSWORD_CHANGED",
+            "Password changed after this session was issued; sign in again",
+        )
+    authentication_revoked_at = getattr(user, "authentication_revoked_at", None)
+    if authentication_revoked_at is not None and _token_is_cut_off(
+        payload, authentication_revoked_at
+    ):
+        raise _terminal_refresh_error(
+            "REFRESH_SESSION_REVOKED",
+            "Refresh session has been revoked; sign in again",
+        )
 
     try:
-        access_token, refresh_token = _build_token_pair(str(user.id), family_id=payload.get("family_id"))
+        access_token, refresh_token = _build_token_pair(
+            str(user.id),
+            family_id=payload.get("family_id"),
+            issued_after=_latest_session_cutoff(user),
+        )
         await _rotate_refresh_session(
             db,
             user.id,
@@ -1466,7 +1530,9 @@ async def accept_admin_invitation(
         await db.execute(
             update(RefreshSession).where(RefreshSession.user_id == user.id).values(revoked=True)
         )
-        access_token, refresh_token = _build_token_pair(str(user.id))
+        access_token, refresh_token = _build_token_pair(
+            str(user.id), issued_after=now
+        )
         await _store_refresh_session(
             db,
             user.id,
@@ -1891,17 +1957,22 @@ async def update_users_me(
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)]
 ):
+    requested_role = user_update.role
+    if requested_role is not None and requested_role != current_user.role:
+        if current_user.role is not None or requested_role == UserRole.ADMIN:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Profile role changes are not allowed",
+            )
+
     if user_update.first_name is not None:
         current_user.first_name = user_update.first_name
     if user_update.last_name is not None:
         current_user.last_name = user_update.last_name
-    if user_update.role is not None:
-        if current_user.role != UserRole.ADMIN:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Only admins can change user roles",
-            )
-        current_user.role = user_update.role
+    if requested_role is not None and current_user.role is None:
+        # The live onboarding flow assigns a trading side to incomplete legacy
+        # profiles once. Later role transitions require a separate audited flow.
+        current_user.role = requested_role
 
     await db.commit()
     await db.refresh(current_user)
@@ -1966,7 +2037,9 @@ async def change_password(
     # Revoke every prior family before adding the one tracked successor. The
     # user row lock serializes concurrent password changes; refresh/logout
     # serialize on the affected refresh-session rows.
-    access_token, refresh_token = _build_token_pair(str(locked_user.id))
+    access_token, refresh_token = _build_token_pair(
+        str(locked_user.id), issued_after=locked_user.password_changed_at
+    )
     try:
         await db.execute(
             update(RefreshSession)
@@ -2311,6 +2384,7 @@ async def reject_user(
     previous = target.status
     target.status = UserStatus.REJECTED
     clear_pending_account_approval_email(target)
+    await invalidate_locked_user_authentication(db, target)
     # A rejected user is fail-closed at execution time: market mutations and
     # the matching engine re-check execution_party_is_eligible under row locks.
     # Tenant-level market cleanup is owned by the organization-rejection path.

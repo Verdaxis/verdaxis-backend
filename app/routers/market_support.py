@@ -950,7 +950,11 @@ async def list_authorizations(
     skip: Annotated[int, Query(ge=0)] = 0,
     limit: Annotated[int, Query(ge=1, le=100)] = 25,
 ):
-    await _require_any_capability(db, current_user.id)
+    await _lock_capability(
+        db,
+        current_user.id,
+        MarketSupportCapability.MARKET_SUPPORT_AUTHORIZATIONS,
+    )
     await _load_organization(db, organization_id)
     filters = (MarketSupportAuthorization.organization_id == organization_id,)
     rows = (
@@ -1361,7 +1365,7 @@ async def organization_context(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(require_market_support_admin)],
 ):
-    await _require_any_capability(db, current_user.id)
+    await _require_context_capabilities(db, current_user.id)
     organization = await _load_organization(db, organization_id)
     supplier_rows = (
         await db.execute(
