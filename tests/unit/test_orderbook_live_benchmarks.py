@@ -250,6 +250,65 @@ class TestLiveSliceBenchmarks:
         assert remaining == []
 
     @pytest.mark.asyncio
+    async def test_benchmark_projection_preserves_unicode_qualification_and_rounding(
+        self,
+        db: AsyncSession,
+    ):
+        supplier = await _make_org(db, 'Projection Supplier')
+        singapore = await _make_delivery_point(db, 'Singapore', 'Asia')
+        methanol = await _make_product(
+            db,
+            name='Bio Methanol',
+            fuel_type='Methanol',
+            fuel_grade='Bio',
+        )
+
+        qualifying_orders = [
+            _make_order(
+                org_id=supplier.id,
+                side=OrderSide.ASK,
+                product_id=methanol.id,
+                delivery_point_id=singapore.id,
+                price=price,
+                quantity='1',
+            )
+            for price in ('100.00', '100.01')
+        ]
+        whitespace_only_orders = []
+        for field_name in (
+            'certification_scheme',
+            'specification_standard',
+            'feedstock',
+            'origin',
+        ):
+            order = _make_order(
+                org_id=supplier.id,
+                side=OrderSide.ASK,
+                product_id=methanol.id,
+                delivery_point_id=singapore.id,
+                price='10000',
+                quantity='1',
+            )
+            setattr(order, field_name, '\u2003')
+            whitespace_only_orders.append(order)
+        db.add_all([*qualifying_orders, *whitespace_only_orders])
+        await db.commit()
+
+        price = await rebuild_live_slice_benchmark(
+            db,
+            side=OrderSide.ASK,
+            market_product='BIO_METHANOL',
+            delivery_point_id=singapore.id,
+            availability_window='SPOT',
+        )
+
+        row = (await db.execute(select(LiveSliceBenchmark))).scalars().one()
+        assert price == Decimal('100.00')
+        assert row.benchmark_price_per_mt_usd == Decimal('100.00')
+        assert row.total_remaining_quantity_mt == Decimal('2.00')
+        assert row.order_count == 2
+
+    @pytest.mark.asyncio
     async def test_list_asks_batches_distinct_slice_benchmarks_with_bounded_queries(
         self,
         db: AsyncSession,
@@ -399,6 +458,18 @@ async def test_b100_live_reference_uses_valid_terms_without_alcohol_metadata(db:
     order.origin = None
     order.msds_available = True
     assert public_slice_order_qualified(order)
+
+    db.add(order)
+    await db.commit()
+    benchmark = await rebuild_live_slice_benchmark(
+        db,
+        side=OrderSide.ASK,
+        market_product='UCOME_B100',
+        delivery_point_id=point.id,
+        availability_window='SPOT',
+    )
+    assert benchmark == Decimal('1100.00')
+
     order.delivery_point_id = DELIVERY_POINTS_BY_NAME['Rotterdam'].id
     assert not public_slice_order_qualified(order)
     order.delivery_point_id = point.id

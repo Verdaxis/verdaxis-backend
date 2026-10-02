@@ -5,8 +5,9 @@ from typing import Iterable
 from uuid import UUID
 
 from sqlalchemy import and_, or_, select
+from sqlalchemy.engine import Row
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import contains_eager, selectinload
+from sqlalchemy.orm import selectinload
 
 from app.market_catalog import PRODUCTS_BY_ID
 from app.models.catalog import DeliveryPoint, Product
@@ -30,12 +31,27 @@ def _text_present(value: str | None) -> bool:
     return bool((value or "").strip())
 
 
-def public_slice_order_qualified(order: OrderBookOrder) -> bool:
-    product = order.product
+def public_slice_order_qualified(order: OrderBookOrder | Row) -> bool:
     spec = PRODUCTS_BY_ID.get(order.product_id)
-    if product is None or spec is None or not product.is_active:
+    product = getattr(order, "product", None)
+    if product is None:
+        product_name = getattr(order, "product_name", None)
+        product_fuel_type = getattr(order, "product_fuel_type", None)
+        product_fuel_grade = getattr(order, "product_fuel_grade", None)
+        product_is_active = getattr(order, "product_is_active", False)
+    else:
+        product_name = product.name
+        product_fuel_type = product.fuel_type
+        product_fuel_grade = product.fuel_grade
+        product_is_active = product.is_active
+
+    if spec is None or not product_is_active:
         return False
-    if (product.name, product.fuel_type, product.fuel_grade) != (spec.name, spec.fuel_type, spec.fuel_grade):
+    if (product_name, product_fuel_type, product_fuel_grade) != (
+        spec.name,
+        spec.fuel_type,
+        spec.fuel_grade,
+    ):
         return False
     if not market_product_supports_delivery_point(spec.market_product, order.delivery_point_id):
         return False
@@ -84,7 +100,7 @@ def normalize_live_benchmark_key(
     return (side, market_product, delivery_point_id, normalize_availability_window(availability_window))
 
 
-def live_benchmark_key_for_order(order: OrderBookOrder) -> LiveBenchmarkKey | None:
+def live_benchmark_key_for_order(order: OrderBookOrder | Row) -> LiveBenchmarkKey | None:
     return normalize_live_benchmark_key(
         order.side,
         order.market_product,
@@ -118,14 +134,35 @@ async def _calculate_live_slice_benchmarks(
         )
         for side, market_product, delivery_point_id, availability_window in requested_keys
     ]
+    market_product = canonical_market_product_expression(Product).label("market_product")
     result = await db.execute(
-        select(OrderBookOrder)
+        select(
+            OrderBookOrder.product_id,
+            Product.name.label("product_name"),
+            Product.fuel_type.label("product_fuel_type"),
+            Product.fuel_grade.label("product_fuel_grade"),
+            Product.is_active.label("product_is_active"),
+            OrderBookOrder.side,
+            market_product,
+            OrderBookOrder.delivery_point_id,
+            OrderBookOrder.availability_window,
+            OrderBookOrder.status,
+            OrderBookOrder.expires_at,
+            OrderBookOrder.remaining_quantity_mt,
+            OrderBookOrder.price_per_mt_usd,
+            OrderBookOrder.off_spec,
+            OrderBookOrder.certification_declared,
+            OrderBookOrder.certification_scheme,
+            OrderBookOrder.specification_standard,
+            OrderBookOrder.msds_available,
+            OrderBookOrder.carbon_intensity_gco2_mj,
+            OrderBookOrder.carbon_intensity_method,
+            OrderBookOrder.feedstock,
+            OrderBookOrder.origin,
+            OrderBookOrder.fame_terms,
+        )
         .join(Product, OrderBookOrder.product_id == Product.id)
         .join(DeliveryPoint, OrderBookOrder.delivery_point_id == DeliveryPoint.id)
-        .options(
-            contains_eager(OrderBookOrder.product),
-            contains_eager(OrderBookOrder.delivery_point),
-        )
         .where(
             or_(*key_clauses),
             OrderBookOrder.status.in_((OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED)),
@@ -136,29 +173,27 @@ async def _calculate_live_slice_benchmarks(
             canonical_delivery_point_clause(DeliveryPoint),
         )
     )
-    orders_by_key: dict[LiveBenchmarkKey, list[OrderBookOrder]] = {}
-    for order in result.unique().scalars().all():
+    totals_by_key: dict[LiveBenchmarkKey, tuple[Decimal, Decimal, int]] = {}
+    for order in result.all():
         key = live_benchmark_key_for_order(order)
         if key in requested_keys and public_slice_order_qualified(order):
-            orders_by_key.setdefault(key, []).append(order)
+            total_qty, weighted_sum, order_count = totals_by_key.get(
+                key,
+                (Decimal("0.00"), Decimal("0.00"), 0),
+            )
+            quantity = order.remaining_quantity_mt
+            totals_by_key[key] = (
+                total_qty + quantity,
+                weighted_sum + quantity * order.price_per_mt_usd,
+                order_count + 1,
+            )
 
     calculations: dict[LiveBenchmarkKey, tuple[Decimal, Decimal, int]] = {}
-    for key, qualifying_orders in orders_by_key.items():
-        total_qty = sum(
-            (order.remaining_quantity_mt for order in qualifying_orders),
-            Decimal("0.00"),
-        )
-        weighted_sum = sum(
-            (
-                order.remaining_quantity_mt * order.price_per_mt_usd
-                for order in qualifying_orders
-            ),
-            Decimal("0.00"),
-        )
+    for key, (total_qty, weighted_sum, order_count) in totals_by_key.items():
         calculations[key] = (
             (weighted_sum / total_qty).quantize(Decimal("0.01")),
             total_qty.quantize(Decimal("0.01")),
-            len(qualifying_orders),
+            order_count,
         )
     return calculations
 
