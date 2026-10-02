@@ -97,7 +97,13 @@ class TestCreateOrder:
     async def test_bid_persists_certification_preferences(self, monkeypatch):
         product_id = uuid4()
         delivery_point_id = uuid4()
-        product = MagicMock(id=product_id, market_product='BIO_METHANOL')
+        product = MagicMock(
+            id=product_id,
+            market_product='BIO_METHANOL',
+            min_lot_size=Decimal('200.00'),
+            unit='MT',
+            name='Bio Methanol',
+        )
         delivery_point = MagicMock(id=delivery_point_id)
 
         product_result = MagicMock()

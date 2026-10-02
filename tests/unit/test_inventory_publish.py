@@ -123,6 +123,8 @@ class TestPublishInventoryItem:
         catalog_product = MagicMock()
         catalog_product.id = uuid4()
         catalog_product.name = "Bio Methanol"
+        catalog_product.min_lot_size = Decimal("200.00")
+        catalog_product.unit = "MT"
         catalog_product.fuel_type = "Methanol"
         catalog_product.fuel_grade = "Bio"
         exact_product_result.scalar_one_or_none.return_value = catalog_product

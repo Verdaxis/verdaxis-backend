@@ -210,6 +210,10 @@ async def rebuild_live_slice_benchmark(
     if key is None:
         return None
 
+    # The application session disables autoflush. Persist pending order status
+    # and quantity changes before the SQL projection reads the live slice.
+    await db.flush()
+
     normalized_side, normalized_market_product, normalized_delivery_point_id, normalized_window = key
     calculation = await _calculate_live_slice_benchmark(db, key)
 
