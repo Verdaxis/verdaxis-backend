@@ -125,6 +125,12 @@ class User(Base):
     organization_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("organizations.id"))
     last_login: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     password_changed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Administrative account revocation is distinct from a real password
+    # change. Owner-cleanup routes intentionally enforce only the password
+    # cutoff while ordinary access and refresh enforce both cutoffs.
+    authentication_revoked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     must_change_password: Mapped[bool] = mapped_column(Boolean, default=False, server_default='false', nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), server_default=func.now(), nullable=False)
 

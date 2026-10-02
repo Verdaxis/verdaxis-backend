@@ -7,14 +7,26 @@ from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import pytest
-from fastapi import HTTPException
+from fastapi import HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.core.security import create_refresh_token, decode_token, hash_token_identifier
+from app.core.security import (
+    create_access_token,
+    create_refresh_token,
+    decode_token,
+    hash_token_identifier,
+)
 from app.models.refresh_session import RefreshSession
 from app.models.user import User, UserRole, UserStatus
-from app.routers.auth_simple import _revoke_refresh_family, _rotate_refresh_session
+from app.routers.auth_simple import (
+    _acquire_device_session_lock,
+    _device_session_hash,
+    _resolve_authenticated_user,
+    _revoke_refresh_family,
+    _rotate_refresh_session,
+)
+from app.services.auth_revocation import invalidate_locked_user_authentication
 
 DEVICE_HASH = "a" * 64
 
@@ -176,3 +188,152 @@ async def test_logout_with_predecessor_serializes_with_successor_rotation(pg_ses
     ).scalars().all()
     assert len(family) == 3
     assert all(row.revoked for row in family)
+
+
+@pytest.mark.asyncio
+async def test_rejection_waits_for_refresh_and_revokes_its_successor(pg_session):
+    engine, session = pg_session
+    user = User(
+        id=uuid4(),
+        email=f"reject-race-{uuid4()}@example.test",
+        password_hash="hash",
+        role=UserRole.BUYER,
+        status=UserStatus.APPROVED,
+        email_verified=True,
+    )
+    family_id = uuid4()
+    original = create_refresh_token(subject=str(user.id), family_id=str(family_id))
+    original_payload = decode_token(original)
+    session.add(user)
+    await session.flush()
+    session.add(
+        RefreshSession(
+            user_id=user.id,
+            family_id=family_id,
+            jti_hash=hash_token_identifier(original_payload["jti"]),
+            device_id_hash=DEVICE_HASH,
+            expires_at=datetime.fromtimestamp(original_payload["exp"], tz=UTC),
+        )
+    )
+    await session.commit()
+
+    factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    rotation_staged = asyncio.Event()
+    allow_rotation_commit = asyncio.Event()
+    rejection_acquired_user = asyncio.Event()
+
+    async def rotate() -> None:
+        async with factory() as worker:
+            successor = create_refresh_token(
+                subject=str(user.id), family_id=str(family_id)
+            )
+            await _rotate_refresh_session(
+                worker,
+                user.id,
+                original_payload,
+                successor,
+                device_id_hash=DEVICE_HASH,
+            )
+            rotation_staged.set()
+            await allow_rotation_commit.wait()
+            await worker.commit()
+
+    async def reject() -> None:
+        await rotation_staged.wait()
+        async with factory() as worker:
+            locked_user = (
+                await worker.execute(
+                    select(User).where(User.id == user.id).with_for_update()
+                )
+            ).scalar_one()
+            rejection_acquired_user.set()
+            locked_user.status = UserStatus.REJECTED
+            await invalidate_locked_user_authentication(worker, locked_user)
+            await worker.commit()
+
+    rotation_task = asyncio.create_task(rotate())
+    await rotation_staged.wait()
+    rejection_task = asyncio.create_task(reject())
+    try:
+        with pytest.raises(asyncio.TimeoutError):
+            await asyncio.wait_for(rejection_acquired_user.wait(), timeout=0.2)
+    finally:
+        allow_rotation_commit.set()
+    await asyncio.gather(rotation_task, rejection_task)
+
+    session.expire_all()
+    rejected_user = await session.get(User, user.id)
+    family = (
+        await session.execute(
+            select(RefreshSession).where(RefreshSession.family_id == family_id)
+        )
+    ).scalars().all()
+    assert rejected_user.status == UserStatus.REJECTED
+    assert rejected_user.authentication_revoked_at is not None
+    assert len(family) == 2
+    assert all(row.revoked for row in family)
+
+@pytest.mark.asyncio
+async def test_password_change_authentication_locks_device_before_user(pg_session):
+    engine, session = pg_session
+    user = User(
+        id=uuid4(),
+        email=f"password-lock-order-{uuid4()}@example.test",
+        password_hash="hash",
+        role=UserRole.BUYER,
+        status=UserStatus.APPROVED,
+        email_verified=True,
+    )
+    session.add(user)
+    await session.commit()
+
+    raw_device_id = "a" * 43
+    device_id_hash = _device_session_hash(raw_device_id)
+    token = create_access_token(str(user.id))
+    request = Request(
+        {
+            "type": "http",
+            "method": "PUT",
+            "path": "/api/auth/me/password",
+            "query_string": b"",
+            "headers": [
+                (b"cookie", f"device_session={raw_device_id}".encode()),
+            ],
+            "scheme": "https",
+            "server": ("test", 443),
+            "client": ("test", 1234),
+        }
+    )
+    factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    holder = factory()
+    await _acquire_device_session_lock(holder, device_id_hash)
+
+    async def authenticate_password_change():
+        async with factory() as worker:
+            loaded, _payload = await _resolve_authenticated_user(
+                request, token, worker
+            )
+            return loaded.id
+
+    authentication = asyncio.create_task(authenticate_password_change())
+    try:
+        await asyncio.sleep(0.1)
+        assert not authentication.done()
+        locked_user = (
+            await holder.execute(
+                select(User)
+                .where(User.id == user.id)
+                .with_for_update(nowait=True)
+            )
+        ).scalar_one()
+        assert locked_user.id == user.id
+        await holder.commit()
+        assert await asyncio.wait_for(authentication, timeout=2) == user.id
+    finally:
+        if holder.in_transaction():
+            await holder.rollback()
+        await holder.close()
+        if not authentication.done():
+            authentication.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await authentication

@@ -1,6 +1,6 @@
 """Regression contracts from the second security-v2 adversarial review."""
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -222,6 +222,7 @@ async def test_rejected_user_remains_authenticated_for_exact_owner_cleanup():
     user.status = UserStatus.REJECTED
     user.password_changed_at = None
     token = create_access_token(user.id)
+    user.authentication_revoked_at = datetime.now(UTC) + timedelta(microseconds=1)
     result = MagicMock()
     result.scalar_one_or_none.return_value = user
     db = AsyncMock()
@@ -239,6 +240,60 @@ async def test_rejected_user_remains_authenticated_for_exact_owner_cleanup():
     authenticated = await auth_simple.get_authenticated_user(request, token, db)
 
     assert authenticated is user
+
+
+@pytest.mark.asyncio
+async def test_reapproved_user_owner_cleanup_rejects_pre_rejection_token():
+    user = _eligible_user()
+    token = create_access_token(user.id)
+    user.authentication_revoked_at = datetime.now(UTC) + timedelta(microseconds=1)
+    result = MagicMock()
+    result.scalar_one_or_none.return_value = user
+    db = AsyncMock()
+    db.execute.return_value = result
+    request = Request(
+        {
+            "type": "http",
+            "method": "DELETE",
+            "path": "/api/orderbook/example",
+            "query_string": b"",
+            "headers": [],
+        }
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await auth_simple.get_authenticated_user(request, token, db)
+
+    assert exc_info.value.status_code == 401
+    assert exc_info.value.detail["code"] == "AUTH_SESSION_REVOKED"
+
+
+@pytest.mark.asyncio
+async def test_password_change_still_blocks_rejected_user_owner_cleanup():
+    user = _eligible_user()
+    user.status = UserStatus.REJECTED
+    token = create_access_token(user.id)
+    user.password_changed_at = datetime.now(UTC) + timedelta(microseconds=1)
+    user.authentication_revoked_at = user.password_changed_at
+    result = MagicMock()
+    result.scalar_one_or_none.return_value = user
+    db = AsyncMock()
+    db.execute.return_value = result
+    request = Request(
+        {
+            "type": "http",
+            "method": "DELETE",
+            "path": "/api/orderbook/example",
+            "query_string": b"",
+            "headers": [],
+        }
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await auth_simple.get_authenticated_user(request, token, db)
+
+    assert exc_info.value.status_code == 401
+    assert exc_info.value.detail["code"] == "AUTH_PASSWORD_CHANGED"
 
 
 @pytest.mark.asyncio

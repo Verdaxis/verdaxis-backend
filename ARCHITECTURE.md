@@ -21,7 +21,7 @@ app/
     security.py                 # PyJWT + bcrypt — access/refresh/stream token creation, decode_token
   models/
     __init__.py                 # Imports all models for Alembic autogenerate
-    user.py                     # User (password_changed_at, must_change_password), Organization, enums
+    user.py                     # User (password/authentication cutoffs, must_change_password), Organization, enums
     port.py                     # Port (PostGIS), PortIntelligence, Vessel
     marketplace.py              # InventoryItem, FuelType enum
     orderbook.py                # OrderBookOrder (BID/ASK), Trade, canonical availability_window strings, enums (OrderSide, TradeStatus)
@@ -151,6 +151,7 @@ alembic/versions/               # Migrations incl. canonical availability-window
 - **Compliance scoring:** Pure function `calculate_compliance_score()` — no DB, 100% testable
 - **JWT auth:** 15-min access + 7-day refresh, plus 60-second `type="stream"` tokens from `/auth/stream-token` for SSE query-param auth. Ordinary API auth only accepts access tokens; activity SSE query auth only accepts stream tokens.
 - **Authentication locks:** Only audited normal GET route templates share the user-row lock. Mutations, unclassified routes, and all assisted-context requests keep exclusive locks. Account/session writes still conflict with shared readers. Password login returns the same sanitized profile as `/auth/me` with its access token.
+- **Authentication revocation:** Password changes invalidate tokens through `password_changed_at`. Account rejection advances the separate `authentication_revoked_at` cutoff and revokes every refresh session under the locked user row. Rejected owners retain only the narrow authenticated cleanup path; approval does not revive tokens issued before rejection.
 - **Password workers:** Async authentication paths offload bcrypt through one four-slot process-local limiter. Queued requests can cancel before admission. Admitted work retains its slot until completion, even if the caller cancels; synchronous maintenance tools retain the synchronous helpers.
 - **AI provider bounds:** Chat, news classification, and advisory KYC use the pinned `google-genai` adapter and one client per process. A monotonic deadline starts before thread scheduling and covers SDK retries and KYC model fallback. Each request carries its own timeout options; cancelled or timed-out callers do not release capacity while the provider thread still runs. Automatic function calling is disabled.
 - **Cookie-backed refresh:** refresh token is also rotated through an HttpOnly `refresh_token` cookie scoped to `/api/auth`, while access tokens remain bearer tokens

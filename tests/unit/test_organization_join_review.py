@@ -2,16 +2,18 @@
 
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from fastapi import Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from app.core.security import create_refresh_token, decode_token, hash_token_identifier
 from app.database import Base
 from app.models.audit import AuditLog
 from app.models.product_analytics import UserStatusTransition
+from app.models.refresh_session import RefreshSession
 from app.models.registration import JoinRequestStatus, OrganizationJoinRequest
 from app.models.user import Organization, OrgType, User, UserRole, UserStatus
 from app.models.catalog import Product, DeliveryPoint
@@ -54,6 +56,7 @@ async def join_db():
     tables = [
         Organization.__table__,
         User.__table__,
+        RefreshSession.__table__,
         OrganizationJoinRequest.__table__,
         Product.__table__,
         DeliveryPoint.__table__,
@@ -280,6 +283,18 @@ async def test_rejection_invalidates_unsent_account_approval_email(
     monkeypatch,
 ):
     _organization, admin, candidate, _join_request = await _seed(join_db)
+    candidate.must_change_password = True
+    refresh_token = create_refresh_token(str(candidate.id))
+    refresh_payload = decode_token(refresh_token)
+    refresh_session = RefreshSession(
+        user_id=candidate.id,
+        family_id=UUID(refresh_payload["family_id"]),
+        jti_hash=hash_token_identifier(refresh_payload["jti"]),
+        device_id_hash="a" * 64,
+        expires_at=datetime.fromtimestamp(refresh_payload["exp"], tz=UTC),
+    )
+    join_db.add(refresh_session)
+    await join_db.commit()
     monkeypatch.setattr(
         "app.routers.auth_simple.deliver_account_approval_email",
         AsyncMock(return_value="deferred"),
@@ -303,6 +318,10 @@ async def test_rejection_invalidates_unsent_account_approval_email(
     assert candidate.pending_approval_email_transition_id is None
     assert candidate.pending_approval_email_payload is None
     assert candidate.pending_approval_email_retry_at is None
+    assert candidate.authentication_revoked_at is not None
+    assert candidate.must_change_password is True
+    await join_db.refresh(refresh_session)
+    assert refresh_session.revoked is True
 
 
 @pytest.mark.asyncio
