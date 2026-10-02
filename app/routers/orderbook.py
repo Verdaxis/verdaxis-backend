@@ -1,4 +1,5 @@
 import hashlib
+from dataclasses import dataclass
 
 from fastapi import APIRouter, Body, Depends, Header, HTTPException, Request, status, Query
 from app.services.audit_service import record_audit, request_audit_context
@@ -43,6 +44,8 @@ from app.schemas.orderbook import (
     OrderMyResponse,
     SupplierListingTemplateResponse,
     AggregatedOrderbookResponse,
+    MapCompactMarketResponse,
+    MapCompactSummaryResponse,
     MapRecentAskResponse,
     MapSummaryResponse,
     OrderResponseWithCI,
@@ -61,6 +64,7 @@ from app.services.market_transactions import retry_market_transaction
 from app.services.org_notifications import notify_org_users_batched
 from app.services import market_transactions
 from app.services.availability_windows import (
+    availability_window_sort_key,
     is_tradable_availability_window,
     normalize_availability_window,
 )
@@ -1191,12 +1195,238 @@ async def _latest_public_asks_by_delivery_point(
     ]
 
 
+@dataclass(slots=True)
+class _CompactMapAccumulator:
+    product_id: UUID
+    product_name: str
+    market_product: str
+    fuel_type: str
+    delivery_point_id: UUID
+    delivery_point_name: str
+    region: str
+    evidence_class: Literal["REAL", "DEMO"]
+    source_kind: MarketSourceKind
+    scope: MarketScope
+    demo_status: MarketDemoStatus
+    observed_at: datetime
+    bid_min_price: Decimal | None = None
+    bid_max_price: Decimal | None = None
+    bid_total_quantity: Decimal = Decimal("0")
+    bid_order_count: int = 0
+    ask_min_price: Decimal | None = None
+    ask_max_price: Decimal | None = None
+    ask_total_quantity: Decimal = Decimal("0")
+    ask_order_count: int = 0
+    spot_best_bid: Decimal | None = None
+    spot_best_ask: Decimal | None = None
+
+    @classmethod
+    def from_group(cls, group: AggregatedOrderbookResponse) -> "_CompactMapAccumulator":
+        if group.delivery_point_id is None:
+            raise ValueError("Buyer-map groups require a delivery point")
+        return cls(
+            product_id=group.product_id,
+            product_name=group.product_name,
+            market_product=group.market_product,
+            fuel_type=group.fuel_type,
+            delivery_point_id=group.delivery_point_id,
+            delivery_point_name=group.delivery_point_name or "",
+            region=group.region,
+            evidence_class=group.evidence_class,
+            source_kind=group.source_kind,
+            scope=group.scope,
+            demo_status=group.demo_status,
+            observed_at=group.observed_at,
+        )
+
+    def add_group(self, group: AggregatedOrderbookResponse) -> None:
+        identity = (
+            group.product_name,
+            group.market_product,
+            group.fuel_type,
+            group.delivery_point_name or "",
+            group.region,
+            group.source_kind,
+            group.scope,
+            group.demo_status,
+        )
+        if identity != (
+            self.product_name,
+            self.market_product,
+            self.fuel_type,
+            self.delivery_point_name,
+            self.region,
+            self.source_kind,
+            self.scope,
+            self.demo_status,
+        ):
+            raise ValueError("Inconsistent buyer-map group identity")
+
+        self.observed_at = max(self.observed_at, group.observed_at)
+        side = getattr(group.side, "value", group.side)
+        if side == OrderSide.BID.value:
+            self.bid_min_price = (
+                group.min_price
+                if self.bid_min_price is None
+                else min(self.bid_min_price, group.min_price)
+            )
+            self.bid_max_price = (
+                group.max_price
+                if self.bid_max_price is None
+                else max(self.bid_max_price, group.max_price)
+            )
+            self.bid_total_quantity += group.total_quantity
+            self.bid_order_count += group.order_count
+            if group.availability_window == "SPOT":
+                self.spot_best_bid = (
+                    group.max_price
+                    if self.spot_best_bid is None
+                    else max(self.spot_best_bid, group.max_price)
+                )
+            return
+
+        if side == OrderSide.ASK.value:
+            self.ask_min_price = (
+                group.min_price
+                if self.ask_min_price is None
+                else min(self.ask_min_price, group.min_price)
+            )
+            self.ask_max_price = (
+                group.max_price
+                if self.ask_max_price is None
+                else max(self.ask_max_price, group.max_price)
+            )
+            self.ask_total_quantity += group.total_quantity
+            self.ask_order_count += group.order_count
+            if group.availability_window == "SPOT":
+                self.spot_best_ask = (
+                    group.min_price
+                    if self.spot_best_ask is None
+                    else min(self.spot_best_ask, group.min_price)
+                )
+            return
+
+        raise ValueError(f"Unsupported buyer-map side: {side}")
+
+    def to_response(self) -> MapCompactMarketResponse:
+        return MapCompactMarketResponse(
+            product_id=self.product_id,
+            product_name=self.product_name,
+            market_product=self.market_product,
+            fuel_type=self.fuel_type,
+            delivery_point_id=self.delivery_point_id,
+            delivery_point_name=self.delivery_point_name,
+            region=self.region,
+            evidence_class=self.evidence_class,
+            source_kind=self.source_kind,
+            scope=self.scope,
+            demo_status=self.demo_status,
+            bid_min_price=self.bid_min_price,
+            bid_max_price=self.bid_max_price,
+            bid_total_quantity=self.bid_total_quantity,
+            bid_order_count=self.bid_order_count,
+            ask_min_price=self.ask_min_price,
+            ask_max_price=self.ask_max_price,
+            ask_total_quantity=self.ask_total_quantity,
+            ask_order_count=self.ask_order_count,
+            spot_best_bid=self.spot_best_bid,
+            spot_best_ask=self.spot_best_ask,
+            observed_at=self.observed_at,
+        )
+
+
+def _compact_map_groups(
+    groups: list[AggregatedOrderbookResponse],
+) -> tuple[list[MapCompactMarketResponse], list[AggregatedOrderbookResponse]]:
+    """Reduce public groups without blending REAL and DEMO evidence."""
+    markets_by_key: dict[tuple[UUID, UUID, str], _CompactMapAccumulator] = {}
+    selected_demo_windows: dict[
+        tuple[UUID, UUID],
+        tuple[tuple[int, date, int], str, list[AggregatedOrderbookResponse]],
+    ] = {}
+    today = date.today()
+    window_sort_keys: dict[str, tuple[int, date, int]] = {}
+
+    for group in groups:
+        if group.delivery_point_id is None:
+            raise ValueError("Buyer-map groups require a delivery point")
+
+        market_key = (
+            group.product_id,
+            group.delivery_point_id,
+            group.evidence_class,
+        )
+        market = markets_by_key.get(market_key)
+        if market is None:
+            market = _CompactMapAccumulator.from_group(group)
+            markets_by_key[market_key] = market
+        market.add_group(group)
+
+        if group.evidence_class == "DEMO":
+            demo_key = (group.product_id, group.delivery_point_id)
+            window_key = window_sort_keys.get(group.availability_window)
+            if window_key is None:
+                window_key = availability_window_sort_key(
+                    group.availability_window,
+                    today=today,
+                )
+                window_sort_keys[group.availability_window] = window_key
+            selected = selected_demo_windows.get(demo_key)
+            if selected is None or window_key < selected[0]:
+                selected_demo_windows[demo_key] = (
+                    window_key,
+                    group.availability_window,
+                    [group],
+                )
+            elif window_key == selected[0] and group.availability_window == selected[1]:
+                selected[2].append(group)
+
+    markets = sorted(
+        (market.to_response() for market in markets_by_key.values()),
+        key=lambda market: (
+            market.market_product,
+            market.delivery_point_name,
+            market.evidence_class,
+        ),
+    )
+    demo_groups = sorted(
+        (
+            group
+            for _, _, selected_groups in selected_demo_windows.values()
+            for group in selected_groups
+        ),
+        key=lambda group: (
+            group.market_product,
+            group.delivery_point_name or "",
+            group.evidence_class,
+            getattr(group.side, "value", group.side),
+        ),
+    )
+    return markets, demo_groups
+
+
 @router.get("/map-summary", response_model=MapSummaryResponse)
 async def get_map_summary(db: AsyncSession = Depends(get_db)) -> MapSummaryResponse:
     """Return all compact public order data used by the buyer map."""
     return MapSummaryResponse(
         groups=await _aggregate_orderbook(db),
         recent_asks=await _latest_public_asks_by_delivery_point(db),
+    )
+
+
+@router.get("/map-summary/compact", response_model=MapCompactSummaryResponse)
+async def get_compact_map_summary(
+    db: AsyncSession = Depends(get_db),
+) -> MapCompactSummaryResponse:
+    """Return buyer-map totals and only the nearest DEMO quote groups."""
+    groups = await _aggregate_orderbook(db)
+    markets, demo_groups = _compact_map_groups(groups)
+    del groups
+    recent_asks = await _latest_public_asks_by_delivery_point(db)
+    return MapCompactSummaryResponse(
+        markets=markets,
+        demo_groups=demo_groups,
+        recent_asks=recent_asks,
     )
 
 

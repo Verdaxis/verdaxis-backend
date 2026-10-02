@@ -410,8 +410,41 @@ class MapRecentAskResponse(BaseModel):
     demo_status: MarketDemoStatus
 
 
+class MapCompactMarketResponse(BaseModel):
+    """Buyer-map totals for one product, delivery point, and evidence class."""
+
+    product_id: UUID
+    product_name: str
+    market_product: str
+    fuel_type: str
+    delivery_point_id: UUID
+    delivery_point_name: str
+    region: str
+    evidence_class: Literal["REAL", "DEMO"]
+    source_kind: MarketSourceKind
+    scope: MarketScope = MarketScope.DELIVERY_POINT
+    demo_status: MarketDemoStatus
+    bid_min_price: Optional[Decimal] = None
+    bid_max_price: Optional[Decimal] = None
+    bid_total_quantity: Decimal = Decimal("0")
+    bid_order_count: int = 0
+    ask_min_price: Optional[Decimal] = None
+    ask_max_price: Optional[Decimal] = None
+    ask_total_quantity: Decimal = Decimal("0")
+    ask_order_count: int = 0
+    spot_best_bid: Optional[Decimal] = None
+    spot_best_ask: Optional[Decimal] = None
+    observed_at: datetime
+
+
 class MapSummaryResponse(BaseModel):
     groups: list[AggregatedOrderbookResponse]
+    recent_asks: list[MapRecentAskResponse]
+
+
+class MapCompactSummaryResponse(BaseModel):
+    markets: list[MapCompactMarketResponse]
+    demo_groups: list[AggregatedOrderbookResponse]
     recent_asks: list[MapRecentAskResponse]
 
 
