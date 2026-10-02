@@ -380,3 +380,9 @@
 - **Trigger:** `OrderCreate` rejected an originally valid expiry after it elapsed, so an ambiguous already-sent request could not reach its committed idempotent replay.
 - **Rule:** Create schemas may validate timestamp structure and timezone awareness, but mutable current-time admission belongs after committed replay lookup and under the operation's locks. Keep stricter future-time validation for updates when replay is not part of their contract.
 - **Why:** The same request body must remain parseable long enough to recover its committed result without allowing a fresh expired request to create side effects.
+
+### Test Monitor Timestamps With The Installed Interpreter
+- **Date:** 2026-10-03
+- **Trigger:** The API emitted a UTC timestamp with a trailing `Z`, which the external monitor's installed Python 3.10 interpreter rejected even though newer test runtimes accepted it.
+- **Rule:** Normalize a trailing UTC `Z` before calling `datetime.fromisoformat`, and simulate the installed parser behavior in the regression test.
+- **Why:** Monitor tests must cover compatibility with the interpreter that executes the installed artifact.
