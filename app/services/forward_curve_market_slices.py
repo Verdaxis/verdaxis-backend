@@ -348,6 +348,7 @@ class ForwardCurveMarketSliceService:
             delivery_points=delivery_points,
             viewer_context=context,
             generated_at=generated_at,
+            table_projection=True,
         )
 
         rows: list[ForwardCurveTableRow] = []
@@ -356,12 +357,9 @@ class ForwardCurveMarketSliceService:
                 if not market_product_supports_delivery_point(group.market_product, point.id):
                     continue
                 row_cells = {
-                    window: ForwardCurveTableCell.model_validate(
-                        cells[
-                            SliceKey(group.market_product, point.id, window)
-                        ],
-                        from_attributes=True,
-                    )
+                    window: cells[
+                        SliceKey(group.market_product, point.id, window)
+                    ]
                     for window in normalized_windows
                 }
                 rows.append(
@@ -378,7 +376,7 @@ class ForwardCurveMarketSliceService:
                     )
                 )
 
-        latest_signals = self._latest_signals(cells.values())
+        latest_signals = self._latest_signals(cells, delivery_points)
         return ForwardCurveTableResponse(
             columns=[
                 ForwardCurveTableColumn(
@@ -479,7 +477,8 @@ class ForwardCurveMarketSliceService:
         delivery_points: Sequence[DeliveryPoint] | None = None,
         viewer_context: ViewerContext | None = None,
         generated_at: datetime | None = None,
-    ) -> dict[SliceKey, ForwardCurveMarketCell]:
+        table_projection: bool = False,
+    ) -> dict[SliceKey, ForwardCurveMarketCell | ForwardCurveTableCell]:
         context = viewer_context or ViewerContext()
         now = generated_at or datetime.now(timezone.utc)
         normalized_keys = self._normalize_keys(keys)
@@ -506,39 +505,53 @@ class ForwardCurveMarketSliceService:
         benchmarks = await self._load_persisted_benchmarks(db, allowed_keys)
         signal_keys: list[SignalKey] = [(key.market_product, key.delivery_point_id, key.availability_window) for key in allowed_keys]
         indication_summaries = await load_indication_summaries(db, signal_keys)
-        physical_summaries = await load_physical_stem_summaries(db, signal_keys)
+        physical_summaries = (
+            {}
+            if table_projection
+            else await load_physical_stem_summaries(db, signal_keys)
+        )
         fair_bands = await load_fair_price_bands(db, signal_keys)
 
-        cells: dict[SliceKey, ForwardCurveMarketCell] = {}
+        cells: dict[SliceKey, ForwardCurveMarketCell | ForwardCurveTableCell] = {}
         for key in allowed_keys:
-            group = groups_by_product[key.market_product]
-            point = points_by_id[key.delivery_point_id]
             order_bucket = orderbook.get(key, {})
             trade = trade_prints.get(key)
             benchmark = benchmarks.get(key)
             indication = indication_summaries.get(
                 (key.market_product, key.delivery_point_id, key.availability_window),
             )
-            if indication is None:
-                indication = _no_data_indication_summary()
-            physical = physical_summaries.get(
-                (key.market_product, key.delivery_point_id, key.availability_window),
-            )
-            if physical is None:
-                physical = _no_data_stem_summary()
             fair_band = fair_bands.get((key.market_product, key.delivery_point_id, key.availability_window))
-            cells[key] = self._build_cell(
-                key=key,
-                group=group,
-                point=point,
-                order_bucket=order_bucket,
-                trade=trade,
-                benchmark=benchmark,
-                indication_summary=indication,
-                fair_price_band=fair_band,
-                physical_stem_summary=physical,
-                generated_at=now,
-            )
+            if table_projection:
+                cells[key] = self._build_table_cell(
+                    order_bucket=order_bucket,
+                    trade=trade,
+                    benchmark=benchmark,
+                    indication_summary=indication,
+                    fair_price_band=fair_band,
+                    generated_at=now,
+                )
+            else:
+                group = groups_by_product[key.market_product]
+                point = points_by_id[key.delivery_point_id]
+                if indication is None:
+                    indication = _no_data_indication_summary()
+                physical = physical_summaries.get(
+                    (key.market_product, key.delivery_point_id, key.availability_window),
+                )
+                if physical is None:
+                    physical = _no_data_stem_summary()
+                cells[key] = self._build_cell(
+                    key=key,
+                    group=group,
+                    point=point,
+                    order_bucket=order_bucket,
+                    trade=trade,
+                    benchmark=benchmark,
+                    indication_summary=indication,
+                    fair_price_band=fair_band,
+                    physical_stem_summary=physical,
+                    generated_at=now,
+                )
         return cells
 
     def _normalize_keys(self, keys: Iterable[SliceKey]) -> list[SliceKey]:
@@ -792,6 +805,70 @@ class ForwardCurveMarketSliceService:
         physical_stem_summary: ForwardCurveBoardPhysicalStemSummary,
         generated_at: datetime,
     ) -> ForwardCurveMarketCell:
+        values, policy = self._cell_values(
+            order_bucket=order_bucket,
+            trade=trade,
+            benchmark=benchmark,
+            indication_summary=indication_summary,
+            fair_price_band=fair_price_band,
+            generated_at=generated_at,
+            include_label_policy=True,
+        )
+        if policy is None:
+            raise RuntimeError("Full Forward Curve cells require a label policy")
+        return ForwardCurveMarketCell(
+            market_product=key.market_product,
+            product_name=group.product_name,
+            representative_product_id=group.representative_product_id,
+            product_count=len(group.product_ids),
+            delivery_point_id=point.id,
+            delivery_point_name=point.name,
+            region=point.region,
+            availability_window=key.availability_window,
+            label_policy=policy,
+            scope=MarketScope.DELIVERY_POINT,
+            generated_at=generated_at,
+            indication_summary=indication_summary,
+            fair_price_band=fair_price_band,
+            fair_price_band_provenance=(
+                fair_price_band.provenance if fair_price_band else no_data_fair_price_band_provenance()
+            ),
+            physical_stem_summary=physical_stem_summary,
+            **values,
+        )
+
+    def _build_table_cell(
+        self,
+        *,
+        order_bucket: dict[str, object],
+        trade: dict[str, object] | None,
+        benchmark: Benchmark | None,
+        indication_summary: ForwardCurveBoardIndicationSummary | None,
+        fair_price_band: ForwardCurveBoardFairPriceBand | None,
+        generated_at: datetime,
+    ) -> ForwardCurveTableCell:
+        values, _policy = self._cell_values(
+            order_bucket=order_bucket,
+            trade=trade,
+            benchmark=benchmark,
+            indication_summary=indication_summary,
+            fair_price_band=fair_price_band,
+            generated_at=generated_at,
+            include_label_policy=False,
+        )
+        return ForwardCurveTableCell(**values)
+
+    def _cell_values(
+        self,
+        *,
+        order_bucket: dict[str, object],
+        trade: dict[str, object] | None,
+        benchmark: Benchmark | None,
+        indication_summary: ForwardCurveBoardIndicationSummary | None,
+        fair_price_band: ForwardCurveBoardFairPriceBand | None,
+        generated_at: datetime,
+        include_label_policy: bool,
+    ) -> tuple[dict[str, object], ForwardCurveLabelPolicy | None]:
         real_order_count = int(order_bucket.get("real_order_count") or 0)
         demo_order_count = int(order_bucket.get("demo_order_count") or 0)
         unknown_order_count = int(order_bucket.get("unknown_order_count") or 0)
@@ -845,6 +922,7 @@ class ForwardCurveMarketSliceService:
                 fair_price_band=fair_price_band,
                 benchmark_mid=benchmark_mid,
                 benchmark_observed_at=benchmark_observed_at,
+                include_label_policy=include_label_policy,
             )
         )
         if key.market_product == "UCOME_B100":
@@ -863,27 +941,16 @@ class ForwardCurveMarketSliceService:
         observed_at = _aware_utc(observed_at)
         benchmark_observed_at = _aware_utc(benchmark_observed_at)
 
-        return ForwardCurveMarketCell(
-            market_product=key.market_product,
-            product_name=group.product_name,
-            representative_product_id=group.representative_product_id,
-            product_count=len(group.product_ids),
-            delivery_point_id=point.id,
-            delivery_point_name=point.name,
-            region=point.region,
-            availability_window=key.availability_window,
+        return dict(
             primary_value=primary_value,
             primary_signal_type=primary_signal,
             primary_source_kind=primary_source,
             public_source_label=label,
-            label_policy=policy,
             staleness_status=_staleness(observed_at, now=generated_at),
             is_executable=is_executable,
             is_reference=is_reference,
             demo_status=trade.get("demo_status") if trade else demo_status,
-            scope=MarketScope.DELIVERY_POINT,
             observed_at=observed_at,
-            generated_at=generated_at,
             best_bid=best_bid,
             best_ask=best_ask,
             spread=spread,
@@ -899,13 +966,7 @@ class ForwardCurveMarketSliceService:
             benchmark_mid=benchmark_mid,
             benchmark_source_kind=MarketSourceKind.BENCHMARK_REFERENCE if benchmark else MarketSourceKind.NO_DATA,
             benchmark_observed_at=benchmark_observed_at,
-            indication_summary=indication_summary,
-            fair_price_band=fair_price_band,
-            fair_price_band_provenance=(
-                fair_price_band.provenance if fair_price_band else no_data_fair_price_band_provenance()
-            ),
-            physical_stem_summary=physical_stem_summary,
-        )
+        ), policy
 
     def _primary_mark(
         self,
@@ -917,17 +978,18 @@ class ForwardCurveMarketSliceService:
         demo_best_ask: Decimal | None,
         demo_status: MarketDemoStatus,
         order_observed_at,
-        indication_summary: ForwardCurveBoardIndicationSummary,
+        indication_summary: ForwardCurveBoardIndicationSummary | None,
         fair_price_band: ForwardCurveBoardFairPriceBand | None,
         benchmark_mid: Decimal | None,
         benchmark_observed_at,
         managed_demo_book: bool = False,
+        include_label_policy: bool = True,
     ) -> tuple[
         Decimal | None,
         MarketSignalType,
         MarketSourceKind,
         str,
-        ForwardCurveLabelPolicy,
+        ForwardCurveLabelPolicy | None,
         datetime | None,
         bool,
         bool,
@@ -948,10 +1010,14 @@ class ForwardCurveMarketSliceService:
                 MarketSignalType.CONFIRMED_TRADE,
                 trade.get("source_kind") or MarketSourceKind.CONFIRMED_TRADE,
                 label,
-                _label_policy(
-                    label=label,
-                    tooltip="Latest anonymized confirmed trade print for this exact product, port, and window.",
-                    allowed_terms=["historical", "confirmed trade"],
+                (
+                    _label_policy(
+                        label=label,
+                        tooltip="Latest anonymized confirmed trade print for this exact product, port, and window.",
+                        allowed_terms=["historical", "confirmed trade"],
+                    )
+                    if include_label_policy
+                    else None
                 ),
                 trade.get("confirmed_at"),
                 False,
@@ -968,10 +1034,14 @@ class ForwardCurveMarketSliceService:
                 MarketSignalType.ORDERBOOK_BID,
                 source_kind,
                 label,
-                _label_policy(
-                    label=label,
-                    tooltip="Midpoint of the best visible bid and ask for this exact slice. One-sided books do not create a midpoint.",
-                    allowed_terms=["orderbook", "midpoint", "executable"] if has_real_two_sided else ["demo", "orderbook", "midpoint"],
+                (
+                    _label_policy(
+                        label=label,
+                        tooltip="Midpoint of the best visible bid and ask for this exact slice. One-sided books do not create a midpoint.",
+                        allowed_terms=["orderbook", "midpoint", "executable"] if has_real_two_sided else ["demo", "orderbook", "midpoint"],
+                    )
+                    if include_label_policy
+                    else None
                 ),
                 order_observed_at,
                 True,
@@ -984,22 +1054,35 @@ class ForwardCurveMarketSliceService:
                 MarketSignalType.ORDERBOOK_BID,
                 MarketSourceKind.DEMO_SEED,
                 label,
-                _label_policy(
-                    label=label,
-                    tooltip="Demo midpoint of the best visible bid and ask for this exact slice. Not executable user liquidity.",
-                    allowed_terms=["demo", "orderbook", "midpoint"],
+                (
+                    _label_policy(
+                        label=label,
+                        tooltip="Demo midpoint of the best visible bid and ask for this exact slice. Not executable user liquidity.",
+                        allowed_terms=["demo", "orderbook", "midpoint"],
+                    )
+                    if include_label_policy
+                    else None
                 ),
                 order_observed_at,
                 False,
                 False,
             )
 
-        indication_mid = _money(indication_summary.latest_mid_price_per_mt_usd)
-        if indication_mid is None and indication_summary.latest_bid_price_per_mt_usd is not None and indication_summary.latest_ask_price_per_mt_usd is not None:
-            indication_mid = _money(
-                (indication_summary.latest_bid_price_per_mt_usd + indication_summary.latest_ask_price_per_mt_usd)
-                / Decimal("2")
-            )
+        indication_mid = None
+        if indication_summary is not None:
+            indication_mid = _money(indication_summary.latest_mid_price_per_mt_usd)
+            if (
+                indication_mid is None
+                and indication_summary.latest_bid_price_per_mt_usd is not None
+                and indication_summary.latest_ask_price_per_mt_usd is not None
+            ):
+                indication_mid = _money(
+                    (
+                        indication_summary.latest_bid_price_per_mt_usd
+                        + indication_summary.latest_ask_price_per_mt_usd
+                    )
+                    / Decimal("2")
+                )
         if indication_mid is not None:
             label = "Market indication"
             return (
@@ -1009,10 +1092,14 @@ class ForwardCurveMarketSliceService:
                 if indication_summary.provenance.demo_status == MarketDemoStatus.DEMO_ONLY
                 else MarketSourceKind.UNKNOWN,
                 label,
-                _label_policy(
-                    label=label,
-                    tooltip="Non-executable market indication for this exact slice.",
-                    allowed_terms=["indication", "non-executable"],
+                (
+                    _label_policy(
+                        label=label,
+                        tooltip="Non-executable market indication for this exact slice.",
+                        allowed_terms=["indication", "non-executable"],
+                    )
+                    if include_label_policy
+                    else None
                 ),
                 indication_summary.provenance.observed_at,
                 False,
@@ -1029,11 +1116,15 @@ class ForwardCurveMarketSliceService:
                 MarketSignalType.FAIR_PRICE_BAND,
                 MarketSourceKind.BENCHMARK_REFERENCE,
                 label,
-                _label_policy(
-                    label=label,
-                    tooltip="Modelled fair-value band for this exact slice.",
-                    allowed_terms=["fair band", "modelled"],
-                    disclaimer="Indicative estimate only. Not legal, regulatory, tax, or compliance filing advice.",
+                (
+                    _label_policy(
+                        label=label,
+                        tooltip="Modelled fair-value band for this exact slice.",
+                        allowed_terms=["fair band", "modelled"],
+                        disclaimer="Indicative estimate only. Not legal, regulatory, tax, or compliance filing advice.",
+                    )
+                    if include_label_policy
+                    else None
                 ),
                 fair_price_band.provenance.observed_at,
                 False,
@@ -1047,10 +1138,14 @@ class ForwardCurveMarketSliceService:
                 MarketSignalType.BENCHMARK_MID,
                 MarketSourceKind.BENCHMARK_REFERENCE,
                 label,
-                _label_policy(
-                    label=label,
-                    tooltip="Persisted benchmark reference for this exact slice.",
-                    allowed_terms=["benchmark", "reference"],
+                (
+                    _label_policy(
+                        label=label,
+                        tooltip="Persisted benchmark reference for this exact slice.",
+                        allowed_terms=["benchmark", "reference"],
+                    )
+                    if include_label_policy
+                    else None
                 ),
                 benchmark_observed_at,
                 False,
@@ -1062,7 +1157,7 @@ class ForwardCurveMarketSliceService:
             MarketSignalType.NO_DATA,
             MarketSourceKind.NO_DATA,
             "No data",
-            no_data_label_policy(),
+            no_data_label_policy() if include_label_policy else None,
             None,
             False,
             False,
@@ -1193,15 +1288,27 @@ class ForwardCurveMarketSliceService:
             if trade.buyer_provenance == selected_provenance
         ]
 
-    def _latest_signals(self, cells: Iterable[ForwardCurveMarketCell]) -> list[ForwardCurveLatestSignal]:
-        populated = [cell for cell in cells if cell.primary_value is not None and cell.observed_at is not None]
-        populated.sort(key=lambda cell: cell.observed_at or datetime.min.replace(tzinfo=timezone.utc), reverse=True)
+    def _latest_signals(
+        self,
+        cells: dict[SliceKey, ForwardCurveMarketCell | ForwardCurveTableCell],
+        delivery_points: Sequence[DeliveryPoint],
+    ) -> list[ForwardCurveLatestSignal]:
+        points_by_id = {point.id: point for point in delivery_points}
+        populated = [
+            (key, cell)
+            for key, cell in cells.items()
+            if cell.primary_value is not None and cell.observed_at is not None
+        ]
+        populated.sort(
+            key=lambda item: item[1].observed_at or datetime.min.replace(tzinfo=timezone.utc),
+            reverse=True,
+        )
         return [
             ForwardCurveLatestSignal(
-                market_product=cell.market_product,
-                delivery_point_id=cell.delivery_point_id,
-                delivery_point_name=cell.delivery_point_name,
-                availability_window=cell.availability_window,
+                market_product=key.market_product,
+                delivery_point_id=key.delivery_point_id,
+                delivery_point_name=points_by_id[key.delivery_point_id].name,
+                availability_window=key.availability_window,
                 primary_value=cell.primary_value,
                 primary_signal_type=cell.primary_signal_type,
                 primary_source_kind=cell.primary_source_kind,
@@ -1210,7 +1317,7 @@ class ForwardCurveMarketSliceService:
                 observed_at=cell.observed_at,
                 staleness_status=cell.staleness_status,
             )
-            for cell in populated[:8]
+            for key, cell in populated[:8]
         ]
 
     def _evidence_points(
