@@ -32,7 +32,7 @@ async def test_reject_reapprove_never_revives_old_tokens_and_fresh_login_works(
     password = "correct horse battery staple 9"
     user = User(
         id=uuid4(),
-        email=f"rejection-{uuid4()}@example.test",
+        email=f"rejection-{uuid4()}@example.com",
         password_hash=get_password_hash(password),
         role=UserRole.BUYER,
         status=UserStatus.APPROVED,
@@ -60,7 +60,7 @@ async def test_reject_reapprove_never_revives_old_tokens_and_fresh_login_works(
 
     app.dependency_overrides[get_db] = override_db
     monkeypatch.setattr(limiter, "enabled", False)
-    transport = httpx.ASGITransport(app=app, raise_app_exceptions=False)
+    transport = httpx.ASGITransport(app=app, raise_app_exceptions=True)
 
     async with httpx.AsyncClient(
         transport=transport,
@@ -173,7 +173,7 @@ async def test_cutoff_downgrade_fails_fast_behind_concurrent_user_write(
     engine, seed_session = pg_session
     user = User(
         id=uuid4(),
-        email=f"downgrade-race-{uuid4()}@example.test",
+        email=f"downgrade-race-{uuid4()}@example.com",
         password_hash="hash",
         role=UserRole.BUYER,
         status=UserStatus.APPROVED,
@@ -238,7 +238,7 @@ async def test_legacy_null_role_can_complete_profile_through_serialized_routes(
     password = "legacy role onboarding password 9"
     user = User(
         id=uuid4(),
-        email=f"legacy-role-{selected_role.value.lower()}-{uuid4()}@example.test",
+        email=f"legacy-role-{selected_role.value.lower()}-{uuid4()}@example.com",
         password_hash=get_password_hash(password),
         role=None,
         status=UserStatus.APPROVED,
@@ -259,7 +259,7 @@ async def test_legacy_null_role_can_complete_profile_through_serialized_routes(
 
     app.dependency_overrides[get_db] = override_db
     monkeypatch.setattr(limiter, "enabled", False)
-    transport = httpx.ASGITransport(app=app, raise_app_exceptions=False)
+    transport = httpx.ASGITransport(app=app, raise_app_exceptions=True)
 
     async with httpx.AsyncClient(
         transport=transport,

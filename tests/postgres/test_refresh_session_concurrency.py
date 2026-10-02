@@ -201,8 +201,9 @@ async def test_rejection_waits_for_refresh_and_revokes_its_successor(pg_session)
         status=UserStatus.APPROVED,
         email_verified=True,
     )
+    user_id = user.id
     family_id = uuid4()
-    original = create_refresh_token(subject=str(user.id), family_id=str(family_id))
+    original = create_refresh_token(subject=str(user_id), family_id=str(family_id))
     original_payload = decode_token(original)
     session.add(user)
     await session.flush()
@@ -262,7 +263,7 @@ async def test_rejection_waits_for_refresh_and_revokes_its_successor(pg_session)
     await asyncio.gather(rotation_task, rejection_task)
 
     session.expire_all()
-    rejected_user = await session.get(User, user.id)
+    rejected_user = await session.get(User, user_id)
     family = (
         await session.execute(
             select(RefreshSession).where(RefreshSession.family_id == family_id)
