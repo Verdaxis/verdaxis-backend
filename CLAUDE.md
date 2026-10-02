@@ -2,6 +2,8 @@
 
 ## Live VPS Layout
 
+Production API and PostgreSQL run on the EU VPS `169.58.37.164` (`vmi3623757`). Staging runs on the shared host `194.233.68.86`. Read `/home/verdaxis-prod/verdaxis/PRODUCTION_HOST.md` and `/home/jons-openclaw/VPS_MAP.md` before any deployment or recovery. The old shared-host production checkout is retired.
+
 The live VPS deployment is systemd-based, not Docker-based:
 
 - Production backend: `/home/verdaxis-prod/verdaxis/prod/be`, branch `prod`, service `verdaxis-backend.service`, readiness `https://api.verdaxis.exchange/health/ready`
@@ -31,7 +33,7 @@ Read ARCHITECTURE.md before exploring the codebase.
 
 Backend API for Verdaxis -- a maritime intelligence and procurement platform. Handles fuel procurement (order book with BID/ASK matching), compliance auditing (EU ETS, FuelEU Maritime), port intelligence with geospatial data, AI copilot via Google Gemini, and a trade lifecycle (create -> confirm -> deliver -> pay).
 
-**Repo:** `jonathanjie/verdaxis-backend`
+**Repo:** `Verdaxis/verdaxis-backend`
 **Runtime:** Python 3.10+ / FastAPI / PostgreSQL 17.9 with PostGIS 3.6.2 / SQLAlchemy 2 (async) / Alembic
 
 ## Development Commands
@@ -85,20 +87,21 @@ SEED_DATABASE_URL=... SEED_TARGET_DATABASE=verdaxis_staging \
 
 ## Deployment
 
-**SSH login:** `jons-openclaw@194.233.68.86` (verified 2026-09-22).
+**Staging SSH:** `jons-openclaw@194.233.68.86`.
+**Production SSH:** alias `verdaxis-prod-eu`, administrator `verdaxis-admin`, EU VPS `169.58.37.164`.
 **Service account:** Run `sudo su - verdaxis-prod` after login; no password is required.
 **API:** `https://api.verdaxis.exchange/api` (Caddy reverse proxy -> `127.0.0.1:8000`; staging -> `127.0.0.1:8001`)
 **Swagger:** `https://api.verdaxis.exchange/docs`
 **Admin Panel:** `https://api.verdaxis.exchange/admin` (credentials from `ADMIN_USERNAME`/`ADMIN_PASSWORD` in `.env`)
 
-The production frontend (`app.verdaxis.exchange`) is hosted on Vercel. Caddy
-fronts the production API, staging API, and staging frontend; it does not serve
-the production frontend build.
+The production frontend (`app.verdaxis.exchange`) is hosted on Vercel. EU Caddy
+fronts the production API. Shared-host Caddy fronts the staging API and frontend.
+Neither host serves the production frontend build.
 
 Before deployment, confirm current DNS for the target site/API and the live
-systemd unit's `User` and `WorkingDirectory`. The verified runtime host is
-`194.233.68.86` (`vmi1840561`); historical `144.126.151.136` references are
-not deployment authority. Keep the SSH login and service account distinct.
+systemd unit's `User` and `WorkingDirectory`. Production runs on `vmi3623757`;
+staging runs on `vmi1840561`. Historical `144.126.151.136` references are not
+deployment authority. Keep the SSH login and service account distinct.
 
 ### CI/CD (GitHub Actions)
 
@@ -107,11 +110,13 @@ CI (`.github/workflows/backend-ci.yml`) runs the unit-test suite and a strict `p
 ### Manual Deploy
 
 ```bash
-ssh jons-openclaw@194.233.68.86
-sudo su - verdaxis-prod
-cd /home/verdaxis-prod/verdaxis/staging/be   # or /home/verdaxis-prod/verdaxis/prod/be
-./scripts/deploy.sh --dry-run
-./scripts/deploy.sh
+# Production: use the EU host only.
+ssh verdaxis-prod-eu
+test "$(hostname)" = vmi3623757
+sudo -n -u verdaxis-prod /home/verdaxis-prod/verdaxis/prod/be/scripts/deploy.sh --dry-run
+
+# Staging: run on the shared host.
+sudo -n -u verdaxis-prod /home/verdaxis-prod/verdaxis/staging/be/scripts/deploy.sh --dry-run
 ```
 
 ## Database & Migrations

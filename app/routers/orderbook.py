@@ -541,22 +541,25 @@ async def _load_best_opposing_prices(
         return {}
 
     key_filters = []
+    seen_keys: set[tuple[UUID, UUID | None, str, str]] = set()
     for order in orders:
-        provenance = getattr(order.provenance, "value", order.provenance)
+        key = _order_key(order)
+        product_id, delivery_point_id, availability_window, provenance = key
         if provenance not in {
             OrganizationProvenance.REAL.value,
             OrganizationProvenance.DEMO.value,
-        }:
+        } or key in seen_keys:
             continue
+        seen_keys.add(key)
         filters = [
-            OrderBookOrder.product_id == order.product_id,
-            OrderBookOrder.availability_window == normalize_availability_window(order.availability_window),
+            OrderBookOrder.product_id == product_id,
+            OrderBookOrder.availability_window == availability_window,
             OrderBookOrder.provenance == provenance,
         ]
-        if order.delivery_point_id is None:
+        if delivery_point_id is None:
             filters.append(OrderBookOrder.delivery_point_id.is_(None))
         else:
-            filters.append(OrderBookOrder.delivery_point_id == order.delivery_point_id)
+            filters.append(OrderBookOrder.delivery_point_id == delivery_point_id)
         key_filters.append(and_(*filters))
 
     if not key_filters:

@@ -14,17 +14,29 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from app.database import Base, get_db
 from app.market_catalog import DELIVERY_POINTS_BY_NAME, PRODUCTS_BY_NAME
+from app.models.benchmark import Benchmark
 from app.models.catalog import DeliveryPoint, Product
 from app.models.orderbook import Initiator, OrderBookOrder, OrderBookStatus, OrderSide, Trade, TradeStatus
 from app.models.user import Organization, OrgType, OrganizationProvenance
 from app.routers.curves import router
-from app.schemas.curves import ForwardCurveEvidenceLayer, ForwardCurveMarketCell, ForwardCurveTableCell, MarketSignalType
+from app.schemas.curves import (
+    ForwardCurveBoardFairPriceBand,
+    ForwardCurveBoardIndicationSummary,
+    ForwardCurveEvidenceLayer,
+    ForwardCurveMarketCell,
+    ForwardCurveSignalProvenance,
+    ForwardCurveSignalSourceKind,
+    ForwardCurveTableCell,
+    MarketSignalType,
+)
 from app.schemas.market_activity import MarketDemoStatus, MarketSourceKind
 from app.services.demo_market import DEMO_ACTIVITY_BUYER_ORG_ID, DEMO_ACTIVITY_SELLER_ORG_ID, is_demo_market_organization
 from app.services.forward_curve_market_slices import (
     ProductGroup,
     SliceKey,
     ViewerContext,
+    _no_data_indication_summary,
+    _no_data_stem_summary,
     forward_curve_market_slices,
 )
 from app.services.provenance import execution_provenance_compatible
@@ -574,14 +586,196 @@ async def test_table_projection_preserves_fields_without_dumping_full_cells(db, 
     )
     expected = ForwardCurveTableCell.model_validate(response.cell.model_dump())
 
-    def reject_full_dump(*_args, **_kwargs):
-        raise AssertionError("Table projection must not serialize full market cells")
+    def reject_full_cell(*_args, **_kwargs):
+        raise AssertionError("Table projection must not construct full market cells")
 
-    monkeypatch.setattr(ForwardCurveMarketCell, "model_dump", reject_full_dump)
+    monkeypatch.setattr(ForwardCurveMarketCell, "__init__", reject_full_cell)
     table = await forward_curve_market_slices.load_table(db, windows=["SPOT"])
     actual = next(row for row in table.rows if row.market_product == "BIO_METHANOL").cells["SPOT"]
     # Also compare fields excluded from the wire payload, which policy tests use.
     assert actual.__dict__ == expected.__dict__
+
+
+@pytest.mark.parametrize(
+    "evidence_case",
+    ["no_data", "reference", "indication", "fair_band", "live", "demo", "formal_print", "ucome_live"],
+)
+def test_direct_table_cell_exactly_matches_original_full_cell_projection(evidence_case):
+    generated_at = datetime(2026, 10, 2, 6, tzinfo=UTC)
+    product_id = uuid4()
+    point = DeliveryPoint(id=uuid4(), name="Singapore", region="Asia", is_active=True)
+    market_product = "UCOME_B100" if evidence_case == "ucome_live" else "BIO_METHANOL"
+    product_name = "UCOME B100" if evidence_case == "ucome_live" else "Bio Methanol"
+    group = ProductGroup(market_product, product_name, product_id, (product_id,))
+    key = SliceKey(group.market_product, point.id, "SPOT")
+    order_bucket = {}
+    trade = None
+    benchmark = None
+    indication = _no_data_indication_summary()
+    fair_band = None
+
+    if evidence_case == "reference":
+        benchmark = Benchmark(
+            market_product=group.market_product,
+            delivery_point_id=point.id,
+            availability_window="SPOT",
+            price_per_mt_usd=Decimal("725.50"),
+            source="manual_override",
+            created_at=generated_at - timedelta(days=1),
+            updated_at=generated_at - timedelta(hours=1),
+        )
+    elif evidence_case in {"live", "ucome_live"}:
+        order_bucket = {
+            "real_best_bid": Decimal("700"),
+            "real_best_ask": Decimal("730"),
+            "real_volume_mt": Decimal("2000"),
+            "real_order_count": 2,
+            "real_last_order_at": generated_at - timedelta(minutes=5),
+        }
+    elif evidence_case == "demo":
+        order_bucket = {
+            "demo_best_bid": Decimal("690"),
+            "demo_best_ask": Decimal("720"),
+            "demo_volume_mt": Decimal("2000"),
+            "demo_order_count": 2,
+            "managed_demo_order_count": 2,
+            "demo_last_order_at": generated_at - timedelta(minutes=10),
+        }
+    elif evidence_case == "formal_print":
+        trade = {
+            "price_per_mt_usd": Decimal("740"),
+            "confirmed_at": generated_at - timedelta(minutes=15),
+            "demo_status": MarketDemoStatus.REAL_ONLY,
+            "source_kind": MarketSourceKind.CONFIRMED_TRADE,
+        }
+    elif evidence_case == "indication":
+        indication = ForwardCurveBoardIndicationSummary(
+            provenance=ForwardCurveSignalProvenance(
+                signal_type=MarketSignalType.MARKET_INDICATION,
+                signal_source_kind=ForwardCurveSignalSourceKind.MARKET_INDICATION,
+                demo_status=MarketDemoStatus.DEMO_ONLY,
+                observed_at=generated_at - timedelta(minutes=20),
+                generated_at=generated_at,
+                demo_count=1,
+            ),
+            latest_mid_price_per_mt_usd=Decimal("718.50"),
+            indication_count=1,
+        )
+    elif evidence_case == "fair_band":
+        fair_band = ForwardCurveBoardFairPriceBand(
+            low_price_per_mt_usd=Decimal("710"),
+            mid_price_per_mt_usd=Decimal("720"),
+            high_price_per_mt_usd=Decimal("730"),
+            provenance=ForwardCurveSignalProvenance(
+                signal_type=MarketSignalType.FAIR_PRICE_BAND,
+                signal_source_kind=ForwardCurveSignalSourceKind.FAIR_PRICE_MODEL,
+                demo_status=MarketDemoStatus.REAL_ONLY,
+                observed_at=generated_at - timedelta(minutes=25),
+                generated_at=generated_at,
+                real_count=1,
+            ),
+        )
+
+    full_cell = forward_curve_market_slices._build_cell(
+        key=key,
+        group=group,
+        point=point,
+        order_bucket=order_bucket,
+        trade=trade,
+        benchmark=benchmark,
+        indication_summary=indication,
+        fair_price_band=fair_band,
+        physical_stem_summary=_no_data_stem_summary(),
+        generated_at=generated_at,
+    )
+    original_projection = ForwardCurveTableCell.model_validate(full_cell, from_attributes=True)
+
+    direct_projection = forward_curve_market_slices._build_table_cell(
+        market_product=group.market_product,
+        order_bucket=order_bucket,
+        trade=trade,
+        benchmark=benchmark,
+        indication_summary=indication,
+        fair_price_band=fair_band,
+        generated_at=generated_at,
+    )
+
+    assert direct_projection.__dict__ == original_projection.__dict__
+
+
+def test_direct_table_cell_skips_detail_only_label_policy_models(monkeypatch):
+    def reject_policy(*_args, **_kwargs):
+        raise AssertionError("Compact table cells must not build label-policy models")
+
+    monkeypatch.setattr(
+        "app.services.forward_curve_market_slices._label_policy",
+        reject_policy,
+    )
+    monkeypatch.setattr(
+        "app.services.forward_curve_market_slices.no_data_label_policy",
+        reject_policy,
+    )
+    generated_at = datetime(2026, 10, 2, 6, tzinfo=UTC)
+    indication = _no_data_indication_summary()
+
+    no_data = forward_curve_market_slices._build_table_cell(
+        market_product="BIO_METHANOL",
+        order_bucket={},
+        trade=None,
+        benchmark=None,
+        indication_summary=indication,
+        fair_price_band=None,
+        generated_at=generated_at,
+    )
+    live = forward_curve_market_slices._build_table_cell(
+        market_product="BIO_METHANOL",
+        order_bucket={
+            "real_best_bid": Decimal("700"),
+            "real_best_ask": Decimal("730"),
+            "real_order_count": 2,
+            "real_last_order_at": generated_at,
+        },
+        trade=None,
+        benchmark=None,
+        indication_summary=indication,
+        fair_price_band=None,
+        generated_at=generated_at,
+    )
+
+    assert no_data.primary_signal_type == MarketSignalType.NO_DATA
+    assert live.primary_value == Decimal("715.00")
+
+
+@pytest.mark.asyncio
+async def test_table_skips_physical_summaries_but_full_cells_load_them(db, monkeypatch):
+    product = await _make_product(db, "Bio Methanol")
+    point = await _make_delivery_point(db, "Singapore")
+    await db.commit()
+    calls = []
+
+    async def track_physical_summaries(_db, signal_keys):
+        calls.append(signal_keys)
+        return {}
+
+    monkeypatch.setattr(
+        "app.services.forward_curve_market_slices.load_physical_stem_summaries",
+        track_physical_summaries,
+    )
+    await forward_curve_market_slices.load_table(db, windows=["SPOT"])
+    assert calls == []
+
+    group = ProductGroup("BIO_METHANOL", product.name, product.id, (product.id,))
+    key = SliceKey(group.market_product, point.id, "SPOT")
+    cells = await forward_curve_market_slices.load_many(
+        db,
+        [key],
+        product_groups=[group],
+        delivery_points=[point],
+        generated_at=datetime.now(UTC),
+    )
+
+    assert calls == [[(group.market_product, point.id, "SPOT")]]
+    assert isinstance(cells[key], ForwardCurveMarketCell)
 
 
 @pytest.mark.asyncio
@@ -858,10 +1052,17 @@ async def test_b100_product_midpoint_does_not_claim_specification_compatible_exe
     detail = await forward_curve_market_slices.load_slice(
         db, market_product="UCOME_B100", delivery_point_id=singapore.id, availability_window="SPOT",
     )
-    assert detail.cell.primary_value == Decimal("1050.00")
-    assert detail.cell.public_source_label == "Orderbook midpoint"
-    assert detail.cell.is_executable is False
-    assert detail.cell.is_reference is True
+    table = await forward_curve_market_slices.load_table(
+        db, market_products=["UCOME_B100"], windows=["SPOT"],
+    )
+    compact = table.rows[0].cells["SPOT"]
+    for cell in (compact, detail.cell):
+        assert cell.primary_value == Decimal("1050.00")
+        assert cell.public_source_label == "Orderbook midpoint"
+        assert cell.is_executable is False
+        assert cell.is_reference is True
+    expected = ForwardCurveTableCell.model_validate(detail.cell, from_attributes=True)
+    assert compact.__dict__ == expected.__dict__
     assert "specifications" in detail.cell.label_policy.disclaimer
 
 
