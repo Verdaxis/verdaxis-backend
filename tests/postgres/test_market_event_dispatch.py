@@ -207,17 +207,28 @@ class _Subscriber:
 
 
 async def _open_subscribers_on_two_workers(base_url, user_id, org_id, stack):
-    """Open subscribers until they span >=2 distinct worker PIDs (max 24)."""
-    subscribers: list[_Subscriber] = []
-    for _ in range(24):
-        subscriber = await stack.enter_async_context(
-            _Subscriber(base_url, user_id, org_id)
-        )
-        subscribers.append(subscriber)
-        if len({item.pid for item in subscribers}) >= 2 and len(subscribers) >= 3:
-            return subscribers
+    """Open concurrent subscriber batches until two workers accept them."""
+    observed_pids: list[int | None] = []
+    deadline = time.monotonic() + _EVENT_WAIT_SECONDS
+    while time.monotonic() < deadline:
+        async with contextlib.AsyncExitStack() as batch_stack:
+            subscribers = await asyncio.gather(
+                *(
+                    batch_stack.enter_async_context(
+                        _Subscriber(base_url, user_id, org_id)
+                    )
+                    for _ in range(_WORKERS)
+                )
+            )
+            observed_pids.extend(subscriber.pid for subscriber in subscribers)
+            if len({subscriber.pid for subscriber in subscribers}) >= 2:
+                retained_stack = batch_stack.pop_all()
+                stack.push_async_callback(retained_stack.aclose)
+                return subscribers
+        await asyncio.sleep(0.5)
     raise AssertionError(
-        f"subscribers landed on one worker PID only: {[s.pid for s in subscribers]}"
+        "subscribers did not span two worker PIDs before the deadline: "
+        f"{observed_pids}"
     )
 
 
