@@ -11,7 +11,11 @@ from app.services.availability_windows import (
     SPOT_WINDOW,
     normalize_availability_window,
 )
-from app.schemas.market_integrity import finite_decimal, future_aware_datetime
+from app.schemas.market_integrity import (
+    aware_datetime,
+    finite_decimal,
+    future_aware_datetime,
+)
 from app.schemas.fame_order import (
     FameOrderTerms, FamePublicOrderTerms, FameTradeSnapshot, FamePublicTradeSnapshot,
 )
@@ -159,8 +163,8 @@ class OrderCreate(AvailabilityWindowMixin, SupplierListingMetadataMixin):
 
     @field_validator("expires_at")
     @classmethod
-    def _future_expiry(cls, value: datetime | None):
-        return future_aware_datetime(value)
+    def _aware_expiry(cls, value: datetime | None):
+        return aware_datetime(value)
 
     @model_validator(mode="after")
     def validate_execution_qualifiers(self):

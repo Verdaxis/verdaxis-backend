@@ -1017,6 +1017,87 @@ async def test_inventory_full_pending_decline_and_expiry_republication(route_mar
 
 
 @pytest.mark.asyncio
+async def test_committed_order_replays_after_expiry_but_fresh_request_is_rejected(
+    route_market, monkeypatch
+):
+    client, seeded = route_market
+    accepted_at = datetime.now(UTC)
+    expires_at = accepted_at + timedelta(hours=1)
+    payload = {
+        "side": "BID",
+        "product_id": str(seeded["product_id"]),
+        "delivery_point_id": str(seeded["point_id"]),
+        "quantity_mt": "200.00",
+        "price_per_mt_usd": "600.00",
+        "availability_window": "SPOT",
+        "expires_at": expires_at.isoformat(),
+    }
+
+    accepted = await client.post(
+        "/api/orderbook",
+        json=payload,
+        headers=_headers(seeded["buyer_id"], "elapsed-expiry-replay"),
+    )
+    assert accepted.status_code == 201, accepted.text
+    order_id = accepted.json()["id"]
+
+    async with seeded["factory"]() as session:
+        order_count_before = (
+            await session.execute(select(func.count(OrderBookOrder.id)))
+        ).scalar_one()
+        audit_count_before = (
+            await session.execute(
+                select(func.count(AuditLog.id)).where(AuditLog.action == ORDER_CREATED)
+            )
+        ).scalar_one()
+        event_count_before = (
+            await session.execute(select(func.count(MarketEventOutbox.id)))
+        ).scalar_one()
+
+    elapsed_now = expires_at + timedelta(seconds=1)
+
+    class ElapsedDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            if tz is None:
+                return elapsed_now.replace(tzinfo=None)
+            return elapsed_now.astimezone(tz)
+
+    monkeypatch.setattr(orderbook_router, "datetime", ElapsedDateTime)
+    replayed = await client.post(
+        "/api/orderbook",
+        json=payload,
+        headers=_headers(seeded["buyer_id"], "elapsed-expiry-replay"),
+    )
+    rejected = await client.post(
+        "/api/orderbook",
+        json=payload,
+        headers=_headers(seeded["buyer_id"], "fresh-expired-order"),
+    )
+
+    assert replayed.status_code == 201, replayed.text
+    assert replayed.json()["id"] == order_id
+    assert rejected.status_code == 400, rejected.text
+    assert rejected.json()["detail"] == "Order expiry must be in the future"
+
+    async with seeded["factory"]() as session:
+        order_count_after = (
+            await session.execute(select(func.count(OrderBookOrder.id)))
+        ).scalar_one()
+        audit_count_after = (
+            await session.execute(
+                select(func.count(AuditLog.id)).where(AuditLog.action == ORDER_CREATED)
+            )
+        ).scalar_one()
+        event_count_after = (
+            await session.execute(select(func.count(MarketEventOutbox.id)))
+        ).scalar_one()
+    assert order_count_after == order_count_before == 1
+    assert audit_count_after == audit_count_before == 1
+    assert event_count_after == event_count_before
+
+
+@pytest.mark.asyncio
 async def test_expiry_recheck_precedes_assisted_authorization_and_is_retryable(
     route_market, monkeypatch
 ):
