@@ -374,3 +374,9 @@
 - **Trigger:** Review found approved legacy users with `role=NULL` could not serialize login or profile responses, so they could not reach the one-time role-selection flow.
 - **Rule:** When onboarding supports a transitional database state, response schemas must represent it while create and privilege-changing inputs remain strict.
 - **Why:** A stricter response model can make the intended recovery path unreachable before its guard runs.
+
+### Keep Committed Create Replays Ahead of Elapsed-Time Admission
+- **Date:** 2026-10-03
+- **Trigger:** `OrderCreate` rejected an originally valid expiry after it elapsed, so an ambiguous already-sent request could not reach its committed idempotent replay.
+- **Rule:** Create schemas may validate timestamp structure and timezone awareness, but mutable current-time admission belongs after committed replay lookup and under the operation's locks. Keep stricter future-time validation for updates when replay is not part of their contract.
+- **Why:** The same request body must remain parseable long enough to recover its committed result without allowing a fresh expired request to create side effects.
