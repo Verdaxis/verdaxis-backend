@@ -231,6 +231,12 @@
 - **Rule:** Model each approval as its own audited operation, bind long-lived/private flows to one credential and immutable scope, and revalidate every persisted actor inside the transaction that changes executable state.
 - **Why:** Reusing adjacent approval transitions or inferred ownership creates authorization coupling that happy-path tests do not expose.
 
+### Bind Authentication Exceptions To Current Account State
+
+- **Trigger:** Review found the rejected-owner cleanup exception still accepted pre-rejection access tokens after the account was approved again.
+- **Rule:** Scope an authentication-cutoff exception to the exact account state that requires it, and test the token again after every transition out of that state.
+- **Why:** A durable exception can revive credentials after the temporary recovery or cleanup condition ends.
+
 ### Treat Auth Error Codes As A Cross-Client Contract
 - **Date:** 2026-07-20
 - **Trigger:** Frontend review found refresh failures exposed only human strings, forcing unsafe string matching to decide whether authentication was terminal.
@@ -263,8 +269,8 @@
 
 ### Serialize Cookie Authentication By Browser Device
 - **Date:** 2026-07-20
-- **Trigger:** A follow-up review showed that cross-account login and refresh responses could arrive out of order, allowing a delayed cookie response to restore an older refresh family.
-- **Rule:** Bind refresh families to an opaque HttpOnly device identifier and serialize login, refresh, and logout with the same device-scoped PostgreSQL advisory lock; revoke every superseded device family before issuing a replacement.
+- **Trigger:** Reviews found out-of-order cookie responses and a password-change path that locked the user before the shared browser device.
+- **Rule:** Bind refresh families to an opaque HttpOnly device identifier and serialize login, refresh, logout, and password change with the same device-scoped PostgreSQL advisory lock. Acquire that lock before user or refresh rows, and revoke every superseded family before issuing a replacement.
 - **Why:** Token rotation alone orders database writes, not browser `Set-Cookie` application, so response reordering must leave every delayed token cryptographically and server-side unusable.
 ### Require Attested Disposable Integration Targets
 - **Date:** 2026-07-20
@@ -360,6 +366,11 @@
 
 ### Make Financial Constraints and Destructive Downgrades Fail Closed
 - **Date:** 2026-09-12
-- **Trigger:** Fee review found that SQL three-valued logic admitted a partial snapshot and that a downgrade could lose fee data or deadlock with active trade paths.
+- **Trigger:** Fee review found unsafe partial snapshots and destructive downgrade locks; later auth review found the same check-before-DDL race when removing a session cutoff.
 - **Rule:** Write CHECK branches with explicit `IS NOT NULL` requirements, and acquire destructive-migration locks with fail-fast semantics before data-loss checks or DDL. Prove both historical-data refusal and conflicting runtime lock orders on PostgreSQL.
 - **Why:** `UNKNOWN` can satisfy a CHECK, while count-before-lock and waiting multi-table locks can silently erase committed financial state or abort live work.
+### Keep Response Schemas Aligned With Transitional Account States
+
+- **Trigger:** Review found approved legacy users with `role=NULL` could not serialize login or profile responses, so they could not reach the one-time role-selection flow.
+- **Rule:** When onboarding supports a transitional database state, response schemas must represent it while create and privilege-changing inputs remain strict.
+- **Why:** A stricter response model can make the intended recovery path unreachable before its guard runs.

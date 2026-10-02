@@ -36,6 +36,7 @@ class UserCreate(UserBase):
         return validate_password_bytes(value)
 
 class UserResponse(UserBase):
+    role: Optional[UserRole] = None
     id: UUID
     status: UserStatus
     organization_id: Optional[UUID] = None

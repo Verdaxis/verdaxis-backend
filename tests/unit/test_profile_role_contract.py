@@ -4,12 +4,13 @@ from uuid import uuid4
 
 import pytest
 from fastapi import HTTPException
+from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.database import Base
 from app.models.user import Organization, User, UserRole, UserStatus
 from app.routers.auth_simple import update_users_me
-from app.schemas.user import UserUpdate
+from app.schemas.user import UserCreate, UserResponse, UserUpdate
 
 
 @pytest.fixture
@@ -29,12 +30,25 @@ async def profile_db():
 def _user(*, role: UserRole | None) -> User:
     return User(
         id=uuid4(),
-        email=f"{uuid4()}@example.test",
+        email=f"{uuid4()}@example.com",
         password_hash="unused",
         role=role,
         status=UserStatus.APPROVED,
         email_verified=True,
+        must_change_password=False,
     )
+
+
+def test_response_allows_legacy_null_role_while_registration_requires_role():
+    user = _user(role=None)
+
+    assert UserResponse.model_validate(user).role is None
+    with pytest.raises(ValidationError):
+        UserCreate(
+            email="new-user@example.test",
+            password="valid password 9",
+            role=None,
+        )
 
 
 @pytest.mark.asyncio

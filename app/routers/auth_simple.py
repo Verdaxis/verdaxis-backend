@@ -731,6 +731,12 @@ async def _resolve_authenticated_user(
     has_market_support_context = bool(
         request.headers.get("X-Verdaxis-Market-Support-Context")
     )
+    if request.method == "PUT" and route_path == "/api/auth/me/password":
+        existing_device_id = request.cookies.get(DEVICE_SESSION_COOKIE_NAME)
+        if _valid_device_session_id(existing_device_id):
+            await _acquire_device_session_lock(
+                db, _device_session_hash(existing_device_id)
+            )
     use_shared_lock = (
         request.method == "GET"
         and route_path in AUTHENTICATED_SHARED_LOCK_PATHS

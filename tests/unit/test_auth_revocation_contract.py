@@ -9,6 +9,7 @@ import pytest
 from fastapi import Request
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from app.core import security
 from app.core.security import decode_token
 from app.database import Base
 from app.models.refresh_session import RefreshSession
@@ -82,13 +83,16 @@ def test_fresh_token_pair_is_exactly_later_than_cutoff(monkeypatch):
             return cutoff
 
     monkeypatch.setattr(auth_simple, "datetime", FixedDateTime)
+    monkeypatch.setattr(security, "datetime", FixedDateTime)
     access_token, refresh_token = auth_simple._build_token_pair(
         "user-id", issued_after=cutoff
     )
+    stream_token = security.create_stream_token("user-id", "organization-id")
 
     expected = int(cutoff.timestamp()) * 1_000_000 + cutoff.microsecond + 1
     assert decode_token(access_token)["iat_us"] == expected
     assert decode_token(refresh_token)["iat_us"] == expected
+    assert decode_token(stream_token)["iat_us"] == expected - 1
 
 
 def test_authentication_revocation_migration_is_nullable_and_rollback_safe():
@@ -102,8 +106,16 @@ def test_authentication_revocation_migration_is_nullable_and_rollback_safe():
         root / "alembic/versions/auth_20261002_session_cutoff.py"
     ).read_text()
     assert 'down_revision = "catalog_20260926_biofuels"' in migration
-    assert "authentication_revoked_at IS NOT NULL" in migration
-    assert "op.drop_column" in migration
+    lock = "LOCK TABLE users IN ACCESS EXCLUSIVE MODE NOWAIT"
+    guard = "authentication_revoked_at IS NOT NULL"
+    drop = "op.drop_column"
+    assert migration.count(lock) == 2
+    assert guard in migration
+    assert drop in migration
+    upgrade_lock = migration.index(lock)
+    downgrade_lock = migration.rindex(lock)
+    assert upgrade_lock < migration.index("op.add_column")
+    assert downgrade_lock < migration.index(guard) < migration.index(drop)
 
     checkpoints = (root / "deploy/migration-checkpoints.tsv").read_text().splitlines()
     assert (

@@ -168,7 +168,7 @@ def create_stream_token(user_id: Union[str, Any], organization_id: Union[str, An
         "exp": expire,
         "type": "stream",
         "iat": now,
-        "iat_us": int(now.timestamp() * 1_000_000),
+        "iat_us": _numeric_date_microseconds(now),
         "iss": settings.JWT_ISSUER,
         "aud": settings.JWT_AUDIENCE,
     }

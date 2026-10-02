@@ -17,6 +17,11 @@ depends_on = None
 
 
 def upgrade() -> None:
+    # Keep bounded DDL fail-fast behind active user writes.
+    bind = op.get_bind()
+    bind.execute(
+        sa.text("LOCK TABLE users IN ACCESS EXCLUSIVE MODE NOWAIT")
+    )
     # NULL preserves all existing sessions. Rejection writes the first cutoff
     # under the locked User row; there is no historical inference or backfill.
     op.add_column(
@@ -29,6 +34,11 @@ def downgrade() -> None:
     # Dropping an active cutoff would revive pre-rejection access tokens after
     # rollback. Refuse once this security state has ever been persisted.
     bind = op.get_bind()
+    # Block concurrent writers before reading the guard. NOWAIT fails safely
+    # instead of waiting behind runtime authentication traffic.
+    bind.execute(
+        sa.text("LOCK TABLE users IN ACCESS EXCLUSIVE MODE NOWAIT")
+    )
     used = bind.execute(
         sa.text(
             "SELECT EXISTS ("
