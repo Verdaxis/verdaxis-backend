@@ -863,6 +863,8 @@ def signup_canary(name: str, api_base: str) -> str | None:
     domain = f"{name}-{stamp}.canary.verdaxis.exchange"
     email = f"canary+{name}-{stamp}@{domain}"
     password = f"VerdaxisCanary-{stamp}-check"
+    signup_error: str | None = None
+    signup_succeeded = False
     cleanup_error: str | None = None
 
     try:
@@ -879,42 +881,100 @@ def signup_canary(name: str, api_base: str) -> str | None:
             headers=monitor_headers,
         )
         if code != 200:
-            return f"{name} signup canary register returned HTTP {code}: {body[:200]}"
-        data = json.loads(body)
-        if data.get("status") != "requires_org" or not data.get("registration_token"):
-            return f"{name} signup canary register returned unexpected body: {body[:200]}"
-
-        code, body = json_request(
-            f"{api_base}/auth/register-with-org",
-            {
-                "registration_token": data["registration_token"],
-                "organization": {
-                    "name": f"Verdaxis Canary {name} {stamp}",
-                    "type": "FUEL_BUYER",
-                    "country_code": "SG",
-                    "tax_id": None,
-                },
-            },
-            headers=monitor_headers,
-        )
-        if code != 200:
-            return f"{name} signup canary register-with-org returned HTTP {code}: {body[:200]}"
-        data = json.loads(body)
-        if data.get("email") != email or data.get("status") != "PENDING":
-            return f"{name} signup canary register-with-org returned unexpected body: {body[:200]}"
-        return None
+            signup_error = f"{name} signup canary register returned HTTP {code}"
+        else:
+            try:
+                data = json.loads(body)
+            except (json.JSONDecodeError, TypeError):
+                data = None
+            if (
+                not isinstance(data, dict)
+                or data.get("status") != "requires_org"
+                or not data.get("registration_token")
+            ):
+                signup_error = f"{name} signup canary register returned invalid response"
+            else:
+                code, body = json_request(
+                    f"{api_base}/auth/register-with-org",
+                    {
+                        "registration_token": data["registration_token"],
+                        "organization": {
+                            "name": f"Verdaxis Canary {name} {stamp}",
+                            "type": "FUEL_BUYER",
+                            "country_code": "SG",
+                            "tax_id": None,
+                        },
+                    },
+                    headers=monitor_headers,
+                )
+                if code != 200:
+                    signup_error = (
+                        f"{name} signup canary register-with-org returned HTTP {code}"
+                    )
+                else:
+                    try:
+                        data = json.loads(body)
+                    except (json.JSONDecodeError, TypeError):
+                        data = None
+                    if (
+                        not isinstance(data, dict)
+                        or data.get("email") != email
+                        or data.get("status") != "PENDING"
+                    ):
+                        signup_error = (
+                            f"{name} signup canary register-with-org returned invalid response"
+                        )
+                    else:
+                        signup_succeeded = True
     except Exception as exc:
-        return f"{name} signup canary failed: {exc}"
+        signup_error = f"{name} signup canary failed ({type(exc).__name__})"
     finally:
-        code, body = json_request(
-            f"{api_base}/monitor/signup-canary-cleanup",
-            {"email": email},
-            headers={"X-Monitor-Token": token},
-        )
-        if code != 200:
-            cleanup_error = f"{name} signup canary cleanup returned HTTP {code}: {body[:200]}"
+        try:
+            code, body = json_request(
+                f"{api_base}/monitor/signup-canary-cleanup",
+                {"email": email},
+                headers={"X-Monitor-Token": token},
+            )
+            if code != 200:
+                cleanup_error = (
+                    f"{name} signup canary cleanup returned HTTP {code}"
+                )
+            else:
+                try:
+                    cleanup = json.loads(body)
+                except (json.JSONDecodeError, TypeError):
+                    cleanup = None
+                deleted_users = (
+                    cleanup.get("deleted_users") if isinstance(cleanup, dict) else None
+                )
+                deleted_orgs = (
+                    cleanup.get("deleted_orgs") if isinstance(cleanup, dict) else None
+                )
+                valid_counts = (
+                    type(deleted_users) is int
+                    and deleted_users in (0, 1)
+                    and type(deleted_orgs) is int
+                    and deleted_orgs in (0, 1)
+                )
+                if not valid_counts:
+                    cleanup_error = (
+                        f"{name} signup canary cleanup returned invalid deletion counts"
+                    )
+                elif signup_succeeded and (deleted_users, deleted_orgs) != (1, 1):
+                    cleanup_error = (
+                        f"{name} signup canary cleanup did not delete created identity"
+                    )
+        except Exception as exc:
+            cleanup_error = (
+                f"{name} signup canary cleanup failed ({type(exc).__name__})"
+            )
         if cleanup_error:
             log(cleanup_error)
+
+    errors = [error for error in (signup_error, cleanup_error) if error]
+    if errors:
+        return "; ".join(errors)
+    return None
 
 
 def check_signup_canaries() -> list[str]:

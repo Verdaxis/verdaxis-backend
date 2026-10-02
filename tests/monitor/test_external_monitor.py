@@ -5,6 +5,8 @@ import os
 import subprocess
 from pathlib import Path
 
+import pytest
+
 
 ROOT = Path(__file__).resolve().parents[2]
 MODULE_PATH = ROOT / "deploy/external_monitor/verdaxis_monitor.py"
@@ -16,6 +18,145 @@ def load_module():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def _signup_responses(module, cleanup_response):
+    email = "canary+prod-123@prod-123.canary.verdaxis.exchange"
+    responses = iter(
+        [
+            (200, '{"status":"requires_org","registration_token":"registration-secret"}'),
+            (200, f'{{"email":"{email}","status":"PENDING"}}'),
+            cleanup_response,
+        ]
+    )
+    calls = []
+
+    def request(url, payload, *, headers=None, timeout=20):
+        calls.append((url, payload, headers, timeout))
+        return next(responses)
+
+    module.json_request = request
+    return calls
+
+
+def test_signup_canary_requires_exact_cleanup_after_success(monkeypatch):
+    module = load_module()
+    monkeypatch.setenv("MONITOR_TOKEN", "monitor-secret")
+    monkeypatch.setattr(module.time, "time", lambda: 123)
+    calls = _signup_responses(
+        module,
+        (200, '{"deleted_users":1,"deleted_orgs":1}'),
+    )
+
+    assert module.signup_canary("prod", "https://api.example/api") is None
+    assert len(calls) == 3
+    assert calls[-1][0] == "https://api.example/api/monitor/signup-canary-cleanup"
+
+
+@pytest.mark.parametrize(
+    "cleanup_response",
+    [
+        (500, "cleanup-response-secret"),
+        (200, "not-json"),
+        (200, '{}'),
+        (200, '{"deleted_users":true,"deleted_orgs":1}'),
+        (200, '{"deleted_users":-1,"deleted_orgs":1}'),
+        (200, '{"deleted_users":2,"deleted_orgs":1}'),
+        (200, '{"deleted_users":0,"deleted_orgs":1}'),
+    ],
+)
+def test_signup_canary_fails_closed_on_invalid_cleanup_after_success(
+    monkeypatch,
+    cleanup_response,
+):
+    module = load_module()
+    monkeypatch.setenv("MONITOR_TOKEN", "monitor-secret")
+    monkeypatch.setattr(module.time, "time", lambda: 123)
+    calls = _signup_responses(module, cleanup_response)
+
+    error = module.signup_canary("prod", "https://api.example/api")
+
+    assert error is not None
+    assert "signup canary cleanup" in error
+    assert "cleanup-response-secret" not in error
+    assert "registration-secret" not in error
+    assert len(calls) == 3
+
+
+def test_signup_canary_preserves_signup_and_cleanup_failures(monkeypatch):
+    module = load_module()
+    monkeypatch.setenv("MONITOR_TOKEN", "monitor-secret")
+    monkeypatch.setattr(module.time, "time", lambda: 123)
+    responses = iter(
+        [
+            (503, "signup-response-secret"),
+            (500, "cleanup-response-secret"),
+        ]
+    )
+    calls = []
+
+    def request(url, payload, *, headers=None, timeout=20):
+        calls.append(url)
+        return next(responses)
+
+    monkeypatch.setattr(module, "json_request", request)
+
+    error = module.signup_canary("prod", "https://api.example/api")
+
+    assert error == (
+        "prod signup canary register returned HTTP 503; "
+        "prod signup canary cleanup returned HTTP 500"
+    )
+    assert "signup-response-secret" not in error
+    assert "cleanup-response-secret" not in error
+    assert calls == [
+        "https://api.example/api/auth/register",
+        "https://api.example/api/monitor/signup-canary-cleanup",
+    ]
+
+
+def test_signup_canary_allows_idempotent_cleanup_after_signup_failure(monkeypatch):
+    module = load_module()
+    monkeypatch.setenv("MONITOR_TOKEN", "monitor-secret")
+    monkeypatch.setattr(module.time, "time", lambda: 123)
+    responses = iter(
+        [
+            (503, "signup-response-secret"),
+            (200, '{"deleted_users":0,"deleted_orgs":0}'),
+        ]
+    )
+    monkeypatch.setattr(
+        module,
+        "json_request",
+        lambda url, payload, *, headers=None, timeout=20: next(responses),
+    )
+
+    assert module.signup_canary("prod", "https://api.example/api") == (
+        "prod signup canary register returned HTTP 503"
+    )
+
+
+def test_signup_canary_cleans_up_once_after_signup_exception(monkeypatch):
+    module = load_module()
+    monkeypatch.setenv("MONITOR_TOKEN", "monitor-secret")
+    monkeypatch.setattr(module.time, "time", lambda: 123)
+    calls = []
+
+    def request(url, payload, *, headers=None, timeout=20):
+        calls.append(url)
+        if len(calls) == 1:
+            raise RuntimeError("signup-exception-secret")
+        return 200, '{"deleted_users":0,"deleted_orgs":0}'
+
+    monkeypatch.setattr(module, "json_request", request)
+
+    assert module.signup_canary("prod", "https://api.example/api") == (
+        "prod signup canary failed (RuntimeError)"
+    )
+    assert calls == [
+        "https://api.example/api/auth/register",
+        "https://api.example/api/monitor/signup-canary-cleanup",
+    ]
 
 
 def test_outbox_check_invokes_both_deployed_database_targets(monkeypatch, tmp_path):
