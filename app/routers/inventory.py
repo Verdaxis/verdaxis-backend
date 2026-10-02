@@ -81,6 +81,7 @@ from app.services.market_transactions import (
     retry_market_transaction,
 )
 from app.services.order_lifecycle import expire_market_slice_orders
+from app.services.order_quantity import require_minimum_order_quantity
 from app.services.provenance import snapshot_organization_provenance
 from app.services.watchlist_events import _best_slice_price, emit_order_created
 
@@ -493,6 +494,10 @@ async def publish_inventory_item(
     available_stock = Decimal(str(item.current_stock_mt or 0))
     if quantity > available_stock:
         raise HTTPException(status_code=400, detail="Inventory stock is already reserved or unavailable")
+    quantity = require_minimum_order_quantity(
+        quantity_mt=quantity,
+        product=locked_product,
+    )
 
     organization = organizations[current_user.organization_id]
     provenance = snapshot_organization_provenance(organization)

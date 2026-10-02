@@ -476,3 +476,64 @@ async def test_assisted_confirm_waits_for_uncommitted_customer_rejection(
         if holder.in_transaction():
             await holder.rollback()
         await holder.close()
+
+
+async def _retain_only_capability(seeded, capability: MarketSupportCapability) -> None:
+    async with seeded["factory"]() as session:
+        await session.execute(
+            update(StaffCapabilityAssignment)
+            .where(
+                StaffCapabilityAssignment.user_id == seeded["admin_id"],
+                StaffCapabilityAssignment.capability != capability,
+            )
+            .values(revoked_at=datetime.now(UTC))
+        )
+        await session.commit()
+
+
+@pytest.mark.asyncio
+async def test_listing_only_staff_cannot_read_authorizations_or_composite_context(
+    market_support_client,
+):
+    client, seeded = market_support_client
+    await _retain_only_capability(
+        seeded, MarketSupportCapability.MARKET_SUPPORT_LISTINGS
+    )
+    headers = _headers(seeded["admin_id"])
+    org_id = seeded["organization_id"]
+
+    authorizations = await client.get(
+        f"/api/admin/market-support/organizations/{org_id}/authorizations",
+        headers=headers,
+    )
+    composite = await client.get(
+        f"/api/admin/market-support/organizations/{org_id}/context",
+        headers=headers,
+    )
+
+    assert authorizations.status_code == 403
+    assert composite.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_authorization_only_staff_cannot_read_listings_or_composite_context(
+    market_support_client,
+):
+    client, seeded = market_support_client
+    await _retain_only_capability(
+        seeded, MarketSupportCapability.MARKET_SUPPORT_AUTHORIZATIONS
+    )
+    headers = _headers(seeded["admin_id"])
+    org_id = seeded["organization_id"]
+
+    listings = await client.get(
+        f"/api/admin/market-support/organizations/{org_id}/listings",
+        headers=headers,
+    )
+    composite = await client.get(
+        f"/api/admin/market-support/organizations/{org_id}/context",
+        headers=headers,
+    )
+
+    assert listings.status_code == 403
+    assert composite.status_code == 403

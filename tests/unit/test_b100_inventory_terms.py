@@ -219,6 +219,8 @@ async def test_inventory_publish_uses_canonical_lane_frozen_terms_and_shared_mat
         name=product_spec.name,
         fuel_type=product_spec.fuel_type,
         fuel_grade=product_spec.fuel_grade,
+        unit=product_spec.unit,
+        min_lot_size=product_spec.min_lot_size,
     )
     delivery_point = DeliveryPoint(
         id=DELIVERY_POINT_IDS[delivery_name], name=delivery_name, region="Asia"

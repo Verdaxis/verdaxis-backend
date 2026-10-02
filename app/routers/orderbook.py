@@ -79,6 +79,7 @@ from app.services.idempotency import (
     idempotency_request_hash,
 )
 from app.services.inventory_reservations import release_inventory, reserve_inventory
+from app.services.order_quantity import require_minimum_order_quantity
 from app.services.provenance import snapshot_organization_provenance
 from app.services.market_provenance import (
     canonical_availability_window_clause,
@@ -1758,6 +1759,19 @@ async def create_order(
         ),
     )
     organization = organizations[effective_organization_id]
+    require_minimum_order_quantity(
+        quantity_mt=order_data.quantity_mt,
+        product=product,
+    )
+
+    # Request validation can precede admission locks by an unbounded wait.
+    # Recheck against a fresh clock before creating an order or consuming an
+    # assisted authorization.
+    if order_data.expires_at is not None and order_data.expires_at <= datetime.now(UTC):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Order expiry must be in the future",
+        )
 
     new_order = OrderBookOrder(
         organization_id=effective_organization_id,
@@ -2319,6 +2333,10 @@ async def update_order(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="New quantity cannot be less than already filled amount",
             )
+        require_minimum_order_quantity(
+            quantity_mt=new_quantity,
+            product=order.product,
+        )
         update_dict["remaining_quantity_mt"] = new_remaining
         if new_remaining == 0:
             update_dict["status"] = OrderBookStatus.FILLED
@@ -2520,6 +2538,11 @@ async def cancel_order(
     locked_product_id = order.product_id
     locked_delivery_point_id = order.delivery_point_id
     locked_window = order.availability_window
+    await market_transactions.transaction_boundary_hook(
+        "after_market_preview",
+        operation="order_cancel",
+        aggregate_id=order_id,
+    )
     await acquire_market_slice_lock(
         db,
         side=order.side,
@@ -2556,6 +2579,15 @@ async def cancel_order(
             actor_ownerships=(
                 MarketActorOwnership(current_user.id, effective_organization_id),
             ),
+        )
+
+    # The preview may have waited behind a fill on the same market slice.
+    # Recheck the locked row before inventory, benchmark, audit, or event work.
+    if order.status not in (OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED):
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Can only cancel orders with OPEN or PARTIALLY_FILLED status",
         )
 
     before_state = await _watchlist_before_state(db, order)

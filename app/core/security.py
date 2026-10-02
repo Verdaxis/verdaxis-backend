@@ -105,20 +105,27 @@ def validate_password_bytes(password: str) -> str:
 # JWT Token Creation
 # ---------------------------------------------------------------------------
 
+def _numeric_date_microseconds(value: datetime) -> int:
+    """Return an exact integer microsecond NumericDate without float rounding."""
+    return int(value.timestamp()) * 1_000_000 + value.microsecond
+
+
 def create_access_token(
     subject: Union[str, Any],
     expires_delta: timedelta | None = None,
     additional_claims: dict | None = None,
+    *,
+    issued_at: datetime | None = None,
 ) -> str:
     """Creates a short-lived JWT access token (default 15 min)."""
-    now = datetime.now(UTC)
+    now = issued_at or datetime.now(UTC)
     expire = now + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
     to_encode: dict[str, Any] = {
         "sub": str(subject),
         "exp": expire,
         "type": "access",
         "iat": now,
-        "iat_us": int(now.timestamp() * 1_000_000),
+        "iat_us": _numeric_date_microseconds(now),
         "iss": settings.JWT_ISSUER,
         "aud": settings.JWT_AUDIENCE,
     }
@@ -127,16 +134,21 @@ def create_access_token(
     return jwt.encode(to_encode, settings.JWT_SECRET, algorithm=settings.JWT_ALGORITHM)
 
 
-def create_refresh_token(subject: Union[str, Any], *, family_id: str | None = None) -> str:
+def create_refresh_token(
+    subject: Union[str, Any],
+    *,
+    family_id: str | None = None,
+    issued_at: datetime | None = None,
+) -> str:
     """Creates a long-lived JWT refresh token (default 7 days)."""
-    now = datetime.now(UTC)
+    now = issued_at or datetime.now(UTC)
     expire = now + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
     to_encode: dict[str, Any] = {
         "sub": str(subject),
         "exp": expire,
         "type": "refresh",
         "iat": now,
-        "iat_us": int(now.timestamp() * 1_000_000),
+        "iat_us": _numeric_date_microseconds(now),
         "jti": secrets.token_urlsafe(32),
         "family_id": family_id or str(uuid.uuid4()),
         "iss": settings.JWT_ISSUER,
@@ -156,7 +168,7 @@ def create_stream_token(user_id: Union[str, Any], organization_id: Union[str, An
         "exp": expire,
         "type": "stream",
         "iat": now,
-        "iat_us": int(now.timestamp() * 1_000_000),
+        "iat_us": _numeric_date_microseconds(now),
         "iss": settings.JWT_ISSUER,
         "aud": settings.JWT_AUDIENCE,
     }

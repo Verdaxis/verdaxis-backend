@@ -17,11 +17,16 @@ def finite_decimal(value: Decimal | str | int | float, *, field_name: str, scale
     return parsed
 
 
-def future_aware_datetime(value: datetime | None) -> datetime | None:
+def aware_datetime(value: datetime | None) -> datetime | None:
     if value is None:
         return None
     if value.tzinfo is None or value.utcoffset() is None:
         raise ValueError("expires_at must be timezone-aware")
-    if value <= datetime.now(UTC):
+    return value
+
+
+def future_aware_datetime(value: datetime | None) -> datetime | None:
+    value = aware_datetime(value)
+    if value is not None and value <= datetime.now(UTC):
         raise ValueError("expires_at must be in the future")
     return value

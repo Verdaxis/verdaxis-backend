@@ -263,8 +263,8 @@
 
 ### Serialize Cookie Authentication By Browser Device
 - **Date:** 2026-07-20
-- **Trigger:** A follow-up review showed that cross-account login and refresh responses could arrive out of order, allowing a delayed cookie response to restore an older refresh family.
-- **Rule:** Bind refresh families to an opaque HttpOnly device identifier and serialize login, refresh, and logout with the same device-scoped PostgreSQL advisory lock; revoke every superseded device family before issuing a replacement.
+- **Trigger:** Reviews found out-of-order cookie responses and a password-change path that locked the user before the shared browser device.
+- **Rule:** Bind refresh families to an opaque HttpOnly device identifier and serialize login, refresh, logout, and password change with the same device-scoped PostgreSQL advisory lock. Acquire that lock before user or refresh rows, and revoke every superseded family before issuing a replacement.
 - **Why:** Token rotation alone orders database writes, not browser `Set-Cookie` application, so response reordering must leave every delayed token cryptographically and server-side unusable.
 ### Require Attested Disposable Integration Targets
 - **Date:** 2026-07-20
@@ -354,3 +354,27 @@
 - **Trigger:** The user corrected direct SSH as verdaxis-prod. The old documented IP then lacked that service account; DNS and live checks confirmed the runtime on 194.233.68.86.
 - **Rule:** Verify target DNS and live systemd `User`/`WorkingDirectory` before using a recorded IP. The 2026-09-22 verified route is `ssh jons-openclaw@194.233.68.86`, then passwordless `sudo su - verdaxis-prod`. Keep staging operations in its fixed checkout.
 - **Why:** The SSH login differs from the service owner, and a reachable historical host does not prove it serves the target environment.
+
+### Bind Authentication Exceptions To Current Account State
+
+- **Trigger:** Review found the rejected-owner cleanup exception still accepted pre-rejection access tokens after the account was approved again.
+- **Rule:** Scope an authentication-cutoff exception to the exact account state that requires it, and test the token again after every transition out of that state.
+- **Why:** A durable exception can revive credentials after the temporary recovery or cleanup condition ends.
+
+### Make Destructive Downgrades Fail Closed
+
+- **Trigger:** Auth review found a check-before-DDL race when removing a session cutoff.
+- **Rule:** Acquire destructive-migration locks with fail-fast semantics before data-loss checks or DDL, and prove conflicting runtime lock behavior on PostgreSQL.
+- **Why:** A concurrent writer can commit after an unlocked guard query and lose its security state to the following DDL.
+
+### Keep Response Schemas Aligned With Transitional Account States
+
+- **Trigger:** Review found a nullable legacy role missing from responses, and CI later hid reserved-domain fixture validation behind generic ASGI 500 responses.
+- **Rule:** When onboarding supports a transitional database state, response schemas must represent it while create and privilege-changing inputs remain strict. Response-level tests must use schema-valid fixtures and keep ASGI exceptions visible.
+- **Why:** A stricter response model can make the intended recovery path unreachable before its guard runs.
+
+### Keep Committed Create Replays Ahead of Elapsed-Time Admission
+- **Date:** 2026-10-03
+- **Trigger:** `OrderCreate` rejected an originally valid expiry after it elapsed, so an ambiguous already-sent request could not reach its committed idempotent replay.
+- **Rule:** Create schemas may validate timestamp structure and timezone awareness, but mutable current-time admission belongs after committed replay lookup and under the operation's locks. Keep stricter future-time validation for updates when replay is not part of their contract.
+- **Why:** The same request body must remain parseable long enough to recover its committed result without allowing a fresh expired request to create side effects.

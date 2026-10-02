@@ -60,7 +60,11 @@ async def test_fame_create_retry_preserves_original_payload_and_replays(monkeypa
     empty.scalar_one_or_none.return_value = None
     product = MagicMock()
     product.scalars.return_value.first.return_value = SimpleNamespace(
-        id=caller.product_id, market_product="UCOME_B100"
+        id=caller.product_id,
+        market_product="UCOME_B100",
+        min_lot_size=1,
+        unit="MT",
+        name="UCOME B100",
     )
     delivery = MagicMock()
     delivery.scalars.return_value.first.return_value = SimpleNamespace(

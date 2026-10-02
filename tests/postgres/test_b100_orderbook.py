@@ -154,28 +154,28 @@ async def test_b100_matching_skips_incompatible_bid_and_freezes_compatible_fill(
 ):
     client, seeded = fame_market
     ask = await _post_order(client, seeded)
-    incompatible = _order_payload(seeded, side="BID", quantity="50.00", price="1200.00")
+    incompatible = _order_payload(seeded, side="BID", quantity="100.00", price="1200.00")
     incompatible["fame_terms"] = _bid_terms(max_cfpp_c="-20")
     rejected_match = await _post_order(client, seeded, payload=incompatible)
     orders, trades = await _stored_orders_and_trades(seeded)
     assert trades == []
     assert orders[ask["id"]].remaining_quantity_mt == Decimal(100)
-    compatible = _order_payload(seeded, side="BID", quantity="40.00", price="1100.00")
+    compatible = _order_payload(seeded, side="BID", quantity="100.00", price="1100.00")
     filled = await _post_order(client, seeded, payload=compatible)
     orders, trades = await _stored_orders_and_trades(seeded)
     assert len(trades) == 1
     trade = trades[0]
     assert trade.status == TradeStatus.CONFIRMED
-    assert trade.quantity_mt == Decimal(40)
+    assert trade.quantity_mt == Decimal(100)
     assert trade.price_per_mt_usd == Decimal(1000)
     assert trade.fame_terms_snapshot == {
         "schema_version": 1,
         "bid": compatible["fame_terms"],
         "ask": _ask_terms(seeded),
     }
-    assert orders[ask["id"]].remaining_quantity_mt == Decimal(60)
+    assert orders[ask["id"]].remaining_quantity_mt == Decimal(0)
     assert orders[filled["id"]].remaining_quantity_mt == Decimal(0)
-    assert orders[rejected_match["id"]].remaining_quantity_mt == Decimal(50)
+    assert orders[rejected_match["id"]].remaining_quantity_mt == Decimal(100)
 
 
 @pytest.mark.asyncio
@@ -393,12 +393,12 @@ async def test_b100_negotiation_freezes_pair_and_only_price_can_change(fame_mark
 async def test_b100_partial_fills_can_finish_a_remainder_below_one_mt(fame_market):
     client, seeded = fame_market
     ask = await _post_order(
-        client, seeded, payload=_order_payload(seeded, quantity="1.50")
+        client, seeded, payload=_order_payload(seeded, quantity="100.50")
     )
     await _post_order(
         client,
         seeded,
-        payload=_order_payload(seeded, side="BID", quantity="1.00", price="1100.00"),
+        payload=_order_payload(seeded, side="BID", quantity="100.00", price="1100.00"),
     )
     orders, trades = await _stored_orders_and_trades(seeded)
     assert orders[ask["id"]].remaining_quantity_mt == Decimal("0.50")
@@ -435,7 +435,7 @@ async def test_b100_partial_fills_can_finish_a_remainder_below_one_mt(fame_marke
     assert confirmed.status_code == 200, confirmed.text
     orders, trades = await _stored_orders_and_trades(seeded)
     assert orders[ask["id"]].remaining_quantity_mt == Decimal(0)
-    assert sum(trade.quantity_mt for trade in trades) == Decimal("1.50")
+    assert sum(trade.quantity_mt for trade in trades) == Decimal("100.50")
     assert all(
         trade.fame_terms_snapshot["ask"] == _ask_terms(seeded) for trade in trades
     )
