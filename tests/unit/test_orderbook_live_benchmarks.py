@@ -250,6 +250,46 @@ class TestLiveSliceBenchmarks:
         assert remaining == []
 
     @pytest.mark.asyncio
+    async def test_rebuild_flushes_revived_order_before_projecting(
+        self, db: AsyncSession
+    ):
+        supplier = await _make_org(db, 'Revived Supplier')
+        singapore = await _make_delivery_point(db, 'Singapore', 'Asia')
+        methanol = await _make_product(
+            db,
+            name='Bio Methanol',
+            fuel_type='Methanol',
+            fuel_grade='Bio',
+        )
+        order = _make_order(
+            org_id=supplier.id,
+            side=OrderSide.ASK,
+            product_id=methanol.id,
+            delivery_point_id=singapore.id,
+            price='1030',
+            quantity='800',
+        )
+        order.status = OrderBookStatus.FILLED
+        order.remaining_quantity_mt = Decimal('0.00')
+        db.add(order)
+        await db.commit()
+
+        order.status = OrderBookStatus.OPEN
+        order.remaining_quantity_mt = Decimal('800.00')
+        price = await rebuild_live_slice_benchmark(
+            db,
+            side=OrderSide.ASK,
+            market_product='BIO_METHANOL',
+            delivery_point_id=singapore.id,
+            availability_window='SPOT',
+        )
+
+        row = (await db.execute(select(LiveSliceBenchmark))).scalars().one()
+        assert price == Decimal('1030.00')
+        assert row.total_remaining_quantity_mt == Decimal('800.00')
+        assert row.order_count == 1
+
+    @pytest.mark.asyncio
     async def test_benchmark_projection_preserves_unicode_qualification_and_rounding(
         self,
         db: AsyncSession,

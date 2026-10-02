@@ -21,7 +21,7 @@ from unittest.mock import AsyncMock
 from app.config import Settings
 from app.models.orderbook import OrderBookOrder, OrderSide, Trade
 from app.models.user import Organization, OrganizationProvenance
-from app.schemas.orderbook import OrderCreate, TradeCreate, TradeDeliverPayload
+from app.schemas.orderbook import OrderCreate, OrderUpdate, TradeCreate, TradeDeliverPayload
 from app.schemas.marketplace import InventoryCreate
 from app.services.availability_windows import tradable_availability_windows
 from app.services.demo_market import (
@@ -158,11 +158,18 @@ def test_order_schema_rejects_non_finite_numbers(value):
         OrderCreate(**_order_payload(quantity_mt=value))
 
 
-def test_order_schema_rejects_naive_and_past_expiry():
+def test_order_create_expiry_requires_timezone_but_allows_elapsed_replay_value():
     with pytest.raises(ValidationError):
         OrderCreate(**_order_payload(expires_at=datetime.now() + timedelta(hours=1)))
+
+    elapsed_expiry = datetime.now(UTC) - timedelta(seconds=1)
+    order = OrderCreate(**_order_payload(expires_at=elapsed_expiry))
+    assert order.expires_at == elapsed_expiry
+
+
+def test_order_update_still_requires_future_expiry():
     with pytest.raises(ValidationError):
-        OrderCreate(**_order_payload(expires_at=datetime.now(UTC) - timedelta(seconds=1)))
+        OrderUpdate(expires_at=datetime.now(UTC) - timedelta(seconds=1))
 
 
 def test_trade_payloads_apply_same_finite_precision_policy():

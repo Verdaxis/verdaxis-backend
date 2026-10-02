@@ -295,7 +295,7 @@ async def test_four_worker_durable_sse_dispatch(sse_server):
                     "side": "BID",
                     "product_id": str(seeded["product_id"]),
                     "delivery_point_id": str(seeded["point_id"]),
-                    "quantity_mt": "50.00",
+                    "quantity_mt": "200.00",
                     "price_per_mt_usd": "650.00",
                     "availability_window": "SPOT",
                 },

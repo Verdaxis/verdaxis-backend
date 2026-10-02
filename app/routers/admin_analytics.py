@@ -25,6 +25,7 @@ from app.models.user import User, UserRole, UserStatus, Organization
 from app.rate_limit import limiter
 from app.schemas.errors import AUTH_RESPONSES
 from app.services.audit_service import record_audit, request_audit_context
+from app.services.auth_revocation import invalidate_locked_user_authentication
 from app.services.audit_actions import ADMIN_USER_REJECTED
 from app.schemas.behavioral_analytics import (
     AuthoritativeUsage,
@@ -581,6 +582,7 @@ async def reject_user(
 
     previous_status = user.status
     user.status = UserStatus.REJECTED
+    await invalidate_locked_user_authentication(db, user)
     record_status_transition(
         db, user, from_status=previous_status, to_status=UserStatus.REJECTED
     )

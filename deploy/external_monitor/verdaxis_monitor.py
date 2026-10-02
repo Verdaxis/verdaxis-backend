@@ -13,7 +13,7 @@ import tempfile
 import time
 import urllib.parse
 import urllib.request
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 
@@ -97,6 +97,9 @@ DEFAULT_SIGNUP_CANARY_TARGETS = {
     "prod": "https://api.verdaxis.exchange/api",
     "staging": "https://api-staging.verdaxis.exchange/api",
 }
+# Demo activity runs every 30 minutes. Allow 15 minutes for scheduling delay.
+DEMO_TRADE_MAX_AGE_SECONDS = 45 * 60
+DEMO_TRADE_FUTURE_TOLERANCE_SECONDS = 5 * 60
 DEFAULT_ANALYTICS_WEBSITE_ID = "9ade1929-3ea9-4660-b352-b8d74f05266a"
 DEFAULT_ANALYTICS_DATA_DIR = "/home/verdaxis-prod/verdaxis/analytics/data"
 DEFAULT_ANALYTICS_MAX_DATA_BYTES = 5 * 1024 * 1024 * 1024
@@ -863,6 +866,8 @@ def signup_canary(name: str, api_base: str) -> str | None:
     domain = f"{name}-{stamp}.canary.verdaxis.exchange"
     email = f"canary+{name}-{stamp}@{domain}"
     password = f"VerdaxisCanary-{stamp}-check"
+    signup_error: str | None = None
+    signup_succeeded = False
     cleanup_error: str | None = None
 
     try:
@@ -879,42 +884,100 @@ def signup_canary(name: str, api_base: str) -> str | None:
             headers=monitor_headers,
         )
         if code != 200:
-            return f"{name} signup canary register returned HTTP {code}: {body[:200]}"
-        data = json.loads(body)
-        if data.get("status") != "requires_org" or not data.get("registration_token"):
-            return f"{name} signup canary register returned unexpected body: {body[:200]}"
-
-        code, body = json_request(
-            f"{api_base}/auth/register-with-org",
-            {
-                "registration_token": data["registration_token"],
-                "organization": {
-                    "name": f"Verdaxis Canary {name} {stamp}",
-                    "type": "FUEL_BUYER",
-                    "country_code": "SG",
-                    "tax_id": None,
-                },
-            },
-            headers=monitor_headers,
-        )
-        if code != 200:
-            return f"{name} signup canary register-with-org returned HTTP {code}: {body[:200]}"
-        data = json.loads(body)
-        if data.get("email") != email or data.get("status") != "PENDING":
-            return f"{name} signup canary register-with-org returned unexpected body: {body[:200]}"
-        return None
+            signup_error = f"{name} signup canary register returned HTTP {code}"
+        else:
+            try:
+                data = json.loads(body)
+            except (json.JSONDecodeError, TypeError):
+                data = None
+            if (
+                not isinstance(data, dict)
+                or data.get("status") != "requires_org"
+                or not data.get("registration_token")
+            ):
+                signup_error = f"{name} signup canary register returned invalid response"
+            else:
+                code, body = json_request(
+                    f"{api_base}/auth/register-with-org",
+                    {
+                        "registration_token": data["registration_token"],
+                        "organization": {
+                            "name": f"Verdaxis Canary {name} {stamp}",
+                            "type": "FUEL_BUYER",
+                            "country_code": "SG",
+                            "tax_id": None,
+                        },
+                    },
+                    headers=monitor_headers,
+                )
+                if code != 200:
+                    signup_error = (
+                        f"{name} signup canary register-with-org returned HTTP {code}"
+                    )
+                else:
+                    try:
+                        data = json.loads(body)
+                    except (json.JSONDecodeError, TypeError):
+                        data = None
+                    if (
+                        not isinstance(data, dict)
+                        or data.get("email") != email
+                        or data.get("status") != "PENDING"
+                    ):
+                        signup_error = (
+                            f"{name} signup canary register-with-org returned invalid response"
+                        )
+                    else:
+                        signup_succeeded = True
     except Exception as exc:
-        return f"{name} signup canary failed: {exc}"
+        signup_error = f"{name} signup canary failed ({type(exc).__name__})"
     finally:
-        code, body = json_request(
-            f"{api_base}/monitor/signup-canary-cleanup",
-            {"email": email},
-            headers={"X-Monitor-Token": token},
-        )
-        if code != 200:
-            cleanup_error = f"{name} signup canary cleanup returned HTTP {code}: {body[:200]}"
+        try:
+            code, body = json_request(
+                f"{api_base}/monitor/signup-canary-cleanup",
+                {"email": email},
+                headers={"X-Monitor-Token": token},
+            )
+            if code != 200:
+                cleanup_error = (
+                    f"{name} signup canary cleanup returned HTTP {code}"
+                )
+            else:
+                try:
+                    cleanup = json.loads(body)
+                except (json.JSONDecodeError, TypeError):
+                    cleanup = None
+                deleted_users = (
+                    cleanup.get("deleted_users") if isinstance(cleanup, dict) else None
+                )
+                deleted_orgs = (
+                    cleanup.get("deleted_orgs") if isinstance(cleanup, dict) else None
+                )
+                valid_counts = (
+                    type(deleted_users) is int
+                    and deleted_users in (0, 1)
+                    and type(deleted_orgs) is int
+                    and deleted_orgs in (0, 1)
+                )
+                if not valid_counts:
+                    cleanup_error = (
+                        f"{name} signup canary cleanup returned invalid deletion counts"
+                    )
+                elif signup_succeeded and (deleted_users, deleted_orgs) != (1, 1):
+                    cleanup_error = (
+                        f"{name} signup canary cleanup did not delete created identity"
+                    )
+        except Exception as exc:
+            cleanup_error = (
+                f"{name} signup canary cleanup failed ({type(exc).__name__})"
+            )
         if cleanup_error:
             log(cleanup_error)
+
+    errors = [error for error in (signup_error, cleanup_error) if error]
+    if errors:
+        return "; ".join(errors)
+    return None
 
 
 def check_signup_canaries() -> list[str]:
@@ -923,6 +986,71 @@ def check_signup_canaries() -> list[str]:
     errors: list[str] = []
     for name, api_base in parse_signup_canary_targets().items():
         error = signup_canary(name, api_base)
+        if error:
+            errors.append(error)
+    return errors
+
+
+def demo_trade_canary(
+    name: str,
+    api_base: str,
+    *,
+    now: datetime | None = None,
+) -> str | None:
+    code, body = text_request(
+        f"{api_base}/trade-tape?demo_only=true&limit=1",
+    )
+    if code != 200:
+        return f"{name} demo trade canary returned HTTP {code}"
+
+    try:
+        payload = json.loads(body)
+    except (json.JSONDecodeError, TypeError):
+        return f"{name} demo trade canary returned invalid JSON"
+
+    items = payload.get("items") if isinstance(payload, dict) else None
+    if not isinstance(items, list) or len(items) != 1 or not isinstance(items[0], dict):
+        return f"{name} demo trade canary returned an invalid item list"
+
+    item = items[0]
+    if (
+        item.get("is_demo_trade") is not True
+        or item.get("demo_status") != "DEMO_ONLY"
+        or item.get("source_kind") != "DEMO_SEED"
+        or item.get("provenance_kind") != "DEMO_SEED"
+    ):
+        return f"{name} demo trade canary returned invalid DEMO evidence"
+
+    confirmed_at = item.get("confirmed_at")
+    if not isinstance(confirmed_at, str):
+        return f"{name} demo trade canary returned an invalid timestamp"
+    try:
+        confirmed = datetime.fromisoformat(confirmed_at)
+    except ValueError:
+        return f"{name} demo trade canary returned an invalid timestamp"
+    if confirmed.tzinfo is None or confirmed.utcoffset() != timedelta(0):
+        return f"{name} demo trade canary timestamp is not UTC"
+
+    observed_at = now or datetime.now(timezone.utc)
+    age_seconds = (observed_at - confirmed).total_seconds()
+    if age_seconds < -DEMO_TRADE_FUTURE_TOLERANCE_SECONDS:
+        return f"{name} demo trade canary timestamp is too far in the future"
+    if age_seconds > DEMO_TRADE_MAX_AGE_SECONDS:
+        return f"{name} demo trade canary is stale"
+    return None
+
+
+def check_demo_trade_canaries() -> list[str]:
+    if os.getenv("DEMO_TRADE_CANARY_ENABLED", "1").lower() in {
+        "0",
+        "false",
+        "no",
+        "off",
+    }:
+        return []
+    errors: list[str] = []
+    for name, api_base in parse_signup_canary_targets().items():
+        error = demo_trade_canary(name, api_base)
         if error:
             errors.append(error)
     return errors
@@ -1049,6 +1177,10 @@ def main() -> int:
         errors.extend(check_signup_canaries())
     except Exception as exc:
         errors.append(f"signup canaries crashed: {exc}")
+    try:
+        errors.extend(check_demo_trade_canaries())
+    except Exception:
+        errors.append("demo trade canaries crashed")
     try:
         errors.extend(check_analytics_collector())
     except Exception as exc:

@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import os
 import subprocess
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
+import pytest
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -16,6 +20,297 @@ def load_module():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def _signup_responses(module, cleanup_response):
+    email = "canary+prod-123@prod-123.canary.verdaxis.exchange"
+    responses = iter(
+        [
+            (200, '{"status":"requires_org","registration_token":"registration-secret"}'),
+            (200, f'{{"email":"{email}","status":"PENDING"}}'),
+            cleanup_response,
+        ]
+    )
+    calls = []
+
+    def request(url, payload, *, headers=None, timeout=20):
+        calls.append((url, payload, headers, timeout))
+        return next(responses)
+
+    module.json_request = request
+    return calls
+
+
+def test_signup_canary_requires_exact_cleanup_after_success(monkeypatch):
+    module = load_module()
+    monkeypatch.setenv("MONITOR_TOKEN", "monitor-secret")
+    monkeypatch.setattr(module.time, "time", lambda: 123)
+    calls = _signup_responses(
+        module,
+        (200, '{"deleted_users":1,"deleted_orgs":1}'),
+    )
+
+    assert module.signup_canary("prod", "https://api.example/api") is None
+    assert len(calls) == 3
+    assert calls[-1][0] == "https://api.example/api/monitor/signup-canary-cleanup"
+
+
+@pytest.mark.parametrize(
+    "cleanup_response",
+    [
+        (500, "cleanup-response-secret"),
+        (200, "not-json"),
+        (200, '{}'),
+        (200, '{"deleted_users":true,"deleted_orgs":1}'),
+        (200, '{"deleted_users":-1,"deleted_orgs":1}'),
+        (200, '{"deleted_users":2,"deleted_orgs":1}'),
+        (200, '{"deleted_users":0,"deleted_orgs":1}'),
+    ],
+)
+def test_signup_canary_fails_closed_on_invalid_cleanup_after_success(
+    monkeypatch,
+    cleanup_response,
+):
+    module = load_module()
+    monkeypatch.setenv("MONITOR_TOKEN", "monitor-secret")
+    monkeypatch.setattr(module.time, "time", lambda: 123)
+    calls = _signup_responses(module, cleanup_response)
+
+    error = module.signup_canary("prod", "https://api.example/api")
+
+    assert error is not None
+    assert "signup canary cleanup" in error
+    assert "cleanup-response-secret" not in error
+    assert "registration-secret" not in error
+    assert len(calls) == 3
+
+
+def test_signup_canary_preserves_signup_and_cleanup_failures(monkeypatch):
+    module = load_module()
+    monkeypatch.setenv("MONITOR_TOKEN", "monitor-secret")
+    monkeypatch.setattr(module.time, "time", lambda: 123)
+    responses = iter(
+        [
+            (503, "signup-response-secret"),
+            (500, "cleanup-response-secret"),
+        ]
+    )
+    calls = []
+
+    def request(url, payload, *, headers=None, timeout=20):
+        calls.append(url)
+        return next(responses)
+
+    monkeypatch.setattr(module, "json_request", request)
+
+    error = module.signup_canary("prod", "https://api.example/api")
+
+    assert error == (
+        "prod signup canary register returned HTTP 503; "
+        "prod signup canary cleanup returned HTTP 500"
+    )
+    assert "signup-response-secret" not in error
+    assert "cleanup-response-secret" not in error
+    assert calls == [
+        "https://api.example/api/auth/register",
+        "https://api.example/api/monitor/signup-canary-cleanup",
+    ]
+
+
+def test_signup_canary_allows_idempotent_cleanup_after_signup_failure(monkeypatch):
+    module = load_module()
+    monkeypatch.setenv("MONITOR_TOKEN", "monitor-secret")
+    monkeypatch.setattr(module.time, "time", lambda: 123)
+    responses = iter(
+        [
+            (503, "signup-response-secret"),
+            (200, '{"deleted_users":0,"deleted_orgs":0}'),
+        ]
+    )
+    monkeypatch.setattr(
+        module,
+        "json_request",
+        lambda url, payload, *, headers=None, timeout=20: next(responses),
+    )
+
+    assert module.signup_canary("prod", "https://api.example/api") == (
+        "prod signup canary register returned HTTP 503"
+    )
+
+
+def test_signup_canary_cleans_up_once_after_signup_exception(monkeypatch):
+    module = load_module()
+    monkeypatch.setenv("MONITOR_TOKEN", "monitor-secret")
+    monkeypatch.setattr(module.time, "time", lambda: 123)
+    calls = []
+
+    def request(url, payload, *, headers=None, timeout=20):
+        calls.append(url)
+        if len(calls) == 1:
+            raise RuntimeError("signup-exception-secret")
+        return 200, '{"deleted_users":0,"deleted_orgs":0}'
+
+    monkeypatch.setattr(module, "json_request", request)
+
+    assert module.signup_canary("prod", "https://api.example/api") == (
+        "prod signup canary failed (RuntimeError)"
+    )
+    assert calls == [
+        "https://api.example/api/auth/register",
+        "https://api.example/api/monitor/signup-canary-cleanup",
+    ]
+
+
+def _demo_trade_body(confirmed_at: str, **overrides) -> str:
+    item = {
+        "id": "sensitive-trade-id",
+        "confirmed_at": confirmed_at,
+        "is_demo_trade": True,
+        "demo_status": "DEMO_ONLY",
+        "source_kind": "DEMO_SEED",
+        "provenance_kind": "DEMO_SEED",
+        **overrides,
+    }
+    return json.dumps({"items": [item], "body_secret": "must-not-be-reported"})
+
+
+def test_demo_trade_canary_queries_latest_disclosed_demo_trade(monkeypatch):
+    module = load_module()
+    now = datetime(2026, 10, 3, 0, 0, tzinfo=timezone.utc)
+    calls = []
+
+    def request(url, *, timeout=20):
+        calls.append((url, timeout))
+        return 200, _demo_trade_body((now - timedelta(minutes=30)).isoformat())
+
+    monkeypatch.setattr(module, "text_request", request)
+
+    assert module.demo_trade_canary(
+        "prod",
+        "https://api.example/api",
+        now=now,
+    ) is None
+    assert calls == [
+        ("https://api.example/api/trade-tape?demo_only=true&limit=1", 20)
+    ]
+
+
+@pytest.mark.parametrize(
+    ("confirmed_at", "expected_error"),
+    [
+        ("2026-10-02T23:15:00+00:00", None),
+        ("2026-10-02T23:14:59+00:00", "is stale"),
+        ("2026-10-03T00:05:00+00:00", None),
+        ("2026-10-03T00:05:01+00:00", "too far in the future"),
+        ("2026-10-03T00:00:00", "timestamp is not UTC"),
+        ("2026-10-03T08:00:00+08:00", "timestamp is not UTC"),
+        ("not-a-timestamp", "returned an invalid timestamp"),
+    ],
+)
+def test_demo_trade_canary_enforces_utc_freshness_bounds(
+    monkeypatch,
+    confirmed_at,
+    expected_error,
+):
+    module = load_module()
+    now = datetime(2026, 10, 3, 0, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr(
+        module,
+        "text_request",
+        lambda url, timeout=20: (200, _demo_trade_body(confirmed_at)),
+    )
+
+    error = module.demo_trade_canary("prod", "https://api.example/api", now=now)
+
+    if expected_error is None:
+        assert error is None
+    else:
+        assert expected_error in error
+        assert "sensitive-trade-id" not in error
+        assert "must-not-be-reported" not in error
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("is_demo_trade", False),
+        ("demo_status", "UNKNOWN"),
+        ("source_kind", "CONFIRMED_TRADE"),
+        ("provenance_kind", "UNKNOWN"),
+    ],
+)
+def test_demo_trade_canary_requires_all_explicit_demo_fields(
+    monkeypatch,
+    field,
+    value,
+):
+    module = load_module()
+    now = datetime(2026, 10, 3, 0, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr(
+        module,
+        "text_request",
+        lambda url, timeout=20: (
+            200,
+            _demo_trade_body(now.isoformat(), **{field: value}),
+        ),
+    )
+
+    error = module.demo_trade_canary("prod", "https://api.example/api", now=now)
+
+    assert error == "prod demo trade canary returned invalid DEMO evidence"
+    assert "sensitive-trade-id" not in error
+
+
+@pytest.mark.parametrize(
+    ("response", "expected_error"),
+    [
+        ((503, "body-secret"), "prod demo trade canary returned HTTP 503"),
+        ((200, "not-json-body-secret"), "prod demo trade canary returned invalid JSON"),
+        (
+            (200, '{"items":[]}'),
+            "prod demo trade canary returned an invalid item list",
+        ),
+        (
+            (200, '{"items":["trade-id-secret"]}'),
+            "prod demo trade canary returned an invalid item list",
+        ),
+    ],
+)
+def test_demo_trade_canary_fails_closed_without_response_data(
+    monkeypatch,
+    response,
+    expected_error,
+):
+    module = load_module()
+    monkeypatch.setattr(
+        module,
+        "text_request",
+        lambda url, timeout=20: response,
+    )
+
+    error = module.demo_trade_canary(
+        "prod",
+        "https://api.example/api",
+        now=datetime(2026, 10, 3, tzinfo=timezone.utc),
+    )
+
+    assert error == expected_error
+    assert "secret" not in error
+
+
+def test_demo_trade_canaries_use_existing_prod_and_staging_targets(monkeypatch):
+    module = load_module()
+    monkeypatch.delenv("SIGNUP_CANARY_TARGETS", raising=False)
+    monkeypatch.delenv("DEMO_TRADE_CANARY_ENABLED", raising=False)
+    observed = []
+    monkeypatch.setattr(
+        module,
+        "demo_trade_canary",
+        lambda name, api_base: observed.append((name, api_base)),
+    )
+
+    assert module.check_demo_trade_canaries() == []
+    assert observed == list(module.DEFAULT_SIGNUP_CANARY_TARGETS.items())
 
 
 def test_outbox_check_invokes_both_deployed_database_targets(monkeypatch, tmp_path):
@@ -180,6 +475,11 @@ def test_main_aggregates_outbox_failures_into_existing_status_path(monkeypatch):
     monkeypatch.setattr(module, "check_rendered_pages", lambda: [])
     monkeypatch.setattr(module, "check_backup_status", lambda: [])
     monkeypatch.setattr(module, "check_signup_canaries", lambda: [])
+    monkeypatch.setattr(
+        module,
+        "check_demo_trade_canaries",
+        lambda: ["production demo trade canary is stale"],
+    )
     monkeypatch.setattr(module, "check_analytics_collector", lambda: [])
     monkeypatch.setattr(module, "check_analytics_storage", lambda: [])
     monkeypatch.setattr(
@@ -210,7 +510,10 @@ def test_main_aggregates_outbox_failures_into_existing_status_path(monkeypatch):
     assert module.main() == 2
     assert observed == {
         "ok": False,
-        "errors": ["production event outbox backlog threshold breached"],
+        "errors": [
+            "production event outbox backlog threshold breached",
+            "production demo trade canary is stale",
+        ],
         "endpoints": [],
         "outboxes": [
             {

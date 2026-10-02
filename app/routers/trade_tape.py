@@ -1,7 +1,7 @@
 """Public, read-only anonymized trade tape endpoint."""
 
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Annotated, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
@@ -12,7 +12,12 @@ from app.database import get_db
 from app.models.orderbook import Trade
 from app.schemas.trade_tape import TradeTapeEntry, TradeTapeResponse
 from app.services.availability_windows import normalize_availability_window
-from app.services.market_provenance import public_trade_evidence_clause, trade_market_provenance
+from app.services.market_provenance import (
+    MarketEvidenceScope,
+    public_trade_evidence_clause,
+    trade_evidence_clause,
+    trade_market_provenance,
+)
 
 router = APIRouter(prefix="/trade-tape", tags=["trade-tape"])
 
@@ -62,6 +67,10 @@ async def get_trade_tape(
     delivery_point_id: Optional[UUID] = Query(None, description="Filter by exact delivery point ID"),
     region: Optional[str] = Query(None, description="Filter by region"),
     availability_window: Optional[str] = Query(None, description="Filter by availability window"),
+    demo_only: Annotated[
+        bool,
+        Query(description="Return only disclosed DEMO trades"),
+    ] = False,
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
 ):
@@ -78,15 +87,19 @@ async def get_trade_tape(
 
     # Join a single canonical display order per trade. Prefer the ASK order when present,
     # otherwise fall back to the BID order. This avoids double-counting trades that have both.
-    base_query = (
-        select(Trade)
-        .where(
-            public_trade_evidence_clause(
-                Trade,
-                confirmed_since=cutoff,
-            ),
+    evidence_clause = (
+        trade_evidence_clause(
+            Trade,
+            MarketEvidenceScope.DEMO,
+            confirmed_since=cutoff,
+        )
+        if demo_only
+        else public_trade_evidence_clause(
+            Trade,
+            confirmed_since=cutoff,
         )
     )
+    base_query = select(Trade).where(evidence_clause)
 
     # Apply optional filters via immutable trade snapshots. Product joins are
     # display/filter metadata only; aggregation identity is Trade.product_id.

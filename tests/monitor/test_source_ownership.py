@@ -22,9 +22,9 @@ MANIFEST = MONITOR / "artifact-manifest.json"
 RUNTIME_OWNED_BLOBS = {
     "app/config.py": "273c1d3adbb193a5391b2ba34ce798412c8e4f57",
     "app/database.py": "43456b2c2079c07368359d4d54f5ce9629c9b57b",
-    "app/main.py": "ee803a97bfb8739d3c660fb714a8fe4ca96f8dc8",
+    "app/main.py": "f16fa752a85bcdf13258d9d7b31c260e928afc13",
     "scripts/deploy.sh": "ec47368a175ecbc05db905a314cdd34fdc2ef44a",
-    "scripts/run_demo_activity.py": "aac20936cd1b01adcebf8097762cae136b6eb0bf",
+    "scripts/run_demo_activity.py": "9f5c61906d0c891ee41827b8325b8248c96fc835",
 }
 
 EXPECTED_ARTIFACTS = {

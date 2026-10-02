@@ -12,13 +12,24 @@ import pytest
 from sqlalchemy import event, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.config import settings
 from app.core.security import create_access_token
 from app.database import get_db
 from app.main import app
 from app.market_catalog import DELIVERY_POINTS_BY_NAME, PRODUCTS_BY_CODE
 from app.models.audit import AuditLog
 from app.models.catalog import DeliveryPoint, Product
+from app.models.live_slice_benchmark import LiveSliceBenchmark
 from app.models.market_event import MarketEventOutbox
+from app.models.market_support import (
+    MarketSupportAuthorization,
+    MarketSupportAuthorizationStatus,
+    MarketSupportCapability,
+    MarketSupportContext,
+    MarketSupportContextScope,
+    MarketSupportContextStatus,
+    StaffCapabilityAssignment,
+)
 from app.models.marketplace import FuelType, InventoryItem
 from app.models.negotiation import Negotiation, NegotiationStatus
 from app.models.orderbook import OrderBookOrder, OrderBookStatus, Trade, TradeStatus
@@ -33,7 +44,12 @@ from app.models.user import (
     UserStatus,
 )
 from app.routers import orderbook as orderbook_router
-from app.services.audit_actions import TRADE_AUTO_MATCHED
+from app.services.audit_actions import (
+    MARKET_SUPPORT_AUTHORIZATION_CREATED,
+    ORDER_CANCELLED,
+    ORDER_CREATED,
+    TRADE_AUTO_MATCHED,
+)
 from app.services import market_transactions
 from tests.postgres.market_test_support import assign_fixture_real_provenance
 
@@ -125,6 +141,7 @@ async def _seed_route_market(engine):
             fuel_type=product_spec.fuel_type,
             fuel_grade=product_spec.fuel_grade,
             unit=product_spec.unit,
+            min_lot_size=product_spec.min_lot_size,
             is_active=True,
         )
         point = DeliveryPoint(
@@ -150,7 +167,7 @@ async def _seed_route_market(engine):
             port_id=port.id,
             fuel_type=FuelType.Methanol,
             product_name=product.name,
-            current_stock_mt=Decimal("100.00"),
+            current_stock_mt=Decimal("300.00"),
             incoming_stock_mt=Decimal("0.00"),
             reserved_stock_mt=Decimal("0.00"),
             price_per_mt_usd=Decimal("700.00"),
@@ -214,7 +231,7 @@ async def test_simultaneous_authenticated_crossing_posts_are_one_coherent_trade(
         "side": "BID",
         "product_id": str(seeded["product_id"]),
         "delivery_point_id": str(seeded["point_id"]),
-        "quantity_mt": "100.00",
+        "quantity_mt": "300.00",
         "price_per_mt_usd": "700.00",
         "availability_window": "SPOT",
     }
@@ -283,7 +300,7 @@ async def test_simultaneous_authenticated_crossing_posts_are_one_coherent_trade(
     assert trade.ask_order_id == next(order.id for order in orders if order.side.value == "ASK")
     assert trade.buyer_id == seeded["buyer_org_id"]
     assert trade.seller_id == seeded["seller_org_id"]
-    assert trade.quantity_mt == Decimal("100.00")
+    assert trade.quantity_mt == Decimal("300.00")
     assert trade.market_product == "BIO_METHANOL"
     assert trade.product_name == "Bio Methanol"
     assert trade.delivery_point_name == "Singapore"
@@ -423,7 +440,7 @@ async def test_concurrent_route_idempotency_has_one_order(route_market):
         "side": "BID",
         "product_id": str(seeded["product_id"]),
         "delivery_point_id": str(seeded["point_id"]),
-        "quantity_mt": "50.00",
+        "quantity_mt": "200.00",
         "price_per_mt_usd": "650.00",
         "availability_window": "SPOT",
     }
@@ -451,6 +468,60 @@ async def test_concurrent_route_idempotency_has_one_order(route_market):
 
 
 @pytest.mark.asyncio
+async def test_catalog_minimum_applies_to_new_and_updated_order_totals(route_market):
+    client, seeded = route_market
+    payload = {
+        "side": "BID",
+        "product_id": str(seeded["product_id"]),
+        "delivery_point_id": str(seeded["point_id"]),
+        "quantity_mt": "199.99",
+        "price_per_mt_usd": "650.00",
+        "availability_window": "SPOT",
+    }
+
+    below_minimum = await client.post(
+        "/api/orderbook",
+        json=payload,
+        headers=_headers(seeded["buyer_id"], "below-minimum-order"),
+    )
+    assert below_minimum.status_code == 400, below_minimum.text
+    assert below_minimum.json()["detail"] == (
+        "Order quantity must be at least 200.00 MT for Bio Methanol"
+    )
+
+    boundary = await client.post(
+        "/api/orderbook",
+        json={**payload, "quantity_mt": "200.00"},
+        headers=_headers(seeded["buyer_id"], "minimum-boundary-order"),
+    )
+    assert boundary.status_code == 201, boundary.text
+    order_id = boundary.json()["id"]
+
+    rejected_update = await client.put(
+        f"/api/orderbook/{order_id}",
+        json={"quantity_mt": "199.99"},
+        headers=_headers(seeded["buyer_id"], "unused-minimum-update"),
+    )
+    assert rejected_update.status_code == 400, rejected_update.text
+    assert rejected_update.json()["detail"] == (
+        "Order quantity must be at least 200.00 MT for Bio Methanol"
+    )
+
+    async with seeded["factory"]() as session:
+        orders = (
+            await session.execute(
+                select(OrderBookOrder).where(
+                    OrderBookOrder.organization_id == seeded["buyer_org_id"]
+                )
+            )
+        ).scalars().all()
+    assert len(orders) == 1
+    assert str(orders[0].id) == order_id
+    assert orders[0].quantity_mt == Decimal("200.00")
+    assert orders[0].remaining_quantity_mt == Decimal("200.00")
+
+
+@pytest.mark.asyncio
 async def test_direct_trade_replay_is_snapshot_only_and_hash_conflict_is_immutable(
     route_market
 ):
@@ -459,7 +530,7 @@ async def test_direct_trade_replay_is_snapshot_only_and_hash_conflict_is_immutab
         "side": "ASK",
         "product_id": str(seeded["product_id"]),
         "delivery_point_id": str(seeded["point_id"]),
-        "quantity_mt": "100.00",
+        "quantity_mt": "200.00",
         "price_per_mt_usd": "750.00",
         "availability_window": "SPOT",
         "certification_declared": True,
@@ -507,7 +578,7 @@ async def test_direct_trade_replay_is_snapshot_only_and_hash_conflict_is_immutab
     async with seeded["factory"]() as session:
         ask = await session.get(OrderBookOrder, ask_id)
         trade_count = (await session.execute(select(func.count(Trade.id)))).scalar_one()
-    assert ask.remaining_quantity_mt == Decimal("75.00")
+    assert ask.remaining_quantity_mt == Decimal("175.00")
     assert trade_count == 1
 
 
@@ -522,7 +593,7 @@ async def test_locked_cancelled_order_cannot_be_updated_from_stale_preview(
             "side": "BID",
             "product_id": str(seeded["product_id"]),
             "delivery_point_id": str(seeded["point_id"]),
-            "quantity_mt": "10.00",
+            "quantity_mt": "200.00",
             "price_per_mt_usd": "600.00",
             "availability_window": "SPOT",
         },
@@ -563,6 +634,80 @@ async def test_locked_cancelled_order_cannot_be_updated_from_stale_preview(
         else:
             # The cancel serialized first; the stale update was rejected.
             assert order.price_per_mt_usd == Decimal("600.00")
+
+
+@pytest.mark.asyncio
+async def test_cancel_rechecks_locked_order_after_stale_preview(
+    route_market, monkeypatch
+):
+    client, seeded = route_market
+    created = await client.post(
+        "/api/orderbook",
+        json={
+            "side": "BID",
+            "product_id": str(seeded["product_id"]),
+            "delivery_point_id": str(seeded["point_id"]),
+            "quantity_mt": "200.00",
+            "price_per_mt_usd": "600.00",
+            "availability_window": "SPOT",
+        },
+        headers=_headers(seeded["buyer_id"], "cancel-fill-race-order"),
+    )
+    assert created.status_code == 201, created.text
+    order_id = created.json()["id"]
+
+    gate = _PausedTransactionBoundary(
+        operation="order_cancel",
+        aggregate_id=order_id,
+    )
+    monkeypatch.setattr(market_transactions, "transaction_boundary_hook", gate)
+    cancellation = asyncio.create_task(
+        client.delete(
+            f"/api/orderbook/{order_id}",
+            headers=_headers(seeded["buyer_id"], "unused-racing-cancel"),
+        )
+    )
+    await asyncio.wait_for(gate.reached.wait(), timeout=10)
+    try:
+        async with seeded["factory"]() as session:
+            filled = await session.get(OrderBookOrder, order_id)
+            filled.remaining_quantity_mt = Decimal("0.00")
+            filled.status = OrderBookStatus.FILLED
+            filled.bump_version()
+            filled_version = filled.version
+            await session.commit()
+    finally:
+        gate.release.set()
+
+    cancelled = await asyncio.wait_for(cancellation, timeout=10)
+    assert cancelled.status_code == 400, cancelled.text
+    assert cancelled.json()["detail"] == (
+        "Can only cancel orders with OPEN or PARTIALLY_FILLED status"
+    )
+
+    async with seeded["factory"]() as session:
+        order = await session.get(OrderBookOrder, order_id)
+        assert order.status == OrderBookStatus.FILLED
+        assert order.remaining_quantity_mt == Decimal("0.00")
+        assert order.version == filled_version
+        cancelled_audits = (
+            await session.execute(
+                select(func.count(AuditLog.id)).where(
+                    AuditLog.action == ORDER_CANCELLED,
+                    AuditLog.resource_id == str(order_id),
+                )
+            )
+        ).scalar_one()
+        cancelled_events = (
+            await session.execute(
+                select(func.count(MarketEventOutbox.id)).where(
+                    MarketEventOutbox.event_type == "order_cancelled",
+                    MarketEventOutbox.aggregate_id == str(order_id),
+                )
+            )
+        ).scalar_one()
+    assert cancelled_audits == 0
+    assert cancelled_events == 0
 
 
 @pytest.mark.asyncio
@@ -615,13 +760,63 @@ async def test_locked_confirmed_trade_cannot_be_declined_from_stale_preview(
         if confirmed.status_code == 200:
             # The confirm serialized first; the stale decline was rejected.
             assert trade.status == TradeStatus.CONFIRMED
-            assert order.remaining_quantity_mt == Decimal("75.00")
-            assert item.reserved_stock_mt == Decimal("75.00")
+            assert order.remaining_quantity_mt == Decimal("275.00")
+            assert item.reserved_stock_mt == Decimal("275.00")
         else:
             # The decline serialized first and restored the resting order.
             assert trade.status == TradeStatus.DECLINED
-            assert order.remaining_quantity_mt == Decimal("100.00")
-            assert item.reserved_stock_mt == Decimal("100.00")
+            assert order.remaining_quantity_mt == Decimal("300.00")
+            assert item.reserved_stock_mt == Decimal("300.00")
+
+
+@pytest.mark.asyncio
+async def test_inventory_publish_enforces_catalog_minimum_at_exact_boundary(route_market):
+    client, seeded = route_market
+
+    below_stock = await client.patch(
+        f"/api/inventory/{seeded['inventory_id']}",
+        json={"current_stock_mt": "199.99"},
+        headers=_headers(seeded["seller_id"], "unused-below-minimum-stock"),
+    )
+    assert below_stock.status_code == 200, below_stock.text
+
+    rejected = await client.post(
+        f"/api/inventory/{seeded['inventory_id']}/publish",
+        headers=_headers(seeded["seller_id"], "below-minimum-inventory"),
+    )
+    assert rejected.status_code == 400, rejected.text
+    assert rejected.json()["detail"] == (
+        "Order quantity must be at least 200.00 MT for Bio Methanol"
+    )
+    async with seeded["factory"]() as session:
+        rejected_count = (
+            await session.execute(
+                select(func.count(OrderBookOrder.id)).where(
+                    OrderBookOrder.inventory_item_id == seeded["inventory_id"]
+                )
+            )
+        ).scalar_one()
+    assert rejected_count == 0
+
+    boundary_stock = await client.patch(
+        f"/api/inventory/{seeded['inventory_id']}",
+        json={"current_stock_mt": "200.00"},
+        headers=_headers(seeded["seller_id"], "unused-minimum-stock"),
+    )
+    assert boundary_stock.status_code == 200, boundary_stock.text
+    published = await client.post(
+        f"/api/inventory/{seeded['inventory_id']}/publish",
+        headers=_headers(seeded["seller_id"], "minimum-boundary-inventory"),
+    )
+    assert published.status_code == 200, published.text
+
+    async with seeded["factory"]() as session:
+        listing = await session.get(OrderBookOrder, published.json()["listing_id"])
+        item = await session.get(InventoryItem, seeded["inventory_id"])
+    assert listing.quantity_mt == Decimal("200.00")
+    assert listing.remaining_quantity_mt == Decimal("200.00")
+    assert item.current_stock_mt == Decimal("0.00")
+    assert item.reserved_stock_mt == Decimal("200.00")
 
 
 @pytest.mark.asyncio
@@ -655,18 +850,18 @@ async def test_inventory_quantity_cancel_and_historical_delete_contract(route_ma
 
     reduced = await client.put(
         f"/api/orderbook/{listing_id}",
-        json={"quantity_mt": "60.00"},
+        json={"quantity_mt": "200.00"},
         headers=_headers(seeded["seller_id"], "unused-order-update"),
     )
     assert reduced.status_code == 200, reduced.text
     async with seeded["factory"]() as session:
         item = await session.get(InventoryItem, seeded["inventory_id"])
-        assert item.current_stock_mt == Decimal("40.00")
-        assert item.reserved_stock_mt == Decimal("60.00")
+        assert item.current_stock_mt == Decimal("100.00")
+        assert item.reserved_stock_mt == Decimal("200.00")
 
     increased = await client.put(
         f"/api/orderbook/{listing_id}",
-        json={"quantity_mt": "80.00"},
+        json={"quantity_mt": "250.00"},
         headers=_headers(seeded["seller_id"], "unused-order-update-2"),
     )
     assert increased.status_code == 200, increased.text
@@ -677,7 +872,7 @@ async def test_inventory_quantity_cancel_and_historical_delete_contract(route_ma
     assert cancelled.status_code == 204, cancelled.text
     async with seeded["factory"]() as session:
         item = await session.get(InventoryItem, seeded["inventory_id"])
-        assert item.current_stock_mt == Decimal("100.00")
+        assert item.current_stock_mt == Decimal("300.00")
         assert item.reserved_stock_mt == Decimal("0.00")
 
     # Restrictive history ownership means cancellation makes stock editable,
@@ -699,7 +894,7 @@ async def test_inventory_partial_pending_confirm_and_cancel_conserve_stock(route
     listing_id = published.json()["listing_id"]
     created = await client.post(
         "/api/trades/",
-        json={"order_id": listing_id, "quantity_mt": "25.00"},
+        json={"order_id": listing_id, "quantity_mt": "101.00"},
         headers=_headers(seeded["buyer_id"], "partial-trade"),
     )
     assert created.status_code == 200, created.text
@@ -709,8 +904,8 @@ async def test_inventory_partial_pending_confirm_and_cancel_conserve_stock(route
         item = await session.get(InventoryItem, seeded["inventory_id"])
         order = await session.get(OrderBookOrder, listing_id)
         assert item.current_stock_mt == Decimal("0.00")
-        assert item.reserved_stock_mt == Decimal("100.00")
-        assert order.remaining_quantity_mt == Decimal("75.00")
+        assert item.reserved_stock_mt == Decimal("300.00")
+        assert order.remaining_quantity_mt == Decimal("199.00")
         assert order.status == OrderBookStatus.PARTIALLY_FILLED
 
     update_response, delete_response = await asyncio.gather(
@@ -739,7 +934,7 @@ async def test_inventory_partial_pending_confirm_and_cancel_conserve_stock(route
     assert cancelled.status_code == 204, cancelled.text
     async with seeded["factory"]() as session:
         item = await session.get(InventoryItem, seeded["inventory_id"])
-        assert item.current_stock_mt == Decimal("75.00")
+        assert item.current_stock_mt == Decimal("199.00")
         assert item.reserved_stock_mt == Decimal("0.00")
 
 
@@ -753,7 +948,7 @@ async def test_inventory_full_pending_decline_and_expiry_republication(route_mar
     listing_id = first.json()["listing_id"]
     created = await client.post(
         "/api/trades/",
-        json={"order_id": listing_id, "quantity_mt": "100.00"},
+        json={"order_id": listing_id, "quantity_mt": "300.00"},
         headers=_headers(seeded["buyer_id"], "full-trade"),
     )
     assert created.status_code == 200, created.text
@@ -761,8 +956,19 @@ async def test_inventory_full_pending_decline_and_expiry_republication(route_mar
     async with seeded["factory"]() as session:
         order = await session.get(OrderBookOrder, listing_id)
         item = await session.get(InventoryItem, seeded["inventory_id"])
+        benchmark = (
+            await session.execute(
+                select(LiveSliceBenchmark).where(
+                    LiveSliceBenchmark.side == "ASK",
+                    LiveSliceBenchmark.market_product == "BIO_METHANOL",
+                    LiveSliceBenchmark.delivery_point_id == seeded["point_id"],
+                    LiveSliceBenchmark.availability_window == "SPOT",
+                )
+            )
+        ).scalar_one_or_none()
         assert order.status == OrderBookStatus.FILLED
-        assert item.reserved_stock_mt == Decimal("100.00")
+        assert item.reserved_stock_mt == Decimal("300.00")
+        assert benchmark is None
 
     declined = await client.put(
         f"/api/trades/{trade_id}/decline",
@@ -772,10 +978,23 @@ async def test_inventory_full_pending_decline_and_expiry_republication(route_mar
     async with seeded["factory"]() as session:
         order = await session.get(OrderBookOrder, listing_id)
         item = await session.get(InventoryItem, seeded["inventory_id"])
+        benchmark = (
+            await session.execute(
+                select(LiveSliceBenchmark).where(
+                    LiveSliceBenchmark.side == "ASK",
+                    LiveSliceBenchmark.market_product == "BIO_METHANOL",
+                    LiveSliceBenchmark.delivery_point_id == seeded["point_id"],
+                    LiveSliceBenchmark.availability_window == "SPOT",
+                )
+            )
+        ).scalar_one()
         assert order.status == OrderBookStatus.OPEN
-        assert order.remaining_quantity_mt == Decimal("100.00")
+        assert order.remaining_quantity_mt == Decimal("300.00")
         assert item.current_stock_mt == Decimal("0.00")
-        assert item.reserved_stock_mt == Decimal("100.00")
+        assert item.reserved_stock_mt == Decimal("300.00")
+        assert benchmark.benchmark_price_per_mt_usd == Decimal("700.00")
+        assert benchmark.total_remaining_quantity_mt == Decimal("300.00")
+        assert benchmark.order_count == 1
         order.expires_at = datetime.now(UTC) - timedelta(seconds=1)
         await session.commit()
 
@@ -794,7 +1013,362 @@ async def test_inventory_full_pending_decline_and_expiry_republication(route_mar
         assert old_order.status == OrderBookStatus.EXPIRED
         assert new_order.status == OrderBookStatus.OPEN
         assert item.current_stock_mt == Decimal("0.00")
-        assert item.reserved_stock_mt == Decimal("100.00")
+        assert item.reserved_stock_mt == Decimal("300.00")
+
+
+@pytest.mark.asyncio
+async def test_committed_order_replays_after_expiry_but_fresh_request_is_rejected(
+    route_market, monkeypatch
+):
+    client, seeded = route_market
+    accepted_at = datetime.now(UTC)
+    expires_at = accepted_at + timedelta(hours=1)
+    payload = {
+        "side": "BID",
+        "product_id": str(seeded["product_id"]),
+        "delivery_point_id": str(seeded["point_id"]),
+        "quantity_mt": "200.00",
+        "price_per_mt_usd": "600.00",
+        "availability_window": "SPOT",
+        "expires_at": expires_at.isoformat(),
+    }
+
+    accepted = await client.post(
+        "/api/orderbook",
+        json=payload,
+        headers=_headers(seeded["buyer_id"], "elapsed-expiry-replay"),
+    )
+    assert accepted.status_code == 201, accepted.text
+    order_id = accepted.json()["id"]
+
+    async with seeded["factory"]() as session:
+        order_count_before = (
+            await session.execute(select(func.count(OrderBookOrder.id)))
+        ).scalar_one()
+        audit_count_before = (
+            await session.execute(
+                select(func.count(AuditLog.id)).where(AuditLog.action == ORDER_CREATED)
+            )
+        ).scalar_one()
+        event_count_before = (
+            await session.execute(select(func.count(MarketEventOutbox.id)))
+        ).scalar_one()
+
+    elapsed_now = expires_at + timedelta(seconds=1)
+
+    class ElapsedDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            if tz is None:
+                return elapsed_now.replace(tzinfo=None)
+            return elapsed_now.astimezone(tz)
+
+    monkeypatch.setattr(orderbook_router, "datetime", ElapsedDateTime)
+    replayed = await client.post(
+        "/api/orderbook",
+        json=payload,
+        headers=_headers(seeded["buyer_id"], "elapsed-expiry-replay"),
+    )
+    rejected = await client.post(
+        "/api/orderbook",
+        json=payload,
+        headers=_headers(seeded["buyer_id"], "fresh-expired-order"),
+    )
+
+    assert replayed.status_code == 201, replayed.text
+    assert replayed.json()["id"] == order_id
+    assert rejected.status_code == 400, rejected.text
+    assert rejected.json()["detail"] == "Order expiry must be in the future"
+
+    async with seeded["factory"]() as session:
+        order_count_after = (
+            await session.execute(select(func.count(OrderBookOrder.id)))
+        ).scalar_one()
+        audit_count_after = (
+            await session.execute(
+                select(func.count(AuditLog.id)).where(AuditLog.action == ORDER_CREATED)
+            )
+        ).scalar_one()
+        event_count_after = (
+            await session.execute(select(func.count(MarketEventOutbox.id)))
+        ).scalar_one()
+    assert order_count_after == order_count_before == 1
+    assert audit_count_after == audit_count_before == 1
+    assert event_count_after == event_count_before
+
+
+@pytest.mark.asyncio
+async def test_expiry_recheck_precedes_assisted_authorization_and_is_retryable(
+    route_market, monkeypatch
+):
+    client, seeded = route_market
+    monkeypatch.setattr(settings, "MARKET_SUPPORT_ENABLED", True)
+    real_now = datetime.now(UTC)
+
+    async with seeded["factory"]() as session:
+        admin = User(
+            email=f"admin-{uuid4()}@route.test",
+            password_hash="unused",
+            role=UserRole.ADMIN,
+            status=UserStatus.APPROVED,
+            email_verified=True,
+            kyc_status="APPROVED",
+        )
+        session.add(admin)
+        await session.flush()
+        session.add_all(
+            [
+                StaffCapabilityAssignment(
+                    user_id=admin.id,
+                    capability=capability,
+                    reason="Expiry admission regression",
+                    granted_by_user_id=admin.id,
+                )
+                for capability in MarketSupportCapability
+            ]
+        )
+        context = MarketSupportContext(
+            actor_user_id=admin.id,
+            organization_id=seeded["buyer_org_id"],
+            accountable_user_id=admin.id,
+            support_reference="CASE-EXPIRY-RECHECK",
+            scope=MarketSupportContextScope.ASSISTED_ORDER_ENTRY,
+            started_at=real_now,
+            expires_at=real_now + timedelta(hours=24),
+            status=MarketSupportContextStatus.ACTIVE,
+        )
+        session.add(context)
+        await session.commit()
+        admin_id = admin.id
+        context_id = context.id
+
+    idempotency_key = "expired-after-admission"
+    payload = {
+        "side": "BID",
+        "product_id": str(seeded["product_id"]),
+        "delivery_point_id": str(seeded["point_id"]),
+        "quantity_mt": "200.00",
+        "price_per_mt_usd": "600.00",
+        "availability_window": "SPOT",
+        "expires_at": (real_now + timedelta(hours=1)).isoformat(),
+        "support_confirmation": {
+            "external_instruction_reference": "CRM-EXPIRY-RECHECK",
+            "instruction_at": (real_now - timedelta(minutes=5)).isoformat(),
+            "acknowledge_exact_terms": True,
+            "acknowledge_executable_standing_order": True,
+        },
+    }
+    headers = {
+        **_headers(admin_id, idempotency_key),
+        "X-Verdaxis-Market-Support-Context": str(context_id),
+    }
+    future_now = real_now + timedelta(hours=2)
+
+    class FutureDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            if tz is None:
+                return future_now.replace(tzinfo=None)
+            return future_now.astimezone(tz)
+
+    async def advance_clock_after_preview(
+        boundary: str, *, operation: str, aggregate_id=None
+    ):
+        if boundary == "before_market_slice_lock" and operation == "order_admission":
+            clock_patch.setattr(orderbook_router, "datetime", FutureDateTime)
+
+    with monkeypatch.context() as clock_patch:
+        clock_patch.setattr(
+            market_transactions,
+            "transaction_boundary_hook",
+            advance_clock_after_preview,
+        )
+        expired = await client.post(
+            "/api/orderbook",
+            json=payload,
+            headers=headers,
+        )
+
+    assert expired.status_code == 400, expired.text
+    assert expired.json()["detail"] == "Order expiry must be in the future"
+    async with seeded["factory"]() as session:
+        assert (
+            await session.execute(
+                select(func.count(OrderBookOrder.id)).where(
+                    OrderBookOrder.idempotency_key == idempotency_key
+                )
+            )
+        ).scalar_one() == 0
+        assert (
+            await session.execute(
+                select(func.count(MarketSupportAuthorization.id)).where(
+                    MarketSupportAuthorization.idempotency_key == idempotency_key
+                )
+            )
+        ).scalar_one() == 0
+        assert (
+            await session.execute(
+                select(func.count(AuditLog.id)).where(
+                    AuditLog.user_id == admin_id,
+                    AuditLog.action.in_(
+                        [MARKET_SUPPORT_AUTHORIZATION_CREATED, ORDER_CREATED]
+                    ),
+                )
+            )
+        ).scalar_one() == 0
+
+    retry_payload = {
+        **payload,
+        "expires_at": (datetime.now(UTC) + timedelta(hours=3)).isoformat(),
+    }
+    retried = await client.post(
+        "/api/orderbook",
+        json=retry_payload,
+        headers=headers,
+    )
+    assert retried.status_code == 201, retried.text
+    async with seeded["factory"]() as session:
+        orders = (
+            await session.execute(
+                select(OrderBookOrder).where(
+                    OrderBookOrder.idempotency_key == idempotency_key
+                )
+            )
+        ).scalars().all()
+        authorizations = (
+            await session.execute(
+                select(MarketSupportAuthorization).where(
+                    MarketSupportAuthorization.idempotency_key == idempotency_key
+                )
+            )
+        ).scalars().all()
+    assert len(orders) == 1
+    assert len(authorizations) == 1
+    assert authorizations[0].status == MarketSupportAuthorizationStatus.CONSUMED
+    assert orders[0].support_authorization_id == authorizations[0].id
+
+    below_minimum_key = "assisted-below-minimum"
+    below_minimum_payload = {
+        **retry_payload,
+        "quantity_mt": "199.99",
+        "support_confirmation": {
+            **retry_payload["support_confirmation"],
+            "external_instruction_reference": "CRM-BELOW-MINIMUM",
+        },
+    }
+    async with seeded["factory"]() as session:
+        audit_count_before = (
+            await session.execute(
+                select(func.count(AuditLog.id)).where(
+                    AuditLog.user_id == admin_id,
+                    AuditLog.action.in_(
+                        [MARKET_SUPPORT_AUTHORIZATION_CREATED, ORDER_CREATED]
+                    ),
+                )
+            )
+        ).scalar_one()
+
+    below_minimum = await client.post(
+        "/api/orderbook",
+        json=below_minimum_payload,
+        headers={**headers, "Idempotency-Key": below_minimum_key},
+    )
+    assert below_minimum.status_code == 400, below_minimum.text
+    assert below_minimum.json()["detail"] == (
+        "Order quantity must be at least 200.00 MT for Bio Methanol"
+    )
+    async with seeded["factory"]() as session:
+        below_minimum_orders = (
+            await session.execute(
+                select(func.count(OrderBookOrder.id)).where(
+                    OrderBookOrder.idempotency_key == below_minimum_key
+                )
+            )
+        ).scalar_one()
+        below_minimum_authorizations = (
+            await session.execute(
+                select(func.count(MarketSupportAuthorization.id)).where(
+                    MarketSupportAuthorization.idempotency_key == below_minimum_key
+                )
+            )
+        ).scalar_one()
+        audit_count_after = (
+            await session.execute(
+                select(func.count(AuditLog.id)).where(
+                    AuditLog.user_id == admin_id,
+                    AuditLog.action.in_(
+                        [MARKET_SUPPORT_AUTHORIZATION_CREATED, ORDER_CREATED]
+                    ),
+                )
+            )
+        ).scalar_one()
+    assert below_minimum_orders == 0
+    assert below_minimum_authorizations == 0
+    assert audit_count_after == audit_count_before
+
+
+@pytest.mark.asyncio
+async def test_historical_subminimum_orders_remain_cancelable_and_fillable(route_market):
+    client, seeded = route_market
+    async with seeded["factory"]() as session:
+        historical_bid = OrderBookOrder(
+            organization_id=seeded["buyer_org_id"],
+            owner_user_id=seeded["buyer_id"],
+            provenance=OrganizationProvenance.REAL,
+            side="BID",
+            product_id=seeded["product_id"],
+            delivery_point_id=seeded["point_id"],
+            quantity_mt=Decimal("10.00"),
+            remaining_quantity_mt=Decimal("10.00"),
+            price_per_mt_usd=Decimal("600.00"),
+            availability_window="SPOT",
+            status=OrderBookStatus.OPEN,
+        )
+        historical_ask = OrderBookOrder(
+            organization_id=seeded["seller_org_id"],
+            owner_user_id=seeded["seller_id"],
+            provenance=OrganizationProvenance.REAL,
+            side="ASK",
+            product_id=seeded["product_id"],
+            delivery_point_id=seeded["point_id"],
+            quantity_mt=Decimal("10.00"),
+            remaining_quantity_mt=Decimal("10.00"),
+            price_per_mt_usd=Decimal("750.00"),
+            availability_window="SPOT",
+            status=OrderBookStatus.OPEN,
+            certification_declared=True,
+            certification_scheme="ISCC EU",
+            specification_standard="IMPCA",
+            msds_available=True,
+            carbon_intensity_gco2_mj=Decimal("20.00"),
+            feedstock="historical fixture",
+            origin="historical fixture",
+        )
+        session.add_all([historical_bid, historical_ask])
+        await session.commit()
+        bid_id = historical_bid.id
+        ask_id = historical_ask.id
+
+    cancelled = await client.delete(
+        f"/api/orderbook/{bid_id}",
+        headers=_headers(seeded["buyer_id"], "unused-historical-cancel"),
+    )
+    filled = await client.post(
+        "/api/trades/",
+        json={"order_id": str(ask_id), "quantity_mt": "10.00"},
+        headers=_headers(seeded["buyer_id"], "historical-small-fill"),
+    )
+    assert cancelled.status_code == 204, cancelled.text
+    assert filled.status_code == 200, filled.text
+
+    async with seeded["factory"]() as session:
+        bid = await session.get(OrderBookOrder, bid_id)
+        ask = await session.get(OrderBookOrder, ask_id)
+        trade = await session.get(Trade, filled.json()["id"])
+    assert bid.status == OrderBookStatus.CANCELLED
+    assert ask.status == OrderBookStatus.FILLED
+    assert ask.remaining_quantity_mt == Decimal("0.00")
+    assert trade.quantity_mt == Decimal("10.00")
 
 
 @pytest.mark.asyncio
@@ -806,7 +1380,7 @@ async def test_precommit_failure_writes_nothing_and_transport_absence_keeps_comm
         "side": "BID",
         "product_id": str(seeded["product_id"]),
         "delivery_point_id": str(seeded["point_id"]),
-        "quantity_mt": "10.00",
+        "quantity_mt": "200.00",
         "price_per_mt_usd": "600.00",
         "availability_window": "SPOT",
     }
