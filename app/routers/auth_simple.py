@@ -759,6 +759,8 @@ async def get_authenticated_user(
     """
     user, payload = await _resolve_authenticated_user(request, token, db)
     _validate_password_cutoff(user, payload)
+    if user.status != UserStatus.REJECTED:
+        _validate_authentication_revocation_cutoff(user, payload)
     return user
 
 

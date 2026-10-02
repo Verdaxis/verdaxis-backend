@@ -114,6 +114,15 @@ async def test_reject_reapprove_never_revives_old_tokens_and_fresh_login_works(
         )
         assert still_revoked.status_code == 401
         assert still_revoked.json()["detail"]["code"] == "AUTH_SESSION_REVOKED"
+        cleanup_after_reapproval = await client.get(
+            "/owner-cleanup-proof",
+            headers={"Authorization": f"Bearer {old_access_token}"},
+        )
+        assert cleanup_after_reapproval.status_code == 401
+        assert (
+            cleanup_after_reapproval.json()["detail"]["code"]
+            == "AUTH_SESSION_REVOKED"
+        )
 
         old_refresh = await client.post("/api/auth/refresh")
         assert old_refresh.status_code == 401

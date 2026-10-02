@@ -243,6 +243,32 @@ async def test_rejected_user_remains_authenticated_for_exact_owner_cleanup():
 
 
 @pytest.mark.asyncio
+async def test_reapproved_user_owner_cleanup_rejects_pre_rejection_token():
+    user = _eligible_user()
+    token = create_access_token(user.id)
+    user.authentication_revoked_at = datetime.now(UTC) + timedelta(microseconds=1)
+    result = MagicMock()
+    result.scalar_one_or_none.return_value = user
+    db = AsyncMock()
+    db.execute.return_value = result
+    request = Request(
+        {
+            "type": "http",
+            "method": "DELETE",
+            "path": "/api/orderbook/example",
+            "query_string": b"",
+            "headers": [],
+        }
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await auth_simple.get_authenticated_user(request, token, db)
+
+    assert exc_info.value.status_code == 401
+    assert exc_info.value.detail["code"] == "AUTH_SESSION_REVOKED"
+
+
+@pytest.mark.asyncio
 async def test_password_change_still_blocks_rejected_user_owner_cleanup():
     user = _eligible_user()
     user.status = UserStatus.REJECTED
