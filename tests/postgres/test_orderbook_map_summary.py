@@ -6,6 +6,7 @@ from uuid import UUID, uuid4
 
 import pytest
 
+from app.demo_identities import DEMO_SEED_SUPPLIERS
 from app.models.orderbook import OrderBookOrder, OrderBookStatus, OrderSide
 from app.models.user import Organization, OrganizationProvenance, OrgType
 from app.routers.orderbook import get_compact_map_summary, get_map_summary
@@ -22,8 +23,10 @@ async def test_compact_map_summary_matches_legacy_postgres_queries(
     demo_expiry = datetime.now(UTC) + timedelta(days=1)
 
     async with seeded["factory"]() as db:
+        demo_supplier_id, demo_supplier_name, _tier = DEMO_SEED_SUPPLIERS[0]
         demo_supplier = Organization(
-            name=f"Map parity demo {uuid4()}",
+            id=demo_supplier_id,
+            name=demo_supplier_name,
             type=OrgType.FUEL_SUPPLIER,
             provenance=OrganizationProvenance.DEMO,
             verification_status="APPROVED",
