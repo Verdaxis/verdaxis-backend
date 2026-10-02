@@ -35,7 +35,7 @@ jobs:
           ENVIRONMENT: test
           RELEASE_SHA: test
           JWT_SECRET: "test-secret-key-that-is-at-least-32-characters-long"
-        run: DATABASE_URL="sqlite+aiosqlite:///:memory:" pytest tests/unit -q
+        run: DATABASE_URL="sqlite+aiosqlite:///:memory:" pytest tests/unit tests/monitor/test_external_monitor.py tests/monitor/test_source_ownership.py -q
 
       - name: Dependency audit
         run: |
