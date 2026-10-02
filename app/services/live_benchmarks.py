@@ -5,8 +5,9 @@ from typing import Iterable
 from uuid import UUID
 
 from sqlalchemy import and_, or_, select
+from sqlalchemy.engine import Row
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import contains_eager, selectinload
+from sqlalchemy.orm import selectinload
 
 from app.models.catalog import DeliveryPoint, Product
 from app.models.live_slice_benchmark import LiveSliceBenchmark
@@ -28,8 +29,8 @@ def _text_present(value: str | None) -> bool:
     return bool((value or "").strip())
 
 
-def public_slice_order_qualified(order: OrderBookOrder) -> bool:
-    if order.product is None or order.product.market_product is None:
+def public_slice_order_qualified(order: OrderBookOrder | Row) -> bool:
+    if getattr(order, "market_product", None) is None:
         return False
     if order.status not in (OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED):
         return False
@@ -72,7 +73,7 @@ def normalize_live_benchmark_key(
     return (side, market_product, delivery_point_id, normalize_availability_window(availability_window))
 
 
-def live_benchmark_key_for_order(order: OrderBookOrder) -> LiveBenchmarkKey | None:
+def live_benchmark_key_for_order(order: OrderBookOrder | Row) -> LiveBenchmarkKey | None:
     return normalize_live_benchmark_key(
         order.side,
         order.market_product,
@@ -106,14 +107,30 @@ async def _calculate_live_slice_benchmarks(
         )
         for side, market_product, delivery_point_id, availability_window in requested_keys
     ]
+    market_product = canonical_market_product_expression(Product).label("market_product")
     result = await db.execute(
-        select(OrderBookOrder)
+        select(
+            OrderBookOrder.product_id,
+            OrderBookOrder.side,
+            market_product,
+            OrderBookOrder.delivery_point_id,
+            OrderBookOrder.availability_window,
+            OrderBookOrder.status,
+            OrderBookOrder.expires_at,
+            OrderBookOrder.remaining_quantity_mt,
+            OrderBookOrder.price_per_mt_usd,
+            OrderBookOrder.off_spec,
+            OrderBookOrder.certification_declared,
+            OrderBookOrder.certification_scheme,
+            OrderBookOrder.specification_standard,
+            OrderBookOrder.msds_available,
+            OrderBookOrder.carbon_intensity_gco2_mj,
+            OrderBookOrder.carbon_intensity_method,
+            OrderBookOrder.feedstock,
+            OrderBookOrder.origin,
+        )
         .join(Product, OrderBookOrder.product_id == Product.id)
         .join(DeliveryPoint, OrderBookOrder.delivery_point_id == DeliveryPoint.id)
-        .options(
-            contains_eager(OrderBookOrder.product),
-            contains_eager(OrderBookOrder.delivery_point),
-        )
         .where(
             or_(*key_clauses),
             OrderBookOrder.status.in_((OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED)),
@@ -124,29 +141,27 @@ async def _calculate_live_slice_benchmarks(
             canonical_delivery_point_clause(DeliveryPoint),
         )
     )
-    orders_by_key: dict[LiveBenchmarkKey, list[OrderBookOrder]] = {}
-    for order in result.unique().scalars().all():
+    totals_by_key: dict[LiveBenchmarkKey, tuple[Decimal, Decimal, int]] = {}
+    for order in result.all():
         key = live_benchmark_key_for_order(order)
         if key in requested_keys and public_slice_order_qualified(order):
-            orders_by_key.setdefault(key, []).append(order)
+            total_qty, weighted_sum, order_count = totals_by_key.get(
+                key,
+                (Decimal("0.00"), Decimal("0.00"), 0),
+            )
+            quantity = order.remaining_quantity_mt
+            totals_by_key[key] = (
+                total_qty + quantity,
+                weighted_sum + quantity * order.price_per_mt_usd,
+                order_count + 1,
+            )
 
     calculations: dict[LiveBenchmarkKey, tuple[Decimal, Decimal, int]] = {}
-    for key, qualifying_orders in orders_by_key.items():
-        total_qty = sum(
-            (order.remaining_quantity_mt for order in qualifying_orders),
-            Decimal("0.00"),
-        )
-        weighted_sum = sum(
-            (
-                order.remaining_quantity_mt * order.price_per_mt_usd
-                for order in qualifying_orders
-            ),
-            Decimal("0.00"),
-        )
+    for key, (total_qty, weighted_sum, order_count) in totals_by_key.items():
         calculations[key] = (
             (weighted_sum / total_qty).quantize(Decimal("0.01")),
             total_qty.quantize(Decimal("0.01")),
-            len(qualifying_orders),
+            order_count,
         )
     return calculations
 

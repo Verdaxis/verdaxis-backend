@@ -148,27 +148,33 @@ class _Subscriber:
         self.pid: int | None = None
 
     async def __aenter__(self) -> "_Subscriber":
-        client = await self._stack.enter_async_context(
-            httpx.AsyncClient(timeout=httpx.Timeout(10.0, read=_EVENT_WAIT_SECONDS))
-        )
-        headers = {}
-        if self._last_event_id is not None:
-            headers["Last-Event-ID"] = str(self._last_event_id)
-        token = create_stream_token(self._user_id, self._organization_id)
-        response = await self._stack.enter_async_context(
-            client.stream(
-                "GET",
-                f"{self._base_url}/api/stream/trades",
-                params={"stream_token": token},
-                headers=headers,
+        try:
+            client = await self._stack.enter_async_context(
+                httpx.AsyncClient(
+                    timeout=httpx.Timeout(10.0, read=_EVENT_WAIT_SECONDS)
+                )
             )
-        )
-        assert response.status_code == 200, await response.aread()
-        self._lines = response.aiter_lines()
-        origin = await asyncio.wait_for(self._read_frame(), timeout=10)
-        assert origin["comment"].startswith("stream-origin pid="), origin
-        self.pid = int(origin["comment"].split("=", 1)[1])
-        return self
+            headers = {}
+            if self._last_event_id is not None:
+                headers["Last-Event-ID"] = str(self._last_event_id)
+            token = create_stream_token(self._user_id, self._organization_id)
+            response = await self._stack.enter_async_context(
+                client.stream(
+                    "GET",
+                    f"{self._base_url}/api/stream/trades",
+                    params={"stream_token": token},
+                    headers=headers,
+                )
+            )
+            assert response.status_code == 200, await response.aread()
+            self._lines = response.aiter_lines()
+            origin = await asyncio.wait_for(self._read_frame(), timeout=10)
+            assert origin["comment"].startswith("stream-origin pid="), origin
+            self.pid = int(origin["comment"].split("=", 1)[1])
+            return self
+        except BaseException:
+            await self._stack.aclose()
+            raise
 
     async def __aexit__(self, *exc_info) -> None:
         await self._stack.aclose()
@@ -207,17 +213,46 @@ class _Subscriber:
 
 
 async def _open_subscribers_on_two_workers(base_url, user_id, org_id, stack):
-    """Open subscribers until they span >=2 distinct worker PIDs (max 24)."""
-    subscribers: list[_Subscriber] = []
-    for _ in range(24):
-        subscriber = await stack.enter_async_context(
-            _Subscriber(base_url, user_id, org_id)
-        )
-        subscribers.append(subscriber)
-        if len({item.pid for item in subscribers}) >= 2 and len(subscribers) >= 3:
-            return subscribers
+    """Open concurrent subscriber batches until two workers accept them."""
+    observed_pids: list[int | None] = []
+    deadline = time.monotonic() + _EVENT_WAIT_SECONDS
+    while time.monotonic() < deadline:
+        async with contextlib.AsyncExitStack() as batch_stack:
+            tasks = [
+                asyncio.create_task(
+                    batch_stack.enter_async_context(
+                        _Subscriber(base_url, user_id, org_id)
+                    )
+                )
+                for _ in range(_WORKERS)
+            ]
+            try:
+                subscribers = await asyncio.wait_for(
+                    asyncio.gather(*tasks),
+                    timeout=deadline - time.monotonic(),
+                )
+            except BaseException as exc:
+                for task in tasks:
+                    task.cancel()
+                await asyncio.gather(*tasks, return_exceptions=True)
+                if (
+                    isinstance(exc, asyncio.TimeoutError)
+                    and time.monotonic() >= deadline
+                ):
+                    break
+                raise
+            observed_pids.extend(subscriber.pid for subscriber in subscribers)
+            if len({subscriber.pid for subscriber in subscribers}) >= 2:
+                retained_stack = batch_stack.pop_all()
+                stack.push_async_callback(retained_stack.aclose)
+                return subscribers
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        await asyncio.sleep(min(0.5, remaining))
     raise AssertionError(
-        f"subscribers landed on one worker PID only: {[s.pid for s in subscribers]}"
+        "subscribers did not span two worker PIDs before the deadline: "
+        f"{observed_pids}"
     )
 
 
