@@ -47,6 +47,7 @@ from app.services.idempotency import (
     idempotency_request_hash,
 )
 from app.services.order_lifecycle import expire_market_slice_orders
+from app.services.order_quantity import require_minimum_order_quantity
 from app.services.auto_match_side_effects import collect_auto_match_side_effects
 from app.services.activity import order_activity_provenance
 from app.services.behavioral_analytics import (
@@ -445,6 +446,10 @@ async def publish_inventory_item(
     available_stock = Decimal(str(item.current_stock_mt or 0))
     if quantity > available_stock:
         raise HTTPException(status_code=400, detail="Inventory stock is already reserved or unavailable")
+    quantity = require_minimum_order_quantity(
+        quantity_mt=quantity,
+        product=locked_product,
+    )
 
     organization = organizations[current_user.organization_id]
     provenance = snapshot_organization_provenance(organization)

@@ -345,7 +345,7 @@
 ### Verify Git Read Access Under the Scheduled Job Account
 - **Date:** 2026-09-11
 - **Trigger:** The demo refresh reported a corrupt Git object, but the object checksum was valid and only the repository owner could read it.
-- **Rule:** Reproduce Git failures as the service account before diagnosing corruption. Preserve the release identity check; grant only the required read access and test a newly written object under a restrictive umask.
+- **Rule:** Reproduce Git failures as the service account before diagnosing corruption. Before refetch or repair, verify object ownership and mode, decompress its bytes, and recompute its Git object ID under the repository owner identity. Preserve the release identity check; grant only the required read access and test a newly written object under a restrictive umask.
 - **Resolution:** Production uses named read ACLs for `verdaxis-demo-production` on Git objects and refs, inherited ACLs for new entries, and `core.sharedRepository=0640` to preserve the ACL read mask. The job successfully refreshed Spot coverage without changing real-order expiry.
 
 ### Respect Notification Preferences Without Holding Customer Locks During Email

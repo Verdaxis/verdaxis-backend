@@ -865,11 +865,6 @@ async def create_trade(
         order.status = OrderBookStatus.PARTIALLY_FILLED
     order.bump_version()
 
-    await rebuild_live_slice_benchmarks_for_keys(
-        db,
-        [(order.side, order.market_product, order.delivery_point_id, order.availability_window)],
-    )
-
     # Flush is the actual INSERT point. Resolve a concurrent unique-key
     # winner here, while the transaction-scoped idempotency lock is still the
     # source of serialization.
@@ -909,6 +904,11 @@ async def create_trade(
             viewer_org_id=initiator_org_id,
             viewer_is_admin=current_user.role == UserRole.ADMIN,
         )
+
+    await rebuild_live_slice_benchmarks_for_keys(
+        db,
+        [(order.side, order.market_product, order.delivery_point_id, order.availability_window)],
+    )
     await emit_order_updated(db, before=before_state, order=order)
 
     # Notify counterparty organization
