@@ -570,6 +570,8 @@ async def test_raw_app_cannot_promote_rewrite_controls_set_role_or_delegate():
     registration_org_id = uuid4()
     admin_invited_org_id = uuid4()
     registration_user_id = uuid4()
+    command_result_id = uuid4()
+    command_resource_id = uuid4()
 
     # Integration note: organizations.provenance, seed_runs, and
     # market_row_quarantines are real migration-owned objects on the
@@ -680,6 +682,33 @@ async def test_raw_app_cannot_promote_rewrite_controls_set_role_or_delegate():
                         "resource_id": str(registration_user_id),
                     },
                 )
+                await connection.execute(
+                    text(
+                        "INSERT INTO public.market_command_results "
+                        "(id, actor_user_id, effective_organization_id, operation, "
+                        "idempotency_key, request_hash, resource_type, resource_id, "
+                        "response_status, response_body) VALUES "
+                        "(:id, :user_id, :org_id, 'trade.confirm', "
+                        "'runtime-acl-command', :request_hash, 'trade', "
+                        ":resource_id, 200, '{\"status\": \"CONFIRMED\"}'::jsonb)"
+                    ),
+                    {
+                        "id": command_result_id,
+                        "user_id": registration_user_id,
+                        "org_id": registration_org_id,
+                        "request_hash": "a" * 64,
+                        "resource_id": command_resource_id,
+                    },
+                )
+                assert (
+                    await connection.execute(
+                        text(
+                            "SELECT response_status FROM public.market_command_results "
+                            "WHERE id = :id"
+                        ),
+                        {"id": command_result_id},
+                    )
+                ).scalar_one() == 200
         finally:
             await registration_engine.dispose()
 
@@ -753,6 +782,8 @@ async def test_raw_app_cannot_promote_rewrite_controls_set_role_or_delegate():
             "DELETE FROM public.audit_logs",
             "UPDATE public.user_status_transitions SET provenance = provenance",
             "DELETE FROM public.user_status_transitions",
+            "UPDATE public.market_command_results SET response_status = 201",
+            "DELETE FROM public.market_command_results",
             "UPDATE public.market_row_quarantines SET reason = 'accepted'",
             "UPDATE public.organization_market_approvals SET reason = 'accepted'",
             "DELETE FROM public.organization_market_approvals",
@@ -882,6 +913,10 @@ async def test_raw_app_cannot_promote_rewrite_controls_set_role_or_delegate():
         await _execute_admin(
             "DELETE FROM public.user_status_transitions "
             f"WHERE user_id = '{registration_user_id}'"
+        )
+        await _execute_admin(
+            "DELETE FROM public.market_command_results "
+            f"WHERE id = '{command_result_id}'"
         )
         await _execute_admin(
             f"DELETE FROM public.users WHERE id = '{registration_user_id}'"
