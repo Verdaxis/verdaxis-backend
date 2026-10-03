@@ -12,6 +12,7 @@ from app.models.forward_monitoring import FairPriceBand, MarketIndication, Physi
 from app.models.orderbook import OrderSide
 from app.seeds.catalog_seed import DELIVERY_POINT_IDS, PRODUCTS
 from app.seeds.market_seed import PRICING, SPOT_WINDOW, _seed_price_for_slice
+from app.services.availability_windows import forward_monitoring_default_windows
 
 
 DEMO_FORWARD_MONITORING_SOURCE = "demo_seed"
@@ -38,32 +39,6 @@ def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def _add_month_offset(year: int, month: int, offset: int) -> tuple[int, int]:
-    zero_based = month - 1 + offset
-    return year + (zero_based // 12), (zero_based % 12) + 1
-
-
-def _default_curve_windows(reference_now: datetime) -> list[str]:
-    """Mirror the board's default focus windows without importing the router."""
-    year = reference_now.year
-    month = reference_now.month
-    quarter = ((month - 1) // 3) + 1
-
-    windows = [SPOT_WINDOW]
-    for offset in range(1, 7):
-        next_year, next_month = _add_month_offset(year, month, offset)
-        windows.append(f"{next_year}-{next_month:02d}")
-
-    for offset in range(1, 5):
-        absolute_quarter = (year * 4) + (quarter - 1) + offset
-        quarter_year = absolute_quarter // 4
-        next_quarter = (absolute_quarter % 4) + 1
-        windows.append(f"{quarter_year}-Q{next_quarter}")
-
-    windows.extend([f"{year + 1}-CAL", f"{year + 2}-CAL"])
-    return windows
-
-
 def _demo_slices(reference_now: datetime) -> list[tuple[str, str, str]]:
     slices: list[tuple[str, str, str]] = []
     seen: set[tuple[str, str, str]] = set()
@@ -78,7 +53,9 @@ def _demo_slices(reference_now: datetime) -> list[tuple[str, str, str]]:
         for port_name in ports:
             add(product_name, port_name, SPOT_WINDOW)
 
-    curve_windows = _default_curve_windows(reference_now)
+    curve_windows = forward_monitoring_default_windows(
+        reference_date=reference_now.date(),
+    )
     for window in curve_windows:
         add("Bio Methanol", "Singapore", window)
 
@@ -201,7 +178,9 @@ async def seed_forward_monitoring_demo_data(
 ) -> ForwardMonitoringSeedResult:
     """Seed explicit demo-only monitoring signal rows for staging review."""
     now = reference_now or _utcnow()
-    curve_windows = _default_curve_windows(now)
+    curve_windows = forward_monitoring_default_windows(
+        reference_date=now.date(),
+    )
 
     deleted_indications, deleted_fair_price_bands, deleted_physical_stems = await _delete_demo_rows(db)
 

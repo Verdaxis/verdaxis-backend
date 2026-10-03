@@ -145,6 +145,32 @@ def availability_window_display_label(value: str) -> str:
     return normalized
 
 
+def forward_monitoring_default_windows(
+    *,
+    reference_date: date,
+) -> list[str]:
+    """Return the ordered default windows for the Forward Curve monitoring view."""
+    year = reference_date.year
+    month = reference_date.month
+    quarter = ((month - 1) // 3) + 1
+
+    windows = [SPOT_WINDOW]
+    for offset in range(1, 7):
+        zero_based = month - 1 + offset
+        next_year = year + (zero_based // 12)
+        next_month = (zero_based % 12) + 1
+        windows.append(f"{next_year}-{next_month:02d}")
+
+    for offset in range(1, 5):
+        absolute_quarter = (year * 4) + (quarter - 1) + offset
+        quarter_year = absolute_quarter // 4
+        next_quarter = (absolute_quarter % 4) + 1
+        windows.append(f"{quarter_year}-Q{next_quarter}")
+
+    windows.extend([f"{year + 1}-CAL", f"{year + 2}-CAL"])
+    return windows
+
+
 def tradable_availability_windows(
     *,
     today: date | None = None,
