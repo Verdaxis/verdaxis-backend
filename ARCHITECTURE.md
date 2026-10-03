@@ -163,7 +163,7 @@ alembic/versions/               # Migrations incl. canonical availability-window
 - **Managed demo book:** The four alcohol demo markets share one UTC pricing clock and ten distinct bids and asks per port/window across the five-year horizon. Spot anchors stay fixed; forwards add a disclosed synthetic 3% annual carry on an ACT/365 basis. Bootstrap and periodic refresh use the same managed coverage; activity adds matched history only. Managed demo-only curves use the current book midpoint while retaining historical evidence. UCOME B100 has no synthetic seed liquidity. Refresh preserves order identity and pins; pruning retains linked customer and trade history.
 - **B100 shared orderbook:** UCOME B100 is ORDERBOOK-enabled on the existing Singapore lane, with typed side-specific `fame_terms`, shared execution compatibility and immutable trade/negotiation snapshots. Marketplace, Map, price evidence and forward curves use the same catalog identity. Prior indicative supplier offers/RFQs retain their original meaning and are not converted into executable orders. The deployment checkpoint is `fame_20260922_b100_orderbook`.
 - **Green-fuels market model:** Matching and live slice benchmarks key on `side + market_product + delivery_point + availability_window`; supplier sustainability/compliance fields stay out of the hard market key
-- **Orderbook read performance:** List responses reuse joined product/delivery-point rows and eager-load organization data. Benchmark inputs are fetched once for all requested slices, including cached missing results within the request. `/orderbook/map-summary` returns all eligible compact groups and the latest ASK per delivery point; `/orderbook/product-counts` uses the public listing filters for all four product totals.
+- **Orderbook read performance:** List responses reuse joined product/delivery-point rows and eager-load organization data. Benchmark inputs are fetched once for all requested slices, including cached missing results within the request. `/orderbook/map-summary` returns all eligible compact groups and the latest ASK per delivery point; `/orderbook/product-counts` uses the public listing filters for canonical product totals.
 - **Market provenance contract:** Market-data responses use shared `source_kind`, `scope`, and `demo_status` fields. Aggregate data exposes real/demo/unknown counts; unknown contributors remain `UNKNOWN` rather than being collapsed into real/demo/mixed.
 - **Forward Curve monitoring:** `/curves/forward/table` and `/curves/forward/slice` use `forward_curve_market_slices.py` as the canonical public read model for approved `market_product + delivery_point + availability_window` slices. Products aggregate by canonical market product, delivery points are restricted to the approved trading ports, and public cells expose server-owned label policy plus redacted source/demo/staleness fields. Complete grid lookups use compact axis predicates; sparse selections keep exact tuple predicates. Table projection validates cell attributes without serializing nested detail. Focus reads select trusted REAL evidence before applying their limit and use DEMO only when no REAL result exists. `/curves/forward/board` remains for older clients.
 - **Real signal ingestion:** `scripts/ingest_market_signals.py` (staging-guarded, dry-run default) + `services/market_signal_ingestion.py` produce verified `market_signal_ingestion_runs` whose rows satisfy the trust predicate in `forward_monitoring.py` and render as REAL. CSV formats, staleness semantics, redaction invariants, and rollback SQL: `docs/market-signal-ingestion.md`.
@@ -205,3 +205,30 @@ remain zero until the necessary eligibility and annual balance inputs exist.
 2. **Compliance SaaS ($200-500/vessel/mo)** — /compliance/fleet, /compliance/scenario
 3. **Data products ($1K-5K/seat/mo)** — /prices/reference (daily VWAP)
 4. **Platform analytics** — /admin/analytics/overview, /admin/analytics/daily, /admin/analytics/product-usage
+
+## Reviewed trading and snapshot contracts (2026-10-03)
+
+`services/order_terms.py` binds a direct hit to the selected order's exact terms.
+New requests compare `expected_terms_digest` after market and row locks; missing or
+changed terms return `ORDER_TERMS_REVIEW_REQUIRED` before reservation. Successful
+same-key replay returns the stored trade before current-term validation.
+
+`GET /orderbook/snapshot` returns at most 15 individual orders per side for one
+canonical product, delivery point and window. A fresh repeatable-read transaction
+and one captured UTC time govern depth, expiry and quote references. Ranked depth
+and batched references use two data statements. The response reports generation
+time, scope and demo provenance; it does not represent confirmed trade prices.
+
+Orders persist `acceptance_ordinal`, allocated after the market lock. Price, ordinal
+and UUID determine queue priority. Price changes, quantity increases and broader
+execution terms reset priority; reductions and fills retain it. Migration
+`obp_20261003_acceptance_priority` follows `auth_20261002_session_cutoff`, backfills
+legacy rows deterministically and grants the runtime role sequence USAGE only.
+The 100-candidate matching limit remains an atomic HTTP 409 rejection.
+
+Private event replay pages authorized rows through a captured high-water mark and
+merges ordered live events. Global sequence holes are valid. Queue overflow closes
+the connection with an explicit full-REST-resync contract. Payloads carry schema
+version 1. Public reconnect invalidates cached reads; public feeds do not provide
+a committed L2 delta feed. General lifecycle commands still lack immutable keyed
+transition-result replay. See the implementation plan for the bounded scope.
