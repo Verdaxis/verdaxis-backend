@@ -193,7 +193,7 @@ async def test_cutoff_downgrade_fails_fast_behind_concurrent_user_write(
             .returning(User.authentication_revoked_at)
         )
 
-        def downgrade() -> subprocess.CompletedProcess[str]:
+        def migrate(*arguments: str) -> subprocess.CompletedProcess[str]:
             environment = {
                 **os.environ,
                 "DATABASE_URL": analytics_pg_url,
@@ -201,7 +201,7 @@ async def test_cutoff_downgrade_fails_fast_behind_concurrent_user_write(
                 "ENVIRONMENT": "test",
             }
             return subprocess.run(
-                [sys.executable, "-m", "alembic", "downgrade", "-1"],
+                [sys.executable, "-m", "alembic", *arguments],
                 cwd=Path(__file__).resolve().parents[2],
                 env=environment,
                 capture_output=True,
@@ -210,10 +210,19 @@ async def test_cutoff_downgrade_fails_fast_behind_concurrent_user_write(
                 check=False,
             )
 
-        refused = await asyncio.to_thread(downgrade)
-        assert refused.returncode != 0
-        assert "could not obtain lock on relation" in refused.stderr.lower()
+        refused = await asyncio.to_thread(
+            migrate, "downgrade", "fame_20260922_b100_orderbook"
+        )
         await holder.commit()
+
+    async with factory() as verification:
+        revision_after_refusal = await verification.scalar(
+            text("SELECT version_num FROM alembic_version")
+        )
+
+    restored = await asyncio.to_thread(
+        migrate, "upgrade", "obp_20261003_acceptance_priority"
+    )
 
     async with factory() as verification:
         stored_cutoff = await verification.scalar(
@@ -223,9 +232,14 @@ async def test_cutoff_downgrade_fails_fast_behind_concurrent_user_write(
             text("SELECT version_num FROM alembic_version")
         )
 
+    assert refused.returncode != 0
+    assert "could not obtain lock on relation" in refused.stderr.lower()
+    assert revision_after_refusal == "obp_20261003_acceptance_priority"
+    assert restored.returncode == 0, restored.stderr
     assert cutoff is not None
     assert stored_cutoff == cutoff
     assert revision == "obp_20261003_acceptance_priority"
+
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("selected_role", [UserRole.BUYER, UserRole.SUPPLIER])

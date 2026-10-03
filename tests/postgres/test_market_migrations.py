@@ -366,11 +366,14 @@ async def test_acceptance_priority_backfills_by_creation_time_and_id(
             database_url, "SELECT id FROM products WHERE name = 'Bio Methanol'"
         )
     ).scalar_one()
-    point_id = (
-        await _database_execute(
-            database_url, "SELECT id FROM delivery_points WHERE name = 'Singapore'"
-        )
-    ).scalar_one()
+    await _database_execute(
+        database_url,
+        "INSERT INTO delivery_points "
+        "(id, name, region, timezone, is_active) VALUES "
+        "(:id, 'Singapore', 'Asia', 'Asia/Singapore', true)",
+        {"id": _SINGAPORE_POINT},
+    )
+    point_id = _SINGAPORE_POINT
     for order_id in reversed(order_ids):
         await _database_execute(
             database_url,
