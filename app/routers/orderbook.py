@@ -698,8 +698,8 @@ def _snapshot_depth_order() -> tuple[object, ...]:
             (OrderBookOrder.side == OrderSide.ASK, OrderBookOrder.price_per_mt_usd),
             else_=None,
         ).asc(),
-        OrderBookOrder.created_at.desc(),
-        OrderBookOrder.id.desc(),
+        OrderBookOrder.acceptance_ordinal.asc(),
+        OrderBookOrder.id.asc(),
     )
 
 
