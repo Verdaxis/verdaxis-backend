@@ -20,6 +20,7 @@ from app.market_catalog import DELIVERY_POINTS_BY_NAME, PRODUCTS_BY_CODE
 from app.models.audit import AuditLog
 from app.models.catalog import DeliveryPoint, Product
 from app.models.live_slice_benchmark import LiveSliceBenchmark
+from app.models.command_result import MarketCommandResult
 from app.models.market_event import MarketEventOutbox
 from app.models.market_support import (
     MarketSupportAuthorization,
@@ -32,6 +33,7 @@ from app.models.market_support import (
 )
 from app.models.marketplace import FuelType, InventoryItem
 from app.models.negotiation import Negotiation, NegotiationStatus
+from app.models.notification import Notification
 from app.models.orderbook import OrderBookOrder, OrderBookStatus, Trade, TradeStatus
 from app.models.port import Port
 from app.models.subscription import Subscription, SubscriptionTier
@@ -440,6 +442,243 @@ async def test_manual_trade_keeps_seller_fee_snapshot_and_hides_it_from_buyer(
     assert buyer_view["commission_plan"] is None
     assert buyer_view["commission_fee_per_mt_usd"] is None
     assert buyer_view["commission_amount_usd"] is None
+
+
+@pytest.mark.asyncio
+async def test_six_command_results_replay_exact_snapshots_without_new_effects(
+    route_market, monkeypatch
+):
+    client, seeded = route_market
+    published = await client.post(
+        f"/api/inventory/{seeded['inventory_id']}/publish",
+        headers=_headers(seeded["seller_id"], "command-replay-publish"),
+    )
+    assert published.status_code == 200, published.text
+    listing_id = published.json()["listing_id"]
+
+    async def create_trade(key: str, quantity: str):
+        digest = await _reviewed_terms_digest(seeded, listing_id)
+        response = await client.post(
+            "/api/trades/",
+            json={
+                "order_id": listing_id,
+                "quantity_mt": quantity,
+                "expected_terms_digest": digest,
+            },
+            headers=_headers(seeded["buyer_id"], key),
+        )
+        assert response.status_code == 200, response.text
+        return response.json()["id"]
+
+    lifecycle_trade_id = await create_trade("command-replay-trade-one", "50.00")
+    confirm_headers = _headers(seeded["seller_id"], "command-replay-confirm")
+    deliver_headers = _headers(seeded["seller_id"], "command-replay-deliver")
+    pay_headers = _headers(seeded["seller_id"], "command-replay-pay")
+    confirmed = await client.put(
+        f"/api/trades/{lifecycle_trade_id}/confirm", headers=confirm_headers
+    )
+    delivered_payload = {
+        "final_quantity_mt": "40.00",
+        "final_price_per_mt": "700.00",
+    }
+    delivered = await client.put(
+        f"/api/trades/{lifecycle_trade_id}/deliver",
+        json=delivered_payload,
+        headers=deliver_headers,
+    )
+    paid = await client.post(
+        f"/api/trades/{lifecycle_trade_id}/pay", headers=pay_headers
+    )
+    assert [confirmed.status_code, delivered.status_code, paid.status_code] == [200, 200, 200]
+    assert confirmed.json()["status"] == "CONFIRMED"
+    assert delivered.json()["status"] == "DELIVERED"
+    assert paid.json()["status"] == "PAID"
+    assert delivered.json()["final_quantity_mt"] == "40.00"
+    assert delivered.json()["final_total_usd"] == "28000.00"
+
+    declined_trade_id = await create_trade("command-replay-trade-two", "25.00")
+    decline_headers = _headers(seeded["seller_id"], "command-replay-decline")
+    declined = await client.put(
+        f"/api/trades/{declined_trade_id}/decline", headers=decline_headers
+    )
+    assert declined.status_code == 200, declined.text
+    assert declined.json()["status"] == "DECLINED"
+
+    expires_at = datetime.now(UTC) + timedelta(hours=1)
+    created_order = await client.post(
+        "/api/orderbook",
+        json={
+            "side": "BID",
+            "product_id": str(seeded["product_id"]),
+            "delivery_point_id": str(seeded["point_id"]),
+            "quantity_mt": "200.00",
+            "price_per_mt_usd": "600.00",
+            "availability_window": "SPOT",
+        },
+        headers=_headers(seeded["buyer_id"], "command-replay-order-create"),
+    )
+    assert created_order.status_code == 201, created_order.text
+    order_id = created_order.json()["id"]
+    amend_payload = {
+        "price_per_mt_usd": "610.00",
+        "expires_at": expires_at.isoformat(),
+    }
+    amend_headers = _headers(seeded["buyer_id"], "command-replay-amend")
+    amended = await client.put(
+        f"/api/orderbook/{order_id}", json=amend_payload, headers=amend_headers
+    )
+    assert amended.status_code == 200, amended.text
+    cancel_headers = _headers(seeded["buyer_id"], "command-replay-cancel")
+    cancelled = await client.delete(
+        f"/api/orderbook/{order_id}", headers=cancel_headers
+    )
+    assert cancelled.status_code == 204, cancelled.text
+
+    async with seeded["factory"]() as session:
+        baseline = {
+            "audits": (await session.execute(select(func.count(AuditLog.id)))).scalar_one(),
+            "events": (
+                await session.execute(select(func.count(MarketEventOutbox.id)))
+            ).scalar_one(),
+            "notifications": (
+                await session.execute(select(func.count(Notification.id)))
+            ).scalar_one(),
+            "receipts": (
+                await session.execute(select(func.count(MarketCommandResult.id)))
+            ).scalar_one(),
+        }
+        inventory = await session.get(InventoryItem, seeded["inventory_id"])
+        inventory_snapshot = (inventory.current_stock_mt, inventory.reserved_stock_mt)
+    assert baseline["receipts"] == 6
+
+    elapsed_now = expires_at + timedelta(seconds=1)
+
+    class ElapsedDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            if tz is None:
+                return elapsed_now.replace(tzinfo=None)
+            return elapsed_now.astimezone(tz)
+
+    monkeypatch.setattr(orderbook_router, "datetime", ElapsedDateTime)
+    replayed_confirm = await client.put(
+        f"/api/trades/{lifecycle_trade_id}/confirm", headers=confirm_headers
+    )
+    replayed_deliver = await client.put(
+        f"/api/trades/{lifecycle_trade_id}/deliver",
+        json=delivered_payload,
+        headers=deliver_headers,
+    )
+    replayed_pay = await client.post(
+        f"/api/trades/{lifecycle_trade_id}/pay", headers=pay_headers
+    )
+    replayed_decline = await client.put(
+        f"/api/trades/{declined_trade_id}/decline", headers=decline_headers
+    )
+    replayed_amend = await client.put(
+        f"/api/orderbook/{order_id}", json=amend_payload, headers=amend_headers
+    )
+    replayed_cancel = await client.delete(
+        f"/api/orderbook/{order_id}", headers=cancel_headers
+    )
+
+    for original, replay in (
+        (confirmed, replayed_confirm),
+        (delivered, replayed_deliver),
+        (paid, replayed_pay),
+        (declined, replayed_decline),
+        (amended, replayed_amend),
+        (cancelled, replayed_cancel),
+    ):
+        assert replay.status_code == original.status_code, replay.text
+        if original.status_code == 204:
+            assert replay.content == original.content == b""
+        else:
+            assert replay.json() == original.json()
+
+    conflicts = [
+        await client.put(
+            f"/api/trades/{lifecycle_trade_id}/deliver",
+            json={**delivered_payload, "final_quantity_mt": "41.00"},
+            headers=deliver_headers,
+        ),
+        await client.put(
+            f"/api/trades/{lifecycle_trade_id}/decline", headers=decline_headers
+        ),
+        await client.put(
+            f"/api/orderbook/{order_id}",
+            json={**amend_payload, "price_per_mt_usd": "620.00"},
+            headers=amend_headers,
+        ),
+        await client.delete(
+            f"/api/orderbook/{order_id}",
+            headers={**cancel_headers, "If-Match": '"changed"'},
+        ),
+    ]
+    assert [response.status_code for response in conflicts] == [409, 409, 409, 409]
+
+    fresh_elapsed = await client.put(
+        f"/api/orderbook/{order_id}",
+        json=amend_payload,
+        headers=_headers(seeded["buyer_id"], "command-replay-amend-fresh"),
+    )
+    assert fresh_elapsed.status_code == 422, fresh_elapsed.text
+
+    invalid_context = await client.delete(
+        f"/api/orderbook/{order_id}",
+        headers={
+            **cancel_headers,
+            "X-Verdaxis-Market-Support-Context": str(uuid4()),
+        },
+    )
+    assert invalid_context.status_code == 403, invalid_context.text
+    assert (
+        invalid_context.json()["detail"]["code"]
+        == "MARKET_SUPPORT_MUTATION_NOT_ALLOWED"
+    )
+
+    async with seeded["factory"]() as session:
+        changed_org = Organization(
+            name=f"Changed seller org {uuid4()}",
+            type=OrgType.FUEL_SUPPLIER,
+            verification_status="APPROVED",
+        )
+        session.add(changed_org)
+        await session.flush()
+        await assign_fixture_real_provenance(session, (changed_org,))
+        seller = await session.get(User, seeded["seller_id"])
+        seller.organization_id = changed_org.id
+        await session.commit()
+    changed_org_replay = await client.put(
+        f"/api/trades/{lifecycle_trade_id}/confirm", headers=confirm_headers
+    )
+    assert changed_org_replay.status_code == 409, changed_org_replay.text
+
+    async with seeded["factory"]() as session:
+        seller = await session.get(User, seeded["seller_id"])
+        seller.authentication_revoked_at = datetime.now(UTC) + timedelta(seconds=1)
+        await session.commit()
+    revoked_replay = await client.put(
+        f"/api/trades/{lifecycle_trade_id}/confirm", headers=confirm_headers
+    )
+    assert revoked_replay.status_code == 401, revoked_replay.text
+
+    async with seeded["factory"]() as session:
+        after = {
+            "audits": (await session.execute(select(func.count(AuditLog.id)))).scalar_one(),
+            "events": (
+                await session.execute(select(func.count(MarketEventOutbox.id)))
+            ).scalar_one(),
+            "notifications": (
+                await session.execute(select(func.count(Notification.id)))
+            ).scalar_one(),
+            "receipts": (
+                await session.execute(select(func.count(MarketCommandResult.id)))
+            ).scalar_one(),
+        }
+        inventory = await session.get(InventoryItem, seeded["inventory_id"])
+        assert (inventory.current_stock_mt, inventory.reserved_stock_mt) == inventory_snapshot
+    assert after == baseline
 
 
 @pytest.mark.asyncio

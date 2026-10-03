@@ -61,3 +61,48 @@ class UserBrowsingEvent(Base):
         default=lambda: datetime.now(UTC),
         server_default=func.now(),
     )
+
+
+class UserActivityDeliveryReport(Base):
+    """A browser-reported lower bound on identified activity delivery loss."""
+
+    __tablename__ = "user_activity_delivery_reports"
+    __table_args__ = (
+        PrimaryKeyConstraint(
+            "user_id",
+            "report_id",
+            name="pk_user_activity_delivery_reports",
+        ),
+        CheckConstraint(
+            "dropped_events BETWEEN 0 AND 10000",
+            name="ck_user_activity_delivery_reports_dropped",
+        ),
+        CheckConstraint(
+            "rejected_events BETWEEN 0 AND 10000",
+            name="ck_user_activity_delivery_reports_rejected",
+        ),
+        CheckConstraint(
+            "dropped_events + rejected_events > 0",
+            name="ck_user_activity_delivery_reports_positive_loss",
+        ),
+        Index(
+            "ix_user_activity_delivery_reports_user_received",
+            "user_id",
+            "received_at",
+        ),
+        Index("ix_user_activity_delivery_reports_received", "received_at"),
+    )
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+    )
+    report_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True))
+    dropped_events: Mapped[int] = mapped_column(Integer, nullable=False)
+    rejected_events: Mapped[int] = mapped_column(Integer, nullable=False)
+    received_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(UTC),
+        server_default=func.now(),
+    )

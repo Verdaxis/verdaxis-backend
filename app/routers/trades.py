@@ -4,6 +4,7 @@ from decimal import Decimal, ROUND_HALF_UP
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status, Query
+from fastapi.responses import JSONResponse
 from sqlalchemy import and_, case, select, or_, func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -30,6 +31,11 @@ from app.schemas.orderbook import TradeCreate, TradeResponse, TradeDeliverPayloa
 from app.schemas.pagination import PaginatedResponse
 from app.services.activity import trade_activity_provenance
 from app.services.market_events import enqueue_market_events, participant_market_event
+from app.services.market_data_eligibility import (
+    public_inventory_is_visible,
+    public_order_is_visible,
+    public_trade_is_visible,
+)
 from app.services.market_transactions import retry_market_transaction
 from app.services import market_transactions
 from app.services.watchlist_events import _best_slice_price, emit_order_updated
@@ -41,6 +47,14 @@ from app.services.execution_policy import (
 from app.services.live_benchmarks import rebuild_live_slice_benchmarks_for_keys
 from app.services.demo_market import is_demo_market_organization
 from app.services.provenance import coerce_provenance, execution_provenance_compatible, snapshot_organization_provenance
+from app.services.command_results import (
+    TRADE_CONFIRM_OPERATION,
+    TRADE_DECLINE_OPERATION,
+    TRADE_DELIVER_OPERATION,
+    TRADE_PAY_OPERATION,
+    prepare_command_attempt,
+    record_command_success,
+)
 from app.services.idempotency import (
     TRADE_CREATE_OPERATION,
     acquire_idempotency_lock,
@@ -841,6 +855,7 @@ async def create_trade(
             detail=f"Requested quantity ({payload.quantity_mt}) exceeds remaining ({order.remaining_quantity_mt})",
         )
 
+    public_order_before = await public_order_is_visible(db, order.id)
     before_state = await _watchlist_before_state(db, order)
 
     commission_plan, commission_fee_per_mt_usd = await resolve_seller_trade_fee(
@@ -977,6 +992,10 @@ async def create_trade(
                     "fuel_type": trade.fuel_type or "",
                     "region": trade.delivery_point_region or "",
                 },
+                public_market_invalidation=(
+                    public_order_before
+                    or await public_order_is_visible(db, order.id)
+                ),
             )
         ],
     )
@@ -1113,8 +1132,18 @@ async def confirm_trade(
     trade_id: UUID,
     request: Request,
     db: Annotated[AsyncSession, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_execution_eligible_user)],
+    current_user: Annotated[User, Depends(get_current_user)],
 ):
+    org_id = current_user.organization_id
+    command = await prepare_command_attempt(
+        db, request, actor_user_id=current_user.id,
+        effective_organization_id=org_id, support_context_id=None,
+        operation=TRADE_CONFIRM_OPERATION, resource_type="trade",
+        resource_id=trade_id, payload={"operation": TRADE_CONFIRM_OPERATION, "trade_id": trade_id},
+    )
+    if command is not None and command.replay is not None:
+        return JSONResponse(status_code=command.replay.response_status, content=command.replay.response_body)
+    await require_execution_eligible_user(current_user=current_user, db=db)
     trade, confirmed_order = await _lock_trade_market_rows(
         db, trade_id, operation="trade_confirm"
     )
@@ -1133,8 +1162,6 @@ async def confirm_trade(
             MarketActorOwnership(current_user.id, current_user.organization_id),
         ),
     )
-    org_id = current_user.organization_id
-
     if trade.status != TradeStatus.PENDING_CONFIRMATION:
         raise HTTPException(status_code=400, detail="Trade is not pending confirmation")
     if not execution_provenance_compatible(
@@ -1209,6 +1236,15 @@ async def confirm_trade(
         changes={"status": TradeStatus.CONFIRMED.value},
         **request_audit_context(request),
     )
+    await db.flush()
+    public_market_changed = await public_trade_is_visible(db, trade.id)
+    if confirmed_order is not None and confirmed_order.inventory_item_id is not None:
+        public_market_changed = (
+            public_market_changed
+            or await public_inventory_is_visible(
+                db, confirmed_order.inventory_item_id
+            )
+        )
     await enqueue_market_events(
         db,
         [
@@ -1224,18 +1260,22 @@ async def confirm_trade(
                     "quantity": str(trade.quantity_mt),
                     "price": str(trade.price_per_mt_usd),
                 },
+                public_market_invalidation=public_market_changed,
             )
         ],
     )
-    await db.commit()
-
+    await db.flush()
     loaded_trade = await _load_trade(db, trade.id)
-
-    return build_trade_response(
+    response = build_trade_response(
         loaded_trade,
         viewer_org_id=org_id,
         viewer_is_admin=current_user.role == UserRole.ADMIN,
     )
+    await record_command_success(
+        db, command, response_status=200, response_body=response.model_dump(mode="json")
+    )
+    await db.commit()
+    return response
 
 
 # ---------------------------------------------------------------------------
@@ -1250,13 +1290,21 @@ async def decline_trade(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(get_authenticated_user)],
 ):
+    org_id = current_user.organization_id
+    command = await prepare_command_attempt(
+        db, request, actor_user_id=current_user.id,
+        effective_organization_id=org_id, support_context_id=None,
+        operation=TRADE_DECLINE_OPERATION, resource_type="trade",
+        resource_id=trade_id, payload={"operation": TRADE_DECLINE_OPERATION, "trade_id": trade_id},
+    )
+    if command is not None and command.replay is not None:
+        return JSONResponse(status_code=command.replay.response_status, content=command.replay.response_body)
     trade, order = await _lock_trade_market_rows(
         db, trade_id, operation="trade_decline"
     )
     if trade.status != TradeStatus.PENDING_CONFIRMATION:
         await db.rollback()
         raise HTTPException(status_code=400, detail="Trade is not pending confirmation")
-    org_id = current_user.organization_id
     assisted_side = (
         _assisted_trade_side(trade, order)
         if order is not None and order.creation_method == OrderCreationMethod.MARKET_SUPPORT
@@ -1311,6 +1359,12 @@ async def decline_trade(
         (locked_slice[1], locked_slice[2], locked_slice[3])
         if locked_slice is not None
         else None
+    )
+    declined_order_id = order.id if order is not None else None
+    public_order_before = (
+        await public_order_is_visible(db, declined_order_id)
+        if declined_order_id is not None
+        else False
     )
     trade.status = TradeStatus.DECLINED
 
@@ -1395,6 +1449,12 @@ async def decline_trade(
         changes={"status": TradeStatus.DECLINED.value},
         **request_audit_context(request),
     )
+    await db.flush()
+    public_order_after = (
+        await public_order_is_visible(db, declined_order_id)
+        if declined_order_id is not None
+        else False
+    )
     await enqueue_market_events(
         db,
         [
@@ -1408,17 +1468,24 @@ async def decline_trade(
                     "id": str(trade.id),
                     "status": trade.status.value,
                 },
+                public_market_invalidation=(
+                    public_order_before or public_order_after
+                ),
             )
         ],
     )
-    await db.commit()
-
+    await db.flush()
     loaded_trade = await _load_trade(db, trade.id)
-    return build_trade_response(
+    response = build_trade_response(
         loaded_trade,
         viewer_org_id=org_id,
         viewer_is_admin=current_user.role == UserRole.ADMIN,
     )
+    await record_command_success(
+        db, command, response_status=200, response_body=response.model_dump(mode="json")
+    )
+    await db.commit()
+    return response
 
 
 # ---------------------------------------------------------------------------
@@ -1432,12 +1499,25 @@ async def deliver_trade(
     payload: TradeDeliverPayload,
     request: Request,
     db: Annotated[AsyncSession, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_execution_eligible_user)],
+    current_user: Annotated[User, Depends(get_current_user)],
 ):
+    org_id = current_user.organization_id
+    command = await prepare_command_attempt(
+        db, request, actor_user_id=current_user.id,
+        effective_organization_id=org_id, support_context_id=None,
+        operation=TRADE_DELIVER_OPERATION, resource_type="trade", resource_id=trade_id,
+        payload={
+            "operation": TRADE_DELIVER_OPERATION, "trade_id": trade_id,
+            "final_quantity_mt": payload.final_quantity_mt,
+            "final_price_per_mt": payload.final_price_per_mt,
+        },
+    )
+    if command is not None and command.replay is not None:
+        return JSONResponse(status_code=command.replay.response_status, content=command.replay.response_body)
+    await require_execution_eligible_user(current_user=current_user, db=db)
     trade, _linked_order = await _lock_trade_market_rows(
         db, trade_id, operation="trade_deliver"
     )
-    org_id = current_user.organization_id
     await lock_and_load_market_organizations(
         db,
         [
@@ -1546,15 +1626,18 @@ async def deliver_trade(
             )
         ],
     )
-    await db.commit()
-
+    await db.flush()
     loaded_trade = await _load_trade(db, trade.id)
-
-    return build_trade_response(
+    response = build_trade_response(
         loaded_trade,
         viewer_org_id=org_id,
         viewer_is_admin=current_user.role == UserRole.ADMIN,
     )
+    await record_command_success(
+        db, command, response_status=200, response_body=response.model_dump(mode="json")
+    )
+    await db.commit()
+    return response
 
 
 # ---------------------------------------------------------------------------
@@ -1567,12 +1650,21 @@ async def pay_trade(
     trade_id: UUID,
     request: Request,
     db: Annotated[AsyncSession, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_execution_eligible_user)],
+    current_user: Annotated[User, Depends(get_current_user)],
 ):
+    org_id = current_user.organization_id
+    command = await prepare_command_attempt(
+        db, request, actor_user_id=current_user.id,
+        effective_organization_id=org_id, support_context_id=None,
+        operation=TRADE_PAY_OPERATION, resource_type="trade",
+        resource_id=trade_id, payload={"operation": TRADE_PAY_OPERATION, "trade_id": trade_id},
+    )
+    if command is not None and command.replay is not None:
+        return JSONResponse(status_code=command.replay.response_status, content=command.replay.response_body)
+    await require_execution_eligible_user(current_user=current_user, db=db)
     trade, _linked_order = await _lock_trade_market_rows(
         db, trade_id, operation="trade_pay"
     )
-    org_id = current_user.organization_id
     await lock_and_load_market_organizations(
         db,
         [
@@ -1645,12 +1737,15 @@ async def pay_trade(
             )
         ],
     )
-    await db.commit()
-
+    await db.flush()
     loaded_trade = await _load_trade(db, trade.id)
-
-    return build_trade_response(
+    response = build_trade_response(
         loaded_trade,
         viewer_org_id=org_id,
         viewer_is_admin=current_user.role == UserRole.ADMIN,
     )
+    await record_command_success(
+        db, command, response_status=200, response_body=response.model_dump(mode="json")
+    )
+    await db.commit()
+    return response

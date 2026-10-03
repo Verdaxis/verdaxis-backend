@@ -21,7 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from app.database import Base
 from app.models.product_analytics import UserLoginDay, UserStatusTransition
-from app.models.user_activity import UserBrowsingEvent
+from app.models.user_activity import UserActivityDeliveryReport, UserBrowsingEvent
 from app.models.user import User, UserRole, UserStatus
 
 _BACKEND_ROOT = Path(__file__).resolve().parents[2]
@@ -61,6 +61,7 @@ async def prune_db():
         UserLoginDay.__table__,
         UserStatusTransition.__table__,
         UserBrowsingEvent.__table__,
+        UserActivityDeliveryReport.__table__,
     ]
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all, tables=tables)
@@ -181,6 +182,40 @@ async def test_browsing_prune_keeps_exact_90_day_boundary(prune_db):
     remaining = (
         await prune_db.execute(
             select(UserBrowsingEvent.received_at).order_by(UserBrowsingEvent.received_at)
+        )
+    ).scalars().all()
+    assert len(remaining) == 2
+
+
+async def test_delivery_report_prune_keeps_exact_90_day_boundary(prune_db):
+    prune = _load_prune_module()
+    user = await _seed_user(prune_db)
+    now = datetime(2026, 10, 3, 12, tzinfo=UTC)
+    prune_db.add_all(
+        [
+            UserActivityDeliveryReport(
+                user_id=user.id,
+                report_id=uuid4(),
+                dropped_events=1,
+                rejected_events=0,
+                received_at=received_at,
+            )
+            for received_at in (
+                now - timedelta(days=90, seconds=1),
+                now - timedelta(days=90),
+                now,
+            )
+        ]
+    )
+    await prune_db.commit()
+
+    assert await prune.prune_activity_delivery_reports(prune_db, now=now) == 1
+    assert await prune.prune_activity_delivery_reports(prune_db, now=now) == 0
+    remaining = (
+        await prune_db.execute(
+            select(UserActivityDeliveryReport.received_at).order_by(
+                UserActivityDeliveryReport.received_at
+            )
         )
     ).scalars().all()
     assert len(remaining) == 2

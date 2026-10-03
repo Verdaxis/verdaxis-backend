@@ -21,11 +21,16 @@ from app.market_catalog import (
 )
 from app.models.audit import AuditLog
 from app.models.product_analytics import UserLoginDay
-from app.models.user_activity import UserBrowsingEvent
+from app.models.user_activity import UserActivityDeliveryReport, UserBrowsingEvent
 from app.models.user import User
 from app.models.user_preference import UserPreference
 from app.models.watchlist import Watchlist, WatchlistTarget, WatchlistTargetType
-from app.schemas.user_activity import BrowsingEventsIn, UserActivityItem, UserActivityPage
+from app.schemas.user_activity import (
+    BrowserReportedDeliveryLoss,
+    BrowsingEventsIn,
+    UserActivityItem,
+    UserActivityPage,
+)
 from app.services.audit_actions import (
     MARKET_WATCH_PREFERENCES_SAVED,
     WATCHLIST_PINNED,
@@ -128,34 +133,56 @@ async def ingest_browsing_events(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="Activity event rate limit exceeded",
         )
-    if not new_events:
-        await db.commit()
-        return 0
-    rows = [
-        {
-            "user_id": user_id,
-            "event_id": event.id,
-            "consent_version": payload.consent_version,
-            "action": event.action,
-            "page": event.page,
-            "market_product": event.market_product.value if event.market_product else None,
-            "delivery_point_id": event.delivery_point_id,
-            "availability_window": event.availability_window,
-            "received_at": now,
-        }
-        for event in new_events
-    ]
     dialect = db.bind.dialect.name if db.bind is not None else ""
-    if dialect == "postgresql":
-        statement = postgres_insert(UserBrowsingEvent).values(rows)
-    elif dialect == "sqlite":
-        statement = sqlite_insert(UserBrowsingEvent).values(rows)
-    else:  # pragma: no cover - deployed and test databases use the branches above
+    if dialect not in {"postgresql", "sqlite"}:
         raise RuntimeError("user activity ingestion requires PostgreSQL or SQLite")
-    statement = statement.on_conflict_do_nothing(
-        index_elements=[UserBrowsingEvent.user_id, UserBrowsingEvent.event_id]
-    ).returning(UserBrowsingEvent.event_id)
-    accepted = len((await db.execute(statement)).scalars().all())
+
+    accepted = 0
+    if new_events:
+        rows = [
+            {
+                "user_id": user_id,
+                "event_id": event.id,
+                "consent_version": payload.consent_version,
+                "action": event.action,
+                "page": event.page,
+                "market_product": event.market_product.value if event.market_product else None,
+                "delivery_point_id": event.delivery_point_id,
+                "availability_window": event.availability_window,
+                "received_at": now,
+            }
+            for event in new_events
+        ]
+        event_insert = (
+            postgres_insert(UserBrowsingEvent)
+            if dialect == "postgresql"
+            else sqlite_insert(UserBrowsingEvent)
+        )
+        event_statement = event_insert.values(rows).on_conflict_do_nothing(
+            index_elements=[UserBrowsingEvent.user_id, UserBrowsingEvent.event_id]
+        ).returning(UserBrowsingEvent.event_id)
+        accepted = len((await db.execute(event_statement)).scalars().all())
+
+    if payload.delivery_loss is not None:
+        report_insert = (
+            postgres_insert(UserActivityDeliveryReport)
+            if dialect == "postgresql"
+            else sqlite_insert(UserActivityDeliveryReport)
+        )
+        report_statement = report_insert.values(
+            user_id=user_id,
+            report_id=payload.delivery_loss.report_id,
+            dropped_events=payload.delivery_loss.dropped_events,
+            rejected_events=payload.delivery_loss.rejected_events,
+            received_at=now,
+        ).on_conflict_do_nothing(
+            index_elements=[
+                UserActivityDeliveryReport.user_id,
+                UserActivityDeliveryReport.report_id,
+            ]
+        )
+        await db.execute(report_statement)
+
     await db.commit()
     return accepted
 
@@ -429,8 +456,29 @@ async def get_user_activity_page(
         )
 
     last_activity_at = await db.scalar(select(func.max(combined.c.occurred_at)))
+    delivery_loss = (
+        await db.execute(
+            select(
+                func.count(UserActivityDeliveryReport.report_id),
+                func.coalesce(func.sum(UserActivityDeliveryReport.dropped_events), 0),
+                func.coalesce(func.sum(UserActivityDeliveryReport.rejected_events), 0),
+                func.max(UserActivityDeliveryReport.received_at),
+            ).where(
+                UserActivityDeliveryReport.user_id == user_id,
+                UserActivityDeliveryReport.received_at >= cutoff,
+            )
+        )
+    ).one()
     return UserActivityPage(
         items=items,
         has_more=len(rows) > limit,
         last_activity_at=_as_utc(last_activity_at) if last_activity_at else None,
+        browser_reported_delivery_loss=BrowserReportedDeliveryLoss(
+            reports_received=int(delivery_loss[0]),
+            dropped_events=int(delivery_loss[1]),
+            rejected_events=int(delivery_loss[2]),
+            last_reported_at=(
+                _as_utc(delivery_loss[3]) if delivery_loss[3] is not None else None
+            ),
+        ),
     )

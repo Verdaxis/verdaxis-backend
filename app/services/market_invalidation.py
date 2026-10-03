@@ -147,6 +147,7 @@ async def invalidate_organization_market_access(
     actor_user_id: UUID | None,
     reason: str,
     reference: str,
+    public_market_invalidation: bool = False,
 ) -> list[CommittedMarketEvent]:
     """Cancel executable work and release reservations under canonical locks.
 
@@ -392,4 +393,5 @@ async def invalidate_organization_market_access(
             "affected_order_count": len(orders),
             "reference": reference,
         },
+        public_market_invalidation=public_market_invalidation,
     )]

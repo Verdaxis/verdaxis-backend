@@ -801,7 +801,15 @@ def test_least_privilege_role_artifacts_cover_existing_and_future_objects():
             or protected_table in validation
         )
     assert "('audit_logs', ARRAY['SELECT', 'INSERT'])" in policy
+    assert "('market_command_results', ARRAY['SELECT', 'INSERT'])" in policy
+    assert "('market_command_results', ARRAY['SELECT', 'INSERT', 'UPDATE'])" not in policy
+    assert "('market_command_results', ARRAY['SELECT', 'INSERT', 'DELETE'])" not in policy
     assert "('user_status_transitions', ARRAY['SELECT', 'INSERT'])" in policy
+    assert (
+        "('user_activity_delivery_reports', ARRAY['SELECT', 'INSERT', 'DELETE'])"
+        in policy
+    )
+    assert "('user_activity_delivery_reports', ARRAY['SELECT', 'INSERT', 'UPDATE'" not in policy
     column_policy = policy.split("app_column_policy", 1)[-1]
     # Admin admission can update verification status and can set provenance
     # only when it inserts a new organization. Existing provenance is immutable.

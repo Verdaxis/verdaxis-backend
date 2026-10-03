@@ -24,7 +24,7 @@ RUNTIME_OWNED_BLOBS = {
     "app/database.py": "43456b2c2079c07368359d4d54f5ce9629c9b57b",
     "app/main.py": "f16fa752a85bcdf13258d9d7b31c260e928afc13",
     "scripts/deploy.sh": "ec47368a175ecbc05db905a314cdd34fdc2ef44a",
-    "scripts/run_demo_activity.py": "9f5c61906d0c891ee41827b8325b8248c96fc835",
+    "scripts/run_demo_activity.py": "b92cee8429669c3f908a52047025acd6db804697",
 }
 
 EXPECTED_ARTIFACTS = {

@@ -19,7 +19,7 @@ _BACKEND_ROOT = Path(__file__).resolve().parents[2]
 _PARENT = "miq_20260720_market_quarantine"
 # Later product migrations extend the linearized market chain. The mi-specific
 # refusal/quarantine semantics exercised below are unchanged.
-_HEAD = "obp_20261003_acceptance_priority"
+_HEAD = "uadl_20261003_delivery_reports"
 _SENTINEL = UUID("00000000-dead-beef-0000-aaa0e15eed01")
 _DEMO_ORG = UUID("4da7b285-34ee-5443-9406-f96b4ed1a251")
 _DEMO_SELLER_ORG = UUID("0dbce576-2026-5925-ab66-674d505e98ad")
@@ -344,6 +344,75 @@ async def test_fresh_database_upgrades_and_checks_without_application_secrets(
     assert _HEAD in current.stdout
     checked = await asyncio.to_thread(_alembic, database_url, "check")
     assert checked.returncode == 0, f"{checked.stdout}\n{checked.stderr}"
+
+
+@pytest.mark.asyncio
+async def test_command_receipt_refuses_downgrade_and_preserves_record(
+    migration_database,
+):
+    database_url, _database_name = migration_database
+    upgraded = await asyncio.to_thread(_alembic, database_url, "upgrade", _HEAD)
+    assert upgraded.returncode == 0, upgraded.stderr
+
+    organization_id = uuid4()
+    user_id = uuid4()
+    receipt_id = uuid4()
+    resource_id = uuid4()
+    request_hash = "a" * 64
+    response_body = {"trade_status": "DELIVERED", "receipt": "preserved"}
+    await _seed_real_organization_candidate(
+        database_url,
+        organization_id=organization_id,
+        user_id=user_id,
+        suffix=f"receipt-{receipt_id}",
+    )
+    await _database_execute(
+        database_url,
+        "INSERT INTO market_command_results ("
+        "id, actor_user_id, effective_organization_id, operation, "
+        "idempotency_key, request_hash, resource_type, resource_id, "
+        "response_status, response_body"
+        ") VALUES ("
+        ":id, :user_id, :organization_id, 'trade.deliver', "
+        "'receipt-retention-proof', :request_hash, 'trade', :resource_id, "
+        "200, CAST(:response_body AS jsonb)"
+        ")",
+        {
+            "id": receipt_id,
+            "user_id": user_id,
+            "organization_id": organization_id,
+            "request_hash": request_hash,
+            "resource_id": resource_id,
+            "response_body": json.dumps(response_body),
+        },
+    )
+
+    refused = await asyncio.to_thread(
+        _alembic,
+        database_url,
+        "downgrade",
+        "obp_20261003_acceptance_priority",
+    )
+    assert refused.returncode != 0
+    assert "cannot downgrade market command results after a receipt was stored" in (
+        f"{refused.stdout}\n{refused.stderr}"
+    )
+
+    revision = await _database_execute(
+        database_url,
+        "SELECT version_num FROM alembic_version",
+    )
+    preserved = await _database_execute(
+        database_url,
+        "SELECT response_status, response_body, request_hash "
+        "FROM market_command_results WHERE id = :id",
+        {"id": receipt_id},
+    )
+    receipt = preserved.one()
+    assert revision.scalar_one() == _HEAD
+    assert receipt.response_status == 200
+    assert receipt.response_body == response_body
+    assert receipt.request_hash == request_hash
 
 
 @pytest.mark.asyncio

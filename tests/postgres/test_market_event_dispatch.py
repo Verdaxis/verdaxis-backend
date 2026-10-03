@@ -10,7 +10,9 @@ PostgreSQL 17 database and proves, over real HTTP/SSE:
 2. Replay — a disconnected subscriber that reconnects with the standard
    ``Last-Event-ID`` header receives every event committed for its
    organization while it was away, exactly once and in sequence order.
-3. Tenant isolation — under concurrent producers, a subscriber for
+3. Public refresh — committed marked rows fan out once per public channel,
+   without a cursor or private marker; a rolled-back marked row is silent.
+4. Tenant isolation — under concurrent producers, a subscriber for
    organization X never observes organization Y's events and vice versa.
 
 Workers are never reduced below four; the test asserts the master actually
@@ -20,6 +22,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 import os
 import socket
 import subprocess
@@ -33,7 +36,11 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.core.security import create_access_token, create_stream_token
-from app.services.market_events import commit_market_events, participant_market_event
+from app.services.market_events import (
+    commit_market_events,
+    enqueue_market_events,
+    participant_market_event,
+)
 from tests.postgres.test_market_routes import _seed_route_market
 
 _BACKEND_ROOT = Path(__file__).resolve().parents[2]
@@ -256,6 +263,44 @@ async def _open_subscribers_on_two_workers(base_url, user_id, org_id, stack):
     )
 
 
+def _public_marker_event(org_id, marker):
+    return participant_market_event(
+        event_type="proof_marker",
+        aggregate_type="proof",
+        aggregate_id=uuid4(),
+        participant_org_ids=[org_id],
+        payload={"marker": marker},
+        public_market_invalidation=True,
+    )
+
+
+async def _next_public_event(lines, timeout: float = _EVENT_WAIT_SECONDS) -> dict:
+    frame: dict = {}
+    deadline = time.monotonic() + timeout
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise asyncio.TimeoutError("no public SSE event before the deadline")
+        line = await asyncio.wait_for(anext(lines), timeout=remaining)
+        if line == "":
+            if "event" in frame:
+                return frame
+            frame = {}
+            continue
+        if line.startswith(":"):
+            continue
+        field, _, value = line.partition(":")
+        frame[field] = value.strip()
+
+
+async def _expect_no_public_event(lines, quiet_seconds: float) -> None:
+    try:
+        frame = await _next_public_event(lines, timeout=quiet_seconds)
+    except asyncio.TimeoutError:
+        return
+    raise AssertionError(f"unexpected public event: {frame}")
+
+
 async def _commit_marker_events(factory, org_id, markers) -> None:
     async with factory() as session:
         for marker in markers:
@@ -321,10 +366,101 @@ async def test_four_worker_durable_sse_dispatch(sse_server):
         # receiving subscribers span >=2 PIDs, at least one delivery crossed
         # a process boundary.
 
-    # ---- Phase 2: Last-Event-ID replay after disconnect.
+    # ---- Phase 2: one committed marked batch reaches different worker hubs.
+    # The same internal marker is removed from every private delivery and one
+    # sanitized, cursor-free public refresh is emitted per public channel.
+    async with contextlib.AsyncExitStack() as stack:
+        subscribers = await _open_subscribers_on_two_workers(
+            base_url, seeded["buyer_id"], buyer_org, stack
+        )
+        client = await stack.enter_async_context(
+            httpx.AsyncClient(
+                timeout=httpx.Timeout(10.0, read=_EVENT_WAIT_SECONDS)
+            )
+        )
+        public_lines = {}
+        for channel in ("prices", "orderbook"):
+            response = await stack.enter_async_context(
+                client.stream("GET", f"{base_url}/api/stream/{channel}")
+            )
+            assert response.status_code == 200, await response.aread()
+            public_lines[channel] = response.aiter_lines()
+
+        async with factory() as session:
+            await enqueue_market_events(
+                session,
+                [
+                    _public_marker_event(buyer_org, "public-1"),
+                    _public_marker_event(buyer_org, "public-2"),
+                ],
+            )
+            private_waiters = [
+                asyncio.create_task(subscriber.next_event())
+                for subscriber in subscribers
+            ]
+            public_waiters = [
+                asyncio.create_task(_next_public_event(lines))
+                for lines in public_lines.values()
+            ]
+            all_waiters = private_waiters + public_waiters
+            completed, _ = await asyncio.wait(all_waiters, timeout=0.5)
+            assert not completed, "an outbox event was visible before commit"
+            await session.commit()
+
+        first_private_frames = await asyncio.gather(*private_waiters)
+        public_batch_sequences = None
+        for subscriber, first_frame in zip(subscribers, first_private_frames):
+            frames = [first_frame, await subscriber.next_event()]
+            assert [frame["event"] for frame in frames] == [
+                "proof_marker",
+                "proof_marker",
+            ]
+            private_payloads = [json.loads(frame["data"]) for frame in frames]
+            assert {
+                payload["marker"] for payload in private_payloads
+            } == {"public-1", "public-2"}
+            assert all(
+                "_public_market_invalidation" not in payload
+                for payload in private_payloads
+            )
+            sequences = [int(frame["id"]) for frame in frames]
+            assert first_seq < sequences[0] < sequences[1]
+            if public_batch_sequences is None:
+                public_batch_sequences = sequences
+            assert sequences == public_batch_sequences
+
+        public_frames = await asyncio.gather(*public_waiters)
+        for frame in public_frames:
+            assert frame["event"] == "market_invalidated"
+            assert json.loads(frame["data"]) == {
+                "schema_version": 1,
+                "resync_required": True,
+            }
+            assert "id" not in frame
+        # A rolled-back marked row publishes neither a private event nor a
+        # public refresh. The same quiet period also proves the two committed
+        # markers were coalesced into one public event per channel.
+        async with factory() as session:
+            await enqueue_market_events(
+                session,
+                [_public_marker_event(buyer_org, "rolled-back")],
+            )
+            await session.rollback()
+        await asyncio.gather(
+            *(subscriber.expect_no_event(3.0) for subscriber in subscribers),
+            *(
+                _expect_no_public_event(lines, 3.0)
+                for lines in public_lines.values()
+            ),
+        )
+
+    # ---- Phase 3: Last-Event-ID replay after disconnect.
     await _commit_marker_events(factory, buyer_org, ["missed-1", "missed-2"])
     async with _Subscriber(
-        base_url, seeded["buyer_id"], buyer_org, last_event_id=first_seq
+        base_url,
+        seeded["buyer_id"],
+        buyer_org,
+        last_event_id=public_batch_sequences[-1],
     ) as replayer:
         replay_one = await replayer.next_event()
         replay_two = await replayer.next_event()
@@ -332,7 +468,7 @@ async def test_four_worker_durable_sse_dispatch(sse_server):
         replayed = replay_one["data"] + replay_two["data"]
         assert '"missed-1"' in replayed and '"missed-2"' in replayed
         assert '"missed-1"' not in replay_two["data"] or '"missed-1"' not in replay_one["data"]
-        assert first_seq < int(replay_one["id"]) < int(replay_two["id"])
+        assert public_batch_sequences[-1] < int(replay_one["id"]) < int(replay_two["id"])
 
         # Live delivery resumes after replay on the same connection, without
         # duplicating replayed events.
@@ -341,7 +477,7 @@ async def test_four_worker_durable_sse_dispatch(sse_server):
         assert '"live-after-replay"' in live["data"]
         assert int(live["id"]) > int(replay_two["id"])
 
-    # ---- Phase 3: tenant isolation under concurrent producers.
+    # ---- Phase 4: tenant isolation under concurrent producers.
     x_markers = [f"x-{index}" for index in range(20)]
     y_markers = [f"y-{index}" for index in range(20)]
     async with (
