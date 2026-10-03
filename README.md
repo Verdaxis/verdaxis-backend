@@ -89,10 +89,11 @@ Git, database, and Python routing controls.
   [convergence SQL](deploy/postgres/converge_runtime_object_acls.sql) rebuild
   runtime ACLs transactionally before restart.
 - A per-environment lock and `.runtime-deploy/<environment>.state` remain in
-  force through restart and readiness. The backend, news-refresh, and
+  force through restart and readiness. The staging backend, news-refresh, and
   product-analytics-prune units accept only absent or `restart-authorized`
-  state. Order-expiry reminders refuse any present state. Auth-maintenance
-  units do not read this deploy-state gate.
+  state. The order-expiry-reminder unit is production-only and refuses any
+  present production state. Auth-maintenance units do not read this
+  deploy-state gate.
 - `/health/ready` must return exact status, database state, environment, and
   full SHA before the deploy state clears. `/health/live` proves only process
   response; `/health` remains a readiness alias.
