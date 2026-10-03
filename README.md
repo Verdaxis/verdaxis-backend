@@ -92,8 +92,10 @@ Git, database, and Python routing controls.
   force through restart and readiness. The staging backend, news-refresh, and
   product-analytics-prune units accept only absent or `restart-authorized`
   state. The order-expiry-reminder unit is production-only and refuses any
-  present production state. Auth-maintenance units do not read this
-  deploy-state gate.
+  present production state. Each auth-maintenance unit refuses any present
+  environment state, loads `.runtime-release.env`, and preflights the effective
+  `ENVIRONMENT` before execution. These systemd conditions govern new starts
+  only; creating state does not stop or drain an already-running oneshot.
 - `/health/ready` must return exact status, database state, environment, and
   full SHA before the deploy state clears. `/health/live` proves only process
   response; `/health` remains a readiness alias.
