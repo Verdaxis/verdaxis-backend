@@ -408,6 +408,7 @@ async def test_four_worker_durable_sse_dispatch(sse_server):
             await session.commit()
 
         first_private_frames = await asyncio.gather(*private_waiters)
+        public_batch_sequences = None
         for subscriber, first_frame in zip(subscribers, first_private_frames):
             frames = [first_frame, await subscriber.next_event()]
             assert [frame["event"] for frame in frames] == [
@@ -422,7 +423,11 @@ async def test_four_worker_durable_sse_dispatch(sse_server):
                 "_public_market_invalidation" not in payload
                 for payload in private_payloads
             )
-            assert all(int(frame["id"]) > 0 for frame in frames)
+            sequences = [int(frame["id"]) for frame in frames]
+            assert first_seq < sequences[0] < sequences[1]
+            if public_batch_sequences is None:
+                public_batch_sequences = sequences
+            assert sequences == public_batch_sequences
 
         public_frames = await asyncio.gather(*public_waiters)
         for frame in public_frames:
@@ -452,7 +457,10 @@ async def test_four_worker_durable_sse_dispatch(sse_server):
     # ---- Phase 3: Last-Event-ID replay after disconnect.
     await _commit_marker_events(factory, buyer_org, ["missed-1", "missed-2"])
     async with _Subscriber(
-        base_url, seeded["buyer_id"], buyer_org, last_event_id=first_seq
+        base_url,
+        seeded["buyer_id"],
+        buyer_org,
+        last_event_id=public_batch_sequences[-1],
     ) as replayer:
         replay_one = await replayer.next_event()
         replay_two = await replayer.next_event()
@@ -460,7 +468,7 @@ async def test_four_worker_durable_sse_dispatch(sse_server):
         replayed = replay_one["data"] + replay_two["data"]
         assert '"missed-1"' in replayed and '"missed-2"' in replayed
         assert '"missed-1"' not in replay_two["data"] or '"missed-1"' not in replay_one["data"]
-        assert first_seq < int(replay_one["id"]) < int(replay_two["id"])
+        assert public_batch_sequences[-1] < int(replay_one["id"]) < int(replay_two["id"])
 
         # Live delivery resumes after replay on the same connection, without
         # duplicating replayed events.
