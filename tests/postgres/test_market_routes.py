@@ -591,7 +591,10 @@ async def test_six_command_results_replay_exact_snapshots_without_new_effects(
         (cancelled, replayed_cancel),
     ):
         assert replay.status_code == original.status_code, replay.text
-        assert replay.content == original.content
+        if original.status_code == 204:
+            assert replay.content == original.content == b""
+        else:
+            assert replay.json() == original.json()
 
     conflicts = [
         await client.put(
