@@ -410,14 +410,31 @@ def test_auth_maintenance_is_independent_from_news_and_plaintext_fallback_is_rem
     assert 'drop_column("users", "email_verification_token")' in boundary_migration
 
 
-def test_production_units_disable_uvicorn_access_log_and_auth_timer_is_deployable():
+def test_runtime_units_disable_uvicorn_access_log_and_guard_auth_maintenance():
     for name in ("verdaxis-backend.service", "verdaxis-backend-staging.service"):
         unit = (ROOT / "deploy" / "systemd" / name).read_text()
         assert "--no-access-log" in unit
+    for name, deploy_state, release_env, environment in (
+        (
+            "verdaxis-auth-maintenance.service",
+            "/home/verdaxis-prod/verdaxis/prod/be/.runtime-deploy/production.state",
+            "/home/verdaxis-prod/verdaxis/prod/be/.runtime-release.env",
+            "production",
+        ),
+        (
+            "verdaxis-auth-maintenance-staging.service",
+            "/home/verdaxis-prod/verdaxis/staging/be/.runtime-deploy/staging.state",
+            "/home/verdaxis-prod/verdaxis/staging/be/.runtime-release.env",
+            "staging",
+        ),
+    ):
+        unit = (ROOT / "deploy" / "systemd" / name).read_text()
+        assert f"ConditionPathExists=!{deploy_state}" in unit
+        assert f"EnvironmentFile={release_env}" in unit
+        assert f"Environment=ENVIRONMENT={environment}" in unit
+        assert f"ExecStartPre=/usr/bin/test ${{ENVIRONMENT}} = {environment}" in unit
     for name in (
-        "verdaxis-auth-maintenance.service",
         "verdaxis-auth-maintenance.timer",
-        "verdaxis-auth-maintenance-staging.service",
         "verdaxis-auth-maintenance-staging.timer",
     ):
         assert (ROOT / "deploy" / "systemd" / name).exists()

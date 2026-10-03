@@ -1,27 +1,33 @@
 # Verdaxis External Monitor, Recovery, and Diagnosis
 
-This directory is the tracked source for the public Verdaxis monitor installed
-as `/usr/local/sbin/verdaxis-monitor`. The monitor checks public routes,
-rendered frontend behavior, frontend API targets, signup and analytics
-canaries, event-delivery progress, backups, storage, and Caddy integrity every
-five minutes.
+This directory is a source-only monitor, recovery, and diagnosis design. It is
+not evidence that these exact bytes are installed. The current external canary
+runs on the shared host `194.233.68.86`
+(`vmi1840561.contaboserver.net`) and checks both public APIs every five minutes.
+Production API and PostgreSQL run separately on `169.58.37.164`
+(`vmi3623757`). The shared host's local production port 8000 is retired, and
+its production backend and recovery units are masked.
+
+Do not replace `/usr/local/sbin/verdaxis-monitor` or its units with this
+directory. Preserve the installed local probes and use only the reviewed
+selective installed patch described by
+`/home/verdaxis-prod/verdaxis/PRODUCTION_HOST.md`. Source presence and matching
+filenames do not prove release or activation. Current runtime identity comes
+from each public `/health/ready` response, not from a dated SHA in this file.
 
 ## Event outbox backlog
 
-The monitor invokes the byte-attested
+The source design invokes the byte-attested
 `/usr/local/libexec/verdaxis-monitor/outbox_backlog_probe.py` once for each
 deployed database. Production uses `dbname=verdaxis user=verdaxis_backup` and
 staging uses
-`dbname=verdaxis_staging user=verdaxis_backup_staging`. Both targets pin
-`host=127.0.0.1 port=5432`; ambient libpq host, port, service, password, and
-options cannot redirect the child. Only an explicit `PGPASSFILE` is preserved
-for authentication. These identities match the runtime ACL source and have
-read-only table access. A count above 1,000 or an oldest pending age above 300
-seconds is a monitor failure. Missing probe bytes, invalid output, timeout, or
-database access failure also fails closed. The alert error is a stable category
-so changing measurements cannot bypass the hourly incident cooldown. Counts
-and ages stay in the structured status detail, and database diagnostics are not
-copied into monitor status or alerts.
+`dbname=verdaxis_staging user=verdaxis_backup_staging`. Its current code assumes
+both targets are at `host=127.0.0.1 port=5432`. That assumption is not valid in
+the split deployment: production is on the EU host and staging is on the shared
+host. This check must not be activated until a reviewed integration separates
+the two locations without adding a general database route. Ambient libpq
+routing and password variables must remain stripped, and only an explicit
+`PGPASSFILE` may be preserved for authentication.
 
 This source change does not activate the check. Before an operator-approved
 release, the canonical immutable installer must promote the matching probe
@@ -30,10 +36,25 @@ libpq authentication outside command arguments, such as an owner-only
 `PGPASSFILE`. Do not place a database password in the monitor command line or
 the monitor status.
 
+## Restore verification status
+
+The source monitor is a status reader only. It reads `restore-status.json`
+beside the configured `BACKUP_STATUS_FILE`. It accepts only a four-key JSON
+status no larger than 5,000 bytes, with a successful, exact three-database
+result no more than eight days old. It does not run a restore, read backup storage, or
+publish status.
+
+A separate external daily producer owns the weekly restore and atomic status
+publication. Source presence does not prove that producer or this reader is
+installed. The split-topology shared-host monitor requires a separate reviewed
+selective promotion of this reader; never replace it with the full source
+monitor.
+
 ## Guarded recovery
 
-`verdaxis-monitor.service` exits nonzero when a check remains failed after its
-built-in retries. systemd then starts `verdaxis-recover.service`.
+In this source design, `verdaxis-monitor.service` exits nonzero when a check
+remains failed after its built-in retries. systemd then starts
+`verdaxis-recover.service`.
 
 Recovery is deterministic and allowlisted. It may:
 
@@ -89,9 +110,11 @@ Incident and diagnosis JSON is mode `0600` under
 
 ## Independent public monitor
 
-The existing `verdaxis-external-monitor.timer` runs on the independent VPS at
-`144.126.151.136` and checks production and staging public routes every five
-minutes. Its source-controlled service definition starts
+These units define an independent-watchdog design for `144.126.151.136`.
+Source presence is not evidence that the design is installed or current. The
+authoritative current external canary remains the shared-host
+`verdaxis-monitor.timer`. If the independent design receives separate release
+evidence, its source-controlled service definition starts
 `verdaxis-external-recover.service` when those checks fail. That service may
 make one SSH request per hour to start only `verdaxis-monitor.service` on the
 Verdaxis host. The next external check confirms whether public service
@@ -103,84 +126,32 @@ invoke recovery directly. A complete host or network outage still requires the
 hosting provider to restore reachability; the watchdog retries when the host
 returns.
 
-## Local installation
+## Release boundary
 
-Install only from a reviewed, committed source revision. **Stop before this
-recipe** unless both prerequisites are complete:
+This directory has no installation or activation procedure. The installed
+shared-host canary and its local probes remain authoritative. Update them only
+through the selective process in
+`/home/verdaxis-prod/verdaxis/PRODUCTION_HOST.md`.
 
-1. The canonical immutable installer has promoted the exact
-   `outbox_backlog_probe.py` artifact attested by
-   `deploy/monitor/artifact-manifest.json` to
-   `/usr/local/libexec/verdaxis-monitor/outbox_backlog_probe.py`.
-2. An owner-only pgpass file contains production and staging backup-role
-   authentication, and `/etc/verdaxis-monitor.env` sets `PGPASSFILE` to its
-   absolute path.
+A future release requires all of the following before separate operator
+authorization:
 
-Do not replace the monitor executable or reload, enable, start, or restart its
-timer before both prerequisites are verified. Probe promotion belongs to the
-canonical installer; this recipe does not copy that artifact.
+1. a reviewed split-host design for API and database checks;
+2. promotion of the exact `outbox_backlog_probe.py` bytes attested by
+   `deploy/monitor/artifact-manifest.json` through the canonical immutable
+   installer; and
+3. an owner-only `PGPASSFILE` that covers the required backup roles without
+   exposing credentials in arguments or status output.
 
-```bash
-sudo install -o root -g root -m 0755 \
-  deploy/external_monitor/verdaxis_monitor.py \
-  /usr/local/sbin/verdaxis-monitor
-sudo install -o root -g root -m 0755 \
-  deploy/external_monitor/verdaxis_autodiag.py \
-  /usr/local/sbin/verdaxis-codex-diagnose
-sudo install -o root -g root -m 0755 \
-  deploy/external_monitor/verdaxis_recover.py \
-  /usr/local/sbin/verdaxis-recover
-sudo install -d -o root -g root -m 0755 \
-  /usr/local/share/verdaxis-monitor
-sudo install -o root -g root -m 0644 \
-  deploy/external_monitor/diagnosis.schema.json \
-  /usr/local/share/verdaxis-monitor/diagnosis.schema.json
-sudo install -o root -g root -m 0644 \
-  deploy/external_monitor/systemd/verdaxis-monitor.service \
-  /etc/systemd/system/verdaxis-monitor.service
-sudo install -o root -g root -m 0644 \
-  deploy/external_monitor/systemd/verdaxis-monitor.timer \
-  /etc/systemd/system/verdaxis-monitor.timer
-sudo install -o root -g root -m 0644 \
-  deploy/external_monitor/systemd/verdaxis-monitor-verify.service \
-  /etc/systemd/system/verdaxis-monitor-verify.service
-sudo install -o root -g root -m 0644 \
-  deploy/external_monitor/systemd/verdaxis-codex-diagnose.service \
-  /etc/systemd/system/verdaxis-codex-diagnose.service
-sudo install -o root -g root -m 0644 \
-  deploy/external_monitor/systemd/verdaxis-recover.service \
-  /etc/systemd/system/verdaxis-recover.service
-sudo install -d -o root -g jons-openclaw -m 0750 \
-  /var/lib/verdaxis-monitor
-sudo install -d -o jons-openclaw -g jons-openclaw -m 0700 \
-  /var/lib/verdaxis-autodiag/codex-home
-sudo install -o jons-openclaw -g jons-openclaw -m 0600 \
-  /home/jons-openclaw/.codex/auth.json \
-  /var/lib/verdaxis-autodiag/codex-home/auth.json
-```
+Source verification does not satisfy these release conditions. Do not copy
+executables or units from this directory, reload systemd, or enable, start, or
+restart a monitor from this source tree. Never place application, database,
+Vercel, GitHub, or SSH credentials in the diagnosis environment.
 
-This recipe deliberately stops before systemd activation. A separately
-authorized operator may reload and enable the existing timer only after the
-installed probe digest matches the manifest, the owner and mode of its pgpass
-file are verified without printing the file, and the source verification checks
-below pass.
+## Onboarding attention source contract
 
-The first four settings in `/etc/verdaxis-monitor.env` are optional.
-`PGPASSFILE` is required before monitor replacement or activation:
-
-```dotenv
-CODEX_AUTODIAG_MODEL=gpt-5.6-luna
-CODEX_AUTODIAG_TIMEOUT_SECONDS=600
-CODEX_AUTODIAG_COOLDOWN_SECONDS=3600
-VERDAXIS_RECOVERY_COOLDOWN_SECONDS=3600
-PGPASSFILE=/etc/verdaxis-monitor/pgpass
-```
-
-`TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` are shared with the existing
-monitor alert path. Never put application, database, Vercel, GitHub, or SSH
-credentials in the diagnosis environment.
-
-## Onboarding attention monitor
+This section describes source behavior only. It does not authorize installation
+or activation on either current host.
 
 The production-only onboarding monitor checks database state every five minutes
 and sends one Telegram alert per user and actionable stage. It reports rejected
@@ -189,30 +160,12 @@ required, and no first login within two hours of full approval. Demo, test,
 canary, and administrator accounts are excluded. Its state file contains only
 user identifiers, stages, and timestamps.
 
-Install the units, inspect current candidates without sending, then silently
-baseline historical cases before enabling the timer:
+The design has a one-time silent baseline: existing stages are suppressed
+without later recovery messages, while later accounts and stage changes alert
+normally. Any promotion, baseline, or timer activation requires a separate
+reviewed release through the canonical installer.
 
-```bash
-sudo install -o root -g root -m 0644 \
-  deploy/external_monitor/systemd/verdaxis-onboarding-attention.service \
-  /etc/systemd/system/verdaxis-onboarding-attention.service
-sudo install -o root -g root -m 0644 \
-  deploy/external_monitor/systemd/verdaxis-onboarding-attention.timer \
-  /etc/systemd/system/verdaxis-onboarding-attention.timer
-sudo install -d -o verdaxis-prod -g verdaxis-prod -m 0700 \
-  /var/lib/verdaxis-onboarding-attention
-sudo systemctl daemon-reload
-sudo -u verdaxis-prod ./venv/bin/python -m app.cli.onboarding_attention \
-  --dry-run
-sudo -u verdaxis-prod ./venv/bin/python -m app.cli.onboarding_attention \
-  --bootstrap
-sudo systemctl enable --now verdaxis-onboarding-attention.timer
-sudo systemctl start verdaxis-onboarding-attention.service
-```
-
-Bootstrap is a one-time activation step: existing stages are suppressed without
-later recovery messages. New accounts and stage changes alert normally. Review
-runs with `journalctl -u verdaxis-onboarding-attention.service`.
+## Diagnosis configuration contract
 
 Luna is the automatic default to keep recurring incident cost bounded. Set
 `CODEX_AUTODIAG_MODEL=gpt-5.6-sol` only for a deliberate deeper diagnostic
@@ -225,42 +178,18 @@ leaving automatic diagnosis on a revoked credential. Set `CODEX_AUTH_SOURCE`
 only when deliberately relocating the central credential. Do not copy Codex
 history, sessions, configuration, logs, or plugin state into this directory.
 
-## Independent monitor installation
+## Independent watchdog source contract
 
-The independent VPS already owns
-`/usr/local/libexec/verdaxis-external-monitor`, its root-owned environment, and
-its state under `/var/lib/verdaxis-external-monitor`. Install the three tracked
-systemd units without adding a second monitor or timer:
+The independent VPS units remain an unreleased design. They do not supersede
+the shared-host canary. Any later release must use a root-owned environment and
+state, a dedicated restricted Ed25519 key, a pinned host key, and a forced
+command limited to starting `verdaxis-monitor.service`. It must not grant a
+shell, forwarding, arbitrary commands, or direct recovery. Installation and
+activation require a separate reviewed release record.
 
-```bash
-sudo install -o root -g root -m 0644 \
-  deploy/external_monitor/systemd/verdaxis-external-monitor.service \
-  /etc/systemd/system/verdaxis-external-monitor.service
-sudo install -o root -g root -m 0644 \
-  deploy/external_monitor/systemd/verdaxis-external-monitor.timer \
-  /etc/systemd/system/verdaxis-external-monitor.timer
-sudo install -o root -g root -m 0644 \
-  deploy/external_monitor/systemd/verdaxis-external-recover.service \
-  /etc/systemd/system/verdaxis-external-recover.service
-sudo systemctl daemon-reload
-sudo systemctl enable --now verdaxis-external-monitor.timer
-```
+## Source verification
 
-Create one dedicated Ed25519 key under
-`/etc/verdaxis-external-monitor/recovery_ed25519`, readable only by root and
-the `verdaxis-monitor` group. Pin the verified Verdaxis host key in
-`/etc/verdaxis-external-monitor/known_hosts`; do not use `accept-new`.
-
-The matching public key on the Verdaxis host must use this exact restriction:
-
-```text
-from="144.126.151.136",restrict,command="/usr/bin/sudo -n /bin/systemctl start verdaxis-monitor.service" ssh-ed25519 ...
-```
-
-The existing `jons-openclaw` sudo policy permits that exact forced command; do
-not install an unrestricted watchdog key.
-
-## Verification
+These checks validate tracked source only. They do not install or activate it.
 
 ```bash
 /usr/bin/python3 -m py_compile \
