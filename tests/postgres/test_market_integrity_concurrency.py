@@ -16,12 +16,14 @@ from decimal import Decimal
 
 import pytest
 from fastapi import HTTPException
+from starlette.requests import Request
 from sqlalchemy import select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.market_catalog import DELIVERY_POINTS_BY_NAME, PRODUCTS_BY_CODE
 from app.models.catalog import DeliveryPoint, Product
+from app.models.command_result import MarketCommandResult
 from app.models.marketplace import FuelType, InventoryItem
 from app.models.orderbook import OrderBookOrder, OrderBookStatus, OrderSide, Trade
 from app.models.user import (
@@ -41,6 +43,11 @@ from app.services.market_locks import (
 from app.services.inventory_reservations import reserve_inventory, consume_inventory, release_inventory
 from app.services.matching_engine import match_order
 from app.services.market_invalidation import invalidate_organization_market_access
+from app.services.command_results import (
+    TRADE_CONFIRM_OPERATION,
+    prepare_command_attempt,
+    record_command_success,
+)
 from app.services.idempotency import acquire_idempotency_lock
 from tests.postgres.market_test_support import assign_fixture_real_provenance
 
@@ -305,6 +312,81 @@ async def test_concurrent_order_retries_are_serialized_by_scoped_unique_key(pg):
 
     results = await asyncio.gather(attempt(), attempt())
     assert sorted(results) == [False, True]
+
+
+@pytest.mark.asyncio
+async def test_concurrent_command_key_commits_one_result_and_replays_it(pg):
+    factory = async_sessionmaker(pg, class_=AsyncSession, expire_on_commit=False)
+    async with factory() as seed:
+        organization = Organization(
+            name=f"Command result org {uuid4()}", type=OrgType.FUEL_BUYER
+        )
+        actor = User(
+            email=f"command-result-{uuid4()}@integrity.test",
+            password_hash="unused",
+            role=UserRole.BUYER,
+            status=UserStatus.APPROVED,
+            organization=organization,
+        )
+        seed.add(actor)
+        await seed.commit()
+        actor_id = actor.id
+        organization_id = organization.id
+
+    resource_id = uuid4()
+    scope = {
+        "type": "http",
+        "method": "PUT",
+        "path": f"/api/trades/{resource_id}/confirm",
+        "headers": [(b"idempotency-key", b"concurrent-command-key")],
+    }
+
+    async def attempt():
+        async with factory() as session:
+            try:
+                command = await prepare_command_attempt(
+                    session,
+                    Request(scope),
+                    actor_user_id=actor_id,
+                    effective_organization_id=organization_id,
+                    support_context_id=None,
+                    operation=TRADE_CONFIRM_OPERATION,
+                    resource_type="trade",
+                    resource_id=resource_id,
+                    payload={
+                        "operation": TRADE_CONFIRM_OPERATION,
+                        "trade_id": resource_id,
+                    },
+                )
+            except HTTPException as exc:
+                assert exc.status_code == 503
+                return None
+            if command.replay is not None:
+                return command.replay.response_body
+            body = {"id": str(resource_id), "status": "CONFIRMED"}
+            await record_command_success(
+                session, command, response_status=200, response_body=body
+            )
+            await session.commit()
+            return body
+
+    results = await asyncio.gather(attempt(), attempt())
+    results = [result if result is not None else await attempt() for result in results]
+    assert results == [
+        {"id": str(resource_id), "status": "CONFIRMED"},
+        {"id": str(resource_id), "status": "CONFIRMED"},
+    ]
+    async with factory() as session:
+        receipts = (
+            await session.execute(
+                select(MarketCommandResult).where(
+                    MarketCommandResult.actor_user_id == actor_id,
+                    MarketCommandResult.operation == TRADE_CONFIRM_OPERATION,
+                    MarketCommandResult.idempotency_key == "concurrent-command-key",
+                )
+            )
+        ).scalars().all()
+    assert len(receipts) == 1
 
 
 @pytest.mark.asyncio
