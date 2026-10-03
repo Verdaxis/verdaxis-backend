@@ -13,14 +13,19 @@ MARKET_PATH_ROOTS = (
 _TRANSIENT_LOCK_STATES = {"55P03", "40P01", "40001"}
 
 
-def is_contention_error(exc: DBAPIError) -> bool:
-    """Recognize PostgreSQL lock/serialization failures without exposing SQL."""
+def _original_and_sqlstate(exc: DBAPIError) -> tuple[object, str | None]:
     original = getattr(exc, "orig", exc)
     sqlstate = (
         getattr(original, "sqlstate", None)
         or getattr(original, "pgcode", None)
         or getattr(original, "sqlstate_code", None)
     )
+    return original, sqlstate
+
+
+def is_contention_error(exc: DBAPIError) -> bool:
+    """Recognize PostgreSQL lock/serialization failures without exposing SQL."""
+    _, sqlstate = _original_and_sqlstate(exc)
     return sqlstate in _TRANSIENT_LOCK_STATES
 
 
@@ -31,12 +36,7 @@ def database_error_log_fields(
     route: str,
 ) -> dict[str, str | None]:
     """Return only non-sensitive database failure metadata safe for logs."""
-    original = getattr(exc, "orig", exc)
-    sqlstate = (
-        getattr(original, "sqlstate", None)
-        or getattr(original, "pgcode", None)
-        or getattr(original, "sqlstate_code", None)
-    )
+    original, sqlstate = _original_and_sqlstate(exc)
     return {
         "error_class": type(original).__name__,
         "sqlstate": sqlstate,

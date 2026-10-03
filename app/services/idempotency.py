@@ -23,6 +23,14 @@ TRADE_CREATE_OPERATION = "trade.create"
 INVENTORY_PUBLISH_OPERATION = "inventory.publish"
 
 
+class IdempotencyLockBusy(HTTPException):
+    def __init__(self) -> None:
+        super().__init__(
+            status_code=409,
+            detail="Idempotency key is busy; retry the request",
+        )
+
+
 def idempotency_request_hash(payload: object) -> str:
     encoded = json.dumps(
         payload,
@@ -64,10 +72,7 @@ async def acquire_idempotency_lock(
             # back here so dependency cleanup and callers see a stable state.
             await db.rollback()
             if sqlstate == "55P03":
-                raise HTTPException(
-                    status_code=409,
-                    detail="Idempotency key is busy; retry the request",
-                ) from exc
+                raise IdempotencyLockBusy() from exc
             raise HTTPException(
                 status_code=503,
                 detail="Idempotency lock timed out; retry the request",
