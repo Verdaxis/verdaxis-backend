@@ -1020,16 +1020,24 @@ async def list_asks(
     if normalized_window:
         filters.append(OrderBookOrder.availability_window == normalized_window)
 
-    # Count query (same filters, no pagination)
-    count_query = select(func.count(OrderBookOrder.id))
+    sort_clauses = _orderbook_sort_clauses(sort_by)
+    eligible_page = select(
+        OrderBookOrder.id.label("order_id"),
+        func.count(OrderBookOrder.id).over().label("total_count"),
+    )
     for join_target, join_cond in joins:
-        count_query = count_query.join(join_target, join_cond)
-    count_query = count_query.where(*filters)
-    total = (await db.execute(count_query)).scalar()
+        eligible_page = eligible_page.join(join_target, join_cond)
+    eligible_page = (
+        eligible_page.where(*filters)
+        .order_by(*sort_clauses)
+        .offset(skip)
+        .limit(limit)
+        .subquery("eligible_ask_page")
+    )
 
-    # Data query with pagination
     query = (
-        select(OrderBookOrder)
+        select(OrderBookOrder, eligible_page.c.total_count)
+        .join(eligible_page, eligible_page.c.order_id == OrderBookOrder.id)
         .options(
             contains_eager(OrderBookOrder.product),
             contains_eager(OrderBookOrder.delivery_point),
@@ -1038,9 +1046,20 @@ async def list_asks(
     )
     for join_target, join_cond in joins:
         query = query.join(join_target, join_cond)
-    query = query.where(*filters).order_by(*_orderbook_sort_clauses(sort_by)).offset(skip).limit(limit)
-    result = await db.execute(query)
-    orders = result.unique().scalars().all()
+    query = query.order_by(*sort_clauses)
+    rows = (await db.execute(query)).unique().all()
+    orders = [row[0] for row in rows]
+
+    # Only an out-of-range offset lacks the window total and needs a fallback count.
+    if rows:
+        total = int(rows[0].total_count)
+    elif skip == 0:
+        total = 0
+    else:
+        count_query = select(func.count(OrderBookOrder.id))
+        for join_target, join_cond in joins:
+            count_query = count_query.join(join_target, join_cond)
+        total = (await db.execute(count_query.where(*filters))).scalar_one()
 
     best_bid_prices = await _load_best_opposing_prices(db, orders, opposing_side=OrderSide.BID)
 
