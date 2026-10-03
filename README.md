@@ -34,15 +34,17 @@ full release SHA from the target environment's `/health/ready` response.
 
 ```bash
 # Staging: run on 194.233.68.86 only.
-test "$(/usr/bin/hostname -f)" = vmi1840561.contaboserver.net
-sudo -n -u verdaxis-prod -H bash -lc \
-  'cd /home/verdaxis-prod/verdaxis/staging/be && ./scripts/deploy.sh --dry-run'
-sudo -n -u verdaxis-prod -H env \
-  APPROVED_RELEASE_SHA=<sha> \
-  MIGRATION_APPROVED_SOURCE_SHA=<same-sha> \
-  MIGRATION_EXPECTED_CURRENT_REVISION=<exact-current> \
-  MIGRATION_TARGET_REVISION=<allowlisted-target> \
-  /home/verdaxis-prod/verdaxis/staging/be/scripts/deploy.sh
+test "$(/usr/bin/hostname -f)" = vmi1840561.contaboserver.net && (
+  set -e
+  sudo -n -u verdaxis-prod -H bash -lc \
+    'cd /home/verdaxis-prod/verdaxis/staging/be && ./scripts/deploy.sh --dry-run'
+  sudo -n -u verdaxis-prod -H env \
+    APPROVED_RELEASE_SHA=<sha> \
+    MIGRATION_APPROVED_SOURCE_SHA=<same-sha> \
+    MIGRATION_EXPECTED_CURRENT_REVISION=<exact-current> \
+    MIGRATION_TARGET_REVISION=<allowlisted-target> \
+    /home/verdaxis-prod/verdaxis/staging/be/scripts/deploy.sh
+)
 ```
 
 Open a separate administrator session for production:
@@ -51,23 +53,72 @@ Open a separate administrator session for production:
 ssh verdaxis-admin@169.58.37.164
 ```
 
-After the EU-host prompt opens, confirm the host before changing directory:
+Run the complete production sequence only at the EU-host prompt. A failed host
+test prevents both deploy commands:
 
 ```bash
-test "$(/usr/bin/hostname)" = vmi3623757
-sudo -n -u verdaxis-prod -H bash -lc \
-  'cd /home/verdaxis-prod/verdaxis/prod/be && ./scripts/deploy.sh --dry-run'
-sudo -n -u verdaxis-prod -H env \
-  APPROVED_RELEASE_SHA=<sha> \
-  MIGRATION_APPROVED_SOURCE_SHA=<same-sha> \
-  MIGRATION_EXPECTED_CURRENT_REVISION=<exact-current> \
-  MIGRATION_TARGET_REVISION=<allowlisted-target> \
-  /home/verdaxis-prod/verdaxis/prod/be/scripts/deploy.sh
+test "$(/usr/bin/hostname)" = vmi3623757 && (
+  set -e
+  sudo -n -u verdaxis-prod -H bash -lc \
+    'cd /home/verdaxis-prod/verdaxis/prod/be && ./scripts/deploy.sh --dry-run'
+  sudo -n -u verdaxis-prod -H env \
+    APPROVED_RELEASE_SHA=<sha> \
+    MIGRATION_APPROVED_SOURCE_SHA=<same-sha> \
+    MIGRATION_EXPECTED_CURRENT_REVISION=<exact-current> \
+    MIGRATION_TARGET_REVISION=<allowlisted-target> \
+    /home/verdaxis-prod/verdaxis/prod/be/scripts/deploy.sh
+)
 ```
 
-The deploy helper infers and fixes the branch, service, and canonical guard path from the live checkout and always refuses dirty worktrees. It uses fixed trusted tool paths with inherited Git/database/Python routing controls removed; database-bearing Python helpers run with a minimal environment, and health retry controls are bounded integers. Dry-run resolves one remote full SHA, archives only that pinned commit, and verifies its unit manifest, migration-checkpoint policy, ACL policy/convergence bundle, and systemd bytes with trusted tooling. It never clones a mutable branch, links `.env`, imports candidate Python, runs pip/Alembic, opens the live database, or supplies candidate code with operator secrets/home/network. It prints `APPROVED_RELEASE_SHA=<sha>`; real deploy additionally requires the same SHA as `MIGRATION_APPROVED_SOURCE_SHA`, an exact expected current revision, and a literal target paired with it in that SHA's committed `deploy/migration-checkpoints.tsv`. Missing approval, symbolic targets such as `head`, moved source, unexpected live state, and non-allowlisted transitions refuse before source mutation. A deploy applies only the approved literal checkpoint with explicit application/migrator URLs on the same host/port and database but distinct exact roles; checkpoint application pins Alembic to that migrator URL, and startup revision verification never falls back to application credentials. After migration and before restart, the exact archived `scripts/converge_runtime_acls.py` plus its SQL policy rebuild runtime object/column ACLs transactionally as the migrator. The helper refuses ambient URL overrides, a symlinked/non-regular `.env`, a different endpoint, wrong database/role, or application credential. It verifies the exact migration result and publishes it with the release SHA so backend preflight can enforce the pause even when later revisions exist in source. Real deploys use a durable per-environment flock and `.runtime-deploy/<environment>.state`; live revision verification occurs under that lock, then the state is fail-closed before source mutation and remains through restart/readiness, including crashes and interruption. Services allow a start only during the explicit restart-authorized phase. After restart, parsed `/health/ready` JSON must report exact `status="ok"`, `db="ok"`, environment, and full release SHA before state is cleared. The application does not invoke Git. Off-host monitoring must use readiness; `/health/live` proves only that a process responds. The legacy `/health` path is a readiness alias. Runtime dependencies are installed with both `requirements.txt` and the committed `constraints.txt`; a missing constraints file fails the deployment instead of resolving newer packages than the reviewed release.
+### Deployment contract
 
-`./scripts/install_systemd_units.sh --dry-run --environment <production|staging> --source-ref <approved-40-hex-sha>` is the no-change unit-install check. It attests the fixed checkout with trusted Git commands, archives the exact committed unit allowlist and unit blobs, verifies a SHA-256 digest manifest, and runs `systemd-analyze verify` only on private staged bytes. Unit filenames are globally unique and bound to production/non-`-staging` or staging/`-staging` destinations. It executes no checkout Python, preflight, Alembic, or candidate build backend and never reopens mutable unit paths. `--apply` is serialized by an environment-specific `flock` whose marker is accepted only by its root re-exec, records durable pending state in a fixed root-owned directory, prepares every replacement before changing destinations, replaces rather than trusts destination symlinks, rolls back a partial replacement, always runs `systemctl daemon-reload`, and removes pending state only after successful reload; a reload failure remains retryable. It never enables, starts, restarts, or deploys a service. The guard-aware units must be installed before relying on the deploy failure contract. Enabling each environment's news and prune timers is a separate operator-held action. Rollbacks publish a clean forward revert commit as a new release and use the same health gate; never automatically downgrade schema or roll release metadata back independently of code.
+[scripts/deploy.sh](scripts/deploy.sh) fixes the branch, service, and guard path
+from the canonical checkout and refuses a dirty tree. It also removes ambient
+Git, database, and Python routing controls.
+
+- Dry-run resolves one full SHA and verifies only that archived commit. It
+  checks the [unit manifest](deploy/systemd/runtime-units.manifest),
+  [migration checkpoints](deploy/migration-checkpoints.tsv), ACL bundle, and
+  systemd bytes without executing candidate Python or opening the live database.
+- A real deploy requires the same approved SHA, an exact current revision, and
+  one literal allowlisted target. It refuses `head`, moved source, unexpected
+  live state, and unlisted transitions before source mutation.
+- Migration uses explicit application and migrator URLs with distinct roles.
+  The archived [ACL helper](scripts/converge_runtime_acls.py),
+  [policy](deploy/postgres/app_acl_policy.sql), and
+  [convergence SQL](deploy/postgres/converge_runtime_object_acls.sql) rebuild
+  runtime ACLs transactionally before restart.
+- A per-environment lock and `.runtime-deploy/<environment>.state` remain in
+  force through restart and readiness. The backend, news-refresh, and
+  product-analytics-prune units accept only absent or `restart-authorized`
+  state. Order-expiry reminders refuse any present state. Auth-maintenance
+  units do not read this deploy-state gate.
+- `/health/ready` must return exact status, database state, environment, and
+  full SHA before the deploy state clears. `/health/live` proves only process
+  response; `/health` remains a readiness alias.
+- Dependency installation uses [requirements.txt](requirements.txt) and
+  [constraints.txt](constraints.txt); missing constraints or an unsafe
+  environment file fails closed.
+
+### Unit-install contract
+
+[scripts/install_systemd_units.sh](scripts/install_systemd_units.sh) performs
+the no-change check with `--dry-run --environment <production|staging>
+--source-ref <approved-40-hex-sha>`.
+
+- It attests the fixed checkout, archives the committed allowlist and unit
+  bytes, verifies their digest manifest, and runs `systemd-analyze verify` only
+  on private staged bytes. It executes no checkout Python, preflight, Alembic,
+  or candidate backend.
+- `--apply` uses an environment lock and root-owned pending state. It prepares
+  all replacements first, rejects unsafe destinations, rolls back partial
+  replacement, and always runs `systemctl daemon-reload`. Failed reload remains
+  retryable.
+- The installer never enables, starts, restarts, or deploys a service. Timer
+  enablement is a separate operator action. Install guard-aware units before
+  relying on deploy-state enforcement.
+- Rollback is a clean forward-revert release through the same health gate.
+  Never downgrade the database or release metadata independently of code.
 
 This staging branch is an integrated runtime, security, and market release. It
 keeps the staging-only FAME and UCOME B100 catalog and its literal checkpoint
