@@ -8,6 +8,8 @@ dialect-independent contracts on the SQLite harness.
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 from uuid import uuid4
 
 import pytest
@@ -17,11 +19,13 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from app.model_base import Base
 from app.models.market_event import MarketEventOutbox
+from app.routers import stream
 from app.routers.stream import _format_market_event, _parse_last_event_id
-from app.services.event_bus import EventBus
+from app.services.event_bus import EventBus, SubscriberQueue
 from app.services.market_event_dispatch import (
     MarketEventDispatcher,
     fetch_events_for_org,
+    fetch_replay_high_water,
     stream_channel_for_org,
 )
 from app.services.market_events import (
@@ -86,6 +90,208 @@ async def test_replay_is_org_scoped_ordered_and_excludes_unsequenced(sqlite_env)
         for event in await fetch_events_for_org(session, org_a, after_seq=11)
     ] == [12]
     assert await fetch_events_for_org(session, org_a, after_seq=12) == []
+    assert [
+        event.stream_seq
+        for event in await fetch_events_for_org(
+            session, org_b, after_seq=0, through_seq=12
+        )
+    ] == [12]
+    assert await fetch_replay_high_water(session) == 13
+
+
+class _ReplaySession:
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_exc_info):
+        return None
+
+    async def rollback(self):
+        return None
+
+
+class _DisconnectAfterReads:
+    def __init__(self, allowed_reads: int):
+        self.headers = {}
+        self._allowed_reads = allowed_reads
+        self._reads = 0
+
+    async def is_disconnected(self):
+        self._reads += 1
+        return self._reads > self._allowed_reads
+
+
+def _event(seq: int):
+    return SimpleNamespace(
+        stream_seq=seq,
+        event_type="proof_marker",
+        payload={"schema_version": 1, "marker": f"event-{seq}"},
+    )
+
+
+async def test_catch_up_pages_to_high_water_then_merges_queued_live_events():
+    organization_id = uuid4()
+    replay_sequences = list(range(2, 1204, 2))  # 601 authorized rows with holes
+    fetch_cursors = []
+
+    async def fetch_page(_db, _org, *, after_seq, through_seq, limit=500):
+        assert _org == organization_id
+        assert through_seq == replay_sequences[-1]
+        fetch_cursors.append(after_seq)
+        page = [
+            seq
+            for seq in replay_sequences
+            if after_seq < seq <= through_seq
+        ][:limit]
+        return [_event(seq) for seq in page]
+
+    queue = SubscriberQueue()
+    for seq in (1305, replay_sequences[-1], 1205):
+        queue.put_nowait(
+            {
+                "event": "proof_marker",
+                "data": {"schema_version": 1, "marker": f"event-{seq}"},
+                "seq": seq,
+            }
+        )
+
+    with (
+        patch.object(stream, "AsyncSessionLocal", side_effect=lambda: _ReplaySession()),
+        patch.object(
+            stream,
+            "fetch_replay_high_water",
+            new=AsyncMock(return_value=replay_sequences[-1]),
+        ),
+        patch.object(stream, "fetch_events_for_org", side_effect=fetch_page),
+        patch.object(
+            stream,
+            "_validate_private_stream_authorization",
+            new=AsyncMock(return_value=None),
+        ),
+        patch.object(stream.time, "time", return_value=0),
+    ):
+        frames = [
+            frame
+            async for frame in stream._private_sse_messages(
+                _DisconnectAfterReads(allowed_reads=3),
+                queue,
+                uuid4(),
+                organization_id,
+                {"exp": 10_000},
+                last_event_id=0,
+            )
+        ]
+
+    delivered_ids = [
+        int(frame.split("\n", 1)[0].split(": ", 1)[1])
+        for frame in frames
+        if frame.startswith("id:")
+    ]
+    assert delivered_ids == replay_sequences + [1205, 1305]
+    assert fetch_cursors == [0, replay_sequences[499]]
+
+
+async def test_catch_up_expires_and_revalidates_authorization_between_rows():
+    organization_id = uuid4()
+    queue = SubscriberQueue()
+
+    with (
+        patch.object(stream, "AsyncSessionLocal", side_effect=lambda: _ReplaySession()),
+        patch.object(stream, "fetch_replay_high_water", new=AsyncMock(return_value=4)),
+        patch.object(
+            stream,
+            "fetch_events_for_org",
+            new=AsyncMock(return_value=[_event(2), _event(4)]),
+        ),
+        patch.object(
+            stream,
+            "_validate_private_stream_authorization",
+            new=AsyncMock(side_effect=[None, None, ValueError("revoked")]),
+        ) as validate,
+        patch.object(stream.time, "time", side_effect=[0, 16, 32]),
+    ):
+        frames = [
+            frame
+            async for frame in stream._private_sse_messages(
+                _DisconnectAfterReads(allowed_reads=0),
+                queue,
+                uuid4(),
+                organization_id,
+                {"exp": 100},
+                last_event_id=0,
+            )
+        ]
+
+    assert sum(frame.startswith("id:") for frame in frames) == 1
+    assert "auth_revoked" in frames[-1]
+    assert validate.await_count == 3
+
+
+async def test_catch_up_stops_at_token_expiry_mid_page():
+    organization_id = uuid4()
+    queue = SubscriberQueue()
+
+    with (
+        patch.object(stream, "AsyncSessionLocal", side_effect=lambda: _ReplaySession()),
+        patch.object(stream, "fetch_replay_high_water", new=AsyncMock(return_value=4)),
+        patch.object(
+            stream,
+            "fetch_events_for_org",
+            new=AsyncMock(return_value=[_event(2), _event(4)]),
+        ),
+        patch.object(
+            stream,
+            "_validate_private_stream_authorization",
+            new=AsyncMock(return_value=None),
+        ),
+        patch.object(stream.time, "time", side_effect=[0, 0, 11]),
+    ):
+        frames = [
+            frame
+            async for frame in stream._private_sse_messages(
+                _DisconnectAfterReads(allowed_reads=0),
+                queue,
+                uuid4(),
+                organization_id,
+                {"exp": 10},
+                last_event_id=0,
+            )
+        ]
+
+    assert sum(frame.startswith("id:") for frame in frames) == 1
+    assert "auth_expired" in frames[-1]
+
+
+async def test_terminal_overflow_reset_closes_the_stream():
+    organization_id = uuid4()
+    queue = SubscriberQueue()
+    for index in range(queue.maxsize):
+        queue.put_nowait({"event": "proof_marker", "data": {"index": index}})
+    queue.terminate_for_overflow()
+
+    with (
+        patch.object(
+            stream,
+            "_validate_private_stream_authorization",
+            new=AsyncMock(return_value=None),
+        ),
+        patch.object(stream.time, "time", return_value=0),
+    ):
+        frames = [
+            frame
+            async for frame in stream._private_sse_messages(
+                _DisconnectAfterReads(allowed_reads=1),
+                queue,
+                uuid4(),
+                organization_id,
+                {"exp": 100},
+                last_event_id=None,
+            )
+        ]
+
+    assert len(frames) == 2
+    assert frames[-1].startswith("event: reset\n")
+    assert '"resync_required": true' in frames[-1]
 
 
 async def test_enqueue_on_sqlite_commits_without_postgresql_notify(sqlite_env):

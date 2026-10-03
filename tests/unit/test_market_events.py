@@ -32,6 +32,10 @@ async def test_market_event_is_durable_and_participant_scoped():
         [str(buyer_id), str(seller_id)]
     )
     assert row.event_type == "trade_created"
+    assert row.payload == {
+        "schema_version": 1,
+        "status": "PENDING_CONFIRMATION",
+    }
     db.flush.assert_awaited_once()
 
 
