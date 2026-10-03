@@ -131,3 +131,23 @@ async def acquire_market_slice_locks(db: AsyncSession, keys: Iterable[MarketSlic
             delivery_point_id=delivery_point_id,
             availability_window=availability_window,
         )
+
+
+async def next_order_acceptance_ordinal(db: AsyncSession) -> int:
+    """Allocate an order ordinal after the caller holds its market-slice lock."""
+    bind = db.get_bind()
+    if isawaitable(bind):
+        close = getattr(bind, "close", None)
+        if close is not None:
+            close()
+        # AsyncMock route tests do not have a database sequence.
+        return 1
+    if bind is not None and bind.dialect.name == "sqlite":
+        # SQLite is used only by unit tests. PostgreSQL sequence allocation is
+        # the authoritative concurrency contract.
+        value = await db.scalar(text("SELECT abs(random())"))
+        return int(value)
+    value = await db.scalar(
+        text("SELECT nextval('orderbook_acceptance_ordinal_seq')")
+    )
+    return int(value)

@@ -1,4 +1,5 @@
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     CheckConstraint,
     Date,
@@ -16,8 +17,10 @@ from sqlalchemy import (
     func,
     text,
 )
+from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.sql.functions import FunctionElement
 import uuid
 import enum
 from datetime import UTC, date, datetime
@@ -82,6 +85,25 @@ class Initiator(str, enum.Enum):
     SELLER = "SELLER"
 
 
+class _OrderAcceptanceOrdinalDefault(FunctionElement):
+    """Compile the persisted ordinal default for each supported test/runtime DB."""
+
+    type = BigInteger()
+    inherit_cache = True
+
+
+@compiles(_OrderAcceptanceOrdinalDefault, "postgresql")
+def _compile_postgresql_acceptance_ordinal_default(_element, _compiler, **_kwargs):
+    return "nextval('orderbook_acceptance_ordinal_seq'::regclass)"
+
+
+@compiles(_OrderAcceptanceOrdinalDefault, "sqlite")
+def _compile_sqlite_acceptance_ordinal_default(_element, _compiler, **_kwargs):
+    # SQLite is only a unit-test database. Tests that assert queue order set
+    # explicit ordinals; other fixtures need only a non-null unique value.
+    return "abs(random())"
+
+
 class OrderBookOrder(Base):
     """
     Unified order book entry. Every entry is either a BID (buy) or ASK (sell).
@@ -127,6 +149,9 @@ class OrderBookOrder(Base):
             name="uq_orderbook_orders_org_operation_idempotency",
         ),
         UniqueConstraint(
+            "acceptance_ordinal", name="uq_orderbook_orders_acceptance_ordinal"
+        ),
+        UniqueConstraint(
             "support_authorization_id", name="uq_orderbook_support_authorization"
         ),
         CheckConstraint(
@@ -140,6 +165,11 @@ class OrderBookOrder(Base):
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    acceptance_ordinal: Mapped[int] = mapped_column(
+        BigInteger,
+        nullable=False,
+        server_default=_OrderAcceptanceOrdinalDefault(),
+    )
     organization_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organizations.id"), nullable=False)
     owner_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
     created_by_actor_user_id: Mapped[uuid.UUID | None] = mapped_column(

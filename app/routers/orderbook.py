@@ -68,7 +68,11 @@ from pydantic import BaseModel
 from app.services.benchmarks import compute_premium_discount
 from app.services.watchlist_events import emit_order_created, emit_order_updated, _best_slice_price
 from app.services.execution_policy import normalize_certification_scheme, supplier_product_metadata_error
-from app.services.market_locks import acquire_market_slice_lock, acquire_market_slice_locks
+from app.services.market_locks import (
+    acquire_market_slice_lock,
+    acquire_market_slice_locks,
+    next_order_acceptance_ordinal,
+)
 from app.services.idempotency import (
     ORDER_CREATE_OPERATION,
     acquire_idempotency_lock,
@@ -148,6 +152,59 @@ REQUIRED_ASK_METADATA_FIELDS = (
 )
 
 
+def _amendment_loses_priority(
+    order: OrderBookOrder,
+    changes: dict[str, object],
+) -> bool:
+    """Return whether an effective amendment admits new execution opportunity."""
+    new_price = changes.get("price_per_mt_usd", order.price_per_mt_usd)
+    if new_price != order.price_per_mt_usd:
+        return True
+
+    new_quantity = changes.get("quantity_mt", order.quantity_mt)
+    if new_quantity > order.quantity_mt:
+        return True
+
+    if "expires_at" in changes:
+        new_expiry = changes["expires_at"]
+        if (
+            new_expiry != order.expires_at
+            and order.expires_at is not None
+            and (new_expiry is None or new_expiry > order.expires_at)
+        ):
+            return True
+
+    if "certifications" in changes:
+        old_certifications = {
+            value
+            for value in (
+                normalize_certification_scheme(item)
+                for item in (order.certifications or [])
+            )
+            if value is not None
+        }
+        new_certifications = {
+            value
+            for value in (
+                normalize_certification_scheme(item)
+                for item in (changes["certifications"] or [])
+            )
+            if value is not None
+        }
+        if old_certifications != new_certifications:
+            return True
+
+    for field in ("certification_scheme", "fame_terms"):
+        if field in changes and changes[field] != getattr(order, field, None):
+            return True
+
+    return (
+        "off_spec" in changes
+        and bool(order.off_spec)
+        and not bool(changes["off_spec"])
+    )
+
+
 def _ensure_join(joins: list[tuple[object, object]], target: object, condition: object) -> None:
     if not any(existing_target == target for existing_target, _ in joins):
         joins.append((target, condition))
@@ -215,14 +272,14 @@ def _orderbook_sort_clauses(sort_by: OrderbookSort) -> tuple[object, ...]:
     if sort_by == "price_asc":
         return (
             OrderBookOrder.price_per_mt_usd.asc(),
-            OrderBookOrder.created_at.desc(),
-            OrderBookOrder.id.desc(),
+            OrderBookOrder.acceptance_ordinal.asc(),
+            OrderBookOrder.id.asc(),
         )
     if sort_by == "price_desc":
         return (
             OrderBookOrder.price_per_mt_usd.desc(),
-            OrderBookOrder.created_at.desc(),
-            OrderBookOrder.id.desc(),
+            OrderBookOrder.acceptance_ordinal.asc(),
+            OrderBookOrder.id.asc(),
         )
     if sort_by == "quantity_desc":
         return (
@@ -1727,6 +1784,7 @@ async def create_order(
         delivery_point_id=order_data.delivery_point_id,
         availability_window=order_data.availability_window,
     )
+    acceptance_ordinal = await next_order_acceptance_ordinal(db)
     await lock_request_party_context(db, party)
     organizations = await lock_and_load_market_organizations(
         db,
@@ -1753,6 +1811,7 @@ async def create_order(
         )
 
     new_order = OrderBookOrder(
+        acceptance_ordinal=acceptance_ordinal,
         organization_id=effective_organization_id,
         owner_user_id=party.accountable_principal.id,
         created_by_actor_user_id=party.actor.id,
@@ -2293,6 +2352,9 @@ async def update_order(
                 await reserve_inventory(db, order.inventory_item_id, remaining_delta)
             elif remaining_delta < 0:
                 await release_inventory(db, order.inventory_item_id, -remaining_delta)
+
+    if _amendment_loses_priority(order, update_dict):
+        update_dict["acceptance_ordinal"] = await next_order_acceptance_ordinal(db)
 
     before_state = await _watchlist_before_state(db, order)
     previous_benchmark_key: LiveBenchmarkKey | None = (
