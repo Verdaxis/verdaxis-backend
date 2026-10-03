@@ -14,7 +14,8 @@ from app.market_catalog import B30_SPECIFICATION_STANDARD, B100_SPECIFICATION_ST
 from app.models.orderbook import OrderBookStatus, OrderSide
 from app.seeds.catalog_seed import DELIVERY_POINT_IDS, PRODUCT_IDS
 from app.seeds.market_seed import CI_DATA, PRICING, _seed_price_for_slice, ask_seed_metadata
-from app.seeds.forward_monitoring_seed import _default_curve_windows, _demo_slices
+from app.seeds.forward_monitoring_seed import _demo_slices
+from app.services.availability_windows import forward_monitoring_default_windows
 from app.services.demo_activity import (
     DEMO_COVERAGE_REFRESH_FIELDS,
     _ask_metadata,
@@ -222,4 +223,7 @@ def test_biofuel_demo_forward_monitoring_covers_spot_and_singapore_curve(product
     }
 
     assert {(port, "SPOT") for port in DELIVERY_POINT_IDS} <= fuel_slices
-    assert {("Singapore", window) for window in _default_curve_windows(now)} <= fuel_slices
+    expected_windows = forward_monitoring_default_windows(
+        reference_date=now.date(),
+    )
+    assert {("Singapore", window) for window in expected_windows} <= fuel_slices

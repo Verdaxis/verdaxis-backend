@@ -55,6 +55,7 @@ from app.schemas.market_activity import (
 from app.services.availability_windows import (
     SPOT_WINDOW,
     availability_window_sort_key,
+    forward_monitoring_default_windows,
     normalize_availability_window,
 )
 from app.services.benchmarks import get_benchmark_quote, get_benchmark_quotes
@@ -89,32 +90,6 @@ router = APIRouter(prefix="/curves/forward", tags=["forward-curve"])
 _ACTIVE_STATUSES = [OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED]
 _MARKET_PRODUCT_ORDER = list(MARKET_PRODUCT_CODES)
 _DELIVERY_POINT_DISPLAY_ORDER = DELIVERY_POINT_DISPLAY_ORDER
-
-
-def _add_month_offset(year: int, month: int, offset: int) -> tuple[int, int]:
-    zero_based = month - 1 + offset
-    return year + (zero_based // 12), (zero_based % 12) + 1
-
-
-def _default_curve_windows(now: datetime | None = None) -> list[str]:
-    current = now or datetime.now(timezone.utc)
-    year = current.year
-    month = current.month
-    quarter = ((month - 1) // 3) + 1
-
-    windows = [SPOT_WINDOW]
-    for offset in range(1, 7):
-        next_year, next_month = _add_month_offset(year, month, offset)
-        windows.append(f"{next_year}-{next_month:02d}")
-
-    for offset in range(1, 5):
-        absolute_quarter = (year * 4) + (quarter - 1) + offset
-        quarter_year = absolute_quarter // 4
-        next_quarter = (absolute_quarter % 4) + 1
-        windows.append(f"{quarter_year}-Q{next_quarter}")
-
-    windows.extend([f"{year + 1}-CAL", f"{year + 2}-CAL"])
-    return windows
 
 
 def _benchmark_is_demo(source: str | None) -> bool:
@@ -675,8 +650,11 @@ async def build_forward_curve_board(
         product_id=focus_product.id,
         delivery_point_id=focus_delivery_point.id,
     )
+    monitoring_windows = forward_monitoring_default_windows(
+        reference_date=datetime.now(timezone.utc).date(),
+    )
     curve_windows = sorted(
-        set(_default_curve_windows()) | set(focus_orderbook_by_window.keys()),
+        set(monitoring_windows) | set(focus_orderbook_by_window.keys()),
         key=availability_window_sort_key,
     )
     matrix_signal_keys: list[SignalKey] = [
