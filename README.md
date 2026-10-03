@@ -91,8 +91,11 @@ Git, database, and Python routing controls.
 - A per-environment lock and `.runtime-deploy/<environment>.state` remain in
   force through restart and readiness. The backend, news-refresh, and
   product-analytics-prune units accept only absent or `restart-authorized`
-  state. Order-expiry reminders refuse any present state. Auth-maintenance
-  units do not read this deploy-state gate.
+  state. The order-expiry-reminder and auth-maintenance units refuse any
+  present state. Auth maintenance also loads `.runtime-release.env` and
+  preflights the effective `ENVIRONMENT` before execution. These systemd
+  conditions govern new starts only; creating state does not stop or drain an
+  already-running oneshot.
 - `/health/ready` must return exact status, database state, environment, and
   full SHA before the deploy state clears. `/health/live` proves only process
   response; `/health` remains a readiness alias.

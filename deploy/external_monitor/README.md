@@ -36,6 +36,20 @@ libpq authentication outside command arguments, such as an owner-only
 `PGPASSFILE`. Do not place a database password in the monitor command line or
 the monitor status.
 
+## Restore verification status
+
+The source monitor is a status reader only. It reads `restore-status.json`
+beside the configured `BACKUP_STATUS_FILE`. It accepts only a four-key JSON
+status no larger than 5,000 bytes, with a successful, exact three-database
+result no more than eight days old. It does not run a restore, read backup storage, or
+publish status.
+
+A separate external daily producer owns the weekly restore and atomic status
+publication. Source presence does not prove that producer or this reader is
+installed. The split-topology shared-host monitor requires a separate reviewed
+selective promotion of this reader; never replace it with the full source
+monitor.
+
 ## Guarded recovery
 
 In this source design, `verdaxis-monitor.service` exits nonzero when a check
