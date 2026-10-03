@@ -93,10 +93,9 @@ class TestTradeLifecycle:
 
         # 3. Create a trade linking the two orders
         trade_data = {
-            "ask_order_id": ask_order_id,
-            "bid_order_id": bid_order_id,
+            "order_id": ask_order_id,
             "quantity_mt": 200,
-            "price_per_mt_usd": 1200,
+            "expected_terms_digest": ask_order["terms_digest"],
         }
         res = await client.post("/api/trades", json=trade_data, headers=buyer_headers)
         # Trade creation may require different endpoint or flow -- check response

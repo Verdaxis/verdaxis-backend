@@ -256,6 +256,7 @@ class TestOrderResponse:
         product_id = uuid4()
         resp = OrderResponse(
             id=uuid4(),
+            terms_digest="0" * 64,
             side=OrderSide.ASK,
             product_id=product_id,
             product_name="Biofuel Bio",
@@ -302,6 +303,7 @@ class TestOrderResponse:
         now = datetime.utcnow()
         resp = OrderMyResponse(
             id=uuid4(),
+            terms_digest="0" * 64,
             side=OrderSide.BID,
             product_id=uuid4(),
             product_name="LNG Conventional",
@@ -326,6 +328,7 @@ class TestOrderResponse:
     def test_market_product_defaults_to_none(self):
         resp = OrderResponse(
             id=uuid4(),
+            terms_digest="0" * 64,
             side=OrderSide.ASK,
             product_id=uuid4(),
             product_name="Legacy Product",

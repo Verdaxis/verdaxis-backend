@@ -19,6 +19,7 @@ from app.market_catalog import DELIVERY_POINTS_BY_NAME, PRODUCTS_BY_CODE
 from app.models.catalog import DeliveryPoint, Product
 from app.models.market_support import MarketSupportCapability, StaffCapabilityAssignment
 from app.models.orderbook import OrderBookOrder, OrderBookStatus, OrderCreationMethod, OrderSide
+from app.services.order_terms import order_terms_digest
 from app.models.user import (
     Organization,
     OrganizationProvenance,
@@ -266,7 +267,7 @@ async def test_assisted_ask_confirm_requires_customer_supplier_member(market_sup
     created = await client.post(
         "/api/trades/",
         headers=_headers(seeded["buyer_id"]),
-        json={"order_id": str(order_id), "quantity_mt": "2.00"},
+        json=await _reviewed_trade_payload(seeded, order_id),
     )
     assert created.status_code == 200, created.text
     trade_id = created.json()["id"]
@@ -299,7 +300,7 @@ async def test_assisted_bid_confirm_and_decline_are_symmetric(market_support_cli
     created = await client.post(
         "/api/trades/",
         headers=_headers(seeded["supplier_id"]),
-        json={"order_id": str(order_id), "quantity_mt": "2.00"},
+        json=await _reviewed_trade_payload(seeded, order_id),
     )
     assert created.status_code == 200, created.text
     trade_id = created.json()["id"]
@@ -318,7 +319,7 @@ async def test_assisted_bid_confirm_and_decline_are_symmetric(market_support_cli
     decline_created = await client.post(
         "/api/trades/",
         headers=_headers(seeded["supplier_id"]),
-        json={"order_id": str(decline_order_id), "quantity_mt": "2.00"},
+        json=await _reviewed_trade_payload(seeded, decline_order_id),
     )
     assert decline_created.status_code == 200, decline_created.text
     declined = await client.put(
@@ -347,7 +348,7 @@ async def test_assisted_decline_allows_revoked_support_owner_and_rejected_initia
     created = await client.post(
         "/api/trades/",
         headers=_headers(seeded["buyer_id"]),
-        json={"order_id": str(order_id), "quantity_mt": "2.00"},
+        json=await _reviewed_trade_payload(seeded, order_id),
     )
     assert created.status_code == 200, created.text
     await _set_user_status(seeded, seeded["admin_id"], UserStatus.REJECTED)
@@ -381,7 +382,7 @@ async def test_trade_creation_rejects_retired_catalog_rows(market_support_client
     rejected = await client.post(
         "/api/trades/",
         headers=_headers(seeded["buyer_id"]),
-        json={"order_id": str(order_id), "quantity_mt": "2.00"},
+        json=await _reviewed_trade_payload(seeded, order_id),
     )
     assert rejected.status_code == 400, rejected.text
 
@@ -401,7 +402,7 @@ async def test_self_service_keeps_exact_principal_decline_after_owner_rejection(
     confirmed_trade = await client.post(
         "/api/trades/",
         headers=_headers(seeded["buyer_id"]),
-        json={"order_id": str(confirm_order_id), "quantity_mt": "2.00"},
+        json=await _reviewed_trade_payload(seeded, confirm_order_id),
     )
     assert confirmed_trade.status_code == 200, confirmed_trade.text
     confirmed = await client.put(
@@ -420,7 +421,7 @@ async def test_self_service_keeps_exact_principal_decline_after_owner_rejection(
     pending = await client.post(
         "/api/trades/",
         headers=_headers(seeded["buyer_id"]),
-        json={"order_id": str(decline_order_id), "quantity_mt": "2.00"},
+        json=await _reviewed_trade_payload(seeded, decline_order_id),
     )
     assert pending.status_code == 200, pending.text
     await _set_user_status(seeded, seeded["supplier_id"], UserStatus.REJECTED)
@@ -447,7 +448,7 @@ async def test_assisted_confirm_waits_for_uncommitted_customer_rejection(
     created = await client.post(
         "/api/trades/",
         headers=_headers(seeded["buyer_id"]),
-        json={"order_id": str(order_id), "quantity_mt": "2.00"},
+        json=await _reviewed_trade_payload(seeded, order_id),
     )
     assert created.status_code == 200, created.text
 
@@ -476,6 +477,17 @@ async def test_assisted_confirm_waits_for_uncommitted_customer_rejection(
         if holder.in_transaction():
             await holder.rollback()
         await holder.close()
+
+
+async def _reviewed_trade_payload(seeded, order_id, quantity: str = "2.00") -> dict[str, str]:
+    async with seeded["factory"]() as session:
+        order = await session.get(OrderBookOrder, order_id)
+        assert order is not None
+        return {
+            "order_id": str(order_id),
+            "quantity_mt": quantity,
+            "expected_terms_digest": order_terms_digest(order),
+        }
 
 
 async def _retain_only_capability(seeded, capability: MarketSupportCapability) -> None:

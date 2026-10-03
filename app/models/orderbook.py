@@ -309,6 +309,12 @@ class OrderBookOrder(Base):
         if self.creation_method == OrderCreationMethod.MARKET_SUPPORT:
             self.version += 1
 
+    @property
+    def terms_digest(self) -> str:
+        from app.services.order_terms import order_terms_digest
+
+        return order_terms_digest(self)
+
     # ---- Denormalized accessors for backward compatibility ----
 
     @property
