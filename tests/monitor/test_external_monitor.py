@@ -22,6 +22,28 @@ def load_module():
     return module
 
 
+RESTORE_NOW = datetime(2026, 10, 4, 8, 0, tzinfo=timezone.utc)
+
+
+def _restore_payload(**changes):
+    payload = {
+        "ok": True,
+        "completed_at": "2026-10-04T07:00:00Z",
+        "backup_id": "20261004-070000",
+        "databases": ["verdaxis", "verdaxis_staging", "umami"],
+    }
+    payload.update(changes)
+    return payload
+
+
+def _write_restore_status(monkeypatch, tmp_path, payload):
+    backup_status_file = tmp_path / "status.json"
+    monkeypatch.setenv("BACKUP_STATUS_FILE", str(backup_status_file))
+    restore_status_file = tmp_path / "restore-status.json"
+    restore_status_file.write_text(json.dumps(payload))
+    return restore_status_file
+
+
 def _signup_responses(module, cleanup_response):
     email = "canary+prod-123@prod-123.canary.verdaxis.exchange"
     responses = iter(
@@ -341,6 +363,179 @@ def test_demo_trade_canaries_use_existing_prod_and_staging_targets(monkeypatch):
     assert observed == list(module.DEFAULT_SIGNUP_CANARY_TARGETS.items())
 
 
+@pytest.mark.parametrize(
+    ("completed_at", "normalized"),
+    [
+        ("2026-10-04T07:00:00Z", "2026-10-04T07:00:00+00:00"),
+        ("2026-10-04T15:00:00+08:00", "2026-10-04T15:00:00+08:00"),
+    ],
+)
+def test_restore_status_accepts_aware_iso_and_python_310_z(
+    monkeypatch,
+    tmp_path,
+    completed_at,
+    normalized,
+):
+    module = load_module()
+    parsed_values = []
+
+    class Python310DateTime:
+        @staticmethod
+        def now(tz):
+            assert tz is timezone.utc
+            return RESTORE_NOW
+
+        @staticmethod
+        def fromisoformat(value):
+            parsed_values.append(value)
+            if value.endswith("Z"):
+                raise ValueError("Invalid isoformat string")
+            return datetime.fromisoformat(value)
+
+    _write_restore_status(
+        monkeypatch,
+        tmp_path,
+        _restore_payload(completed_at=completed_at),
+    )
+    monkeypatch.setattr(module, "datetime", Python310DateTime)
+
+    assert module.check_restore_status() == []
+    assert parsed_values == [normalized]
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        [],
+        {"ok": True, "completed_at": "2026-10-04T07:00:00Z"},
+        _restore_payload(unexpected="value"),
+        _restore_payload(ok=1),
+        _restore_payload(completed_at=1),
+        _restore_payload(backup_id=1),
+        _restore_payload(databases="verdaxis,verdaxis_staging,umami"),
+    ],
+)
+def test_restore_status_requires_exact_schema(monkeypatch, tmp_path, payload):
+    module = load_module()
+    _write_restore_status(monkeypatch, tmp_path, payload)
+
+    assert module.check_restore_status() == [
+        "restore verification status has an invalid schema"
+    ]
+
+
+@pytest.mark.parametrize(
+    "databases",
+    [
+        ["verdaxis", "verdaxis_staging"],
+        ["verdaxis", "verdaxis", "umami"],
+        ["verdaxis", "verdaxis_staging", "umami", "other"],
+        ["verdaxis", "verdaxis_staging", {"name": "umami"}],
+    ],
+)
+def test_restore_status_requires_exact_database_inventory(
+    monkeypatch,
+    tmp_path,
+    databases,
+):
+    module = load_module()
+    _write_restore_status(
+        monkeypatch,
+        tmp_path,
+        _restore_payload(databases=databases),
+    )
+
+    assert module.check_restore_status() == [
+        "restore verification status has an invalid database inventory"
+    ]
+
+
+@pytest.mark.parametrize(
+    ("changes", "expected_error"),
+    [
+        (
+            {"ok": False},
+            "last restore verification did not complete successfully",
+        ),
+        (
+            {"backup_id": "../../secret"},
+            "restore verification status has an invalid backup ID",
+        ),
+        (
+            {"completed_at": "not-a-time"},
+            "restore verification status has an invalid completion timestamp",
+        ),
+        (
+            {"completed_at": "2026-10-04T07:00:00"},
+            "restore verification status has an invalid completion timestamp",
+        ),
+        (
+            {"completed_at": "2026-10-04T08:05:01+00:00"},
+            "restore verification completion timestamp is in the future",
+        ),
+        (
+            {"completed_at": "2026-09-26T07:59:59+00:00"},
+            "restore verification is stale",
+        ),
+    ],
+)
+def test_restore_status_rejects_failed_invalid_and_stale_evidence(
+    monkeypatch,
+    tmp_path,
+    changes,
+    expected_error,
+):
+    module = load_module()
+    _write_restore_status(monkeypatch, tmp_path, _restore_payload(**changes))
+
+    class FixedDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            assert tz is timezone.utc
+            return RESTORE_NOW
+
+    monkeypatch.setattr(module, "datetime", FixedDateTime)
+
+    assert module.check_restore_status() == [expected_error]
+
+
+@pytest.mark.parametrize(
+    "raw_payload",
+    [
+        b'{"secret":"do-not-report"',
+        b"x" * 5_001,
+    ],
+)
+def test_restore_status_rejects_unreadable_content_without_details(
+    monkeypatch,
+    tmp_path,
+    raw_payload,
+):
+    module = load_module()
+    status_file = _write_restore_status(
+        monkeypatch,
+        tmp_path,
+        _restore_payload(),
+    )
+    status_file.write_bytes(raw_payload)
+
+    errors = module.check_restore_status()
+
+    assert errors == ["restore verification status is unreadable"]
+    assert "secret" not in " ".join(errors)
+
+
+def test_restore_status_reports_missing_sibling_without_path(monkeypatch, tmp_path):
+    module = load_module()
+    backup_status_file = tmp_path / "configured-backup-status.json"
+    monkeypatch.setenv("BACKUP_STATUS_FILE", str(backup_status_file))
+
+    errors = module.check_restore_status()
+
+    assert errors == ["restore verification status is missing"]
+    assert str(tmp_path) not in " ".join(errors)
+
+
 def test_outbox_check_invokes_both_deployed_database_targets(monkeypatch, tmp_path):
     module = load_module()
     probe = tmp_path / "outbox_backlog_probe.py"
@@ -502,6 +697,11 @@ def test_main_aggregates_outbox_failures_into_existing_status_path(monkeypatch):
     monkeypatch.setattr(module, "check_frontend_bundles", lambda: [])
     monkeypatch.setattr(module, "check_rendered_pages", lambda: [])
     monkeypatch.setattr(module, "check_backup_status", lambda: [])
+    monkeypatch.setattr(
+        module,
+        "check_restore_status",
+        lambda: ["restore verification is stale"],
+    )
     monkeypatch.setattr(module, "check_signup_canaries", lambda: [])
     monkeypatch.setattr(
         module,
@@ -539,6 +739,7 @@ def test_main_aggregates_outbox_failures_into_existing_status_path(monkeypatch):
     assert observed == {
         "ok": False,
         "errors": [
+            "restore verification is stale",
             "production event outbox backlog threshold breached",
             "production demo trade canary is stale",
         ],
