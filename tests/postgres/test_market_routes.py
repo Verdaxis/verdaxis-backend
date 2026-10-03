@@ -631,7 +631,11 @@ async def test_six_command_results_replay_exact_snapshots_without_new_effects(
             "X-Verdaxis-Market-Support-Context": str(uuid4()),
         },
     )
-    assert invalid_context.status_code == 404, invalid_context.text
+    assert invalid_context.status_code == 403, invalid_context.text
+    assert (
+        invalid_context.json()["detail"]["code"]
+        == "MARKET_SUPPORT_MUTATION_NOT_ALLOWED"
+    )
 
     async with seeded["factory"]() as session:
         changed_org = Organization(
