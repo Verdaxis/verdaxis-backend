@@ -18,6 +18,7 @@ import pytest
 from app.config import settings
 from app.main import app
 from app.middleware import preauth_rate_limit as prl
+from app.routing import MAX_MARKET_JSON_BODY_BYTES, MarketJSONBodyLimitRoute
 from app.services.request_party import (
     MARKET_SUPPORT_CONTEXT_HEADER,
     MARKET_SUPPORT_CONTEXT_INVALID_HEADER,
@@ -28,6 +29,26 @@ pytestmark = pytest.mark.asyncio
 _CLIENT_IP = "198.51.100.77"
 _REQUEST_ID = "cors-retry-test"
 _LOGIN_PREFIX, _LOGIN_LIMIT, _LOGIN_WINDOW = prl.PREAUTH_LIMITS[0]
+
+_SMALL_MARKET_PAYLOADS = (
+    (
+        "/api/orderbook",
+        {
+            "side": "BID",
+            "product_id": "00000000-0000-0000-0000-000000000001",
+            "delivery_point_id": "00000000-0000-0000-0000-000000000002",
+            "quantity_mt": 1,
+            "price_per_mt_usd": 1,
+        },
+    ),
+    (
+        "/api/trades/",
+        {
+            "order_id": "00000000-0000-0000-0000-000000000001",
+            "quantity_mt": 1,
+        },
+    ),
+)
 
 
 @pytest.mark.parametrize("path", ["/api/orderbook", "/api/trades/"])
@@ -166,3 +187,43 @@ async def test_missing_authentication_keeps_credentialed_cors():
     assert response.status_code == 401
     assert response.headers["access-control-allow-origin"] == origin
     assert response.headers["access-control-allow-credentials"] == "true"
+
+
+@pytest.mark.parametrize(("path", "_payload"), _SMALL_MARKET_PAYLOADS)
+async def test_market_json_limit_rejects_declared_and_chunked_oversize_before_auth(
+    path,
+    _payload,
+):
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://t") as client:
+        declared = await client.post(
+            path,
+            content=b"{}",
+            headers={"Content-Length": str(MAX_MARKET_JSON_BODY_BYTES + 1)},
+        )
+
+        async def chunks():
+            yield b'{"metadata":"'
+            yield b"x" * MAX_MARKET_JSON_BODY_BYTES
+            yield b'"}'
+
+        chunked = await client.post(
+            path,
+            content=chunks(),
+            headers={"Content-Type": "application/json"},
+        )
+
+    expected_detail = MarketJSONBodyLimitRoute.body_too_large_detail
+    assert declared.status_code == 413
+    assert declared.json() == {"detail": expected_detail}
+    assert chunked.status_code == 413
+    assert chunked.json() == {"detail": expected_detail}
+
+
+@pytest.mark.parametrize(("path", "payload"), _SMALL_MARKET_PAYLOADS)
+async def test_small_market_json_reaches_authentication(path, payload):
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://t") as client:
+        response = await client.post(path, json=payload)
+
+    assert response.status_code == 401

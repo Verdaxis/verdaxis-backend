@@ -98,7 +98,11 @@ Git, database, and Python routing controls.
   already-running oneshot.
 - `/health/ready` must return exact status, database state, environment, and
   full SHA before the deploy state clears. `/health/live` proves only process
-  response; `/health` remains a readiness alias.
+  response; `/health` remains a readiness alias. By default, the readiness gate
+  makes at most 60 attempts, waits two seconds between attempts, and limits each
+  request to 15 seconds; this is not a fixed 120-second wall-clock limit, and
+  validated overrides remain bounded to 1–120 attempts and 0–300 seconds
+  between attempts.
 - Dependency installation uses [requirements.txt](requirements.txt) and
   [constraints.txt](constraints.txt); missing constraints or an unsafe
   environment file fails closed.

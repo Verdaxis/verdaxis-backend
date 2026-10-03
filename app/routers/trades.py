@@ -12,6 +12,7 @@ from sqlalchemy.orm import joinedload, selectinload
 from uuid import UUID
 
 from app.database import get_db
+from app.routing import MarketJSONBodyLimitRoute
 from app.market_catalog import BIOFUEL_SPECIFICATION_STANDARDS
 from app.routers.auth_simple import get_authenticated_user, get_current_user
 from app.middleware.execution import require_execution_eligible_user
@@ -87,7 +88,12 @@ from app.services.org_notifications import notify_org_users
 from app.services.trade_fees import resolve_seller_trade_fee
 from app.services.order_terms import order_terms_digest
 
-router = APIRouter(prefix="/trades", tags=["trades"], responses=AUTH_RESPONSES)
+router = APIRouter(
+    prefix="/trades",
+    tags=["trades"],
+    responses=AUTH_RESPONSES,
+    route_class=MarketJSONBodyLimitRoute,
+)
 
 # One party reports delivery unilaterally, so the final price it sets must
 # stay within this band around the confirmed trade price. Guards commission
