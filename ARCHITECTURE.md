@@ -158,7 +158,7 @@ alembic/versions/               # Migrations incl. canonical availability-window
 - **Rate limiting:** slowapi per-route (5/min login, 3/min password, 60/min prices, 30/min reference)
 - **Availability windows:** Persist canonical codes (`SPOT`, `YYYY-MM`, `YYYY-QN`, legacy-compatible `YYYY-CAL`); UI-relative labels like `M+1` must be resolved before persistence
 - **Green-fuels market model:** Matching and live slice benchmarks key on `side + market_product + delivery_point + availability_window`; supplier sustainability/compliance fields stay out of the hard market key
-- **Orderbook read performance:** List responses reuse joined product/delivery-point rows and eager-load organization data. Benchmark inputs are fetched once for all requested slices, including cached missing results within the request. `/orderbook/map-summary` returns all eligible compact groups and the latest ASK per delivery point; `/orderbook/product-counts` uses the public listing filters for all four product totals.
+- **Orderbook read performance:** List responses reuse joined product/delivery-point rows and eager-load organization data. Benchmark inputs are fetched once for all requested slices, including cached missing results within the request. `/orderbook/map-summary` returns all eligible compact groups and the latest ASK per delivery point; `/orderbook/product-counts` uses the public listing filters for canonical product totals.
 - **Market provenance contract:** Market-data responses use shared `source_kind`, `scope`, and `demo_status` fields. Aggregate data exposes real/demo/unknown counts; unknown contributors remain `UNKNOWN` rather than being collapsed into real/demo/mixed.
 - **Biofuel contracts:** B30 (30% FAME by volume / 70% VLSFO, ISO 8217:2024 RF 380, sulphur ≤0.50% by mass) and B100 (100% FAME, ISO 8217:2024 DFA, sulphur ≤0.10% by mass; excludes HVO) have separate canonical product IDs. Existing matching and fees apply. Shared supplier qualification requires the fixed specification and lifecycle CI method for the whole supplied fuel at listing admission, execution, and public projections. No default CI/LCV is assigned to real biofuel listings; seed prices and fuel properties remain disclosed demo assumptions.
 - **Forward Curve monitoring:** `/curves/forward/table` and `/curves/forward/slice` use `forward_curve_market_slices.py` as the canonical public read model for approved `market_product + delivery_point + availability_window` slices. Products aggregate by canonical market product, delivery points are restricted to the approved trading ports, and public cells expose server-owned label policy plus redacted source/demo/staleness fields. Complete grid lookups use compact axis predicates; sparse selections keep exact tuple predicates. Table projection validates cell attributes without serializing nested detail. Focus reads select trusted REAL evidence before applying their limit and use DEMO only when no REAL result exists. `/curves/forward/board` remains for older clients.
@@ -184,3 +184,30 @@ alembic/versions/               # Migrations incl. canonical availability-window
 2. **Compliance SaaS ($200-500/vessel/mo)** — /compliance/fleet, /compliance/scenario
 3. **Data products ($1K-5K/seat/mo)** — /prices/reference (daily VWAP)
 4. **Platform analytics** — /admin/analytics/overview, /admin/analytics/daily, /admin/analytics/product-usage
+
+## Reviewed trading and snapshot contracts (2026-10-03)
+
+`services/order_terms.py` binds a direct hit to the selected order's exact terms.
+New requests compare `expected_terms_digest` after market and row locks; missing or
+changed terms return `ORDER_TERMS_REVIEW_REQUIRED` before reservation. Successful
+same-key replay returns the stored trade before current-term validation.
+
+`GET /orderbook/snapshot` returns at most 15 individual orders per side for one
+canonical product, delivery point and window. A fresh repeatable-read transaction
+and one captured UTC time govern depth, expiry and quote references. Ranked depth
+and batched references use two data statements. The response reports generation
+time, scope and demo provenance; it does not represent confirmed trade prices.
+
+Orders persist `acceptance_ordinal`, allocated after the market lock. Price, ordinal
+and UUID determine queue priority. Price changes, quantity increases and broader
+execution terms reset priority; reductions and fills retain it. Migration
+`obp_20261003_acceptance_priority` follows `auth_20261002_session_cutoff`, backfills
+legacy rows deterministically and grants the runtime role sequence USAGE only.
+The 100-candidate matching limit remains an atomic HTTP 409 rejection.
+
+Private event replay pages authorized rows through a captured high-water mark and
+merges ordered live events. Global sequence holes are valid. Queue overflow closes
+the connection with an explicit full-REST-resync contract. Payloads carry schema
+version 1. Public reconnect invalidates cached reads; public feeds do not provide
+a committed L2 delta feed. General lifecycle commands still lack immutable keyed
+transition-result replay. See the implementation plan for the bounded scope.
