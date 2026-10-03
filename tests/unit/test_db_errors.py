@@ -9,16 +9,36 @@ from app.services.db_errors import database_error_log_fields, is_contention_erro
 
 
 class _PostgresError(Exception):
-    def __init__(self, message: str, sqlstate: str):
+    def __init__(
+        self,
+        message: str,
+        sqlstate: str | None,
+        *,
+        pgcode: str | None = None,
+        sqlstate_code: str | None = None,
+    ):
         super().__init__(message)
         self.sqlstate = sqlstate
+        self.pgcode = pgcode
+        self.sqlstate_code = sqlstate_code
 
 
-def _db_error(message: str, sqlstate: str) -> DBAPIError:
+def _db_error(
+    message: str,
+    sqlstate: str | None,
+    *,
+    pgcode: str | None = None,
+    sqlstate_code: str | None = None,
+) -> DBAPIError:
     return DBAPIError.instance(
         statement="UPDATE market_data SET value = 1",
         params=None,
-        orig=_PostgresError(message, sqlstate),
+        orig=_PostgresError(
+            message,
+            sqlstate,
+            pgcode=pgcode,
+            sqlstate_code=sqlstate_code,
+        ),
         dbapi_base_err=Exception,
     )
 
@@ -27,6 +47,27 @@ def test_market_lock_timeout_and_deadlock_are_transient():
     assert is_contention_error(_db_error("canceling statement due to lock timeout", "55P03"))
     assert is_contention_error(_db_error("deadlock detected", "40P01"))
     assert is_contention_error(_db_error("could not serialize access", "40001"))
+
+
+@pytest.mark.parametrize(
+    ("error", "expected", "is_contention"),
+    [
+        (_db_error("driver failure", "23505", pgcode="55P03", sqlstate_code="40001"), "23505", False),
+        (_db_error("driver failure", "", pgcode="55P03", sqlstate_code="40001"), "55P03", True),
+        (_db_error("driver failure", None, pgcode="", sqlstate_code="40001"), "40001", True),
+    ],
+)
+def test_database_error_code_precedence_and_falsy_fallback(
+    error,
+    expected,
+    is_contention,
+):
+    assert is_contention_error(error) is is_contention
+    assert database_error_log_fields(
+        error,
+        request_id="request-123",
+        route="/api/orderbook",
+    )["sqlstate"] == expected
 
 
 def test_unrelated_database_errors_are_not_mapped_as_contention():
