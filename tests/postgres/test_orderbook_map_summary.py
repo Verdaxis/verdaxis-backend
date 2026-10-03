@@ -329,6 +329,154 @@ async def test_compact_map_summary_matches_legacy_postgres_queries(
 
 
 @pytest.mark.asyncio
+async def test_ask_listing_narrows_filtered_pages_with_stable_postgres_sorts(
+    market_pg,
+    monkeypatch,
+):
+    seeded = await _seed_route_market(market_pg)
+    observed_at = datetime(2026, 10, 3, 12, tzinfo=UTC)
+    order_ids = [UUID(int=value) for value in range(101, 107)]
+
+    def ask_order(
+        index: int,
+        *,
+        price: str,
+        quantity: str,
+        created_offset: int,
+        acceptance_ordinal: int,
+        availability_window: str = "SPOT",
+        off_spec: bool = False,
+    ) -> OrderBookOrder:
+        return OrderBookOrder(
+            id=order_ids[index],
+            acceptance_ordinal=acceptance_ordinal,
+            organization_id=seeded["seller_org_id"],
+            owner_user_id=seeded["seller_id"],
+            provenance=OrganizationProvenance.REAL,
+            side=OrderSide.ASK,
+            product_id=seeded["product_id"],
+            delivery_point_id=seeded["point_id"],
+            quantity_mt=Decimal(quantity),
+            remaining_quantity_mt=Decimal(quantity),
+            price_per_mt_usd=Decimal(price),
+            availability_window=availability_window,
+            status=OrderBookStatus.OPEN,
+            created_at=observed_at + timedelta(seconds=created_offset),
+            certification_declared=True,
+            certification_scheme="ISCC EU",
+            specification_standard="IMPCA",
+            msds_available=True,
+            carbon_intensity_gco2_mj=Decimal("20.00"),
+            carbon_intensity_method="ISCC EU",
+            feedstock="biogenic waste",
+            origin="narrow page fixture",
+            off_spec=off_spec,
+        )
+
+    visible_specs = (
+        (0, "100", "100", 0, 20),
+        (1, "100", "300", 1, 10),
+        (2, "90", "300", 0, 30),
+        (3, "110", "200", 2, 40),
+    )
+    orders = [
+        ask_order(
+            index,
+            price=price,
+            quantity=quantity,
+            created_offset=created_offset,
+            acceptance_ordinal=acceptance_ordinal,
+        )
+        for index, price, quantity, created_offset, acceptance_ordinal in visible_specs
+    ]
+    orders.extend(
+        (
+            ask_order(
+                4,
+                price="1",
+                quantity="999",
+                created_offset=60,
+                acceptance_ordinal=50,
+                availability_window="2027-Q1",
+            ),
+            ask_order(
+                5,
+                price="2",
+                quantity="999",
+                created_offset=120,
+                acceptance_ordinal=60,
+                off_spec=True,
+            ),
+        )
+    )
+    async with seeded["factory"]() as db:
+        db.add_all(orders)
+        await db.commit()
+
+    request_filters = {
+        "product_id": seeded["product_id"],
+        "delivery_point_id": seeded["point_id"],
+        "fuel_type": "Methanol",
+        "market_product": "BIO_METHANOL",
+        "region": "Asia",
+        "availability_window": "SPOT",
+        "include_off_spec": False,
+    }
+    expected_pages = {
+        "price_asc": [order_ids[2], order_ids[1], order_ids[0]],
+        "price_desc": [order_ids[3], order_ids[1], order_ids[0]],
+        "quantity_desc": [order_ids[1], order_ids[2], order_ids[3]],
+        "newest": [order_ids[3], order_ids[1], order_ids[2]],
+    }
+
+    async with seeded["factory"]() as db:
+        statements = []
+        execute = db.execute
+
+        async def record_execute(statement, *args, **kwargs):
+            statements.append(statement)
+            return await execute(statement, *args, **kwargs)
+
+        monkeypatch.setattr(db, "execute", record_execute)
+        for sort_by, expected_ids in expected_pages.items():
+            statement_start = len(statements)
+            page = await list_asks(
+                **request_filters,
+                sort_by=sort_by,
+                skip=0,
+                limit=3,
+                db=db,
+            )
+            assert page.total == 4
+            assert [item.id for item in page.items] == expected_ids
+            assert len(statements) - statement_start == 3
+
+        statement_start = len(statements)
+        out_of_range = await list_asks(
+            **request_filters,
+            sort_by="newest",
+            skip=10,
+            limit=3,
+            db=db,
+        )
+        assert out_of_range.items == []
+        assert out_of_range.total == 4
+        assert len(statements) - statement_start == 2
+
+        statement_start = len(statements)
+        empty_first_page = await list_asks(
+            **{**request_filters, "product_id": UUID(int=999)},
+            sort_by="newest",
+            skip=0,
+            limit=3,
+            db=db,
+        )
+        assert empty_first_page.items == []
+        assert empty_first_page.total == 0
+        assert len(statements) - statement_start == 1
+
+
+@pytest.mark.asyncio
 async def test_orderbook_snapshot_matches_side_reads_with_two_queries(
     market_pg,
     monkeypatch,
@@ -410,7 +558,7 @@ async def test_orderbook_snapshot_matches_side_reads_with_two_queries(
             limit=15,
             db=db,
         )
-        assert len(list_statements) == 8
+        assert len(list_statements) == 7
 
     async with seeded["factory"]() as db:
         snapshot_statements = []
