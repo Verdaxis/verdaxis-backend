@@ -9,6 +9,7 @@ MARKET_PATH_ROOTS = (
     "/api/prices",
     "/api/price-discovery",
     "/api/matchmaking",
+    "/api/curves/forward",
 )
 _TRANSIENT_LOCK_STATES = {"55P03", "40P01", "40001"}
 
@@ -27,6 +28,12 @@ def is_contention_error(exc: DBAPIError) -> bool:
     """Recognize PostgreSQL lock/serialization failures without exposing SQL."""
     _, sqlstate = _original_and_sqlstate(exc)
     return sqlstate in _TRANSIENT_LOCK_STATES
+
+
+def is_query_canceled_error(exc: DBAPIError) -> bool:
+    """Recognize PostgreSQL query cancellation without broadening retries."""
+    _, sqlstate = _original_and_sqlstate(exc)
+    return sqlstate == "57014"
 
 
 def database_error_log_fields(

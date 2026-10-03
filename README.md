@@ -195,8 +195,8 @@ Aggregate responses expose real/demo/unknown counts. Unknown contributors remain
 ### Real-Time (SSE)
 | Method | Endpoint | Auth | Description |
 |--------|----------|------|-------------|
-| GET | `/api/stream/prices` | No | Price update events |
-| GET | `/api/stream/orderbook` | No | Order events (created/cancelled/matched) with append-only provenance fields |
+| GET | `/api/stream/prices` | No | Sanitized market-change invalidation signals; refetch prices through REST |
+| GET | `/api/stream/orderbook` | No | Sanitized market-change invalidation signals; refetch the order book through REST |
 | GET | `/api/stream/trades` | Stream token | Tenant-private trade lifecycle events with append-only provenance fields; use the `stream_token` query parameter, not an `Authorization` header |
 
 ### Admin (ADMIN role only)
