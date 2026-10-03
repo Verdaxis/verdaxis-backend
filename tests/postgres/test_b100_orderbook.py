@@ -405,7 +405,8 @@ async def test_b100_partial_fills_can_finish_a_remainder_below_one_mt(fame_marke
         payload=_order_payload(seeded, side="BID", quantity="100.00", price="1100.00"),
     )
     orders, trades = await _stored_orders_and_trades(seeded)
-    assert orders[ask["id"]].remaining_quantity_mt == Decimal("0.50")
+    current_ask = orders[ask["id"]]
+    assert current_ask.remaining_quantity_mt == Decimal("0.50")
     assert len(trades) == 1
     negotiation = await client.post(
         "/api/negotiations",
@@ -428,8 +429,8 @@ async def test_b100_partial_fills_can_finish_a_remainder_below_one_mt(fame_marke
             "order_id": ask["id"],
             "quantity_mt": "0.50",
             "fame_terms": _bid_terms(),
-            "expected_order_version": orders[ask["id"]].version,
-            "expected_terms_digest": ask["terms_digest"],
+            "expected_order_version": current_ask.version,
+            "expected_terms_digest": current_ask.terms_digest,
         },
     )
     assert created.status_code == 200, created.text
