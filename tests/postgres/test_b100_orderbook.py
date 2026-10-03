@@ -191,6 +191,7 @@ async def test_b100_manual_take_replays_once_and_rejects_changed_source_at_confi
             "order_id": ask["id"],
             "quantity_mt": "25.00",
             "expected_order_version": ask["version"],
+            "expected_terms_digest": ask["terms_digest"],
         },
         headers=_headers(seeded["buyer_id"]),
     )
@@ -200,6 +201,7 @@ async def test_b100_manual_take_replays_once_and_rejects_changed_source_at_confi
         "quantity_mt": "25.00",
         "fame_terms": _bid_terms(),
         "expected_order_version": ask["version"],
+        "expected_terms_digest": ask["terms_digest"],
     }
     created = await client.post("/api/trades/", json=payload, headers=headers)
     assert created.status_code == 200, created.text
@@ -250,6 +252,7 @@ async def test_b100_supplier_manual_take_requires_acknowledgements_then_confirms
         "quantity_mt": "25.00",
         "fame_terms": _ask_terms(seeded),
         "expected_order_version": bid["version"],
+        "expected_terms_digest": bid["terms_digest"],
     }
     rejected = await client.post(
         "/api/trades/", json=payload, headers=_headers(seeded["seller_id"])
@@ -332,6 +335,7 @@ async def test_b100_order_idempotency_and_admission_do_not_expose_private_declar
             "quantity_mt": "25.00",
             "fame_terms": _bid_terms(),
             "expected_order_version": ask["version"],
+            "expected_terms_digest": ask["terms_digest"],
         },
         headers=_headers(seeded["buyer_id"]),
     )
@@ -425,6 +429,7 @@ async def test_b100_partial_fills_can_finish_a_remainder_below_one_mt(fame_marke
             "quantity_mt": "0.50",
             "fame_terms": _bid_terms(),
             "expected_order_version": orders[ask["id"]].version,
+            "expected_terms_digest": ask["terms_digest"],
         },
     )
     assert created.status_code == 200, created.text
@@ -462,10 +467,14 @@ async def test_b100_manual_take_rejects_unreviewed_source_revision(fame_market):
     missing = await client.post(
         "/api/trades/", json=payload, headers=_headers(seeded["buyer_id"])
     )
-    assert missing.status_code == 422, missing.text
+    assert missing.status_code == 409, missing.text
     stale = await client.post(
         "/api/trades/",
-        json={**payload, "expected_order_version": ask["version"]},
+        json={
+            **payload,
+            "expected_order_version": ask["version"],
+            "expected_terms_digest": ask["terms_digest"],
+        },
         headers=_headers(seeded["buyer_id"]),
     )
     assert stale.status_code == 409, stale.text
@@ -474,7 +483,11 @@ async def test_b100_manual_take_rejects_unreviewed_source_revision(fame_market):
     assert trades == []
     current = await client.post(
         "/api/trades/",
-        json={**payload, "expected_order_version": revised.json()["version"]},
+        json={
+            **payload,
+            "expected_order_version": revised.json()["version"],
+            "expected_terms_digest": revised.json()["terms_digest"],
+        },
         headers=_headers(seeded["buyer_id"]),
     )
     assert current.status_code == 200, current.text

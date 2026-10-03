@@ -70,6 +70,7 @@ from app.services.market_admission import (
 )
 from app.services.org_notifications import notify_org_users
 from app.services.trade_fees import resolve_seller_trade_fee
+from app.services.order_terms import order_terms_digest
 from app.services.fame_order import (
     is_fame_product,
     redact_fame_trade_snapshot,
@@ -94,6 +95,7 @@ CONFIRMED_TRADE_STATUSES = (
 )
 TradeStatusGroup = Literal["all", "active", "completed"]
 MONEY_QUANTUM = Decimal("0.01")
+ORDER_TERMS_REVIEW_REQUIRED = "ORDER_TERMS_REVIEW_REQUIRED"
 
 
 # ---------------------------------------------------------------------------
@@ -238,13 +240,23 @@ def _revalidate_trade_fame_terms(
 def trade_create_idempotency_payload(payload: TradeCreate) -> dict[str, object]:
     """Preserve legacy replay hashes while binding explicit B100 declarations."""
     values = payload.model_dump(mode="json")
-    for field in ("fame_terms", "expected_order_version"):
+    for field in ("fame_terms", "expected_order_version", "expected_terms_digest"):
         if values[field] is None:
             values.pop(field)
     for field in ("certification_declared", "msds_available"):
         if values[field] is False:
             values.pop(field)
     return values
+
+
+def _terms_review_conflict() -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail={
+            "code": ORDER_TERMS_REVIEW_REQUIRED,
+            "message": "Order terms changed or were not reviewed. Refresh and review before trading.",
+        },
+    )
 
 
 def _trade_initiator_org_expression():
@@ -741,6 +753,11 @@ async def create_trade(
     ):
         await db.rollback()
         raise HTTPException(status_code=409, detail="Order slice changed; retry the trade")
+    if (
+        payload.expected_terms_digest is None
+        or payload.expected_terms_digest != order_terms_digest(order)
+    ):
+        raise _terms_review_conflict()
 
     catalog_result = await db.execute(
         select(Product.id)
@@ -865,18 +882,6 @@ async def create_trade(
         # a distinct message here would let any eligible caller probe a
         # counterparty's rejection status by attempting a trade.
         raise HTTPException(status_code=400, detail="Order is not available for trading")
-
-    if is_fame_product(order.product_id):
-        if payload.expected_order_version is None:
-            raise HTTPException(
-                status_code=422,
-                detail="B100 trades require the reviewed order version",
-            )
-        if payload.expected_order_version != order.version:
-            raise HTTPException(
-                status_code=409,
-                detail="Order changed; refresh and review the order before trading",
-            )
 
     # Quantity check
     if payload.quantity_mt > order.remaining_quantity_mt:

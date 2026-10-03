@@ -41,6 +41,7 @@ def test_legacy_trade_hash_is_unchanged_by_new_default_fields(explicit_defaults)
             "certification_declared": False,
             "msds_available": False,
             "expected_order_version": None,
+            "expected_terms_digest": None,
         }
         if explicit_defaults
         else {}
@@ -62,6 +63,7 @@ def test_b100_terms_and_true_acknowledgements_remain_in_trade_hash(fuel_pair):
         certification_declared=True,
         msds_available=True,
         expected_order_version=1,
+        expected_terms_digest="a" * 64,
     )
     canonical = trades.trade_create_idempotency_payload(payload)
     assert canonical == payload.model_dump(mode="json")
@@ -70,6 +72,7 @@ def test_b100_terms_and_true_acknowledgements_remain_in_trade_hash(fuel_pair):
         {"certification_declared": False},
         {"msds_available": False},
         {"expected_order_version": 2},
+        {"expected_terms_digest": "b" * 64},
         {"fame_terms": fuel_pair[1].model_copy(update={"cfpp_c": Decimal(-20)})},
     ):
         revised = payload.model_copy(update=change)

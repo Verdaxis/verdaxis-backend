@@ -35,6 +35,7 @@ from app.services import demo_activity
 from app.services.demo_market import DEMO_ACTIVITY_BUYER_ORG_ID, DEMO_ACTIVITY_SELLER_ORG_ID
 from app.services.watchlists import ensure_market_radar
 from app.services.watchlist_events import sync_target_snapshot
+from app.services.order_terms import order_terms_digest
 
 
 def _fake_request():
@@ -229,7 +230,11 @@ async def test_create_trade_rejects_demo_listing(monkeypatch, db: AsyncSession):
     )
 
     current_user = buyer
-    payload = trades_router.TradeCreate(order_id=ask.id, quantity_mt=Decimal('100'))
+    payload = trades_router.TradeCreate(
+        order_id=ask.id,
+        quantity_mt=Decimal('100'),
+        expected_terms_digest=order_terms_digest(ask),
+    )
 
     with pytest.raises(HTTPException) as exc_info:
         await trades_router.create_trade(payload=payload, request=_fake_request(), db=db, current_user=current_user)
@@ -256,7 +261,11 @@ async def test_create_trade_rejects_non_executable_order(monkeypatch, db: AsyncS
     await db.commit()
 
     current_user = buyer
-    payload = trades_router.TradeCreate(order_id=ask.id, quantity_mt=Decimal('100'))
+    payload = trades_router.TradeCreate(
+        order_id=ask.id,
+        quantity_mt=Decimal('100'),
+        expected_terms_digest=order_terms_digest(ask),
+    )
 
     with pytest.raises(HTTPException) as exc_info:
         await trades_router.create_trade(payload=payload, request=_fake_request(), db=db, current_user=current_user)
@@ -304,7 +313,11 @@ async def test_create_trade_emits_pin_and_slice_events(monkeypatch, db: AsyncSes
 
     monkeypatch.setattr(trades_router, 'notify_org_users', _noop_notify)
 
-    payload = trades_router.TradeCreate(order_id=ask.id, quantity_mt=Decimal('1000'))
+    payload = trades_router.TradeCreate(
+        order_id=ask.id,
+        quantity_mt=Decimal('1000'),
+        expected_terms_digest=order_terms_digest(ask),
+    )
     current_user = buyer
     db.add(
         Subscription(

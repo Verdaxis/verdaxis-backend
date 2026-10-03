@@ -227,6 +227,7 @@ class OrderCancelRequest(BaseModel):
 class OrderResponse(AvailabilityWindowMixin, SupplierListingMetadataMixin):
     """Public/anonymized order for the book. organization_id is NOT included."""
     id: UUID
+    terms_digest: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
     version: int = 1
     fame_terms: FamePublicOrderTerms | None = None
     side: OrderSide
@@ -291,6 +292,9 @@ class SupplierListingTemplateResponse(AvailabilityWindowMixin, SupplierListingMe
 class TradeCreate(BaseModel):
     """Hit an order to create a trade."""
     order_id: UUID
+    expected_terms_digest: str | None = Field(
+        None, min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$"
+    )
     expected_order_version: int | None = Field(None, ge=1)
     fame_terms: FameOrderTerms | None = None
     certification_declared: bool = False

@@ -96,14 +96,18 @@ async def create_bid_order(client: AsyncClient, headers=None, **overrides) -> di
     return resp.json()
 
 
-async def hit_order(client: AsyncClient, order_id: str, quantity: str, headers=None) -> dict:
-    """Helper: hit an order to create a trade."""
-    resp = await client.post(
-        "/api/trades/",
-        json={"order_id": order_id, "quantity_mt": quantity},
-        headers=headers,
-    )
-    return resp
+async def hit_order(client: AsyncClient, order: dict | str, quantity: str, headers=None) -> dict:
+    """Helper: hit the exact order terms returned by the orderbook."""
+    order_id = order["id"] if isinstance(order, dict) else order
+    payload = {"order_id": order_id, "quantity_mt": quantity}
+    if isinstance(order, dict) and order.get("terms_digest"):
+        side_path = "asks" if order.get("side") == "ASK" else "bids"
+        listing_response = await client.get(f"/api/orderbook/{side_path}")
+        listings = listing_response.json()
+        items = listings.get("items", listings) if isinstance(listings, dict) else listings
+        current = next((item for item in items if item["id"] == order_id), order)
+        payload["expected_terms_digest"] = current["terms_digest"]
+    return await client.post("/api/trades/", json=payload, headers=headers)
 
 
 # ============================================================
@@ -117,7 +121,7 @@ class TestCreateTrade:
         """Buyer hits a supplier's ASK order -> trade created as PENDING_CONFIRMATION."""
         async with AsyncClient(base_url=TEST_API_URL, timeout=10.0) as client:
             ask = await create_ask_order(client)
-            resp = await hit_order(client, ask["id"], "1000", buyer_headers())
+            resp = await hit_order(client, ask, "1000", buyer_headers())
 
             assert resp.status_code == 200, f"Unexpected: {resp.text}"
             trade = resp.json()
@@ -141,7 +145,7 @@ class TestCreateTrade:
         """Supplier hits a buyer's BID order -> trade created as PENDING_CONFIRMATION."""
         async with AsyncClient(base_url=TEST_API_URL, timeout=10.0) as client:
             bid = await create_bid_order(client)
-            resp = await hit_order(client, bid["id"], "500", supplier_headers())
+            resp = await hit_order(client, bid, "500", supplier_headers())
 
             assert resp.status_code == 200, f"Unexpected: {resp.text}"
             trade = resp.json()
@@ -158,7 +162,7 @@ class TestCreateTrade:
         """Hitting an order should decrease remaining_quantity_mt."""
         async with AsyncClient(base_url=TEST_API_URL, timeout=10.0) as client:
             ask = await create_ask_order(client, quantity_mt="3000")
-            await hit_order(client, ask["id"], "1000", buyer_headers())
+            await hit_order(client, ask, "1000", buyer_headers())
 
             # Check the order's remaining quantity via my orders
             my_orders = await client.get("/api/orderbook/my", headers=supplier_headers())
@@ -171,7 +175,7 @@ class TestCreateTrade:
         """Hitting for the full quantity should set status to FILLED."""
         async with AsyncClient(base_url=TEST_API_URL, timeout=10.0) as client:
             ask = await create_ask_order(client, quantity_mt="1000")
-            await hit_order(client, ask["id"], "1000", buyer_headers())
+            await hit_order(client, ask, "1000", buyer_headers())
 
             my_orders = await client.get("/api/orderbook/my", headers=supplier_headers())
             order = next(o for o in my_orders.json() if o["id"] == ask["id"])
@@ -182,7 +186,7 @@ class TestCreateTrade:
     async def test_cannot_exceed_remaining_quantity(self):
         async with AsyncClient(base_url=TEST_API_URL, timeout=10.0) as client:
             ask = await create_ask_order(client, quantity_mt="1000")
-            resp = await hit_order(client, ask["id"], "1500", buyer_headers())
+            resp = await hit_order(client, ask, "1500", buyer_headers())
             assert resp.status_code == 400
             assert "exceeds" in resp.json()["detail"].lower()
 
@@ -193,7 +197,7 @@ class TestCreateTrade:
             ask = await create_ask_order(client, headers=supplier_headers())
             # Same supplier tries to hit (but they're SUPPLIER role, so they'd
             # need to hit a BID as a seller -- hitting ASK requires BUYER role)
-            resp = await hit_order(client, ask["id"], "100", supplier_headers())
+            resp = await hit_order(client, ask, "100", supplier_headers())
             assert resp.status_code == 403
 
     @pytest.mark.asyncio
@@ -201,7 +205,7 @@ class TestCreateTrade:
         """Buyers cannot hit BID orders (only suppliers can)."""
         async with AsyncClient(base_url=TEST_API_URL, timeout=10.0) as client:
             bid = await create_bid_order(client, headers=buyer_headers())
-            resp = await hit_order(client, bid["id"], "500", buyer_headers(BUYER_2_ID, BUYER_2_EMAIL))
+            resp = await hit_order(client, bid, "500", buyer_headers(BUYER_2_ID, BUYER_2_EMAIL))
             assert resp.status_code == 403
 
     @pytest.mark.asyncio
@@ -209,7 +213,7 @@ class TestCreateTrade:
         """Suppliers cannot hit ASK orders (only buyers can)."""
         async with AsyncClient(base_url=TEST_API_URL, timeout=10.0) as client:
             ask = await create_ask_order(client, headers=supplier_headers())
-            resp = await hit_order(client, ask["id"], "500", supplier_headers(SUPPLIER_2_ID, SUPPLIER_2_EMAIL))
+            resp = await hit_order(client, ask, "500", supplier_headers(SUPPLIER_2_ID, SUPPLIER_2_EMAIL))
             assert resp.status_code == 403
 
     @pytest.mark.asyncio
@@ -219,7 +223,7 @@ class TestCreateTrade:
             # Cancel the order
             await client.delete(f"/api/orderbook/{ask['id']}", headers=supplier_headers())
             # Try to hit
-            resp = await hit_order(client, ask["id"], "500", buyer_headers())
+            resp = await hit_order(client, ask, "500", buyer_headers())
             assert resp.status_code == 400
 
     @pytest.mark.asyncio
@@ -250,7 +254,7 @@ class TestListMyTrades:
         async with AsyncClient(base_url=TEST_API_URL, timeout=10.0) as client:
             # Create an order and a trade
             ask = await create_ask_order(client)
-            await hit_order(client, ask["id"], "500", buyer_headers())
+            await hit_order(client, ask, "500", buyer_headers())
 
             resp = await client.get("/api/trades/my", headers=buyer_headers())
             assert resp.status_code == 200
@@ -262,7 +266,7 @@ class TestListMyTrades:
     async def test_list_trades_as_seller(self):
         async with AsyncClient(base_url=TEST_API_URL, timeout=10.0) as client:
             ask = await create_ask_order(client)
-            await hit_order(client, ask["id"], "500", buyer_headers())
+            await hit_order(client, ask, "500", buyer_headers())
 
             resp = await client.get("/api/trades/my", headers=supplier_headers())
             assert resp.status_code == 200
@@ -273,7 +277,7 @@ class TestListMyTrades:
     async def test_trade_response_shape(self):
         async with AsyncClient(base_url=TEST_API_URL, timeout=10.0) as client:
             ask = await create_ask_order(client)
-            await hit_order(client, ask["id"], "500", buyer_headers())
+            await hit_order(client, ask, "500", buyer_headers())
 
             resp = await client.get("/api/trades/my", headers=buyer_headers())
             trade = resp.json()["items"][0]
@@ -303,7 +307,7 @@ class TestConfirmTrade:
         """Seller (counterparty) confirms a buyer-initiated trade."""
         async with AsyncClient(base_url=TEST_API_URL, timeout=10.0) as client:
             ask = await create_ask_order(client)
-            trade_resp = await hit_order(client, ask["id"], "500", buyer_headers())
+            trade_resp = await hit_order(client, ask, "500", buyer_headers())
             trade_id = trade_resp.json()["id"]
 
             # Seller confirms
@@ -321,7 +325,7 @@ class TestConfirmTrade:
         """Buyer (initiator) cannot confirm their own trade."""
         async with AsyncClient(base_url=TEST_API_URL, timeout=10.0) as client:
             ask = await create_ask_order(client)
-            trade_resp = await hit_order(client, ask["id"], "500", buyer_headers())
+            trade_resp = await hit_order(client, ask, "500", buyer_headers())
             trade_id = trade_resp.json()["id"]
 
             # Buyer (initiator) tries to confirm
@@ -335,7 +339,7 @@ class TestConfirmTrade:
     async def test_cannot_confirm_non_pending_trade(self):
         async with AsyncClient(base_url=TEST_API_URL, timeout=10.0) as client:
             ask = await create_ask_order(client)
-            trade_resp = await hit_order(client, ask["id"], "500", buyer_headers())
+            trade_resp = await hit_order(client, ask, "500", buyer_headers())
             trade_id = trade_resp.json()["id"]
 
             # Confirm once
@@ -351,7 +355,7 @@ class TestDeclineTrade:
     async def test_counterparty_declines(self):
         async with AsyncClient(base_url=TEST_API_URL, timeout=10.0) as client:
             ask = await create_ask_order(client, quantity_mt="2000")
-            trade_resp = await hit_order(client, ask["id"], "1000", buyer_headers())
+            trade_resp = await hit_order(client, ask, "1000", buyer_headers())
             trade_id = trade_resp.json()["id"]
 
             # Seller declines
@@ -367,7 +371,7 @@ class TestDeclineTrade:
         """Declining a trade should restore the order's remaining quantity."""
         async with AsyncClient(base_url=TEST_API_URL, timeout=10.0) as client:
             ask = await create_ask_order(client, quantity_mt="2000")
-            trade_resp = await hit_order(client, ask["id"], "1000", buyer_headers())
+            trade_resp = await hit_order(client, ask, "1000", buyer_headers())
             trade_id = trade_resp.json()["id"]
 
             # Verify remaining dropped to 1000
@@ -388,7 +392,7 @@ class TestDeclineTrade:
     async def test_initiator_cannot_decline(self):
         async with AsyncClient(base_url=TEST_API_URL, timeout=10.0) as client:
             ask = await create_ask_order(client)
-            trade_resp = await hit_order(client, ask["id"], "500", buyer_headers())
+            trade_resp = await hit_order(client, ask, "500", buyer_headers())
             trade_id = trade_resp.json()["id"]
 
             # Buyer (initiator) tries to decline
@@ -410,7 +414,7 @@ class TestDeliverTrade:
         async with AsyncClient(base_url=TEST_API_URL, timeout=10.0) as client:
             # Setup: create -> hit -> confirm
             ask = await create_ask_order(client)
-            trade_resp = await hit_order(client, ask["id"], "1000", buyer_headers())
+            trade_resp = await hit_order(client, ask, "1000", buyer_headers())
             trade_id = trade_resp.json()["id"]
             await client.put(f"/api/trades/{trade_id}/confirm", headers=supplier_headers())
 
@@ -438,7 +442,7 @@ class TestDeliverTrade:
     async def test_cannot_deliver_unconfirmed_trade(self):
         async with AsyncClient(base_url=TEST_API_URL, timeout=10.0) as client:
             ask = await create_ask_order(client)
-            trade_resp = await hit_order(client, ask["id"], "500", buyer_headers())
+            trade_resp = await hit_order(client, ask, "500", buyer_headers())
             trade_id = trade_resp.json()["id"]
 
             # Try to deliver without confirming first
@@ -453,7 +457,7 @@ class TestDeliverTrade:
     async def test_unauthorized_party_cannot_deliver(self):
         async with AsyncClient(base_url=TEST_API_URL, timeout=10.0) as client:
             ask = await create_ask_order(client)
-            trade_resp = await hit_order(client, ask["id"], "500", buyer_headers())
+            trade_resp = await hit_order(client, ask, "500", buyer_headers())
             trade_id = trade_resp.json()["id"]
             await client.put(f"/api/trades/{trade_id}/confirm", headers=supplier_headers())
 
@@ -471,7 +475,7 @@ class TestDeliverTrade:
         price must be rejected (commission/GMV integrity)."""
         async with AsyncClient(base_url=TEST_API_URL, timeout=10.0) as client:
             ask = await create_ask_order(client)  # confirmed price 560
-            trade_resp = await hit_order(client, ask["id"], "1000", buyer_headers())
+            trade_resp = await hit_order(client, ask, "1000", buyer_headers())
             trade_id = trade_resp.json()["id"]
             await client.put(f"/api/trades/{trade_id}/confirm", headers=supplier_headers())
 
@@ -497,7 +501,7 @@ class TestDeliverTrade:
         """Exactly 10% deviation is inside the allowed band."""
         async with AsyncClient(base_url=TEST_API_URL, timeout=10.0) as client:
             ask = await create_ask_order(client)  # confirmed price 560
-            trade_resp = await hit_order(client, ask["id"], "1000", buyer_headers())
+            trade_resp = await hit_order(client, ask, "1000", buyer_headers())
             trade_id = trade_resp.json()["id"]
             await client.put(f"/api/trades/{trade_id}/confirm", headers=supplier_headers())
 
@@ -521,7 +525,7 @@ class TestPayTrade:
         async with AsyncClient(base_url=TEST_API_URL, timeout=10.0) as client:
             # Full lifecycle: create -> hit -> confirm -> deliver -> pay
             ask = await create_ask_order(client)
-            trade_resp = await hit_order(client, ask["id"], "1000", buyer_headers())
+            trade_resp = await hit_order(client, ask, "1000", buyer_headers())
             trade_id = trade_resp.json()["id"]
             await client.put(f"/api/trades/{trade_id}/confirm", headers=supplier_headers())
             await client.put(
@@ -544,7 +548,7 @@ class TestPayTrade:
     async def test_buyer_cannot_mark_paid(self):
         async with AsyncClient(base_url=TEST_API_URL, timeout=10.0) as client:
             ask = await create_ask_order(client)
-            trade_resp = await hit_order(client, ask["id"], "1000", buyer_headers())
+            trade_resp = await hit_order(client, ask, "1000", buyer_headers())
             trade_id = trade_resp.json()["id"]
             await client.put(f"/api/trades/{trade_id}/confirm", headers=supplier_headers())
             await client.put(
@@ -564,7 +568,7 @@ class TestPayTrade:
     async def test_cannot_pay_undelivered_trade(self):
         async with AsyncClient(base_url=TEST_API_URL, timeout=10.0) as client:
             ask = await create_ask_order(client)
-            trade_resp = await hit_order(client, ask["id"], "500", buyer_headers())
+            trade_resp = await hit_order(client, ask, "500", buyer_headers())
             trade_id = trade_resp.json()["id"]
             await client.put(f"/api/trades/{trade_id}/confirm", headers=supplier_headers())
 
@@ -601,7 +605,7 @@ class TestFullTradeLifecycle:
             assert ask["side"] == "ASK"
 
             # 2. Buyer hits the ASK
-            trade_resp = await hit_order(client, ask["id"], "3000", buyer_headers())
+            trade_resp = await hit_order(client, ask, "3000", buyer_headers())
             assert trade_resp.status_code == 200
             trade = trade_resp.json()
             trade_id = trade["id"]
@@ -660,7 +664,7 @@ class TestFullTradeLifecycle:
             assert bid["side"] == "BID"
 
             # 2. Supplier hits the BID
-            trade_resp = await hit_order(client, bid["id"], "2000", supplier_headers())
+            trade_resp = await hit_order(client, bid, "2000", supplier_headers())
             assert trade_resp.status_code == 200
             trade = trade_resp.json()
             trade_id = trade["id"]
@@ -699,11 +703,11 @@ class TestFullTradeLifecycle:
             ask = await create_ask_order(client, quantity_mt="3000")
 
             # Buyer 1 takes 1000
-            resp1 = await hit_order(client, ask["id"], "1000", buyer_headers())
+            resp1 = await hit_order(client, ask, "1000", buyer_headers())
             assert resp1.status_code == 200
 
             # Buyer 2 takes 1500
-            resp2 = await hit_order(client, ask["id"], "1500", buyer_headers(BUYER_2_ID, BUYER_2_EMAIL))
+            resp2 = await hit_order(client, ask, "1500", buyer_headers(BUYER_2_ID, BUYER_2_EMAIL))
             assert resp2.status_code == 200
 
             # Check remaining = 500
@@ -713,7 +717,7 @@ class TestFullTradeLifecycle:
             assert order["status"] == "PARTIALLY_FILLED"
 
             # Buyer 1 takes the last 500
-            resp3 = await hit_order(client, ask["id"], "500", buyer_headers())
+            resp3 = await hit_order(client, ask, "500", buyer_headers())
             assert resp3.status_code == 200
 
             # Now fully filled
@@ -723,5 +727,5 @@ class TestFullTradeLifecycle:
             assert order["status"] == "FILLED"
 
             # Cannot hit anymore
-            resp4 = await hit_order(client, ask["id"], "100", buyer_headers())
-            assert resp4.status_code == 400
+            resp4 = await hit_order(client, ask, "100", buyer_headers())
+            assert resp4.status_code == 409

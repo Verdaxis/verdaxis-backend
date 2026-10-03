@@ -16,6 +16,7 @@ from app.models.orderbook import OrderSide, Trade, TradeStatus
 from app.models.user import OrgType, UserRole
 from app.routers import trades
 from app.schemas.fame_order import FameAskTerms, FameBidTerms
+from app.services.order_terms import order_terms_digest
 from tests.unit.test_trade_watchlist_hooks import (
     _fake_request,
     _make_ask,
@@ -112,6 +113,7 @@ async def test_rejected_b100_take_does_not_consume_capacity(
         quantity_mt="100",
         fame_terms=terms,
         expected_order_version=order.version,
+        expected_terms_digest=order_terms_digest(order),
     )
     with pytest.raises(HTTPException) as error:
         await trades.create_trade(
@@ -133,6 +135,7 @@ async def test_b100_partial_take_below_lot_minimum_keeps_terms_and_supplier_priv
             quantity_mt="0.50",
             fame_terms=fuel_pair[0],
             expected_order_version=order.version,
+            expected_terms_digest=order_terms_digest(order),
         ),
         request=_fake_request(),
         db=db,
@@ -161,6 +164,7 @@ async def test_supplier_taking_b100_bid_requires_explicit_declarations(db, fuel_
         quantity_mt=100,
         fame_terms=fuel_pair[1],
         expected_order_version=order.version,
+        expected_terms_digest=order_terms_digest(order),
     )
     with pytest.raises(HTTPException) as error:
         await trades.create_trade(
@@ -191,6 +195,7 @@ async def test_confirmation_rejects_changed_b100_terms_without_confirming(
             quantity_mt=100,
             fame_terms=fuel_pair[0],
             expected_order_version=order.version,
+            expected_terms_digest=order_terms_digest(order),
         ),
         request=_fake_request(),
         db=db,
@@ -213,35 +218,37 @@ async def test_confirmation_rejects_changed_b100_terms_without_confirming(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("side", [OrderSide.ASK, OrderSide.BID])
-@pytest.mark.parametrize("reviewed_version", [None, 1])
-async def test_b100_take_requires_review_of_current_source_version(
-    db, fuel_pair, side, reviewed_version
+@pytest.mark.parametrize("reviewed_digest", [None, "stale"])
+async def test_b100_take_requires_review_of_current_terms(
+    db, fuel_pair, side, reviewed_digest
 ):
     order, buyer, supplier = await _market(db, fuel_pair, side=side)
-    original_version = order.version
-    order.bump_version()
-    await db.commit()
+    original_digest = order_terms_digest(order)
+    order.price_per_mt_usd += Decimal("1")
+    await db.flush()
     payload = trades.TradeCreate(
         order_id=order.id,
         quantity_mt=100,
         fame_terms=fuel_pair[0 if side == OrderSide.ASK else 1],
         certification_declared=side == OrderSide.BID,
         msds_available=side == OrderSide.BID,
-        expected_order_version=original_version
-        if reviewed_version is not None
-        else None,
+        expected_order_version=order.version,
+        expected_terms_digest=original_digest if reviewed_digest == "stale" else None,
     )
     actor = buyer if side == OrderSide.ASK else supplier
     with pytest.raises(HTTPException) as error:
         await trades.create_trade(
             payload=payload, request=_fake_request(), db=db, current_user=actor
         )
-    assert error.value.status_code == (409 if reviewed_version is not None else 422)
+    assert error.value.status_code == 409
+    assert error.value.detail["code"] == trades.ORDER_TERMS_REVIEW_REQUIRED
     assert order.remaining_quantity_mt == Decimal(1000)
     assert await db.scalar(select(func.count()).select_from(Trade)) == 0
 
     response = await trades.create_trade(
-        payload=payload.model_copy(update={"expected_order_version": order.version}),
+        payload=payload.model_copy(
+            update={"expected_terms_digest": order_terms_digest(order)}
+        ),
         request=_fake_request(),
         db=db,
         current_user=actor,
