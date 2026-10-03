@@ -20,7 +20,8 @@ async def test_user_activity_indexes_and_composite_identity_exist(pg_session):
             await session.execute(
                 text(
                     "SELECT indexname FROM pg_indexes WHERE tablename IN "
-                    "('user_browsing_events', 'audit_logs', 'user_login_days')"
+                    "('user_browsing_events', 'user_activity_delivery_reports', "
+                    "'audit_logs', 'user_login_days')"
                 )
             )
         ).scalars()
@@ -29,6 +30,9 @@ async def test_user_activity_indexes_and_composite_identity_exist(pg_session):
         "pk_user_browsing_events",
         "ix_user_browsing_events_user_received",
         "ix_user_browsing_events_received",
+        "pk_user_activity_delivery_reports",
+        "ix_user_activity_delivery_reports_user_received",
+        "ix_user_activity_delivery_reports_received",
         "ix_audit_logs_user_timestamp",
         "ix_user_login_days_user_last_login",
     } <= indexes
@@ -45,6 +49,19 @@ async def test_user_activity_indexes_and_composite_identity_exist(pg_session):
         )
     ).scalars().all()
     assert primary_key_columns == ["user_id", "event_id"]
+
+    report_primary_key_columns = (
+        await session.execute(
+            text(
+                "SELECT a.attname FROM pg_index i "
+                "JOIN pg_attribute a ON a.attrelid = i.indrelid "
+                "AND a.attnum = ANY(i.indkey) "
+                "WHERE i.indrelid = 'user_activity_delivery_reports'::regclass "
+                "AND i.indisprimary ORDER BY array_position(i.indkey, a.attnum)"
+            )
+        )
+    ).scalars().all()
+    assert report_primary_key_columns == ["user_id", "report_id"]
 
 
 async def test_app_role_can_insert_read_delete_but_cannot_update_browsing(pg_session):
@@ -71,6 +88,42 @@ async def test_app_role_can_insert_read_delete_but_cannot_update_browsing(pg_ses
                     "VALUES (:user_id, :event_id, 'page_view', 'home')"
                 ),
                 {"user_id": user.id, "event_id": event_id},
+            )
+
+        report_id = uuid4()
+        async with app_engine.begin() as connection:
+            await connection.execute(
+                text(
+                    "INSERT INTO user_activity_delivery_reports "
+                    "(user_id, report_id, dropped_events, rejected_events) "
+                    "VALUES (:user_id, :report_id, 2, 1)"
+                ),
+                {"user_id": user.id, "report_id": report_id},
+            )
+        async with app_engine.connect() as connection:
+            assert await connection.scalar(
+                text(
+                    "SELECT dropped_events FROM user_activity_delivery_reports "
+                    "WHERE user_id = :user_id AND report_id = :report_id"
+                ),
+                {"user_id": user.id, "report_id": report_id},
+            ) == 2
+        with pytest.raises(DBAPIError):
+            async with app_engine.begin() as connection:
+                await connection.execute(
+                    text(
+                        "UPDATE user_activity_delivery_reports SET dropped_events = 3 "
+                        "WHERE user_id = :user_id AND report_id = :report_id"
+                    ),
+                    {"user_id": user.id, "report_id": report_id},
+                )
+        async with app_engine.begin() as connection:
+            await connection.execute(
+                text(
+                    "DELETE FROM user_activity_delivery_reports "
+                    "WHERE user_id = :user_id AND report_id = :report_id"
+                ),
+                {"user_id": user.id, "report_id": report_id},
             )
         async with app_engine.connect() as connection:
             assert await connection.scalar(

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -20,7 +21,7 @@ from app.model_base import Base
 from app.models.user import Organization, User, UserRole, UserStatus
 from app.models.audit import AuditLog
 from app.models.product_analytics import UserLoginDay
-from app.models.user_activity import UserBrowsingEvent
+from app.models.user_activity import UserActivityDeliveryReport, UserBrowsingEvent
 from app.models.user_preference import UserPreference
 from app.models.watchlist import Watchlist, WatchlistTarget, WatchlistTargetType
 from app.rate_limit import limiter
@@ -42,6 +43,7 @@ async def activity_db():
                 AuditLog.__table__,
                 UserLoginDay.__table__,
                 UserBrowsingEvent.__table__,
+                UserActivityDeliveryReport.__table__,
                 UserPreference.__table__,
                 Watchlist.__table__,
                 WatchlistTarget.__table__,
@@ -235,6 +237,117 @@ async def test_ingestion_is_per_user_idempotent_and_timeline_never_crosses_users
     )
     assert stored is not None
     assert stored.consent_version is None
+
+
+async def test_delivery_loss_uses_authenticated_actor_and_duplicate_events_still_report(
+    activity_db,
+):
+    user = _user()
+    event_id = uuid4()
+    report_id = uuid4()
+    payload = _payload(event_id)
+
+    async with _client(db=activity_db, user=user) as client:
+        first = await client.post("/api/activity/events", json=payload.model_dump(mode="json"))
+        replay_with_report = await client.post(
+            "/api/activity/events",
+            json={
+                **payload.model_dump(mode="json"),
+                "delivery_loss": {
+                    "report_id": str(report_id),
+                    "dropped_events": 3,
+                    "rejected_events": 2,
+                },
+            },
+        )
+        duplicate_report = await client.post(
+            "/api/activity/events",
+            json={
+                **payload.model_dump(mode="json"),
+                "delivery_loss": {
+                    "report_id": str(report_id),
+                    "dropped_events": 3,
+                    "rejected_events": 2,
+                },
+            },
+        )
+
+    assert first.status_code == 202
+    assert first.json() == {"accepted": 1}
+    assert replay_with_report.status_code == 202
+    assert replay_with_report.json() == {"accepted": 0}
+    assert duplicate_report.status_code == 202
+
+    stored_reports = (
+        await activity_db.execute(select(UserActivityDeliveryReport))
+    ).scalars().all()
+    assert len(stored_reports) == 1
+    assert stored_reports[0].user_id == user.id
+    assert stored_reports[0].report_id == report_id
+
+    page = await get_user_activity_page(
+        activity_db,
+        user_id=user.id,
+        days=7,
+        kind="browsing",
+        limit=50,
+        offset=0,
+        now=datetime.now(UTC) + timedelta(seconds=1),
+    )
+    assert page.browser_reported_delivery_loss.model_dump() == {
+        "coverage": "partial",
+        "reports_received": 1,
+        "dropped_events": 3,
+        "rejected_events": 2,
+        "last_reported_at": stored_reports[0].received_at.replace(tzinfo=UTC),
+    }
+
+
+async def test_delivery_loss_aggregate_uses_admin_cutoff_and_never_crosses_users(activity_db):
+    target_id = uuid4()
+    other_id = uuid4()
+    now = datetime(2026, 10, 3, 12, tzinfo=UTC)
+    activity_db.add_all(
+        [
+            UserActivityDeliveryReport(
+                user_id=target_id,
+                report_id=uuid4(),
+                dropped_events=4,
+                rejected_events=1,
+                received_at=now - timedelta(days=6),
+            ),
+            UserActivityDeliveryReport(
+                user_id=target_id,
+                report_id=uuid4(),
+                dropped_events=100,
+                rejected_events=100,
+                received_at=now - timedelta(days=8),
+            ),
+            UserActivityDeliveryReport(
+                user_id=other_id,
+                report_id=uuid4(),
+                dropped_events=200,
+                rejected_events=200,
+                received_at=now,
+            ),
+        ]
+    )
+    await activity_db.commit()
+
+    page = await get_user_activity_page(
+        activity_db,
+        user_id=target_id,
+        days=7,
+        kind="all",
+        limit=50,
+        offset=0,
+        now=now,
+    )
+
+    assert page.browser_reported_delivery_loss.reports_received == 1
+    assert page.browser_reported_delivery_loss.dropped_events == 4
+    assert page.browser_reported_delivery_loss.rejected_events == 1
+    assert page.browser_reported_delivery_loss.coverage == "partial"
 
 
 async def test_timeline_pagination_is_stable_and_reports_last_activity(activity_db):
@@ -450,6 +563,31 @@ def test_schema_accepts_policy_covered_events_and_legacy_marker_but_rejects_inva
         {"consent_version": 1, "events": [{"id": str(uuid4()), "action": "page_view", "page": "home"}]},
         {"events": [{"id": str(uuid4()), "action": "page_view", "page": "free-form"}]},
         {"events": [{"id": str(uuid4()), "action": "page_view", "page": "home", "query": "secret"}]},
+        {
+            "events": [{"id": str(uuid4()), "action": "page_view", "page": "home"}],
+            "delivery_loss": {
+                "report_id": str(uuid4()),
+                "dropped_events": 0,
+                "rejected_events": 0,
+            },
+        },
+        {
+            "events": [{"id": str(uuid4()), "action": "page_view", "page": "home"}],
+            "delivery_loss": {
+                "report_id": str(uuid4()),
+                "dropped_events": 10_001,
+                "rejected_events": 0,
+            },
+        },
+        {
+            "events": [{"id": str(uuid4()), "action": "page_view", "page": "home"}],
+            "delivery_loss": {
+                "report_id": str(uuid4()),
+                "dropped_events": 1,
+                "rejected_events": 0,
+                "url": "https://example.test/private?token=secret",
+            },
+        },
     ):
         with pytest.raises(ValidationError):
             BrowsingEventsIn.model_validate(payload)
@@ -462,3 +600,22 @@ def test_schema_accepts_policy_covered_events_and_legacy_marker_but_rejects_inva
     }
     with pytest.raises(ValidationError):
         BrowsingEventsIn.model_validate(too_many)
+
+
+def test_delivery_report_migration_and_release_checkpoint_follow_receipts():
+    root = Path(__file__).parents[2]
+    migration = (
+        root / "alembic/versions/uadl_20261003_delivery_reports.py"
+    ).read_text()
+    checkpoints = (root / "deploy/migration-checkpoints.tsv").read_text().splitlines()
+
+    assert 'revision = "uadl_20261003_delivery_reports"' in migration
+    assert 'down_revision = "rcp_20261003_command_results"' in migration
+    assert (
+        "rcp_20261003_command_results\tuadl_20261003_delivery_reports"
+        in checkpoints
+    )
+    assert (
+        "uadl_20261003_delivery_reports\tuadl_20261003_delivery_reports"
+        in checkpoints
+    )

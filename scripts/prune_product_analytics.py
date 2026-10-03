@@ -7,8 +7,8 @@ available with buffer (plan §2.4). Rows with
 ``activity_date < current_utc_date - 799`` are deleted.
 
 ``user_status_transitions`` is durable business history and is NEVER pruned.
-Consent-linked browsing events are retained for 90 days by server receipt
-time. Durable audit history is unchanged.
+Identified browsing events and browser-reported delivery-loss rows are retained
+for 90 days by server receipt time. Durable audit history is unchanged.
 
 Run by the verdaxis-product-analytics-prune systemd timer (see
 deploy/systemd/); a nonzero exit leaves the oneshot unit failed for the
@@ -106,6 +106,24 @@ async def prune_browsing_events(
     return result.rowcount or 0
 
 
+async def prune_activity_delivery_reports(
+    session,
+    *,
+    now: datetime | None = None,
+) -> int:
+    """Delete browser-reported delivery-loss rows older than 90 days."""
+    from app.models.user_activity import UserActivityDeliveryReport
+
+    cutoff = (now or datetime.now(UTC)) - timedelta(days=BROWSING_RETENTION_DAYS)
+    result = await session.execute(
+        delete(UserActivityDeliveryReport).where(
+            UserActivityDeliveryReport.received_at < cutoff
+        )
+    )
+    await session.commit()
+    return result.rowcount or 0
+
+
 async def main(*, expected_environment: str, expected_release_sha: str) -> int:
     from app.config import settings
 
@@ -121,9 +139,12 @@ async def main(*, expected_environment: str, expected_release_sha: str) -> int:
         async with factory() as session:
             login_days_deleted = await prune_login_days(session)
             browsing_events_deleted = await prune_browsing_events(session)
+            delivery_reports_deleted = await prune_activity_delivery_reports(session)
         print(
             f"pruned {login_days_deleted} login-day rows older than {RETAINED_DATES} dates; "
             f"pruned {browsing_events_deleted} browsing events older than "
+            f"{BROWSING_RETENTION_DAYS} days; "
+            f"pruned {delivery_reports_deleted} activity delivery reports older than "
             f"{BROWSING_RETENTION_DAYS} days"
         )
         return 0
