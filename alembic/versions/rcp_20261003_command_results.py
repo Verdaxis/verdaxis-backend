@@ -34,7 +34,7 @@ def upgrade() -> None:
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
         sa.CheckConstraint("operation IN ('trade.confirm', 'trade.decline', 'trade.deliver', 'trade.pay', 'order.amend', 'order.cancel')", name="ck_market_command_results_operation"),
         sa.CheckConstraint("resource_type IN ('trade', 'order')", name="ck_market_command_results_resource_type"),
-        sa.CheckConstraint("length(btrim(idempotency_key)) BETWEEN 1 AND 255", name="ck_market_command_results_key"),
+        sa.CheckConstraint("length(trim(idempotency_key)) BETWEEN 1 AND 255", name="ck_market_command_results_key"),
         sa.CheckConstraint("request_hash ~ '^[0-9a-f]{64}$'", name="ck_market_command_results_request_hash"),
         sa.CheckConstraint("response_status BETWEEN 200 AND 299", name="ck_market_command_results_response_status"),
         sa.ForeignKeyConstraint(["actor_user_id"], ["users.id"], ondelete="RESTRICT"),

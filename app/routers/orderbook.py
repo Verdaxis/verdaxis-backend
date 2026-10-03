@@ -2633,14 +2633,16 @@ async def update_order(
     )
     order = result.scalars().first()
 
-    response_body = (await _order_response(db, order)).model_dump(mode="json")
-    await record_command_success(db, command, response_status=200, response_body=response_body)
+    response = await _order_response(db, order)
+    await record_command_success(
+        db, command, response_status=200, response_body=response.model_dump(mode="json")
+    )
     await db.commit()
     for _trade in matched_trades:
         track_analytics_event(
             trade_created_event(current_user, order=order, request=request), request=request
         )
-    return JSONResponse(status_code=200, content=response_body)
+    return response
 
 
 @router.post("/{order_id}/cancel", status_code=status.HTTP_204_NO_CONTENT)

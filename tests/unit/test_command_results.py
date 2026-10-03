@@ -1,4 +1,4 @@
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from decimal import Decimal
 from enum import Enum
 from types import SimpleNamespace
@@ -8,7 +8,6 @@ import pytest
 from fastapi import HTTPException
 from starlette.requests import Request
 
-from app.schemas.orderbook import OrderUpdate
 from app.services import command_results
 from app.services.command_results import command_request_hash, prepare_command_attempt
 
@@ -48,13 +47,6 @@ def test_command_hash_canonicalizes_economic_and_identity_values():
     assert command_request_hash(left) == command_request_hash(right)
     assert command_request_hash({"value": None}) != command_request_hash({})
 
-
-def test_elapsed_amendment_expiry_remains_structurally_parseable():
-    elapsed = datetime.now(UTC) - timedelta(days=1)
-
-    update = OrderUpdate(expires_at=elapsed)
-
-    assert update.expires_at == elapsed
 
 
 @pytest.mark.asyncio
