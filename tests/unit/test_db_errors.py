@@ -1,3 +1,4 @@
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -78,9 +79,13 @@ def test_unrelated_database_errors_are_not_mapped_as_contention():
     assert is_market_path("/api/trades/123/confirm")
     assert is_market_path("/api/prices")
     assert is_market_path("/api/prices/reference")
+    assert is_market_path("/api/curves/forward")
+    assert is_market_path("/api/curves/forward/table")
     assert not is_market_path("/api/prices-fake")
     assert not is_market_path("/api/orderbookish")
     assert not is_market_path("/api/tradesman")
+    assert not is_market_path("/api/curves")
+    assert not is_market_path("/api/curves/forwardish")
     assert not is_market_path("/api/users")
 
 
@@ -141,6 +146,45 @@ async def test_unknown_database_errors_log_bounded_fields_and_return_sanitized_5
         "request_id": "request-123",
         "route": "/api/prices",
     }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("method", "path", "sqlstate", "expected_status", "retry_after"),
+    [
+        ("GET", "/api/curves/forward/table", "57014", 503, "1"),
+        ("HEAD", "/api/trades/my", "57014", 503, "1"),
+        ("POST", "/api/orderbook", "57014", 500, None),
+        ("GET", "/api/auth/me", "57014", 500, None),
+        ("POST", "/api/orderbook", "55P03", 503, "1"),
+    ],
+)
+async def test_database_handler_bounds_only_retryable_market_failures(
+    monkeypatch,
+    method,
+    path,
+    sqlstate,
+    expected_status,
+    retry_after,
+):
+    monkeypatch.setattr(
+        "app.main.logger",
+        SimpleNamespace(error=lambda *args, **kwargs: None),
+    )
+    response = await database_contention_handler(
+        SimpleNamespace(url=SimpleNamespace(path=path), method=method),
+        _db_error("sensitive database detail", sqlstate),
+    )
+
+    assert response.status_code == expected_status
+    assert b"sensitive database detail" not in response.body
+    expected_detail = (
+        "Market is temporarily busy; retry shortly."
+        if expected_status == 503
+        else "Database operation failed."
+    )
+    assert json.loads(response.body) == {"detail": expected_detail}
+    assert response.headers.get("Retry-After") == retry_after
 
 
 def test_database_error_log_fields_never_include_statement_parameters_or_message():
