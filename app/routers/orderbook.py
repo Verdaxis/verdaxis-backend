@@ -129,6 +129,7 @@ from app.services.market_support import (
 )
 from app.services.request_party import (
     MARKET_SUPPORT_CONTEXT_HEADER,
+    RequestParty,
     RequestPartyMode,
     lock_request_party_context,
     resolve_request_party,
@@ -564,7 +565,7 @@ async def _load_benchmark_prices(
 
 
 async def _replay_belongs_to_party(
-    db: AsyncSession, order: OrderBookOrder, party
+    db: AsyncSession, order: OrderBookOrder, party: RequestParty
 ) -> bool:
     """Prevent an idempotency key from replaying another principal's order."""
     if order.creation_method != party.creation_method:
@@ -595,6 +596,45 @@ async def _replay_belongs_to_party(
             and authorization.market_support_context_id == party.support_context_id
         )
     return True
+
+
+async def _load_valid_order_create_replay(
+    db: AsyncSession,
+    *,
+    organization_id: UUID,
+    idempotency_key: str,
+    request_hash: str | None,
+    party: RequestParty,
+) -> OrderBookOrder | None:
+    """Load and validate one committed replay for an order-create request."""
+    existing_order = (
+        await db.execute(
+            select(OrderBookOrder)
+            .options(
+                selectinload(OrderBookOrder.organization),
+                selectinload(OrderBookOrder.product),
+                selectinload(OrderBookOrder.delivery_point),
+            )
+            .where(
+                OrderBookOrder.organization_id == organization_id,
+                OrderBookOrder.idempotency_operation == ORDER_CREATE_OPERATION,
+                OrderBookOrder.idempotency_key == idempotency_key,
+            )
+        )
+    ).scalar_one_or_none()
+    if existing_order is None:
+        return None
+    if existing_order.idempotency_request_hash != request_hash:
+        raise HTTPException(
+            status_code=409,
+            detail="Idempotency-Key was reused with a different request",
+        )
+    if not await _replay_belongs_to_party(db, existing_order, party):
+        raise HTTPException(
+            status_code=409,
+            detail="Idempotency-Key is bound to another request party",
+        )
+    return existing_order
 
 
 def _reject_admin_legacy_workspace_mutation(
@@ -1856,21 +1896,14 @@ async def create_order(
             operation=ORDER_CREATE_OPERATION,
             key=idempotency_key,
         )
-        existing_result = await db.execute(
-            select(OrderBookOrder)
-            .options(selectinload(OrderBookOrder.organization), selectinload(OrderBookOrder.product), selectinload(OrderBookOrder.delivery_point))
-            .where(
-                OrderBookOrder.organization_id == effective_organization_id,
-                OrderBookOrder.idempotency_operation == ORDER_CREATE_OPERATION,
-                OrderBookOrder.idempotency_key == idempotency_key,
-            )
+        existing_order = await _load_valid_order_create_replay(
+            db,
+            organization_id=effective_organization_id,
+            idempotency_key=idempotency_key,
+            request_hash=request_hash,
+            party=party,
         )
-        existing_order = existing_result.scalar_one_or_none()
         if existing_order is not None:
-            if existing_order.idempotency_request_hash != request_hash:
-                raise HTTPException(status_code=409, detail="Idempotency-Key was reused with a different request")
-            if not await _replay_belongs_to_party(db, existing_order, party):
-                raise HTTPException(status_code=409, detail="Idempotency-Key is bound to another request party")
             return await _order_response(db, existing_order)
 
     if (
@@ -2184,22 +2217,15 @@ async def create_order(
         await db.rollback()
         if not idempotency_key:
             raise
-        existing_result = await db.execute(
-            select(OrderBookOrder)
-            .options(selectinload(OrderBookOrder.organization), selectinload(OrderBookOrder.product), selectinload(OrderBookOrder.delivery_point))
-            .where(
-                OrderBookOrder.organization_id == effective_organization_id,
-                OrderBookOrder.idempotency_operation == ORDER_CREATE_OPERATION,
-                OrderBookOrder.idempotency_key == idempotency_key,
-            )
+        existing_order = await _load_valid_order_create_replay(
+            db,
+            organization_id=effective_organization_id,
+            idempotency_key=idempotency_key,
+            request_hash=request_hash,
+            party=party,
         )
-        existing_order = existing_result.scalar_one_or_none()
         if existing_order is None:
             raise
-        if existing_order.idempotency_request_hash != request_hash:
-            raise HTTPException(status_code=409, detail="Idempotency-Key was reused with a different request")
-        if not await _replay_belongs_to_party(db, existing_order, party):
-            raise HTTPException(status_code=409, detail="Idempotency-Key is bound to another request party")
         return await _order_response(db, existing_order)
 
     await record_audit(
@@ -2320,22 +2346,15 @@ async def create_order(
         await db.rollback()
         if not idempotency_key:
             raise
-        existing_result = await db.execute(
-            select(OrderBookOrder)
-            .options(selectinload(OrderBookOrder.organization), selectinload(OrderBookOrder.product), selectinload(OrderBookOrder.delivery_point))
-            .where(
-                OrderBookOrder.organization_id == effective_organization_id,
-                OrderBookOrder.idempotency_operation == ORDER_CREATE_OPERATION,
-                OrderBookOrder.idempotency_key == idempotency_key,
-            )
+        existing_order = await _load_valid_order_create_replay(
+            db,
+            organization_id=effective_organization_id,
+            idempotency_key=idempotency_key,
+            request_hash=request_hash,
+            party=party,
         )
-        existing_order = existing_result.scalars().first()
         if existing_order is None:
             raise
-        if existing_order.idempotency_request_hash != request_hash:
-            raise HTTPException(status_code=409, detail="Idempotency-Key was reused with a different request")
-        if not await _replay_belongs_to_party(db, existing_order, party):
-            raise HTTPException(status_code=409, detail="Idempotency-Key is bound to another request party")
         return await _order_response(db, existing_order)
     if new_order is not None:
         track_analytics_event(
