@@ -38,10 +38,11 @@ import logging
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import text
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
 from app.models.market_event import MarketEventOutbox
+from app.services.market_events import version_market_event_payload
 
 logger = logging.getLogger(__name__)
 
@@ -89,6 +90,7 @@ async def fetch_events_for_org(
     organization_id: UUID | str,
     *,
     after_seq: int,
+    through_seq: int | None = None,
     limit: int = _BATCH_SIZE,
 ) -> list[MarketEventOutbox]:
     """Sequenced events for one organization, oldest first.
@@ -100,21 +102,26 @@ async def fetch_events_for_org(
     """
     bind = session.get_bind()
     if bind is not None and bind.dialect.name == "postgresql":
+        upper_bound = "" if through_seq is None else "AND stream_seq <= :through_seq"
+        parameters = {
+            "after_seq": after_seq,
+            "org_id": str(organization_id),
+            "limit": limit,
+        }
+        if through_seq is not None:
+            parameters["through_seq"] = through_seq
         result = await session.execute(
             text(
-                """
+                f"""
                 SELECT id FROM market_event_outbox
                 WHERE stream_seq > :after_seq
+                  {upper_bound}
                   AND participant_org_ids::jsonb ? :org_id
                 ORDER BY stream_seq
                 LIMIT :limit
                 """
             ),
-            {
-                "after_seq": after_seq,
-                "org_id": str(organization_id),
-                "limit": limit,
-            },
+            parameters,
         )
         ids = [row[0] for row in result]
         if not ids:
@@ -133,11 +140,12 @@ async def fetch_events_for_org(
         by_id = {row["id"]: row for row in rows}
         return [_as_event(by_id[event_id]) for event_id in ids]
 
-    result = await session.execute(
-        MarketEventOutbox.__table__.select()
-        .where(MarketEventOutbox.stream_seq > after_seq)
-        .order_by(MarketEventOutbox.stream_seq)
+    query = MarketEventOutbox.__table__.select().where(
+        MarketEventOutbox.stream_seq > after_seq
     )
+    if through_seq is not None:
+        query = query.where(MarketEventOutbox.stream_seq <= through_seq)
+    result = await session.execute(query.order_by(MarketEventOutbox.stream_seq))
     org_key = str(organization_id)
     matched = [
         _as_event(row)
@@ -145,6 +153,16 @@ async def fetch_events_for_org(
         if org_key in [str(value) for value in row["participant_org_ids"]]
     ]
     return matched[:limit]
+
+
+async def fetch_replay_high_water(session: AsyncSession) -> int:
+    """Capture the committed sequence boundary for one bounded catch-up."""
+    value = (
+        await session.execute(
+            select(func.coalesce(func.max(MarketEventOutbox.stream_seq), 0))
+        )
+    ).scalar_one()
+    return int(value)
 
 
 class _EventRow:
@@ -155,7 +173,7 @@ class _EventRow:
     def __init__(self, mapping: Any) -> None:
         self.id = mapping["id"]
         self.event_type = mapping["event_type"]
-        self.payload = mapping["payload"]
+        self.payload = version_market_event_payload(mapping["payload"])
         self.participant_org_ids = mapping["participant_org_ids"]
         self.stream_seq = mapping["stream_seq"]
 

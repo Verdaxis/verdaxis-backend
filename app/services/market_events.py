@@ -17,6 +17,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.market_event import MarketEventOutbox
 
+MARKET_EVENT_SCHEMA_VERSION = 1
+
+
+def version_market_event_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """Return the additive wire envelope used by replay and live delivery."""
+    versioned_payload = dict(payload)
+    versioned_payload.setdefault("schema_version", MARKET_EVENT_SCHEMA_VERSION)
+    return versioned_payload
+
 
 @dataclass(frozen=True)
 class MarketEventEnvelope:
@@ -65,7 +74,7 @@ def participant_market_event(
         aggregate_type=aggregate_type,
         aggregate_id=str(aggregate_id),
         participant_org_ids=tuple(participant_org_ids),
-        payload=dict(payload),
+        payload=version_market_event_payload(payload),
     )
 
 
