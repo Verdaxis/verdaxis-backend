@@ -8,6 +8,10 @@ from fastapi.routing import APIRoute
 from app.config import credentialed_origins_for_environment
 
 
+# Bound aggregate economic metadata while leaving room for normal market terms.
+MAX_MARKET_JSON_BODY_BYTES = 64 * 1024
+
+
 def require_trusted_browser_origin(
     request: Request,
     *,
@@ -84,3 +88,8 @@ class BodySizeLimitRoute(APIRoute):
             return await original_handler(limited_request)
 
         return limited_handler
+
+
+class MarketJSONBodyLimitRoute(BodySizeLimitRoute):
+    max_body_bytes = MAX_MARKET_JSON_BODY_BYTES
+    body_too_large_detail = "Market JSON body must be 64 KiB or smaller"

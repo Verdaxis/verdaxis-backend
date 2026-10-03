@@ -21,6 +21,9 @@ from app.services.db_errors import (
 )
 from app.rate_limit import limiter
 from app.middleware.market_support_scope import MarketSupportScopeMiddleware
+from app.middleware.public_market_read_admission import (
+    PublicMarketReadAdmissionMiddleware,
+)
 from app.middleware.preauth_rate_limit import preauth_rate_limit_middleware
 from app.services.request_party import MARKET_SUPPORT_CONTEXT_INVALID_HEADER
 from app.routers.auth_simple import router as auth_router
@@ -183,8 +186,18 @@ setup_admin(app)
 # ---------------------------------------------------------------------------
 app.middleware("http")(preauth_rate_limit_middleware)
 
-# CORS wraps pre-auth and support-scope middleware so browser clients receive
-# the same credentialed headers on early rejection responses and preflights.
+# CORS wraps public-read admission, pre-auth, and support scope so browser
+# clients receive credentialed headers on early rejections and preflights.
+# Keep one pool checkout available for mutations and other request classes.
+public_market_read_capacity = max(
+    settings.DB_POOL_SIZE + settings.DB_MAX_OVERFLOW - 1,
+    0,
+)
+app.add_middleware(
+    PublicMarketReadAdmissionMiddleware,
+    capacity=public_market_read_capacity,
+    api_prefix=settings.API_V1_STR,
+)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.BACKEND_CORS_ORIGINS,
