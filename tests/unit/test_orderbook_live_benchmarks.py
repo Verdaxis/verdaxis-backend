@@ -583,10 +583,45 @@ class TestLiveSliceBenchmarks:
                 limit=100,
                 db=db,
             )
+        with _count_sql_statements(async_engine) as out_of_range_statements:
+            out_of_range_page = await list_asks(
+                product_id=None,
+                delivery_point_id=None,
+                fuel_type=None,
+                market_product=None,
+                region=None,
+                availability_window=None,
+                include_off_spec=True,
+                sort_by='newest',
+                skip=100,
+                limit=4,
+                db=db,
+            )
+        with _count_sql_statements(async_engine) as empty_first_page_statements:
+            empty_first_page = await list_asks(
+                product_id=uuid4(),
+                delivery_point_id=None,
+                fuel_type=None,
+                market_product=None,
+                region=None,
+                availability_window=None,
+                include_off_spec=True,
+                sort_by='newest',
+                skip=0,
+                limit=4,
+                db=db,
+            )
 
         assert len(short_page.items) == 4
         assert len(full_page.items) == 17
-        assert len(short_statements) == len(full_statements) == 4
+        assert short_page.total == full_page.total == 17
+        assert len(short_statements) == len(full_statements) == 3
+        assert out_of_range_page.items == []
+        assert out_of_range_page.total == 17
+        assert len(out_of_range_statements) == 2
+        assert empty_first_page.items == []
+        assert empty_first_page.total == 0
+        assert len(empty_first_page_statements) == 1
         assert off_spec.id in {item.id for item in full_page.items}
         assert next(item for item in full_page.items if item.id == off_spec.id).benchmark_price_per_mt_usd is None
         assert uncertified.id not in {item.id for item in full_page.items}
