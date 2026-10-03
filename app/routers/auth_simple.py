@@ -1984,7 +1984,31 @@ async def update_users_me(
     if requested_role is not None and current_user.role is None:
         # The live onboarding flow assigns a trading side to incomplete legacy
         # profiles once. Later role transitions require a separate audited flow.
+        public_before = False
+        if current_user.organization_id is not None:
+            public_before = await user_has_public_market_projection(
+                db, current_user.id
+            )
         current_user.role = requested_role
+        if current_user.organization_id is not None:
+            await db.flush()
+            public_after = await user_has_public_market_projection(
+                db, current_user.id
+            )
+            if public_before or public_after:
+                await enqueue_market_events(
+                    db,
+                    [
+                        participant_market_event(
+                            event_type="market_admission_changed",
+                            aggregate_type="user",
+                            aggregate_id=current_user.id,
+                            participant_org_ids=(current_user.organization_id,),
+                            payload={"user_id": str(current_user.id)},
+                            public_market_invalidation=public_before or public_after,
+                        )
+                    ],
+                )
 
     await db.commit()
     await db.refresh(current_user)
