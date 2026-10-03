@@ -83,4 +83,6 @@ New matcher/warehouse/Supabase migration, Kafka, microservices, full L2 feed, ge
 
 ## Completion record
 
+The 2026-10-03 read-only production ASK profile matched all 16 serialized responses and reduced the warm service median from 114.199 ms to 74.320 ms by narrowing the eligible ID page before ORM hydration. The implemented ASK-only query carries the exact filtered total in that page, hydrates only the requested rows in the existing sort order, and runs the prior filtered count only for an out-of-range nonzero offset; BID reads and response enrichment remain unchanged.
+
 Update this plan with task status and exact check commands. Maintain one concise release record, not a chain of overlapping reports. Source pass, runtime release, smoke scope and performance evidence must be stated separately. Once the gates pass, close test/build/profile sessions and report the remaining limits.
