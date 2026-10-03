@@ -45,7 +45,11 @@ from app.services.demo_market import (
 )
 from app.services.matching_engine import match_order
 from app.services.market_admission import lock_and_load_market_organizations
-from app.services.market_locks import acquire_market_slice_lock
+from app.services.market_locks import (
+    acquire_market_slice_lock,
+    acquire_market_slice_locks,
+    next_order_acceptance_ordinal,
+)
 
 MAX_GENERATED_TRADES = 80
 MAX_GENERATED_ORDERS = MAX_GENERATED_TRADES * 3
@@ -184,6 +188,33 @@ def build_demo_market_coverage(now: datetime) -> list[OrderBookOrder]:
     return orders
 
 
+def _demo_refresh_loses_priority(
+    current: OrderBookOrder,
+    target: OrderBookOrder,
+) -> bool:
+    """Apply the same queue-loss rules to refreshed disclosed demo orders."""
+    if current.price_per_mt_usd != target.price_per_mt_usd:
+        return True
+    if target.quantity_mt > current.quantity_mt:
+        return True
+    if current.certifications != target.certifications:
+        return True
+    if current.certification_scheme != target.certification_scheme:
+        return True
+    if current.off_spec and not target.off_spec:
+        return True
+    if (
+        current.expires_at != target.expires_at
+        and current.expires_at is not None
+        and (target.expires_at is None or target.expires_at > current.expires_at)
+    ):
+        return True
+    return (
+        current.status not in (OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED)
+        and target.status in (OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED)
+    )
+
+
 async def _expire_legacy_activity_quotes(db: AsyncSession, reference: datetime) -> int:
     """Retire old flat-price system quotes while preserving records and pins."""
     referenced_columns = (
@@ -241,23 +272,51 @@ async def ensure_demo_market_coverage(
         )
     ).scalars().all()
     existing_by_key = {order.idempotency_key: order for order in existing}
+    affected_targets = [
+        target
+        for target in desired
+        if (
+            existing_by_key.get(target.idempotency_key) is None
+            or any(
+                getattr(existing_by_key[target.idempotency_key], field)
+                != getattr(target, field)
+                for field in DEMO_COVERAGE_REFRESH_FIELDS
+            )
+        )
+    ]
+    await acquire_market_slice_locks(
+        db,
+        (
+            (
+                target.side,
+                target.product_id,
+                target.delivery_point_id,
+                target.availability_window,
+            )
+            for target in affected_targets
+        ),
+    )
     created = 0
     refreshed = 0
 
     for target in desired:
         current = existing_by_key.get(target.idempotency_key)
         if current is None:
+            target.acceptance_ordinal = await next_order_acceptance_ordinal(db)
             db.add(target)
             created += 1
             continue
 
         changed = False
+        loses_priority = _demo_refresh_loses_priority(current, target)
         for field in DEMO_COVERAGE_REFRESH_FIELDS:
             value = getattr(target, field)
             if getattr(current, field) != value:
                 setattr(current, field, value)
                 changed = True
         if changed:
+            if loses_priority:
+                current.acceptance_ordinal = await next_order_acceptance_ordinal(db)
             current.updated_at = reference
             refreshed += 1
 
@@ -591,7 +650,10 @@ async def generate_demo_market_activity(
 
     trade_qty = _quantity()
     trade_price = _price(product_name, port_name, window, reference)
+    ask_acceptance_ordinal = await next_order_acceptance_ordinal(db)
+    bid_acceptance_ordinal = await next_order_acceptance_ordinal(db)
     ask_order = OrderBookOrder(
+        acceptance_ordinal=ask_acceptance_ordinal,
         organization_id=DEMO_ACTIVITY_SELLER_ORG_ID,
         provenance=OrganizationProvenance.DEMO,
         creation_method=OrderCreationMethod.SYSTEM,
@@ -612,6 +674,7 @@ async def generate_demo_market_activity(
     await db.flush()
 
     bid_order = OrderBookOrder(
+        acceptance_ordinal=bid_acceptance_ordinal,
         organization_id=DEMO_ACTIVITY_BUYER_ORG_ID,
         provenance=OrganizationProvenance.DEMO,
         creation_method=OrderCreationMethod.SYSTEM,

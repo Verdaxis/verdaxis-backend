@@ -112,7 +112,10 @@ from app.services.market_data_eligibility import (
     canonical_market_product_expression,
 )
 from app.services.market_events import enqueue_market_events, participant_market_event
-from app.services.market_locks import acquire_market_slice_lock
+from app.services.market_locks import (
+    acquire_market_slice_lock,
+    next_order_acceptance_ordinal,
+)
 from app.services.market_support import (
     authorization_terms_digest,
     economic_order_idempotency_payload,
@@ -1150,6 +1153,7 @@ async def create_listing(
     supplier = await _load_supplier(db, authorization.accountable_user_id, organization)
     product, delivery_point = await _load_catalog(db, authorization.product_id, authorization.delivery_point_id)
     candidate = _candidate_from_authorization(authorization, organization, product, delivery_point)
+    candidate.acceptance_ordinal = await next_order_acceptance_ordinal(db)
     assessment = await assess_locked_order(db, candidate, organization=organization)
     if assessment.indeterminate:
         raise HTTPException(status_code=409, detail=_detail("POST_ONLY_CHECK_INDETERMINATE", "The complete crossing set could not be assessed; retry later"))

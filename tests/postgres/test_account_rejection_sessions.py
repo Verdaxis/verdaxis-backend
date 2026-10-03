@@ -225,7 +225,7 @@ async def test_cutoff_downgrade_fails_fast_behind_concurrent_user_write(
 
     assert cutoff is not None
     assert stored_cutoff == cutoff
-    assert revision == "auth_20261002_session_cutoff"
+    assert revision == "obp_20261003_acceptance_priority"
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("selected_role", [UserRole.BUYER, UserRole.SUPPLIER])

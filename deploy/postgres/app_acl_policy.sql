@@ -221,4 +221,5 @@ CREATE TEMP TABLE app_sequence_policy (
 -- Stage 5 (shared SSE transport): the in-worker sequencer assigns durable
 -- stream sequence numbers via nextval(); USAGE only, never SELECT/UPDATE.
 INSERT INTO app_sequence_policy (sequence_name, privileges) VALUES
-    ('market_event_stream_seq', ARRAY['USAGE']);
+    ('market_event_stream_seq', ARRAY['USAGE']),
+    ('orderbook_acceptance_ordinal_seq', ARRAY['USAGE']);

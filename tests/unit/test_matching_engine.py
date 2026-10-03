@@ -235,6 +235,7 @@ def _make_order(
     certification_scheme: str | None = None,
     off_spec: bool = False,
     provenance: OrganizationProvenance = OrganizationProvenance.REAL,
+    acceptance_ordinal: int | None = None,
 ) -> OrderBookOrder:
     """Helper to build an OrderBookOrder with sensible defaults."""
     certs = certifications or []
@@ -245,7 +246,7 @@ def _make_order(
     else:
         certification_declared = False if certification_declared is None else certification_declared
 
-    return OrderBookOrder(
+    values = dict(
         organization_id=org_id,
         owner_user_id=_owner_user_id(org_id),
         provenance=provenance,
@@ -263,6 +264,9 @@ def _make_order(
         status=status,
         created_at=created_at or datetime.now(UTC),
     )
+    if acceptance_ordinal is not None:
+        values["acceptance_ordinal"] = acceptance_ordinal
+    return OrderBookOrder(**values)
 
 
 # --------------- Tests ---------------
@@ -691,8 +695,8 @@ class TestNoMatch:
         assert len(trades) == 0
 
 
-class TestPriceTimePriority:
-    """Price-time priority ordering tests."""
+class TestPriceAcceptancePriority:
+    """Price and persisted acceptance-priority ordering tests."""
 
     @pytest.mark.asyncio
     async def test_lower_ask_matches_first_for_bid(self, db, buyer_org, seller_org, seller_org2, org_buyer_id, org_seller_id, org_seller2_id, test_product, test_dp):
@@ -720,15 +724,21 @@ class TestPriceTimePriority:
         assert trades[1].price_per_mt_usd == Decimal("550.00")
 
     @pytest.mark.asyncio
-    async def test_time_priority_at_same_price(self, db, buyer_org, seller_org, seller_org2, org_buyer_id, org_seller_id, org_seller2_id, test_product, test_dp):
-        """When two ASKs have the same price, the older one matches first."""
+    async def test_acceptance_priority_at_same_price_and_time(self, db, buyer_org, seller_org, seller_org2, org_buyer_id, org_seller_id, org_seller2_id, test_product, test_dp):
+        """At one price and clock tick, the lower acceptance ordinal matches first."""
         now = datetime.now(UTC)
 
-        ask_old = _make_order(org_seller_id, OrderSide.ASK, price=Decimal("550.00"), quantity=Decimal("500.00"), created_at=now - timedelta(minutes=5))
-        db.add(ask_old)
+        ask_later = _make_order(
+            org_seller_id, OrderSide.ASK, price=Decimal("550.00"),
+            quantity=Decimal("500.00"), created_at=now, acceptance_ordinal=20,
+        )
+        db.add(ask_later)
 
-        ask_new = _make_order(org_seller2_id, OrderSide.ASK, price=Decimal("550.00"), quantity=Decimal("500.00"), created_at=now)
-        db.add(ask_new)
+        ask_earlier = _make_order(
+            org_seller2_id, OrderSide.ASK, price=Decimal("550.00"),
+            quantity=Decimal("500.00"), created_at=now, acceptance_ordinal=10,
+        )
+        db.add(ask_earlier)
         await db.flush()
 
         bid = _make_order(org_buyer_id, OrderSide.BID, price=Decimal("560.00"), quantity=Decimal("2000.00"))
@@ -738,9 +748,8 @@ class TestPriceTimePriority:
         trades = await match_order(db, bid)
 
         assert len(trades) == 2
-        # First trade should be against the older ask
-        assert trades[0].ask_order_id == ask_old.id
-        assert trades[1].ask_order_id == ask_new.id
+        assert trades[0].ask_order_id == ask_earlier.id
+        assert trades[1].ask_order_id == ask_later.id
 
     @pytest.mark.asyncio
     async def test_higher_bid_matches_first_for_ask(self, db, buyer_org, seller_org, seller_org2, org_buyer_id, org_seller_id, org_seller2_id, test_product, test_dp):
@@ -773,7 +782,10 @@ class TestPartialFills:
     @pytest.mark.asyncio
     async def test_partial_fill_bid_larger(self, db, buyer_org, seller_org, org_buyer_id, org_seller_id, test_product, test_dp):
         """1000 MT BID matches 500 MT ASK — BID has 500 remaining."""
-        ask = _make_order(org_seller_id, OrderSide.ASK, price=Decimal("550.00"), quantity=Decimal("500.00"))
+        ask = _make_order(
+            org_seller_id, OrderSide.ASK, price=Decimal("550.00"),
+            quantity=Decimal("500.00"), acceptance_ordinal=44,
+        )
         db.add(ask)
         await db.flush()
 
@@ -793,6 +805,7 @@ class TestPartialFills:
         # ASK should be fully filled
         assert ask.remaining_quantity_mt == Decimal("0")
         assert ask.status == OrderBookStatus.FILLED
+        assert ask.acceptance_ordinal == 44
 
     @pytest.mark.asyncio
     async def test_partial_fill_ask_larger(self, db, buyer_org, seller_org, org_buyer_id, org_seller_id, test_product, test_dp):
