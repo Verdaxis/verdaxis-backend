@@ -110,6 +110,7 @@ from app.services.market_catalog_validation import require_orderbook_product
 from app.services.market_data_eligibility import (
     canonical_delivery_point_clause,
     canonical_market_product_expression,
+    public_order_is_visible,
 )
 from app.services.market_events import enqueue_market_events, participant_market_event
 from app.services.market_locks import (
@@ -1208,6 +1209,7 @@ async def create_listing(
         [(OrderSide.ASK, product.market_product, authorization.delivery_point_id, authorization.availability_window)],
     )
     await emit_order_created(db, candidate, previous_best_price=previous_best)
+    public_market_changed = await public_order_is_visible(db, candidate.id)
     await enqueue_market_events(
         db,
         [participant_market_event(
@@ -1225,6 +1227,7 @@ async def create_listing(
                 "price": str(candidate.price_per_mt_usd),
                 "quantity": str(candidate.remaining_quantity_mt),
             },
+            public_market_invalidation=public_market_changed,
         )],
     )
     await db.commit()
@@ -1274,6 +1277,7 @@ async def _cancel_locked_order(
     reason: str,
     request: Request,
 ) -> None:
+    public_before = await public_order_is_visible(db, order.id)
     before = await _watchlist_before_state(db, order)
     order.status = OrderBookStatus.CANCELLED
     order.version += 1
@@ -1308,6 +1312,7 @@ async def _cancel_locked_order(
             aggregate_id=order.id,
             participant_org_ids=(order.organization_id,),
             payload={**order_activity_provenance(order), "id": str(order.id), "side": order.side.value, "product_name": order.product_name, "fuel_type": order.fuel_type, "region": order.region},
+            public_market_invalidation=public_before,
         )],
     )
 

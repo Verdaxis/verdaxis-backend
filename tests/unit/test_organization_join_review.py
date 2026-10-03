@@ -6,12 +6,13 @@ from uuid import UUID, uuid4
 
 import pytest
 from fastapi import Request
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.core.security import create_refresh_token, decode_token, hash_token_identifier
 from app.database import Base
 from app.models.audit import AuditLog
+from app.models.market_event import MarketEventOutbox
 from app.models.product_analytics import UserStatusTransition
 from app.models.refresh_session import RefreshSession
 from app.models.registration import JoinRequestStatus, OrganizationJoinRequest
@@ -33,6 +34,14 @@ from app.routers.auth_simple import (
     reject_user,
 )
 from app.services.audit_actions import ORGANIZATION_JOIN_APPROVED, ORGANIZATION_JOIN_REJECTED
+
+
+# The visibility query needs only these Port columns. The real model carries a
+# PostGIS geography column whose DDL SQLite cannot parse.
+PORTS_STANDIN_DDL = (
+    "CREATE TABLE ports ("
+    "id VARCHAR PRIMARY KEY, name VARCHAR NOT NULL, is_active BOOLEAN NOT NULL)"
+)
 
 
 def _request(path: str) -> Request:
@@ -65,10 +74,12 @@ async def join_db():
         RFQ.__table__,
         RFQQuote.__table__,
         Negotiation.__table__,
+        MarketEventOutbox.__table__,
         AuditLog.__table__,
         UserStatusTransition.__table__,
     ]
     async with engine.begin() as connection:
+        await connection.execute(text(PORTS_STANDIN_DDL))
         await connection.run_sync(Base.metadata.create_all, tables=tables)
     factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     async with factory() as session:

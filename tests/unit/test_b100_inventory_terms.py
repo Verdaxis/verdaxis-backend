@@ -262,7 +262,7 @@ async def test_inventory_publish_uses_canonical_lane_frozen_terms_and_shared_mat
     db.add = MagicMock()
     db.execute.side_effect = [
         MagicMock(scalar_one_or_none=MagicMock(return_value=value))
-        for value in (user, organization, item, None, item, None, None)
+        for value in (user, organization, item, None, item, None, None, True)
     ]
     request = SimpleNamespace(headers={}, client=SimpleNamespace(host="127.0.0.1"))
 

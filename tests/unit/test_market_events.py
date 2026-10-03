@@ -44,6 +44,26 @@ def test_market_event_rejects_global_or_empty_audience():
         _event()
 
 
+def test_public_invalidation_marker_is_transport_owned_and_persisted():
+    event = market_events.participant_market_event(
+        event_type="order_created",
+        aggregate_type="order",
+        aggregate_id=uuid4(),
+        participant_org_ids=(uuid4(),),
+        payload={"status": "OPEN"},
+        public_market_invalidation=True,
+    )
+    assert event.payload[market_events.PUBLIC_MARKET_INVALIDATION_KEY] is True
+    with pytest.raises(ValueError, match="transport-owned"):
+        market_events.participant_market_event(
+            event_type="order_created",
+            aggregate_type="order",
+            aggregate_id=uuid4(),
+            participant_org_ids=(uuid4(),),
+            payload={market_events.PUBLIC_MARKET_INVALIDATION_KEY: True},
+        )
+
+
 @pytest.mark.asyncio
 async def test_failed_commit_leaves_no_process_local_publish_boundary():
     db = AsyncMock()
@@ -63,4 +83,7 @@ def test_update_order_queues_outbox_before_commit():
         "async def cancel_order", 1
     )[0]
     assert "event_bus.publish" not in update_source
-    assert "commit_market_events(db, committed_events)" in update_source
+    enqueue = update_source.index("enqueue_market_events(db, committed_events)")
+    receipt = update_source.index("record_command_success(")
+    commit = update_source.index("await db.commit()")
+    assert enqueue < receipt < commit

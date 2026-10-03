@@ -42,6 +42,21 @@ def test_checkpoint_policy_is_explicit_and_rejects_symbolic_targets():
             module.parse_checkpoint_policy(f"{EXPECTED}\t{alias}\n")
 
 
+def test_command_result_checkpoint_transitions_are_literal():
+    policy = _load_checkpoint_module().parse_checkpoint_policy(
+        (ROOT / "deploy/migration-checkpoints.tsv").read_text()
+    )
+
+    assert (
+        "obp_20261003_acceptance_priority",
+        "rcp_20261003_command_results",
+    ) in policy
+    assert (
+        "rcp_20261003_command_results",
+        "rcp_20261003_command_results",
+    ) in policy
+
+
 def test_checkpoint_request_binds_sha_current_target_and_real_graph():
     module = _load_checkpoint_module()
     script = ScriptDirectory.from_config(Config(str(ROOT / "alembic.ini")))

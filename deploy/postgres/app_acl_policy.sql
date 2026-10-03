@@ -34,6 +34,7 @@ INSERT INTO app_table_policy (table_name, privileges) VALUES
     ('feedback_entries', ARRAY['SELECT', 'INSERT']),
     ('inventory_items', ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE']),
     ('live_slice_benchmarks', ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE']),
+    ('market_command_results', ARRAY['SELECT', 'INSERT']),
     ('market_event_outbox', ARRAY['SELECT', 'INSERT', 'UPDATE']),
     ('market_indications', ARRAY['SELECT']),
     ('market_row_quarantines', ARRAY['SELECT']),

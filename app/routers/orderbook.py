@@ -1,7 +1,8 @@
 import hashlib
 from dataclasses import dataclass
 
-from fastapi import APIRouter, Body, Depends, Header, HTTPException, Request, status, Query
+from fastapi import APIRouter, Body, Depends, Header, HTTPException, Request, Response, status, Query
+from fastapi.responses import JSONResponse
 from app.services.audit_service import record_audit, request_audit_context
 from app.services.audit_actions import (
     ORDER_CANCELLED,
@@ -78,6 +79,12 @@ from app.services.market_locks import (
     acquire_market_slice_locks,
     next_order_acceptance_ordinal,
 )
+from app.services.command_results import (
+    ORDER_AMEND_OPERATION,
+    ORDER_CANCEL_OPERATION,
+    prepare_command_attempt,
+    record_command_success,
+)
 from app.services.idempotency import (
     ORDER_CREATE_OPERATION,
     acquire_idempotency_lock,
@@ -97,6 +104,8 @@ from app.services.market_data_eligibility import (
     canonical_market_product_expression,
     current_public_order_clause,
     public_order_collection_provenance_clause,
+    public_order_is_visible,
+    public_trade_is_visible,
 )
 from app.services.live_benchmarks import (
     LiveBenchmarkKey,
@@ -2297,6 +2306,16 @@ async def create_order(
                 resting_side_previous_best_price=resting_side_previous_best_price,
             )
         )
+        await db.flush()
+        public_market_changed = (
+            await public_order_is_visible(db, new_order.id)
+            or any(
+                [
+                    await public_trade_is_visible(db, trade.id)
+                    for trade in matched_trades
+                ]
+            )
+        )
         committed_events.append(
             participant_market_event(
                 event_type="order_created",
@@ -2317,6 +2336,7 @@ async def create_order(
                     "price": str(new_order.price_per_mt_usd),
                     "quantity": str(new_order.remaining_quantity_mt),
                 },
+                public_market_invalidation=public_market_changed,
             )
         )
     await enqueue_market_events(db, committed_events)
@@ -2372,13 +2392,25 @@ async def update_order(
     order_id: UUID,
     request: Request,
     update_data: OrderUpdate,
-    current_user: User = Depends(require_execution_eligible_user),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """
-    Update an own order. Only allowed if status is OPEN or PARTIALLY_FILLED.
-    """
+    """Update an own order. Only allowed if status is OPEN or PARTIALLY_FILLED."""
     _reject_admin_legacy_workspace_mutation(request, current_user)
+    command = await prepare_command_attempt(
+        db, request, actor_user_id=current_user.id,
+        effective_organization_id=current_user.organization_id, support_context_id=None,
+        operation=ORDER_AMEND_OPERATION, resource_type="order", resource_id=order_id,
+        payload={
+            "operation": ORDER_AMEND_OPERATION, "order_id": order_id,
+            "update": update_data.model_dump(exclude_unset=True, mode="python"),
+        },
+    )
+    if command is not None and command.replay is not None:
+        return JSONResponse(status_code=command.replay.response_status, content=command.replay.response_body)
+    await require_execution_eligible_user(current_user=current_user, db=db)
+    if update_data.expires_at is not None and update_data.expires_at <= datetime.now(UTC):
+        raise HTTPException(status_code=422, detail="expires_at must be in the future")
     result = await db.execute(
         select(OrderBookOrder)
         .options(
@@ -2553,6 +2585,8 @@ async def update_order(
         update_dict["fame_terms"] = locked_terms
         update_dict.update(fame_metadata_fields(locked_terms))
 
+    public_before = await public_order_is_visible(db, order.id)
+
     # Recompute quantity against the locked row; the preview may have waited
     # behind another update on the same slice.
     if "quantity_mt" in update_dict:
@@ -2651,6 +2685,38 @@ async def update_order(
         audit_context=request_audit_context(request),
         resting_side_previous_best_price=resting_side_previous_best_price,
     )
+    await db.flush()
+    public_after = await public_order_is_visible(db, order.id)
+    public_trade_created = any(
+        [
+            await public_trade_is_visible(db, trade.id)
+            for trade in matched_trades
+        ]
+    )
+    committed_events.append(
+        participant_market_event(
+            event_type="order_updated",
+            aggregate_type="order",
+            aggregate_id=order.id,
+            participant_org_ids={
+                order.organization_id,
+                *(trade.buyer_id for trade in matched_trades),
+                *(trade.seller_id for trade in matched_trades),
+            },
+            payload={
+                **order_activity_provenance(order),
+                "id": str(order.id),
+                "side": order.side.value,
+                "product_name": order.product_name,
+                "fuel_type": order.fuel_type,
+                "region": order.region,
+            },
+            public_market_invalidation=(
+                (bool(audit_changes) and (public_before or public_after))
+                or public_trade_created
+            ),
+        )
+    )
     if audit_changes:
         await record_audit(
             db,
@@ -2662,7 +2728,8 @@ async def update_order(
             **request_audit_context(request),
         )
 
-    await commit_market_events(db, committed_events)
+    await enqueue_market_events(db, committed_events)
+    await db.flush()
     await db.refresh(order)
 
     # Re-fetch with eager loading for tier_label
@@ -2673,11 +2740,16 @@ async def update_order(
     )
     order = result.scalars().first()
 
+    response = await _order_response(db, order)
+    await record_command_success(
+        db, command, response_status=200, response_body=response.model_dump(mode="json")
+    )
+    await db.commit()
     for _trade in matched_trades:
         track_analytics_event(
             trade_created_event(current_user, order=order, request=request), request=request
         )
-    return await _order_response(db, order)
+    return response
 
 
 @router.post("/{order_id}/cancel", status_code=status.HTTP_204_NO_CONTENT)
@@ -2706,6 +2778,18 @@ async def cancel_order(
         else current_user.organization_id
     )
     reason = body.reason if body is not None else None
+    command = await prepare_command_attempt(
+        db, request, actor_user_id=current_user.id,
+        effective_organization_id=effective_organization_id,
+        support_context_id=party.support_context_id if party is not None else None,
+        operation=ORDER_CANCEL_OPERATION, resource_type="order", resource_id=order_id,
+        payload={
+            "operation": ORDER_CANCEL_OPERATION, "order_id": order_id,
+            "reason": reason, "if_match": if_match,
+        },
+    )
+    if command is not None and command.replay is not None:
+        return Response(status_code=command.replay.response_status)
     result = await db.execute(
         select(OrderBookOrder)
         .options(selectinload(OrderBookOrder.product), selectinload(OrderBookOrder.delivery_point))
@@ -2826,6 +2910,7 @@ async def cancel_order(
             detail="Can only cancel orders with OPEN or PARTIALLY_FILLED status",
         )
 
+    public_before = await public_order_is_visible(db, order.id)
     before_state = await _watchlist_before_state(db, order)
     benchmark_key: LiveBenchmarkKey | None = (
         order.side,
@@ -2858,7 +2943,7 @@ async def cancel_order(
         },
         **request_audit_context(request),
     )
-    await commit_market_events(
+    await enqueue_market_events(
         db,
         [
             participant_market_event(
@@ -2874,8 +2959,10 @@ async def cancel_order(
                     "fuel_type": order.fuel_type,
                     "region": order.region,
                 },
+                public_market_invalidation=public_before,
             )
         ],
     )
-
-    return None
+    await record_command_success(db, command, response_status=204, response_body=None)
+    await db.commit()
+    return Response(status_code=204)

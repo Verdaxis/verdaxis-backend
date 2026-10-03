@@ -24,11 +24,14 @@ from app.routers.stream import _format_market_event, _parse_last_event_id
 from app.services.event_bus import EventBus, SubscriberQueue
 from app.services.market_event_dispatch import (
     MarketEventDispatcher,
+    PUBLIC_INVALIDATION_EVENT,
+    PUBLIC_INVALIDATION_PAYLOAD,
     fetch_events_for_org,
     fetch_replay_high_water,
     stream_channel_for_org,
 )
 from app.services.market_events import (
+    PUBLIC_MARKET_INVALIDATION_KEY,
     commit_market_events,
     participant_market_event,
 )
@@ -333,6 +336,74 @@ async def test_event_bus_carries_the_durable_sequence():
     local = queue.get_nowait()
     assert sequenced["seq"] == 7
     assert "seq" not in local
+
+
+async def test_public_marker_is_stripped_and_drain_is_coalesced_without_sequence():
+    org = uuid4()
+    rows = [
+        {
+            "id": uuid4(),
+            "event_type": "order_created",
+            "participant_org_ids": [str(org)],
+            "payload": {
+                "schema_version": 1,
+                "private": "value",
+                PUBLIC_MARKET_INVALIDATION_KEY: True,
+            },
+            "stream_seq": 1,
+        },
+        {
+            "id": uuid4(),
+            "event_type": "order_updated",
+            "participant_org_ids": [str(org)],
+            "payload": {PUBLIC_MARKET_INVALIDATION_KEY: True},
+            "stream_seq": 2,
+        },
+    ]
+
+    class _Mappings:
+        def __init__(self, values):
+            self._values = values
+
+        def mappings(self):
+            return self._values
+
+    class _Connection:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def execute(self, _query):
+            nonlocal rows
+            values, rows = rows, []
+            return _Mappings(values)
+
+    class _Engine:
+        def connect(self):
+            return _Connection()
+
+    bus = EventBus()
+    private_queue = bus.subscribe(stream_channel_for_org(org))
+    price_queue = bus.subscribe("prices")
+    orderbook_queue = bus.subscribe("orderbook")
+    dispatcher = MarketEventDispatcher(_Engine(), bus, batch_size=500)
+
+    await dispatcher._drain_new_events()
+
+    private_events = [private_queue.get_nowait(), private_queue.get_nowait()]
+    assert all(
+        PUBLIC_MARKET_INVALIDATION_KEY not in item["data"]
+        for item in private_events
+    )
+    assert [item["seq"] for item in private_events] == [1, 2]
+    for queue in (price_queue, orderbook_queue):
+        public_event = queue.get_nowait()
+        assert public_event["event"] == PUBLIC_INVALIDATION_EVENT
+        assert public_event["data"] == PUBLIC_INVALIDATION_PAYLOAD
+        assert "seq" not in public_event
+        assert queue.empty()
 
 
 def test_sse_frame_format_carries_id_only_for_sequenced_events():

@@ -18,6 +18,7 @@ from app.database import Base
 from app.market_catalog import DELIVERY_POINTS_BY_NAME, PRODUCTS_BY_NAME
 from app.models.catalog import DeliveryPoint, Product
 from app.models.live_slice_benchmark import LiveSliceBenchmark
+from app.models.market_event import MarketEventOutbox
 from app.models.orderbook import (
     OrderBookOrder,
     OrderBookStatus,
@@ -32,11 +33,15 @@ from app.models.user import (
     UserRole,
     UserStatus,
 )
+from app.routers.auth_simple import update_users_me
 from app.routers.orderbook import list_aggregated_orderbook, list_asks, list_bids
+from app.schemas.user import UserUpdate
 from app.services.live_benchmarks import (
     get_live_slice_benchmark_price,
     rebuild_live_slice_benchmark,
 )
+from app.services.market_data_eligibility import public_order_is_visible
+from app.services.market_events import PUBLIC_MARKET_INVALIDATION_KEY
 
 
 REQUIRED_TABLES = [
@@ -45,6 +50,7 @@ REQUIRED_TABLES = [
     'products',
     'delivery_points',
     'orderbook_orders',
+    'market_event_outbox',
     'live_slice_benchmarks',
 ]
 
@@ -75,6 +81,7 @@ async def db(async_engine, setup_tables):
     async with session_factory() as session:
         for table in (
             'live_slice_benchmarks',
+            'market_event_outbox',
             'orderbook_orders',
             'users',
             'products',
@@ -87,6 +94,7 @@ async def db(async_engine, setup_tables):
         await session.rollback()
         for table in (
             'live_slice_benchmarks',
+            'market_event_outbox',
             'orderbook_orders',
             'users',
             'products',
@@ -113,7 +121,7 @@ async def _make_user(
     db: AsyncSession,
     org: Organization,
     *,
-    role: UserRole = UserRole.SUPPLIER,
+    role: UserRole | None = UserRole.SUPPLIER,
     status: UserStatus = UserStatus.APPROVED,
     kyc_status: str = 'APPROVED',
     email_verified: bool = True,
@@ -224,6 +232,46 @@ async def _list_bids(db: AsyncSession):
 
 
 class TestRejectedOwnerPublicVisibility:
+    @pytest.mark.asyncio
+    async def test_completing_legacy_role_publishes_new_public_order(
+        self, db: AsyncSession, monkeypatch
+    ):
+        organization = await _make_org(db, 'Legacy Supplier')
+        supplier = await _make_user(db, organization, role=None)
+        product, delivery_point = await _make_catalog(db)
+        order = _make_order(
+            org_id=organization.id,
+            owner_user_id=supplier.id,
+            product_id=product.id,
+            delivery_point_id=delivery_point.id,
+        )
+        db.add(order)
+        await db.commit()
+        assert not await public_order_is_visible(db, order.id)
+
+        async def current_order_is_public(session, user_id):
+            assert session is db
+            assert user_id == supplier.id
+            return await public_order_is_visible(session, order.id)
+
+        monkeypatch.setattr(
+            'app.routers.auth_simple.user_has_public_market_projection',
+            current_order_is_public,
+        )
+
+        await update_users_me(
+            user_update=UserUpdate(role=UserRole.SUPPLIER),
+            current_user=supplier,
+            db=db,
+        )
+
+        assert await public_order_is_visible(db, order.id)
+        event = (await db.execute(select(MarketEventOutbox))).scalar_one()
+        assert event.event_type == 'market_admission_changed'
+        assert event.aggregate_id == str(supplier.id)
+        assert event.participant_org_ids == [str(organization.id)]
+        assert event.payload[PUBLIC_MARKET_INVALIDATION_KEY] is True
+
     @pytest.mark.parametrize(('provenance', 'has_expiry', 'expected_price'), [
         (OrganizationProvenance.UNKNOWN, True, Decimal('1000.00')),
         (OrganizationProvenance.DEMO, False, Decimal('1000.00')),

@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.market_event import MarketEventOutbox
 
 MARKET_EVENT_SCHEMA_VERSION = 1
+PUBLIC_MARKET_INVALIDATION_KEY = "_public_market_invalidation"
 
 
 def version_market_event_payload(payload: dict[str, Any]) -> dict[str, Any]:
@@ -68,13 +69,19 @@ def participant_market_event(
     aggregate_id: UUID | str,
     participant_org_ids: Iterable[UUID],
     payload: dict[str, Any],
+    public_market_invalidation: bool = False,
 ) -> MarketEventEnvelope:
+    if PUBLIC_MARKET_INVALIDATION_KEY in payload:
+        raise ValueError("public market invalidation marker is transport-owned")
+    stored_payload = version_market_event_payload(payload)
+    if public_market_invalidation:
+        stored_payload[PUBLIC_MARKET_INVALIDATION_KEY] = True
     return MarketEventEnvelope(
         event_type=event_type,
         aggregate_type=aggregate_type,
         aggregate_id=str(aggregate_id),
         participant_org_ids=tuple(participant_org_ids),
-        payload=version_market_event_payload(payload),
+        payload=stored_payload,
     )
 
 

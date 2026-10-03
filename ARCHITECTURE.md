@@ -229,6 +229,15 @@ The 100-candidate matching limit remains an atomic HTTP 409 rejection.
 Private event replay pages authorized rows through a captured high-water mark and
 merges ordered live events. Global sequence holes are valid. Queue overflow closes
 the connection with an explicit full-REST-resync contract. Payloads carry schema
-version 1. Public reconnect invalidates cached reads; public feeds do not provide
-a committed L2 delta feed. General lifecycle commands still lack immutable keyed
-transition-result replay. See the implementation plan for the bounded scope.
+version 1. Committed public changes send a sanitized `market_invalidated` signal
+through the existing dispatcher and public hubs. Private payloads omit the internal
+marker; public signals contain no identity, economics or private cursor. REST
+refresh, polling and reconnect remain authoritative; this is not an L2 delta feed.
+
+Confirm, decline, deliver, pay, amend and cancel accept an optional idempotency key.
+Current authentication and actor context are checked before replay. Successful
+results bind the actor, organization, support context, target and request hash;
+they preserve the original status and response after later state changes. The
+receipt commits with the economic effects and outbox. Runtime access is SELECT
+and INSERT only; receipts are retained. Migration `rcp_20261003_command_results`
+follows acceptance priority. Forward corrective releases must retain receipts.
