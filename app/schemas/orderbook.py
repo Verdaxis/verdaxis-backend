@@ -209,7 +209,7 @@ class OrderUpdate(AvailabilityWindowMixin):
     @field_validator("expires_at")
     @classmethod
     def _future_expiry(cls, value: datetime | None):
-        return future_aware_datetime(value)
+        return aware_datetime(value)
 
 
 class OrderCancelRequest(BaseModel):

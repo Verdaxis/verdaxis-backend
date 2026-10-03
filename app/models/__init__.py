@@ -5,6 +5,7 @@
 from app.models.user import User, Organization, OrganizationProvenance
 from app.models.seed import MarketRowQuarantine, OrganizationMarketApproval, SeedRun
 from app.models.market_event import MarketEventOutbox
+from app.models.command_result import MarketCommandResult
 from app.models.audit import AuditLog
 from app.models.port import Port, PortIntelligence, Vessel
 from app.models.marketplace import InventoryItem
