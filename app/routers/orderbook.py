@@ -10,7 +10,7 @@ from app.services.audit_actions import (
     MARKET_SUPPORT_AUTHORIZATION_CREATED,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, or_, and_
+from sqlalchemy import select, func, or_, and_, case
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import contains_eager, joinedload, selectinload
 from typing import Annotated, Literal, Optional
@@ -41,6 +41,7 @@ from app.schemas.orderbook import (
     OrderCancelRequest,
     OrderUpdate,
     OrderResponse,
+    OrderBookSnapshotResponse,
     OrderMyResponse,
     SupplierListingTemplateResponse,
     AggregatedOrderbookResponse,
@@ -72,7 +73,11 @@ from pydantic import BaseModel
 from app.services.benchmarks import compute_premium_discount
 from app.services.watchlist_events import emit_order_created, emit_order_updated, _best_slice_price
 from app.services.execution_policy import normalize_certification_scheme
-from app.services.market_locks import acquire_market_slice_lock, acquire_market_slice_locks
+from app.services.market_locks import (
+    acquire_market_slice_lock,
+    acquire_market_slice_locks,
+    next_order_acceptance_ordinal,
+)
 from app.services.idempotency import (
     ORDER_CREATE_OPERATION,
     acquire_idempotency_lock,
@@ -153,6 +158,59 @@ REQUIRED_ASK_METADATA_FIELDS = (
 )
 
 
+def _amendment_loses_priority(
+    order: OrderBookOrder,
+    changes: dict[str, object],
+) -> bool:
+    """Return whether an effective amendment admits new execution opportunity."""
+    new_price = changes.get("price_per_mt_usd", order.price_per_mt_usd)
+    if new_price != order.price_per_mt_usd:
+        return True
+
+    new_quantity = changes.get("quantity_mt", order.quantity_mt)
+    if new_quantity > order.quantity_mt:
+        return True
+
+    if "expires_at" in changes:
+        new_expiry = changes["expires_at"]
+        if (
+            new_expiry != order.expires_at
+            and order.expires_at is not None
+            and (new_expiry is None or new_expiry > order.expires_at)
+        ):
+            return True
+
+    if "certifications" in changes:
+        old_certifications = {
+            value
+            for value in (
+                normalize_certification_scheme(item)
+                for item in (order.certifications or [])
+            )
+            if value is not None
+        }
+        new_certifications = {
+            value
+            for value in (
+                normalize_certification_scheme(item)
+                for item in (changes["certifications"] or [])
+            )
+            if value is not None
+        }
+        if old_certifications != new_certifications:
+            return True
+
+    for field in ("certification_scheme", "fame_terms"):
+        if field in changes and changes[field] != getattr(order, field, None):
+            return True
+
+    return (
+        "off_spec" in changes
+        and bool(order.off_spec)
+        and not bool(changes["off_spec"])
+    )
+
+
 def _ensure_join(joins: list[tuple[object, object]], target: object, condition: object) -> None:
     if not any(existing_target == target for existing_target, _ in joins):
         joins.append((target, condition))
@@ -163,6 +221,7 @@ def _apply_public_marketplace_scope(
     joins: list[tuple[object, object]],
     *,
     include_off_spec: bool = False,
+    as_of: datetime | None = None,
 ) -> None:
     _ensure_join(joins, Product, OrderBookOrder.product_id == Product.id)
     _ensure_join(
@@ -174,7 +233,9 @@ def _apply_public_marketplace_scope(
     filters.append(
         canonical_availability_window_clause(OrderBookOrder.availability_window)
     )
-    filters.append(current_public_order_clause(OrderBookOrder))
+    filters.append(
+        current_public_order_clause(OrderBookOrder, now_expression=as_of)
+    )
     filters.append(public_order_collection_provenance_clause(OrderBookOrder))
     filters.append(Product.fuel_type.in_(APPROVED_MARKETPLACE_FUEL_TYPES))
     if not include_off_spec:
@@ -192,6 +253,7 @@ def _public_order_scope(
     *,
     side: OrderSide | None = None,
     include_off_spec: bool = False,
+    as_of: datetime | None = None,
 ) -> tuple[list[object], list[tuple[object, object]]]:
     filters: list[object] = [
         OrderBookOrder.status.in_((OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED))
@@ -203,6 +265,7 @@ def _public_order_scope(
         filters,
         joins,
         include_off_spec=include_off_spec,
+        as_of=as_of,
     )
     return filters, joins
 
@@ -221,14 +284,14 @@ def _orderbook_sort_clauses(sort_by: OrderbookSort) -> tuple[object, ...]:
     if sort_by == "price_asc":
         return (
             OrderBookOrder.price_per_mt_usd.asc(),
-            OrderBookOrder.created_at.desc(),
-            OrderBookOrder.id.desc(),
+            OrderBookOrder.acceptance_ordinal.asc(),
+            OrderBookOrder.id.asc(),
         )
     if sort_by == "price_desc":
         return (
             OrderBookOrder.price_per_mt_usd.desc(),
-            OrderBookOrder.created_at.desc(),
-            OrderBookOrder.id.desc(),
+            OrderBookOrder.acceptance_ordinal.asc(),
+            OrderBookOrder.id.asc(),
         )
     if sort_by == "quantity_desc":
         return (
@@ -478,10 +541,13 @@ async def _order_my_response(
 async def _load_benchmark_prices(
     db: AsyncSession,
     orders: list[OrderBookOrder],
+    *,
+    as_of: datetime | None = None,
 ) -> dict[LiveBenchmarkKey, Decimal | None]:
     return await get_live_slice_benchmark_prices(
         db,
         (live_benchmark_key_for_order(order) for order in orders),
+        as_of=as_of,
     )
 
 
@@ -608,7 +674,172 @@ async def _load_best_opposing_prices(
     }
 
 
+async def _begin_snapshot_transaction(db: AsyncSession) -> None:
+    """Start the snapshot read before SQLAlchemy can auto-begin a transaction."""
+    if db.in_transaction():
+        raise RuntimeError("Order-book snapshots require a fresh database session")
+    if db.get_bind().dialect.name == "postgresql":
+        await db.connection(
+            execution_options={"isolation_level": "REPEATABLE READ"}
+        )
+
+
+def _snapshot_depth_order() -> tuple[object, ...]:
+    """Rank each side by executable price, then the established stable order."""
+    return (
+        case(
+            (OrderBookOrder.side == OrderSide.BID, OrderBookOrder.price_per_mt_usd),
+            else_=None,
+        ).desc(),
+        case(
+            (OrderBookOrder.side == OrderSide.ASK, OrderBookOrder.price_per_mt_usd),
+            else_=None,
+        ).asc(),
+        OrderBookOrder.acceptance_ordinal.asc(),
+        OrderBookOrder.id.asc(),
+    )
+
+
+def _snapshot_provenance(
+    orders: list[OrderBookOrder],
+) -> tuple[MarketSourceKind, MarketDemoStatus]:
+    evidence = {
+        getattr(order.provenance, "value", order.provenance)
+        for order in orders
+    }
+    has_real = OrganizationProvenance.REAL.value in evidence
+    has_demo = OrganizationProvenance.DEMO.value in evidence
+    if has_real and has_demo:
+        return MarketSourceKind.MIXED_SOURCE, MarketDemoStatus.MIXED
+    if has_real:
+        return MarketSourceKind.LIVE_ORDER, MarketDemoStatus.REAL_ONLY
+    if has_demo:
+        return MarketSourceKind.DEMO_SEED, MarketDemoStatus.DEMO_ONLY
+    return MarketSourceKind.NO_DATA, MarketDemoStatus.NOT_APPLICABLE
+
+
+def _snapshot_crossed(
+    order: OrderBookOrder,
+    *,
+    best_bids: dict[str, Decimal],
+    best_asks: dict[str, Decimal],
+) -> bool:
+    evidence_class = str(getattr(order.provenance, "value", order.provenance))
+    opposing_price = (
+        best_asks.get(evidence_class)
+        if order.side == OrderSide.BID
+        else best_bids.get(evidence_class)
+    )
+    return compute_is_crossed(order.side.value, order.price_per_mt_usd, opposing_price)
+
+
 # ============== Static routes (must come before parametric /{order_id}) ==============
+
+
+@router.get("/snapshot", response_model=OrderBookSnapshotResponse)
+async def get_orderbook_snapshot(
+    market_product: MarketProduct = Query(..., description="Canonical market product"),
+    delivery_point_id: UUID = Query(..., description="Canonical delivery point"),
+    availability_window: str = Query(..., description="Canonical availability window"),
+    db: AsyncSession = Depends(get_db),
+) -> OrderBookSnapshotResponse:
+    """Return both sides of one market from one repeatable database view."""
+    normalized_product = _normalize_market_product_query(market_product)
+    if normalized_product is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="market_product is required",
+        )
+    normalized_window = _normalize_query_window(availability_window)
+    if normalized_window is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="availability_window is required",
+        )
+
+    await _begin_snapshot_transaction(db)
+    generated_at = datetime.now(UTC)
+
+    filters, joins = _public_order_scope(as_of=generated_at)
+    filters.extend(
+        (
+            OrderBookOrder.delivery_point_id == delivery_point_id,
+            _market_product_filter_condition(normalized_product),
+            OrderBookOrder.availability_window == normalized_window,
+        )
+    )
+    depth_rank = func.row_number().over(
+        partition_by=OrderBookOrder.side,
+        order_by=_snapshot_depth_order(),
+    ).label("depth_rank")
+    ranked_orders = select(
+        OrderBookOrder.id.label("order_id"),
+        depth_rank,
+    )
+    for join_target, join_condition in joins:
+        ranked_orders = ranked_orders.join(join_target, join_condition)
+    ranked_orders = ranked_orders.where(*filters).subquery()
+
+    query = (
+        select(OrderBookOrder)
+        .join(ranked_orders, ranked_orders.c.order_id == OrderBookOrder.id)
+        .join(Product, OrderBookOrder.product_id == Product.id)
+        .join(DeliveryPoint, OrderBookOrder.delivery_point_id == DeliveryPoint.id)
+        .options(
+            contains_eager(OrderBookOrder.product),
+            contains_eager(OrderBookOrder.delivery_point),
+            joinedload(OrderBookOrder.organization),
+        )
+        .where(ranked_orders.c.depth_rank <= 15)
+        .order_by(OrderBookOrder.side, *_snapshot_depth_order())
+    )
+    orders = (await db.execute(query)).unique().scalars().all()
+    benchmark_cache = await _load_benchmark_prices(
+        db,
+        orders,
+        as_of=generated_at,
+    )
+
+    best_bids: dict[str, Decimal] = {}
+    best_asks: dict[str, Decimal] = {}
+    for order in orders:
+        evidence_class = str(getattr(order.provenance, "value", order.provenance))
+        if order.side == OrderSide.BID:
+            current = best_bids.get(evidence_class)
+            if current is None or order.price_per_mt_usd > current:
+                best_bids[evidence_class] = order.price_per_mt_usd
+        else:
+            current = best_asks.get(evidence_class)
+            if current is None or order.price_per_mt_usd < current:
+                best_asks[evidence_class] = order.price_per_mt_usd
+
+    bids: list[OrderResponse] = []
+    asks: list[OrderResponse] = []
+    for order in orders:
+        response = await _order_response(
+            db,
+            order,
+            is_crossed=_snapshot_crossed(
+                order,
+                best_bids=best_bids,
+                best_asks=best_asks,
+            ),
+            benchmark_cache=benchmark_cache,
+        )
+        (bids if order.side == OrderSide.BID else asks).append(response)
+
+    source_kind, demo_status = _snapshot_provenance(orders)
+    return OrderBookSnapshotResponse(
+        market_product=normalized_product,
+        delivery_point_id=delivery_point_id,
+        availability_window=normalized_window,
+        generated_at=generated_at,
+        source_kind=source_kind,
+        scope=MarketScope.DELIVERY_POINT,
+        demo_status=demo_status,
+        bids=bids,
+        asks=asks,
+    )
 
 
 @router.get("/bids", response_model=PaginatedResponse[OrderResponse])
@@ -1748,6 +1979,7 @@ async def create_order(
         delivery_point_id=order_data.delivery_point_id,
         availability_window=order_data.availability_window,
     )
+    acceptance_ordinal = await next_order_acceptance_ordinal(db)
     await lock_request_party_context(db, party)
     organizations = await lock_and_load_market_organizations(
         db,
@@ -1774,6 +2006,7 @@ async def create_order(
         )
 
     new_order = OrderBookOrder(
+        acceptance_ordinal=acceptance_ordinal,
         organization_id=effective_organization_id,
         owner_user_id=party.accountable_principal.id,
         created_by_actor_user_id=party.actor.id,
@@ -2346,6 +2579,9 @@ async def update_order(
                 await reserve_inventory(db, order.inventory_item_id, remaining_delta)
             elif remaining_delta < 0:
                 await release_inventory(db, order.inventory_item_id, -remaining_delta)
+
+    if _amendment_loses_priority(order, update_dict):
+        update_dict["acceptance_ordinal"] = await next_order_acceptance_ordinal(db)
 
     before_state = await _watchlist_before_state(db, order)
     previous_benchmark_key: LiveBenchmarkKey | None = (

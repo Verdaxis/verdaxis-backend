@@ -19,6 +19,7 @@ class TestOrderResponseWithCI:
         )
         resp = OrderResponseWithCI(
             id=uuid4(),
+            terms_digest="0" * 64,
             side="ASK",
             product_id=uuid4(),
             product_name="Methanol Green",
@@ -40,6 +41,7 @@ class TestOrderResponseWithCI:
     def test_ci_price_optional(self):
         resp = OrderResponseWithCI(
             id=uuid4(),
+            terms_digest="0" * 64,
             side="BID",
             product_id=uuid4(),
             product_name="LNG Conventional",

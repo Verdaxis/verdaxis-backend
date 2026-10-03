@@ -1,5 +1,6 @@
 """Unit tests for orderbook router guardrails."""
 import pytest
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock, Mock
 from types import SimpleNamespace
@@ -8,7 +9,11 @@ from uuid import uuid4
 from fastapi import HTTPException
 
 from app.models.user import UserRole
-from app.routers.orderbook import create_order, latest_supplier_listing_template
+from app.routers.orderbook import (
+    _amendment_loses_priority,
+    create_order,
+    latest_supplier_listing_template,
+)
 from app.models.orderbook import OrderBookOrder
 from app.schemas.orderbook import OrderCreate, OrderSide
 
@@ -31,6 +36,54 @@ def _make_supplier_user():
 
 def _fake_request():
     return SimpleNamespace(headers={}, client=SimpleNamespace(host="127.0.0.1"))
+
+
+def _priority_order(**overrides):
+    values = {
+        "price_per_mt_usd": Decimal("550"),
+        "quantity_mt": Decimal("1000"),
+        "expires_at": datetime.now(UTC) + timedelta(days=1),
+        "certifications": ["ISCC EU"],
+        "certification_scheme": "ISCC EU",
+        "fame_terms": None,
+        "off_spec": False,
+    }
+    values.update(overrides)
+    return SimpleNamespace(**values)
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"price_per_mt_usd": Decimal("551")},
+        {"quantity_mt": Decimal("1001")},
+        {"certifications": ["ISCC EU", "REDcert EU"]},
+        {"certification_scheme": "REDcert EU"},
+        {"fame_terms": {"feedstock": "used_cooking_oil"}},
+    ],
+)
+def test_execution_broadening_loses_priority(changes):
+    assert _amendment_loses_priority(_priority_order(), changes)
+
+
+def test_expiry_extension_loses_priority():
+    order = _priority_order()
+    assert _amendment_loses_priority(
+        order, {"expires_at": order.expires_at + timedelta(days=1)}
+    )
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"quantity_mt": Decimal("900")},
+        {"price_per_mt_usd": Decimal("550")},
+        {"certifications": [" iscc eu "]},
+        {"origin": "updated disclosure"},
+    ],
+)
+def test_reduction_and_noop_or_unrelated_changes_retain_priority(changes):
+    assert not _amendment_loses_priority(_priority_order(), changes)
 
 
 class TestCreateOrder:

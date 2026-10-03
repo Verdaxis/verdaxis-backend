@@ -32,7 +32,12 @@ from app.models.user import (
     UserRole,
     UserStatus,
 )
-from app.services.market_locks import acquire_market_slice_lock, acquire_market_slice_locks, market_slice_lock_key
+from app.services.market_locks import (
+    acquire_market_slice_lock,
+    acquire_market_slice_locks,
+    market_slice_lock_key,
+    next_order_acceptance_ordinal,
+)
 from app.services.inventory_reservations import reserve_inventory, consume_inventory, release_inventory
 from app.services.matching_engine import match_order
 from app.services.market_invalidation import invalidate_organization_market_access
@@ -167,6 +172,60 @@ async def test_market_slice_lock_timeout_is_bounded_and_rollback_safe(pg):
     finally:
         release.set()
         await holder_task
+
+
+@pytest.mark.asyncio
+async def test_concurrent_acceptance_ordinals_follow_the_market_lock(pg):
+    factory = async_sessionmaker(pg, class_=AsyncSession, expire_on_commit=False)
+    product_id = uuid4()
+    point_id = uuid4()
+    first_ready = asyncio.Event()
+    release_first = asyncio.Event()
+    accepted: list[int] = []
+
+    async def first_acceptance():
+        async with factory() as session:
+            async with session.begin():
+                await acquire_market_slice_lock(
+                    session,
+                    side=OrderSide.BID,
+                    product_id=product_id,
+                    delivery_point_id=point_id,
+                    availability_window="SPOT",
+                )
+                accepted.append(await next_order_acceptance_ordinal(session))
+                first_ready.set()
+                await release_first.wait()
+
+    first = asyncio.create_task(first_acceptance())
+    await first_ready.wait()
+    try:
+        async with factory() as contender:
+            with pytest.raises(HTTPException) as raised:
+                await acquire_market_slice_lock(
+                    contender,
+                    side=OrderSide.ASK,
+                    product_id=product_id,
+                    delivery_point_id=point_id,
+                    availability_window="SPOT",
+                )
+            assert raised.value.status_code == 409
+    finally:
+        release_first.set()
+        await first
+
+    async with factory() as retry:
+        async with retry.begin():
+            await acquire_market_slice_lock(
+                retry,
+                side=OrderSide.ASK,
+                product_id=product_id,
+                delivery_point_id=point_id,
+                availability_window="SPOT",
+            )
+            accepted.append(await next_order_acceptance_ordinal(retry))
+
+    assert accepted[0] < accepted[1]
 
 
 @pytest.mark.asyncio

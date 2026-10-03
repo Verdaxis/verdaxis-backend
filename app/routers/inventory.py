@@ -74,7 +74,10 @@ from app.services.market_data_eligibility import (
     public_order_collection_provenance_clause,
 )
 from app.services.market_events import enqueue_market_events, participant_market_event
-from app.services.market_locks import acquire_market_slice_lock
+from app.services.market_locks import (
+    acquire_market_slice_lock,
+    next_order_acceptance_ordinal,
+)
 from app.services.market_provenance import order_market_provenance
 from app.services.market_transactions import (
     is_retryable_market_transaction_error,
@@ -522,8 +525,10 @@ async def publish_inventory_item(
                 if field in SUPPLIER_METADATA_FIELDS
             }
         )
+    acceptance_ordinal = await next_order_acceptance_ordinal(db)
 
     listing = OrderBookOrder(
+        acceptance_ordinal=acceptance_ordinal,
         organization_id=current_user.organization_id,
         owner_user_id=current_user.id,
         provenance=provenance,

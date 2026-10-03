@@ -135,7 +135,12 @@ async def test_demo_activity_only_creates_a_matched_pair_at_the_current_window_m
             order.remaining_quantity_mt = Decimal("0")
         return [SimpleNamespace(bid_order_id=bid.id, ask_order_id=ask.id)]
 
-    db = SimpleNamespace(add=orders.append, flush=AsyncMock(side_effect=assign_order_ids))
+    db = SimpleNamespace(
+        add=orders.append,
+        flush=AsyncMock(side_effect=assign_order_ids),
+        get_bind=lambda: SimpleNamespace(dialect=SimpleNamespace(name="sqlite")),
+        scalar=AsyncMock(side_effect=(1, 2)),
+    )
     monkeypatch.setattr(demo_activity, "_tick_trade_exists", AsyncMock(return_value=False))
     monkeypatch.setattr(demo_activity, "_activity_slice", lambda reference: (product_name, port_name, window))
     monkeypatch.setattr(demo_activity, "_load_product_and_port", AsyncMock(return_value=(
@@ -158,5 +163,6 @@ async def test_demo_activity_only_creates_a_matched_pair_at_the_current_window_m
     assert result["created_orders"] == len(orders) == 2
     assert result["created_trades"] == 1
     assert {order.side for order in orders} == {OrderSide.BID, OrderSide.ASK}
+    assert [order.acceptance_ordinal for order in orders] == [1, 2]
     assert {order.price_per_mt_usd for order in orders} == {midpoint}
     assert all(order.status == OrderBookStatus.FILLED for order in orders)

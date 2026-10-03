@@ -19,7 +19,7 @@ _BACKEND_ROOT = Path(__file__).resolve().parents[2]
 _PARENT = "miq_20260720_market_quarantine"
 # Later product migrations extend the linearized market chain. The mi-specific
 # refusal/quarantine semantics exercised below are unchanged.
-_HEAD = "auth_20261002_session_cutoff"
+_HEAD = "obp_20261003_acceptance_priority"
 _SENTINEL = UUID("00000000-dead-beef-0000-aaa0e15eed01")
 _DEMO_ORG = UUID("4da7b285-34ee-5443-9406-f96b4ed1a251")
 _DEMO_SELLER_ORG = UUID("0dbce576-2026-5925-ab66-674d505e98ad")
@@ -340,6 +340,98 @@ async def test_fresh_database_upgrades_and_checks_without_application_secrets(
     assert _HEAD in current.stdout
     checked = await asyncio.to_thread(_alembic, database_url, "check")
     assert checked.returncode == 0, f"{checked.stdout}\n{checked.stderr}"
+
+
+@pytest.mark.asyncio
+async def test_acceptance_priority_backfills_by_creation_time_and_id(
+    migration_database,
+):
+    database_url, _database_name = migration_database
+    parent = await asyncio.to_thread(
+        _alembic, database_url, "upgrade", "auth_20261002_session_cutoff"
+    )
+    assert parent.returncode == 0, parent.stderr
+
+    organization_id = uuid4()
+    order_ids = sorted((uuid4(), uuid4()), key=str)
+    await _database_execute(
+        database_url,
+        "INSERT INTO organizations "
+        "(id, name, type, verification_status, provenance) VALUES "
+        "(:id, 'Priority backfill organization', 'FUEL_BUYER', 'PENDING', 'UNKNOWN')",
+        {"id": organization_id},
+    )
+    product_id = (
+        await _database_execute(
+            database_url, "SELECT id FROM products WHERE name = 'Bio Methanol'"
+        )
+    ).scalar_one()
+    await _database_execute(
+        database_url,
+        "INSERT INTO delivery_points "
+        "(id, name, region, timezone, is_active) VALUES "
+        "(:id, 'Singapore', 'Asia', 'Asia/Singapore', true)",
+        {"id": _SINGAPORE_POINT},
+    )
+    point_id = _SINGAPORE_POINT
+    for order_id in reversed(order_ids):
+        await _database_execute(
+            database_url,
+            "INSERT INTO orderbook_orders ("
+            "id, organization_id, provenance, side, product_id, delivery_point_id, "
+            "quantity_mt, remaining_quantity_mt, price_per_mt_usd, "
+            "availability_window, status, created_at"
+            ") VALUES ("
+            ":id, :organization_id, 'UNKNOWN', 'BID', :product_id, :point_id, "
+            "200, 200, 700, 'SPOT', 'OPEN', '2026-10-03 00:00:00+00'"
+            ")",
+            {
+                "id": order_id,
+                "organization_id": organization_id,
+                "product_id": product_id,
+                "point_id": point_id,
+            },
+        )
+
+    upgraded = await asyncio.to_thread(_alembic, database_url, "upgrade", _HEAD)
+    assert upgraded.returncode == 0, upgraded.stderr
+    rows = (
+        await _database_execute(
+            database_url,
+            "SELECT id, acceptance_ordinal FROM orderbook_orders "
+            "WHERE id IN (:first, :second) ORDER BY acceptance_ordinal",
+            {"first": order_ids[0], "second": order_ids[1]},
+        )
+    ).all()
+    assert [row.id for row in rows] == order_ids
+    assert rows[0].acceptance_ordinal < rows[1].acceptance_ordinal
+
+    third_id = uuid4()
+    await _database_execute(
+        database_url,
+        "INSERT INTO orderbook_orders ("
+        "id, organization_id, provenance, side, product_id, delivery_point_id, "
+        "quantity_mt, remaining_quantity_mt, price_per_mt_usd, "
+        "availability_window, status"
+        ") VALUES ("
+        ":id, :organization_id, 'UNKNOWN', 'BID', :product_id, :point_id, "
+        "200, 200, 700, 'SPOT', 'OPEN'"
+        ")",
+        {
+            "id": third_id,
+            "organization_id": organization_id,
+            "product_id": product_id,
+            "point_id": point_id,
+        },
+    )
+    third_ordinal = (
+        await _database_execute(
+            database_url,
+            "SELECT acceptance_ordinal FROM orderbook_orders WHERE id = :id",
+            {"id": third_id},
+        )
+    ).scalar_one()
+    assert third_ordinal > rows[1].acceptance_ordinal
 
 
 @pytest.mark.asyncio
