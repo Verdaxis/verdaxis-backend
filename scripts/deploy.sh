@@ -88,7 +88,7 @@ MIGRATION_POLICY_PATH="deploy/migration-checkpoints.tsv"
 ACL_POLICY_PATH="deploy/postgres/app_acl_policy.sql"
 ACL_CONVERGENCE_SQL_PATH="deploy/postgres/converge_runtime_object_acls.sql"
 ACL_CONVERGENCE_HELPER_PATH="scripts/converge_runtime_acls.py"
-HEALTH_ATTEMPTS="${HEALTH_ATTEMPTS:-12}"
+HEALTH_ATTEMPTS="${HEALTH_ATTEMPTS:-60}"
 HEALTH_RETRY_DELAY="${HEALTH_RETRY_DELAY:-2}"
 if [[ ! "$HEALTH_ATTEMPTS" =~ ^([1-9]|[1-9][0-9]|1[01][0-9]|120)$ ]]; then
     echo "HEALTH_ATTEMPTS must be an integer from 1 to 120." >&2
