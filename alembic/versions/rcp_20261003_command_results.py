@@ -47,5 +47,25 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_index("ix_market_command_results_resource_created", table_name="market_command_results")
+    bind = op.get_bind()
+    # Lock the receipt table and its FK parents before checking for stored
+    # results. NOWAIT keeps rollback bounded behind active runtime writes.
+    bind.execute(
+        sa.text(
+            "LOCK TABLE market_command_results, users, organizations, "
+            "market_support_contexts IN ACCESS EXCLUSIVE MODE NOWAIT"
+        )
+    )
+    used = bind.execute(
+        sa.text("SELECT EXISTS (SELECT 1 FROM market_command_results)")
+    ).scalar_one()
+    if used:
+        raise RuntimeError(
+            "cannot downgrade market command results after a receipt was stored"
+        )
+
+    op.drop_index(
+        "ix_market_command_results_resource_created",
+        table_name="market_command_results",
+    )
     op.drop_table("market_command_results")

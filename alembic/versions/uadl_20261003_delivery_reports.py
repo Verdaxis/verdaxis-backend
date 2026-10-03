@@ -65,6 +65,16 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    bind = op.get_bind()
+    # The report table has a users FK. Lock both relations up front so its
+    # removal fails fast instead of waiting behind active user writes.
+    bind.execute(
+        sa.text(
+            "LOCK TABLE user_activity_delivery_reports, users "
+            "IN ACCESS EXCLUSIVE MODE NOWAIT"
+        )
+    )
+
     op.drop_index(
         "ix_user_activity_delivery_reports_received",
         table_name="user_activity_delivery_reports",
