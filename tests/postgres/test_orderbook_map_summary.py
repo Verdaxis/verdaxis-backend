@@ -9,7 +9,13 @@ import pytest
 from app.demo_identities import DEMO_SEED_SUPPLIERS
 from app.models.orderbook import OrderBookOrder, OrderBookStatus, OrderSide
 from app.models.user import Organization, OrganizationProvenance, OrgType
-from app.routers.orderbook import get_compact_map_summary, get_map_summary
+from app.routers.orderbook import (
+    get_compact_map_summary,
+    get_map_summary,
+    get_orderbook_snapshot,
+    list_asks,
+    list_bids,
+)
 from tests.postgres.test_market_routes import _seed_route_market
 
 
@@ -320,3 +326,117 @@ async def test_compact_map_summary_matches_legacy_postgres_queries(
     assert compact.recent_asks[0].price_per_mt_usd == Decimal("1200")
     assert compact.recent_asks[0].created_at == observed_at
     assert compact.recent_asks[0].evidence_class == "REAL"
+
+
+@pytest.mark.asyncio
+async def test_orderbook_snapshot_matches_side_reads_with_two_queries(
+    market_pg,
+    monkeypatch,
+):
+    seeded = await _seed_route_market(market_pg)
+    observed_at = datetime(2026, 10, 3, 12, tzinfo=UTC)
+
+    async with seeded["factory"]() as db:
+        orders = []
+        for side, prices in (
+            (OrderSide.BID, ("900", "925")),
+            (OrderSide.ASK, ("1000", "1025")),
+        ):
+            for offset, price in enumerate(prices):
+                is_ask = side == OrderSide.ASK
+                orders.append(
+                    OrderBookOrder(
+                        organization_id=(
+                            seeded["seller_org_id"] if is_ask else seeded["buyer_org_id"]
+                        ),
+                        owner_user_id=(
+                            seeded["seller_id"] if is_ask else seeded["buyer_id"]
+                        ),
+                        provenance=OrganizationProvenance.REAL,
+                        side=side,
+                        product_id=seeded["product_id"],
+                        delivery_point_id=seeded["point_id"],
+                        quantity_mt=Decimal("100"),
+                        remaining_quantity_mt=Decimal("100"),
+                        price_per_mt_usd=Decimal(price),
+                        availability_window="SPOT",
+                        status=OrderBookStatus.OPEN,
+                        created_at=observed_at + timedelta(seconds=offset),
+                        certification_declared=is_ask,
+                        certification_scheme="ISCC EU" if is_ask else None,
+                        specification_standard="IMPCA" if is_ask else None,
+                        msds_available=is_ask,
+                        carbon_intensity_gco2_mj=Decimal("20.00") if is_ask else None,
+                        carbon_intensity_method="ISCC EU" if is_ask else None,
+                        feedstock="biogenic waste" if is_ask else None,
+                        origin="snapshot parity fixture" if is_ask else None,
+                    )
+                )
+        db.add_all(orders)
+        await db.commit()
+
+    async with seeded["factory"]() as db:
+        list_statements = []
+        execute = db.execute
+
+        async def record_list_execute(statement, *args, **kwargs):
+            list_statements.append(statement)
+            return await execute(statement, *args, **kwargs)
+
+        monkeypatch.setattr(db, "execute", record_list_execute)
+        bids = await list_bids(
+            product_id=None,
+            delivery_point_id=seeded["point_id"],
+            fuel_type=None,
+            market_product="BIO_METHANOL",
+            region=None,
+            availability_window="SPOT",
+            include_off_spec=False,
+            sort_by="price_desc",
+            skip=0,
+            limit=15,
+            db=db,
+        )
+        asks = await list_asks(
+            product_id=None,
+            delivery_point_id=seeded["point_id"],
+            fuel_type=None,
+            market_product="BIO_METHANOL",
+            region=None,
+            availability_window="SPOT",
+            include_off_spec=False,
+            sort_by="price_asc",
+            skip=0,
+            limit=15,
+            db=db,
+        )
+        assert len(list_statements) == 8
+
+    async with seeded["factory"]() as db:
+        snapshot_statements = []
+        execute = db.execute
+
+        async def record_snapshot_execute(statement, *args, **kwargs):
+            snapshot_statements.append(statement)
+            return await execute(statement, *args, **kwargs)
+
+        monkeypatch.setattr(db, "execute", record_snapshot_execute)
+        snapshot = await get_orderbook_snapshot(
+            market_product="BIO_METHANOL",
+            delivery_point_id=seeded["point_id"],
+            availability_window="SPOT",
+            db=db,
+        )
+        assert len(snapshot_statements) == 2
+
+    assert [item.model_dump() for item in snapshot.bids] == [
+        item.model_dump() for item in bids.items
+    ]
+    assert [item.model_dump() for item in snapshot.asks] == [
+        item.model_dump() for item in asks.items
+    ]
+    assert snapshot.market_product == "BIO_METHANOL"
+    assert snapshot.delivery_point_id == seeded["point_id"]
+    assert snapshot.availability_window == "SPOT"
+    assert snapshot.source_kind == "LIVE_ORDER"
+    assert snapshot.demo_status == "REAL_ONLY"

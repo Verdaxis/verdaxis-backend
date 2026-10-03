@@ -259,6 +259,19 @@ class OrderResponse(AvailabilityWindowMixin, SupplierListingMetadataMixin):
         from_attributes = True
 
 
+class OrderBookSnapshotResponse(AvailabilityWindowMixin):
+    """A coherent, bounded public depth view for one canonical market."""
+    market_product: str
+    delivery_point_id: UUID
+    availability_window: AvailabilityWindowCode
+    generated_at: datetime
+    source_kind: MarketSourceKind
+    scope: MarketScope = MarketScope.DELIVERY_POINT
+    demo_status: MarketDemoStatus
+    bids: list[OrderResponse] = Field(default_factory=list)
+    asks: list[OrderResponse] = Field(default_factory=list)
+
+
 class OrderMyResponse(OrderResponse):
     """Owner view with extra detail (includes org ID and vessel)."""
     organization_id: UUID
