@@ -33,6 +33,9 @@ from app.services.market_data_eligibility import (
     canonical_market_product_expression,
     current_public_order_clause,
     public_order_collection_provenance_clause,
+    public_inventory_is_visible,
+    public_order_is_visible,
+    public_trade_is_visible,
 )
 from app.services.execution_policy import (
     execution_party_is_eligible,
@@ -175,6 +178,21 @@ async def add_inventory(
         )
 
         db.add(db_item)
+        await db.flush()
+        public_after = await public_inventory_is_visible(db, db_item.id)
+        await enqueue_market_events(
+            db,
+            [
+                participant_market_event(
+                    event_type="inventory_created",
+                    aggregate_type="inventory",
+                    aggregate_id=db_item.id,
+                    participant_org_ids=(current_user.organization_id,),
+                    payload={"id": str(db_item.id)},
+                    public_market_invalidation=public_after,
+                )
+            ],
+        )
         await db.commit()
         await db.refresh(db_item)
         return db_item
@@ -227,12 +245,33 @@ async def update_inventory(
 
     update_data = updates.model_dump(exclude_unset=True)
     await assert_inventory_mutable(db, item)
+    public_before = await public_inventory_is_visible(db, item.id)
+    changed = any(
+        getattr(item, field) != value for field, value in update_data.items()
+    )
     for field, value in update_data.items():
         setattr(item, field, value)
 
     from datetime import datetime, UTC
     item.updated_at = datetime.now(UTC)
 
+    await db.flush()
+    public_after = await public_inventory_is_visible(db, item.id)
+    await enqueue_market_events(
+        db,
+        [
+            participant_market_event(
+                event_type="inventory_updated",
+                aggregate_type="inventory",
+                aggregate_id=item.id,
+                participant_org_ids=(current_user.organization_id,),
+                payload={"id": str(item.id)},
+                public_market_invalidation=(
+                    changed and (public_before or public_after)
+                ),
+            )
+        ],
+    )
     await db.commit()
     await db.refresh(item)
     return item
@@ -268,8 +307,22 @@ async def delete_inventory(
         raise HTTPException(status_code=404, detail="Inventory item not found")
 
     await assert_inventory_mutable(db, item, deleting=True)
+    public_before = await public_inventory_is_visible(db, item.id)
 
     await db.delete(item)
+    await enqueue_market_events(
+        db,
+        [
+            participant_market_event(
+                event_type="inventory_deleted",
+                aggregate_type="inventory",
+                aggregate_id=item.id,
+                participant_org_ids=(current_user.organization_id,),
+                payload={"id": str(item.id)},
+                public_market_invalidation=public_before,
+            )
+        ],
+    )
     await db.commit()
 
 @router.post("/inventory/{item_id}/publish")
@@ -573,6 +626,15 @@ async def publish_inventory_item(
         },
         **request_audit_context(request),
     )
+    public_market_changed = (
+        await public_order_is_visible(db, listing.id)
+        or any(
+            [
+                await public_trade_is_visible(db, trade.id)
+                for trade in matched_trades
+            ]
+        )
+    )
     committed_events.append(
         participant_market_event(
             event_type="order_created",
@@ -593,6 +655,7 @@ async def publish_inventory_item(
                 "price": str(listing.price_per_mt_usd),
                 "quantity": str(listing.remaining_quantity_mt),
             },
+            public_market_invalidation=public_market_changed,
         )
     )
     await enqueue_market_events(db, committed_events)

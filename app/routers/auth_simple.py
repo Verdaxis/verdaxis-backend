@@ -79,7 +79,11 @@ from app.services.behavioral_analytics import (
     track_analytics_event,
 )
 from app.routing import BodySizeLimitRoute, require_trusted_browser_origin
-from app.services.market_events import enqueue_market_events
+from app.services.market_events import enqueue_market_events, participant_market_event
+from app.services.market_data_eligibility import (
+    organization_has_public_market_projection,
+    user_has_public_market_projection,
+)
 from app.services.market_invalidation import invalidate_organization_market_access
 from app.services.market_transactions import retry_market_transaction
 
@@ -2238,6 +2242,7 @@ async def approve_user(
         raise HTTPException(status_code=403, detail="User email must be verified before approval")
     # Re-approving a REJECTED user is allowed (admin error correction).
     previous_status = user_to_approve.status
+    public_before = await user_has_public_market_projection(db, user_to_approve.id)
     user_to_approve.status = UserStatus.APPROVED
     approval_transition = record_status_transition(
         db, user_to_approve, from_status=previous_status, to_status=UserStatus.APPROVED
@@ -2252,6 +2257,25 @@ async def approve_user(
             )
         )
         user_to_approve.pending_approval_email_retry_at = datetime.now(UTC)
+    await db.flush()
+    public_after = await user_has_public_market_projection(db, user_to_approve.id)
+    if (
+        previous_status != UserStatus.APPROVED
+        and user_to_approve.organization_id is not None
+    ):
+        await enqueue_market_events(
+            db,
+            [
+                participant_market_event(
+                    event_type="market_admission_changed",
+                    aggregate_type="user",
+                    aggregate_id=user_to_approve.id,
+                    participant_org_ids=(user_to_approve.organization_id,),
+                    payload={"user_id": str(user_to_approve.id)},
+                    public_market_invalidation=public_before or public_after,
+                )
+            ],
+        )
     await record_audit(
         db,
         user_id=current_user.id,
@@ -2295,6 +2319,9 @@ async def approve_organization(
         raise HTTPException(status_code=404, detail="Organization not found")
     previous = organization.verification_status
     previous_provenance = organization.provenance
+    public_before = await organization_has_public_market_projection(
+        db, organization.id
+    )
     organization.verification_status = "APPROVED"
     try:
         await db.flush()
@@ -2315,6 +2342,23 @@ async def approve_organization(
             "from": previous_provenance,
             "to": organization.provenance,
         }
+    public_after = await organization_has_public_market_projection(
+        db, organization.id
+    )
+    if previous != "APPROVED" or organization.provenance != previous_provenance:
+        await enqueue_market_events(
+            db,
+            [
+                participant_market_event(
+                    event_type="market_admission_changed",
+                    aggregate_type="organization",
+                    aggregate_id=organization.id,
+                    participant_org_ids=(organization.id,),
+                    payload={"organization_id": str(organization.id)},
+                    public_market_invalidation=public_before or public_after,
+                )
+            ],
+        )
     await record_audit(db, user_id=current_user.id, action=ADMIN_ORGANIZATION_APPROVED,
                        resource_type="organization", resource_id=organization.id,
                        changes=changes,
@@ -2340,6 +2384,9 @@ async def reject_organization(
     if organization is None:
         raise HTTPException(status_code=404, detail="Organization not found")
     previous = organization.verification_status
+    public_before = await organization_has_public_market_projection(
+        db, organization.id
+    )
     organization.verification_status = "REJECTED"
     user_result = await db.execute(select(User).where(User.organization_id == organization.id).with_for_update())
     members = user_result.scalars().all()
@@ -2363,6 +2410,7 @@ async def reject_organization(
         actor_user_id=current_user.id,
         reason="organization_rejected",
         reference=f"organization:{organization.id}",
+        public_market_invalidation=public_before,
     )
     await enqueue_market_events(db, invalidation_events)
     await record_audit(db, user_id=current_user.id, action=ADMIN_ORGANIZATION_REJECTED,
@@ -2390,12 +2438,29 @@ async def reject_user(
     if target is None or target.role == UserRole.ADMIN:
         raise HTTPException(status_code=404, detail="User not found")
     previous = target.status
+    public_before = await user_has_public_market_projection(db, target.id)
     target.status = UserStatus.REJECTED
     clear_pending_account_approval_email(target)
     await invalidate_locked_user_authentication(db, target)
     # A rejected user is fail-closed at execution time: market mutations and
     # the matching engine re-check execution_party_is_eligible under row locks.
     # Tenant-level market cleanup is owned by the organization-rejection path.
+    await db.flush()
+    public_after = await user_has_public_market_projection(db, target.id)
+    if previous != UserStatus.REJECTED and target.organization_id is not None:
+        await enqueue_market_events(
+            db,
+            [
+                participant_market_event(
+                    event_type="market_admission_changed",
+                    aggregate_type="user",
+                    aggregate_id=target.id,
+                    participant_org_ids=(target.organization_id,),
+                    payload={"user_id": str(target.id)},
+                    public_market_invalidation=public_before or public_after,
+                )
+            ],
+        )
     await record_audit(db, user_id=current_user.id, action=ADMIN_USER_REJECTED,
                        resource_type="user", resource_id=target.id,
                        changes={"status": {"from": previous.value, "to": UserStatus.REJECTED.value},

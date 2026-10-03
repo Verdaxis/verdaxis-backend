@@ -20,6 +20,8 @@ from app.routers.auth_simple import get_current_user
 from app.services.audit_actions import KYC_APPROVED, KYC_REJECTED, KYC_SUBMITTED
 from app.services.audit_service import record_audit, request_audit_context
 from app.services.email import send_kyc_approved_email, send_kyc_rejected_email
+from app.services.market_data_eligibility import user_has_public_market_projection
+from app.services.market_events import enqueue_market_events, participant_market_event
 from app.services.kyc import KYCProviderUnavailable, KYC_REVIEW_REQUIRED, verify_document_with_gemini
 
 # Honour the runtime-owned KYC size configuration (defaults: 10 MiB per document,
@@ -284,12 +286,29 @@ async def admin_approve_kyc(
         )
     _require_current_kyc_organization(target)
     previous = target.kyc_status
+    public_before = await user_has_public_market_projection(db, target.id)
     target.kyc_status = "APPROVED"
     target.kyc_rejection_reason = None
     target.kyc_external_evidence_reference = body.external_evidence_reference
     target.kyc_review_note = body.review_note
     target.kyc_reviewed_by = current_user.id
     target.kyc_reviewed_at = datetime.now(UTC)
+    await db.flush()
+    public_after = await user_has_public_market_projection(db, target.id)
+    if previous != "APPROVED" and target.organization_id is not None:
+        await enqueue_market_events(
+            db,
+            [
+                participant_market_event(
+                    event_type="market_admission_changed",
+                    aggregate_type="user",
+                    aggregate_id=target.id,
+                    participant_org_ids=(target.organization_id,),
+                    payload={"user_id": str(target.id)},
+                    public_market_invalidation=public_before or public_after,
+                )
+            ],
+        )
     await record_audit(
         db,
         user_id=current_user.id,
@@ -321,6 +340,7 @@ async def admin_reject_kyc(user_id: uuid.UUID, request: Request, body: AdminReje
         raise HTTPException(status_code=404, detail="User not found")
     _require_current_kyc_organization(target)
     previous = target.kyc_status
+    public_before = await user_has_public_market_projection(db, target.id)
     target.kyc_status = "REJECTED"
     target.kyc_rejection_reason = body.reason
     target.kyc_review_note = body.reason
@@ -330,6 +350,22 @@ async def admin_reject_kyc(user_id: uuid.UUID, request: Request, body: AdminReje
     # and the matching engine re-check execution_party_is_eligible under row
     # locks in the same transaction. Tenant-level market cleanup is owned by
     # invalidate_organization_market_access on the organization-revocation path.
+    await db.flush()
+    public_after = await user_has_public_market_projection(db, target.id)
+    if previous != "REJECTED" and target.organization_id is not None:
+        await enqueue_market_events(
+            db,
+            [
+                participant_market_event(
+                    event_type="market_admission_changed",
+                    aggregate_type="user",
+                    aggregate_id=target.id,
+                    participant_org_ids=(target.organization_id,),
+                    payload={"user_id": str(target.id)},
+                    public_market_invalidation=public_before or public_after,
+                )
+            ],
+        )
     await record_audit(
         db,
         user_id=current_user.id,

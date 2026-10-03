@@ -31,6 +31,11 @@ from app.schemas.orderbook import TradeCreate, TradeResponse, TradeDeliverPayloa
 from app.schemas.pagination import PaginatedResponse
 from app.services.activity import trade_activity_provenance
 from app.services.market_events import enqueue_market_events, participant_market_event
+from app.services.market_data_eligibility import (
+    public_inventory_is_visible,
+    public_order_is_visible,
+    public_trade_is_visible,
+)
 from app.services.market_transactions import retry_market_transaction
 from app.services import market_transactions
 from app.services.watchlist_events import _best_slice_price, emit_order_updated
@@ -850,6 +855,7 @@ async def create_trade(
             detail=f"Requested quantity ({payload.quantity_mt}) exceeds remaining ({order.remaining_quantity_mt})",
         )
 
+    public_order_before = await public_order_is_visible(db, order.id)
     before_state = await _watchlist_before_state(db, order)
 
     commission_plan, commission_fee_per_mt_usd = await resolve_seller_trade_fee(
@@ -986,6 +992,10 @@ async def create_trade(
                     "fuel_type": trade.fuel_type or "",
                     "region": trade.delivery_point_region or "",
                 },
+                public_market_invalidation=(
+                    public_order_before
+                    or await public_order_is_visible(db, order.id)
+                ),
             )
         ],
     )
@@ -1226,6 +1236,15 @@ async def confirm_trade(
         changes={"status": TradeStatus.CONFIRMED.value},
         **request_audit_context(request),
     )
+    await db.flush()
+    public_market_changed = await public_trade_is_visible(db, trade.id)
+    if confirmed_order is not None and confirmed_order.inventory_item_id is not None:
+        public_market_changed = (
+            public_market_changed
+            or await public_inventory_is_visible(
+                db, confirmed_order.inventory_item_id
+            )
+        )
     await enqueue_market_events(
         db,
         [
@@ -1241,6 +1260,7 @@ async def confirm_trade(
                     "quantity": str(trade.quantity_mt),
                     "price": str(trade.price_per_mt_usd),
                 },
+                public_market_invalidation=public_market_changed,
             )
         ],
     )
@@ -1340,6 +1360,12 @@ async def decline_trade(
         if locked_slice is not None
         else None
     )
+    declined_order_id = order.id if order is not None else None
+    public_order_before = (
+        await public_order_is_visible(db, declined_order_id)
+        if declined_order_id is not None
+        else False
+    )
     trade.status = TradeStatus.DECLINED
 
     # Restore the order's remaining quantity. The eager-loaded relationship
@@ -1423,6 +1449,12 @@ async def decline_trade(
         changes={"status": TradeStatus.DECLINED.value},
         **request_audit_context(request),
     )
+    await db.flush()
+    public_order_after = (
+        await public_order_is_visible(db, declined_order_id)
+        if declined_order_id is not None
+        else False
+    )
     await enqueue_market_events(
         db,
         [
@@ -1436,6 +1468,9 @@ async def decline_trade(
                     "id": str(trade.id),
                     "status": trade.status.value,
                 },
+                public_market_invalidation=(
+                    public_order_before or public_order_after
+                ),
             )
         ],
     )

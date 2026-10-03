@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from uuid import UUID
 
@@ -20,6 +20,8 @@ from app.services.market_admission import (
     lock_and_load_market_organizations,
 )
 from app.services.market_locks import acquire_market_slice_lock
+from app.services.market_data_eligibility import public_order_is_visible
+from app.services.market_events import enqueue_market_events, participant_market_event
 from app.services.watchlist_events import emit_order_updated
 
 MAX_EXPIRY_ROWS_PER_TRANSACTION = 100
@@ -111,6 +113,16 @@ async def expire_market_slice_orders(
         if order.inventory_item_id is not None and order.remaining_quantity_mt > 0
     }
     inventory = await lock_inventory_items(db, inventory_ids)
+    public_before_expiry = {
+        order.id: await public_order_is_visible(
+            db,
+            order.id,
+            as_of=order.expires_at - timedelta(microseconds=1),
+        )
+        for order in rows
+        if order.expires_at is not None
+    }
+    expiry_events = []
     for order in rows:
         remaining = Decimal(str(order.remaining_quantity_mt))
         before = {
@@ -142,4 +154,18 @@ async def expire_market_slice_orders(
                 "released_quantity_mt": str(remaining),
             },
         )
+        expiry_events.append(
+            participant_market_event(
+                event_type="order_expired",
+                aggregate_type="order",
+                aggregate_id=order.id,
+                participant_org_ids=(order.organization_id,),
+                payload={
+                    "id": str(order.id),
+                    "status": OrderBookStatus.EXPIRED.value,
+                },
+                public_market_invalidation=public_before_expiry.get(order.id, False),
+            )
+        )
+    await enqueue_market_events(db, expiry_events)
     return rows, organizations
