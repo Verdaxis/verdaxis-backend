@@ -25,7 +25,7 @@ class MarketCommandResult(Base):
             name="ck_market_command_results_operation",
         ),
         CheckConstraint("resource_type IN ('trade', 'order')", name="ck_market_command_results_resource_type"),
-        CheckConstraint("length(btrim(idempotency_key)) BETWEEN 1 AND 255", name="ck_market_command_results_key"),
+        CheckConstraint("length(trim(idempotency_key)) BETWEEN 1 AND 255", name="ck_market_command_results_key"),
         CheckConstraint(
             "request_hash ~ '^[0-9a-f]{64}$'",
             name="ck_market_command_results_request_hash",

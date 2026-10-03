@@ -1310,14 +1310,16 @@ async def confirm_trade(
     )
     await db.flush()
     loaded_trade = await _load_trade(db, trade.id)
-    response_body = build_trade_response(
+    response = build_trade_response(
         loaded_trade,
         viewer_org_id=org_id,
         viewer_is_admin=current_user.role == UserRole.ADMIN,
-    ).model_dump(mode="json")
-    await record_command_success(db, command, response_status=200, response_body=response_body)
+    )
+    await record_command_success(
+        db, command, response_status=200, response_body=response.model_dump(mode="json")
+    )
     await db.commit()
-    return JSONResponse(status_code=200, content=response_body)
+    return response
 
 
 # ---------------------------------------------------------------------------
@@ -1503,14 +1505,16 @@ async def decline_trade(
     )
     await db.flush()
     loaded_trade = await _load_trade(db, trade.id)
-    response_body = build_trade_response(
+    response = build_trade_response(
         loaded_trade,
         viewer_org_id=org_id,
         viewer_is_admin=current_user.role == UserRole.ADMIN,
-    ).model_dump(mode="json")
-    await record_command_success(db, command, response_status=200, response_body=response_body)
+    )
+    await record_command_success(
+        db, command, response_status=200, response_body=response.model_dump(mode="json")
+    )
     await db.commit()
-    return JSONResponse(status_code=200, content=response_body)
+    return response
 
 
 # ---------------------------------------------------------------------------
@@ -1653,14 +1657,16 @@ async def deliver_trade(
     )
     await db.flush()
     loaded_trade = await _load_trade(db, trade.id)
-    response_body = build_trade_response(
+    response = build_trade_response(
         loaded_trade,
         viewer_org_id=org_id,
         viewer_is_admin=current_user.role == UserRole.ADMIN,
-    ).model_dump(mode="json")
-    await record_command_success(db, command, response_status=200, response_body=response_body)
+    )
+    await record_command_success(
+        db, command, response_status=200, response_body=response.model_dump(mode="json")
+    )
     await db.commit()
-    return JSONResponse(status_code=200, content=response_body)
+    return response
 
 
 # ---------------------------------------------------------------------------
@@ -1762,11 +1768,13 @@ async def pay_trade(
     )
     await db.flush()
     loaded_trade = await _load_trade(db, trade.id)
-    response_body = build_trade_response(
+    response = build_trade_response(
         loaded_trade,
         viewer_org_id=org_id,
         viewer_is_admin=current_user.role == UserRole.ADMIN,
-    ).model_dump(mode="json")
-    await record_command_success(db, command, response_status=200, response_body=response_body)
+    )
+    await record_command_success(
+        db, command, response_status=200, response_body=response.model_dump(mode="json")
+    )
     await db.commit()
-    return JSONResponse(status_code=200, content=response_body)
+    return response

@@ -167,9 +167,13 @@ def test_order_create_expiry_requires_timezone_but_allows_elapsed_replay_value()
     assert order.expires_at == elapsed_expiry
 
 
-def test_order_update_still_requires_future_expiry():
+def test_order_update_expiry_requires_timezone_but_allows_elapsed_replay_value():
     with pytest.raises(ValidationError):
-        OrderUpdate(expires_at=datetime.now(UTC) - timedelta(seconds=1))
+        OrderUpdate(expires_at=datetime.now() + timedelta(hours=1))
+
+    elapsed_expiry = datetime.now(UTC) - timedelta(seconds=1)
+    update = OrderUpdate(expires_at=elapsed_expiry)
+    assert update.expires_at == elapsed_expiry
 
 
 def test_trade_payloads_apply_same_finite_precision_policy():

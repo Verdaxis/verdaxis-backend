@@ -63,4 +63,7 @@ def test_update_order_queues_outbox_before_commit():
         "async def cancel_order", 1
     )[0]
     assert "event_bus.publish" not in update_source
-    assert "commit_market_events(db, committed_events)" in update_source
+    enqueue = update_source.index("enqueue_market_events(db, committed_events)")
+    receipt = update_source.index("record_command_success(")
+    commit = update_source.index("await db.commit()")
+    assert enqueue < receipt < commit
