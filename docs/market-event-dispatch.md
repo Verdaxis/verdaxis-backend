@@ -113,8 +113,9 @@ for it exists or is installed.
 - **Subscriber overload** → the in-process bus queue (100) replaces the
   undeliverable backlog with one terminal `reset` event carrying
   `resync_required: true`, removes the subscriber from fan-out, and closes
-  the stream after that frame. The client clears its cursor, invalidates
-  relevant cached reads, and reconnects for an authoritative resync.
+  the stream after that frame. The client retains its last acknowledged
+  private cursor, invalidates relevant cached reads, reloads authoritative REST
+  data, and reconnects from that cursor for durable replay.
 - **Replay query failure** → the stream emits a terminal `error` event and
   closes; the client retries.
 - **Wedged-but-alive leader** (holds the lock, stops assigning) → the only

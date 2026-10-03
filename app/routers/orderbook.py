@@ -21,6 +21,7 @@ from uuid import UUID
 
 from app.database import get_db
 from app.config import settings
+from app.routing import MarketJSONBodyLimitRoute
 from app.routers.auth_simple import get_authenticated_user, get_current_user
 from app.middleware.execution import require_execution_eligible_user
 from app.models.user import OrganizationProvenance, User, UserRole
@@ -140,7 +141,11 @@ from app.services.request_party import (
 )
 from app.services.market_support_post_only import assess_locked_order
 
-router = APIRouter(prefix="/orderbook", tags=["orderbook"])
+router = APIRouter(
+    prefix="/orderbook",
+    tags=["orderbook"],
+    route_class=MarketJSONBodyLimitRoute,
+)
 
 SUPPLIER_METADATA_FIELDS = (
     "certification_declared",
