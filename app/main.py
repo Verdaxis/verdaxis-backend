@@ -177,20 +177,26 @@ async def database_contention_handler(request: Request, exc: DBAPIError):
 # Admin panel
 setup_admin(app)
 
-# CORS
+# ---------------------------------------------------------------------------
+# Pre-auth rate limiting (runs before routing/dependencies — catches the
+# invalid-token traffic that slowapi's in-endpoint limits never see)
+# ---------------------------------------------------------------------------
+app.middleware("http")(preauth_rate_limit_middleware)
+
+# CORS wraps pre-auth and support-scope middleware so browser clients receive
+# the same credentialed headers on early rejection responses and preflights.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.BACKEND_CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=[
+        "Retry-After",
+        "X-Request-ID",
+        MARKET_SUPPORT_CONTEXT_INVALID_HEADER,
+    ],
 )
-
-# ---------------------------------------------------------------------------
-# Pre-auth rate limiting (runs before routing/dependencies — catches the
-# invalid-token traffic that slowapi's in-endpoint limits never see)
-# ---------------------------------------------------------------------------
-app.middleware("http")(preauth_rate_limit_middleware)
 
 # ---------------------------------------------------------------------------
 # Request logging middleware (structlog + correlation IDs)
