@@ -15,7 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.command_result import MarketCommandResult
-from app.services.idempotency import acquire_idempotency_lock
+from app.services.idempotency import IdempotencyLockBusy, acquire_idempotency_lock
 
 
 TRADE_CONFIRM_OPERATION = "trade.confirm"
@@ -90,16 +90,14 @@ async def prepare_command_attempt(
     request_hash = command_request_hash(payload)
     try:
         await acquire_idempotency_lock(db, tenant_id=actor_user_id, operation=operation, key=key)
-    except HTTPException as exc:
+    except IdempotencyLockBusy as exc:
         # A competing request can still commit the durable result. The caller
         # must retain this same intention and retry instead of treating the
         # lock wait as a definitive key conflict.
-        if exc.status_code == status.HTTP_409_CONFLICT and exc.detail == "Idempotency key is busy; retry the request":
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Idempotency key is busy; retry the same request",
-            ) from exc
-        raise
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Idempotency key is busy; retry the same request",
+        ) from exc
     replay = (
         await db.execute(
             select(MarketCommandResult).where(

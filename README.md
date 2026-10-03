@@ -146,6 +146,7 @@ identity-only or database downgrade rollback.
 | POST | `/api/auth/refresh` | No | Refresh tokens |
 | POST | `/api/auth/register` | No | Register new user |
 | GET | `/api/auth/me` | Yes | Get current user profile |
+| GET | `/api/auth/stream-token` | Yes | Issue a 60-second token for tenant-private SSE |
 | PUT | `/api/auth/me/password` | Yes | Change password (returns fresh tokens) |
 
 ### Order Book
@@ -196,7 +197,7 @@ Aggregate responses expose real/demo/unknown counts. Unknown contributors remain
 |--------|----------|------|-------------|
 | GET | `/api/stream/prices` | No | Price update events |
 | GET | `/api/stream/orderbook` | No | Order events (created/cancelled/matched) with append-only provenance fields |
-| GET | `/api/stream/trades` | No | Trade lifecycle events with append-only provenance fields |
+| GET | `/api/stream/trades` | Stream token | Tenant-private trade lifecycle events with append-only provenance fields; use the `stream_token` query parameter, not an `Authorization` header |
 
 ### Admin (ADMIN role only)
 | Method | Endpoint | Auth | Description |
