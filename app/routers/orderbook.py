@@ -1,7 +1,8 @@
 import hashlib
 from dataclasses import dataclass
 
-from fastapi import APIRouter, Body, Depends, Header, HTTPException, Request, status, Query
+from fastapi import APIRouter, Body, Depends, Header, HTTPException, Request, Response, status, Query
+from fastapi.responses import JSONResponse
 from app.services.audit_service import record_audit, request_audit_context
 from app.services.audit_actions import (
     ORDER_CANCELLED,
@@ -73,6 +74,12 @@ from app.services.market_locks import (
     acquire_market_slice_lock,
     acquire_market_slice_locks,
     next_order_acceptance_ordinal,
+)
+from app.services.command_results import (
+    ORDER_AMEND_OPERATION,
+    ORDER_CANCEL_OPERATION,
+    prepare_command_attempt,
+    record_command_success,
 )
 from app.services.idempotency import (
     ORDER_CREATE_OPERATION,
@@ -2345,13 +2352,25 @@ async def update_order(
     order_id: UUID,
     request: Request,
     update_data: OrderUpdate,
-    current_user: User = Depends(require_execution_eligible_user),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """
-    Update an own order. Only allowed if status is OPEN or PARTIALLY_FILLED.
-    """
+    """Update an own order. Only allowed if status is OPEN or PARTIALLY_FILLED."""
     _reject_admin_legacy_workspace_mutation(request, current_user)
+    command = await prepare_command_attempt(
+        db, request, actor_user_id=current_user.id,
+        effective_organization_id=current_user.organization_id, support_context_id=None,
+        operation=ORDER_AMEND_OPERATION, resource_type="order", resource_id=order_id,
+        payload={
+            "operation": ORDER_AMEND_OPERATION, "order_id": order_id,
+            "update": update_data.model_dump(exclude_unset=True, mode="python"),
+        },
+    )
+    if command is not None and command.replay is not None:
+        return JSONResponse(status_code=command.replay.response_status, content=command.replay.response_body)
+    await require_execution_eligible_user(current_user=current_user, db=db)
+    if update_data.expires_at is not None and update_data.expires_at <= datetime.now(UTC):
+        raise HTTPException(status_code=422, detail="expires_at must be in the future")
     result = await db.execute(
         select(OrderBookOrder)
         .options(
@@ -2602,7 +2621,8 @@ async def update_order(
             **request_audit_context(request),
         )
 
-    await commit_market_events(db, committed_events)
+    await enqueue_market_events(db, committed_events)
+    await db.flush()
     await db.refresh(order)
 
     # Re-fetch with eager loading for tier_label
@@ -2613,11 +2633,14 @@ async def update_order(
     )
     order = result.scalars().first()
 
+    response_body = (await _order_response(db, order)).model_dump(mode="json")
+    await record_command_success(db, command, response_status=200, response_body=response_body)
+    await db.commit()
     for _trade in matched_trades:
         track_analytics_event(
             trade_created_event(current_user, order=order, request=request), request=request
         )
-    return await _order_response(db, order)
+    return JSONResponse(status_code=200, content=response_body)
 
 
 @router.post("/{order_id}/cancel", status_code=status.HTTP_204_NO_CONTENT)
@@ -2646,6 +2669,18 @@ async def cancel_order(
         else current_user.organization_id
     )
     reason = body.reason if body is not None else None
+    command = await prepare_command_attempt(
+        db, request, actor_user_id=current_user.id,
+        effective_organization_id=effective_organization_id,
+        support_context_id=party.support_context_id if party is not None else None,
+        operation=ORDER_CANCEL_OPERATION, resource_type="order", resource_id=order_id,
+        payload={
+            "operation": ORDER_CANCEL_OPERATION, "order_id": order_id,
+            "reason": reason, "if_match": if_match,
+        },
+    )
+    if command is not None and command.replay is not None:
+        return Response(status_code=command.replay.response_status)
     result = await db.execute(
         select(OrderBookOrder)
         .options(selectinload(OrderBookOrder.product), selectinload(OrderBookOrder.delivery_point))
@@ -2798,7 +2833,7 @@ async def cancel_order(
         },
         **request_audit_context(request),
     )
-    await commit_market_events(
+    await enqueue_market_events(
         db,
         [
             participant_market_event(
@@ -2817,5 +2852,6 @@ async def cancel_order(
             )
         ],
     )
-
-    return None
+    await record_command_success(db, command, response_status=204, response_body=None)
+    await db.commit()
+    return Response(status_code=204)
