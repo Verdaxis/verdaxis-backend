@@ -106,6 +106,9 @@ DEFAULT_ANALYTICS_MAX_DATA_BYTES = 5 * 1024 * 1024 * 1024
 DEFAULT_MIN_DISK_FREE_PERCENT = 10.0
 DEFAULT_BACKUP_STATUS_FILE = "/home/verdaxis-prod/backups/status.json"
 DEFAULT_BACKUP_MAX_AGE_SECONDS = 30 * 60 * 60
+RESTORE_STATUS_MAX_AGE_SECONDS = 8 * 24 * 60 * 60
+RESTORE_STATUS_FUTURE_TOLERANCE_SECONDS = 5 * 60
+RESTORE_STATUS_MAX_BYTES = 5_000
 DEFAULT_OUTBOX_BACKLOG_PROBE = (
     "/usr/local/libexec/verdaxis-monitor/outbox_backlog_probe.py"
 )
@@ -495,6 +498,73 @@ def check_backup_status() -> list[str]:
         if check.returncode != 0:
             errors.append(f"backup artifact failed gzip validation: {artifact.name}")
     return errors
+
+
+def check_restore_status() -> list[str]:
+    """Require recent evidence that the latest backup passed a restore test."""
+    backup_status_file = Path(
+        os.getenv("BACKUP_STATUS_FILE", DEFAULT_BACKUP_STATUS_FILE)
+    )
+    status_file = backup_status_file.with_name("restore-status.json")
+    try:
+        with status_file.open("rb") as handle:
+            raw_payload = handle.read(RESTORE_STATUS_MAX_BYTES + 1)
+    except FileNotFoundError:
+        return ["restore verification status is missing"]
+    except OSError:
+        return ["restore verification status is unreadable"]
+
+    if len(raw_payload) > RESTORE_STATUS_MAX_BYTES:
+        return ["restore verification status is unreadable"]
+    try:
+        payload = json.loads(raw_payload)
+    except (UnicodeDecodeError, json.JSONDecodeError, RecursionError):
+        return ["restore verification status is unreadable"]
+
+    expected_keys = {"ok", "completed_at", "backup_id", "databases"}
+    if not isinstance(payload, dict) or set(payload) != expected_keys:
+        return ["restore verification status has an invalid schema"]
+    if (
+        type(payload["ok"]) is not bool
+        or not isinstance(payload["completed_at"], str)
+        or not isinstance(payload["backup_id"], str)
+        or not isinstance(payload["databases"], list)
+    ):
+        return ["restore verification status has an invalid schema"]
+    if payload["ok"] is not True:
+        return ["last restore verification did not complete successfully"]
+
+    expected_databases = {"verdaxis", "verdaxis_staging", "umami"}
+    databases = payload["databases"]
+    if (
+        len(databases) != len(expected_databases)
+        or any(not isinstance(database, str) for database in databases)
+        or set(databases) != expected_databases
+    ):
+        return ["restore verification status has an invalid database inventory"]
+
+    backup_id = payload["backup_id"]
+    if re.fullmatch(r"\d{8}-\d{6}", backup_id) is None:
+        return ["restore verification status has an invalid backup ID"]
+
+    completed_raw = payload["completed_at"]
+    if completed_raw.endswith("Z"):
+        completed_raw = completed_raw[:-1] + "+00:00"
+    try:
+        completed_at = datetime.fromisoformat(completed_raw)
+        if completed_at.tzinfo is None:
+            raise ValueError
+        age_seconds = (
+            datetime.now(timezone.utc) - completed_at.astimezone(timezone.utc)
+        ).total_seconds()
+    except (OverflowError, ValueError):
+        return ["restore verification status has an invalid completion timestamp"]
+
+    if age_seconds < -RESTORE_STATUS_FUTURE_TOLERANCE_SECONDS:
+        return ["restore verification completion timestamp is in the future"]
+    if age_seconds > RESTORE_STATUS_MAX_AGE_SECONDS:
+        return ["restore verification is stale"]
+    return []
 
 
 def check_outbox_backlogs() -> tuple[list[str], list[dict]]:
@@ -1168,6 +1238,10 @@ def main() -> int:
         errors.extend(check_backup_status())
     except Exception as exc:
         errors.append(f"backup status check crashed: {exc}")
+    try:
+        errors.extend(check_restore_status())
+    except Exception:
+        errors.append("restore verification status check crashed")
     try:
         outbox_errors, outbox_statuses = check_outbox_backlogs()
         errors.extend(outbox_errors)
