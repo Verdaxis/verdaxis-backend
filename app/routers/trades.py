@@ -12,6 +12,7 @@ from sqlalchemy.orm import joinedload, selectinload
 from uuid import UUID
 
 from app.database import get_db
+from app.routing import MarketJSONBodyLimitRoute
 from app.routers.auth_simple import get_authenticated_user, get_current_user
 from app.middleware.execution import require_execution_eligible_user
 from app.models.user import Organization, User, UserRole, UserStatus, OrganizationProvenance
@@ -93,7 +94,12 @@ from app.services.fame_order import (
     validate_fame_trade_snapshot,
 )
 
-router = APIRouter(prefix="/trades", tags=["trades"], responses=AUTH_RESPONSES)
+router = APIRouter(
+    prefix="/trades",
+    tags=["trades"],
+    responses=AUTH_RESPONSES,
+    route_class=MarketJSONBodyLimitRoute,
+)
 
 # One party reports delivery unilaterally, so the final price it sets must
 # stay within this band around the confirmed trade price. Guards commission
