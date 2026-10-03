@@ -18,6 +18,7 @@ from app.services.db_errors import (
     database_error_log_fields,
     is_contention_error,
     is_market_path,
+    is_query_canceled_error,
 )
 from app.rate_limit import limiter
 from app.middleware.market_support_scope import MarketSupportScopeMiddleware
@@ -157,8 +158,15 @@ async def http_exception_handler(request: Request, exc: HTTPException):
 
 @app.exception_handler(DBAPIError)
 async def database_contention_handler(request: Request, exc: DBAPIError):
-    """Keep market contention bounded and retryable without leaking SQL."""
-    if is_market_path(request.url.path) and is_contention_error(exc):
+    """Keep market contention and canceled reads bounded without leaking SQL."""
+    is_retryable_contention = is_contention_error(exc)
+    # A canceled mutation may already have committed, so only safe reads can retry.
+    is_retryable_read_cancellation = (
+        request.method in {"GET", "HEAD"} and is_query_canceled_error(exc)
+    )
+    if is_market_path(request.url.path) and (
+        is_retryable_contention or is_retryable_read_cancellation
+    ):
         return JSONResponse(
             status_code=503,
             content={"detail": "Market is temporarily busy; retry shortly."},
