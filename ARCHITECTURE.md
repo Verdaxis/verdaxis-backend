@@ -229,8 +229,11 @@ refresh, polling and reconnect remain authoritative; this is not an L2 delta fee
 Confirm, decline, deliver, pay, amend and cancel accept an optional idempotency key.
 Current authentication and actor context are checked before replay. Successful
 results bind the actor, organization, support context, target and request hash;
-they preserve the original status and response after later state changes. The
-receipt commits with the economic effects and outbox. Runtime access is SELECT
+they preserve the original status and response after later state changes. Reusing
+the same operation/key with a changed request, effective organization, support
+context or target returns HTTP 409. Idempotency-lock contention returns HTTP 503;
+clients retry the unchanged request. The receipt commits with the economic effects
+and outbox. Runtime access is SELECT
 and INSERT only; receipts are retained. Migration `rcp_20261003_command_results`
 follows acceptance priority. Forward corrective releases must retain receipts.
 
