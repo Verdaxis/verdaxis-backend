@@ -501,7 +501,7 @@ def check_backup_status() -> list[str]:
 
 
 def check_restore_status() -> list[str]:
-    """Require recent evidence that the latest backup passed a restore test."""
+    """Require recent evidence that stored backups passed a restore test."""
     backup_status_file = Path(
         os.getenv("BACKUP_STATUS_FILE", DEFAULT_BACKUP_STATUS_FILE)
     )
