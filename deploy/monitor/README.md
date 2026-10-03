@@ -5,6 +5,22 @@ load, start, enable, disable, restart, or deploy any live unit. The deleted
 local installer and pilot-runbook patch are not replaced here. Activation is an
 outstanding integration owned by the canonical immutable runtime installer.
 
+## Deployment status
+
+The live environments are split across two hosts:
+
+| Environment or function | Host | Live local endpoint |
+| --- | --- | --- |
+| Production API and PostgreSQL | `169.58.37.164` (`vmi3623757`) | `127.0.0.1:8000` |
+| Staging API, shared Umami, B2 backup owner, external canary | `194.233.68.86` (`vmi1840561.contaboserver.net`) | `127.0.0.1:8001` for staging |
+
+The shared host's production port 8000 is retired, and its production backend
+and recovery units are masked. This source tree is not the installed shared-host
+monitor. Do not copy it over the installed monitor or activate its units. Use
+only the reviewed selective installed patch described by
+`/home/verdaxis-prod/verdaxis/PRODUCTION_HOST.md`. Determine current runtime
+identity from each public `/health/ready` response, not from a dated source SHA.
+
 ## Ownership boundaries
 
 | Responsibility | Owner |
@@ -21,16 +37,21 @@ outstanding integration owned by the canonical immutable runtime installer.
 | Signup and analytics ingestion canaries | Legacy monitor until separately replaced |
 | Immutable artifact promotion and activation | Canonical runtime installer/operator |
 
-The deployed database topology is PostgreSQL 17 with PostGIS 3.6. The
-production frontend is on Vercel. Caddy fronts the production API, staging API,
-and staging frontend.
+The deployed databases use PostgreSQL 17 with PostGIS 3.6. Production and
+staging are not colocated. The production frontend remains on Vercel.
 
 ## Readiness and release identity seam
 
-local_health_check.py contacts only the fixed numeric-loopback endpoints:
+The source `local_health_check.py` currently contacts both fixed
+numeric-loopback endpoints:
 
 - production: http://127.0.0.1:8000/health/ready
 - staging: http://127.0.0.1:8001/health/ready
+
+No current host has both live loopback endpoints. This dual-loopback reader is
+an unresolved integration seam and must not be installed unchanged. A future
+installer must split or route environment checks without reviving the retired
+shared-host production listener.
 
 A successful response has exactly four keys and values:
 
@@ -194,17 +215,15 @@ monitor-owned identities, state directories, and per-environment credential
 ownership. Merely having those files in source does not create users or change
 permissions.
 
-The manifest includes the read-only outbox backlog probe. The canonical public
-monitor is its only scheduler: it invokes the installed artifact for production
-and staging during its existing five-minute run. The probe has no separate
-service or timer. Each query qualifies `public.market_event_outbox`. The caller
-pins the local database host and port, strips ambient libpq routing and password
-variables, and passes only an explicit `PGPASSFILE` for authentication. Source
-wiring alone does not prove that the artifact or its libpq authentication has
-been released. The external-monitor installation recipe must stop before
-replacing or enabling the monitor until the canonical installer has promoted
-the exact manifest-attested probe and an owner-only `PGPASSFILE` covers both
-backup roles. This local monitor contract does not install either prerequisite.
+The manifest includes the read-only outbox backlog probe. It has no separate
+service or timer. Its source contract pins a local database host and port,
+strips ambient libpq routing and password variables, and passes only an
+explicit `PGPASSFILE`. Production and staging databases now live on different
+hosts, so one shared-host process cannot invoke both probes through loopback.
+Source wiring and matching filenames do not prove release. Do not replace or
+enable the installed monitor until a reviewed integration separates the two
+database locations and the canonical installer promotes the exact
+manifest-attested artifacts. This contract installs no prerequisite.
 
 ## Dual-run and retirement gate
 
