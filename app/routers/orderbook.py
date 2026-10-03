@@ -104,6 +104,8 @@ from app.services.market_data_eligibility import (
     canonical_market_product_expression,
     current_public_order_clause,
     public_order_collection_provenance_clause,
+    public_order_is_visible,
+    public_trade_is_visible,
 )
 from app.services.live_benchmarks import (
     LiveBenchmarkKey,
@@ -2304,6 +2306,16 @@ async def create_order(
                 resting_side_previous_best_price=resting_side_previous_best_price,
             )
         )
+        await db.flush()
+        public_market_changed = (
+            await public_order_is_visible(db, new_order.id)
+            or any(
+                [
+                    await public_trade_is_visible(db, trade.id)
+                    for trade in matched_trades
+                ]
+            )
+        )
         committed_events.append(
             participant_market_event(
                 event_type="order_created",
@@ -2324,6 +2336,7 @@ async def create_order(
                     "price": str(new_order.price_per_mt_usd),
                     "quantity": str(new_order.remaining_quantity_mt),
                 },
+                public_market_invalidation=public_market_changed,
             )
         )
     await enqueue_market_events(db, committed_events)
@@ -2572,6 +2585,8 @@ async def update_order(
         update_dict["fame_terms"] = locked_terms
         update_dict.update(fame_metadata_fields(locked_terms))
 
+    public_before = await public_order_is_visible(db, order.id)
+
     # Recompute quantity against the locked row; the preview may have waited
     # behind another update on the same slice.
     if "quantity_mt" in update_dict:
@@ -2669,6 +2684,38 @@ async def update_order(
         actor_user_id=current_user.id,
         audit_context=request_audit_context(request),
         resting_side_previous_best_price=resting_side_previous_best_price,
+    )
+    await db.flush()
+    public_after = await public_order_is_visible(db, order.id)
+    public_trade_created = any(
+        [
+            await public_trade_is_visible(db, trade.id)
+            for trade in matched_trades
+        ]
+    )
+    committed_events.append(
+        participant_market_event(
+            event_type="order_updated",
+            aggregate_type="order",
+            aggregate_id=order.id,
+            participant_org_ids={
+                order.organization_id,
+                *(trade.buyer_id for trade in matched_trades),
+                *(trade.seller_id for trade in matched_trades),
+            },
+            payload={
+                **order_activity_provenance(order),
+                "id": str(order.id),
+                "side": order.side.value,
+                "product_name": order.product_name,
+                "fuel_type": order.fuel_type,
+                "region": order.region,
+            },
+            public_market_invalidation=(
+                (bool(audit_changes) and (public_before or public_after))
+                or public_trade_created
+            ),
+        )
     )
     if audit_changes:
         await record_audit(
@@ -2863,6 +2910,7 @@ async def cancel_order(
             detail="Can only cancel orders with OPEN or PARTIALLY_FILLED status",
         )
 
+    public_before = await public_order_is_visible(db, order.id)
     before_state = await _watchlist_before_state(db, order)
     benchmark_key: LiveBenchmarkKey | None = (
         order.side,
@@ -2911,6 +2959,7 @@ async def cancel_order(
                     "fuel_type": order.fuel_type,
                     "region": order.region,
                 },
+                public_market_invalidation=public_before,
             )
         ],
     )

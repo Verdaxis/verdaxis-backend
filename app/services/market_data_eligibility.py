@@ -6,12 +6,35 @@ formal evidence. UNKNOWN remains quarantined. No name/domain heuristics.
 from __future__ import annotations
 
 from datetime import datetime
+from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import String, and_, case, cast, func, or_, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.market_catalog import CANONICAL_DELIVERY_POINTS, CANONICAL_PRODUCTS, ORDERBOOK_MARKET_PRODUCTS, PRODUCTS_BY_CODE
-from app.models.orderbook import OrderCreationMethod
+from app.market_catalog import (
+    CANONICAL_DELIVERY_POINTS,
+    CANONICAL_PRODUCTS,
+    ORDERBOOK_MARKET_PRODUCTS,
+    PRODUCT_IDS,
+    PRODUCTS_BY_CODE,
+)
+from app.models.catalog import DeliveryPoint, Product
+from app.models.marketplace import InventoryItem
+from app.models.orderbook import (
+    OrderBookOrder,
+    OrderBookStatus,
+    OrderCreationMethod,
+    OrderSide,
+    Trade,
+)
+from app.models.port import Port
+from app.services.market_provenance import (
+    MarketEvidenceScope,
+    canonical_availability_window_clause,
+    organization_evidence_clause,
+    public_trade_evidence_clause,
+)
 from app.models.user import (
     Organization,
     OrganizationProvenance,
@@ -243,3 +266,136 @@ def public_order_collection_provenance_clause(order):
             OrganizationProvenance.DEMO.value,
         )
     )
+
+
+def _public_order_projection_statement(*, as_of: datetime | None = None):
+    """Return the broad public order-book projection shared by refresh checks."""
+    return (
+        select(OrderBookOrder.id)
+        .join(Product, Product.id == OrderBookOrder.product_id)
+        .join(DeliveryPoint, DeliveryPoint.id == OrderBookOrder.delivery_point_id)
+        .where(
+            OrderBookOrder.status.in_(
+                (OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED)
+            ),
+            *active_market_catalog_clauses(Product, DeliveryPoint),
+            canonical_availability_window_clause(OrderBookOrder.availability_window),
+            current_public_order_clause(OrderBookOrder, now_expression=as_of),
+            public_order_collection_provenance_clause(OrderBookOrder),
+            Product.fuel_type.in_(("Methanol", "Ethanol", "FAME")),
+            or_(
+                OrderBookOrder.side != OrderSide.ASK,
+                and_(
+                    func.length(
+                        func.trim(func.coalesce(OrderBookOrder.certification_scheme, ""))
+                    )
+                    > 0,
+                    OrderBookOrder.certification_declared.is_(True),
+                    func.length(
+                        func.trim(func.coalesce(OrderBookOrder.specification_standard, ""))
+                    )
+                    > 0,
+                    OrderBookOrder.msds_available.is_(True),
+                    or_(
+                        OrderBookOrder.product_id == PRODUCT_IDS["UCOME_B100"],
+                        OrderBookOrder.carbon_intensity_gco2_mj.is_not(None),
+                    ),
+                    func.length(func.trim(func.coalesce(OrderBookOrder.feedstock, "")))
+                    > 0,
+                    or_(
+                        OrderBookOrder.product_id == PRODUCT_IDS["UCOME_B100"],
+                        func.length(
+                            func.trim(func.coalesce(OrderBookOrder.origin, ""))
+                        )
+                        > 0,
+                    ),
+                ),
+            ),
+        )
+    )
+
+
+def _public_inventory_projection_statement():
+    """Return exact REAL/DEMO inventory rows used by public availability."""
+    real_evidence = organization_evidence_clause(
+        Organization, User, MarketEvidenceScope.REAL
+    )
+    demo_evidence = organization_evidence_clause(
+        Organization, User, MarketEvidenceScope.DEMO
+    )
+    return (
+        select(InventoryItem.id)
+        .join(Port, Port.id == InventoryItem.port_id)
+        .join(DeliveryPoint, DeliveryPoint.name == Port.name)
+        .join(Product, Product.name == InventoryItem.product_name)
+        .join(Organization, Organization.id == InventoryItem.supplier_id)
+        .join(
+            User,
+            and_(
+                User.id == InventoryItem.owner_user_id,
+                User.organization_id == Organization.id,
+            ),
+        )
+        .where(
+            Port.is_active.is_(True),
+            *active_market_catalog_clauses(Product, DeliveryPoint),
+            or_(real_evidence, demo_evidence),
+        )
+    )
+
+
+async def public_order_is_visible(
+    db: AsyncSession,
+    order_id: UUID,
+    *,
+    as_of: datetime | None = None,
+) -> bool:
+    statement = _public_order_projection_statement(as_of=as_of).where(
+        OrderBookOrder.id == order_id
+    )
+    return (await db.execute(statement.limit(1))).scalar_one_or_none() is not None
+
+
+async def public_inventory_is_visible(db: AsyncSession, item_id: UUID) -> bool:
+    statement = _public_inventory_projection_statement().where(
+        InventoryItem.id == item_id
+    )
+    return (await db.execute(statement.limit(1))).scalar_one_or_none() is not None
+
+
+async def public_trade_is_visible(db: AsyncSession, trade_id: UUID) -> bool:
+    statement = select(Trade.id).where(
+        Trade.id == trade_id,
+        public_trade_evidence_clause(Trade),
+    )
+    return (await db.execute(statement.limit(1))).scalar_one_or_none() is not None
+
+
+async def organization_has_public_market_projection(
+    db: AsyncSession, organization_id: UUID
+) -> bool:
+    order_statement = _public_order_projection_statement().where(
+        OrderBookOrder.organization_id == organization_id
+    )
+    if (await db.execute(order_statement.limit(1))).scalar_one_or_none() is not None:
+        return True
+    inventory_statement = _public_inventory_projection_statement().where(
+        InventoryItem.supplier_id == organization_id
+    )
+    return (
+        await db.execute(inventory_statement.limit(1))
+    ).scalar_one_or_none() is not None
+
+
+async def user_has_public_market_projection(db: AsyncSession, user_id: UUID) -> bool:
+    order_statement = _public_order_projection_statement().where(
+        OrderBookOrder.owner_user_id == user_id
+    )
+    if (await db.execute(order_statement.limit(1))).scalar_one_or_none() is not None:
+        return True
+    inventory_statement = _public_inventory_projection_statement().where(
+        InventoryItem.owner_user_id == user_id
+    )
+    return (
+        await db.execute(inventory_statement.limit(1))
+    ).scalar_one_or_none() is not None

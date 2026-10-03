@@ -52,12 +52,21 @@ Every committed market-event payload includes additive `schema_version: 1`.
 The dispatcher also supplies that field when it reads older retained rows, so
 replay and live delivery use the same compatible payload shape.
 
-The public `prices` and `orderbook` endpoints do not yet have a shared,
-committed public event feed. Their authoritative recovery path remains the
-existing bounded REST polling and snapshots. The frontend invalidates the
-matching read-cache namespace when a public EventSource reopens so its next
-poll or snapshot read cannot reuse state cached before the disconnect. This
-release does not claim public deltas, checksums, or durable public events.
+Eligible public projection writers add a transport-owned marker to their
+participant-scoped outbox row. The dispatcher removes that marker before
+private live delivery or replay. After it drains all currently sequenced rows,
+it coalesces one or more markers into one `market_invalidated` event on each
+of the process-local `prices` and `orderbook` channels. The public payload
+is exactly `{"schema_version": 1, "resync_required": true}` and has no event
+ID, identity, market slice, reason, price, or quantity.
+
+The signal tells clients to reload authoritative REST data; it is not a delta,
+checksum, or replay cursor. Existing queue overflow resets, reconnect cache
+invalidation, snapshots, and bounded polling remain recovery paths. Time alone
+does not write an outbox row. An expired order therefore disappears from REST
+queries at its deadline, while the refresh signal can be delayed until an
+existing expiry writer next commits that transition. No new expiry timer is
+part of this transport.
 
 ## Connection budget
 

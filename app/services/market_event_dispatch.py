@@ -42,7 +42,10 @@ from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
 from app.models.market_event import MarketEventOutbox
-from app.services.market_events import version_market_event_payload
+from app.services.market_events import (
+    PUBLIC_MARKET_INVALIDATION_KEY,
+    version_market_event_payload,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +58,12 @@ MARKET_EVENT_WAKE_CHANNEL = "verdaxis_market_events"
 SEQUENCER_ADVISORY_LOCK_KEY = 72645_37260_22662_5
 
 STREAM_CHANNEL_PREFIX = "trades:"
+PUBLIC_STREAM_CHANNELS = ("prices", "orderbook")
+PUBLIC_INVALIDATION_EVENT = "market_invalidated"
+PUBLIC_INVALIDATION_PAYLOAD = {
+    "schema_version": 1,
+    "resync_required": True,
+}
 
 _POLL_SECONDS = 2.0
 _BATCH_SIZE = 500
@@ -168,12 +177,23 @@ async def fetch_replay_high_water(session: AsyncSession) -> int:
 class _EventRow:
     """Minimal read-only projection shared by replay and hub fan-out."""
 
-    __slots__ = ("id", "event_type", "payload", "participant_org_ids", "stream_seq")
+    __slots__ = (
+        "id",
+        "event_type",
+        "payload",
+        "participant_org_ids",
+        "public_market_invalidation",
+        "stream_seq",
+    )
 
     def __init__(self, mapping: Any) -> None:
         self.id = mapping["id"]
         self.event_type = mapping["event_type"]
-        self.payload = version_market_event_payload(mapping["payload"])
+        payload = version_market_event_payload(mapping["payload"])
+        self.public_market_invalidation = (
+            payload.pop(PUBLIC_MARKET_INVALIDATION_KEY, None) is True
+        )
+        self.payload = payload
         self.participant_org_ids = mapping["participant_org_ids"]
         self.stream_seq = mapping["stream_seq"]
 
@@ -360,6 +380,7 @@ class MarketEventDispatcher:
                 await asyncio.sleep(self._poll_seconds)
 
     async def _drain_new_events(self) -> None:
+        public_market_invalidated = False
         while True:
             async with self._engine.connect() as conn:
                 result = await conn.execute(
@@ -371,9 +392,19 @@ class MarketEventDispatcher:
                 rows = [_as_event(row) for row in result.mappings()]
             for event in rows:
                 await self._fan_out(event)
+                public_market_invalidated = (
+                    public_market_invalidated or event.public_market_invalidation
+                )
                 self._cursor = event.stream_seq
             if len(rows) < self._batch_size:
-                return
+                break
+        if public_market_invalidated:
+            for channel in PUBLIC_STREAM_CHANNELS:
+                await self._bus.publish(
+                    channel,
+                    PUBLIC_INVALIDATION_EVENT,
+                    PUBLIC_INVALIDATION_PAYLOAD,
+                )
 
     async def _fan_out(self, event: _EventRow) -> None:
         for org_id in event.participant_org_ids:
