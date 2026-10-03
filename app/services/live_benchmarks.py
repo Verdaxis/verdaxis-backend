@@ -5,7 +5,7 @@ from decimal import Decimal
 from typing import Iterable
 from uuid import UUID
 
-from sqlalchemy import and_, or_, select
+from sqlalchemy import select, tuple_
 from sqlalchemy.engine import Row
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -104,16 +104,16 @@ async def _calculate_live_slice_benchmarks(
     if not requested_keys:
         return {}
 
-    key_clauses = [
-        and_(
-            OrderBookOrder.side == side,
-            OrderBookOrder.delivery_point_id == delivery_point_id,
-            OrderBookOrder.availability_window == availability_window,
-            canonical_market_product_expression(Product) == market_product,
-        )
-        for side, market_product, delivery_point_id, availability_window in requested_keys
-    ]
-    market_product = canonical_market_product_expression(Product).label("market_product")
+    # Keep sparse slice keys exact without repeating the canonical product
+    # expression for every requested key.
+    market_product_expression = canonical_market_product_expression(Product)
+    requested_slice_clause = tuple_(
+        OrderBookOrder.side,
+        market_product_expression,
+        OrderBookOrder.delivery_point_id,
+        OrderBookOrder.availability_window,
+    ).in_(list(requested_keys))
+    market_product = market_product_expression.label("market_product")
     result = await db.execute(
         select(
             OrderBookOrder.product_id,
@@ -138,7 +138,7 @@ async def _calculate_live_slice_benchmarks(
         .join(Product, OrderBookOrder.product_id == Product.id)
         .join(DeliveryPoint, OrderBookOrder.delivery_point_id == DeliveryPoint.id)
         .where(
-            or_(*key_clauses),
+            requested_slice_clause,
             OrderBookOrder.status.in_((OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED)),
             OrderBookOrder.remaining_quantity_mt > 0,
             current_public_order_clause(OrderBookOrder, now_expression=as_of),
