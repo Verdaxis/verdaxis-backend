@@ -66,14 +66,18 @@ async def assess_locked_order(
         await db.execute(
             select(OrderBookOrder.id)
             .where(*filters)
-            .order_by(price_order, OrderBookOrder.created_at.asc())
+            .order_by(
+                price_order,
+                OrderBookOrder.acceptance_ordinal.asc(),
+                OrderBookOrder.id.asc(),
+            )
             .limit(MAX_CROSSING_ORDERS_PER_MATCH + 1)
         )
     ).scalars().all()
     if len(preview) > MAX_CROSSING_ORDERS_PER_MATCH:
         return PostOnlyAssessment(would_cross=True, indeterminate=True)
     # Row locks are UUID-sorted to preserve the global market lock order. The
-    # evaluation is sorted back to price-time priority afterwards.
+    # evaluation is sorted back to price-acceptance priority afterwards.
     crossing_orders = []
     if preview:
         crossing_orders = list(
@@ -121,7 +125,8 @@ async def assess_locked_order(
     crossing_orders.sort(
         key=lambda order: (
             -order.price_per_mt_usd if candidate.side == OrderSide.ASK else order.price_per_mt_usd,
-            order.created_at,
+            order.acceptance_ordinal,
+            str(order.id),
         )
     )
     for crossing in crossing_orders:

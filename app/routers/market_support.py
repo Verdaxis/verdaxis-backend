@@ -89,7 +89,10 @@ from app.services.market_data_eligibility import (
     canonical_market_product_expression,
 )
 from app.services.market_events import enqueue_market_events, participant_market_event
-from app.services.market_locks import acquire_market_slice_lock
+from app.services.market_locks import (
+    acquire_market_slice_lock,
+    next_order_acceptance_ordinal,
+)
 from app.services.market_support import (
     authorization_terms_digest,
     lock_support_order_parties,
@@ -1092,6 +1095,7 @@ async def create_listing(
     supplier = await _load_supplier(db, authorization.accountable_user_id, organization)
     product, delivery_point = await _load_catalog(db, authorization.product_id, authorization.delivery_point_id)
     candidate = _candidate_from_authorization(authorization, organization, product, delivery_point)
+    candidate.acceptance_ordinal = await next_order_acceptance_ordinal(db)
     product_error = supplier_product_metadata_error(
         candidate.product_id,
         specification_standard=candidate.specification_standard,

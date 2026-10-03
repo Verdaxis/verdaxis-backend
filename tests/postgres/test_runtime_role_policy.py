@@ -245,6 +245,7 @@ async def test_validation_rejects_stale_escalation_and_insert_authority(stale_po
         assert repaired.returncode == 0, repaired.stderr
         accepted = _psql("validate_roles.sql")
         assert accepted.returncode == 0, accepted.stderr
+
     finally:
         _psql("bootstrap_roles.sql")
         if stale_policy == "membership":
@@ -610,6 +611,16 @@ async def test_raw_app_cannot_promote_rewrite_controls_set_role_or_delegate():
         accepted = _psql("validate_roles.sql")
         assert accepted.returncode == 0, accepted.stderr
 
+        sequence_engine = create_async_engine(app_url, hide_parameters=True)
+        try:
+            async with sequence_engine.begin() as connection:
+                ordinal = await connection.scalar(
+                    text("SELECT nextval('orderbook_acceptance_ordinal_seq')")
+                )
+                assert isinstance(ordinal, int)
+        finally:
+            await sequence_engine.dispose()
+
         registration_engine = create_async_engine(app_url, hide_parameters=True)
         try:
             async with registration_engine.begin() as connection:
@@ -746,6 +757,7 @@ async def test_raw_app_cannot_promote_rewrite_controls_set_role_or_delegate():
             "UPDATE public.organization_market_approvals SET reason = 'accepted'",
             "DELETE FROM public.organization_market_approvals",
             "DELETE FROM public.seed_runs",
+            "SELECT setval('orderbook_acceptance_ordinal_seq', 1, false)",
             f"SET ROLE {migrator}",
         )
         for statement in rejected_statements:

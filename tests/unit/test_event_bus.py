@@ -63,7 +63,7 @@ async def test_publish_to_empty_channel_is_noop(bus: EventBus):
 
 @pytest.mark.asyncio
 async def test_publish_skips_full_queues(bus: EventBus):
-    """When a queue is full, publish should drop the message and remove the queue."""
+    """Overflow evicts the subscriber and replaces its backlog with a reset."""
     queue = bus.subscribe("prices")
 
     # Fill the queue to capacity (maxsize=100)
@@ -75,6 +75,15 @@ async def test_publish_skips_full_queues(bus: EventBus):
 
     # The full queue should have been discarded
     assert queue not in bus._channels.get("prices", set())
+    assert queue.qsize() == 1
+    terminal = queue.get_nowait()
+    assert terminal["event"] == "reset"
+    assert terminal["data"] == {
+        "schema_version": 1,
+        "reason": "subscriber_overflow",
+        "resync_required": True,
+    }
+    assert terminal["terminal"] is True
 
 
 # ---------------------------------------------------------------------------

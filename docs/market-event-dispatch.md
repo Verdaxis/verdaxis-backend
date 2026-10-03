@@ -41,9 +41,23 @@ subscriber regardless of which Uvicorn worker serves the connection:
    from the validated stream token's organization — never from client
    input. Frames carry `id: <stream_seq>`. On reconnect the standard
    `Last-Event-ID` header (or an initial `last_event_id` query parameter)
-   replays everything committed for that organization after the cursor
-   straight from the outbox, then live delivery resumes; the cursor
-   de-duplicates overlap between replay and the live bus.
+   captures a sequence high-water mark, pages every authorized row through
+   that boundary straight from the outbox, then merges queued live rows in
+   sequence order. The cursor de-duplicates overlap between replay and the
+   live bus. Global sequence holes and rows for other organizations are
+   expected; neither condition ends catch-up. Token expiry and mutable user
+   and organization admission remain enforced while pages are delivered.
+
+Every committed market-event payload includes additive `schema_version: 1`.
+The dispatcher also supplies that field when it reads older retained rows, so
+replay and live delivery use the same compatible payload shape.
+
+The public `prices` and `orderbook` endpoints do not yet have a shared,
+committed public event feed. Their authoritative recovery path remains the
+existing bounded REST polling and snapshots. The frontend invalidates the
+matching read-cache namespace when a public EventSource reopens so its next
+poll or snapshot read cannot reuse state cached before the disconnect. This
+release does not claim public deltas, checksums, or durable public events.
 
 ## Connection budget
 
@@ -87,9 +101,11 @@ for it exists or is installed.
   stays NULL), another worker takes the lock and re-assigns with higher
   sequence values. Enqueue order and sequence order can diverge across a
   crash; clients order by `id`/`stream_seq`, which is the canonical order.
-- **Subscriber overload** → the in-process bus queue (100) drops the
-  subscriber's queue on overflow; the client reconnects with
-  `Last-Event-ID` and replays from the outbox, so nothing is lost.
+- **Subscriber overload** → the in-process bus queue (100) replaces the
+  undeliverable backlog with one terminal `reset` event carrying
+  `resync_required: true`, removes the subscriber from fan-out, and closes
+  the stream after that frame. The client clears its cursor, invalidates
+  relevant cached reads, and reconnects for an authoritative resync.
 - **Replay query failure** → the stream emits a terminal `error` event and
   closes; the client retries.
 - **Wedged-but-alive leader** (holds the lock, stops assigning) → the only

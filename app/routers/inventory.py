@@ -39,7 +39,10 @@ from app.services.execution_policy import (
     order_is_execution_qualified,
     supplier_product_metadata_error,
 )
-from app.services.market_locks import acquire_market_slice_lock
+from app.services.market_locks import (
+    acquire_market_slice_lock,
+    next_order_acceptance_ordinal,
+)
 from app.services.inventory_reservations import assert_inventory_mutable, reserve_inventory
 from app.services.idempotency import (
     INVENTORY_PUBLISH_OPERATION,
@@ -453,8 +456,10 @@ async def publish_inventory_item(
 
     organization = organizations[current_user.organization_id]
     provenance = snapshot_organization_provenance(organization)
+    acceptance_ordinal = await next_order_acceptance_ordinal(db)
 
     listing = OrderBookOrder(
+        acceptance_ordinal=acceptance_ordinal,
         organization_id=current_user.organization_id,
         owner_user_id=current_user.id,
         provenance=provenance,

@@ -1,3 +1,5 @@
+import asyncio
+
 import pytest
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
@@ -13,7 +15,7 @@ from app.models.catalog import DeliveryPoint, Product
 from app.models.live_slice_benchmark import LiveSliceBenchmark
 from app.models.orderbook import OrderBookOrder, OrderBookStatus, OrderSide
 from app.models.user import OrgType, Organization, OrganizationProvenance
-from app.routers.orderbook import list_asks, list_bids
+from app.routers.orderbook import get_orderbook_snapshot, list_asks, list_bids
 from app.services.live_benchmarks import rebuild_live_slice_benchmark
 
 REQUIRED_TABLES = [
@@ -140,6 +142,135 @@ def _make_order(*, org_id, side: OrderSide, product_id, delivery_point_id, price
 
 
 class TestLiveSliceBenchmarks:
+    @pytest.mark.asyncio
+    async def test_snapshot_returns_bounded_coherent_depth_in_two_queries(
+        self,
+        db: AsyncSession,
+        async_engine,
+    ):
+        organization = await _make_org(db, 'Snapshot Market')
+        singapore = await _make_delivery_point(db, 'Singapore', 'Asia')
+        methanol = await _make_product(
+            db,
+            name='Bio Methanol',
+            fuel_type='Methanol',
+            fuel_grade='Bio',
+        )
+        now = datetime.now(UTC)
+        expected_bid_prices: list[Decimal] = []
+        expected_ask_prices: list[Decimal] = []
+        for index in range(17):
+            bid_price = Decimal('1000') + index
+            ask_price = Decimal('1100') + index
+            expected_bid_prices.append(bid_price)
+            expected_ask_prices.append(ask_price)
+            bid = _make_order(
+                org_id=organization.id,
+                side=OrderSide.BID,
+                product_id=methanol.id,
+                delivery_point_id=singapore.id,
+                price=str(bid_price),
+            )
+            ask = _make_order(
+                org_id=organization.id,
+                side=OrderSide.ASK,
+                product_id=methanol.id,
+                delivery_point_id=singapore.id,
+                price=str(ask_price),
+            )
+            bid.created_at = now + timedelta(seconds=index)
+            ask.created_at = now + timedelta(seconds=index)
+            db.add_all([bid, ask])
+
+        other_window = _make_order(
+            org_id=organization.id,
+            side=OrderSide.ASK,
+            product_id=methanol.id,
+            delivery_point_id=singapore.id,
+            price='1',
+        )
+        other_window.availability_window = '2027-Q1'
+        expired_demo = _make_order(
+            org_id=organization.id,
+            side=OrderSide.ASK,
+            product_id=methanol.id,
+            delivery_point_id=singapore.id,
+            price='2',
+        )
+        expired_demo.provenance = OrganizationProvenance.DEMO
+        expired_demo.expires_at = now - timedelta(seconds=1)
+        db.add_all([other_window, expired_demo])
+        await db.commit()
+
+        with _count_sql_statements(async_engine) as statements:
+            snapshot = await get_orderbook_snapshot(
+                market_product='BIO_METHANOL',
+                delivery_point_id=singapore.id,
+                availability_window='SPOT',
+                db=db,
+            )
+
+        assert len(statements) == 2
+        assert snapshot.market_product == 'BIO_METHANOL'
+        assert snapshot.delivery_point_id == singapore.id
+        assert snapshot.availability_window == 'SPOT'
+        assert snapshot.scope == 'DELIVERY_POINT'
+        assert snapshot.source_kind == 'LIVE_ORDER'
+        assert snapshot.demo_status == 'REAL_ONLY'
+        assert [item.price_per_mt_usd for item in snapshot.bids] == sorted(
+            expected_bid_prices,
+            reverse=True,
+        )[:15]
+        assert [item.price_per_mt_usd for item in snapshot.asks] == sorted(
+            expected_ask_prices,
+        )[:15]
+        assert all(str(item.delivery_point_id) == str(singapore.id) for item in snapshot.bids + snapshot.asks)
+        assert all(item.availability_window == 'SPOT' for item in snapshot.bids + snapshot.asks)
+        assert all(item.benchmark_price_per_mt_usd is not None for item in snapshot.bids + snapshot.asks)
+
+    @pytest.mark.asyncio
+    async def test_snapshot_rechecks_expiry_without_an_order_write(self, db: AsyncSession):
+        organization = await _make_org(db, 'Expiring Snapshot Market')
+        singapore = await _make_delivery_point(db, 'Singapore', 'Asia')
+        methanol = await _make_product(
+            db,
+            name='Bio Methanol',
+            fuel_type='Methanol',
+            fuel_grade='Bio',
+        )
+        expiring = _make_order(
+            org_id=organization.id,
+            side=OrderSide.ASK,
+            product_id=methanol.id,
+            delivery_point_id=singapore.id,
+            price='1100',
+        )
+        expiring.provenance = OrganizationProvenance.DEMO
+        expiring.expires_at = datetime.now(UTC) + timedelta(milliseconds=50)
+        db.add(expiring)
+        await db.commit()
+
+        current = await get_orderbook_snapshot(
+            market_product='BIO_METHANOL',
+            delivery_point_id=singapore.id,
+            availability_window='SPOT',
+            db=db,
+        )
+        assert [item.id for item in current.asks] == [expiring.id]
+
+        delivery_point_id = singapore.id
+        await db.rollback()
+        await asyncio.sleep(0.1)
+        expired = await get_orderbook_snapshot(
+            market_product='BIO_METHANOL',
+            delivery_point_id=delivery_point_id,
+            availability_window='SPOT',
+            db=db,
+        )
+        assert expired.asks == []
+        assert expired.source_kind == 'NO_DATA'
+        assert expired.demo_status == 'NOT_APPLICABLE'
+
     @pytest.mark.asyncio
     async def test_ask_benchmark_uses_same_slice_vwap(self, db: AsyncSession):
         supplier = await _make_org(db, 'Supplier')

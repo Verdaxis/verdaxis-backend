@@ -1,6 +1,6 @@
 """
 Match-on-insert engine. When a new order is placed, scan for crossing orders
-and automatically create trades. Uses price-time priority (FIFO at each price level).
+and automatically create trades. Uses price-acceptance priority at each level.
 """
 from datetime import datetime, UTC
 from decimal import Decimal
@@ -35,9 +35,8 @@ from app.services.org_notifications import OrgNotification, notify_org_users_bat
 from app.services.trade_fees import resolve_seller_trade_fee
 
 # A single transaction must not hold an unbounded number of market rows. This
-# is a conservative operational cap: callers can retry the remainder in a
-# later transaction, while the first 100 price-time candidates retain the
-# existing matching semantics.
+# is a conservative operational cap. An over-cap match is rejected and the
+# whole transaction rolls back; no matched prefix is committed.
 MAX_CROSSING_ORDERS_PER_MATCH = 100
 
 
@@ -54,7 +53,7 @@ async def match_order(
     - BID matches against ASKs where ask_price <= bid_price
     - ASK matches against BIDs where bid_price >= ask_price
     - Product, delivery point, availability window, and certification constraints must be compatible
-    - Price-time priority: best price first, then oldest order first
+    - Price-acceptance priority: best price, acceptance ordinal, then stable ID
     - Partial fills allowed: match as much as possible
     - Self-trade prevention: skip orders from same organization
     - Demo matching requires an exact two-order allowlist and never crosses provenance boundaries
@@ -124,13 +123,13 @@ async def match_order(
     if new_order.side == OrderSide.BID:
         # BID: match against ASKs where ask_price <= bid_price
         opposite_side = OrderSide.ASK
-        # Best ask = lowest price first (ascending), then oldest first
+        # Best ask = lowest price first, then lowest acceptance ordinal.
         price_order = OrderBookOrder.price_per_mt_usd.asc()
         price_filter = OrderBookOrder.price_per_mt_usd <= new_order.price_per_mt_usd
     else:
         # ASK: match against BIDs where bid_price >= ask_price
         opposite_side = OrderSide.BID
-        # Best bid = highest price first (descending), then oldest first
+        # Best bid = highest price first, then lowest acceptance ordinal.
         price_order = OrderBookOrder.price_per_mt_usd.desc()
         price_filter = OrderBookOrder.price_per_mt_usd >= new_order.price_per_mt_usd
 
@@ -159,7 +158,11 @@ async def match_order(
     candidate_stmt = (
         select(OrderBookOrder.id, OrderBookOrder.organization_id)
         .where(*match_filters)
-        .order_by(price_order, OrderBookOrder.created_at.asc())  # Price-time priority
+        .order_by(
+            price_order,
+            OrderBookOrder.acceptance_ordinal.asc(),
+            OrderBookOrder.id.asc(),
+        )
         .limit(MAX_CROSSING_ORDERS_PER_MATCH + 1)
     )
     candidate_rows = (await db.execute(candidate_stmt)).all()
@@ -169,12 +172,16 @@ async def match_order(
         return trades_created
 
     # Reapply every predicate while locking the exact previewed rows. The
-    # slice advisory lock makes the price-time set stable between both reads.
+    # slice advisory lock makes the price-priority set stable between both reads.
     candidate_ids = [row.id for row in candidate_rows]
     stmt = (
         select(OrderBookOrder)
         .where(OrderBookOrder.id.in_(candidate_ids), *match_filters)
-        .order_by(price_order, OrderBookOrder.created_at.asc())
+        .order_by(
+            price_order,
+            OrderBookOrder.acceptance_ordinal.asc(),
+            OrderBookOrder.id.asc(),
+        )
         .with_for_update()
         .execution_options(populate_existing=True)
     )

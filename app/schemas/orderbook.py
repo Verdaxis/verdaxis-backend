@@ -224,6 +224,7 @@ class OrderCancelRequest(BaseModel):
 class OrderResponse(AvailabilityWindowMixin, SupplierListingMetadataMixin):
     """Public/anonymized order for the book. organization_id is NOT included."""
     id: UUID
+    terms_digest: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
     side: OrderSide
     product_id: UUID
     product_name: str = ""
@@ -258,6 +259,19 @@ class OrderResponse(AvailabilityWindowMixin, SupplierListingMetadataMixin):
         from_attributes = True
 
 
+class OrderBookSnapshotResponse(AvailabilityWindowMixin):
+    """A coherent, bounded public depth view for one canonical market."""
+    market_product: str
+    delivery_point_id: UUID
+    availability_window: AvailabilityWindowCode
+    generated_at: datetime
+    source_kind: MarketSourceKind
+    scope: MarketScope = MarketScope.DELIVERY_POINT
+    demo_status: MarketDemoStatus
+    bids: list[OrderResponse] = Field(default_factory=list)
+    asks: list[OrderResponse] = Field(default_factory=list)
+
+
 class OrderMyResponse(OrderResponse):
     """Owner view with extra detail (includes org ID and vessel)."""
     organization_id: UUID
@@ -284,6 +298,9 @@ class SupplierListingTemplateResponse(AvailabilityWindowMixin, SupplierListingMe
 class TradeCreate(BaseModel):
     """Hit an order to create a trade."""
     order_id: UUID
+    expected_terms_digest: str | None = Field(
+        None, min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$"
+    )
     quantity_mt: Decimal = Field(..., gt=0, le=100000, max_digits=12, decimal_places=2, allow_inf_nan=False)
 
     @field_validator("quantity_mt")

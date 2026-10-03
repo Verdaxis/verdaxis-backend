@@ -71,6 +71,7 @@ from app.services.market_admission import (
 )
 from app.services.org_notifications import notify_org_users
 from app.services.trade_fees import resolve_seller_trade_fee
+from app.services.order_terms import order_terms_digest
 
 router = APIRouter(prefix="/trades", tags=["trades"], responses=AUTH_RESPONSES)
 
@@ -88,6 +89,7 @@ CONFIRMED_TRADE_STATUSES = (
 )
 TradeStatusGroup = Literal["all", "active", "completed"]
 MONEY_QUANTUM = Decimal("0.01")
+ORDER_TERMS_REVIEW_REQUIRED = "ORDER_TERMS_REVIEW_REQUIRED"
 
 
 # ---------------------------------------------------------------------------
@@ -182,6 +184,24 @@ def build_trade_response(
         scope=provenance["scope"],
         demo_status=provenance["demo_status"],
         unknown_count=provenance["unknown_count"],
+    )
+
+
+def trade_create_idempotency_payload(payload: TradeCreate) -> dict[str, object]:
+    """Keep old replay hashes while binding every new reviewed digest."""
+    values = payload.model_dump(mode="json")
+    if values["expected_terms_digest"] is None:
+        values.pop("expected_terms_digest")
+    return values
+
+
+def _terms_review_conflict() -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail={
+            "code": ORDER_TERMS_REVIEW_REQUIRED,
+            "message": "Order terms changed or were not reviewed. Refresh and review before trading.",
+        },
     )
 
 
@@ -620,7 +640,7 @@ async def create_trade(
         idempotency_key = idempotency_key.strip()
         if not idempotency_key or len(idempotency_key) > 255:
             raise HTTPException(status_code=400, detail="Idempotency-Key must be 1-255 characters")
-        request_hash = idempotency_request_hash(payload.model_dump(mode="json"))
+        request_hash = idempotency_request_hash(trade_create_idempotency_payload(payload))
         await acquire_idempotency_lock(db, tenant_id=initiator_org_id, operation=TRADE_CREATE_OPERATION, key=idempotency_key)
         replay = (await db.execute(
             select(Trade).options(selectinload(Trade.buyer), selectinload(Trade.seller)).where(
@@ -679,6 +699,11 @@ async def create_trade(
     ):
         await db.rollback()
         raise HTTPException(status_code=409, detail="Order slice changed; retry the trade")
+    if (
+        payload.expected_terms_digest is None
+        or payload.expected_terms_digest != order_terms_digest(order)
+    ):
+        raise _terms_review_conflict()
 
     catalog_result = await db.execute(
         select(Product.id)

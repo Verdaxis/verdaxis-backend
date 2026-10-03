@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Iterable
 from uuid import UUID
@@ -29,17 +30,20 @@ def _text_present(value: str | None) -> bool:
     return bool((value or "").strip())
 
 
-def public_slice_order_qualified(order: OrderBookOrder | Row) -> bool:
+def public_slice_order_qualified(
+    order: OrderBookOrder | Row,
+    *,
+    as_of: datetime | None = None,
+) -> bool:
     if getattr(order, "market_product", None) is None:
         return False
     if order.status not in (OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED):
         return False
     if order.expires_at is not None:
-        from datetime import datetime, UTC
         expires_at = order.expires_at
         if expires_at.tzinfo is None:
             expires_at = expires_at.replace(tzinfo=UTC)
-        if expires_at <= datetime.now(UTC):
+        if expires_at <= (as_of or datetime.now(UTC)):
             return False
     if order.remaining_quantity_mt <= 0 or order.off_spec:
         return False
@@ -93,6 +97,8 @@ async def _calculate_live_slice_benchmark(
 async def _calculate_live_slice_benchmarks(
     db: AsyncSession,
     keys: Iterable[LiveBenchmarkKey],
+    *,
+    as_of: datetime | None = None,
 ) -> dict[LiveBenchmarkKey, tuple[Decimal, Decimal, int]]:
     requested_keys = set(keys)
     if not requested_keys:
@@ -135,7 +141,7 @@ async def _calculate_live_slice_benchmarks(
             or_(*key_clauses),
             OrderBookOrder.status.in_((OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED)),
             OrderBookOrder.remaining_quantity_mt > 0,
-            current_public_order_clause(OrderBookOrder),
+            current_public_order_clause(OrderBookOrder, now_expression=as_of),
             public_order_collection_provenance_clause(OrderBookOrder),
             canonical_product_clause(Product),
             canonical_delivery_point_clause(DeliveryPoint),
@@ -144,7 +150,7 @@ async def _calculate_live_slice_benchmarks(
     totals_by_key: dict[LiveBenchmarkKey, tuple[Decimal, Decimal, int]] = {}
     for order in result.all():
         key = live_benchmark_key_for_order(order)
-        if key in requested_keys and public_slice_order_qualified(order):
+        if key in requested_keys and public_slice_order_qualified(order, as_of=as_of):
             total_qty, weighted_sum, order_count = totals_by_key.get(
                 key,
                 (Decimal("0.00"), Decimal("0.00"), 0),
@@ -246,6 +252,7 @@ async def get_live_slice_benchmark_price(
     delivery_point_id: UUID | None,
     availability_window: str | None,
     cache: dict[LiveBenchmarkKey, Decimal | None] | None = None,
+    as_of: datetime | None = None,
 ) -> Decimal | None:
     key = normalize_live_benchmark_key(side, market_product, delivery_point_id, availability_window)
     if key is None:
@@ -253,7 +260,12 @@ async def get_live_slice_benchmark_price(
     if cache is not None and key in cache:
         return cache[key]
 
-    prices = await get_live_slice_benchmark_prices(db, [key], cache=cache)
+    prices = await get_live_slice_benchmark_prices(
+        db,
+        [key],
+        cache=cache,
+        as_of=as_of,
+    )
     return prices[key]
 
 
@@ -262,6 +274,7 @@ async def get_live_slice_benchmark_prices(
     keys: Iterable[LiveBenchmarkKey | None],
     *,
     cache: dict[LiveBenchmarkKey, Decimal | None] | None = None,
+    as_of: datetime | None = None,
 ) -> dict[LiveBenchmarkKey, Decimal | None]:
     prices = cache if cache is not None else {}
     requested_keys: set[LiveBenchmarkKey] = set()
@@ -273,7 +286,11 @@ async def get_live_slice_benchmark_prices(
             requested_keys.add(normalized_key)
     missing_keys = requested_keys - prices.keys()
     if missing_keys:
-        calculations = await _calculate_live_slice_benchmarks(db, missing_keys)
+        calculations = await _calculate_live_slice_benchmarks(
+            db,
+            missing_keys,
+            as_of=as_of,
+        )
         prices.update(
             {
                 key: calculations[key][0] if key in calculations else None

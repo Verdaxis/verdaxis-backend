@@ -51,6 +51,7 @@ from app.services.audit_actions import (
     TRADE_AUTO_MATCHED,
 )
 from app.services import market_transactions
+from app.services.order_terms import order_terms_digest
 from tests.postgres.market_test_support import assign_fixture_real_provenance
 
 
@@ -59,6 +60,13 @@ def _headers(user_id, key: str) -> dict[str, str]:
         "Authorization": f"Bearer {create_access_token(str(user_id))}",
         "Idempotency-Key": key,
     }
+
+
+async def _reviewed_terms_digest(seeded, order_id) -> str:
+    async with seeded["factory"]() as session:
+        order = await session.get(OrderBookOrder, order_id)
+        assert order is not None
+        return order_terms_digest(order)
 
 
 class _TransactionBoundaryGate:
@@ -369,10 +377,11 @@ async def test_manual_trade_keeps_seller_fee_snapshot_and_hides_it_from_buyer(
     )
     assert published.status_code == 200, published.text
     listing_id = published.json()["listing_id"]
+    reviewed_digest = await _reviewed_terms_digest(seeded, listing_id)
 
     created = await client.post(
         "/api/trades/",
-        json={"order_id": listing_id, "quantity_mt": "80.00"},
+        json={"order_id": listing_id, "quantity_mt": "80.00", "expected_terms_digest": reviewed_digest},
         headers=_headers(seeded["buyer_id"], "seller-fee-lifecycle-create"),
     )
     assert created.status_code == 200, created.text
@@ -549,7 +558,11 @@ async def test_direct_trade_replay_is_snapshot_only_and_hash_conflict_is_immutab
     assert ask_response.status_code == 201, ask_response.text
     ask_id = ask_response.json()["id"]
 
-    trade_payload = {"order_id": ask_id, "quantity_mt": "25.00"}
+    trade_payload = {
+        "order_id": ask_id,
+        "quantity_mt": "25.00",
+        "expected_terms_digest": ask_response.json()["terms_digest"],
+    }
     responses = await asyncio.gather(
         *(
             client.post(
@@ -571,7 +584,7 @@ async def test_direct_trade_replay_is_snapshot_only_and_hash_conflict_is_immutab
 
     conflict = await client.post(
         "/api/trades/",
-        json={"order_id": ask_id, "quantity_mt": "30.00"},
+        json={**trade_payload, "quantity_mt": "30.00"},
         headers=_headers(seeded["buyer_id"], "same-trade-key"),
     )
     assert conflict.status_code == 409
@@ -721,9 +734,10 @@ async def test_locked_confirmed_trade_cannot_be_declined_from_stale_preview(
     )
     assert published.status_code == 200, published.text
     listing_id = published.json()["listing_id"]
+    reviewed_digest = await _reviewed_terms_digest(seeded, listing_id)
     created = await client.post(
         "/api/trades/",
-        json={"order_id": listing_id, "quantity_mt": "25.00"},
+        json={"order_id": listing_id, "quantity_mt": "25.00", "expected_terms_digest": reviewed_digest},
         headers=_headers(seeded["buyer_id"], "confirm-decline-trade"),
     )
     assert created.status_code == 200, created.text
@@ -892,9 +906,10 @@ async def test_inventory_partial_pending_confirm_and_cancel_conserve_stock(route
         headers=_headers(seeded["seller_id"], "partial-publish"),
     )
     listing_id = published.json()["listing_id"]
+    reviewed_digest = await _reviewed_terms_digest(seeded, listing_id)
     created = await client.post(
         "/api/trades/",
-        json={"order_id": listing_id, "quantity_mt": "101.00"},
+        json={"order_id": listing_id, "quantity_mt": "101.00", "expected_terms_digest": reviewed_digest},
         headers=_headers(seeded["buyer_id"], "partial-trade"),
     )
     assert created.status_code == 200, created.text
@@ -946,9 +961,10 @@ async def test_inventory_full_pending_decline_and_expiry_republication(route_mar
         headers=_headers(seeded["seller_id"], "full-publish"),
     )
     listing_id = first.json()["listing_id"]
+    reviewed_digest = await _reviewed_terms_digest(seeded, listing_id)
     created = await client.post(
         "/api/trades/",
-        json={"order_id": listing_id, "quantity_mt": "300.00"},
+        json={"order_id": listing_id, "quantity_mt": "300.00", "expected_terms_digest": reviewed_digest},
         headers=_headers(seeded["buyer_id"], "full-trade"),
     )
     assert created.status_code == 200, created.text
@@ -1353,9 +1369,10 @@ async def test_historical_subminimum_orders_remain_cancelable_and_fillable(route
         f"/api/orderbook/{bid_id}",
         headers=_headers(seeded["buyer_id"], "unused-historical-cancel"),
     )
+    reviewed_digest = await _reviewed_terms_digest(seeded, ask_id)
     filled = await client.post(
         "/api/trades/",
-        json={"order_id": str(ask_id), "quantity_mt": "10.00"},
+        json={"order_id": str(ask_id), "quantity_mt": "10.00", "expected_terms_digest": reviewed_digest},
         headers=_headers(seeded["buyer_id"], "historical-small-fill"),
     )
     assert cancelled.status_code == 204, cancelled.text
