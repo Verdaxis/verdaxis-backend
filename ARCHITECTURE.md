@@ -91,7 +91,7 @@ app/
     account_approval_email.py   # Transition-scoped Resend delivery and bounded durable retry
     event_bus.py                # AsyncIO pub/sub — per-channel queues, 200 subscriber cap, backpressure
     market_event_dispatch.py    # Durable shared SSE transport — outbox sequencer (advisory-lock leader), LISTEN/NOTIFY wake + poll, org-bound hub fan-out (docs/market-event-dispatch.md)
-    matching_engine.py          # Match-on-insert — price-time priority within canonical market identity, partial fills, auto-confirm
+    matching_engine.py          # Match-on-insert — best price, then persisted acceptance order within canonical market identity, partial fills, auto-confirm
     trade_fees.py               # Seller-only plan resolution and public per-MT fee schedule; immutable trade snapshots
     market_support.py           # Authorization digest, ETag parsing, deterministic party locks
     request_party.py            # Immutable actor/effective-party resolution and support mutation allowlist
