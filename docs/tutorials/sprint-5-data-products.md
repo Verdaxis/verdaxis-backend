@@ -2,9 +2,10 @@
 
 > **Verdaxis Exchange** — Turning a trading venue into a data business.
 
-This tutorial walks through every component built in Sprint 5, explaining **why** each
-piece exists, **how** it works under the hood, and **how to operate** it. Read it
-front-to-back if you are new to the system, or jump to specific sections as a reference.
+**Historical notice:** This tutorial records the Sprint 5 implementation. Check its
+examples and commands against the current [architecture](../../ARCHITECTURE.md),
+[project instructions](../../CLAUDE.md), and [runtime hardening](../runtime-hardening.md)
+before use. Current catalog identities are defined in [`app/market_catalog.py`](../../app/market_catalog.py).
 
 ---
 
