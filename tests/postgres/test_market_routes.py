@@ -46,6 +46,7 @@ from app.models.user import (
     UserStatus,
 )
 from app.routers import orderbook as orderbook_router
+from app.routers import trades as trades_router
 from app.services.audit_actions import (
     MARKET_SUPPORT_AUTHORIZATION_CREATED,
     ORDER_CANCELLED,
@@ -713,6 +714,88 @@ async def test_concurrent_route_idempotency_has_one_order(route_market):
             )
         ).scalar_one()
     assert count == 1
+
+
+@pytest.mark.asyncio
+async def test_no_key_response_preparation_retries_commit_one_order_and_trade(
+    route_market, monkeypatch
+):
+    client, seeded = route_market
+
+    original_order_response = orderbook_router._order_response
+    order_response_calls = 0
+
+    async def fail_order_response_once(*args, **kwargs):
+        nonlocal order_response_calls
+        order_response_calls += 1
+        if order_response_calls == 1:
+            raise market_transactions.RetryableMarketTransactionError("40001")
+        return await original_order_response(*args, **kwargs)
+
+    monkeypatch.setattr(orderbook_router, "_order_response", fail_order_response_once)
+    seller_headers = _headers(seeded["seller_id"], "removed-order-key")
+    seller_headers.pop("Idempotency-Key")
+    created_order = await client.post(
+        "/api/orderbook",
+        json={
+            "side": "ASK",
+            "product_id": str(seeded["product_id"]),
+            "delivery_point_id": str(seeded["point_id"]),
+            "quantity_mt": "200.00",
+            "price_per_mt_usd": "750.00",
+            "availability_window": "SPOT",
+            "certification_declared": True,
+            "certification_scheme": "ISCC EU",
+            "specification_standard": "IMPCA",
+            "msds_available": True,
+            "carbon_intensity_gco2_mj": "20.00",
+            "feedstock": "biogenic waste",
+            "origin": "route test",
+        },
+        headers=seller_headers,
+    )
+    assert created_order.status_code == 201, created_order.text
+    assert order_response_calls == 2
+    created_order_body = created_order.json()
+
+    original_load_trade = trades_router._load_trade
+    trade_response_loads = 0
+
+    async def fail_trade_response_load_once(*args, **kwargs):
+        nonlocal trade_response_loads
+        trade_response_loads += 1
+        if trade_response_loads == 1:
+            raise market_transactions.RetryableMarketTransactionError("40001")
+        return await original_load_trade(*args, **kwargs)
+
+    monkeypatch.setattr(trades_router, "_load_trade", fail_trade_response_load_once)
+    buyer_headers = _headers(seeded["buyer_id"], "removed-trade-key")
+    buyer_headers.pop("Idempotency-Key")
+    created_trade = await client.post(
+        "/api/trades/",
+        json={
+            "order_id": created_order_body["id"],
+            "quantity_mt": "25.00",
+            "expected_terms_digest": created_order_body["terms_digest"],
+        },
+        headers=buyer_headers,
+    )
+    assert created_trade.status_code == 200, created_trade.text
+    assert trade_response_loads == 2
+    created_trade_body = created_trade.json()
+
+    async with seeded["factory"]() as session:
+        orders = (await session.execute(select(OrderBookOrder))).scalars().all()
+        trades = (await session.execute(select(Trade))).scalars().all()
+
+    assert len(orders) == 1
+    assert len(trades) == 1
+    assert str(orders[0].id) == created_order_body["id"]
+    assert orders[0].idempotency_key is None
+    assert orders[0].remaining_quantity_mt == Decimal("175.00")
+    assert str(trades[0].id) == created_trade_body["id"]
+    assert trades[0].idempotency_key is None
+    assert trades[0].quantity_mt == Decimal("25.00")
 
 
 @pytest.mark.asyncio
