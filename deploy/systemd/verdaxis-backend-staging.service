@@ -20,7 +20,7 @@ ExecStartPre=/usr/bin/test -r /home/verdaxis-prod/verdaxis/staging/be/.env
 ExecStartPre=/usr/bin/test -r /home/verdaxis-prod/verdaxis/staging/be/.runtime-release.env
 ExecStartPre=/usr/bin/env -i /usr/bin/python3 -I -S -B /home/verdaxis-prod/verdaxis/staging/be/scripts/verify_deploy_start_guard.py --environment staging --expected-release-sha ${RELEASE_SHA}
 ExecStartPre=/home/verdaxis-prod/verdaxis/staging/be/venv/bin/python scripts/verify_migration_revision.py --expected ${MIGRATION_REVISION}
-ExecStart=/home/verdaxis-prod/verdaxis/staging/be/venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8001 --workers ${UVICORN_WORKERS} --no-access-log --proxy-headers --forwarded-allow-ips 127.0.0.1
+ExecStart=/home/verdaxis-prod/verdaxis/staging/be/venv/bin/python -m app.runtime_server app.main:app --host 127.0.0.1 --port 8001 --workers ${UVICORN_WORKERS} --no-access-log --proxy-headers --forwarded-allow-ips 127.0.0.1
 Environment=PYTHONDONTWRITEBYTECODE=1
 ExecReload=/bin/kill -HUP $MAINPID
 Restart=on-failure
