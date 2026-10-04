@@ -217,12 +217,8 @@ sudo -n -u verdaxis-prod /home/verdaxis-prod/verdaxis/staging/be/scripts/deploy.
 - **Token lifetime:** 15-minute access tokens plus 7-day refresh tokens
 - **Login:** `POST /api/auth/login` uses OAuth2 `username`/`password` form fields. The `username` field contains the email address.
 - **Refresh transport:** `POST /api/auth/refresh` accepts the refresh token from either the JSON body or the HttpOnly `refresh_token` cookie scoped to `/api/auth`. Login, refresh, logout, and password change rotate or clear that cookie.
-- **Two `get_current_user` implementations exist:**
-  - `app/routers/auth_simple.py` -- The active one. Used by most routers. Decodes JWT `sub` claim as user UUID.
-  - `app/core/auth.py` -- Legacy. Has JIT provisioning and dev bypass logic. Used only by `vessels`, `inventory`, `compliance`, and `ai` routers.
 - **Registration flow:** If the user's email domain matches an existing `Organization.domain`, the user is created immediately linked to that org. Otherwise, a short-lived registration token is returned and the user must call `/register-with-org` to create their org first.
 - **Admin invitation flow:** An admin may prepare buyer or supplier accounts in an existing approved `REAL` or `UNKNOWN` organization, or create an approved `REAL` organization and an invited account in one transaction. Creating the organization is an audited administrator trust decision. Ordinary registration retains database-owned `UNKNOWN` market provenance. The recipient accepts the single-use link, agrees to Terms/Privacy, sets a password, and receives a normal session without another onboarding approval. The admin is responsible for delivering the copied link securely to the intended recipient.
-- **Auth bypass:** Controlled by `ENABLE_AUTH_BYPASS=true` in `.env`. Creates/returns a `dev@admin.com` user. Only works with the legacy `core/auth.py` path.
 
 ### Test Credentials
 
@@ -276,7 +272,7 @@ sudo -n -u verdaxis-prod /home/verdaxis-prod/verdaxis/staging/be/scripts/deploy.
 
 14. **Redis is an intentional Docker Compose dependency.** `docker-compose.yml` provisions Redis for the upcoming shared event/rate-limit work; keep the service and its configuration intact.
 
-15. **Never use `--reload` in production Docker.** The `docker-compose.yml` `command:` used to include `--reload`, which caused uvicorn's `StatReload` to poll all 11,243 files in the bind-mounted `/app` directory (including `venv/` with 3,267 `.py` files and `postgres_data/`). This burned 243% CPU doing nothing. The fix: production compose uses plain `uvicorn` without `--reload`; dev uses `docker-compose.override.yml` with `--reload-dir` targeting only source directories.
+15. **Never use `--reload` in production Docker.** The `docker-compose.yml` `command:` used to include `--reload`, which caused uvicorn's `StatReload` to poll all 11,243 files in the bind-mounted `/app` directory (including `venv/` with 3,267 `.py` files and `postgres_data/`). This burned 243% CPU doing nothing. The current Compose command uses plain `uvicorn` without `--reload`. For local development, follow the isolated-worktree procedure in [README.md](README.md#local-development).
 
 16. **`.dockerignore` does NOT affect bind mounts.** The existing `.dockerignore` correctly excludes `venv/` and `postgres_data/` from `docker build` context, but the `volumes: - .:/app` bind mount bypasses it entirely. If using `--reload` with a bind mount, you MUST use `--reload-dir` to whitelist directories, not rely on `.dockerignore`.
 
@@ -328,20 +324,9 @@ BACKEND_CORS_ORIGINS=          # Omit for exact environment-specific allowlist
 - **`main`** branch: legacy/default development branch in older docs and workflows.
 - Do not assume a push to `main` deploys the current live topology; verify `.github/workflows/backend-ci.yml` before relying on CI/CD.
 
-## Development with Hot Reload
+## Local Development
 
-For local development with hot-reload, the project includes `docker-compose.override.yml`:
-
-```bash
-# Dev mode (auto-reload enabled via override):
-docker compose up -d --build
-
-# Production mode (no reload, rename override first):
-mv docker-compose.override.yml docker-compose.override.yml.dev
-docker compose up -d --build
-```
-
-The override uses `--reload-dir` to watch only `app/`, `alembic/`, and `scripts/` directories, plus `watchfiles` (inotify-based) instead of the default `StatReload` (polling). This keeps CPU near zero even in dev mode.
+Use the isolated-worktree procedure in [README.md](README.md#local-development).
 <!-- codesight-local:start -->
 ## Codesight Bootstrap
 

@@ -15,7 +15,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.command_result import MarketCommandResult
-from app.services.idempotency import acquire_idempotency_lock
+from app.services.idempotency import (
+    acquire_idempotency_lock,
+    normalize_idempotency_key,
+)
 
 
 TRADE_CONFIRM_OPERATION = "trade.confirm"
@@ -81,9 +84,7 @@ async def prepare_command_attempt(
     raw_key = request.headers.get("Idempotency-Key")
     if raw_key is None:
         return None
-    key = raw_key.strip()
-    if not key or len(key) > 255:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Idempotency-Key must be 1-255 characters")
+    key = normalize_idempotency_key(raw_key)
     if effective_organization_id is None:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Market organization is required")
 
