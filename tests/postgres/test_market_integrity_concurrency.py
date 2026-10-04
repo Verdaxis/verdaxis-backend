@@ -238,7 +238,7 @@ async def test_concurrent_acceptance_ordinals_follow_the_market_lock(pg):
 @pytest.mark.asyncio
 async def test_idempotency_lock_timeout_is_bounded_and_rollback_safe(pg):
     factory = async_sessionmaker(pg, class_=AsyncSession, expire_on_commit=False)
-    tenant_id = uuid4()
+    lock_scope_id = uuid4()
     held = asyncio.Event()
     release = asyncio.Event()
 
@@ -247,7 +247,7 @@ async def test_idempotency_lock_timeout_is_bounded_and_rollback_safe(pg):
             async with session.begin():
                 await acquire_idempotency_lock(
                     session,
-                    tenant_id=tenant_id,
+                    lock_scope_id=lock_scope_id,
                     operation="order.create",
                     key="held-key",
                 )
@@ -262,7 +262,7 @@ async def test_idempotency_lock_timeout_is_bounded_and_rollback_safe(pg):
             with pytest.raises(HTTPException) as raised:
                 await acquire_idempotency_lock(
                     contender,
-                    tenant_id=tenant_id,
+                    lock_scope_id=lock_scope_id,
                     operation="order.create",
                     key="held-key",
                 )
