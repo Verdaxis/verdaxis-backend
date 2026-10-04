@@ -183,6 +183,111 @@ def test_signup_canary_cleans_up_once_after_signup_exception(monkeypatch):
     ]
 
 
+@pytest.mark.parametrize(
+    ("response", "expected_error", "secret"),
+    [
+        (
+            (503, "http-response-secret"),
+            "analytics ingestion canary returned HTTP 503",
+            "http-response-secret",
+        ),
+        (
+            (200, "malformed-json-secret"),
+            "analytics ingestion canary returned invalid response",
+            "malformed-json-secret",
+        ),
+        (
+            (200, '{"detail":"missing-session-secret"}'),
+            "analytics ingestion canary returned invalid response",
+            "missing-session-secret",
+        ),
+        (
+            (200, '{"sessionId":null,"detail":"null-session-secret"}'),
+            "analytics ingestion canary returned an invalid session ID",
+            "null-session-secret",
+        ),
+        (
+            (200, '{"sessionId":123,"detail":"numeric-session-secret"}'),
+            "analytics ingestion canary returned an invalid session ID",
+            "numeric-session-secret",
+        ),
+    ],
+)
+def test_analytics_collector_rejects_responses_without_leaking_or_cleanup(
+    monkeypatch,
+    response,
+    expected_error,
+    secret,
+):
+    module = load_module()
+    monkeypatch.setenv("ANALYTICS_CANARY_ENABLED", "1")
+    monkeypatch.setattr(module.time, "time", lambda: 123)
+    monkeypatch.setattr(
+        module,
+        "json_request",
+        lambda url, payload, *, headers=None, timeout=20: response,
+    )
+    cleanup_calls = []
+
+    def cleanup(*args, **kwargs):
+        cleanup_calls.append((args, kwargs))
+        raise AssertionError("cleanup must not run for a rejected response")
+
+    monkeypatch.setattr(module, "run", cleanup)
+
+    errors = module.check_analytics_collector()
+
+    assert errors == [expected_error]
+    assert secret not in errors[0]
+    assert cleanup_calls == []
+
+
+@pytest.mark.parametrize("failure_kind", ["nonzero", "timeout"])
+def test_analytics_collector_cleanup_failures_do_not_leak(
+    monkeypatch,
+    failure_kind,
+):
+    module = load_module()
+    monkeypatch.setenv("ANALYTICS_CANARY_ENABLED", "1")
+    monkeypatch.setattr(module.time, "time", lambda: 123)
+    session_id = "01234567-89ab-cdef-0123-456789abcdef"
+    cleanup_secret = "cleanup-subprocess-secret"
+    monkeypatch.setattr(
+        module,
+        "json_request",
+        lambda url, payload, *, headers=None, timeout=20: (
+            200,
+            json.dumps({"sessionId": session_id}),
+        ),
+    )
+    cleanup_calls = []
+
+    def cleanup(command, timeout=20):
+        cleanup_calls.append((command, timeout))
+        if failure_kind == "timeout":
+            raise subprocess.TimeoutExpired(
+                command,
+                timeout,
+                output=cleanup_secret,
+                stderr=cleanup_secret,
+            )
+        return subprocess.CompletedProcess(
+            command,
+            1,
+            stdout=cleanup_secret,
+            stderr=cleanup_secret,
+        )
+
+    monkeypatch.setattr(module, "run", cleanup)
+
+    errors = module.check_analytics_collector()
+
+    assert errors == ["analytics ingestion canary cleanup failed"]
+    assert cleanup_secret not in errors[0]
+    assert session_id not in errors[0]
+    assert len(cleanup_calls) == 1
+
+
 def _demo_trade_body(confirmed_at: str, **overrides) -> str:
     item = {
         "id": "sensitive-trade-id",

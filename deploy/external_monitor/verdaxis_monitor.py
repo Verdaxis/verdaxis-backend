@@ -841,13 +841,15 @@ def check_analytics_collector() -> list[str]:
         },
     )
     if code != 200:
-        return [f"analytics ingestion canary returned HTTP {code}: {body[:200]}"]
+        return [f"analytics ingestion canary returned HTTP {code}"]
 
     try:
         session_id = json.loads(body)["sessionId"]
     except (KeyError, TypeError, json.JSONDecodeError):
-        return [f"analytics ingestion canary returned unexpected body: {body[:200]}"]
-    if not re.fullmatch(r"[0-9a-fA-F-]{36}", session_id):
+        return ["analytics ingestion canary returned invalid response"]
+    if not isinstance(session_id, str) or not re.fullmatch(
+        r"[0-9a-fA-F-]{36}", session_id
+    ):
         return ["analytics ingestion canary returned an invalid session ID"]
 
     cleanup_sql = f"""
@@ -865,29 +867,28 @@ def check_analytics_collector() -> list[str]:
             );
         COMMIT;
     """
-    cleanup = run(
-        [
-            "/usr/bin/docker",
-            "exec",
-            "analytics-db-1",
-            "psql",
-            "-v",
-            "ON_ERROR_STOP=1",
-            "-U",
-            "umami",
-            "-d",
-            "umami",
-            "-c",
-            cleanup_sql,
-        ],
-        timeout=20,
-    )
+    try:
+        cleanup = run(
+            [
+                "/usr/bin/docker",
+                "exec",
+                "analytics-db-1",
+                "psql",
+                "-v",
+                "ON_ERROR_STOP=1",
+                "-U",
+                "umami",
+                "-d",
+                "umami",
+                "-c",
+                cleanup_sql,
+            ],
+            timeout=20,
+        )
+    except subprocess.TimeoutExpired:
+        return ["analytics ingestion canary cleanup failed"]
     if cleanup.returncode != 0:
-        detail = (cleanup.stderr or cleanup.stdout).strip().splitlines()
-        return [
-            "analytics ingestion canary cleanup failed: "
-            + (detail[-1] if detail else "unknown database error")
-        ]
+        return ["analytics ingestion canary cleanup failed"]
     return []
 
 
