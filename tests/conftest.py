@@ -11,6 +11,8 @@ from typing import Generator
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy.dialects.postgresql import UUID as PostgreSQLUUID
+from sqlalchemy.ext.compiler import compiles
 
 # Tests must opt into an isolated JWT namespace. Production/staging startup
 # fails closed when these environment-bound values are absent.
@@ -19,6 +21,13 @@ os.environ.setdefault("RELEASE_SHA", "test")
 os.environ.setdefault("JWT_SECRET", "test-secret-key-for-testing-minimum-32-chars")
 os.environ.setdefault("JWT_ISSUER", "verdaxis-test-api")
 os.environ.setdefault("JWT_AUDIENCE", "verdaxis-test-web")
+
+
+@compiles(PostgreSQLUUID, "sqlite")
+def _compile_postgresql_uuid_for_sqlite(_type, _compiler, **_kwargs):
+    # Bare UUID has NUMERIC affinity in SQLite and can coerce UUID hex to REAL.
+    return "CHAR(32)"
+
 
 from tests.disposable_target import (  # noqa: E402
     DisposableTargetError,
