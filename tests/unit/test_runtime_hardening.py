@@ -1,7 +1,8 @@
 """Focused tests for runtime configuration and integration safety."""
 
-import os
 import importlib.util
+import logging
+import os
 from pathlib import Path
 import re
 import subprocess
@@ -14,6 +15,7 @@ from alembic.autogenerate import compare_metadata
 from alembic.migration import MigrationContext
 from sqlalchemy import Boolean, Column, ForeignKey, Integer, MetaData, String, Table, UniqueConstraint, create_engine
 from app.migration_drift import compare_server_default, compare_type, include_object
+from app.runtime_server import DiagnosticProcess
 
 from app.config import Settings
 from app.database import (
@@ -120,6 +122,92 @@ def test_deployed_units_use_the_validated_connection_budget(unit_name):
     assert worker_count == 4
     assert "--workers ${UVICORN_WORKERS}" in service
     assert settings.DB_SERVICE_COUNT * worker_count * (settings.DB_POOL_SIZE + settings.DB_MAX_OVERFLOW) + settings.DB_RESERVED_CONNECTIONS <= settings.DB_MAX_CONNECTIONS
+
+
+def test_staging_worker_diagnostics_preserve_the_pinned_uvicorn_cli():
+    root = Path(__file__).parents[2]
+    staging_unit = (root / "deploy/systemd/verdaxis-backend-staging.service").read_text()
+    production_unit = (root / "deploy/systemd/verdaxis-backend.service").read_text()
+    constraints = (root / "constraints.txt").read_text()
+
+    assert "uvicorn==0.51.0" in constraints
+    assert (
+        "ExecStart=/home/verdaxis-prod/verdaxis/staging/be/venv/bin/python "
+        "-m app.runtime_server app.main:app --host 127.0.0.1 --port 8001 "
+        "--workers ${UVICORN_WORKERS} --no-access-log --proxy-headers "
+        "--forwarded-allow-ips 127.0.0.1"
+    ) in staging_unit
+    assert "app.runtime_server" not in production_unit
+
+
+@pytest.mark.parametrize(
+    ("alive_results", "ping_result", "exitcode_before", "final_exitcode", "reason"),
+    [
+        ([True], True, None, None, None),
+        ([False], None, 7, 7, "exited_before_healthcheck"),
+        ([True, False], False, 23, 23, "exited_during_healthcheck"),
+        ([True, True], False, None, -9, "alive_after_failed_healthcheck"),
+    ],
+)
+def test_worker_diagnostic_observations(
+    caplog,
+    alive_results,
+    ping_result,
+    exitcode_before,
+    final_exitcode,
+    reason,
+):
+    actions = []
+
+    class FakeChildProcess:
+        pid = 1234
+
+        def __init__(self):
+            self._alive_results = iter(alive_results)
+            self._joined = False
+
+        def is_alive(self):
+            actions.append("is_alive")
+            return next(self._alive_results)
+
+        @property
+        def exitcode(self):
+            return final_exitcode if self._joined else exitcode_before
+
+        def join(self):
+            actions.append("join")
+            self._joined = True
+
+    process = object.__new__(DiagnosticProcess)
+    process.process = FakeChildProcess()
+
+    def ping(timeout):
+        actions.append(("ping", timeout))
+        return ping_result
+
+    process.ping = ping
+    with caplog.at_level(logging.WARNING, logger="uvicorn.error"):
+        assert process.is_alive(timeout=5) is (reason is None)
+        if reason is not None:
+            process.join()
+
+    expected_actions = ["is_alive", ("ping", 5)] if ping_result is True else ["is_alive"]
+    if reason == "exited_during_healthcheck" or reason == "alive_after_failed_healthcheck":
+        expected_actions.extend([("ping", 5), "is_alive"])
+    if reason is not None:
+        expected_actions.append("join")
+    assert actions == expected_actions
+
+    messages = [record.getMessage() for record in caplog.records]
+    if reason is None:
+        assert messages == []
+    else:
+        assert any(
+            f"reason={reason} pid=1234 exitcode_before_parent_kill={exitcode_before}"
+            in message
+            for message in messages
+        )
+        assert any(f"final_exitcode={final_exitcode}" in message for message in messages)
 
 
 @pytest.mark.parametrize(
