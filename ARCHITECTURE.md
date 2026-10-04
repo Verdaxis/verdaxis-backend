@@ -228,6 +228,7 @@ marker; public signals contain no identity, economics or private cursor. REST
 refresh, polling and reconnect remain authoritative; this is not an L2 delta feed.
 
 Confirm, decline, deliver, pay, amend and cancel accept an optional idempotency key.
+The six command receipts use actor-scoped idempotency locks; create and publish flows use organization-scoped locks.
 Current authentication and actor context are checked before replay. Successful
 results bind the actor, organization, support context, target and request hash;
 they preserve the original status and response after later state changes. Reusing

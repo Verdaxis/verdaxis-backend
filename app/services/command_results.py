@@ -89,7 +89,7 @@ async def prepare_command_attempt(
 
     request_hash = command_request_hash(payload)
     try:
-        await acquire_idempotency_lock(db, tenant_id=actor_user_id, operation=operation, key=key)
+        await acquire_idempotency_lock(db, lock_scope_id=actor_user_id, operation=operation, key=key)
     except IdempotencyLockBusy as exc:
         # A competing request can still commit the durable result. The caller
         # must retain this same intention and retry instead of treating the

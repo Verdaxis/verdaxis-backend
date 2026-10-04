@@ -814,7 +814,7 @@ async def create_authorization(
     # part of the pre-context idempotency contract.
     request_payload.get("order", {}).pop("support_confirmation", None)
     request_hash = idempotency_request_hash(request_payload)
-    await acquire_idempotency_lock(db, tenant_id=organization_id, operation=AUTH_CREATE_OPERATION, key=key)
+    await acquire_idempotency_lock(db, lock_scope_id=organization_id, operation=AUTH_CREATE_OPERATION, key=key)
     existing = (
         await db.execute(
             select(MarketSupportAuthorization).where(
@@ -1032,7 +1032,7 @@ async def create_listing(
     await _lock_capability(db, current_user.id, MarketSupportCapability.MARKET_SUPPORT_LISTINGS)
     key = _require_idempotency_key(idempotency_key_header)
     request_hash = idempotency_request_hash(body.model_dump(mode="json"))
-    await acquire_idempotency_lock(db, tenant_id=organization_id, operation=LISTING_CREATE_OPERATION, key=key)
+    await acquire_idempotency_lock(db, lock_scope_id=organization_id, operation=LISTING_CREATE_OPERATION, key=key)
     replay = (
         await db.execute(
             select(OrderBookOrder)

@@ -661,7 +661,7 @@ async def create_trade(
         if not idempotency_key or len(idempotency_key) > 255:
             raise HTTPException(status_code=400, detail="Idempotency-Key must be 1-255 characters")
         request_hash = idempotency_request_hash(trade_create_idempotency_payload(payload))
-        await acquire_idempotency_lock(db, tenant_id=initiator_org_id, operation=TRADE_CREATE_OPERATION, key=idempotency_key)
+        await acquire_idempotency_lock(db, lock_scope_id=initiator_org_id, operation=TRADE_CREATE_OPERATION, key=idempotency_key)
         replay = (await db.execute(
             select(Trade).options(selectinload(Trade.buyer), selectinload(Trade.seller)).where(
                 Trade.initiator_org_id == initiator_org_id,
