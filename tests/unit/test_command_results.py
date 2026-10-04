@@ -81,7 +81,7 @@ async def test_command_lock_contention_is_retryable_unknown_outcome(monkeypatch)
 async def test_plain_exception_with_busy_detail_is_not_remapped(monkeypatch):
     conflict = HTTPException(
         status_code=409,
-        detail="Idempotency key is busy; retry the request",
+        detail="Idempotency key is busy; retry the same request",
     )
 
     async def reject(*args, **kwargs):

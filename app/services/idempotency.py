@@ -24,10 +24,11 @@ INVENTORY_PUBLISH_OPERATION = "inventory.publish"
 
 
 class IdempotencyLockBusy(HTTPException):
+    # The current holder may still commit; retry with the same key and payload.
     def __init__(self) -> None:
         super().__init__(
-            status_code=409,
-            detail="Idempotency key is busy; retry the request",
+            status_code=503,
+            detail="Idempotency key is busy; retry the same request",
         )
 
 
