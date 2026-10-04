@@ -32,6 +32,16 @@ class IdempotencyLockBusy(HTTPException):
         )
 
 
+def normalize_idempotency_key(raw: str) -> str:
+    key = raw.strip()
+    if not key or len(key) > 255:
+        raise HTTPException(
+            status_code=400,
+            detail="Idempotency-Key must be 1-255 characters",
+        )
+    return key
+
+
 def idempotency_request_hash(payload: object) -> str:
     encoded = json.dumps(
         payload,
