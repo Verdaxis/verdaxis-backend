@@ -1044,7 +1044,7 @@ class ForwardCurveMarketSliceService:
                     _label_policy(
                         label=label,
                         tooltip="Midpoint of the best visible bid and ask for this exact slice. One-sided books do not create a midpoint.",
-                        allowed_terms=["orderbook", "midpoint", "executable"] if has_real_two_sided else ["demo", "orderbook", "midpoint"],
+                        allowed_terms=["orderbook", "midpoint", "executable"],
                     )
                     if include_label_policy
                     else None
