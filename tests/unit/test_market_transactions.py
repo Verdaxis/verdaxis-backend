@@ -3,14 +3,12 @@ from unittest.mock import AsyncMock
 
 import pytest
 from fastapi import HTTPException
+from sqlalchemy.exc import DBAPIError
 
 
 @pytest.mark.asyncio
 async def test_market_transaction_retries_one_genuine_deadlock_from_fresh_transaction():
-    from app.services.market_transactions import (
-        RetryableMarketTransactionError,
-        retry_market_transaction,
-    )
+    from app.services.market_transactions import retry_market_transaction
 
     db = AsyncMock()
     user = SimpleNamespace(id=None)
@@ -21,7 +19,9 @@ async def test_market_transaction_retries_one_genuine_deadlock_from_fresh_transa
         nonlocal calls
         calls += 1
         if calls == 1:
-            raise RetryableMarketTransactionError("40P01")
+            original = RuntimeError("deadlock")
+            original.sqlstate_code = "40P01"
+            raise DBAPIError("SELECT 1", None, original)
         return "committed"
 
     assert await operation(db=db, current_user=user) == "committed"
