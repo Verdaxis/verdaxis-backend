@@ -1336,9 +1336,8 @@ async def confirm_trade(
         ],
     )
     await db.flush()
-    loaded_trade = await _load_trade(db, trade.id)
     response = build_trade_response(
-        loaded_trade,
+        trade,
         viewer_org_id=org_id,
         viewer_is_admin=current_user.role == UserRole.ADMIN,
     )
@@ -1546,9 +1545,8 @@ async def decline_trade(
         ],
     )
     await db.flush()
-    loaded_trade = await _load_trade(db, trade.id)
     response = build_trade_response(
-        loaded_trade,
+        trade,
         viewer_org_id=org_id,
         viewer_is_admin=current_user.role == UserRole.ADMIN,
     )
@@ -1698,9 +1696,8 @@ async def deliver_trade(
         ],
     )
     await db.flush()
-    loaded_trade = await _load_trade(db, trade.id)
     response = build_trade_response(
-        loaded_trade,
+        trade,
         viewer_org_id=org_id,
         viewer_is_admin=current_user.role == UserRole.ADMIN,
     )
@@ -1809,9 +1806,8 @@ async def pay_trade(
         ],
     )
     await db.flush()
-    loaded_trade = await _load_trade(db, trade.id)
     response = build_trade_response(
-        loaded_trade,
+        trade,
         viewer_org_id=org_id,
         viewer_is_admin=current_user.role == UserRole.ADMIN,
     )
