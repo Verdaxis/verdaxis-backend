@@ -2774,16 +2774,8 @@ async def update_order(
 
     await enqueue_market_events(db, committed_events)
     await db.flush()
+    # Preserve database-canonical values while reusing the locked row's eager-load strategy.
     await db.refresh(order)
-
-    # Re-fetch with eager loading for tier_label
-    result = await db.execute(
-        select(OrderBookOrder)
-        .options(selectinload(OrderBookOrder.organization))
-        .where(OrderBookOrder.id == order.id)
-    )
-    order = result.scalars().first()
-
     response = await _order_response(db, order)
     await record_command_success(
         db, command, response_status=200, response_body=response.model_dump(mode="json")

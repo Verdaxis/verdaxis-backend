@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, timezone
 from decimal import Decimal
 from unittest.mock import AsyncMock
 from uuid import uuid4
@@ -505,7 +505,9 @@ async def test_six_command_results_replay_exact_snapshots_without_new_effects(
     assert declined.status_code == 200, declined.text
     assert declined.json()["status"] == "DECLINED"
 
-    expires_at = datetime.now(UTC) + timedelta(hours=1)
+    expires_at = (datetime.now(UTC) + timedelta(hours=1)).astimezone(
+        timezone(timedelta(hours=8))
+    )
     created_order = await client.post(
         "/api/orderbook",
         json={
@@ -529,6 +531,10 @@ async def test_six_command_results_replay_exact_snapshots_without_new_effects(
         f"/api/orderbook/{order_id}", json=amend_payload, headers=amend_headers
     )
     assert amended.status_code == 200, amended.text
+    amended_expires_at = amended.json()["expires_at"]
+    assert amended_expires_at == expires_at.astimezone(UTC).isoformat().replace(
+        "+00:00", "Z"
+    )
     cancel_headers = _headers(seeded["buyer_id"], "command-replay-cancel")
     cancelled = await client.delete(
         f"/api/orderbook/{order_id}", headers=cancel_headers
@@ -550,6 +556,12 @@ async def test_six_command_results_replay_exact_snapshots_without_new_effects(
         }
         inventory = await session.get(InventoryItem, seeded["inventory_id"])
         inventory_snapshot = (inventory.current_stock_mt, inventory.reserved_stock_mt)
+        reloaded_order = await session.get(OrderBookOrder, order_id)
+        assert reloaded_order is not None
+        assert reloaded_order.expires_at is not None
+        assert reloaded_order.expires_at.isoformat().replace("+00:00", "Z") == (
+            amended_expires_at
+        )
     assert baseline["receipts"] == 6
 
     elapsed_now = expires_at + timedelta(seconds=1)
