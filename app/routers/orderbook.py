@@ -921,17 +921,13 @@ async def list_bids(
     if product_id:
         filters.append(OrderBookOrder.product_id == product_id)
     if fuel_type:
-        _ensure_join(joins, Product, OrderBookOrder.product_id == Product.id)
         filters.append(Product.fuel_type == fuel_type)
     normalized_market_product = _normalize_market_product_query(market_product)
     if normalized_market_product:
-        _ensure_join(joins, Product, OrderBookOrder.product_id == Product.id)
         filters.append(_market_product_filter_condition(normalized_market_product))
     if delivery_point_id:
         filters.append(OrderBookOrder.delivery_point_id == delivery_point_id)
     if region:
-        if not any(j[0] == DeliveryPoint for j in joins):
-            joins.append((DeliveryPoint, OrderBookOrder.delivery_point_id == DeliveryPoint.id))
         filters.append(or_(DeliveryPoint.region == region, DeliveryPoint.name == region))
     normalized_window = _normalize_query_window(availability_window)
     if normalized_window:
@@ -1006,17 +1002,13 @@ async def list_asks(
     if product_id:
         filters.append(OrderBookOrder.product_id == product_id)
     if fuel_type:
-        _ensure_join(joins, Product, OrderBookOrder.product_id == Product.id)
         filters.append(Product.fuel_type == fuel_type)
     normalized_market_product = _normalize_market_product_query(market_product)
     if normalized_market_product:
-        _ensure_join(joins, Product, OrderBookOrder.product_id == Product.id)
         filters.append(_market_product_filter_condition(normalized_market_product))
     if delivery_point_id:
         filters.append(OrderBookOrder.delivery_point_id == delivery_point_id)
     if region:
-        if not any(j[0] == DeliveryPoint for j in joins):
-            joins.append((DeliveryPoint, OrderBookOrder.delivery_point_id == DeliveryPoint.id))
         filters.append(or_(DeliveryPoint.region == region, DeliveryPoint.name == region))
     normalized_window = _normalize_query_window(availability_window)
     if normalized_window:
