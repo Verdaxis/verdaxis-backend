@@ -2,7 +2,7 @@
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from types import SimpleNamespace
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from fastapi import HTTPException
@@ -641,6 +641,8 @@ async def test_demo_coverage_refresh_retains_identity_and_adds_depth_only_once(m
     await _make_product(db, "B30")
     await _make_delivery_point(db)
     original, obsolete = demo_activity.build_demo_market_coverage(now)[:2]
+    # Preserve UUID hex that looks like scientific notation across refreshes.
+    original.id = UUID("10000000-0000-4000-8000-0000000e0500")
     # Existing ownership must survive a depth expansion that changes ordinals.
     original.organization_id = demo_activity.DEMO_SEED_BUYERS[-1][0]
     original.price_per_mt_usd = Decimal("1")
