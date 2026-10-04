@@ -799,22 +799,22 @@ def test_main_aggregates_outbox_failures_into_existing_status_path(monkeypatch):
     module = load_module()
     monkeypatch.setattr(module, "check_caddyfile", lambda: [])
     monkeypatch.setattr(module, "check_endpoints", lambda: ([], []))
-    monkeypatch.setattr(module, "check_frontend_bundles", lambda: [])
-    monkeypatch.setattr(module, "check_rendered_pages", lambda: [])
-    monkeypatch.setattr(module, "check_backup_status", lambda: [])
     monkeypatch.setattr(
         module,
         "check_restore_status",
         lambda: ["restore verification is stale"],
     )
-    monkeypatch.setattr(module, "check_signup_canaries", lambda: [])
+    expensive_status = {
+        "ok": False,
+        "checked_at": 1_000,
+        "checked_at_utc": "1970-01-01T00:16:40Z",
+        "errors": ["production demo trade canary is stale"],
+    }
     monkeypatch.setattr(
         module,
-        "check_demo_trade_canaries",
-        lambda: ["production demo trade canary is stale"],
+        "check_expensive_if_due",
+        lambda: (["production demo trade canary is stale"], expensive_status),
     )
-    monkeypatch.setattr(module, "check_analytics_collector", lambda: [])
-    monkeypatch.setattr(module, "check_analytics_storage", lambda: [])
     monkeypatch.setattr(
         module,
         "check_outbox_backlogs",
@@ -834,8 +834,12 @@ def test_main_aggregates_outbox_failures_into_existing_status_path(monkeypatch):
     monkeypatch.setattr(
         module,
         "write_status",
-        lambda ok, errors, endpoints, outboxes: observed.update(
-            ok=ok, errors=errors, endpoints=endpoints, outboxes=outboxes
+        lambda ok, errors, endpoints, outboxes, expensive: observed.update(
+            ok=ok,
+            errors=errors,
+            endpoints=endpoints,
+            outboxes=outboxes,
+            expensive=expensive,
         ),
     )
     monkeypatch.setattr(module, "maybe_alert", lambda ok, errors: None)
@@ -857,4 +861,143 @@ def test_main_aggregates_outbox_failures_into_existing_status_path(monkeypatch):
                 "oldest_pending_seconds": 301,
             }
         ],
+        "expensive": expensive_status,
+    }
+
+
+def test_cached_expensive_failure_stays_active_through_main(monkeypatch, tmp_path):
+    module = load_module()
+    status_file = tmp_path / "status.json"
+    cached = {
+        "ok": False,
+        "checked_at": 1_000,
+        "checked_at_utc": "1970-01-01T00:16:40Z",
+        "errors": ["render timed out"],
+    }
+    module.save_state(status_file, {"expensive_checks": cached})
+    monkeypatch.setenv("STATUS_FILE", str(status_file))
+    monkeypatch.setenv("EXPENSIVE_CHECK_INTERVAL_SECONDS", "1800")
+    monkeypatch.setattr(module.time, "time", lambda: 1_600)
+    deep_calls = []
+    alerts = []
+    monkeypatch.setattr(module, "run_expensive_checks", lambda: deep_calls.append(True))
+    monkeypatch.setattr(module, "check_caddyfile", lambda: [])
+    monkeypatch.setattr(module, "check_endpoints", lambda: ([], []))
+    monkeypatch.setattr(module, "check_restore_status", lambda: [])
+    monkeypatch.setattr(module, "check_outbox_backlogs", lambda: ([], []))
+    monkeypatch.setattr(
+        module,
+        "maybe_alert",
+        lambda ok, errors: alerts.append((ok, errors)),
+    )
+
+    assert module.main() == 2
+    assert deep_calls == []
+    status = module.load_state(status_file)
+    assert status["ok"] is False
+    assert status["errors"] == ["render timed out"]
+    assert status["expensive_checks"] == cached
+    assert alerts == [(False, ["render timed out"])]
+
+
+@pytest.mark.parametrize(
+    ("cached", "interval"),
+    [
+        ({"errors": []}, "1800"),
+        ({"checked_at": "1000", "errors": []}, "1800"),
+        ({"checked_at": 1_000, "errors": [1]}, "1800"),
+        ({"checked_at": 1_000, "errors": []}, "invalid"),
+    ],
+)
+def test_invalid_expensive_cache_forces_deep_run(
+    monkeypatch,
+    tmp_path,
+    cached,
+    interval,
+):
+    module = load_module()
+    status_file = tmp_path / "status.json"
+    module.save_state(status_file, {"expensive_checks": cached})
+    monkeypatch.setenv("STATUS_FILE", str(status_file))
+    monkeypatch.setenv("EXPENSIVE_CHECK_INTERVAL_SECONDS", interval)
+    monkeypatch.setattr(module.time, "time", lambda: 1_600)
+    deep_calls = []
+    monkeypatch.setattr(
+        module,
+        "run_expensive_checks",
+        lambda: deep_calls.append(True) or [],
+    )
+
+    errors, status = module.check_expensive_if_due()
+
+    assert errors == []
+    assert status["ok"] is True
+    assert deep_calls == [True]
+
+
+def test_expired_expensive_cache_runs_and_records_checks(monkeypatch, tmp_path):
+    module = load_module()
+    status_file = tmp_path / "status.json"
+    module.save_state(
+        status_file,
+        {"expensive_checks": {"ok": True, "checked_at": 1_000, "errors": []}},
+    )
+    monkeypatch.setenv("STATUS_FILE", str(status_file))
+    monkeypatch.setenv("EXPENSIVE_CHECK_INTERVAL_SECONDS", "1800")
+    monkeypatch.setattr(module.time, "time", lambda: 2_800)
+    monkeypatch.setattr(
+        module,
+        "run_expensive_checks",
+        lambda: ["backup failed gzip validation"],
+    )
+
+    errors, status = module.check_expensive_if_due()
+
+    assert errors == ["backup failed gzip validation"]
+    assert status["ok"] is False
+    assert status["checked_at"] == 2_800
+
+
+def test_main_keeps_cheap_checks_on_every_invocation(monkeypatch, tmp_path):
+    module = load_module()
+    status_file = tmp_path / "status.json"
+    monkeypatch.setenv("STATUS_FILE", str(status_file))
+    monkeypatch.setattr(module.time, "time", lambda: 10_000)
+    calls = {"caddy": 0, "endpoints": 0, "restore": 0, "outboxes": 0, "expensive": 0}
+
+    def called(name, result):
+        calls[name] += 1
+        return result
+
+    monkeypatch.setattr(module, "check_caddyfile", lambda: called("caddy", []))
+    monkeypatch.setattr(
+        module,
+        "check_endpoints",
+        lambda: called("endpoints", ([], [])),
+    )
+    monkeypatch.setattr(
+        module,
+        "check_restore_status",
+        lambda: called("restore", []),
+    )
+    monkeypatch.setattr(
+        module,
+        "check_outbox_backlogs",
+        lambda: called("outboxes", ([], [])),
+    )
+    monkeypatch.setattr(
+        module,
+        "run_expensive_checks",
+        lambda: called("expensive", []),
+    )
+    monkeypatch.setattr(module, "maybe_alert", lambda ok, errors: None)
+
+    assert module.main() == 0
+    assert module.main() == 0
+    assert calls == {
+        "caddy": 2,
+        "endpoints": 2,
+        "restore": 2,
+        "outboxes": 2,
+        "expensive": 1,
     }
