@@ -1921,7 +1921,7 @@ async def create_order(
         )
         await acquire_idempotency_lock(
             db,
-            tenant_id=effective_organization_id,
+            lock_scope_id=effective_organization_id,
             operation=ORDER_CREATE_OPERATION,
             key=idempotency_key,
         )

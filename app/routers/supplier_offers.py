@@ -353,7 +353,7 @@ async def create_offer(
     )
     await acquire_idempotency_lock(
         db,
-        tenant_id=current_user.organization_id,
+        lock_scope_id=current_user.organization_id,
         operation="supplier_offer.create",
         key=key,
     )

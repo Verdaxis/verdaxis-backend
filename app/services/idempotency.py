@@ -41,15 +41,15 @@ def idempotency_request_hash(payload: object) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
-def idempotency_lock_key(tenant_id: UUID, operation: str, key: str) -> int:
-    digest = hashlib.sha256(f"{tenant_id}|{operation}|{key}".encode()).digest()[:8]
+def idempotency_lock_key(lock_scope_id: UUID, operation: str, key: str) -> int:
+    digest = hashlib.sha256(f"{lock_scope_id}|{operation}|{key}".encode()).digest()[:8]
     return int.from_bytes(digest, byteorder="big", signed=True) or 1
 
 
 async def acquire_idempotency_lock(
     db: AsyncSession,
     *,
-    tenant_id: UUID,
+    lock_scope_id: UUID,
     operation: str,
     key: str,
 ) -> None:
@@ -61,7 +61,7 @@ async def acquire_idempotency_lock(
         await db.execute(text(f"SET LOCAL statement_timeout = '{IDEMPOTENCY_STATEMENT_TIMEOUT}'"))
         await db.execute(
             text("SELECT pg_advisory_xact_lock(:lock_key)"),
-            {"lock_key": idempotency_lock_key(tenant_id, operation, key)},
+            {"lock_key": idempotency_lock_key(lock_scope_id, operation, key)},
         )
     except DBAPIError as exc:
         sqlstate = database_sqlstate(exc)

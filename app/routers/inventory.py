@@ -381,7 +381,7 @@ async def publish_inventory_item(
         request_hash = idempotency_request_hash({"inventory_item_id": str(item_id)})
         await acquire_idempotency_lock(
             db,
-            tenant_id=current_user.organization_id,
+            lock_scope_id=current_user.organization_id,
             operation=INVENTORY_PUBLISH_OPERATION,
             key=idempotency_key,
         )
