@@ -795,6 +795,175 @@ def test_outbox_check_fails_closed_on_missing_or_failed_probe(monkeypatch, tmp_p
     ]
 
 
+def test_rendered_page_check_uses_wall_clock_webdriver_and_cleans_up(
+    monkeypatch,
+    tmp_path,
+):
+    module = load_module()
+    monkeypatch.setenv("CHROMIUM_PROFILE_PARENT", str(tmp_path))
+    monkeypatch.setenv("RENDER_RETRIES", "1")
+    monkeypatch.setenv("MONITOR_TOKEN", "must-not-reach-browser")
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "must-not-reach-browser")
+    monkeypatch.setattr(
+        module,
+        "find_chromedriver",
+        lambda: "/snap/bin/chromium.chromedriver",
+    )
+    monkeypatch.setattr(module, "unused_loopback_port", lambda: 43123)
+
+    launches = []
+    signals = []
+    requests = []
+
+    class FakeProcess:
+        pid = 4242
+
+        def poll(self):
+            return None
+
+        def wait(self, timeout):
+            return 0
+
+    def fake_popen(command, **kwargs):
+        launches.append((command, kwargs))
+        return FakeProcess()
+
+    def fake_request(port, method, path, payload=None, *, timeout=5.0):
+        requests.append((port, method, path, payload, timeout))
+        if path == "/status":
+            return {"ready": True}
+        if path == "/session":
+            return {"sessionId": "session-1"}
+        if path.endswith("/execute/sync"):
+            return {
+                "emailVisible": True,
+                "passwordVisible": True,
+                "submitVisible": True,
+                "requiredMatches": [True],
+                "forbiddenMatches": [False, False],
+                "securityCheckpoint": False,
+            }
+        return None
+
+    monkeypatch.setattr(module.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(module, "webdriver_request", fake_request)
+    monkeypatch.setattr(
+        module.os,
+        "killpg",
+        lambda process_group, signal_number: signals.append(
+            (process_group, signal_number)
+        ),
+    )
+
+    assert module.check_rendered_pages() == []
+
+    command, options = launches[0]
+    assert command == [
+        "/snap/bin/chromium.chromedriver",
+        "--port=43123",
+        "--allowed-ips=127.0.0.1",
+    ]
+    assert options["start_new_session"] is True
+    assert "MONITOR_TOKEN" not in options["env"]
+    assert "TELEGRAM_BOT_TOKEN" not in options["env"]
+    session_request = next(
+        request for request in requests
+        if request[1] == "POST" and request[2] == "/session"
+    )
+    assert session_request[4] > 10.0
+    session_payload = session_request[3]
+    capabilities = session_payload["capabilities"]["alwaysMatch"]
+    assert capabilities["pageLoadStrategy"] == "none"
+    chrome_arguments = capabilities["goog:chromeOptions"]["args"]
+    assert all("virtual-time" not in argument for argument in chrome_arguments)
+    assert "--dump-dom" not in chrome_arguments
+    profile_argument = next(
+        argument for argument in chrome_arguments
+        if argument.startswith("--user-data-dir=")
+    )
+    profile_path = Path(profile_argument.split("=", 1)[1])
+    assert profile_path.parent.parent == tmp_path
+    assert not profile_path.parent.exists()
+    assert any(
+        method == "DELETE" and path == "/session/session-1"
+        for _, method, path, _, _ in requests
+    )
+    assert signals[0] == (4242, module.signal.SIGTERM)
+
+
+def test_rendered_page_attempt_cleans_up_after_w3c_failure(monkeypatch, tmp_path):
+    module = load_module()
+    requests = []
+    signals = []
+
+    class FakeProcess:
+        pid = 4343
+
+        def poll(self):
+            return None
+
+        def wait(self, timeout):
+            return 0
+
+    def fake_request(port, method, path, payload=None, *, timeout=5.0):
+        requests.append((method, path, timeout))
+        if path == "/session":
+            return {"sessionId": "failed-session"}
+        if path.endswith("/execute/sync"):
+            raise module.WebDriverFailure("synthetic W3C failure")
+        return None
+
+    monkeypatch.setattr(module, "unused_loopback_port", lambda: 43124)
+    monkeypatch.setattr(module, "wait_for_webdriver", lambda *args: None)
+    monkeypatch.setattr(
+        module.subprocess,
+        "Popen",
+        lambda *args, **kwargs: FakeProcess(),
+    )
+    monkeypatch.setattr(module, "webdriver_request", fake_request)
+    monkeypatch.setattr(
+        module.os,
+        "killpg",
+        lambda process_group, signal_number: signals.append(
+            (process_group, signal_number)
+        ),
+    )
+
+    with pytest.raises(module.WebDriverFailure, match="synthetic W3C failure"):
+        module.check_rendered_page_attempt(
+            module.RENDERED_PAGE_CHECKS[0],
+            "/snap/bin/chromium.chromedriver",
+            tmp_path,
+            75,
+        )
+
+    assert ("DELETE", "/session/failed-session", 2.0) in requests
+    assert signals[0] == (4343, module.signal.SIGTERM)
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_rendered_page_violations_require_visible_login_controls_and_text():
+    module = load_module()
+    check = {
+        "must_contain": ["Sign In"],
+        "must_not_contain": ["temporarily under maintenance"],
+    }
+    state = {
+        "emailVisible": False,
+        "passwordVisible": True,
+        "submitVisible": False,
+        "requiredMatches": [False],
+        "forbiddenMatches": [True],
+    }
+
+    assert module.rendered_page_violations(check, state) == [
+        "missing visible email input",
+        "missing visible submit control",
+        "missing required text 'Sign In'",
+        "contains forbidden text 'temporarily under maintenance'",
+    ]
+
+
 def test_main_aggregates_outbox_failures_into_existing_status_path(monkeypatch):
     module = load_module()
     monkeypatch.setattr(module, "check_caddyfile", lambda: [])

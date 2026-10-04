@@ -6,11 +6,14 @@ from __future__ import annotations
 import json
 import os
 import re
+import signal
 import shutil
+import socket
 import subprocess
 import sys
 import tempfile
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import datetime, timedelta, timezone
@@ -93,6 +96,7 @@ DEFAULT_HTTP_RETRY_DELAY_SECONDS = 2.0
 DEFAULT_RENDER_TIMEOUT_SECONDS = 75
 DEFAULT_RENDER_RETRIES = 3
 DEFAULT_RENDER_RETRY_DELAY_SECONDS = 2.0
+DEFAULT_WEBDRIVER_REQUEST_TIMEOUT_SECONDS = 5.0
 DEFAULT_SIGNUP_CANARY_TARGETS = {
     "prod": "https://api.verdaxis.exchange/api",
     "staging": "https://api-staging.verdaxis.exchange/api",
@@ -722,28 +726,317 @@ def check_outbox_backlogs() -> tuple[list[str], list[dict]]:
     return errors, statuses
 
 
-def find_chromium() -> str | None:
-    configured = os.getenv("CHROMIUM_BIN")
+def find_chromedriver() -> str | None:
+    configured = os.getenv("CHROMEDRIVER_BIN")
     if configured:
         return configured
-    for candidate in ("chromium-browser", "chromium", "google-chrome", "google-chrome-stable"):
+    snap_driver = Path("/snap/bin/chromium.chromedriver")
+    if snap_driver.is_file():
+        return str(snap_driver)
+    for candidate in ("chromium.chromedriver", "chromedriver"):
         path = shutil.which(candidate)
         if path:
             return path
     return None
 
 
+class WebDriverFailure(RuntimeError):
+    """A bounded ChromeDriver operation failed without exposing page content."""
+
+
+def webdriver_request(
+    port: int,
+    method: str,
+    path: str,
+    payload: dict | None = None,
+    *,
+    timeout: float = DEFAULT_WEBDRIVER_REQUEST_TIMEOUT_SECONDS,
+):
+    data = None if payload is None else json.dumps(payload).encode("utf-8")
+    request = urllib.request.Request(
+        f"http://127.0.0.1:{port}{path}",
+        data=data,
+        headers={"Content-Type": "application/json"},
+        method=method,
+    )
+    try:
+        # Never let ambient proxy settings redirect the local control channel.
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        with opener.open(request, timeout=timeout) as response:
+            document = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        raise WebDriverFailure(f"ChromeDriver returned HTTP {exc.code}") from None
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError):
+        raise WebDriverFailure("ChromeDriver control request failed") from None
+
+    if not isinstance(document, dict) or "value" not in document:
+        raise WebDriverFailure("ChromeDriver returned an invalid response")
+    value = document["value"]
+    if isinstance(value, dict) and isinstance(value.get("error"), str):
+        raise WebDriverFailure(f"ChromeDriver reported {value['error']}")
+    return value
+
+
+def unused_loopback_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
+        listener.bind(("127.0.0.1", 0))
+        return int(listener.getsockname()[1])
+
+
+def stop_webdriver(process: subprocess.Popen) -> None:
+    """Stop ChromeDriver and every browser process in its dedicated group."""
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+    except ProcessLookupError:
+        return
+
+    try:
+        process.wait(timeout=2)
+    except subprocess.TimeoutExpired:
+        pass
+
+    # Kill any browser child that outlived the driver's graceful exit.
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    try:
+        process.wait(timeout=2)
+    except subprocess.TimeoutExpired:
+        pass
+
+
+def wait_for_webdriver(process: subprocess.Popen, port: int, deadline: float) -> None:
+    while time.monotonic() < deadline:
+        if process.poll() is not None:
+            raise WebDriverFailure("ChromeDriver exited during startup")
+        try:
+            status = webdriver_request(port, "GET", "/status", timeout=0.5)
+        except WebDriverFailure:
+            time.sleep(0.1)
+            continue
+        if isinstance(status, dict) and status.get("ready") is True:
+            return
+        time.sleep(0.1)
+    raise TimeoutError
+
+
+RENDER_STATE_SCRIPT = r"""
+const isVisible = (element) => {
+  if (!element) return false;
+  const style = window.getComputedStyle(element);
+  const bounds = element.getBoundingClientRect();
+  return style.display !== "none" &&
+    style.visibility !== "hidden" &&
+    Number(style.opacity) !== 0 &&
+    bounds.width > 0 && bounds.height > 0;
+};
+const email = document.querySelector(
+  'input[type="email"], input[autocomplete="username"]'
+);
+const password = document.querySelector('input[type="password"]');
+const loginForm = password ? password.form : null;
+const submitSelector = 'button[type="submit"], input[type="submit"], button:not([type])';
+const submit = loginForm ? loginForm.querySelector(submitSelector) : null;
+const markup = document.documentElement
+  ? document.documentElement.outerHTML.toLowerCase()
+  : "";
+const contains = (needle) => markup.includes(String(needle).toLowerCase());
+return {
+  emailVisible: isVisible(email),
+  passwordVisible: isVisible(password),
+  submitVisible: isVisible(submit),
+  requiredMatches: arguments[0].map(contains),
+  forbiddenMatches: arguments[1].map(contains),
+  securityCheckpoint: [
+    "vercel security checkpoint",
+    "we're verifying your browser",
+    "we are verifying your browser"
+  ].some(contains) || markup.includes("x-vercel-challenge-token")
+};
+"""
+
+
+def rendered_page_violations(check: dict, state: dict) -> list[str]:
+    required = check.get("must_contain", [])
+    forbidden = check.get("must_not_contain", [])
+    required_matches = state.get("requiredMatches")
+    forbidden_matches = state.get("forbiddenMatches")
+    controls = (
+        state.get("emailVisible"),
+        state.get("passwordVisible"),
+        state.get("submitVisible"),
+    )
+    if (
+        not all(type(value) is bool for value in controls)
+        or not isinstance(required_matches, list)
+        or len(required_matches) != len(required)
+        or not all(type(value) is bool for value in required_matches)
+        or not isinstance(forbidden_matches, list)
+        or len(forbidden_matches) != len(forbidden)
+        or not all(type(value) is bool for value in forbidden_matches)
+    ):
+        raise WebDriverFailure("ChromeDriver returned an invalid render state")
+
+    violations = []
+    if not controls[0]:
+        violations.append("missing visible email input")
+    if not controls[1]:
+        violations.append("missing visible password input")
+    if not controls[2]:
+        violations.append("missing visible submit control")
+    violations.extend(
+        f"missing required text {needle!r}"
+        for needle, matched in zip(required, required_matches)
+        if not matched
+    )
+    violations.extend(
+        f"contains forbidden text {needle!r}"
+        for needle, matched in zip(forbidden, forbidden_matches)
+        if matched
+    )
+    return violations
+
+
+def check_rendered_page_attempt(
+    check: dict,
+    chromedriver: str,
+    profile_parent: Path,
+    timeout: int,
+) -> tuple[str, list[str]]:
+    deadline = time.monotonic() + timeout
+    port = unused_loopback_port()
+    session_id: str | None = None
+
+    with tempfile.TemporaryDirectory(
+        prefix="verdaxis-monitor-chrome-",
+        dir=profile_parent,
+    ) as temporary_directory:
+        temporary_path = Path(temporary_directory)
+        user_data_directory = temporary_path / "user-data"
+        driver_environment = {
+            "HOME": str(Path.home()),
+            "LANG": os.environ.get("LANG", "C.UTF-8"),
+            "LC_ALL": os.environ.get("LC_ALL", "C.UTF-8"),
+            "PATH": os.defpath,
+            "TMPDIR": str(temporary_path),
+        }
+        try:
+            process = subprocess.Popen(
+                [chromedriver, f"--port={port}", "--allowed-ips=127.0.0.1"],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                env=driver_environment,
+                start_new_session=True,
+            )
+        except OSError:
+            raise WebDriverFailure("ChromeDriver could not start") from None
+
+        try:
+            wait_for_webdriver(process, port, deadline)
+            value = webdriver_request(
+                port,
+                "POST",
+                "/session",
+                {
+                    "capabilities": {
+                        "alwaysMatch": {
+                            "browserName": "chrome",
+                            "pageLoadStrategy": "none",
+                            "timeouts": {
+                                "implicit": 0,
+                                "pageLoad": timeout * 1_000,
+                                "script": 5_000,
+                            },
+                            "goog:chromeOptions": {
+                                "args": [
+                                    "--headless",
+                                    "--no-sandbox",
+                                    "--disable-gpu",
+                                    "--disable-dev-shm-usage",
+                                    "--disable-background-networking",
+                                    "--disable-extensions",
+                                    "--disable-sync",
+                                    "--run-all-compositor-stages-before-draw",
+                                    f"--user-data-dir={user_data_directory}",
+                                ]
+                            },
+                        }
+                    }
+                },
+                timeout=max(0.1, deadline - time.monotonic()),
+            )
+            if not isinstance(value, dict) or not isinstance(value.get("sessionId"), str):
+                raise WebDriverFailure("ChromeDriver did not create a session")
+            session_id = value["sessionId"]
+            session_path = "/session/" + urllib.parse.quote(session_id, safe="")
+            webdriver_request(
+                port,
+                "POST",
+                session_path + "/url",
+                {"url": check["url"]},
+                timeout=min(10.0, max(0.1, deadline - time.monotonic())),
+            )
+
+            last_violations: list[str] | None = None
+            while time.monotonic() < deadline:
+                state = webdriver_request(
+                    port,
+                    "POST",
+                    session_path + "/execute/sync",
+                    {
+                        "script": RENDER_STATE_SCRIPT,
+                        "args": [
+                            check.get("must_contain", []),
+                            check.get("must_not_contain", []),
+                        ],
+                    },
+                    timeout=min(
+                        DEFAULT_WEBDRIVER_REQUEST_TIMEOUT_SECONDS,
+                        max(0.1, deadline - time.monotonic()),
+                    ),
+                )
+                if not isinstance(state, dict):
+                    raise WebDriverFailure("ChromeDriver returned an invalid render state")
+                if state.get("securityCheckpoint") is True:
+                    return "security_checkpoint", []
+                last_violations = rendered_page_violations(check, state)
+                if not last_violations:
+                    return "ok", []
+                if any(
+                    violation.startswith("contains forbidden text")
+                    for violation in last_violations
+                ):
+                    return "failed", last_violations
+                time.sleep(min(0.25, max(0.0, deadline - time.monotonic())))
+            if last_violations is None:
+                raise TimeoutError
+            return "failed", last_violations
+        finally:
+            if session_id is not None:
+                try:
+                    webdriver_request(
+                        port,
+                        "DELETE",
+                        "/session/" + urllib.parse.quote(session_id, safe=""),
+                        timeout=2.0,
+                    )
+                except WebDriverFailure:
+                    pass
+            stop_webdriver(process)
+
+
 def check_rendered_pages() -> list[str]:
     if os.getenv("RENDERED_PAGE_CHECKS_ENABLED", "1").lower() in {"0", "false", "no", "off"}:
         return []
 
-    chromium = find_chromium()
-    if not chromium:
-        return ["rendered page checks enabled but no Chromium binary was found"]
+    chromedriver = find_chromedriver()
+    if not chromedriver:
+        return ["rendered page checks enabled but no ChromeDriver binary was found"]
 
     errors: list[str] = []
     timeout = int(os.getenv("RENDER_TIMEOUT_SECONDS", str(DEFAULT_RENDER_TIMEOUT_SECONDS)))
-    virtual_time_ms = int(os.getenv("RENDER_VIRTUAL_TIME_MS", "7000"))
     retries = max(1, int(os.getenv("RENDER_RETRIES", str(DEFAULT_RENDER_RETRIES))))
     retry_delay = max(
         0.0,
@@ -754,62 +1047,45 @@ def check_rendered_pages() -> list[str]:
             )
         ),
     )
+    profile_parent = Path(
+        os.getenv(
+            "CHROMIUM_PROFILE_PARENT",
+            str(Path.home() / "snap/chromium/common"),
+        )
+    )
+    try:
+        profile_parent.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        return ["rendered page checks could not create the browser profile directory"]
 
     for check in RENDERED_PAGE_CHECKS:
         final_error: str | None = None
         for attempt in range(1, retries + 1):
             try:
-                with tempfile.TemporaryDirectory(prefix="verdaxis-monitor-chrome-") as profile:
-                    result = run(
-                        [
-                            chromium,
-                            "--headless",
-                            "--no-sandbox",
-                            "--disable-gpu",
-                            "--disable-dev-shm-usage",
-                            "--disable-background-networking",
-                            "--disable-extensions",
-                            "--disable-sync",
-                            "--run-all-compositor-stages-before-draw",
-                            f"--user-data-dir={profile}",
-                            f"--virtual-time-budget={virtual_time_ms}",
-                            "--dump-dom",
-                            check["url"],
-                        ],
-                        timeout=timeout,
-                    )
-            except subprocess.TimeoutExpired:
+                outcome, violations = check_rendered_page_attempt(
+                    check,
+                    chromedriver,
+                    profile_parent,
+                    timeout,
+                )
+            except TimeoutError:
                 final_error = f"{check['name']} render timed out after {timeout}s"
+            except WebDriverFailure as exc:
+                final_error = f"{check['name']} render failed: {exc}"
             else:
-                if result.returncode != 0:
-                    detail = (result.stderr or result.stdout).strip().splitlines()
-                    final_error = (
-                        f"{check['name']} render failed: "
-                        f"{detail[-1] if detail else 'unknown Chromium error'}"
-                    )
-                elif looks_like_vercel_security_checkpoint(result.stdout):
+                if outcome == "security_checkpoint":
                     log(
                         f"{check['name']} skipped: Vercel returned Security "
                         "Checkpoint to monitor client"
                     )
                     final_error = None
                     break
-                else:
-                    rendered_lower = result.stdout.lower()
-                    violations = [
-                        f"missing required text {needle!r}"
-                        for needle in check.get("must_contain", [])
-                        if needle.lower() not in rendered_lower
-                    ]
-                    violations.extend(
-                        f"contains forbidden text {needle!r}"
-                        for needle in check.get("must_not_contain", [])
-                        if needle.lower() in rendered_lower
-                    )
-                    if not violations:
-                        final_error = None
-                        break
-                    final_error = f"{check['name']} rendered page " + "; ".join(violations)
+                if outcome == "ok":
+                    final_error = None
+                    break
+                final_error = (
+                    f"{check['name']} rendered page " + "; ".join(violations)
+                )
 
             if attempt < retries:
                 log(
