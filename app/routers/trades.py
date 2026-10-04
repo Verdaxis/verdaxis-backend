@@ -1583,7 +1583,7 @@ async def deliver_trade(
     if command is not None and command.replay is not None:
         return JSONResponse(status_code=command.replay.response_status, content=command.replay.response_body)
     await require_execution_eligible_user(current_user=current_user, db=db)
-    trade, _linked_order = await _lock_trade_market_rows(
+    trade, linked_order = await _lock_trade_market_rows(
         db, trade_id, operation="trade_deliver"
     )
     await lock_and_load_market_organizations(
@@ -1607,7 +1607,7 @@ async def deliver_trade(
     assisted_actor = await _authorize_assisted_trade_actor(
         db,
         trade=trade,
-        linked_order=_linked_order,
+        linked_order=linked_order,
         current_user=current_user,
     )
     if not assisted_actor and (
@@ -1729,7 +1729,7 @@ async def pay_trade(
     if command is not None and command.replay is not None:
         return JSONResponse(status_code=command.replay.response_status, content=command.replay.response_body)
     await require_execution_eligible_user(current_user=current_user, db=db)
-    trade, _linked_order = await _lock_trade_market_rows(
+    trade, linked_order = await _lock_trade_market_rows(
         db, trade_id, operation="trade_pay"
     )
     await lock_and_load_market_organizations(
@@ -1753,7 +1753,7 @@ async def pay_trade(
     assisted_actor = await _authorize_assisted_trade_actor(
         db,
         trade=trade,
-        linked_order=_linked_order,
+        linked_order=linked_order,
         current_user=current_user,
         expected_side=OrderSide.ASK,
     )
