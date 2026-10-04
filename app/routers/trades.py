@@ -59,6 +59,7 @@ from app.services.idempotency import (
     TRADE_CREATE_OPERATION,
     acquire_idempotency_lock,
     idempotency_request_hash,
+    normalize_idempotency_key,
 )
 from app.services.market_locks import acquire_market_slice_lock
 from app.services.request_party import resolve_request_party
@@ -711,9 +712,7 @@ async def create_trade(
     idempotency_key = request.headers.get("Idempotency-Key")
     request_hash = None
     if idempotency_key:
-        idempotency_key = idempotency_key.strip()
-        if not idempotency_key or len(idempotency_key) > 255:
-            raise HTTPException(status_code=400, detail="Idempotency-Key must be 1-255 characters")
+        idempotency_key = normalize_idempotency_key(idempotency_key)
         request_hash = idempotency_request_hash(trade_create_idempotency_payload(payload))
         await acquire_idempotency_lock(db, lock_scope_id=initiator_org_id, operation=TRADE_CREATE_OPERATION, key=idempotency_key)
         replay = (await db.execute(
