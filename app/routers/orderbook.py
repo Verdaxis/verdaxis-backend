@@ -55,7 +55,12 @@ from app.schemas.orderbook import (
     ProductCountResponse,
 )
 from app.schemas.pagination import PaginatedResponse
-from app.schemas.market_activity import MarketDemoStatus, MarketScope, MarketSourceKind
+from app.schemas.market_activity import (
+    MarketDataProvenance,
+    MarketDemoStatus,
+    MarketScope,
+    MarketSourceKind,
+)
 from app.services.ci_pricing import calculate_ci_adjusted_price
 from app.services.activity import order_activity_provenance
 from app.services.market_events import (
@@ -525,14 +530,21 @@ async def _order_response(
     is_crossed: bool = False,
     benchmark_cache: dict[LiveBenchmarkKey, Decimal | None] | None = None,
 ) -> OrderResponse:
-    payload = OrderResponse.model_validate(order, from_attributes=True).model_copy(
+    response = OrderResponse.model_validate(order, from_attributes=True)
+    raw_provenance = order_market_provenance(order)
+    typed_provenance = MarketDataProvenance.model_validate(raw_provenance)
+    benchmark_payload = await _benchmark_payload(db, order, cache=benchmark_cache)
+    return response.model_copy(
         update={
             "is_crossed": is_crossed,
-            **order_market_provenance(order),
-            **(await _benchmark_payload(db, order, cache=benchmark_cache)),
+            "source_kind": typed_provenance.source_kind,
+            "scope": typed_provenance.scope,
+            "demo_status": typed_provenance.demo_status,
+            "is_demo_listing": raw_provenance["is_demo_listing"],
+            "unknown_count": typed_provenance.unknown_count,
+            **benchmark_payload,
         }
     )
-    return payload
 
 
 async def _order_my_response(
