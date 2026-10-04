@@ -21,6 +21,7 @@ source documentation. The shared-host marker is
 ```
 app/
   main.py                       # FastAPI app, exact credentialed CORS, sanitized readiness/provenance, error handlers
+  runtime_server.py             # Staging-only worker-exit diagnostics; delegates CLI handling to pinned Uvicorn
   config.py                     # Pydantic Settings — release/CORS boundaries and pool/upload budget validation
   database.py                   # AsyncSession factory, role/max_connections startup attestation, bounded pooling
   seeds/safety.py               # Opt-in, environment/target-attested seeder connection gate
