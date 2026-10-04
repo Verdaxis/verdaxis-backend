@@ -48,11 +48,12 @@ Backend API for Verdaxis -- a maritime intelligence and procurement platform. Ha
 ## Development Commands
 
 ```bash
-# Activate virtual environment from the current live tree
+# From an isolated worktree or clone, activate its virtual environment
 source ./venv/bin/activate
 
-# Run the backend directly for local development
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+# Run locally on an OS-assigned loopback port; deployed ports are 8000/8001
+ENVIRONMENT=development \
+  uvicorn app.main:app --reload --host 127.0.0.1 --port 0
 
 # Run all unit tests (no DB required, uses sqlite in-memory)
 ENVIRONMENT=test RELEASE_SHA=test \
