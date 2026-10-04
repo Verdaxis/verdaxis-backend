@@ -361,8 +361,14 @@ psql --dbname "$ADMIN_DATABASE_URL" \
 Passwords are intentionally absent. Provision them through the secret manager.
 This pass deliberately does not add RLS. SQLAlchemy engines use
 `hide_parameters=True`; database error logs contain only exception class,
-SQLSTATE, request ID, and route. Market lock timeout, deadlock, and
-serialization failures return a generic bounded `503` with `Retry-After: 1`.
+SQLSTATE, request ID, and route. [Market-slice lock handling](../app/services/market_locks.py)
+returns 409 for lock contention and 503 for a slice lock timeout. The
+[transaction wrapper](../app/services/market_transactions.py) retries a deadlock or
+serialization failure once, then returns 503. These route responses have no
+`Retry-After` header. For uncaught contention, deadlock, and serialization failures
+on market routes, the [global database handler](../app/main.py) returns 503 with
+`Retry-After: 1`. It handles query cancellation the same way only for market `GET`
+and `HEAD` requests; other database errors return 500.
 
 ## Integration safety
 
