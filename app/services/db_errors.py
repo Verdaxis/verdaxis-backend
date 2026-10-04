@@ -14,14 +14,18 @@ MARKET_PATH_ROOTS = (
 _TRANSIENT_LOCK_STATES = {"55P03", "40P01", "40001"}
 
 
-def _original_and_sqlstate(exc: DBAPIError) -> tuple[object, str | None]:
-    original = getattr(exc, "orig", exc)
-    sqlstate = (
+def database_sqlstate(error: BaseException) -> str | None:
+    original = getattr(error, "orig", error)
+    return (
         getattr(original, "sqlstate", None)
         or getattr(original, "pgcode", None)
         or getattr(original, "sqlstate_code", None)
     )
-    return original, sqlstate
+
+
+def _original_and_sqlstate(exc: DBAPIError) -> tuple[object, str | None]:
+    original = getattr(exc, "orig", exc)
+    return original, database_sqlstate(exc)
 
 
 def is_contention_error(exc: DBAPIError) -> bool:

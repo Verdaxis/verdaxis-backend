@@ -10,6 +10,8 @@ from sqlalchemy import inspect as sqlalchemy_inspect
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.services.db_errors import database_sqlstate
+
 
 RETRYABLE_MARKET_SQLSTATES = frozenset({"40001", "40P01"})
 DEFAULT_MARKET_TRANSACTION_ATTEMPTS = 2
@@ -36,11 +38,6 @@ class RetryableMarketTransactionError(RuntimeError):
     def __init__(self, sqlstate: str):
         super().__init__(sqlstate)
         self.sqlstate = sqlstate
-
-
-def database_sqlstate(error: BaseException) -> str | None:
-    original = getattr(error, "orig", error)
-    return getattr(original, "sqlstate", None) or getattr(original, "pgcode", None)
 
 
 def is_retryable_market_transaction_error(error: BaseException) -> bool:
