@@ -15,7 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.command_result import MarketCommandResult
-from app.services.idempotency import IdempotencyLockBusy, acquire_idempotency_lock
+from app.services.idempotency import acquire_idempotency_lock
 
 
 TRADE_CONFIRM_OPERATION = "trade.confirm"
@@ -88,16 +88,7 @@ async def prepare_command_attempt(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Market organization is required")
 
     request_hash = command_request_hash(payload)
-    try:
-        await acquire_idempotency_lock(db, lock_scope_id=actor_user_id, operation=operation, key=key)
-    except IdempotencyLockBusy as exc:
-        # A competing request can still commit the durable result. The caller
-        # must retain this same intention and retry instead of treating the
-        # lock wait as a definitive key conflict.
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Idempotency key is busy; retry the same request",
-        ) from exc
+    await acquire_idempotency_lock(db, lock_scope_id=actor_user_id, operation=operation, key=key)
     replay = (
         await db.execute(
             select(MarketCommandResult).where(
@@ -119,11 +110,11 @@ async def prepare_command_attempt(
         replay=replay,
     )
     if replay is not None and (
-        replay.request_hash != request_hash
-        or replay.effective_organization_id != effective_organization_id
-        or replay.support_context_id != support_context_id
-        or replay.resource_type != resource_type
-        or replay.resource_id != resource_id
+        replay.request_hash != attempt.request_hash
+        or replay.effective_organization_id != attempt.effective_organization_id
+        or replay.support_context_id != attempt.support_context_id
+        or replay.resource_type != attempt.resource_type
+        or replay.resource_id != attempt.resource_id
     ):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,

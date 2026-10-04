@@ -267,8 +267,8 @@ async def test_idempotency_lock_timeout_is_bounded_and_rollback_safe(pg):
                     key="held-key",
                 )
             elapsed = asyncio.get_running_loop().time() - started
-            assert raised.value.status_code == 409
-            assert raised.value.detail == "Idempotency key is busy; retry the request"
+            assert raised.value.status_code == 503
+            assert raised.value.detail == "Idempotency key is busy; retry the same request"
             assert elapsed < 2
             assert not contender.in_transaction()
     finally:
