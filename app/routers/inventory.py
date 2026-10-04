@@ -55,6 +55,7 @@ from app.services.idempotency import (
     INVENTORY_PUBLISH_OPERATION,
     acquire_idempotency_lock,
     idempotency_request_hash,
+    normalize_idempotency_key,
 )
 from app.services.inventory_reservations import (
     assert_inventory_mutable,
@@ -375,9 +376,7 @@ async def publish_inventory_item(
     idempotency_key = request.headers.get("Idempotency-Key")
     request_hash = None
     if idempotency_key:
-        idempotency_key = idempotency_key.strip()
-        if not idempotency_key or len(idempotency_key) > 255:
-            raise HTTPException(status_code=400, detail="Idempotency-Key must be 1-255 characters")
+        idempotency_key = normalize_idempotency_key(idempotency_key)
         request_hash = idempotency_request_hash({"inventory_item_id": str(item_id)})
         await acquire_idempotency_lock(
             db,

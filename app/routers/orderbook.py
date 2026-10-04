@@ -90,6 +90,7 @@ from app.services.idempotency import (
     ORDER_CREATE_OPERATION,
     acquire_idempotency_lock,
     idempotency_request_hash,
+    normalize_idempotency_key,
 )
 from app.services.inventory_reservations import release_inventory, reserve_inventory
 from app.services.order_quantity import require_minimum_order_quantity
@@ -1893,9 +1894,7 @@ async def create_order(
         )
     request_hash = None
     if idempotency_key:
-        idempotency_key = idempotency_key.strip()
-        if not idempotency_key or len(idempotency_key) > 255:
-            raise HTTPException(status_code=400, detail="Idempotency-Key must be 1-255 characters")
+        idempotency_key = normalize_idempotency_key(idempotency_key)
         idempotency_payload: dict[str, object] = {
             "order": economic_order_idempotency_payload(order_data)
         }
