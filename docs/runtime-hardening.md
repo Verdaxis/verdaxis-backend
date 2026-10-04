@@ -2,23 +2,38 @@
 
 ## Database connection budget
 
-Production and staging share one PostgreSQL cluster. `UVICORN_WORKERS` is the
-single worker-count setting consumed by systemd and the pool validator; each
-service currently uses four workers and the same conservative SQLAlchemy defaults:
+Production and staging run on separate hosts and separate PostgreSQL
+clusters. Each host currently runs one backend service. `UVICORN_WORKERS` is
+the single worker-count setting consumed by systemd and the connection-budget
+checks; each service uses four workers. The following figures use the
+configured defaults, not a fresh measurement:
 
 ```text
+Settings pool-only budget:
 services × workers × (pool_size + max_overflow) + maintenance reserve
-2 × 4 × (2 + 1) + 20 = 44 ≤ PostgreSQL max_connections=100
+2 × 4 × (2 + 1) + 20 = 44 ≤ configured max_connections=100
+
+Startup budget including dedicated LISTEN/leadership connections:
+services × workers × (pool_size + max_overflow + 1 listener) + maintenance reserve
+2 × 4 × (2 + 1 + 1) + 20 = 52 ≤ configured max_connections=100
 ```
 
-`Settings` validates this shared aggregate for both deployed environments.
-Production and staging require exactly two application services and a minimum
-20-connection maintenance reserve, so configuration cannot undercount the
-immutable deployed topology. Startup attests `current_database()`,
-`current_user`, exact role properties, absence of every membership/`SET ROLE`
-path, and `SHOW max_connections`; an identity or capacity mismatch aborts
-startup. The reserve is for migrations, administration, and other processes;
-it is not a promise that PostgreSQL creates those clients.
+`Settings.validate_db_pool_capacity` checks configured pool demand against
+configured capacity after the maintenance reserve. At the listed defaults, the
+pool demand plus reserve totals 44. At startup, `configured_connection_total`
+adds one dedicated LISTEN/leadership connection per service worker (eight with
+these defaults) and checks its total against live `SHOW max_connections`; at
+the listed defaults, that total is 52. Deployed configuration still requires
+`DB_SERVICE_COUNT=2` and at least 20 reserved connections. The service count is
+an intentional conservative configuration bound in each environment; it does
+not report the number of live services, hosts, or clusters. Neither check
+discovers the physical topology.
+
+Startup also attests `current_database()`, `current_user`, exact role
+properties, and the absence of every membership/`SET ROLE` path. An identity
+or capacity mismatch aborts startup. The reserve is for migrations,
+administration, and other processes; it is not a promise that PostgreSQL
+creates those clients.
 
 ## KYC upload limits and service memory
 
