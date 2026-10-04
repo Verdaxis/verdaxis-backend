@@ -1,5 +1,6 @@
 """Strict release-health and operator installation gates."""
 
+import fcntl
 import hashlib
 import io
 import importlib.util
@@ -10,6 +11,7 @@ import shutil
 import signal
 import subprocess
 import tarfile
+import time
 from pathlib import Path
 
 import pytest
@@ -22,6 +24,7 @@ SHA = "a" * 40
 MIGRATION_EXPECTED = "pa_20260715_analytics_facts"
 MIGRATION_TARGET = "rh_20260720_runtime_metadata"
 UNIT_MANIFEST = "deploy/systemd/runtime-units.manifest"
+DEPLOY_START_GUARD = "scripts/verify_deploy_start_guard.py"
 SYSTEMD_UNITS = {
     "production": (
         "deploy/systemd/verdaxis-backend.service",
@@ -134,6 +137,7 @@ def _deployment_checkout(tmp_path: Path) -> tuple[Path, Path, str]:
     scripts = source / "scripts"
     scripts.mkdir()
     shutil.copy2(ROOT / "scripts/deploy.sh", scripts / "deploy.sh")
+    shutil.copy2(ROOT / DEPLOY_START_GUARD, scripts / "verify_deploy_start_guard.py")
     shutil.copy2(
         ROOT / "scripts/converge_runtime_acls.py",
         scripts / "converge_runtime_acls.py",
@@ -215,6 +219,17 @@ fi
         """#!/usr/bin/env bash
 set -euo pipefail
 printf 'sudo:%s\\n' "$*" >> "${DEPLOY_TEST_LOG:?}"
+if [[ "${DEPLOY_BLOCK_PHASE:-}" == "systemctl-restart" ]]; then
+    case "$*" in
+        "systemctl restart "*)
+            for descriptor in {3..254}; do
+                eval "exec ${descriptor}>&-" 2>/dev/null || true
+            done
+            printf '%s\\n' "$$" > "${DEPLOY_FAKE_SUDO_PID_FILE:?}"
+            sleep 30
+            ;;
+    esac
+fi
 """,
     )
     _write_executable(
@@ -267,6 +282,41 @@ def _approved_deploy_environment(
     return environment
 
 
+def _run_deploy_start_guard(
+    runtime_root: Path,
+    *,
+    environment: str = "staging",
+    release_sha: str = SHA,
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [
+            "/usr/bin/env",
+            "-i",
+            "/usr/bin/python3",
+            "-I",
+            "-S",
+            "-B",
+            str(runtime_root / DEPLOY_START_GUARD),
+            "--environment",
+            environment,
+            "--expected-release-sha",
+            release_sha,
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def _write_restart_authorization(state: Path, release_sha: str = SHA) -> None:
+    state.write_text(
+        "DEPLOYMENT_STATE=restart-authorized\n"
+        "ENVIRONMENT=staging\n"
+        f"RELEASE_SHA={release_sha}\n"
+    )
+    state.chmod(0o644)
+
+
 def _push_new_release(source: Path) -> str:
     (source / "release.txt").write_text("new release\n")
     _git(source, "add", "release.txt")
@@ -275,8 +325,74 @@ def _push_new_release(source: Path) -> str:
     return _git(source, "rev-parse", "HEAD").stdout.strip()
 
 
+def test_backend_start_guard_requires_exact_state_and_two_busy_real_locks(tmp_path):
+    runtime_root = tmp_path / "runtime"
+    scripts = runtime_root / "scripts"
+    scripts.mkdir(parents=True)
+    shutil.copy2(ROOT / DEPLOY_START_GUARD, scripts / "verify_deploy_start_guard.py")
+
+    absent = _run_deploy_start_guard(runtime_root)
+    assert absent.returncode == 0
+    assert absent.stdout == absent.stderr == ""
+
+    deploy_state_dir = runtime_root / ".runtime-deploy"
+    deploy_state_dir.mkdir(mode=0o755)
+    state = deploy_state_dir / "staging.state"
+    _write_restart_authorization(state)
+    assert _run_deploy_start_guard(runtime_root).returncode != 0
+
+    main_lock = deploy_state_dir / "staging.lock"
+    restart_lock = deploy_state_dir / "staging.restart.lock"
+    main_fd = os.open(main_lock, os.O_CREAT | os.O_RDWR, 0o600)
+    restart_fd = os.open(restart_lock, os.O_CREAT | os.O_RDWR, 0o600)
+    os.chmod(main_lock, 0o600)
+    os.chmod(restart_lock, 0o600)
+    try:
+        fcntl.flock(main_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        assert _run_deploy_start_guard(runtime_root).returncode != 0
+
+        fcntl.flock(restart_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        allowed = _run_deploy_start_guard(runtime_root)
+        assert allowed.returncode == 0
+        assert allowed.stdout == allowed.stderr == ""
+
+        fcntl.flock(main_fd, fcntl.LOCK_UN)
+        assert _run_deploy_start_guard(runtime_root).returncode != 0
+        fcntl.flock(restart_fd, fcntl.LOCK_UN)
+        assert _run_deploy_start_guard(runtime_root).returncode != 0
+    finally:
+        os.close(restart_fd)
+        os.close(main_fd)
+
+    state.write_text(
+        "DEPLOYMENT_STATE=restart-authorized\n"
+        "ENVIRONMENT=staging\n"
+        f"RELEASE_SHA={SHA}\n"
+        "EXTRA=denied\n"
+    )
+    assert _run_deploy_start_guard(runtime_root).returncode != 0
+    state.unlink()
+    state.symlink_to(deploy_state_dir / "missing-state")
+    assert _run_deploy_start_guard(runtime_root).returncode != 0
+    state.unlink()
+    state.mkdir()
+    assert _run_deploy_start_guard(runtime_root).returncode != 0
+    state.rmdir()
+    _write_restart_authorization(state)
+    state.chmod(0)
+    assert _run_deploy_start_guard(runtime_root).returncode != 0
+
+
 def test_deploy_dry_run_only_attests_pinned_archive_without_candidate_execution(tmp_path):
     source, checkout, current_sha = _deployment_checkout(tmp_path)
+    marker = tmp_path / "candidate-helper-executed"
+    (source / DEPLOY_START_GUARD).write_text(
+        "from pathlib import Path\n"
+        f"Path({str(marker)!r}).write_text('executed')\n"
+    )
+    _git(source, "add", DEPLOY_START_GUARD)
+    _git(source, "commit", "-qm", "instrument candidate guard")
+    _git(source, "push", "-q", "origin", "staging")
     candidate_sha = _push_new_release(source)
     log_path = tmp_path / "commands.log"
 
@@ -293,6 +409,7 @@ def test_deploy_dry_run_only_attests_pinned_archive_without_candidate_execution(
     commands = log_path.read_text().splitlines() if log_path.exists() else []
     assert not any("python:" in command for command in commands)
     assert not any("alembic:" in command for command in commands)
+    assert not marker.exists()
     assert _git(checkout, "rev-parse", "HEAD").stdout.strip() == current_sha
     assert current_sha != candidate_sha
     assert not (checkout / ".runtime-release.env").exists()
@@ -310,6 +427,7 @@ def test_deploy_dry_run_only_attests_pinned_archive_without_candidate_execution(
         "deploy/migration-checkpoints.tsv",
         SYSTEMD_UNITS["staging"][0],
         "scripts/preflight_runtime.py",
+        DEPLOY_START_GUARD,
     ],
 )
 def test_deploy_dry_run_rejects_candidate_symlink_artifacts(tmp_path, relative):
@@ -650,6 +768,86 @@ def test_deploy_lock_serializes_concurrent_runs_and_state_survives_interruption(
     assert "DEPLOYMENT_STATE=blocked" in state.read_text()
 
 
+def test_sigkill_in_restart_window_releases_both_locks_and_closes_authorization(tmp_path):
+    source, checkout, old_sha = _deployment_checkout(tmp_path)
+    (checkout / ".runtime-release.env").write_text(
+        f"ENVIRONMENT=staging\nRELEASE_SHA={old_sha}\n"
+    )
+    new_sha = _push_new_release(source)
+    log_path = tmp_path / "commands.log"
+    environment = _approved_deploy_environment(log_path, new_sha)
+    environment["DEPLOY_BLOCK_PHASE"] = "systemctl-restart"
+    environment["DEPLOY_STATE_DIR"] = str(checkout / ".runtime-deploy")
+    fake_sudo_pid_file = tmp_path / "fake-sudo.pid"
+    environment["DEPLOY_FAKE_SUDO_PID_FILE"] = str(fake_sudo_pid_file)
+
+    running = subprocess.Popen(
+        ["bash", "scripts/deploy.sh"],
+        cwd=checkout,
+        env=environment,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        start_new_session=True,
+    )
+    state = checkout / ".runtime-deploy/staging.state"
+    try:
+        for _ in range(250):
+            if (
+                state.exists()
+                and "DEPLOYMENT_STATE=restart-authorized" in state.read_text()
+                and fake_sudo_pid_file.exists()
+            ):
+                break
+            time.sleep(0.02)
+        assert state.exists()
+        assert "DEPLOYMENT_STATE=restart-authorized" in state.read_text()
+        assert fake_sudo_pid_file.exists()
+        fake_sudo_pid = int(fake_sudo_pid_file.read_text().strip())
+        assert _run_deploy_start_guard(checkout, release_sha=new_sha).returncode == 0
+
+        os.kill(running.pid, signal.SIGKILL)
+        running.wait(timeout=5)
+        assert running.returncode == -signal.SIGKILL
+        os.kill(fake_sudo_pid, 0)
+
+        assert "DEPLOYMENT_STATE=restart-authorized" in state.read_text()
+        denied = _run_deploy_start_guard(checkout, release_sha=new_sha)
+        assert denied.returncode != 0
+        assert denied.stdout == ""
+        assert denied.stderr == "Backend start denied by deployment guard.\n"
+        os.kill(fake_sudo_pid, 0)
+    finally:
+        if running.poll() is None:
+            os.kill(running.pid, signal.SIGKILL)
+            running.wait(timeout=5)
+        try:
+            os.killpg(running.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        for _ in range(250):
+            try:
+                os.killpg(running.pid, 0)
+            except ProcessLookupError:
+                break
+            time.sleep(0.02)
+        else:
+            pytest.fail("disposable deploy process group did not exit")
+
+
+def test_restart_authorization_is_written_after_second_lock_before_restart():
+    source = (ROOT / "scripts/deploy.sh").read_text()
+    deployment = source.index("DEPLOY_STARTED=1")
+    blocked = source.index('write_deploy_state "blocked"', deployment)
+    restart_lock = source.index("acquire_restart_window_lock", blocked)
+    authorized = source.index('write_deploy_state "$DEPLOY_PHASE"', restart_lock)
+    restart = source.index('sudo systemctl restart "$SERVICE_NAME"', authorized)
+    pending = source.index('DEPLOY_PHASE="readiness-pending"', restart)
+
+    assert blocked < restart_lock < authorized < restart < pending
+    assert 'flock -n "$RESTART_WINDOW_LOCK_FD"' in source
+
+
 def test_deploy_publishes_identity_before_selected_tree_execution():
     source = (ROOT / "scripts/deploy.sh").read_text()
 
@@ -689,27 +887,45 @@ def test_real_deploy_refuses_unconstrained_dependency_install(tmp_path):
 
 
 @pytest.mark.parametrize(
-    "unit_name",
+    ("unit_name", "backend_dir", "environment"),
     [
-        "verdaxis-backend.service",
-        "verdaxis-backend-staging.service",
-        "verdaxis-news-refresh.service",
-        "verdaxis-news-refresh-staging.service",
-        "verdaxis-product-analytics-prune.service",
-        "verdaxis-product-analytics-prune-staging.service",
+        ("verdaxis-backend.service", "/home/verdaxis-prod/verdaxis/prod/be", "production"),
+        ("verdaxis-backend-staging.service", "/home/verdaxis-prod/verdaxis/staging/be", "staging"),
     ],
 )
-def test_every_runtime_service_fails_closed_during_deployment(unit_name):
+def test_backend_units_use_the_lock_aware_restart_guard(
+    unit_name, backend_dir, environment
+):
     content = (ROOT / "deploy/systemd" / unit_name).read_text()
-    backend_dir = (
-        "/home/verdaxis-prod/verdaxis/staging/be"
-        if "staging" in unit_name
-        else "/home/verdaxis-prod/verdaxis/prod/be"
+    command = (
+        "ExecStartPre=/usr/bin/env -i /usr/bin/python3 -I -S -B "
+        f"{backend_dir}/{DEPLOY_START_GUARD} --environment {environment} "
+        "--expected-release-sha ${RELEASE_SHA}"
     )
 
-    state = f"{backend_dir}/.runtime-deploy/{'staging' if 'staging' in unit_name else 'production'}.state"
-    assert state in content
-    assert "DEPLOYMENT_STATE=restart-authorized" in content
+    assert command in content
+    assert "DEPLOYMENT_STATE=restart-authorized" not in content
+
+
+@pytest.mark.parametrize(
+    ("unit_name", "backend_dir", "environment"),
+    [
+        ("verdaxis-news-refresh.service", "/home/verdaxis-prod/verdaxis/prod/be", "production"),
+        ("verdaxis-news-refresh-staging.service", "/home/verdaxis-prod/verdaxis/staging/be", "staging"),
+        ("verdaxis-product-analytics-prune.service", "/home/verdaxis-prod/verdaxis/prod/be", "production"),
+        ("verdaxis-product-analytics-prune-staging.service", "/home/verdaxis-prod/verdaxis/staging/be", "staging"),
+    ],
+)
+def test_maintenance_units_reject_every_present_deploy_state(
+    unit_name, backend_dir, environment
+):
+    content = (ROOT / "deploy/systemd" / unit_name).read_text()
+    state = f"{backend_dir}/.runtime-deploy/{environment}.state"
+
+    assert f"ConditionPathExists=!{state}" in content
+    assert f"ConditionPathIsSymbolicLink=!{state}" in content
+    assert "DEPLOYMENT_STATE=restart-authorized" not in content
+    assert DEPLOY_START_GUARD not in content
 
 
 def test_systemd_installer_is_idempotent_preflights_and_never_starts_services():

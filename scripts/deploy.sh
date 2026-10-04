@@ -88,6 +88,7 @@ MIGRATION_POLICY_PATH="deploy/migration-checkpoints.tsv"
 ACL_POLICY_PATH="deploy/postgres/app_acl_policy.sql"
 ACL_CONVERGENCE_SQL_PATH="deploy/postgres/converge_runtime_object_acls.sql"
 ACL_CONVERGENCE_HELPER_PATH="scripts/converge_runtime_acls.py"
+DEPLOY_START_GUARD_HELPER_PATH="scripts/verify_deploy_start_guard.py"
 HEALTH_ATTEMPTS="${HEALTH_ATTEMPTS:-60}"
 HEALTH_RETRY_DELAY="${HEALTH_RETRY_DELAY:-2}"
 if [[ ! "$HEALTH_ATTEMPTS" =~ ^([1-9]|[1-9][0-9]|1[01][0-9]|120)$ ]]; then
@@ -100,12 +101,14 @@ if [[ ! "$HEALTH_RETRY_DELAY" =~ ^([0-9]|[1-9][0-9]|[12][0-9]{2}|300)$ ]]; then
 fi
 RELEASE_ENV_FILE="$BACKEND_DIR/.runtime-release.env"
 DEPLOY_LOCK_FILE="$DEPLOY_STATE_DIR/${DEPLOY_ENVIRONMENT}.lock"
+RESTART_WINDOW_LOCK_FILE="$DEPLOY_STATE_DIR/${DEPLOY_ENVIRONMENT}.restart.lock"
 DEPLOY_STATE_FILE="$DEPLOY_STATE_DIR/${DEPLOY_ENVIRONMENT}.state"
 APPROVED_RELEASE_SHA="${APPROVED_RELEASE_SHA:-}"
 MIGRATION_APPROVED_SOURCE_SHA="${MIGRATION_APPROVED_SOURCE_SHA:-}"
 MIGRATION_EXPECTED_CURRENT_REVISION="${MIGRATION_EXPECTED_CURRENT_REVISION:-}"
 MIGRATION_TARGET_REVISION="${MIGRATION_TARGET_REVISION:-}"
 DEPLOY_LOCK_FD=""
+RESTART_WINDOW_LOCK_FD=""
 DEPLOY_STARTED=0
 SERVICE_RESTART_ATTEMPTED=0
 DEPLOY_PHASE="preflight"
@@ -225,12 +228,90 @@ assert_release_tree_regular() {
     fi
 }
 
+assert_secure_deploy_state_dir() {
+    local current_uid directory_mode directory_owner
+
+    if [[ -L "$DEPLOY_STATE_DIR" || ! -d "$DEPLOY_STATE_DIR" ]]; then
+        echo "Deployment state directory must be a real directory." >&2
+        exit 1
+    fi
+    current_uid="$(id -u)"
+    directory_owner="$(stat -Lc "%u" -- "$DEPLOY_STATE_DIR")"
+    directory_mode="$(stat -Lc "%a" -- "$DEPLOY_STATE_DIR")"
+    if [[ "$directory_owner" != "$current_uid" ]] \
+        || (( (8#$directory_mode & 8#022) != 0 )); then
+        echo "Deployment state directory must be owner-controlled." >&2
+        exit 1
+    fi
+}
+
+validate_open_lock_file() {
+    local lock_path="$1" lock_fd="$2"
+    local current_uid descriptor_identity path_identity
+
+    current_uid="$(id -u)"
+    if [[ -L "$lock_path" || ! -f "$lock_path" \
+        || ! -f "/proc/self/fd/$lock_fd" ]]; then
+        echo "Deployment lock must be a regular file: $lock_path" >&2
+        exit 1
+    fi
+    descriptor_identity="$(stat -Lc "%d:%i:%u:%h" -- "/proc/self/fd/$lock_fd")"
+    path_identity="$(stat -Lc "%d:%i:%u:%h" -- "$lock_path")"
+    if [[ "$descriptor_identity" != "$path_identity" \
+        || "$descriptor_identity" != *":$current_uid:1" ]]; then
+        echo "Deployment lock descriptor does not match its owner-controlled path." >&2
+        exit 1
+    fi
+    chmod 0600 "/proc/self/fd/$lock_fd"
+    descriptor_identity="$(stat -Lc "%d:%i:%u:%a:%h" -- "/proc/self/fd/$lock_fd")"
+    path_identity="$(stat -Lc "%d:%i:%u:%a:%h" -- "$lock_path")"
+    if [[ "$descriptor_identity" != "$path_identity" \
+        || "$descriptor_identity" != *":$current_uid:600:1" ]]; then
+        echo "Deployment lock mode could not be restricted safely." >&2
+        exit 1
+    fi
+}
+
 acquire_deploy_lock() {
-    mkdir -p -- "$DEPLOY_STATE_DIR"
-    chmod 0755 "$DEPLOY_STATE_DIR"
-    exec {DEPLOY_LOCK_FD}>"$DEPLOY_LOCK_FILE"
+    local previous_umask
+
+    previous_umask="$(umask)"
+    if [[ ! -e "$DEPLOY_STATE_DIR" && ! -L "$DEPLOY_STATE_DIR" ]]; then
+        umask 022
+        mkdir -m 0755 -- "$DEPLOY_STATE_DIR"
+        umask "$previous_umask"
+    fi
+    assert_secure_deploy_state_dir
+    if [[ -L "$DEPLOY_LOCK_FILE" \
+        || ( -e "$DEPLOY_LOCK_FILE" && ! -f "$DEPLOY_LOCK_FILE" ) ]]; then
+        echo "Deployment lock path is not a regular file." >&2
+        exit 1
+    fi
+    umask 077
+    exec {DEPLOY_LOCK_FD}>>"$DEPLOY_LOCK_FILE"
+    umask "$previous_umask"
+    validate_open_lock_file "$DEPLOY_LOCK_FILE" "$DEPLOY_LOCK_FD"
     if ! flock -n "$DEPLOY_LOCK_FD"; then
         echo "A $DEPLOY_ENVIRONMENT deployment is already running; refusing concurrent deploy." >&2
+        exit 1
+    fi
+}
+
+acquire_restart_window_lock() {
+    local previous_umask
+
+    if [[ -L "$RESTART_WINDOW_LOCK_FILE" \
+        || ( -e "$RESTART_WINDOW_LOCK_FILE" && ! -f "$RESTART_WINDOW_LOCK_FILE" ) ]]; then
+        echo "Restart-window lock path is not a regular file." >&2
+        exit 1
+    fi
+    previous_umask="$(umask)"
+    umask 077
+    exec {RESTART_WINDOW_LOCK_FD}>>"$RESTART_WINDOW_LOCK_FILE"
+    umask "$previous_umask"
+    validate_open_lock_file "$RESTART_WINDOW_LOCK_FILE" "$RESTART_WINDOW_LOCK_FD"
+    if ! flock -n "$RESTART_WINDOW_LOCK_FD"; then
+        echo "Another process owns the restart window; deployment remains blocked." >&2
         exit 1
     fi
 }
@@ -252,11 +333,18 @@ write_release_artifact() {
 write_deploy_state() {
     local phase="$1"
     local release_sha="${2:-${CURRENT_SHA:-$APPROVED_RELEASE_SHA}}"
-    local temporary_file="${DEPLOY_STATE_FILE}.tmp.$$"
+    local previous_umask temporary_file
 
-    umask 022
-    printf 'DEPLOYMENT_STATE=%s\nENVIRONMENT=%s\nRELEASE_SHA=%s\n' \
-        "$phase" "$DEPLOY_ENVIRONMENT" "$release_sha" > "$temporary_file"
+    previous_umask="$(umask)"
+    umask 077
+    temporary_file="$(mktemp --tmpdir="$DEPLOY_STATE_DIR" \
+        ".${DEPLOY_ENVIRONMENT}.state.XXXXXXXX")"
+    umask "$previous_umask"
+    if ! printf 'DEPLOYMENT_STATE=%s\nENVIRONMENT=%s\nRELEASE_SHA=%s\n' \
+        "$phase" "$DEPLOY_ENVIRONMENT" "$release_sha" > "$temporary_file"; then
+        rm -f -- "$temporary_file"
+        return 1
+    fi
     chmod 0644 "$temporary_file"
     mv -- "$temporary_file" "$DEPLOY_STATE_FILE"
 }
@@ -414,9 +502,11 @@ if [[ "$DRY_RUN" == "1" ]]; then
     "${GIT[@]}" cat-file -e "$REMOTE_SHA:$ACL_POLICY_PATH"
     "${GIT[@]}" cat-file -e "$REMOTE_SHA:$ACL_CONVERGENCE_SQL_PATH"
     "${GIT[@]}" cat-file -e "$REMOTE_SHA:$ACL_CONVERGENCE_HELPER_PATH"
+    "${GIT[@]}" cat-file -e "$REMOTE_SHA:$DEPLOY_START_GUARD_HELPER_PATH"
     "${GIT[@]}" archive --format=tar "$REMOTE_SHA" \
         "$UNIT_MANIFEST_PATH" "$MIGRATION_POLICY_PATH" "$ACL_POLICY_PATH" \
         "$ACL_CONVERGENCE_SQL_PATH" "$ACL_CONVERGENCE_HELPER_PATH" \
+        "$DEPLOY_START_GUARD_HELPER_PATH" \
         | tar --extract --file=- --directory="$DRY_RUN_TEMP/candidate-units"
     verify_archived_blob "$REMOTE_SHA" "$UNIT_MANIFEST_PATH" \
         "$DRY_RUN_TEMP/candidate-units/$UNIT_MANIFEST_PATH"
@@ -428,6 +518,8 @@ if [[ "$DRY_RUN" == "1" ]]; then
         "$DRY_RUN_TEMP/candidate-units/$ACL_CONVERGENCE_SQL_PATH"
     verify_archived_blob "$REMOTE_SHA" "$ACL_CONVERGENCE_HELPER_PATH" \
         "$DRY_RUN_TEMP/candidate-units/$ACL_CONVERGENCE_HELPER_PATH"
+    verify_archived_blob "$REMOTE_SHA" "$DEPLOY_START_GUARD_HELPER_PATH" \
+        "$DRY_RUN_TEMP/candidate-units/$DEPLOY_START_GUARD_HELPER_PATH"
     load_unit_manifest "$DRY_RUN_TEMP/candidate-units/$UNIT_MANIFEST_PATH"
     validate_migration_policy \
         "$DRY_RUN_TEMP/candidate-units/$MIGRATION_POLICY_PATH"
@@ -591,6 +683,7 @@ fi
 cleanup_acl_convergence_bundle
 
 assert_clean_tree "Deploy steps"
+acquire_restart_window_lock
 DEPLOY_PHASE="restart-authorized"
 write_deploy_state "$DEPLOY_PHASE" "$CURRENT_SHA"
 SERVICE_RESTART_ATTEMPTED=1
