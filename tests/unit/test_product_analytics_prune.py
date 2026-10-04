@@ -217,12 +217,8 @@ def test_systemd_service_artifact_matches_the_specified_unit(environment):
         f"EnvironmentFile={backend_dir}/.runtime-release.env",
         f"ExecStartPre=/usr/bin/test -r {backend_dir}/.env",
         f"ExecStartPre=/usr/bin/test -r {backend_dir}/.runtime-release.env",
-            (
-                "ExecStartPre=/bin/sh -c 'test ! -e "
-                f"{backend_dir}/.runtime-deploy/{environment}.state || grep -qx "
-                "DEPLOYMENT_STATE=restart-authorized "
-                f"{backend_dir}/.runtime-deploy/{environment}.state'"
-            ),
+        f"ConditionPathExists=!{backend_dir}/.runtime-deploy/{environment}.state",
+        f"ConditionPathIsSymbolicLink=!{backend_dir}/.runtime-deploy/{environment}.state",
         "ExecStartPre=/usr/bin/pg_isready --quiet --timeout=5",
         (
             f"ExecStart={backend_dir}/venv/bin/python "

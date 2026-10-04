@@ -78,8 +78,9 @@ Git, database, and Python routing controls.
 
 - Dry-run resolves one full SHA and verifies only that archived commit. It
   checks the [unit manifest](deploy/systemd/runtime-units.manifest),
-  [migration checkpoints](deploy/migration-checkpoints.tsv), ACL bundle, and
-  systemd bytes without executing candidate Python or opening the live database.
+  [migration checkpoints](deploy/migration-checkpoints.tsv), ACL bundle,
+  deploy-start guard helper, and systemd bytes without executing candidate
+  Python or opening the live database.
 - A real deploy requires the same approved SHA, an exact current revision, and
   one literal allowlisted target. It refuses `head`, moved source, unexpected
   live state, and unlisted transitions before source mutation.
@@ -88,14 +89,22 @@ Git, database, and Python routing controls.
   [policy](deploy/postgres/app_acl_policy.sql), and
   [convergence SQL](deploy/postgres/converge_runtime_object_acls.sql) rebuild
   runtime ACLs transactionally before restart.
-- A per-environment lock and `.runtime-deploy/<environment>.state` remain in
-  force through restart and readiness. The staging backend, news-refresh, and
-  product-analytics-prune units accept only absent or `restart-authorized`
-  state. The order-expiry-reminder unit is production-only and refuses any
-  present production state. Each auth-maintenance unit refuses any present
-  environment state, loads `.runtime-release.env`, and preflights the effective
-  `ENVIRONMENT` before execution. These systemd conditions govern new starts
-  only; creating state does not stop or drain an already-running oneshot.
+- The main per-environment deployment lock and
+  `.runtime-deploy/<environment>.state` remain in force through restart and
+  readiness. Backend units allow absent state. During the controlled restart,
+  their isolated start guard also allows the exact `restart-authorized` state
+  only when its environment and full SHA match the release artifact and both
+  the main and restart-window locks are busy. Deploy acquires the restart lock
+  while state is still blocked, writes authorization only after both locks are
+  held, and keeps both lock descriptors open until exit. A crash or reboot
+  releases the locks, so stale authorization cannot permit a later start.
+  News-refresh and product-analytics-prune units reject every present state
+  path, including a dangling symlink. The production-only
+  order-expiry-reminder unit and both auth-maintenance units retain their
+  existing conditions. Auth
+  maintenance also loads `.runtime-release.env` and preflights the effective
+  `ENVIRONMENT` before execution. These guards govern new starts only;
+  creating state does not stop or drain an already-running process.
 - `/health/ready` must return exact status, database state, environment, and
   full SHA before the deploy state clears. `/health/live` proves only process
   response; `/health` remains a readiness alias. By default, the readiness gate
@@ -122,8 +131,31 @@ the no-change check with `--dry-run --environment <production|staging>
   replacement, and always runs `systemctl daemon-reload`. Failed reload remains
   retryable.
 - The installer never enables, starts, restarts, or deploys a service. Timer
-  enablement is a separate operator action. Install guard-aware units before
-  relying on deploy-state enforcement.
+  enablement is a separate operator action. The initial predeploy dry-run uses
+  the previous deploy helper, so it cannot attest a start-guard helper that the
+  target commit introduces. For this transition, record which relevant
+  environment timers are active, then stop all relevant timers before the
+  normal code and helper deploy under the previous unit bundle. Let active
+  oneshots finish naturally and confirm that no job remains pending. This
+  pre-code step is required because the previous news-refresh and
+  product-analytics-prune guards can accept `restart-authorized` state. Keep
+  the timers quiesced through the code deploy, exact readiness and absent-state
+  checks, and the now-live `scripts/deploy.sh --dry-run` against the exact
+  current origin SHA. That bootstrap dry-run archives and blob-verifies the
+  helper without executing it. Then run the canonical installer as root, first
+  in dry-run mode and then with explicit apply for the same full SHA at
+  checkout `HEAD`. After successful apply and daemon-reload, keep the timers
+  quiesced and run one first-bootstrap-only canonical real deploy with the same
+  exact approved/current source SHA and the exact verified allowlisted current
+  checkpoint as both expected and target (production:
+  `uadl_20261003_delivery_reports`; staging: `rcp_20261003_command_results`).
+  This activation exercises the new two-lock deploy path and newly loaded
+  `ExecStartPre` guard. Require exact health and absent deployment state after
+  it before final acceptance. Restore only the timers recorded as active, and
+  only after deployment state is absent. The installer verifies the unit bytes,
+  not their referenced helper. Keep the helper path and CLI compatible through
+  forward reverts while an installed backend unit references it; remove it only
+  with a compatible unit transition.
 - Rollback is a clean forward-revert release through the same health gate.
   Never downgrade the database or release metadata independently of code.
 
