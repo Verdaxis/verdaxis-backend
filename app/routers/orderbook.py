@@ -2391,6 +2391,18 @@ async def create_order(
         )
     await enqueue_market_events(db, committed_events)
 
+    # Complete response database reads before commit; retries must not repeat a committed create.
+    await db.refresh(new_order)
+
+    # Re-fetch with eager loading so tier_label computed property works
+    result = await db.execute(
+        select(OrderBookOrder)
+        .options(selectinload(OrderBookOrder.organization))
+        .where(OrderBookOrder.id == new_order.id)
+    )
+    new_order = result.scalars().first()
+    response = await _order_response(db, new_order)
+
     try:
         await db.commit()
     except IntegrityError:
@@ -2415,18 +2427,7 @@ async def create_order(
             track_analytics_event(
                 trade_created_event(current_user, order=new_order, request=request), request=request
             )
-
-    await db.refresh(new_order)
-
-    # Re-fetch with eager loading so tier_label computed property works
-    result = await db.execute(
-        select(OrderBookOrder)
-        .options(selectinload(OrderBookOrder.organization))
-        .where(OrderBookOrder.id == new_order.id)
-    )
-    new_order = result.scalars().first()
-
-    return await _order_response(db, new_order)
+    return response
 
 
 @router.put("/{order_id}", response_model=OrderResponse)
