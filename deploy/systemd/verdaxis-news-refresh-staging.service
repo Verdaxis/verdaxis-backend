@@ -4,6 +4,8 @@ Wants=network-online.target
 Requires=postgresql.service
 After=network-online.target postgresql.service
 RequiresMountsFor=/home/verdaxis-prod/verdaxis/staging/be
+ConditionPathExists=!/home/verdaxis-prod/verdaxis/staging/be/.runtime-deploy/staging.state
+ConditionPathIsSymbolicLink=!/home/verdaxis-prod/verdaxis/staging/be/.runtime-deploy/staging.state
 
 [Service]
 Type=oneshot
@@ -14,7 +16,6 @@ EnvironmentFile=/home/verdaxis-prod/verdaxis/staging/be/.env
 EnvironmentFile=/home/verdaxis-prod/verdaxis/staging/be/.runtime-release.env
 ExecStartPre=/usr/bin/test -r /home/verdaxis-prod/verdaxis/staging/be/.env
 ExecStartPre=/usr/bin/test -r /home/verdaxis-prod/verdaxis/staging/be/.runtime-release.env
-ExecStartPre=/bin/sh -c 'test ! -e /home/verdaxis-prod/verdaxis/staging/be/.runtime-deploy/staging.state || grep -qx DEPLOYMENT_STATE=restart-authorized /home/verdaxis-prod/verdaxis/staging/be/.runtime-deploy/staging.state'
 ExecStart=/home/verdaxis-prod/verdaxis/staging/be/venv/bin/python -m app.cli.refresh_news
 TimeoutStartSec=300
 NoNewPrivileges=true

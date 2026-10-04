@@ -77,18 +77,38 @@ this branch does neither.
 The units require the gitignored `.runtime-release.env` artifact containing the
 exact environment, full source SHA, and literal deployed migration revision.
 They also check the durable per-environment
-`.runtime-deploy/<environment>.state` file. A normal
-start is allowed only when state is absent; the one explicit
-`DEPLOYMENT_STATE=restart-authorized` phase permits the controlled deploy
-restart. Blocked and readiness-pending state refuses starts. An actual
-`scripts/deploy.sh` run first rejects a dirty tree, acquires a durable
-environment-specific `flock`, and atomically writes blocked state before
-source mutation. It fetches and fast-forwards only the selected target branch,
-but requires `APPROVED_RELEASE_SHA` to equal the full SHA printed by a prior
-dry-run; a moved remote branch is refused. Before acquiring the lock or
-mutating source, it also requires `MIGRATION_APPROVED_SOURCE_SHA` to equal that
-same SHA and requires literal `MIGRATION_EXPECTED_CURRENT_REVISION` and
-`MIGRATION_TARGET_REVISION` values. The expected/target pair must occur in the
+`.runtime-deploy/<environment>.state` file. A normal backend start is allowed
+only when state is absent. The two backend units invoke
+`scripts/verify_deploy_start_guard.py` with an empty environment and isolated
+stdlib Python. For the controlled restart, that guard requires the exact
+three-line `restart-authorized` state, the unit's environment and release
+SHA, owner-controlled regular paths, and actual contention of both the main
+deployment lock and the dedicated restart-window lock. It opens existing lock
+files read-only with no-follow checks and denies unexpected errors. Blocked,
+readiness-pending, malformed, stale, or mismatched state refuses a backend
+start. News-refresh and product-analytics-prune units reject every present
+state path, including a dangling symlink. The production-only
+order-expiry-reminder unit and both authentication-maintenance units keep
+their existing conditions.
+
+An actual `scripts/deploy.sh` run first rejects a dirty tree, acquires and
+validates the durable environment-specific main `flock`, and atomically
+writes blocked state before source mutation. State stays blocked while deploy
+nonblockingly acquires and validates the restart-window lock. Only after both
+locks are held does deploy write the exact restart authorization and restart
+the backend; it then writes readiness-pending and keeps both lock descriptors
+open until exit. A crash or reboot releases both locks, so a stale
+`restart-authorized` file cannot authorize a later start. This guard
+authorizes a new backend start only; it does not stop or drain an already
+running or preauthorized process. It proves cooperation from the live deploy
+process and does not claim protection from a malicious process running as the
+same deployment user. Deploy fetches and fast-forwards only the selected
+target branch, but requires `APPROVED_RELEASE_SHA` to equal the full SHA
+printed by a prior dry-run; a moved remote branch is refused. Before
+acquiring the lock or mutating source, it also requires
+`MIGRATION_APPROVED_SOURCE_SHA` to equal that same SHA and requires literal
+`MIGRATION_EXPECTED_CURRENT_REVISION` and `MIGRATION_TARGET_REVISION`
+values. The expected/target pair must occur in the
 selected SHA's committed `deploy/migration-checkpoints.tsv`; aliases such as
 `head`, revision arithmetic, absent revisions, and reverse traversal refuse.
 After the policy check, deploy acquires the environment lock and the clean
@@ -144,8 +164,10 @@ If release-metadata publication itself fails, durable blocked state stays
 present and no new-tree unit may start. If preflight, dependency preparation,
 migration, restart, readiness, or the operator process later fails, source and
 release metadata remain aligned at the selected new commit and the durable
-state remains fail-closed; interruption therefore cannot erase the guard
-before restart/readiness. The helper never rolls metadata back independently
+state remains fail-closed. If interruption leaves a restart authorization,
+the released locks prevent that stale state from authorizing another backend
+start. Interruption therefore cannot erase the guard before restart/readiness.
+The helper never rolls metadata back independently
 and never uses destructive Git reset. It clears state only after the restarted
 service returns exact readiness; a restart/readiness failure stops the failed
 backend service. Recovery is a corrected forward release or an explicitly
@@ -155,18 +177,22 @@ and never an automatic schema downgrade.
 `scripts/deploy.sh --dry-run` makes no deployed-state change. It requires the
 live checkout to be clean and on the target branch, resolves one remote branch
 to a full SHA, fetches that object, and materializes only its unit manifest,
-migration policy, and manifest-selected systemd paths from an immutable Git
-archive. Regular-file checks reject candidate symlinks before parsing or
+migration policy, ACL convergence bundle, deploy-start guard helper, and
+manifest-selected systemd paths from an immutable Git archive. Regular-file
+checks reject candidate symlinks before parsing or
 hashing, and each staged digest is compared with the exact committed blob.
 Release-tree attestation also refuses every tracked symlink or gitlink, so a
 later approved Python/import/build path cannot escape the selected Git object.
-Trusted `tar`, `sha256sum`, and `systemd-analyze` inspect the committed unit manifest, migration policy,
-and exact unit bytes. Candidate Python imports, build backends, pip/Alembic,
-live database/configuration, `.env`, operator home, agent, and candidate-code
-network access are deliberately omitted. Trusted Git may contact the configured
-remote to resolve and fetch the exact commit; no fetched executable code is
-run. The output binds approval to `APPROVED_RELEASE_SHA=<sha>` and prints the
-three additional migration approval inputs required for the subsequent deploy;
+Trusted `tar` and `sha256sum` inspect the committed manifest, migration
+policy, ACL convergence bundle, deploy-start guard helper, and exact unit
+bytes; `systemd-analyze` validates the staged units. The helper is
+blob-verified but not executed. Candidate Python imports, build backends,
+pip/Alembic, live database/configuration, `.env`, operator home, agent, and
+candidate-code network access are deliberately omitted. Trusted Git may
+contact the configured remote to resolve and fetch the exact commit; no
+fetched executable code is run. The output binds approval to
+`APPROVED_RELEASE_SHA=<sha>` and prints the three additional migration
+approval inputs required for the subsequent deploy;
 it explicitly reports that candidate-dependent application checks, live
 migration state, and readiness were not performed. Staging and production
 refuse startup without a full SHA and literal migration checkpoint;
@@ -216,6 +242,36 @@ reload failure leaves the installed bundle and durable retry marker for the
 next apply. It
 never enables, starts, or restarts a service or timer. Installation, daemon
 reload, and timer enablement remain operator-held live actions.
+
+The initial lock-aware start-guard rollout is ordered. The predeploy dry-run
+executes the previous deploy helper, which cannot archive or blob-verify a
+start-guard helper introduced by the target commit. Before the normal code
+deploy, record which relevant environment timers are active, then stop all
+relevant timers. Let active oneshots finish naturally and confirm that no job
+remains pending. This pre-code step is required because the previous
+news-refresh and product-analytics-prune guards can accept `restart-authorized`
+state.
+
+Keep the timers quiesced while deploying the code and
+`scripts/verify_deploy_start_guard.py` under the previous unit bundle, and
+through exact readiness and absent deployment-state verification. Run the
+now-live `scripts/deploy.sh --dry-run` against the exact current origin SHA;
+this bootstrap gate archives and blob-verifies the helper without executing it.
+Then run the canonical installer as root, approve its dry-run for the same full
+SHA at checkout `HEAD`, and use explicit apply for that SHA. After successful
+apply and daemon-reload, keep the timers quiesced and use the existing
+canonical real-deploy path once for this first bootstrap. Supply the same exact
+approved/current source SHA and the exact verified allowlisted current
+checkpoint as both expected and target: production
+`uadl_20261003_delivery_reports`; staging `rcp_20261003_command_results`. This
+same-head activation exercises the new `scripts/deploy.sh` two-lock
+authorization and newly loaded backend `ExecStartPre` guard. Require exact
+health and absent deployment state after the activation before final
+acceptance. Restore only the timers recorded as active, and only after
+deployment state is absent. The installer attests the unit bytes, not the
+helper they reference. Keep the helper's absolute path and CLI compatible
+through forward reverts for as long as an installed backend unit references it.
+Removal requires a compatible unit transition.
 
 Deploys categorically reject dirty trees before and after preparation because
 a commit SHA cannot identify modified source. The readiness gate parses JSON
