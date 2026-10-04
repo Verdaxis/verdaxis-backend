@@ -131,10 +131,10 @@
 - **Why:** The user is prioritizing fast staging review for simple/demo-data slices, and adding tests can slow down the immediate product feedback loop.
 
 ### Synthetic Browser Checks Must Fail Closed Without Crashing
-- **Date:** 2026-06-22
-- **Trigger:** The Verdaxis monitor reported `rendered page checks crashed` because headless Chromium timed out while dumping the login page DOM.
-- **Rule:** Wrap browser-render timeouts as ordinary monitor failures with clear context, and set render timeouts for VPS/browser cold-start latency rather than assuming fast local Chrome startup.
-- **Why:** A synthetic UI check is useful only if it reports the failing condition; uncaught subprocess timeouts make the monitor itself look broken and obscure the actual site state.
+- **Date:** 2026-10-05
+- **Trigger:** Chromium virtual time stopped near one second while the login page kept its orderbook EventSource open, so `--dump-dom` never completed and Snap-private `/tmp` profiles escaped host cleanup.
+- **Rule:** Use the installed matching ChromeDriver on wall time, require visible login controls, keep the bounded failure path, and place profiles in the host/Snap shared user-common directory. Do not use a virtual-time DOM dump on pages with persistent streams.
+- **Why:** A persistent fetch can pause Chromium virtual time indefinitely, and host cleanup cannot remove a profile created in Snap's private `/tmp`.
 
 ### Treat Vercel Bot Challenges As Monitor-Client Blocks
 - **Date:** 2026-06-23

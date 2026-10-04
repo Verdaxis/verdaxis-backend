@@ -15,6 +15,14 @@ selective installed patch described by
 filenames do not prove release or activation. Current runtime identity comes
 from each public `/health/ready` response, not from a dated SHA in this file.
 
+The rendered login check uses the installed ChromeDriver through the W3C HTTP
+interface and waits on wall time for visible email, password, and submit
+controls. The Snap-packaged `chromium.chromedriver` is preferred because it
+matches the installed Chromium version. Browser profiles and temporary files
+stay under `~/snap/chromium/common`, where the host controller and confined
+browser share one cleanup path. `CHROMEDRIVER_BIN` and
+`CHROMIUM_PROFILE_PARENT` can override those defaults.
+
 ## Event outbox backlog
 
 The source design invokes the byte-attested
