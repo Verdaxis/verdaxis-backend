@@ -106,6 +106,7 @@ DEFAULT_ANALYTICS_MAX_DATA_BYTES = 5 * 1024 * 1024 * 1024
 DEFAULT_MIN_DISK_FREE_PERCENT = 10.0
 DEFAULT_BACKUP_STATUS_FILE = "/home/verdaxis-prod/backups/status.json"
 DEFAULT_BACKUP_MAX_AGE_SECONDS = 30 * 60 * 60
+DEFAULT_EXPENSIVE_CHECK_INTERVAL_SECONDS = 30 * 60
 RESTORE_STATUS_MAX_AGE_SECONDS = 8 * 24 * 60 * 60
 RESTORE_STATUS_FUTURE_TOLERANCE_SECONDS = 5 * 60
 RESTORE_STATUS_MAX_BYTES = 5_000
@@ -198,6 +199,39 @@ def save_state(path: Path, state: dict) -> None:
     tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps(state, indent=2, sort_keys=True) + "\n")
     tmp.replace(path)
+
+
+def load_cached_expensive_checks(now: int) -> tuple[list[str], dict] | None:
+    """Return the last deep-check result while its 30-minute slot is active."""
+    status_file = Path(os.getenv("STATUS_FILE", DEFAULT_STATUS_FILE))
+    payload = load_state(status_file)
+    cached = payload.get("expensive_checks")
+    if not isinstance(cached, dict):
+        return None
+
+    checked_at = cached.get("checked_at")
+    errors = cached.get("errors")
+    if type(checked_at) is not int:
+        return None
+    if not isinstance(errors, list) or not all(isinstance(error, str) for error in errors):
+        return None
+
+    try:
+        interval = max(
+            300,
+            int(
+                os.getenv(
+                    "EXPENSIVE_CHECK_INTERVAL_SECONDS",
+                    str(DEFAULT_EXPENSIVE_CHECK_INTERVAL_SECONDS),
+                )
+            ),
+        )
+    except (TypeError, ValueError):
+        return None
+    age = now - checked_at
+    if age < 0 or age >= interval:
+        return None
+    return list(errors), cached
 
 
 def check_caddyfile() -> list[str]:
@@ -1127,11 +1161,65 @@ def check_demo_trade_canaries() -> list[str]:
     return errors
 
 
+def run_expensive_checks() -> list[str]:
+    """Run synthetic journeys and local integrity scans on the slower cadence."""
+    errors: list[str] = []
+    try:
+        errors.extend(check_frontend_bundles())
+    except Exception as exc:
+        errors.append(f"frontend bundle checks crashed: {exc}")
+    try:
+        errors.extend(check_rendered_pages())
+    except Exception as exc:
+        errors.append(f"rendered page checks crashed: {exc}")
+    try:
+        errors.extend(check_backup_status())
+    except Exception as exc:
+        errors.append(f"backup status check crashed: {exc}")
+    try:
+        errors.extend(check_signup_canaries())
+    except Exception as exc:
+        errors.append(f"signup canaries crashed: {exc}")
+    try:
+        errors.extend(check_demo_trade_canaries())
+    except Exception:
+        errors.append("demo trade canaries crashed")
+    try:
+        errors.extend(check_analytics_collector())
+    except Exception as exc:
+        errors.append(f"analytics ingestion canary crashed: {exc}")
+    try:
+        errors.extend(check_analytics_storage())
+    except Exception as exc:
+        errors.append(f"analytics storage check crashed: {exc}")
+    return errors
+
+
+def check_expensive_if_due() -> tuple[list[str], dict]:
+    now = int(time.time())
+    cached = load_cached_expensive_checks(now)
+    if cached is not None:
+        return cached
+
+    errors = run_expensive_checks()
+    checked_at = int(time.time())
+    return errors, {
+        "ok": not errors,
+        "checked_at": checked_at,
+        "checked_at_utc": time.strftime(
+            "%Y-%m-%dT%H:%M:%SZ",
+            time.gmtime(checked_at),
+        ),
+        "errors": errors,
+    }
+
+
 def write_status(
     ok: bool,
     errors: list[str],
     endpoint_statuses: list[dict],
     outbox_statuses: list[dict] | None = None,
+    expensive_status: dict | None = None,
 ) -> None:
     status_file = Path(os.getenv("STATUS_FILE", DEFAULT_STATUS_FILE))
     now = int(time.time())
@@ -1142,6 +1230,7 @@ def write_status(
         "errors": errors,
         "endpoints": endpoint_statuses,
         "outbox_backlogs": outbox_statuses or [],
+        "expensive_checks": expensive_status or {},
         "alert_cooldown_seconds": int(
             os.getenv("ALERT_COOLDOWN_SECONDS", str(DEFAULT_ALERT_COOLDOWN_SECONDS))
         ),
@@ -1228,18 +1317,6 @@ def main() -> int:
     outbox_statuses: list[dict] = []
     errors.extend(endpoint_errors)
     try:
-        errors.extend(check_frontend_bundles())
-    except Exception as exc:
-        errors.append(f"frontend bundle checks crashed: {exc}")
-    try:
-        errors.extend(check_rendered_pages())
-    except Exception as exc:
-        errors.append(f"rendered page checks crashed: {exc}")
-    try:
-        errors.extend(check_backup_status())
-    except Exception as exc:
-        errors.append(f"backup status check crashed: {exc}")
-    try:
         errors.extend(check_restore_status())
     except Exception:
         errors.append("restore verification status check crashed")
@@ -1248,24 +1325,10 @@ def main() -> int:
         errors.extend(outbox_errors)
     except Exception:
         errors.append("event outbox backlog checks crashed")
-    try:
-        errors.extend(check_signup_canaries())
-    except Exception as exc:
-        errors.append(f"signup canaries crashed: {exc}")
-    try:
-        errors.extend(check_demo_trade_canaries())
-    except Exception:
-        errors.append("demo trade canaries crashed")
-    try:
-        errors.extend(check_analytics_collector())
-    except Exception as exc:
-        errors.append(f"analytics ingestion canary crashed: {exc}")
-    try:
-        errors.extend(check_analytics_storage())
-    except Exception as exc:
-        errors.append(f"analytics storage check crashed: {exc}")
+    expensive_errors, expensive_status = check_expensive_if_due()
+    errors.extend(expensive_errors)
     ok = not errors
-    write_status(ok, errors, endpoint_statuses, outbox_statuses)
+    write_status(ok, errors, endpoint_statuses, outbox_statuses, expensive_status)
     maybe_alert(ok, errors)
     if ok:
         print("Verdaxis monitor OK")
