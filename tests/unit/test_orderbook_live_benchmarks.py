@@ -4,7 +4,7 @@ import pytest
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from sqlalchemy import delete, event, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -16,6 +16,7 @@ from app.models.live_slice_benchmark import LiveSliceBenchmark
 from app.models.orderbook import OrderBookOrder, OrderBookStatus, OrderSide
 from app.models.user import OrgType, Organization, OrganizationProvenance
 from app.routers.orderbook import get_orderbook_snapshot, list_asks, list_bids
+from app.schemas.market_activity import MarketDemoStatus, MarketScope, MarketSourceKind
 from app.services.live_benchmarks import rebuild_live_slice_benchmark
 
 REQUIRED_TABLES = [
@@ -224,9 +225,22 @@ class TestLiveSliceBenchmarks:
         assert [item.price_per_mt_usd for item in snapshot.asks] == sorted(
             expected_ask_prices,
         )[:15]
-        assert all(str(item.delivery_point_id) == str(singapore.id) for item in snapshot.bids + snapshot.asks)
-        assert all(item.availability_window == 'SPOT' for item in snapshot.bids + snapshot.asks)
-        assert all(item.benchmark_price_per_mt_usd is not None for item in snapshot.bids + snapshot.asks)
+        items = snapshot.bids + snapshot.asks
+        assert all(isinstance(item.delivery_point_id, UUID) for item in items)
+        assert all(isinstance(item.source_kind, MarketSourceKind) for item in items)
+        assert all(isinstance(item.scope, MarketScope) for item in items)
+        assert all(isinstance(item.demo_status, MarketDemoStatus) for item in items)
+        assert all(item.availability_window == 'SPOT' for item in items)
+        assert all(item.benchmark_price_per_mt_usd is not None for item in items)
+
+        serialized_snapshot = snapshot.model_dump(mode='json', warnings='error')
+        serialized_items = serialized_snapshot['bids'] + serialized_snapshot['asks']
+        assert all(item['delivery_point_id'] == str(singapore.id) for item in serialized_items)
+        assert all(item['source_kind'] == 'LIVE_ORDER' for item in serialized_items)
+        assert all(item['scope'] == 'DELIVERY_POINT' for item in serialized_items)
+        assert all(item['demo_status'] == 'REAL_ONLY' for item in serialized_items)
+        assert all(item['is_demo_listing'] is False for item in serialized_items)
+        assert all(item['unknown_count'] == 0 for item in serialized_items)
 
     @pytest.mark.asyncio
     async def test_snapshot_rechecks_expiry_without_an_order_write(self, db: AsyncSession):
