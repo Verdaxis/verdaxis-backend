@@ -1005,19 +1005,20 @@ async def create_trade(
             )
         ],
     )
-    await db.commit()
-    track_analytics_event(
-        trade_created_event(current_user, order=order, request=request), request=request
-    )
 
+    # Complete response database reads before commit; retries must not repeat a committed create.
     # Reload with relationships for response
     loaded_trade = await _load_trade(db, trade.id)
-
-    return build_trade_response(
+    response = build_trade_response(
         loaded_trade,
         viewer_org_id=initiator_org_id,
         viewer_is_admin=current_user.role == UserRole.ADMIN,
     )
+    await db.commit()
+    track_analytics_event(
+        trade_created_event(current_user, order=order, request=request), request=request
+    )
+    return response
 
 
 # ---------------------------------------------------------------------------
