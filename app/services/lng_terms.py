@@ -76,6 +76,16 @@ def validate_order_lng_terms(product_id: UUID | None, side: Any, terms: Any) -> 
         raise _terms_error("lng_terms are not valid Bio-LNG terms") from exc
     if parsed.side != _side_value(side):
         raise _terms_error("lng_terms.side must match the order side")
+    # Founder decision, 14 October 2026: the allocation tool will replace this
+    # interim block with compliance-verified supplier volume and expiry checks.
+    if isinstance(parsed, LngAskTerms) and not parsed.seller_is_physical_supplier:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={
+                "code": "RESELLER_ALLOCATION_REQUIRED",
+                "message": "Reseller listings need a verified supplier allocation. Contact Verdaxis to register one.",
+            },
+        )
     return parsed.model_dump(mode="json")
 
 
