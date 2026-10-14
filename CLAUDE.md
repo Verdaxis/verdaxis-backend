@@ -327,8 +327,8 @@ BACKEND_CORS_ORIGINS=          # Omit for exact environment-specific allowlist
 
 - **`staging`** branch: live staging backend source at `/home/verdaxis-prod/verdaxis/staging/be`.
 - **`prod`** branch: live production backend source at `/home/verdaxis-prod/verdaxis/prod/be`.
-- **`main`** branch: legacy/default development branch in older docs and workflows.
-- Do not assume a push to `main` deploys the current live topology; verify `.github/workflows/backend-ci.yml` before relying on CI/CD.
+- **`master`** branch: GitHub default branch. CI does not run on pushes to it, and it deploys nothing.
+- The legacy `main` branch was deleted on 2026-10-14. Older docs that name `main` are historical.
 
 ## Local Development
 
