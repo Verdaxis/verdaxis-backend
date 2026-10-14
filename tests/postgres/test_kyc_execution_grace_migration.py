@@ -97,6 +97,11 @@ async def test_grace_snapshot_enrolls_only_approved_accounts_with_pending_kyc(an
 
         alembic("upgrade", _GRACE_REVISION)
         async with engine.connect() as connection:
+            index_definition = await connection.scalar(text(
+                "SELECT indexdef FROM pg_indexes WHERE schemaname = 'public' "
+                "AND tablename = 'users' AND indexname = 'ix_users_organization_id_id'"
+            ))
+            assert "(organization_id, id)" in index_definition
             rows = (
                 await connection.execute(
                     text(
@@ -119,6 +124,9 @@ async def test_grace_snapshot_enrolls_only_approved_accounts_with_pending_kyc(an
             assert (
                 await connection.execute(text("SELECT to_regclass('public.kyc_execution_grace')"))
             ).scalar_one() is None
+            assert await connection.scalar(text(
+                "SELECT to_regclass('public.ix_users_organization_id_id')"
+            )) is None
     finally:
         await engine.dispose()
         _admin_sql(f"DROP DATABASE IF EXISTS {_SCRATCH_DATABASE} WITH (FORCE)")

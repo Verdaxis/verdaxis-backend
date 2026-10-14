@@ -25,6 +25,10 @@ GRACE_PERIOD = "336 hours"
 
 
 def upgrade() -> None:
+    # Assisted eligibility finds and locks members by organization, then UUID.
+    op.create_index(
+        "ix_users_organization_id_id", "users", ["organization_id", "id"], unique=False
+    )
     op.create_table(
         "kyc_execution_grace",
         sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
@@ -91,3 +95,4 @@ def downgrade() -> None:
         )
     )
     op.drop_table("kyc_execution_grace")
+    op.drop_index("ix_users_organization_id_id", table_name="users")
