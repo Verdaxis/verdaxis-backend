@@ -66,7 +66,7 @@ def test_b100_terms_and_true_acknowledgements_remain_in_trade_hash(fuel_pair):
         expected_terms_digest="a" * 64,
     )
     canonical = trades.trade_create_idempotency_payload(payload)
-    assert canonical == payload.model_dump(mode="json")
+    assert canonical == payload.model_dump(mode="json", exclude={"lng_terms"})
     original_hash = idempotency_request_hash(canonical)
     for change in (
         {"certification_declared": False},

@@ -122,6 +122,28 @@ def _token(response) -> str:
 
 
 @pytest.mark.asyncio
+async def test_trader_supplier_is_invitation_only(invitation_context, invitation_db):
+    app, _admin, organization = invitation_context
+    organization.type = OrgType.FUEL_TRADER
+    await invitation_db.commit()
+    async with AsyncClient(transport=ASGITransport(app=app, client=("127.0.0.8", 123)), base_url="http://test") as client:
+        rejected = await client.post("/api/auth/register", json={
+            "email": f"signup@{organization.domain}", "password": "Supplier-password-9",
+            "first_name": "Supplier", "role": "SUPPLIER",
+        })
+        assert rejected.status_code == 422
+        invited = await client.post("/api/auth/admin/invitations", json=_payload(organization.id))
+        assert invited.status_code == 201, invited.text
+        resolved = await client.post("/api/auth/invitations/resolve", json={"token": _token(invited)})
+        assert resolved.status_code == 200, resolved.text
+        new_trader = await client.post("/api/auth/admin/invitations", json=_new_organization_payload(
+            email="trader@lngtrader.example", role="SUPPLIER",
+            new_organization={"name": "LNG Trader", "type": "FUEL_TRADER", "country_code": "NL"},
+        ))
+        assert new_trader.status_code == 201, new_trader.text
+
+
+@pytest.mark.asyncio
 async def test_admin_invite_is_preapproved_reissuable_and_attributed(invitation_context, invitation_db):
     app, admin, organization = invitation_context
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:

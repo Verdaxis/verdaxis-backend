@@ -213,7 +213,30 @@ New order creation/amendment, inventory publication, taking, matching and confir
 
 The operator runs `python -m app.cli.send_kyc_grace_notices --environment staging --release-sha <full-sha>` with the deployed runtime environment loaded. No timer or web worker sends notices. A separate `kyc_grace_notices` claim is committed before provider I/O. Successful sends record `sent_at`; failed or interrupted claims are deliberately not retried automatically, so the operator must review uncertain delivery rather than risk duplicate mail.
 
-Integration must reparent the KYC revision and its incoming checkpoint after `blng_20261014_staging`; this isolated branch initially uses `rcp_20261003_command_results`.
+KYC follows `blng_20261014_staging` in the combined migration chain and checkpoint policy.
+
+## Bio-LNG shared execution
+
+`BIO_LNG` is an ORDERBOOK product on the Rotterdam lane only, priced in USD/MT
+with a 1 MT order minimum and no synthetic seed liquidity. `schemas/lng_order.py`
+defines side-specific declarations and requirements. `services/lng_order.py`
+owns validation, the eight compatibility rules, scalar derivation and redaction.
+`reference/iso_countries.py` provides the 249 assigned ISO alpha-2 origin codes.
+
+Orders, assisted authorizations and negotiations retain typed LNG terms; trades
+freeze `lng_terms_snapshot` under the canonical immutable-snapshot trigger.
+Public orders and pending trades omit certificate numbers and physical supplier
+names. Confirmed counterparties receive the full snapshot. Direct takes accept
+`lng_terms` and return HTTP 409 `LNG_TERMS_INCOMPATIBLE` without party detail.
+Inventory publication is refused; suppliers post asks directly. Staging retains
+the inventory terms storage column for parity with its other product terms.
+
+Supplier scalars come from the declaration. WTT emissions remain in `lng_terms`,
+not lifecycle CI; CI pricing skips Bio-LNG. Public reads and live benchmarks use
+the Rotterdam lane and declared terms. FUEL_TRADER organizations may receive
+SUPPLIER accounts by admin invitation; public signup and domain joins remain
+restricted to the existing signup types. Voyage planning remains out of scope.
+Deploy checkpoint: `blng_20261014_staging`; downgrade refuses stored LNG history.
 
 ## UCOME B100 shared execution
 

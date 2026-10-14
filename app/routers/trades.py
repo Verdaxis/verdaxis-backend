@@ -88,6 +88,10 @@ from app.services.market_admission import (
 from app.services.org_notifications import notify_org_users
 from app.services.trade_fees import resolve_seller_trade_fee
 from app.services.order_terms import order_terms_digest
+from app.services.lng_order import (
+    is_lng_product, redact_lng_trade_snapshot, require_lng_counterparty_terms,
+    validate_lng_order_terms, validate_lng_trade_snapshot,
+)
 from app.services.fame_order import (
     is_fame_product,
     redact_fame_trade_snapshot,
@@ -216,6 +220,13 @@ def build_trade_response(
         scope=provenance["scope"],
         demo_status=provenance["demo_status"],
         unknown_count=provenance["unknown_count"],
+        lng_terms_snapshot=redact_lng_trade_snapshot(
+            getattr(trade, "lng_terms_snapshot", None),
+            reveal_supplier_identity=(
+                viewer_org_id in (trade.buyer_id, trade.seller_id)
+                and trade.status in ANONYMOUS_TRADE_HANDOFF_STATUSES
+            ),
+        ),
         fame_terms_snapshot=redact_fame_trade_snapshot(
             getattr(trade, "fame_terms_snapshot", None),
             reveal_supplier_identity=can_view_supplier_fuel,
@@ -259,10 +270,22 @@ def _revalidate_trade_fame_terms(
         )
 
 
+def _revalidate_trade_lng_terms(trade: Trade, linked_order: OrderBookOrder | None) -> None:
+    snapshot = validate_lng_trade_snapshot(trade.product_id, getattr(trade, "lng_terms_snapshot", None))
+    if snapshot is None:
+        return
+    if linked_order is None or not order_is_execution_qualified(linked_order):
+        raise HTTPException(409, "Trade order is no longer eligible")
+    current = validate_lng_order_terms(linked_order.product_id, linked_order.side, linked_order.lng_terms)
+    side = "bid" if linked_order.side == OrderSide.BID else "ask"
+    if current != snapshot[side]:
+        raise HTTPException(409, "Trade order fuel terms changed; create a new trade request")
+
+
 def trade_create_idempotency_payload(payload: TradeCreate) -> dict[str, object]:
     """Preserve legacy replay hashes while binding explicit B100 declarations."""
     values = payload.model_dump(mode="json")
-    for field in ("fame_terms", "expected_order_version", "expected_terms_digest"):
+    for field in ("fame_terms", "lng_terms", "expected_order_version", "expected_terms_digest"):
         if values[field] is None:
             values.pop(field)
     for field in ("certification_declared", "msds_available"):
@@ -912,6 +935,9 @@ async def create_trade(
                 status_code=422,
                 detail="B100 suppliers must declare certification and MSDS availability",
             )
+    if is_lng_product(order.product_id) and order.side == OrderSide.BID and not payload.msds_available:
+        raise HTTPException(422, "Bio-LNG suppliers must declare MSDS availability")
+    lng_terms_snapshot = require_lng_counterparty_terms(order, payload.lng_terms)
     fame_terms_snapshot = require_fame_counterparty_terms(order, payload.fame_terms)
 
     public_order_before = await public_order_is_visible(db, order.id)
@@ -950,6 +976,7 @@ async def create_trade(
         delivery_point_region=order.region,
         availability_window=order.availability_window,
         fame_terms_snapshot=fame_terms_snapshot,
+        lng_terms_snapshot=lng_terms_snapshot,
         commission_rate_pct=Decimal("0"),
         commission_fee_per_mt_usd=commission_fee_per_mt_usd,
         commission_plan=commission_plan.value,
@@ -1262,6 +1289,7 @@ async def confirm_trade(
 
     await _revalidate_trade_parties(db, trade)
     _revalidate_trade_fame_terms(trade, confirmed_order)
+    _revalidate_trade_lng_terms(trade, confirmed_order)
 
     trade.status = TradeStatus.CONFIRMED
     trade.confirmed_at = datetime.now(UTC)

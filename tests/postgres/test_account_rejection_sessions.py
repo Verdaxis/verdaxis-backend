@@ -221,7 +221,7 @@ async def test_cutoff_downgrade_fails_fast_behind_concurrent_user_write(
         )
 
     restored = await asyncio.to_thread(
-        migrate, "upgrade", "rcp_20261003_command_results"
+        migrate, "upgrade", "kycg_20261014_staging"
     )
 
     async with factory() as verification:
@@ -234,11 +234,11 @@ async def test_cutoff_downgrade_fails_fast_behind_concurrent_user_write(
 
     assert refused.returncode != 0
     assert "could not obtain lock on relation" in refused.stderr.lower()
-    assert revision_after_refusal == "rcp_20261003_command_results"
+    assert revision_after_refusal == "kycg_20261014_staging"
     assert restored.returncode == 0, restored.stderr
     assert cutoff is not None
     assert stored_cutoff == cutoff
-    assert revision == "rcp_20261003_command_results"
+    assert revision == "kycg_20261014_staging"
 
 
 @pytest.mark.asyncio

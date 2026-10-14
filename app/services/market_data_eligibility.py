@@ -263,6 +263,14 @@ def current_public_order_clause(order, *, now_expression=None):
         # Every public collection also refuses inert owner-rejected liquidity.
         public_order_owner_admission_clause(order),
         b100_declaration_is_current,
+        or_(
+            order.product_id != PRODUCT_IDS["BIO_LNG"],
+            and_(
+                order.delivery_point_id.in_(PRODUCTS_BY_CODE["BIO_LNG"].available_delivery_point_ids),
+                order.lng_terms["side"].as_string() == cast(order.side, String),
+                order.off_spec.is_(False),
+            ),
+        ),
     )
 
 
@@ -290,7 +298,7 @@ def _public_order_projection_statement(*, as_of: datetime | None = None):
             canonical_availability_window_clause(OrderBookOrder.availability_window),
             current_public_order_clause(OrderBookOrder, now_expression=as_of),
             public_order_collection_provenance_clause(OrderBookOrder),
-            Product.fuel_type.in_(("Methanol", "Ethanol", "FAME")),
+            Product.fuel_type.in_(("Methanol", "Ethanol", "FAME", "LNG")),
             or_(
                 OrderBookOrder.side != OrderSide.ASK,
                 and_(
@@ -305,7 +313,7 @@ def _public_order_projection_statement(*, as_of: datetime | None = None):
                     > 0,
                     OrderBookOrder.msds_available.is_(True),
                     or_(
-                        OrderBookOrder.product_id == PRODUCT_IDS["UCOME_B100"],
+                        OrderBookOrder.product_id.in_((PRODUCT_IDS["UCOME_B100"], PRODUCT_IDS["BIO_LNG"])),
                         OrderBookOrder.carbon_intensity_gco2_mj.is_not(None),
                     ),
                     func.length(func.trim(func.coalesce(OrderBookOrder.feedstock, "")))

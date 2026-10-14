@@ -53,6 +53,7 @@ from app.services.security_market_admission import require_security_market_admis
 from app.services import market_transactions
 from app.services.market_transactions import retry_market_transaction
 from app.services.org_notifications import notify_org_users as _notify_org_users
+from app.services.lng_order import is_lng_product, redact_lng_trade_snapshot, require_lng_counterparty_terms
 from app.services.fame_order import (
     is_fame_product,
     redact_fame_trade_snapshot,
@@ -164,6 +165,9 @@ async def _build_response(
         created_at=neg.created_at,
         updated_at=neg.updated_at,
         rounds=rounds,
+        lng_terms_snapshot=redact_lng_trade_snapshot(
+            getattr(neg, "lng_terms_snapshot", None), reveal_supplier_identity=False,
+        ),
         fame_terms_snapshot=redact_fame_trade_snapshot(
             getattr(neg, "fame_terms_snapshot", None),
             reveal_supplier_identity=viewer_org_id == supplier_org_id,
@@ -196,6 +200,21 @@ def _negotiation_fame_snapshot(
             bid_order, getattr(ask_order, "fame_terms", None)
         )
     return require_fame_counterparty_terms(bid_order or ask_order, payload.fame_terms)
+
+
+def _negotiation_lng_snapshot(
+    payload: NegotiationCreateRequest,
+    bid_order: OrderBookOrder | None,
+    ask_order: OrderBookOrder | None,
+) -> dict | None:
+    order = bid_order or ask_order
+    if is_lng_product(order.product_id) and ask_order is None and not payload.msds_available:
+        raise HTTPException(422, "Bio-LNG suppliers must declare MSDS availability")
+    if bid_order is not None and ask_order is not None:
+        if payload.lng_terms is not None:
+            raise HTTPException(422, "Fuel terms must come from the two linked orders")
+        return require_lng_counterparty_terms(bid_order, getattr(ask_order, "lng_terms", None))
+    return require_lng_counterparty_terms(order, payload.lng_terms)
 
 
 def _assert_active(neg: Negotiation) -> None:
@@ -648,6 +667,7 @@ async def create_negotiation(
         raise HTTPException(status_code=409, detail="Negotiation party is not execution-qualified")
 
     fame_terms_snapshot = _negotiation_fame_snapshot(payload, bid_order, ask_order)
+    lng_terms_snapshot = _negotiation_lng_snapshot(payload, bid_order, ask_order)
 
     # Reject duplicate active negotiation between the same two parties for the same product
     duplicate = await db.execute(
@@ -686,6 +706,7 @@ async def create_negotiation(
         delivery_point_id=canonical_order.delivery_point_id,
         availability_window=canonical_order.availability_window,
         fame_terms_snapshot=fame_terms_snapshot,
+        lng_terms_snapshot=lng_terms_snapshot,
         quantity_mt=payload.quantity_mt,
         current_price=payload.proposed_price,
         last_actor_org_id=org_id,

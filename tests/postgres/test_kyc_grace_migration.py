@@ -4,7 +4,7 @@ from tests.postgres.test_supplier_offer_migration_roundtrip import supplier_scra
 
 def test_kyc_grace_snapshot_and_roundtrip(supplier_scratch_database):
     sql, migrate = supplier_scratch_database
-    parent = "rcp_20261003_command_results"
+    parent = "blng_20261014_staging"
     migrate("upgrade", parent)
     sql("""
         INSERT INTO organizations (id, name, type, provenance, verification_status)

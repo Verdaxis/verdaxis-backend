@@ -1,5 +1,16 @@
 # Verdaxis Backend - Claude Code Instructions
 
+## Bio-LNG contract
+
+Bio-LNG uses `app/schemas/lng_order.py` and `app/services/lng_order.py` for typed
+`lng_terms`, shared matching compatibility and identity redaction. It is available
+only at Rotterdam; no demo or benchmark seed price is permitted. WTT emissions
+must never populate lifecycle CI. Trades freeze `lng_terms_snapshot`; incompatible
+takes return HTTP 409 `LNG_TERMS_INCOMPATIBLE`. Inventory publication is refused.
+Production country uses `app/reference/iso_countries.py` assigned ISO codes.
+FUEL_TRADER supplier admission is admin-invitation only. The staging checkpoint is
+`blng_20261014_staging`; see the approved 2026-10-14 design and ARCHITECTURE.md.
+
 ## Live VPS Layout
 
 Production API and PostgreSQL run on the EU VPS `169.58.37.164` (`vmi3623757`). Staging runs on the shared host `194.233.68.86`. Read `/home/verdaxis-prod/verdaxis/PRODUCTION_HOST.md` and `/home/jons-openclaw/VPS_MAP.md` before any deployment or recovery. The old shared-host production checkout is retired.

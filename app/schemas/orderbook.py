@@ -139,6 +139,11 @@ class MarketSupportFinalConfirmation(BaseModel):
 
 # ============== Order Schemas ==============
 
+from app.schemas.lng_order import (
+    LngOrderTerms, LngPublicOrderTerms, LngTradeSnapshot, LngPublicTradeSnapshot,
+)
+
+
 class OrderCreate(AvailabilityWindowMixin, SupplierListingMetadataMixin):
     """Used by both buyers (side=BID) and suppliers (side=ASK) to place an order."""
     side: OrderSide
@@ -155,6 +160,7 @@ class OrderCreate(AvailabilityWindowMixin, SupplierListingMetadataMixin):
     is_anonymous: Literal[True] = True
     support_confirmation: MarketSupportFinalConfirmation | None = None
     fame_terms: FameOrderTerms | None = None
+    lng_terms: LngOrderTerms | None = None
 
     @field_validator("quantity_mt", "price_per_mt_usd")
     @classmethod
@@ -200,6 +206,7 @@ class OrderUpdate(AvailabilityWindowMixin):
     off_spec_notes: Optional[str] = None
     expires_at: Optional[datetime] = None
     fame_terms: FameOrderTerms | None = None
+    lng_terms: LngOrderTerms | None = None
 
     @field_validator("quantity_mt", "price_per_mt_usd")
     @classmethod
@@ -230,6 +237,7 @@ class OrderResponse(AvailabilityWindowMixin, SupplierListingMetadataMixin):
     terms_digest: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
     version: int = 1
     fame_terms: FamePublicOrderTerms | None = None
+    lng_terms: LngPublicOrderTerms | None = None
     side: OrderSide
     product_id: UUID
     product_name: str = ""
@@ -281,6 +289,7 @@ class OrderMyResponse(OrderResponse):
     """Owner view with extra detail (includes org ID and vessel)."""
     organization_id: UUID
     fame_terms: FameOrderTerms | None = None
+    lng_terms: LngOrderTerms | None = None
     vessel_id: Optional[UUID] = None
     updated_at: datetime
     trade_count: int = 0
@@ -293,6 +302,7 @@ class SupplierListingTemplateResponse(AvailabilityWindowMixin, SupplierListingMe
     """Safe supplier defaults for creating the next ASK listing."""
     product_id: UUID
     fame_terms: FameOrderTerms | None = None
+    lng_terms: LngOrderTerms | None = None
     delivery_point_id: UUID
     quantity_mt: Decimal
     price_per_mt_usd: Decimal
@@ -310,6 +320,7 @@ class TradeCreate(BaseModel):
     )
     expected_order_version: int | None = Field(None, ge=1)
     fame_terms: FameOrderTerms | None = None
+    lng_terms: LngOrderTerms | None = None
     certification_declared: bool = False
     msds_available: bool = False
     quantity_mt: Decimal = Field(..., gt=0, le=100000, max_digits=12, decimal_places=2, allow_inf_nan=False)
@@ -324,6 +335,7 @@ class TradeResponse(BaseModel):
     """Trade detail with viewer-aware party identity."""
     id: UUID
     fame_terms_snapshot: FameTradeSnapshot | FamePublicTradeSnapshot | None = None
+    lng_terms_snapshot: LngTradeSnapshot | LngPublicTradeSnapshot | None = None
     bid_order_id: Optional[UUID] = None
     ask_order_id: Optional[UUID] = None
     buyer_id: Optional[UUID] = None

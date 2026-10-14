@@ -17,8 +17,9 @@ def _utcnow() -> datetime:
 
 
 _MARKET_PRODUCT_CHECK = (
-    "market_product IN ('BIO_METHANOL', 'E_METHANOL', 'BIO_ETHANOL', 'SYNTHETIC_ETHANOL', 'UCOME_B100') "
-    "AND (market_product <> 'UCOME_B100' OR replace(CAST(delivery_point_id AS TEXT), '-', '') = '73835e92820e584b8280bb61c63aa28e')"
+    "market_product IN ('BIO_METHANOL', 'E_METHANOL', 'BIO_ETHANOL', 'SYNTHETIC_ETHANOL', 'UCOME_B100', 'BIO_LNG') "
+    "AND (market_product <> 'UCOME_B100' OR replace(CAST(delivery_point_id AS TEXT), '-', '') = '73835e92820e584b8280bb61c63aa28e') "
+    "AND (market_product <> 'BIO_LNG' OR replace(CAST(delivery_point_id AS TEXT), '-', '') = '1379d36c1ca955b79c0d5235a0ba1f36')"
 )
 _WINDOW_CHECK = (
     "availability_window = 'SPOT' "

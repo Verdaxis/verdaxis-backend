@@ -108,6 +108,7 @@ def executable_order_terms(order: Any) -> dict[str, Any]:
         "off_spec_notes": getattr(order, "off_spec_notes", None),
         "is_verdaxis_verified": bool(getattr(order, "is_verdaxis_verified", False)),
         "fame_terms": _canonical_json_value(getattr(order, "fame_terms", None)),
+        **({"lng_terms": _canonical_json_value(order.lng_terms)} if getattr(order, "lng_terms", None) is not None else {}),
     }
 
 

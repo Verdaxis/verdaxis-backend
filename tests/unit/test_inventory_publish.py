@@ -58,6 +58,7 @@ def _make_inventory_item():
     item.off_spec = False
     item.off_spec_notes = None
     item.fame_terms = None
+    item.lng_terms = None
     return item
 
 
@@ -264,6 +265,7 @@ class TestListingPayload:
         order.off_spec = True
         order.off_spec_notes = "Water content under review"
         order.fame_terms = None
+        order.lng_terms = None
         order.status = OrderBookStatus.OPEN
 
         payload = _listing_payload(order, match_count=2)

@@ -1,14 +1,14 @@
 """Snapshot fourteen-day organization-bound KYC execution grace.
 
 Revision ID: kycg_20261014_staging
-Revises: rcp_20261003_command_results
+Revises: blng_20261014_staging
 """
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 from alembic import op
 
 revision = "kycg_20261014_staging"
-down_revision = "rcp_20261003_command_results"
+down_revision = "blng_20261014_staging"
 branch_labels = None
 depends_on = None
 

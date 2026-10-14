@@ -15,6 +15,7 @@ from uuid import UUID
 
 class MarketProduct(str, Enum):
     UCOME_B100 = "UCOME_B100"
+    BIO_LNG = "BIO_LNG"
     BIO_METHANOL = "BIO_METHANOL"
     E_METHANOL = "E_METHANOL"
     BIO_ETHANOL = "BIO_ETHANOL"
@@ -44,6 +45,18 @@ class DeliveryPointSpec:
 
 
 CANONICAL_PRODUCTS: tuple[ProductSpec, ...] = (
+    ProductSpec(
+        UUID("8f6f34a5-2927-54a6-8564-cca40ae7cb8a"),
+        MarketProduct.BIO_LNG,
+        "Bio-LNG",
+        "LNG",
+        "Bio",
+        "MT",
+        Decimal("1"),
+        "Liquefied biomethane (bio-LNG) for marine fuel use, delivered to ISO 23306:2020 "
+        "with a certified Proof of Sustainability.",
+        available_delivery_point_ids=(UUID("1379d36c-1ca9-55b7-9c0d-5235a0ba1f36"),),
+    ),
     ProductSpec(
         UUID("e561e43f-d9b2-598e-981c-f1d28d515ddc"),
         MarketProduct.UCOME_B100,
