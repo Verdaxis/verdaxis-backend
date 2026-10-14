@@ -158,6 +158,7 @@ sudo -n -u verdaxis-prod /home/verdaxis-prod/verdaxis/staging/be/scripts/deploy.
 | `notifications`      | In-app notifications with JSON `data` payload     |
 | `producer_projects`  | Fuel production facilities for the map (GENA data) |
 | `compliance_ledger`  | EU ETS/FuelEU financial transactions               |
+| `kyc_execution_grace` | One-time 14-day KYC grace snapshot from `kycg_20261014_prod`; runtime SELECT only |
 
 ## API Routes (all prefixed with `/api`)
 
@@ -185,9 +186,12 @@ sudo -n -u verdaxis-prod /home/verdaxis-prod/verdaxis/staging/be/scripts/deploy.
 - `POST /api/auth/register-with-org` -- Complete registration with new org creation
 - `POST /api/auth/invitations/resolve` -- Resolve a valid admin-issued invitation secret
 - `POST /api/auth/invitations/accept` -- Accept a pre-approved invitation, set a password, and issue a session
-- `GET /api/auth/me` -- Current user info
+- `GET /api/auth/me` -- Current user info, including `kyc_status` and `execution_eligibility {eligible, reason, grace_expires_at}`
 
 ### Authenticated
+
+New executions (`POST /api/orderbook`, `PUT /api/orderbook/{id}`, `POST /api/inventory/{id}/publish`, `POST /api/trades/`, `PUT /api/trades/{id}/confirm`) require KYC approved for the current organization or valid grace, and otherwise return 403 `KYC_REQUIRED`. Cancel, decline, deliver and pay never apply KYC.
+
 - `POST /api/orderbook` -- Place BID (BUYER) or ASK (SUPPLIER) order; Bio-LNG orders require `lng_terms` and Rotterdam
 - `PUT /api/orderbook/{id}` -- Update own order
 - `DELETE /api/orderbook/{id}` -- Cancel own order
@@ -285,6 +289,8 @@ sudo -n -u verdaxis-prod /home/verdaxis-prod/verdaxis/staging/be/scripts/deploy.
 16. **`.dockerignore` does NOT affect bind mounts.** The existing `.dockerignore` correctly excludes `venv/` and `postgres_data/` from `docker build` context, but the `volumes: - .:/app` bind mount bypasses it entirely. If using `--reload` with a bind mount, you MUST use `--reload-dir` to whitelist directories, not rely on `.dockerignore`.
 
 17. **Production backend exposure is systemd-loopback only.** Production binds `127.0.0.1:8000` and staging binds `127.0.0.1:8001`; Caddy handles external traffic. Docker Compose remains a development/disposable topology and is not the live service manager.
+
+18. **The KYC gate has three policies.** Use `MarketPartyPolicy.EXECUTION` (the default, `require_execution_eligible_user`) for new commitments, `CLEANUP` for settling or withdrawing them, and `INDICATIVE` for RFQ, negotiation, inventory records and suggestions. Grace is written only by its migration; send the one-time email with `python -m app.cli.send_kyc_grace_notices --environment <env> --release-sha <sha>` (operator-run, no timer). Never create KYC approvals or grace for demo users.
 
 ## Environment Variables
 

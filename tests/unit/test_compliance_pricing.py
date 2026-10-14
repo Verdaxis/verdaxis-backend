@@ -329,6 +329,7 @@ def test_json_emits_decimals_as_strings():
 REQUIRED_TABLES = [
     "organizations",
     "users",
+    "kyc_execution_grace",
     "products",
     "delivery_points",
     "orderbook_orders",

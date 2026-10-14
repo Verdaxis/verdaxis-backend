@@ -33,6 +33,7 @@ from app.services.audit_actions import (
     RFQ_QUOTE_SUBMITTED,
     RFQ_QUOTE_WITHDRAWN,
 )
+from app.services.execution_policy import MarketPartyPolicy
 from app.services.market_admission import (
     MarketActorOwnership,
     assert_market_pair_provenance,
@@ -234,6 +235,7 @@ async def create_rfq(
         actor_ownerships=(
             MarketActorOwnership(current_user.id, current_user.organization_id),
         ),
+        actor_policy=MarketPartyPolicy.INDICATIVE,
     )
     assert_market_participant_provenance(
         organizations[current_user.organization_id]
@@ -438,6 +440,7 @@ async def submit_quote(
         actor_ownerships=(
             MarketActorOwnership(current_user.id, current_user.organization_id),
         ),
+        actor_policy=MarketPartyPolicy.INDICATIVE,
     )
     assert_market_pair_provenance(
         organizations[rfq.buyer_org_id],
@@ -608,6 +611,7 @@ async def cancel_rfq(
         actor_ownerships=(
             MarketActorOwnership(current_user.id, current_user.organization_id),
         ),
+        actor_policy=MarketPartyPolicy.INDICATIVE,
     )
 
     # Must own the RFQ

@@ -3,6 +3,7 @@ import httpx
 import structlog
 import hashlib
 import uuid
+from datetime import UTC, datetime
 from html import escape
 from typing import Any, Mapping
 from urllib.parse import quote
@@ -321,6 +322,39 @@ async def send_kyc_rejected_email(to_email: str, name: str, reason: str) -> bool
         action_url=f"{settings.FRONTEND_URL.rstrip('/')}/kyc",
     )
     return await _send_email(to_email, "Action required: Verdaxis KYC verification", html)
+
+
+def build_kyc_grace_notice_email_payload(
+    to_email: str, name: str, grace_expires_at: datetime
+) -> dict[str, Any]:
+    """Freeze the one-time KYC grace notice so a retry sends identical bytes."""
+    deadline = grace_expires_at.astimezone(UTC)
+    html = _render_email(
+        title="Complete your KYC to keep trading.",
+        preview=f"Complete KYC verification by {deadline:%d %b %Y} to keep trading on Verdaxis.",
+        label="ACTION REQUIRED",
+        body_html=f"""<p style="margin:0 0 16px;">Hi {escape(name)},</p>
+          <p style="margin:0 0 16px;">Verdaxis now requires completed KYC verification before you post orders or trade.</p>
+          <p style="margin:0;">You can keep trading until <strong>{deadline:%d %B %Y at %H:%M} UTC</strong>. Complete KYC before then to trade without interruption.</p>""",
+        action_label="Complete KYC",
+        action_url=f"{settings.FRONTEND_URL.rstrip('/')}/kyc",
+        note="You can still cancel orders and settle existing trades after this date.",
+    )
+    return {
+        "from": settings.EMAIL_FROM,
+        "reply_to": SUPPORT_EMAIL,
+        "to": [to_email],
+        "subject": "Complete your KYC to keep trading on Verdaxis",
+        "html": html,
+    }
+
+
+async def send_kyc_grace_notice_email(
+    payload: Mapping[str, Any], grace_id: uuid.UUID
+) -> bool:
+    return await _send_email_payload(
+        payload, idempotency_key=f"kyc-grace-notice/{grace_id}",
+    )
 
 
 def build_order_expiry_email_payload(to_email: str, message: str) -> dict[str, Any]:

@@ -76,6 +76,7 @@ from pydantic import BaseModel
 from app.services.benchmarks import compute_premium_discount
 from app.services.watchlist_events import emit_order_created, emit_order_updated, _best_slice_price
 from app.services.execution_policy import (
+    MarketPartyPolicy,
     ask_carbon_intensity_clause,
     normalize_certification_scheme,
     scalar_carbon_intensity_required,
@@ -129,6 +130,10 @@ from app.services.behavioral_analytics import (
     trade_created_event,
 )
 from app.services.auto_match_side_effects import collect_auto_match_side_effects
+from app.services.kyc_execution import (
+    customer_organization_is_execution_eligible,
+    customer_organization_kyc_error,
+)
 from app.services.market_admission import (
     MarketActorOwnership,
     lock_and_load_market_organizations,
@@ -1870,8 +1875,6 @@ async def create_order(
                 status_code=status.HTTP_400_BAD_REQUEST,
             detail="Assisted-order confirmation requires an active assisted workspace",
             )
-        if isinstance(current_user, User):
-            current_user = await require_execution_eligible_user(current_user=current_user, db=db)
     else:
         if order_data.support_confirmation is None:
             raise HTTPException(
@@ -1931,6 +1934,13 @@ async def create_order(
         )
         if existing_order is not None:
             return await _order_response(db, existing_order)
+
+    # Only a new execution is gated; an exact replay returned above.
+    if party.mode == RequestPartyMode.MARKET_SUPPORT:
+        if not await customer_organization_is_execution_eligible(db, effective_organization_id):
+            raise customer_organization_kyc_error()
+    elif isinstance(current_user, User):
+        current_user = await require_execution_eligible_user(current_user=current_user, db=db)
 
     if (
         party.mode == RequestPartyMode.SELF_SERVICE
@@ -2036,6 +2046,11 @@ async def create_order(
     )
     acceptance_ordinal = await next_order_acceptance_ordinal(db)
     await lock_request_party_context(db, party)
+    if party.mode == RequestPartyMode.MARKET_SUPPORT:
+        if not await customer_organization_is_execution_eligible(
+            db, effective_organization_id, lock_member=True
+        ):
+            raise customer_organization_kyc_error()
     organizations = await lock_and_load_market_organizations(
         db,
         [effective_organization_id],
@@ -2891,12 +2906,14 @@ async def cancel_order(
         require_matching_etag(if_match, order_id=order.id, version=order.version)
         await lock_support_order_parties(db, order)
     else:
+        # Cancellation withdraws an existing order; KYC never blocks it.
         await lock_and_load_market_organizations(
             db,
             [effective_organization_id],
             actor_ownerships=(
                 MarketActorOwnership(current_user.id, effective_organization_id),
             ),
+            actor_policy=MarketPartyPolicy.CLEANUP,
         )
 
     # The preview may have waited behind a fill on the same market slice.

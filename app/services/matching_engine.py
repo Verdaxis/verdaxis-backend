@@ -26,6 +26,7 @@ from app.services.execution_policy import (
     order_is_execution_qualified,
     orders_execution_compatible,
 )
+from app.services.market_data_eligibility import public_order_owner_admission_clause
 from app.services.market_locks import acquire_market_slice_lock
 from app.services.provenance import coerce_provenance, execution_provenance_compatible
 from app.models.user import OrganizationProvenance
@@ -154,6 +155,19 @@ async def match_order(
         match_filters.append(OrderBookOrder.delivery_point_id.is_(None))
     else:
         match_filters.append(OrderBookOrder.delivery_point_id == new_order.delivery_point_id)
+
+    if allowed_demo_counterparty_id is None:
+        # Hidden, non-executable liquidity must not consume the fan-out budget.
+        match_filters.extend([
+            OrderBookOrder.owner_user_id.is_not(None),
+            public_order_owner_admission_clause(OrderBookOrder, now_expression=now),
+        ])
+    else:
+        # Only the exact sanctioned synthetic pair bypasses owner KYC.
+        match_filters.extend([
+            OrderBookOrder.id == allowed_demo_counterparty_id,
+            OrderBookOrder.organization_id == allowed_demo_counterparty_org_id,
+        ])
 
     # Preview a strictly bounded, already provenance/admission-filtered set.
     candidate_stmt = (

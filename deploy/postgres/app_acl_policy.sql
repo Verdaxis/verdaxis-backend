@@ -33,6 +33,9 @@ INSERT INTO app_table_policy (table_name, privileges) VALUES
     -- Feedback is append-only from the app; admins read, never edit.
     ('feedback_entries', ARRAY['SELECT', 'INSERT']),
     ('inventory_items', ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE']),
+    -- The KYC grace snapshot is written once by its migration. The runtime
+    -- only reads it, so no request or job can create or renew grace.
+    ('kyc_execution_grace', ARRAY['SELECT']),
     ('live_slice_benchmarks', ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE']),
     ('market_command_results', ARRAY['SELECT', 'INSERT']),
     ('market_event_outbox', ARRAY['SELECT', 'INSERT', 'UPDATE']),

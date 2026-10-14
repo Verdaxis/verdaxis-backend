@@ -26,7 +26,16 @@ from app.models.user import (
 )
 from app.models.refresh_session import RefreshSession
 from app.models.registration import PendingRegistration, OrganizationJoinRequest, JoinRequestStatus
-from app.schemas.user import LoginResponse, UserCreate, UserResponse, UserUpdate, RegistrationResponse, PasswordChangeRequest
+from app.schemas.user import (
+    CurrentUserResponse,
+    ExecutionEligibilityResponse,
+    LoginResponse,
+    PasswordChangeRequest,
+    RegistrationResponse,
+    UserCreate,
+    UserResponse,
+    UserUpdate,
+)
 from app.schemas.organization import (
     OrganizationCreate,
     organization_type_matches_role,
@@ -58,6 +67,7 @@ from app.services.account_approval_email import (
     deliver_account_approval_email,
 )
 from app.services.monitor_canary import is_monitor_canary_email
+from app.services.kyc_execution import evaluate_kyc_execution
 from app.services.audit_service import record_audit, request_audit_context
 from app.services.product_analytics import is_retryable_transaction_error, record_login_day
 from app.services.user_status_transition import record_initial_status, record_status_transition
@@ -887,7 +897,7 @@ async def login(
     return {
         "access_token": access_token,
         "token_type": "bearer",
-        "profile": UserResponse.model_validate(user),
+        "profile": await current_user_profile(db, user),
     }
 
 # ---------------------------------------------------------------------------
@@ -1963,11 +1973,28 @@ async def resend_verification_email_public(
 # Profile endpoints (merged from legacy auth.py)
 # ---------------------------------------------------------------------------
 
-@router.get("/me", response_model=UserResponse)
-async def read_users_me(current_user: Annotated[User, Depends(get_current_user)]):
-    return current_user
+async def current_user_profile(db: AsyncSession, user: User) -> CurrentUserResponse:
+    """The user's own profile with the KYC execution state it can act on."""
+    eligibility = await evaluate_kyc_execution(db, user)
+    return CurrentUserResponse(
+        **UserResponse.model_validate(user).model_dump(),
+        kyc_status=eligibility.kyc_status,
+        execution_eligibility=ExecutionEligibilityResponse(
+            eligible=eligibility.eligible,
+            reason=eligibility.reason,
+            grace_expires_at=eligibility.grace_expires_at,
+        ),
+    )
 
-@router.put("/me", response_model=UserResponse)
+
+@router.get("/me", response_model=CurrentUserResponse)
+async def read_users_me(
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    return await current_user_profile(db, current_user)
+
+@router.put("/me", response_model=CurrentUserResponse)
 async def update_users_me(
     user_update: UserUpdate,
     current_user: Annotated[User, Depends(get_current_user)],
@@ -2016,7 +2043,7 @@ async def update_users_me(
 
     await db.commit()
     await db.refresh(current_user)
-    return current_user
+    return await current_user_profile(db, current_user)
 
 
 @router.put("/me/password")

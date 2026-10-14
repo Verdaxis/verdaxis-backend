@@ -35,16 +35,19 @@ async def _seed_market_support(engine):
     factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     async with factory() as session:
         supplier_org = Organization(
+            id=uuid4(),
             name=f"Assisted Supplier {uuid4()}",
             type=OrgType.FUEL_SUPPLIER,
             verification_status="APPROVED",
         )
         buyer_org = Organization(
+            id=uuid4(),
             name=f"Assisted Buyer {uuid4()}",
             type=OrgType.FUEL_BUYER,
             verification_status="APPROVED",
         )
         support_buyer_org = Organization(
+            id=uuid4(),
             name=f"Assisted Buyer Target {uuid4()}",
             type=OrgType.FUEL_BUYER,
             verification_status="APPROVED",
@@ -57,6 +60,7 @@ async def _seed_market_support(engine):
             organization=supplier_org,
             email_verified=True,
             kyc_status="APPROVED",
+            kyc_organization_id=supplier_org.id,
         )
         buyer = User(
             email=f"buyer-{uuid4()}@support.test",
@@ -66,6 +70,7 @@ async def _seed_market_support(engine):
             organization=buyer_org,
             email_verified=True,
             kyc_status="APPROVED",
+            kyc_organization_id=buyer_org.id,
         )
         support_buyer = User(
             email=f"support-buyer-{uuid4()}@support.test",
@@ -75,6 +80,7 @@ async def _seed_market_support(engine):
             organization=support_buyer_org,
             email_verified=True,
             kyc_status="APPROVED",
+            kyc_organization_id=support_buyer_org.id,
         )
         admin = User(
             email=f"admin-{uuid4()}@support.test",
@@ -285,6 +291,49 @@ async def test_assisted_ask_confirm_requires_customer_supplier_member(market_sup
     )
     assert confirmed.status_code == 200, confirmed.text
     assert confirmed.json()["status"] == "CONFIRMED"
+
+
+@pytest.mark.asyncio
+async def test_assisted_ask_needs_one_kyc_eligible_customer_member(market_support_client):
+    client, seeded = market_support_client
+    order_id = await _insert_order(
+        seeded,
+        side=OrderSide.ASK,
+        organization_id=seeded["organization_id"],
+        owner_id=seeded["admin_id"],
+        creation_method=OrderCreationMethod.MARKET_SUPPORT,
+    )
+    # The supplier is the customer organization's only member.
+    async with seeded["factory"]() as session:
+        await session.execute(
+            update(User)
+            .where(User.id == seeded["supplier_id"])
+            .values(kyc_status="SUBMITTED")
+        )
+        await session.commit()
+
+    denied = await client.post(
+        "/api/trades/",
+        headers=_headers(seeded["buyer_id"]),
+        json=await _reviewed_trade_payload(seeded, order_id),
+    )
+    # The taker sees the generic unavailable-order response.
+    assert denied.status_code == 400, denied.text
+    assert denied.json()["detail"] == "Order is not available for trading"
+
+    async with seeded["factory"]() as session:
+        await session.execute(
+            update(User)
+            .where(User.id == seeded["supplier_id"])
+            .values(kyc_status="APPROVED")
+        )
+        await session.commit()
+    allowed = await client.post(
+        "/api/trades/",
+        headers=_headers(seeded["buyer_id"]),
+        json=await _reviewed_trade_payload(seeded, order_id),
+    )
+    assert allowed.status_code == 200, allowed.text
 
 
 @pytest.mark.asyncio

@@ -561,6 +561,30 @@ async def test_app_and_backup_cannot_mutate_control_or_extension_objects():
 
 
 @pytest.mark.asyncio
+async def test_runtime_role_reads_but_never_writes_kyc_grace():
+    _policy_values()
+    engine = create_async_engine(os.environ["DATABASE_URL"], hide_parameters=True)
+    try:
+        async with engine.connect() as connection:
+            await connection.execute(text("SELECT count(*) FROM public.kyc_execution_grace"))
+        # Only the migration writes grace: no request or job can create,
+        # renew, or remove it with runtime authority.
+        for statement in (
+            "INSERT INTO public.kyc_execution_grace (id, user_id, organization_id, "
+            "kyc_status_at_enrollment, enrolled_at, expires_at, created_by) VALUES "
+            "(gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), 'PENDING', "
+            "now(), now() + interval '336 hours', 'runtime')",
+            "UPDATE public.kyc_execution_grace SET expires_at = expires_at + interval '1 day'",
+            "DELETE FROM public.kyc_execution_grace",
+        ):
+            with pytest.raises(DBAPIError, match="permission denied"):
+                async with engine.begin() as connection:
+                    await connection.execute(text(statement))
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
 async def test_raw_app_cannot_promote_rewrite_controls_set_role_or_delegate():
     values = _policy_values()
     app = values["app_role"]

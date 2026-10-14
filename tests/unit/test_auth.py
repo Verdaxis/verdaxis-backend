@@ -208,7 +208,13 @@ def _disable_rate_limits(monkeypatch):
 @pytest.fixture
 async def login_db():
     engine = create_async_engine("sqlite+aiosqlite://", echo=False)
-    tables = [Organization.__table__, User.__table__, UserLoginDay.__table__, RefreshSession.__table__]
+    tables = [
+        Organization.__table__,
+        User.__table__,
+        Base.metadata.tables["kyc_execution_grace"],
+        UserLoginDay.__table__,
+        RefreshSession.__table__,
+    ]
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all, tables=tables)
     factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)

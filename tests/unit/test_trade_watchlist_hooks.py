@@ -47,6 +47,7 @@ REQUIRED_TABLES = [
     'audit_logs',
     'organizations',
     'users',
+    'kyc_execution_grace',
     'products',
     'delivery_points',
     'orderbook_orders',
@@ -111,6 +112,7 @@ async def _make_user(db: AsyncSession, org: Organization, role: UserRole) -> Use
         status=UserStatus.APPROVED,
         email_verified=True,
         kyc_status="APPROVED",
+        kyc_organization_id=org.id,
         organization_id=org.id,
     )
     db.add(user)
