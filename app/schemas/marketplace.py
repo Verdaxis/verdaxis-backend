@@ -7,6 +7,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.schemas.fame_order import FameAskTerms
+from app.schemas.lng_order import LngAskTerms
 from app.schemas.market_integrity import finite_decimal
 
 
@@ -27,6 +28,7 @@ class InventoryBase(BaseModel):
     fuel_type: FuelType
     product_name: Optional[str] = None
     fame_terms: FameAskTerms | None = None
+    lng_terms: LngAskTerms | None = None
     current_stock_mt: Decimal = Field(ge=0, le=100000, max_digits=10, decimal_places=2, allow_inf_nan=False)
     incoming_stock_mt: Decimal = Field(Decimal("0"), ge=0, le=100000, max_digits=10, decimal_places=2, allow_inf_nan=False)
     price_per_mt_usd: Optional[Decimal] = Field(None, gt=0, le=1000000, max_digits=10, decimal_places=2, allow_inf_nan=False)
@@ -56,6 +58,13 @@ class InventoryBase(BaseModel):
             raise ValueError(
                 "FAME declarations are only valid for UCOME B100 inventory"
             )
+        if self.product_name == "Bio-LNG":
+            if self.fuel_type != FuelType.LNG or self.lng_terms is None:
+                raise ValueError("Bio-LNG inventory requires LNG fuel type and ASK declarations")
+            if self.is_certified:
+                raise ValueError("LNG declarations cannot create verified certification")
+        elif self.lng_terms is not None:
+            raise ValueError("LNG declarations are only valid for Bio-LNG inventory")
         return self
 
     @field_validator("current_stock_mt", "incoming_stock_mt", "price_per_mt_usd", "energy_density_mj_kg", "carbon_intensity_gco2_mj")
@@ -71,6 +80,7 @@ class InventoryItemUpdate(BaseModel):
 
     product_name: Optional[str] = None
     fame_terms: FameAskTerms | None = None
+    lng_terms: LngAskTerms | None = None
     current_stock_mt: Optional[Decimal] = Field(None, ge=0, le=100000, max_digits=10, decimal_places=2, allow_inf_nan=False)
     incoming_stock_mt: Optional[Decimal] = Field(None, ge=0, le=100000, max_digits=10, decimal_places=2, allow_inf_nan=False)
     price_per_mt_usd: Optional[Decimal] = Field(None, gt=0, le=1000000, max_digits=10, decimal_places=2, allow_inf_nan=False)

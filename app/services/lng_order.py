@@ -80,7 +80,7 @@ def lng_terms_compatible(bid: Any, ask: Any) -> bool:
 
 def lng_trade_snapshot(bid: Any, ask: Any) -> dict:
     if not lng_terms_compatible(bid, ask):
-        raise HTTPException(422, {"code": "LNG_TERMS_INCOMPATIBLE"})
+        raise HTTPException(409, {"code": "LNG_TERMS_INCOMPATIBLE"})
     return LngTradeSnapshot(bid=bid, ask=ask).model_dump(mode="json")
 
 

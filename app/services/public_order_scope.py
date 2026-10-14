@@ -24,7 +24,7 @@ from app.services.market_data_eligibility import (
 from app.services.market_provenance import canonical_availability_window_clause
 
 # Fuel types admitted to the public marketplace. FAME covers UCOME B100.
-APPROVED_MARKETPLACE_FUEL_TYPES = ("Methanol", "Ethanol", "FAME")
+APPROVED_MARKETPLACE_FUEL_TYPES = ("Methanol", "Ethanol", "FAME", "LNG")
 
 
 def _ensure_join(joins: list[tuple[object, object]], target: object, condition: object) -> None:
@@ -61,7 +61,7 @@ def apply_public_marketplace_scope(
     filters.append(or_(OrderBookOrder.side != OrderSide.ASK, OrderBookOrder.certification_declared.is_(True)))
     filters.append(or_(OrderBookOrder.side != OrderSide.ASK, func.length(func.trim(func.coalesce(OrderBookOrder.specification_standard, ""))) > 0))
     filters.append(or_(OrderBookOrder.side != OrderSide.ASK, OrderBookOrder.msds_available.is_(True)))
-    filters.append(or_(OrderBookOrder.side != OrderSide.ASK, OrderBookOrder.product_id == PRODUCT_IDS["UCOME_B100"], OrderBookOrder.carbon_intensity_gco2_mj.is_not(None)))
+    filters.append(or_(OrderBookOrder.side != OrderSide.ASK, OrderBookOrder.product_id.in_((PRODUCT_IDS["UCOME_B100"], PRODUCT_IDS["BIO_LNG"])), OrderBookOrder.carbon_intensity_gco2_mj.is_not(None)))
     filters.append(or_(OrderBookOrder.side != OrderSide.ASK, func.length(func.trim(func.coalesce(OrderBookOrder.feedstock, ""))) > 0))
     filters.append(or_(OrderBookOrder.side != OrderSide.ASK, OrderBookOrder.product_id == PRODUCT_IDS["UCOME_B100"], func.length(func.trim(func.coalesce(OrderBookOrder.origin, ""))) > 0))
 

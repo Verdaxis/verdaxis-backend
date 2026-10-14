@@ -21,6 +21,7 @@ _WINDOW_QUARTER_RE = re.compile(r"^(?P<year>\d{4})-Q(?P<quarter>[1-4])$")
 _WINDOW_CAL_RE = re.compile(r"^(?P<year>\d{4})-CAL$")
 
 MARKET_PRODUCT_NAMES = {
+    "BIO_LNG": "Bio-LNG",
     "BIO_METHANOL": "Bio Methanol",
     "E_METHANOL": "e-Methanol",
     "BIO_ETHANOL": "Bio Ethanol",

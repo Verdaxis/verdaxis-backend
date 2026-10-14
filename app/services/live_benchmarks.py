@@ -166,6 +166,7 @@ async def _calculate_live_slice_benchmarks(
             OrderBookOrder.feedstock,
             OrderBookOrder.origin,
             OrderBookOrder.fame_terms,
+            OrderBookOrder.lng_terms,
         )
         .join(Product, OrderBookOrder.product_id == Product.id)
         .join(DeliveryPoint, OrderBookOrder.delivery_point_id == DeliveryPoint.id)
