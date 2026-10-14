@@ -5,7 +5,8 @@ from app.seeds.market_seed import CI_DATA, PRICING
 from app.routers.catalog import DELIVERY_POINT_DISPLAY_ORDER
 
 
-EXPECTED_PRODUCT_NAMES = {
+# Demo seeds price these products. Bio-LNG is catalog-only: no demo prices.
+DEMO_PRICED_PRODUCT_NAMES = {
     "Bio Methanol",
     "e-Methanol",
     "Bio Ethanol",
@@ -13,6 +14,7 @@ EXPECTED_PRODUCT_NAMES = {
     "B30",
     "B100",
 }
+EXPECTED_PRODUCT_NAMES = DEMO_PRICED_PRODUCT_NAMES | {"Bio-LNG"}
 
 EXPECTED_DELIVERY_POINT_NAMES = {
     "Dalian",
@@ -58,7 +60,7 @@ def test_catalog_seed_exposes_deterministic_ids_for_approved_delivery_points_onl
 
 
 def test_market_seed_pricing_only_references_catalog_products():
-    assert set(PRICING.keys()) == EXPECTED_PRODUCT_NAMES
+    assert set(PRICING.keys()) == DEMO_PRICED_PRODUCT_NAMES
 
 
 def test_market_seed_pricing_only_references_catalog_delivery_points():
@@ -67,4 +69,4 @@ def test_market_seed_pricing_only_references_catalog_delivery_points():
 
 
 def test_market_seed_ci_only_references_catalog_products():
-    assert set(CI_DATA.keys()) == EXPECTED_PRODUCT_NAMES
+    assert set(CI_DATA.keys()) == DEMO_PRICED_PRODUCT_NAMES

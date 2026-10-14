@@ -8,6 +8,7 @@ class ProductResponse(BaseModel):
     id: UUID
     name: str
     market_product: Optional[str] = None
+    available_delivery_point_ids: list[UUID] = []
     fuel_type: str
     fuel_grade: str
     unit: str

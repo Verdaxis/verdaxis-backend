@@ -14,12 +14,14 @@ from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import create_async_engine
 
+from tests.unit.fixtures import bio_lng
+
 
 _BACKEND_ROOT = Path(__file__).resolve().parents[2]
 _PARENT = "miq_20260720_market_quarantine"
 # Later product migrations extend the linearized market chain. The mi-specific
 # refusal/quarantine semantics exercised below are unchanged.
-_HEAD = "uadl_20261003_delivery_reports"
+_HEAD = "blng_20261014_prod"
 _SENTINEL = UUID("00000000-dead-beef-0000-aaa0e15eed01")
 _DEMO_ORG = UUID("4da7b285-34ee-5443-9406-f96b4ed1a251")
 _DEMO_SELLER_ORG = UUID("0dbce576-2026-5925-ab66-674d505e98ad")
@@ -28,6 +30,10 @@ _BIOFUEL_IDS = {
     "B30": "c4cecebc-3d2d-5840-8021-57a9a11bc673",
     "B100": "74eb9cb5-f0e3-55f1-b82c-fe29b7c45bf5",
 }
+_BIOFUEL_REVISION = "catalog_20260926_biofuels"
+_BIO_LNG_PARENT = "uadl_20261003_delivery_reports"
+_BIO_LNG_ID = "8f6f34a5-2927-54a6-8564-cca40ae7cb8a"
+_ROTTERDAM_POINT = UUID("1379d36c-1ca9-55b7-9c0d-5235a0ba1f36")
 
 
 def _command_env(database_url: str) -> dict[str, str]:
@@ -1292,7 +1298,7 @@ async def test_biofuel_migration_preserves_catalog_and_restores_exact_prior_guar
     prior_catalog = (await _database_execute(database_url, catalog_query)).scalars().all()
     prior_guard = (await _database_execute(database_url, guard_query)).scalar_one()
 
-    upgraded = await asyncio.to_thread(_alembic, database_url, "upgrade", _HEAD)
+    upgraded = await asyncio.to_thread(_alembic, database_url, "upgrade", _BIOFUEL_REVISION)
     assert upgraded.returncode == 0, upgraded.stderr
     catalog = (await _database_execute(database_url, catalog_query)).scalars().all()
     added_products = {row["name"]: row for row in catalog if row["name"] in _BIOFUEL_IDS}
@@ -1385,5 +1391,117 @@ async def test_biofuel_downgrade_preserves_unpublished_inventory(
         database_url, "SELECT name FROM products WHERE name = :name", {"name": product_name.strip()}
     )
     assert product.scalar_one() == product_name.strip()
+    current = await _database_execute(database_url, "SELECT version_num FROM alembic_version")
+    assert current.scalar_one() == _HEAD
+
+
+@pytest.mark.asyncio
+async def test_bio_lng_migration_adds_catalog_and_terms_and_restores_exact_prior_schema(
+    migration_database,
+):
+    database_url, _ = migration_database
+    upgraded = await asyncio.to_thread(_alembic, database_url, "upgrade", _BIO_LNG_PARENT)
+    assert upgraded.returncode == 0, upgraded.stderr
+    catalog_query = "SELECT row_to_json(p) FROM products p ORDER BY id"
+    guard_query = "SELECT pg_get_functiondef('verdaxis_validate_trade_snapshot()'::regprocedure)"
+    checks_query = (
+        "SELECT conrelid::regclass::text || '.' || conname, pg_get_constraintdef(oid) "
+        "FROM pg_constraint WHERE contype = 'c' AND connamespace = 'public'::regnamespace "
+        "ORDER BY 1"
+    )
+    columns_query = (
+        "SELECT table_name || '.' || column_name FROM information_schema.columns "
+        "WHERE table_schema = 'public' AND column_name IN ('lng_terms', 'lng_terms_snapshot')"
+    )
+    prior_catalog = (await _database_execute(database_url, catalog_query)).scalars().all()
+    prior_guard = (await _database_execute(database_url, guard_query)).scalar_one()
+    prior_checks = (await _database_execute(database_url, checks_query)).all()
+    assert (await _database_execute(database_url, columns_query)).scalars().all() == []
+
+    upgraded = await asyncio.to_thread(_alembic, database_url, "upgrade", _HEAD)
+    assert upgraded.returncode == 0, upgraded.stderr
+    catalog = (await _database_execute(database_url, catalog_query)).scalars().all()
+    added = [row for row in catalog if row["id"] == _BIO_LNG_ID]
+    assert len(added) == 1
+    assert (
+        added[0]["name"], added[0]["fuel_type"], added[0]["fuel_grade"],
+        added[0]["unit"], added[0]["min_lot_size"], added[0]["is_active"],
+    ) == ("Bio-LNG", "LNG", "Bio", "MT", 1, True)
+    assert [row for row in catalog if row["id"] != _BIO_LNG_ID] == prior_catalog
+    assert set((await _database_execute(database_url, columns_query)).scalars().all()) == {
+        "orderbook_orders.lng_terms",
+        "trades.lng_terms_snapshot",
+    }
+    checks = dict((await _database_execute(database_url, checks_query)).all())
+    for name in (
+        "trades.ck_trades_snapshot",
+        "market_indications.ck_market_indications_market_product",
+        "fair_price_bands.ck_fair_price_bands_market_product",
+        "physical_stems.ck_physical_stems_market_product",
+    ):
+        assert "'BIO_LNG'" in checks[name]
+    new_guard = (await _database_execute(database_url, guard_query)).scalar_one()
+    added_branch = (
+        f" WHEN product_row.id = '{_BIO_LNG_ID}' AND product_row.name = 'Bio-LNG' "
+        "AND product_row.fuel_type = 'LNG' AND product_row.fuel_grade = 'Bio' THEN 'BIO_LNG'"
+    )
+    immutable_snapshot = (
+        " OR OLD.lng_terms_snapshot::jsonb IS DISTINCT FROM NEW.lng_terms_snapshot::jsonb"
+    )
+    for addition in (added_branch, immutable_snapshot):
+        assert new_guard.count(addition) == 1
+        new_guard = new_guard.replace(addition, "")
+    assert new_guard == prior_guard
+
+    downgraded = await asyncio.to_thread(_alembic, database_url, "downgrade", _BIO_LNG_PARENT)
+    assert downgraded.returncode == 0, downgraded.stderr
+    assert (await _database_execute(database_url, catalog_query)).scalars().all() == prior_catalog
+    assert (await _database_execute(database_url, guard_query)).scalar_one() == prior_guard
+    assert (await _database_execute(database_url, checks_query)).all() == prior_checks
+    assert (await _database_execute(database_url, columns_query)).scalars().all() == []
+
+
+@pytest.mark.asyncio
+async def test_bio_lng_downgrade_refuses_while_an_order_carries_terms(migration_database):
+    database_url, _ = migration_database
+    upgraded = await asyncio.to_thread(_alembic, database_url, "upgrade", _HEAD)
+    assert upgraded.returncode == 0, upgraded.stderr
+    org_id, order_id = uuid4(), uuid4()
+    await _database_execute(
+        database_url,
+        "INSERT INTO organizations (id, name, type, verification_status, provenance) "
+        "VALUES (:id, 'Bio-LNG seller', 'FUEL_TRADER', 'APPROVED', 'REAL')",
+        {"id": org_id},
+    )
+    await _database_execute(
+        database_url,
+        "INSERT INTO delivery_points (id, name, region, timezone, is_active) "
+        "VALUES (:id, 'Rotterdam', 'Europe', 'Europe/Amsterdam', true) ON CONFLICT DO NOTHING",
+        {"id": _ROTTERDAM_POINT},
+    )
+    await _database_execute(
+        database_url,
+        "INSERT INTO orderbook_orders (id, organization_id, provenance, side, product_id, "
+        "delivery_point_id, quantity_mt, remaining_quantity_mt, price_per_mt_usd, "
+        "availability_window, status, lng_terms) VALUES (:id, :org, 'REAL', 'ASK', :product, "
+        ":point, 100, 100, 1500, 'SPOT', 'OPEN', CAST(:terms AS json))",
+        {
+            "id": order_id,
+            "org": org_id,
+            "product": _BIO_LNG_ID,
+            "point": _ROTTERDAM_POINT,
+            "terms": json.dumps(bio_lng.ask_terms()),
+        },
+    )
+
+    refused = await asyncio.to_thread(_alembic, database_url, "downgrade", _BIO_LNG_PARENT)
+    assert refused.returncode != 0
+    assert "cannot downgrade Bio-LNG while orderbook_orders references it" in refused.stderr
+    preserved = await _database_execute(
+        database_url,
+        "SELECT lng_terms->>'scheme_certificate_number' FROM orderbook_orders WHERE id = :id",
+        {"id": order_id},
+    )
+    assert preserved.scalar_one() == bio_lng.ask_terms()["scheme_certificate_number"]
     current = await _database_execute(database_url, "SELECT version_num FROM alembic_version")
     assert current.scalar_one() == _HEAD

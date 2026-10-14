@@ -31,10 +31,12 @@ from app.models.user import OrganizationProvenance
 from app.market_constraints import (
     ORDER_DOMAIN,
     ORDER_LIFECYCLE,
+    ORDER_LNG_TERMS,
     ORDER_NUMERIC_VALUES,
     TRADE_DOMAIN,
     TRADE_COMMISSION_SNAPSHOT,
     TRADE_LIFECYCLE,
+    TRADE_LNG_TERMS,
     TRADE_NUMERIC_VALUES,
     TRADE_SNAPSHOT,
     postgresql_check,
@@ -162,6 +164,7 @@ class OrderBookOrder(Base):
         postgresql_check(ORDER_DOMAIN, name="ck_orderbook_orders_domain"),
         postgresql_check(ORDER_NUMERIC_VALUES, name="ck_orderbook_orders_numeric_values"),
         postgresql_check(ORDER_LIFECYCLE, name="ck_orderbook_orders_lifecycle"),
+        postgresql_check(ORDER_LNG_TERMS, name="ck_orderbook_orders_lng_terms"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -259,6 +262,8 @@ class OrderBookOrder(Base):
     origin: Mapped[str | None] = mapped_column(String(255), nullable=True)
     off_spec: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     off_spec_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Bio-LNG declarations (ASK) or requirements (BID); NULL for every other product.
+    lng_terms: Mapped[dict | None] = mapped_column(JSON(none_as_null=True), nullable=True)
 
     # Status
     status: Mapped[OrderBookStatus] = mapped_column(
@@ -374,6 +379,7 @@ class Trade(Base):
             TRADE_COMMISSION_SNAPSHOT,
             name="ck_trades_commission_snapshot",
         ),
+        postgresql_check(TRADE_LNG_TERMS, name="ck_trades_lng_terms"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -421,6 +427,8 @@ class Trade(Base):
     )
     quantity_mt: Mapped[Decimal] = mapped_column(Numeric(), nullable=False)
     price_per_mt_usd: Mapped[Decimal] = mapped_column(Numeric(), nullable=False)
+    # Bio-LNG {bid, ask} terms frozen at creation; the database trigger keeps it immutable.
+    lng_terms_snapshot: Mapped[dict | None] = mapped_column(JSON(none_as_null=True), nullable=True)
 
     # Status
     status: Mapped[TradeStatus] = mapped_column(

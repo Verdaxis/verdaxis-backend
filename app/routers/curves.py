@@ -70,6 +70,7 @@ from app.services.market_data_eligibility import (
     canonical_delivery_point_clause,
     canonical_product_clause,
     current_public_order_clause,
+    market_product_supports_delivery_point,
 )
 from app.services.forward_monitoring import (
     SignalKey,
@@ -636,6 +637,8 @@ async def build_forward_curve_board(
         (point for point in delivery_points if point.id == focus_delivery_point_id),
         next((point for point in delivery_points if point.name == "Singapore"), delivery_points[0]),
     )
+    if not market_product_supports_delivery_point(focus_product.market_product, focus_delivery_point.id):
+        raise HTTPException(status_code=422, detail="market_product is not available at this delivery point")
 
     product_ids = [product.id for product in products]
     delivery_point_ids = [point.id for point in delivery_points]
@@ -661,6 +664,7 @@ async def build_forward_curve_board(
         (product.market_product or "", delivery_point.id, normalized_window)
         for delivery_point in delivery_points
         for product in products
+        if market_product_supports_delivery_point(product.market_product, delivery_point.id)
     ]
     focus_signal_keys: list[SignalKey] = [
         (focus_product.market_product or "", focus_delivery_point.id, window)
@@ -674,6 +678,7 @@ async def build_forward_curve_board(
         (product.market_product, delivery_point.id, normalized_window, delivery_point.name)
         for delivery_point in delivery_points
         for product in products
+        if market_product_supports_delivery_point(product.market_product, delivery_point.id)
     ]
     benchmark_requests.extend(
         (focus_product.market_product, focus_delivery_point.id, window, focus_delivery_point.name)
@@ -685,6 +690,8 @@ async def build_forward_curve_board(
     for delivery_point in delivery_points:
         cells: list[ForwardCurveBoardCell] = []
         for product in products:
+            if not market_product_supports_delivery_point(product.market_product, delivery_point.id):
+                continue
             cell_key = (product.market_product or "", delivery_point.id, normalized_window)
             cell_fair_price_band = fair_price_bands.get(cell_key)
             cell = await _build_board_cell(

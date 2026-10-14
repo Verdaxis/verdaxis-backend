@@ -33,22 +33,27 @@ def _canonical_digest_value(value):
     return value
 
 
-def economic_order_payload(order: OrderCreate) -> dict[str, object]:
-    """Return the pre-support canonical order payload.
+def _without_transient_fields(payload: dict[str, object]) -> dict[str, object]:
+    """Drop fields that must not change existing keys or digests.
 
-    ``support_confirmation`` is transient evidence, not an economic term. It
-    must not invalidate existing idempotency keys or authorization digests.
+    ``support_confirmation`` is transient evidence, not an economic term.
+    ``lng_terms`` is an economic term, but only Bio-LNG orders carry it, so an
+    absent value is omitted to keep every earlier key and digest stable.
     """
-    payload = order.model_dump(mode="python")
     payload.pop("support_confirmation", None)
+    if payload.get("lng_terms") is None:
+        payload.pop("lng_terms", None)
     return payload
+
+
+def economic_order_payload(order: OrderCreate) -> dict[str, object]:
+    """Return the pre-support canonical order payload."""
+    return _without_transient_fields(order.model_dump(mode="python"))
 
 
 def economic_order_idempotency_payload(order: OrderCreate) -> dict[str, object]:
     """JSON-ready equivalent used by the legacy order idempotency contract."""
-    payload = order.model_dump(mode="json")
-    payload.pop("support_confirmation", None)
-    return payload
+    return _without_transient_fields(order.model_dump(mode="json"))
 
 
 def authorization_terms_digest(order: OrderCreate) -> str:

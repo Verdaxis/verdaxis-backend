@@ -20,7 +20,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.market_catalog import MarketProduct
+from app.market_catalog import PRODUCTS_BY_CODE, MarketProduct, product_delivery_point_allowed
 from app.models.catalog import DeliveryPoint
 from app.models.forward_monitoring import (
     FairPriceBand,
@@ -191,6 +191,8 @@ def _validate_common(row: dict, resolver: _DeliveryPointResolver) -> dict:
             f"{sorted(_MARKET_PRODUCTS)}"
         )
     delivery_point_id = resolver.resolve(_required_text(row, "delivery_point"))
+    if not product_delivery_point_allowed(PRODUCTS_BY_CODE[product].id, delivery_point_id):
+        raise _RowInvalid(f"market_product {product!r} is not traded at this delivery point")
     try:
         window = normalize_availability_window(_required_text(row, "availability_window"))
     except ValueError as exc:
