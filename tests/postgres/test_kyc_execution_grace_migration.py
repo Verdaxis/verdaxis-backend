@@ -99,6 +99,20 @@ async def test_grace_snapshot_enrolls_only_approved_accounts_with_pending_kyc(an
                     },
                 )
 
+        # Upgrade must refuse the concurrent writer before CREATE INDEX waits.
+        async with engine.begin() as holder:
+            await holder.execute(
+                text("UPDATE users SET first_name = 'Writer' WHERE id = :id"),
+                {"id": user_ids["legacy-approved"]},
+            )
+            refused = subprocess.run(
+                [sys.executable, "-m", "alembic", "upgrade", _GRACE_REVISION],
+                env=environment, capture_output=True, text=True, timeout=10,
+            )
+            assert refused.returncode != 0
+            assert "could not obtain lock on relation" in refused.stderr.lower()
+            assert await holder.scalar(text("SELECT version_num FROM alembic_version")) == _PREVIOUS_REVISION
+
         alembic("upgrade", _GRACE_REVISION)
         async with engine.connect() as connection:
             index_definition = await connection.scalar(text(

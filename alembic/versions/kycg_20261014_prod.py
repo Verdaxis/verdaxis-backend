@@ -9,9 +9,9 @@ The bio-LNG revision (blng_20261014_prod) precedes this KYC snapshot.
 from __future__ import annotations
 
 import sqlalchemy as sa
-from alembic import op
 from sqlalchemy.dialects import postgresql
 
+from alembic import op
 
 revision = "kycg_20261014_prod"
 down_revision = "blng_20261014_prod"
@@ -25,6 +25,8 @@ GRACE_PERIOD = "336 hours"
 
 
 def upgrade() -> None:
+    # Refuse concurrent user writes before index DDL can wait for a lock.
+    op.execute("LOCK TABLE users IN ACCESS EXCLUSIVE MODE NOWAIT")
     # Assisted eligibility finds and locks members by organization, then UUID.
     op.create_index(
         "ix_users_organization_id_id", "users", ["organization_id", "id"], unique=False

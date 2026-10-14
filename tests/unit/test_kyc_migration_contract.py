@@ -1,13 +1,12 @@
 """Offline checks for the integrated KYC migration and member lookup index."""
-from alembic.util import load_python_file
 from pathlib import Path
 from unittest.mock import MagicMock
 
 from alembic.config import Config
 from alembic.script import ScriptDirectory
+from alembic.util import load_python_file
 
 from app.models.user import User
-
 
 ROOT = Path(__file__).resolve().parents[2]
 INDEX_NAME = "ix_users_organization_id_id"
@@ -30,6 +29,9 @@ def test_member_lookup_index_has_migration_and_orm_parity(monkeypatch):
     operations = MagicMock()
     monkeypatch.setattr(migration, "op", operations)
     migration.upgrade()
+    assert operations.mock_calls[0].args == (
+        "LOCK TABLE users IN ACCESS EXCLUSIVE MODE NOWAIT",
+    )
     operations.create_index.assert_called_once_with(
         INDEX_NAME, "users", ["organization_id", "id"], unique=False,
     )
