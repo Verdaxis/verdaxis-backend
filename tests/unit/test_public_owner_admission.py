@@ -63,6 +63,8 @@ def async_engine():
 @pytest.fixture(scope='module')
 async def setup_tables(async_engine):
     tables = [Base.metadata.tables[name] for name in REQUIRED_TABLES]
+    from app.models.kyc_execution_grace import KYCExecutionGrace
+    tables.append(KYCExecutionGrace.__table__)
     async with async_engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all, tables=tables)
     yield
@@ -316,6 +318,7 @@ class TestRejectedOwnerPublicVisibility:
     @pytest.mark.asyncio
     async def test_approved_market_support_admin_owner_is_public(self, db: AsyncSession):
         target_org = await _make_org(db, 'Customer Org')
+        await _make_user(db, target_org, role=UserRole.SUPPLIER)
         staff_org = await _make_org(db, 'Support Org')
         support_admin = await _make_user(db, staff_org, role=UserRole.ADMIN)
         product, delivery_point = await _make_catalog(db)
@@ -491,7 +494,8 @@ class TestRejectedOwnerPublicVisibility:
             availability_window='SPOT',
         )
 
-        assert fresh_price == Decimal('900.00')
+        # Rejecting the last eligible customer member also removes assisted liquidity.
+        assert fresh_price is None
         assert not db.new
         assert not db.dirty
         stored = (await db.execute(select(LiveSliceBenchmark))).scalar_one()

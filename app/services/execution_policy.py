@@ -4,6 +4,7 @@ from app.market_catalog import PRODUCTS_BY_ID, PRODUCTS_BY_CODE
 from app.models.orderbook import OrderBookOrder, OrderCreationMethod, OrderSide
 from app.models.user import Organization, OrganizationProvenance, User, UserRole, UserStatus
 from sqlalchemy import select
+from app.services.kyc_execution import kyc_execution_eligibility, kyc_execution_clause
 from fastapi import HTTPException
 from app.services.fame_order import (
     fame_terms_compatible, is_fame_product, validate_fame_order_terms,
@@ -11,7 +12,14 @@ from app.services.fame_order import (
 
 
 async def execution_party_is_eligible(db, *, user: User, organization: Organization | None = None) -> bool:
-    """Return true only for a concrete admitted user and approved tenant."""
+    """Require admission and organization-bound KYC for new execution."""
+    return await market_party_is_admitted(db, user=user, organization=organization, check_legacy_kyc=False) and (
+        await kyc_execution_eligibility(db, user)
+    ).eligible
+
+
+async def market_party_is_admitted(db, *, user: User, organization: Organization | None = None, check_legacy_kyc: bool = True) -> bool:
+    """Retain the existing admission policy for indicative, non-executable work."""
     user_id = getattr(user, "id", None) if user else None
     user_org_id = getattr(user, "organization_id", None) if user else None
     if user_id is None or user_org_id is None:
@@ -22,14 +30,12 @@ async def execution_party_is_eligible(db, *, user: User, organization: Organizat
         return False
     if getattr(user, "must_change_password", False):
         return False
-    # KYC remains advisory for pending/legacy users. An explicit human
-    # rejection revokes execution, and any org-bound state is valid only for
-    # the user's current organization.
-    if getattr(user, "kyc_status", None) == "REJECTED":
-        return False
-    kyc_organization_id = getattr(user, "kyc_organization_id", None)
-    if kyc_organization_id is not None and kyc_organization_id != user_org_id:
-        return False
+    if check_legacy_kyc:
+        if getattr(user, "kyc_status", None) == "REJECTED":
+            return False
+        kyc_organization_id = getattr(user, "kyc_organization_id", None)
+        if kyc_organization_id is not None and kyc_organization_id != user_org_id:
+            return False
     if organization is None and hasattr(db, "execute"):
         result = await db.execute(select(Organization).where(Organization.id == user.organization_id))
         organization = result.scalar_one_or_none()
@@ -39,6 +45,31 @@ async def execution_party_is_eligible(db, *, user: User, organization: Organizat
         and organization_id == user_org_id
         and getattr(organization, "verification_status", None) == "APPROVED"
     )
+
+
+async def customer_organization_is_execution_eligible(db, organization: Organization) -> bool:
+    """Assisted execution requires one admitted economic member, not admin KYC."""
+    if organization.verification_status != "APPROVED":
+        return False
+    return (await db.execute(select(User.id).where(
+        User.organization_id == organization.id,
+        User.role.in_((UserRole.BUYER, UserRole.SUPPLIER)),
+        User.status == UserStatus.APPROVED,
+        User.email_verified.is_(True),
+        User.must_change_password.is_(False),
+        kyc_execution_clause(),
+    ).limit(1))).scalar_one_or_none() is not None
+
+
+async def require_customer_organization_execution(db, organization: Organization) -> None:
+    """Expose no member identity when the customer's organization is blocked."""
+    if not await customer_organization_is_execution_eligible(db, organization):
+        raise HTTPException(403, detail={
+            "code": "KYC_REQUIRED",
+            "message": "Complete KYC verification to trade.",
+            "kyc_status": "PENDING",
+            "grace_expires_at": None,
+        })
 
 
 async def order_owner_is_execution_eligible(
@@ -60,6 +91,7 @@ async def order_owner_is_execution_eligible(
         and organization.id == order.organization_id
         and organization.verification_status == "APPROVED"
         and organization.provenance == OrganizationProvenance.REAL
+        and await customer_organization_is_execution_eligible(db, organization)
     )
 
 

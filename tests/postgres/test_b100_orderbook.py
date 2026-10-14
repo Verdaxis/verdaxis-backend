@@ -289,6 +289,7 @@ async def test_b100_order_idempotency_and_admission_do_not_expose_private_declar
             email_verified=True,
             kyc_status="APPROVED",
             organization_id=seeded["seller_org_id"],
+            kyc_organization_id=seeded["seller_org_id"],
         )
         session.add(peer)
         await session.commit()

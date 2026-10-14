@@ -1,6 +1,7 @@
 from pydantic import BaseModel, EmailStr, Field, field_validator
 from uuid import UUID
-from typing import Optional
+from typing import Optional, Literal
+from datetime import datetime
 from enum import Enum
 from app.core.security import validate_password_bytes
 
@@ -35,6 +36,12 @@ class UserCreate(UserBase):
     def validate_password_size(cls, value: str) -> str:
         return validate_password_bytes(value)
 
+class ExecutionEligibilityResponse(BaseModel):
+    eligible: bool = False
+    reason: Literal["KYC_APPROVED", "KYC_GRACE", "KYC_REQUIRED", "KYC_REJECTED", "NOT_APPLICABLE"] = "KYC_REQUIRED"
+    grace_expires_at: datetime | None = None
+
+
 class UserResponse(UserBase):
     role: Optional[UserRole] = None
     id: UUID
@@ -42,6 +49,8 @@ class UserResponse(UserBase):
     organization_id: Optional[UUID] = None
     referral_code: Optional[str] = None
     must_change_password: bool = False
+    kyc_status: str = "PENDING"
+    execution_eligibility: ExecutionEligibilityResponse = Field(default_factory=ExecutionEligibilityResponse)
     
     class Config:
         from_attributes = True

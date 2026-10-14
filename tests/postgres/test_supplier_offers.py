@@ -33,6 +33,7 @@ async def supplier_market(fame_market):
             password_hash="unused", role=UserRole.SUPPLIER,
             status=UserStatus.APPROVED,
             organization_id=seeded["seller_org_id"],
+            kyc_organization_id=seeded["seller_org_id"],
             email_verified=True, kyc_status="APPROVED",
         )
         session.add(peer)

@@ -36,6 +36,7 @@ def _user(*, role: UserRole | None) -> User:
         status=UserStatus.APPROVED,
         email_verified=True,
         must_change_password=False,
+        kyc_status="PENDING",
     )
 
 

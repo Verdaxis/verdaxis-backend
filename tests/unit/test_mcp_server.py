@@ -39,7 +39,9 @@ class FrozenDatetime(datetime):
 @pytest.fixture
 async def seeded_market(monkeypatch):
     engine = create_async_engine("sqlite+aiosqlite://")
+    from app.models.kyc_execution_grace import KYCExecutionGrace
     tables = [Base.metadata.tables[name] for name in REQUIRED_TABLES]
+    tables.append(KYCExecutionGrace.__table__)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all, tables=tables)
     factory = async_sessionmaker(engine, expire_on_commit=False, autoflush=False)
@@ -51,6 +53,8 @@ async def seeded_market(monkeypatch):
         user.status = UserStatus.APPROVED
         user.email_verified = True
         user.must_change_password = False
+        user.kyc_status = "APPROVED"
+        user.kyc_organization_id = org.id
         product = await _make_product(db, "UCOME_B100")
         point = await _make_delivery_point(db)
         order = _make_order(

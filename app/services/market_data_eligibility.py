@@ -11,6 +11,7 @@ from zoneinfo import ZoneInfo
 
 from sqlalchemy import String, and_, case, cast, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from app.market_catalog import (
     CANONICAL_DELIVERY_POINTS,
@@ -19,6 +20,7 @@ from app.market_catalog import (
     PRODUCT_IDS,
     PRODUCTS_BY_CODE,
 )
+from app.services.kyc_execution import kyc_execution_clause
 from app.models.catalog import DeliveryPoint, Product
 from app.models.marketplace import InventoryItem
 from app.models.orderbook import (
@@ -66,11 +68,7 @@ def public_order_owner_admission_clause(order):
             User.status == UserStatus.APPROVED,
             User.email_verified.is_(True),
             User.must_change_password.is_(False),
-            User.kyc_status != "REJECTED",
-            or_(
-                User.kyc_organization_id.is_(None),
-                User.kyc_organization_id == order.organization_id,
-            ),
+            kyc_execution_clause(),
             select(Organization.id)
             .where(
                 Organization.id == order.organization_id,
@@ -81,6 +79,15 @@ def public_order_owner_admission_clause(order):
         )
         .exists()
     )
+    member = aliased(User)
+    eligible_customer_member = select(member.id).where(
+        member.organization_id == order.organization_id,
+        member.role.in_((UserRole.BUYER, UserRole.SUPPLIER)),
+        member.status == UserStatus.APPROVED,
+        member.email_verified.is_(True),
+        member.must_change_password.is_(False),
+        kyc_execution_clause(member),
+    ).correlate(order).exists()
     assisted_owner = (
         select(User.id)
         .where(
@@ -89,6 +96,7 @@ def public_order_owner_admission_clause(order):
             User.id == order.created_by_actor_user_id,
             User.role == UserRole.ADMIN,
             User.status == UserStatus.APPROVED,
+            eligible_customer_member,
             select(Organization.id)
             .where(
                 Organization.id == order.organization_id,

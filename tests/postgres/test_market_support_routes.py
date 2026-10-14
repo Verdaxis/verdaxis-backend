@@ -103,6 +103,8 @@ async def _seed_market_support(engine):
         )
         session.add_all([supplier, buyer, support_buyer, admin, product, point])
         await session.flush()
+        for member in (supplier, buyer, support_buyer):
+            member.kyc_organization_id = member.organization_id
         await assign_fixture_real_provenance(
             session, (supplier_org, buyer_org, support_buyer_org)
         )

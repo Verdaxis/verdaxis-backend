@@ -73,6 +73,8 @@ def async_engine():
 @pytest.fixture(scope='module')
 async def setup_tables(async_engine):
     tables = [Base.metadata.tables[name] for name in REQUIRED_TABLES]
+    from app.models.kyc_execution_grace import KYCExecutionGrace
+    tables.append(KYCExecutionGrace.__table__)
     async with async_engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all, tables=tables)
     yield
@@ -111,6 +113,7 @@ async def _make_user(db: AsyncSession, org: Organization, role: UserRole) -> Use
         status=UserStatus.APPROVED,
         email_verified=True,
         kyc_status="APPROVED",
+        kyc_organization_id=org.id,
         organization_id=org.id,
     )
     db.add(user)

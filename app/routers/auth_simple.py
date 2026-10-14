@@ -882,7 +882,7 @@ async def login(
     return {
         "access_token": access_token,
         "token_type": "bearer",
-        "profile": UserResponse.model_validate(user),
+        "profile": await _user_profile(db, user),
     }
 
 # ---------------------------------------------------------------------------
@@ -1958,9 +1958,26 @@ async def resend_verification_email_public(
 # Profile endpoints (merged from legacy auth.py)
 # ---------------------------------------------------------------------------
 
+async def _user_profile(db: AsyncSession, user: User) -> UserResponse:
+    from dataclasses import asdict
+    from app.services.kyc_execution import kyc_execution_eligibility
+
+    profile = UserResponse.model_validate(user)
+    if user.role == UserRole.ADMIN or user.organization_id is None:
+        eligibility = {"eligible": False, "reason": "NOT_APPLICABLE", "grace_expires_at": None}
+    else:
+        eligibility = asdict(await kyc_execution_eligibility(db, user))
+    from app.schemas.user import ExecutionEligibilityResponse
+
+    return profile.model_copy(update={"execution_eligibility": ExecutionEligibilityResponse(**eligibility)})
+
+
 @router.get("/me", response_model=UserResponse)
-async def read_users_me(current_user: Annotated[User, Depends(get_current_user)]):
-    return current_user
+async def read_users_me(
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    return await _user_profile(db, current_user)
 
 @router.put("/me", response_model=UserResponse)
 async def update_users_me(

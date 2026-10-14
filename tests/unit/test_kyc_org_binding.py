@@ -22,10 +22,14 @@ def _org(org_id):
 
 
 @pytest.mark.asyncio
-async def test_pending_and_unknown_legacy_kyc_remain_advisory_for_current_users():
+@pytest.mark.parametrize("kyc_status", ["PENDING", "SUBMITTED", "REVIEW_REQUIRED"])
+async def test_unapproved_kyc_without_grace_blocks_execution(kyc_status):
+    from unittest.mock import AsyncMock, Mock
+
     org_id = uuid4()
-    assert await execution_party_is_eligible(
-        SimpleNamespace(), user=_user(org_id), organization=_org(org_id)
+    db = SimpleNamespace(execute=AsyncMock(return_value=Mock(scalar_one_or_none=lambda: None)))
+    assert not await execution_party_is_eligible(
+        db, user=_user(org_id, kyc_status=kyc_status), organization=_org(org_id)
     )
 
 

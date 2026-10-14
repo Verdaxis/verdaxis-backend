@@ -171,6 +171,8 @@ async def _seed_route_market(engine):
         )
         session.add_all([buyer, seller, product, point, port])
         await session.flush()
+        buyer.kyc_organization_id = buyer_org.id
+        seller.kyc_organization_id = seller_org.id
         await assign_fixture_real_provenance(session, (buyer_org, seller_org))
         inventory = InventoryItem(
             supplier_id=seller_org.id,
@@ -478,6 +480,13 @@ async def test_six_command_results_replay_exact_snapshots_without_new_effects(
     confirmed = await client.put(
         f"/api/trades/{lifecycle_trade_id}/confirm", headers=confirm_headers
     )
+    async def set_seller_kyc(value):
+        async with seeded["factory"]() as session:
+            seller = await session.get(User, seeded["seller_id"])
+            seller.kyc_status = value
+            await session.commit()
+
+    await set_seller_kyc("PENDING")
     delivered_payload = {
         "final_quantity_mt": "40.00",
         "final_price_per_mt": "700.00",
@@ -497,7 +506,9 @@ async def test_six_command_results_replay_exact_snapshots_without_new_effects(
     assert delivered.json()["final_quantity_mt"] == "40.00"
     assert delivered.json()["final_total_usd"] == "28000.00"
 
+    await set_seller_kyc("APPROVED")
     declined_trade_id = await create_trade("command-replay-trade-two", "25.00")
+    await set_seller_kyc("PENDING")
     decline_headers = _headers(seeded["seller_id"], "command-replay-decline")
     declined = await client.put(
         f"/api/trades/{declined_trade_id}/decline", headers=decline_headers
@@ -535,6 +546,10 @@ async def test_six_command_results_replay_exact_snapshots_without_new_effects(
     assert amended_expires_at == expires_at.astimezone(UTC).isoformat().replace(
         "+00:00", "Z"
     )
+    async with seeded["factory"]() as session:
+        buyer = await session.get(User, seeded["buyer_id"])
+        buyer.kyc_status = "PENDING"
+        await session.commit()
     cancel_headers = _headers(seeded["buyer_id"], "command-replay-cancel")
     cancelled = await client.delete(
         f"/api/orderbook/{order_id}", headers=cancel_headers

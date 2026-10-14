@@ -54,6 +54,7 @@ def _admitted_user(*, organization_id: uuid.UUID, role: UserRole, email: str) ->
         organization_id=organization_id,
         email_verified=True,
         kyc_status="APPROVED",
+        kyc_organization_id=organization_id,
         kyc_external_evidence_reference="external-test-case",
         kyc_review_note="Externally retained evidence reviewed for this test fixture.",
         kyc_reviewed_by=user_id,
@@ -78,6 +79,8 @@ def async_engine():
 async def setup_tables(async_engine):
     """Create only the tables we need (avoids broken FK in traceability_events)."""
     tables = [Base.metadata.tables[t] for t in _REQUIRED_TABLES if t in Base.metadata.tables]
+    from app.models.kyc_execution_grace import KYCExecutionGrace
+    tables.append(KYCExecutionGrace.__table__)
     async with async_engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all, tables=tables)
     yield
@@ -651,6 +654,36 @@ class TestNoMatch:
 
         trades = await match_order(db, bid)
         assert len(trades) == 0
+
+    @pytest.mark.asyncio
+    async def test_allowed_demo_pair_matches_without_fabricated_kyc(self, db, test_product, test_dp):
+        from app.services.demo_market import DEMO_ACTIVITY_BUYER_ORG_ID, DEMO_ACTIVITY_SELLER_ORG_ID
+
+        for org_id, role in ((DEMO_ACTIVITY_BUYER_ORG_ID, UserRole.BUYER), (DEMO_ACTIVITY_SELLER_ORG_ID, UserRole.SUPPLIER)):
+            db.add(Organization(id=org_id, name=str(org_id), type=OrgType.FUEL_BUYER if role == UserRole.BUYER else OrgType.FUEL_SUPPLIER,
+                                verification_status="APPROVED", provenance=OrganizationProvenance.DEMO))
+            user = _admitted_user(organization_id=org_id, role=role, email=f"{org_id}@example.test")
+            user.kyc_status = "PENDING"
+            user.kyc_organization_id = None
+            db.add(user)
+        ask = _make_order(DEMO_ACTIVITY_SELLER_ORG_ID, OrderSide.ASK, price=Decimal("550"), provenance=OrganizationProvenance.DEMO)
+        bid = _make_order(DEMO_ACTIVITY_BUYER_ORG_ID, OrderSide.BID, price=Decimal("560"), provenance=OrganizationProvenance.DEMO)
+        db.add_all([ask, bid])
+        await db.flush()
+        trades = await match_order(db, bid, allowed_demo_order_pair=frozenset((ask.id, bid.id)))
+        assert len(trades) == 1
+
+    @pytest.mark.asyncio
+    async def test_pending_resting_owner_does_not_match_approved_bid(self, db, buyer_org, seller_org, org_buyer_id, org_seller_id, test_product, test_dp):
+        owner = await db.get(User, _owner_user_id(org_seller_id))
+        owner.kyc_status = "PENDING"
+        ask = _make_order(org_seller_id, OrderSide.ASK, price=Decimal("550"))
+        bid = _make_order(org_buyer_id, OrderSide.BID, price=Decimal("560"))
+        db.add_all([ask, bid])
+        await db.flush()
+        assert await match_order(db, bid) == []
+        assert ask.remaining_quantity_mt == ask.quantity_mt
+        assert bid.remaining_quantity_mt == bid.quantity_mt
 
     @pytest.mark.asyncio
     async def test_no_self_trade(self, db, buyer_org, org_buyer_id, test_product, test_dp):

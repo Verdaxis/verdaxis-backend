@@ -14,7 +14,7 @@ from sqlalchemy.orm import selectinload
 
 from app.database import get_db
 from app.market_catalog import PRODUCT_IDS, PRODUCTS_BY_ID
-from app.middleware.execution import require_execution_eligible_user
+from app.services.security_market_admission import require_security_market_admission
 from app.models.catalog import DeliveryPoint, Product
 from app.models.marketplace import FuelType as ModelFuelType
 from app.models.marketplace import InventoryItem
@@ -180,7 +180,7 @@ async def list_inventory(
 async def add_inventory(
     item: InventoryCreate,
     db: Annotated[AsyncSession, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_execution_eligible_user)]
+    current_user: Annotated[User, Depends(require_security_market_admission)]
 ):
     if current_user.role != UserRole.SUPPLIER:
         raise HTTPException(status_code=403, detail="Only suppliers can manage inventory")
@@ -246,7 +246,7 @@ async def update_inventory(
     item_id: UUID,
     updates: InventoryItemUpdate,
     db: Annotated[AsyncSession, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_execution_eligible_user)]
+    current_user: Annotated[User, Depends(require_security_market_admission)]
 ):
     if current_user.role != UserRole.SUPPLIER:
         raise HTTPException(status_code=403, detail="Only suppliers can manage inventory")
@@ -317,7 +317,7 @@ async def update_inventory(
 async def delete_inventory(
     item_id: UUID,
     db: Annotated[AsyncSession, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_execution_eligible_user)]
+    current_user: Annotated[User, Depends(require_security_market_admission)]
 ):
     if current_user.role != UserRole.SUPPLIER:
         raise HTTPException(status_code=403, detail="Only suppliers can manage inventory")
@@ -367,7 +367,7 @@ async def publish_inventory_item(
     item_id: UUID,
     request: Request,
     db: Annotated[AsyncSession, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_execution_eligible_user)],
+    current_user: Annotated[User, Depends(get_current_user)],
 ):
     """Convert an inventory item into an ASK listing on the unified orderbook."""
     if not current_user.organization_id:
@@ -401,6 +401,9 @@ async def publish_inventory_item(
                 )
             return {"status": "published", "listing_id": str(replay.id)}
 
+    from app.services.kyc_execution import require_kyc_execution
+
+    await require_kyc_execution(db, current_user)
     if current_user.role != UserRole.SUPPLIER:
         raise HTTPException(status_code=403, detail="Only suppliers can publish inventory")
 
