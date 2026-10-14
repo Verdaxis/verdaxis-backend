@@ -14,6 +14,7 @@ depends_on = None
 
 
 def upgrade() -> None:
+    op.execute("LOCK TABLE users IN ACCESS EXCLUSIVE MODE NOWAIT")
     op.create_index("ix_users_organization_id_id", "users", ["organization_id", "id"])
     op.create_table(
         "kyc_execution_grace",
@@ -61,7 +62,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    op.execute("LOCK TABLE users, kyc_execution_grace, kyc_grace_notices IN ACCESS EXCLUSIVE MODE NOWAIT")
     op.drop_index("ix_users_organization_id_id", table_name="users")
-    op.execute("LOCK TABLE kyc_execution_grace IN ACCESS EXCLUSIVE MODE NOWAIT")
     op.drop_table("kyc_grace_notices")
     op.drop_table("kyc_execution_grace")
