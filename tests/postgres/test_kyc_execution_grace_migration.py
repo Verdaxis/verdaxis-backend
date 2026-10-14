@@ -62,6 +62,9 @@ async def test_grace_snapshot_enrolls_only_approved_accounts_with_pending_kyc(an
         "pending-kyc": ("APPROVED", "PENDING", approved_org, True),
         "submitted-kyc": ("APPROVED", "SUBMITTED", approved_org, True),
         "approved-kyc": ("APPROVED", "APPROVED", approved_org, False),
+        "legacy-approved": ("APPROVED", "APPROVED", approved_org, True),
+        "moved-approved": ("APPROVED", "APPROVED", approved_org, False),
+        "moved-pending": ("APPROVED", "PENDING", approved_org, False),
         "rejected-kyc": ("APPROVED", "REJECTED", approved_org, False),
         "legacy-kyc": ("APPROVED", "REVIEW_REQUIRED", approved_org, False),
         "pending-account": ("PENDING", "PENDING", approved_org, False),
@@ -83,8 +86,8 @@ async def test_grace_snapshot_enrolls_only_approved_accounts_with_pending_kyc(an
                 await connection.execute(
                     text(
                         "INSERT INTO users (id, email, password_hash, role, status, "
-                        "organization_id, email_verified, kyc_status) VALUES "
-                        "(:id, :email, 'hash', 'BUYER', :status, :org, true, :kyc_status)"
+                        "organization_id, email_verified, kyc_status, kyc_organization_id) VALUES "
+                        "(:id, :email, 'hash', 'BUYER', :status, :org, true, :kyc_status, :kyc_org)"
                     ),
                     {
                         "id": user_ids[label],
@@ -92,6 +95,7 @@ async def test_grace_snapshot_enrolls_only_approved_accounts_with_pending_kyc(an
                         "status": status,
                         "org": organization_id,
                         "kyc_status": kyc_status,
+                        "kyc_org": pending_org if label.startswith("moved-") else approved_org if label == "approved-kyc" else None,
                     },
                 )
 
@@ -113,7 +117,7 @@ async def test_grace_snapshot_enrolls_only_approved_accounts_with_pending_kyc(an
         expected = {user_ids[label] for label, values in population.items() if values[3]}
         assert {row.user_id for row in rows} == expected
         assert {row.organization_id for row in rows} == {approved_org}
-        assert {row.kyc_status_at_enrollment for row in rows} == {"PENDING", "SUBMITTED"}
+        assert {row.kyc_status_at_enrollment for row in rows} == {"PENDING", "SUBMITTED", "APPROVED"}
         # One snapshot instant and a fixed, unrenewable 14-day period.
         assert len({row.enrolled_at for row in rows}) == 1
         assert all(row.expires_at - row.enrolled_at == timedelta(days=14) for row in rows)

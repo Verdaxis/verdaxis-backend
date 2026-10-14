@@ -36,7 +36,7 @@ async def db():
     await engine.dispose()
 
 
-async def _graced_user(db: AsyncSession, *, kyc_status: str) -> User:
+async def _graced_user(db: AsyncSession, *, kyc_status: str, legacy_unbound: bool = False) -> User:
     organization = Organization(
         name=f"Org {uuid4().hex[:8]}",
         type=OrgType.FUEL_BUYER,
@@ -54,7 +54,7 @@ async def _graced_user(db: AsyncSession, *, kyc_status: str) -> User:
         email_verified=True,
         organization_id=organization.id,
         kyc_status=kyc_status,
-        kyc_organization_id=organization.id if kyc_status == "APPROVED" else None,
+        kyc_organization_id=organization.id if kyc_status == "APPROVED" and not legacy_unbound else None,
     )
     db.add(user)
     await db.flush()
@@ -62,7 +62,7 @@ async def _graced_user(db: AsyncSession, *, kyc_status: str) -> User:
         KycExecutionGrace(
             user_id=user.id,
             organization_id=organization.id,
-            kyc_status_at_enrollment="PENDING",
+            kyc_status_at_enrollment="APPROVED" if legacy_unbound else "PENDING",
             enrolled_at=ENROLLED_AT,
             expires_at=GRACE_EXPIRES_AT,
             created_by="kycg_20261014_prod",
@@ -104,8 +104,9 @@ def test_cli_refuses_a_runtime_that_is_not_the_named_target():
 
 
 @pytest.mark.asyncio
-async def test_each_grace_row_gets_exactly_one_notice(db, monkeypatch):
-    graced = await _graced_user(db, kyc_status="PENDING")
+@pytest.mark.parametrize("legacy_unbound", [False, True])
+async def test_each_grace_row_gets_exactly_one_notice(db, monkeypatch, legacy_unbound):
+    graced = await _graced_user(db, kyc_status="APPROVED" if legacy_unbound else "PENDING", legacy_unbound=legacy_unbound)
     await _graced_user(db, kyc_status="APPROVED")
     deliver = AsyncMock(return_value=True)
     monkeypatch.setattr(kyc_grace_notices, "send_kyc_grace_notice_email", deliver)

@@ -39,7 +39,7 @@ def upgrade() -> None:
         sa.Column("expires_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("created_by", sa.String(length=64), nullable=False),
         sa.CheckConstraint(
-            "kyc_status_at_enrollment IN ('PENDING', 'SUBMITTED')",
+            "kyc_status_at_enrollment IN ('PENDING', 'SUBMITTED', 'APPROVED')",
             name="ck_kyc_execution_grace_enrollment_status",
         ),
         sa.CheckConstraint(
@@ -78,7 +78,10 @@ def upgrade() -> None:
             JOIN organizations ON organizations.id = users.organization_id
             WHERE users.status = 'APPROVED'
               AND organizations.verification_status = 'APPROVED'
-              AND users.kyc_status IN ('PENDING', 'SUBMITTED')
+              AND (users.kyc_status IN ('PENDING', 'SUBMITTED')
+                   OR (users.kyc_status = 'APPROVED' AND users.kyc_organization_id IS NULL))
+              AND (users.kyc_organization_id IS NULL
+                   OR users.kyc_organization_id = users.organization_id)
             """
         ).bindparams(revision=revision)
     )

@@ -54,13 +54,15 @@ def test_response_allows_legacy_null_role_while_registration_requires_role():
 
 
 @pytest.mark.asyncio
-async def test_profile_reports_kyc_status_and_execution_eligibility(profile_db):
+@pytest.mark.parametrize("kyc_status", ["SUBMITTED", "APPROVED"])
+async def test_profile_reports_kyc_status_and_execution_eligibility(profile_db, kyc_status):
     organization = Organization(name="Graced Org", type=OrgType.FUEL_BUYER, verification_status="APPROVED")
     profile_db.add(organization)
     await profile_db.flush()
     user = _user(role=UserRole.BUYER)
     user.organization_id = organization.id
-    user.kyc_status = "SUBMITTED"
+    user.kyc_status = kyc_status
+    user.kyc_organization_id = None
     profile_db.add(user)
     await profile_db.flush()
     # A future deadline, so the grace row is valid at request time.
@@ -69,7 +71,7 @@ async def test_profile_reports_kyc_status_and_execution_eligibility(profile_db):
         KycExecutionGrace(
             user_id=user.id,
             organization_id=organization.id,
-            kyc_status_at_enrollment="PENDING",
+            kyc_status_at_enrollment=kyc_status,
             enrolled_at=enrolled_at,
             expires_at=enrolled_at + timedelta(days=14),
             created_by="kycg_20261014_prod",
@@ -79,7 +81,7 @@ async def test_profile_reports_kyc_status_and_execution_eligibility(profile_db):
 
     profile = (await read_users_me(user, profile_db)).model_dump(mode="json")
 
-    assert profile["kyc_status"] == "SUBMITTED"
+    assert profile["kyc_status"] == kyc_status
     assert profile["execution_eligibility"] == {
         "eligible": True,
         "reason": "KYC_GRACE",

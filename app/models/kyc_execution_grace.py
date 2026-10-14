@@ -23,7 +23,7 @@ class KycExecutionGrace(Base):
             name="uq_kyc_execution_grace_user_organization",
         ),
         CheckConstraint(
-            "kyc_status_at_enrollment IN ('PENDING', 'SUBMITTED')",
+            "kyc_status_at_enrollment IN ('PENDING', 'SUBMITTED', 'APPROVED')",
             name="ck_kyc_execution_grace_enrollment_status",
         ),
         # The grace period (14 days as 336 absolute hours) is fixed at
