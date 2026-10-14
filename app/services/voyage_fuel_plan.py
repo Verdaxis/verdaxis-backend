@@ -60,14 +60,19 @@ class _Segment:
 
 
 @dataclass(frozen=True)
+class _FuelChoice:
+    intensity: Decimal | None
+    intensity_source: IntensitySource | None
+    price: PricePoint | None
+    lcv: Decimal
+
+
+@dataclass(frozen=True)
 class _Burn:
     segment: _Segment
     fuel: PlannerFuel
     energy: Decimal
-    intensity: Decimal | None
-    source: IntensitySource | None
-    price: PricePoint | None
-    lcv: Decimal
+    choice: _FuelChoice
 
 
 def _rounded(value: Decimal | None, precision: str = "0.01") -> Decimal | None:
@@ -102,7 +107,11 @@ def _legs(request: VoyagePlanRequest) -> tuple[LegPlan, ...]:
             sea_energy_mj=sea_days * request.vessel.sea_consumption_mt_per_day * VLSFO_ENERGY_MJ_PER_TONNE,
             berth_days=leg.berth_days_at_destination,
             berth_eu_scope_share=ONE if leg.to_port in EU_PORTS else ZERO,
-            berth_energy_mj=leg.berth_days_at_destination * request.vessel.berth_consumption_mt_per_day * VLSFO_ENERGY_MJ_PER_TONNE,
+            berth_energy_mj=(
+                leg.berth_days_at_destination
+                * request.vessel.berth_consumption_mt_per_day
+                * VLSFO_ENERGY_MJ_PER_TONNE
+            ),
         ))
         departure = arrival + _ceil_days(leg.berth_days_at_destination)
     return tuple(legs)
@@ -126,8 +135,9 @@ def _available(fuel: PlannerFuel, port: str) -> bool:
 
 def required_price_lookups(request: VoyagePlanRequest) -> tuple[PriceLookup, ...]:
     lookups = []
+    has_vlsfo = PlannerFuel.VLSFO in request.vessel.compatible_fuels
     for leg in _legs(request):
-        if not (leg.eu_scope_share or leg.berth_eu_scope_share):
+        if has_vlsfo and not (leg.eu_scope_share or leg.berth_eu_scope_share):
             continue
         for fuel in request.vessel.compatible_fuels:
             if fuel != PlannerFuel.VLSFO and _available(fuel, leg.from_port):
@@ -135,7 +145,12 @@ def required_price_lookups(request: VoyagePlanRequest) -> tuple[PriceLookup, ...
     return tuple(dict.fromkeys(lookups))
 
 
-def _fuel_details(request, prices, segment, fuel):
+def _fuel_details(
+    request: VoyagePlanRequest,
+    prices: Mapping[PriceLookup, PricePoint],
+    segment: _Segment,
+    fuel: PlannerFuel,
+) -> _FuelChoice:
     properties = FUEL_PROPERTIES[fuel]
     if fuel == PlannerFuel.VLSFO:
         amount = request.assumptions.vlsfo_price_usd_per_mt.get(segment.port)
@@ -157,71 +172,96 @@ def _fuel_details(request, prices, segment, fuel):
     lcv = properties.lcv_mj_per_kg
     if price is not None and price.energy_density_mj_per_kg is not None:
         lcv = price.energy_density_mj_per_kg
-    return intensity, source, price, lcv
+    return _FuelChoice(intensity=intensity, intensity_source=source, price=price, lcv=lcv)
 
 
-def _burns(request, prices, segments, green, minimum, target, missing):
+def _burns(
+    request: VoyagePlanRequest,
+    prices: Mapping[PriceLookup, PricePoint],
+    segments: tuple[_Segment, ...],
+    target: Decimal,
+    missing: list[str],
+    *,
+    green: PlannerFuel | None = None,
+    minimum: bool = False,
+) -> tuple[list[_Burn], bool]:
     burns = []
     unknown_blend = False
+    has_vlsfo = PlannerFuel.VLSFO in request.vessel.compatible_fuels
     for segment in segments:
         if segment.energy == ZERO:
             continue
         green_share = ZERO
-        if green is not None and segment.scope > ZERO:
-            details = _fuel_details(request, prices, segment, green)
-            intensity = details[0]
+        if green is not None and (segment.scope > ZERO or not has_vlsfo):
+            choice = _fuel_details(request, prices, segment, green)
+            intensity = choice.intensity
             green_share = ONE
             if minimum:
-                conventional = _fuel_details(request, prices, segment, PlannerFuel.VLSFO)[0]
+                conventional = _fuel_details(request, prices, segment, PlannerFuel.VLSFO).intensity
                 if intensity is None:
                     missing.append(f"ghg_intensity_gco2e_per_mj[{green.value}]")
                     unknown_blend = True
                     # No invented blend: leave this segment's fuel and costs unpriced.
                     continue
                 green_share = (conventional - target) / (conventional - intensity)
-            burns.append(_Burn(segment, green, segment.energy * green_share, *details))
+            burns.append(_Burn(
+                segment=segment, fuel=green, energy=segment.energy * green_share, choice=choice,
+            ))
         if green_share < ONE:
-            details = _fuel_details(request, prices, segment, PlannerFuel.VLSFO)
-            burns.append(_Burn(segment, PlannerFuel.VLSFO, segment.energy * (ONE - green_share), *details))
+            choice = _fuel_details(request, prices, segment, PlannerFuel.VLSFO)
+            burns.append(_Burn(
+                segment=segment, fuel=PlannerFuel.VLSFO,
+                energy=segment.energy * (ONE - green_share), choice=choice,
+            ))
     return burns, unknown_blend
 
 
-def _price_fuel_uses(burns, missing, warnings):
+def _price_fuel_uses(
+    burns: list[_Burn], missing: list[str], warnings: list[str],
+) -> tuple[tuple[FuelUse, ...], Decimal | None, Decimal]:
     uses = []
     total = ZERO
     unpriced = False
     co2 = ZERO
     for burn in burns:
-        tonnes = burn.energy / (burn.lcv * KG_PER_TONNE)
+        tonnes = burn.energy / (burn.choice.lcv * KG_PER_TONNE)
         co2 += burn.segment.scope * tonnes * FUEL_PROPERTIES[burn.fuel].ets_co2_t_per_t
         cost = None
-        if burn.price is None:
+        if burn.choice.price is None:
             name = (f"vlsfo_price_usd_per_mt[{burn.segment.port}]" if burn.fuel == PlannerFuel.VLSFO
                     else f"market_price[{burn.fuel.value}@{burn.segment.port}]")
             missing.append(name)
             unpriced = True
         else:
-            cost = tonnes * burn.price.price_usd_per_mt
+            cost = tonnes * burn.choice.price.price_usd_per_mt
             total += cost
-            if burn.price.source == PriceSource.DEMO_ORDER:
+            if burn.choice.price.source == PriceSource.DEMO_ORDER:
                 warnings.append("Used price is demo preview liquidity, not executable liquidity.")
-            elif burn.price.source == PriceSource.BENCHMARK:
+            elif burn.choice.price.source == PriceSource.BENCHMARK:
                 warnings.append("Used benchmark price is an indicative reference, not an executable quote.")
         uses.append(FuelUse(
             leg_index=burn.segment.leg_index, segment=burn.segment.kind, fuel=burn.fuel,
             tonnes=_rounded(tonnes), bunkering_port=burn.segment.port,
-            price=_output_price(burn.price), cost_usd=_rounded(cost),
+            price=_output_price(burn.choice.price), cost_usd=_rounded(cost),
         ))
     return tuple(uses), None if unpriced else total, co2
 
 
-def _fueleu_cost(balance, intensity, basis, pool_price, missing):
+def _fueleu_cost(
+    balance: Decimal | None,
+    intensity: Decimal | None,
+    basis: Literal["PENALTY", "POOL"] | None,
+    pool_price: Decimal | None,
+    missing: list[str],
+) -> tuple[Decimal | None, Literal["PENALTY", "POOL", "SURPLUS_AT_POOL_PRICE", "NONE"]]:
     if balance is None:
         return None, "NONE"
     if balance == ZERO:
         return ZERO, "NONE"
     if balance > ZERO:
-        return (-balance * pool_price if pool_price is not None else None), "SURPLUS_AT_POOL_PRICE"
+        if pool_price is None:
+            return ZERO, "NONE"
+        return -balance * pool_price, "SURPLUS_AT_POOL_PRICE"
     penalty = -balance * GRAMS_PER_TONNE / (intensity * VLSFO_ENERGY_MJ_PER_TONNE) * FUELEU_PENALTY_PER_TONNE
     pool = -balance * pool_price if pool_price is not None else None
     if basis == "PENALTY":
@@ -235,30 +275,55 @@ def _fueleu_cost(balance, intensity, basis, pool_price, missing):
     return penalty, "PENALTY"
 
 
-def _strategy(request, prices, segments, strategy_id, target, year, warnings, *, green=None, minimum=False, basis=None):
-    missing = []
-    burns, unknown_blend = _burns(request, prices, segments, green, minimum, target, missing)
+def _strategy(
+    request: VoyagePlanRequest,
+    prices: Mapping[PriceLookup, PricePoint],
+    segments: tuple[_Segment, ...],
+    strategy_id: str,
+    target: Decimal,
+    year: int,
+    warnings: list[str],
+    *,
+    green: PlannerFuel | None = None,
+    minimum: bool = False,
+    basis: Literal["PENALTY", "POOL"] | None = None,
+) -> StrategyResult:
+    missing: list[str] = []
+    burns, unknown_blend = _burns(
+        request, prices, segments, target, missing, green=green, minimum=minimum,
+    )
     uses, fuel_cost, co2 = _price_fuel_uses(burns, missing, warnings)
     energy = sum((segment.scope * segment.energy for segment in segments), ZERO)
     sources = {}
     weighted = ZERO
     unknown_intensity = unknown_blend
     for burn in burns:
-        if burn.source is not None:
-            sources[burn.fuel] = burn.source
+        if burn.choice.intensity_source is not None:
+            sources[burn.fuel] = burn.choice.intensity_source
         if burn.segment.scope > ZERO:
-            if burn.intensity is None:
+            if burn.choice.intensity is None:
                 unknown_intensity = True
                 missing.append(f"ghg_intensity_gco2e_per_mj[{burn.fuel.value}]")
             else:
-                weighted += burn.segment.scope * burn.energy * burn.intensity
+                weighted += burn.segment.scope * burn.energy * burn.choice.intensity
     intensity = None if unknown_intensity or energy == ZERO else weighted / energy
     if minimum and not unknown_intensity and energy > ZERO:
         # Each exact minimum blend meets target by construction. Avoid treating
         # finite-context division residue as a real surplus or deficit.
         intensity = target
-    balance = None if unknown_intensity else ((target - intensity) * energy / GRAMS_PER_TONNE if energy else ZERO)
-    fueleu_cost, cost_basis = _fueleu_cost(balance, intensity, basis, request.assumptions.fueleu_pool_price_eur_per_tco2e, missing)
+    if unknown_intensity:
+        balance = None
+    elif energy == ZERO:
+        balance = ZERO
+    else:
+        balance = (target - intensity) * energy / GRAMS_PER_TONNE
+    pool_price = request.assumptions.fueleu_pool_price_eur_per_tco2e
+    fueleu_cost, cost_basis = _fueleu_cost(balance, intensity, basis, pool_price, missing)
+    if balance is not None and balance > ZERO and pool_price is None:
+        warnings.append(
+            f"FuelEU surplus of {_rounded(balance)} tCO2e in {strategy_id} is not valued; "
+            "supply fueleu_pool_price_eur_per_tco2e to value it."
+        )
     eua = request.assumptions.eua_price_eur_per_tco2
     if unknown_blend:
         fuel_cost = None
@@ -275,7 +340,12 @@ def _strategy(request, prices, segments, strategy_id, target, year, warnings, *,
     if needs_rate and rate is None:
         missing.append("usd_per_eur")
     total = None
-    if fuel_cost is not None and ets_cost is not None and fueleu_cost is not None and (not needs_rate or rate is not None):
+    if (
+        fuel_cost is not None
+        and ets_cost is not None
+        and fueleu_cost is not None
+        and (not needs_rate or rate is not None)
+    ):
         total = fuel_cost + ((ets_cost + fueleu_cost) * rate if needs_rate else ZERO)
     return StrategyResult(
         strategy_id=strategy_id, label=strategy_id.replace("_", " ").title(),
@@ -290,17 +360,16 @@ def _strategy(request, prices, segments, strategy_id, target, year, warnings, *,
     )
 
 
-def _recommend(strategies):
+def _recommend(strategies: list[StrategyResult]) -> tuple[str | None, str]:
     complete = [s for s in strategies if s.completeness == StrategyCompleteness.COMPLETE]
     if complete:
         best = min(complete, key=lambda s: s.total_cost_usd)
-        return best.strategy_id, f"{best.strategy_id} has the lowest complete total: USD {best.total_cost_usd}."
+        reason = f"{best.strategy_id} has the lowest complete total: USD {best.total_cost_usd}."
+        return best.strategy_id, reason
     missing = tuple(dict.fromkeys(name for s in strategies for name in s.missing_inputs))
     reason = "No complete strategy."
     if missing:
         reason += " Supply: " + ", ".join(missing) + "."
-    if any(s.fueleu_cost_basis == "SURPLUS_AT_POOL_PRICE" and s.fueleu_cost_eur is None for s in strategies):
-        reason += " FuelEU surplus is unvalued without a pool price."
     return None, reason
 
 
@@ -339,7 +408,9 @@ def build_voyage_plan(
     has_vlsfo = PlannerFuel.VLSFO in request.vessel.compatible_fuels
     if has_vlsfo:
         for basis in ("PENALTY", "POOL"):
-            strategies.append(_strategy(request, prices, segments, f"CONVENTIONAL_{basis}", target, year, warnings, basis=basis))
+            strategies.append(_strategy(
+                request, prices, segments, f"CONVENTIONAL_{basis}", target, year, warnings, basis=basis,
+            ))
     in_scope = [segment for segment in segments if segment.scope > ZERO]
     for fuel in request.vessel.compatible_fuels:
         if fuel == PlannerFuel.VLSFO or not in_scope:
@@ -347,24 +418,34 @@ def build_voyage_plan(
         warnings.append("Green fuels need a proof of sustainability for zero ETS CO2 and FuelEU credit.")
         minimum = has_vlsfo
         for segment in in_scope:
-            conventional = _fuel_details(request, prices, segment, PlannerFuel.VLSFO)[0]
-            green = _fuel_details(request, prices, segment, fuel)[0]
+            conventional = _fuel_details(request, prices, segment, PlannerFuel.VLSFO).intensity
+            green = _fuel_details(request, prices, segment, fuel).intensity
             if conventional <= target or (green is not None and green >= target):
                 minimum = False
-                warnings.append(f"{fuel.value}_MIN_BLEND skipped: VLSFO is already compliant or green intensity is at or above the target.")
+                warnings.append(
+                    f"{fuel.value}_MIN_BLEND skipped: VLSFO is already compliant "
+                    "or green intensity is at or above the target."
+                )
                 break
         if minimum:
-            strategies.append(_strategy(request, prices, segments, f"{fuel.value}_MIN_BLEND", target, year, warnings, green=fuel, minimum=True))
-        strategies.append(_strategy(request, prices, segments, f"{fuel.value}_FULL", target, year, warnings, green=fuel))
+            strategies.append(_strategy(
+                request, prices, segments, f"{fuel.value}_MIN_BLEND", target, year, warnings,
+                green=fuel, minimum=True,
+            ))
+        strategies.append(_strategy(
+            request, prices, segments, f"{fuel.value}_FULL", target, year, warnings, green=fuel,
+        ))
     recommendation, reason = _recommend(strategies)
     return VoyagePlanResult(
         reporting_year=year, legs=tuple(_output_leg(leg) for leg in legs),
         strategies=tuple(strategies), recommended_strategy_id=recommendation,
         recommendation_reason=reason,
         assumptions=(
-            "Fuel for a leg and its destination berth stay is bought at the departure port on the departure date.",
+            "Fuel for a leg and its destination berth stay is bought "
+            "at the departure port on the departure date.",
             "Consumption uses a 41,000 MJ/t VLSFO-equivalent energy basis.",
-            "FuelEU is an annual per-ship balance; this is the voyage contribution, not the annual penalty after banking, borrowing and pooling.",
+            "FuelEU is an annual per-ship balance; this is the voyage contribution, "
+            "not the annual penalty after banking, borrowing and pooling.",
             "EU scope ignores outermost-region and transshipment rules.",
             "ETS methane and N2O are not included.",
         ),

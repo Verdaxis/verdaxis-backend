@@ -32,8 +32,14 @@ def golden_request(**assumption_overrides):
             compatible_fuels=("VLSFO", "UCOME_B100"),
         ),
         legs=(
-            VoyageLegInput(from_port="Shanghai", to_port="Singapore", distance_nm=D("2200"), berth_days_at_destination=D("1")),
-            VoyageLegInput(from_port="Singapore", to_port="Rotterdam", distance_nm=D("8300"), berth_days_at_destination=D("2")),
+            VoyageLegInput(
+                from_port="Shanghai", to_port="Singapore", distance_nm=D("2200"),
+                berth_days_at_destination=D("1"),
+            ),
+            VoyageLegInput(
+                from_port="Singapore", to_port="Rotterdam", distance_nm=D("8300"),
+                berth_days_at_destination=D("2"),
+            ),
         ),
         start_date=date(2026, 11, 1),
         assumptions=MarketAssumptions(**assumptions),
@@ -126,13 +132,14 @@ def test_recommends_cheapest_complete_strategy():
     assert str(strategy(result, "CONVENTIONAL_POOL").total_cost_usd) in result.recommendation_reason
 
 
-def test_missing_assumptions_make_strategies_partial():
+def test_missing_assumptions_make_affected_strategies_partial():
     result = plan(golden_request(fueleu_pool_price_eur_per_tco2e=None, usd_per_eur=None))
-    assert all(s.completeness == StrategyCompleteness.PARTIAL for s in result.strategies)
-    assert all(s.total_cost_usd is None for s in result.strategies)
-    assert result.recommended_strategy_id is None
-    assert "usd_per_eur" in result.recommendation_reason
-    assert "fueleu_pool_price_eur_per_tco2e" in result.recommendation_reason
+    affected = result.strategies[:-1]
+    assert all(s.completeness == StrategyCompleteness.PARTIAL for s in affected)
+    assert all(s.total_cost_usd is None for s in affected)
+    assert "usd_per_eur" in strategy(result, "CONVENTIONAL_PENALTY").missing_inputs
+    assert "fueleu_pool_price_eur_per_tco2e" in strategy(result, "CONVENTIONAL_POOL").missing_inputs
+    assert result.recommended_strategy_id == "UCOME_B100_FULL"
 
 
 def test_missing_vlsfo_price_names_the_port():
@@ -143,7 +150,9 @@ def test_missing_vlsfo_price_names_the_port():
 
 
 def test_voyage_without_eu_scope_has_no_green_strategy():
-    request = golden_request(eua_price_eur_per_tco2=None, fueleu_pool_price_eur_per_tco2e=None, usd_per_eur=None)
+    request = golden_request(
+        eua_price_eur_per_tco2=None, fueleu_pool_price_eur_per_tco2e=None, usd_per_eur=None,
+    )
     request = request.model_copy(update={"legs": request.legs[:1]})
     assert required_price_lookups(request) == ()
     result = build_voyage_plan(request, {}, today=TODAY)
@@ -176,7 +185,12 @@ def test_green_fuel_at_or_above_target_skips_min_blend(intensity):
 def test_demo_price_adds_warning():
     result = plan(source=PriceSource.DEMO_ORDER, executable=False)
     assert any("demo" in warning.lower() for warning in result.warnings)
-    assert all(not u.price.executable for s in result.strategies for u in s.fuel_uses if u.price and u.price.source == PriceSource.DEMO_ORDER)
+    assert all(
+        not use.price.executable
+        for candidate in result.strategies
+        for use in candidate.fuel_uses
+        if use.price and use.price.source == PriceSource.DEMO_ORDER
+    )
 
 
 def test_vessel_without_vlsfo_has_no_conventional_strategy():
@@ -184,11 +198,36 @@ def test_vessel_without_vlsfo_has_no_conventional_strategy():
     assert [s.strategy_id for s in result.strategies] == ["UCOME_B100_FULL"]
 
 
+def test_green_only_vessel_uses_methanol_and_looks_up_every_departure():
+    request = with_fuels(golden_request(), "BIO_METHANOL")
+    expected = (
+        PriceLookup(fuel=PlannerFuel.BIO_METHANOL, port="Shanghai", departure_date=date(2026, 11, 1)),
+        PriceLookup(fuel=PlannerFuel.BIO_METHANOL, port="Singapore", departure_date=date(2026, 11, 9)),
+    )
+    prices = {
+        lookup: PricePoint(
+            fuel=lookup.fuel, port=lookup.port, price_usd_per_mt=D("1000"),
+            source=PriceSource.CALLER, executable=False,
+        )
+        for lookup in expected
+    }
+    result = strategy(build_voyage_plan(request, prices, today=TODAY), "BIO_METHANOL_FULL")
+    assert result.fuel_uses
+    assert all(use.fuel == PlannerFuel.BIO_METHANOL for use in result.fuel_uses)
+    assert {(use.leg_index, use.segment) for use in result.fuel_uses} == {
+        (0, "SEA"), (0, "BERTH"), (1, "SEA"), (1, "BERTH"),
+    }
+    assert result.completeness == StrategyCompleteness.COMPLETE
+    assert required_price_lookups(request) == expected
+
+
 def test_order_declared_intensity_is_used():
     baseline = strategy(plan(), "UCOME_B100_MIN_BLEND")
     result = strategy(plan(carbon_intensity_gco2e_per_mj=D("14")), "UCOME_B100_MIN_BLEND")
     assert result.intensity_sources[PlannerFuel.UCOME_B100] == IntensitySource.ORDER_DECLARED
-    assert sum(u.tonnes for u in result.fuel_uses if u.fuel == PlannerFuel.UCOME_B100) < sum(u.tonnes for u in baseline.fuel_uses if u.fuel == PlannerFuel.UCOME_B100)
+    declared_tonnes = sum(u.tonnes for u in result.fuel_uses if u.fuel == PlannerFuel.UCOME_B100)
+    baseline_tonnes = sum(u.tonnes for u in baseline.fuel_uses if u.fuel == PlannerFuel.UCOME_B100)
+    assert declared_tonnes < baseline_tonnes
 
 
 def test_start_date_too_far_ahead_is_rejected():
@@ -227,7 +266,8 @@ def test_missing_table_distance_is_rejected(monkeypatch):
 
 def test_cape_route_without_table_entry_is_rejected_even_with_caller_distance():
     request = golden_request()
-    request = request.model_copy(update={"legs": (request.legs[0].model_copy(update={"route": SeaRoute.CAPE_OF_GOOD_HOPE}),)})
+    first = request.legs[0].model_copy(update={"route": SeaRoute.CAPE_OF_GOOD_HOPE})
+    request = request.model_copy(update={"legs": (first,)})
     with pytest.raises(VoyagePlanError):
         build_voyage_plan(request, {}, today=TODAY)
 
@@ -247,10 +287,17 @@ def test_missing_eua_price_only_affects_fossil_scope():
 
 
 def test_unvalued_surplus_is_not_a_missing_input():
-    result = strategy(plan(golden_request(fueleu_pool_price_eur_per_tco2e=None)), "UCOME_B100_FULL")
+    voyage = plan(golden_request(fueleu_pool_price_eur_per_tco2e=None))
+    result = strategy(voyage, "UCOME_B100_FULL")
     assert "fueleu_pool_price_eur_per_tco2e" not in result.missing_inputs
-    assert result.fueleu_cost_eur is None
-    assert result.completeness == StrategyCompleteness.PARTIAL
+    assert result.fueleu_cost_eur == D("0")
+    assert result.fueleu_cost_basis == "NONE"
+    assert result.completeness == StrategyCompleteness.COMPLETE
+    assert result.total_cost_usd == result.fuel_cost_usd
+    assert (
+        f"FuelEU surplus of {result.fueleu_balance_tco2e} tCO2e in UCOME_B100_FULL is not valued; "
+        "supply fueleu_pool_price_eur_per_tco2e to value it."
+    ) in voyage.warnings
 
 
 def test_caller_intensity_overrides_order():
@@ -299,7 +346,8 @@ def test_minimum_blend_has_exact_zero_balance_without_pool_price():
 
 
 def test_nested_price_output_is_rounded_without_rounding_calculations():
-    result = strategy(plan(price_usd_per_mt=D("1445.12345"), carbon_intensity_gco2e_per_mj=D("14.123456")), "UCOME_B100_FULL")
+    voyage = plan(price_usd_per_mt=D("1445.12345"), carbon_intensity_gco2e_per_mj=D("14.123456"))
+    result = strategy(voyage, "UCOME_B100_FULL")
     uses = [u for u in result.fuel_uses if u.fuel == PlannerFuel.UCOME_B100]
     assert all(u.price.price_usd_per_mt == D("1445.12") for u in uses)
     assert all(u.price.carbon_intensity_gco2e_per_mj == D("14.1235") for u in uses)
@@ -310,7 +358,12 @@ def test_nested_price_output_is_rounded_without_rounding_calculations():
 
 
 def test_lookup_order_and_port_availability():
-    request = with_fuels(golden_request(), "BIO_METHANOL", "UCOME_B100", "E_METHANOL")
-    assert [lookup.fuel for lookup in required_price_lookups(request)] == [PlannerFuel.BIO_METHANOL, PlannerFuel.UCOME_B100, PlannerFuel.E_METHANOL]
-    request = request.model_copy(update={"legs": (VoyageLegInput(from_port="Rotterdam", to_port="Singapore", distance_nm=D("8300")),)})
-    assert [lookup.fuel for lookup in required_price_lookups(request)] == [PlannerFuel.BIO_METHANOL, PlannerFuel.E_METHANOL]
+    request = with_fuels(golden_request(), "VLSFO", "BIO_METHANOL", "UCOME_B100", "E_METHANOL")
+    assert [lookup.fuel for lookup in required_price_lookups(request)] == [
+        PlannerFuel.BIO_METHANOL, PlannerFuel.UCOME_B100, PlannerFuel.E_METHANOL,
+    ]
+    leg = VoyageLegInput(from_port="Rotterdam", to_port="Singapore", distance_nm=D("8300"))
+    request = request.model_copy(update={"legs": (leg,)})
+    assert [lookup.fuel for lookup in required_price_lookups(request)] == [
+        PlannerFuel.BIO_METHANOL, PlannerFuel.E_METHANOL,
+    ]

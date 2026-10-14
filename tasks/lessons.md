@@ -378,3 +378,9 @@
 - **Trigger:** `OrderCreate` rejected an originally valid expiry after it elapsed, so an ambiguous already-sent request could not reach its committed idempotent replay.
 - **Rule:** Create schemas may validate timestamp structure and timezone awareness, but mutable current-time admission belongs after committed replay lookup and under the operation's locks. Keep stricter future-time validation for updates when replay is not part of their contract.
 - **Why:** The same request body must remain parseable long enough to recover its committed result without allowing a fresh expired request to create side effects.
+
+### Separate Voyage Fuel Compatibility From Regulatory Scope
+- **Date:** 2026-10-14
+- **Trigger:** Review found green-only vessels burning VLSFO outside EU scope and unvalued FuelEU surplus producing PARTIAL results with no missing input.
+- **Rule:** For vessels without VLSFO compatibility, use the selected green fuel on every segment and request each departure-port price subject to catalog availability. Value surplus at zero with basis NONE and a strategy-specific warning when no pool price is supplied; do not make that surplus a missing input.
+- **Why:** Regulatory scope controls compliance exposure, not engine compatibility. An optional surplus credit must not prevent a complete conservative cost estimate.
