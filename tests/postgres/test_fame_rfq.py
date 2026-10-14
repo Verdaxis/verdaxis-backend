@@ -167,6 +167,8 @@ async def fame_market(market_pg):
             )
             session.add_all([*users, product, point])
             await assign_fixture_real_provenance(session, (buyer_org, seller_org, other_org))
+            for user in users:
+                user.kyc_organization_id = user.organization_id
             await session.commit()
             seeded = {
                 "owner_factory": owner_factory,

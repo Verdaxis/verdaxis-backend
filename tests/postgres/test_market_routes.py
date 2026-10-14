@@ -645,6 +645,12 @@ async def test_six_command_results_replay_exact_snapshots_without_new_effects(
     ]
     assert [response.status_code for response in conflicts] == [409, 409, 409, 409]
 
+    async with seeded["factory"]() as session:
+        buyer = await session.get(User, seeded["buyer_id"])
+        buyer.kyc_status = "APPROVED"
+        buyer.kyc_organization_id = buyer.organization_id
+        await session.commit()
+
     fresh_elapsed = await client.put(
         f"/api/orderbook/{order_id}",
         json=amend_payload,
