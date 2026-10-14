@@ -223,6 +223,7 @@ async def test_lowest_real_ask_wins_and_is_executable(db: AsyncSession):
     assert resolved.source is PriceSource.LIVE_ORDER
     assert resolved.executable is True
     assert resolved.availability_window == MONTH_WINDOW
+    assert resolved.observed_at == NOW
 
 
 async def test_demo_ask_is_never_executable(db: AsyncSession):

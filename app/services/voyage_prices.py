@@ -146,7 +146,7 @@ async def _visible_ask_rows(
     return list((await db.execute(statement.where(*filters))).all())
 
 
-def _price_point(target: _LookupTarget, row, window: str) -> PricePoint:
+def _price_point(target: _LookupTarget, row, window: str, *, now: datetime) -> PricePoint:
     source, executable = _price_source(row.provenance)
     return PricePoint(
         fuel=target.lookup.fuel,
@@ -157,6 +157,7 @@ def _price_point(target: _LookupTarget, row, window: str) -> PricePoint:
         source=source,
         executable=executable,
         availability_window=normalize_availability_window(window),
+        observed_at=now,
         carbon_intensity_gco2e_per_mj=row.carbon_intensity_gco2_mj,
         energy_density_mj_per_kg=row.energy_density_mj_kg,
     )
@@ -165,6 +166,8 @@ def _price_point(target: _LookupTarget, row, window: str) -> PricePoint:
 def _resolve_from_asks(
     rows: Sequence,
     targets: Sequence[_LookupTarget],
+    *,
+    now: datetime,
 ) -> dict[PriceLookup, PricePoint]:
     """Pick, per lookup, the cheapest ask in the earliest window that has one."""
     by_slice: dict[tuple[UUID, UUID, str], list] = {}
@@ -190,7 +193,7 @@ def _resolve_from_asks(
                 candidates,
                 key=lambda row: (row.price_per_mt_usd, row.acceptance_ordinal),
             )
-            prices[target.lookup] = _price_point(target, chosen, window)
+            prices[target.lookup] = _price_point(target, chosen, window, now=now)
             break
     return prices
 
@@ -199,6 +202,8 @@ def _apply_benchmarks(
     prices: dict[PriceLookup, PricePoint],
     targets: Sequence[_LookupTarget],
     quotes: dict,
+    *,
+    now: datetime,
 ) -> None:
     """Fill unresolved lookups from the indicative month-window benchmark."""
     for target in targets:
@@ -218,6 +223,7 @@ def _apply_benchmarks(
             source=PriceSource.BENCHMARK,
             executable=False,
             availability_window=quote.availability_window,
+            observed_at=now,
         )
 
 
@@ -238,7 +244,7 @@ async def resolve_product_prices(
 
     try:
         rows = await _visible_ask_rows(db, targets, now=now)
-        prices = _resolve_from_asks(rows, targets)
+        prices = _resolve_from_asks(rows, targets, now=now)
         unresolved = [target for target in targets if target.lookup not in prices]
         if unresolved:
             quotes = await get_benchmark_quotes(
@@ -253,7 +259,7 @@ async def resolve_product_prices(
                     for target in unresolved
                 ],
             )
-            _apply_benchmarks(prices, unresolved, quotes)
+            _apply_benchmarks(prices, unresolved, quotes, now=now)
     except SQLAlchemyError as error:
         raise MarketDataUnavailable(UNAVAILABLE_MESSAGE) from error
     return prices
