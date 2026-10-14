@@ -36,7 +36,8 @@ No blanket exemptions: no shortcut for ADMIN, TEST or non-REAL organizations. Th
 - **Who is enrolled:** the migration enrolls, once, every user who at migration time:
   - has an account in `APPROVED` status
   - belongs to an approved organization
-  - has KYC `PENDING` or `SUBMITTED`
+  - has KYC `PENDING` or `SUBMITTED`, or legacy `APPROVED` with `kyc_organization_id IS NULL`
+  - has no KYC binding to a different organization; mismatched bindings are not enrolled
 
   `expires_at = enrolled_at + 14 days`. Rows are immutable, and a later upload never renews them.
 - **Validity:** a grace row is valid only while the user still belongs to the same organization, the KYC is not `REJECTED`, and now < `expires_at`.

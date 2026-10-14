@@ -70,8 +70,10 @@ async def test_assisted_customer_requires_one_eligible_member(kyc_db):
 @pytest.mark.asyncio
 async def test_profile_reports_current_kyc_and_grace(kyc_db):
     org, user = await member(kyc_db)
+    user.kyc_status = "APPROVED"
+    user.kyc_organization_id = None
     profile = (await read_users_me(user, kyc_db)).model_dump(mode="json")
-    assert profile["kyc_status"] == "PENDING"
+    assert profile["kyc_status"] == "APPROVED"
     assert profile["execution_eligibility"]["reason"] == "KYC_REQUIRED"
     now = datetime.now(UTC)
     kyc_db.add(KYCExecutionGrace(user_id=user.id, organization_id=org.id, kyc_status_at_enrollment="PENDING",

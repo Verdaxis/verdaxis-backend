@@ -39,9 +39,9 @@ async def test_notice_claim_is_not_sent_twice_even_after_uncertain_result(monkey
             now = datetime.now(UTC)
             db.add(Organization(id=org_id, name="Notice test", type=OrgType.FUEL_BUYER))
             db.add(User(id=user_id, email="grace@example.test", password_hash="unused", role=UserRole.BUYER,
-                        status=UserStatus.APPROVED, organization_id=org_id))
+                        status=UserStatus.APPROVED, organization_id=org_id, kyc_status="APPROVED", kyc_organization_id=None))
             db.add(KYCExecutionGrace(id=grace_id, user_id=user_id, organization_id=org_id,
-                                    kyc_status_at_enrollment="PENDING", enrolled_at=now,
+                                    kyc_status_at_enrollment="APPROVED", enrolled_at=now,
                                     expires_at=now + timedelta(days=14), created_by="kycg_20261014_staging"))
             await db.commit()
             assert await send_notices(db) == ((1, 0) if delivered else (0, 1))

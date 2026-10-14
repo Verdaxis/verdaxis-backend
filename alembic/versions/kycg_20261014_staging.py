@@ -48,7 +48,9 @@ def upgrade() -> None:
                now(), now() + interval '336 hours', 'kycg_20261014_staging'
         FROM users u JOIN organizations o ON o.id = u.organization_id
         WHERE u.status = 'APPROVED' AND o.verification_status = 'APPROVED'
-          AND u.kyc_status IN ('PENDING', 'SUBMITTED')
+          AND (u.kyc_status IN ('PENDING', 'SUBMITTED')
+               OR (u.kyc_status = 'APPROVED' AND u.kyc_organization_id IS NULL))
+          AND (u.kyc_organization_id IS NULL OR u.kyc_organization_id = u.organization_id)
     """)
     # Freeze the deployed identities locally; migrations must not import policy.
     op.execute("""
