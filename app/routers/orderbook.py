@@ -2042,6 +2042,11 @@ async def create_order(
     )
     acceptance_ordinal = await next_order_acceptance_ordinal(db)
     await lock_request_party_context(db, party)
+    if party.mode == RequestPartyMode.MARKET_SUPPORT:
+        if not await customer_organization_is_execution_eligible(
+            db, effective_organization_id, lock_member=True
+        ):
+            raise customer_organization_kyc_error()
     organizations = await lock_and_load_market_organizations(
         db,
         [effective_organization_id],

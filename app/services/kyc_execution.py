@@ -166,30 +166,47 @@ def kyc_execution_clause(user, organization_id, *, now=None):
     )
 
 
-def customer_organization_eligibility_clause(organization_id, *, now=None):
-    """SQL: the organization has at least one admitted, KYC-eligible member."""
-    member = aliased(User)
-    return (
-        select(member.id)
-        .where(
-            member.organization_id == organization_id,
-            member.role.in_(_EXECUTING_ROLES),
-            member.status == UserStatus.APPROVED,
-            member.email_verified.is_(True),
-            member.must_change_password.is_(False),
-            kyc_execution_clause(member, organization_id, now=now),
-        )
-        .exists()
+def _eligible_customer_members(member, organization_id, *, now):
+    return select(member).where(
+        member.organization_id == organization_id,
+        member.role.in_(_EXECUTING_ROLES),
+        member.status == UserStatus.APPROVED,
+        member.email_verified.is_(True),
+        member.must_change_password.is_(False),
+        kyc_execution_clause(member, organization_id, now=now),
     )
 
 
+def customer_organization_eligibility_clause(organization_id, *, now=None):
+    """SQL: the organization has at least one admitted, KYC-eligible member."""
+    member = aliased(User)
+    return _eligible_customer_members(member, organization_id, now=now).exists()
+
+
 async def customer_organization_is_execution_eligible(
-    db: AsyncSession, organization_id: UUID | None, *, now: datetime | None = None
+    db: AsyncSession, organization_id: UUID | None, *, now: datetime | None = None,
+    lock_member: bool = False,
 ) -> bool:
     """The assisted-execution rule: one shared helper for every assisted path."""
     if organization_id is None:
         return False
     current_time = _as_utc(now) if now is not None else datetime.now(UTC)
+    if lock_member:
+        # Market slice/market rows precede party locks. Select members by UUID;
+        # never wait behind a member while holding an organization/actor lock
+        # (security locks users before organizations). SKIP LOCKED fails closed
+        # if no unlocked eligible member exists and avoids reversing that order.
+        member = await db.scalar(
+            _eligible_customer_members(User, organization_id, now=current_time)
+            .order_by(User.id)
+            .limit(1)
+            .with_for_update(read=True, skip_locked=True)
+            .execution_options(populate_existing=True)
+        )
+        if member is None:
+            return False
+        # Retain the SHARE lock through commit; rejection needs FOR UPDATE.
+        return (await evaluate_kyc_execution(db, member, now=now)).eligible
     return bool(
         await db.scalar(
             select(

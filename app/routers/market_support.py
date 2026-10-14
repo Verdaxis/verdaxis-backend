@@ -316,9 +316,13 @@ async def _load_supplier(
     return user
 
 
-async def _require_customer_organization_kyc(db: AsyncSession, organization_id: UUID) -> None:
+async def _require_customer_organization_kyc(
+    db: AsyncSession, organization_id: UUID, *, lock_member: bool = False
+) -> None:
     """An assisted listing executes for the customer organization."""
-    if not await customer_organization_is_execution_eligible(db, organization_id):
+    if not await customer_organization_is_execution_eligible(
+        db, organization_id, lock_member=lock_member
+    ):
         raise customer_organization_kyc_error()
 
 
@@ -1109,7 +1113,7 @@ async def create_listing(
         )
     organization = await _load_organization(db, organization_id)
     supplier = await _load_supplier(db, authorization.accountable_user_id, organization)
-    await _require_customer_organization_kyc(db, organization_id)
+    await _require_customer_organization_kyc(db, organization_id, lock_member=True)
     product, delivery_point = await _load_catalog(db, authorization.product_id, authorization.delivery_point_id)
     candidate = _candidate_from_authorization(authorization, organization, product, delivery_point)
     candidate.acceptance_ordinal = await next_order_acceptance_ordinal(db)

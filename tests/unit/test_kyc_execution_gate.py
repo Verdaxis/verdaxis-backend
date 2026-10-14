@@ -102,6 +102,60 @@ async def _expect_kyc_required(call) -> None:
 
 
 @pytest.mark.asyncio
+async def test_assisted_publication_rechecks_kyc_after_market_lock(db, monkeypatch):
+    from app.services.request_party import RequestPartyMode
+
+    market = await _market(db, monkeypatch)
+    organization = await db.get(Organization, market.buyer.organization_id)
+    admin = await _make_user(db, await _make_org(db, "Support", OrgType.FUEL_TRADER), UserRole.ADMIN)
+    party = SimpleNamespace(
+        mode=RequestPartyMode.MARKET_SUPPORT, effective_organization=organization,
+        accountable_principal=admin, actor=admin, effective_role=UserRole.BUYER,
+        creation_method=OrderCreationMethod.MARKET_SUPPORT, support_context_id=uuid4(),
+    )
+
+    async def resolve(*args, **kwargs):
+        return party
+
+    async def no_replay(*args, **kwargs):
+        return None
+
+    async def lock_context(*args, **kwargs):
+        return None
+
+    async def publication_continued(*args, **kwargs):
+        raise HTTPException(status_code=409, detail="Publication continued after rejection")
+
+    monkeypatch.setattr(orderbook_router, "lock_and_load_market_organizations", publication_continued)
+
+    async def reject_during_slice_wait(*args, **kwargs):
+        market.buyer.kyc_status = "REJECTED"
+        await db.flush()
+
+    monkeypatch.setattr(orderbook_router, "resolve_request_party", resolve)
+    monkeypatch.setattr(orderbook_router, "_load_valid_order_create_replay", no_replay)
+    monkeypatch.setattr(orderbook_router, "lock_request_party_context", lock_context)
+    monkeypatch.setattr(orderbook_router, "acquire_market_slice_lock", reject_during_slice_wait)
+    with pytest.raises(HTTPException) as failure:
+        await orderbook_router.create_order(
+            request=_request(**{"Idempotency-Key": "assisted-kyc-race"}),
+            order_data=OrderCreate(
+                side=OrderSide.BID, product_id=market.ask.product_id,
+                delivery_point_id=market.ask.delivery_point_id,
+                quantity_mt=Decimal("500"), price_per_mt_usd=Decimal("100"),
+                support_confirmation={
+                    "external_instruction_reference": "customer-reference",
+                    "instruction_at": datetime.now(UTC),
+                    "acknowledge_exact_terms": True,
+                    "acknowledge_executable_standing_order": True,
+                },
+            ), current_user=admin, db=db,
+        )
+    assert failure.value.status_code == 403
+    assert failure.value.detail["code"] == "KYC_REQUIRED"
+
+
+@pytest.mark.asyncio
 async def test_new_executions_return_kyc_required(db, monkeypatch):
     market = await _market(db, monkeypatch)
     pending_trade = await _trade(db, market, status=TradeStatus.PENDING_CONFIRMATION)
@@ -257,7 +311,19 @@ async def test_assisted_execution_needs_one_kyc_eligible_customer_member(db, mon
         )
 
     # The supplier is the customer's only member and is KYC-approved.
+    # SQLite cannot enforce row locks; inspect the PostgreSQL statement too.
+    from sqlalchemy.dialects import postgresql
+
+    statements = []
+    original_scalar = db.scalar
+
+    async def capture_scalar(statement, *args, **kwargs):
+        statements.append(str(statement.compile(dialect=postgresql.dialect())))
+        return await original_scalar(statement, *args, **kwargs)
+
+    monkeypatch.setattr(db, "scalar", capture_scalar)
     assert await assisted_owner_allowed()
+    assert any("FOR SHARE SKIP LOCKED" in statement and "ORDER BY users.id" in statement for statement in statements)
     await _without_kyc(db, market.supplier)
     assert not await assisted_owner_allowed()
     # Settling an existing assisted trade never applies KYC.

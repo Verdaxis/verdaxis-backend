@@ -84,6 +84,73 @@ async def pg(migrated_url):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("rejection_first", [False, True])
+async def test_assisted_member_lock_serializes_kyc_rejection(pg, rejection_first):
+    """A committed fill holds SHARE; an in-progress rejection fails closed."""
+    from sqlalchemy.exc import DBAPIError
+    from app.services.kyc_execution import customer_organization_is_execution_eligible
+
+    factory = async_sessionmaker(pg, class_=AsyncSession, expire_on_commit=False)
+    async with factory() as seed:
+        organization = Organization(
+            name=f"Assisted KYC {uuid4()}", type=OrgType.FUEL_SUPPLIER,
+            verification_status="APPROVED",
+        )
+        seed.add(organization)
+        await seed.flush()
+        member = User(
+            email=f"assisted-kyc-{uuid4()}@integrity.test", password_hash="unused",
+            role=UserRole.SUPPLIER, status=UserStatus.APPROVED,
+            organization_id=organization.id, email_verified=True,
+            must_change_password=False, kyc_status="APPROVED",
+            kyc_organization_id=organization.id,
+        )
+        seed.add(member)
+        await seed.commit()
+        organization_id, member_id = organization.id, member.id
+
+    async with factory() as execution, factory() as rejection:
+        await acquire_market_slice_lock(
+            execution, side=OrderSide.ASK, product_id=uuid4(),
+            delivery_point_id=uuid4(), availability_window="SPOT",
+        )
+        if rejection_first:
+            locked = await rejection.scalar(
+                select(User).where(User.id == member_id).with_for_update()
+            )
+            locked.kyc_status = "REJECTED"
+            await rejection.flush()
+            assert not await customer_organization_is_execution_eligible(
+                execution, organization_id, lock_member=True,
+            )
+            await rejection.commit()
+            assert not await customer_organization_is_execution_eligible(
+                execution, organization_id, lock_member=True,
+            )
+        else:
+            assert await customer_organization_is_execution_eligible(
+                execution, organization_id, lock_member=True,
+            )
+            # NOWAIT proves the conflicting row lock without sleeps or timing
+            # assumptions. Rejection can acquire it only after execution ends.
+            with pytest.raises(DBAPIError) as failure:
+                await rejection.execute(
+                    select(User).where(User.id == member_id).with_for_update(nowait=True)
+                )
+            assert getattr(failure.value.orig, "sqlstate", None) == "55P03"
+            await rejection.rollback()
+            await execution.commit()
+            locked = await rejection.scalar(
+                select(User).where(User.id == member_id).with_for_update(nowait=True)
+            )
+            locked.kyc_status = "REJECTED"
+            await rejection.commit()
+            assert not await customer_organization_is_execution_eligible(
+                execution, organization_id, lock_member=True,
+            )
+
+
+@pytest.mark.asyncio
 async def test_bid_and_ask_share_one_postgres_slice_lock(pg):
     product_id = uuid4()
     delivery_point_id = uuid4()

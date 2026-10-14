@@ -128,7 +128,9 @@ async def order_owner_is_execution_eligible(
         return assisted_owner_admitted
     # Assisted execution acts for the customer organization; the support
     # administrator's own KYC is irrelevant.
-    return await customer_organization_is_execution_eligible(db, order.organization_id)
+    return await customer_organization_is_execution_eligible(
+        db, order.organization_id, lock_member=True
+    )
 
 
 def normalize_certification_scheme(value: str | None) -> str | None:
