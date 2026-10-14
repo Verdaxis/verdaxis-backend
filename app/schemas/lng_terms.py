@@ -12,6 +12,7 @@ from typing import Annotated, Literal, Union
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, field_validator
 
 from app.market_catalog import BIO_LNG_SPECIFICATION_STANDARD
+from app.reference.iso_countries import ISO_3166_1_ALPHA_2
 
 SustainabilityScheme = Literal["ISCC_EU", "REDCERT_EU"]
 ChainOfCustody = Literal["MASS_BALANCE", "PHYSICAL_SEGREGATION"]
@@ -59,6 +60,17 @@ class _LngAskDeclaration(_LngTerms):
     delivery_method: DeliveryMethod
     seller_is_physical_supplier: StrictBool
     pos_timing: PosTiming
+
+    @field_validator("production_country")
+    @classmethod
+    def _require_assigned_country(cls, code: str) -> str:
+        """Reject well-formed codes that name no country, such as ZZ or EU."""
+        if code not in ISO_3166_1_ALPHA_2:
+            raise ValueError(
+                "production_country must be an officially assigned ISO 3166-1 "
+                f"alpha-2 code; {code!r} is not one"
+            )
+        return code
 
 
 class LngAskTerms(_LngAskDeclaration):

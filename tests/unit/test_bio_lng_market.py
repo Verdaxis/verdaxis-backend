@@ -27,6 +27,7 @@ from app.models.orderbook import (
     TradeStatus,
 )
 from app.models.user import OrganizationProvenance, OrgType, UserRole
+from app.reference.iso_countries import ISO_3166_1_ALPHA_2
 from app.routers import trades
 from app.routers.orderbook import create_order
 from app.schemas.lng_terms import LngAskTerms, LngBidTerms
@@ -100,6 +101,35 @@ def test_valid_terms_are_normalized_for_the_order_side():
 def test_invalid_ask_declarations_are_rejected(overrides):
     with pytest.raises(ValidationError):
         LngAskTerms.model_validate(bio_lng.ask_terms(**overrides))
+
+
+# The origin the server derives comes straight from production_country, so the
+# schema must accept only codes that the ISO 3166-1 standard assigns to a
+# country. Well-formed but unassigned codes must not become an order origin.
+@pytest.mark.parametrize("code", ["DE", "NL", "US", "SG"])
+def test_assigned_production_countries_are_accepted(code):
+    terms = LngAskTerms.model_validate(bio_lng.ask_terms(production_country=code))
+
+    assert terms.production_country == code
+
+
+@pytest.mark.parametrize("code", ["ZZ", "AA", "XK", "UK", "EU", "de"])
+def test_unassigned_or_reserved_production_countries_are_rejected(code):
+    # Lower-case input fails the field pattern; the other codes are well formed
+    # but name no country, so the reference-set check must reject them.
+    with pytest.raises(ValidationError):
+        LngAskTerms.model_validate(bio_lng.ask_terms(production_country=code))
+
+
+def test_unassigned_but_well_formed_production_country_names_its_rule():
+    with pytest.raises(ValidationError, match="officially assigned ISO 3166-1"):
+        LngAskTerms.model_validate(bio_lng.ask_terms(production_country="ZZ"))
+
+
+def test_iso_country_reference_set_holds_only_the_249_assigned_codes():
+    assert len(ISO_3166_1_ALPHA_2) == 249
+    assert {"DE", "NL", "US", "SG"} <= ISO_3166_1_ALPHA_2
+    assert not {"ZZ", "AA", "XK", "UK", "EU"} & ISO_3166_1_ALPHA_2
 
 
 @pytest.mark.parametrize(
