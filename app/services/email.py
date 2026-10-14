@@ -14,6 +14,17 @@ RESEND_API_URL = "https://api.resend.com/emails"
 SUPPORT_EMAIL = "admin@verdaxis.exchange"
 
 
+async def send_kyc_grace_notice(to_email: str, expires_at, *, grace_id: uuid.UUID) -> bool:
+    subject = "Complete your KYC to keep trading on Verdaxis"
+    deadline = expires_at.strftime("%d %B %Y %H:%M UTC")
+    html = _render_email(
+        title=subject, preview=subject, label="KYC VERIFICATION",
+        body_html=f"<p>Complete KYC by {escape(deadline)} to keep trading on Verdaxis.</p>",
+        action_label="Complete KYC", action_url=f"{settings.FRONTEND_URL.rstrip('/')}/kyc",
+    )
+    return await _send_email(to_email, subject, html, idempotency_key=f"kyc-grace-{grace_id}")
+
+
 def _recipient_hash(to_email: str) -> str:
     return hashlib.sha256(to_email.strip().lower().encode("utf-8")).hexdigest()[:16]
 
