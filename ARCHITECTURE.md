@@ -104,6 +104,7 @@ app/
     live_benchmarks.py          # Explicit VWAP rebuilds and batched read-only calculations from eligible orders
     availability_windows.py     # Canonical availability code parsing, sorting, display labels, legacy alias normalization
     compliance_scoring.py       # Pure function scoring — FuelEU/ETS/CII, 9 fuels, scenario engine
+    voyage_fuel_plan.py         # Pure Decimal voyage cost engine; voyage schemas, sea distances, catalog and shared ETS/FuelEU rules; prices/today supplied by caller
     audit_service.py            # record_audit() — non-committing async audit logging (call inside the caller's transaction, before its commit)
     audit_actions.py            # THE source of truth for covered audit actions (registry of constants; meta-test forbids string literals at call sites)
     gemini_provider.py          # PID-scoped google-genai client, per-request retry/timeout budget, cancellation-safe worker capacity
