@@ -159,6 +159,7 @@ sudo -n -u verdaxis-prod /home/verdaxis-prod/verdaxis/staging/be/scripts/deploy.
 ## API Routes (all prefixed with `/api`)
 
 ### Public (no auth)
+- `POST /mcp` -- read-only MCP endpoint (development/test/staging only; see docs/agent-mcp.md)
 - `GET /api/prices` -- Aggregated trade price summaries (price ticker)
 - `GET /api/availability` -- Fuel availability by port (map data)
 - `GET /api/demand` -- Anonymized buyer demand signals

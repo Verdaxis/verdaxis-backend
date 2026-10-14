@@ -20,10 +20,11 @@ MANIFEST = MONITOR / "artifact-manifest.json"
 # Market Support adds feature-flag settings and one feature-flagged router.
 # Licensed Webz.io news discovery adds a backend-only token and locked endpoint.
 # B100 supplier listings add an authenticated, non-executable offer router.
+# The read-only MCP endpoint adds a non-production route and shares the public read budget.
 RUNTIME_OWNED_BLOBS = {
     "app/config.py": "1147d3407d8fc9a0b68df02e5b349645d6e40cd3",
     "app/database.py": "43456b2c2079c07368359d4d54f5ce9629c9b57b",
-    "app/main.py": "b4f827e4fd521322bf71c63ce1608ec8adb6d740",
+    "app/main.py": "58171089da44256223a1a745d3c16fd20d585228",
     "scripts/deploy.sh": "4298d424cf2af000ea96b66859adf5f776f78c4d",
     "scripts/run_demo_activity.py": "b92cee8429669c3f908a52047025acd6db804697",
 }

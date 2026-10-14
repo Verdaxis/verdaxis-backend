@@ -378,3 +378,15 @@
 - **Trigger:** `OrderCreate` rejected an originally valid expiry after it elapsed, so an ambiguous already-sent request could not reach its committed idempotent replay.
 - **Rule:** Create schemas may validate timestamp structure and timezone awareness, but mutable current-time admission belongs after committed replay lookup and under the operation's locks. Keep stricter future-time validation for updates when replay is not part of their contract.
 - **Why:** The same request body must remain parseable long enough to recover its committed result without allowing a fresh expired request to create side effects.
+
+### Separate Voyage Fuel Compatibility From Regulatory Scope
+- **Date:** 2026-10-14
+- **Trigger:** Review found green-only vessels burning VLSFO outside EU scope and unvalued FuelEU surplus producing PARTIAL results with no missing input.
+- **Rule:** For vessels without VLSFO compatibility, generate FULL strategies even when the voyage has no EU scope, use the selected green fuel on every segment and request each departure-port price subject to catalog availability. If no strategy is complete, name the missing inputs in the recommendation reason. Value surplus at zero with basis NONE and a strategy-specific warning when no pool price is supplied; do not make that surplus a missing input.
+- **Why:** Regulatory scope controls compliance exposure, not engine compatibility. An optional surplus credit must not prevent a complete conservative cost estimate.
+
+### Share Admission Budgets and Preserve Exact Voyage Costs
+- **Date:** 2026-10-14
+- **Trigger:** MCP used an independent limiter that consumed the public-read connection reserve; voyage ETS costs were rounded before currency conversion and unbounded durations reached date arithmetic.
+- **Rule:** Inject one per-worker limiter into all public database-read entry points, reserve one checkout, and test saturation in both directions. In-memory tools bypass it. Share the ETS phase-in schedule, not rounded display costs. Validate speed at 1 knot minimum and bound the full calendar voyage, including final berth, to 365 days before advancing dates.
+- **Why:** Independent limits do not compose into a shared pool budget. Intermediate rounding changes totals; input bounds and calendar-duration checks prevent overflow.

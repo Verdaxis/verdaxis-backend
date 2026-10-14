@@ -32,7 +32,7 @@ from app.models.market_support import (
     MarketSupportContext as MarketSupportContextModel,
 )
 from app.models.notification import NotificationType
-from app.market_catalog import APPROVED_MARKET_PRODUCTS, MarketProduct, PRODUCT_IDS, PRODUCTS_BY_ID
+from app.market_catalog import APPROVED_MARKET_PRODUCTS, MarketProduct, PRODUCTS_BY_ID
 from app.services.market_catalog_validation import require_orderbook_product
 from app.services.fame_order import (
     fame_metadata_fields, is_fame_product, public_fame_terms, validate_fame_order_terms,
@@ -101,18 +101,18 @@ from app.services.inventory_reservations import release_inventory, reserve_inven
 from app.services.order_quantity import require_minimum_order_quantity
 from app.services.provenance import snapshot_organization_provenance
 from app.services.market_provenance import (
-    canonical_availability_window_clause,
     order_market_provenance,
     public_order_evidence_clause,
 )
 from app.services.market_data_eligibility import (
-    active_market_catalog_clauses,
     canonical_delivery_point_clause,
     canonical_market_product_expression,
-    current_public_order_clause,
-    public_order_collection_provenance_clause,
     public_order_is_visible,
     public_trade_is_visible,
+)
+from app.services.public_order_scope import (
+    apply_public_marketplace_scope as _apply_public_marketplace_scope,
+    public_order_scope as _public_order_scope,
 )
 from app.services.live_benchmarks import (
     LiveBenchmarkKey,
@@ -166,7 +166,6 @@ SUPPLIER_METADATA_FIELDS = (
     "off_spec_notes",
 )
 
-APPROVED_MARKETPLACE_FUEL_TYPES = ("Methanol", "Ethanol", "FAME")
 OrderbookSort = Literal["price_asc", "price_desc", "quantity_desc", "newest"]
 EXECUTION_QUALIFIER_FIELDS = ("certification_scheme",)
 ASK_ONLY_METADATA_FIELDS = tuple(field for field in SUPPLIER_METADATA_FIELDS if field not in EXECUTION_QUALIFIER_FIELDS)
@@ -230,65 +229,6 @@ def _amendment_loses_priority(
         and bool(order.off_spec)
         and not bool(changes["off_spec"])
     )
-
-
-def _ensure_join(joins: list[tuple[object, object]], target: object, condition: object) -> None:
-    if not any(existing_target == target for existing_target, _ in joins):
-        joins.append((target, condition))
-
-
-def _apply_public_marketplace_scope(
-    filters: list[object],
-    joins: list[tuple[object, object]],
-    *,
-    include_off_spec: bool = False,
-    as_of: datetime | None = None,
-) -> None:
-    _ensure_join(joins, Product, OrderBookOrder.product_id == Product.id)
-    _ensure_join(
-        joins,
-        DeliveryPoint,
-        OrderBookOrder.delivery_point_id == DeliveryPoint.id,
-    )
-    filters.extend(active_market_catalog_clauses(Product, DeliveryPoint))
-    filters.append(
-        canonical_availability_window_clause(OrderBookOrder.availability_window)
-    )
-    filters.append(
-        current_public_order_clause(OrderBookOrder, now_expression=as_of)
-    )
-    filters.append(public_order_collection_provenance_clause(OrderBookOrder))
-    filters.append(Product.fuel_type.in_(APPROVED_MARKETPLACE_FUEL_TYPES))
-    if not include_off_spec:
-        filters.append(OrderBookOrder.off_spec.is_(False))
-    filters.append(or_(OrderBookOrder.side != OrderSide.ASK, func.length(func.trim(func.coalesce(OrderBookOrder.certification_scheme, ""))) > 0))
-    filters.append(or_(OrderBookOrder.side != OrderSide.ASK, OrderBookOrder.certification_declared.is_(True)))
-    filters.append(or_(OrderBookOrder.side != OrderSide.ASK, func.length(func.trim(func.coalesce(OrderBookOrder.specification_standard, ""))) > 0))
-    filters.append(or_(OrderBookOrder.side != OrderSide.ASK, OrderBookOrder.msds_available.is_(True)))
-    filters.append(or_(OrderBookOrder.side != OrderSide.ASK, OrderBookOrder.product_id == PRODUCT_IDS["UCOME_B100"], OrderBookOrder.carbon_intensity_gco2_mj.is_not(None)))
-    filters.append(or_(OrderBookOrder.side != OrderSide.ASK, func.length(func.trim(func.coalesce(OrderBookOrder.feedstock, ""))) > 0))
-    filters.append(or_(OrderBookOrder.side != OrderSide.ASK, OrderBookOrder.product_id == PRODUCT_IDS["UCOME_B100"], func.length(func.trim(func.coalesce(OrderBookOrder.origin, ""))) > 0))
-
-
-def _public_order_scope(
-    *,
-    side: OrderSide | None = None,
-    include_off_spec: bool = False,
-    as_of: datetime | None = None,
-) -> tuple[list[object], list[tuple[object, object]]]:
-    filters: list[object] = [
-        OrderBookOrder.status.in_((OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED))
-    ]
-    if side is not None:
-        filters.append(OrderBookOrder.side == side)
-    joins: list[tuple[object, object]] = []
-    _apply_public_marketplace_scope(
-        filters,
-        joins,
-        include_off_spec=include_off_spec,
-        as_of=as_of,
-    )
-    return filters, joins
 
 
 def _normalize_market_product_query(value: MarketProduct | str | None) -> str | None:

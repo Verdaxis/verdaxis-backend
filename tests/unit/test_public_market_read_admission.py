@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 
+import anyio
 import httpx
 import pytest
 from starlette.responses import JSONResponse
@@ -48,7 +49,7 @@ async def test_two_selected_reads_hold_capacity_and_third_fails_immediately():
     downstream = _BlockingApp()
     middleware = PublicMarketReadAdmissionMiddleware(
         downstream,
-        capacity=2,
+        read_limiter=anyio.CapacityLimiter(2),
         api_prefix="/api",
     )
     admitted = [
@@ -85,7 +86,7 @@ async def test_two_selected_reads_hold_capacity_and_third_fails_immediately():
 async def test_zero_capacity_rejects_selected_reads(path):
     middleware = PublicMarketReadAdmissionMiddleware(
         _send_ok,
-        capacity=0,
+        read_limiter=None,
         api_prefix="/api",
     )
 
@@ -113,7 +114,7 @@ async def test_zero_capacity_rejects_selected_reads(path):
 async def test_unselected_http_requests_bypass_admission(method, path):
     middleware = PublicMarketReadAdmissionMiddleware(
         _send_ok,
-        capacity=0,
+        read_limiter=None,
         api_prefix="/api",
     )
 
@@ -134,7 +135,7 @@ async def test_non_http_scope_bypasses_admission():
 
     middleware = PublicMarketReadAdmissionMiddleware(
         downstream,
-        capacity=0,
+        read_limiter=None,
         api_prefix="/api",
     )
     scope = {"type": "websocket", "path": "/api/orderbook"}
@@ -168,7 +169,7 @@ async def test_cancelled_request_releases_admission():
     downstream = _CancelledThenSuccessfulApp()
     middleware = PublicMarketReadAdmissionMiddleware(
         downstream,
-        capacity=1,
+        read_limiter=anyio.CapacityLimiter(1),
         api_prefix="/api",
     )
     cancelled = asyncio.create_task(_request(middleware, "/api/demand"))
@@ -198,7 +199,7 @@ async def test_downstream_exception_releases_admission():
     downstream = _FailedThenSuccessfulApp()
     middleware = PublicMarketReadAdmissionMiddleware(
         downstream,
-        capacity=1,
+        read_limiter=anyio.CapacityLimiter(1),
         api_prefix="/api",
     )
 

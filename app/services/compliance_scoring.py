@@ -168,6 +168,12 @@ def calculate_fueleu_score(
     )
 
 
+def ets_phase_in_pct(year: int) -> Decimal:
+    """Return the ETS phase-in percentage for the emissions year."""
+    phase_in = {2024: Decimal("40"), 2025: Decimal("70"), 2026: Decimal("100")}
+    return phase_in.get(year, Decimal("100"))
+
+
 def calculate_ets_score(
     total_co2_tonnes: Optional[Decimal],
     ets_price_eur: Decimal = Decimal("68"),
@@ -178,9 +184,7 @@ def calculate_ets_score(
     This simplified scenario requires the caller to establish voyage coverage
     and all applicable gases; WtW CI cannot establish those emissions.
     """
-    # Phase-in schedule
-    phase_in = {2024: Decimal("40"), 2025: Decimal("70"), 2026: Decimal("100")}
-    pct = phase_in.get(year, Decimal("100"))
+    pct = ets_phase_in_pct(year)
 
     if total_co2_tonnes is None:
         return EUETSResult(

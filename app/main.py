@@ -6,12 +6,16 @@ import re
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
 
+import anyio
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exception_handlers import http_exception_handler as fastapi_http_exception_handler
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from slowapi.errors import RateLimitExceeded
 from sqlalchemy.exc import DBAPIError
+from starlette.routing import Route
+
+from app.mcp_server import MCP_PATH, build_mcp_http_app, build_mcp_server, mcp_enabled
 
 from app.config import settings
 from app.services.db_errors import (
@@ -115,7 +119,11 @@ async def lifespan(app: FastAPI):
     dispatcher = MarketEventDispatcher(engine, event_bus)
     await dispatcher.start()
     try:
-        yield
+        if mcp is not None:
+            async with mcp.session_manager.run():
+                yield
+        else:
+            yield
     finally:
         await dispatcher.stop()
 
@@ -127,6 +135,26 @@ app = FastAPI(
     redoc_url=_redoc_url,
     lifespan=lifespan,
 )
+
+# Public reads and MCP database tools share one budget, leaving one pool
+# checkout for logins, commands, readiness and other request classes.
+public_market_read_capacity = max(
+    settings.DB_POOL_SIZE + settings.DB_MAX_OVERFLOW - 1,
+    0,
+)
+public_market_read_limiter = (
+    anyio.CapacityLimiter(public_market_read_capacity) if public_market_read_capacity else None
+)
+mcp = (
+    build_mcp_server(read_limiter=public_market_read_limiter)
+    if mcp_enabled(settings.ENVIRONMENT) else None
+)
+if mcp is not None:
+    # Mount redirects /mcp to /mcp/. An ASGI Route preserves the exact POST path;
+    # the SDK handles the streamable HTTP methods and protocol responses.
+    app.router.routes.append(Route(
+        MCP_PATH, endpoint=build_mcp_http_app(mcp), methods=["GET", "POST", "DELETE"],
+    ))
 
 # A context-bearing request may only reach the explicitly classified support
 # routes. The request-party dependency still performs database revalidation.
@@ -196,14 +224,9 @@ app.middleware("http")(preauth_rate_limit_middleware)
 
 # CORS wraps public-read admission, pre-auth, and support scope so browser
 # clients receive credentialed headers on early rejections and preflights.
-# Keep one pool checkout available for mutations and other request classes.
-public_market_read_capacity = max(
-    settings.DB_POOL_SIZE + settings.DB_MAX_OVERFLOW - 1,
-    0,
-)
 app.add_middleware(
     PublicMarketReadAdmissionMiddleware,
-    capacity=public_market_read_capacity,
+    read_limiter=public_market_read_limiter,
     api_prefix=settings.API_V1_STR,
 )
 app.add_middleware(
