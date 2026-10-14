@@ -21,7 +21,9 @@ branch_labels = None
 depends_on = None
 
 # Frozen locally: a migration must not import application policy.
-GRACE_PERIOD = "14 days"
+# 14 days as an absolute duration. A '14 days' interval would follow the
+# session time zone and gain or lose an hour across a DST change.
+GRACE_PERIOD = "336 hours"
 
 
 def upgrade() -> None:

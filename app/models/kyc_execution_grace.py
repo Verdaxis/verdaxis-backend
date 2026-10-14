@@ -26,9 +26,10 @@ class KycExecutionGrace(Base):
             "kyc_status_at_enrollment IN ('PENDING', 'SUBMITTED')",
             name="ck_kyc_execution_grace_enrollment_status",
         ),
-        # The grace period is fixed at enrollment and never renewed.
+        # The grace period (14 days as 336 absolute hours) is fixed at
+        # enrollment and never renewed.
         CheckConstraint(
-            "expires_at = enrolled_at + interval '14 days'",
+            "expires_at = enrolled_at + interval '336 hours'",
             name="ck_kyc_execution_grace_period",
         ).ddl_if(dialect="postgresql"),
     )
