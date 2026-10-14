@@ -212,6 +212,19 @@ SELECT pg_temp.assert_role_policy(
 );
 SELECT pg_temp.assert_role_policy(
     NOT EXISTS (
+        SELECT 1 FROM governed_objects AS object
+        WHERE object.relname = 'kyc_execution_grace'
+          AND (
+            NOT has_table_privilege(:'app_role', object.oid, 'SELECT')
+            OR has_any_column_privilege(:'app_role', object.oid, 'INSERT')
+            OR has_any_column_privilege(:'app_role', object.oid, 'UPDATE')
+            OR has_table_privilege(:'app_role', object.oid, 'DELETE')
+          )
+    ),
+    'KYC execution grace must be runtime read-only'
+);
+SELECT pg_temp.assert_role_policy(
+    NOT EXISTS (
         SELECT 1
         FROM governed_objects AS object
         CROSS JOIN (VALUES ('USAGE'), ('SELECT'), ('UPDATE'))
