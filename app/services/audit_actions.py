@@ -22,6 +22,8 @@ KYC_APPROVED = "kyc.approved"
 KYC_REJECTED = "kyc.rejected"
 KYC_SUBMITTED = "kyc.submitted"
 KYC_MEMBERSHIP_INVALIDATED = "kyc.membership_invalidated"
+# The durable record that the one-time KYC grace email was delivered.
+KYC_GRACE_NOTICE_SENT = "kyc.grace_notice_sent"
 # negotiation.accepted / rfq.accepted are intentionally absent: negotiation
 # and RFQ execution are disabled in this release (market-owned decision), and
 # the registry never carries actions without a live call site.
@@ -81,6 +83,7 @@ AUDIT_ACTIONS = frozenset(
         KYC_REJECTED,
         KYC_SUBMITTED,
         KYC_MEMBERSHIP_INVALIDATED,
+        KYC_GRACE_NOTICE_SENT,
         NEGOTIATION_COUNTERED,
         NEGOTIATION_CREATED,
         NEGOTIATION_DECLINED,

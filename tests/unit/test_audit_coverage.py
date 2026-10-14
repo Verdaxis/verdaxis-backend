@@ -15,6 +15,7 @@ EXPECTED_AUDIT_CONSTANTS = {
     "KYC_REJECTED": "kyc.rejected",
     "KYC_SUBMITTED": "kyc.submitted",
     "KYC_MEMBERSHIP_INVALIDATED": "kyc.membership_invalidated",
+    "KYC_GRACE_NOTICE_SENT": "kyc.grace_notice_sent",
     "MARKET_ACCESS_INVALIDATED": "market.access_invalidated",
     "MARKET_SUPPORT_AUTHORIZATION_CREATED": "market_support.authorization_created",
     "MARKET_SUPPORT_AUTHORIZATION_REVOKED": "market_support.authorization_revoked",
