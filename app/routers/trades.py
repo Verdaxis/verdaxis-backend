@@ -51,6 +51,14 @@ from app.services.execution_policy import (
     order_is_execution_qualified,
 )
 from app.services.kyc_execution import kyc_execution_clause
+from app.services.lng_terms import (
+    is_bio_lng_product,
+    lng_terms_compatible,
+    lng_terms_incompatible_error,
+    lng_trade_snapshot,
+    trade_lng_terms_view,
+    validate_order_lng_terms,
+)
 from app.services.live_benchmarks import rebuild_live_slice_benchmarks_for_keys
 from app.services.demo_market import is_demo_market_organization
 from app.services.provenance import coerce_provenance, execution_provenance_compatible, snapshot_organization_provenance
@@ -143,6 +151,7 @@ def build_trade_response(
     is_anonymous = bool(trade.is_anonymous)
     buyer_id = trade.buyer_id
     seller_id = trade.seller_id
+    seller_revealed = True
     if is_anonymous:
         viewer_is_buyer = viewer_org_id == trade.buyer_id
         viewer_is_seller = viewer_org_id == trade.seller_id
@@ -152,10 +161,12 @@ def build_trade_response(
         if not viewer_is_party:
             buyer_id = seller_id = None
             buyer_name = seller_name = "Anonymous"
+            seller_revealed = False
         elif not handoff_complete:
             if viewer_is_buyer:
                 seller_id = None
                 seller_name = "Anonymous"
+                seller_revealed = False
             else:
                 buyer_id = None
                 buyer_name = "Anonymous"
@@ -211,15 +222,34 @@ def build_trade_response(
         scope=provenance["scope"],
         demo_status=provenance["demo_status"],
         unknown_count=provenance["unknown_count"],
+        # The seller's certificate and physical supplier follow party identity.
+        lng_terms_snapshot=trade_lng_terms_view(
+            trade.lng_terms_snapshot, reveal_ask=seller_revealed
+        ),
     )
 
 
 def trade_create_idempotency_payload(payload: TradeCreate) -> dict[str, object]:
-    """Keep old replay hashes while binding every new reviewed digest."""
+    """Keep old replay hashes while binding every new reviewed digest and term."""
     values = payload.model_dump(mode="json")
-    if values["expected_terms_digest"] is None:
-        values.pop("expected_terms_digest")
+    for optional_field in ("expected_terms_digest", "lng_terms"):
+        if values[optional_field] is None:
+            values.pop(optional_field)
     return values
+
+
+def _direct_take_lng_snapshot(order: OrderBookOrder, taker_terms) -> dict | None:
+    """Freeze Bio-LNG terms for a buyer taking an ASK, or None for other products.
+
+    Incompatible requirements return the stable LNG_TERMS_INCOMPATIBLE code
+    with no detail about the seller's declarations.
+    """
+    bid_terms = validate_order_lng_terms(order.product_id, OrderSide.BID, taker_terms)
+    if bid_terms is None:
+        return None
+    if not lng_terms_compatible(bid_terms, order.lng_terms):
+        raise lng_terms_incompatible_error()
+    return lng_trade_snapshot(bid_terms, order.lng_terms)
 
 
 def _terms_review_conflict() -> HTTPException:
@@ -815,6 +845,12 @@ async def create_trade(
                 status_code=403,
                 detail="Only suppliers can hit a BID order",
             )
+        # Seller declarations exist only on an ASK order, so these BIDs fill by matching.
+        if is_bio_lng_product(order.product_id):
+            raise HTTPException(
+                status_code=400,
+                detail="Place a qualified Bio-LNG ASK order with lng_terms to fill this BID.",
+            )
         if order.product_id in BIOFUEL_SPECIFICATION_STANDARDS:
             raise HTTPException(
                 status_code=400,
@@ -877,6 +913,7 @@ async def create_trade(
             status_code=400,
             detail=f"Requested quantity ({payload.quantity_mt}) exceeds remaining ({order.remaining_quantity_mt})",
         )
+    lng_terms_snapshot = _direct_take_lng_snapshot(order, payload.lng_terms)
 
     public_order_before = await public_order_is_visible(db, order.id)
     before_state = await _watchlist_before_state(db, order)
@@ -916,6 +953,7 @@ async def create_trade(
         commission_rate_pct=Decimal("0"),
         commission_fee_per_mt_usd=commission_fee_per_mt_usd,
         commission_plan=commission_plan.value,
+        lng_terms_snapshot=lng_terms_snapshot,
     )
     db.add(trade)
 

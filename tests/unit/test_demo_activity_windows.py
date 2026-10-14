@@ -96,12 +96,14 @@ def test_demo_market_coverage_has_ten_levels_and_contango_across_the_full_horizo
         key = (order.product_id, order.delivery_point_id, order.availability_window)
         slices.setdefault(key, []).append(order)
 
+    # Demo liquidity covers only demo-priced products; Bio-LNG has no demo data.
     assert set(slices) == {
-        (product, port, window)
-        for product in PRODUCT_IDS.values()
+        (PRODUCT_IDS[product_name], port, window)
+        for product_name in PRICING
         for port in DELIVERY_POINT_IDS.values()
         for window in windows
     }
+    assert PRODUCT_IDS["Bio-LNG"] not in {product_id for product_id, _, _ in slices}
     top_quotes = {}
     for market_slice, slice_orders in slices.items():
         bids = [order for order in slice_orders if order.side == OrderSide.BID]
@@ -114,7 +116,7 @@ def test_demo_market_coverage_has_ten_levels_and_contango_across_the_full_horizo
         assert max(bid_prices) < min(ask_prices)
         top_quotes[market_slice] = (max(bid_prices), min(ask_prices))
 
-    for product in PRODUCT_IDS.values():
+    for product in (PRODUCT_IDS[product_name] for product_name in PRICING):
         for port in DELIVERY_POINT_IDS.values():
             for side_index in (0, 1):
                 prices = [top_quotes[product, port, window][side_index] for window in windows]

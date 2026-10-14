@@ -5,7 +5,15 @@ from datetime import UTC, datetime, date
 from decimal import Decimal
 from enum import Enum
 
+from app.schemas.lng_terms import (
+    LngBidTerms,
+    LngOrderTerms,
+    LngPublicOrderTerms,
+    LngPublicTradeSnapshot,
+    LngTradeSnapshot,
+)
 from app.schemas.market_activity import MarketDemoStatus, MarketScope, MarketSourceKind
+from app.services.lng_terms import public_lng_terms
 from app.services.availability_windows import (
     JSON_SCHEMA_PATTERN,
     SPOT_WINDOW,
@@ -152,6 +160,7 @@ class OrderCreate(AvailabilityWindowMixin, SupplierListingMetadataMixin):
     certification_scheme: Optional[str] = None
     expires_at: Optional[datetime] = None
     is_anonymous: Literal[True] = True
+    lng_terms: LngOrderTerms | None = None
     support_confirmation: MarketSupportFinalConfirmation | None = None
 
     @field_validator("quantity_mt", "price_per_mt_usd")
@@ -197,6 +206,7 @@ class OrderUpdate(AvailabilityWindowMixin):
     off_spec: Optional[bool] = None
     off_spec_notes: Optional[str] = None
     expires_at: Optional[datetime] = None
+    lng_terms: LngOrderTerms | None = None
 
     @field_validator("quantity_mt", "price_per_mt_usd")
     @classmethod
@@ -254,6 +264,13 @@ class OrderResponse(AvailabilityWindowMixin, SupplierListingMetadataMixin):
     scope: MarketScope = MarketScope.UNKNOWN
     demo_status: MarketDemoStatus = MarketDemoStatus.UNKNOWN
     unknown_count: int = 0
+    lng_terms: LngPublicOrderTerms | None = None
+
+    @field_validator("lng_terms", mode="before")
+    @classmethod
+    def _redact_lng_terms(cls, value):
+        """The public book never shows the seller's certificate or physical supplier."""
+        return public_lng_terms(value)
 
     class Config:
         from_attributes = True
@@ -281,6 +298,13 @@ class OrderMyResponse(OrderResponse):
     creation_method: str = "LEGACY_UNKNOWN"
     version: int = 1
     etag: str | None = None
+    lng_terms: LngOrderTerms | None = None
+
+    @field_validator("lng_terms", mode="before")
+    @classmethod
+    def _redact_lng_terms(cls, value):
+        """The owner sees its own full terms; this replaces the public redaction."""
+        return value
 
 
 class SupplierListingTemplateResponse(AvailabilityWindowMixin, SupplierListingMetadataMixin):
@@ -302,6 +326,8 @@ class TradeCreate(BaseModel):
         None, min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$"
     )
     quantity_mt: Decimal = Field(..., gt=0, le=100000, max_digits=12, decimal_places=2, allow_inf_nan=False)
+    # A buyer taking a Bio-LNG ASK states its requirements here.
+    lng_terms: LngBidTerms | None = None
 
     @field_validator("quantity_mt")
     @classmethod
@@ -349,6 +375,7 @@ class TradeResponse(BaseModel):
     scope: MarketScope = MarketScope.UNKNOWN
     demo_status: MarketDemoStatus = MarketDemoStatus.UNKNOWN
     unknown_count: int = 0
+    lng_terms_snapshot: LngTradeSnapshot | LngPublicTradeSnapshot | None = None
 
     class Config:
         from_attributes = True

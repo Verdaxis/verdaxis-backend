@@ -10,6 +10,7 @@ from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.orm import selectinload
 
 from app.database import get_db
+from app.market_catalog import product_delivery_point_error
 from app.models.catalog import DeliveryPoint, Product
 from app.models.marketplace import InventoryItem, FuelType as ModelFuelType
 from app.models.orderbook import (
@@ -46,6 +47,7 @@ from app.services.execution_policy import (
     order_is_execution_qualified,
     supplier_product_metadata_error,
 )
+from app.services.lng_terms import is_bio_lng_product
 from app.services.market_locks import (
     acquire_market_slice_lock,
     next_order_acceptance_ordinal,
@@ -430,6 +432,15 @@ async def publish_inventory_item(
         raise HTTPException(
             status_code=400,
             detail="Inventory port is not an active canonical delivery point",
+        )
+    lane_error = product_delivery_point_error(product.id, delivery_point.id)
+    if lane_error:
+        raise HTTPException(status_code=400, detail=lane_error)
+    if is_bio_lng_product(product.id):
+        # Inventory rows carry no lng_terms, which every Bio-LNG ASK requires.
+        raise HTTPException(
+            status_code=400,
+            detail="Bio-LNG listings require lng_terms; place them as order-book ASK orders",
         )
     await market_transactions.transaction_boundary_hook(
         "before_market_slice_lock",

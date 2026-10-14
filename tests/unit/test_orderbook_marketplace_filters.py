@@ -795,6 +795,7 @@ class TestMarketplaceFuelFiltering:
             'SYNTHETIC_ETHANOL': 0,
             'B30': 0,
             'B100': 0,
+            'BIO_LNG': 0,
         }
         assert asks.total == 2
         assert bids.counts['BIO_METHANOL'] == 1

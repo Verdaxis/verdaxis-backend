@@ -16,7 +16,7 @@ from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import create_async_engine
 
-_PREVIOUS_REVISION = "uadl_20261003_delivery_reports"
+_PREVIOUS_REVISION = "blng_20261014_prod"
 _GRACE_REVISION = "kycg_20261014_prod"
 _SCRATCH_DATABASE = "verdaxis_kyc_grace_analytics_test"
 

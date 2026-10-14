@@ -192,11 +192,11 @@ sudo -n -u verdaxis-prod /home/verdaxis-prod/verdaxis/staging/be/scripts/deploy.
 
 New executions (`POST /api/orderbook`, `PUT /api/orderbook/{id}`, `POST /api/inventory/{id}/publish`, `POST /api/trades/`, `PUT /api/trades/{id}/confirm`) require KYC approved for the current organization or valid grace, and otherwise return 403 `KYC_REQUIRED`. Cancel, decline, deliver and pay never apply KYC.
 
-- `POST /api/orderbook` -- Place BID (BUYER) or ASK (SUPPLIER) order
+- `POST /api/orderbook` -- Place BID (BUYER) or ASK (SUPPLIER) order; Bio-LNG orders require `lng_terms` and Rotterdam
 - `PUT /api/orderbook/{id}` -- Update own order
 - `DELETE /api/orderbook/{id}` -- Cancel own order
 - `GET /api/orderbook/my` -- Own orders with trade counts
-- `POST /api/trades/` -- Hit an order to create a trade
+- `POST /api/trades/` -- Hit an order to create a trade; taking a Bio-LNG ASK requires buyer `lng_terms` (incompatible: `LNG_TERMS_INCOMPATIBLE`)
 - `GET /api/trades/my` -- Own trades
 - `PUT /api/trades/{id}/confirm` -- Counterparty confirms
 - `PUT /api/trades/{id}/decline` -- Counterparty declines (restores order quantity)

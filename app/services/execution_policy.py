@@ -4,7 +4,12 @@ from datetime import datetime
 from enum import Enum
 from uuid import UUID
 
-from app.market_catalog import BIOFUEL_SPECIFICATION_STANDARDS, PRODUCTS_BY_ID
+from app.market_catalog import (
+    BIO_LNG_PRODUCT_ID,
+    BIOFUEL_SPECIFICATION_STANDARDS,
+    PRODUCTS_BY_ID,
+    product_delivery_point_allowed,
+)
 from app.models.orderbook import OrderBookOrder, OrderCreationMethod, OrderSide
 from app.models.user import Organization, OrganizationProvenance, User, UserRole, UserStatus
 from app.services.kyc_execution import (
@@ -12,6 +17,7 @@ from app.services.kyc_execution import (
     customer_organization_is_execution_eligible,
     evaluate_kyc_execution,
 )
+from app.services.lng_terms import is_bio_lng_product, lng_terms_compatible, stored_order_terms_valid
 from sqlalchemy import and_, func, or_, select
 
 
@@ -158,6 +164,19 @@ def supplier_product_metadata_error(
     return None
 
 
+def scalar_carbon_intensity_required(product_id: UUID | None) -> bool:
+    """BIO_LNG keeps its certified GHG value in lng_terms; its scalar CI stays NULL."""
+    return not is_bio_lng_product(product_id)
+
+
+def ask_carbon_intensity_clause(record, product_id):
+    """SQL mirror of ``scalar_carbon_intensity_required`` for public ASK filters."""
+    return or_(
+        product_id == BIO_LNG_PRODUCT_ID,
+        record.carbon_intensity_gco2_mj.is_not(None),
+    )
+
+
 def biofuel_supplier_metadata_clause(record, product_id):
     """SQL mirror for fixed biofuel contracts in public market projections."""
     return or_(
@@ -185,6 +204,13 @@ def biofuel_supplier_metadata_clause(record, product_id):
 def order_is_execution_qualified(order: OrderBookOrder) -> bool:
     if getattr(order, "off_spec", False):
         return False
+    product_id = getattr(order, "product_id", None)
+    if not product_delivery_point_allowed(product_id, getattr(order, "delivery_point_id", None)):
+        return False
+    if is_bio_lng_product(product_id) and not stored_order_terms_valid(
+        getattr(order, "side", None), getattr(order, "lng_terms", None)
+    ):
+        return False
 
     normalized_scheme = normalize_certification_scheme(getattr(order, "certification_scheme", None))
 
@@ -204,6 +230,8 @@ def order_is_execution_qualified(order: OrderBookOrder) -> bool:
                 return False
             if not (order.feedstock or "").strip() or not (order.origin or "").strip():
                 return False
+        if is_bio_lng_product(product_id) and not order.msds_available:
+            return False
 
     return True
 
@@ -214,6 +242,9 @@ def orders_execution_compatible(left: OrderBookOrder, right: OrderBookOrder) -> 
 
     bid_order = left if getattr(left, "side", None) == OrderSide.BID else right
     ask_order = right if bid_order is left else left
+
+    if is_bio_lng_product(bid_order.product_id) or is_bio_lng_product(ask_order.product_id):
+        return lng_terms_compatible(bid_order.lng_terms, ask_order.lng_terms)
 
     ask_scheme = normalize_certification_scheme(ask_order.certification_scheme)
     if ask_scheme is None:

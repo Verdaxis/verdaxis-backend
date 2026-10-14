@@ -12,6 +12,7 @@ Reference:
 from decimal import Decimal, ROUND_HALF_UP
 
 from app.schemas.orderbook import CIAdjustedPrice
+from app.services.lng_terms import is_bio_lng_product
 
 # FuelEU Maritime 2025 reference GHG intensity (gCO2eq/MJ)
 FUELEU_REFERENCE_GHG = Decimal("91.0")
@@ -77,4 +78,21 @@ def calculate_ci_adjusted_price(
         compliance_cost_per_mt=compliance_cost_per_mt,
         effective_price_per_mt=effective_price,
         ghg_reduction_pct=ghg_reduction_pct,
+    )
+
+
+def ci_adjusted_price_for_order(order) -> CIAdjustedPrice | None:
+    """Price one order from its declared lifecycle CI, or return None.
+
+    Bio-LNG is always skipped: its certified value is well-to-tank only and
+    lives in ``lng_terms``, so its NULL scalar must never be read as zero.
+    """
+    if is_bio_lng_product(getattr(order, "product_id", None)):
+        return None
+    if not order.carbon_intensity_gco2_mj or not order.energy_density_mj_kg:
+        return None
+    return calculate_ci_adjusted_price(
+        base_price_per_mt=order.price_per_mt_usd,
+        carbon_intensity_gco2_mj=order.carbon_intensity_gco2_mj,
+        energy_density_mj_kg=order.energy_density_mj_kg,
     )

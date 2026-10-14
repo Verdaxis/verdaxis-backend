@@ -1,12 +1,10 @@
 """KYC execution gate: one-time grace snapshot for existing traders.
 
 Revision ID: kycg_20261014_prod
-Revises: uadl_20261003_delivery_reports
+Revises: blng_20261014_prod
 Create Date: 2026-10-14
 
-The bio-LNG revision (blng_20261014_prod) lands first on prod. Until it is
-merged, this revision follows uadl_20261003_delivery_reports; the integrator
-re-chains down_revision and the checkpoint rows.
+The bio-LNG revision (blng_20261014_prod) precedes this KYC snapshot.
 """
 from __future__ import annotations
 
@@ -16,7 +14,7 @@ from sqlalchemy.dialects import postgresql
 
 
 revision = "kycg_20261014_prod"
-down_revision = "uadl_20261003_delivery_reports"
+down_revision = "blng_20261014_prod"
 branch_labels = None
 depends_on = None
 
