@@ -60,6 +60,8 @@ def test_ambiguous_or_non_trading_organization_types_are_not_signup_options(org_
         (UserRole.BUYER, OrgType.SHIPPING_LINE, True),
         (UserRole.BUYER, OrgType.FUEL_SUPPLIER, False),
         (UserRole.SUPPLIER, OrgType.FUEL_SUPPLIER, True),
+        (UserRole.SUPPLIER, OrgType.FUEL_TRADER, True),
+        (UserRole.BUYER, OrgType.FUEL_TRADER, False),
         (UserRole.SUPPLIER, OrgType.FUEL_BUYER, False),
     ],
 )

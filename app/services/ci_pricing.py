@@ -14,12 +14,17 @@ def calculate_ci_adjusted_price(
     base_price_per_mt: Decimal,
     carbon_intensity_gco2_mj: Decimal,
     energy_density_mj_kg: Decimal,
-) -> CIAdjustedPrice:
+    *,
+    market_product: str | None = None,
+) -> CIAdjustedPrice | None:
     """Compare declared WtW CI with the reference; leave the price unchanged.
 
     The energy-density argument is retained for existing callers. Neither
     it nor a low lifecycle CI is proof of an ETS or FuelEU cash benefit.
     """
+    if market_product == "BIO_LNG":
+        # PoS WTT values exclude engine methane slip and are not lifecycle CI.
+        return None
     ghg_reduction_pct = max(
         Decimal("0"),
         (FUELEU_REFERENCE_GHG - carbon_intensity_gco2_mj)

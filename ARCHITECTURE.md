@@ -201,6 +201,29 @@ alembic/versions/               # Migrations incl. canonical availability-window
 - **Local operational monitoring:** `deploy/monitor` is a source-only contract, not installed-state evidence. Its current dual-loopback reader assumes both backends are on one host, so it must not be installed unchanged across the split topology. It owns no readiness producer, deploy transaction, backup producer, root installer, or activation path. The exact four-key readiness corpus, hostile-JSON handling, private status, independent demo ownership, and retirement gates remain source contracts. The installed shared-host external monitor uses a reviewed selective patch process described by `/home/verdaxis-prod/verdaxis/PRODUCTION_HOST.md`; source presence does not authorize replacement. Full owner seams: `deploy/monitor/README.md`.
 - **Onboarding attention:** A production-only five-minute oneshot reads canonical account, organization, join-request, approval-transition, and login state to alert operators about actionable onboarding stages. Demo/test/canary/admin accounts are excluded; persisted dedupe state contains no email or organization data. Initial activation silently baselines historical cases, while new stages alert once and non-baselined recoveries notify once.
 
+## Bio-LNG shared execution
+
+`BIO_LNG` is an ORDERBOOK product on the Rotterdam lane only, priced in USD/MT
+with a 1 MT order minimum and no synthetic seed liquidity. `schemas/lng_order.py`
+defines side-specific declarations and requirements. `services/lng_order.py`
+owns validation, the eight compatibility rules, scalar derivation and redaction.
+`reference/iso_countries.py` provides the 249 assigned ISO alpha-2 origin codes.
+
+Orders, assisted authorizations and negotiations retain typed LNG terms; trades
+freeze `lng_terms_snapshot` under the canonical immutable-snapshot trigger.
+Public orders and pending trades omit certificate numbers and physical supplier
+names. Confirmed counterparties receive the full snapshot. Direct takes accept
+`lng_terms` and return HTTP 409 `LNG_TERMS_INCOMPATIBLE` without party detail.
+Inventory publication is refused; suppliers post asks directly. Staging retains
+the inventory terms storage column for parity with its other product terms.
+
+Supplier scalars come from the declaration. WTT emissions remain in `lng_terms`,
+not lifecycle CI; CI pricing skips Bio-LNG. Public reads and live benchmarks use
+the Rotterdam lane and declared terms. FUEL_TRADER organizations may receive
+SUPPLIER accounts by admin invitation; public signup and domain joins remain
+restricted to the existing signup types. Voyage planning remains out of scope.
+Deploy checkpoint: `blng_20261014_staging`; downgrade refuses stored LNG history.
+
 ## UCOME B100 shared execution
 
 The canonical B100 ID remains `e561e43f-d9b2-598e-981c-f1d28d515ddc`. Its execution mode is `ORDERBOOK`; the existing wholesale Singapore lane and 1 MT initial order minimum remain. Standard fractional fills use the same rules as other fuels. No synthetic B100 liquidity is seeded.

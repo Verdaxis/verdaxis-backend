@@ -34,6 +34,9 @@ from app.models.market_support import (
 from app.models.notification import NotificationType
 from app.market_catalog import APPROVED_MARKET_PRODUCTS, MarketProduct, PRODUCTS_BY_ID
 from app.services.market_catalog_validation import require_orderbook_product
+from app.services.lng_order import (
+    is_lng_product, lng_metadata_fields, validate_lng_order_terms,
+)
 from app.services.fame_order import (
     fame_metadata_fields, is_fame_product, public_fame_terms, validate_fame_order_terms,
 )
@@ -220,7 +223,7 @@ def _amendment_loses_priority(
         if old_certifications != new_certifications:
             return True
 
-    for field in ("certification_scheme", "fame_terms"):
+    for field in ("certification_scheme", "fame_terms", "lng_terms"):
         if field in changes and changes[field] != getattr(order, field, None):
             return True
 
@@ -1076,7 +1079,8 @@ async def list_orders_with_ci(
     for order in orders:
         ci_price = None
         if (
-            order.carbon_intensity_gco2_mj is not None
+            not is_lng_product(order.product_id)
+            and order.carbon_intensity_gco2_mj is not None
             and order.energy_density_mj_kg is not None
             and order.energy_density_mj_kg > 0
         ):
@@ -1197,6 +1201,7 @@ async def latest_supplier_listing_template(
         off_spec=False,
         off_spec_notes=None,
         fame_terms=getattr(latest_ask, "fame_terms", None),
+        lng_terms=getattr(latest_ask, "lng_terms", None),
     )
     return payload
 
@@ -1913,6 +1918,14 @@ async def create_order(
         for field, value in fame_metadata_fields(fame_terms).items():
             if field in OrderCreate.model_fields:
                 setattr(order_data, field, value)
+    lng_terms = validate_lng_order_terms(order_data.product_id, order_data.side, order_data.lng_terms)
+    if lng_terms is not None:
+        if order_data.quantity_mt < 1:
+            raise HTTPException(422, "Bio-LNG orders require at least 1 MT")
+        if order_data.side == OrderSide.ASK:
+            for field, value in lng_metadata_fields(lng_terms).items():
+                if field in OrderCreate.model_fields:
+                    setattr(order_data, field, value)
     normalized_certification_scheme = normalize_certification_scheme(order_data.certification_scheme)
 
     if order_data.side != OrderSide.ASK:
@@ -1927,7 +1940,7 @@ async def create_order(
             certification_declared=order_data.certification_declared,
             certification_scheme=normalized_certification_scheme,
         )
-        if fame_terms is not None:
+        if fame_terms is not None or lng_terms is not None:
             if not order_data.msds_available:
                 raise HTTPException(422, "ASK orders require an available safety data sheet")
         else:
@@ -2033,6 +2046,7 @@ async def create_order(
         expires_at=order_data.expires_at,
         certification_scheme=normalized_certification_scheme,
         fame_terms=fame_terms,
+        lng_terms=lng_terms,
         idempotency_key=idempotency_key,
         idempotency_operation=(ORDER_CREATE_OPERATION if idempotency_key else None),
         idempotency_request_hash=(request_hash if idempotency_key else None),
@@ -2045,6 +2059,10 @@ async def create_order(
             setattr(new_order, field, value)
     if fame_terms is not None:
         for field, value in fame_metadata_fields(fame_terms).items():
+            setattr(new_order, field, value)
+
+    if lng_terms is not None:
+        for field, value in lng_metadata_fields(lng_terms).items():
             setattr(new_order, field, value)
 
     new_order.product = product
@@ -2126,6 +2144,7 @@ async def create_order(
             certification_declared=order_data.certification_declared,
             certification_scheme=normalized_certification_scheme,
             fame_terms=fame_terms,
+            lng_terms=lng_terms,
             specification_standard=order_data.specification_standard,
             msds_available=order_data.msds_available,
             carbon_intensity_gco2_mj=order_data.carbon_intensity_gco2_mj,
@@ -2466,6 +2485,15 @@ async def update_order(
             raise HTTPException(422, "UCOME B100 orders require at least 1 MT")
         update_dict["fame_terms"] = fame_terms
         update_dict.update(fame_metadata_fields(fame_terms))
+    lng_terms = validate_lng_order_terms(
+        order.product_id, order.side,
+        update_dict.get("lng_terms", getattr(order, "lng_terms", None)),
+    )
+    if lng_terms is not None:
+        if update_dict.get("quantity_mt", order.quantity_mt) < 1:
+            raise HTTPException(422, "Bio-LNG orders require at least 1 MT")
+        update_dict["lng_terms"] = lng_terms
+        update_dict.update(lng_metadata_fields(lng_terms))
     if "certification_scheme" in update_dict:
         update_dict["certification_scheme"] = normalize_certification_scheme(update_dict["certification_scheme"])
     if order.side != OrderSide.ASK:
@@ -2476,7 +2504,7 @@ async def update_order(
             certification_declared=bool(update_dict.get("certification_declared", order.certification_declared)),
             certification_scheme=update_dict.get("certification_scheme", order.certification_scheme),
         )
-        if fame_terms is not None:
+        if fame_terms is not None or lng_terms is not None:
             if not update_dict.get("msds_available", order.msds_available):
                 raise HTTPException(422, "ASK orders require an available safety data sheet")
         else:
@@ -2503,6 +2531,7 @@ async def update_order(
                 "expires_at",
                 "certifications",
                 "fame_terms",
+                "lng_terms",
             }
         )
     )
@@ -2571,6 +2600,16 @@ async def update_order(
     if locked_terms is not None:
         update_dict["fame_terms"] = locked_terms
         update_dict.update(fame_metadata_fields(locked_terms))
+
+    locked_lng_terms = validate_lng_order_terms(
+        order.product_id, order.side,
+        update_data.lng_terms if "lng_terms" in update_data.model_fields_set else getattr(order, "lng_terms", None),
+    )
+    if locked_lng_terms is not None:
+        update_dict["lng_terms"] = locked_lng_terms
+        update_dict.update(lng_metadata_fields(locked_lng_terms))
+        if order.side == OrderSide.ASK and not update_dict.get("msds_available", order.msds_available):
+            raise HTTPException(422, "ASK orders require an available safety data sheet")
 
     public_before = await public_order_is_visible(db, order.id)
 

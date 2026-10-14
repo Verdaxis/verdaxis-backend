@@ -19,7 +19,7 @@ SIGNUP_ORG_TYPES = BUY_SIDE_ORG_TYPES | {
 
 def organization_type_matches_role(role: UserRole, org_type: OrgType) -> bool:
     if role == UserRole.SUPPLIER:
-        return org_type == OrgType.FUEL_SUPPLIER
+        return org_type in {OrgType.FUEL_SUPPLIER, OrgType.FUEL_TRADER}
     return role == UserRole.BUYER and org_type in BUY_SIDE_ORG_TYPES
 
 

@@ -46,6 +46,7 @@ from app.services.execution_policy import (
     execution_party_is_eligible,
     order_is_execution_qualified,
 )
+from app.services.lng_order import lng_metadata_fields, public_lng_terms, validate_lng_order_terms
 from app.services.fame_order import (
     fame_metadata_fields,
     public_fame_terms,
@@ -121,6 +122,11 @@ def _inventory_write_values(item: InventoryCreate) -> dict[str, Any]:
     values["fame_terms"] = terms
     if terms is not None:
         values.update(fame_metadata_fields(terms))
+    lng_product_id = PRODUCT_IDS["BIO_LNG"] if item.product_name == "Bio-LNG" else None
+    lng_terms = validate_lng_order_terms(lng_product_id, OrderSide.ASK, item.lng_terms)
+    values["lng_terms"] = lng_terms
+    if lng_terms is not None:
+        values.update(lng_metadata_fields(lng_terms))
     return values
 
 
@@ -453,6 +459,8 @@ async def publish_inventory_item(
     if not product:
         raise HTTPException(status_code=400, detail="Unable to map inventory item to a catalog product")
 
+    if product.id == PRODUCT_IDS["BIO_LNG"]:
+        raise HTTPException(400, "Bio-LNG inventory publication is not supported; post an ASK with lng_terms")
     require_orderbook_product(product)
 
     delivery_point = await _resolve_delivery_point(db, item)
@@ -560,9 +568,14 @@ async def publish_inventory_item(
     fame_terms = validate_fame_order_terms(
         product.id, OrderSide.ASK, item.fame_terms, SPOT_WINDOW
     )
+    lng_terms = validate_lng_order_terms(product.id, OrderSide.ASK, getattr(item, "lng_terms", None))
     supplier_metadata = {
         field: getattr(item, field) for field in SUPPLIER_METADATA_FIELDS
     }
+    if lng_terms is not None:
+        if item.fuel_type != ModelFuelType.LNG or item.is_certified:
+            raise HTTPException(422, "Bio-LNG inventory requires an unverified LNG declaration")
+        supplier_metadata.update(lng_metadata_fields(lng_terms))
     energy_density_mj_kg = None
     if fame_terms is not None:
         if item.fuel_type != ModelFuelType.FAME or item.is_certified:
@@ -600,6 +613,7 @@ async def publish_inventory_item(
             else []
         ),
         fame_terms=deepcopy(fame_terms),
+        lng_terms=deepcopy(lng_terms),
         energy_density_mj_kg=energy_density_mj_kg,
         status=OrderBookStatus.OPEN,
         idempotency_key=idempotency_key,
@@ -766,6 +780,11 @@ def _listing_payload(
         "origin": order.origin,
         "off_spec": order.off_spec,
         "off_spec_notes": order.off_spec_notes,
+        "lng_terms": (
+            deepcopy(getattr(order, "lng_terms", None))
+            if include_private_terms
+            else public_lng_terms(getattr(order, "lng_terms", None))
+        ),
         "fame_terms": (
             deepcopy(order.fame_terms)
             if include_private_terms

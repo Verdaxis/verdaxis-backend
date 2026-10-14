@@ -97,6 +97,7 @@ from app.services.execution_policy import (
     normalize_certification_scheme,
 )
 from app.services.fame_order import fame_metadata_fields, validate_fame_order_terms
+from app.services.lng_order import lng_metadata_fields, validate_lng_order_terms
 from app.services.idempotency import (
     acquire_idempotency_lock,
     idempotency_request_hash,
@@ -387,6 +388,7 @@ def _authorization_order(row: MarketSupportAuthorization):
         off_spec=row.off_spec,
         off_spec_notes=row.off_spec_notes,
         fame_terms=deepcopy(row.fame_terms),
+        lng_terms=deepcopy(getattr(row, "lng_terms", None)),
     )
 
 
@@ -899,12 +901,17 @@ async def create_authorization(
                 )
             }
         )
+    lng_terms = validate_lng_order_terms(body.order.product_id, body.order.side, body.order.lng_terms)
+    if lng_terms is not None:
+        body = body.model_copy(update={
+            "order": body.order.model_copy(update=lng_metadata_fields(lng_terms))
+        })
     scheme = normalize_certification_scheme(body.order.certification_scheme)
     _require_supplier_certification(
         certification_declared=body.order.certification_declared,
         certification_scheme=scheme,
     )
-    if fame_terms is None:
+    if fame_terms is None and lng_terms is None:
         _require_supplier_metadata(
             specification_standard=body.order.specification_standard.strip(),
             msds_available=body.order.msds_available,
@@ -948,6 +955,7 @@ async def create_authorization(
         off_spec=body.order.off_spec,
         off_spec_notes=(body.order.off_spec_notes.strip() if body.order.off_spec_notes else None),
         fame_terms=deepcopy(fame_terms),
+        lng_terms=deepcopy(lng_terms),
         terms_digest="0" * 64,
         evidence_reference=body.evidence_reference,
         evidence_sha256=body.evidence_sha256,
@@ -1061,6 +1069,7 @@ def _candidate_from_authorization(
         off_spec=authorization.off_spec,
         off_spec_notes=authorization.off_spec_notes,
         fame_terms=deepcopy(authorization.fame_terms),
+        lng_terms=deepcopy(getattr(authorization, "lng_terms", None)),
         energy_density_mj_kg=(
             fame_metadata_fields(authorization.fame_terms).get("energy_density_mj_kg")
             if authorization.fame_terms is not None

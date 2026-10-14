@@ -814,6 +814,7 @@ class TestMarketplaceFuelFiltering:
 
         assert asks.counts == {
             'UCOME_B100': 0,
+            'BIO_LNG': 0,
             'BIO_METHANOL': 1,
             'E_METHANOL': 1,
             'BIO_ETHANOL': 0,

@@ -46,8 +46,9 @@ def economic_order_payload(order: OrderCreate) -> dict[str, object]:
     payload.pop("support_confirmation", None)
     # Adding an optional fuel contract must not change historical generic
     # authorization digests. Present contracts remain part of exact authority.
-    if payload.get("fame_terms") is None:
-        payload.pop("fame_terms", None)
+    for field in ("fame_terms", "lng_terms"):
+        if payload.get(field) is None:
+            payload.pop(field, None)
     return payload
 
 
@@ -55,11 +56,13 @@ def economic_order_idempotency_payload(order: OrderCreate) -> dict[str, object]:
     """JSON-ready equivalent used by the legacy order idempotency contract."""
     payload = order.model_dump(mode="json")
     payload.pop("support_confirmation", None)
-    terms = economic_order_payload(order).get("fame_terms")
-    if terms is None:
-        payload.pop("fame_terms", None)
-    else:
-        payload["fame_terms"] = _canonical_digest_value(terms)
+    economic_payload = economic_order_payload(order)
+    for field in ("fame_terms", "lng_terms"):
+        terms = economic_payload.get(field)
+        if terms is None:
+            payload.pop(field, None)
+        else:
+            payload[field] = _canonical_digest_value(terms)
     return payload
 
 

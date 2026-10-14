@@ -34,6 +34,7 @@ from app.services.market_admission import lock_and_load_market_organizations
 from app.services.org_notifications import OrgNotification, notify_org_users_batched
 from app.services.trade_fees import resolve_seller_trade_fee
 from app.services.fame_order import fame_trade_snapshot, is_fame_product
+from app.services.lng_order import lng_trade_snapshot, is_lng_product
 
 # A single transaction must not hold an unbounded number of market rows. This
 # is a conservative operational cap. An over-cap match is rejected and the
@@ -332,6 +333,13 @@ async def match_order(
             commission_rate_pct=Decimal("0"),
             commission_fee_per_mt_usd=commission_fee_per_mt_usd,
             commission_plan=commission_plan.value,
+            lng_terms_snapshot=(
+                lng_trade_snapshot(
+                    new_order.lng_terms if new_order.side == OrderSide.BID else crossing.lng_terms,
+                    crossing.lng_terms if new_order.side == OrderSide.BID else new_order.lng_terms,
+                )
+                if is_lng_product(new_order.product_id) else None
+            ),
             fame_terms_snapshot=(
                 fame_trade_snapshot(
                     new_order.fame_terms if new_order.side == OrderSide.BID else crossing.fame_terms,

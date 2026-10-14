@@ -7,6 +7,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from app.schemas.market_integrity import finite_decimal
+from app.schemas.lng_order import LngOrderTerms, LngTradeSnapshot, LngPublicTradeSnapshot
 from app.schemas.fame_order import (
     FameOrderTerms,
     FamePublicTradeSnapshot,
@@ -34,6 +35,7 @@ class NegotiationCreateRequest(BaseModel):
     notes: Optional[str] = Field(None, max_length=500)
     expires_in_hours: int = Field(default=1, ge=1, le=72)
     fame_terms: FameOrderTerms | None = None
+    lng_terms: LngOrderTerms | None = None
     certification_declared: bool = False
     msds_available: bool = False
 
@@ -114,6 +116,7 @@ class NegotiationResponse(BaseModel):
     updated_at: datetime
     rounds: list[NegotiationRoundResponse] = []
     fame_terms_snapshot: FameTradeSnapshot | FamePublicTradeSnapshot | None = None
+    lng_terms_snapshot: LngTradeSnapshot | LngPublicTradeSnapshot | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
