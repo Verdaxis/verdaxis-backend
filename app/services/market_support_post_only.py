@@ -1,5 +1,6 @@
 """Fail-closed post-only assessment for assisted listings."""
 from __future__ import annotations
+from app.services.market_data_eligibility import public_order_owner_admission_clause
 
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -51,6 +52,8 @@ async def assess_locked_order(
         price_filter = OrderBookOrder.price_per_mt_usd <= candidate.price_per_mt_usd
         price_order = OrderBookOrder.price_per_mt_usd.asc()
     filters = (
+        OrderBookOrder.owner_user_id.is_not(None),
+        public_order_owner_admission_clause(OrderBookOrder),
         OrderBookOrder.side == opposite_side,
         OrderBookOrder.product_id == candidate.product_id,
         OrderBookOrder.delivery_point_id == candidate.delivery_point_id,

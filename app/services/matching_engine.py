@@ -1,3 +1,4 @@
+from app.services.market_data_eligibility import public_order_owner_admission_clause
 """
 Match-on-insert engine. When a new order is placed, scan for crossing orders
 and automatically create trades. Uses price-acceptance priority at each level.
@@ -148,6 +149,14 @@ async def match_order(
             Organization.verification_status == "APPROVED"
         ),
     ]
+
+    if allowed_demo_counterparty_id is None:
+        match_filters.extend((
+            OrderBookOrder.owner_user_id.is_not(None),
+            public_order_owner_admission_clause(OrderBookOrder),
+        ))
+    else:
+        match_filters.append(OrderBookOrder.id == allowed_demo_counterparty_id)
 
     # delivery_point_id match: both NULL or both equal
     if new_order.delivery_point_id is None:

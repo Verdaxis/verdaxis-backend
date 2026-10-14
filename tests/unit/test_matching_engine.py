@@ -686,6 +686,21 @@ class TestNoMatch:
         assert bid.remaining_quantity_mt == bid.quantity_mt
 
     @pytest.mark.asyncio
+    async def test_ineligible_crossings_do_not_exhaust_fanout(self, db, buyer_org, seller_org, org_buyer_id, org_seller_id, test_product, test_dp):
+        from app.services.market_support_post_only import assess_locked_order
+
+        seller = await db.get(User, _owner_user_id(org_seller_id))
+        seller.kyc_status = "PENDING"
+        db.add_all([_make_order(org_seller_id, OrderSide.ASK, price=Decimal("550")) for _ in range(101)])
+        bid = _make_order(org_buyer_id, OrderSide.BID, price=Decimal("560"))
+        db.add(bid)
+        await db.flush()
+        assessment = await assess_locked_order(db, bid, organization=buyer_org)
+        assert not assessment.indeterminate
+        assert not assessment.would_cross
+        assert await match_order(db, bid) == []
+
+    @pytest.mark.asyncio
     async def test_no_self_trade(self, db, buyer_org, org_buyer_id, test_product, test_dp):
         """Orders from the same organization should NOT match each other."""
         ask = _make_order(org_buyer_id, OrderSide.ASK, price=Decimal("550.00"))
