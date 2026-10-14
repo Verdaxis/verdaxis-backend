@@ -221,6 +221,10 @@ KYC follows `blng_20261014_staging` in the combined migration chain and checkpoi
 with a 1 MT order minimum and no synthetic seed liquidity. `schemas/lng_order.py`
 defines side-specific declarations and requirements. `services/lng_order.py`
 owns validation, the eight compatibility rules, scalar derivation and redaction.
+Its posting-admission helper rejects reseller ASKs with HTTP 422
+`RESELLER_ALLOCATION_REQUIRED` under the 14 October 2026 founder decision until
+the verified supplier-allocation tool replaces the block. Create, amend and
+assisted authorization share this check; BID terms and matching are unchanged.
 `reference/iso_countries.py` provides the 249 assigned ISO alpha-2 origin codes.
 
 Orders, assisted authorizations and negotiations retain typed LNG terms; trades

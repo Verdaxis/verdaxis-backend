@@ -86,7 +86,10 @@ def test_all_compatibility_rules(requirements, declarations, compatible):
 
 def test_product_side_validation_and_direct_take_error():
     from app.market_catalog import PRODUCT_IDS
-    from app.services.lng_order import validate_lng_order_terms, require_lng_counterparty_terms
+    from app.services.lng_order import (
+        require_lng_counterparty_terms,
+        validate_lng_order_terms,
+    )
     product_id = PRODUCT_IDS["BIO_LNG"]
     for product, side, terms in [(product_id, "ASK", None), (product_id, "BID", ASK),
                                   (PRODUCT_IDS["BIO_METHANOL"], "ASK", ASK)]:
@@ -99,8 +102,24 @@ def test_product_side_validation_and_direct_take_error():
     assert error.value.detail == {"code": "LNG_TERMS_INCOMPATIBLE"}
 
 
+@pytest.mark.parametrize("accept_resellers", [False, True])
+def test_bid_admission_preserves_reseller_preference(accept_resellers):
+    from app.market_catalog import PRODUCT_IDS
+    from app.services.lng_order import validate_lng_order_admission
+
+    terms = validate_lng_order_admission(
+        PRODUCT_IDS["BIO_LNG"], "BID", {**BID, "accept_resellers": accept_resellers},
+    )
+    assert terms["accept_resellers"] is accept_resellers
+
+
 def test_scalar_derivation_and_snapshot_privacy():
-    from app.services.lng_order import lng_metadata_fields, lng_trade_snapshot, public_lng_terms, redact_lng_trade_snapshot
+    from app.services.lng_order import (
+        lng_metadata_fields,
+        lng_trade_snapshot,
+        public_lng_terms,
+        redact_lng_trade_snapshot,
+    )
     scalars = lng_metadata_fields(ASK)
     assert scalars["carbon_intensity_gco2_mj"] is None
     assert scalars["certification_declared"] is True

@@ -7,8 +7,12 @@ from pydantic import BaseModel, TypeAdapter, ValidationError
 
 from app.market_catalog import PRODUCT_IDS
 from app.schemas.lng_order import (
-    LngAskTerms, LngBidTerms, LngOrderTerms, LngPublicAskTerms,
-    LngPublicTradeSnapshot, LngTradeSnapshot,
+    LngAskTerms,
+    LngBidTerms,
+    LngOrderTerms,
+    LngPublicAskTerms,
+    LngPublicTradeSnapshot,
+    LngTradeSnapshot,
 )
 
 _TERMS = TypeAdapter(LngOrderTerms)
@@ -40,6 +44,17 @@ def validate_lng_order_terms(product_id: Any, side: Any, terms: Any) -> dict | N
     if parsed.side != str(getattr(side, "value", side)):
         raise HTTPException(422, "LNG terms must match the order side")
     return parsed.model_dump(mode="json")
+
+
+def validate_lng_order_admission(product_id: Any, side: Any, terms: Any) -> dict | None:
+    normalized = validate_lng_order_terms(product_id, side, terms)
+    if normalized is not None and normalized["side"] == "ASK" and not normalized["seller_is_physical_supplier"]:
+        # Founder decision, 14 October 2026: the allocation tool will replace this check.
+        raise HTTPException(422, {
+            "code": "RESELLER_ALLOCATION_REQUIRED",
+            "message": "Reseller listings need a verified supplier allocation. Contact Verdaxis to register one.",
+        })
+    return normalized
 
 
 def lng_metadata_fields(terms: Any) -> dict:
