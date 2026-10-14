@@ -21,6 +21,7 @@ google-genai==2.23.0
 pytest
 pytest-asyncio
 httpx
+mcp==2.3.0
 python-multipart
 aiosqlite
 psutil==5.9.4
