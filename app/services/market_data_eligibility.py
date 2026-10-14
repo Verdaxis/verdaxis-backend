@@ -11,7 +11,12 @@ from uuid import UUID
 from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.market_catalog import CANONICAL_DELIVERY_POINTS, CANONICAL_PRODUCTS
+from app.market_catalog import (
+    CANONICAL_DELIVERY_POINTS,
+    CANONICAL_PRODUCTS,
+    PRODUCTS_BY_CODE,
+    product_delivery_point_allowed,
+)
 from app.models.catalog import DeliveryPoint, Product
 from app.models.marketplace import InventoryItem
 from app.models.orderbook import (
@@ -22,7 +27,10 @@ from app.models.orderbook import (
     Trade,
 )
 from app.models.port import Port
-from app.services.execution_policy import biofuel_supplier_metadata_clause
+from app.services.execution_policy import (
+    ask_carbon_intensity_clause,
+    biofuel_supplier_metadata_clause,
+)
 from app.services.market_provenance import (
     MarketEvidenceScope,
     canonical_availability_window_clause,
@@ -170,10 +178,31 @@ def canonical_delivery_point_clause(delivery_point):
     )
 
 
+def market_product_supports_delivery_point(market_product: str | None, delivery_point_id) -> bool:
+    """Use the catalog lane contract in reads as well as order execution."""
+    spec = PRODUCTS_BY_CODE.get(market_product)
+    return spec is not None and product_delivery_point_allowed(spec.id, delivery_point_id)
+
+
+def canonical_product_delivery_lane_clause(product, delivery_point):
+    """SQL mirror of the catalog lanes; unrestricted products pass unchanged."""
+    restricted = [spec for spec in CANONICAL_PRODUCTS if spec.available_delivery_point_ids]
+    return and_(
+        *(
+            or_(
+                product.id != spec.id,
+                delivery_point.id.in_(spec.available_delivery_point_ids),
+            )
+            for spec in restricted
+        )
+    )
+
+
 def active_market_catalog_clauses(product, delivery_point):
     return (
         canonical_product_clause(product),
         canonical_delivery_point_clause(delivery_point),
+        canonical_product_delivery_lane_clause(product, delivery_point),
     )
 
 
@@ -246,7 +275,7 @@ def _public_order_projection_statement(*, as_of: datetime | None = None):
                     )
                     > 0,
                     OrderBookOrder.msds_available.is_(True),
-                    OrderBookOrder.carbon_intensity_gco2_mj.is_not(None),
+                    ask_carbon_intensity_clause(OrderBookOrder, OrderBookOrder.product_id),
                     func.length(func.trim(func.coalesce(OrderBookOrder.feedstock, "")))
                     > 0,
                     func.length(func.trim(func.coalesce(OrderBookOrder.origin, ""))) > 0,

@@ -13,6 +13,7 @@ from sqlalchemy.orm import selectinload
 
 from app.config import settings
 from app.database import get_db
+from app.market_catalog import product_delivery_point_error
 from app.models.catalog import DeliveryPoint, Product
 from app.models.market_support import (
     MarketSupportAuthorization,
@@ -82,6 +83,7 @@ from app.services.idempotency import (
     acquire_idempotency_lock,
     idempotency_request_hash,
 )
+from app.services.lng_terms import is_bio_lng_product
 from app.services.live_benchmarks import rebuild_live_slice_benchmarks_for_keys
 from app.services.market_admission import MarketActorOwnership, lock_and_load_market_organizations
 from app.services.market_data_eligibility import (
@@ -96,6 +98,7 @@ from app.services.market_locks import (
 )
 from app.services.market_support import (
     authorization_terms_digest,
+    economic_order_idempotency_payload,
     lock_support_order_parties,
     order_etag,
     require_matching_etag,
@@ -329,6 +332,9 @@ async def _load_catalog(db: AsyncSession, product_id: UUID, delivery_point_id: U
     ).scalar_one_or_none()
     if product is None or delivery_point is None:
         raise HTTPException(status_code=400, detail="Invalid product or delivery point")
+    lane_error = product_delivery_point_error(product.id, delivery_point.id)
+    if lane_error:
+        raise HTTPException(status_code=400, detail=lane_error)
     return product, delivery_point
 
 
@@ -812,7 +818,7 @@ async def create_authorization(
     request_payload = body.model_dump(mode="json")
     # The confirmation is transient evidence, not an authorization term or
     # part of the pre-context idempotency contract.
-    request_payload.get("order", {}).pop("support_confirmation", None)
+    request_payload["order"] = economic_order_idempotency_payload(body.order)
     request_hash = idempotency_request_hash(request_payload)
     await acquire_idempotency_lock(db, lock_scope_id=organization_id, operation=AUTH_CREATE_OPERATION, key=key)
     existing = (
@@ -849,6 +855,12 @@ async def create_authorization(
         )
     if not is_tradable_availability_window(body.order.availability_window):
         raise HTTPException(status_code=409, detail="Availability window is not open for new listings")
+    if is_bio_lng_product(body.order.product_id) or body.order.lng_terms is not None:
+        # Authorizations do not store lng_terms; the context workspace does.
+        raise HTTPException(
+            status_code=400,
+            detail="Bio-LNG assisted listings use an active Market Support context and the normal order route",
+        )
     scheme = normalize_certification_scheme(body.order.certification_scheme)
     _require_supplier_certification(
         certification_declared=body.order.certification_declared,

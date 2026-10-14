@@ -1,20 +1,26 @@
 """Direct PostgreSQL proofs for the market-owned schema contract."""
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.market_catalog import DELIVERY_POINTS_BY_NAME, PRODUCTS_BY_CODE
+from app.market_catalog import DELIVERY_POINTS_BY_ID, PRODUCTS_BY_CODE
 from app.models.catalog import DeliveryPoint, Product
 from app.models.orderbook import Initiator, OrderBookOrder, OrderBookStatus, OrderSide, Trade, TradeStatus
 from app.models.user import Organization, OrganizationProvenance, OrgType
+from app.services.lng_terms import derived_order_fields, is_bio_lng_product, lng_trade_snapshot
 from tests.postgres.market_test_support import assign_fixture_real_provenance
+from tests.unit.fixtures import bio_lng
+
+
+_SINGAPORE_ID = UUID("73835e92-820e-584b-8280-bb61c63aa28e")
 
 
 @pytest.fixture
@@ -30,7 +36,12 @@ async def market_rows(market_pg, request):
             type=OrgType.FUEL_SUPPLIER,
         )
         product_spec = PRODUCTS_BY_CODE[getattr(request, "param", "BIO_METHANOL")]
-        point_spec = DELIVERY_POINTS_BY_NAME["Singapore"]
+        # Singapore for unrestricted products; a lane-bound product uses its first lane.
+        point_spec = DELIVERY_POINTS_BY_ID[
+            product_spec.available_delivery_point_ids[0]
+            if product_spec.available_delivery_point_ids
+            else _SINGAPORE_ID
+        ]
         product = Product(
             id=product_spec.id,
             name=product_spec.name,
@@ -74,6 +85,10 @@ async def market_rows(market_pg, request):
             feedstock="biogenic",
             origin="schema-test",
         )
+        if is_bio_lng_product(product.id):
+            order.lng_terms = bio_lng.ask_terms()
+            for field, value in derived_order_fields(OrderSide.ASK, order.lng_terms).items():
+                setattr(order, field, value)
         session.add(order)
         await session.flush()
         trade = Trade(
@@ -101,6 +116,11 @@ async def market_rows(market_pg, request):
             commission_rate_pct=Decimal("0"),
             commission_fee_per_mt_usd=Decimal("2.00"),
             commission_plan="free",
+            lng_terms_snapshot=(
+                lng_trade_snapshot(bio_lng.bid_terms(), order.lng_terms)
+                if is_bio_lng_product(product.id)
+                else None
+            ),
         )
         session.add(trade)
         await session.commit()
@@ -132,6 +152,8 @@ async def test_exact_market_constraints_exist(market_pg):
         "ck_trades_lifecycle",
         "ck_trades_snapshot",
         "ck_trades_commission_snapshot",
+        "ck_orderbook_orders_lng_terms",
+        "ck_trades_lng_terms",
         "ck_subscriptions_seller_fee_per_mt",
         "ck_inventory_items_numeric_values",
         "ck_rfqs_domain",
@@ -495,7 +517,7 @@ async def test_biofuel_snapshot_rejects_forged_identity_and_remains_immutable(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("market_product", ["B30", "B100"])
+@pytest.mark.parametrize("market_product", ["B30", "B100", "BIO_LNG"])
 async def test_biofuel_forward_signal_checks_accept_known_and_reject_unknown_product(
     market_pg, market_rows, market_product
 ):
@@ -525,3 +547,75 @@ async def test_biofuel_forward_signal_checks_accept_known_and_reject_unknown_pro
             f"UPDATE {table} SET market_product = 'B31' WHERE id = :id",
             id=row_id,
         )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("market_rows", ["BIO_LNG"], indirect=True)
+async def test_bio_lng_terms_are_lane_bound_and_trade_snapshot_is_immutable(
+    market_pg, market_rows
+):
+    # The fixture persisted a valid Bio-LNG ask at Rotterdam and its trade.
+    changed_ask = bio_lng.ask_terms(scheme_certificate_number="EU-ISCC-FORGED")
+    changed_snapshot = lng_trade_snapshot(bio_lng.bid_terms(), changed_ask)
+    await _rejected(
+        market_pg,
+        "UPDATE trades SET lng_terms_snapshot = CAST(:snapshot AS json) WHERE id = :id",
+        id=market_rows["trade"],
+        snapshot=json.dumps(changed_snapshot),
+    )
+    await _rejected(
+        market_pg,
+        "UPDATE trades SET lng_terms_snapshot = NULL WHERE id = :id",
+        id=market_rows["trade"],
+    )
+    await _rejected(
+        market_pg,
+        "UPDATE orderbook_orders SET lng_terms = NULL WHERE id = :id",
+        id=market_rows["order"],
+    )
+    await _rejected(
+        market_pg,
+        "UPDATE orderbook_orders SET lng_terms = CAST(:terms AS json) WHERE id = :id",
+        id=market_rows["order"],
+        terms=json.dumps(bio_lng.bid_terms()),
+    )
+
+    singapore = DELIVERY_POINTS_BY_ID[_SINGAPORE_ID]
+    async with market_pg.begin() as connection:
+        await connection.execute(
+            text(
+                "INSERT INTO delivery_points (id, name, region, timezone, is_active) "
+                "VALUES (:id, :name, :region, :timezone, true) ON CONFLICT DO NOTHING"
+            ),
+            {
+                "id": singapore.id,
+                "name": singapore.name,
+                "region": singapore.region,
+                "timezone": singapore.timezone,
+            },
+        )
+    copy_order = (
+        "INSERT INTO orderbook_orders (id, organization_id, provenance, side, product_id, "
+        "delivery_point_id, quantity_mt, remaining_quantity_mt, price_per_mt_usd, "
+        "availability_window, status, lng_terms) "
+        "SELECT :new_id, organization_id, provenance, side, product_id, :point, quantity_mt, "
+        "remaining_quantity_mt, price_per_mt_usd, availability_window, status, lng_terms "
+        "FROM orderbook_orders WHERE id = :id"
+    )
+    await _rejected(
+        market_pg, copy_order, new_id=uuid4(), id=market_rows["order"], point=singapore.id,
+    )
+    async with market_pg.begin() as connection:
+        copied = await connection.execute(
+            text(copy_order),
+            {"new_id": uuid4(), "id": market_rows["order"], "point": market_rows["point"]},
+        )
+        assert copied.rowcount == 1
+
+    # Mutable trade lifecycle columns stay writable.
+    async with market_pg.begin() as connection:
+        result = await connection.execute(
+            text("UPDATE trades SET status = 'DECLINED', confirmed_at = NULL WHERE id = :id"),
+            {"id": market_rows["trade"]},
+        )
+        assert result.rowcount == 1

@@ -14,7 +14,11 @@ from app.models.catalog import DeliveryPoint, Product
 from app.models.live_slice_benchmark import LiveSliceBenchmark
 from app.models.orderbook import OrderBookOrder, OrderBookStatus, OrderSide
 from app.services.availability_windows import normalize_availability_window
-from app.services.execution_policy import normalize_certification_scheme, order_is_execution_qualified
+from app.services.execution_policy import (
+    normalize_certification_scheme,
+    order_is_execution_qualified,
+    scalar_carbon_intensity_required,
+)
 from app.services.market_data_eligibility import (
     canonical_delivery_point_clause,
     canonical_market_product_expression,
@@ -57,7 +61,7 @@ def public_slice_order_qualified(
         return False
     if not order.msds_available:
         return False
-    if order.carbon_intensity_gco2_mj is None:
+    if order.carbon_intensity_gco2_mj is None and scalar_carbon_intensity_required(order.product_id):
         return False
     if not _text_present(order.feedstock):
         return False
@@ -134,6 +138,7 @@ async def _calculate_live_slice_benchmarks(
             OrderBookOrder.carbon_intensity_method,
             OrderBookOrder.feedstock,
             OrderBookOrder.origin,
+            OrderBookOrder.lng_terms,
         )
         .join(Product, OrderBookOrder.product_id == Product.id)
         .join(DeliveryPoint, OrderBookOrder.delivery_point_id == DeliveryPoint.id)
