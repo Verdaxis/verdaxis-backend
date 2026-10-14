@@ -12,6 +12,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from slowapi.errors import RateLimitExceeded
 from sqlalchemy.exc import DBAPIError
+from starlette.routing import Route
+
+from app.mcp_server import MCP_PATH, build_mcp_http_app, build_mcp_server, mcp_enabled
 
 from app.config import settings
 from app.services.db_errors import (
@@ -115,7 +118,11 @@ async def lifespan(app: FastAPI):
     dispatcher = MarketEventDispatcher(engine, event_bus)
     await dispatcher.start()
     try:
-        yield
+        if mcp is not None:
+            async with mcp.session_manager.run():
+                yield
+        else:
+            yield
     finally:
         await dispatcher.stop()
 
@@ -127,6 +134,14 @@ app = FastAPI(
     redoc_url=_redoc_url,
     lifespan=lifespan,
 )
+
+mcp = build_mcp_server() if mcp_enabled(settings.ENVIRONMENT) else None
+if mcp is not None:
+    # Mount redirects /mcp to /mcp/. An ASGI Route preserves the exact POST path;
+    # the SDK handles the streamable HTTP methods and protocol responses.
+    app.router.routes.append(Route(
+        MCP_PATH, endpoint=build_mcp_http_app(mcp), methods=["GET", "POST", "DELETE"],
+    ))
 
 # A context-bearing request may only reach the explicitly classified support
 # routes. The request-party dependency still performs database revalidation.

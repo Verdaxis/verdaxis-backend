@@ -21,6 +21,7 @@ source documentation. The shared-host marker is
 ```
 app/
   main.py                       # FastAPI app, exact credentialed CORS, sanitized readiness/provenance, error handlers
+  mcp_server.py                 # Read-only market/voyage MCP tools, admission and transport security; exact /mcp ASGI route and lifespan in main (non-production only)
   runtime_server.py             # Staging-only worker-exit diagnostics; delegates CLI handling to pinned Uvicorn
   config.py                     # Pydantic Settings — release/CORS boundaries and pool/upload budget validation
   database.py                   # AsyncSession factory, role/max_connections startup attestation, bounded pooling
@@ -86,6 +87,7 @@ app/
     market_support.py           # Exact authorization, capability, organization-context, and assisted-listing schemas
     market_activity.py          # Shared source/scope/demo-status provenance enums for market data
     behavioral_analytics.py     # Typed privacy-bounded admin product-usage response
+    voyage.py                   # Frozen voyage request/result, catalog, slice and price contracts for MCP and the pure engine
     [others unchanged]
   services/
     email.py                   # Shared light-mode email layout, seven message types, admin Reply-To, and Resend transport
@@ -105,6 +107,8 @@ app/
     availability_windows.py     # Canonical availability code parsing, sorting, display labels, legacy alias normalization
     compliance_scoring.py       # Pure function scoring — FuelEU/ETS/CII, 9 fuels, scenario engine
     voyage_fuel_plan.py         # Pure Decimal voyage cost engine; voyage schemas, sea distances, catalog and shared ETS/FuelEU rules; prices/today supplied by caller
+    voyage_prices.py            # Batched public ASK/benchmark price resolution and anonymous market slice snapshots; read-only
+    sea_distances.py            # Static symmetric catalog-port sea distances, default and supported Cape routes
     audit_service.py            # record_audit() — non-committing async audit logging (call inside the caller's transaction, before its commit)
     audit_actions.py            # THE source of truth for covered audit actions (registry of constants; meta-test forbids string literals at call sites)
     gemini_provider.py          # PID-scoped google-genai client, per-request retry/timeout budget, cancellation-safe worker capacity
