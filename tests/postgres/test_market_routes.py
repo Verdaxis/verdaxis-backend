@@ -5,7 +5,7 @@ import asyncio
 from datetime import UTC, datetime, timedelta, timezone
 from decimal import Decimal
 from unittest.mock import AsyncMock
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import httpx
 import pytest
@@ -56,6 +56,7 @@ from app.services.audit_actions import (
 from app.services import market_transactions
 from app.services.order_terms import order_terms_digest
 from tests.postgres.market_test_support import assign_fixture_real_provenance
+from tests.unit.fixtures import bio_lng
 
 
 def _headers(user_id, key: str) -> dict[str, str]:
@@ -2253,3 +2254,110 @@ async def test_bilateral_execution_is_permanently_disabled_but_one_sided_read_is
     assert rfq_accept.status_code == 409
     assert "disabled" in negotiation_accept.json()["detail"].lower()
     assert "disabled" in rfq_accept.json()["detail"].lower()
+
+
+async def _add_bio_lng_lanes(seeded) -> dict[str, object]:
+    """Add the Bio-LNG product and its Rotterdam lane to the seeded market."""
+    product_spec = PRODUCTS_BY_CODE["BIO_LNG"]
+    point_spec = DELIVERY_POINTS_BY_NAME["Rotterdam"]
+    async with seeded["factory"]() as session:
+        session.add_all([
+            Product(
+                id=product_spec.id,
+                name=product_spec.name,
+                fuel_type=product_spec.fuel_type,
+                fuel_grade=product_spec.fuel_grade,
+                unit=product_spec.unit,
+                min_lot_size=product_spec.min_lot_size,
+                is_active=True,
+            ),
+            DeliveryPoint(
+                id=point_spec.id,
+                name=point_spec.name,
+                region=point_spec.region,
+                timezone=point_spec.timezone,
+                is_active=True,
+            ),
+        ])
+        await session.commit()
+    return {"product_id": str(product_spec.id), "rotterdam_id": str(point_spec.id)}
+
+
+@pytest.mark.asyncio
+async def test_bio_lng_orders_bind_terms_lane_and_compatible_matching(route_market):
+    client, seeded = route_market
+    lanes = await _add_bio_lng_lanes(seeded)
+    order = {
+        "product_id": lanes["product_id"],
+        "delivery_point_id": lanes["rotterdam_id"],
+        "quantity_mt": "500.00",
+        "availability_window": "SPOT",
+    }
+
+    outside_lane = await client.post(
+        "/api/orderbook",
+        json={
+            **order,
+            "side": "ASK",
+            "price_per_mt_usd": "1500.00",
+            "msds_available": True,
+            "lng_terms": bio_lng.ask_terms(),
+            "delivery_point_id": str(seeded["point_id"]),
+        },
+        headers=_headers(seeded["seller_id"], "bio-lng-singapore-ask"),
+    )
+    ask = await client.post(
+        "/api/orderbook",
+        json={
+            **order,
+            "side": "ASK",
+            "price_per_mt_usd": "1500.00",
+            "msds_available": True,
+            # A client copy of a derived scalar is replaced by the terms.
+            "certification_scheme": "Client supplied",
+            "lng_terms": bio_lng.ask_terms(),
+        },
+        headers=_headers(seeded["seller_id"], "bio-lng-ask"),
+    )
+    reseller_refused = await client.post(
+        "/api/orderbook",
+        json={
+            **order,
+            "side": "BID",
+            "price_per_mt_usd": "1600.00",
+            "lng_terms": bio_lng.bid_terms(accept_resellers=False),
+        },
+        headers=_headers(seeded["buyer_id"], "bio-lng-physical-only-bid"),
+    )
+    compatible = await client.post(
+        "/api/orderbook",
+        json={
+            **order,
+            "side": "BID",
+            "quantity_mt": "200.00",
+            "price_per_mt_usd": "1600.00",
+            "lng_terms": bio_lng.bid_terms(),
+        },
+        headers=_headers(seeded["buyer_id"], "bio-lng-compatible-bid"),
+    )
+
+    assert outside_lane.status_code == 400
+    assert outside_lane.json()["detail"] == "Bio-LNG is available at Rotterdam only"
+    assert ask.status_code == 201, ask.text
+    assert "scheme_certificate_number" not in ask.json()["lng_terms"]
+    assert ask.json()["lng_terms"]["reseller"] is True
+    assert reseller_refused.status_code == 201, reseller_refused.text
+    assert reseller_refused.json()["status"] == "OPEN"
+    assert compatible.status_code == 201, compatible.text
+    assert compatible.json()["status"] == "FILLED"
+    async with seeded["factory"]() as session:
+        stored_ask = await session.get(OrderBookOrder, ask.json()["id"])
+        trade = (await session.execute(select(Trade))).scalar_one()
+    assert (stored_ask.certification_scheme, stored_ask.specification_standard) == (
+        "ISCC EU", "ISO 23306:2020",
+    )
+    assert stored_ask.carbon_intensity_gco2_mj is None
+    assert stored_ask.remaining_quantity_mt == Decimal("300.00")
+    assert trade.bid_order_id == UUID(compatible.json()["id"])
+    assert trade.lng_terms_snapshot["ask"] == stored_ask.lng_terms
+    assert trade.lng_terms_snapshot["bid"]["accept_resellers"] is True
