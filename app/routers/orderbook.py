@@ -2010,6 +2010,8 @@ async def create_order(
         require_kyc=party.mode == RequestPartyMode.SELF_SERVICE,
     )
     organization = organizations[effective_organization_id]
+    if party.mode == RequestPartyMode.MARKET_SUPPORT:
+        await require_customer_organization_execution(db, organization)
     require_minimum_order_quantity(
         quantity_mt=order_data.quantity_mt,
         product=product,

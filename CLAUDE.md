@@ -248,6 +248,14 @@ sudo -n -u verdaxis-prod /home/verdaxis-prod/verdaxis/staging/be/scripts/deploy.
 10. **Orderbook router: static routes before parametric.** `/bids`, `/asks`, `/my`, `/aggregated`, `/regions`, `/fuel-types`, `/with-ci` are defined before `/{order_id}` to avoid path conflicts.
 11. **After completing work, update ARCHITECTURE.md if file structure or key relationships changed.**
 
+## KYC execution gate
+
+- New execution requires organization-bound APPROVED KYC or valid migration-owned grace. Rejection overrides grace. Use `app/services/kyc_execution.py`, not a reject-only mirror.
+- Exact committed replays precede KYC admission. Cleanup (cancel, decline, deliver, pay, retract) must remain available with authentication and ownership checks. Indicative routes retain their prior admission policy.
+- Assisted execution uses the shared customer-organization helper in `execution_policy.py`; administrator KYC is irrelevant. Never seed fake demo KYC.
+- `kyc_execution_grace` is runtime SELECT-only. Notice claims live separately. The operator-only `app.cli.send_kyc_grace_notices` requires explicit deployed environment and full release SHA; no timer is installed. Uncertain sends remain claimed and are not automatically retried.
+- `/api/auth/me` includes `kyc_status` and `execution_eligibility`. Positive execution fixtures must explicitly bind approved KYC to their organization.
+
 ## Known Gotchas
 
 1. **API returns numbers as strings.** Pydantic serializes `Decimal` fields as strings by default. The frontend must wrap numeric fields with `Number()` before arithmetic. Affected fields: `quantity_mt`, `price_per_mt_usd`, `final_quantity_mt`, `final_price_per_mt`, `final_total_usd`, etc.

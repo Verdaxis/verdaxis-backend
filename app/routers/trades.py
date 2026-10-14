@@ -1245,6 +1245,7 @@ async def confirm_trade(
         linked_order=confirmed_order,
         current_user=current_user,
         expected_side=(OrderSide.ASK if trade.initiated_by == Initiator.BUYER else OrderSide.BID),
+        require_execution=True,
     )
 
     # Only the counterparty (non-initiator) can confirm

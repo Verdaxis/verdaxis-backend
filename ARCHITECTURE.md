@@ -32,11 +32,13 @@ app/
   rate_limit.py                 # slowapi Limiter singleton (key=remote_address)
   cli/
     refresh_news.py             # External singleton news-refresh entrypoint (never a web-worker scheduler)
+    send_kyc_grace_notices.py    # Operator-only, environment/SHA-bound at-most-once grace notice sender
   core/
     security.py                 # PyJWT + bcrypt — access/refresh/stream token creation, decode_token
   models/
     __init__.py                 # Imports all models for Alembic autogenerate
     user.py                     # User (password/authentication cutoffs, must_change_password), Organization, enums
+    kyc_execution_grace.py       # Migration-owned grace snapshot and separate durable notice claims
     port.py                     # Port (PostGIS), PortIntelligence, Vessel
     marketplace.py              # InventoryItem, FuelType enum
     orderbook.py                # OrderBookOrder (BID/ASK), Trade, canonical availability_window strings, enums (OrderSide, TradeStatus)
@@ -114,6 +116,8 @@ app/
     gemini_provider.py          # PID-scoped google-genai client, per-request retry/timeout budget, cancellation-safe worker capacity
     ai_service.py               # Bounded Gemini chat; unavailable providers fail without exposing provider details
     kyc.py                      # Advisory-only document extraction with deadline-bound model fallback
+    kyc_execution.py            # Organization-bound KYC/grace decision and SQL predicate
+    execution_policy.py         # Execution admission and shared assisted customer eligibility
     matchmaking.py              # Score-based BID/ASK matching (0-100)
     watchlists.py               # Market Radar helpers: default container, typed targets, slice summaries
     watchlist_events.py         # Slice/pin event emission from order lifecycle changes
@@ -200,6 +204,16 @@ alembic/versions/               # Migrations incl. canonical availability-window
 - **KYC trust boundary:** Gemini document analysis is advisory only and every submission remains pending. Only trusted administrator approve/reject routes may change KYC/account status. The removed legacy compliance and dashboard routes stay unmounted.
 - **Local operational monitoring:** `deploy/monitor` is a source-only contract, not installed-state evidence. Its current dual-loopback reader assumes both backends are on one host, so it must not be installed unchanged across the split topology. It owns no readiness producer, deploy transaction, backup producer, root installer, or activation path. The exact four-key readiness corpus, hostile-JSON handling, private status, independent demo ownership, and retirement gates remain source contracts. The installed shared-host external monitor uses a reviewed selective patch process described by `/home/verdaxis-prod/verdaxis/PRODUCTION_HOST.md`; source presence does not authorize replacement. Full owner seams: `deploy/monitor/README.md`.
 - **Onboarding attention:** A production-only five-minute oneshot reads canonical account, organization, join-request, approval-transition, and login state to alert operators about actionable onboarding stages. Demo/test/canary/admin accounts are excluded; persisted dedupe state contains no email or organization data. Initial activation silently baselines historical cases, while new stages alert once and non-baselined recoveries notify once.
+
+## KYC execution admission
+
+New order creation/amendment, inventory publication, taking, matching and confirmation require organization-bound APPROVED KYC or unexpired migration-enrolled grace. REJECTED overrides grace. Assisted orders require at least one admitted customer member; staff KYC cannot substitute for customer eligibility. Exact owned command replays precede the KYC check. Cancel, decline, deliver, pay and retract retain authentication/ownership checks without KYC admission. Indicative RFQs, negotiations and offers retain their prior admission policy. The exact allowlisted demo-to-demo matching path is unchanged and has no fabricated KYC.
+
+`kyc_execution_grace` is runtime SELECT-only. Migration `kycg_20261014_staging` snapshots eligible existing users for fourteen days. Uploads do not renew grace; changed membership cannot use another organization's row. `/api/auth/me` and login profiles expose `kyc_status` and `execution_eligibility`; public order and trade-action projections share the SQL rule.
+
+The operator runs `python -m app.cli.send_kyc_grace_notices --environment staging --release-sha <full-sha>` with the deployed runtime environment loaded. No timer or web worker sends notices. A separate `kyc_grace_notices` claim is committed before provider I/O. Successful sends record `sent_at`; failed or interrupted claims are deliberately not retried automatically, so the operator must review uncertain delivery rather than risk duplicate mail.
+
+Integration must reparent the KYC revision and its incoming checkpoint after `blng_20261014_staging`; this isolated branch initially uses `rcp_20261003_command_results`.
 
 ## UCOME B100 shared execution
 
