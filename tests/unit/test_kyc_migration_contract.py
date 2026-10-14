@@ -21,7 +21,9 @@ def test_kyc_is_the_only_head_after_bio_lng():
     checkpoints = (ROOT / "deploy/migration-checkpoints.tsv").read_text().splitlines()
     assert "blng_20261014_prod\tkycg_20261014_prod" in checkpoints
     assert "kycg_20261014_prod\tkycg_20261014_prod" in checkpoints
-    assert "uadl_20261003_delivery_reports\tkycg_20261014_prod" not in checkpoints
+    # Bio-LNG and KYC release together, so production moves from the
+    # pre-Bio-LNG head straight to the KYC head in one reviewed deploy.
+    assert "uadl_20261003_delivery_reports\tkycg_20261014_prod" in checkpoints
 
 
 def test_member_lookup_index_has_migration_and_orm_parity(monkeypatch):
