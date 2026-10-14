@@ -40,8 +40,10 @@ from app.services.voyage_prices import (
 
 MCP_ENVIRONMENTS = frozenset({"development", "test", "staging"})
 MCP_PATH = "/mcp"
-# Below the per-worker pool of 3 checkouts plus 1 for in-memory work.
-MCP_MAX_CONCURRENT_TOOL_CALLS = 4
+# Each worker has 3 database checkouts (DB_POOL_SIZE 2 + DB_MAX_OVERFLOW 1).
+# Public market reads may hold 2 of them, so MCP tools take at most 1 and
+# logins, orders and trades always keep a connection.
+MCP_MAX_CONCURRENT_TOOL_CALLS = 1
 
 tool_limiter = anyio.CapacityLimiter(MCP_MAX_CONCURRENT_TOOL_CALLS)
 logger = structlog.get_logger(__name__)

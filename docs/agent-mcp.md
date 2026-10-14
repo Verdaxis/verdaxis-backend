@@ -92,9 +92,11 @@ Numeric output fields are decimal strings. The green price carries
 
 ## Transport and limits
 
-- Four concurrent tool calls per worker, shared by all three tools. Admission
-  uses `acquire_nowait`; there is no admission queue. At capacity the MCP tool
-  error contains `Verdaxis market tools are busy; retry shortly.`
+- One concurrent tool call per worker (four across the four staging workers),
+  shared by all three tools. This keeps database connections free for logins,
+  orders and trades. Admission uses `acquire_nowait`; there is no admission
+  queue. At capacity the MCP tool error contains
+  `Verdaxis market tools are busy; retry shortly.`
 - The SDK rejects request bodies above 4 MiB with HTTP 413.
 - Up to ten connected legs, using the eight catalog ports. Speed must be above
   zero and at most 30 knots. The planner accepts start dates from 30 days before

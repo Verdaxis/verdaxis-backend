@@ -406,7 +406,7 @@ In UCOME_B100_MIN_BLEND, UCOME is 35.71 t and VLSFO 1232.60 t, with share s = 0.
   - `def build_mcp_server() -> MCPServer`
   - `def market_catalog() -> MarketCatalog`
   - `MCP_PATH = "/mcp"`
-  - `MCP_MAX_CONCURRENT_TOOL_CALLS = 4`, per worker: one below the per-worker pool of 3 checkouts (pool 2 plus overflow 1), plus 1 for in-memory work. Comment the reason.
+  - `MCP_MAX_CONCURRENT_TOOL_CALLS = 1` per worker. Corrected in review (2026-10-14) from 4: each worker has 3 database checkouts and public market reads may hold 2, so MCP tools take at most 1. Comment the reason.
 
 **Rules:**
 
