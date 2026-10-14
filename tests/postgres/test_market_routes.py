@@ -117,15 +117,18 @@ async def _seed_route_market(engine):
     factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     async with factory() as session:
         buyer_org = Organization(
+            id=uuid4(),
             name=f"Route Buyer {uuid4()}",
             type=OrgType.FUEL_BUYER,
             verification_status="APPROVED",
         )
         seller_org = Organization(
+            id=uuid4(),
             name=f"Route Seller {uuid4()}",
             type=OrgType.FUEL_SUPPLIER,
             verification_status="APPROVED",
         )
+        # Positive fixtures carry KYC approved for their own organization.
         buyer = User(
             email=f"buyer-{uuid4()}@route.test",
             password_hash="unused",
@@ -134,6 +137,7 @@ async def _seed_route_market(engine):
             organization=buyer_org,
             email_verified=True,
             kyc_status="APPROVED",
+            kyc_organization_id=buyer_org.id,
         )
         seller = User(
             email=f"seller-{uuid4()}@route.test",
@@ -143,6 +147,7 @@ async def _seed_route_market(engine):
             organization=seller_org,
             email_verified=True,
             kyc_status="APPROVED",
+            kyc_organization_id=seller_org.id,
         )
         product_spec = PRODUCTS_BY_CODE["BIO_METHANOL"]
         point_spec = DELIVERY_POINTS_BY_NAME["Singapore"]
@@ -217,10 +222,9 @@ async def route_market(market_pg):
         async with factory() as session:
             yield session
 
-    # Integration note: require_security_market_admission is now a thin
-    # re-export of security's require_execution_eligible_user, so it is not
-    # overridden — the seeded users are fully admitted (APPROVED, verified,
-    # KYC-clean, APPROVED orgs) and exercise the genuine gate.
+    # Integration note: the market gates are not overridden. The seeded users
+    # are fully admitted (APPROVED, verified, organization-bound APPROVED
+    # KYC, APPROVED orgs) and exercise the genuine execution gate.
     app.dependency_overrides[get_db] = override_db
     transport = httpx.ASGITransport(app=app, raise_app_exceptions=False)
     async with httpx.AsyncClient(
@@ -443,6 +447,129 @@ async def test_manual_trade_keeps_seller_fee_snapshot_and_hides_it_from_buyer(
     assert buyer_view["commission_plan"] is None
     assert buyer_view["commission_fee_per_mt_usd"] is None
     assert buyer_view["commission_amount_usd"] is None
+
+
+@pytest.mark.asyncio
+async def test_kyc_gate_blocks_new_executions_but_never_cleanup(route_market):
+    client, seeded = route_market
+    published = await client.post(
+        f"/api/inventory/{seeded['inventory_id']}/publish",
+        headers=_headers(seeded["seller_id"], "kyc-gate-publish"),
+    )
+    assert published.status_code == 200, published.text
+    listing_id = published.json()["listing_id"]
+
+    async def hit(key: str) -> str:
+        created = await client.post(
+            "/api/trades/",
+            json={
+                "order_id": listing_id,
+                "quantity_mt": "60.00",
+                "expected_terms_digest": await _reviewed_terms_digest(seeded, listing_id),
+            },
+            headers=_headers(seeded["buyer_id"], key),
+        )
+        assert created.status_code == 200, created.text
+        return created.json()["id"]
+
+    to_deliver, to_pay, to_decline = [await hit(f"kyc-gate-hit-{n}") for n in range(3)]
+    confirm_headers = _headers(seeded["seller_id"], "kyc-gate-confirm-deliver")
+    confirmed = await client.put(f"/api/trades/{to_deliver}/confirm", headers=confirm_headers)
+    assert confirmed.status_code == 200, confirmed.text
+    confirmed_to_pay = await client.put(
+        f"/api/trades/{to_pay}/confirm",
+        headers=_headers(seeded["seller_id"], "kyc-gate-confirm-pay"),
+    )
+    assert confirmed_to_pay.status_code == 200, confirmed_to_pay.text
+    delivered_to_pay = await client.put(
+        f"/api/trades/{to_pay}/deliver",
+        json={"final_quantity_mt": "60.00", "final_price_per_mt": "700.00"},
+        headers=_headers(seeded["seller_id"], "kyc-gate-deliver-pay"),
+    )
+    assert delivered_to_pay.status_code == 200, delivered_to_pay.text
+
+    # Both parties lose eligibility: KYC is pending again and no grace exists.
+    async with seeded["factory"]() as session:
+        await session.execute(
+            text(
+                "UPDATE users SET kyc_status = 'PENDING', kyc_organization_id = NULL "
+                "WHERE id IN (:buyer_id, :seller_id)"
+            ),
+            {"buyer_id": seeded["buyer_id"], "seller_id": seeded["seller_id"]},
+        )
+        await session.commit()
+
+    blocked = {
+        "order create": await client.post(
+            "/api/orderbook",
+            json={
+                "side": "BID",
+                "product_id": str(seeded["product_id"]),
+                "delivery_point_id": str(seeded["point_id"]),
+                "quantity_mt": "200.00",
+                "price_per_mt_usd": "600.00",
+                "availability_window": "SPOT",
+            },
+            headers=_headers(seeded["buyer_id"], "kyc-gate-blocked-create"),
+        ),
+        "order amend": await client.put(
+            f"/api/orderbook/{listing_id}",
+            json={"price_per_mt_usd": "710.00"},
+            headers=_headers(seeded["seller_id"], "kyc-gate-blocked-amend"),
+        ),
+        "inventory publish": await client.post(
+            f"/api/inventory/{seeded['inventory_id']}/publish",
+            headers=_headers(seeded["seller_id"], "kyc-gate-blocked-publish"),
+        ),
+        "take": await client.post(
+            "/api/trades/",
+            json={
+                "order_id": listing_id,
+                "quantity_mt": "60.00",
+                "expected_terms_digest": await _reviewed_terms_digest(seeded, listing_id),
+            },
+            headers=_headers(seeded["buyer_id"], "kyc-gate-blocked-take"),
+        ),
+        "confirm": await client.put(
+            f"/api/trades/{to_decline}/confirm",
+            headers=_headers(seeded["seller_id"], "kyc-gate-blocked-confirm"),
+        ),
+    }
+    for action, response in blocked.items():
+        assert response.status_code == 403, (action, response.text)
+        assert response.json()["detail"] == {
+            "code": "KYC_REQUIRED",
+            "message": "Complete KYC verification to trade.",
+            "kyc_status": "PENDING",
+            "grace_expires_at": None,
+        }, action
+
+    # An exact replay of a committed command returns its stored result.
+    replayed = await client.put(f"/api/trades/{to_deliver}/confirm", headers=confirm_headers)
+    assert replayed.status_code == 200, replayed.text
+    assert replayed.json() == confirmed.json()
+
+    cleanup = {
+        "decline": await client.put(
+            f"/api/trades/{to_decline}/decline",
+            headers=_headers(seeded["seller_id"], "kyc-gate-decline"),
+        ),
+        "deliver": await client.put(
+            f"/api/trades/{to_deliver}/deliver",
+            json={"final_quantity_mt": "60.00", "final_price_per_mt": "700.00"},
+            headers=_headers(seeded["buyer_id"], "kyc-gate-deliver"),
+        ),
+        "pay": await client.post(
+            f"/api/trades/{to_pay}/pay",
+            headers=_headers(seeded["seller_id"], "kyc-gate-pay"),
+        ),
+        "cancel": await client.delete(
+            f"/api/orderbook/{listing_id}",
+            headers=_headers(seeded["seller_id"], "kyc-gate-cancel"),
+        ),
+    }
+    for action, response in cleanup.items():
+        assert response.status_code in (200, 204), (action, response.text)
 
 
 @pytest.mark.asyncio

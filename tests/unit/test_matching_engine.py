@@ -19,6 +19,8 @@ from app.models.orderbook import (
 )
 from app.models.notification import Notification
 from app.models.subscription import Subscription, SubscriptionTier
+from app.models.kyc_execution_grace import KycExecutionGrace
+from app.services.demo_market import DEMO_ACTIVITY_BUYER_ORG_ID, DEMO_ACTIVITY_SELLER_ORG_ID
 from app.services.matching_engine import match_order
 
 # Tables needed for our tests (avoids loading models with broken FK refs)
@@ -695,6 +697,100 @@ class TestNoMatch:
 
         trades = await match_order(db, bid)
         assert len(trades) == 0
+
+
+class TestKycExecutionGate:
+    """Both economic parties must meet the KYC execution rule."""
+
+    async def _seller_without_kyc(self, db, org_seller_id):
+        seller = await db.get(User, _owner_user_id(org_seller_id))
+        seller.kyc_status = "SUBMITTED"
+        seller.kyc_organization_id = org_seller_id
+        await db.flush()
+        return seller
+
+    @pytest.mark.asyncio
+    async def test_resting_ask_without_kyc_does_not_match_and_stays_hidden(self, db, buyer_org, seller_org, org_buyer_id, org_seller_id, test_product, test_dp):
+        await self._seller_without_kyc(db, org_seller_id)
+        ask = _make_order(org_seller_id, OrderSide.ASK, price=Decimal("550.00"))
+        db.add(ask)
+        await db.flush()
+        bid = _make_order(org_buyer_id, OrderSide.BID, price=Decimal("560.00"))
+        db.add(bid)
+        await db.flush()
+
+        trades = await match_order(db, bid)
+
+        # The taker sees the same result as an empty book; the resting order
+        # is untouched and its owner's state is never disclosed.
+        assert trades == []
+        assert bid.remaining_quantity_mt == Decimal("1000.00")
+        assert ask.status == OrderBookStatus.OPEN
+        assert ask.remaining_quantity_mt == Decimal("1000.00")
+
+    @pytest.mark.asyncio
+    async def test_resting_ask_with_valid_grace_matches(self, db, buyer_org, seller_org, org_buyer_id, org_seller_id, test_product, test_dp):
+        seller = await self._seller_without_kyc(db, org_seller_id)
+        enrolled_at = datetime.now(UTC) - timedelta(days=1)
+        db.add(
+            KycExecutionGrace(
+                user_id=seller.id,
+                organization_id=org_seller_id,
+                kyc_status_at_enrollment="PENDING",
+                enrolled_at=enrolled_at,
+                expires_at=enrolled_at + timedelta(days=14),
+                created_by="kycg_20261014_prod",
+            )
+        )
+        ask = _make_order(org_seller_id, OrderSide.ASK, price=Decimal("550.00"))
+        db.add(ask)
+        await db.flush()
+        bid = _make_order(org_buyer_id, OrderSide.BID, price=Decimal("560.00"))
+        db.add(bid)
+        await db.flush()
+
+        trades = await match_order(db, bid)
+
+        assert len(trades) == 1
+
+    @pytest.mark.asyncio
+    async def test_sanctioned_demo_pair_still_matches_without_any_kyc(self, db, test_product, test_dp):
+        for organization_id, name in (
+            (DEMO_ACTIVITY_BUYER_ORG_ID, "Verdaxis Demo Buyer Activity"),
+            (DEMO_ACTIVITY_SELLER_ORG_ID, "Verdaxis Demo Supplier Activity"),
+        ):
+            db.add(
+                Organization(
+                    id=organization_id,
+                    name=name,
+                    type=OrgType.FUEL_TRADER,
+                    verification_status="APPROVED",
+                    provenance=OrganizationProvenance.DEMO,
+                )
+            )
+        ask = _make_order(
+            DEMO_ACTIVITY_SELLER_ORG_ID,
+            OrderSide.ASK,
+            price=Decimal("550.00"),
+            provenance=OrganizationProvenance.DEMO,
+        )
+        bid = _make_order(
+            DEMO_ACTIVITY_BUYER_ORG_ID,
+            OrderSide.BID,
+            price=Decimal("560.00"),
+            provenance=OrganizationProvenance.DEMO,
+        )
+        # Demo activity liquidity is ownerless: no user, no KYC, no grace.
+        ask.owner_user_id = bid.owner_user_id = None
+        db.add_all([ask, bid])
+        await db.flush()
+
+        trades = await match_order(
+            db, bid, allowed_demo_order_pair=frozenset((bid.id, ask.id))
+        )
+
+        assert len(trades) == 1
+        assert (await db.execute(select(KycExecutionGrace))).scalars().all() == []
 
 
 class TestPriceAcceptancePriority:

@@ -703,6 +703,7 @@ async def test_provenance_filter_precedes_candidate_limit(pg):
             organization_id=buyer.id,
             email_verified=True,
             kyc_status="APPROVED",
+            kyc_organization_id=buyer.id,
         )
         seller_user = User(
             email=f"filtered-seller-{uuid4()}@integrity.test",
@@ -712,6 +713,7 @@ async def test_provenance_filter_precedes_candidate_limit(pg):
             organization_id=seller.id,
             email_verified=True,
             kyc_status="APPROVED",
+            kyc_organization_id=seller.id,
         )
         session.add_all([buyer_user, seller_user])
         await session.flush()
@@ -919,11 +921,13 @@ async def test_biofuels_match_only_the_same_product_and_persist_canonical_snapsh
             email="biofuel-buyer@example.invalid", password_hash="unused",
             role=UserRole.BUYER, status=UserStatus.APPROVED,
             organization_id=buyer.id, email_verified=True,
+            kyc_status="APPROVED", kyc_organization_id=buyer.id,
         )
         seller_user = User(
             email="biofuel-seller@example.invalid", password_hash="unused",
             role=UserRole.SUPPLIER, status=UserStatus.APPROVED,
             organization_id=seller.id, email_verified=True,
+            kyc_status="APPROVED", kyc_organization_id=seller.id,
         )
         session.add_all([buyer_user, seller_user])
         await session.flush()
