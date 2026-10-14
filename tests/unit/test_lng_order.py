@@ -20,6 +20,26 @@ BID = {
 }
 
 
+@pytest.mark.parametrize("code", ["DE", "NL", "US", "SG"])
+def test_assigned_production_countries_are_accepted(code):
+    from app.schemas.lng_order import LngAskTerms
+    assert LngAskTerms.model_validate({**ASK, "production_country": code}).production_country == code
+
+
+@pytest.mark.parametrize("code", ["ZZ", "AA", "XK", "UK", "EU", "de"])
+def test_unassigned_or_reserved_production_countries_are_rejected(code):
+    from app.schemas.lng_order import LngAskTerms
+    with pytest.raises(ValidationError, match="officially assigned ISO 3166-1"):
+        LngAskTerms.model_validate({**ASK, "production_country": code})
+
+
+def test_iso_country_reference_set_holds_only_the_249_assigned_codes():
+    from app.reference.iso_countries import ISO_3166_1_ALPHA_2
+    assert len(ISO_3166_1_ALPHA_2) == 249
+    assert {"DE", "NL", "US", "SG"} <= ISO_3166_1_ALPHA_2
+    assert not {"ZZ", "AA", "XK", "UK", "EU"} & ISO_3166_1_ALPHA_2
+
+
 def test_lng_schema_validation():
     from app.schemas.lng_order import LngAskTerms, LngBidTerms
     assert LngAskTerms.model_validate(ASK).wtt_ghg_gco2e_mj < 0
