@@ -93,6 +93,7 @@ class User(Base):
     __tablename__ = "users"
     __table_args__ = (
         Index("ix_users_referral_code", "referral_code"),
+        Index("ix_users_organization_id_id", "organization_id", "id"),
         Index("uq_users_email_lower", text("lower(email)"), unique=True),
         Index("ix_users_email_verification_token_expires_at", "email_verification_token_expires_at"),
         Index("ix_users_password_reset_expires", "password_reset_expires"),

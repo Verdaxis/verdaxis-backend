@@ -61,8 +61,9 @@ async def customer_organization_is_execution_eligible(db, organization: Organiza
         User.email_verified.is_(True),
         User.must_change_password.is_(False),
         kyc_execution_clause(),
-    ).order_by(User.id).limit(1).with_for_update(skip_locked=True)
-    # Market rows precede UUID-ordered member locks. Skip contended members:
+    ).order_by(User.id).limit(1).with_for_update(read=True, skip_locked=True)
+    # Market rows precede UUID-ordered SHARE member locks. Concurrent
+    # executions may share authority, but KYC UPDATE writers conflict. Skip contended members:
     # callers can already hold organizations, and waiting here would invert
     # the KYC writer's user-before-organization lock order. A skipped member
     # cannot authorize execution; a selected member stays locked until commit.

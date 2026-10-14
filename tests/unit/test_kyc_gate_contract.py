@@ -149,5 +149,5 @@ async def test_assisted_revalidation_refuses_member_rejected_before_lock():
     assert error.value.detail["code"] == "KYC_REQUIRED"
     sql = str(db.execute.call_args.args[0].compile(dialect=postgresql.dialect()))
     assert "ORDER BY users.id" in sql
-    assert "FOR UPDATE SKIP LOCKED" in sql
+    assert "FOR SHARE SKIP LOCKED" in sql
     assert "kyc_execution_grace" in sql

@@ -50,3 +50,14 @@ def test_migration_grace_uses_elapsed_hours_not_calendar_days():
     migration = Path("alembic/versions/kycg_20261014_staging.py").read_text()
     assert "interval '336 hours'" in migration
     assert "interval '14 days'" not in migration
+
+
+def test_customer_member_lookup_index_matches_migration():
+    from pathlib import Path
+    from app.models.user import User
+
+    index = next(index for index in User.__table__.indexes if index.name == "ix_users_organization_id_id")
+    assert [column.name for column in index.columns] == ["organization_id", "id"]
+    migration = Path("alembic/versions/kycg_20261014_staging.py").read_text()
+    assert 'op.create_index("ix_users_organization_id_id", "users", ["organization_id", "id"])' in migration
+    assert 'op.drop_index("ix_users_organization_id_id", table_name="users")' in migration
