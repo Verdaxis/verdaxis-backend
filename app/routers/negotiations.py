@@ -36,7 +36,8 @@ from app.services.availability_windows import (
     normalize_availability_window,
 )
 from app.services.execution_policy import (
-    execution_party_is_eligible,
+    MarketPartyPolicy,
+    market_party_is_eligible,
     order_is_execution_qualified,
 )
 from app.services.market_admission import (
@@ -245,11 +246,17 @@ async def _revalidate_negotiation_parties(
     if (
         getattr(buyer, "role", None) != UserRole.BUYER
         or getattr(seller, "role", None) != UserRole.SUPPLIER
-        or not await execution_party_is_eligible(
-            db, user=buyer, organization=organizations.get(buyer_org_id)
+        or not await market_party_is_eligible(
+            db,
+            user=buyer,
+            organization=organizations.get(buyer_org_id),
+            policy=MarketPartyPolicy.INDICATIVE,
         )
-        or not await execution_party_is_eligible(
-            db, user=seller, organization=organizations.get(seller_org_id)
+        or not await market_party_is_eligible(
+            db,
+            user=seller,
+            organization=organizations.get(seller_org_id),
+            policy=MarketPartyPolicy.INDICATIVE,
         )
     ):
         raise HTTPException(
@@ -439,6 +446,7 @@ async def _lock_negotiation_for_mutation(
         db,
         [locked.initiator_org_id, locked.counterparty_org_id],
         actor_ownerships=(MarketActorOwnership(user_id, org_id),),
+        actor_policy=MarketPartyPolicy.INDICATIVE,
     )
     assert_market_pair_provenance(
         organizations[locked.initiator_org_id],
@@ -535,6 +543,7 @@ async def create_negotiation(
         db,
         [org_id, payload.counterparty_org_id],
         actor_ownerships=(MarketActorOwnership(current_user.id, org_id),),
+        actor_policy=MarketPartyPolicy.INDICATIVE,
     )
     assert_market_pair_provenance(
         organizations[org_id],
@@ -594,13 +603,17 @@ async def create_negotiation(
     if (
         getattr(locked_initiator, "role", None) != current_user.role
         or getattr(counterparty_user, "role", None) != expected_counterparty_role
-        or not await execution_party_is_eligible(
-            db, user=locked_initiator, organization=organizations.get(org_id)
+        or not await market_party_is_eligible(
+            db,
+            user=locked_initiator,
+            organization=organizations.get(org_id),
+            policy=MarketPartyPolicy.INDICATIVE,
         )
-        or not await execution_party_is_eligible(
+        or not await market_party_is_eligible(
             db,
             user=counterparty_user,
             organization=organizations.get(payload.counterparty_org_id),
+            policy=MarketPartyPolicy.INDICATIVE,
         )
     ):
         raise HTTPException(status_code=409, detail="Negotiation party is not execution-qualified")

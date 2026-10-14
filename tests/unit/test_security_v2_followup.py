@@ -27,14 +27,16 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def _eligible_user(*, organization_id=None):
+    organization_id = organization_id or uuid4()
     return SimpleNamespace(
         id=uuid4(),
-        organization_id=organization_id or uuid4(),
+        organization_id=organization_id,
         role=UserRole.BUYER,
         status=UserStatus.APPROVED,
         email_verified=True,
         must_change_password=False,
         kyc_status="APPROVED",
+        kyc_organization_id=organization_id,
         kyc_external_evidence_reference="external-case-123",
         kyc_review_note="Corporate registry and identity evidence reviewed externally.",
         kyc_reviewed_by=uuid4(),
@@ -119,7 +121,7 @@ def test_user_and_org_approval_source_do_not_transition_join_requests():
 
 
 @pytest.mark.asyncio
-async def test_execution_party_requires_exact_membership_while_kyc_is_advisory():
+async def test_execution_party_requires_exact_membership_and_org_bound_kyc():
     org_id = uuid4()
     user = _eligible_user(organization_id=org_id)
     assert await execution_party_is_eligible(

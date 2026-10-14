@@ -1,41 +1,103 @@
 from __future__ import annotations
 
+from datetime import datetime
+from enum import Enum
 from uuid import UUID
 
 from app.market_catalog import BIOFUEL_SPECIFICATION_STANDARDS, PRODUCTS_BY_ID
 from app.models.orderbook import OrderBookOrder, OrderCreationMethod, OrderSide
 from app.models.user import Organization, OrganizationProvenance, User, UserRole, UserStatus
+from app.services.kyc_execution import (
+    KYC_REJECTED,
+    customer_organization_is_execution_eligible,
+    evaluate_kyc_execution,
+)
 from sqlalchemy import and_, func, or_, select
 
 
-async def execution_party_is_eligible(db, *, user: User, organization: Organization | None = None) -> bool:
-    """Return true only for a concrete admitted user and approved tenant."""
-    user_id = getattr(user, "id", None) if user else None
-    user_org_id = getattr(user, "organization_id", None) if user else None
-    if user_id is None or user_org_id is None:
+class MarketPartyPolicy(str, Enum):
+    """Which KYC condition a market action adds to account admission."""
+
+    # Creates or confirms an economic commitment: the KYC execution rule.
+    EXECUTION = "EXECUTION"
+    # Settles or withdraws an existing commitment (cancel, decline, deliver,
+    # pay): never blocked by KYC.
+    CLEANUP = "CLEANUP"
+    # Non-executable surfaces (RFQ, negotiation, inventory, suggestions): the
+    # earlier advisory KYC, in which only a rejection or a review bound to
+    # another organization revokes access. Unchanged by the KYC gate.
+    INDICATIVE = "INDICATIVE"
+
+
+def _user_account_is_admitted(user: User | None) -> bool:
+    if getattr(user, "id", None) is None or getattr(user, "organization_id", None) is None:
         return False
     if getattr(user, "role", None) not in {UserRole.BUYER, UserRole.SUPPLIER}:
         return False
     if getattr(user, "status", None) != UserStatus.APPROVED or not getattr(user, "email_verified", False):
         return False
-    if getattr(user, "must_change_password", False):
-        return False
-    # KYC remains advisory for pending/legacy users. An explicit human
-    # rejection revokes execution, and any org-bound state is valid only for
-    # the user's current organization.
-    if getattr(user, "kyc_status", None) == "REJECTED":
+    return not getattr(user, "must_change_password", False)
+
+
+def _organization_admits(user: User, organization: Organization | None) -> bool:
+    organization_id = getattr(organization, "id", None) if organization else None
+    return (
+        organization_id is not None
+        and organization_id == user.organization_id
+        and getattr(organization, "verification_status", None) == "APPROVED"
+    )
+
+
+def account_is_admitted(user: User | None, organization: Organization | None) -> bool:
+    """Account and tenant admission, independent of KYC."""
+    return _user_account_is_admitted(user) and _organization_admits(user, organization)
+
+
+def advisory_kyc_allows(user: User) -> bool:
+    """The pre-gate advisory KYC kept for indicative surfaces."""
+    if getattr(user, "kyc_status", None) == KYC_REJECTED:
         return False
     kyc_organization_id = getattr(user, "kyc_organization_id", None)
-    if kyc_organization_id is not None and kyc_organization_id != user_org_id:
+    return kyc_organization_id is None or kyc_organization_id == user.organization_id
+
+
+async def market_party_is_eligible(
+    db,
+    *,
+    user: User | None,
+    organization: Organization | None = None,
+    policy: MarketPartyPolicy,
+    now: datetime | None = None,
+) -> bool:
+    """Return true only for an admitted party that meets the policy's KYC rule."""
+    if not _user_account_is_admitted(user):
+        return False
+    if policy == MarketPartyPolicy.INDICATIVE and not advisory_kyc_allows(user):
         return False
     if organization is None and hasattr(db, "execute"):
         result = await db.execute(select(Organization).where(Organization.id == user.organization_id))
         organization = result.scalar_one_or_none()
-    organization_id = getattr(organization, "id", None) if organization else None
-    return (
-        organization_id is not None
-        and organization_id == user_org_id
-        and getattr(organization, "verification_status", None) == "APPROVED"
+    if not _organization_admits(user, organization):
+        return False
+    if policy == MarketPartyPolicy.EXECUTION:
+        return (await evaluate_kyc_execution(db, user, now=now)).eligible
+    return True
+
+
+async def execution_party_is_eligible(
+    db,
+    *,
+    user: User | None,
+    organization: Organization | None = None,
+    now: datetime | None = None,
+) -> bool:
+    """Admission plus the KYC execution rule, for new economic commitments."""
+    return await market_party_is_eligible(
+        db,
+        user=user,
+        organization=organization,
+        policy=MarketPartyPolicy.EXECUTION,
+        now=now,
     )
 
 
@@ -45,11 +107,14 @@ async def order_owner_is_execution_eligible(
     order: OrderBookOrder,
     user: User | None,
     organization: Organization | None,
+    policy: MarketPartyPolicy = MarketPartyPolicy.EXECUTION,
 ) -> bool:
     """Revalidate either a self-service principal or an assisted-order actor."""
     if order.creation_method != OrderCreationMethod.MARKET_SUPPORT:
-        return await execution_party_is_eligible(db, user=user, organization=organization)
-    return bool(
+        return await market_party_is_eligible(
+            db, user=user, organization=organization, policy=policy
+        )
+    assisted_owner_admitted = bool(
         user
         and organization
         and user.id == order.created_by_actor_user_id == order.owner_user_id
@@ -59,6 +124,11 @@ async def order_owner_is_execution_eligible(
         and organization.verification_status == "APPROVED"
         and organization.provenance == OrganizationProvenance.REAL
     )
+    if not assisted_owner_admitted or policy != MarketPartyPolicy.EXECUTION:
+        return assisted_owner_admitted
+    # Assisted execution acts for the customer organization; the support
+    # administrator's own KYC is irrelevant.
+    return await customer_organization_is_execution_eligible(db, order.organization_id)
 
 
 def normalize_certification_scheme(value: str | None) -> str | None:

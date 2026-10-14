@@ -21,6 +21,7 @@ from app.services.watchlists import ensure_market_radar, list_watchlist_events
 REQUIRED_TABLES = [
     'organizations',
     'users',
+    'kyc_execution_grace',
     'products',
     'delivery_points',
     'orderbook_orders',

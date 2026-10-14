@@ -74,13 +74,18 @@ from app.services.audit_actions import (
 from app.services.audit_service import record_audit, request_audit_context
 from app.services.availability_windows import is_tradable_availability_window
 from app.services.execution_policy import (
-    execution_party_is_eligible,
+    MarketPartyPolicy,
+    market_party_is_eligible,
     normalize_certification_scheme,
     supplier_product_metadata_error,
 )
 from app.services.idempotency import (
     acquire_idempotency_lock,
     idempotency_request_hash,
+)
+from app.services.kyc_execution import (
+    customer_organization_is_execution_eligible,
+    customer_organization_kyc_error,
 )
 from app.services.live_benchmarks import rebuild_live_slice_benchmarks_for_keys
 from app.services.market_admission import MarketActorOwnership, lock_and_load_market_organizations
@@ -300,13 +305,21 @@ async def _load_supplier(
         user is None
         or user.organization_id != organization.id
         or user.role != UserRole.SUPPLIER
-        or not await execution_party_is_eligible(db, user=user, organization=organization)
+        or not await market_party_is_eligible(
+            db, user=user, organization=organization, policy=MarketPartyPolicy.INDICATIVE
+        )
     ):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=_detail("ACCOUNTABLE_SUPPLIER_INELIGIBLE", "Select an approved supplier in this organization"),
         )
     return user
+
+
+async def _require_customer_organization_kyc(db: AsyncSession, organization_id: UUID) -> None:
+    """An assisted listing executes for the customer organization."""
+    if not await customer_organization_is_execution_eligible(db, organization_id):
+        raise customer_organization_kyc_error()
 
 
 async def _load_catalog(db: AsyncSession, product_id: UUID, delivery_point_id: UUID) -> tuple[Product, DeliveryPoint]:
@@ -865,11 +878,13 @@ async def create_authorization(
     )
     organization = await _load_organization(db, organization_id)
     supplier = await _load_supplier(db, body.accountable_user_id, organization)
+    await _require_customer_organization_kyc(db, organization_id)
     await _load_catalog(db, body.order.product_id, body.order.delivery_point_id)
     locked = await lock_and_load_market_organizations(
         db,
         [organization_id],
         actor_ownerships=(MarketActorOwnership(supplier.id, organization_id),),
+        actor_policy=MarketPartyPolicy.INDICATIVE,
     )
     organization = locked[organization_id]
     if organization.provenance != OrganizationProvenance.REAL:
@@ -1094,6 +1109,7 @@ async def create_listing(
         )
     organization = await _load_organization(db, organization_id)
     supplier = await _load_supplier(db, authorization.accountable_user_id, organization)
+    await _require_customer_organization_kyc(db, organization_id)
     product, delivery_point = await _load_catalog(db, authorization.product_id, authorization.delivery_point_id)
     candidate = _candidate_from_authorization(authorization, organization, product, delivery_point)
     candidate.acceptance_ordinal = await next_order_acceptance_ordinal(db)
@@ -1385,7 +1401,9 @@ async def organization_context(
     ).scalars().all()
     principals = []
     for user in supplier_rows:
-        if await execution_party_is_eligible(db, user=user, organization=organization):
+        if await market_party_is_eligible(
+            db, user=user, organization=organization, policy=MarketPartyPolicy.INDICATIVE
+        ):
             name = " ".join(value for value in (user.first_name, user.last_name) if value).strip() or user.email
             principals.append(MarketSupportPrincipal(id=user.id, email=user.email, name=name))
     authorizations = (

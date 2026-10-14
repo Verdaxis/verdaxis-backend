@@ -31,6 +31,7 @@ from app.routers.orderbook import (
 REQUIRED_TABLES = [
     'organizations',
     'users',
+    'kyc_execution_grace',
     'products',
     'delivery_points',
     'orderbook_orders',

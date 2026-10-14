@@ -25,6 +25,7 @@ from app.services.matching_engine import match_order
 _REQUIRED_TABLES = [
     "organizations",
     "users",
+    "kyc_execution_grace",
     "products",
     "delivery_points",
     "orderbook_orders",
@@ -54,6 +55,7 @@ def _admitted_user(*, organization_id: uuid.UUID, role: UserRole, email: str) ->
         organization_id=organization_id,
         email_verified=True,
         kyc_status="APPROVED",
+        kyc_organization_id=organization_id,
         kyc_external_evidence_reference="external-test-case",
         kyc_review_note="Externally retained evidence reviewed for this test fixture.",
         kyc_reviewed_by=user_id,

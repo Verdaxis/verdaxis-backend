@@ -23,6 +23,10 @@ from app.models.orderbook import (
 )
 from app.models.port import Port
 from app.services.execution_policy import biofuel_supplier_metadata_clause
+from app.services.kyc_execution import (
+    customer_organization_eligibility_clause,
+    kyc_execution_clause,
+)
 from app.services.market_provenance import (
     MarketEvidenceScope,
     canonical_availability_window_clause,
@@ -38,18 +42,18 @@ from app.models.user import (
 )
 
 
-def public_order_owner_admission_clause(order):
+def public_order_owner_admission_clause(order, *, now_expression=None):
     """Exclude orders whose recorded owner can no longer execute.
 
     Query-surface mirror of the fill-time owner policies: an order whose
-    concrete owner was KYC- or admin-rejected (or is unverified, forced into
-    a password change, moved to another organization, or whose organization
-    lost approval) is permanently inert at fill time, so it must not appear
-    as public liquidity nor weigh in any benchmark. Assisted orders use the
-    narrower ``order_owner_is_execution_eligible`` ADMIN actor policy.
-    Rows with no recorded owner (synthetic DEMO liquidity, pre-ownership
-    legacy rows) keep the existing provenance-clause posture; they already
-    cannot fill.
+    concrete owner fails the KYC execution rule or was admin-rejected (or is
+    unverified, forced into a password change, moved to another
+    organization, or whose organization lost approval) cannot fill, so it
+    must not appear as public liquidity nor weigh in any benchmark. Assisted
+    orders use the narrower ``order_owner_is_execution_eligible`` ADMIN actor
+    policy plus the customer-organization KYC rule. Rows with no recorded
+    owner (synthetic DEMO liquidity, pre-ownership legacy rows) keep the
+    existing provenance-clause posture; they already cannot fill.
     """
     eligible_owner = (
         select(User.id)
@@ -60,11 +64,7 @@ def public_order_owner_admission_clause(order):
             User.status == UserStatus.APPROVED,
             User.email_verified.is_(True),
             User.must_change_password.is_(False),
-            User.kyc_status != "REJECTED",
-            or_(
-                User.kyc_organization_id.is_(None),
-                User.kyc_organization_id == order.organization_id,
-            ),
+            kyc_execution_clause(User, order.organization_id, now=now_expression),
             select(Organization.id)
             .where(
                 Organization.id == order.organization_id,
@@ -91,6 +91,9 @@ def public_order_owner_admission_clause(order):
             )
             .correlate(order)
             .exists(),
+            customer_organization_eligibility_clause(
+                order.organization_id, now=now_expression
+            ),
         )
         .exists()
     )
@@ -200,8 +203,9 @@ def current_public_order_clause(order, *, now_expression=None):
                 ),
             ),
         ),
-        # Every public collection also refuses inert owner-rejected liquidity.
-        public_order_owner_admission_clause(order),
+        # Every public collection also refuses liquidity whose owner cannot
+        # execute, including an owner whose KYC grace has expired.
+        public_order_owner_admission_clause(order, now_expression=now_expression),
         or_(
             order.side != OrderSide.ASK,
             biofuel_supplier_metadata_clause(order, order.product_id),

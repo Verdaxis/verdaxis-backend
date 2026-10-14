@@ -21,7 +21,10 @@ from app.models.orderbook import (
 from app.schemas.marketplace import InventoryCreate, InventoryItemUpdate, InventoryResponse
 from app.models.user import Organization, User, UserRole
 from app.routers.auth_simple import get_current_user
-from app.middleware.execution import require_execution_eligible_user
+from app.middleware.execution import (
+    require_execution_eligible_user,
+    require_market_admitted_user,
+)
 from app.services.availability_windows import SPOT_WINDOW, availability_window_expiry
 from app.services.audit_service import record_audit, request_audit_context
 from app.services.audit_actions import INVENTORY_PUBLISHED
@@ -38,6 +41,7 @@ from app.services.market_data_eligibility import (
     public_trade_is_visible,
 )
 from app.services.execution_policy import (
+    MarketPartyPolicy,
     execution_party_is_eligible,
     order_is_execution_qualified,
     supplier_product_metadata_error,
@@ -150,7 +154,7 @@ async def list_inventory(
 async def add_inventory(
     item: InventoryCreate,
     db: Annotated[AsyncSession, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_execution_eligible_user)]
+    current_user: Annotated[User, Depends(require_market_admitted_user)]
 ):
     if current_user.role != UserRole.SUPPLIER:
         raise HTTPException(status_code=403, detail="Only suppliers can manage inventory")
@@ -164,6 +168,7 @@ async def add_inventory(
         actor_ownerships=(
             MarketActorOwnership(current_user.id, current_user.organization_id),
         ),
+        actor_policy=MarketPartyPolicy.INDICATIVE,
     )
 
     try:
@@ -219,7 +224,7 @@ async def update_inventory(
     item_id: UUID,
     updates: InventoryItemUpdate,
     db: Annotated[AsyncSession, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_execution_eligible_user)]
+    current_user: Annotated[User, Depends(require_market_admitted_user)]
 ):
     if current_user.role != UserRole.SUPPLIER:
         raise HTTPException(status_code=403, detail="Only suppliers can manage inventory")
@@ -232,6 +237,7 @@ async def update_inventory(
         actor_ownerships=(
             MarketActorOwnership(current_user.id, current_user.organization_id),
         ),
+        actor_policy=MarketPartyPolicy.INDICATIVE,
     )
 
     stmt = select(InventoryItem).where(
@@ -282,7 +288,7 @@ async def update_inventory(
 async def delete_inventory(
     item_id: UUID,
     db: Annotated[AsyncSession, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_execution_eligible_user)]
+    current_user: Annotated[User, Depends(require_market_admitted_user)]
 ):
     if current_user.role != UserRole.SUPPLIER:
         raise HTTPException(status_code=403, detail="Only suppliers can manage inventory")
@@ -295,6 +301,7 @@ async def delete_inventory(
         actor_ownerships=(
             MarketActorOwnership(current_user.id, current_user.organization_id),
         ),
+        actor_policy=MarketPartyPolicy.INDICATIVE,
     )
 
     stmt = select(InventoryItem).where(
