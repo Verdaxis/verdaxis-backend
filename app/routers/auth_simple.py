@@ -27,7 +27,11 @@ from app.models.user import (
 from app.models.refresh_session import RefreshSession
 from app.models.registration import PendingRegistration, OrganizationJoinRequest, JoinRequestStatus
 from app.schemas.user import LoginResponse, UserCreate, UserResponse, UserUpdate, RegistrationResponse, PasswordChangeRequest
-from app.schemas.organization import OrganizationCreate, organization_type_matches_role
+from app.schemas.organization import (
+    OrganizationCreate,
+    organization_type_matches_role,
+    signup_organization_type_matches_role,
+)
 from app.schemas.errors import AUTH_RESPONSES
 from app.core.security import (
     verify_password_async, get_password_hash_async,
@@ -1639,7 +1643,7 @@ async def register(request: _Request, user_in: UserCreate, db: AsyncSession = De
         existing_org = result_org.scalar_one_or_none()
 
     if existing_org:
-        if not organization_type_matches_role(registration_role, existing_org.type):
+        if not signup_organization_type_matches_role(registration_role, existing_org.type):
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="Organization type does not match the selected account role",
@@ -1786,7 +1790,7 @@ async def register_with_org(
                 final_role = parsed_role
         except ValueError:
             pass
-    if not organization_type_matches_role(final_role, request.organization.type):
+    if not signup_organization_type_matches_role(final_role, request.organization.type):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Organization type does not match the selected account role",
