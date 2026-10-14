@@ -1,6 +1,5 @@
 """Fail-closed post-only assessment for assisted listings."""
 from __future__ import annotations
-from app.services.market_data_eligibility import public_order_owner_admission_clause
 
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -11,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.orderbook import OrderBookOrder, OrderBookStatus, OrderSide
 from app.models.user import Organization, OrganizationProvenance, User
+from app.services.market_data_eligibility import public_order_owner_admission_clause
 from app.services.execution_policy import (
     order_owner_is_execution_eligible,
     order_is_execution_qualified,

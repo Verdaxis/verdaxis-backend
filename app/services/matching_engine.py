@@ -1,4 +1,3 @@
-from app.services.market_data_eligibility import public_order_owner_admission_clause
 """
 Match-on-insert engine. When a new order is placed, scan for crossing orders
 and automatically create trades. Uses price-acceptance priority at each level.
@@ -15,6 +14,7 @@ from app.models.orderbook import (
     OrderBookOrder, Trade, OrderSide, OrderBookStatus, TradeStatus, Initiator
 )
 from app.models.notification import NotificationType
+from app.services.market_data_eligibility import public_order_owner_admission_clause
 from app.models.user import Organization, User
 from app.services.demo_market import (
     DEMO_ACTIVITY_BUYER_ORG_ID,

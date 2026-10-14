@@ -1882,11 +1882,6 @@ async def create_order(
         await require_kyc_execution(db, current_user)
         if isinstance(current_user, User):
             current_user = await require_execution_eligible_user(current_user=current_user, db=db)
-    else:
-        from app.services.execution_policy import require_customer_organization_execution
-
-        await require_customer_organization_execution(db, party.effective_organization)
-
     if (
         party.mode == RequestPartyMode.SELF_SERVICE
         and order_data.side == OrderSide.BID
@@ -2011,6 +2006,8 @@ async def create_order(
     )
     organization = organizations[effective_organization_id]
     if party.mode == RequestPartyMode.MARKET_SUPPORT:
+        from app.services.execution_policy import require_customer_organization_execution
+
         await require_customer_organization_execution(db, organization)
     require_minimum_order_quantity(
         quantity_mt=order_data.quantity_mt,
