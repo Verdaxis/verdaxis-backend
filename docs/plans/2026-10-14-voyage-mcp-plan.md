@@ -20,7 +20,7 @@
   - energy (MJ): 1
   - intensity: 0.0001
   - days and shares: 0.0001
-- Reuse `fueleu_year_target` (`app/services/fueleu.py`), `FUELEU_PENALTY_PER_TONNE` and `calculate_ets_score` (`app/services/compliance_scoring.py`), and the availability-window helpers (`app/services/availability_windows.py`). Do not redefine them.
+- Reuse `fueleu_year_target` (`app/services/fueleu.py`), `FUELEU_PENALTY_PER_TONNE` and `ets_phase_in_pct` (`app/services/compliance_scoring.py`), and the availability-window helpers (`app/services/availability_windows.py`). Do not redefine them.
 - Never invent a price, rate or distance. A missing input leaves the cost unpriced and named in `missing_inputs`.
 - Run unit tests with:
   `ENVIRONMENT=test RELEASE_SHA=test JWT_SECRET=test-secret-key-for-testing-minimum-32-chars DATABASE_URL="sqlite+aiosqlite:///:memory:" /Users/jonathanjie/Documents/workspace/Verdaxis/work/voyage-mcp-backend/venv/bin/python -m pytest <paths> -q`
@@ -32,7 +32,7 @@
 Most likely failures first:
 
 1. **Missing assumptions** (no VLSFO price, EUA, pool price or USD/EUR rate): the affected strategies are `PARTIAL`, each missing input is named, there is no exception, and the reason says what to supply. (Task 2)
-2. **No EU-scope legs** (Shanghai to Singapore only): conventional strategies have zero ETS and FuelEU cost. No green strategy is generated, because there is no in-scope segment. The recommendation is conventional. (Task 2)
+2. **No EU-scope legs** (Shanghai to Singapore only): conventional strategies have zero ETS and FuelEU cost. For vessels with VLSFO, no green strategy is generated and the recommendation is conventional. Green-only vessels still generate FULL strategies for every compatible fuel; missing prices explain an incomplete recommendation. (Task 2)
 3. **A green fuel with no default intensity** (bio-ethanol), or with an intensity at or above the target: no division by zero. The strategy is `PARTIAL` with `ghg_intensity_gco2e_per_mj[BIO_ETHANOL]` missing, or the minimum blend is skipped with a warning. (Task 2)
 4. **Demo-only liquidity:** the price source is `DEMO_ORDER`, `executable` is false, and the result warns that the price is demo preview liquidity. It is never labeled `LIVE_ORDER`. (Task 3 and Task 2)
 5. **A vessel without VLSFO** (methanol only): no conventional strategy, and no crash. (Task 2)
@@ -153,7 +153,7 @@ def test_method_is_recorded():
 - Consumes:
   - the Task 0 types
   - `sea_distance` from Task 1. Tests pass `distance_nm` explicitly, except one test that is skipped when the table is empty.
-  - `fueleu_year_target`, `FUELEU_PENALTY_PER_TONNE` and `calculate_ets_score`
+  - `fueleu_year_target`, `FUELEU_PENALTY_PER_TONNE` and `ets_phase_in_pct`
   - `PRODUCTS_BY_CODE` and `DELIVERY_POINT_IDS` from `app/market_catalog.py`, for product availability at a port
 - Produces:
   - `EU_PORTS: frozenset[str] = frozenset({"Rotterdam"})`
@@ -172,6 +172,7 @@ def test_method_is_recorded():
 
 1. **Validation.** `build_voyage_plan` raises `VoyagePlanError` when:
    - `start_date` is more than 730 days after `today` or more than 30 days before it
+   - the computed calendar voyage, including final berth days, exceeds 365 days (check before date arithmetic); vessel speed is validated from 1 to 30 knots
    - a leg has no `distance_nm` and the table has no entry for its route
    - the CAPE route is requested for a pair that has none
 2. **Legs.**
@@ -189,7 +190,7 @@ def test_method_is_recorded():
 5. **Price lookups.** `required_price_lookups` returns, deduplicated and in leg order, one `PriceLookup(fuel, leg.from_port, departure_date)` for each green fuel that meets all of these conditions:
    - it is in `compatible_fuels` and is not VLSFO
    - it is available at that port: the product's `available_delivery_point_ids` is None or contains the port's id
-   - the leg has a SEA or BERTH segment with share > 0
+   - the leg has a SEA or BERTH segment with share > 0, or the vessel has no VLSFO
 6. **Intensity.** For each fuel, in order of precedence:
    - the caller's `ghg_intensity_gco2e_per_mj` override (`CALLER`)
    - otherwise the chosen PricePoint's `carbon_intensity_gco2e_per_mj` (`ORDER_DECLARED`)
@@ -202,7 +203,7 @@ def test_method_is_recorded():
    - then, for each green fuel in `compatible_fuels` order that has at least one in-scope segment, `<FUEL>_MIN_BLEND` and `<FUEL>_FULL`
 
    Green fuel is burned only on segments with share > 0, covering the segment's whole energy for FULL and share s of it for MIN_BLEND. VLSFO covers the rest.
-   - If the vessel lacks VLSFO, MIN_BLEND is skipped, and FULL is the only green strategy.
+   - If the vessel lacks VLSFO, MIN_BLEND is skipped, and FULL is generated for each green fuel even without EU scope. That fuel covers every segment; ETS and FuelEU are zero without EU scope.
    - MIN_BLEND share: s = (I_vlsfo − target) / (I_vlsfo − I_green).
      - If I_green ≥ target, skip MIN_BLEND and add a warning.
      - If I_vlsfo ≤ target, s = 0, and MIN_BLEND is skipped as identical to conventional.
@@ -210,7 +211,7 @@ def test_method_is_recorded():
    - Fuel cost = tonnes × the segment's price. VLSFO uses `assumptions.vlsfo_price_usd_per_mt[from_port]` (source `CALLER`, executable false). Green fuel uses `prices[lookup]`.
    - ETS:
      - in-scope fossil CO2 = Σ share × VLSFO tonnes × 3.151
-     - `calculate_ets_score(co2, eua_price, year).estimated_cost_eur`
+     - `co2 * eua_price * ets_phase_in_pct(year) / Decimal("100")`; round only output fields, after currency conversion
      - if no EUA price is given, ETS is unpriced unless the in-scope CO2 is 0, in which case it is 0
    - FuelEU:
      - E_in = Σ share × segment energy
@@ -403,10 +404,10 @@ In UCOME_B100_MIN_BLEND, UCOME is 35.71 t and VLSFO 1232.60 t, with share s = 0.
 - Produces:
   - `MCP_ENVIRONMENTS = frozenset({"development", "test", "staging"})`
   - `def mcp_enabled(environment: str) -> bool`
-  - `def build_mcp_server() -> MCPServer`
+  - `def build_mcp_server(*, read_limiter: anyio.CapacityLimiter | None) -> MCPServer`
   - `def market_catalog() -> MarketCatalog`
   - `MCP_PATH = "/mcp"`
-  - `MCP_MAX_CONCURRENT_TOOL_CALLS = 1` per worker. Corrected in review (2026-10-14) from 4: each worker has 3 database checkouts and public market reads may hold 2, so MCP tools take at most 1. Comment the reason.
+  - One shared per-worker public-read/MCP database limiter, created in `app/main.py` with capacity `max(DB_POOL_SIZE + DB_MAX_OVERFLOW - 1, 0)`. Pass the same object to the middleware and MCP server; `None` means zero read capacity. `list_markets` does not acquire it.
 
 **Rules:**
 
@@ -427,7 +428,7 @@ In UCOME_B100_MIN_BLEND, UCOME is 35.71 t and VLSFO 1232.60 t, with share s = 0.
 
    Open each database session with `async with AsyncSessionLocal() as db` (find the session factory in `app/database.py`). Never commit.
 4. **Errors.** `VoyagePlanError`, `ValueError` and Pydantic validation errors become tool errors with the message. `MarketDataUnavailable` becomes "Market data is temporarily unavailable." Any other exception is logged with structlog (no request body) and becomes "Internal error". Use the SDK's tool-error mechanism (for example, raising its `ToolError`, or whatever `mcp.server.mcpserver.exceptions` defines). Never return HTTP 500.
-5. **Capacity.** One module-level `anyio.CapacityLimiter(MCP_MAX_CONCURRENT_TOOL_CALLS)` per worker, used with `acquire_nowait`. When it is full, return the tool error "Verdaxis market tools are busy; retry shortly."
+5. **Capacity.** `get_market_slice` and `plan_voyage_fuel` use the shared public-read limiter with `acquire_nowait`; `list_markets` bypasses it. When it is full, return the tool error "Verdaxis market tools are busy; retry shortly."
 6. **Transport.** `server.streamable_http_app(stateless_http=True, json_response=True, transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=True, allowed_hosts=[...], allowed_origins=[]))`:
    - allowed hosts for staging: `api-staging.verdaxis.exchange`
    - for development and test: `127.0.0.1:*`, `localhost:*`, `testserver`

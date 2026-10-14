@@ -76,7 +76,7 @@ def canonical_port_name(value: str) -> str:
 class VesselInput(ContractModel):
     name: str | None = Field(default=None, max_length=120)
     imo_number: str | None = Field(default=None, pattern=r"^\d{7}$")
-    speed_knots: Decimal = Field(gt=0, le=30)
+    speed_knots: Decimal = Field(ge=1, le=30)
     sea_consumption_mt_per_day: Decimal = Field(
         gt=0, le=400, description="Tonnes per sea day, VLSFO-equivalent energy"
     )

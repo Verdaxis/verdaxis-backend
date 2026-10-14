@@ -6,6 +6,7 @@ import re
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
 
+import anyio
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exception_handlers import http_exception_handler as fastapi_http_exception_handler
 from fastapi.middleware.cors import CORSMiddleware
@@ -135,7 +136,19 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-mcp = build_mcp_server() if mcp_enabled(settings.ENVIRONMENT) else None
+# Public reads and MCP database tools share one budget, leaving one pool
+# checkout for logins, commands, readiness and other request classes.
+public_market_read_capacity = max(
+    settings.DB_POOL_SIZE + settings.DB_MAX_OVERFLOW - 1,
+    0,
+)
+public_market_read_limiter = (
+    anyio.CapacityLimiter(public_market_read_capacity) if public_market_read_capacity else None
+)
+mcp = (
+    build_mcp_server(read_limiter=public_market_read_limiter)
+    if mcp_enabled(settings.ENVIRONMENT) else None
+)
 if mcp is not None:
     # Mount redirects /mcp to /mcp/. An ASGI Route preserves the exact POST path;
     # the SDK handles the streamable HTTP methods and protocol responses.
@@ -211,14 +224,9 @@ app.middleware("http")(preauth_rate_limit_middleware)
 
 # CORS wraps public-read admission, pre-auth, and support scope so browser
 # clients receive credentialed headers on early rejections and preflights.
-# Keep one pool checkout available for mutations and other request classes.
-public_market_read_capacity = max(
-    settings.DB_POOL_SIZE + settings.DB_MAX_OVERFLOW - 1,
-    0,
-)
 app.add_middleware(
     PublicMarketReadAdmissionMiddleware,
-    capacity=public_market_read_capacity,
+    read_limiter=public_market_read_limiter,
     api_prefix=settings.API_V1_STR,
 )
 app.add_middleware(

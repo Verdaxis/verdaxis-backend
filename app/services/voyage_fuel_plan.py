@@ -14,7 +14,7 @@ from app.schemas.voyage import (
     PriceSource, SeaRoute, StrategyCompleteness, StrategyResult, VoyagePlanRequest,
     VoyagePlanResult,
 )
-from app.services.compliance_scoring import FUELEU_PENALTY_PER_TONNE, calculate_ets_score
+from app.services.compliance_scoring import FUELEU_PENALTY_PER_TONNE, ets_phase_in_pct
 from app.services.fueleu import fueleu_year_target
 from app.services.sea_distances import sea_distance
 
@@ -79,8 +79,8 @@ def _rounded(value: Decimal | None, precision: str = "0.01") -> Decimal | None:
     return None if value is None else value.quantize(Decimal(precision), rounding=ROUND_HALF_UP)
 
 
-def _ceil_days(days: Decimal) -> timedelta:
-    return timedelta(days=int(days.to_integral_value(rounding=ROUND_CEILING)))
+def _ceil_days(days: Decimal) -> int:
+    return int(days.to_integral_value(rounding=ROUND_CEILING))
 
 
 def _legs(request: VoyagePlanRequest) -> tuple[LegPlan, ...]:
@@ -95,7 +95,16 @@ def _legs(request: VoyagePlanRequest) -> tuple[LegPlan, ...]:
             raise VoyagePlanError(f"No distance for {leg.from_port} to {leg.to_port}")
         distance = leg.distance_nm if leg.distance_nm is not None else table.distance_nm
         sea_days = distance / (request.vessel.speed_knots * Decimal("24"))
-        arrival = departure + _ceil_days(sea_days)
+        sea_calendar_days = _ceil_days(sea_days)
+        berth_calendar_days = _ceil_days(leg.berth_days_at_destination)
+        elapsed_days = (departure - request.start_date).days + sea_calendar_days + berth_calendar_days
+        # Bound the full calendar voyage, including its final berth, before
+        # constructing timedeltas or advancing dates.
+        if elapsed_days > 365:
+            raise VoyagePlanError(
+                "The voyage is longer than 365 days; check distances, speed and berth days."
+            )
+        arrival = departure + timedelta(days=sea_calendar_days)
         scope = Decimal(int(leg.from_port in EU_PORTS) + int(leg.to_port in EU_PORTS)) / Decimal("2")
         legs.append(LegPlan(
             from_port=leg.from_port, to_port=leg.to_port, route=leg.route,
@@ -113,7 +122,7 @@ def _legs(request: VoyagePlanRequest) -> tuple[LegPlan, ...]:
                 * VLSFO_ENERGY_MJ_PER_TONNE
             ),
         ))
-        departure = arrival + _ceil_days(leg.berth_days_at_destination)
+        departure = arrival + timedelta(days=berth_calendar_days)
     return tuple(legs)
 
 
@@ -334,7 +343,7 @@ def _strategy(
         ets_cost = None
         missing.append("eua_price_eur_per_tco2")
     else:
-        ets_cost = calculate_ets_score(co2, eua, year).estimated_cost_eur
+        ets_cost = co2 * eua * ets_phase_in_pct(year) / Decimal("100")
     rate = request.assumptions.usd_per_eur
     needs_rate = any(cost is not None and cost != ZERO for cost in (ets_cost, fueleu_cost))
     if needs_rate and rate is None:
@@ -413,7 +422,7 @@ def build_voyage_plan(
             ))
     in_scope = [segment for segment in segments if segment.scope > ZERO]
     for fuel in request.vessel.compatible_fuels:
-        if fuel == PlannerFuel.VLSFO or not in_scope:
+        if fuel == PlannerFuel.VLSFO or (has_vlsfo and not in_scope):
             continue
         warnings.append("Green fuels need a proof of sustainability for zero ETS CO2 and FuelEU credit.")
         minimum = has_vlsfo

@@ -19,7 +19,8 @@ from app import mcp_server
 from app.database import Base
 from app.models.user import UserRole, UserStatus
 from app.services.voyage_prices import MarketDataUnavailable
-from tests.unit.test_voyage_fuel_plan import golden_request
+from tests.unit.test_voyage_fuel_plan import golden_request, long_voyage_request
+from tests.unit.test_public_market_read_admission import _EmptyAvailabilitySession
 from tests.unit.test_voyage_prices import (
     NOW, REQUIRED_TABLES, _make_delivery_point, _make_order, _make_org,
     _make_product, _make_user,
@@ -71,9 +72,14 @@ async def seeded_market(monkeypatch):
 
 
 @pytest.fixture
-async def client(monkeypatch):
+async def read_limiter():
+    return anyio.CapacityLimiter(2)
+
+
+@pytest.fixture
+async def client(monkeypatch, read_limiter):
     monkeypatch.setattr(mcp_server.settings, "ENVIRONMENT", "test")
-    server = mcp_server.build_mcp_server()
+    server = mcp_server.build_mcp_server(read_limiter=read_limiter)
     transport_app = mcp_server.build_mcp_http_app(server)
 
     @asynccontextmanager
@@ -171,15 +177,27 @@ async def test_no_identifiers_in_any_tool_output(client, seeded_market):
     assert statements and all(sql.lstrip().upper().startswith("SELECT") for sql in statements)
 
 
-async def test_busy_limiter_returns_retry_message(client, monkeypatch):
-    # AnyIO requires total_tokens >= 1. A zero-capacity double models refusal.
-    limiter = Mock()
-    limiter.acquire_nowait.side_effect = anyio.WouldBlock
-    monkeypatch.setattr(mcp_server, "tool_limiter", limiter)
-    for name, arguments in [("list_markets", {}), ("get_market_slice", SLICE), ("plan_voyage_fuel", {"request": golden_request().model_dump(mode="json")})]:
+async def test_busy_limiter_returns_retry_message(client, read_limiter):
+    borrowers = [object(), object()]
+    for borrower in borrowers:
+        read_limiter.acquire_on_behalf_of_nowait(borrower)
+    try:
+        for name, arguments in [("get_market_slice", SLICE), ("plan_voyage_fuel", {"request": golden_request().model_dump(mode="json")})]:
+            result = await call_tool(client, name, arguments)
+            assert "Verdaxis market tools are busy; retry shortly." in error_text(result)
+        assert not (await call_tool(client, "list_markets")).get("isError")
+        assert read_limiter.borrowed_tokens == 2
+    finally:
+        for borrower in borrowers:
+            read_limiter.release_on_behalf_of(borrower)
+
+
+@pytest.mark.parametrize("read_limiter", [None])
+async def test_zero_read_capacity_rejects_database_tools_but_not_catalog(client, read_limiter):
+    for name, arguments in [("get_market_slice", SLICE), ("plan_voyage_fuel", {"request": golden_request().model_dump(mode="json")})]:
         result = await call_tool(client, name, arguments)
         assert "Verdaxis market tools are busy; retry shortly." in error_text(result)
-    limiter.release.assert_not_called()
+    assert not (await call_tool(client, "list_markets")).get("isError")
 
 
 @pytest.mark.parametrize("origin", ["https://evil.example", "http://testserver", "", "null"])
@@ -202,7 +220,7 @@ async def test_local_host_allowlist(client, host, status):
 
 
 @pytest.mark.parametrize(("exception", "message"), [(MarketDataUnavailable("secret database details"), "Market data is temporarily unavailable."), (ValueError("Unsupported slice"), "Unsupported slice"), (RuntimeError("secret request body"), "Internal error")])
-async def test_tool_errors_are_sanitized(client, seeded_market, monkeypatch, exception, message):
+async def test_tool_errors_are_sanitized(client, seeded_market, monkeypatch, exception, message, read_limiter):
     async def fail(*args, **kwargs):
         raise exception
     logger = Mock()
@@ -212,7 +230,7 @@ async def test_tool_errors_are_sanitized(client, seeded_market, monkeypatch, exc
     assert message in error_text(result)
     assert "secret" not in json.dumps(result)
     assert "secret" not in str(logger.mock_calls)
-    assert mcp_server.tool_limiter.borrowed_tokens == 0
+    assert read_limiter.borrowed_tokens == 0
 
 
 async def test_slice_window_is_normalized(client, seeded_market):
@@ -237,7 +255,7 @@ def test_production_app_has_no_mcp_route(monkeypatch):
 
 async def test_staging_host_allowlist(monkeypatch):
     monkeypatch.setattr(mcp_server.settings, "ENVIRONMENT", "staging")
-    server = mcp_server.build_mcp_server()
+    server = mcp_server.build_mcp_server(read_limiter=anyio.CapacityLimiter(2))
     app = mcp_server.build_mcp_http_app(server)
     async with server.session_manager.run():
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="https://api-staging.verdaxis.exchange", headers=HEADERS) as client:
@@ -251,13 +269,12 @@ async def test_sdk_body_limit(client):
     assert response.status_code == 413
 
 
-async def test_capacity_is_released_after_cancellation(monkeypatch):
-    limiter = anyio.CapacityLimiter(4)
-    monkeypatch.setattr(mcp_server, "tool_limiter", limiter)
+async def test_capacity_is_released_after_cancellation():
+    limiter = anyio.CapacityLimiter(2)
     admitted = asyncio.Event()
 
     async def hold():
-        async with mcp_server._tool_call("list_markets"):
+        async with mcp_server._tool_call("get_market_slice", limiter):
             admitted.set()
             await asyncio.Event().wait()
 
@@ -268,6 +285,66 @@ async def test_capacity_is_released_after_cancellation(monkeypatch):
     with pytest.raises(asyncio.CancelledError):
         await task
     assert limiter.borrowed_tokens == 0
+
+
+async def test_voyage_too_long_is_a_tool_error(client, monkeypatch):
+    factory = Mock(side_effect=AssertionError("invalid voyage must not open a database"))
+    monkeypatch.setattr(mcp_server, "AsyncSessionLocal", factory)
+    result = await call_tool(client, "plan_voyage_fuel", {
+        "request": long_voyage_request().model_dump(mode="json"),
+    })
+    assert "The voyage is longer than 365 days; check distances, speed and berth days." in error_text(result)
+    assert "Internal error" not in error_text(result)
+    factory.assert_not_called()
+
+
+@pytest.mark.parametrize("hold_mcp", [False, True], ids=["public_blocks_mcp", "mcp_counts_against_public"])
+async def test_main_shares_public_and_mcp_read_budget(monkeypatch, hold_mcp):
+    from app.database import get_db
+
+    namespace = runpy.run_module("app.main", run_name="mcp_shared_budget_test")
+    app, server = namespace["app"], namespace["mcp"]
+    started = asyncio.Queue()
+    release = asyncio.Event()
+
+    async def blocked_db():
+        await started.put("public")
+        await release.wait()
+        yield _EmptyAvailabilitySession()
+
+    @asynccontextmanager
+    async def blocked_mcp_session():
+        await started.put("mcp")
+        await release.wait()
+        raise MarketDataUnavailable("test database unavailable")
+        yield  # Keep the session factory an async context manager.
+
+    monkeypatch.setitem(app.dependency_overrides, get_db, blocked_db)
+    monkeypatch.setattr(mcp_server, "AsyncSessionLocal", blocked_mcp_session)
+    held = []
+    async with server.session_manager.run():
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://testserver", headers=HEADERS) as client:
+            try:
+                if hold_mcp:
+                    held.append(asyncio.create_task(call_tool(client, "get_market_slice", SLICE)))
+                    assert await asyncio.wait_for(started.get(), 2) == "mcp"
+                else:
+                    held.append(asyncio.create_task(client.get("/api/availability")))
+                    assert await asyncio.wait_for(started.get(), 2) == "public"
+                held.append(asyncio.create_task(client.get("/api/availability")))
+                assert await asyncio.wait_for(started.get(), 2) == "public"
+                if hold_mcp:
+                    response = await asyncio.wait_for(client.get("/api/availability"), 2)
+                    assert response.status_code == 503
+                    assert response.headers["Retry-After"] == "1"
+                else:
+                    result = await asyncio.wait_for(call_tool(client, "get_market_slice", SLICE), 2)
+                    assert "Verdaxis market tools are busy; retry shortly." in error_text(result)
+                catalog = await call_tool(client, "list_markets")
+                assert not catalog.get("isError")
+            finally:
+                release.set()
+                await asyncio.gather(*held)
 
 
 async def test_main_mount_and_lifespan(monkeypatch):

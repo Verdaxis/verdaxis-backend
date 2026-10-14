@@ -3,6 +3,7 @@ from datetime import date, timedelta
 from decimal import Decimal as D
 
 import pytest
+from pydantic import ValidationError
 
 from app.schemas.voyage import (
     IntensitySource, MarketAssumptions, PlannerFuel, PriceLookup, PricePoint,
@@ -355,6 +356,91 @@ def test_nested_price_output_is_rounded_without_rounding_calculations():
     from decimal import ROUND_HALF_UP
     expected = (sea_energy / D("37200") * D("1445.12345")).quantize(D("0.01"), rounding=ROUND_HALF_UP)
     assert next(u.cost_usd for u in uses if u.segment == "SEA") == expected
+
+
+def test_ets_is_not_rounded_before_currency_conversion():
+    request = VoyagePlanRequest(
+        vessel=VesselInput(
+            speed_knots=D("1"), sea_consumption_mt_per_day=D("1"),
+            compatible_fuels=(PlannerFuel.VLSFO,),
+        ),
+        legs=(VoyageLegInput(from_port="Singapore", to_port="Rotterdam", distance_nm=D("24")),),
+        start_date=TODAY,
+        assumptions=MarketAssumptions(
+            vlsfo_price_usd_per_mt={"Singapore": D("1")}, reporting_year=2026,
+            ghg_intensity_gco2e_per_mj={PlannerFuel.VLSFO: D("89.3368")},
+            eua_price_eur_per_tco2=D("1"), usd_per_eur=D("10"),
+        ),
+    )
+    result = strategy(build_voyage_plan(request, {}, today=TODAY), "CONVENTIONAL_PENALTY")
+    assert result.total_cost_usd == D("16.76")
+    assert result.eu_ets_cost_eur == D("1.58")
+
+
+@pytest.mark.parametrize("speed", ["0.5", "0.000001"])
+def test_speed_below_one_knot_is_rejected(speed):
+    values = golden_request().vessel.model_dump()
+    values["speed_knots"] = D(speed)
+    with pytest.raises(ValidationError, match="greater than or equal to 1"):
+        VesselInput(**values)
+
+
+def long_voyage_request():
+    return VoyagePlanRequest(
+        vessel=VesselInput(
+            speed_knots=D("1"), sea_consumption_mt_per_day=D("1"),
+            compatible_fuels=(PlannerFuel.VLSFO,),
+        ),
+        legs=tuple(
+            VoyageLegInput(
+                from_port="Shanghai" if index % 2 == 0 else "Singapore",
+                to_port="Singapore" if index % 2 == 0 else "Shanghai",
+                distance_nm=D("864"), berth_days_at_destination=D("1"),
+            )
+            for index in range(10)
+        ),
+        start_date=TODAY,
+    )
+
+
+@pytest.mark.parametrize("planner", [required_price_lookups, lambda request: build_voyage_plan(request, {}, today=TODAY)])
+def test_ten_leg_voyage_over_365_days_is_rejected(planner):
+    with pytest.raises(VoyagePlanError, match="The voyage is longer than 365 days; check distances, speed and berth days."):
+        planner(long_voyage_request())
+
+
+@pytest.mark.parametrize(("distance", "berth", "valid"), [("8736", "1", True), ("8736", "1.01", False), ("30000", "0", False)])
+def test_duration_includes_final_berth_and_checks_before_date_arithmetic(distance, berth, valid):
+    request = long_voyage_request().model_copy(update={"legs": (
+        VoyageLegInput(from_port="Shanghai", to_port="Singapore", distance_nm=D(distance), berth_days_at_destination=D(berth)),
+    )})
+    if valid:
+        build_voyage_plan(request, {}, today=TODAY)
+    else:
+        with pytest.raises(VoyagePlanError, match="longer than 365 days"):
+            build_voyage_plan(request, {}, today=TODAY)
+
+
+@pytest.mark.parametrize("priced", [True, False])
+def test_green_only_vessel_without_eu_scope_has_full_strategy(priced):
+    request = with_fuels(golden_request(), "BIO_METHANOL")
+    request = request.model_copy(update={"legs": request.legs[:1]})
+    (lookup,) = required_price_lookups(request)
+    prices = {lookup: PricePoint(
+        fuel=lookup.fuel, port="Shanghai", price_usd_per_mt=D("1000"),
+        source=PriceSource.CALLER, executable=False,
+    )} if priced else {}
+    result = build_voyage_plan(request, prices, today=TODAY)
+    assert [s.strategy_id for s in result.strategies] == ["BIO_METHANOL_FULL"]
+    (candidate,) = result.strategies
+    assert candidate.eu_ets_cost_eur == candidate.fueleu_cost_eur == D("0")
+    if priced:
+        assert candidate.completeness == StrategyCompleteness.COMPLETE
+        assert result.recommended_strategy_id == "BIO_METHANOL_FULL"
+    else:
+        assert candidate.completeness == StrategyCompleteness.PARTIAL
+        assert result.recommended_strategy_id is None
+        assert "market_price[BIO_METHANOL@Shanghai]" in result.recommendation_reason
 
 
 def test_lookup_order_and_port_availability():

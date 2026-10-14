@@ -40,12 +40,6 @@ from app.services.voyage_prices import (
 
 MCP_ENVIRONMENTS = frozenset({"development", "test", "staging"})
 MCP_PATH = "/mcp"
-# Each worker has 3 database checkouts (DB_POOL_SIZE 2 + DB_MAX_OVERFLOW 1).
-# Public market reads may hold 2 of them, so MCP tools take at most 1 and
-# logins, orders and trades always keep a connection.
-MCP_MAX_CONCURRENT_TOOL_CALLS = 1
-
-tool_limiter = anyio.CapacityLimiter(MCP_MAX_CONCURRENT_TOOL_CALLS)
 logger = structlog.get_logger(__name__)
 
 
@@ -78,9 +72,11 @@ def market_catalog() -> MarketCatalog:
 
 
 @asynccontextmanager
-async def _tool_call(tool_name: str) -> AsyncIterator[None]:
+async def _tool_call(tool_name: str, read_limiter: anyio.CapacityLimiter | None) -> AsyncIterator[None]:
+    if read_limiter is None:
+        raise ToolError("Verdaxis market tools are busy; retry shortly.")
     try:
-        tool_limiter.acquire_nowait()
+        read_limiter.acquire_nowait()
     except anyio.WouldBlock:
         raise ToolError("Verdaxis market tools are busy; retry shortly.") from None
     try:
@@ -94,10 +90,10 @@ async def _tool_call(tool_name: str) -> AsyncIterator[None]:
         logger.error("mcp_tool_failed", tool=tool_name, error_type=type(error).__name__)
         raise ToolError("Internal error") from None
     finally:
-        tool_limiter.release()
+        read_limiter.release()
 
 
-def build_mcp_server() -> MCPServer:
+def build_mcp_server(*, read_limiter: anyio.CapacityLimiter | None) -> MCPServer:
     server = MCPServer(
         name="verdaxis-market",
         instructions=(
@@ -111,8 +107,7 @@ def build_mcp_server() -> MCPServer:
     @server.tool(annotations=annotations)
     async def list_markets() -> MarketCatalog:
         """List supported products, delivery ports and EU scope before planning; no database access."""
-        async with _tool_call("list_markets"):
-            return market_catalog()
+        return market_catalog()
 
     @server.tool(annotations=annotations)
     async def get_market_slice(
@@ -123,7 +118,7 @@ def build_mcp_server() -> MCPServer:
         Use product codes and port names from list_markets. Windows are SPOT, YYYY-MM or YYYY-QN.
         Preserve demo provenance; benchmarks and demo prices are not executable quotes.
         """
-        async with _tool_call("get_market_slice"):
+        async with _tool_call("get_market_slice", read_limiter):
             window = normalize_availability_window(availability_window)
             async with AsyncSessionLocal() as db:
                 return await market_slice_snapshot(
@@ -139,7 +134,7 @@ def build_mcp_server() -> MCPServer:
         EUA price, pool price and USD/EUR rate when known; missing inputs leave costs unpriced.
         Report price provenance and the annual FuelEU caveat with the recommendation.
         """
-        async with _tool_call("plan_voyage_fuel"):
+        async with _tool_call("plan_voyage_fuel", read_limiter):
             utcnow = datetime.now(UTC)
             lookups = required_price_lookups(request)
             async with AsyncSessionLocal() as db:

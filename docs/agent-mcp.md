@@ -92,15 +92,19 @@ Numeric output fields are decimal strings. The green price carries
 
 ## Transport and limits
 
-- One concurrent tool call per worker (four across the four staging workers),
-  shared by all three tools. This keeps database connections free for logins,
-  orders and trades. Admission uses `acquire_nowait`; there is no admission
-  queue. At capacity the MCP tool error contains
+- Public market reads and the database tools (`get_market_slice` and
+  `plan_voyage_fuel`) share one per-worker limiter, created in `app/main.py` with
+  capacity `max(DB_POOL_SIZE + DB_MAX_OVERFLOW - 1, 0)` (currently two). This
+  reserves one pool connection against these reads for logins, commands and
+  readiness. The in-memory `list_markets` tool does not acquire a slot. Zero
+  capacity rejects database reads. Admission uses `acquire_nowait`; there is no
+  admission queue. At capacity the MCP tool error contains
   `Verdaxis market tools are busy; retry shortly.`
 - The SDK rejects request bodies above 4 MiB with HTTP 413.
-- Up to ten connected legs, using the eight catalog ports. Speed must be above
-  zero and at most 30 knots. The planner accepts start dates from 30 days before
-  to 730 days after today. Other numerical bounds are published in tool schemas.
+- Up to ten connected legs, using the eight catalog ports. Speed must be from
+  1 to 30 knots. The full voyage, including the final berth stay, must not exceed
+  365 calendar days. The planner accepts start dates from 30 days before to
+  730 days after today. Other numerical bounds are published in tool schemas.
 - Missing VLSFO, EUA, pool or exchange-rate assumptions leave affected costs
   unpriced; they are not invented. Partial strategies list missing inputs.
 - Validation and planning failures return MCP `isError: true`. Market data
