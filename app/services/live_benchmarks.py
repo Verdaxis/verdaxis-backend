@@ -70,9 +70,9 @@ def public_slice_order_qualified(
             return False
     if order.remaining_quantity_mt <= 0 or order.off_spec:
         return False
-    if spec.market_product == "UCOME_B100":
-        # B100 qualification comes from its typed fuel declaration. Optional
-        # CI/origin values must not acquire the alcohol listing requirements.
+    if spec.market_product in {"UCOME_B100", "BIO_LNG"}:
+        # Structured declarations own qualification; LNG WTT is not scalar CI.
+        # Required LNG origin is validated inside its typed declaration.
         return order_is_execution_qualified(order)
     if order.side != OrderSide.ASK:
         return True

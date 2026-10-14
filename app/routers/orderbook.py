@@ -1922,9 +1922,10 @@ async def create_order(
     if lng_terms is not None:
         if order_data.quantity_mt < 1:
             raise HTTPException(422, "Bio-LNG orders require at least 1 MT")
-        for field, value in lng_metadata_fields(lng_terms).items():
-            if field in OrderCreate.model_fields:
-                setattr(order_data, field, value)
+        if order_data.side == OrderSide.ASK:
+            for field, value in lng_metadata_fields(lng_terms).items():
+                if field in OrderCreate.model_fields:
+                    setattr(order_data, field, value)
     normalized_certification_scheme = normalize_certification_scheme(order_data.certification_scheme)
 
     if order_data.side != OrderSide.ASK:

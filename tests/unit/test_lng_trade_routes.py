@@ -41,6 +41,22 @@ async def test_direct_take_conflict_and_confirmation_privacy(db, monkeypatch):
     for field, value in lng_metadata_fields(ASK).items():
         setattr(ask, field, value)
     await db.commit()
+    from app.services.live_benchmarks import public_slice_order_qualified
+    from app.services.public_order_scope import public_order_scope
+    from app.models.orderbook import OrderBookOrder
+    assert public_slice_order_qualified(ask)
+    filters, joins = public_order_scope()
+    query = select(OrderBookOrder.id)
+    for target, condition in joins:
+        query = query.join(target, condition)
+    query = query.where(*filters)
+    assert ask.id in (await db.execute(query)).scalars().all()
+    ask.delivery_point_id = DELIVERY_POINT_IDS["Singapore"]
+    await db.flush()
+    assert ask.id not in (await db.execute(query)).scalars().all()
+    assert not public_slice_order_qualified(ask)
+    ask.delivery_point_id = point.id
+    await db.flush()
     public = await orderbook._order_response(db, ask, benchmark_cache={})
     assert "scheme_certificate_number" not in public.lng_terms.model_dump()
     assert "physical_supplier_name" not in public.lng_terms.model_dump()

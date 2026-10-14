@@ -47,6 +47,30 @@ def test_ci_pricing_never_prices_lng_wtt_as_lifecycle_ci():
 
 
 @pytest.mark.asyncio
+async def test_create_rejects_lng_outside_rotterdam():
+    from unittest.mock import AsyncMock, MagicMock
+    from uuid import uuid4
+    from fastapi import HTTPException
+    from app.models.user import UserRole
+    from app.routers.orderbook import create_order
+    from app.schemas.orderbook import OrderCreate
+    from tests.unit.test_fame_catalog_execution import _result
+    db = AsyncMock()
+    db.add = MagicMock()
+    db.execute.return_value = _result(_product("BIO_LNG"))
+    user = MagicMock(id=uuid4(), role=UserRole.BUYER, organization_id=uuid4())
+    with pytest.raises(HTTPException, match="not available at the selected delivery point"):
+        await create_order(
+            request=SimpleNamespace(headers={}, client=SimpleNamespace(host="127.0.0.1")),
+            current_user=user, db=db,
+            order_data=OrderCreate(side="BID", product_id=PRODUCT_IDS["BIO_LNG"],
+                delivery_point_id=DELIVERY_POINT_IDS["Singapore"], quantity_mt=1,
+                price_per_mt_usd=1000, lng_terms=BID),
+        )
+    db.add.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_create_rejects_lng_without_terms_before_insert():
     from unittest.mock import AsyncMock, MagicMock
     from uuid import uuid4
