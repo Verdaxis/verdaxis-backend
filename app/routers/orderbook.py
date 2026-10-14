@@ -2891,6 +2891,7 @@ async def cancel_order(
             actor_ownerships=(
                 MarketActorOwnership(current_user.id, effective_organization_id),
             ),
+            require_execution_eligible=False,
         )
 
     # The preview may have waited behind a fill on the same market slice.

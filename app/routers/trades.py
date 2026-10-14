@@ -1389,6 +1389,7 @@ async def decline_trade(
             if acting_for_assisted_side
             else ()
         ),
+        require_execution_eligible=False,
     )
     assisted_actor = await _authorize_assisted_trade_actor(
         db,
