@@ -132,3 +132,22 @@ async def test_committed_command_replay_precedes_kyc(operation, monkeypatch, kyc
     assert response.status_code == 200
     assert response.body == b'{"committed":true}'
     guard.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_assisted_revalidation_refuses_member_rejected_before_lock():
+    from sqlalchemy.dialects import postgresql
+    from app.services.execution_policy import require_customer_organization_execution
+
+    org = SimpleNamespace(id=uuid4(), verification_status="APPROVED")
+    admitted = Mock(scalar_one_or_none=lambda: uuid4())
+    rejected = Mock(scalar_one_or_none=lambda: None)
+    db = SimpleNamespace(execute=AsyncMock(side_effect=[admitted, rejected]))
+    await require_customer_organization_execution(db, org)
+    with pytest.raises(HTTPException) as error:
+        await require_customer_organization_execution(db, org)
+    assert error.value.detail["code"] == "KYC_REQUIRED"
+    sql = str(db.execute.call_args.args[0].compile(dialect=postgresql.dialect()))
+    assert "ORDER BY users.id" in sql
+    assert "FOR UPDATE SKIP LOCKED" in sql
+    assert "kyc_execution_grace" in sql

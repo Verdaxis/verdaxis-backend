@@ -51,14 +51,19 @@ async def customer_organization_is_execution_eligible(db, organization: Organiza
     """Assisted execution requires one admitted economic member, not admin KYC."""
     if organization.verification_status != "APPROVED":
         return False
-    return (await db.execute(select(User.id).where(
+    statement = select(User.id).where(
         User.organization_id == organization.id,
         User.role.in_((UserRole.BUYER, UserRole.SUPPLIER)),
         User.status == UserStatus.APPROVED,
         User.email_verified.is_(True),
         User.must_change_password.is_(False),
         kyc_execution_clause(),
-    ).limit(1))).scalar_one_or_none() is not None
+    ).order_by(User.id).limit(1).with_for_update(skip_locked=True)
+    # Market rows precede UUID-ordered member locks. Skip contended members:
+    # callers can already hold organizations, and waiting here would invert
+    # the KYC writer's user-before-organization lock order. A skipped member
+    # cannot authorize execution; a selected member stays locked until commit.
+    return (await db.execute(statement)).scalar_one_or_none() is not None
 
 
 async def require_customer_organization_execution(db, organization: Organization) -> None:
