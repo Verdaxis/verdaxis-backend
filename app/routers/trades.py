@@ -30,6 +30,7 @@ from app.models.notification import NotificationType
 from app.schemas.orderbook import TradeCreate, TradeResponse, TradeDeliverPayload, TradeSummaryResponse
 from app.schemas.pagination import PaginatedResponse
 from app.services.activity import trade_activity_provenance
+from app.services.kyc_execution import kyc_execution_clause
 from app.services.market_events import enqueue_market_events, participant_market_event
 from app.services.market_data_eligibility import (
     public_inventory_is_visible,
@@ -322,11 +323,6 @@ def _can_manage_assisted_trade(current_user: User, org_id: UUID) -> bool:
         and current_user.status == UserStatus.APPROVED
         and current_user.email_verified
         and not current_user.must_change_password
-        and current_user.kyc_status != "REJECTED"
-        and (
-            current_user.kyc_organization_id is None
-            or current_user.kyc_organization_id == current_user.organization_id
-        )
     )
 
 
@@ -340,11 +336,7 @@ def _trade_action_required_filter(current_user: User, org_id: UUID):
         User.status == UserStatus.APPROVED,
         User.email_verified.is_(True),
         User.must_change_password.is_(False),
-        User.kyc_status != "REJECTED",
-        or_(
-            User.kyc_organization_id.is_(None),
-            User.kyc_organization_id == org_id,
-        ),
+        kyc_execution_clause(),
         select(Organization.id)
         .where(
             Organization.id == org_id,
@@ -548,6 +540,7 @@ async def _authorize_assisted_trade_actor(
     linked_order: OrderBookOrder | None,
     current_user: User,
     expected_side: OrderSide | None = None,
+    require_execution: bool = False,
 ) -> bool:
     """Authorize a qualified customer member for a linked support side.
 
@@ -587,7 +580,7 @@ async def _authorize_assisted_trade_actor(
         return False
     if expected_side is not None and support_side != expected_side:
         raise HTTPException(status_code=403, detail="Trade side is not authorized for this action")
-    if not await execution_party_is_eligible(db, user=actor, organization=organization):
+    if require_execution and not await execution_party_is_eligible(db, user=actor, organization=organization):
         raise HTTPException(status_code=409, detail="Trade parties are no longer execution-qualified")
     return True
 
@@ -723,7 +716,7 @@ async def create_trade(
     payload: TradeCreate,
     request: Request,
     db: Annotated[AsyncSession, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_execution_eligible_user)],
+    current_user: Annotated[User, Depends(get_current_user)],
 ):
     initiator_org_id = current_user.organization_id
     if not initiator_org_id:
@@ -760,6 +753,8 @@ async def create_trade(
                 viewer_org_id=initiator_org_id,
                 viewer_is_admin=current_user.role == UserRole.ADMIN,
             )
+
+    await require_execution_eligible_user(current_user=current_user, db=db)
 
     # The canonical market lock is always acquired before the target row lock.
     target_identity = await db.execute(
@@ -1277,6 +1272,7 @@ async def confirm_trade(
         linked_order=confirmed_order,
         current_user=current_user,
         expected_side=(OrderSide.ASK if trade.initiated_by == Initiator.BUYER else OrderSide.BID),
+        require_execution=True,
     )
 
     # Only the counterparty (non-initiator) can confirm
@@ -1421,6 +1417,7 @@ async def decline_trade(
             if acting_for_assisted_side
             else ()
         ),
+        require_execution_eligible=False,
     )
     assisted_actor = await _authorize_assisted_trade_actor(
         db,
@@ -1610,7 +1607,6 @@ async def deliver_trade(
     )
     if command is not None and command.replay is not None:
         return JSONResponse(status_code=command.replay.response_status, content=command.replay.response_body)
-    await require_execution_eligible_user(current_user=current_user, db=db)
     trade, linked_order = await _lock_trade_market_rows(
         db, trade_id, operation="trade_deliver"
     )
@@ -1626,6 +1622,7 @@ async def deliver_trade(
             ),
         ],
         actor_ownerships=(MarketActorOwnership(current_user.id, org_id),),
+        require_execution_eligible=False,
     )
 
     if trade.status != TradeStatus.CONFIRMED:
@@ -1646,7 +1643,6 @@ async def deliver_trade(
         )
     ):
         raise HTTPException(status_code=403, detail="Not authorized for this trade")
-    await _revalidate_trade_parties(db, trade)
     if payload.final_quantity_mt > trade.quantity_mt:
         raise HTTPException(
             status_code=400,
@@ -1756,7 +1752,6 @@ async def pay_trade(
     )
     if command is not None and command.replay is not None:
         return JSONResponse(status_code=command.replay.response_status, content=command.replay.response_body)
-    await require_execution_eligible_user(current_user=current_user, db=db)
     trade, linked_order = await _lock_trade_market_rows(
         db, trade_id, operation="trade_pay"
     )
@@ -1772,6 +1767,7 @@ async def pay_trade(
             ),
         ],
         actor_ownerships=(MarketActorOwnership(current_user.id, org_id),),
+        require_execution_eligible=False,
     )
 
     if trade.status != TradeStatus.DELIVERED:
@@ -1790,7 +1786,6 @@ async def pay_trade(
 
     if current_user.role != UserRole.SUPPLIER:
         raise HTTPException(status_code=403, detail="Only suppliers can mark trades as paid")
-    await _revalidate_trade_parties(db, trade)
 
     trade.status = TradeStatus.PAID
     trade.paid_at = datetime.now(UTC)

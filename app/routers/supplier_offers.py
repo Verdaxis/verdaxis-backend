@@ -27,7 +27,7 @@ from app.services.audit_actions import (
     SUPPLIER_OFFER_WITHDRAWN,
 )
 from app.services.audit_service import record_audit, request_audit_context
-from app.services.execution_policy import execution_party_is_eligible
+from app.services.execution_policy import market_party_is_admitted as execution_party_is_eligible
 from app.services.idempotency import acquire_idempotency_lock, idempotency_request_hash
 from app.services.market_admission import (
     MarketActorOwnership,

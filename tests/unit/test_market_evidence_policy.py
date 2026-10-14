@@ -165,6 +165,8 @@ async def test_demand_separates_real_demo_and_metadata_only_unknown():
     engine = create_async_engine("sqlite+aiosqlite://", echo=False)
     table_names = ["organizations", "users", "products", "delivery_points", "orderbook_orders"]
     tables = [Base.metadata.tables[name] for name in table_names]
+    from app.models.kyc_execution_grace import KYCExecutionGrace
+    tables.append(KYCExecutionGrace.__table__)
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all, tables=tables)
 
@@ -255,6 +257,8 @@ async def test_demand_excludes_inactive_catalog_rows_and_never_emits_generic_tax
     engine = create_async_engine("sqlite+aiosqlite://", echo=False)
     table_names = ["organizations", "users", "products", "delivery_points", "orderbook_orders"]
     tables = [Base.metadata.tables[name] for name in table_names]
+    from app.models.kyc_execution_grace import KYCExecutionGrace
+    tables.append(KYCExecutionGrace.__table__)
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all, tables=tables)
 

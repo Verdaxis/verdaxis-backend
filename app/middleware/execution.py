@@ -10,6 +10,7 @@ from app.database import get_db
 from app.models.user import Organization, User, UserRole, UserStatus
 from app.routers.auth_simple import get_current_user
 from app.services.execution_policy import execution_party_is_eligible
+from app.services.kyc_execution import require_kyc_execution
 
 
 async def require_execution_eligible_user(
@@ -25,6 +26,7 @@ async def require_execution_eligible_user(
             detail="Administrators cannot execute market actions",
         )
 
+    await require_kyc_execution(db, current_user)
     result = await db.execute(
         select(Organization).where(
             Organization.id == current_user.organization_id

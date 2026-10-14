@@ -23,6 +23,8 @@ def _make_buyer_user():
     user.id = uuid4()
     user.role = UserRole.BUYER
     user.organization_id = uuid4()
+    user.kyc_status = "APPROVED"
+    user.kyc_organization_id = user.organization_id
     return user
 
 
@@ -31,6 +33,8 @@ def _make_supplier_user():
     user.id = uuid4()
     user.role = UserRole.SUPPLIER
     user.organization_id = uuid4()
+    user.kyc_status = "APPROVED"
+    user.kyc_organization_id = user.organization_id
     return user
 
 

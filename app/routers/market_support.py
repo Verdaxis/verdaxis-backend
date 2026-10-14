@@ -94,6 +94,8 @@ from app.services.audit_service import record_audit, request_audit_context
 from app.services.availability_windows import is_tradable_availability_window
 from app.services.execution_policy import (
     execution_party_is_eligible,
+    market_party_is_admitted,
+    require_customer_organization_execution,
     normalize_certification_scheme,
 )
 from app.services.fame_order import fame_metadata_fields, validate_fame_order_terms
@@ -324,12 +326,13 @@ async def _load_supplier(
         user is None
         or user.organization_id != organization.id
         or user.role != UserRole.SUPPLIER
-        or not await execution_party_is_eligible(db, user=user, organization=organization)
+        or not await market_party_is_admitted(db, user=user, organization=organization)
     ):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=_detail("ACCOUNTABLE_SUPPLIER_INELIGIBLE", "Select an approved supplier in this organization"),
         )
+    await require_customer_organization_execution(db, organization)
     return user
 
 

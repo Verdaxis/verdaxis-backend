@@ -73,6 +73,8 @@ def async_engine():
 @pytest.fixture(scope='module')
 async def setup_tables(async_engine):
     tables = [Base.metadata.tables[name] for name in REQUIRED_TABLES]
+    from app.models.kyc_execution_grace import KYCExecutionGrace
+    tables.append(KYCExecutionGrace.__table__)
     async with async_engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all, tables=tables)
     yield
@@ -111,6 +113,7 @@ async def _make_user(db: AsyncSession, org: Organization, role: UserRole) -> Use
         status=UserStatus.APPROVED,
         email_verified=True,
         kyc_status="APPROVED",
+        kyc_organization_id=org.id,
         organization_id=org.id,
     )
     db.add(user)
@@ -693,3 +696,42 @@ async def test_legacy_demo_quote_expiry_preserves_pins_history_and_customer_orde
     assert (await db.execute(select(Trade.ask_order_id))).scalar_one() == orders["trade"].id
     assert (await db.execute(select(Negotiation.ask_order_id))).scalar_one() == orders["negotiation"].id
     assert (await db.execute(select(MatchSuggestion.ask_order_id))).scalar_one() == orders["match"].id
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kyc_status", ["REJECTED", "PENDING"])
+@pytest.mark.parametrize("operation", ["cancel", "assisted_decline"])
+async def test_cleanup_ignores_rejected_or_expired_kyc(db, monkeypatch, kyc_status, operation):
+    from datetime import timedelta
+    from unittest.mock import AsyncMock
+    from starlette.requests import Request
+    from app.models.kyc_execution_grace import KYCExecutionGrace
+    from app.models.orderbook import OrderCreationMethod
+    from app.routers.orderbook import cancel_order
+
+    buyer_org = await _make_org(db, "Cleanup buyer", OrgType.SHIPPING_LINE)
+    seller_org = await _make_org(db, "Cleanup seller", OrgType.FUEL_SUPPLIER)
+    seller = await _make_user(db, seller_org, UserRole.SUPPLIER)
+    seller.kyc_status = kyc_status
+    now = datetime.now(UTC)
+    db.add(KYCExecutionGrace(user_id=seller.id, organization_id=seller_org.id,
+        kyc_status_at_enrollment="PENDING", enrolled_at=now-timedelta(days=15),
+        expires_at=now-timedelta(days=1), created_by="test"))
+    product, point = await _make_product(db), await _make_delivery_point(db)
+    ask = await _make_ask(db, org_id=seller_org.id, product_id=product.id,
+                          delivery_point_id=point.id, owner_user_id=seller.id)
+    if operation == "cancel":
+        await db.commit()
+        await cancel_order(ask.id, Request({"type": "http", "method": "DELETE", "path": f"/api/orderbook/{ask.id}", "headers": [], "client": ("127.0.0.1", 1234)}), seller, db, if_match=None, body=None)
+        assert ask.status == OrderBookStatus.CANCELLED
+    else:
+        admin = await _make_user(db, buyer_org, UserRole.ADMIN)
+        ask.creation_method = OrderCreationMethod.MARKET_SUPPORT
+        ask.owner_user_id = ask.created_by_actor_user_id = admin.id
+        trade = _pending_trade(ask, buyer_id=buyer_org.id, seller_id=seller_org.id, quantity="100")
+        trade.seller_user_id = admin.id
+        db.add(trade)
+        await db.commit()
+        monkeypatch.setattr(trades_router, "notify_org_users", AsyncMock())
+        response = await trades_router.decline_trade(trade.id, _fake_request(), db, seller)
+        assert response.status == "DECLINED"

@@ -365,6 +365,7 @@ async def test_buyer_cannot_request_quote_from_own_organization(targeted_market)
     async with seeded["owner_factory"]() as session:
         buyer = await session.get(User, seeded["buyer_id"])
         buyer.organization_id = seeded["seller_org_id"]
+        buyer.kyc_organization_id = buyer.organization_id
         await session.commit()
     response = await client.post(
         "/api/rfq", json=_targeted_payload(seeded, source),

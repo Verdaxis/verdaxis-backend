@@ -199,6 +199,8 @@ async def test_inventory_publish_uses_canonical_lane_frozen_terms_and_shared_mat
         status=UserStatus.APPROVED,
         email_verified=True,
         must_change_password=False,
+        kyc_status="APPROVED",
+        kyc_organization_id=organization.id,
     )
     item = InventoryItem(
         **_inventory_write_values(InventoryCreate(**inventory_payload(terms))),

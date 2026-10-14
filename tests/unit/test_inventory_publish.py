@@ -25,6 +25,8 @@ def _make_user():
     user.id = uuid4()
     user.role = UserRole.SUPPLIER
     user.organization_id = uuid4()
+    user.kyc_status = "APPROVED"
+    user.kyc_organization_id = user.organization_id
     return user
 
 
@@ -82,7 +84,7 @@ class TestPublishInventoryItem:
         locked_user.email_verified = True
         locked_user.must_change_password = False
         locked_user.kyc_status = "APPROVED"
-        locked_user.kyc_organization_id = None
+        locked_user.kyc_organization_id = user.organization_id
         monkeypatch.setattr(
             "app.routers.inventory.expire_market_slice_orders",
             AsyncMock(return_value=([], {user.organization_id: organization})),

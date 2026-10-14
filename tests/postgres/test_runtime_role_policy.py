@@ -71,6 +71,25 @@ def _psql(
 
 
 @pytest.mark.asyncio
+async def test_runtime_cannot_write_kyc_execution_grace():
+    _policy_values()
+    engine = create_async_engine(os.environ["DATABASE_URL"], hide_parameters=True)
+    try:
+        async with engine.connect() as connection:
+            await connection.execute(text("SELECT id FROM kyc_execution_grace LIMIT 1"))
+        for statement in (
+            "INSERT INTO kyc_execution_grace SELECT * FROM kyc_execution_grace WHERE false",
+            "UPDATE kyc_execution_grace SET expires_at = expires_at WHERE false",
+            "DELETE FROM kyc_execution_grace WHERE false",
+        ):
+            with pytest.raises(DBAPIError):
+                async with engine.begin() as connection:
+                    await connection.execute(text(statement))
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
 async def test_migrator_converges_new_policy_table_after_migration():
     values = _policy_values()
     table_name = "seed_runs"

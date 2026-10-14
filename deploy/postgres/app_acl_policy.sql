@@ -33,6 +33,8 @@ INSERT INTO app_table_policy (table_name, privileges) VALUES
     -- Feedback is append-only from the app; admins read, never edit.
     ('feedback_entries', ARRAY['SELECT', 'INSERT']),
     ('inventory_items', ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE']),
+    ('kyc_execution_grace', ARRAY['SELECT']),
+    ('kyc_grace_notices', ARRAY['SELECT', 'INSERT', 'UPDATE']),
     ('live_slice_benchmarks', ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE']),
     ('market_command_results', ARRAY['SELECT', 'INSERT']),
     ('market_event_outbox', ARRAY['SELECT', 'INSERT', 'UPDATE']),

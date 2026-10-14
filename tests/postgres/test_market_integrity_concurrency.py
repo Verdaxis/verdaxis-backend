@@ -701,6 +701,7 @@ async def test_provenance_filter_precedes_candidate_limit(pg):
             role=UserRole.BUYER,
             status=UserStatus.APPROVED,
             organization_id=buyer.id,
+            kyc_organization_id=buyer.id,
             email_verified=True,
             kyc_status="APPROVED",
         )
@@ -710,6 +711,7 @@ async def test_provenance_filter_precedes_candidate_limit(pg):
             role=UserRole.SUPPLIER,
             status=UserStatus.APPROVED,
             organization_id=seller.id,
+            kyc_organization_id=seller.id,
             email_verified=True,
             kyc_status="APPROVED",
         )

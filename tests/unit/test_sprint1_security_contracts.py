@@ -45,6 +45,7 @@ def _user(**overrides):
         "kyc_reviewed_at": datetime.now(UTC),
     }
     values.update(overrides)
+    values.setdefault("kyc_organization_id", values["organization_id"])
     return SimpleNamespace(**values)
 
 
@@ -139,7 +140,7 @@ async def test_execution_dependency_rejects_admin_market_execution():
 )
 async def test_execution_dependency_rejects_nonqualified_market_users(changes):
     user = _user(**changes)
-    db = _db_for_org(_org(org_id=user.organization_id))
+    db = _db_for_org(None if user.kyc_status == "REJECTED" else _org(org_id=user.organization_id))
 
     with pytest.raises(Exception) as exc_info:
         await require_execution_eligible_user(user, db)

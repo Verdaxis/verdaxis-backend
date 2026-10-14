@@ -27,7 +27,9 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def _eligible_user(*, organization_id=None):
+    organization_id = organization_id or uuid4()
     return SimpleNamespace(
+        kyc_organization_id=organization_id,
         id=uuid4(),
         organization_id=organization_id or uuid4(),
         role=UserRole.BUYER,

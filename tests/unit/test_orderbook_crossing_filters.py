@@ -32,7 +32,9 @@ def async_engine():
 
 @pytest.fixture(scope="module")
 async def setup_tables(async_engine):
+    from app.models.kyc_execution_grace import KYCExecutionGrace
     tables = [Base.metadata.tables[name] for name in REQUIRED_TABLES]
+    tables.append(KYCExecutionGrace.__table__)
     async with async_engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all, tables=tables)
     yield

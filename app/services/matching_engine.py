@@ -14,6 +14,7 @@ from app.models.orderbook import (
     OrderBookOrder, Trade, OrderSide, OrderBookStatus, TradeStatus, Initiator
 )
 from app.models.notification import NotificationType
+from app.services.market_data_eligibility import public_order_owner_admission_clause
 from app.models.user import Organization, User
 from app.services.demo_market import (
     DEMO_ACTIVITY_BUYER_ORG_ID,
@@ -149,6 +150,14 @@ async def match_order(
             Organization.verification_status == "APPROVED"
         ),
     ]
+
+    if allowed_demo_counterparty_id is None:
+        match_filters.extend((
+            OrderBookOrder.owner_user_id.is_not(None),
+            public_order_owner_admission_clause(OrderBookOrder),
+        ))
+    else:
+        match_filters.append(OrderBookOrder.id == allowed_demo_counterparty_id)
 
     # delivery_point_id match: both NULL or both equal
     if new_order.delivery_point_id is None:

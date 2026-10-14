@@ -103,6 +103,8 @@ async def test_order_entry_requires_b100_terms_before_inserting_an_order():
     db.add = MagicMock()
     db.execute.return_value = _result(_product())
     user = MagicMock(id=uuid4(), role=UserRole.BUYER, organization_id=uuid4())
+    user.kyc_status = "APPROVED"
+    user.kyc_organization_id = user.organization_id
     request = SimpleNamespace(headers={}, client=SimpleNamespace(host="127.0.0.1"))
     with pytest.raises(HTTPException, match="B100 requirements or declarations") as rejected:
         await create_order(

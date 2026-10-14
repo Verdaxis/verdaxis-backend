@@ -322,7 +322,7 @@ async def test_withdrawal_admission_retains_membership_check_after_approval_loss
     db = AsyncMock()
     db.execute.side_effect = [users_result, organizations_result]
     eligibility = AsyncMock(return_value=False)
-    monkeypatch.setattr(market_admission, "execution_party_is_eligible", eligibility)
+    monkeypatch.setattr(market_admission, "market_party_is_admitted", eligibility)
     operation = market_admission.lock_and_load_market_organizations(
         db, [organization_id],
         actor_ownerships=(market_admission.MarketActorOwnership(user.id, organization_id),),

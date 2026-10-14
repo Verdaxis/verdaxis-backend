@@ -1821,8 +1821,6 @@ async def create_order(
                 status_code=status.HTTP_400_BAD_REQUEST,
             detail="Assisted-order confirmation requires an active assisted workspace",
             )
-        if isinstance(current_user, User):
-            current_user = await require_execution_eligible_user(current_user=current_user, db=db)
     else:
         if order_data.support_confirmation is None:
             raise HTTPException(
@@ -1883,6 +1881,12 @@ async def create_order(
         if existing_order is not None:
             return await _order_response(db, existing_order)
 
+    if party.mode == RequestPartyMode.SELF_SERVICE:
+        from app.services.kyc_execution import require_kyc_execution
+
+        await require_kyc_execution(db, current_user)
+        if isinstance(current_user, User):
+            current_user = await require_execution_eligible_user(current_user=current_user, db=db)
     if (
         party.mode == RequestPartyMode.SELF_SERVICE
         and order_data.side == OrderSide.BID
@@ -2011,8 +2015,13 @@ async def create_order(
             if party.mode == RequestPartyMode.MARKET_SUPPORT
             else (MarketActorOwnership(party.accountable_principal.id, effective_organization_id),)
         ),
+        require_kyc=party.mode == RequestPartyMode.SELF_SERVICE,
     )
     organization = organizations[effective_organization_id]
+    if party.mode == RequestPartyMode.MARKET_SUPPORT:
+        from app.services.execution_policy import require_customer_organization_execution
+
+        await require_customer_organization_execution(db, organization)
     require_minimum_order_quantity(
         quantity_mt=order_data.quantity_mt,
         product=product,
@@ -2588,6 +2597,7 @@ async def update_order(
         actor_ownerships=(
             MarketActorOwnership(current_user.id, current_user.organization_id),
         ),
+        require_kyc=True,
     )
 
     # Recheck the complete effective declaration after the row lock. A partial
@@ -2917,6 +2927,7 @@ async def cancel_order(
             actor_ownerships=(
                 MarketActorOwnership(current_user.id, effective_organization_id),
             ),
+            require_execution_eligible=False,
         )
 
     # The preview may have waited behind a fill on the same market slice.

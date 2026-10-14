@@ -36,7 +36,7 @@ from app.services.availability_windows import (
     normalize_availability_window,
 )
 from app.services.execution_policy import (
-    execution_party_is_eligible,
+    market_party_is_admitted as execution_party_is_eligible,
     order_is_execution_qualified,
 )
 from app.services.market_admission import (

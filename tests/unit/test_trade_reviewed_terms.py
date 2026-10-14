@@ -98,6 +98,8 @@ async def test_successful_old_replay_precedes_current_terms_check(db):
     await db.commit()
     request = _fake_request()
     request.headers["Idempotency-Key"] = existing.idempotency_key
+    buyer.kyc_status = "PENDING"
+    await db.flush()
 
     response = await trades.create_trade(
         payload=trades.TradeCreate(**legacy_payload),

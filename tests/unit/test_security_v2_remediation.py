@@ -70,6 +70,7 @@ async def test_execution_party_requires_user_owner_and_approved_org():
         kyc_reviewed_by=uuid4(),
         kyc_reviewed_at=datetime.now(UTC),
     )
+    user.kyc_organization_id = user.organization_id
     org = SimpleNamespace(id=user.organization_id, verification_status="APPROVED")
     db = SimpleNamespace()
     assert await execution_party_is_eligible(db, user=user, organization=org) is True

@@ -29,6 +29,9 @@ from app.routers.trades import (
 
 
 async def _session_for(*tables):
+    from app.models.kyc_execution_grace import KYCExecutionGrace
+
+    tables = (*tables, KYCExecutionGrace.__table__)
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     async with engine.begin() as connection:
         await connection.run_sync(lambda sync: Base.metadata.create_all(sync, tables=list(tables)))
@@ -62,7 +65,8 @@ def _eligible_user(user_id, organization_id, role):
         status=UserStatus.APPROVED,
         email_verified=True,
         must_change_password=False,
-        kyc_status="PENDING",
+        kyc_status="APPROVED",
+        kyc_organization_id=organization_id,
     )
 
 

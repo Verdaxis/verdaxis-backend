@@ -238,6 +238,8 @@ async def test_post_only_uses_the_buyer_fuel_requirements(
     owner = User(
         id=uuid4(),
         organization_id=buyer.id,
+        kyc_status="APPROVED",
+        kyc_organization_id=buyer.id,
         role=UserRole.BUYER,
         status=UserStatus.APPROVED,
         email_verified=True,
