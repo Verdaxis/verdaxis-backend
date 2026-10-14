@@ -188,11 +188,11 @@ sudo -n -u verdaxis-prod /home/verdaxis-prod/verdaxis/staging/be/scripts/deploy.
 - `GET /api/auth/me` -- Current user info
 
 ### Authenticated
-- `POST /api/orderbook` -- Place BID (BUYER) or ASK (SUPPLIER) order
+- `POST /api/orderbook` -- Place BID (BUYER) or ASK (SUPPLIER) order; Bio-LNG orders require `lng_terms` and Rotterdam
 - `PUT /api/orderbook/{id}` -- Update own order
 - `DELETE /api/orderbook/{id}` -- Cancel own order
 - `GET /api/orderbook/my` -- Own orders with trade counts
-- `POST /api/trades/` -- Hit an order to create a trade
+- `POST /api/trades/` -- Hit an order to create a trade; taking a Bio-LNG ASK requires buyer `lng_terms` (incompatible: `LNG_TERMS_INCOMPATIBLE`)
 - `GET /api/trades/my` -- Own trades
 - `PUT /api/trades/{id}/confirm` -- Counterparty confirms
 - `PUT /api/trades/{id}/decline` -- Counterparty declines (restores order quantity)
