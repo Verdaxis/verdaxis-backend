@@ -2428,7 +2428,7 @@ async def test_bio_lng_orders_bind_terms_lane_and_compatible_matching(route_mark
             "side": "ASK",
             "price_per_mt_usd": "1500.00",
             "msds_available": True,
-            "lng_terms": bio_lng.ask_terms(),
+            "lng_terms": bio_lng.ask_terms(seller_is_physical_supplier=True),
             "delivery_point_id": str(seeded["point_id"]),
         },
         headers=_headers(seeded["seller_id"], "bio-lng-singapore-ask"),
@@ -2442,17 +2442,37 @@ async def test_bio_lng_orders_bind_terms_lane_and_compatible_matching(route_mark
             "msds_available": True,
             # A client copy of a derived scalar is replaced by the terms.
             "certification_scheme": "Client supplied",
-            "lng_terms": bio_lng.ask_terms(),
+            "lng_terms": bio_lng.ask_terms(seller_is_physical_supplier=True),
         },
         headers=_headers(seeded["seller_id"], "bio-lng-ask"),
     )
-    reseller_refused = await client.post(
+    reseller_payload = {
+        **order, "side": "ASK", "price_per_mt_usd": "1500.00",
+        "msds_available": True,
+        "lng_terms": bio_lng.ask_terms(seller_is_physical_supplier=False),
+    }
+    reseller_create = await client.post(
+        "/api/orderbook", json=reseller_payload,
+        headers=_headers(seeded["seller_id"], "bio-lng-reseller-ask"),
+    )
+    reseller_amend = await client.put(
+        f"/api/orderbook/{ask.json()['id']}",
+        json={"lng_terms": reseller_payload["lng_terms"], "price_per_mt_usd": "1700.00"},
+        headers=_headers(seeded["seller_id"], "bio-lng-reseller-amend"),
+    )
+    for rejected in (reseller_create, reseller_amend):
+        assert rejected.status_code == 422, rejected.text
+        assert rejected.json()["detail"] == {
+            "code": "RESELLER_ALLOCATION_REQUIRED",
+            "message": "Reseller listings need a verified supplier allocation. Contact Verdaxis to register one.",
+        }
+    incompatible = await client.post(
         "/api/orderbook",
         json={
             **order,
             "side": "BID",
             "price_per_mt_usd": "1600.00",
-            "lng_terms": bio_lng.bid_terms(accept_resellers=False),
+            "lng_terms": bio_lng.bid_terms(accept_resellers=False, accepted_schemes=["REDCERT_EU"]),
         },
         headers=_headers(seeded["buyer_id"], "bio-lng-physical-only-bid"),
     )
@@ -2472,9 +2492,9 @@ async def test_bio_lng_orders_bind_terms_lane_and_compatible_matching(route_mark
     assert outside_lane.json()["detail"] == "Bio-LNG is available at Rotterdam only"
     assert ask.status_code == 201, ask.text
     assert "scheme_certificate_number" not in ask.json()["lng_terms"]
-    assert ask.json()["lng_terms"]["reseller"] is True
-    assert reseller_refused.status_code == 201, reseller_refused.text
-    assert reseller_refused.json()["status"] == "OPEN"
+    assert ask.json()["lng_terms"]["reseller"] is False
+    assert incompatible.status_code == 201, incompatible.text
+    assert incompatible.json()["status"] == "OPEN"
     assert compatible.status_code == 201, compatible.text
     assert compatible.json()["status"] == "FILLED"
     async with seeded["factory"]() as session:

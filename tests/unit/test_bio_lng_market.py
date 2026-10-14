@@ -28,10 +28,15 @@ from app.models.orderbook import (
 )
 from app.models.user import OrganizationProvenance, OrgType, UserRole
 from app.reference.iso_countries import ISO_3166_1_ALPHA_2
-from app.routers import trades
-from app.routers.orderbook import create_order
+from app.routers import orderbook, trades
+from app.routers.orderbook import create_order, update_order
 from app.schemas.lng_terms import LngAskTerms, LngBidTerms
-from app.schemas.orderbook import OrderCreate, OrderMyResponse, OrderResponse
+from app.schemas.orderbook import (
+    OrderCreate,
+    OrderMyResponse,
+    OrderResponse,
+    OrderUpdate,
+)
 from app.services import matching_engine
 from app.services.ci_pricing import ci_adjusted_price_for_order
 from app.services.execution_policy import order_is_execution_qualified
@@ -46,6 +51,7 @@ from app.services.market_data_eligibility import (
     public_order_is_visible,
 )
 from app.services.order_terms import order_terms_digest
+from app.services.request_party import RequestParty, RequestPartyMode
 from tests.unit.fixtures import bio_lng
 from tests.unit.test_trade_watchlist_hooks import (
     _fake_request,
@@ -67,7 +73,9 @@ IDENTITY_FIELDS = ("scheme_certificate_number", "physical_supplier_name")
 # ---------------------------------------------------------------------------
 
 def test_valid_terms_are_normalized_for_the_order_side():
-    ask = validate_order_lng_terms(BIO_LNG_PRODUCT_ID, OrderSide.ASK, bio_lng.ask_terms())
+    ask = validate_order_lng_terms(
+        BIO_LNG_PRODUCT_ID, OrderSide.ASK, bio_lng.ask_terms(seller_is_physical_supplier=True),
+    )
     bid = validate_order_lng_terms(
         BIO_LNG_PRODUCT_ID,
         "BID",
@@ -238,7 +246,7 @@ async def test_order_entry_rejects_bio_lng_outside_rotterdam():
         quantity_mt=Decimal("500"),
         price_per_mt_usd=Decimal("1500"),
         msds_available=True,
-        lng_terms=bio_lng.ask_terms(),
+        lng_terms=bio_lng.ask_terms(seller_is_physical_supplier=True),
     )
 
     db = AsyncMock()
@@ -254,6 +262,90 @@ async def test_order_entry_rejects_bio_lng_outside_rotterdam():
     assert product_delivery_point_error(PRODUCT_IDS["B30"], SINGAPORE_ID) is None
     assert market_product_supports_delivery_point("BIO_LNG", ROTTERDAM_ID)
     assert not market_product_supports_delivery_point("BIO_LNG", SINGAPORE_ID)
+
+
+RESELLER_ALLOCATION_DETAIL = {
+    "code": "RESELLER_ALLOCATION_REQUIRED",
+    "message": "Reseller listings need a verified supplier allocation. Contact Verdaxis to register one.",
+}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("assisted", [False, True])
+async def test_reseller_ask_create_requires_allocation(monkeypatch, db, assisted):
+    seller_org = await _make_org(db, "Reseller", OrgType.FUEL_TRADER)
+    seller = await _make_user(db, seller_org, UserRole.SUPPLIER)
+    await _make_product(db, "Bio-LNG")
+    await _make_point(db, "Rotterdam")
+    request = _fake_request()
+    confirmation = None
+    if assisted:
+        actor = await _make_user(db, seller_org, UserRole.ADMIN)
+        party = RequestParty(
+            actor=actor, effective_organization=seller_org, accountable_principal=actor,
+            effective_role=UserRole.SUPPLIER, mode=RequestPartyMode.MARKET_SUPPORT,
+            support_context_id=uuid4(), creation_method=OrderCreationMethod.MARKET_SUPPORT,
+        )
+        monkeypatch.setattr(orderbook, "resolve_request_party", AsyncMock(return_value=party))
+        monkeypatch.setattr(orderbook, "_load_valid_order_create_replay", AsyncMock(return_value=None))
+        request.headers["Idempotency-Key"] = "reseller-assisted-ask"
+        seller = actor
+        confirmation = {
+            "external_instruction_reference": "customer-request-123",
+            "instruction_at": datetime.now(UTC),
+            "acknowledge_exact_terms": True,
+            "acknowledge_executable_standing_order": True,
+        }
+    payload = OrderCreate(
+        side="ASK", product_id=BIO_LNG_PRODUCT_ID, delivery_point_id=ROTTERDAM_ID,
+        quantity_mt="500", price_per_mt_usd="1500", msds_available=True,
+        lng_terms=bio_lng.ask_terms(seller_is_physical_supplier=False),
+        support_confirmation=confirmation,
+    )
+    # Parsing remains valid: this is an admission rule, not a schema restriction.
+    assert payload.lng_terms.seller_is_physical_supplier is False
+    with pytest.raises(HTTPException) as failure:
+        await create_order(request=request, order_data=payload, current_user=seller, db=db)
+    assert failure.value.status_code == 422
+    assert failure.value.detail == RESELLER_ALLOCATION_DETAIL
+    assert await db.scalar(select(func.count()).select_from(OrderBookOrder)) == 0
+
+
+@pytest.mark.asyncio
+async def test_physical_supplier_ask_posts_and_reseller_amend_changes_nothing(monkeypatch, db):
+    monkeypatch.setattr(orderbook, "notify_org_users_batched", AsyncMock())
+    seller_org = await _make_org(db, "Physical supplier", OrgType.FUEL_SUPPLIER)
+    seller = await _make_user(db, seller_org, UserRole.SUPPLIER)
+    await _make_product(db, "Bio-LNG")
+    await _make_point(db, "Rotterdam")
+    terms = bio_lng.ask_terms(seller_is_physical_supplier=True)
+    posted = await create_order(
+        request=_fake_request(), current_user=seller, db=db,
+        order_data=OrderCreate(
+            side="ASK", product_id=BIO_LNG_PRODUCT_ID, delivery_point_id=ROTTERDAM_ID,
+            quantity_mt="500", price_per_mt_usd="1500", msds_available=True, lng_terms=terms,
+        ),
+    )
+    stored = await db.get(OrderBookOrder, posted.id)
+    assert stored.lng_terms["seller_is_physical_supplier"] is True
+    assert stored.status == OrderBookStatus.OPEN
+    original_terms = dict(stored.lng_terms)
+    original_version = stored.version
+    with pytest.raises(HTTPException) as failure:
+        await update_order(
+            order_id=stored.id, request=_fake_request(), current_user=seller, db=db,
+            update_data=OrderUpdate(
+                lng_terms=bio_lng.ask_terms(seller_is_physical_supplier=False),
+                price_per_mt_usd="1600", quantity_mt="600",
+            ),
+        )
+    assert failure.value.status_code == 422
+    assert failure.value.detail == RESELLER_ALLOCATION_DETAIL
+    await db.refresh(stored)
+    assert stored.lng_terms == original_terms
+    assert stored.price_per_mt_usd == Decimal("1500")
+    assert stored.quantity_mt == stored.remaining_quantity_mt == Decimal("500")
+    assert stored.version == original_version
 
 
 def _bio_lng_ask(*, organization_id, delivery_point_id, owner_user_id=None, **overrides):
