@@ -42,3 +42,11 @@ async def test_blocked_error_has_stable_contract():
     assert exc.value.status_code == 403
     assert exc.value.detail == {"code": "KYC_REQUIRED", "message": "Complete KYC verification to trade.",
                                 "kyc_status": "PENDING", "grace_expires_at": None}
+
+
+def test_migration_grace_uses_elapsed_hours_not_calendar_days():
+    from pathlib import Path
+
+    migration = Path("alembic/versions/kycg_20261014_staging.py").read_text()
+    assert "interval '336 hours'" in migration
+    assert "interval '14 days'" not in migration

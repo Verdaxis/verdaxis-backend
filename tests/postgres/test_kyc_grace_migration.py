@@ -15,7 +15,7 @@ def test_kyc_grace_snapshot_and_roundtrip(supplier_scratch_database):
     """)
     migrate("upgrade", "kycg_20261014_staging")
     assert sql("SELECT count(*) FROM kyc_execution_grace") == "1"
-    assert sql("SELECT expires_at - enrolled_at = interval '14 days' FROM kyc_execution_grace") == "t"
+    assert sql("SELECT extract(epoch FROM expires_at - enrolled_at) = 1209600 FROM kyc_execution_grace") == "t"
     deadline = sql("SELECT expires_at FROM kyc_execution_grace")
     sql("UPDATE users SET kyc_status = 'SUBMITTED'")
     assert sql("SELECT expires_at FROM kyc_execution_grace") == deadline

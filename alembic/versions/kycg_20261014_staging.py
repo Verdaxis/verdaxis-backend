@@ -43,7 +43,7 @@ def upgrade() -> None:
             (id, user_id, organization_id, kyc_status_at_enrollment,
              enrolled_at, expires_at, created_by)
         SELECT gen_random_uuid(), u.id, u.organization_id, u.kyc_status,
-               now(), now() + interval '14 days', 'kycg_20261014_staging'
+               now(), now() + interval '336 hours', 'kycg_20261014_staging'
         FROM users u JOIN organizations o ON o.id = u.organization_id
         WHERE u.status = 'APPROVED' AND o.verification_status = 'APPROVED'
           AND u.kyc_status IN ('PENDING', 'SUBMITTED')
