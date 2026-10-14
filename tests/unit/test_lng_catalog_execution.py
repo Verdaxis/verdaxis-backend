@@ -59,6 +59,8 @@ async def test_create_rejects_lng_outside_rotterdam():
     db.add = MagicMock()
     db.execute.return_value = _result(_product("BIO_LNG"))
     user = MagicMock(id=uuid4(), role=UserRole.BUYER, organization_id=uuid4())
+    user.kyc_status = "APPROVED"
+    user.kyc_organization_id = user.organization_id
     with pytest.raises(HTTPException, match="not available at the selected delivery point"):
         await create_order(
             request=SimpleNamespace(headers={}, client=SimpleNamespace(host="127.0.0.1")),
@@ -81,6 +83,8 @@ async def test_create_rejects_lng_without_terms_before_insert():
     db = AsyncMock()
     db.add = MagicMock()
     user = MagicMock(id=uuid4(), role=UserRole.BUYER, organization_id=uuid4())
+    user.kyc_status = "APPROVED"
+    user.kyc_organization_id = user.organization_id
     with pytest.raises(HTTPException, match="Bio-LNG requirements"):
         await create_order(
             request=SimpleNamespace(headers={}, client=SimpleNamespace(host="127.0.0.1")),
