@@ -95,16 +95,16 @@ from app.services.availability_windows import is_tradable_availability_window
 from app.services.execution_policy import (
     execution_party_is_eligible,
     market_party_is_admitted,
-    require_customer_organization_execution,
     normalize_certification_scheme,
+    require_customer_organization_execution,
 )
 from app.services.fame_order import fame_metadata_fields, validate_fame_order_terms
-from app.services.lng_order import lng_metadata_fields, validate_lng_order_terms
 from app.services.idempotency import (
     acquire_idempotency_lock,
     idempotency_request_hash,
 )
 from app.services.live_benchmarks import rebuild_live_slice_benchmarks_for_keys
+from app.services.lng_order import lng_metadata_fields, validate_lng_order_admission
 from app.services.market_admission import (
     MarketActorOwnership,
     lock_and_load_market_organizations,
@@ -904,7 +904,7 @@ async def create_authorization(
                 )
             }
         )
-    lng_terms = validate_lng_order_terms(body.order.product_id, body.order.side, body.order.lng_terms)
+    lng_terms = validate_lng_order_admission(body.order.product_id, body.order.side, body.order.lng_terms)
     if lng_terms is not None:
         body = body.model_copy(update={
             "order": body.order.model_copy(update=lng_metadata_fields(lng_terms))
@@ -1045,6 +1045,9 @@ def _candidate_from_authorization(
     product: Product,
     delivery_point: DeliveryPoint,
 ) -> OrderBookOrder:
+    validate_lng_order_admission(
+        authorization.product_id, OrderSide.ASK, getattr(authorization, "lng_terms", None),
+    )
     order = OrderBookOrder(
         organization_id=authorization.organization_id,
         owner_user_id=authorization.accountable_user_id,

@@ -35,7 +35,7 @@ from app.models.notification import NotificationType
 from app.market_catalog import APPROVED_MARKET_PRODUCTS, MarketProduct, PRODUCTS_BY_ID
 from app.services.market_catalog_validation import require_orderbook_product
 from app.services.lng_order import (
-    is_lng_product, lng_metadata_fields, validate_lng_order_terms,
+    is_lng_product, lng_metadata_fields, validate_lng_order_admission,
 )
 from app.services.fame_order import (
     fame_metadata_fields, is_fame_product, public_fame_terms, validate_fame_order_terms,
@@ -1922,7 +1922,7 @@ async def create_order(
         for field, value in fame_metadata_fields(fame_terms).items():
             if field in OrderCreate.model_fields:
                 setattr(order_data, field, value)
-    lng_terms = validate_lng_order_terms(order_data.product_id, order_data.side, order_data.lng_terms)
+    lng_terms = validate_lng_order_admission(order_data.product_id, order_data.side, order_data.lng_terms)
     if lng_terms is not None:
         if order_data.quantity_mt < 1:
             raise HTTPException(422, "Bio-LNG orders require at least 1 MT")
@@ -2494,7 +2494,7 @@ async def update_order(
             raise HTTPException(422, "UCOME B100 orders require at least 1 MT")
         update_dict["fame_terms"] = fame_terms
         update_dict.update(fame_metadata_fields(fame_terms))
-    lng_terms = validate_lng_order_terms(
+    lng_terms = validate_lng_order_admission(
         order.product_id, order.side,
         update_dict.get("lng_terms", getattr(order, "lng_terms", None)),
     )
@@ -2611,7 +2611,7 @@ async def update_order(
         update_dict["fame_terms"] = locked_terms
         update_dict.update(fame_metadata_fields(locked_terms))
 
-    locked_lng_terms = validate_lng_order_terms(
+    locked_lng_terms = validate_lng_order_admission(
         order.product_id, order.side,
         update_data.lng_terms if "lng_terms" in update_data.model_fields_set else getattr(order, "lng_terms", None),
     )
