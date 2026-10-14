@@ -23,7 +23,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.model_base import Base
 from app.market_constraints import (
-    NEGOTIATION_FAME_TERMS,
+    NEGOTIATION_FAME_TERMS, NEGOTIATION_LNG_TERMS,
     NEGOTIATION_DOMAIN,
     NEGOTIATION_LIFECYCLE,
     NEGOTIATION_NUMERIC_VALUES,
@@ -44,6 +44,7 @@ class Negotiation(Base):
     __tablename__ = "negotiations"
     __table_args__ = (
         postgresql_check(NEGOTIATION_FAME_TERMS, name="ck_negotiations_fame_terms"),
+        postgresql_check(NEGOTIATION_LNG_TERMS, name="ck_negotiations_lng_terms"),
         Index("ix_negotiations_initiator_org", "initiator_org_id"),
         Index("ix_negotiations_counterparty_org", "counterparty_org_id"),
         Index("ix_negotiations_status", "status"),
@@ -112,6 +113,7 @@ class Negotiation(Base):
     availability_window: Mapped[str] = mapped_column(
         String(16), nullable=False, default="SPOT", server_default="SPOT"
     )
+    lng_terms_snapshot: Mapped[dict | None] = mapped_column(JSON(none_as_null=True), nullable=True)
     fame_terms_snapshot: Mapped[dict | None] = mapped_column(
         JSON(none_as_null=True), nullable=True
     )

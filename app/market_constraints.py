@@ -63,6 +63,35 @@ INVENTORY_FAME_TERMS = (
     "AND (" + _fame_terms_object("fame_terms", "'ASK'") + ")) IS TRUE"
 )
 
+def _lng_terms_object(column: str, side: str) -> str:
+    return f"(json_typeof({column}) = 'object' AND {column}->>'side' = {side}) IS TRUE"
+
+
+def _lng_product_terms(column: str, shape: str, minimum_quantity: str = "1") -> str:
+    return (
+        f"(product_id IS DISTINCT FROM '{PRODUCT_IDS['BIO_LNG']}' AND {column} IS NULL) OR "
+        f"(product_id = '{PRODUCT_IDS['BIO_LNG']}' "
+        f"AND delivery_point_id = '{DELIVERY_POINT_IDS['Rotterdam']}' "
+        f"AND delivery_point_id IS NOT NULL AND quantity_mt >= {minimum_quantity} "
+        f"AND {column} IS NOT NULL AND ({shape})) IS TRUE"
+    )
+
+
+_LNG_PAIR = (
+    "json_typeof(lng_terms_snapshot) = 'object' AND "
+    + _lng_terms_object("(lng_terms_snapshot->'bid')", "'BID'") + " AND "
+    + _lng_terms_object("(lng_terms_snapshot->'ask')", "'ASK'")
+)
+ORDER_LNG_TERMS = _lng_product_terms("lng_terms", _lng_terms_object("lng_terms", "side"))
+TRADE_LNG_TERMS = _lng_product_terms("lng_terms_snapshot", _LNG_PAIR, "0.01")
+NEGOTIATION_LNG_TERMS = TRADE_LNG_TERMS
+MARKET_SUPPORT_LNG_TERMS = _lng_product_terms("lng_terms", _lng_terms_object("lng_terms", "order_side"))
+INVENTORY_LNG_TERMS = (
+    "(product_name IS DISTINCT FROM 'Bio-LNG' AND lng_terms IS NULL) OR "
+    "(product_name = 'Bio-LNG' AND fuel_type = 'LNG' AND lng_terms IS NOT NULL "
+    "AND (" + _lng_terms_object("lng_terms", "'ASK'") + ")) IS TRUE"
+)
+
 PROVENANCE_VALUES = "'UNKNOWN','REAL','DEMO','TEST','CANARY'"
 MARKET_PRODUCT_VALUES = ",".join(f"'{value}'" for value in ORDERBOOK_MARKET_PRODUCTS)
 DEMO_ORG_VALUES = ",".join(f"'{organization_id}'" for organization_id in sorted(DEMO_MARKET_ORG_IDS, key=str))

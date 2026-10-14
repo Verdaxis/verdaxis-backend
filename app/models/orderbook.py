@@ -30,8 +30,8 @@ from app.market_catalog import PRODUCT_IDS
 from app.services.availability_windows import SPOT_WINDOW
 from app.models.user import OrganizationProvenance
 from app.market_constraints import (
-    ORDER_FAME_TERMS,
-    TRADE_FAME_TERMS,
+    ORDER_FAME_TERMS, ORDER_LNG_TERMS,
+    TRADE_FAME_TERMS, TRADE_LNG_TERMS,
     ORDER_DOMAIN,
     ORDER_LIFECYCLE,
     ORDER_NUMERIC_VALUES,
@@ -113,6 +113,7 @@ class OrderBookOrder(Base):
     __tablename__ = "orderbook_orders"
     __table_args__ = (
         postgresql_check(ORDER_FAME_TERMS, name="ck_orderbook_orders_fame_terms"),
+        postgresql_check(ORDER_LNG_TERMS, name="ck_orderbook_orders_lng_terms"),
         Index(
             "ix_orderbook_orders_active_slice_lookup",
             "side",
@@ -244,6 +245,7 @@ class OrderBookOrder(Base):
     certification_declared: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     certification_scheme: Mapped[str | None] = mapped_column(String(120), nullable=True)
     fame_terms: Mapped[dict | None] = mapped_column(JSON(none_as_null=True), nullable=True)
+    lng_terms: Mapped[dict | None] = mapped_column(JSON(none_as_null=True), nullable=True)
     specification_standard: Mapped[str | None] = mapped_column(String(120), nullable=True)
     msds_available: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     is_verdaxis_verified: Mapped[bool] = mapped_column(
@@ -377,6 +379,7 @@ class Trade(Base):
         postgresql_check(TRADE_LIFECYCLE, name="ck_trades_lifecycle"),
         postgresql_check(TRADE_SNAPSHOT, name="ck_trades_snapshot"),
         postgresql_check(TRADE_FAME_TERMS, name="ck_trades_fame_terms"),
+        postgresql_check(TRADE_LNG_TERMS, name="ck_trades_lng_terms"),
         postgresql_check(
             TRADE_COMMISSION_SNAPSHOT,
             name="ck_trades_commission_snapshot",
@@ -427,6 +430,7 @@ class Trade(Base):
         server_default="1",
     )
     fame_terms_snapshot: Mapped[dict | None] = mapped_column(JSON(none_as_null=True), nullable=True)
+    lng_terms_snapshot: Mapped[dict | None] = mapped_column(JSON(none_as_null=True), nullable=True)
     quantity_mt: Mapped[Decimal] = mapped_column(Numeric(), nullable=False)
     price_per_mt_usd: Mapped[Decimal] = mapped_column(Numeric(), nullable=False)
 

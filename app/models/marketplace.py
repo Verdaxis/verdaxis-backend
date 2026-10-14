@@ -18,7 +18,7 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.market_constraints import (
-    INVENTORY_FAME_TERMS,
+    INVENTORY_FAME_TERMS, INVENTORY_LNG_TERMS,
     INVENTORY_NUMERIC_VALUES,
     postgresql_check,
 )
@@ -42,6 +42,7 @@ class InventoryItem(Base):
         Index("ix_inventory_items_owner_user_id", "owner_user_id"),
         postgresql_check(INVENTORY_NUMERIC_VALUES, name="ck_inventory_items_numeric_values"),
         postgresql_check(INVENTORY_FAME_TERMS, name="ck_inventory_items_fame_terms"),
+        postgresql_check(INVENTORY_LNG_TERMS, name="ck_inventory_items_lng_terms"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -53,6 +54,7 @@ class InventoryItem(Base):
     fuel_type: Mapped[FuelType] = mapped_column(Enum(FuelType, native_enum=False, length=20), nullable=False)
     product_name: Mapped[str | None] = mapped_column(String)
     fame_terms: Mapped[dict | None] = mapped_column(JSON(none_as_null=True), nullable=True)
+    lng_terms: Mapped[dict | None] = mapped_column(JSON(none_as_null=True), nullable=True)
 
     current_stock_mt: Mapped[Decimal] = mapped_column(Numeric(), nullable=False)
     incoming_stock_mt: Mapped[Decimal] = mapped_column(Numeric(), nullable=False, default=Decimal("0"), server_default="0")

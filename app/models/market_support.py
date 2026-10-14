@@ -25,7 +25,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.market_constraints import MARKET_SUPPORT_FAME_TERMS, postgresql_check
+from app.market_constraints import MARKET_SUPPORT_FAME_TERMS, MARKET_SUPPORT_LNG_TERMS, postgresql_check
 from app.model_base import Base
 
 
@@ -174,6 +174,7 @@ class MarketSupportAuthorization(Base):
     __tablename__ = "market_support_authorizations"
     __table_args__ = (
         postgresql_check(MARKET_SUPPORT_FAME_TERMS, name="ck_market_support_auth_fame_terms"),
+        postgresql_check(MARKET_SUPPORT_LNG_TERMS, name="ck_market_support_auth_lng_terms"),
         CheckConstraint("quantity_mt > 0", name="ck_market_support_auth_quantity"),
         CheckConstraint("price_per_mt_usd > 0", name="ck_market_support_auth_price"),
         CheckConstraint(
@@ -263,6 +264,7 @@ class MarketSupportAuthorization(Base):
     off_spec: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     off_spec_notes: Mapped[str | None] = mapped_column(Text)
     fame_terms: Mapped[dict | None] = mapped_column(JSON(none_as_null=True), nullable=True)
+    lng_terms: Mapped[dict | None] = mapped_column(JSON(none_as_null=True), nullable=True)
 
     terms_digest: Mapped[str] = mapped_column(String(64), nullable=False)
     evidence_reference: Mapped[str] = mapped_column(String(500), nullable=False)
