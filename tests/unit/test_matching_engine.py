@@ -273,7 +273,93 @@ def _make_order(
     return OrderBookOrder(**values)
 
 
-# --------------- Tests ---------------
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("with_eligible", [False, True])
+async def test_ineligible_orders_do_not_consume_fanout(
+    db, buyer_org, seller_org, seller_org2, org_buyer_id, org_seller_id,
+    org_seller2_id, test_product, test_dp, with_eligible,
+):
+    seller = await db.get(User, _owner_user_id(org_seller_id))
+    seller.kyc_status = "PENDING"
+    hidden = [_make_order(org_seller_id, OrderSide.ASK, price=Decimal("100")) for _ in range(101)]
+    eligible = [
+        _make_order(org_seller2_id, OrderSide.ASK, price=Decimal(price), quantity=Decimal("100"), acceptance_ordinal=ordinal)
+        for price, ordinal in [("300", 3), ("200", 2), ("200", 1)]
+    ] if with_eligible else []
+    bid = _make_order(org_buyer_id, OrderSide.BID)
+    db.add_all([*hidden, *eligible, bid])
+    await db.flush()
+
+    trades = await match_order(db, bid)
+
+    assert [trade.ask_order_id for trade in trades] == [order.id for order in sorted(eligible, key=lambda order: (order.price_per_mt_usd, order.acceptance_ordinal))]
+    assert all(order.status == OrderBookStatus.OPEN for order in hidden)
+    assert bid.remaining_quantity_mt == Decimal("1000") - len(eligible) * Decimal("100")
+
+
+@pytest.mark.asyncio
+async def test_post_only_ignores_ineligible_fanout(
+    db, buyer_org, seller_org, org_buyer_id, org_seller_id, test_product, test_dp,
+):
+    from app.services.market_support_post_only import assess_locked_order
+
+    seller = await db.get(User, _owner_user_id(org_seller_id))
+    seller.kyc_status = "PENDING"
+    db.add_all([_make_order(org_seller_id, OrderSide.ASK) for _ in range(101)])
+    await db.flush()
+    assessment = await assess_locked_order(
+        db, _make_order(org_buyer_id, OrderSide.BID), organization=buyer_org,
+    )
+    assert not assessment.indeterminate
+    assert not assessment.would_cross
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "kyc_status, bound_to_current_org, grace_seconds, moved, expected",
+    [
+        ("APPROVED", True, None, False, True),
+        ("APPROVED", False, None, False, False),
+        ("PENDING", False, 60, False, True),
+        ("SUBMITTED", False, -1, False, False),
+        ("SUBMITTED", False, 0, False, False),
+        ("REJECTED", True, 60, False, False),
+        ("PENDING", False, 60, True, False),
+        ("REVIEW_REQUIRED", False, None, False, False),
+        ("REVIEW_REQUIRED", False, 60, False, True),
+    ],
+)
+async def test_candidate_sql_matches_python_kyc_policy(
+    db, seller_org, seller_org2, org_seller_id, org_seller2_id, test_product, test_dp,
+    kyc_status, bound_to_current_org, grace_seconds, moved, expected,
+):
+    from app.services.execution_policy import order_owner_is_execution_eligible
+    from app.services.market_data_eligibility import public_order_owner_admission_clause
+
+    now = datetime.now(UTC)
+    owner = await db.get(User, _owner_user_id(org_seller_id))
+    owner.kyc_status = kyc_status
+    owner.kyc_organization_id = org_seller_id if bound_to_current_org else None
+    if grace_seconds is not None:
+        db.add(KycExecutionGrace(
+            user_id=owner.id, organization_id=org_seller_id,
+            kyc_status_at_enrollment="PENDING", enrolled_at=now - timedelta(days=14),
+            expires_at=now + timedelta(seconds=grace_seconds), created_by="kycg_20261014_prod",
+        ))
+    if moved:
+        owner.organization_id = org_seller2_id
+    order = _make_order(org_seller_id, OrderSide.ASK)
+    db.add(order)
+    await db.flush()
+    sql_allowed = await db.scalar(select(public_order_owner_admission_clause(
+        OrderBookOrder, now_expression=now,
+    )).where(OrderBookOrder.id == order.id))
+    python_allowed = await order_owner_is_execution_eligible(
+        db, order=order, user=owner, organization=seller_org,
+    )
+    assert bool(sql_allowed) == python_allowed == expected
 
 
 class TestBasicMatching:
