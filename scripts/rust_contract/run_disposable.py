@@ -97,7 +97,18 @@ def attest(base_url: str, token: str) -> None:
 
 
 class Runner:
-    def __init__(self, group: str, *, seed: bool, keep: bool, seed_mode: str) -> None:
+    def __init__(
+        self,
+        group: str,
+        *,
+        seed: bool,
+        keep: bool,
+        seed_mode: str,
+        record_all: bool = False,
+        gate: bool = True,
+    ) -> None:
+        self.record_all = record_all
+        self.gate = gate
         self.group = group
         self.seed = seed
         self.keep = keep
@@ -105,24 +116,44 @@ class Runner:
         self.container = ""
         self.children: list[subprocess.Popen] = []
         self.sha = subprocess.run(
-            ["git", "rev-parse", "HEAD"], cwd=ROOT, capture_output=True, text=True, check=True
+            ["git", "rev-parse", "HEAD"],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=True,
         ).stdout.strip()
         self.token = secrets.token_urlsafe(32)
         self.python_bin = str(ROOT / "venv" / "bin" / "python")
 
     def start_database(self) -> int:
         self.container = docker(
-            "run", "--platform", "linux/amd64", "-d", "--rm",
-            "-e", "POSTGRES_PASSWORD=disposable_admin_pw",
-            "-p", "127.0.0.1::5432", IMAGE,
+            "run",
+            "--platform",
+            "linux/amd64",
+            "-d",
+            "--rm",
+            "-e",
+            "POSTGRES_PASSWORD=disposable_admin_pw",
+            "-p",
+            "127.0.0.1::5432",
+            IMAGE,
         ).strip()
         # pg_isready prints its status to stdout even when it fails, so the
         # exit status, not the output, decides readiness.
         for _ in range(90):
             probe = subprocess.run(
-                ["docker", "exec", self.container, "pg_isready", "-h", "127.0.0.1",
-                 "-U", "postgres"],
-                capture_output=True, text=True,
+                [
+                    "docker",
+                    "exec",
+                    self.container,
+                    "pg_isready",
+                    "-h",
+                    "127.0.0.1",
+                    "-U",
+                    "postgres",
+                ],
+                capture_output=True,
+                text=True,
             )
             if probe.returncode == 0:
                 break
@@ -130,8 +161,17 @@ class Runner:
         else:
             raise RunnerError("the disposable database never became ready")
         port = docker("port", self.container, "5432/tcp").strip().rsplit(":", 1)[-1]
-        docker("exec", "-i", self.container, "psql", "-q", "-U", "postgres", "-v",
-               "ON_ERROR_STOP=1", input_text=f"""
+        docker(
+            "exec",
+            "-i",
+            self.container,
+            "psql",
+            "-q",
+            "-U",
+            "postgres",
+            "-v",
+            "ON_ERROR_STOP=1",
+            input_text=f"""
 CREATE ROLE {APP_ROLE} LOGIN NOINHERIT NOSUPERUSER PASSWORD '{APP_PASSWORD}';
 CREATE DATABASE {DB_NAME} OWNER {APP_ROLE};
 \\connect {DB_NAME}
@@ -139,7 +179,8 @@ CREATE EXTENSION IF NOT EXISTS postgis;
 ALTER DATABASE {DB_NAME} SET TimeZone TO '{ORACLE_TIMEZONE}';
 \\connect template1
 CREATE EXTENSION IF NOT EXISTS postgis;
-""")
+""",
+        )
         return int(port)
 
     def urls(self, port: int) -> dict[str, str]:
@@ -156,37 +197,62 @@ CREATE EXTENSION IF NOT EXISTS postgis;
 
     def migrate_and_seed(self, env: dict[str, str]) -> None:
         run = {**os.environ, **env}
-        subprocess.run(
-            [str(ROOT / "scripts" / "verify_migrations.sh")],
-            cwd=ROOT, env={**run, "ALEMBIC_BIN": str(ROOT / "venv" / "bin" / "alembic")},
-            check=True,
-        )
+        alembic = [str(ROOT / "venv/bin/alembic"), "upgrade"]
+        if self.seed and self.seed_mode == "corpus":
+            subprocess.run(
+                alembic + ["miq_20260720_market_quarantine"],
+                cwd=ROOT,
+                env=run,
+                check=True,
+            )
+            subprocess.run(
+                [self.python_bin, "-m", "scripts.rust_contract.seed_corpus"],
+                cwd=ROOT,
+                env={**run, "RUST_CORPUS_STAGE": "legacy"},
+                check=True,
+            )
+        subprocess.run(alembic + ["head"], cwd=ROOT, env=run, check=True)
         if not self.seed:
             return
-        subprocess.run(
-            [self.python_bin, "scripts/seed.py"], cwd=ROOT, env={**run, "PYTHONPATH": str(ROOT)},
-            check=True,
-        )
         if self.seed_mode == "corpus":
             subprocess.run(
                 [self.python_bin, "-m", "scripts.rust_contract.seed_corpus"],
-                cwd=ROOT, env={**run, "PYTHONPATH": str(ROOT)}, check=True,
+                cwd=ROOT,
+                env=run,
+                check=True,
             )
         else:
-            # The corpus fixture families land with the route tasks that consume
-            # them, so only the ordinary seed runs in this mode.
+            subprocess.run(
+                [self.python_bin, "scripts/seed.py"],
+                cwd=ROOT,
+                env={**run, "PYTHONPATH": str(ROOT)},
+                check=True,
+            )
             print("seed mode ordinary: corpus fixture families are not applied")
 
     def spawn(self, args: list[str], env: dict[str, str]) -> None:
         self.children.append(
-            subprocess.Popen(args, cwd=ROOT, env=env, stdout=sys.stdout, stderr=sys.stderr)
+            subprocess.Popen(
+                args, cwd=ROOT, env=env, stdout=sys.stdout, stderr=sys.stderr
+            )
         )
 
     def run(self) -> None:
         subprocess.run(
-            ["cargo", "build", "--manifest-path", "rs/Cargo.toml", "--locked",
-             "--features", "contract-tests", "--example", "contract_server"],
-            cwd=ROOT, env={**os.environ, "RELEASE_SHA": self.sha}, check=True,
+            [
+                "cargo",
+                "build",
+                "--manifest-path",
+                "rs/Cargo.toml",
+                "--locked",
+                "--features",
+                "contract-tests",
+                "--example",
+                "contract_server",
+            ],
+            cwd=ROOT,
+            env={**os.environ, "RELEASE_SHA": self.sha},
+            check=True,
         )
         port = self.start_database()
         base_env = {
@@ -196,6 +262,8 @@ CREATE EXTENSION IF NOT EXISTS postgis;
             "JWT_SECRET": "test-secret-key-for-testing-minimum-32-chars",
             "DISPOSABLE_TEST_TOKEN": self.token,
             "RUST_CONTRACT_CLOCK": CORPUS_CLOCK,
+            "KYC_EXECUTION_GATE_ENABLED": str(self.gate).lower(),
+            "RUST_CORPUS_MANIFEST": str(ROOT / "work/rust-phase1/task4b-fixtures.json"),
             **self.urls(port),
         }
         self.migrate_and_seed(base_env)
@@ -203,19 +271,33 @@ CREATE EXTENSION IF NOT EXISTS postgis;
         python_port = ephemeral_port()
         rust_port = ephemeral_port()
         self.spawn(
-            [self.python_bin, "-m", "tests.rust_contract.server", "--port", str(python_port)],
+            [
+                self.python_bin,
+                "-m",
+                "tests.rust_contract.server",
+                "--port",
+                str(python_port),
+            ],
             {**base_env, "PYTHONPATH": str(ROOT)},
         )
-        rust_config = json.dumps({
-            "environment": "test",
-            "release_sha": self.sha,
-            "migration_revision": MIGRATION_REVISION,
-            "database_url": base_env["RUST_DATABASE_URL"],
-            "bind": f"127.0.0.1:{rust_port}",
-            "pool_max": 9,
-            "python_budget": 52,
-            "configured_max_connections": 100,
-        })
+        if self.record_all:
+            wait_for_port(python_port)
+            python_url = f"http://127.0.0.1:{python_port}"
+            self.record_groups(python_url)
+            return
+        rust_config = json.dumps(
+            {
+                "environment": "test",
+                "kyc_execution_gate_enabled": self.gate,
+                "release_sha": self.sha,
+                "migration_revision": MIGRATION_REVISION,
+                "database_url": base_env["RUST_DATABASE_URL"],
+                "bind": f"127.0.0.1:{rust_port}",
+                "pool_max": 9,
+                "python_budget": 52,
+                "configured_max_connections": 100,
+            }
+        )
         self.spawn(
             [str(ROOT / "rs" / "target" / "debug" / "examples" / "contract_server")],
             {**base_env, "RUST_CONFIG": rust_config, "CONTRACT_GROUP": self.group},
@@ -229,8 +311,19 @@ CREATE EXTENSION IF NOT EXISTS postgis;
 
         target = GROUPS[self.group]
         subprocess.run(
-            ["cargo", "test", "--manifest-path", "rs/Cargo.toml", "--locked",
-             "-p", "verdaxis-contract", "--features", "contract-http", "--test", target],
+            [
+                "cargo",
+                "test",
+                "--manifest-path",
+                "rs/Cargo.toml",
+                "--locked",
+                "-p",
+                "verdaxis-contract",
+                "--features",
+                "contract-http",
+                "--test",
+                target,
+            ],
             cwd=ROOT,
             env={
                 **base_env,
@@ -239,6 +332,100 @@ CREATE EXTENSION IF NOT EXISTS postgis;
             },
             check=True,
         )
+
+    def record_groups(self, python_url: str) -> None:
+        sys.path.insert(0, str(ROOT))
+        from scripts.rust_contract.record import record, differences, write_golden
+
+        cases = json.loads((ROOT / "tests/rust_contract/cases.json").read_text())[
+            "groups"
+        ]
+        fixtures = json.loads(
+            (ROOT / "work/rust-phase1/task4b-fixtures.json").read_text()
+        )
+        from scripts.rust_contract.compare import ContractError
+        from scripts.rust_contract.record import stable
+
+        unstable = []
+        recordings = []
+        failures = []
+        evidence = (
+            ROOT
+            / "work/rust-phase1"
+            / ("record-enabled" if self.gate else "record-disabled")
+        )
+        evidence.mkdir(parents=True, exist_ok=True)
+        import signal
+
+        def deadline(signum, frame):
+            raise TimeoutError("recording deadline exceeded (stream did not close)")
+
+        for group, requests in cases.items():
+            previous = signal.signal(signal.SIGALRM, deadline)
+            try:
+                signal.alarm(90)
+                first = record(python_url, self.token, requests)
+                second = record(python_url, self.token, requests)
+            except (ContractError, TimeoutError) as error:
+                failures.append(f"{group}: {error}")
+                print(f"RECORD_FAILED {group}: {error}", flush=True)
+                continue
+            finally:
+                signal.alarm(0)
+                signal.signal(signal.SIGALRM, previous)
+            problems = differences(first, second)
+            unstable.extend(problems)
+            print(
+                f"RECORD {group}: {len(first)} cases; unstable={len(problems)}",
+                flush=True,
+            )
+            for problem in problems:
+                print(problem, flush=True)
+            for label, entries in (("first", first), ("second", second)):
+                (evidence / f"{group}-{label}.json").write_text(
+                    json.dumps(stable(entries), indent=2, default=str) + "\n"
+                )
+            recordings.append((group, first))
+        print(
+            f"TOTAL_UNSTABLE={len(unstable)}; RECORD_FAILURES={len(failures)}",
+            flush=True,
+        )
+        (evidence / "summary.json").write_text(
+            json.dumps(
+                {
+                    "source_sha": self.sha,
+                    "KYC_EXECUTION_GATE_ENABLED": self.gate,
+                    "unstable": unstable,
+                    "failures": failures,
+                },
+                indent=2,
+            )
+            + "\n"
+        )
+        if unstable or failures:
+            raise RunnerError(
+                "oracle recording is incomplete or unstable; golden publication refused"
+            )
+        for group, entries in recordings:
+            if not self.gate:
+                entries = [
+                    {**entry, "id": entry["id"] + "--kyc-off"} for entry in entries
+                ]
+            write_golden(
+                ROOT / "tests/rust_contract",
+                self.sha,
+                entries,
+                meta={
+                    "source_sha": self.sha,
+                    "schema_revision": "kycd_20261015_staging",
+                    "timezone": ORACLE_TIMEZONE,
+                    "clock": CORPUS_CLOCK,
+                    "group": group,
+                    "KYC_EXECUTION_GATE_ENABLED": self.gate,
+                    "seed_mode": "corpus",
+                    "fixture_counts": fixtures["counts"],
+                },
+            )
 
     def cleanup(self) -> None:
         for child in self.children:
@@ -255,10 +442,19 @@ CREATE EXTENSION IF NOT EXISTS postgis;
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--group", required=True, choices=sorted(GROUPS))
-    parser.add_argument("--no-seed", action="store_true",
-                        help="skip the ordinary seed; only valid for groups with no data cases")
-    parser.add_argument("--keep", action="store_true", help="leave the container behind")
+    parser.add_argument("--group", default="health", choices=sorted(GROUPS))
+    parser.add_argument("--record-all", action="store_true")
+    parser.add_argument(
+        "--kyc-gate", choices=("enabled", "disabled"), default="enabled"
+    )
+    parser.add_argument(
+        "--no-seed",
+        action="store_true",
+        help="skip the ordinary seed; only valid for groups with no data cases",
+    )
+    parser.add_argument(
+        "--keep", action="store_true", help="leave the container behind"
+    )
     parser.add_argument(
         "--seed-mode",
         choices=("corpus", "ordinary"),
@@ -274,7 +470,12 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     runner = Runner(
-        args.group, seed=not args.no_seed, keep=args.keep, seed_mode=args.seed_mode
+        args.group,
+        seed=not args.no_seed,
+        keep=args.keep,
+        seed_mode=args.seed_mode,
+        record_all=args.record_all,
+        gate=args.kyc_gate == "enabled",
     )
     try:
         runner.run()

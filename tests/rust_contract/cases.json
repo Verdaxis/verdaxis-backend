@@ -170,6 +170,57 @@
         "method": "GET",
         "path": "/api/news",
         "query": "limit=9223372036854775808"
+      },
+      {
+        "id": "T4B-port-bare",
+        "method": "GET",
+        "path": "/api/ports/T4B_BARE"
+      },
+      {
+        "id": "T4B-port-one",
+        "method": "GET",
+        "path": "/api/ports/T4B_ONE"
+      },
+      {
+        "id": "T4B-port-two",
+        "method": "GET",
+        "path": "/api/ports/T4B_TWO"
+      },
+      {
+        "id": "T4B-news-bunkers",
+        "method": "GET",
+        "path": "/api/news",
+        "query": "category=bunkers"
+      },
+      {
+        "id": "T4B-news-carbon",
+        "method": "GET",
+        "path": "/api/news",
+        "query": "category=carbon"
+      },
+      {
+        "id": "T4B-news-commodities",
+        "method": "GET",
+        "path": "/api/news",
+        "query": "category=commodities"
+      },
+      {
+        "id": "T4B-news-markets",
+        "method": "GET",
+        "path": "/api/news",
+        "query": "category=markets"
+      },
+      {
+        "id": "T4B-news-regulation",
+        "method": "GET",
+        "path": "/api/news",
+        "query": "category=regulation"
+      },
+      {
+        "id": "T4B-news-shipping",
+        "method": "GET",
+        "path": "/api/news",
+        "query": "category=shipping"
       }
     ],
     "orderbook_snapshot": [
@@ -245,6 +296,30 @@
         "id": "R27-listings",
         "method": "GET",
         "path": "/api/listings"
+      },
+      {
+        "id": "T4B-region-Singapore",
+        "method": "GET",
+        "path": "/api/orderbook/asks",
+        "query": "region=Singapore"
+      },
+      {
+        "id": "T4B-region-Asia",
+        "method": "GET",
+        "path": "/api/orderbook/asks",
+        "query": "region=Asia"
+      },
+      {
+        "id": "T4B-region-Rotterdam",
+        "method": "GET",
+        "path": "/api/orderbook/asks",
+        "query": "region=Rotterdam"
+      },
+      {
+        "id": "T4B-region-Europe",
+        "method": "GET",
+        "path": "/api/orderbook/asks",
+        "query": "region=Europe"
       }
     ],
     "orderbook_map": [
