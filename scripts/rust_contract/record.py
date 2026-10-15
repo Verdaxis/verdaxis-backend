@@ -57,7 +57,7 @@ _OPENER = urllib.request.build_opener(_NoRedirect)
 def _normalize_location(exchange: dict[str, Any], base_url: str) -> None:
     location = exchange["headers"].get("location")
     if location and location.startswith(base_url):
-        exchange["headers"]["location"] = ENDPOINT_MARKER + location[len(base_url):]
+        exchange["headers"]["location"] = ENDPOINT_MARKER + location[len(base_url) :]
 
 
 def _case_request_id(case: Mapping[str, Any]) -> str:
@@ -151,7 +151,41 @@ def record(
     if not cases:
         raise ContractError("no cases to record")
     attest(base_url, token)
-    return [perform(base_url, case) for case in cases]
+    entries = []
+    for case in cases:
+        if case.get("fixture") == "T4B-negative-fame":
+            from scripts.rust_contract.seed_corpus import matrix_module, attest_target
+            from app.seeds.safety import seed_connection
+            from sqlalchemy.engine import make_url
+
+            url = make_url(os.environ["SEED_DATABASE_URL"])
+            attest_target(
+                environment=os.environ.get("ENVIRONMENT", ""),
+                expected_database=os.environ["SEED_TARGET_DATABASE"],
+                connected_database=url.database,
+                connected_user=url.username,
+                is_superuser=False,
+                host=url.host,
+            )
+            with seed_connection() as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        "UPDATE orderbook_orders SET status='OPEN' WHERE id=%s",
+                        (str(matrix_module().fid("order:typed_invalid_visible")),),
+                    )
+                connection.commit()
+                try:
+                    entries.append(perform(base_url, case))
+                finally:
+                    with connection.cursor() as cursor:
+                        cursor.execute(
+                            "UPDATE orderbook_orders SET status='CANCELLED' WHERE id=%s",
+                            (str(matrix_module().fid("order:typed_invalid_visible")),),
+                        )
+                    connection.commit()
+        else:
+            entries.append(perform(base_url, case))
+    return entries
 
 
 def stable(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -164,6 +198,8 @@ def stable(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 def differences(first: list[dict[str, Any]], second: list[dict[str, Any]]) -> list[str]:
     """Compare two recordings of the same group. Empty means stable."""
+    from scripts.rust_contract.compare import compare_news_tie_groups
+
     problems: list[str] = []
     if len(first) != len(second):
         return ["recording-length"]
@@ -171,7 +207,14 @@ def differences(first: list[dict[str, Any]], second: list[dict[str, Any]]) -> li
         if left["id"] != right["id"]:
             problems.append(f"{left['id']}:ordering")
             continue
-        problems += [f"{left['id']}:{path}" for path in compare(left["exchange"], right["exchange"])]
+        problems += [
+            f"{left['id']}:{path}"
+            for path in compare_news_tie_groups(
+                left["exchange"],
+                right["exchange"],
+                request_path=left.get("request", {}).get("path", ""),
+            )
+        ]
     return problems
 
 
@@ -187,7 +230,9 @@ def write_golden(
     for entry in entries:
         case_dir = base / entry["id"]
         case_dir.mkdir(parents=True, exist_ok=True)
-        (case_dir / "request.json").write_text(json.dumps(entry["request"], indent=2) + "\n")
+        (case_dir / "request.json").write_text(
+            json.dumps(entry["request"], indent=2) + "\n"
+        )
         (case_dir / "response.json").write_text(
             json.dumps(entry["exchange"], indent=2, default=str) + "\n"
         )
@@ -204,7 +249,9 @@ def _main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--cases", type=Path, default=CASES_PATH)
     parser.add_argument("--token-env", default="DISPOSABLE_TEST_TOKEN")
     parser.add_argument("--out", type=Path, help="write this recording as JSON")
-    parser.add_argument("--compare", type=Path, help="compare against an earlier recording")
+    parser.add_argument(
+        "--compare", type=Path, help="compare against an earlier recording"
+    )
     parser.add_argument("--golden-root", type=Path, help="write the golden corpus here")
     parser.add_argument("--source-sha", default="")
     parser.add_argument("--timezone", default="")

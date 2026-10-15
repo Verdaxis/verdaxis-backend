@@ -102,6 +102,82 @@ def compare(expected: dict[str, Any], actual: dict[str, Any]) -> list[str]:
     return differences
 
 
+def _news_item_bytes(raw: bytes) -> list[str] | None:
+    """Slice original JSON tokens, retaining each item's spelling and key order."""
+    text = raw.decode("utf-8")
+    decoder = json.JSONDecoder()
+    index = 0
+
+    def whitespace(position):
+        while position < len(text) and text[position].isspace():
+            position += 1
+        return position
+
+    index = whitespace(index)
+    if index >= len(text) or text[index] != "[":
+        return None
+    index = whitespace(index + 1)
+    items = []
+    while index < len(text) and text[index] != "]":
+        start = index
+        _, index = decoder.raw_decode(text, index)
+        items.append(text[start:index])
+        index = whitespace(index)
+        if index < len(text) and text[index] == ",":
+            index = whitespace(index + 1)
+        else:
+            break
+    return items
+
+
+def compare_news_tie_groups(expected, actual, *, request_path):
+    """Decision 18: only news root arrays may permute exact tokens within ties."""
+    from collections import Counter
+    from itertools import groupby
+
+    rules = json.loads((ROOT / "tests/rust_contract/news-tie-paths.json").read_text())
+    approved = {
+        "rule": "news-published-at-tie-multiset",
+        "request_path": "/api/news",
+        "json_path": "/body",
+        "sort_key": "published_at",
+    }
+    if rules != [approved]:
+        raise ContractError("unreviewed news tie rule configuration")
+    if request_path != approved["request_path"] or not all(
+        isinstance(item.get("body"), list) and item.get("status") == 200
+        for item in (expected, actual)
+    ):
+        return compare(expected, actual)
+    left, right = expected["body"], actual["body"]
+    if not all(
+        isinstance(item, dict) and "published_at" in item for item in left + right
+    ):
+        return compare(expected, actual)
+    left_keys = [item["published_at"] for item in left]
+    right_keys = [item["published_at"] for item in right]
+    if left_keys != right_keys:
+        return ["/body/published_at:sequence"]
+    if "news_exact_items" not in expected or "news_exact_items" not in actual:
+        return compare(expected, actual)
+
+    def groups(envelope, keys):
+        return [
+            (key, Counter(token for _, token in values))
+            for key, values in groupby(
+                zip(keys, envelope["news_exact_items"]), key=lambda pair: pair[0]
+            )
+        ]
+
+    if groups(expected, left_keys) != groups(actual, right_keys):
+        return ["/body:tie-item-bytes"]
+    ignored = {"body", "body_sha256", "news_exact_items"}
+    return compare(
+        {k: v for k, v in expected.items() if k not in ignored},
+        {k: v for k, v in actual.items() if k not in ignored},
+    )
+
+
 def _declared_length(headers: Mapping[str, str]) -> int | None:
     for name, value in headers.items():
         if str(name).lower() == "content-length":
@@ -141,12 +217,17 @@ def capture(
         # Non-JSON bodies (for example CSV) are kept verbatim. The digest in
         # the envelope is the byte-exact comparison; the text aids diagnosis.
         body = {"raw": raw.decode("utf-8", "surrogateescape")}
-    return {
+    envelope = {
         "status": int(status),
         "headers": kept,
         "body": body,
         "body_sha256": hashlib.sha256(raw).hexdigest(),
     }
+    if isinstance(body, list) and all(
+        isinstance(item, dict) and "published_at" in item for item in body
+    ):
+        envelope["news_exact_items"] = _news_item_bytes(raw)
+    return envelope
 
 
 def attest(base_url: str, token: str) -> dict[str, Any]:
@@ -217,12 +298,17 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"{left['id']}: ordering", file=sys.stderr)
             failures += 1
             continue
-        for path in compare(left["exchange"], right["exchange"]):
+        for path in compare_news_tie_groups(
+            left["exchange"], right["exchange"], request_path=left["request"]["path"]
+        ):
             # Schema path and category only. Never a body value.
             print(f"{left['id']}:{path}", file=sys.stderr)
             failures += 1
     if failures:
-        print(f"contract group {args.group} failed: {failures} difference(s)", file=sys.stderr)
+        print(
+            f"contract group {args.group} failed: {failures} difference(s)",
+            file=sys.stderr,
+        )
         return 1
     print(f"contract group {args.group} OK: {len(cases)} case(s)")
     return 0
