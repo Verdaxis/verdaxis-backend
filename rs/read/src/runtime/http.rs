@@ -318,6 +318,43 @@ async fn fallback(request: Request) -> Response {
 
 pub struct QueryFields(HashMap<String, String>);
 
+#[derive(Debug)]
+pub enum QueryValue {
+    Integer(i64),
+    Uuid(uuid::Uuid),
+}
+
+/// Parse Pydantic's decimal integer spelling without losing large-integer bounds.
+/// Values outside i64 saturate in i128; all declared bounds are i64.
+fn python_integer(text: &str) -> Option<i128> {
+    let text = text.trim();
+    let (negative, digits) = if let Some(rest) = text.strip_prefix('-') {
+        (true, rest)
+    } else {
+        (false, text.strip_prefix('+').unwrap_or(text))
+    };
+    let whole = if let Some((whole, fraction)) = digits.split_once('.') {
+        if fraction.is_empty() || !fraction.bytes().all(|b| b == b'0') {
+            return None;
+        }
+        whole
+    } else {
+        digits
+    };
+    let mut value = 0_i128;
+    for part in whole.split('_') {
+        if part.is_empty() || !part.bytes().all(|b| b.is_ascii_digit()) {
+            return None;
+        }
+        for digit in part.bytes() {
+            value = value
+                .saturating_mul(10)
+                .saturating_add(i128::from(digit - b'0'));
+        }
+    }
+    Some(if negative { -value } else { value })
+}
+
 pub enum QueryKind {
     Integer { minimum: i64, maximum: i64 },
     Uuid,
@@ -337,7 +374,7 @@ impl QueryFields {
         name: &str,
         kind: QueryKind,
         required: bool,
-    ) -> Result<Option<String>, ApiError> {
+    ) -> Result<Option<QueryValue>, ApiError> {
         let value = self.0.get(name);
         let error = |kind: &str, message: String, context: Option<serde_json::Value>| {
             let mut entry =
@@ -360,7 +397,7 @@ impl QueryFields {
         };
         match kind {
             QueryKind::Integer { minimum, maximum } => {
-                let parsed = value.trim().parse::<i64>().map_err(|_| {
+                let parsed = python_integer(value).ok_or_else(|| {
                     error(
                         "int_parsing",
                         "Input should be a valid integer, unable to parse string as an integer"
@@ -368,33 +405,34 @@ impl QueryFields {
                         None,
                     )
                 })?;
-                if parsed < minimum {
+                if parsed < i128::from(minimum) {
                     return Err(error(
                         "greater_than_equal",
                         format!("Input should be greater than or equal to {minimum}"),
                         Some(serde_json::json!({"ge":minimum})),
                     ));
                 }
-                if parsed > maximum {
+                if parsed > i128::from(maximum) {
                     return Err(error(
                         "less_than_equal",
                         format!("Input should be less than or equal to {maximum}"),
                         Some(serde_json::json!({"le":maximum})),
                     ));
                 }
+                Ok(Some(QueryValue::Integer(parsed as i64)))
             }
             QueryKind::Uuid => {
-                if let Err(cause) = uuid::Uuid::parse_str(value) {
+                let parsed = uuid::Uuid::parse_str(value).map_err(|cause| {
                     let cause = cause.to_string();
-                    return Err(error(
+                    error(
                         "uuid_parsing",
                         format!("Input should be a valid UUID, {cause}"),
                         Some(serde_json::json!({"error":cause})),
-                    ));
-                }
+                    )
+                })?;
+                Ok(Some(QueryValue::Uuid(parsed)))
             }
         }
-        Ok(Some(value.clone()))
     }
 }
 

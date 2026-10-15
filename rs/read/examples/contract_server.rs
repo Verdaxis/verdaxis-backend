@@ -18,11 +18,89 @@ use axum::{
 };
 use serde_json::json;
 use std::collections::HashMap;
-use verdaxis_read::{AppState, Config, MarketPolicy, compiled_sha, connect};
+use verdaxis_read::{AppState, Config, MarketPolicy, connect};
 
 const IDENTITY_PATH: &str = "/.well-known/verdaxis-disposable-test";
 const ECHO_PATH: &str = "/__contract__/echo";
 const PURPOSE: &str = "verdaxis-integration-test";
+
+/// Committed policy bytes, checked against the separately reviewed manifest.
+/// The manifest's oracle SHA is independent of this binary's release SHA.
+const POLICY_BYTES: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../deploy/rust/market-policy.json"
+));
+
+const MANIFEST_BYTES: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../deploy/rust/market-policy.manifest.json"
+));
+
+fn committed_policy() -> Result<MarketPolicy, String> {
+    attested_policy(POLICY_BYTES, MANIFEST_BYTES)
+}
+
+fn attested_policy(bytes: &[u8], manifest: &[u8]) -> Result<MarketPolicy, String> {
+    #[derive(serde::Deserialize)]
+    struct Manifest {
+        source_sha: String,
+        policy_sha256: String,
+    }
+    use sha2::Digest;
+    let manifest: Manifest =
+        serde_json::from_slice(manifest).map_err(|_| "invalid policy manifest".to_owned())?;
+    let digest: String = sha2::Sha256::digest(bytes)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
+    if digest != manifest.policy_sha256 {
+        return Err("market policy digest mismatch".to_owned());
+    }
+    verdaxis_read::market::policy::load_policy(bytes, &manifest.source_sha)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rejects_policy_from_another_oracle() {
+        let mut policy: serde_json::Value = serde_json::from_slice(POLICY_BYTES).unwrap();
+        policy["source_sha"] = json!("a".repeat(40));
+        let bytes = serde_json::to_vec(&policy).unwrap();
+        let mut manifest: serde_json::Value = serde_json::from_slice(MANIFEST_BYTES).unwrap();
+        use sha2::Digest;
+        manifest["policy_sha256"] = json!(
+            sha2::Sha256::digest(&bytes)
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect::<String>()
+        );
+        assert!(
+            attested_policy(&bytes, &serde_json::to_vec(&manifest).unwrap())
+                .err()
+                .unwrap()
+                .contains("source SHA mismatch")
+        );
+    }
+
+    #[test]
+    fn rejects_policy_digest_drift() {
+        let mut bytes = POLICY_BYTES.to_vec();
+        bytes.push(b' ');
+        assert!(
+            attested_policy(&bytes, MANIFEST_BYTES)
+                .err()
+                .unwrap()
+                .contains("digest mismatch")
+        );
+    }
+
+    #[test]
+    fn accepts_committed_policy_manifest() {
+        assert!(committed_policy().is_ok());
+    }
+}
 
 /// Merge the modules one group owns. Health and echo need no data route.
 fn group_router(group: &str) -> Router<AppState> {
@@ -78,11 +156,7 @@ async fn serve() -> Result<(), String> {
     let group = std::env::var("CONTRACT_GROUP").map_err(|_| "CONTRACT_GROUP is required")?;
 
     let pools = connect(&config).await.map_err(|_| "connect failed")?;
-    let policy = MarketPolicy {
-        source_sha: compiled_sha().into(),
-        products: vec![],
-        points: vec![],
-    };
+    let policy = committed_policy()?;
     let state = AppState::new(config.clone(), pools, policy)?;
     // Route through the serving router so fallbacks, trailing-slash redirects,
     // and middleware match the real binary exactly.

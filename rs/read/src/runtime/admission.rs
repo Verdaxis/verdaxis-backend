@@ -2,8 +2,8 @@ use crate::{ApiError, AppState, busy};
 use sqlx::Connection;
 
 /// Public-read admission slots, equal to Python's four workers times two
-/// per-worker slots (AD-02). The read pool is one connection larger, so the
-/// total connection budget of nine is unchanged.
+/// per-worker slots (AD-02). Eight read connections plus one readiness
+/// connection keep the total connection budget at nine.
 pub const ADMISSION_SLOTS: u32 = 8;
 
 tokio::task_local! {
@@ -62,9 +62,30 @@ pub async fn run_admitted<T: Send + 'static>(
     let pool = state.pools.read.clone();
     // Dropping the caller's JoinHandle detaches, rather than cancels, this owner.
     tokio::spawn(async move {
-        let mut connection = pool.acquire().await.map_err(|_| ApiError::internal())?;
+        let mut connection = pool.acquire().await.map_err(|error| {
+            log_sql_error("acquire", &error);
+            ApiError::internal()
+        })?;
         let result = work(&mut connection).await;
-        if result.is_ok() && connection.ping().await.is_ok() {
+        let reusable = if result.is_ok() {
+            match connection.ping().await {
+                Ok(()) => true,
+                Err(error) => {
+                    log_sql_error("cleanup", &error);
+                    false
+                }
+            }
+        } else {
+            // SQL errors are logged by the route before conversion to ApiError.
+            tracing::warn!(
+                stage = "work",
+                error_class = "api_error",
+                sqlstate = "",
+                "admitted_work_failed"
+            );
+            false
+        };
+        if reusable {
             // `return_to_pool` is the drop handler run eagerly, so the pool
             // counts the connection as free before admission opens again.
             connection.return_to_pool().await;
@@ -72,7 +93,9 @@ pub async fn run_admitted<T: Send + 'static>(
             drop(permit);
             result
         } else {
-            let _ = connection.close().await;
+            if let Err(error) = connection.close().await {
+                log_sql_error("cleanup", &error);
+            }
             drop(permit);
             match result {
                 Err(error) => Err(error),
@@ -83,6 +106,32 @@ pub async fn run_admitted<T: Send + 'static>(
     })
     .await
     .map_err(|_| ApiError::internal())?
+}
+
+/// Log only bounded database failure metadata, never SQL text or values.
+pub fn log_sql_error(stage: &'static str, error: &sqlx::Error) {
+    let error_class = match error {
+        sqlx::Error::Database(_) => "database",
+        sqlx::Error::PoolTimedOut => "pool_timeout",
+        sqlx::Error::PoolClosed => "pool_closed",
+        sqlx::Error::Io(_) => "io",
+        sqlx::Error::Tls(_) => "tls",
+        sqlx::Error::Protocol(_) => "protocol",
+        sqlx::Error::Decode(_) | sqlx::Error::ColumnDecode { .. } => "decode",
+        sqlx::Error::RowNotFound => "row_not_found",
+        _ => "sqlx_error",
+    };
+    let code = error.as_database_error().and_then(|error| error.code());
+    let sqlstate = code
+        .as_deref()
+        .filter(|code| {
+            code.len() == 5
+                && code
+                    .bytes()
+                    .all(|byte| byte.is_ascii_uppercase() || byte.is_ascii_digit())
+        })
+        .unwrap_or("");
+    tracing::warn!(stage, error_class, sqlstate, "admitted_database_failure");
 }
 
 pub fn selected_read(method: &str, path: &str) -> bool {
@@ -126,4 +175,44 @@ pub fn selected_read(method: &str, path: &str) -> bool {
     ) || path
         .strip_prefix("/ports/")
         .is_some_and(|id| !id.is_empty() && !id.contains('/'))
+}
+
+#[cfg(test)]
+mod diagnostic_tests {
+    use super::*;
+    #[derive(Clone)]
+    struct Capture(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
+    impl std::io::Write for Capture {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    #[test]
+    fn acquire_and_cleanup_logs_do_not_include_error_values() {
+        let bytes = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let writer = Capture(bytes.clone());
+        let subscriber = tracing_subscriber::fmt()
+            .json()
+            .without_time()
+            .with_writer(move || writer.clone())
+            .finish();
+        let _guard = tracing::subscriber::set_default(subscriber);
+        log_sql_error("acquire", &sqlx::Error::PoolTimedOut);
+        log_sql_error("cleanup", &sqlx::Error::Protocol("secret-sentinel".into()));
+        let logs = String::from_utf8(bytes.lock().unwrap().clone()).unwrap();
+        assert!(!logs.contains("secret-sentinel"));
+        let events: Vec<serde_json::Value> = logs
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[0]["fields"]["stage"], "acquire");
+        assert_eq!(events[0]["fields"]["error_class"], "pool_timeout");
+        assert_eq!(events[1]["fields"]["stage"], "cleanup");
+        assert_eq!(events[1]["fields"]["error_class"], "protocol");
+    }
 }
