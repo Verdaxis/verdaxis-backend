@@ -47,15 +47,15 @@ from tests.unit.test_trade_watchlist_hooks import (
 pytestmark = pytest.mark.asyncio
 
 # The trade confirm path advances referrals and emits notifications; the
-# inventory route needs the item and port tables. Add them to the shared
-# market harness for this suite.
+# inventory route needs the item table. Add them to the shared market harness
+# for this suite. The PostGIS `ports` table cannot be created on SQLite and the
+# publish route reaches its item lookup without reading it.
 _TABLES = [
     "kyc_execution_grace",
     "kyc_grace_notices",
     "referrals",
     "notifications",
     "inventory_items",
-    "ports",
     *REQUIRED_TABLES,
 ]
 _DELETE_ORDER = [
@@ -151,6 +151,11 @@ async def _market(db: AsyncSession, monkeypatch):
         delivery_point_id=(await _make_delivery_point(db)).id,
         owner_user_id=supplier.id,
     )
+    # A Bio Methanol ASK is public and executable only with the complete
+    # burden fields; the shared _make_ask omits them.
+    ask.carbon_intensity_gco2_mj = Decimal("18.50")
+    ask.feedstock = "Waste biomass"
+    ask.origin = "Singapore"
     db.add(
         Subscription(
             org_id=supplier_org.id,
@@ -542,6 +547,9 @@ async def test_lifespan_logs_the_gate_state(monkeypatch, kyc_gate):
             return None
 
     monkeypatch.setattr(main_module, "logger", _Recorder())
+    # The MCP session manager can only be entered once per instance; the gate
+    # line is logged before it, so run the lifespan without an MCP app.
+    monkeypatch.setattr(main_module, "mcp", None)
     monkeypatch.setattr("app.database.verify_database_runtime", _noop)
     monkeypatch.setattr(
         "app.services.kyc_document_vault.load_runtime_keys", lambda settings: {}
