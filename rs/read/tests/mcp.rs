@@ -257,7 +257,7 @@ async fn catalog_and_protocol_bypass_saturated_database_admission() {
         ),
         (
             "tools/call",
-            json!({"name":"plan_voyage_fuel","arguments":{"request":{}}}),
+            json!({"name":"plan_voyage_fuel","arguments":{"request":{"vessel":{"speed_knots":"14","sea_consumption_mt_per_day":"20","compatible_fuels":["VLSFO"]},"legs":[{"from_port":"Singapore","to_port":"Rotterdam"}],"start_date":"2026-10-15"}}}),
         ),
     ] {
         let request = Request::builder()

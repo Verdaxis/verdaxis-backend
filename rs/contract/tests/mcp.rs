@@ -3,6 +3,16 @@
 #[test]
 fn mcp_matches_python_and_saved_lane_evidence() {
     verdaxis_contract::compare_group("mcp").unwrap();
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let status = std::process::Command::new(root.join("venv/bin/python"))
+        .current_dir(&root)
+        .args(["-m", "scripts.rust_contract.mcp_acceptance"])
+        .status()
+        .unwrap();
+    assert!(
+        status.success(),
+        "MCP privacy or SQL cancellation proof failed"
+    );
     if let Ok(evidence) = std::env::var("MCP_LANE_EVIDENCE") {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
         let gate = if std::env::var("KYC_EXECUTION_GATE_ENABLED").unwrap() == "true" {

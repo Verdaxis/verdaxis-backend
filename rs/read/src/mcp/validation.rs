@@ -53,6 +53,84 @@ pub fn tool_arguments(tool: &str, arguments: &mut Json) -> Result<(), String> {
             errors.push(diagnostic(field, "Field required", "missing", arguments));
         }
     }
+    if tool == "plan_voyage_fuel" && arguments.get("request").is_some() {
+        let request = &arguments["request"];
+        let vessel = &request["vessel"];
+        if !vessel.is_object() {
+            errors.push(diagnostic(
+                "request.vessel",
+                "Input should be a valid dictionary or instance of VesselInput",
+                "model_type",
+                vessel,
+            ));
+        } else {
+            for (field, low, high, exclusive) in [
+                ("speed_knots", "1", "30", false),
+                ("sea_consumption_mt_per_day", "0", "400", true),
+                ("berth_consumption_mt_per_day", "0", "100", false),
+            ] {
+                if let Some(input) = vessel.get(field) {
+                    let text = input
+                        .as_str()
+                        .map(str::to_owned)
+                        .unwrap_or_else(|| input.to_string());
+                    if let Ok(value) = super::decimal::Decimal::parse(&text) {
+                        let low_value = super::decimal::Decimal::parse(low).unwrap();
+                        let high_value = super::decimal::Decimal::parse(high).unwrap();
+                        let below = value.compare(&low_value) == std::cmp::Ordering::Less;
+                        let equal = value.compare(&low_value) == std::cmp::Ordering::Equal;
+                        if below || (exclusive && equal) {
+                            let (kind, phrase) = if exclusive {
+                                ("greater_than", "greater than")
+                            } else {
+                                ("greater_than_equal", "greater than or equal to")
+                            };
+                            errors.push(diagnostic(
+                                &format!("request.vessel.{field}"),
+                                &format!("Input should be {phrase} {low}"),
+                                kind,
+                                input,
+                            ));
+                        } else if value.compare(&high_value) == std::cmp::Ordering::Greater {
+                            errors.push(diagnostic(
+                                &format!("request.vessel.{field}"),
+                                &format!("Input should be less than or equal to {high}"),
+                                "less_than_equal",
+                                input,
+                            ));
+                        }
+                    }
+                }
+            }
+            for (field, value) in vessel.as_object().unwrap() {
+                if ![
+                    "name",
+                    "imo_number",
+                    "speed_knots",
+                    "sea_consumption_mt_per_day",
+                    "berth_consumption_mt_per_day",
+                    "compatible_fuels",
+                ]
+                .contains(&field.as_str())
+                {
+                    errors.push(diagnostic(
+                        &format!("request.vessel.{field}"),
+                        "Extra inputs are not permitted",
+                        "extra_forbidden",
+                        value,
+                    ));
+                }
+            }
+        }
+        if request["legs"].as_array().is_some_and(Vec::is_empty) {
+            errors.push(diagnostic(
+                "request.legs",
+                "Tuple should have at least 1 item after validation, not 0",
+                "too_short",
+                &request["legs"],
+            ));
+        }
+    }
     if tool == "plan_voyage_fuel"
         && let Some(legs) = arguments["request"]["legs"].as_array_mut()
     {
