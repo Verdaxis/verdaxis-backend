@@ -1,4 +1,4 @@
-"""One-use synthetic bootstrap. Host authority awaits the Task 4b union policy."""
+"""One-use union bootstrap. Host apply remains closed pending host integration."""
 from __future__ import annotations
 
 import argparse
@@ -6,6 +6,8 @@ import asyncio
 import hashlib
 import json
 import os
+import re
+import subprocess
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -36,8 +38,15 @@ class BootstrapIdentity:
     server_host: str
     server_port: int
     cluster_system_identifier: str
+    source_sha: str
 
     def validate(self):
+        environment = {key: value for key, value in os.environ.items() if not key.startswith('GIT_')}
+        actual_sha = subprocess.check_output(
+            ['git', '-C', str(ROOT), 'rev-parse', 'HEAD'], env=environment, text=True,
+        ).strip()
+        if not re.fullmatch(r'[0-9a-f]{40}', self.source_sha) or self.source_sha != actual_sha:
+            raise ValueError('Bootstrap approved source SHA differs')
         if (self.host != '127.0.0.1' or type(self.port) is not int
                 or not 1024 < self.port < 65536
                 or self.port != int(os.environ.get('PHASE0_PORT', '0'))):
@@ -61,7 +70,7 @@ def migration_graph_digest():
 def load_policy():
     policy = json.loads(POLICY_PATH.read_text())
     if (policy['mode'] != 'synthetic' or policy['host_apply'] is not False
-            or policy['target_revision'] != 'kycd_20261015_staging'
+            or policy['target_revision'] != 'p0_20261016_union'
             or policy['migration_graph_sha256'] != migration_graph_digest()):
         raise ValueError('Bootstrap policy or migration graph differs')
     return policy
@@ -139,6 +148,12 @@ def verify_bootstrap_schema(connection, policy):
     structure = {key: value for key, value in catalog.items() if key != 'reference_rows'}
     if catalog['revision'] != policy['target_revision'] or digest(structure) != policy['schema_sha256']:
         raise ValueError('Bootstrap schema verification failed')
+    reference_values = {
+        table: [{key: value for key, value in row.items() if key != 'created_at'} for row in rows]
+        for table, rows in catalog['reference_rows'].items()
+    }
+    if digest(reference_values) != policy['reference_values_sha256']:
+        raise ValueError('Bootstrap reference baseline verification failed')
     for table in catalog['tables']:
         if table not in ('alembic_version', 'products', 'delivery_points'):
             quoted = table.replace('"', '""')

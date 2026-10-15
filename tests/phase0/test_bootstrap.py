@@ -41,7 +41,8 @@ async def target():
             oid = (await connection.execute(text('SELECT oid FROM pg_database WHERE datname=current_database()'))).scalar_one()
         yield engine, dict(database=name, oid=oid, role='phase0_owner', host='127.0.0.1',
                            port=int(os.environ['PHASE0_PORT']), server_host=server[0], server_port=server[1],
-                           cluster_system_identifier=os.environ['PHASE0_CLUSTER_ID'])
+                           cluster_system_identifier=os.environ['PHASE0_CLUSTER_ID'],
+                           source_sha=subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip())
     finally:
         await engine.dispose()
         async with admin.connect() as connection:
@@ -123,7 +124,7 @@ async def test_bootstrap_uses_only_checked_connection(target, monkeypatch):
 @pytest.mark.asyncio
 @pytest.mark.parametrize('field,value', [('oid', 1), ('host', '127.0.0.2'), ('port', 1),
     ('database', 'phase0_prod_test'), ('role', 'postgres'), ('server_host', '127.0.0.2'),
-    ('server_port', 1), ('cluster_system_identifier', '1')])
+    ('server_port', 1), ('cluster_system_identifier', '1'), ('source_sha', '0' * 40)])
 async def test_wrong_identity_refused_before_ddl(target, field, value):
     from scripts.phase0.bootstrap import BootstrapIdentity, bootstrap_connection
     engine, values = target
