@@ -89,3 +89,11 @@ No accepted new golden SHA exists. Artifact regeneration was intentionally not p
 5. Only then replace the old golden directory and regenerate policy, MCP artifact, manifest and vectors from that source.
 
 Raw logs and recordings: `work/rust-phase1/task4b-*`, `work/rust-phase1/record-enabled/`, `work/rust-phase1/record-disabled/`. A partial early trial golden was moved to `work/rust-phase1/task4b-trial-partial-golden`; it is not accepted or committed as golden data.
+
+## Open findings for Task 7b (recorded, not changed)
+
+The 2026-10-16 recheck of Task 4b (`outputs/research/rust-task4b-recheck-2026-10-16.md`) found no BLOCKER and no MAJOR. Its other findings were fixed in the comparator and the runner. These two stay with Task 7b, so its list-route work owns the decision and the fix.
+
+1. **Whitespace stripping between news items.** `_news_item_bytes` (`scripts/rust_contract/compare.py`) skips whitespace before each item, so `[A,\n B]` and `[A,B]` compare equal inside one tie group. Item-internal bytes and key order stay exact. Task 7b must decide whether inter-item whitespace is contract-visible before it relies on the news tie relaxation for any further case.
+
+2. **Full ties in order-list fixtures.** The corpus sets every order's `created_at` to one instant (`scripts/rust_contract/seed_corpus.py`) and most prices and quantities are equal. With `sort_by=newest` and `price_asc`, list responses are therefore full ties, and decision 14 forces an exact order for them. This is a false-failure risk for Rust (a different Postgres plan order fails the comparison), not a false pass — both recorded passes were stable. Task 7b must give the list fixtures a deterministic tie-breaker, or record a reviewed ordered-object exception, before it claims those cases.
