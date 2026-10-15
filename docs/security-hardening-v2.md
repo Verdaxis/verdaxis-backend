@@ -173,7 +173,9 @@ An empty credential fails strict application JSON validation. Other systemd
 errors, such as unreadable sources, remain service-start failures. This is source
 verification for both tags, not live-host execution. The immutable manifest still
 lists the same units; the installer derives digests from committed unit bytes,
-not a separate checked-in digest list. Installer and deploy logic are unchanged.
+not a separate checked-in digest list. The installer now checks key-source owner,
+mode and parent-directory permissions before dry-run acceptance or replacement;
+missing sources remain allowed. Code-deploy logic is unchanged. See the runbook.
 
 Deletion review: monitor cleanup deletes users and empty organizations; both now
 check retention before deletion. SQLAdmin User/Organization delete overrides lock

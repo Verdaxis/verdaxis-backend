@@ -214,3 +214,21 @@ async def test_download_commit_failure_returns_no_document(state, monkeypatch):
         await kyc.admin_download_kyc_document(row.id, request, admin, db)
     await db.rollback()
     assert not (await db.scalars(select(AuditLog).where(AuditLog.action == "kyc.document_viewed"))).all()
+
+
+async def test_nested_key_file_submission_returns_503(state, tmp_path, monkeypatch, caplog):
+    from app.services.kyc_document_vault import load_runtime_keys
+    db, user, _, request = state
+    user_id = user.id
+    (tmp_path / "kyc-document-keys").write_text("[" * 100000 + "0" + "]" * 100000)
+    monkeypatch.setenv("CREDENTIALS_DIRECTORY", str(tmp_path))
+    request.app.state.kyc_document_keys = load_runtime_keys(SimpleNamespace(ENVIRONMENT="staging"))
+    with pytest.raises(HTTPException) as error:
+        await submit(state)
+    assert error.value.status_code == 503
+    assert error.value.detail == {"code": "KYC_DOCUMENT_STORAGE_UNAVAILABLE"}
+    await db.rollback()
+    assert (await db.get(User, user_id)).kyc_status == "PENDING"
+    assert not (await db.scalars(select(KYCDocument))).all()
+    assert not (await db.scalars(select(AuditLog))).all()
+    assert caplog.messages == ["KYC document storage unavailable: key file missing or invalid"]
