@@ -32,6 +32,7 @@ app/
   rate_limit.py                 # slowapi Limiter singleton (key=remote_address)
   cli/
     refresh_news.py             # External singleton news-refresh entrypoint (never a web-worker scheduler)
+    order_expiry_reminders.py   # Production-only bounded expiry reminder job; no activation in Phase 0
     send_kyc_grace_notices.py    # Operator-only, environment/SHA-bound at-most-once grace notice sender
   core/
     security.py                 # PyJWT + bcrypt — access/refresh/stream token creation, decode_token
@@ -95,6 +96,7 @@ app/
   services/
     email.py                   # Shared light-mode email layout, seven message types, admin Reply-To, and Resend transport
     account_approval_email.py   # Transition-scoped Resend delivery and bounded durable retry
+    order_expiry_reminders.py   # Per-order/recipient/expiry dedup; frozen email payload and durable retry lease
     event_bus.py                # AsyncIO pub/sub — per-channel queues, 200 subscriber cap, backpressure
     market_event_dispatch.py    # Durable shared SSE transport — outbox sequencer (advisory-lock leader), LISTEN/NOTIFY wake + poll, org-bound hub fan-out (docs/market-event-dispatch.md)
     matching_engine.py          # Match-on-insert — best price, then persisted acceptance order within canonical market identity, partial fills, auto-confirm

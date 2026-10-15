@@ -150,5 +150,12 @@ async def test_dismissal_uses_admission_not_execution(gate, state, expected, mon
     if expected == 200:
         assert response.json() == {"status": "dismissed"}
         assert db.add.call_args.args[0].recipient_org_id == org_id
+        assert org_id in db.execute.call_args_list[-1].args[0].compile().params.values()
+        db.execute.side_effect = [result(SimpleNamespace(id=org_id, verification_status="APPROVED")),
+                                  result(SimpleNamespace(id=order_id)), result(SimpleNamespace(id=uuid4()))]
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            replay = await client.patch(f"/matchmaking/suggestions/{order_id}/dismiss")
+        assert replay.json() == {"status": "already_dismissed"}
+        assert db.add.call_count == 1
     else:
         db.add.assert_not_called()
