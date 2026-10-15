@@ -323,6 +323,16 @@ CREATE EXTENSION IF NOT EXISTS postgis;
         attest(rust_url, self.token)
 
         target = GROUPS[self.group]
+        if not (ROOT / "rs/contract/tests" / f"{target}.rs").exists():
+            # Unported groups still have a router (currently empty). Compare it
+            # honestly instead of failing before any HTTP request is sent.
+            subprocess.run(
+                [self.python_bin, "-m", "scripts.rust_contract.compare", "--group", self.group],
+                cwd=ROOT,
+                env={**base_env, "PYTHON_CONTRACT_URL": python_url, "RUST_CONTRACT_URL": rust_url},
+                check=True,
+            )
+            return
         subprocess.run(
             [
                 "cargo",
