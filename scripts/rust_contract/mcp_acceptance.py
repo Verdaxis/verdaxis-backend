@@ -13,17 +13,61 @@ from scripts.rust_contract.compare import attest, load_cases
 from scripts.rust_contract.record import record
 from scripts.rust_contract.run_disposable import ROOT
 
-FORBIDDEN = {"organization_id", "owner_id", "user_id", "actor_id", "order_id", "inventory_item_id", "certificate_number", "physical_supplier_name"}
+FORBIDDEN = {
+    "organization_id", "owner_id", "user_id", "actor_id", "order_id",
+    "inventory_item_id", "certificate_number", "scheme_certificate_number",
+    "physical_supplier_name", "certificate_reference", "certificate_holder",
+    "batch_reference", "document_references",
+}
 
 
-def privacy(value):
+def privacy(value, private_values):
     if isinstance(value, dict):
         assert not FORBIDDEN.intersection(value), "private field in MCP output"
-        for child in value.values():
-            privacy(child)
+        for key, child in value.items():
+            privacy(key, private_values)
+            privacy(child, private_values)
     elif isinstance(value, list):
         for child in value:
-            privacy(child)
+            privacy(child, private_values)
+    elif isinstance(value, str):
+        assert not any(secret in value for secret in private_values), "private value in MCP output"
+
+
+async def fixture_private_values():
+    """Read sentinels only from the runner's attested disposable fixture database."""
+    url = os.environ["RUST_DATABASE_URL"]
+    assert "127.0.0.1:" in url and url.endswith("/verdaxis_rust_test")
+    connection = await asyncpg.connect(url)
+    try:
+        values = set()
+        # Public catalog IDs are deliberately absent. Every ID here names a
+        # private participant, order, inventory item or assisted authority.
+        for table in ("organizations", "users", "orderbook_orders", "inventory_items",
+                      "market_support_authorizations", "staff_capability_assignments"):
+            rows = await connection.fetch(f"SELECT id::text AS value FROM {table}")
+            values.update(row["value"] for row in rows)
+        rows = await connection.fetch("SELECT fame_terms, lng_terms FROM orderbook_orders")
+        for row in rows:
+            for column in ("fame_terms", "lng_terms"):
+                terms = json.loads(row[column]) if isinstance(row[column], str) else row[column]
+                if isinstance(terms, dict):
+                    def collect_private(node):
+                        if isinstance(node, dict):
+                            for key, value in node.items():
+                                if key in FORBIDDEN or key == "reference":
+                                    for text in value if isinstance(value, list) else [value]:
+                                        if isinstance(text, str) and text:
+                                            values.add(text)
+                                collect_private(value)
+                        elif isinstance(node, list):
+                            for value in node:
+                                collect_private(value)
+                    collect_private(terms)
+        assert values, "privacy proof requires populated fixture identifiers"
+        return values
+    finally:
+        await connection.close()
 
 
 async def cancellation(base_url):
@@ -85,15 +129,17 @@ def main():
     attest(base_url,token)
     cases=load_cases(ROOT / "tests/rust_contract/cases.json","mcp")
     entries=record(base_url,token,cases)
+    private_values = asyncio.run(fixture_private_values())
     tools=set()
     for entry in entries:
         body=entry["exchange"].get("body")
         if isinstance(body,dict) and not body.get("result",{}).get("isError",True):
             result=body["result"]
-            privacy(result.get("structuredContent"))
+            privacy(result.get("structuredContent"), private_values)
             for content in result.get("content",[]):
                 if content.get("type")=="text":
-                    privacy(json.loads(content["text"]))
+                    privacy(content["text"], private_values)
+                    privacy(json.loads(content["text"]), private_values)
             request=json.loads(entry["request"]["body"])
             if request["method"]=="tools/call":tools.add(request["params"]["name"])
     assert tools=={"list_markets","get_market_slice","plan_voyage_fuel"}
