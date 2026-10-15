@@ -78,6 +78,8 @@ Task 8 ports the simple public reads. `rs/read/src/routes/ports.rs` serves
 `/api/ports` and `/api/ports/{port_id}` from `rs/read/sql/{ports,port}.sql`,
 casting each geography column to geometry before `ST_X`/`ST_Y` and returning
 `location: null`; the port route applies no active filter and no ordering.
+Intelligence is loaded separately in 500-port batches, preserving SQLAlchemy's
+first-returned scalar relationship selection without duplicating port rows.
 `routes/catalog.rs` serves `/api/catalog/products` and
 `/api/catalog/delivery-points` by joining `products` and `delivery_points` to
 the attested policy in `rs/read/sql/catalog_{products,points}.sql` and projecting

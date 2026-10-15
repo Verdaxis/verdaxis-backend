@@ -161,9 +161,104 @@ All Cargo commands used local Rust 1.95, the harness venv
 
 ## Resume point
 
-Routes R01–R05 are complete on this lane. Task 13 registers the three modules
+Routes R01–R05 are implemented, but final acceptance waits for Task 4b's
+populated corpus gate. Task 13 registers the three modules
 in the serving binary without changing their SQL, and must also load the market
 policy there. Tasks 9, 10a, and 10b follow the same pattern: group target in
 `rs/contract/tests/` with the `contract-http` gate, offline vectors in
 `rs/read/tests/`, SQL in `rs/read/sql/`, and every database call through
 `run_admitted`.
+
+## Independent review fix round — 2026-10-15
+
+Reference: `outputs/research/rust-task8-review-2026-10-15.md` in the parent
+Verdaxis workspace. The earlier completion statement and findings above are
+historical; this section records the PM's disposition.
+
+- **M1 fixed** (`319ff4d`): the shared validator returns typed integers. It
+  accepts padded, integral-decimal, and underscore spellings; checks large
+  integers against bounds without f64 conversion; and preserves original input
+  in errors. News collects both parameter errors in declaration order. All five
+  exact review regressions failed first, then passed. The same five inputs are
+  now in the external `simple_reads` group (20 cases total).
+- **M2 fixed** (`6cbbf23`): select ports first, then select intelligence in
+  batches of 500. Keep the first returned intelligence row for each port.
+  Installed SQLAlchemy 2.0.51, `sqlalchemy/orm/strategies.py:3411-3453`,
+  `SelectInLoader._load_via_parent`, groups the result and assigns `collection[0]`
+  when `uselist=False`. Its chunk size is 500. The relationship has no ordering;
+  this remains source nondeterminism, not permission to choose the newest row.
+  The committed contract test inserts one disposable port and two intelligence
+  rows through the attested non-superuser seed session, compares list and detail
+  against the Python HTTP oracle, then removes only its fixture. It failed on
+  duplicate list cardinality before the fix and passed afterward. No schema
+  constraint was added. PM's read-only live counts were staging 18/18/0
+  (ports/intelligence/duplicate ports), production 18/0/0; this session did not
+  contact either environment.
+- **N1 fixed** (`26ff2df`): the contract server checks policy bytes against the
+  separate committed manifest digest and oracle SHA. Tests reject a changed
+  source even with an updated digest, reject digest drift, and accept the
+  committed pair. The two rejection tests failed first. This is a test-server
+  seam; Task 13 still owns production composition.
+- **Point 6 fixed** (`3f52d30`): retain the query-owning task and awaited cleanup.
+  Acquire, work, and cleanup diagnostics emit bounded error classes and SQLSTATE,
+  never SQL text or values. The simple-route adapter logs the SQLx error before
+  conversion; the owner also logs a generic work failure when only ApiError is
+  available. The new deterministic test cancels eight callers, forces division
+  errors in their retained owners, checks 503/Retry-After while held, waits for
+  close, then proves a fresh request uses a replacement backend. Its first
+  recorded failure stage is `work`, class `database`, SQLSTATE `22012`.
+  Missing-stage diagnostics failed first, then passed. The separate successful
+  cancellation/reuse test remains. No pool size or timeout changed. No gate-free
+  acquire timeout was reproduced.
+- **M4 deferred by PM:** Task 4b builds all plan-line-678 families after rebase
+  onto current staging, then records the corpus once and regenerates the coupled
+  policy evidence. Task 8 final acceptance waits for it. The temporary probe is
+  not committed. This round does not rewrite the old golden source identity or
+  claim newly captured bodies came from that old commit. New cases are compared
+  directly against Python by the disposable group runner; Task 4b records them.
+- **N2 retained by PM:** exact JSON response bytes remain part of the comparator.
+  No comparator or plan file was changed here.
+
+### AD-03 — approved news admission difference
+
+PM decision: “Rust admits `/api/news` through the 8-slot public read limiter;
+Python's gate does not cover news. Under full capacity Rust answers news 503
+with `Retry-After` and the busy body, and news load can make market reads 503.
+Accepted because every Rust database use then holds a permit, permits never
+exceed read connections, and no request waits on the pool.”
+
+The committed PostgreSQL test covers both directions: eight held market reads
+reject the actual news handler; eight held news-path admitted reads reject the
+actual catalog handler. It checks the exact busy body, `Retry-After: 1`, all eight
+permits, the nine-connection ceiling, successful completion, and capacity return.
+The tests passed without changing this accepted behavior. They do not claim that
+connection creation or a broken database can never cause an acquire wait/error.
+The PM owns adding AD-03 and the stricter byte comparator decision to the plan.
+
+### TDD evidence
+
+Temporary logs stay under `work/rust-phase1/`: `fix-m2-red.txt`,
+`fix-m2-green.txt`, `fix-cancel-red2.txt`, and `fix-cancel-green.txt`.
+M1: five failed, then 13 simple-read and 15 HTTP tests passed.
+N1: two failed, then all three loader tests passed.
+Cancellation: missing diagnostic event failed; all three PostgreSQL admission
+checks then passed. The sanitizer test failed with zero events, then passed.
+
+### Final verification
+
+Verified code commit `3f52d30` with a fresh `RELEASE_SHA`:
+
+- `cargo fmt --all -- --check`: pass.
+- `cargo clippy --workspace --all-targets -- -D warnings`: pass.
+- `cargo test --workspace`: 66 passed.
+- Contract-server policy tests: 3 passed.
+- `RUST_TEST_PYTHON=venv/bin/python bash rs/read/tests/run_postgres.sh`
+  (absolute interpreter path used): 73 passed. The runner's existing two
+  Task 6 matrix exclusions remain explicit; its separate seeded runner owns them.
+- `venv/bin/python scripts/rust_contract/run_disposable.py --group simple_reads
+  --seed-mode ordinary`: 20 cases, zero differences; populated duplicate-port
+  list/detail checks also passed in the same contract target.
+- `venv/bin/python -m pytest tests/rust_contract -q`: 42 passed, 5 existing warnings.
+- No requested command was omitted. Final logs: `fix-final-rust.txt`,
+  `fix-final-postgres.txt`, `fix-final-contract.txt`, `fix-final-python.txt` in
+  `work/rust-phase1/`. No push, live access, or agent was used.
