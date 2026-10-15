@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
 import signal
 import subprocess
 import sys
 import time
 import uuid
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 IMAGE = "postgis/postgis:17-3.6-alpine@sha256:49b4d46c9fb8b158ddecd14d1894871a21ed4acb7ef376e2050f43f79c7b7272"
@@ -42,7 +42,7 @@ def main():
         command("docker", "run", "-d", "--platform", "linux/amd64", "--name", container,
                 "-e", f"POSTGRES_PASSWORD={password}",
                 "-p", "127.0.0.1::5432", IMAGE, stdout=subprocess.DEVNULL)
-        for attempt in range(60):
+        for attempt in range(180):
             ready = subprocess.run(["docker", "exec", container, "pg_isready", "-h", "127.0.0.1", "-U", "postgres"], capture_output=True)
             if ready.returncode == 0:
                 break
@@ -51,6 +51,10 @@ def main():
             raise RuntimeError("Disposable PostgreSQL did not become ready")
         port = command("docker", "port", container, "5432/tcp", capture_output=True).stdout.strip().split(":")[-1]
         environment["PHASE0_PORT"] = port
+        environment["PHASE0_CLUSTER_ID"] = command(
+            "docker", "exec", container, "psql", "-X", "-U", "postgres", "-Atc",
+            "SELECT system_identifier FROM pg_control_system()", capture_output=True,
+        ).stdout.strip()
         environment["PHASE0_PASSWORD"] = password
         environment["PHASE0_WORK"] = str(directory)
         guard = directory / "network-guard"
@@ -78,6 +82,32 @@ def main():
             command(str(tree / "venv/bin/python"), "-m", "alembic", "upgrade", revision,
                     cwd=tree, env=migration_env)
         command(str(ROOT / "venv/bin/python"), "-m", "tests.phase0.build_fixtures", cwd=ROOT, env=environment)
+        if any('test_runtime_role_policy' in argument for argument in sys.argv[1:]):
+            # Reuse the existing raw-role suite without its broader seed harness
+            # or any replication-role grant. Only this disposable cluster changes.
+            database = 'phase0_roles_analytics_test'
+            command('docker', 'exec', container, 'createdb', '-U', 'postgres',
+                    '-T', 'phase0_staging_test', database)
+            policy = '/tmp/phase0-role-policy'
+            command('docker', 'exec', container, 'mkdir', '-p', policy)
+            for filename in ('app_acl_policy.sql', 'converge_runtime_object_acls.sql', 'bootstrap_roles.sql', 'validate_roles.sql'):
+                command('docker', 'cp', str(ROOT / 'deploy/postgres' / filename), f'{container}:{policy}/{filename}')
+            roles = {'app_role': 'phase0_app_test', 'migrator_role': 'phase0_migrator_test', 'backup_role': 'phase0_backup_test'}
+            variables = ['-v', f'database_name={database}']
+            for key, role in roles.items():
+                variables.extend(['-v', f'{key}={role}'])
+            command('docker', 'exec', container, 'psql', '-X', '-U', 'postgres', '-d', database,
+                    *variables, '-f', f'{policy}/bootstrap_roles.sql')
+            for role in roles.values():
+                command('docker', 'exec', container, 'psql', '-X', '-U', 'postgres', '-c',
+                        f"ALTER ROLE {role} PASSWORD '{password}'")
+            for key, role in roles.items():
+                environment['RUNTIME_TEST_' + key.upper()] = role
+            environment['RUNTIME_TEST_DATABASE_NAME'] = database
+            for key, role in {'DATABASE_URL': roles['app_role'], 'MIGRATOR_DATABASE_URL': roles['migrator_role'],
+                              'PRODUCT_ANALYTICS_TEST_DATABASE_URL': roles['migrator_role'],
+                              'BACKUP_DATABASE_URL': roles['backup_role'], 'POSTGRES_ADMIN_TEST_DATABASE_URL': 'postgres'}.items():
+                environment[key] = f'postgresql+asyncpg://{role}:{password}@127.0.0.1:{port}/{database}'
         print(f"Fixture evidence: {directory}", flush=True)
         result = subprocess.run([str(ROOT / "venv/bin/python"), "-m", "pytest", *(sys.argv[1:] or ["tests/phase0"]), "-q"], cwd=ROOT, env=environment)
         return result.returncode
