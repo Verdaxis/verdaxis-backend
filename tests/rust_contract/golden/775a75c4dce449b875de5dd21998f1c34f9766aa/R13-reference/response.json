@@ -1,0 +1,12 @@
+{
+  "status": 200,
+  "headers": {
+    "content-type": "application/json",
+    "x-request-id": "00000000-0000-4000-8000-000000000001"
+  },
+  "body": {
+    "prices": [],
+    "generated_at": "2026-10-15T12:00:00Z"
+  },
+  "body_sha256": "d5662d94100ffa46ae168fa9d77d936ba46b2c056851476908352bea1a5b0ba3"
+}

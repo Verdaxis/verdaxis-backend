@@ -1,0 +1,12 @@
+{
+  "status": 200,
+  "headers": {
+    "content-type": "application/json",
+    "x-request-id": "00000000-0000-4000-8000-000000000001"
+  },
+  "body": [
+    "Ethanol",
+    "Methanol"
+  ],
+  "body_sha256": "833ef57c1f30e286e9e7f0ac8f9da9957d15e39a424a19613c3f269116ddfbc8"
+}

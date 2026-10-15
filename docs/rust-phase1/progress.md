@@ -503,3 +503,33 @@ All Cargo commands used local Rust 1.95 with a fresh
   removed. `requirements.txt -c constraints.txt` installed cleanly, and the
   former 3.14 deprecation noise is gone (harness tests: 5 warnings, not 30).
 - The harness reads `venv/bin/python`, so no code changed for the switch.
+
+## Task 4 — Seeded corpus recorded under the fixed clock
+
+- Base: `775a75c` (the seed fix). The earlier "seed is a blocker" ruling is
+  superseded: the ordinary seed now runs, so the seeded groups record.
+- `run_disposable.py` gained `--seed-mode {corpus,ordinary}` (default `corpus`).
+  `ordinary` runs only `scripts/seed.py`; the corpus fixture families still
+  arrive with the route tasks that consume them. Intent is unchanged; the
+  default keeps the plan's fail-closed seed procedure.
+- Recorded every group twice against one seeded, fixed-clock database:
+  `health` 8, `echo` 2, `simple_reads` 12, `orderbook_snapshot` 3,
+  `orderbook_lists` 10, `orderbook_map` 6, `prices` 9, `curves_legacy` 4,
+  `curves_canonical` 6 — **TOTAL_UNSTABLE=0**. Evidence:
+  `work/rust-phase1/record-seeded.txt`.
+- Golden corpus rewritten under `tests/rust_contract/golden/775a75c…/`:
+  60 cases, 240 files, real seeded data. The previous `b47e197…` corpus was
+  removed because the source changed.
+- MCP transport recording is still deferred to Task 11.
+
+### Checks (all on Python 3.12)
+
+- Offline `cargo test --workspace`: **pass**, 24 tests.
+- `cargo fmt --all -- --check`: **pass**; `cargo clippy --workspace
+  --all-targets -- -D warnings`: **pass**.
+- `venv/bin/python -m pytest tests/rust_contract -q`: **pass**, 20 tests,
+  5 warnings.
+- `RUST_TEST_PYTHON=… bash rs/read/tests/run_postgres.sh`: **pass**, exit 0,
+  29 tests, container removed.
+- `tests/unit`: 1921 passed with the same 19 pre-existing `test_deploy_health.py`
+  failures.

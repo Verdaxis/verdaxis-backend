@@ -1,0 +1,14 @@
+{
+  "status": 200,
+  "headers": {
+    "content-type": "application/json",
+    "x-request-id": "00000000-0000-4000-8000-000000000001"
+  },
+  "body": [
+    "Bio Ethanol",
+    "Bio Methanol",
+    "Synthetic Ethanol",
+    "e-Methanol"
+  ],
+  "body_sha256": "5f21c0b70232371d1ba3c92877283542c654cdd7a1b2939882b7a473822d46f5"
+}

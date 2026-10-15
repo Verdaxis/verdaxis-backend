@@ -1,0 +1,19 @@
+{
+  "status": 200,
+  "headers": {
+    "content-type": "application/json",
+    "x-request-id": "00000000-0000-4000-8000-000000000001"
+  },
+  "body": {
+    "market_product": "BIO_LNG",
+    "delivery_point_id": "1379d36c-1ca9-55b7-9c0d-5235a0ba1f36",
+    "availability_window": "SPOT",
+    "generated_at": "2026-10-15T12:00:00Z",
+    "source_kind": "NO_DATA",
+    "scope": "DELIVERY_POINT",
+    "demo_status": "NOT_APPLICABLE",
+    "bids": [],
+    "asks": []
+  },
+  "body_sha256": "a0247a02ca36947c871a185e3d152d9f4b40f008340521d2f04dec8153ceac13"
+}

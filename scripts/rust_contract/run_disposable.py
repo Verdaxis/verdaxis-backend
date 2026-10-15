@@ -97,10 +97,11 @@ def attest(base_url: str, token: str) -> None:
 
 
 class Runner:
-    def __init__(self, group: str, *, seed: bool, keep: bool) -> None:
+    def __init__(self, group: str, *, seed: bool, keep: bool, seed_mode: str) -> None:
         self.group = group
         self.seed = seed
         self.keep = keep
+        self.seed_mode = seed_mode
         self.container = ""
         self.children: list[subprocess.Popen] = []
         self.sha = subprocess.run(
@@ -166,10 +167,15 @@ CREATE EXTENSION IF NOT EXISTS postgis;
             [self.python_bin, "scripts/seed.py"], cwd=ROOT, env={**run, "PYTHONPATH": str(ROOT)},
             check=True,
         )
-        subprocess.run(
-            [self.python_bin, "-m", "scripts.rust_contract.seed_corpus"],
-            cwd=ROOT, env={**run, "PYTHONPATH": str(ROOT)}, check=True,
-        )
+        if self.seed_mode == "corpus":
+            subprocess.run(
+                [self.python_bin, "-m", "scripts.rust_contract.seed_corpus"],
+                cwd=ROOT, env={**run, "PYTHONPATH": str(ROOT)}, check=True,
+            )
+        else:
+            # The corpus fixture families land with the route tasks that consume
+            # them, so only the ordinary seed runs in this mode.
+            print("seed mode ordinary: corpus fixture families are not applied")
 
     def spawn(self, args: list[str], env: dict[str, str]) -> None:
         self.children.append(
@@ -252,6 +258,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--no-seed", action="store_true",
                         help="skip the ordinary seed; only valid for groups with no data cases")
     parser.add_argument("--keep", action="store_true", help="leave the container behind")
+    parser.add_argument(
+        "--seed-mode",
+        choices=("corpus", "ordinary"),
+        default="corpus",
+        help="ordinary applies only scripts/seed.py; corpus also applies the fixture families",
+    )
     args = parser.parse_args(argv)
     if args.no_seed and args.group not in ("health", "echo"):
         print("--no-seed is only valid for the health and echo groups", file=sys.stderr)
@@ -260,7 +272,9 @@ def main(argv: list[str] | None = None) -> int:
         print("docker is required", file=sys.stderr)
         return 2
 
-    runner = Runner(args.group, seed=not args.no_seed, keep=args.keep)
+    runner = Runner(
+        args.group, seed=not args.no_seed, keep=args.keep, seed_mode=args.seed_mode
+    )
     try:
         runner.run()
     except (RunnerError, subprocess.CalledProcessError) as error:
