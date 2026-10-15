@@ -126,6 +126,11 @@ async def verify_database(manifest, source, target) -> VerificationReport:
             async for batch in text_batches(source, source_table, columns):
                 for row in batch:
                     source_rows[row['id']] = row
+            expected_extras = {
+                row['id']: row
+                for row in manifest['execution']['baseline_reference_rows'][name]
+                if row['id'] not in source_rows
+            }
             extra = RowHash(columns)
             async for batch in text_batches(target, target_table, columns):
                 for row in batch:
@@ -135,12 +140,13 @@ async def verify_database(manifest, source, target) -> VerificationReport:
                         source_hash.add(row)
                         target_hash.add(row)
                     else:
-                        baseline = manifest['execution']['baseline_reference_rows'][name]
-                        if row not in baseline:
+                        if row != expected_extras.pop(row['id'], None):
                             raise ValueError(f'Unexpected reference row: {name}')
                         extra.add(row)
             if source_rows:
                 raise ValueError(f'Missing source reference rows: {name}')
+            if expected_extras:
+                raise ValueError(f'Missing baseline reference rows: {name}')
             new_reference[name] = extra.report()
         else:
             for connection, table, hasher, numeric in ((source, source_table, source_hash, source_totals), (target, target_table, target_hash, target_totals)):
