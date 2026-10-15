@@ -42,7 +42,9 @@ def main():
         command("docker", "run", "-d", "--platform", "linux/amd64", "--name", container,
                 "-e", f"POSTGRES_PASSWORD={password}",
                 "-p", "127.0.0.1::5432", IMAGE, stdout=subprocess.DEVNULL)
-        for attempt in range(180):
+        # The pinned amd64 image initializes under emulation and can take over a
+        # minute on a loaded host, so allow a generous readiness window.
+        for attempt in range(240):
             ready = subprocess.run(["docker", "exec", container, "pg_isready", "-h", "127.0.0.1", "-U", "postgres"], capture_output=True)
             if ready.returncode == 0:
                 break
