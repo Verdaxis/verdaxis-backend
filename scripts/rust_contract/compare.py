@@ -203,6 +203,84 @@ def compare_news_tie_groups(expected, actual, *, request_path, rules_path=None):
     )
 
 
+PRICE_SUMMARY_RULES_PATH = ROOT / "tests/rust_contract/price-summary-paths.json"
+APPROVED_PRICE_SUMMARY_RULES = [
+    {
+        "rule": "price-summary-exact-item-multiset",
+        "request_path": "/api/prices",
+        "json_path": "/body/summaries",
+    }
+]
+
+
+def _summary_tokens(raw: bytes):
+    """Keep exact summary tokens and all bytes outside their positions."""
+    text = raw.decode("utf-8")
+    decoder = json.JSONDecoder()
+
+    def skip(index):
+        while index < len(text) and text[index].isspace():
+            index += 1
+        return index
+
+    index = skip(0) + 1
+    while text[skip(index)] != "}":
+        index = skip(index)
+        key, index = decoder.raw_decode(text, index)
+        index = skip(index) + 1  # colon (the full JSON was already validated)
+        start = skip(index)
+        _, end = decoder.raw_decode(text, start)
+        if key == "summaries":
+            spans = []
+            cursor = skip(start + 1)
+            while cursor < end - 1:
+                _, stop = decoder.raw_decode(text, cursor)
+                spans.append((cursor, stop))
+                cursor = skip(stop)
+                if text[cursor] == ",":
+                    cursor = skip(cursor + 1)
+                else:
+                    break
+            pieces = []
+            cursor = 0
+            for first, last in spans:
+                pieces.append(text[cursor:first])
+                cursor = last
+            pieces.append(text[cursor:])
+            return [text[first:last] for first, last in spans], pieces
+        index = skip(end)
+        if text[index] == ",":
+            index += 1
+    raise ContractError("summary array was not found")
+
+
+def compare_price_summary_multiset(expected, actual, *, request_path, rules_path=None):
+    from collections import Counter
+
+    try:
+        rules = json.loads((rules_path or PRICE_SUMMARY_RULES_PATH).read_text())
+    except (OSError, ValueError) as error:
+        raise ContractError("price summary rule configuration is unreadable") from error
+    if rules != APPROVED_PRICE_SUMMARY_RULES:
+        raise ContractError("unreviewed price summary rule configuration")
+    if request_path != "/api/prices" or not all(
+        item.get("status") == 200 and "price_summary_tokens" in item
+        for item in (expected, actual)
+    ):
+        return compare_news_tie_groups(expected, actual, request_path=request_path)
+    left_items, left_frame = expected["price_summary_tokens"]
+    right_items, right_frame = actual["price_summary_tokens"]
+    if Counter(left_items) != Counter(right_items):
+        return ["/body/summaries:item-bytes"]
+    if left_frame != right_frame:
+        return ["/body:surrounding-bytes"]
+    ignored = {"body", "body_sha256", "price_summary_tokens"}
+    return compare(
+        {k: v for k, v in expected.items() if k not in ignored},
+        {k: v for k, v in actual.items() if k not in ignored},
+    )
+
+
 def recording_differences(
     expected: Sequence[dict[str, Any]], actual: Sequence[dict[str, Any]]
 ) -> list[str]:
@@ -220,7 +298,7 @@ def recording_differences(
             continue
         problems += [
             f"{left['id']}:{path}"
-            for path in compare_news_tie_groups(
+            for path in compare_price_summary_multiset(
                 left["exchange"],
                 right["exchange"],
                 request_path=left.get("request", {}).get("path", ""),
@@ -278,6 +356,8 @@ def capture(
         isinstance(item, dict) and "published_at" in item for item in body
     ):
         envelope["news_exact_items"] = _news_item_bytes(raw)
+    if isinstance(body, dict) and isinstance(body.get("summaries"), list):
+        envelope["price_summary_tokens"] = _summary_tokens(raw)
     return envelope
 
 

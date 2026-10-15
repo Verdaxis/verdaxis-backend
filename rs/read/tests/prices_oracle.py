@@ -55,7 +55,7 @@ async def seed():
 
 def compare_populated():
     cases = [dict(id="fixture-"+str(i),method="GET",path=path,query=query) for i,(path,query) in enumerate([
-        ("/api/prices", "availability_window=2031-01"), ("/api/prices", "hours=168&availability_window=2031-01"),
+        ("/api/prices", ""), ("/api/prices", "hours=168"),
         ("/api/prices/reference", "visibility=internal"),
         ("/api/prices/reference", "date_from=2026-10-15&date_to=2026-10-15"),
         ("/api/prices/reference/export", "format=other"),
