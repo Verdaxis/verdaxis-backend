@@ -29,10 +29,10 @@ TIMERS = tuple(name.replace(".service", ".timer") for name in SERVICES[1:6])
 
 
 def require_outbox_drained(*, producers_stopped: bool, sequencer_stopped: bool,
-                          pending_jobs: int, app_sessions: int, undispatched: int) -> None:
+                          pending_jobs: int, other_sessions: int, undispatched: int) -> None:
     if not producers_stopped or not sequencer_stopped or any(
         type(value) is not int or value != 0
-        for value in (pending_jobs, app_sessions, undispatched)
+        for value in (pending_jobs, other_sessions, undispatched)
     ):
         raise ValueError("Producer, sequencer and post-stop outbox drain required")
 
@@ -117,7 +117,7 @@ async def _database_facts(manifest: dict) -> tuple[dict, int, int]:
                           host=host, port=port, role=role, revision=revisions[0][0])
             require_identity(expected, actual)
             sessions = await connection.fetchval(
-                "SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND usename='verdaxis_app'")
+                "SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND pid<>pg_backend_pid()")
             count = await connection.fetchval(
                 "SELECT count(*) FROM market_event_outbox WHERE stream_seq IS NULL")
         return actual, sessions, count
@@ -183,7 +183,7 @@ def run_check(manifest: dict, check: str) -> None:
         if check != "identity":
             stopped_units()
             require_outbox_drained(producers_stopped=True, sequencer_stopped=True,
-                                   pending_jobs=0, app_sessions=sessions, undispatched=count)
+                                   pending_jobs=0, other_sessions=sessions, undispatched=count)
         if check == "rollback-safe":
             # A hash report is operator-reviewed evidence, never a boolean claim
             # that customer writes did not occur. Reopening invalidates it.

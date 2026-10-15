@@ -25,15 +25,15 @@ def test_outbox_drain_before_final_snapshot():
     # The first zero is not evidence: a producer has not committed yet.
     with pytest.raises(ValueError):
         require_outbox_drained(producers_stopped=False, sequencer_stopped=False,
-                               pending_jobs=0, app_sessions=1, undispatched=0)
+                               pending_jobs=0, other_sessions=1, undispatched=0)
     with pytest.raises(ValueError):
         require_outbox_drained(producers_stopped=True, sequencer_stopped=False,
-                               pending_jobs=0, app_sessions=1, undispatched=1)
+                               pending_jobs=0, other_sessions=1, undispatched=1)
     with pytest.raises(ValueError):
         require_outbox_drained(producers_stopped=True, sequencer_stopped=True,
-                               pending_jobs=0, app_sessions=0, undispatched=1)
+                               pending_jobs=0, other_sessions=0, undispatched=1)
     require_outbox_drained(producers_stopped=True, sequencer_stopped=True,
-                           pending_jobs=0, app_sessions=0, undispatched=0)
+                           pending_jobs=0, other_sessions=0, undispatched=0)
 
 
 @pytest.mark.parametrize("boundary", ["tuple", "units", "restart", "readiness"])
@@ -202,7 +202,7 @@ with sqlite3.connect(sys.argv[1]) as connection:
         assert first_zero == 0
         with pytest.raises(ValueError):
             require_outbox_drained(producers_stopped=False, sequencer_stopped=False,
-                                   pending_jobs=0, app_sessions=1, undispatched=first_zero)
+                                   pending_jobs=0, other_sessions=1, undispatched=first_zero)
         producer.stdin.write("commit\n")
         producer.stdin.flush()
         assert producer.wait(timeout=5) == 0
@@ -213,7 +213,7 @@ with sqlite3.connect(sys.argv[1]) as connection:
         with sqlite3.connect(database) as connection:
             final_zero = connection.execute("SELECT count(*) FROM outbox WHERE stream_seq IS NULL").fetchone()[0]
         require_outbox_drained(producers_stopped=True, sequencer_stopped=True,
-                               pending_jobs=0, app_sessions=0, undispatched=final_zero)
+                               pending_jobs=0, other_sessions=0, undispatched=final_zero)
     finally:
         if producer.poll() is None:
             producer.kill()
