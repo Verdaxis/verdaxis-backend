@@ -1065,7 +1065,7 @@ async def list_orders_with_ci(
         query = query.join(join_target, join_cond)
     query = (
         query.where(*filters)
-        .order_by(OrderBookOrder.created_at.desc())
+        .order_by(OrderBookOrder.created_at.desc(), OrderBookOrder.id.desc())
         .offset(skip)
         .limit(limit)
     )
@@ -1789,7 +1789,7 @@ async def list_orders(
         query = query.join(join_target, join_cond)
     query = (
         query.where(*filters)
-        .order_by(OrderBookOrder.created_at.desc())
+        .order_by(OrderBookOrder.created_at.desc(), OrderBookOrder.id.desc())
         .offset(effective_skip)
         .limit(effective_limit)
     )

@@ -1,0 +1,8 @@
+{
+  "method": "GET",
+  "path": "/__contract__/live-benchmarks?as_of=2036-10-15T12:00:00Z",
+  "query": "",
+  "headers": {
+    "x-request-id": "00000000-0000-4000-8000-000000000001"
+  }
+}

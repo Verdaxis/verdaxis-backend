@@ -1,0 +1,24 @@
+{
+  "status": 422,
+  "headers": {
+    "content-type": "application/json",
+    "x-request-id": "00000000-0000-4000-8000-000000000001"
+  },
+  "body": {
+    "detail": [
+      {
+        "type": "date_from_datetime_parsing",
+        "loc": [
+          "query",
+          "date_from"
+        ],
+        "msg": "Input should be a valid date or datetime, month value is outside expected range of 1-12",
+        "input": "2026-13-01",
+        "ctx": {
+          "error": "month value is outside expected range of 1-12"
+        }
+      }
+    ]
+  },
+  "body_sha256": "5cdd3feef8fbd3cfdd3093ee17761dc62ec794fca10c983e703d24a17f6e5241"
+}

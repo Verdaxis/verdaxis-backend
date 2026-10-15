@@ -1,0 +1,24 @@
+{
+  "status": 422,
+  "headers": {
+    "content-type": "application/json",
+    "x-request-id": "00000000-0000-4000-8000-000000000001"
+  },
+  "body": {
+    "detail": [
+      {
+        "type": "date_parsing",
+        "loc": [
+          "query",
+          "date_from"
+        ],
+        "msg": "Input should be a valid date in the format YYYY-MM-DD, year 0 is out of range",
+        "input": "0000-01-01",
+        "ctx": {
+          "error": "year 0 is out of range"
+        }
+      }
+    ]
+  },
+  "body_sha256": "cd6a0c2710796b65b9af4df1fd500b6eeeaf0404fbb277a69a90949144b3f8fc"
+}

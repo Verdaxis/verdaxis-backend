@@ -283,11 +283,6 @@
         "path": "/api/orderbook/with-ci"
       },
       {
-        "id": "R19-aggregated",
-        "method": "GET",
-        "path": "/api/orderbook/aggregated"
-      },
-      {
         "id": "R26-orderbook",
         "method": "GET",
         "path": "/api/orderbook"
@@ -297,11 +292,6 @@
         "method": "GET",
         "path": "/api/orderbook",
         "query": "page=1&page_size=2"
-      },
-      {
-        "id": "R27-listings",
-        "method": "GET",
-        "path": "/api/listings"
       },
       {
         "id": "T4B-region-Singapore",
@@ -326,7 +316,9 @@
         "method": "GET",
         "path": "/api/orderbook/asks",
         "query": "region=Europe"
-      },
+      }
+    ],
+    "orderbook_map": [
       {
         "id": "T4B-negative-fame-holder",
         "method": "GET",
@@ -334,9 +326,17 @@
         "fixture": "T4B-negative-fame",
         "expectation": "Python response for deliberately blank certificate_holder; isolated from positive reads",
         "query": "limit=100"
-      }
-    ],
-    "orderbook_map": [
+      },
+      {
+        "id": "R27-listings",
+        "method": "GET",
+        "path": "/api/listings"
+      },
+      {
+        "id": "R19-aggregated",
+        "method": "GET",
+        "path": "/api/orderbook/aggregated"
+      },
       {
         "id": "R20-product-counts",
         "method": "GET",

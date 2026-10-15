@@ -157,6 +157,40 @@ def _make_order(
 
 class TestMarketplaceFuelFiltering:
     @pytest.mark.asyncio
+    @pytest.mark.parametrize('with_ci', [False, True])
+    async def test_legacy_pages_have_total_order_for_tied_created_at(self, db, with_ci):
+        supplier = await _make_org(db, 'Tied Supplier')
+        point = await _make_delivery_point(db, 'Singapore', 'Asia')
+        product = await _make_product(
+            db, name='Bio Methanol', fuel_type='Methanol', fuel_grade='Bio',
+        )
+        ids = [UUID(int=value) for value in (1, 4, 2, 3)]
+        for order_id in ids:
+            order = _make_order(
+                org_id=supplier.id, product_id=product.id,
+                delivery_point_id=point.id, price='1000',
+            )
+            order.id = order_id
+            order.created_at = datetime(2026, 10, 15, 12, tzinfo=UTC)
+            db.add(order)
+        await db.commit()
+
+        handler = list_orders_with_ci if with_ci else list_orders
+        pages = []
+        for skip in (0, 2):
+            kwargs = dict(
+                product_id=None, delivery_point_id=None, side=None,
+                include_off_spec=False, skip=skip, limit=2, db=db,
+            )
+            if not with_ci:
+                kwargs.update(availability_window=None, page=None, page_size=None)
+            pages.append([item.id for item in await handler(**kwargs)])
+        # A created-time-only sort permits any permutation, including a
+        # different boundary on each request. Require the complete ordering.
+        assert pages == [sorted(ids, reverse=True)[:2], sorted(ids, reverse=True)[2:]]
+        assert set(pages[0]).isdisjoint(pages[1])
+
+    @pytest.mark.asyncio
     async def test_list_asks_excludes_non_methanol_ethanol_products(self, db: AsyncSession):
         supplier = await _make_org(db, 'Supplier')
         singapore = await _make_delivery_point(db, 'Singapore', 'Asia')

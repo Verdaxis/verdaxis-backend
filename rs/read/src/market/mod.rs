@@ -7,6 +7,7 @@
 pub mod decimal;
 pub mod legacy_curve;
 pub mod live_benchmarks;
+pub mod order_projection;
 pub mod policy;
 pub mod provenance;
 pub mod terms;
