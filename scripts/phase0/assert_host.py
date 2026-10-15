@@ -6,6 +6,7 @@ never advances a journal. Run from the reviewed external tool installation.
 from __future__ import annotations
 
 import argparse
+import asyncio
 import hashlib
 import json
 import os
@@ -74,45 +75,54 @@ def require_identity(expected: dict, actual: dict) -> None:
 
 
 def database_facts(manifest: dict) -> tuple[dict, int, int]:
-    # A libpq passfile is separate from the manifest and never enters argv.
-    import psycopg2
+    return asyncio.run(_database_facts(manifest))
+
+
+async def _database_facts(manifest: dict) -> tuple[dict, int, int]:
+    import asyncpg
+
     expected = manifest["identity"]
     require_identity(expected, expected)
+    # Raw private password file; credentials never enter argv or diagnostics.
     password = private_bytes(Path(manifest["password_file"])).decode().rstrip("\n")
-    with psycopg2.connect(host=expected["host"], port=expected["port"],
-                          dbname=expected["database"], user="verdaxis_backup",
-                          password=password, connect_timeout=5,
-                          options="-c default_transaction_read_only=on -c statement_timeout=5000") as connection:
-        with connection.cursor() as cursor:
-            cursor.execute("SELECT current_database(), oid FROM pg_database WHERE datname=current_database()")
-            database, oid = cursor.fetchone()
-            cursor.execute("SELECT current_user, inet_server_addr()::text, inet_server_port()")
-            role, host, port = cursor.fetchone()
-            cursor.execute("""SELECT rolcanlogin AND NOT rolinherit AND NOT rolsuper
+    connection = await asyncpg.connect(
+        host=expected["host"], port=expected["port"],
+        database=expected["database"], user="verdaxis_backup", password=password,
+        timeout=5, command_timeout=5,
+        server_settings={"default_transaction_read_only": "on", "statement_timeout": "5000"},
+    )
+    try:
+        async with connection.transaction(readonly=True):
+            database, oid = await connection.fetchrow(
+                "SELECT current_database(), oid FROM pg_database WHERE datname=current_database()")
+            role, host, port = await connection.fetchrow(
+                "SELECT current_user, inet_server_addr()::text, inet_server_port()")
+            safe_role = await connection.fetchval("""SELECT rolcanlogin AND NOT rolinherit AND NOT rolsuper
                 AND NOT rolcreatedb AND NOT rolcreaterole AND NOT rolreplication
                 AND NOT rolbypassrls AND NOT EXISTS
                     (SELECT 1 FROM pg_auth_members WHERE member=pg_roles.oid)
                 FROM pg_roles WHERE rolname=current_user""")
-            if cursor.fetchone() != (True,):
+            if safe_role is not True:
                 raise ValueError("Unsafe backup role properties")
-            cursor.execute("SELECT version_num FROM alembic_version")
-            revisions = cursor.fetchall()
+            revisions = await connection.fetch("SELECT version_num FROM alembic_version")
             if len(revisions) != 1:
                 raise ValueError("Expected one revision")
-            # Cluster identity is read independently as the local operator. Do
-            # not grant pg_control_system access to runtime or backup roles.
-            cluster = command(["/usr/bin/sudo", "-n", "-u", "postgres", "/usr/bin/psql",
-                               "-XAt", "-h", "/var/run/postgresql",
-                               "-p", str(expected["port"]), "-d", "postgres",
-                               "-c", "SELECT system_identifier FROM pg_control_system()"])
+            # Keep control privileges with the local operator, not the backup role.
+            cluster = await asyncio.to_thread(command, [
+                "/usr/bin/sudo", "-n", "-u", "postgres", "/usr/bin/psql",
+                "-XAt", "-h", "/var/run/postgresql", "-p", str(expected["port"]),
+                "-d", "postgres", "-c", "SELECT system_identifier FROM pg_control_system()",
+            ])
             actual = dict(database=database, database_oid=oid, cluster_id=cluster,
                           host=host, port=port, role=role, revision=revisions[0][0])
             require_identity(expected, actual)
-            cursor.execute("SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND usename='verdaxis_app'")
-            sessions = cursor.fetchone()[0]
-            cursor.execute("SELECT count(*) FROM market_event_outbox WHERE stream_seq IS NULL")
-            count = cursor.fetchone()[0]
-    return actual, sessions, count
+            sessions = await connection.fetchval(
+                "SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND usename='verdaxis_app'")
+            count = await connection.fetchval(
+                "SELECT count(*) FROM market_event_outbox WHERE stream_seq IS NULL")
+        return actual, sessions, count
+    finally:
+        await connection.close(timeout=5)
 
 
 def require_stopped_unit(output: str) -> None:
