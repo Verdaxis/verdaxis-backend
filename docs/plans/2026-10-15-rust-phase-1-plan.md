@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- Start from staging commit `2a7137bf71dc1f12191b4f619b94541060a1e1ed`. Reconcile later Phase 0 changes before each route cutover.
+- Start from staging commit `b218ab264b92f99007bacc05d4871413e024b72a` (merged into the build branch). Reconcile later Phase 0 changes before each route cutover.
 - Phase 1 can proceed beside Phase 0. This plan contains no production task.
 - Freeze feature changes in each module during its port. A parity repair is not a new feature.
 - **Python freeze (founder, 15 Oct, tracker decision 47):** no new features in Python at all. Allowed Python changes: Phase 0 convergence; security fixes, user-facing bug fixes and data repairs; operations and settings. New features wait for Rust. Two stacks are transitional; the design's phase 10 removes Python.

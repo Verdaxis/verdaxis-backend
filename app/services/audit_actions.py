@@ -21,6 +21,7 @@ MARKET_SUPPORT_CONTEXT_REVOKED = "market_support.context_revoked"
 KYC_APPROVED = "kyc.approved"
 KYC_REJECTED = "kyc.rejected"
 KYC_SUBMITTED = "kyc.submitted"
+KYC_DOCUMENT_VIEWED = "kyc.document_viewed"
 KYC_MEMBERSHIP_INVALIDATED = "kyc.membership_invalidated"
 # negotiation.accepted / rfq.accepted are intentionally absent: negotiation
 # and RFQ execution are disabled in this release (market-owned decision), and
@@ -79,6 +80,7 @@ AUDIT_ACTIONS = frozenset(
         KYC_APPROVED,
         KYC_REJECTED,
         KYC_SUBMITTED,
+        KYC_DOCUMENT_VIEWED,
         KYC_MEMBERSHIP_INVALIDATED,
         NEGOTIATION_COUNTERED,
         NEGOTIATION_CREATED,

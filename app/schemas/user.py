@@ -38,7 +38,7 @@ class UserCreate(UserBase):
 
 class ExecutionEligibilityResponse(BaseModel):
     eligible: bool = False
-    reason: Literal["KYC_APPROVED", "KYC_GRACE", "KYC_REQUIRED", "KYC_REJECTED", "NOT_APPLICABLE"] = "KYC_REQUIRED"
+    reason: Literal["KYC_APPROVED", "KYC_GRACE", "KYC_REQUIRED", "KYC_REJECTED", "KYC_NOT_ENFORCED", "NOT_APPLICABLE"] = "KYC_REQUIRED"
     grace_expires_at: datetime | None = None
 
 

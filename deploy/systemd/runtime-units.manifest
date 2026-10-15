@@ -1,4 +1,5 @@
 # environment	unit filename
+# Backend units include optional KYC credentials; digests bind the committed bytes.
 production	verdaxis-backend.service
 production	verdaxis-news-refresh.service
 production	verdaxis-news-refresh.timer

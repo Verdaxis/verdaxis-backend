@@ -1,11 +1,23 @@
 """KYC document submission and administrative review."""
 
-from typing import Annotated
-import uuid
+import logging
 import re
+import uuid
 from datetime import UTC, datetime
+from typing import Annotated
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
+from cryptography.exceptions import InvalidTag
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Request,
+    UploadFile,
+    status,
+)
+from fastapi.responses import Response
 from pydantic import BaseModel, Field, field_validator
 from slowapi.util import get_remote_address
 from sqlalchemy import select
@@ -13,16 +25,27 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.database import get_db
+from app.models.kyc_document import KYCDocument
 from app.models.user import Organization, User, UserRole, UserStatus
 from app.rate_limit import limiter
-from app.routing import BodySizeLimitRoute
 from app.routers.auth_simple import get_current_user
-from app.services.audit_actions import KYC_APPROVED, KYC_REJECTED, KYC_SUBMITTED
+from app.routing import BodySizeLimitRoute
+from app.services.audit_actions import (
+    KYC_APPROVED,
+    KYC_DOCUMENT_VIEWED,
+    KYC_REJECTED,
+    KYC_SUBMITTED,
+)
+from app.services.kyc_document_vault import KeyRing
+
+logger = logging.getLogger(__name__)
 from app.services.audit_service import record_audit, request_audit_context
 from app.services.email import send_kyc_approved_email, send_kyc_rejected_email
+from app.services.kyc import (
+    KYC_REVIEW_REQUIRED,
+)
 from app.services.market_data_eligibility import user_has_public_market_projection
 from app.services.market_events import enqueue_market_events, participant_market_event
-from app.services.kyc import KYCProviderUnavailable, KYC_REVIEW_REQUIRED, verify_document_with_gemini
 
 # Honour the runtime-owned KYC size configuration (defaults: 10 MiB per document,
 # 20 MiB per request) so the documented KYC_MAX_* settings stay authoritative.
@@ -188,21 +211,7 @@ async def submit_kyc(
         registration_number=registration_number,
     )
     await db.rollback()
-    advisory_results: dict[str, object] = {"provider": "gemini", "status": "unavailable"}
-    try:
-        passport_result = await verify_document_with_gemini(passport_bytes, passport_mime, "passport or government-issued ID")
-        company_result = await verify_document_with_gemini(company_bytes, company_mime, "company registration document")
-        advisory_results = {
-            "provider": "gemini",
-            "status": "advisory_complete",
-            "passport_passed": bool(passport_result.get("passed")),
-            "company_passed": bool(company_result.get("passed")),
-        }
-    except KYCProviderUnavailable:
-        # Provider availability never changes the authoritative workflow.
-        # Admin review remains required and can proceed from the submitted
-        # evidence even when Gemini is unavailable.
-        passport_result = company_result = None
+    advisory_results = {"provider": "none", "status": "disabled"}
 
     result = await db.execute(select(User).where(User.id == user_id).with_for_update())
     current_user = result.scalar_one_or_none()
@@ -237,6 +246,18 @@ async def submit_kyc(
         registration_number=registration_number,
     )
 
+    keys = _document_keys(request)
+    submission_id = uuid.uuid4()
+    documents = [
+        keys.encrypt(content, id=uuid.uuid4(), submission_id=submission_id,
+                     user_id=user_id, organization_id=organization_id,
+                     kind=kind, content_type=mime)
+        for content, mime, kind in (
+            (passport_bytes, passport_mime, "IDENTITY"),
+            (company_bytes, company_mime, "COMPANY_REGISTRATION"),
+        )
+    ]
+    db.add_all(documents)
     previous = current_user.kyc_status
     current_user.kyc_status = KYC_REVIEW_REQUIRED
     current_user.kyc_organization_id = organization_id
@@ -248,12 +269,85 @@ async def submit_kyc(
     await record_audit(db, user_id=current_user.id, action=KYC_SUBMITTED, resource_type="kyc", resource_id=current_user.id, changes={
         "kyc_status": {"from": previous, "to": KYC_REVIEW_REQUIRED},
         "advisory": advisory_results,
+        "submission_id": str(submission_id),
+        "document_ids": [str(document.id) for document in documents],
+        "raw_documents_retained_in_platform": True,
         "declared_company_name_provided": bool(declared_company_name),
         "registration_number_provided": bool(registration_number),
         "evidence_limits": "Automated checks do not establish ownership or legal authenticity.",
     }, **request_audit_context(request))
     await db.commit()
     return {"kyc_status": current_user.kyc_status, "message": "KYC submitted for trusted administrator review."}
+
+
+def _document_keys(request: Request) -> KeyRing:
+    keys = getattr(request.app.state, "kyc_document_keys", None)
+    if keys is None:
+        raise HTTPException(status_code=503, detail={"code": "KYC_DOCUMENT_STORAGE_UNAVAILABLE"})
+    return keys
+
+
+async def _has_retained_documents(db: AsyncSession, target: User) -> bool:
+    return await db.scalar(select(KYCDocument.id).where(
+        KYCDocument.user_id == target.id,
+        KYCDocument.organization_id == target.kyc_organization_id,
+    ).limit(1)) is not None
+
+
+@router.get("/admin/{user_id}/documents")
+@limiter.limit("30/minute")
+async def admin_list_kyc_documents(
+    user_id: uuid.UUID, request: Request,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    if current_user.role != UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    if await db.get(User, user_id) is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    result = await db.execute(select(
+        KYCDocument.id, KYCDocument.submission_id, KYCDocument.kind,
+        KYCDocument.content_type, KYCDocument.size_bytes,
+        KYCDocument.organization_id, KYCDocument.created_at,
+    ).where(KYCDocument.user_id == user_id).order_by(
+        KYCDocument.created_at.desc(), KYCDocument.id.desc(),
+    ).limit(50))
+    return [dict(row) for row in result.mappings()]
+
+
+@router.get("/admin/documents/{document_id}")
+@limiter.limit("30/minute")
+async def admin_download_kyc_document(
+    document_id: uuid.UUID, request: Request,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    if current_user.role != UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    document = await db.get(KYCDocument, document_id)
+    if document is None:
+        raise HTTPException(status_code=404, detail="Document not found")
+    try:
+        keys = getattr(request.app.state, "kyc_document_keys", None)
+        if keys is None:
+            raise ValueError("Unavailable keys")
+        content = keys.decrypt(document)
+    except (InvalidTag, KeyError, ValueError):
+        logger.error("KYC document decryption failed: %s", document_id)
+        raise HTTPException(status_code=500, detail={"code": "KYC_DOCUMENT_DECRYPTION_FAILED"}) from None
+    await record_audit(
+        db, user_id=current_user.id, action=KYC_DOCUMENT_VIEWED,
+        resource_type="kyc_document", resource_id=document.id,
+        changes={"document_id": str(document.id), "user_id": str(document.user_id)},
+        **request_audit_context(request),
+    )
+    extension = {"application/pdf": "pdf", "image/jpeg": "jpg", "image/png": "png"}[document.content_type]
+    response = Response(content, media_type=document.content_type, headers={
+        "Content-Disposition": f'attachment; filename="kyc-{document.kind}-{document.id}.{extension}"',
+        "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff",
+    })
+    await db.commit()
+    return response
 
 
 @router.get("/status")
@@ -319,7 +413,7 @@ async def admin_approve_kyc(
             "kyc_status": {"from": previous, "to": "APPROVED"},
             "external_evidence_reference": body.external_evidence_reference,
             "review_note": body.review_note,
-            "raw_documents_retained_in_platform": False,
+            "raw_documents_retained_in_platform": await _has_retained_documents(db, target),
         },
         **request_audit_context(request),
     )
@@ -375,6 +469,7 @@ async def admin_reject_kyc(user_id: uuid.UUID, request: Request, body: AdminReje
         changes={
             "kyc_status": {"from": previous, "to": "REJECTED"},
             "reason": body.reason,
+            "raw_documents_retained_in_platform": await _has_retained_documents(db, target),
         },
         **request_audit_context(request),
     )

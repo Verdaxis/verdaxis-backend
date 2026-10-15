@@ -817,3 +817,11 @@ With a fresh `RELEASE_SHA=$(git rev-parse HEAD)`:
 - Logs: `work/rust-phase1/repair-{workspace,market,postgres,python}.txt`.
 
 Resume: merge Task 6 repairs before consumer route work; use the new static relation interface. No push or live activation was performed.
+
+## Staging merge and Task 6 follow-up — 2026-10-16
+
+Merged staging `b218ab264b92f99007bacc05d4871413e024b72a` into the build branch after Task 8. No conflicts. Staging's Python behavior is retained; the `775a75c` partial-fill seed fix remains unchanged. No rebase, push or live access.
+
+The golden directory and policy manifest stay pinned to oracle `775a75c4dce449b875de5dd21998f1c34f9766aa` until Task 4b records the populated corpus and regenerates artifacts together. Existing source-SHA checks must use that oracle, not relabel old golden bytes as the merged source. Task 6 targeted vectors and the disposable market oracle can test the new rules independently.
+
+Next: TDD for the runtime KYC switch, exact typed decimal validation (R1), and region aliases (R2). R3 remains assigned to Tasks 9, 10a and 10b under decision 16. R4 is already corrected by the PM.

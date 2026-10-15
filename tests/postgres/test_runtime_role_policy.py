@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
 import re
 import subprocess
+from pathlib import Path
 from uuid import uuid4
 
 import pytest
@@ -13,7 +13,6 @@ from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import create_async_engine
-
 
 ROOT = Path(__file__).parents[2]
 ROLE_NAME = re.compile(r"^[a-z][a-z0-9_]*$")
@@ -68,6 +67,25 @@ def _psql(
         text=True,
         check=False,
     )
+
+
+@pytest.mark.asyncio
+async def test_runtime_kyc_documents_are_append_only():
+    _policy_values()
+    engine = create_async_engine(os.environ["DATABASE_URL"], hide_parameters=True)
+    try:
+        async with engine.begin() as connection:
+            await connection.execute(text("SELECT id FROM kyc_documents LIMIT 1"))
+            await connection.execute(text("INSERT INTO kyc_documents SELECT * FROM kyc_documents WHERE false"))
+        for statement in (
+            "UPDATE kyc_documents SET ciphertext = ciphertext WHERE false",
+            "DELETE FROM kyc_documents WHERE false",
+        ):
+            with pytest.raises(DBAPIError):
+                async with engine.begin() as connection:
+                    await connection.execute(text(statement))
+    finally:
+        await engine.dispose()
 
 
 @pytest.mark.asyncio
