@@ -74,6 +74,25 @@ digest vectors from the Python oracle; `rs/read/tests/run_market_contract.sh`
 seeds a disposable database and compares the selected ids with the Python
 predicate under one fixed clock.
 
+Task 8 ports the simple public reads. `rs/read/src/routes/ports.rs` serves
+`/api/ports` and `/api/ports/{port_id}` from `rs/read/sql/{ports,port}.sql`,
+casting each geography column to geometry before `ST_X`/`ST_Y` and returning
+`location: null`; the port route applies no active filter and no ordering.
+`routes/catalog.rs` serves `/api/catalog/products` and
+`/api/catalog/delivery-points` by joining `products` and `delivery_points` to
+the attested policy in `rs/read/sql/catalog_{products,points}.sql` and projecting
+the rows through `market::policy::project_catalog`, so no identity or display
+order is written in Rust. `routes/news.rs` serves `/api/news` from
+`rs/read/sql/news.sql` and writes the ten-key dict contract, using Python
+`isoformat()` semantics for its dates. All three modules run their database work
+through `runtime::admission::run_admitted` and share the Python-compatible query
+validator in `runtime/http.rs`. The route modules are merged into the serving
+router by `rs/contract/tests/simple_reads.rs` (feature-gated group target) and
+`rs/read/tests/simple_reads.rs` (offline vectors for both date formats, the port
+and news field order, and the 422 envelopes). Task 8's local evidence, the
+simple-read corpus limits, and the fixture-family decision are recorded in
+`docs/rust-phase1/progress-task8.md`.
+
 ## File Map
 
 ```
