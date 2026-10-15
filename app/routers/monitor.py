@@ -57,6 +57,9 @@ async def cleanup_signup_canary(
     deleted_orgs = 0
     organization_id = user.organization_id if user else None
     if user:
+        # Check both identities before deleting either one.
+        from app.services.kyc_document_retention import require_no_retained_documents
+        await require_no_retained_documents(db, user_id=user.id, organization_id=organization_id)
         await db.delete(user)
         deleted_users = 1
         await db.flush()
@@ -76,6 +79,10 @@ async def cleanup_signup_canary(
             await db.execute(select(func.count()).where(User.organization_id == org.id))
         ).scalar() or 0
         if member_count == 0:
+            from app.services.kyc_document_retention import (
+                require_no_retained_documents,
+            )
+            await require_no_retained_documents(db, organization_id=org.id)
             await db.delete(org)
             deleted_orgs = 1
 
