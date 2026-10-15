@@ -1,1 +1,0 @@
-{"jsonrpc":"2.0","id":23,"result":{"content":[{"text":"Error executing tool plan_voyage_fuel: 1 validation error for plan_voyage_fuelArguments\nrequest\n  Field required [type=missing, input_value={}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.13/v/missing","type":"text"}],"isError":true}}

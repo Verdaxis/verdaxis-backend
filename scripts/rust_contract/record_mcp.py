@@ -17,6 +17,8 @@ from scripts.rust_contract.run_disposable import (
     RunnerError,
 )
 
+EVIDENCE_ROOT = ROOT / "work/rust-phase1/mcp-evidence"
+
 
 class McpRecorder(Runner):
     def record_groups(self, python_url: str) -> None:
@@ -28,7 +30,7 @@ class McpRecorder(Runner):
             raise RunnerError(f"MCP oracle is unstable: {len(problems)} differences")
         fixtures = (ROOT / "work/rust-phase1/task4b-fixtures.json").read_bytes()
         entries = first if self.gate else [{**entry, "id": entry["id"] + "--kyc-off"} for entry in first]
-        write_golden(ROOT / "tests/rust_contract", self.sha, entries, meta={
+        write_golden(EVIDENCE_ROOT, self.sha, entries, meta={
             "source_sha": self.sha,
             "schema_revision": "kycd_20261015_staging",
             "timezone": ORACLE_TIMEZONE,
@@ -40,7 +42,7 @@ class McpRecorder(Runner):
         })
         schemas = (ROOT / "deploy/rust/mcp-tools.json").read_bytes()
         for entry in entries:
-            (ROOT / "tests/rust_contract/golden" / self.sha / entry["id"] / "schema.json").write_bytes(schemas)
+            (EVIDENCE_ROOT / "golden" / self.sha / entry["id"] / "schema.json").write_bytes(schemas)
         print(f"MCP golden: {len(entries)} cases stable across two passes; KYC={self.gate}; SHA={self.sha}", flush=True)
 
 
