@@ -61,6 +61,16 @@ def vectors():
         arguments = copy.deepcopy(base)
         change(arguments["request"])
         inputs.append((label, "plan_voyage_fuel", arguments))
+    for label, value in [("float", 2035.0), ("fraction", 2035.5), ("decimal-string", "2035.0"), ("bool", True), ("bad", "bad"), ("underscores", "2_035"), ("unicode", "２０３５")]:
+        arguments = copy.deepcopy(base)
+        arguments["request"]["assumptions"]["reporting_year"] = value
+        inputs.append(("year-" + label, "plan_voyage_fuel", arguments))
+    for label, field, value in [("arabic-imo", "imo_number", "١٢٣٤٥٦٧"), ("wide-imo", "imo_number", "１２３４５６７"), ("arabic-decimal", "speed_knots", "١٤.٠"), ("wide-decimal", "speed_knots", "１４"), ("unicode-exponent", "speed_knots", "١.٤e١")]:
+        arguments = copy.deepcopy(base)
+        arguments["request"]["vessel"][field] = value
+        inputs.append((label, "plan_voyage_fuel", arguments))
+    for label, value in [("object", json.dumps(base["request"])), ("null", "null"), ("array", "[]"), ("scalar", "42"), ("invalid", "{bad")]:
+        inputs.append(("json-request-" + label, "plan_voyage_fuel", {"request": value}))
     for name, tool, arguments in inputs:
         metadata = server._tool_manager.get_tool(tool).fn_metadata
         vector = {"name": name, "tool": tool, "arguments": arguments}

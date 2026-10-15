@@ -53,6 +53,27 @@ fn diagnostic(path: &str, message: &str, kind: &str, input: &Json) -> String {
         type_name(input)
     )
 }
+fn decimal_digit(character: char) -> Option<u8> {
+    static ZEROS: std::sync::LazyLock<Vec<u32>> = std::sync::LazyLock::new(|| {
+        let data: Json = serde_json::from_str(include_str!(
+            "../../../../deploy/rust/python-decimal-digits.json"
+        ))
+        .expect("Python Unicode digits");
+        data["zero_codepoints"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_u64().unwrap() as u32)
+            .collect()
+    });
+    let code = character as u32;
+    ZEROS.iter().find_map(|zero| {
+        code.checked_sub(*zero)
+            .filter(|digit| *digit < 10)
+            .map(|digit| digit as u8)
+    })
+}
+
 fn child(path: &str, field: &str) -> String {
     if path.is_empty() {
         field.into()
@@ -104,15 +125,33 @@ impl Validator<'_> {
             "array" => self.array(schema, input, path),
             "number" => self.decimal(schema, input, path),
             "integer" => {
+                let text = input
+                    .as_str()
+                    .map(str::to_owned)
+                    .unwrap_or_else(|| input.to_string());
                 let parsed = input
-                    .as_i64()
-                    .or_else(|| input.as_str().and_then(|s| s.trim().parse().ok()));
+                    .as_bool()
+                    .map(i128::from)
+                    .or_else(|| crate::runtime::http::python_integer(&text));
                 if let Some(value) = parsed {
-                    let output = json!(value);
-                    self.bounds(schema, &output, input, path);
-                    output
+                    let bounded = json!(value.to_string());
+                    self.bounds(schema, &bounded, input, path);
+                    json!(value.clamp(i64::MIN as i128, i64::MAX as i128) as i64)
                 } else {
-                    self.error(path, "Input should be a valid integer", "int_type", input);
+                    let (message, kind) = if input.is_string() {
+                        (
+                            "Input should be a valid integer, unable to parse string as an integer",
+                            "int_parsing",
+                        )
+                    } else if input.is_number() {
+                        (
+                            "Input should be a valid integer, got a number with a fractional part",
+                            "int_from_float",
+                        )
+                    } else {
+                        ("Input should be a valid integer", "int_type")
+                    };
+                    self.error(path, message, kind, input);
                     input.clone()
                 }
             }
@@ -157,7 +196,8 @@ impl Validator<'_> {
                         );
                     }
                     if schema["pattern"] == r"^\d{7}$"
-                        && (text.chars().count() != 7 || !text.chars().all(|c| c.is_ascii_digit()))
+                        && (text.chars().count() != 7
+                            || !text.chars().all(|c| decimal_digit(c).is_some()))
                     {
                         self.error(
                             path,
@@ -199,9 +239,16 @@ impl Validator<'_> {
             .as_str()
             .map(str::to_owned)
             .unwrap_or_else(|| input.to_string());
-        let text = text
+        let text: String = text
             .trim_matches(crate::market::whitespace::is_python_whitespace)
-            .replace('_', "");
+            .chars()
+            .filter(|c| *c != '_')
+            .map(|c| {
+                decimal_digit(c)
+                    .map(|digit| char::from(b'0' + digit))
+                    .unwrap_or(c)
+            })
+            .collect();
         if matches!(
             text.to_lowercase().trim_start_matches(['+', '-']),
             "nan" | "snan" | "inf" | "infinity"
@@ -491,7 +538,17 @@ pub fn tool_arguments(tool: &str, arguments: &mut Json) -> Result<(), String> {
         definitions: &schema["$defs"],
         errors: Vec::new(),
     };
-    let normalized = validator.value(schema, arguments, "");
+    let mut parsed = arguments.clone();
+    // The Python SDK pre-parses only top-level non-string arguments. JSON
+    // scalars remain strings, while objects, arrays and null reach Pydantic.
+    if tool == "plan_voyage_fuel"
+        && let Some(text) = parsed["request"].as_str()
+        && let Ok(value) = serde_json::from_str::<Json>(text)
+        && (value.is_object() || value.is_array() || value.is_null())
+    {
+        parsed["request"] = value;
+    }
+    let normalized = validator.value(schema, &parsed, "");
     if validator.errors.is_empty() {
         *arguments = normalized;
         Ok(())
