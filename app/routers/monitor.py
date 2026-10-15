@@ -50,7 +50,7 @@ async def cleanup_signup_canary(
     """Remove the synthetic user/org created by the external signup canary."""
     domain = _assert_canary_email(str(payload.email))
     user = (
-        await db.execute(select(User).where(User.email == str(payload.email)))
+        await db.execute(select(User).where(User.email == str(payload.email)).with_for_update())
     ).scalar_one_or_none()
 
     deleted_users = 0
@@ -67,11 +67,11 @@ async def cleanup_signup_canary(
     org = None
     if organization_id:
         org = (
-            await db.execute(select(Organization).where(Organization.id == organization_id))
+            await db.execute(select(Organization).where(Organization.id == organization_id).with_for_update())
         ).scalar_one_or_none()
     if org is None:
         org = (
-            await db.execute(select(Organization).where(Organization.domain == domain))
+            await db.execute(select(Organization).where(Organization.domain == domain).with_for_update())
         ).scalar_one_or_none()
 
     if org and org.domain == domain:
