@@ -44,6 +44,9 @@ async def test_production_settings_accept_exact_scratch_split(scratch_fixture_mo
         settings = Settings(_env_file=None, ENVIRONMENT='production',
                             RELEASE_SHA='a' * 40,
                             JWT_SECRET='synthetic-production-boundary-secret-123456789',
+                            DATABASE_NAME='verdaxis_prod', DATABASE_USER='verdaxis_app',
+                            DATABASE_HOST='127.0.0.1', DATABASE_PORT=scratch.port,
+                            DATABASE_PASSWORD=scratch.passwords['verdaxis_app'],
                             DATABASE_URL=scratch.app_url,
                             MIGRATOR_DATABASE_URL=scratch.target_url,
                             KYC_EXECUTION_GATE_ENABLED=False)
@@ -53,6 +56,7 @@ async def test_production_settings_accept_exact_scratch_split(scratch_fixture_mo
         with pytest.raises(ValueError):
             Settings(_env_file=None, ENVIRONMENT='production', RELEASE_SHA='a' * 40,
                      JWT_SECRET='synthetic-production-boundary-secret-123456789',
+                     DATABASE_NAME='verdaxis_prod', DATABASE_USER='verdaxis_app',
                      DATABASE_URL=scratch.source_url, MIGRATOR_DATABASE_URL=scratch.target_url)
 
 
