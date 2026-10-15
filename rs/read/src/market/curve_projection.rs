@@ -76,7 +76,43 @@ pub struct Book {
     pub real_time: Option<DateTime<Utc>>,
     pub demo_time: Option<DateTime<Utc>>,
 }
+pub struct BookGroup {
+    pub count: i64,
+    pub volume: Decimal,
+    pub best_price: Decimal,
+    pub observed_at: Option<DateTime<Utc>>,
+    pub managed_count: i64,
+}
+
 impl Book {
+    pub fn merge(&mut self, side: &str, real: bool, group: BookGroup) {
+        let best = match (real, side) {
+            (true, "BID") => &mut self.real_bid,
+            (true, _) => &mut self.real_ask,
+            (false, "BID") => &mut self.demo_bid,
+            _ => &mut self.demo_ask,
+        };
+        if best.is_none_or(|old| {
+            if side == "BID" {
+                group.best_price > old
+            } else {
+                group.best_price < old
+            }
+        }) {
+            *best = Some(group.best_price);
+        }
+        if real {
+            self.real_count += group.count;
+            self.real_volume += group.volume;
+            self.real_time = self.real_time.max(group.observed_at);
+        } else {
+            self.demo_count += group.count;
+            self.demo_volume += group.volume;
+            self.demo_time = self.demo_time.max(group.observed_at);
+            self.managed_count += group.managed_count;
+        }
+    }
+
     pub fn add(
         &mut self,
         side: &str,
@@ -86,31 +122,17 @@ impl Book {
         observed: Option<DateTime<Utc>>,
         managed: bool,
     ) {
-        let best = match (real, side) {
-            (true, "BID") => &mut self.real_bid,
-            (true, _) => &mut self.real_ask,
-            (false, "BID") => &mut self.demo_bid,
-            _ => &mut self.demo_ask,
-        };
-        if best.is_none_or(|old| {
-            if side == "BID" {
-                price > old
-            } else {
-                price < old
-            }
-        }) {
-            *best = Some(price);
-        }
-        if real {
-            self.real_count += 1;
-            self.real_volume += quantity;
-            self.real_time = self.real_time.max(observed);
-        } else {
-            self.demo_count += 1;
-            self.demo_volume += quantity;
-            self.demo_time = self.demo_time.max(observed);
-            self.managed_count += i64::from(managed);
-        }
+        self.merge(
+            side,
+            real,
+            BookGroup {
+                count: 1,
+                volume: quantity,
+                best_price: price,
+                observed_at: observed,
+                managed_count: i64::from(managed),
+            },
+        );
     }
     pub fn status(&self) -> &'static str {
         if self.real_count > 0 {

@@ -91,10 +91,10 @@ async fn request(
     query["shape"] = json!(shape);
     let now = super::prices::captured_now(&state)?;
     validate(&state, &query)?;
-    if shape == "board" {
-        if let Some(response) = board_window_error(&query, now) {
-            return Ok(response);
-        }
+    if shape == "board"
+        && let Some(response) = board_window_error(&query, now)
+    {
+        return Ok(response);
     }
     Ok(axum::Json(load_curve(&state, &query, now).await?).into_response())
 }
@@ -106,27 +106,6 @@ fn board_window_error(query: &Json, now: DateTime<Utc>) -> Option<axum::response
     )
     .err()
     .map(|_| crate::runtime::http::unhandled_server_error())
-}
-
-#[cfg(test)]
-mod error_tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn invalid_board_window_retains_python_unhandled_response() {
-        let now = "2026-10-15T12:00:00Z".parse().unwrap();
-        let response = board_window_error(&json!({"availability_window":"not-a-window"}), now)
-            .expect("Python board normalization failure");
-        assert_eq!(response.status(), 500);
-        assert_eq!(
-            response.headers()["content-type"],
-            "text/plain; charset=utf-8"
-        );
-        let body = axum::body::to_bytes(response.into_body(), 1024)
-            .await
-            .unwrap();
-        assert_eq!(&body[..], b"Internal Server Error");
-    }
 }
 
 fn invalid(message: impl Into<String>) -> ApiError {
@@ -226,7 +205,25 @@ pub async fn load_curve(
     let state_copy = state.clone();
     let query = query.clone();
     run_admitted(state, move |connection| {
-        Box::pin(async move { load(connection, &state_copy, &query, now).await })
+        Box::pin(async move {
+            // Python disables JIT for these admission-heavy aggregates. Scope
+            // the setting to this read, so a pooled connection cannot leak it.
+            use sqlx::Connection;
+            let mut transaction = connection
+                .begin()
+                .await
+                .map_err(|e| super::ports::query_error("/api/curves/forward/table", &e))?;
+            sqlx::query("SET LOCAL jit = off")
+                .execute(&mut *transaction)
+                .await
+                .map_err(|e| super::ports::query_error("/api/curves/forward/table", &e))?;
+            let result = load(&mut transaction, &state_copy, &query, now).await?;
+            transaction
+                .commit()
+                .await
+                .map_err(|e| super::ports::query_error("/api/curves/forward/table", &e))?;
+            Ok(result)
+        })
     })
     .await
 }
@@ -247,7 +244,7 @@ struct Point {
 }
 struct Inputs {
     books: HashMap<SliceKey, Book>,
-    orders: Vec<sqlx::postgres::PgRow>,
+    depth: (Vec<Json>, Vec<Json>),
     trades: HashMap<SliceKey, Vec<Json>>,
     benchmarks: HashMap<SliceKey, Json>,
     signals: signals::Signals,
@@ -319,16 +316,23 @@ async fn inputs(
     keys: &[SliceKey],
     now: DateTime<Utc>,
     table: bool,
-    board_focus: Option<(&Product, &Point)>,
+    board_focus: Option<(&Product, &Point, &str)>,
 ) -> Result<Inputs, ApiError> {
     let mut order_keys: Vec<Json> = keys.iter().map(|k| json!({"product_id":products.iter().find(|p|p.code==k.0).unwrap().id,"delivery_point_id":k.1,"availability_window":k.2})).collect();
-    if let Some((p, point)) = board_focus {
+    if let Some((p, point, _)) = board_focus {
         order_keys.push(
             json!({"product_id":p.id,"delivery_point_id":point.id,"availability_window":null}),
         );
     }
     let clock = VisibilityClock::at(now);
     let query = order_query_sql(include_str!("../../sql/curves/orders.sql"));
+    // A single slice can use the shared scalar binds as well as exact keys;
+    // this lets PostgreSQL prune before evaluating the owner-admission checks.
+    let single_key = (board_focus.is_none() && keys.len() == 1).then(|| &keys[0]);
+    let product_id = single_key.map(|key| {
+        uuid::Uuid::parse_str(&products.iter().find(|p| p.code == key.0).unwrap().id).unwrap()
+    });
+    let point_id = single_key.map(|key| uuid::Uuid::parse_str(&key.1).unwrap());
     let orders = bind_order_query(
         &query,
         &state.policy,
@@ -336,6 +340,9 @@ async fn inputs(
         &state.config,
         &PublicOrderFilters {
             surface: OrderSurface::Candidates,
+            product_id,
+            delivery_point_id: point_id,
+            availability_window: single_key.map(|key| key.2.as_str()),
             ..Default::default()
         },
     )
@@ -345,7 +352,7 @@ async fn inputs(
     .await
     .map_err(|e| super::ports::query_error("/api/curves/forward/table", &e))?;
     let mut books: HashMap<SliceKey, Book> = HashMap::new();
-    for row in &orders {
+    for row in orders {
         let product_id: &str = row.get("product_id");
         let product = products.iter().find(|p| p.id == product_id).unwrap();
         let raw: &str = row.get("availability_window");
@@ -353,13 +360,17 @@ async fn inputs(
         let book = books
             .entry((product.code.clone(), row.get("delivery_point_id"), window))
             .or_default();
-        book.add(
+        let real = row.get::<&str, _>("provenance") == "REAL";
+        book.merge(
             row.get("side"),
-            row.get::<&str, _>("provenance") == "REAL",
-            decimal(row.get("price")),
-            decimal(row.get("quantity")),
-            row.get("observed_at"),
-            row.get::<Option<bool>, _>("managed").unwrap_or(false),
+            real,
+            curve_projection::BookGroup {
+                count: row.get("order_count"),
+                volume: decimal(row.get("quantity")),
+                best_price: decimal(row.get("price")),
+                observed_at: row.get("observed_at"),
+                managed_count: row.get("managed_count"),
+            },
         );
     }
     let unknown =
@@ -390,19 +401,23 @@ async fn inputs(
     }
     let encoded = keys_json(&all_keys);
     let query = trade_query_sql(include_str!("../../sql/curves/trades.sql"));
-    let rows = bind_trade_query(
-        &query,
-        &state.policy,
-        &TradeEvidenceFilters {
-            confirmed_since: Some(now - Duration::days(30)),
-            ..Default::default()
-        },
-    )
-    .map_err(|e| super::ports::query_error("/api/curves/forward/slice", &e))?
-    .bind(encoded.to_string())
-    .fetch_all(&mut *connection)
-    .await
-    .map_err(|e| super::ports::query_error("/api/curves/forward/slice", &e))?;
+    let rows = if board_focus.is_some() {
+        Vec::new()
+    } else {
+        bind_trade_query(
+            &query,
+            &state.policy,
+            &TradeEvidenceFilters {
+                confirmed_since: Some(now - Duration::days(30)),
+                ..Default::default()
+            },
+        )
+        .map_err(|e| super::ports::query_error("/api/curves/forward/slice", &e))?
+        .bind(encoded.to_string())
+        .fetch_all(&mut *connection)
+        .await
+        .map_err(|e| super::ports::query_error("/api/curves/forward/slice", &e))?
+    };
     let mut trades: HashMap<SliceKey, Vec<Json>> = HashMap::new();
     for row in rows {
         let key = signals::key(&row)?;
@@ -418,13 +433,74 @@ async fn inputs(
     }
     let benchmarks = benchmarks::load(connection, &encoded).await?;
     let signals = signals::Signals::load(connection, &encoded, now, table).await?;
+    let depth = if table {
+        (Vec::new(), Vec::new())
+    } else {
+        let (product_id, point_id, window) = if let Some((product, point, window)) = board_focus {
+            (product.id.as_str(), point.id.as_str(), window)
+        } else {
+            let key = &keys[0];
+            (
+                products
+                    .iter()
+                    .find(|p| p.code == key.0)
+                    .unwrap()
+                    .id
+                    .as_str(),
+                key.1.as_str(),
+                key.2.as_str(),
+            )
+        };
+        load_depth(connection, state, &clock, product_id, point_id, window).await?
+    };
     Ok(Inputs {
         books,
-        orders,
+        depth,
         trades,
         benchmarks,
         signals,
     })
+}
+
+async fn load_depth(
+    connection: &mut PgConnection,
+    state: &AppState,
+    clock: &VisibilityClock,
+    product_id: &str,
+    point_id: &str,
+    window: &str,
+) -> Result<(Vec<Json>, Vec<Json>), ApiError> {
+    let query = order_query_sql(include_str!("../../sql/curves/depth.sql"));
+    let rows = bind_order_query(
+        &query,
+        &state.policy,
+        clock,
+        &state.config,
+        &PublicOrderFilters {
+            surface: OrderSurface::Candidates,
+            ..Default::default()
+        },
+    )
+    .map_err(|e| super::ports::query_error("/api/curves/forward/slice", &e))?
+    .bind(uuid::Uuid::parse_str(product_id).expect("catalog UUID"))
+    .bind(uuid::Uuid::parse_str(point_id).expect("catalog UUID"))
+    .bind(window)
+    .fetch_all(connection)
+    .await
+    .map_err(|e| super::ports::query_error("/api/curves/forward/slice", &e))?;
+    let mut bids = Vec::new();
+    let mut asks = Vec::new();
+    for row in rows {
+        let real = row.get::<&str, _>("provenance") == "REAL";
+        let count: i64 = row.get("order_count");
+        let value = json!({"price_per_mt_usd":money(decimal(row.get("price"))),"quantity_mt":money(decimal(row.get("quantity"))),"order_count":count,"source_kind":if real{"LIVE_ORDER"}else{"DEMO_SEED"},"demo_status":if real{"REAL_ONLY"}else{"DEMO_ONLY"},"real_order_count":if real{count}else{0},"demo_order_count":if real{0}else{count},"unknown_order_count":0});
+        if row.get::<&str, _>("side") == "BID" {
+            bids.push(value);
+        } else {
+            asks.push(value);
+        }
+    }
+    Ok((bids, asks))
 }
 
 fn windows(query: &Json, now: DateTime<Utc>) -> Result<Vec<String>, ApiError> {
@@ -553,4 +629,25 @@ async fn load(
     )
     .await?;
     slice_projection(product, point, &key, &inputs, now)
+}
+
+#[cfg(test)]
+mod error_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn invalid_board_window_retains_python_unhandled_response() {
+        let now = "2026-10-15T12:00:00Z".parse().unwrap();
+        let response = board_window_error(&json!({"availability_window":"not-a-window"}), now)
+            .expect("Python board normalization failure");
+        assert_eq!(response.status(), 500);
+        assert_eq!(
+            response.headers()["content-type"],
+            "text/plain; charset=utf-8"
+        );
+        let body = axum::body::to_bytes(response.into_body(), 1024)
+            .await
+            .unwrap();
+        assert_eq!(&body[..], b"Internal Server Error");
+    }
 }

@@ -22,43 +22,6 @@ fn sort_latest_signals(latest: &mut [Json]) {
     });
 }
 
-#[cfg(test)]
-mod regression_tests {
-    use super::*;
-
-    #[test]
-    fn board_focus_accepts_uuid_spellings() {
-        let id = "1379d36c-1ca9-55b7-9c0d-5235a0ba1f36";
-        for spelling in [
-            id.to_owned(),
-            id.to_uppercase(),
-            id.replace('-', ""),
-            format!("{{{id}}}"),
-            format!("urn:uuid:{id}"),
-        ] {
-            assert!(focus_point_matches(&json!(spelling), id), "{spelling}");
-        }
-        assert!(!focus_point_matches(&Json::Null, id));
-    }
-
-    #[test]
-    fn latest_signals_use_subsecond_instants_and_stable_ties() {
-        let mut signals = vec![
-            json!({"id": "older", "observed_at": "2026-10-15T12:00:00Z"}),
-            json!({"id": "newer", "observed_at": "2026-10-15T12:00:00.500000Z"}),
-            json!({"id": "tie", "observed_at": "2026-10-15T12:00:00.500000Z"}),
-        ];
-        sort_latest_signals(&mut signals);
-        assert_eq!(
-            signals
-                .iter()
-                .map(|v| v["id"].as_str().unwrap())
-                .collect::<Vec<_>>(),
-            ["newer", "tie", "older"]
-        );
-    }
-}
-
 fn cell_values(
     product: &Product,
     key: &SliceKey,
@@ -157,47 +120,6 @@ fn full_cell(
     cell["physical_stem_summary"] = inputs.signals.stem_summary(key);
     cell
 }
-fn depth(product: &Product, key: &SliceKey, inputs: &Inputs) -> (Vec<Json>, Vec<Json>) {
-    let rows: Vec<_> = inputs
-        .orders
-        .iter()
-        .filter(|row| {
-            row.get::<&str, _>("product_id") == product.id
-                && row.get::<&str, _>("delivery_point_id") == key.1
-                && row.get::<&str, _>("availability_window") == key.2
-        })
-        .collect();
-    let real = rows
-        .iter()
-        .any(|r| r.get::<&str, _>("provenance") == "REAL");
-    let mut levels: HashMap<(String, Decimal), (Decimal, i64)> = HashMap::new();
-    for row in rows {
-        if (row.get::<&str, _>("provenance") == "REAL") != real {
-            continue;
-        }
-        let level = levels
-            .entry((row.get("side"), decimal(row.get("price"))))
-            .or_default();
-        level.0 += decimal(row.get("quantity"));
-        level.1 += 1;
-    }
-    let mut bids = Vec::new();
-    let mut asks = Vec::new();
-    for ((side, price), (quantity, count)) in levels {
-        let value = json!({"price_per_mt_usd":money(price),"quantity_mt":money(quantity),"order_count":count,"source_kind":if real{"LIVE_ORDER"}else{"DEMO_SEED"},"demo_status":if real{"REAL_ONLY"}else{"DEMO_ONLY"},"real_order_count":if real{count}else{0},"demo_order_count":if real{0}else{count},"unknown_order_count":0});
-        if side == "BID" {
-            bids.push((price, value));
-        } else {
-            asks.push((price, value));
-        }
-    }
-    bids.sort_by_key(|level| std::cmp::Reverse(level.0));
-    asks.sort_by_key(|a| a.0);
-    (
-        bids.into_iter().take(10).map(|(_, v)| v).collect(),
-        asks.into_iter().take(10).map(|(_, v)| v).collect(),
-    )
-}
 #[allow(clippy::too_many_arguments)]
 fn evidence(
     layer: &str,
@@ -221,7 +143,7 @@ pub(super) fn slice_projection(
     now: DateTime<Utc>,
 ) -> Result<Json, ApiError> {
     let cell = full_cell(product, point, key, inputs, now);
-    let (bids, asks) = depth(product, key, inputs);
+    let (bids, asks) = inputs.depth.clone();
     let trades = inputs.trades.get(key).cloned().unwrap_or_default();
     let indications = inputs.signals.focus_indications(key);
     let stems = inputs.signals.focus_stems(key, 6);
@@ -427,7 +349,7 @@ pub(super) async fn load_board(
         &keys,
         now,
         false,
-        Some((product, point)),
+        Some((product, point, &window)),
     )
     .await?;
     for key in inputs
@@ -453,11 +375,48 @@ pub(super) async fn load_board(
         .collect();
     let ports:Vec<_>=points.iter().map(|point|json!({"delivery_point_id":point.id,"delivery_point_name":point.name,"region":point.region,"cells":products.iter().filter(|p|p.lanes.contains(&point.id)).map(|p|board_cell(p,point,&key(p,point,&window),&inputs,now)).collect::<Vec<_>>()})).collect();
     let key = key(product, point, &window);
-    let (bids, asks) = depth(product, &key, &inputs);
+    let (bids, asks) = inputs.depth.clone();
     let band = inputs.signals.band(&key);
     let focus = json!({"product_id":product.id,"market_product":product.code,"product_name":product.name,"delivery_point_id":point.id,"delivery_point_name":point.name,"region":point.region,"availability_window":window,
         "curve":curve,"depth_bids":bids,"depth_asks":asks,"indications":inputs.signals.focus_indications(&key),"fair_price_band":band,"fair_price_band_provenance":if band.is_null(){no_band(now)}else{band["provenance"].clone()},"physical_stems":inputs.signals.focus_stems(&key,10)});
     Ok(
         json!({"availability_window":window,"products":products.iter().map(|p|json!({"product_id":p.id,"market_product":p.code,"product_name":p.name})).collect::<Vec<_>>(),"ports":ports,"focus":focus,"generated_at":timestamp(now)}),
     )
+}
+
+#[cfg(test)]
+mod regression_tests {
+    use super::*;
+
+    #[test]
+    fn board_focus_accepts_uuid_spellings() {
+        let id = "1379d36c-1ca9-55b7-9c0d-5235a0ba1f36";
+        for spelling in [
+            id.to_owned(),
+            id.to_uppercase(),
+            id.replace('-', ""),
+            format!("{{{id}}}"),
+            format!("urn:uuid:{id}"),
+        ] {
+            assert!(focus_point_matches(&json!(spelling), id), "{spelling}");
+        }
+        assert!(!focus_point_matches(&Json::Null, id));
+    }
+
+    #[test]
+    fn latest_signals_use_subsecond_instants_and_stable_ties() {
+        let mut signals = vec![
+            json!({"id": "older", "observed_at": "2026-10-15T12:00:00Z"}),
+            json!({"id": "newer", "observed_at": "2026-10-15T12:00:00.500000Z"}),
+            json!({"id": "tie", "observed_at": "2026-10-15T12:00:00.500000Z"}),
+        ];
+        sort_latest_signals(&mut signals);
+        assert_eq!(
+            signals
+                .iter()
+                .map(|v| v["id"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            ["newer", "tie", "older"]
+        );
+    }
 }
