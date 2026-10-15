@@ -110,8 +110,10 @@ async def lifespan(app: FastAPI):
     from app.database import engine, verify_database_runtime
     from app.services.event_bus import event_bus
     from app.services.kyc_document_vault import load_runtime_keys
+    from app.services.kyc_execution import kyc_execution_gate_startup_message
     from app.services.market_event_dispatch import MarketEventDispatcher
 
+    logger.info(kyc_execution_gate_startup_message())
     app.state.kyc_document_keys = load_runtime_keys(settings)
     await verify_database_runtime()
     # Stage 5: durable shared SSE dispatch (outbox sequencer + hub fan-out).
