@@ -211,7 +211,15 @@ CREATE EXTENSION IF NOT EXISTS postgis;
                 env={**run, "RUST_CORPUS_STAGE": "legacy"},
                 check=True,
             )
-        subprocess.run(alembic + ["head"], cwd=ROOT, env=run, check=True)
+        # The shared verifier owns the head upgrade: it refuses anything but one
+        # standalone Alembic head before upgrading, then checks the heads and
+        # model/schema drift. A bare `upgrade head` here skips all three checks.
+        subprocess.run(
+            [str(ROOT / "scripts" / "verify_migrations.sh")],
+            cwd=ROOT,
+            env={**run, "ALEMBIC_BIN": str(ROOT / "venv" / "bin" / "alembic")},
+            check=True,
+        )
         if not self.seed:
             return
         if self.seed_mode == "corpus":
