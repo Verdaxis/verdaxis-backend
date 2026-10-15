@@ -127,9 +127,20 @@ pub async fn live_benchmarks(
     let result: Result<_, sqlx::Error> = async {
         let keys_json =
             serde_json::to_string(keys).map_err(|error| sqlx::Error::Encode(Box::new(error)))?;
+        // Admission subplans make JIT compilation cost more than this bounded
+        // read. Restore the caller's setting after the statement; rollback
+        // restores it automatically if the statement fails.
+        let previous_jit: String = sqlx::query_scalar("SHOW jit").fetch_one(&mut **tx).await?;
+        sqlx::query("SET LOCAL jit = off")
+            .execute(&mut **tx)
+            .await?;
         let rows = bind_order_query(&sql, policy, &clock, config, &filters)?
             .bind(keys_json)
             .fetch_all(&mut **tx)
+            .await?;
+        sqlx::query("SELECT set_config('jit', $1, true)")
+            .bind(previous_jit)
+            .execute(&mut **tx)
             .await?;
         let mut groups: HashMap<LiveBenchmarkKey, Vec<(Decimal, Decimal)>> = HashMap::new();
         for row in rows {

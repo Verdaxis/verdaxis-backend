@@ -270,6 +270,12 @@ async fn load_list(
         .begin()
         .await
         .map_err(|e| query_error(path, &e))?;
+    // The expanded corpus makes eligibility subplans trigger expensive JIT
+    // compilation even for tiny pages. Keep planner policy transaction-local.
+    sqlx::query("SET LOCAL jit = off")
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| query_error(path, &e))?;
     let clock = VisibilityClock::at(now);
     let filters = PublicOrderFilters {
         surface: OrderSurface::Orderbook,
