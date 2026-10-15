@@ -1,5 +1,4 @@
 """Disposable PostgreSQL storage, retention and downgrade contracts."""
-import subprocess
 
 import pytest
 
@@ -29,8 +28,7 @@ def test_document_migration_roundtrip_and_restrict(supplier_scratch_database):
         'IDENTITY','application/pdf',1,'synthetic','x','x','x','x');
     """)
     for table in ("users", "organizations"):
-        with pytest.raises(subprocess.CalledProcessError):
+        with pytest.raises(AssertionError):
             sql(f"DELETE FROM {table}")
-    with pytest.raises(subprocess.CalledProcessError):
-        migrate("downgrade", parent)
+    assert "Cannot downgrade" in migrate("downgrade", parent, success=False)
     assert sql("SELECT count(*) FROM kyc_documents") == "1"

@@ -166,3 +166,51 @@ async def test_review_audit_reports_retained_documents(state, monkeypatch, decis
         await kyc.admin_reject_kyc(user.id, request, kyc.AdminRejectBody(reason="Evidence rejected"), admin, db)
     audit = (await db.scalars(select(AuditLog).where(AuditLog.action == f"kyc.{decision}ed"))).one() if decision == "reject" else (await db.scalars(select(AuditLog).where(AuditLog.action == "kyc.approved"))).one()
     assert audit.changes["raw_documents_retained_in_platform"] is True
+
+
+async def test_list_is_bounded_and_newest_first(state):
+    from datetime import UTC, datetime, timedelta
+    db, user, admin, request = state
+    rows = []
+    for offset in range(55):
+        row = request.app.state.kyc_document_keys.encrypt(
+            b"%PDF-private", id=uuid4(), submission_id=uuid4(), user_id=user.id,
+            organization_id=user.organization_id, kind="IDENTITY", content_type="application/pdf")
+        row.created_at = datetime.now(UTC) + timedelta(seconds=offset)
+        rows.append(row)
+    db.add_all(rows)
+    await db.commit()
+    result = await kyc.admin_list_kyc_documents(user.id, request, admin, db)
+    assert len(result) == 50
+    assert [item["id"] for item in result] == [row.id for row in reversed(rows[5:])]
+
+
+async def test_second_encryption_failure_stores_nothing(state, monkeypatch):
+    db, user, _, request = state
+    user_id = user.id
+    ring = request.app.state.kyc_document_keys
+    encrypt = ring.encrypt
+    calls = 0
+    def fail_second(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise RuntimeError("encryption failed")
+        return encrypt(*args, **kwargs)
+    monkeypatch.setattr(ring, "encrypt", fail_second)
+    with pytest.raises(RuntimeError):
+        await submit(state)
+    await db.rollback()
+    assert not (await db.scalars(select(KYCDocument))).all()
+    assert (await db.get(User, user_id)).kyc_status == "PENDING"
+
+
+async def test_download_commit_failure_returns_no_document(state, monkeypatch):
+    db, _, admin, request = state
+    await submit(state)
+    row = (await db.scalars(select(KYCDocument))).first()
+    monkeypatch.setattr(db, "commit", AsyncMock(side_effect=RuntimeError("commit failed")))
+    with pytest.raises(RuntimeError):
+        await kyc.admin_download_kyc_document(row.id, request, admin, db)
+    await db.rollback()
+    assert not (await db.scalars(select(AuditLog).where(AuditLog.action == "kyc.document_viewed"))).all()
