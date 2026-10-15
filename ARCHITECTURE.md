@@ -111,6 +111,14 @@ and news field order, and the 422 envelopes). Task 8's local evidence, the
 simple-read corpus limits, and the fixture-family decision are recorded in
 `docs/rust-phase1/progress-task8.md`.
 
+Task 9 adds immutable price summaries, REAL-only daily VWAP/CSV, and anonymous
+seven-day trade tape in `routes/prices.rs` and `routes/trade_tape.rs`. Shared
+`formal_trade_snapshots.sql` feeds separate economic and quarantine-only metadata
+relations. Tape totals apply Python's 28-digit Decimal context to exact SQL
+products without changing quantity or price scale. Typed price query validation
+precedes the shared rate bucket. An opt-in response extension preserves Python's
+missing CORS/request-ID headers only for unhandled tape window errors.
+
 ## File Map
 
 ```
