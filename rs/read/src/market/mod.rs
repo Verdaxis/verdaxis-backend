@@ -1,6 +1,12 @@
 //! Shared market rules.
 //!
-//! Task 5 owns catalog policy data here. Later tasks add visibility,
-//! provenance, terms, decimal, and window helpers beside it.
+//! Task 5 owns catalog policy data here. Task 6 adds the shared visibility,
+//! provenance, terms, decimal, and window helpers that every route uses, so
+//! no route forks a predicate.
 
+pub mod decimal;
 pub mod policy;
+pub mod provenance;
+pub mod terms;
+pub mod visibility;
+pub mod windows;

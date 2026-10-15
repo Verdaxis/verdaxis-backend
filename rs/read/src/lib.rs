@@ -2,6 +2,20 @@ pub mod market;
 pub mod mcp;
 pub mod routes;
 pub mod runtime;
+pub use market::decimal::decimal_text;
+pub use market::provenance::MarketEvidenceScope;
+pub use market::terms::{
+    QualificationInput, canonical_terms_from_row, digest_terms, normalize_certification_scheme,
+    order_is_execution_qualified, order_is_execution_qualified_at, redact_terms,
+    validate_fame_terms, validate_lng_terms,
+};
+pub use market::visibility::{
+    PublicOrderFilters, TradeEvidenceFilters, VisibilityClock, public_order_sql,
+    select_public_order_ids, select_trade_evidence_ids, trade_evidence_sql,
+};
+pub use market::windows::{
+    normalize_window, window_display_label, window_sort_key, window_start_date,
+};
 pub use runtime::admission::{ADMISSION_SLOTS, run_admitted, selected_read, try_read};
 pub use runtime::config::{check_revision, connection_budget, validate_budget, validate_config};
 pub use runtime::db::connect;
