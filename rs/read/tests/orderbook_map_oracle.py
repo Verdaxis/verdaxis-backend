@@ -84,8 +84,20 @@ def main():
         listings_url = f"http://127.0.0.1:{port}"
         attest(listings_url, token)
         for query in ["", "limit=100", "skip=1&limit=2", "skip=9999", "skip=-1&limit=0", "limit=bad", "limit=0&limit=2"]:
-            compare(listings_url, "/api/listings", query)
+            response = compare(listings_url, "/api/listings", query)
+            if query == "limit=100":
+                from scripts.rust_contract.seed_corpus import matrix_module
+                missing_declaration = str(matrix_module().fid("order:ask_missing_declaration"))
+                assert missing_declaration in {item["id"] for item in response["body"]}
+                forbidden = {"organization_id", "user_id", "actor_user_id", "support_authorization_id", "private_digest_input"}
+                assert all(not forbidden.intersection(item) for item in response["body"])
             count += 1
+        cases = json.loads((ROOT / "tests/rust_contract/cases.json").read_text())["groups"]["orderbook_lists"]
+        compatibility = [case for case in cases if case["path"] == "/api/listings"]
+        left = record(os.environ["PYTHON_CONTRACT_URL"], token, compatibility)
+        right = record(listings_url, token, compatibility)
+        assert not differences(left, right), differences(left, right)
+        count += len(compatibility)
     finally:
         child.terminate()
         try:

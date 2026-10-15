@@ -39,7 +39,8 @@ Logs are uncommitted under `work/rust-phase1/task7c-*.log`.
   nearest forward demo sides, decimal boundaries and microsecond observation order.
   Seven arithmetic vectors compare directly with CPython Decimal.
 - The map contract target compares the unchanged populated six-case group, then
-  runs 94 edge comparisons over all eight owned routes. It reuses corpus rows;
+  runs 96 edge/corpus comparisons over all eight owned routes, including the two
+  compatibility cases from the list group and its malformed-history fixture. It reuses corpus rows;
   it creates no fixture IDs. The edge server uses the recorded database timezone.
   Compatibility uses a second attested test server with the existing list-group
   dispatch; it is terminated in a finally block.
@@ -48,12 +49,12 @@ Logs are uncommitted under `work/rust-phase1/task7c-*.log`.
 
 - fmt and clippy with warnings denied: passed.
 - Workspace: 112 passed.
-- Disposable PostgreSQL runner: passed (119 tests at the earlier checkpoint;
-  final repetition pending). Its two dedicated market matrices remain filtered
-  by the existing runner.
+- Disposable PostgreSQL runner: 120 passed on final repetition. Its two dedicated
+  market matrices remain filtered by the existing runner.
 - Map populated corpus: six cases and 94 edge comparisons pass in both KYC states.
-- Python contract suite: 80 passed.
-- Python contract plus all six task-named unit files: 171 passed, 11 warnings.
+- Python contract suite: 95 passed, five warnings.
+- All six task-named Python unit files: 76 passed, 11 warnings.
+- Combined Python contract and task-named unit run: 171 passed, 11 warnings.
 - Compatibility-containing `orderbook_lists` group: final result pending. Task 7b
   is absent from this lane; its failures must not be repaired here.
 

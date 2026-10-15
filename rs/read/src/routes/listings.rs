@@ -69,13 +69,18 @@ async fn listings(State(state): State<AppState>, RawQuery(raw): RawQuery) -> Api
             .fetch_all(connection)
             .await
             .map_err(|error| query_error(PATH, &error))?;
-            rows.iter()
+            Ok(rows
+                .iter()
                 .map(listing_payload)
-                .collect::<Result<Vec<_>, ApiError>>()
+                .collect::<Result<Vec<_>, ApiError>>())
         })
     })
     .await?;
-    Ok(axum::Json(result).into_response())
+    match result {
+        Ok(items) => Ok(axum::Json(items).into_response()),
+        // Python's legacy serializer raises outside its database error handler.
+        Err(_) => Ok(crate::runtime::http::unhandled_server_error()),
+    }
 }
 
 fn listing_payload(row: &PgRow) -> Result<Json, ApiError> {
