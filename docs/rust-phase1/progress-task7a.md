@@ -112,8 +112,25 @@ and missing public fields. No golden data or Python feature code changed.
 This resolves the malformed-history deferral above. Architecture documentation
 now records the public-response boundary. Logs use `work/rust-phase1/task7a-fix-*`.
 
+Committed-fix verification (`7a78bfda`, full SHA exported as `RELEASE_SHA`):
+- Formatting and clippy with warnings denied: passed.
+- `cargo test --workspace`: 108 passed.
+- Disposable PostgreSQL runner: 116 passed; its two dedicated market matrices
+  remain explicitly filtered by the existing runner.
+- Snapshot corpus: 3/3 unchanged cases matched in each KYC state, plus all
+  edge probes, including both new malformed-private-declaration regressions.
+- `venv/bin/python -m pytest tests/rust_contract -q`: 80 passed, five existing
+  Pydantic deprecation warnings.
+- Ten direct Python schema controls confirmed nested FAME private-field and LNG
+  identity-field omission.
+- Final logs: `task7a-fix-final-{rust,postgres,corpus,corpus-kyc-off,python}.log`.
+  All commands exited zero. Docker used Colima and the pinned disposable image;
+  no staging or production endpoint was used. No push was made.
+
 ## Resume point
 
 R15 implementation and its local gates are recorded here. The PM can merge the
-lane after review. Task 7b, routing assembly, shared malformed-history projection,
-Phase 0 work and any deployment remain separate work. No live action is authorized.
+lane after review. Task 7b, routing assembly, Phase 0 work and any deployment
+remain separate work. Future public order consumers should use the shared
+`public_response_terms` boundary, not validated-execution redaction. No live
+action is authorized.
