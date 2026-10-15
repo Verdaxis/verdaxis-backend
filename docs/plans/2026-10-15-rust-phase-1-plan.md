@@ -841,9 +841,23 @@ pub fn redact_terms(profile: &str, terms: &Json) -> Result<Json, String>;
 pub fn normalize_window(value: &str, today: chrono::NaiveDate) -> Result<String, String>;
 pub fn public_order_sql() -> &'static str;
 pub fn trade_evidence_sql() -> &'static str;
-// In market::terms. Port of app/services/execution_policy.py order_is_execution_qualified.
-// Tasks 6a and 10b consume it; no other task reimplements it.
-pub fn order_is_execution_qualified(profile: &str, terms: &Json, side: &str) -> bool;
+// In market::terms. Port of app/services/execution_policy.py:112-150 order_is_execution_qualified.
+// Tasks 6a and 10b consume it; no other task reimplements it. The product rules come from
+// MarketPolicy (Task 5), never from product names in code.
+pub struct QualificationInput<'a> {
+    pub product_id: Option<uuid::Uuid>,
+    pub market_product: Option<&'a str>,
+    pub side: &'a str,
+    pub delivery_point_id: Option<&'a str>,
+    pub availability_window: &'a str,
+    pub off_spec: bool,
+    pub msds_available: bool,
+    pub certification_scheme: Option<&'a str>,
+    pub certification_declared: bool,
+    pub fame_terms: Option<&'a Json>,
+    pub lng_terms: Option<&'a Json>,
+}
+pub fn order_is_execution_qualified(policy: &MarketPolicy, order: &QualificationInput<'_>) -> bool;
 ```
 
 `public_order_sql()` returns the complete bound SELECT from `rs/read/sql/public_orders.sql`; it is not a fragment concatenated with user input. Bind policy JSON, query filters, captured UTC, and Singapore date. The query projects private digest input separately from the public DTO. `trade_evidence_sql()` reads immutable snapshots and applies exact provenance pairs.
