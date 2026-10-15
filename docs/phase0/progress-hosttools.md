@@ -1,6 +1,91 @@
 # Phase 0 host-tool sign-off fixes — partial checkpoint
 
-## Current checkpoint 3 — production-named synthetic database fixture
+## Current checkpoint 4 — Linux runtime available; execution integration pending
+
+**The runtime limitation is resolved. B1/B2 production execution remains open.**
+No further permission is needed to continue the authorized local synthetic work.
+The production bootstrap → copy → verify chain has NOT been implemented or
+accepted. The successful Linux tests below cover primitives, not that chain.
+
+### Local image and rebuild
+
+PM authorized the local Linux runtime build. `tests/phase0/Dockerfile.hosttools`
+is a test-only derivative of the repository Dockerfile: same Python 3.12 slim
+base and `gcc libpq-dev` installation, but an immutable base digest and the
+repository's `constraints.txt` applied to `requirements.txt`. Existing pytest
+and pytest-asyncio requirements are included; no extra Python packages were
+requested. Source, credentials and `work/` are not baked into the image.
+
+- Platform: `linux/arm64` on Colima.
+- Base: `python:3.12-slim@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1`.
+- Built local image ID (content digest, not a pushed registry manifest):
+  `sha256:5165bc002d5ec7a9fe44d6e560c0a9aea36e5bbcea7aa48f8cd3a072f59fcf02`.
+- Local tag: `verdaxis-phase0-hosttools:local`. Never pushed.
+- Image contains `/phase0-packages.txt` (`pip freeze --all`); `pip check` passed.
+- Runtime smoke: Linux, Python 3.12.15, asyncpg 0.31.0, pytest 9.1.1,
+  SQLAlchemy 2.0.51.
+
+Rebuild from this worktree with only these three build-context files:
+
+```sh
+mkdir -p work/hosttools-linux-build
+cp requirements.txt constraints.txt work/hosttools-linux-build/
+cp tests/phase0/Dockerfile.hosttools work/hosttools-linux-build/Dockerfile
+docker build --platform linux/arm64 \
+  --iidfile work/hosttools-linux-build/image.id \
+  -t verdaxis-phase0-hosttools:local work/hosttools-linux-build
+docker image inspect verdaxis-phase0-hosttools:local --format '{{.Id}}'
+```
+
+The base and Python versions are pinned. Apt repository metadata/build output
+can change the resulting image ID. Review any rebuilt ID before updating the
+exact `IMAGE` constant in `tests/phase0/linux_hosttools.py`; do not silently
+substitute the mutable local tag in test execution.
+
+Initial build failed because adding `--no-install-recommends` omitted libc
+headers needed by pinned psutil on arm64. Restoring the repository Dockerfile's
+original apt installation flags fixed it without changing dependency versions.
+The failed intermediate container was identified in the build log and removed
+with `docker rm -v`; unrelated containers were left alone.
+
+### Completed checks
+
+- `f7b7708c`: pinned runtime recipe; build and import smoke passed.
+- `ad812ffd`: `venv/bin/python -m tests.phase0.linux_hosttools` runs an exact
+  committed archive in the pinned image with `--network none`, no capabilities,
+  no-new-privileges, no bind mount, and no host secrets. It proves a real root-owned
+  0600 authority file in a root-owned 0700 directory is readable, then runs the
+  authority/report/CLI primitive suites: **51 passed**. Container removed with `-v`.
+- Full PostgreSQL runner: **170 passed**, 62 warnings, 450.62 seconds; owned
+  container/volumes removed. Full macOS unit suite: **2209 passed, 19 failed**,
+  514 warnings, 55.70 seconds. Failures are only known `test_deploy_health.py` cases.
+- Logs: `work/hosttools-linux-build/{build.log,build-final.log}`,
+  `work/hosttools-linux-smoke.log`, `work/hosttools-postgres-checkpoint4.log`,
+  `work/hosttools-unit-checkpoint4.log`. All runs finished.
+
+### Exact resume point after checkpoint 4
+
+Use the now-built Linux image. Do not repeat the resolved runtime permission ask.
+
+1. Extend the disposable runner to execute the production-named synthetic
+   fixture and CLI acceptance in Linux. Use a private internal network boundary
+   and shared PostgreSQL network namespace so the tested tool endpoint is actual
+   numeric loopback; do not weaken host endpoint checks for Docker NAT. Keep
+   root-owned evidence on container-local storage and source from exact archives.
+2. Add failing complete execution-authority tests: exact installed/release bytes,
+   trusted independent cluster/endpoint/OID and source freeze, continuous writer
+   and target isolation, trusted bootstrap receipts, distinct scratch credentials,
+   every wrong identity and no source mutations. The existing fixture/primitive
+   tests do not replace these tests.
+3. Implement the narrow production path across bootstrap/copy/verify, including
+   tool-specific manifests (bootstrap cannot require its own future receipt),
+   bootstrap-generated baseline publication, copy binding and independent verify.
+   Preserve every synthetic gate; no stamp, generic override or authority mocks.
+4. Run exact CLI commands end to end, then both required full suites. Publish
+   final production interfaces and update architecture before sign-off. Do not
+   push the image or Git, access deployed systems, or use real data.
+
+## Checkpoint 3 — production-named synthetic database fixture
 
 **B1 and production B2 remain open. The production CLI chain is not implemented.**
 
