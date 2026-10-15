@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 from scripts.phase0.codecs import (
     TableMap,
+    configure_text_session,
     insert_statement,
     map_row,
     next_sequence_state,
@@ -342,7 +343,7 @@ async def copy_database(manifest, source, target, *, fail_at=None) -> CopyReceip
             raise CopyRefused('Prior import attempt exists; verify or rebuild, never replay')
         async with source.begin():
             await source.execute(text('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY'))
-            await source.execute(text("SET LOCAL TIME ZONE 'UTC'"))
+            await configure_text_session(source)
             await source.execute(text("SET LOCAL search_path=public,pg_catalog"))
             await attest(source, execution['source'], owner=False)
             source_catalog = await source.run_sync(inspect_catalog)
@@ -351,7 +352,7 @@ async def copy_database(manifest, source, target, *, fail_at=None) -> CopyReceip
             await notice_receipts(source)
             snapshot = (await source.execute(text('SELECT pg_current_snapshot()::text'))).scalar_one()
             async with target.begin():
-                await target.execute(text("SET LOCAL TIME ZONE 'UTC'"))
+                await configure_text_session(target)
                 await target.execute(text("SET LOCAL search_path=public,pg_catalog"))
                 await target.execute(text("SET LOCAL lock_timeout='3s'"))
                 locked = (await target.execute(text('SELECT pg_try_advisory_xact_lock(:key)'), {'key': IMPORT_LOCK})).scalar_one()

@@ -18,6 +18,16 @@ _PREPARER = IdentifierPreparer(dialect())
 BATCH_SIZE = 256
 
 
+async def configure_text_session(connection):
+    """Use round-trip-safe text on both transport and independent hash reads."""
+    # postgres interval syntax also matches the frozen catalog's CHECK text.
+    for setting in (
+        "TimeZone='UTC'", "DateStyle='ISO, YMD'", "IntervalStyle='postgres'",
+        'extra_float_digits=3', "bytea_output='hex'",
+    ):
+        await connection.execute(text(f'SET LOCAL {setting}'))
+
+
 def quote(name: str) -> str:
     return _PREPARER.quote_identifier(name)
 
@@ -64,6 +74,7 @@ def select_text(table: dict, columns: tuple[str, ...] | None = None) -> str:
 
 
 async def text_batches(connection, table: dict, columns=None):
+    await configure_text_session(connection)
     result = await connection.stream(text(select_text(table, columns)))
     try:
         async for batch in result.mappings().partitions(BATCH_SIZE):

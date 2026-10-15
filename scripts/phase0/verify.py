@@ -7,7 +7,7 @@ from uuid import UUID
 
 from sqlalchemy import text
 
-from scripts.phase0.codecs import RowHash, quote, relation, text_batches
+from scripts.phase0.codecs import RowHash, configure_text_session, quote, relation, text_batches
 
 
 @dataclass(frozen=True)
@@ -62,7 +62,7 @@ async def table_hash(connection, table, columns=None):
 
 
 async def fingerprint_database(connection, catalog):
-    await connection.execute(text("SET LOCAL TIME ZONE 'UTC'"))
+    await configure_text_session(connection)
     await require_unfiltered_reads(connection)
     tables = {name: await table_hash(connection, table) for name, table in catalog['tables'].items()}
     return dict(tables=tables, sequences=await sequence_states(connection, catalog))
