@@ -270,10 +270,31 @@ review's tiny exponent, nested extras, custom model/map checks and aggregate
 error ordering/truncation. All invalid matrix cases also run under saturated
 admission. The pure engine now shares normalization. The MCP corpus has 82 cases.
 
-**Continue M2, not M3 yet:** add failing vectors for integer float/string/bool
-coercion and exact integer errors; Unicode decimal digits (including valid IMO
-Nd digits); SDK pre-parsing of JSON-string `request` arguments; wrong root argument
-types and tuple maximum/error ordering. Replace the widened Decimal bound with
+`38dd0874` adds 17 failing-first vectors for integer float/string/bool coercion,
+integer diagnostics, Unicode decimal/IMO digits, and SDK JSON-string request
+pre-parsing. The matrix now has 52 vectors; MCP has 99 cases. Python's Unicode
+Nd zero ranges are exported as data and checked against the oracle. Existing
+saturation tests consume the expanded invalid matrix. This closes these concrete
+coercion cases, not all of M2. The expanded matrix has 39 rejected and 13 accepted
+inputs. Checks for this checkpoint: fmt/clippy pass, offline workspace **139**,
+PostgreSQL **147**, Python contracts **120**, combined Python oracle/contracts
+**221** passed. Both KYC recordings are stable across two passes at fixed source
+`38dd087478a5ddc4bbebe9fae370b1ebad8c272f`, 99 cases per state. Logs are
+`work/rust-phase1/task11-coercion-*.log`. No source nondeterminism was found.
+Fresh differential and saved-wire replay **99/99 passed in both KYC states**;
+hidden-value privacy and both SQL cancellation proofs passed. All test runs
+finished before this checkpoint. The single committed golden remains untouched.
+
+**Continue M2, not M3 yet:** Decimal constructor/context parity is next. Add
+failing vectors for `1e-1000027`, `1e-2147483648` and
+`1e-1999999999999999997`: Python accepts all and rounds arithmetic underflow at
+Etiny=-1000026. Python constructor limits on this 64-bit oracle are
+MIN_ETINY=-1999999999999999997 and MAX_EMAX=999999999999999999, distinct from the
+28-digit arithmetic context. Use wide exponents, magnitude-based comparisons
+and bounded rounding; never allocate a power-of-ten proportional to these extreme
+exponents. Raising the cap again is not a fix. Add pure-voyage underflow vectors,
+wrong root argument types, tuple maximum/error ordering and scientific-notation
+integer numeric cases. Replace the widened Decimal bound with
 a complete constructor/context-domain policy: raising it to 1,000,026 fixes
 `1e-10001`, but does not prove arbitrary Python Decimal exponents or underflow.
 The schema validator is deliberately not claimed as a general Pydantic engine.
