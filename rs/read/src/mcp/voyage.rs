@@ -41,6 +41,74 @@ fn properties() -> &'static Json {
     });
     &DATA
 }
+fn catalog() -> &'static Json {
+    static DATA: std::sync::LazyLock<Json> = std::sync::LazyLock::new(|| {
+        serde_json::from_str(include_str!("../../../../deploy/rust/mcp-catalog.json"))
+            .expect("catalog data")
+    });
+    &DATA
+}
+
+fn available(fuel: &str, port: &str) -> bool {
+    catalog()["products"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|product| {
+            product["code"] == fuel
+                && product["delivery_points"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|point| point == port)
+        })
+}
+
+fn canonical_port(port: &str) -> Result<String, String> {
+    // Catalog names are ASCII. Long s is the additional Unicode case-fold
+    // equivalence that can occur in these names (Python uses str.casefold).
+    let folded: String = port
+        .trim_matches(crate::market::whitespace::is_python_whitespace)
+        .chars()
+        .flat_map(|character| {
+            if character == '\u{017f}' {
+                's'
+            } else {
+                character
+            }
+            .to_lowercase()
+        })
+        .collect();
+    let ports: Vec<_> = catalog()["delivery_points"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|point| point["name"].as_str().unwrap())
+        .collect();
+    ports
+        .iter()
+        .find(|name| name.to_lowercase() == folded)
+        .map(|name| (*name).to_owned())
+        .ok_or_else(|| {
+            format!(
+                "Unsupported port {}. Supported ports: {}",
+                super::transport::python_string_repr(port),
+                ports.join(", ")
+            )
+        })
+}
+
+fn parse_request(input: &Json) -> Result<Request, String> {
+    let mut request: Request =
+        serde_json::from_value(input.clone()).map_err(|error| error.to_string())?;
+    let mut prices = serde_json::Map::new();
+    for (port, price) in request.assumptions.vlsfo_price_usd_per_mt {
+        prices.insert(canonical_port(&port)?, price);
+    }
+    request.assumptions.vlsfo_price_usd_per_mt = prices;
+    Ok(request)
+}
+
 fn conventional() -> &'static str {
     properties()["conventional_fuel"]
         .as_str()
@@ -207,6 +275,8 @@ fn choice(
     let property = &properties()["fuels"][fuel];
     let price = if fuel == conventional() {
         request.assumptions.vlsfo_price_usd_per_mt.get(&segment.port).map(|amount| json!({"fuel":fuel,"port":segment.port,"price_usd_per_mt":amount,"source":"CALLER","executable":false,"availability_window":null,"observed_at":null,"carbon_intensity_gco2e_per_mj":null,"energy_density_mj_per_kg":null}))
+    } else if !available(fuel, &segment.port) {
+        None
     } else {
         prices
             .as_array()
@@ -510,13 +580,9 @@ fn strategy(
 }
 
 pub fn required_price_lookups(input: &Json) -> Result<Json, String> {
-    let request: Request =
-        serde_json::from_value(input.clone()).map_err(|error| error.to_string())?;
+    let request = parse_request(input)?;
     validate(&request)?;
     let (_, segments) = legs(&request)?;
-    let catalog: Json =
-        serde_json::from_str(include_str!("../../../../deploy/rust/mcp-catalog.json"))
-            .expect("catalog data");
     let has_conventional = request
         .vessel
         .compatible_fuels
@@ -532,18 +598,7 @@ pub fn required_price_lookups(input: &Json) -> Result<Json, String> {
             if fuel == conventional() {
                 continue;
             }
-            let available = catalog["products"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .any(|product| {
-                    product["code"] == *fuel
-                        && product["delivery_points"]
-                            .as_array()
-                            .unwrap()
-                            .iter()
-                            .any(|point| point == &segment.port)
-                });
+            let available = available(fuel, &segment.port);
             let lookup = json!({"fuel":fuel,"port":segment.port,"departure_date":segment.departure.to_string()});
             if available && !lookups.contains(&lookup) {
                 lookups.push(lookup);
@@ -650,8 +705,7 @@ fn validate(request: &Request) -> Result<(), String> {
 }
 
 pub fn voyage_plan(request: &Json, prices: &Json, today: NaiveDate) -> Result<Json, String> {
-    let request: Request =
-        serde_json::from_value(request.clone()).map_err(|error| error.to_string())?;
+    let request = parse_request(request)?;
     if !(-30..=730).contains(&(request.start_date - today).num_days()) {
         return Err("start_date must be within 30 days before and 730 days after today".into());
     }

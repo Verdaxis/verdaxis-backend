@@ -1839,6 +1839,36 @@
           "accept": "application/json, text/event-stream"
         },
         "body": "{\"jsonrpc\":\"2.0\",\"id\":44,\"method\":\"tools/call\",\"params\":{\"name\":\"plan_voyage_fuel\",\"arguments\":{\"request\":{\"vessel\":{\"speed_knots\":\"14\",\"sea_consumption_mt_per_day\":\"20\",\"compatible_fuels\":[\"VLSFO\"]},\"legs\":[{\"from_port\":\" singapore \",\"to_port\":\"rotterdam\"}],\"start_date\":\"2026-10-15\",\"assumptions\":{\"vlsfo_price_usd_per_mt\":{\"Singapore\":\"600\"},\"eua_price_eur_per_tco2\":\"80\",\"fueleu_pool_price_eur_per_tco2e\":\"100\",\"usd_per_eur\":\"1.1\"}}}}}"
+      },
+      {
+        "id": "M14-price-key-case",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":30,\"method\":\"tools/call\",\"params\":{\"name\":\"plan_voyage_fuel\",\"arguments\":{\"request\":{\"vessel\":{\"speed_knots\":\"14\",\"sea_consumption_mt_per_day\":\"20\",\"compatible_fuels\":[\"VLSFO\",\"BIO_METHANOL\"]},\"legs\":[{\"from_port\":\"Singapore\",\"to_port\":\"Rotterdam\"}],\"start_date\":\"2026-10-15\",\"assumptions\":{\"vlsfo_price_usd_per_mt\":{\" singapore \":\"600\",\"Rotterdam\":\"620\",\"Shanghai\":\"610\"},\"eua_price_eur_per_tco2\":\"80\",\"fueleu_pool_price_eur_per_tco2e\":\"100\",\"usd_per_eur\":\"1.1\"}}}}}"
+      },
+      {
+        "id": "M14-price-key-collision",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":30,\"method\":\"tools/call\",\"params\":{\"name\":\"plan_voyage_fuel\",\"arguments\":{\"request\":{\"vessel\":{\"speed_knots\":\"14\",\"sea_consumption_mt_per_day\":\"20\",\"compatible_fuels\":[\"VLSFO\",\"BIO_METHANOL\"]},\"legs\":[{\"from_port\":\"Singapore\",\"to_port\":\"Rotterdam\"}],\"start_date\":\"2026-10-15\",\"assumptions\":{\"vlsfo_price_usd_per_mt\":{\"Singapore\":\"1\",\" singapore \":\"600\"},\"eua_price_eur_per_tco2\":\"80\",\"fueleu_pool_price_eur_per_tco2e\":\"100\",\"usd_per_eur\":\"1.1\"}}}}}"
+      },
+      {
+        "id": "M14-forbidden-departure-lane",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":31,\"method\":\"tools/call\",\"params\":{\"name\":\"plan_voyage_fuel\",\"arguments\":{\"request\":{\"vessel\":{\"speed_knots\":\"14\",\"sea_consumption_mt_per_day\":\"20\",\"compatible_fuels\":[\"VLSFO\",\"UCOME_B100\"]},\"legs\":[{\"from_port\":\"Rotterdam\",\"to_port\":\"Singapore\"}],\"start_date\":\"2026-10-15\",\"assumptions\":{\"vlsfo_price_usd_per_mt\":{\"Singapore\":\"600\"},\"eua_price_eur_per_tco2\":\"80\",\"fueleu_pool_price_eur_per_tco2e\":\"100\",\"usd_per_eur\":\"1.1\"}}}}}"
       }
     ]
   }
