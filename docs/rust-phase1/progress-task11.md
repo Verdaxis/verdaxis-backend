@@ -36,6 +36,48 @@ skills, pushes, or Python application changes.
   endpoint remains unimplemented. No golden was published.
 - No tests remain running. Logs: `work/rust-phase1/task11-*.txt`.
 
+## rmcp and oracle checkpoint (continuation)
+
+- Added the rmcp 3.5.1 stateless JSON HTTP service with generated catalog and
+  slice tool dispatch. It preserves the existing no-argument router seam.
+  Production requests return 404; exact Host and any-Origin guards run first.
+- Added anonymous slice projection using `OrderSurface::Orderbook`, the shared
+  binder/captured clock, exact decimal addition/comparison, and Task 10b's
+  benchmark loader/fallback. No shared SQL changed and no product literal was
+  added to executable Rust.
+- Four offline Rust MCP tests pass, including saturation of all eight slots:
+  initialize/list-tools/catalog bypass admission; slice reports busy. Slice
+  and transport tests failed to compile before their implementation.
+- Exported sea distances, fuel properties and all three Python tool schemas
+  as data with `scripts/rust_contract/export_voyage.py`.
+- Expanded the MCP group to 29 cases. Added a failing recorder regression for
+  dropped request bodies, then retained exact MCP request bodies in golden.
+- `record_mcp.py` reused disposable runner ownership and recorded 29 cases
+  twice in each KYC state, stable in both. Golden source is the actual Python
+  oracle HEAD `1fb9f26d87588b827b294d62230f46eef60a762a`; application Python is
+  unchanged. There are 58 recorded case directories, each with tool schemas.
+- Expanded differential gate: **73 differences**. Four successful slice
+  structured payloads already match; text formatting/envelope ordering still
+  differ. Python prefixes tool errors with `Error executing tool <name>:` and
+  uses Python repr in unsupported identity messages. These remain repairs.
+- Workspace **129 passed**, clippy passed. Python contract suite **92 passed,
+  16 failed**: all failures are the build-owned policy exporter's assumption
+  that exactly one SHA directory exists. Decision 19 requires this separate
+  MCP oracle SHA. Do not relabel the MCP bytes or edit other groups to hide it;
+  integration must select the catalog oracle independently of MCP recordings.
+
+### Exact next resume point
+
+The rmcp mount currently registers **two**, not three tools. Implement
+`plan_voyage_fuel` plus its typed validation, lookup resolver and exact
+28-significant-digit Decimal arithmetic. Add failing oracle vectors first.
+Then use the recorded schemas to adapt SDK output and protocol error envelopes
+without replacing rmcp dispatch. Add per-tool errors, recursive privacy scan,
+real SQL cancellation/capacity tests, and the missing voyage boundary cases.
+The present mount is a checkpoint, not a parity-complete implementation.
+`work/rust-phase1/task11-expanded-red.txt` records the 73 current differences;
+`task11-golden-record.txt` records both stable oracle passes. All runs finished.
+
 ## Remaining implementation and acceptance
 
 Task 11 is **not complete**. Implement the rmcp 3.5.1 adapter, all three tools,
