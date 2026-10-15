@@ -22,9 +22,9 @@ MANIFEST = MONITOR / "artifact-manifest.json"
 # B100 supplier listings add an authenticated, non-executable offer router.
 # The read-only MCP endpoint adds a non-production route and shares the public read budget.
 RUNTIME_OWNED_BLOBS = {
-    "app/config.py": "1147d3407d8fc9a0b68df02e5b349645d6e40cd3",
+    "app/config.py": "b063c9088332f933f800ddeeef65af67019a0d3e",
     "app/database.py": "43456b2c2079c07368359d4d54f5ce9629c9b57b",
-    "app/main.py": "58171089da44256223a1a745d3c16fd20d585228",
+    "app/main.py": "661c71eb1202aef2601b80d4a78f6a22c524012c",
     "scripts/deploy.sh": "4298d424cf2af000ea96b66859adf5f776f78c4d",
     "scripts/run_demo_activity.py": "b92cee8429669c3f908a52047025acd6db804697",
 }
