@@ -1,3 +1,4 @@
+pub mod market;
 pub mod mcp;
 pub mod routes;
 pub mod runtime;

@@ -1,0 +1,169 @@
+{
+  "source_sha": "775a75c4dce449b875de5dd21998f1c34f9766aa",
+  "products": [
+    {
+      "id": "8f6f34a5-2927-54a6-8564-cca40ae7cb8a",
+      "code": "BIO_LNG",
+      "name": "Bio-LNG",
+      "fuel_type": "LNG",
+      "fuel_grade": "Bio",
+      "execution_mode": "ORDERBOOK",
+      "lanes": [
+        "1379d36c-1ca9-55b7-9c0d-5235a0ba1f36"
+      ],
+      "qualification_profile": "lng_v1",
+      "display_order": 1
+    },
+    {
+      "id": "e561e43f-d9b2-598e-981c-f1d28d515ddc",
+      "code": "UCOME_B100",
+      "name": "UCOME B100",
+      "fuel_type": "FAME",
+      "fuel_grade": "UCOME",
+      "execution_mode": "ORDERBOOK",
+      "lanes": [
+        "73835e92-820e-584b-8280-bb61c63aa28e"
+      ],
+      "qualification_profile": "fame_v1",
+      "display_order": 2
+    },
+    {
+      "id": "9510c713-6e39-5080-add3-0a7c29657b79",
+      "code": "BIO_METHANOL",
+      "name": "Bio Methanol",
+      "fuel_type": "Methanol",
+      "fuel_grade": "Bio",
+      "execution_mode": "ORDERBOOK",
+      "lanes": [
+        "78281fb3-e726-5396-802e-34b01fda21e8",
+        "262d36ae-6f35-5785-b9e8-9e221b0f1b78",
+        "633c0593-f9b9-52ad-abe5-a0285f6888d3",
+        "73835e92-820e-584b-8280-bb61c63aa28e",
+        "1379d36c-1ca9-55b7-9c0d-5235a0ba1f36",
+        "a083db06-b050-56c2-a274-3897eac2fdae",
+        "1be2a5cb-fc34-5e88-8b15-7f7d0fd6e534",
+        "a4762444-4e0b-5bc1-b647-a185047adae5"
+      ],
+      "qualification_profile": "scalar",
+      "display_order": 3
+    },
+    {
+      "id": "f9b20492-b445-59cd-b292-a386d913f488",
+      "code": "E_METHANOL",
+      "name": "e-Methanol",
+      "fuel_type": "Methanol",
+      "fuel_grade": "E",
+      "execution_mode": "ORDERBOOK",
+      "lanes": [
+        "78281fb3-e726-5396-802e-34b01fda21e8",
+        "262d36ae-6f35-5785-b9e8-9e221b0f1b78",
+        "633c0593-f9b9-52ad-abe5-a0285f6888d3",
+        "73835e92-820e-584b-8280-bb61c63aa28e",
+        "1379d36c-1ca9-55b7-9c0d-5235a0ba1f36",
+        "a083db06-b050-56c2-a274-3897eac2fdae",
+        "1be2a5cb-fc34-5e88-8b15-7f7d0fd6e534",
+        "a4762444-4e0b-5bc1-b647-a185047adae5"
+      ],
+      "qualification_profile": "scalar",
+      "display_order": 4
+    },
+    {
+      "id": "c4a688be-f7c2-5edc-8f93-6b34e387609c",
+      "code": "BIO_ETHANOL",
+      "name": "Bio Ethanol",
+      "fuel_type": "Ethanol",
+      "fuel_grade": "Bio",
+      "execution_mode": "ORDERBOOK",
+      "lanes": [
+        "78281fb3-e726-5396-802e-34b01fda21e8",
+        "262d36ae-6f35-5785-b9e8-9e221b0f1b78",
+        "633c0593-f9b9-52ad-abe5-a0285f6888d3",
+        "73835e92-820e-584b-8280-bb61c63aa28e",
+        "1379d36c-1ca9-55b7-9c0d-5235a0ba1f36",
+        "a083db06-b050-56c2-a274-3897eac2fdae",
+        "1be2a5cb-fc34-5e88-8b15-7f7d0fd6e534",
+        "a4762444-4e0b-5bc1-b647-a185047adae5"
+      ],
+      "qualification_profile": "scalar",
+      "display_order": 5
+    },
+    {
+      "id": "d186bffb-766d-5944-8825-989abbdcfc46",
+      "code": "SYNTHETIC_ETHANOL",
+      "name": "Synthetic Ethanol",
+      "fuel_type": "Ethanol",
+      "fuel_grade": "Synthetic",
+      "execution_mode": "ORDERBOOK",
+      "lanes": [
+        "78281fb3-e726-5396-802e-34b01fda21e8",
+        "262d36ae-6f35-5785-b9e8-9e221b0f1b78",
+        "633c0593-f9b9-52ad-abe5-a0285f6888d3",
+        "73835e92-820e-584b-8280-bb61c63aa28e",
+        "1379d36c-1ca9-55b7-9c0d-5235a0ba1f36",
+        "a083db06-b050-56c2-a274-3897eac2fdae",
+        "1be2a5cb-fc34-5e88-8b15-7f7d0fd6e534",
+        "a4762444-4e0b-5bc1-b647-a185047adae5"
+      ],
+      "qualification_profile": "scalar",
+      "display_order": 6
+    }
+  ],
+  "points": [
+    {
+      "id": "78281fb3-e726-5396-802e-34b01fda21e8",
+      "name": "Dalian",
+      "region": "Asia",
+      "timezone": "Asia/Shanghai",
+      "display_order": 1
+    },
+    {
+      "id": "262d36ae-6f35-5785-b9e8-9e221b0f1b78",
+      "name": "Busan",
+      "region": "Asia",
+      "timezone": "Asia/Seoul",
+      "display_order": 2
+    },
+    {
+      "id": "633c0593-f9b9-52ad-abe5-a0285f6888d3",
+      "name": "Shanghai",
+      "region": "Asia",
+      "timezone": "Asia/Shanghai",
+      "display_order": 3
+    },
+    {
+      "id": "73835e92-820e-584b-8280-bb61c63aa28e",
+      "name": "Singapore",
+      "region": "Asia",
+      "timezone": "Asia/Singapore",
+      "display_order": 4
+    },
+    {
+      "id": "1379d36c-1ca9-55b7-9c0d-5235a0ba1f36",
+      "name": "Rotterdam",
+      "region": "Europe",
+      "timezone": "Europe/Amsterdam",
+      "display_order": 5
+    },
+    {
+      "id": "a083db06-b050-56c2-a274-3897eac2fdae",
+      "name": "Houston",
+      "region": "Americas",
+      "timezone": "America/Chicago",
+      "display_order": 6
+    },
+    {
+      "id": "1be2a5cb-fc34-5e88-8b15-7f7d0fd6e534",
+      "name": "Los Angeles",
+      "region": "Americas",
+      "timezone": "America/Los_Angeles",
+      "display_order": 7
+    },
+    {
+      "id": "a4762444-4e0b-5bc1-b647-a185047adae5",
+      "name": "Santos",
+      "region": "Americas",
+      "timezone": "America/Sao_Paulo",
+      "display_order": 8
+    }
+  ]
+}

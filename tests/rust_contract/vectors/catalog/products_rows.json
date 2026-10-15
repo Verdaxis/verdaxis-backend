@@ -1,0 +1,92 @@
+[
+  {
+    "id": "8f6f34a5-2927-54a6-8564-cca40ae7cb8a",
+    "name": "Bio-LNG",
+    "fuel_type": "LNG",
+    "fuel_grade": "Bio",
+    "unit": "MT",
+    "min_lot_size": "1.00",
+    "spec_description": "Liquefied biomethane (bio-LNG) for marine fuel use, delivered to ISO 23306:2020 with a certified Proof of Sustainability.",
+    "is_active": true
+  },
+  {
+    "id": "e561e43f-d9b2-598e-981c-f1d28d515ddc",
+    "name": "UCOME B100",
+    "fuel_type": "FAME",
+    "fuel_grade": "UCOME",
+    "unit": "MT",
+    "min_lot_size": "1.00",
+    "spec_description": "Neat B100 used cooking oil methyl ester for wholesale Singapore trading. 1 MT is the platform input minimum; orders require compatible quality and delivery terms.",
+    "is_active": true
+  },
+  {
+    "id": "9510c713-6e39-5080-add3-0a7c29657b79",
+    "name": "Bio Methanol",
+    "fuel_type": "Methanol",
+    "fuel_grade": "Bio",
+    "unit": "MT",
+    "min_lot_size": "200.00",
+    "spec_description": "Bio-methanol produced from biogenic feedstocks for marine fuel use",
+    "is_active": true
+  },
+  {
+    "id": "f9b20492-b445-59cd-b292-a386d913f488",
+    "name": "e-Methanol",
+    "fuel_type": "Methanol",
+    "fuel_grade": "E",
+    "unit": "MT",
+    "min_lot_size": "200.00",
+    "spec_description": "Synthetic methanol produced from renewable hydrogen and captured CO2",
+    "is_active": true
+  },
+  {
+    "id": "c4a688be-f7c2-5edc-8f93-6b34e387609c",
+    "name": "Bio Ethanol",
+    "fuel_type": "Ethanol",
+    "fuel_grade": "Bio",
+    "unit": "MT",
+    "min_lot_size": "200.00",
+    "spec_description": "Second-generation bioethanol from waste feedstocks",
+    "is_active": true
+  },
+  {
+    "id": "d186bffb-766d-5944-8825-989abbdcfc46",
+    "name": "Synthetic Ethanol",
+    "fuel_type": "Ethanol",
+    "fuel_grade": "Synthetic",
+    "unit": "MT",
+    "min_lot_size": "200.00",
+    "spec_description": "Synthetic ethanol produced via power-to-liquids or equivalent synthetic pathways",
+    "is_active": true
+  },
+  {
+    "id": "8f6f34a5-2927-54a6-8564-cca40ae7cb8a",
+    "name": "Legacy Alias",
+    "fuel_type": "LNG",
+    "fuel_grade": "Bio",
+    "unit": "MT",
+    "min_lot_size": "1.00",
+    "spec_description": "Liquefied biomethane (bio-LNG) for marine fuel use, delivered to ISO 23306:2020 with a certified Proof of Sustainability.",
+    "is_active": true
+  },
+  {
+    "id": "00000000-0000-4000-8000-00000000ffff",
+    "name": "Bio-LNG",
+    "fuel_type": "LNG",
+    "fuel_grade": "Bio",
+    "unit": "MT",
+    "min_lot_size": "1.00",
+    "spec_description": "Liquefied biomethane (bio-LNG) for marine fuel use, delivered to ISO 23306:2020 with a certified Proof of Sustainability.",
+    "is_active": true
+  },
+  {
+    "id": "9510c713-6e39-5080-add3-0a7c29657b79",
+    "name": "Bio Methanol",
+    "fuel_type": "Methanol",
+    "fuel_grade": "Bio",
+    "unit": "MT",
+    "min_lot_size": "200.00",
+    "spec_description": "Bio-methanol produced from biogenic feedstocks for marine fuel use",
+    "is_active": false
+  }
+]

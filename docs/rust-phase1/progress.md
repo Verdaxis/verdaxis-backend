@@ -533,3 +533,80 @@ All Cargo commands used local Rust 1.95 with a fresh
   29 tests, container removed.
 - `tests/unit`: 1921 passed with the same 19 pre-existing `test_deploy_health.py`
   failures.
+
+## Task 5 — Catalog policy exported as attested data
+
+- Date: 2026-10-15. Base: `d2ad58c` on `feat/rust-phase-1-20261015`.
+- Implementation commit: the commit titled
+  `feat: load canonical market policy from attested data`. Resolve its full SHA
+  with `git log --format=%H --grep 'load canonical market policy'`.
+- Read the plan's Task 5 in full, the global constraints, the public-market
+  rules, `app/market_catalog.py`, `app/models/catalog.py`,
+  `app/routers/catalog.py`, `app/mcp_server.py:50-71`, and the Task 4 corpus.
+
+### Files
+
+- `scripts/rust_contract/export_policy.py`, `deploy/rust/market-policy.json`,
+  `deploy/rust/mcp-catalog.json`, `deploy/rust/market-policy.manifest.json`
+- `tests/rust_contract/vectors/catalog/{products,points}_{rows,expected}.json`
+- `tests/rust_contract/test_policy_export.py`
+- `rs/read/src/market/{mod,policy}.rs`, `rs/read/src/lib.rs` (`pub mod market;`),
+  `rs/read/tests/policy.rs`
+- `ARCHITECTURE.md`
+
+### Decisions
+
+- The policy `source_sha` is the recorded oracle corpus SHA
+  `775a75c4dce449b875de5dd21998f1c34f9766aa`, read from the single
+  `tests/rust_contract/golden/` directory. Re-recording the corpus forces a
+  policy regeneration, and the export test fails on drift.
+- MCP-only fields (`unit`, `min_lot_size`, `spec_description`, delivery-point
+  names, EU scope) live in a **separate** payload, `deploy/rust/mcp-catalog.json`,
+  because Task 5 step 3 offers that option and the last paragraph of that step
+  keeps mutable fields in the database while the plan-fixed `ProductPolicy`
+  struct stays unchanged. Rust does not load it yet: `list_markets` acceptance is
+  Task 11. The Rust policy test only checks that the payload covers the policy.
+- `project_catalog` projects product rows or delivery-point rows (they carry
+  `fuel_type` or `region`). Rows that fail the strict identity tuple, or are
+  inactive, are dropped; the result follows policy display order. Vectors are
+  the recorded R03/R04 golden bodies plus three decoys each.
+- Added `point_matches` as the delivery-point counterpart of `product_matches`
+  (policy identity belongs to Task 5); Task 6 must consume it, not reimplement.
+- `validate_policy` and `load_policy` do not change the plan's declared types.
+
+### Checks
+
+All Cargo commands used local Rust 1.95 with a fresh
+`export RELEASE_SHA=$(git rev-parse HEAD)`, in the foreground.
+
+- RED: `cargo test -p verdaxis-read --test policy` failed with the three
+  expected errors (missing `market` module, two absent artifacts). Evidence:
+  `work/rust-phase1/policy-red.txt`.
+- RED: `pytest tests/rust_contract/test_policy_export.py` failed on the missing
+  `export_policy` module. Evidence: `work/rust-phase1/policy-export-red.txt`.
+- GREEN: `cargo test --workspace`: **pass**, 36 tests (http_contract 15,
+  policy 12, runtime 7, identity 1, request_log 1), 0 failures.
+- `RUST_TEST_PYTHON=… bash rs/read/tests/run_postgres.sh`: **pass**, exit 0,
+  41 tests with `--features contract-tests`. Container removed; none left.
+  Evidence: `work/rust-phase1/postgres-task5.txt`.
+- `cargo fmt --all -- --check`: **pass**. `cargo clippy --workspace
+  --all-targets -- -D warnings`: **pass**, also with `--all-features`.
+- `venv/bin/python -m pytest tests/rust_contract -q`: **pass**, 36 tests.
+- `venv/bin/python -m scripts.rust_contract.export_policy --check`: **pass**.
+  Regenerated into `work/rust-phase1/regenerated/` and byte-compared with the
+  committed policy, MCP catalog, manifest, and four vector files: identical.
+- `tests/unit`: 1921 passed with the same 19 pre-existing
+  `test_deploy_health.py` failures recorded in Task 4. Task 5 changed no file
+  those tests read.
+- `git diff --check`: pass.
+
+### Notes for later tasks
+
+- Task 8 (R03/R04) and Task 11 (`list_markets`) load the policy and the MCP
+  payload through `load_policy`/`project_catalog`; they must not re-derive
+  identity or hardcode names.
+- The EU-scope flag `is_eu` in `mcp-catalog.json` is exported from
+  `app.services.voyage_fuel_plan.EU_PORTS`; Task 11 owns its Rust loader.
+- Task 5 is complete. PostgreSQL authority and cancellation gates already pass
+  from Task 3. No later task, push, live host, deployment, agent, or background
+  job. `.claude/` and `work/` remain untracked.

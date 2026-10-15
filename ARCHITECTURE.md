@@ -50,6 +50,16 @@ serves one route group through the serving router. Health and echo are proven;
 the seeded and MCP groups are deferred as recorded in
 `docs/rust-phase1/progress.md`.
 
+Task 5 exports the catalog policy as data. `scripts/rust_contract/export_policy.py`
+turns the approved `app.market_catalog` constants and the reviewed
+qualification-profile map into `deploy/rust/market-policy.json` (identity, lanes,
+execution mode, display order) and `deploy/rust/mcp-catalog.json` (the
+`list_markets` payload); `deploy/rust/market-policy.manifest.json` holds their
+digests. `rs/read/src/market/policy.rs` loads and validates that policy, matches
+rows by the exact identity tuple, and projects database rows to the public
+catalog response. Executable Rust holds no product name, code, or UUID; a test
+scans `rs/read/src` and `rs/read/sql` for them.
+
 ## File Map
 
 ```
