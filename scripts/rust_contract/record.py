@@ -148,6 +148,7 @@ def perform(base_url: str, case: Mapping[str, Any]) -> dict[str, Any]:
             "path": str(case["path"]),
             "query": case.get("query") or "",
             "headers": headers,
+            **({"body": body} if case["path"] == "/mcp" and body is not None else {}),
         },
         "exchange": exchange,
         "raw_body": raw,

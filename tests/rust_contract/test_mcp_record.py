@@ -23,6 +23,16 @@ def case(method="POST", request_id=7):
     return {"method": method, "body": json.dumps({"jsonrpc": "2.0", "id": request_id, "method": "tools/list"})}
 
 
+def test_recorded_mcp_request_keeps_exact_body(monkeypatch):
+    from scripts.rust_contract import record
+
+    response = Response(b'{"jsonrpc":"2.0","id":7,"result":{}}')
+    monkeypatch.setattr(record._OPENER, "open", lambda *args, **kwargs: response)
+    request = {**case(), "id": "mcp-fixture", "path": "/mcp"}
+    entry = record.perform("http://127.0.0.1:54321", request)
+    assert entry["request"]["body"] == request["body"]
+
+
 def test_json_response_is_preserved_exactly():
     body = b'{"jsonrpc":"2.0","id":7,"result":{}}'
     assert read_mcp_response(Response(body), case()) == body
