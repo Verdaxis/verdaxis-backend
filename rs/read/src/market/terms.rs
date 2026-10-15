@@ -507,6 +507,13 @@ fn validate_lng_bid(object: &Map<String, Json>) -> Result<(), String> {
 
 fn validate_lng_ask(object: &Map<String, Json>) -> Result<(), String> {
     reject_unknown(object, &LNG_ASK_FIELDS)?;
+    validate_lng_ask_declaration(object)?;
+    required_string(object, "scheme_certificate_number", 3, 64)?;
+    required_string(object, "physical_supplier_name", 2, 120)?;
+    Ok(())
+}
+
+fn validate_lng_ask_declaration(object: &Map<String, Json>) -> Result<(), String> {
     required_enum(object, "sustainability_scheme", &LNG_SCHEMES)?;
     required_enum(object, "chain_of_custody", &LNG_CUSTODY)?;
     required_bool(object, "union_database_registered")?;
@@ -525,20 +532,29 @@ fn validate_lng_ask(object: &Map<String, Json>) -> Result<(), String> {
     required_enum(object, "delivery_method", &LNG_DELIVERY_METHODS)?;
     required_bool(object, "seller_is_physical_supplier")?;
     required_enum(object, "pos_timing", &LNG_POS_TIMING)?;
-    required_string(object, "scheme_certificate_number", 3, 64)?;
-    required_string(object, "physical_supplier_name", 2, 120)?;
     Ok(())
 }
 
 /// The public lng_v1 projection: identity fields removed, derived flags
 /// added. Port of `app.services.lng_order.public_lng_terms`.
 pub fn public_lng_terms(terms: &Json) -> Result<Json, String> {
+    let side = required_enum(as_object(terms)?, "side", &["BID", "ASK"])?;
+    validate_lng_terms(&side, Some(terms))?;
+    public_lng_response_terms(terms)
+}
+
+fn public_lng_response_terms(terms: &Json) -> Result<Json, String> {
     let object = as_object(terms)?;
     let side = required_enum(object, "side", &["BID", "ASK"])?;
-    validate_lng_terms(&side, Some(terms))?;
     if side == "BID" {
+        validate_lng_terms(&side, Some(terms))?;
         return normalized_bid_terms(object, LNG_PROFILE);
     }
+    // LngPublicAskTerms removes identity fields before validating declarations.
+    let mut allowed = LNG_ASK_FIELDS.to_vec();
+    allowed.extend(["reseller", "fueleu_recognition"]);
+    reject_unknown(object, &allowed)?;
+    validate_lng_ask_declaration(object)?;
     let mut public = Map::new();
     for key in LNG_ASK_FIELDS {
         if key == "scheme_certificate_number" || key == "physical_supplier_name" {
@@ -889,7 +905,6 @@ fn all_present(values: &[Option<&str>]) -> bool {
 struct QualitySummary {
     status: String,
     batch_reference: Option<String>,
-    results: Vec<Json>,
 }
 
 fn quality_evidence(value: Option<&Json>) -> Result<Option<QualitySummary>, String> {
@@ -914,29 +929,14 @@ fn quality_evidence(value: Option<&Json>) -> Result<Option<QualitySummary>, Stri
         return Err("results holds too many entries".to_owned());
     }
     let mut properties: Vec<String> = Vec::new();
-    let mut public_results: Vec<Json> = Vec::with_capacity(results.len());
     for result in results {
         let result = as_object(result)?;
-        reject_unknown(result, &FAME_QUALITY_RESULT_FIELDS)?;
-        let property = required_enum(result, "property", &FAME_QUALITY_PROPERTIES)?;
-        let method = optional_string(result, "method", 1, 200)?;
-        let value = required_decimal(result, "value", None, None, None)?;
-        let (lower, upper) = quality_bounds(&property);
-        if value < lower || value > upper {
-            return Err(format!("{property} is outside its stated units"));
-        }
+        let public = public_quality_result(result)?;
+        let property = public["property"].as_str().unwrap().to_owned();
         if properties.contains(&property) {
             return Err("Each quality property may occur once per record".to_owned());
         }
-        properties.push(property.clone());
-        let mut public = Map::new();
-        public.insert("property".to_owned(), Json::String(property));
-        public.insert(
-            "value".to_owned(),
-            Json::String(decimal_wire_text(&result["value"])?),
-        );
-        public.insert("method".to_owned(), method.map_or(Json::Null, Json::String));
-        public_results.push(Json::Object(public));
+        properties.push(property);
     }
     if status == "AVAILABLE"
         && (!all_present(&[
@@ -958,7 +958,22 @@ fn quality_evidence(value: Option<&Json>) -> Result<Option<QualitySummary>, Stri
     Ok(Some(QualitySummary {
         status,
         batch_reference,
-        results: public_results,
+    }))
+}
+
+fn public_quality_result(result: &Map<String, Json>) -> Result<Json, String> {
+    reject_unknown(result, &FAME_QUALITY_RESULT_FIELDS)?;
+    let property = required_enum(result, "property", &FAME_QUALITY_PROPERTIES)?;
+    let method = optional_string(result, "method", 1, 200)?;
+    let value = required_decimal(result, "value", None, None, None)?;
+    let (lower, upper) = quality_bounds(&property);
+    if value < lower || value > upper {
+        return Err(format!("{property} is outside its stated units"));
+    }
+    Ok(serde_json::json!({
+        "property": property,
+        "value": decimal_wire_text(&result["value"])?,
+        "method": method,
     }))
 }
 
@@ -976,8 +991,6 @@ fn quality_bounds(property: &str) -> (i32, i32) {
 
 #[derive(Default)]
 struct SustainabilitySummary {
-    status: String,
-    document_type: String,
     due: String,
 }
 
@@ -989,7 +1002,7 @@ fn sustainability_evidence(value: Option<&Json>) -> Result<Option<Sustainability
     let object = as_object(value)?;
     reject_unknown(object, &FAME_SUSTAINABILITY_FIELDS)?;
     let status = required_enum(object, "status", &["PENDING", "AVAILABLE"])?;
-    let document_type = required_enum(object, "document_type", &FAME_DOCUMENT_TYPES)?;
+    required_enum(object, "document_type", &FAME_DOCUMENT_TYPES)?;
     let reference = optional_string(object, "reference", 1, 200)?;
     optional_string(object, "issuer", 1, 200)?;
     let quantity = optional_decimal(object, "quantity_mt", None, Some(100_000), Some(2))?;
@@ -1001,22 +1014,127 @@ fn sustainability_evidence(value: Option<&Json>) -> Result<Option<Sustainability
     if status == "AVAILABLE" && reference.is_none() {
         return Err("Available sustainability evidence requires a document reference".to_owned());
     }
-    Ok(Some(SustainabilitySummary {
-        status,
-        document_type,
-        due,
+    Ok(Some(SustainabilitySummary { due }))
+}
+
+/// Validate only FamePublicAskTerms. Unlike execution declarations, this schema
+/// ignores extra fields and has no private traceability or cross-field checks.
+fn public_fame_enum(
+    object: &Map<String, Json>,
+    key: &str,
+    allowed: &[&str],
+) -> Result<String, String> {
+    let value = object
+        .get(key)
+        .and_then(Json::as_str)
+        .ok_or_else(|| format!("{key} must be a string"))?;
+    if !allowed.contains(&value) {
+        return Err(format!("{key} is not one of the allowed values"));
+    }
+    Ok(value.to_owned())
+}
+
+fn validate_public_fame_ask(object: &Map<String, Json>) -> Result<(), String> {
+    if let Some(version) = object.get("schema_version")
+        && !decimal_of(version).is_some_and(|value| value == 1)
+    {
+        return Err("schema_version must be 1".to_owned());
+    }
+    if object.contains_key("neat_fame") {
+        literal_true(object, "neat_fame")?;
+    }
+    public_fame_enum(object, "nomination_status", &FAME_NOMINATION)?;
+    if required_decimal(object, "uco_mass_pct", None, None, None)? != 100 {
+        return Err("uco_mass_pct must be 100".to_owned());
+    }
+    public_fame_enum(object, "standard", &FAME_STANDARDS)?;
+    required_string(object, "standard_edition", 0, usize::MAX)?;
+    if object
+        .get("astm_grade")
+        .is_some_and(|value| !value.is_null())
+    {
+        public_fame_enum(object, "astm_grade", &FAME_ASTM_GRADES)?;
+    }
+    for field in [
+        "en_climate_class",
+        "production_origin",
+        "feedstock_origin",
+        "shipping_location",
+        "ci_methodology",
+        "ci_boundary",
+    ] {
+        optional_string(object, field, 0, usize::MAX)?;
+    }
+    for field in ["cfpp_c", "cloud_point_c", "ci_gco2e_mj", "lhv_mj_kg"] {
+        optional_decimal(object, field, None, None, None)?;
+    }
+    if object.get("ci_basis").is_some_and(|value| !value.is_null()) {
+        public_fame_enum(object, "ci_basis", &FAME_CI_BASIS)?;
+    }
+    public_fame_enum(object, "sustainability_scheme", &FAME_SCHEMES)?;
+    required_date(object, "certificate_valid_until")?;
+    public_fame_enum(object, "evidence_status", &FAME_EVIDENCE_STATUS)?;
+    public_fame_enum(object, "evidence_due", &FAME_EVIDENCE_DUE)?;
+    Ok(())
+}
+
+fn public_quality_evidence(value: Option<&Json>) -> Result<Json, String> {
+    let Some(value) = value.filter(|value| !value.is_null()) else {
+        return Ok(Json::Null);
+    };
+    let object = as_object(value)?;
+    let status = public_fame_enum(object, "status", &["PENDING", "AVAILABLE"])?;
+    let results = object
+        .get("results")
+        .and_then(Json::as_array)
+        .ok_or_else(|| "results must be a list".to_owned())?;
+    let mut public_results = Vec::with_capacity(results.len());
+    for result in results {
+        public_results.push(public_quality_result(as_object(result)?)?);
+    }
+    Ok(serde_json::json!({"status": status, "results": public_results}))
+}
+
+fn public_sustainability_evidence(value: Option<&Json>) -> Result<Json, String> {
+    let Some(value) = value.filter(|value| !value.is_null()) else {
+        return Ok(Json::Null);
+    };
+    let object = as_object(value)?;
+    Ok(serde_json::json!({
+        "status": public_fame_enum(object, "status", &["PENDING", "AVAILABLE"])?,
+        "document_type": public_fame_enum(object, "document_type", &FAME_DOCUMENT_TYPES)?,
+        "due": public_fame_enum(object, "due", &FAME_EVIDENCE_DUE)?,
     }))
 }
 
-/// The public B100 projection: supplier identity, batch references, and
-/// document links removed. Port of `app.services.fame_order.public_fame_terms`.
+/// Projection of a validated execution declaration, matching public_fame_terms
+/// in Python. Public HTTP responses use the separate response-schema boundary.
 pub fn public_fame_terms(terms: &Json) -> Result<Json, String> {
+    let side = required_enum(as_object(terms)?, "side", &["BID", "ASK"])?;
+    validate_fame_schema(&side, Some(terms))?;
+    let mut normalized = terms.clone();
+    if side == "ASK" {
+        let object = normalized.as_object_mut().unwrap();
+        object
+            .entry("nomination_status")
+            .or_insert(serde_json::json!("PENDING"));
+        if let Some(Json::Object(quality)) = object.get_mut("quality_evidence") {
+            quality.entry("results").or_insert(serde_json::json!([]));
+        }
+    }
+    public_fame_response_terms(&normalized)
+}
+
+/// The public B100 response schema, not the full execution declaration.
+/// Private identity and evidence fields are ignored before public validation.
+fn public_fame_response_terms(terms: &Json) -> Result<Json, String> {
     let object = as_object(terms)?;
     let side = required_enum(object, "side", &["BID", "ASK"])?;
-    validate_fame_schema(&side, Some(terms))?;
     if side == "BID" {
+        validate_fame_schema(&side, Some(terms))?;
         return normalized_bid_terms(object, FAME_PROFILE);
     }
+    validate_public_fame_ask(object)?;
     let mut public = Map::new();
     for key in [
         "schema_version",
@@ -1049,56 +1167,31 @@ pub fn public_fame_terms(terms: &Json) -> Result<Json, String> {
     if !object.contains_key("schema_version") {
         public.insert("schema_version".to_owned(), serde_json::json!(1));
     }
-    if !object.contains_key("nomination_status") {
-        public.insert("nomination_status".to_owned(), serde_json::json!("PENDING"));
+    if !object.contains_key("neat_fame") {
+        public.insert("neat_fame".to_owned(), Json::Bool(true));
     }
-    normalize_public_values(
-        &mut public,
-        &["cfpp_c", "cloud_point_c", "ci_gco2e_mj", "lhv_mj_kg"],
-    )?;
+    // FameFuelSummary has no string stripping; retain stored public text.
+    for field in ["cfpp_c", "cloud_point_c", "ci_gco2e_mj", "lhv_mj_kg"] {
+        if !public[field].is_null() {
+            public.insert(
+                field.to_owned(),
+                Json::String(decimal_wire_text(&public[field])?),
+            );
+        }
+    }
     public.insert("side".to_owned(), Json::String(ASK.to_owned()));
     public.insert(
         "quality_evidence".to_owned(),
-        public_quality(quality_evidence(object.get("quality_evidence"))?),
+        public_quality_evidence(object.get("quality_evidence"))?,
     );
     public.insert(
         "sustainability_evidence".to_owned(),
-        public_sustainability(sustainability_evidence(
-            object.get("sustainability_evidence"),
-        )?),
+        public_sustainability_evidence(object.get("sustainability_evidence"))?,
     );
     if let Some(due) = object.get("evidence_due") {
         public.insert("evidence_due".to_owned(), due.clone());
     }
     Ok(Json::Object(public))
-}
-
-fn public_quality(quality: Option<QualitySummary>) -> Json {
-    match quality {
-        None => Json::Null,
-        Some(quality) => {
-            let mut object = Map::new();
-            object.insert("status".to_owned(), Json::String(quality.status));
-            object.insert("results".to_owned(), Json::Array(quality.results));
-            Json::Object(object)
-        }
-    }
-}
-
-fn public_sustainability(sustainability: Option<SustainabilitySummary>) -> Json {
-    match sustainability {
-        None => Json::Null,
-        Some(sustainability) => {
-            let mut object = Map::new();
-            object.insert("status".to_owned(), Json::String(sustainability.status));
-            object.insert(
-                "document_type".to_owned(),
-                Json::String(sustainability.document_type),
-            );
-            object.insert("due".to_owned(), Json::String(sustainability.due));
-            Json::Object(object)
-        }
-    }
 }
 
 fn normalized_bid_terms(object: &Map<String, Json>, profile: &str) -> Result<Json, String> {
@@ -1153,6 +1246,19 @@ fn normalize_public_values(
         }
     }
     Ok(())
+}
+
+/// Project stored terms through the public response schema, not the execution
+/// schema. Digest and benchmark qualification must continue to use the raw row.
+pub fn public_response_terms(profile: &str, terms: &Json) -> Result<Json, String> {
+    if terms.is_null() {
+        return Ok(Json::Null);
+    }
+    match profile {
+        "fame_v1" => public_fame_response_terms(terms),
+        "lng_v1" => public_lng_response_terms(terms),
+        other => Err(format!("unknown public terms profile {other}")),
+    }
 }
 
 /// Redact private reviewed terms to their public form for one profile.

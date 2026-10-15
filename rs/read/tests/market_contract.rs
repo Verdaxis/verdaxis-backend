@@ -274,6 +274,109 @@ fn trailing_zero_declarations_match_python() {
 }
 
 #[test]
+fn public_asks_ignore_private_validation_but_execution_does_not() {
+    for (profile, mut terms, private_fields) in [
+        (
+            "fame_v1",
+            vector(FAME_VECTOR)["fame_terms"].clone(),
+            vec![
+                "certificate_holder",
+                "certificate_reference",
+                "batch_reference",
+                "producing_site",
+                "certificate_scope",
+                "document_references",
+            ],
+        ),
+        (
+            "lng_v1",
+            vector(PRIVATE_VECTOR)["lng_terms"].clone(),
+            vec!["scheme_certificate_number", "physical_supplier_name"],
+        ),
+    ] {
+        let expected =
+            verdaxis_read::market::terms::public_response_terms(profile, &terms).unwrap();
+        for field in private_fields {
+            terms[field] = json!("");
+            assert_eq!(
+                verdaxis_read::market::terms::public_response_terms(profile, &terms).unwrap(),
+                expected,
+                "{field}"
+            );
+            let qualified = if profile == "fame_v1" {
+                validate_fame_terms("ASK", Some(&terms), today())
+            } else {
+                validate_lng_terms("ASK", Some(&terms))
+            };
+            assert!(
+                qualified.is_err(),
+                "{field} must still fail execution validation"
+            );
+        }
+    }
+}
+
+#[test]
+fn public_fame_evidence_ignores_private_traceability() {
+    use verdaxis_read::market::terms::public_response_terms;
+    let original = vector(FAME_VECTOR)["fame_terms"].clone();
+    let expected = public_response_terms("fame_v1", &original).unwrap();
+    for (section, field) in [
+        ("quality_evidence", "reference"),
+        ("quality_evidence", "batch_reference"),
+        ("quality_evidence", "laboratory"),
+        ("quality_evidence", "sampled_on"),
+        ("quality_evidence", "tested_on"),
+        ("sustainability_evidence", "reference"),
+        ("sustainability_evidence", "quantity_mt"),
+        ("sustainability_evidence", "supply_date"),
+    ] {
+        let mut terms = original.clone();
+        terms[section][field] = json!({"malformed": true});
+        assert_eq!(public_response_terms("fame_v1", &terms).unwrap(), expected);
+        assert!(validate_fame_terms("ASK", Some(&terms), today()).is_err());
+    }
+}
+
+#[test]
+fn public_response_still_requires_public_fields() {
+    use verdaxis_read::market::terms::public_response_terms;
+    for (profile, original, fields) in [
+        (
+            "fame_v1",
+            vector(FAME_VECTOR)["fame_terms"].clone(),
+            vec![
+                "nomination_status",
+                "standard",
+                "certificate_valid_until",
+                "evidence_due",
+            ],
+        ),
+        (
+            "lng_v1",
+            vector(PRIVATE_VECTOR)["lng_terms"].clone(),
+            vec![
+                "production_country",
+                "bio_share_pct",
+                "seller_is_physical_supplier",
+            ],
+        ),
+    ] {
+        for field in fields {
+            let mut terms = original.clone();
+            terms.as_object_mut().unwrap().remove(field);
+            assert!(public_response_terms(profile, &terms).is_err(), "{field}");
+        }
+    }
+    let mut fame = vector(FAME_VECTOR)["fame_terms"].clone();
+    fame["quality_evidence"]
+        .as_object_mut()
+        .unwrap()
+        .remove("results");
+    assert!(public_response_terms("fame_v1", &fame).is_err());
+}
+
+#[test]
 fn public_quality_wire_decimals_match_python() {
     assert_public_vectors(true);
 }

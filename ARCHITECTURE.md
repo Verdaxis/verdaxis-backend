@@ -95,6 +95,13 @@ admission use the same strict/advisory switch as Python. Request filters cannot
 set that switch. Region filters match a region or delivery-point name; empty
 means no filter. Curve and quarantine metadata policies remain later-task work.
 
+Task 7a serves the public snapshot through one admitted, read-only REPEATABLE
+READ transaction, with ranked depth and one benchmark batch sharing a captured
+instant. `market/terms.rs::public_response_terms` mirrors the public FAME/LNG
+response schemas separately from full execution validation: ignored private
+fields cannot fail public projection, but still affect the digest and benchmark
+qualification. `market/orderbook_query.json` records public schema field order.
+
 Task 6a adds `market/live_benchmarks.rs` and `sql/live_benchmarks.sql` for
 read-only, request-cached same-side benchmarks. It applies full typed/scalar
 qualification after Candidates selection and retains the current REAL/DEMO

@@ -1,0 +1,102 @@
+{
+  "source_sha": "a127672ee4c82fafbb4c633eb84f66bbdc676e75",
+  "market_product_enum": [
+    "UCOME_B100",
+    "BIO_LNG",
+    "BIO_METHANOL",
+    "E_METHANOL",
+    "BIO_ETHANOL",
+    "SYNTHETIC_ETHANOL"
+  ],
+  "public_terms_fields": {
+    "fame_bid": [
+      "schema_version",
+      "side",
+      "neat_fame",
+      "standard",
+      "standard_edition",
+      "astm_grade",
+      "en_climate_class",
+      "max_cfpp_c",
+      "max_cloud_point_c",
+      "max_ci_gco2e_mj",
+      "ci_methodology",
+      "ci_boundary",
+      "ci_basis",
+      "sustainability_scheme",
+      "require_quality_evidence",
+      "require_sustainability_evidence",
+      "evidence_due"
+    ],
+    "fame_ask": [
+      "schema_version",
+      "neat_fame",
+      "nomination_status",
+      "uco_mass_pct",
+      "standard",
+      "standard_edition",
+      "astm_grade",
+      "en_climate_class",
+      "production_origin",
+      "feedstock_origin",
+      "shipping_location",
+      "cfpp_c",
+      "cloud_point_c",
+      "ci_gco2e_mj",
+      "ci_methodology",
+      "ci_boundary",
+      "ci_basis",
+      "lhv_mj_kg",
+      "sustainability_scheme",
+      "certificate_valid_until",
+      "evidence_status",
+      "quality_evidence",
+      "sustainability_evidence",
+      "side",
+      "evidence_due"
+    ],
+    "lng_bid": [
+      "side",
+      "accepted_schemes",
+      "accepted_custody",
+      "require_union_database",
+      "min_bio_share_pct",
+      "max_wtt_ghg_gco2e_mj",
+      "accepted_delivery_methods",
+      "min_methane_number",
+      "accept_resellers"
+    ],
+    "lng_ask": [
+      "side",
+      "sustainability_scheme",
+      "chain_of_custody",
+      "union_database_registered",
+      "bio_share_pct",
+      "feedstock",
+      "feedstock_detail",
+      "production_country",
+      "wtt_ghg_gco2e_mj",
+      "specification_standard",
+      "min_methane_number",
+      "delivery_method",
+      "seller_is_physical_supplier",
+      "pos_timing",
+      "reseller",
+      "fueleu_recognition"
+    ],
+    "quality_evidence": [
+      "status",
+      "results"
+    ],
+    "sustainability_evidence": [
+      "status",
+      "document_type",
+      "due"
+    ],
+    "quality_result": [
+      "property",
+      "value",
+      "method"
+    ]
+  }
+}
