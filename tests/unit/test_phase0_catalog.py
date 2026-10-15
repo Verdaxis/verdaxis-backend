@@ -158,6 +158,52 @@ async def test_biofuel_direct_bid_fill_requires_qualified_ask_but_buyers_can_fil
 
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("product_name", ["B30", "B100"])
+async def test_qualified_zero_ci_scalar_ask_matches_with_exact_identity_and_economics(
+    monkeypatch, db, product_name
+):
+    """A qualified zero-CI scalar ASK fills at its exact product and economics."""
+    buyer_org = await _make_org(db, "Scalar Match Buyer", OrgType.SHIPPING_LINE)
+    buyer = await _make_user(db, buyer_org, UserRole.BUYER)
+    supplier_org = await _make_org(db, "Scalar Match Supplier", OrgType.FUEL_SUPPLIER)
+    supplier = await _make_user(db, supplier_org, UserRole.SUPPLIER)
+    product = await _make_product(db, product_name)
+    port = await _make_delivery_point(db)
+    ask = await _make_ask(
+        db, org_id=supplier_org.id, product_id=product.id,
+        delivery_point_id=port.id, owner_user_id=supplier.id,
+    )
+    ask.specification_standard = BIOFUEL_SPECIFICATION_STANDARDS[product.id]
+    ask.carbon_intensity_method = "Lifecycle calculation for the whole supplied fuel"
+    ask.carbon_intensity_gco2_mj = Decimal("0")
+    ask.feedstock = "Used cooking oil"
+    ask.origin = "Singapore"
+    await db.commit()
+
+    async def no_notification(*args, **kwargs):
+        pass
+
+    monkeypatch.setattr(trades_router, "notify_org_users", no_notification)
+    response = await trades_router.create_trade(
+        payload=trades_router.TradeCreate(
+            order_id=ask.id,
+            quantity_mt=Decimal("100"),
+            expected_terms_digest=order_terms_digest(ask),
+        ),
+        request=_fake_request(), db=db, current_user=buyer,
+    )
+
+    assert response.status == "PENDING_CONFIRMATION"
+    assert response.product_id == UUID(BIOFUELS[product_name][0])
+    assert response.market_product == product_name
+    assert response.quantity_mt == Decimal("100")
+    assert response.price_per_mt_usd == Decimal("1090")
+    assert ask.remaining_quantity_mt == Decimal("900")
+
+
+
+
 @pytest.mark.parametrize("code", BIOFUELS)
 def test_minimum_quantity_applies_to_new_orders(code):
     from app.services.order_quantity import require_minimum_order_quantity
@@ -212,6 +258,73 @@ async def test_automatic_matching_and_assisted_post_only_refuse_bad_biofuel(monk
     assessment = await assess_locked_order(session, order, organization=organization)
     assert assessment.indeterminate and assessment.would_cross
     session.execute.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("code,field,value", [
+    ("B30", "specification_standard", "IMPCA"),
+    ("B100", "carbon_intensity_method", " \t"),
+])
+async def test_assisted_authorization_refuses_invalid_scalar_metadata(monkeypatch, code, field, value):
+    """The assisted entry path must refuse the same invalid metadata it persists."""
+    from datetime import UTC, datetime, timedelta
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock, MagicMock
+    from uuid import uuid4
+
+    from app.market_catalog import DELIVERY_POINT_IDS
+    from app.models.user import User, UserRole, UserStatus
+    from app.routers.market_support import create_authorization
+    from app.schemas.market_support import AuthorizationCreate
+    from app.schemas.orderbook import OrderCreate
+
+    monkeypatch.setattr("app.config.settings.MARKET_SUPPORT_ENABLED", False)
+    identity, standard = BIOFUELS[code]
+    now = datetime.now(UTC)
+    order = dict(
+        side="ASK", product_id=UUID(identity),
+        delivery_point_id=DELIVERY_POINT_IDS["Singapore"],
+        quantity_mt=Decimal("200"), price_per_mt_usd=Decimal("800"),
+        availability_window="SPOT", expires_at=now + timedelta(days=1),
+        certification_declared=True, certification_scheme="ISCC EU",
+        specification_standard=standard,
+        carbon_intensity_method="Whole supplied fuel lifecycle",
+        carbon_intensity_gco2_mj=Decimal("0"),  # zero CI is a valid control value
+        msds_available=True, feedstock="Used cooking oil", origin="Singapore",
+    )
+    order[field] = value
+    body = AuthorizationCreate(
+        accountable_user_id=uuid4(),
+        order=OrderCreate(**order),
+        authorization_expires_at=now + timedelta(hours=12),
+        evidence_reference="assisted-case-1",
+        evidence_sha256="a" * 64,
+        commercial_consent_version="v1",
+        commercial_consent_reference="consent-1",
+    )
+    admin = User(
+        id=uuid4(), email="assisted-admin@example.com", password_hash="unused",
+        role=UserRole.ADMIN, status=UserStatus.APPROVED, email_verified=True,
+    )
+    capability_result = MagicMock()
+    capability_result.scalar_one_or_none.return_value = MagicMock(revoked_at=None, expires_at=None)
+    missing_result = MagicMock()
+    missing_result.scalar_one_or_none.return_value = None
+    db = AsyncMock()
+    db.add = MagicMock()
+    db.get_bind = MagicMock(return_value=SimpleNamespace(dialect=SimpleNamespace(name="sqlite")))
+    db.execute.side_effect = [capability_result, missing_result]
+
+    with pytest.raises(HTTPException) as rejected:
+        await create_authorization(
+            organization_id=uuid4(), request=_fake_request(), body=body, db=db,
+            current_user=admin, idempotency_key_header="assisted-test-key-1",
+        )
+
+    assert rejected.value.status_code == 400
+    assert code in rejected.value.detail
+    db.add.assert_not_called()
+    db.commit.assert_not_awaited()
 
 
 @pytest.mark.parametrize("code", BIOFUELS)
