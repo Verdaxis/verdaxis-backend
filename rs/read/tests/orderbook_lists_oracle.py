@@ -20,6 +20,7 @@ def compare(path, query=""):
 
 async def check_ci_projection():
     from sqlalchemy import text
+
     from app.seeds.safety import seed_session
 
     # Reuse existing corpus rows; the runner owns this disposable database.
@@ -43,6 +44,7 @@ def check_query_count():
     import subprocess
     import time
     from urllib.parse import urlsplit
+
     from scripts.rust_contract.run_disposable import IMAGE
 
     port = str(urlsplit(os.environ["RUST_DATABASE_URL"]).port)
@@ -86,9 +88,26 @@ def check_query_count():
         admin("SELECT pg_reload_conf()")
 
 
+def check_integer_boundaries():
+    oversized = "9223372036854775808"
+    for path in ("/api/orderbook", "/api/orderbook/with-ci",
+                 "/api/orderbook/bids", "/api/orderbook/asks"):
+        for query in (
+            f"skip={oversized}&page=1&page_size=2",
+            f"skip={oversized}",
+            f"page={oversized}&limit=2",
+            "skip=-1&page=1",
+            "skip=wrong&page=1",
+            "limit=101&page_size=2",
+        ):
+            compare(path, query)
+    print("Task 7b: 24 integer boundary comparisons passed", flush=True)
+
+
 def main():
     for name in ("PYTHON_CONTRACT_URL", "RUST_CONTRACT_URL"):
         attest(os.environ[name], os.environ["DISPOSABLE_TEST_TOKEN"])
+    check_integer_boundaries()
     count = 0
     for side in ("bids", "asks"):
         path = "/api/orderbook/" + side

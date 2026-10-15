@@ -152,11 +152,22 @@ fn parse(raw: &str, surface: Surface, now: DateTime<Utc>) -> Result<ListQuery, A
         let expected = "'price_asc', 'price_desc', 'quantity_desc' or 'newest'";
         errors.push(json!({"type":"literal_error","loc":["query","sort_by"],"msg":format!("Input should be {expected}"),"input":sort,"ctx":{"expected":expected}}));
     }
-    let mut get_int = |name, min, max, default| match integer(raw, name, min, max, default) {
-        Ok(v) => v,
-        Err(e) => {
-            errors.extend(e.detail.as_array().unwrap().clone());
-            default
+    let mut get_int = |name, min, max, default| {
+        // Python has no upper bound on skip/page. Keep their wide values until
+        // aliases have selected the effective SQL offset.
+        if matches!(name, "skip" | "page")
+            && let Some(value) = values.get(name)
+            && let Some(parsed) = crate::runtime::http::python_integer(value)
+            && parsed >= i128::from(min)
+        {
+            return parsed;
+        }
+        match integer(raw, name, min, max, default) {
+            Ok(v) => i128::from(v),
+            Err(e) => {
+                errors.extend(e.detail.as_array().unwrap().clone());
+                i128::from(default)
+            }
         }
     };
     let skip = get_int("skip", 0, i64::MAX, 0);
@@ -176,13 +187,13 @@ fn parse(raw: &str, surface: Surface, now: DateTime<Utc>) -> Result<ListQuery, A
     if !errors.is_empty() {
         return Err(validation(errors));
     }
-    let (skip, limit) = page_offset(
-        skip as u64,
-        limit as u64,
-        page.map(|v| v as u64),
-        size.map(|v| v as u64),
-    )
-    .ok_or_else(ApiError::internal)?;
+    let limit = size.unwrap_or(limit);
+    let skip = match page {
+        Some(page) => (page - 1)
+            .checked_mul(limit)
+            .ok_or_else(ApiError::internal)?,
+        None => skip,
+    };
     let window = if surface == Surface::Ci {
         None
     } else {

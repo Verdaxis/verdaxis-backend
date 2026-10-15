@@ -361,7 +361,7 @@ pub enum QueryValue {
 
 /// Parse Pydantic's decimal integer spelling without losing large-integer bounds.
 /// Values outside i64 saturate in i128; all declared bounds are i64.
-fn python_integer(text: &str) -> Option<i128> {
+pub(crate) fn python_integer(text: &str) -> Option<i128> {
     let text = text.trim();
     let (negative, digits) = if let Some(rest) = text.strip_prefix('-') {
         (true, rest)
