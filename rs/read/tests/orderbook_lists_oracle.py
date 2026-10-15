@@ -88,6 +88,96 @@ def check_query_count():
         admin("SELECT pg_reload_conf()")
 
 
+async def seed_mixed_sort_pages():
+    import importlib.util
+    from datetime import UTC, datetime
+
+    from sqlalchemy import text
+
+    from app.seeds.safety import seed_session
+
+    spec = importlib.util.spec_from_file_location(
+        "market_oracle", Path(__file__).with_name("market_contract_oracle.py")
+    )
+    oracle = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(oracle)
+    async with seed_session() as session:
+        columns = list((await session.execute(text(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema='public' AND table_name='orderbook_orders' "
+            "ORDER BY ordinal_position"
+        ))).scalars())
+        columns.remove("acceptance_ordinal")
+        replacements = {
+            "id": "CAST(:id AS uuid)",
+            "availability_window": "'2033-09'",
+            "price_per_mt_usd": ":price",
+            "quantity_mt": ":quantity",
+            "remaining_quantity_mt": ":quantity",
+            "created_at": "CAST(:created AS timestamptz)",
+            "status": "'OPEN'",
+            "idempotency_key": "NULL",
+            "idempotency_operation": "NULL",
+            "idempotency_request_hash": "NULL",
+        }
+        projection = [replacements.get(column, f'"{column}"') for column in columns]
+        statement = text(
+            "INSERT INTO orderbook_orders (" + ",".join(f'"{c}"' for c in columns)
+            + ") SELECT " + ",".join(projection)
+            + " FROM orderbook_orders WHERE id=:source"
+        )
+        # Insertion/acceptance order opposes ascending price. The middle price
+        # tie straddles a two-row page; quantities and creation times also vary.
+        for source in ("real_scalar_bid", "ask_ok"):
+            for index, (price, quantity, day) in enumerate(
+                ((900, 60, 12), (700, 100, 13), (700, 100, 14), (500, 80, 11))
+            ):
+                result = await session.execute(statement, {
+                    "id": oracle.fid(f"lists7b:mixed:{source}:{index}"),
+                    "source": oracle.fid("order:" + source),
+                    "price": price, "quantity": quantity,
+                    "created": datetime(2026, 10, day, 12, tzinfo=UTC),
+                })
+                assert result.rowcount == 1
+        await session.commit()
+
+
+def check_mixed_sort_pages():
+    from decimal import Decimal
+
+    for side in ("bids", "asks"):
+        path = "/api/orderbook/" + side
+        orders = {}
+        for sort in ("price_asc", "price_desc", "quantity_desc", "newest"):
+            query = f"availability_window=2033-09&sort_by={sort}"
+            full = compare(path, query + "&limit=100")
+            assert full["total"] == 4, "mixed-sort lane fixtures must be present"
+            rows = full["items"]
+            prices = [Decimal(row["price_per_mt_usd"]) for row in rows]
+            if sort.startswith("price_"):
+                assert prices == sorted(prices, reverse=sort == "price_desc")
+                assert len(set(prices)) == 3
+            elif sort == "quantity_desc":
+                keys = [(Decimal(row["remaining_quantity_mt"]), row["created_at"], row["id"]) for row in rows]
+                assert keys == sorted(keys, reverse=True)
+            else:
+                keys = [(row["created_at"], row["id"]) for row in rows]
+                assert keys == sorted(keys, reverse=True)
+            pages = []
+            for skip in (0, 2, 4):
+                page = compare(path, query + f"&skip={skip}&limit=2")
+                assert page["total"] == 4
+                pages.extend(page["items"])
+            assert pages == rows
+            orders[sort] = [row["id"] for row in rows]
+        assert orders["price_asc"] != orders["price_desc"]
+    # Legacy routes ignore sort_by and retain newest order even with mixed prices.
+    for path in ("/api/orderbook", "/api/orderbook/with-ci"):
+        rows = compare(path, "limit=100&sort_by=price_asc")
+        assert rows == sorted(rows, key=lambda row: (row["created_at"], row["id"]), reverse=True)
+    print("Task 7b: mixed-value sort pages matched on all four routes", flush=True)
+
+
 def check_integer_boundaries():
     oversized = "9223372036854775808"
     for path in ("/api/orderbook", "/api/orderbook/with-ci",
@@ -162,6 +252,8 @@ def main():
     import asyncio
     asyncio.run(check_ci_projection())
     check_query_count()
+    asyncio.run(seed_mixed_sort_pages())
+    check_mixed_sort_pages()
     print(f"Task 7b: {count} exact edge comparisons passed", flush=True)
 
 
