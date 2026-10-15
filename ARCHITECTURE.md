@@ -185,9 +185,9 @@ alembic/versions/               # Migrations incl. canonical availability-window
 ## Phase 0 acceptance boundary
 
 `outputs/phase0/acceptance.md` freezes the candidate Python oracle, frontend
-identity, union schema and test evidence. The Task 9 integrated gate is blocked
-by existing PostgreSQL migration-test assumptions and HTTP fixture failures;
-passing Phase 0-specific tests do not authorize host rehearsal. The existing
+identity, union schema and test evidence. Task 9's local migration-test and HTTP
+fixture blockers are closed after P0-2; independent sign-off and Linux-only
+proofs remain pending. Local tests do not authorize host rehearsal. The existing
 Phase 0 runner now checks every Phase 0 suite and local Review Focus case and
 records JUnit counts and artifact hashes under its disposable fixture directory.
 The frontend two-bundle evidence is reviewed separately, with its explicit PM

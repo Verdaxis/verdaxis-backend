@@ -3,8 +3,9 @@
 ## Phase 0 acceptance status
 
 The integrated candidate and eleven-category checklist are in
-[`outputs/phase0/acceptance.md`](../outputs/phase0/acceptance.md). Task 9 is blocked,
-not deployment approval. Linux must repeat the Bash deploy, `/proc` four-worker
+[`outputs/phase0/acceptance.md`](../outputs/phase0/acceptance.md). Task 9's local
+fixture blockers are closed; independent sign-off remains pending. This is not
+deployment approval. Linux must repeat the Bash deploy, `/proc` four-worker
 SSE and unprivileged-monitor checks. Task 10 must prove the loaded systemd fence,
 exact runtime tuple, provider isolation, restored backup and full switch-back.
 Do not enable host bootstrap/copy by changing policy JSON. Keep UTC and pilot KYC

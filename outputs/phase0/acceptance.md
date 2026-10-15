@@ -1,9 +1,82 @@
 # Phase 0 integrated acceptance and Rust handoff — 2026-10-16
 
-**Decision: BLOCKED. Task 9 is not accepted. No Task 10 or deployment approval.**
-The Phase 0-specific gate passes. The complete existing PostgreSQL and HTTP
-suites do not. Do not turn this report into a green release by omitting them.
+**Current decision: local fixture blockers closed; independent sign-off and Linux
+proofs pending. No host operation or deployment approval.**
+P0-2 and the final rerun below supersede the earlier blocked counts and candidate
+identity. Earlier evidence is retained as history, not current failure status.
 All runs finished; owned containers were removed with their volumes.
+
+## Current P0-2 acceptance — final local rerun
+
+Candidate backend/Python oracle: **`82f414847c2c8c2203a7ca42edd6be87a9830ba4`**.
+Frontend identity and schema/policy hashes below are unchanged. This candidate
+replaces `4be3fbb5`; Rust must rerun affected profile/inventory goldens. P0-2 is
+recorded in `docs/phase0/progress-task9.md` and changes no migration or data.
+
+| Completed check | Passed | Failed | Errors | Skipped |
+|---|---:|---:|---:|---:|
+| P0-2 failing tests before implementation | 0 | 2 | 0 | 0 |
+| P0-2 plus behavior tests after implementation | 40 | 0 | 0 | 0 |
+| Full unit | 2158 | 19 known Bash 3.2 | 0 | 0 |
+| Full monitor | 290 | 0 | 0 | 1 known platform skip |
+| Full Phase 0 runner | 153 | 0 | 0 | 0 |
+| Every remaining PostgreSQL suite | 261 | 0 | 1 Linux `/proc` fixture | 0 |
+| Complete guarded HTTP integration | 79 | 0 | 0 | 0 |
+| Ordinary migration drift checks | Both passed | 0 | 0 | 0 |
+
+The initial baseline comparison remains exact: staging had the same 49 HTTP
+failures and six errors, and passed all five migration cases. Those Phase 0
+migration regressions are now closed, and HTTP has no exceptions. No additional
+product defect was exposed after P0-2. The remaining unit/SSE/monitor limitations
+are the same platform limitations previously recorded, not new regressions.
+The entire suite was not rerun on staging; do not overstate the baseline sample.
+
+P0-2 fixes: nonexistent inventory port is **404 `Port not found`**, matching the
+port handler, before INSERT; a key-share lock protects the checked reference.
+Output `UserResponse.email` is a stored string, with no input revalidation or
+normalization. All email input validation remains strict. Both had failing tests
+before implementation. No data rewrite, filtering, auth relaxation or KYC change.
+
+HTTP tests now use current catalog IDs/labels, complete synthetic port and
+publication metadata, and the cookie refresh contract. The test client explicitly
+forwards Secure cookies over its attested HTTP-only loopback transport with the
+required `https://test` Origin. Production Secure flags are not changed; this
+is not browser TLS evidence. Per-test limiter reset remains confined to the
+secret-protected disposable wrapper. The current cookie/ID tests pass all 79 cases.
+
+Historical migration tests now build the predecessor independently. They retain
+specific lock/refusal/data-preservation and successful downgrade assertions.
+Union head/refusal expectations are separate. One intermediate run exposed five
+other historical tests using the new head; those were corrected and the entire
+PostgreSQL suite reran to completion. No assertion was replaced by a generic
+nonzero exit check.
+
+Evidence: `work/task9-p02-{unit,monitor}.log`,
+`work/task9-p02-postgres-final.log`, `work/task9-p02-http-final.log`, and
+`work/phase0-fixtures/6d8a0e36513b4d48b80a05b8a3b6c469/runner-evidence.json`.
+JUnit SHA-256:
+- Unit: `d68b1dd0c2e5bf8c7b610caed0b0bf349caf3aa76113a5d6a7b5762d8ab8a358`.
+- Monitor: `2e08151f4095f4ebc44bec9537e1a225e08a0a4a2cafd8abe82b4fd1d7afced3`.
+- PostgreSQL: `113da3e786c6f1a8e3c0a634c760af62075a3a97253cdfe3cc217a48146670a9`.
+- HTTP: `40bf2350068486d09a2cd93d6864736a8f4ee86c7ba03394d1992ca7d5827d80`.
+
+Unit/monitor/Phase 0 ran at `cc4c9245`; subsequent `82f41484` changes only one
+PostgreSQL test file's historical revision boundaries. The final PostgreSQL run
+used those bytes and the final HTTP run used `82f41484`. No application change
+occurred after the full unit run.
+
+Checklist update: **auth and products now pass the full HTTP gate; schema's five
+local migration blockers are closed.** The eleven other category scopes below
+remain unchanged. The known `/proc` SSE error, 19 Bash failures and monitor skip
+are owned by the Task 10 Linux operator. Host-mode authority, loaded systemd,
+backup/key recovery and full switch-back remain pending. Frontend evidence is
+still the prior 53/54 PM-exception gate: P0-2 preserves valid-email and existing-port
+contracts tested there, but its new error cases are unit/HTTP, not browser proof.
+Broader frontend cases already assigned below remain unmeasured.
+
+Integration evidence reviewer: **Task 9 integration owner (AI assistant)**.
+Current disposition: **local regressions resolved; independent PM/reviewer
+acceptance pending**. No signature from another person is implied.
 
 ## PM-authorized fixture follow-up — stopped on product error path
 

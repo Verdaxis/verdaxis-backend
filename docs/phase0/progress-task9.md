@@ -1,6 +1,51 @@
 # Phase 0 Task 9 — integrated acceptance
 
-## PM-authorized follow-up checkpoint
+## P0-2 — approved user-facing fixes and completed local rerun
+
+PM decision **P0-2** permits two user-facing Python bug fixes during the freeze.
+Commit `a73703ba` fixes both; their tests failed first (**2 failed**) and then
+passed with the behavior suite (**40 passed**).
+
+- Inventory creation checks the referenced port before INSERT and returns
+  **404 `Port not found`**, matching `app/routers/ports.py`. A key-share row lock
+  keeps a valid reference from being deleted during creation. No inventory,
+  reservation or event is written for a missing port.
+- `UserResponse` is an output-only BaseModel with a plain string email. It no
+  longer inherits input email validation/normalization and preserves stored bytes.
+  `UserCreate` and `LoginRequest` retain strict EmailStr validation. No stored
+  user row, email, KYC decision or copy mapping changes.
+
+Commits `cc4c9245` and `82f41484` repair HTTP cookie/origin/catalog fixtures and
+migration expectations. Historical cutoff, fee, receipt and organization guard
+proofs use independently migrated pre-union databases. Their specific refusal,
+lock and successful downgrade assertions remain intact; union head and union's
+own unconditional refusal are tested separately. One intermediate full run
+caught five historical tests still using the new head; the final correction
+keeps those historical boundaries explicit instead of weakening assertions.
+
+Final completed results:
+- HTTP: **79 passed**, zero failures/errors/skips (24.03 seconds).
+- All non-Phase-0 PostgreSQL files: **261 passed, 1 error**, zero test failures;
+  error is the unchanged Linux `/proc` four-worker fixture (625.83 seconds).
+- Phase 0 runner: **153 passed**, no failures/skips (282.11 seconds).
+- Full unit: **2158 passed, 19 known macOS Bash failures** (74.82 seconds).
+- Monitor: **290 passed, 1 known passwordless-nobody skip** (15.43 seconds).
+- Both ordinary drift checks and the union fresh/upgraded-schema checks pass.
+
+Candidate oracle: `82f414847c2c8c2203a7ca42edd6be87a9830ba4`. Unit/monitor/Phase 0
+ran at `cc4c9245`; the only subsequent source change is the explicit historical
+revision constants in one PostgreSQL test. The final full PostgreSQL run exercised
+those exact bytes and HTTP reran at the candidate. Application/schema bytes did
+not change after the full unit run. All runs finished, including the long
+PostgreSQL command. Owned containers/volumes were removed; no host or push.
+
+The PM's local no-new-failures bar is met for the measured regression set;
+HTTP is fully green. Linux-only deploy/SSE/monitor proofs and independent sign-off
+remain explicit gates, not passes. The exact baseline comparison is HTTP plus
+five migration cases; this is not a claim that every suite was rerun on staging.
+See the current section of acceptance for the remaining frontend/host limits.
+
+## PM-authorized follow-up checkpoint (historical; superseded above)
 
 Baseline on exact staging `b218ab2`: HTTP **24 passed, 49 failed, 6 errors**,
 with all 55 failing/error node IDs identical to Phase 0. The five migration tests
