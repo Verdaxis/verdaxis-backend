@@ -25,7 +25,7 @@
 - Do not contact live hosts or databases while implementing local tasks. Obtain separate operator approval for every live checklist, including a dry run (`CLAUDE.md:46-47`).
 - Run integration tests only against an attested numeric-loopback disposable target. Never weaken their collection guard (`tests/disposable_server.py:32-45`; `README.md:266-289`).
 - All implementation paths below are **proposed new paths**, unless marked Modify. Current-source claims use this worktree's `file:line` references. Estimates and recommendations are not live observations.
-- Keep temporary evidence in `work/rust-phase1/`. Keep final reports in `outputs/rust-phase1/`. Never commit database credentials, live bodies, or live query strings.
+- Keep temporary evidence in `work/rust-phase1/`; Task 1 adds `/work/` to `.gitignore` so it is never committed. Keep the progress file and final reports in `docs/rust-phase1/` (committed with the code). Never commit database credentials, live bodies, or live query strings.
 - Every implementation commit must be independently reviewable. End commit messages with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
 
 ## Review Focus
@@ -252,13 +252,13 @@ ENVIRONMENT=test RELEASE_SHA=test \
  venv/bin/python -m pytest tests/unit -q
 ```
 
-Each task's commit command includes only its listed files. Append the attribution trailer. Before each commit, run `git diff --check`. Record the task number, commit, commands, results, and remaining failures in `outputs/rust-phase1/progress.md`. A failed or skipped gate never becomes a checked box.
+Each task's commit command includes only its listed files. Append the attribution trailer. Before each commit, run `git diff --check`. Record the task number, commit, commands, results, and remaining failures in `docs/rust-phase1/progress.md`. A failed or skipped gate never becomes a checked box.
 
 ## Implementation tasks
 
 ### Task 1: Establish the workspace and compiled identity — Astra
 
-**Files:** Create `rs/Cargo.toml`, `rs/Cargo.lock`, `rs/rust-toolchain.toml`, `rs/read/Cargo.toml`, `rs/read/build.rs`, `rs/read/src/lib.rs`, `rs/read/src/main.rs`, `rs/read/tests/identity.rs`. Create `rs/contract/Cargo.toml`, `rs/contract/src/lib.rs`, and `rs/contract/src/main.rs` for the corpus runner. Create `outputs/rust-phase1/progress.md` during execution, not during plan writing.
+**Files:** Create `rs/Cargo.toml`, `rs/Cargo.lock`, `rs/rust-toolchain.toml`, `rs/read/Cargo.toml`, `rs/read/build.rs`, `rs/read/src/lib.rs`, `rs/read/src/main.rs`, `rs/read/tests/identity.rs`. Create `rs/contract/Cargo.toml`, `rs/contract/src/lib.rs`, and `rs/contract/src/main.rs` for the corpus runner. Create `docs/rust-phase1/progress.md` during execution, not during plan writing.
 
 **Interfaces:** Consumes `RELEASE_SHA` at build time. Produces `pub fn compiled_sha() -> &'static str` and `pub fn verify_release(value: &str) -> Result<(), &'static str>` in `verdaxis_read`. Task 4 fills the independent contract package; the read package never imports it.
 
@@ -341,7 +341,7 @@ cargo add --manifest-path rs/contract/Cargo.toml reqwest --features blocking,jso
 Read each resolved crate's local source for version-specific APIs before coding. Pin the resulting lockfile. If the requested SQLx release does not resolve or cannot support the toolchain, stop that dependency choice and report the exact error; do not silently choose another stack. No system package installation is authorized by this plan.
 
 - [ ] **Step 4: Run** the identity test, `cargo check --workspace`, rustfmt, and clippy. Expected pass. Record resolved crate versions and target triple in the progress file.
-- [ ] **Step 5: Commit.** `git add rs outputs/rust-phase1/progress.md && git commit -m 'build: establish Rust read workspace and release identity'` with the required trailer.
+- [ ] **Step 5: Commit.** `git add rs .gitignore docs/rust-phase1/progress.md && git commit -m 'build: establish Rust read workspace and release identity'` with the required trailer.
 
 **Resume point:** Task 2 starts from this commit. Verify `cargo test -p verdaxis-read --test identity` with the same build SHA before changing runtime configuration. Dependency resolution is a local implementation gate, not evidence of a Linux release build.
 
@@ -1367,7 +1367,7 @@ Only pure tests run in the offline job; `contract-tests` is not enabled. A separ
 export RELEASE_SHA="$GITHUB_SHA"
 venv/bin/python -m scripts.rust_contract.run_disposable \
   --group all --rust-target all --mixed-caddy --require-complete-ledger \
-  --report outputs/rust-phase1/ci-contract.json
+  --report docs/rust-phase1/ci-contract.json
 ```
 
 The runner owns lifecycle, allocates ephemeral ports, exports `DATABASE_URL`, `MIGRATOR_DATABASE_URL`, `PYTHON_CONTRACT_URL`, `RUST_CONTRACT_URL`, `DISPOSABLE_TARGET_URL`, `DISPOSABLE_TEST_TOKEN`, and `RELEASE_SHA`, validates all identities, and runs feature-gated contract targets plus the unchanged integration suite. It fails for absent cases, zero tests, skipped contract tests, or unmapped assertions. Check SQLx metadata with `cargo sqlx prepare --check` against that job's migrated disposable database. The **publish** job has `needs: [offline, contract]`; require both results to equal success, not skipped. It attests the exact binary digest tested by the contract job. Package policy/voyage/revision data and the complete coverage report. Commit `.sqlx` metadata; CI never receives staging secrets. The binary exposes `--version-json` before serving.
@@ -1589,14 +1589,14 @@ venv/bin/python -m pytest tests/integration -q \
 
 The runner must allocate free ephemeral ports, then render them into the Caddyfile. `59123` is an example chosen only after bind succeeds; never reuse occupied ports. Start `ENVIRONMENT=test RELEASE_SHA=<full-sha> python -m tests.disposable_server --port <python-port>` or the Task 4 wrapper, then Rust, then Caddy. Test the identity handshake before launching pytest. Keep request writes on Python; do not disable failing integration cases or alter their assertions to accommodate Rust.
 
-- [ ] **Step 4: Run** `venv/bin/python -m scripts.rust_contract.run_disposable --group all --rust-target all --mixed-caddy --require-complete-ledger --report outputs/rust-phase1/ci-contract.json`, then the full Python unit suite, pure Rust workspace tests, rustfmt, and clippy. Require the CI contract job and artifact publication dependency check to pass at this assembled commit. Every route/tool has nonzero case counts, zero unpassed assertions, and AD-01 counted separately. Expected pass. Run `cargo sqlx prepare --check` against the disposable schema. Capture exact pass/fail/skip counts. A skipped integration suite is not acceptance.
+- [ ] **Step 4: Run** `venv/bin/python -m scripts.rust_contract.run_disposable --group all --rust-target all --mixed-caddy --require-complete-ledger --report docs/rust-phase1/ci-contract.json`, then the full Python unit suite, pure Rust workspace tests, rustfmt, and clippy. Require the CI contract job and artifact publication dependency check to pass at this assembled commit. Every route/tool has nonzero case counts, zero unpassed assertions, and AD-01 counted separately. Expected pass. Run `cargo sqlx prepare --check` against the disposable schema. Capture exact pass/fail/skip counts. A skipped integration suite is not acceptance.
 - [ ] **Step 5: Commit** integration files: `git commit -m 'test: verify mixed Python Rust routing and integration parity'` with trailer.
 
 **Resume point:** Independent Astra review checks public exposure, SQL authority, DTO privacy, MCP transport, and dual-service release failures. Resolve findings before requesting operator approval for shadow activation.
 
 ### Task 14: Shadow, measure, and prepare the founder decision — Astra
 
-**Files:** Create `scripts/rust_contract/{shadow,measure,report}.py`, `tests/rust_contract/{test_shadow,test_measure}.py`, `outputs/rust-phase1/go-no-go.md`. Use `work/rust-phase1/` for raw benchmark samples. No changes to economic code in this task.
+**Files:** Create `scripts/rust_contract/{shadow,measure,report}.py`, `tests/rust_contract/{test_shadow,test_measure}.py`, `docs/rust-phase1/go-no-go.md`. Use `work/rust-phase1/` for raw benchmark samples. No changes to economic code in this task.
 
 **Interfaces:** Consumes the approved route corpus and both readiness identities. Produces Rust `pub fn passes_gate(contract_differences: u64, python_memory: u64, rust_memory: u64, python_p95: f64, rust_p95: f64) -> bool` in `rs/contract/src/lib.rs`, and a report with raw-evidence digests. CLI: `python -m scripts.rust_contract.shadow --config PATH --duration-seconds N`; `python -m scripts.rust_contract.measure --config PATH --output PATH`. Config is an explicit reviewed file; no implicit URL defaults.
 
@@ -1653,7 +1653,7 @@ Persist only candidate SHA, policy hash, route ID, case ID, status pair, field p
 7. Separately measure the **coexistence** footprint with Python still running and Rust active. Report Python + Rust combined memory and CPU, plus staging's 642 MiB supplied baseline. Do not call route-service savings a 50% reduction in whole-host or whole-backend memory. Python retains writers/SSE and may not shrink materially.
 8. Keep public-read concurrency and rate-limit ceilings in the report. The one-process Rust gate has two slots; Python has two slots per worker. If this creates overload or p95 regression at the agreed load, do not increase the gate silently. Review a pool/capacity change with the 100-connection budget and re-run parity and measurement.
 
-The measurement script reads cgroup counters directly and stores timestamped CSV samples plus request latency NDJSON under `work/rust-phase1/`. It writes only aggregate, redacted evidence and input hashes to `outputs/rust-phase1/`. No measured result is prefilled by this plan.
+The measurement script reads cgroup counters directly and stores timestamped CSV samples plus request latency NDJSON under `work/rust-phase1/`. It writes only aggregate, redacted evidence and input hashes to `docs/rust-phase1/`. No measured result is prefilled by this plan.
 
 - [ ] **Step 4: Run** local harness tests, then the authorized seven-day shadow and disposable benchmark. Expected pass only when all coverage, zero-difference, memory, and latency gates pass. Otherwise report no-go or inconclusive with exact failing conditions. Do not cut over a route group before its shadow interval passes.
 - [ ] **Step 5: Commit** harnesses and final aggregate report: `git commit -m 'test: document Rust Phase 1 parity and measured go no go'` with trailer.
@@ -1848,7 +1848,7 @@ sudo systemctl is-active --quiet caddy
 
 ## Go/no-go report template
 
-Write the completed report to `outputs/rust-phase1/go-no-go.md`. Keep all unknown results explicitly unmeasured until evidence exists.
+Write the completed report to `docs/rust-phase1/go-no-go.md`. Keep all unknown results explicitly unmeasured until evidence exists.
 
 ```markdown
 # Rust Phase 1 go/no-go
