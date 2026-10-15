@@ -40,7 +40,10 @@ def upgrade():
 def downgrade():
     # An empty disposable schema can downgrade; retained evidence cannot.
     connection = op.get_bind()
-    connection.execute(sa.text("LOCK TABLE kyc_documents IN ACCESS EXCLUSIVE MODE"))
+    # DROP also locks FK targets; acquire all locks without waiting first.
+    connection.execute(sa.text(
+        "LOCK TABLE users, organizations, kyc_documents IN ACCESS EXCLUSIVE MODE NOWAIT"
+    ))
     if connection.execute(sa.text("SELECT EXISTS (SELECT 1 FROM kyc_documents)")).scalar():
         raise RuntimeError("Cannot downgrade while KYC documents are retained")
     op.drop_table("kyc_documents")

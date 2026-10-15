@@ -31,3 +31,21 @@ def test_credentials_are_optional_at_systemd_boundary():
         unit = Path(f"deploy/systemd/verdaxis-backend{suffix}.service").read_text()
         assert f"LoadCredential=kyc-document-keys:/etc/verdaxis/kyc-document-keys{key_suffix}.json" in unit
         assert "SetCredential=kyc-document-keys:\n" in unit
+
+
+def test_downgrade_locks_fk_targets_nowait_before_read_or_drop(monkeypatch):
+    import importlib.util
+    from unittest.mock import Mock
+    spec = importlib.util.spec_from_file_location("vault_migration", "alembic/versions/kycd_20261015_staging.py")
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+    connection = Mock()
+    connection.execute.return_value.scalar.return_value = False
+    monkeypatch.setattr(migration.op, "get_bind", lambda: connection)
+    drop = Mock()
+    monkeypatch.setattr(migration.op, "drop_table", drop)
+    migration.downgrade()
+    statements = [str(call.args[0]) for call in connection.execute.call_args_list]
+    assert statements[0] == "LOCK TABLE users, organizations, kyc_documents IN ACCESS EXCLUSIVE MODE NOWAIT"
+    assert statements[1] == "SELECT EXISTS (SELECT 1 FROM kyc_documents)"
+    drop.assert_called_once_with("kyc_documents")
