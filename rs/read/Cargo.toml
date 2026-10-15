@@ -4,6 +4,10 @@ version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true
 
+[[test]]
+name = "runtime_postgres"
+required-features = ["contract-tests"]
+
 [features]
 contract-tests = []
 
@@ -14,6 +18,7 @@ verdaxis-contract = { path = "../contract" }
 axum = "0.8"
 chrono = { version = "0.4.45", features = ["serde"] }
 chrono-tz = "0.10.4"
+percent-encoding = "2.3.2"
 rmcp = { version = "3.5.1", features = ["server", "transport-streamable-http-server"] }
 rust_decimal = "1.43.0"
 serde = { version = "1.0.229", features = ["derive"] }
@@ -25,5 +30,6 @@ tower = { version = "0.5.3", features = ["util"] }
 tower-http = { version = "0.7.1", features = ["cors"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["json", "env-filter"] }
+url = "2.5.8"
 utoipa = "6.0.0"
 uuid = { version = "1.28.0", features = ["serde", "v4"] }

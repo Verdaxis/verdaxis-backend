@@ -112,3 +112,92 @@ Task 2 starts from this implementation commit, after separate authorization.
 Set `RELEASE_SHA` to the current full commit SHA and rerun the identity test
 before runtime configuration work. The local build proves macOS dependency
 compatibility only, not Linux release compatibility or deployment readiness.
+
+## Task 2 — Initial stop (resolved by plan correction 1d52cd9)
+
+- Date: 2026-10-15.
+- Base: `8bd4d95` on `feat/rust-phase-1-20261015`.
+- Resume check: with a fresh `export RELEASE_SHA=$(git rev-parse HEAD)`,
+  `cargo test --manifest-path rs/Cargo.toml --locked -p verdaxis-read --test identity`
+  passed (1 test) on local Homebrew Rust 1.95.0.
+- Blocker: Task 2 requires the Python oracle's recorded SQL session timezone
+  (`docs/plans/2026-10-15-rust-phase-1-plan.md:412`), but no recorded value was
+  found in the current Rust source, progress documents, design, or convergence
+  analysis. Task 4 creates the oracle. The current `Config` has no session
+  timezone field, and Python's `engine_options` does not set a timezone.
+- Stopped before adding tests or implementation, as instructed for a plan gap.
+  No timezone was assumed and no later-task work was started.
+- The explicit Task 2 instruction takes precedence over stale prose: Rust pool
+  maximum is 9; expected budget totals are 61 and 109, not 55 and 103.
+- Not run: Task 2 tests, workspace tests, clippy, and rustfmt. No code changed.
+  PostgreSQL authority, revision, and successful-readiness tests also remain
+  unrun because no local PostgreSQL is running and starting one is prohibited.
+- Resume point: obtain the approved recorded SQL timezone, or an approved plan
+  correction for how Task 2 obtains it. Then begin Task 2 with failing tests.
+  Task 3 remains blocked. No implementation commit, push, live access, agents,
+  or background jobs were made.
+
+## Task 2 — Implementation; PostgreSQL acceptance pending
+
+- Resumed from Task 1 `3952534`, after correction `1d52cd9`.
+- Implementation checkpoint uses the planned message:
+  `feat: add bounded Rust runtime and checkpoint admission`.
+- Rust inherits the server TimeZone; startup reads it once and logs
+  `database_timezone`. Golden timezone parity remains Task 4, as instructed.
+- The compiled revision is `kycg_20261014_staging`. Staging requires
+  `verdaxis_app_staging` on `127.0.0.1:5432/verdaxis_staging`; production is refused.
+  Pool min/max is 0/9, with 30-second acquisition and read-only session defaults.
+- Effective budget tests cover 61/109, changed workers/overflow/reserve,
+  independent configured/observed limits, and integer overflow.
+- Preparation CLI: `python scripts/prepare_rust_budget.py --environment-file PATH
+  --release-sha FULL_SHA --output NEW_PATH`. Add `--verify` for prestart drift
+  checks. Output creation is exclusive and mode 0600. Inputs use no-follow
+  regular-file reads. Settings run in an isolated child with no ambient values.
+- Staging `connect` requires `RUST_PREPARED_BUDGET` containing that artifact's
+  JSON, validates its release and arithmetic against Config, and checks observed
+  capacity. Task 12 owns passing this metadata and invoking verification under
+  the deployment lock. Rust never reads `.env` or opens migrator credentials.
+
+### Evidence and checks
+
+All Cargo commands used local Rust 1.95 and a fresh
+`export RELEASE_SHA=$(git rev-parse HEAD)`. Commands ran in the foreground.
+
+- Resumed identity test: pass (1 test).
+- Runtime test first failed with missing exports (exit 101), then passed.
+  Evidence: `work/rust-phase1/runtime-red.txt`.
+- Prepared-budget test first failed with the missing validator (exit 101).
+  Evidence: `work/rust-phase1/prepared-budget-red.txt`.
+- Budget helper tests first failed because the helper did not exist (exit 1).
+  Evidence: `work/rust-phase1/budget-red.txt`.
+- `cargo test --manifest-path rs/Cargo.toml --locked --workspace`: pass,
+  1 identity test plus 7 runtime tests.
+- `cargo clippy --manifest-path rs/Cargo.toml --locked --workspace --all-targets
+  --all-features -- -D warnings`: pass, including contract test compilation.
+- `cargo fmt --manifest-path rs/Cargo.toml --all -- --check`: pass.
+- `cargo test --manifest-path rs/Cargo.toml --locked --features contract-tests
+  --test runtime_postgres --no-run`: pass (compile only).
+- `work/rust-phase1/venv/bin/python tests/unit/test_rust_budget.py`: pass, 3 tests.
+  Initial execution exposed missing isolated Python packages, then a missing
+  RELEASE_SHA in the synthetic fixture. Both were corrected. Temporary Python
+  packages are in `work/`; no system packages were installed.
+- `git diff --check`: pass.
+
+### Remaining gates and scope
+
+- PostgreSQL tests were not executed: no local server exists and starting one
+  was prohibited. No database or live host was contacted. The feature-gated
+  tests cover role membership, session limits, max_connections, health bodies,
+  app denial on alembic_version, and zero/multiple/singleton revision rows using
+  the unchanged migrator verifier. They require pre-provisioned disposable roles
+  and `RUST_TEST_DATABASE_URL`, `RUST_TEST_MEMBER_DATABASE_URL`,
+  `RUST_TEST_MIGRATOR_DATABASE_URL`, and an absolute `RUST_TEST_PYTHON`.
+- Full Python unit suite was not run: no project `venv` is present. Only the new
+  standalone budget tests ran in the temporary environment.
+- Added a separate contract target and Python helper tests to keep offline tests
+  independent of PostgreSQL. Added direct URL/percent-decoding dependencies and
+  the target manifest entry. These support Task 2 only.
+- Updated ARCHITECTURE.md. Codesight refresh remains deferred as in Task 1;
+  generated summaries are not acceptance evidence.
+- Task 2 is not fully accepted until the PostgreSQL tests pass. Task 3 was not
+  started. No routes, deployment wiring, pushes, agents, or background jobs.

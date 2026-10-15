@@ -23,6 +23,15 @@ shared types and build-time release identity; its binary only prints that
 identity. `verdaxis-contract` is an empty independent library and CLI scaffold,
 used only as a development dependency of `verdaxis-read`. No Rust routes,
 database connections, or deployment changes are implemented in Task 1.
+
+Task 2 adds `rs/read/src/runtime/` for configuration, pool authority, and health
+checks. The pool has nine connections and read-only session defaults. Startup
+checks the compiled revision allowlist, exact database role, memberships, and
+connection budget, then logs the inherited server timezone. It does not open a
+migrator connection. `scripts/prepare_rust_budget.py` creates private budget
+metadata and verifies environment-file drift. Staging pool startup consumes
+that metadata through `RUST_PREPARED_BUDGET` (JSON); deployment wiring remains
+owned by Task 12. The binary still only prints its compiled identity.
 See `docs/rust-phase1/progress.md` for the local checks and resume point.
 
 ## File Map

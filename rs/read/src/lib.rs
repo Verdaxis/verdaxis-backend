@@ -1,3 +1,18 @@
+pub mod runtime;
+pub use runtime::config::{check_revision, connection_budget, validate_budget, validate_config};
+pub use runtime::db::connect;
+pub use runtime::health::{live, ready};
+
+impl ApiError {
+    pub fn internal() -> Self {
+        Self {
+            status: axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            detail: serde_json::json!("Database operation failed."),
+            retry_after: None,
+        }
+    }
+}
+
 pub type Json = serde_json::Value;
 pub type ApiResult = Result<axum::response::Response, ApiError>;
 
