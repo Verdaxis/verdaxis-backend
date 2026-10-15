@@ -18,6 +18,80 @@ BIOFUELS = {
     "B100": ("74eb9cb5-f0e3-55f1-b82c-fe29b7c45bf5", "ISO 8217:2024 DFA"),
 }
 
+# Frozen production identity: unit and user-visible description.
+BIOFUEL_CATALOG_IDENTITY = {
+    "B30": {
+        "unit": "MT",
+        "spec_description": (
+            "30% FAME by volume blended with 70% VLSFO; finished blend meets "
+            "ISO 8217:2024 RF 380 with sulphur at most 0.50% by mass"
+        ),
+    },
+    "B100": {
+        "unit": "MT",
+        "spec_description": (
+            "100% FAME, excluding HVO; finished fuel meets ISO 8217:2024 DFA "
+            "with sulphur at most 0.10% by mass"
+        ),
+    },
+}
+
+PRODUCTION_SEED_PORTS = (
+    "Dalian", "Busan", "Shanghai", "Singapore",
+    "Rotterdam", "Houston", "Los Angeles", "Santos",
+)
+
+# Frozen production seed price bands (bid_lo, bid_hi, ask_lo, ask_hi) in USD/MT.
+PRODUCTION_SEED_PRICE_BANDS = {
+    "B30": {
+        "Dalian": (1085, 1105, 1105, 1125),
+        "Busan": (1085, 1105, 1105, 1125),
+        "Shanghai": (1085, 1105, 1105, 1125),
+        "Singapore": (1085, 1105, 1105, 1125),
+        "Rotterdam": (849, 869, 869, 889),
+        "Houston": (1085, 1105, 1105, 1125),
+        "Los Angeles": (1085, 1105, 1105, 1125),
+        "Santos": (1085, 1105, 1105, 1125),
+    },
+    "B100": {
+        "Dalian": (1342, 1362, 1362, 1382),
+        "Busan": (1342, 1362, 1362, 1382),
+        "Shanghai": (1342, 1362, 1362, 1382),
+        "Singapore": (1342, 1362, 1362, 1382),
+        "Rotterdam": (1342, 1362, 1362, 1382),
+        "Houston": (1342, 1362, 1362, 1382),
+        "Los Angeles": (1342, 1362, 1362, 1382),
+        "Santos": (1342, 1362, 1362, 1382),
+    },
+}
+
+# Frozen production CI/LCV tuples: (ci_lo, ci_hi, energy_density_mj_kg).
+PRODUCTION_SEED_CI_LCV = {"B30": (70, 80, 39.5), "B100": (15, 30, 37.2)}
+
+# Frozen seed-matrix benchmark midpoints per port, in USD/MT.
+PRODUCTION_SEED_BENCHMARKS = {
+    "B30": {
+        "Dalian": Decimal("1105.00"),
+        "Busan": Decimal("1105.00"),
+        "Shanghai": Decimal("1105.00"),
+        "Singapore": Decimal("1105.00"),
+        "Rotterdam": Decimal("869.00"),
+        "Houston": Decimal("1105.00"),
+        "Los Angeles": Decimal("1105.00"),
+        "Santos": Decimal("1105.00"),
+    },
+    "B100": {
+        "Dalian": Decimal("1362.00"),
+        "Busan": Decimal("1362.00"),
+        "Shanghai": Decimal("1362.00"),
+        "Singapore": Decimal("1362.00"),
+        "Rotterdam": Decimal("1362.00"),
+        "Houston": Decimal("1362.00"),
+        "Los Angeles": Decimal("1362.00"),
+        "Santos": Decimal("1362.00"),
+    },
+}
+
 
 def biofuel_order(code, **changes):
     identity, standard = BIOFUELS[code]
@@ -40,6 +114,37 @@ def test_production_identity_and_minimum(code):
     assert spec.min_lot_size == Decimal(200)
     assert spec.execution_mode == "ORDERBOOK"
     assert spec.available_delivery_point_ids is None
+
+
+@pytest.mark.parametrize("code", BIOFUELS)
+def test_production_identity_pins_unit_and_description(code):
+    spec = PRODUCTS_BY_CODE[code]
+    expected = BIOFUEL_CATALOG_IDENTITY[code]
+    assert spec.unit == expected["unit"]
+    assert spec.spec_description == expected["spec_description"]
+
+
+def test_production_seed_price_bands_are_pinned():
+    from app.seeds.market_seed import PRICING
+
+    for code, bands in PRODUCTION_SEED_PRICE_BANDS.items():
+        assert PRICING[code] == bands
+        assert set(PRICING[code]) == set(PRODUCTION_SEED_PORTS)
+
+
+def test_production_seed_ci_and_lcv_are_pinned():
+    from app.seeds.market_seed import CI_DATA
+
+    for code, values in PRODUCTION_SEED_CI_LCV.items():
+        assert CI_DATA[code] == values
+
+
+def test_production_seed_benchmark_midpoints_are_pinned():
+    from app.services.benchmarks import _base_benchmark_price
+
+    for code, expected in PRODUCTION_SEED_BENCHMARKS.items():
+        for port in PRODUCTION_SEED_PORTS:
+            assert _base_benchmark_price(code, port) == expected[port]
 
 
 def test_eight_product_preferences_round_trip():
