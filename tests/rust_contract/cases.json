@@ -324,9 +324,10 @@
       {
         "id": "T4B-negative-fame-holder",
         "method": "GET",
-        "path": "/api/orderbook/asks",
+        "path": "/api/listings",
         "fixture": "T4B-negative-fame",
-        "expectation": "Python response for deliberately blank certificate_holder; isolated from positive reads"
+        "expectation": "Python response for deliberately blank certificate_holder; isolated from positive reads",
+        "query": "limit=100"
       }
     ],
     "orderbook_map": [
