@@ -39,6 +39,8 @@ async def seed():
         ]
         for name, age, quantity, price in fixtures:
             await session.execute(text(oracle.INSERT_TRADE), {**base, "id": uid(name), "confirmed_at": clock-age, "quantity_mt": quantity, "price_per_mt_usd": price})
+        for name, places in [("scale-below", 4), ("scale-at", 25), ("scale-above", 30)]:
+            await session.execute(text(oracle.INSERT_TRADE), {**base, "id": uid(name), "availability_window": "2026-12", "confirmed_at": clock-timedelta(minutes=places), "quantity_mt": "1." + "0"*places, "price_per_mt_usd": "2.00"})
         for name, overrides in [("unknown", dict(buyer_provenance="UNKNOWN")), ("mixed", dict(seller_provenance="DEMO")), ("legacy",dict(market_snapshot_version=0))]:
             try:
                 async with session.begin_nested():
@@ -70,7 +72,7 @@ def compare_populated():
     problems=differences(expected,actual)
     assert not problems, problems
     bodies = [entry['exchange']['body'] for entry in actual]
-    summaries = [s for s in bodies[0]['summaries'] if s['product_id'] == str(product.id) and s['source_kind'] == 'CONFIRMED_TRADE']
+    summaries = [s for s in bodies[0]['summaries'] if s['product_id'] == str(product.id) and s['source_kind'] == 'CONFIRMED_TRADE' and s['availability_window'] == 'SPOT']
     assert len(summaries) == 1
     summary = summaries[0]
     assert summary['trade_count_24h'] == 3
@@ -78,6 +80,12 @@ def compare_populated():
     assert summary['last_price'] == '12.50'
     assert summary['real_trade_count_24h'] == 3 and summary['demo_trade_count_24h'] == 0
     tape = bodies[5]['items']
+    by_id = {item['id']: item for item in tape}
+    for name, places in [("scale-below", 4), ("scale-at", 25), ("scale-above", 30)]:
+        item = by_id[uid(name).hex[:8]]
+        assert item['quantity_mt'] == '1.' + '0'*places
+        assert item['price_per_mt_usd'] == '2.00'
+        assert item['total_usd'] == '2.' + '0'*min(places+2, 27)
     ids = {item['id'] for item in tape}
     assert uid('week-equality').hex[:8] in ids
     assert uid('week-outside').hex[:8] not in ids
