@@ -320,6 +320,13 @@
         "method": "GET",
         "path": "/api/orderbook/asks",
         "query": "region=Europe"
+      },
+      {
+        "id": "T4B-negative-fame-holder",
+        "method": "GET",
+        "path": "/api/orderbook/asks",
+        "fixture": "T4B-negative-fame",
+        "expectation": "Python response for deliberately blank certificate_holder; isolated from positive reads"
       }
     ],
     "orderbook_map": [

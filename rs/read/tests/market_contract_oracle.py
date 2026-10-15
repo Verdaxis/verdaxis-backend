@@ -264,6 +264,11 @@ async def seed(session, clock: datetime) -> dict:
         "physical_supplier_name": "Fixture supplier",
     }
 
+    from app.schemas.fame_order import FameAskTerms
+    from app.schemas.lng_order import LngAskTerms
+    fame_terms = FameAskTerms.model_validate(fame_terms).model_dump(mode="json")
+    lng_terms = LngAskTerms.model_validate(lng_terms).model_dump(mode="json")
+
     future = clock + timedelta(hours=24)
     past = clock - timedelta(hours=24)
     rows = [

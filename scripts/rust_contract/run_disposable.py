@@ -361,6 +361,9 @@ CREATE EXTENSION IF NOT EXISTS postgis;
             raise TimeoutError("recording deadline exceeded (stream did not close)")
 
         for group, requests in cases.items():
+            if group == "mcp":
+                print("RECORD_EXCLUDED mcp: decision 19; Task 11", flush=True)
+                continue
             previous = signal.signal(signal.SIGALRM, deadline)
             try:
                 signal.alarm(90)

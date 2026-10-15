@@ -253,6 +253,11 @@ async def seed_corpus(session):
     matrix = matrix_module()
     os.environ["RUST_MARKET_EXPECTED_DATABASE"] = os.environ["SEED_TARGET_DATABASE"]
     guards = await matrix.seed(session, now)
+    # Keep the intentional malformed declaration out of positive collections.
+    await session.execute(
+        text("UPDATE orderbook_orders SET status='CANCELLED' WHERE id=:id"),
+        {"id": matrix.fid("order:typed_invalid_visible")},
+    )
     # Stable timestamps prevent wall-clock sort order and response drift.
     await session.execute(
         text("UPDATE orderbook_orders SET created_at=:now, updated_at=:now"),
