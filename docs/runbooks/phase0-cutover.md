@@ -71,7 +71,10 @@ The database check opens a read-only backup connection, compares database/OID,
 role, endpoint and revision, and queries the cluster identifier independently
 through local PostgreSQL administrator peer authentication. No control privilege
 is granted to the app or backup role. `outbox-empty` requires stopped writers,
-no pending jobs, no app sessions and a fresh zero count of NULL `stream_seq`.
+no pending jobs, no other database sessions and a fresh zero count of NULL
+`stream_seq`. The gate excludes only its own backend PID. Idle psql sessions,
+CLIs, timers and backup connections also block it; let their owners close them.
+Do not change old database grants or terminate unknown sessions to pass the gate.
 `timers` proves quiescence; it does not restore timers.
 
 ## Install the separate fence before any source replacement
@@ -94,8 +97,25 @@ ExecStartPre=+/usr/bin/python3 -I /opt/verdaxis-phase0/start_fence.py --environm
 Do not clear existing `ExecStartPre` entries. The normal deploy-start guard and
 migration revision check remain independent. The `+` prefix lets this one guard
 read the root-only control directory; it does not run the backend as root.
-Run `systemd-analyze verify` and inspect effective unit bytes. Missing control
-paths, malformed/dangling fence files, stale permits and released locks deny.
+Run `systemd-analyze verify` on the installed unit, then load the drop-in into
+systemd **before any source replacement**. File inspection alone is not enough:
+
+```bash
+sudo systemd-analyze verify /etc/systemd/system/verdaxis-backend.service
+sudo systemctl daemon-reload
+sudo systemctl show verdaxis-backend.service \
+  -p LoadState -p NeedDaemonReload -p DropInPaths -p ExecStartPre
+```
+
+Stop unless `LoadState=loaded`, `NeedDaemonReload=no`, `DropInPaths` includes the
+exact `90-phase0-fence.conf` path, and the manager's `ExecStartPre` includes the
+external guard with `--database verdaxis_prod`, the normal two-lock guard and
+migration check. Record the loaded command list and the fence file digest.
+The fence is active as a loaded start condition, not a separate running service.
+Keep the old workers only for the drain below; do not restart them for this check.
+In the isolated Linux rehearsal, prove a no-permit start is denied with the unit
+already cached before installation. Missing control paths, malformed/dangling
+fence files, stale permits and released locks deny.
 After final acceptance remove the permit and fence deliberately; retain the
 valid control directory while the drop-in remains installed.
 
@@ -175,6 +195,20 @@ attested units and old `.env` (`verdaxis`), runtime and monitor identity. Restor
 the old backup configuration. Change only the external drop-in's literal database
 to `verdaxis`; its SHA still comes from the restored runtime release file.
 Do not run the old SHA through the new migration graph or new ACL helper.
+Before issuing an old-tuple permit or starting workers, load the restored units:
+
+```bash
+sudo systemd-analyze verify /etc/systemd/system/verdaxis-backend.service
+sudo systemctl daemon-reload
+sudo systemctl show verdaxis-backend.service \
+  -p LoadState -p NeedDaemonReload -p DropInPaths -p ExecStartPre
+```
+
+Stop unless `LoadState=loaded`, `NeedDaemonReload=no`, the exact fence is in
+`DropInPaths`, and `ExecStartPre` contains the external guard with `--database
+verdaxis` plus both original guards. Check restored tuple digests again. The
+fence must be loaded and active before the restart block; an old file on disk
+with the new command cached in the manager is not acceptable.
 
 The reviewed one-use restart block uses the existing ABI, as the service owner:
 
@@ -228,3 +262,29 @@ hash report digests. Example (synthetic):
 Before reopening, record the signed lossless rollback boundary. After reopening,
 write an explicit `customer-writes-open` entry: pre-write rollback is no longer
 available. No tool here interprets the journal or executes its contents.
+
+## Reopen public access and refresh cached pilot tabs
+
+At reopening, the operator checks that the **new frontend entry HTML** is live
+at the production frontend URL, with the approved hashed entry asset. This lets
+the **existing update banner** appear in old tabs on its next check (on mount,
+visibility return or five-minute polling). The founder sends a short **"please refresh"** note to **active pilot users** when public access reopens.
+
+PM accepts the pilot's short old-tab window: an old tab can display EUR 0 for an
+unknown ETS cost until the user refreshes. Maintenance and login do not reload
+cached JavaScript. Do not delete old assets, add forced reloads, require per-user
+confirmation or add a compatibility release. The founder can override this
+choice before cutover; revisit it after public launch. Decision source: frontend
+`docs/phase0/cached-bundle-options.md`, 2026-10-16 03:22 SGT.
+
+## Re-check after the PM merges Task 4b
+
+Task 4b has landed on `feat/phase0-convergence-20261016` with union revision
+`p0_20261016_union`. It is not merged into this lane. After the PM merges, rerun
+bootstrap and copy proofs, exact production Settings/role/ACL assertions, the
+union-to-union checkpoint deploy, monitor identity publication and this fence
+suite. Recompute approved tuple/unit digests from the combined full SHA. Verify
+the loaded fence again after immutable unit installation and check the final
+installed tuple before issuing a permit. Before installation, use a separately
+approved transitional manifest for the currently installed units; never pretend
+that their digests are already the new unit digests.
