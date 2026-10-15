@@ -96,7 +96,7 @@ async def _database_facts(manifest: dict) -> tuple[dict, int, int]:
             database, oid = await connection.fetchrow(
                 "SELECT current_database(), oid FROM pg_database WHERE datname=current_database()")
             role, host, port = await connection.fetchrow(
-                "SELECT current_user, inet_server_addr()::text, inet_server_port()")
+                "SELECT current_user, host(inet_server_addr()), inet_server_port()")
             safe_role = await connection.fetchval("""SELECT rolcanlogin AND NOT rolinherit AND NOT rolsuper
                 AND NOT rolcreatedb AND NOT rolcreaterole AND NOT rolreplication
                 AND NOT rolbypassrls AND NOT EXISTS

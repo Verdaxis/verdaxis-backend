@@ -31,7 +31,20 @@ async def assertion_database(monkeypatch):
         GRANT SELECT ON alembic_version, market_event_outbox TO verdaxis_backup;
     """)
     oid = await connection.fetchval("SELECT oid FROM pg_database WHERE datname=current_database()")
+    server_host, server_port = await connection.fetchrow(
+        'SELECT host(inet_server_addr()), inet_server_port()')
     await connection.close()
+    # Colima NAT changes the server-visible endpoint. Check it exactly, then
+    # translate only that known mapping; production retains strict loopback checks.
+    require_identity = assert_host.require_identity
+
+    def require_container_identity(expected, actual):
+        if actual is not expected:
+            assert (actual['host'], actual['port']) == (server_host, server_port)
+            actual = dict(actual, host='127.0.0.1', port=port)
+        require_identity(expected, actual)
+
+    monkeypatch.setattr(assert_host, 'require_identity', require_container_identity)
     manifest = dict(hostname=socket.gethostname().split('.')[0], password_file='/synthetic',
                     identity=dict(database='verdaxis', database_oid=oid,
                                   cluster_id=os.environ['PHASE0_CLUSTER_ID'],
