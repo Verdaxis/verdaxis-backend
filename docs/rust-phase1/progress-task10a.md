@@ -91,6 +91,43 @@ One intermediate workspace run failed because the extracted SQL comment had a
 semicolon and the existing single-statement test rejects all semicolons. Removed
 that comment punctuation; the test passes without changing its assertion.
 
+## Acceptance review repairs (2026-10-16)
+
+- M1: price aggregates now return PostgreSQL NUMERIC text. `CurvePrice` keeps
+  that wire text separate from its arithmetic value. Only trailing fractional
+  zeroes are removed for arithmetic; the database's cent-value and price bounds
+  make that conversion exact. Alias selection keeps the selected row's spelling,
+  including ties. JSON and CSV do not pass price text through SQLx Decimal.
+- New database/HTTP tests use prices with 2, 27, 28 and 30 decimal places,
+  including nonzero cents and trailing zeroes. They compare exact JSON and CSV
+  against Python and assert the expected price text, midpoint and spread.
+  Fixtures insert new rows through normal guards rather than changing an
+  immutable slice. No constraint or trigger is disabled.
+- N1: the matrix now compares each product with each stored delivery point and
+  an absent UUID. Separate windows isolate ordinary PENDING-KYC and assisted
+  advisory-member cases for both switch states. Semantic requests are paced to
+  let Python release its streaming-response admission permit; unexpected status
+  codes fail instead of being retried or ignored.
+- TDD evidence: `work/review-task10a/m1-red4.log` runs the old implementation
+  against the new legal fixtures: 154 matrix comparisons pass, then 30-place
+  JSON bid/ask and CSV bytes fail. The 2-, 27- and 28-place cases pass first.
+  The initial unit compile failure is in `m1-unit-red.log`; the repaired four
+  curve unit tests pass in `m1-unit-green.log`. Earlier HTTP attempts failed
+  before the target assertion (admission cleanup, seed timeout, and an immutable
+  slice update); these are not counted as the M1 red proof.
+- Repair checks: fmt and clippy pass; workspace **78 passed**; PostgreSQL runner
+  **85 passed**; shared market runner **2 passed**; Python contract harness
+  **59 passed**, 5 existing warnings. The ordinary `curves_legacy` group passes
+  with KYC enabled and disabled: each run has **1 contract test**, **4 standard
+  cases**, **154 product/point comparisons**, and **8 price-scale comparisons**.
+  Logs are under `work/review-task10a/` (`cargo-committed.log`,
+  `postgres-final.log`, `market-final3.log`, `python-final2.log`,
+  `contract-enabled.log`, `contract-disabled.log`). One earlier shared-market
+  run overlapped an incomplete local edit and failed to compile; its completed
+  rerun passes. No failed run is presented as a pass.
+- Scope: volume handling is unchanged. This repair targets price wire scale,
+  as assigned by the PM. No Task 4b golden files or shared harness code changed.
+
 ## Deviations and boundaries
 
 - The runner has no `--rust-target` option. Used its existing group dispatch and
