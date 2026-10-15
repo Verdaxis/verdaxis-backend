@@ -194,7 +194,7 @@ alembic/versions/               # Migrations incl. canonical availability-window
 - **Rate limiting:** slowapi per-route (5/min login, 3/min password, 60/min prices, 30/min reference)
 - **Market request admission:** Orderbook and trade commands cap the aggregate JSON request body at 64 KiB before body parsing; larger bodies return HTTP 413. Selected public market GETs and MCP database tools share one per-worker limiter created in `main.py`, with capacity `max(DB_POOL_SIZE + DB_MAX_OVERFLOW - 1, 0)`; the in-memory MCP catalog bypasses it. This reserves one database connection per worker against those reads; a busy gate returns HTTP 503 with `Retry-After: 1`, while private reads and commands bypass the gate.
 - **Availability windows:** Persist canonical codes (`SPOT`, `YYYY-MM`, `YYYY-QN`, legacy-compatible `YYYY-CAL`); UI-relative labels like `M+1` must be resolved before persistence
-- **Managed demo book:** The four alcohol demo markets share one UTC pricing clock and ten distinct bids and asks per port/window across the five-year horizon. Spot anchors stay fixed; forwards add a disclosed synthetic 3% annual carry on an ACT/365 basis. Bootstrap and periodic refresh use the same managed coverage; activity adds matched history only. Managed demo-only curves use the current book midpoint while retaining historical evidence. UCOME B100 has no synthetic seed liquidity. Refresh preserves order identity and pins; pruning retains linked customer and trade history.
+- **Managed demo book:** The four alcohol and two scalar biofuel demo markets share one UTC pricing clock and ten distinct bids and asks per port/window across the five-year horizon. Spot anchors stay fixed; forwards add a disclosed synthetic 3% annual carry on an ACT/365 basis. Bootstrap and periodic refresh use the same managed coverage; activity adds matched history only. Managed demo-only curves use the current book midpoint while retaining historical evidence. UCOME B100 has no synthetic seed liquidity. Refresh preserves order identity and pins; pruning retains linked customer and trade history.
 - **B100 shared orderbook:** UCOME B100 is ORDERBOOK-enabled on the existing Singapore lane, with typed side-specific `fame_terms`, shared execution compatibility and immutable trade/negotiation snapshots. Marketplace, Map, price evidence and forward curves use the same catalog identity. Prior indicative supplier offers/RFQs retain their original meaning and are not converted into executable orders. The deployment checkpoint is `fame_20260922_b100_orderbook`.
 - **Green-fuels market model:** Matching and live slice benchmarks key on `side + market_product + delivery_point + availability_window`; supplier sustainability/compliance fields stay out of the hard market key
 - **Orderbook read performance:** List responses reuse joined product/delivery-point rows and eager-load organization data. Benchmark inputs are fetched once for all requested slices, including cached missing results within the request. `/orderbook/map-summary` returns all eligible compact groups and the latest ASK per delivery point; `/orderbook/product-counts` uses the public listing filters for canonical product totals.
@@ -253,9 +253,23 @@ SUPPLIER accounts by admin invitation; public signup and domain joins remain
 restricted to the existing signup types. Voyage planning remains out of scope.
 Deploy checkpoint: `blng_20261014_staging`; downgrade refuses stored LNG history.
 
+## Production scalar biofuels (Phase 0)
+
+The canonical catalog has eight products. Production B30 (`c4cecebc-3d2d-5840-8021-57a9a11bc673`)
+and B100 (`74eb9cb5-f0e3-55f1-b82c-fe29b7c45bf5`) remain separate scalar
+Biofuel products with a 200 MT order minimum. They are not UCOME B100.
+B30 requires ISO 8217:2024 RF 380; B100 requires ISO 8217:2024 DFA and excludes
+HVO. Shared execution qualification and its SQL mirror require whole-fuel
+lifecycle CI metadata, certification, MSDS, feedstock and origin. Zero CI is
+valid; missing CI is not. Suppliers fill scalar biofuel BIDs through qualified
+ASK matching, not an undeclared direct take. Public reads use the same rule.
+Production demo definitions remain labelled synthetic and add no LNG/UCOME prices.
+Task 4b owns the union migration; these runtime changes alone are not a deployable
+schema checkpoint. See `docs/phase0/progress-task2.md`.
+
 ## UCOME B100 shared execution
 
-The canonical B100 ID remains `e561e43f-d9b2-598e-981c-f1d28d515ddc`. Its execution mode is `ORDERBOOK`; the existing wholesale Singapore lane and 1 MT initial order minimum remain. Standard fractional fills use the same rules as other fuels. No synthetic B100 liquidity is seeded.
+The canonical UCOME B100 ID remains `e561e43f-d9b2-598e-981c-f1d28d515ddc`. Its execution mode is `ORDERBOOK`; the existing wholesale Singapore lane and 1 MT initial order minimum remain. Standard fractional fills use the same rules as other fuels. No synthetic UCOME B100 liquidity is seeded.
 
 `app/schemas/fame_order.py` defines BID requirements and ASK declarations within the standard order contract. `app/services/fame_order.py` validates current declarations, compares standard/edition/grade, cold-flow limits, comparable CI and certification/evidence requirements, and forms immutable trade snapshots. Matching and direct taking use the same checks. B100 direct takes bind the reviewed order version under the row lock; changed offers require a fresh review, while committed idempotent requests remain replayable. Inventory and assisted publication carry the same terms. Negotiation acceptance remains disabled for all fuels under the existing policy.
 
