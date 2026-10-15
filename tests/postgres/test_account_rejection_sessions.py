@@ -12,7 +12,8 @@ import httpx
 import pytest
 from fastapi import Depends, FastAPI
 from sqlalchemy import select, text, update
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from tests.postgres.test_market_migrations import migration_database  # noqa: F401
 
 from app.core.security import decode_token, get_password_hash, hash_token_identifier
 from app.database import get_db
@@ -165,14 +166,33 @@ async def test_reject_reapprove_never_revives_old_tokens_and_fresh_login_works(
         assert old_session.revoked is True
 
 
+@pytest.fixture
+async def predecessor_session(migration_database):
+    """Build the historical vault head independently; never downgrade union."""
+    url, _ = migration_database
+    result = await asyncio.to_thread(
+        subprocess.run,
+        [sys.executable, "-m", "alembic", "upgrade", "kycd_20261015_staging"],
+        cwd=Path(__file__).resolve().parents[2],
+        env={**os.environ, "DATABASE_URL": url, "MIGRATOR_DATABASE_URL": url},
+        capture_output=True, text=True, check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    engine = create_async_engine(url)
+    try:
+        async with async_sessionmaker(engine, expire_on_commit=False)() as session:
+            yield engine, session, url
+    finally:
+        await engine.dispose()
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("locked_table", ["users", "organizations", "kyc_documents"])
 async def test_cutoff_downgrade_fails_fast_behind_concurrent_user_write(
-    pg_session,
-    analytics_pg_url,
+    predecessor_session,
     locked_table,
 ):
-    engine, seed_session = pg_session
+    engine, seed_session, analytics_pg_url = predecessor_session
     user = User(
         id=uuid4(),
         email=f"downgrade-race-{uuid4()}@example.com",

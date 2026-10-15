@@ -44,7 +44,14 @@ async def test_inventory_publish_flow():
             "product_name": "Bio Ethanol",  # exact live catalog name so publish can map it
             "current_stock_mt": 1000.0,
             "price_per_mt_usd": 850.0,
-            "is_certified": True
+            "is_certified": True,
+            "certification_declared": True,
+            "certification_scheme": "ISCC EU",
+            "specification_standard": "EN 15376",
+            "msds_available": True,
+            "carbon_intensity_gco2_mj": "20.5",
+            "feedstock": "Waste",
+            "origin": "Singapore"
         }
         resp = await client.post("/api/inventory", json=inventory_data, headers=headers)
         assert resp.status_code == 200, f"Failed to add inventory: {resp.text}"

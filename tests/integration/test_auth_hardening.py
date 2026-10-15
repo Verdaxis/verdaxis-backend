@@ -31,7 +31,8 @@ async def buyer_tokens(auth_client: AsyncClient, itest_password):
     assert res.status_code == 200, f"Login failed: {res.text}"
     data = res.json()
     assert "access_token" in data
-    assert "refresh_token" in data
+    assert "refresh_token" not in data
+    assert auth_client.cookies.get("refresh_token")
     return data
 
 
@@ -48,7 +49,7 @@ class TestDualTokenLogin:
     @pytest.mark.asyncio
     async def test_login_returns_both_tokens(self, auth_client, buyer_tokens):
         assert buyer_tokens["access_token"]
-        assert buyer_tokens["refresh_token"]
+        assert auth_client.cookies.get("refresh_token")
         assert buyer_tokens["token_type"] == "bearer"
 
     @pytest.mark.asyncio
@@ -65,12 +66,16 @@ class TestTokenRefresh:
     async def test_refresh_returns_new_tokens(self, auth_client, buyer_tokens):
         res = await auth_client.post(
             "/api/auth/refresh",
-            json={"refresh_token": buyer_tokens["refresh_token"]},
+            json={},
+            # The attested harness is HTTP-only. Explicitly forward cookies while
+            # preserving production Secure flags; this is not a browser TLS proof.
+            headers={"Origin": "https://test", "Cookie": "; ".join(f"{name}={auth_client.cookies[name]}" for name in ("refresh_token", "device_session"))},
         )
         assert res.status_code == 200
         data = res.json()
         assert "access_token" in data
-        assert "refresh_token" in data
+        assert "refresh_token" not in data
+        assert auth_client.cookies.get("refresh_token")
         # New access token should work
         headers = {"Authorization": f"Bearer {data['access_token']}"}
         me_res = await auth_client.get("/api/auth/me", headers=headers)
