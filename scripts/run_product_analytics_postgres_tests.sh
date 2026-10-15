@@ -94,7 +94,8 @@ else
   CONTAINER="verdaxis-analytics-test-$$-$(date +%s)"
 
   cleanup() {
-    docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
+    # -v removes the anonymous data volume of the PostGIS image.
+    docker rm -f -v "$CONTAINER" >/dev/null 2>&1 || true
   }
   trap cleanup EXIT INT TERM
 

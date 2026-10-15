@@ -249,7 +249,8 @@ CREATE EXTENSION IF NOT EXISTS postgis;
             except subprocess.TimeoutExpired:
                 child.kill()
         if self.container and not self.keep:
-            docker("rm", "-f", self.container, check=False)
+            # -v removes the anonymous data volume; a forced remove skips the --rm cleanup.
+            docker("rm", "-f", "-v", self.container, check=False)
 
 
 def main(argv: list[str] | None = None) -> int:

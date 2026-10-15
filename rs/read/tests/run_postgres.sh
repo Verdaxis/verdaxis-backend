@@ -20,7 +20,8 @@ cleanup() {
   local status=$?
   if [[ -n "$container" ]]; then
     docker logs "$container" || true
-    docker rm -f "$container" >/dev/null || true
+    # -v removes the anonymous data volume; a forced remove skips the --rm cleanup.
+    docker rm -f -v "$container" >/dev/null || true
   fi
   if [[ -n "$log" ]]; then rm -f "$log"; fi
   exit "$status"
