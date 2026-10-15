@@ -74,8 +74,13 @@ current full HEAD as `RELEASE_SHA`; PostgreSQL uses the absolute harness Python.
   `test_market_evidence_policy`, `test_orderbook_live_benchmarks`): 34 passed.
 - Formatting, workspace/all-target clippy, all-features clippy, assertion ledger
   and `git diff --check`: passed.
-- Ordinary helper group: four cases matched exact bytes in runs 5 and 6.
-  The additional migrated matrix is still being verified.
+- Final ordinary helper group (`task6a-green8.txt`): four cases matched exact
+  bytes, plus three migrated matrix cases matched; one Rust contract test passed.
+  The matrix proves both typed-invalid rows are shallow-visible but benchmark-
+  ineligible, mixed REAL/DEMO prices, sparse selection and captured as-of expiry.
+  Python asserts one SELECT per nonempty batch; Rust has one fetch in the shared
+  helper. The aborted-transaction replay proves cached hits and misses do not
+  issue another query.
 - One ordinary seed attempt timed out before any helper test; no seed code or
   database timeout was changed to hide that failure.
 - The fixture probe initially attempted to move existing orders to an isolated
@@ -89,5 +94,15 @@ current full HEAD as `RELEASE_SHA`; PostgreSQL uses the absolute harness Python.
   populated recording and policy refresh; this group compares fresh paired
   Python/Rust responses through the same comparator in the meantime.
 
-Commits so far: `372a5aa` (helper/offline tests), `96c8ff2` (test wiring/query
-shape). Final acceptance remains pending the populated Task 4b corpus.
+Code commits: `372a5aa` (helper/offline tests), `96c8ff2` (test wiring/query
+shape), `ce43c3b` (immutable fixture correction), `415f3ba` (complete test clock).
+All requested local commands ran. Final acceptance and frozen golden recording
+remain pending the populated Task 4b corpus. No Task 7 or curve implementation
+was added. No existing shared SQL changed. New shared files are only
+`market/live_benchmarks.rs` and `sql/live_benchmarks.sql`.
+
+Resume: Tasks 7a/7b may consume the helper with the explicit runtime `&Config`,
+the admitted transaction and the request's captured UTC instant. Keep each cache
+within that transaction/instant. The test-only HTTP endpoints must never be
+mounted by the serving binary. All containers started by these runners were
+removed with their volumes on exit; other lanes' containers were not touched.
