@@ -141,6 +141,36 @@ legacy rows remain organization-unknown. Pending/unknown KYC remains advisory
 for existing execution eligibility until product-owner approval. Explicit
 human KYC rejection is authoritative and triggers security invalidation.
 
+### KYC execution gate switch (Private Beta)
+
+`KYC_EXECUTION_GATE_ENABLED` turns the KYC execution rule off without removing
+any KYC code or data. The code default is `true` (fail safe): a missing setting
+still enforces KYC. **Production and staging run with it `false` through
+Private Beta; public launch turns it on.**
+
+With the gate off, one decision point (`app/services/kyc_execution.py`) makes
+the EXECUTION policy behave as the pre-gate advisory rule: only a `REJECTED`
+review or a review bound to another organization revokes access; every other
+status is admitted and reports the new `KYC_NOT_ENFORCED` reason with no grace
+deadline. The SQL mirrors and every layer above them (route gates, assisted
+customer-organization execution, matching, public order visibility, benchmarks,
+the action-required projection) follow the same switch, so non-KYC resting
+orders show and match again. Route handlers and services must not carry their
+own gate checks.
+
+- The lifespan logs one line: `KYC execution gate: enabled` or `disabled`.
+- `python -m app.cli.send_kyc_grace_notices` refuses with a clear message and a
+  non-zero exit while the gate is off, before any database contact.
+- Unchanged: KYC submission, admin approve/reject, `kyc_execution_grace` rows
+  (they still expire on 28 Oct 2026), the migration chain (no new migration),
+  and ACLs.
+
+**Launch note.** Turn the gate on only after planning KYC handling. Grace has
+expired by then, so every user without approved KYC is blocked at once:
+`/api/auth/me` reports `KYC_REQUIRED`, and new executions return 403
+`KYC_REQUIRED`. Approve the KYC of every trading user first, or write a new
+reviewed grace snapshot, before you set the switch to `true`.
+
 ## Two-step migrations and preflight
 
 The branch has one linear head and four security revisions:
