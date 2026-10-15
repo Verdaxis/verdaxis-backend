@@ -47,6 +47,17 @@ pub async fn connect(config: &Config) -> Result<Pools, ApiError> {
             ("default_transaction_read_only", "on"),
         ])
         .disable_statement_logging();
+    // Test-only SQLx row counters; release builds never enable statement events.
+    #[cfg(feature = "contract-tests")]
+    let options = if config.environment == "test"
+        && std::env::var("CONTRACT_GROUP").as_deref() == Ok("curves_canonical")
+    {
+        options
+            .log_statements("debug".parse().expect("log level"))
+            .log_slow_statements("debug".parse().expect("log level"), Duration::from_secs(30))
+    } else {
+        options
+    };
     let read = pool_options(config.pool_max - 1, config.db_session_time_zone.clone())
         .connect_with(options.clone())
         .await

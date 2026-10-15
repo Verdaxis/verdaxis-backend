@@ -1,6 +1,5 @@
 """Task 10b parity probes against the harness-attested populated corpus."""
 import asyncio
-import importlib.util
 import json
 import os
 import sys
@@ -12,49 +11,75 @@ from scripts.rust_contract.record import differences, record
 
 
 async def depth_fixture():
-    from sqlalchemy import text
-
     from app.seeds.safety import seed_session
-    spec = importlib.util.spec_from_file_location('matrix', Path(__file__).with_name('market_contract_oracle.py'))
-    matrix = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(matrix)
+    from scripts.rust_contract.curve_fixtures import seed_curve_fixtures
     async with seed_session() as session:
-        columns = (await session.execute(text("SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='orderbook_orders' ORDER BY ordinal_position"))).scalars().all()
-        columns.remove('acceptance_ordinal')
-        for index in range(12):
-            projections = ["CAST(:id AS uuid)" if c == 'id' else "'2031-02'" if c == 'availability_window' else ':price' if c == 'price_per_mt_usd' else 'NULL' if c in ('idempotency_key','idempotency_operation','idempotency_request_hash') else f'"{c}"' for c in columns]
-            await session.execute(text('INSERT INTO orderbook_orders ('+','.join(f'"{c}"' for c in columns)+') SELECT '+','.join(projections)+' FROM orderbook_orders WHERE id=:source'),
-                                  {'id':matrix.fid(f'curve10b:depth:{index}'),'source':matrix.fid('order:real_scalar_bid'),'price':1000+index})
-        row = (await session.execute(text('SELECT product_id::text, delivery_point_id::text FROM orderbook_orders WHERE id=:id'), {'id':matrix.fid('order:real_scalar_bid')})).one()
-        from datetime import datetime, timedelta
-        from decimal import Decimal
-        from uuid import UUID
-
-        from app.models.forward_monitoring import (
-            FairPriceBand,
-            MarketIndication,
-            MarketSignalIngestionRun,
-            PhysicalStem,
-        )
-        now = datetime.fromisoformat(os.environ['RUST_CONTRACT_CLOCK'])
-        policy = json.loads(Path('deploy/rust/market-policy.json').read_text())
-        code = next(p['code'] for p in policy['products'] if p['id'] == row[0])
-        for family, model, kind in [('MARKET_INDICATION', MarketIndication, 'MARKET_INDICATION'), ('FAIR_PRICE_BAND', FairPriceBand, 'FAIR_PRICE_MODEL'), ('PHYSICAL_STEM', PhysicalStem, 'PHYSICAL_STEM')]:
-            run = MarketSignalIngestionRun(id=matrix.fid('curve10b:run:'+family), signal_family=family, source='CURVE10B', source_kind=kind, started_at=now, verified_at=now, created_at=now)
-            session.add(run)
-            await session.flush()
-            for evidence in ('REAL', 'DEMO', 'UNKNOWN'):
-                for index in range(12 if family == 'PHYSICAL_STEM' else 1):
-                    values = dict(id=matrix.fid(f'curve10b:signal:{family}:{evidence}:{index}'), market_product=code, delivery_point_id=UUID(row[1]), availability_window='2031-03', source='CURVE10B', is_demo=evidence=='DEMO', is_verified_real=evidence=='REAL', trusted_ingestion_run_id=run.id if evidence=='REAL' else None, observed_at=now-timedelta(hours=2 if evidence=='REAL' else 1, minutes=index), created_at=now)
-                    if family == 'MARKET_INDICATION':
-                        values.update(side='MID',price_per_mt_usd=Decimal('123.40'),quantity_mt=Decimal('12.30'))
-                    elif family == 'FAIR_PRICE_BAND':
-                        values.update(low_price_per_mt_usd=Decimal('100.10'),mid_price_per_mt_usd=Decimal('120.20'),high_price_per_mt_usd=Decimal('130.30'),model_name='fixture')
-                    else:
-                        values.update(stem_uid=f'{evidence}:{index}',quantity_mt=Decimal('12.30'),status='AVAILABLE',stem_start=now,stem_end=now+timedelta(days=1))
-                    session.add(model(**values))
+        row = await seed_curve_fixtures(session)
         await session.commit()
         return row
+
+
+def measure_requests(product, point):
+    import concurrent.futures
+    import subprocess
+    import threading
+
+    token = os.environ['DISPOSABLE_TEST_TOKEN']
+    metrics = Path('work/rust-phase1/curve-query-metrics.jsonl')
+    measurements = []
+    cases = [
+        ('large-cell', 'table', dict(market_products=product, delivery_point_ids=point, windows='2031-04'), 8),
+        ('large-depth', 'slice', dict(market_product=product, delivery_point_id=point, availability_window='2031-04'), 10),
+        ('matrix', 'table', {}, 8),
+        ('board', 'board', dict(focus_market_product=product, focus_delivery_point_id=point), 9),
+    ]
+    for name, shape, query, expected in cases:
+        case = dict(id=name, method='GET', path='/api/curves/forward/'+shape, query=urlencode(query))
+        python = record(os.environ['PYTHON_CONTRACT_URL'], token, [case])
+        before = len(metrics.read_text().splitlines())
+        rust = record(os.environ['RUST_CONTRACT_URL'], token, [case])
+        assert not differences(python, rust), differences(python, rust)
+        events = [json.loads(line) for line in metrics.read_text().splitlines()[before:]]
+        data = [event for event in events if not event['ping'] and not event.get('control', False)]
+        result = dict(case=name, statements=len(data), control_statements=sum(e.get('control', False) for e in events), rows=sum(e['rows'] for e in data), events=events)
+        measurements.append(result)
+        print('CURVE_QUERY_COST', json.dumps(result), flush=True)
+        if name.startswith('large'):
+            # Two catalog queries return the active products and points. The
+            # economic input is one group; depth adds exactly one price level.
+            policy = json.loads(Path('deploy/rust/market-policy.json').read_text())
+            catalog_rows = sum(p.get('execution_mode') == 'ORDERBOOK' for p in policy['products']) + len(policy['points'])
+            # The fixture intentionally has one inactive product and point.
+            catalog_rows -= 2
+            expected_rows = catalog_rows + (2 if name == 'large-depth' else 1)
+            assert result['rows'] == expected_rows, 'raw orders crossed the wire instead of grouped rows'
+        assert result['statements'] == expected, result
+    pid = int(Path('work/rust-phase1/curve-server.pid').read_text())
+    def rss():
+        return int(subprocess.check_output(['ps', '-o', 'rss=', '-p', str(pid)], text=True).strip())
+    baseline = rss()
+    samples = [baseline]
+    stop = threading.Event()
+    def sample():
+        while not stop.wait(0.01):
+            samples.append(rss())
+    monitor = threading.Thread(target=sample)
+    monitor.start()
+    case = dict(id='concurrent-large-cell', method='GET', path='/api/curves/forward/table', query=urlencode(dict(market_products=product, delivery_point_ids=point, windows='2031-04')))
+    barrier = threading.Barrier(8)
+    def request(_):
+        barrier.wait()
+        result = record(os.environ['RUST_CONTRACT_URL'], token, [case])
+        assert result[0]['exchange']['status'] == 200
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+            list(executor.map(request, range(8)))
+    finally:
+        stop.set()
+        monitor.join()
+    memory = dict(concurrency=8, orders=10000, rss_before_kib=baseline, rss_peak_kib=max(samples), rss_after_kib=rss(), samples=len(samples))
+    Path('work/rust-phase1/task10b-query-cost.json').write_text(json.dumps(dict(requests=measurements, memory=memory), indent=2)+'\n')
+    print('CURVE_MEMORY', json.dumps(memory), flush=True)
 
 
 def main():
@@ -73,6 +98,12 @@ def main():
                 expected_quotes.append(dict(market_product=product['code'], delivery_point_id=point['id'], base_price=str(price)))
     assert curve_policy['seed_quotes'] == expected_quotes
     depth_product = next(p['code'] for p in policy['products'] if p['id'] == product_id)
+    measure_requests(depth_product, depth_point)
+    subsecond = dict(id='subsecond-latest', method='GET', path='/api/curves/forward/table',
+                     query=urlencode(dict(market_products=depth_product, delivery_point_ids=depth_point,
+                                          windows=['2031-05', '2031-06']), doseq=True))
+    subsecond_body = record(os.environ['RUST_CONTRACT_URL'], os.environ['DISPOSABLE_TEST_TOKEN'], [subsecond])[0]['exchange']['body']
+    assert [item['availability_window'] for item in subsecond_body['latest_signals']] == ['2031-06', '2031-05']
     cases = [dict(id='ten-level-depth', method='GET', path='/api/curves/forward/slice', query=urlencode(dict(market_product=depth_product, delivery_point_id=depth_point, availability_window='2031-02')))]
     for product in policy['products']:
         for point in product['lanes']:
@@ -111,6 +142,8 @@ def main():
             for items in (body['trades'], body['depth_bids'], body['depth_asks']):
                 if items and items[0]['demo_status'] == 'REAL_ONLY':
                     assert all(item['demo_status'] == 'REAL_ONLY' for item in items)
+        if case['id'] == 'ten-level-depth':
+            assert len(body['depth_bids']) == len(body['depth_asks']) == 10
         if case['id'] == 'real-signals-before-limit':
             assert len(body['physical_stems']) == 6
             assert all(stem['provenance']['demo_status'] == 'REAL_ONLY' for stem in body['physical_stems'])

@@ -450,6 +450,11 @@ async def seed_corpus(session):
         "legacy_snapshot_version": None,
         "legacy_note": "pre-guard history migrates to SQL NULL, never literal version 0",
     }
+    # Curve stress/evidence fixtures are additional to the frozen Task 4b ledger.
+    # They must exist before every group's golden recorder starts.
+    from scripts.rust_contract.curve_fixtures import seed_curve_fixtures
+    await seed_curve_fixtures(session)
+    manifest["curve_fixtures"] = {"bulk_orders": 10000, "depth_orders": 24, "subsecond_orders": 4, "signals": 42}
     output = os.environ.get("RUST_CORPUS_MANIFEST")
     if output:
         Path(output).write_text(json.dumps(manifest, indent=2) + "\n")

@@ -604,6 +604,720 @@
         "method": "GET",
         "path": "/api/curves/forward/board",
         "query": "availability_window=2026-11"
+      },
+      {
+        "id": "R10-lane-6",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_LNG&delivery_point_id=1379d36c-1ca9-55b7-9c0d-5235a0ba1f36&availability_window=SPOT"
+      },
+      {
+        "id": "R10-lane-7",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_LNG&delivery_point_id=1379d36c-1ca9-55b7-9c0d-5235a0ba1f36&availability_window=2026-11"
+      },
+      {
+        "id": "R10-lane-8",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_LNG&delivery_point_id=1379d36c-1ca9-55b7-9c0d-5235a0ba1f36&availability_window=2030-Q1"
+      },
+      {
+        "id": "R10-lane-9",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=UCOME_B100&delivery_point_id=73835e92-820e-584b-8280-bb61c63aa28e&availability_window=SPOT"
+      },
+      {
+        "id": "R10-lane-10",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=UCOME_B100&delivery_point_id=73835e92-820e-584b-8280-bb61c63aa28e&availability_window=2026-11"
+      },
+      {
+        "id": "R10-lane-11",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=UCOME_B100&delivery_point_id=73835e92-820e-584b-8280-bb61c63aa28e&availability_window=2030-Q1"
+      },
+      {
+        "id": "R10-lane-12",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_METHANOL&delivery_point_id=78281fb3-e726-5396-802e-34b01fda21e8&availability_window=SPOT"
+      },
+      {
+        "id": "R10-lane-13",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_METHANOL&delivery_point_id=78281fb3-e726-5396-802e-34b01fda21e8&availability_window=2026-11"
+      },
+      {
+        "id": "R10-lane-14",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_METHANOL&delivery_point_id=78281fb3-e726-5396-802e-34b01fda21e8&availability_window=2030-Q1"
+      },
+      {
+        "id": "R10-lane-15",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_METHANOL&delivery_point_id=262d36ae-6f35-5785-b9e8-9e221b0f1b78&availability_window=SPOT"
+      },
+      {
+        "id": "R10-lane-16",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_METHANOL&delivery_point_id=262d36ae-6f35-5785-b9e8-9e221b0f1b78&availability_window=2026-11"
+      },
+      {
+        "id": "R10-lane-17",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_METHANOL&delivery_point_id=262d36ae-6f35-5785-b9e8-9e221b0f1b78&availability_window=2030-Q1"
+      },
+      {
+        "id": "R10-lane-18",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_METHANOL&delivery_point_id=633c0593-f9b9-52ad-abe5-a0285f6888d3&availability_window=SPOT"
+      },
+      {
+        "id": "R10-lane-19",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_METHANOL&delivery_point_id=633c0593-f9b9-52ad-abe5-a0285f6888d3&availability_window=2026-11"
+      },
+      {
+        "id": "R10-lane-20",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_METHANOL&delivery_point_id=633c0593-f9b9-52ad-abe5-a0285f6888d3&availability_window=2030-Q1"
+      },
+      {
+        "id": "R10-lane-21",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_METHANOL&delivery_point_id=73835e92-820e-584b-8280-bb61c63aa28e&availability_window=SPOT"
+      },
+      {
+        "id": "R10-lane-22",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_METHANOL&delivery_point_id=73835e92-820e-584b-8280-bb61c63aa28e&availability_window=2026-11"
+      },
+      {
+        "id": "R10-lane-23",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_METHANOL&delivery_point_id=73835e92-820e-584b-8280-bb61c63aa28e&availability_window=2030-Q1"
+      },
+      {
+        "id": "R10-lane-24",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_METHANOL&delivery_point_id=1379d36c-1ca9-55b7-9c0d-5235a0ba1f36&availability_window=SPOT"
+      },
+      {
+        "id": "R10-lane-25",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_METHANOL&delivery_point_id=1379d36c-1ca9-55b7-9c0d-5235a0ba1f36&availability_window=2026-11"
+      },
+      {
+        "id": "R10-lane-26",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_METHANOL&delivery_point_id=1379d36c-1ca9-55b7-9c0d-5235a0ba1f36&availability_window=2030-Q1"
+      },
+      {
+        "id": "R10-lane-27",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_METHANOL&delivery_point_id=a083db06-b050-56c2-a274-3897eac2fdae&availability_window=SPOT"
+      },
+      {
+        "id": "R10-lane-28",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_METHANOL&delivery_point_id=a083db06-b050-56c2-a274-3897eac2fdae&availability_window=2026-11"
+      },
+      {
+        "id": "R10-lane-29",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_METHANOL&delivery_point_id=a083db06-b050-56c2-a274-3897eac2fdae&availability_window=2030-Q1"
+      },
+      {
+        "id": "R10-lane-30",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_METHANOL&delivery_point_id=1be2a5cb-fc34-5e88-8b15-7f7d0fd6e534&availability_window=SPOT"
+      },
+      {
+        "id": "R10-lane-31",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_METHANOL&delivery_point_id=1be2a5cb-fc34-5e88-8b15-7f7d0fd6e534&availability_window=2026-11"
+      },
+      {
+        "id": "R10-lane-32",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_METHANOL&delivery_point_id=1be2a5cb-fc34-5e88-8b15-7f7d0fd6e534&availability_window=2030-Q1"
+      },
+      {
+        "id": "R10-lane-33",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_METHANOL&delivery_point_id=a4762444-4e0b-5bc1-b647-a185047adae5&availability_window=SPOT"
+      },
+      {
+        "id": "R10-lane-34",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_METHANOL&delivery_point_id=a4762444-4e0b-5bc1-b647-a185047adae5&availability_window=2026-11"
+      },
+      {
+        "id": "R10-lane-35",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_METHANOL&delivery_point_id=a4762444-4e0b-5bc1-b647-a185047adae5&availability_window=2030-Q1"
+      },
+      {
+        "id": "R10-lane-36",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=E_METHANOL&delivery_point_id=78281fb3-e726-5396-802e-34b01fda21e8&availability_window=SPOT"
+      },
+      {
+        "id": "R10-lane-37",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=E_METHANOL&delivery_point_id=78281fb3-e726-5396-802e-34b01fda21e8&availability_window=2026-11"
+      },
+      {
+        "id": "R10-lane-38",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=E_METHANOL&delivery_point_id=78281fb3-e726-5396-802e-34b01fda21e8&availability_window=2030-Q1"
+      },
+      {
+        "id": "R10-lane-39",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=E_METHANOL&delivery_point_id=262d36ae-6f35-5785-b9e8-9e221b0f1b78&availability_window=SPOT"
+      },
+      {
+        "id": "R10-lane-40",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=E_METHANOL&delivery_point_id=262d36ae-6f35-5785-b9e8-9e221b0f1b78&availability_window=2026-11"
+      },
+      {
+        "id": "R10-lane-41",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=E_METHANOL&delivery_point_id=262d36ae-6f35-5785-b9e8-9e221b0f1b78&availability_window=2030-Q1"
+      },
+      {
+        "id": "R10-lane-42",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=E_METHANOL&delivery_point_id=633c0593-f9b9-52ad-abe5-a0285f6888d3&availability_window=SPOT"
+      },
+      {
+        "id": "R10-lane-43",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=E_METHANOL&delivery_point_id=633c0593-f9b9-52ad-abe5-a0285f6888d3&availability_window=2026-11"
+      },
+      {
+        "id": "R10-lane-44",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=E_METHANOL&delivery_point_id=633c0593-f9b9-52ad-abe5-a0285f6888d3&availability_window=2030-Q1"
+      },
+      {
+        "id": "R10-lane-45",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=E_METHANOL&delivery_point_id=73835e92-820e-584b-8280-bb61c63aa28e&availability_window=SPOT"
+      },
+      {
+        "id": "R10-lane-46",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=E_METHANOL&delivery_point_id=73835e92-820e-584b-8280-bb61c63aa28e&availability_window=2026-11"
+      },
+      {
+        "id": "R10-lane-47",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=E_METHANOL&delivery_point_id=73835e92-820e-584b-8280-bb61c63aa28e&availability_window=2030-Q1"
+      },
+      {
+        "id": "R10-lane-48",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=E_METHANOL&delivery_point_id=1379d36c-1ca9-55b7-9c0d-5235a0ba1f36&availability_window=SPOT"
+      },
+      {
+        "id": "R10-lane-49",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=E_METHANOL&delivery_point_id=1379d36c-1ca9-55b7-9c0d-5235a0ba1f36&availability_window=2026-11"
+      },
+      {
+        "id": "R10-lane-50",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=E_METHANOL&delivery_point_id=1379d36c-1ca9-55b7-9c0d-5235a0ba1f36&availability_window=2030-Q1"
+      },
+      {
+        "id": "R10-lane-51",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=E_METHANOL&delivery_point_id=a083db06-b050-56c2-a274-3897eac2fdae&availability_window=SPOT"
+      },
+      {
+        "id": "R10-lane-52",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=E_METHANOL&delivery_point_id=a083db06-b050-56c2-a274-3897eac2fdae&availability_window=2026-11"
+      },
+      {
+        "id": "R10-lane-53",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=E_METHANOL&delivery_point_id=a083db06-b050-56c2-a274-3897eac2fdae&availability_window=2030-Q1"
+      },
+      {
+        "id": "R10-lane-54",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=E_METHANOL&delivery_point_id=1be2a5cb-fc34-5e88-8b15-7f7d0fd6e534&availability_window=SPOT"
+      },
+      {
+        "id": "R10-lane-55",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=E_METHANOL&delivery_point_id=1be2a5cb-fc34-5e88-8b15-7f7d0fd6e534&availability_window=2026-11"
+      },
+      {
+        "id": "R10-lane-56",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=E_METHANOL&delivery_point_id=1be2a5cb-fc34-5e88-8b15-7f7d0fd6e534&availability_window=2030-Q1"
+      },
+      {
+        "id": "R10-lane-57",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=E_METHANOL&delivery_point_id=a4762444-4e0b-5bc1-b647-a185047adae5&availability_window=SPOT"
+      },
+      {
+        "id": "R10-lane-58",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=E_METHANOL&delivery_point_id=a4762444-4e0b-5bc1-b647-a185047adae5&availability_window=2026-11"
+      },
+      {
+        "id": "R10-lane-59",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=E_METHANOL&delivery_point_id=a4762444-4e0b-5bc1-b647-a185047adae5&availability_window=2030-Q1"
+      },
+      {
+        "id": "R10-lane-60",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_ETHANOL&delivery_point_id=78281fb3-e726-5396-802e-34b01fda21e8&availability_window=SPOT"
+      },
+      {
+        "id": "R10-lane-61",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_ETHANOL&delivery_point_id=78281fb3-e726-5396-802e-34b01fda21e8&availability_window=2026-11"
+      },
+      {
+        "id": "R10-lane-62",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_ETHANOL&delivery_point_id=78281fb3-e726-5396-802e-34b01fda21e8&availability_window=2030-Q1"
+      },
+      {
+        "id": "R10-lane-63",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_ETHANOL&delivery_point_id=262d36ae-6f35-5785-b9e8-9e221b0f1b78&availability_window=SPOT"
+      },
+      {
+        "id": "R10-lane-64",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_ETHANOL&delivery_point_id=262d36ae-6f35-5785-b9e8-9e221b0f1b78&availability_window=2026-11"
+      },
+      {
+        "id": "R10-lane-65",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_ETHANOL&delivery_point_id=262d36ae-6f35-5785-b9e8-9e221b0f1b78&availability_window=2030-Q1"
+      },
+      {
+        "id": "R10-lane-66",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_ETHANOL&delivery_point_id=633c0593-f9b9-52ad-abe5-a0285f6888d3&availability_window=SPOT"
+      },
+      {
+        "id": "R10-lane-67",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_ETHANOL&delivery_point_id=633c0593-f9b9-52ad-abe5-a0285f6888d3&availability_window=2026-11"
+      },
+      {
+        "id": "R10-lane-68",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_ETHANOL&delivery_point_id=633c0593-f9b9-52ad-abe5-a0285f6888d3&availability_window=2030-Q1"
+      },
+      {
+        "id": "R10-lane-69",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_ETHANOL&delivery_point_id=73835e92-820e-584b-8280-bb61c63aa28e&availability_window=SPOT"
+      },
+      {
+        "id": "R10-lane-70",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_ETHANOL&delivery_point_id=73835e92-820e-584b-8280-bb61c63aa28e&availability_window=2026-11"
+      },
+      {
+        "id": "R10-lane-71",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_ETHANOL&delivery_point_id=73835e92-820e-584b-8280-bb61c63aa28e&availability_window=2030-Q1"
+      },
+      {
+        "id": "R10-lane-72",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_ETHANOL&delivery_point_id=1379d36c-1ca9-55b7-9c0d-5235a0ba1f36&availability_window=SPOT"
+      },
+      {
+        "id": "R10-lane-73",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_ETHANOL&delivery_point_id=1379d36c-1ca9-55b7-9c0d-5235a0ba1f36&availability_window=2026-11"
+      },
+      {
+        "id": "R10-lane-74",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_ETHANOL&delivery_point_id=1379d36c-1ca9-55b7-9c0d-5235a0ba1f36&availability_window=2030-Q1"
+      },
+      {
+        "id": "R10-lane-75",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_ETHANOL&delivery_point_id=a083db06-b050-56c2-a274-3897eac2fdae&availability_window=SPOT"
+      },
+      {
+        "id": "R10-lane-76",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_ETHANOL&delivery_point_id=a083db06-b050-56c2-a274-3897eac2fdae&availability_window=2026-11"
+      },
+      {
+        "id": "R10-lane-77",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_ETHANOL&delivery_point_id=a083db06-b050-56c2-a274-3897eac2fdae&availability_window=2030-Q1"
+      },
+      {
+        "id": "R10-lane-78",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_ETHANOL&delivery_point_id=1be2a5cb-fc34-5e88-8b15-7f7d0fd6e534&availability_window=SPOT"
+      },
+      {
+        "id": "R10-lane-79",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_ETHANOL&delivery_point_id=1be2a5cb-fc34-5e88-8b15-7f7d0fd6e534&availability_window=2026-11"
+      },
+      {
+        "id": "R10-lane-80",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_ETHANOL&delivery_point_id=1be2a5cb-fc34-5e88-8b15-7f7d0fd6e534&availability_window=2030-Q1"
+      },
+      {
+        "id": "R10-lane-81",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_ETHANOL&delivery_point_id=a4762444-4e0b-5bc1-b647-a185047adae5&availability_window=SPOT"
+      },
+      {
+        "id": "R10-lane-82",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_ETHANOL&delivery_point_id=a4762444-4e0b-5bc1-b647-a185047adae5&availability_window=2026-11"
+      },
+      {
+        "id": "R10-lane-83",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_ETHANOL&delivery_point_id=a4762444-4e0b-5bc1-b647-a185047adae5&availability_window=2030-Q1"
+      },
+      {
+        "id": "R10-lane-84",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=SYNTHETIC_ETHANOL&delivery_point_id=78281fb3-e726-5396-802e-34b01fda21e8&availability_window=SPOT"
+      },
+      {
+        "id": "R10-lane-85",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=SYNTHETIC_ETHANOL&delivery_point_id=78281fb3-e726-5396-802e-34b01fda21e8&availability_window=2026-11"
+      },
+      {
+        "id": "R10-lane-86",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=SYNTHETIC_ETHANOL&delivery_point_id=78281fb3-e726-5396-802e-34b01fda21e8&availability_window=2030-Q1"
+      },
+      {
+        "id": "R10-lane-87",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=SYNTHETIC_ETHANOL&delivery_point_id=262d36ae-6f35-5785-b9e8-9e221b0f1b78&availability_window=SPOT"
+      },
+      {
+        "id": "R10-lane-88",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=SYNTHETIC_ETHANOL&delivery_point_id=262d36ae-6f35-5785-b9e8-9e221b0f1b78&availability_window=2026-11"
+      },
+      {
+        "id": "R10-lane-89",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=SYNTHETIC_ETHANOL&delivery_point_id=262d36ae-6f35-5785-b9e8-9e221b0f1b78&availability_window=2030-Q1"
+      },
+      {
+        "id": "R10-lane-90",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=SYNTHETIC_ETHANOL&delivery_point_id=633c0593-f9b9-52ad-abe5-a0285f6888d3&availability_window=SPOT"
+      },
+      {
+        "id": "R10-lane-91",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=SYNTHETIC_ETHANOL&delivery_point_id=633c0593-f9b9-52ad-abe5-a0285f6888d3&availability_window=2026-11"
+      },
+      {
+        "id": "R10-lane-92",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=SYNTHETIC_ETHANOL&delivery_point_id=633c0593-f9b9-52ad-abe5-a0285f6888d3&availability_window=2030-Q1"
+      },
+      {
+        "id": "R10-lane-93",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=SYNTHETIC_ETHANOL&delivery_point_id=73835e92-820e-584b-8280-bb61c63aa28e&availability_window=SPOT"
+      },
+      {
+        "id": "R10-lane-94",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=SYNTHETIC_ETHANOL&delivery_point_id=73835e92-820e-584b-8280-bb61c63aa28e&availability_window=2026-11"
+      },
+      {
+        "id": "R10-lane-95",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=SYNTHETIC_ETHANOL&delivery_point_id=73835e92-820e-584b-8280-bb61c63aa28e&availability_window=2030-Q1"
+      },
+      {
+        "id": "R10-lane-96",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=SYNTHETIC_ETHANOL&delivery_point_id=1379d36c-1ca9-55b7-9c0d-5235a0ba1f36&availability_window=SPOT"
+      },
+      {
+        "id": "R10-lane-97",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=SYNTHETIC_ETHANOL&delivery_point_id=1379d36c-1ca9-55b7-9c0d-5235a0ba1f36&availability_window=2026-11"
+      },
+      {
+        "id": "R10-lane-98",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=SYNTHETIC_ETHANOL&delivery_point_id=1379d36c-1ca9-55b7-9c0d-5235a0ba1f36&availability_window=2030-Q1"
+      },
+      {
+        "id": "R10-lane-99",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=SYNTHETIC_ETHANOL&delivery_point_id=a083db06-b050-56c2-a274-3897eac2fdae&availability_window=SPOT"
+      },
+      {
+        "id": "R10-lane-100",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=SYNTHETIC_ETHANOL&delivery_point_id=a083db06-b050-56c2-a274-3897eac2fdae&availability_window=2026-11"
+      },
+      {
+        "id": "R10-lane-101",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=SYNTHETIC_ETHANOL&delivery_point_id=a083db06-b050-56c2-a274-3897eac2fdae&availability_window=2030-Q1"
+      },
+      {
+        "id": "R10-lane-102",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=SYNTHETIC_ETHANOL&delivery_point_id=1be2a5cb-fc34-5e88-8b15-7f7d0fd6e534&availability_window=SPOT"
+      },
+      {
+        "id": "R10-lane-103",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=SYNTHETIC_ETHANOL&delivery_point_id=1be2a5cb-fc34-5e88-8b15-7f7d0fd6e534&availability_window=2026-11"
+      },
+      {
+        "id": "R10-lane-104",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=SYNTHETIC_ETHANOL&delivery_point_id=1be2a5cb-fc34-5e88-8b15-7f7d0fd6e534&availability_window=2030-Q1"
+      },
+      {
+        "id": "R10-lane-105",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=SYNTHETIC_ETHANOL&delivery_point_id=a4762444-4e0b-5bc1-b647-a185047adae5&availability_window=SPOT"
+      },
+      {
+        "id": "R10-lane-106",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=SYNTHETIC_ETHANOL&delivery_point_id=a4762444-4e0b-5bc1-b647-a185047adae5&availability_window=2026-11"
+      },
+      {
+        "id": "R10-lane-107",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=SYNTHETIC_ETHANOL&delivery_point_id=a4762444-4e0b-5bc1-b647-a185047adae5&availability_window=2030-Q1"
+      },
+      {
+        "id": "R11-uuid-upper",
+        "method": "GET",
+        "path": "/api/curves/forward/board",
+        "query": "focus_market_product=BIO_LNG&focus_delivery_point_id=1379D36C-1CA9-55B7-9C0D-5235A0BA1F36"
+      },
+      {
+        "id": "R11-uuid-compact",
+        "method": "GET",
+        "path": "/api/curves/forward/board",
+        "query": "focus_market_product=BIO_LNG&focus_delivery_point_id=1379d36c1ca955b79c0d5235a0ba1f36"
+      },
+      {
+        "id": "R11-uuid-braces",
+        "method": "GET",
+        "path": "/api/curves/forward/board",
+        "query": "focus_market_product=BIO_LNG&focus_delivery_point_id=%7B1379d36c-1ca9-55b7-9c0d-5235a0ba1f36%7D"
+      },
+      {
+        "id": "R11-uuid-urn",
+        "method": "GET",
+        "path": "/api/curves/forward/board",
+        "query": "focus_market_product=BIO_LNG&focus_delivery_point_id=urn%3Auuid%3A1379d36c-1ca9-55b7-9c0d-5235a0ba1f36"
+      },
+      {
+        "id": "R10b-invalid-board",
+        "method": "GET",
+        "path": "/api/curves/forward/board",
+        "query": "availability_window=not-a-window"
+      },
+      {
+        "id": "R10b-duplicates",
+        "method": "GET",
+        "path": "/api/curves/forward/table",
+        "query": "windows=2026-11&windows=SPOT&windows=2026-11"
+      },
+      {
+        "id": "R10b-unknown-query",
+        "method": "GET",
+        "path": "/api/curves/forward/table",
+        "query": "shape=board&availability_window=bad&windows=SPOT"
+      },
+      {
+        "id": "R10b-too-many-windows",
+        "method": "GET",
+        "path": "/api/curves/forward/table",
+        "query": "windows=2026-Q1&windows=2027-Q1&windows=2028-Q1&windows=2029-Q1&windows=2030-Q1&windows=2031-Q1&windows=2032-Q1&windows=2033-Q1&windows=2034-Q1&windows=2035-Q1&windows=2036-Q1&windows=2037-Q1&windows=2038-Q1&windows=2039-Q1&windows=2040-Q1&windows=2041-Q1&windows=2042-Q1&windows=2043-Q1&windows=2044-Q1&windows=2045-Q1&windows=2046-Q1&windows=2047-Q1&windows=2048-Q1&windows=2049-Q1&windows=2050-Q1"
+      },
+      {
+        "id": "R10b-bad-window",
+        "method": "GET",
+        "path": "/api/curves/forward/table",
+        "query": "windows=Q1_2026"
+      },
+      {
+        "id": "R10b-bad-product",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=INVALID&delivery_point_id=00000000-0000-0000-0000-000000000000&availability_window=SPOT"
+      },
+      {
+        "id": "R10b-unknown-point",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_LNG&delivery_point_id=00000000-0000-0000-0000-000000000000&availability_window=SPOT"
+      },
+      {
+        "id": "R10b-fallback-point",
+        "method": "GET",
+        "path": "/api/curves/forward/board",
+        "query": "focus_delivery_point_id=00000000-0000-0000-0000-000000000000"
+      },
+      {
+        "id": "R10-depth",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_METHANOL&delivery_point_id=73835e92-820e-584b-8280-bb61c63aa28e&availability_window=2031-02"
+      },
+      {
+        "id": "R10-trusted-signals",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_METHANOL&delivery_point_id=73835e92-820e-584b-8280-bb61c63aa28e&availability_window=2031-03"
+      },
+      {
+        "id": "R10-bulk",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_METHANOL&delivery_point_id=73835e92-820e-584b-8280-bb61c63aa28e&availability_window=2031-04"
+      },
+      {
+        "id": "R09-bulk",
+        "method": "GET",
+        "path": "/api/curves/forward/table",
+        "query": "market_products=BIO_METHANOL&delivery_point_ids=73835e92-820e-584b-8280-bb61c63aa28e&windows=2031-04"
+      },
+      {
+        "id": "R09-subsecond",
+        "method": "GET",
+        "path": "/api/curves/forward/table",
+        "query": "market_products=BIO_METHANOL&delivery_point_ids=73835e92-820e-584b-8280-bb61c63aa28e&windows=2031-05&windows=2031-06"
       }
     ],
     "mcp": [
