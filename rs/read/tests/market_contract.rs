@@ -225,6 +225,20 @@ fn window_sort_keys_and_labels_match_python() {
 // Typed execution qualification (app/services/execution_policy.py:112-150).
 // ---------------------------------------------------------------------------
 
+#[test]
+fn trailing_zero_declarations_match_python() {
+    let cases = vector(include_str!(concat!(env!("CARGO_MANIFEST_DIR"),
+        "/../../tests/rust_contract/vectors/terms/decimal_validation.json")));
+    for case in cases.as_array().unwrap() {
+        let terms = &case["terms"];
+        let result = match case["profile"].as_str().unwrap() {
+            "lng_v1" => validate_lng_terms("ASK", Some(terms)),
+            _ => validate_fame_terms("ASK", Some(terms), today()),
+        };
+        assert!(result.is_ok(), "Python accepts {case}: {result:?}");
+    }
+}
+
 fn id(n: u128) -> Uuid {
     Uuid::from_u128(n)
 }

@@ -248,12 +248,32 @@ def _fame_vector() -> dict:
     }
 
 
+def _decimal_validation_vectors() -> list[dict]:
+    from copy import deepcopy
+    from app.schemas.fame_order import FameAskTerms
+    from app.schemas.lng_order import LngAskTerms
+
+    cases = []
+    for profile, model, original, field, value in (
+        ("lng_v1", LngAskTerms, _private_lng_ask_terms(), "bio_share_pct", "95.500"),
+        ("lng_v1", LngAskTerms, _private_lng_ask_terms(), "wtt_ghg_gco2e_mj", "-0.000"),
+        ("fame_v1", FameAskTerms, _fame_private_terms(), "ci_gco2e_mj", "18.4000"),
+        ("fame_v1", FameAskTerms, _fame_private_terms(), "lhv_mj_kg", "37.2000"),
+    ):
+        terms = deepcopy(original)
+        terms[field] = value
+        stored = model.model_validate(terms).model_dump(mode="json")
+        cases.append({"profile": profile, "terms": stored, "accepted": True})
+    return cases
+
+
 def build_vectors() -> dict[str, str]:
     """Return vector file name -> exact committed text."""
     payloads = {
         "private.json": _private_vector(),
         "non_ascii.json": _non_ascii_vector(),
         "fame.json": _fame_vector(),
+        "decimal_validation.json": _decimal_validation_vectors(),
     }
     return {
         name: json.dumps(payload, ensure_ascii=False, indent=2) + "\n"

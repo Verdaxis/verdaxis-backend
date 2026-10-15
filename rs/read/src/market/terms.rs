@@ -326,7 +326,8 @@ fn check_decimal(
     if min.is_some_and(|min| value < min) || max.is_some_and(|max| value > max) {
         return Err(format!("{key} is outside its allowed range"));
     }
-    if max_places.is_some_and(|places| value.scale() > places) {
+    // Pydantic counts significant fractional places, not retained wire zeroes.
+    if max_places.is_some_and(|places| value.normalize().scale() > places) {
         return Err(format!("{key} has too many decimal places"));
     }
     Ok(())

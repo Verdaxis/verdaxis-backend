@@ -28,7 +28,7 @@ def _vector(name: str) -> dict:
 
 def test_committed_vectors_are_byte_stable():
     regenerated = export_terms_vectors.build_vectors()
-    assert sorted(regenerated) == ["fame.json", "non_ascii.json", "private.json"]
+    assert {"fame.json", "non_ascii.json", "private.json"} <= regenerated.keys()
     for name, text in regenerated.items():
         assert text == (VECTORS_DIR / name).read_text(encoding="utf-8")
 
