@@ -1,5 +1,22 @@
+import json
+from pathlib import Path
+
 import pytest
-from scripts.rust_contract.compare import capture, compare_news_tie_groups
+from scripts.rust_contract.compare import (
+    ContractError,
+    capture,
+    compare_news_tie_groups,
+)
+
+ROOT = Path(__file__).resolve().parents[2]
+
+# The one reviewed rule (decision 18). Nothing else may be configured.
+APPROVED_RULE = {
+    "rule": "news-published-at-tie-multiset",
+    "request_path": "/api/news",
+    "json_path": "/body",
+    "sort_key": "published_at",
+}
 
 
 def envelope(raw):
@@ -46,3 +63,44 @@ def test_other_paths_remain_byte_exact():
         envelope(b"[" + B + b"," + A + b"]"),
         request_path="/api/orderbook",
     )
+
+
+def test_checked_in_rule_file_holds_only_the_approved_news_rule():
+    rules = json.loads((ROOT / "tests/rust_contract/news-tie-paths.json").read_text())
+    assert rules == [APPROVED_RULE]
+
+
+@pytest.mark.parametrize(
+    "document",
+    [
+        [],
+        [APPROVED_RULE, {**APPROVED_RULE, "request_path": "/api/orderbook"}],
+        [{**APPROVED_RULE, "request_path": "/api/orderbook"}],
+        [{**APPROVED_RULE, "json_path": "/body/items"}],
+        [{**APPROVED_RULE, "sort_key": "created_at"}],
+        [{**APPROVED_RULE, "rule": "any-tie-multiset"}],
+        {**APPROVED_RULE},
+    ],
+)
+def test_unreviewed_rule_file_fails_closed(tmp_path, document):
+    path = tmp_path / "news-tie-paths.json"
+    path.write_text(json.dumps(document))
+    with pytest.raises(ContractError):
+        compare_news_tie_groups(
+            envelope(b"[" + A + b"," + B + b"]"),
+            envelope(b"[" + A + b"," + B + b"]"),
+            request_path="/api/news",
+            rules_path=path,
+        )
+
+
+def test_unreadable_rule_file_fails_closed(tmp_path):
+    path = tmp_path / "news-tie-paths.json"
+    path.write_text("{not json")
+    with pytest.raises(ContractError):
+        compare_news_tie_groups(
+            envelope(b"[" + A + b"]"),
+            envelope(b"[" + A + b"]"),
+            request_path="/api/news",
+            rules_path=path,
+        )

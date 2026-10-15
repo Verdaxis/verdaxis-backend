@@ -30,6 +30,16 @@ SCHEMA_REVISION = 1
 IDENTITY_PATH = "/.well-known/verdaxis-disposable-test"
 ROOT = Path(__file__).resolve().parents[2]
 CASES_PATH = ROOT / "tests" / "rust_contract" / "cases.json"
+# The reviewed news tie rule. Exactly one rule is approved (decision 18).
+NEWS_TIE_RULES_PATH = ROOT / "tests" / "rust_contract" / "news-tie-paths.json"
+APPROVED_NEWS_TIE_RULES = [
+    {
+        "rule": "news-published-at-tie-multiset",
+        "request_path": "/api/news",
+        "json_path": "/body",
+        "sort_key": "published_at",
+    }
+]
 
 # Transport-generated headers carry no contract meaning; every other header is
 # compared, including its absence. Content-Length is verified separately.
@@ -130,20 +140,28 @@ def _news_item_bytes(raw: bytes) -> list[str] | None:
     return items
 
 
-def compare_news_tie_groups(expected, actual, *, request_path):
+def _approved_news_tie_rule(rules_path: Path) -> dict[str, Any]:
+    """Load the tie rule file and refuse anything but the one reviewed rule.
+
+    A missing, unreadable, malformed, or widened rule file stops the run. The
+    relaxation is only ever the reviewed `/api/news` rule, so an edited file
+    cannot quietly loosen another path.
+    """
+    try:
+        rules = json.loads(rules_path.read_text())
+    except (OSError, ValueError) as error:
+        raise ContractError("news tie rule configuration is unreadable") from error
+    if rules != APPROVED_NEWS_TIE_RULES:
+        raise ContractError("unreviewed news tie rule configuration")
+    return APPROVED_NEWS_TIE_RULES[0]
+
+
+def compare_news_tie_groups(expected, actual, *, request_path, rules_path=None):
     """Decision 18: only news root arrays may permute exact tokens within ties."""
     from collections import Counter
     from itertools import groupby
 
-    rules = json.loads((ROOT / "tests/rust_contract/news-tie-paths.json").read_text())
-    approved = {
-        "rule": "news-published-at-tie-multiset",
-        "request_path": "/api/news",
-        "json_path": "/body",
-        "sort_key": "published_at",
-    }
-    if rules != [approved]:
-        raise ContractError("unreviewed news tie rule configuration")
+    approved = _approved_news_tie_rule(rules_path or NEWS_TIE_RULES_PATH)
     if request_path != approved["request_path"] or not all(
         isinstance(item.get("body"), list) and item.get("status") == 200
         for item in (expected, actual)
