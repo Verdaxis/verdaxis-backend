@@ -5,8 +5,29 @@
 # loopback port and is removed on exit. Never point this at staging or prod.
 set -euo pipefail
 image='postgis/postgis:17-3.6-alpine@sha256:49b4d46c9fb8b158ddecd14d1894871a21ed4acb7ef376e2050f43f79c7b7272'
+
+# Fail before starting a container when the caller has not pointed the suite at
+# the interpreter that carries the project's database dependencies.
+: "${RUST_TEST_PYTHON:?Set an absolute Python path with the project database dependencies}"
+export RUST_TEST_PYTHON
+
+container=''
+log=''
+cleanup() {
+  # An EXIT trap replaces the script's exit status with the status of its own
+  # last command. Capture the real status first and restore it after the
+  # container and scratch log are gone, so no failure is reported as success.
+  local status=$?
+  if [[ -n "$container" ]]; then
+    docker logs "$container" || true
+    docker rm -f "$container" >/dev/null || true
+  fi
+  if [[ -n "$log" ]]; then rm -f "$log"; fi
+  exit "$status"
+}
+trap cleanup EXIT
+
 container=$(docker run --platform linux/amd64 -d --rm -e POSTGRES_PASSWORD=disposable_admin_pw -p 127.0.0.1::5432 "$image")
-trap 'docker logs "$container"; docker rm -f "$container" >/dev/null' EXIT
 for i in {1..90}; do
   if docker exec "$container" pg_isready -h 127.0.0.1 -U postgres >/dev/null 2>&1; then break; fi
   sleep 1
@@ -30,7 +51,18 @@ SQL
 export RUST_TEST_DATABASE_URL="postgres://rust_app:disposable_app_pw@127.0.0.1:$port/verdaxis_rust_test"
 export RUST_TEST_MEMBER_DATABASE_URL="postgres://rust_member:disposable_member_pw@127.0.0.1:$port/verdaxis_rust_test"
 export RUST_TEST_MIGRATOR_DATABASE_URL="postgres://rust_migrator:disposable_migrator_pw@127.0.0.1:$port/verdaxis_rust_test"
-: "${RUST_TEST_PYTHON:?Set an absolute Python path with the project database dependencies}"
-export RUST_TEST_PYTHON
 export RELEASE_SHA=$(git rev-parse HEAD)
-cargo test --manifest-path rs/Cargo.toml --locked --workspace --features contract-tests -- --test-threads=1
+
+log=$(mktemp "${TMPDIR:-/tmp}/rust-postgres-tests.XXXXXX")
+set +e
+cargo test --manifest-path rs/Cargo.toml --locked --workspace --features contract-tests -- --test-threads=1 2>&1 | tee "$log"
+cargo_status=${PIPESTATUS[0]}
+set -e
+if (( cargo_status != 0 )); then
+  exit "$cargo_status"
+fi
+# A green cargo run that executed no test is a false pass; refuse it.
+if ! grep -Eq '^test result: ok\. [1-9][0-9]* passed' "$log"; then
+  echo "no Rust test ran: refusing a green result" >&2
+  exit 1
+fi

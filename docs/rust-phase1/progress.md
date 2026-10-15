@@ -346,3 +346,25 @@ All Cargo commands used local Rust 1.95 with a fresh
   health paths; `MOUNTED_GET_PATHS` in `runtime/http.rs` is the list to extend.
 - Task 3 is complete. No later task, push, live host, deployment, agent, or
   background job. The untracked `.claude/` directory is untouched.
+
+## Task 3 defect fix — PostgreSQL runner masked setup failures
+
+- Date: 2026-10-15. Base: `4897842`.
+- Fixed `rs/read/tests/run_postgres.sh`. Its `EXIT` trap ended with a
+  successful `docker rm`, and bash replaces the script's exit status with the
+  trap's last command status. `env -u RUST_TEST_PYTHON` therefore exited 0
+  even though `${RUST_TEST_PYTHON:?}` failed and no test ran.
+- The trap now captures `$?` on entry and exits with it after cleanup, and a
+  `mktemp` log holds the test output. `RUST_TEST_PYTHON` is required before any
+  container starts. A cargo run that exits 0 but executed no test (no
+  `test result: ok. N passed` line with N >= 1) now exits non-zero.
+- RED: `work/rust-phase1/run-postgres-red.txt` — `env -u RUST_TEST_PYTHON`
+  exited 0.
+- GREEN: `work/rust-phase1/run-postgres-green.txt` — the same call prints the
+  guard message, exits 1, and starts no container.
+- The "no test ran" branch is unreachable through the real workspace while its
+  tests pass, so it was exercised on two `work/rust-phase1/guard-*.sh` copies
+  that replace only the cargo command: zero-test output exits 1, one-test
+  output exits 0.
+- No container was left behind. No live host, database, push, agent, or
+  background job. `.claude/` untouched.
