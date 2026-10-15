@@ -12,6 +12,19 @@ After integration, rerun `curves_legacy` on the populated corpus in both KYC
 states. Do not relabel the old golden bytes as this source revision. Task 13
 still owns global method/slash routing, including the known HEAD behavior.
 
+Task 4b's accepted golden is on the build branch, not merged into this lane.
+The PM owns that merge and the populated acceptance rerun.
+
+After Task 9's required `DB_SESSION_TIME_ZONE` fix merges, run disposable
+Python/Rust differential tests with UTC and Asia/Singapore sessions across
+Singapore midnight (`2026-10-15T15:59:59.999999Z` and `2026-10-15T16:00:00Z`).
+Verify the configured pool's `SHOW TimeZone`. Include a FAME certificate valid
+through 15 October and exact expiry/grace boundaries, with both KYC switch
+states. Compare legacy JSON and CSV at each instant. Outputs must match Python
+and must not change merely because the session zone changes. Legacy routes have
+no day buckets; their certificate date is explicitly Singapore-local and their
+window codes do not depend on the database zone.
+
 ## Implementation and architecture note
 
 - `routes/curves_legacy.rs` mounts the two legacy paths. It uses one captured
