@@ -503,5 +503,100 @@
       "side": "ASK",
       "evidence_due": "BEFORE_LOADING"
     }
+  },
+  {
+    "name": "pending-quality-defaults",
+    "profile": "fame_v1",
+    "terms": {
+      "schema_version": 1,
+      "side": "ASK",
+      "neat_fame": true,
+      "nomination_status": "IDENTIFIED",
+      "uco_mass_pct": 100,
+      "standard": "EN_14214",
+      "standard_edition": "EN 14214:2019",
+      "astm_grade": null,
+      "en_climate_class": "B",
+      "production_origin": "Singapore",
+      "feedstock_origin": "Malaysia",
+      "shipping_location": "Jurong",
+      "cfpp_c": "-5",
+      "cloud_point_c": "-3",
+      "ci_gco2e_mj": "18.40",
+      "ci_methodology": "ISCC",
+      "ci_boundary": "WELL_TO_WAKE",
+      "ci_basis": "ACTUAL",
+      "lhv_mj_kg": "37.20",
+      "sustainability_scheme": "ISCC_EU",
+      "certificate_reference": "CERT-0001",
+      "certificate_holder": "Jurong Renewables Pte Ltd",
+      "certificate_valid_until": "2027-06-30",
+      "certificate_scope": null,
+      "evidence_status": "AVAILABLE",
+      "document_references": [
+        "DOC-1"
+      ],
+      "batch_reference": "BATCH-9",
+      "producing_site": "Jurong Plant",
+      "quality_evidence": {
+        "status": "PENDING"
+      },
+      "sustainability_evidence": {
+        "status": "AVAILABLE",
+        "document_type": "POS",
+        "reference": "S-1",
+        "issuer": "ISCC",
+        "quantity_mt": "500.00",
+        "supply_date": "2026-10-01",
+        "due": "BEFORE_LOADING"
+      },
+      "evidence_due": "BEFORE_LOADING"
+    },
+    "public": {
+      "schema_version": 1,
+      "neat_fame": true,
+      "nomination_status": "IDENTIFIED",
+      "uco_mass_pct": 100,
+      "standard": "EN_14214",
+      "standard_edition": "EN 14214:2019",
+      "astm_grade": null,
+      "en_climate_class": "B",
+      "production_origin": "Singapore",
+      "feedstock_origin": "Malaysia",
+      "shipping_location": "Jurong",
+      "cfpp_c": "-5",
+      "cloud_point_c": "-3",
+      "ci_gco2e_mj": "18.40",
+      "ci_methodology": "ISCC",
+      "ci_boundary": "WELL_TO_WAKE",
+      "ci_basis": "ACTUAL",
+      "lhv_mj_kg": "37.20",
+      "sustainability_scheme": "ISCC_EU",
+      "certificate_valid_until": "2027-06-30",
+      "evidence_status": "AVAILABLE",
+      "quality_evidence": {
+        "status": "PENDING",
+        "results": []
+      },
+      "sustainability_evidence": {
+        "status": "AVAILABLE",
+        "document_type": "POS",
+        "due": "BEFORE_LOADING"
+      },
+      "side": "ASK",
+      "evidence_due": "BEFORE_LOADING"
+    }
+  },
+  {
+    "name": "lng_v1-null",
+    "profile": "lng_v1",
+    "terms": null,
+    "public": null
+  },
+  {
+    "name": "fame_v1-null",
+    "profile": "fame_v1",
+    "terms": null,
+    "public": null
   }
 ]

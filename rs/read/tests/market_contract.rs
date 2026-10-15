@@ -227,8 +227,10 @@ fn window_sort_keys_and_labels_match_python() {
 
 #[test]
 fn trailing_zero_declarations_match_python() {
-    let cases = vector(include_str!(concat!(env!("CARGO_MANIFEST_DIR"),
-        "/../../tests/rust_contract/vectors/terms/decimal_validation.json")));
+    let cases = vector(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../tests/rust_contract/vectors/terms/decimal_validation.json"
+    )));
     for case in cases.as_array().unwrap() {
         let terms = &case["terms"];
         let result = match case["profile"].as_str().unwrap() {
@@ -250,19 +252,29 @@ fn public_bid_defaults_match_python() {
 }
 
 fn assert_public_vectors(quality: bool) {
-    let cases = vector(include_str!(concat!(env!("CARGO_MANIFEST_DIR"),
-        "/../../tests/rust_contract/vectors/terms/public_terms.json")));
+    let cases = vector(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../tests/rust_contract/vectors/terms/public_terms.json"
+    )));
     for case in cases.as_array().unwrap() {
-        if case["name"].as_str().unwrap().starts_with("quality-") != quality { continue; }
-        assert_eq!(redact_terms(case["profile"].as_str().unwrap(), &case["terms"]).unwrap(),
-            case["public"], "{}", case["name"]);
+        if case["name"].as_str().unwrap().starts_with("quality-") != quality {
+            continue;
+        }
+        assert_eq!(
+            redact_terms(case["profile"].as_str().unwrap(), &case["terms"]).unwrap(),
+            case["public"],
+            "{}",
+            case["name"]
+        );
     }
 }
 
 #[test]
 fn large_decimal_digest_matches_python() {
-    let cases = vector(include_str!(concat!(env!("CARGO_MANIFEST_DIR"),
-        "/../../tests/rust_contract/vectors/terms/large_decimals.json")));
+    let cases = vector(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../tests/rust_contract/vectors/terms/large_decimals.json"
+    )));
     for case in cases.as_array().unwrap() {
         let canonical = canonical_terms_from_row(&case["row"]).unwrap();
         assert_eq!(canonical, case["canonical_terms"]);
@@ -275,15 +287,45 @@ fn large_decimal_digest_matches_python() {
 
 #[test]
 fn window_edge_inputs_match_python() {
-    let cases = vector(include_str!(concat!(env!("CARGO_MANIFEST_DIR"),
-        "/../../tests/rust_contract/vectors/terms/windows.json")));
+    let cases = vector(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../tests/rust_contract/vectors/terms/windows.json"
+    )));
     for case in cases.as_array().unwrap() {
         let input = case["input"].as_str().unwrap();
-        assert_eq!(normalize_window(input, today()).unwrap(), case["normalized"]);
+        assert_eq!(
+            normalize_window(input, today()).unwrap(),
+            case["normalized"]
+        );
         assert_eq!(window_display_label(input).unwrap(), case["label"]);
         let start = window_start_date(input, today());
-        if case["start"].is_null() { assert!(start.is_err()); }
-        else { assert_eq!(start.unwrap().format("%Y-%m-%d").to_string(), case["start"]); }
+        if case["start"].is_null() {
+            assert!(start.is_err());
+        } else {
+            assert_eq!(start.unwrap().format("%Y-%m-%d").to_string(), case["start"]);
+        }
+    }
+}
+
+#[test]
+fn qualification_clock_matches_python() {
+    let cases = vector(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../tests/rust_contract/vectors/terms/qualification_clock.json"
+    )));
+    let policy = fixture_policy();
+    let point = id(POINT_A).to_string();
+    for case in cases.as_array().unwrap() {
+        let now = case["instant"].as_str().unwrap().parse().unwrap();
+        let clock = verdaxis_read::VisibilityClock::at(now);
+        assert_eq!(
+            order_is_execution_qualified_at(
+                &policy,
+                &fame_input(&point, Some(&case["terms"])),
+                clock.singapore_date
+            ),
+            case["qualified"]
+        );
     }
 }
 
@@ -617,13 +659,19 @@ fn typed_validators_reject_a_side_mismatch_and_an_unassigned_country() {
         "sustainability_scheme": "ISCC_EU"
     });
     assert!(validate_fame_terms("BID", Some(&bid), today()).is_ok());
-    assert_eq!(redact_terms("fame_v1", &bid).unwrap()["require_quality_evidence"], json!(false));
+    assert_eq!(
+        redact_terms("fame_v1", &bid).unwrap()["require_quality_evidence"],
+        json!(false)
+    );
     let lng_bid = json!({
         "side": "BID",
         "accepted_schemes": ["ISCC_EU"],
         "accepted_delivery_methods": ["SHIP_TO_SHIP"]
     });
-    assert_eq!(redact_terms("lng_v1", &lng_bid).unwrap()["require_union_database"], json!(true));
+    assert_eq!(
+        redact_terms("lng_v1", &lng_bid).unwrap()["require_union_database"],
+        json!(true)
+    );
 }
 
 // ---------------------------------------------------------------------------

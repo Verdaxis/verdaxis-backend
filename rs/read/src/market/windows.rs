@@ -58,14 +58,18 @@ fn parse_canonical(value: &str) -> Option<Window> {
         return Some(Window::Spot);
     }
     let (year_text, suffix) = value.split_once('-')?;
-    if year_text.chars().count() != 4 { return None; }
+    if year_text.chars().count() != 4 {
+        return None;
+    }
     let year = year_text.chars().try_fold(0i32, |year, c| {
         python_decimal_digit(c).map(|digit| year * 10 + digit as i32)
     })?;
     match suffix.as_bytes() {
         [b'0'..=b'9', b'0'..=b'9'] => {
             let month: u32 = suffix.parse().ok()?;
-            (1..=12).contains(&month).then_some(Window::Month(year, month))
+            (1..=12)
+                .contains(&month)
+                .then_some(Window::Month(year, month))
         }
         [b'Q', quarter @ b'1'..=b'4'] => Some(Window::Quarter(year, (quarter - b'0') as u32)),
         [b'C', b'A', b'L'] => Some(Window::Calendar(year)),
@@ -108,7 +112,9 @@ fn start_date(window: Window, today: NaiveDate) -> Result<NaiveDate, String> {
         Window::Quarter(year, quarter) => (year, (quarter - 1) * 3 + 1),
         Window::Calendar(year) => (year, 1),
     };
-    if year == 0 { return Err("year 0 is out of range".to_owned()); }
+    if year == 0 {
+        return Err("year 0 is out of range".to_owned());
+    }
     NaiveDate::from_ymd_opt(year, month, 1).ok_or_else(|| "invalid window date".to_owned())
 }
 
@@ -139,7 +145,9 @@ pub fn window_display_label(value: &str) -> Result<String, String> {
     Ok(match window {
         Window::Spot => "Spot".to_owned(),
         Window::Month(year, month) => format!("{} {}", MONTH_NAMES[(month - 1) as usize], year),
-        Window::Quarter(_, quarter) => format!("Q{quarter} {}", canonical.split_once('-').unwrap().0),
+        Window::Quarter(_, quarter) => {
+            format!("Q{quarter} {}", canonical.split_once('-').unwrap().0)
+        }
         Window::Calendar(_) => format!("CAL {}", canonical.split_once('-').unwrap().0),
     })
 }
@@ -147,15 +155,15 @@ pub fn window_display_label(value: &str) -> Result<String, String> {
 // Unicode 15.0 decimal ranges used by the pinned Python 3.12 oracle's \d.
 fn python_decimal_digit(c: char) -> Option<u32> {
     const ZEROES: &[u32] = &[
-        0x30, 0x660, 0x6f0, 0x7c0, 0x966, 0x9e6, 0xa66, 0xae6, 0xb66, 0xbe6,
-        0xc66, 0xce6, 0xd66, 0xde6, 0xe50, 0xed0, 0xf20, 0x1040, 0x1090,
-        0x17e0, 0x1810, 0x1946, 0x19d0, 0x1a80, 0x1a90, 0x1b50, 0x1bb0,
-        0x1c40, 0x1c50, 0xa620, 0xa8d0, 0xa900, 0xa9d0, 0xa9f0, 0xaa50,
-        0xabf0, 0xff10, 0x104a0, 0x10d30, 0x11066, 0x110f0, 0x11136,
-        0x111d0, 0x112f0, 0x11450, 0x114d0, 0x11650, 0x116c0, 0x11730,
-        0x118e0, 0x11950, 0x11c50, 0x11d50, 0x11da0, 0x11f50, 0x16a60,
-        0x16ac0, 0x16b50, 0x1d7ce, 0x1d7d8, 0x1d7e2, 0x1d7ec, 0x1d7f6,
-        0x1e140, 0x1e2f0, 0x1e4f0, 0x1e950, 0x1fbf0,
+        0x30, 0x660, 0x6f0, 0x7c0, 0x966, 0x9e6, 0xa66, 0xae6, 0xb66, 0xbe6, 0xc66, 0xce6, 0xd66,
+        0xde6, 0xe50, 0xed0, 0xf20, 0x1040, 0x1090, 0x17e0, 0x1810, 0x1946, 0x19d0, 0x1a80, 0x1a90,
+        0x1b50, 0x1bb0, 0x1c40, 0x1c50, 0xa620, 0xa8d0, 0xa900, 0xa9d0, 0xa9f0, 0xaa50, 0xabf0,
+        0xff10, 0x104a0, 0x10d30, 0x11066, 0x110f0, 0x11136, 0x111d0, 0x112f0, 0x11450, 0x114d0,
+        0x11650, 0x116c0, 0x11730, 0x118e0, 0x11950, 0x11c50, 0x11d50, 0x11da0, 0x11f50, 0x16a60,
+        0x16ac0, 0x16b50, 0x1d7ce, 0x1d7d8, 0x1d7e2, 0x1d7ec, 0x1d7f6, 0x1e140, 0x1e2f0, 0x1e4f0,
+        0x1e950, 0x1fbf0,
     ];
-    ZEROES.iter().find_map(|zero| (c as u32).checked_sub(*zero).filter(|n| *n < 10))
+    ZEROES
+        .iter()
+        .find_map(|zero| (c as u32).checked_sub(*zero).filter(|n| *n < 10))
 }

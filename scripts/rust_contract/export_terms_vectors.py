@@ -288,6 +288,12 @@ def _public_terms_vectors() -> list[dict]:
     ):
         cases.append({"name": f"{profile}-{terms['side']}", "profile": profile,
                       "terms": deepcopy(terms), "public": project(terms)})
+    pending = _fame_private_terms()
+    pending["quality_evidence"] = {"status": "PENDING"}
+    cases.append({"name": "pending-quality-defaults", "profile": "fame_v1",
+                  "terms": pending, "public": public_fame_terms(pending)})
+    for profile in ("lng_v1", "fame_v1"):
+        cases.append({"name": f"{profile}-null", "profile": profile, "terms": None, "public": None})
     return cases
 
 
@@ -319,6 +325,29 @@ def _window_vectors() -> list[dict]:
     return cases
 
 
+def _qualification_clock_vectors() -> list[dict]:
+    from app.services.fame_order import validate_fame_order_terms
+    from app.market_catalog import PRODUCT_IDS
+    from fastapi import HTTPException
+    from tests.rust_contract.clock import fixed_clock_patches
+    cases = []
+    for instant in ("2026-10-15T15:59:59+00:00", "2026-10-15T16:00:00+00:00"):
+        for quality_date in ("2026-10-15", "2026-10-16"):
+            terms = _fame_private_terms()
+            terms["certificate_valid_until"] = "2026-10-15"
+            terms["quality_evidence"]["sampled_on"] = quality_date
+            terms["quality_evidence"]["tested_on"] = quality_date
+            now = datetime.fromisoformat(instant)
+            with fixed_clock_patches(now):
+                try:
+                    validate_fame_order_terms(PRODUCT_IDS["UCOME_B100"], "ASK", terms)
+                    qualified = True
+                except HTTPException:
+                    qualified = False
+            cases.append({"instant": instant, "terms": terms, "qualified": qualified})
+    return cases
+
+
 def build_vectors() -> dict[str, str]:
     """Return vector file name -> exact committed text."""
     payloads = {
@@ -329,6 +358,7 @@ def build_vectors() -> dict[str, str]:
         "public_terms.json": _public_terms_vectors(),
         "large_decimals.json": _large_decimal_vectors(),
         "windows.json": _window_vectors(),
+        "qualification_clock.json": _qualification_clock_vectors(),
     }
     return {
         name: json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
