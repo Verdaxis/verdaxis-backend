@@ -1,4 +1,6 @@
 //! Trusted monitoring evidence. Rank each evidence class before selecting REAL.
+#[path = "curve_keys.rs"]
+pub mod curve_keys;
 use super::curve_projection::{decimal, timestamp};
 use crate::{ApiError, Json};
 use chrono::{DateTime, Utc};
@@ -33,9 +35,21 @@ async fn load_family(
     keys: &Json,
     now: DateTime<Utc>,
 ) -> Result<HashMap<SliceKey, Vec<PgRow>>, ApiError> {
-    let rows = sqlx::query(sqlx::AssertSqlSafe(sql))
+    // Rank in PostgreSQL so obsolete observations do not cross the wire.
+    let sql = sql.replace("/* exact_or_grid_keys */", curve_keys::FILTER);
+    let ranked = format!(
+        "WITH requested_keys AS (SELECT * FROM jsonb_to_recordset($1::jsonb) \
+         AS k(market_product text, delivery_point_id uuid, availability_window text)), candidates AS ({sql}), ranked AS (SELECT candidates.*, \
+         row_number() OVER (PARTITION BY market_product, delivery_point_id, \
+         availability_window, partition_key, evidence \
+         ORDER BY observed_at DESC, created_at DESC, id DESC) AS position \
+         FROM candidates) SELECT * FROM ranked WHERE position = 1 \
+         ORDER BY observed_at DESC, created_at DESC, id DESC"
+    );
+    let rows = sqlx::query(sqlx::AssertSqlSafe(ranked))
         .bind(keys.to_string())
         .bind(now)
+        .bind(curve_keys::complete_grid(keys))
         .fetch_all(connection)
         .await
         .map_err(|error| crate::routes::ports::query_error("/api/curves/forward/table", &error))?;

@@ -20,6 +20,25 @@ fn canonical_midpoint_requires_both_sides_and_rounds_half_even() {
     assert_eq!(midpoint(Some(decimal("1.00")), None), None);
     assert_eq!(money(decimal("1.005")), "1.00");
     assert_eq!(money(decimal("1.015")), "1.02");
+    assert_eq!(money(decimal("-0.005")), "-0.00");
+}
+
+#[test]
+fn sparse_keys_cannot_expand_to_cross_product() {
+    use verdaxis_read::routes::curves_canonical::signals::curve_keys::complete_grid;
+    let keys = json!([
+        {"market_product":"first","delivery_point_id":"one","availability_window":"SPOT"},
+        {"market_product":"second","delivery_point_id":"two","availability_window":"SPOT"}
+    ]);
+    assert!(!complete_grid(&keys));
+    let mut grid = keys.as_array().unwrap().clone();
+    grid.push(
+        json!({"market_product":"first","delivery_point_id":"two","availability_window":"SPOT"}),
+    );
+    grid.push(
+        json!({"market_product":"second","delivery_point_id":"one","availability_window":"SPOT"}),
+    );
+    assert!(complete_grid(&json!(grid)));
 }
 
 #[test]

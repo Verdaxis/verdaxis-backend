@@ -73,7 +73,17 @@ async fn request(
                 .as_array_mut()
                 .unwrap()
                 .push(json!(value));
-        } else {
+        } else if (shape == "slice"
+            && ["market_product", "delivery_point_id", "availability_window"]
+                .contains(&name.as_ref()))
+            || (shape == "board"
+                && [
+                    "focus_market_product",
+                    "focus_delivery_point_id",
+                    "availability_window",
+                ]
+                .contains(&name.as_ref()))
+        {
             query[name.as_ref()] = json!(value);
         }
     }

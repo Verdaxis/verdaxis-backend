@@ -23,7 +23,11 @@ pub fn decimal(value: &str) -> Decimal {
 pub fn money(value: Decimal) -> String {
     let mut rounded = value.round_dp_with_strategy(2, RoundingStrategy::MidpointNearestEven);
     rounded.rescale(2);
-    rounded.to_string()
+    if value.is_sign_negative() && rounded.is_zero() {
+        "-0.00".to_owned()
+    } else {
+        rounded.to_string()
+    }
 }
 pub fn timestamp(value: DateTime<Utc>) -> Json {
     Json::String(crate::routes::ports::utc_rfc3339(value, "Z"))
