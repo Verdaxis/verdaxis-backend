@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+# Run the whole Rust workspace against a disposable PostgreSQL container.
+#
+# Docker runs locally through Colima. The container binds a Docker-assigned
+# loopback port and is removed on exit. Never point this at staging or prod.
 set -euo pipefail
 image='postgis/postgis:17-3.6-alpine@sha256:49b4d46c9fb8b158ddecd14d1894871a21ed4acb7ef376e2050f43f79c7b7272'
 container=$(docker run --platform linux/amd64 -d --rm -e POSTGRES_PASSWORD=disposable_admin_pw -p 127.0.0.1::5432 "$image")
@@ -29,4 +33,4 @@ export RUST_TEST_MIGRATOR_DATABASE_URL="postgres://rust_migrator:disposable_migr
 : "${RUST_TEST_PYTHON:?Set an absolute Python path with the project database dependencies}"
 export RUST_TEST_PYTHON
 export RELEASE_SHA=$(git rev-parse HEAD)
-cargo test --manifest-path rs/Cargo.toml --locked --features contract-tests --test runtime_postgres --test admission_postgres -- --test-threads=1
+cargo test --manifest-path rs/Cargo.toml --locked --workspace --features contract-tests -- --test-threads=1

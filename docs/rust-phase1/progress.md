@@ -264,3 +264,85 @@ All Cargo commands used local Rust 1.95 and a fresh
   authorizing the remaining Task 3 work. Then begin with failing tests.
 - Task 3 remains unimplemented. No container, database connection, live access,
   push, agent, or background job was started. `.claude/` remains untouched.
+
+## Task 3 — Implemented; HTTP, admission and cancellation gates pass
+
+- Date: 2026-10-15. Base: `11ba285` (the stopped Astra session's partial work).
+- Read the plan's Task 3 in full, decisions 9-12, the inventory details, the
+  Python admission/support/CORS/rate-limit sources, and this worktree's
+  Starlette 1.3.1 `routing.py`, `middleware/cors.py`, and `app/main.py`.
+- Kept the WIP's two-pool split, `run_admitted`, empty route modules, and
+  `mcp_router`. Fixed what did not match the plan; added every missing test.
+
+### Implementation
+
+- `runtime/admission.rs` exports `ADMISSION_SLOTS = 8`, `selected_read`,
+  `try_read`, and `run_admitted`. `run_admitted` reuses the request's task-local
+  permit when the admission middleware already took one, otherwise acquires its
+  own (the MCP path). The spawned task owns the permit and the pooled
+  connection; on success it pings, runs SQLx's drop handler eagerly through the
+  `#[doc(hidden)]` `PoolConnection::return_to_pool`, drops the connection and
+  only then the permit; on failure it closes the connection.
+- `runtime/http.rs` composes, from outside inward, request-id logging, CORS,
+  admission, the support-context and rate-limit boundary, then routing. CORS
+  reproduces Starlette's simple and preflight responses, including the exact
+  `Disallowed CORS ...` bodies, `Vary`, credentials, expose headers, and the
+  absent `Allow-Origin` for a denied origin. Price limits are one fixed window
+  per resolved client IP and route (`60/30/10`), with no invented `Retry-After`.
+- Health GETs now use axum's `get`, because Starlette adds `HEAD` to every GET
+  route. `HEAD /health/live` is 200 with an empty body; other methods are 405
+  with `Allow: GET, HEAD` and the Python `{"detail":"Method Not Allowed"}` body.
+- `lib.rs` sizes the semaphore from `ADMISSION_SLOTS`; `config.rs` gained
+  `public_read_slots(workers, pool, overflow)` and the prepared budget now
+  refuses to start unless `workers * (pool + overflow - 1) == 8` (AD-02).
+
+### Checks
+
+All Cargo commands used local Rust 1.95 with a fresh
+`export RELEASE_SHA=$(git rev-parse HEAD)`. Foreground only.
+
+- `cargo test --manifest-path rs/Cargo.toml --locked --workspace`: **pass**,
+  24 tests (http_contract 15, runtime 7, identity 1, request_log 1), 0 failures.
+- `rs/read/tests/run_postgres.sh`: **pass**, exit 0, 29 tests in the workspace
+  with `--features contract-tests`, including admission_postgres 1 and
+  runtime_postgres 4. The script pins
+  `postgis/postgis:17-3.6-alpine@sha256:49b4d46c...b7272`, binds a
+  Docker-assigned loopback port, and removes its container on exit; no container
+  was left behind and no deployed database was contacted.
+  Evidence: `work/rust-phase1/postgres-final.txt`.
+- The cancellation test starts eight concurrent `pg_sleep` reads, asserts the
+  ninth request gets the unchanged 503 plus `Retry-After: 1`, cancels all eight
+  clients, asserts the database work continues and all eight slots stay taken,
+  waits for connection return with fewer than ten app-role connections
+  throughout, then runs eight fresh requests that all succeed inside 20 seconds
+  (the pool acquisition timeout is 30 seconds).
+- `cargo fmt --all -- --check` and
+  `cargo clippy --locked --workspace --all-targets -- -D warnings`: **pass**.
+  `cargo clippy ... --all-features` also passes, compiling the contract targets.
+- `git diff --check`: pass. Task 2's PostgreSQL acceptance is now satisfied.
+
+### Deviations and notes for later tasks
+
+- The captured-log test lives in `rs/read/tests/request_log.rs`, not
+  `http_contract.rs`. `tracing` caches a callsite's interest the first time it
+  is hit; a shared test binary that reaches the request-log callsite before any
+  subscriber is installed never delivers the event, which made the assertion
+  order-dependent. A one-test target is deterministic.
+- The `Allow` value on 405 is `GET, HEAD`. Python joins an unordered method set,
+  so the recorded order is unstable between processes; Task 4 must record it.
+- `app/middleware/market_support_scope.py` also has a
+  `STATE_CHANGING_GET_NOT_ALLOWED` 405 branch. It fires only for the four paths
+  in `KNOWN_STATE_CHANGING_GET_PATHS`, none of which Rust serves, so the port
+  implements only the 403 context branch. Re-check when a route task adds one.
+- `try_read` refuses with the busy contract when the limiter is absent; Python
+  also fails closed when its capacity is zero. Rust cannot reach zero capacity
+  because the prepared budget refuses to start unless the slots equal eight.
+- Rate-limit counts stay outside golden and shadow parity as AD-01 requires;
+  only exact limits, reset boundaries, client and route keying, and the 429
+  envelope are asserted.
+- Data routes remain unmounted, so `/api/prices` and `/mcp` are plain 404s.
+  That is Task 13's assembly, and it is why corpus tests must fail honestly
+  until then. Trailing-slash redirects are implemented only for the mounted
+  health paths; `MOUNTED_GET_PATHS` in `runtime/http.rs` is the list to extend.
+- Task 3 is complete. No later task, push, live host, deployment, agent, or
+  background job. The untracked `.claude/` directory is untouched.

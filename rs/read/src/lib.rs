@@ -1,7 +1,7 @@
 pub mod mcp;
 pub mod routes;
 pub mod runtime;
-pub use runtime::admission::{run_admitted, selected_read, try_read};
+pub use runtime::admission::{ADMISSION_SLOTS, run_admitted, selected_read, try_read};
 pub use runtime::config::{check_revision, connection_budget, validate_budget, validate_config};
 pub use runtime::db::connect;
 pub use runtime::error::{busy, database_error};
@@ -37,7 +37,7 @@ impl AppState {
         policy: MarketPolicy,
     ) -> Result<Self, String> {
         validate_config(&config)?;
-        if pools.read.options().get_max_connections() != 8
+        if pools.read.options().get_max_connections() != ADMISSION_SLOTS
             || pools.health.options().get_max_connections() != 1
         {
             return Err("Phase 1 requires read/health pools of eight/one".into());
@@ -46,7 +46,7 @@ impl AppState {
             config: std::sync::Arc::new(config),
             pools,
             policy: std::sync::Arc::new(policy),
-            reads: std::sync::Arc::new(tokio::sync::Semaphore::new(8)),
+            reads: std::sync::Arc::new(tokio::sync::Semaphore::new(ADMISSION_SLOTS as usize)),
         })
     }
 }

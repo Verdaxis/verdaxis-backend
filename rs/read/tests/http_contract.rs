@@ -153,11 +153,13 @@ async fn router_health_methods_and_empty_routes() {
     let app = verdaxis_read::router(state);
     for (method, path, status) in [
         ("GET", "/health/live", 200),
-        ("HEAD", "/health/live", 405),
+        ("HEAD", "/health/live", 200),
         ("POST", "/health/live", 405),
+        ("OPTIONS", "/health/live", 405),
         ("GET", "/health/live/", 307),
         ("GET", "/api/ports", 404),
         ("POST", "/mcp", 404),
+        ("GET", "/unknown", 404),
     ] {
         let response = app
             .clone()
@@ -173,7 +175,9 @@ async fn router_health_methods_and_empty_routes() {
             .unwrap();
         assert_eq!(response.status(), status, "{method} {path}");
         if status == 405 {
-            assert_eq!(response.headers()["allow"], "GET");
+            // Python joins an unordered set; Task 4 pins the recorded order.
+            assert_eq!(response.headers()["allow"], "GET, HEAD");
+            assert_eq!(response.headers()["content-type"], "application/json");
         }
         if status == 307 {
             assert_eq!(
@@ -181,7 +185,45 @@ async fn router_health_methods_and_empty_routes() {
                 "http://localhost/health/live"
             );
         }
+        if method == "HEAD" {
+            assert_eq!(to_bytes(response.into_body(), 1024).await.unwrap(), "");
+        }
     }
+    // The trailing-slash redirect keeps the query string, as Starlette does.
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/health/ready/?probe=1")
+                .header("host", "localhost")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 307);
+    assert_eq!(
+        response.headers()["location"],
+        "http://localhost/health/ready?probe=1"
+    );
+    // Unmounted data routes are absent, not silently proxied.
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/prices")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 404);
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(
+            &to_bytes(response.into_body(), 1024).await.unwrap()
+        )
+        .unwrap(),
+        serde_json::json!({"detail":"Not Found"})
+    );
 }
 
 #[test]
@@ -288,4 +330,313 @@ fn exact_limit_and_reset() {
         assert_eq!(bucket.started_ms, 1_000);
         assert!(admit(&mut bucket, limit, 61_000));
     }
+}
+
+#[test]
+fn admission_slots_match_python_workers() {
+    use verdaxis_read::ADMISSION_SLOTS;
+    use verdaxis_read::runtime::config::public_read_slots;
+    // Two per worker times four workers, from the attested release settings.
+    assert_eq!(public_read_slots(4, 2, 1), Some(ADMISSION_SLOTS));
+    assert_eq!(ADMISSION_SLOTS, 8);
+    assert_eq!(public_read_slots(4, 8, 1), Some(32));
+    assert_eq!(public_read_slots(4, 2, 2), Some(12));
+    assert_eq!(public_read_slots(u32::MAX, 2, 1), None);
+    assert_eq!(public_read_slots(4, 0, 0), None);
+}
+
+#[tokio::test]
+async fn cancelled_query_keeps_slot_until_drop() {
+    let gate = std::sync::Arc::new(tokio::sync::Semaphore::new(1));
+    let permit = gate.clone().try_acquire_owned().unwrap();
+    assert!(gate.clone().try_acquire_owned().is_err());
+    drop(permit);
+    assert!(gate.try_acquire_owned().is_ok());
+}
+
+#[tokio::test]
+async fn support_context_boundary_rejects_unclassified_mutations() {
+    use verdaxis_read::runtime::http::middleware;
+    let app = middleware(Router::new().route("/fixture", get(|| async { "ok" })));
+    let context = "6f1c1dc0-1111-4222-8333-444455556666";
+    let forbidden = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/fixture")
+                .header("x-verdaxis-market-support-context", context)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(forbidden.status(), 403);
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(
+            &to_bytes(forbidden.into_body(), 1024).await.unwrap()
+        )
+        .unwrap(),
+        serde_json::json!({"detail":{"code":"MARKET_SUPPORT_MUTATION_NOT_ALLOWED",
+            "message":"This operation is not available in Market Support mode"}})
+    );
+    for (method, value, expected) in [
+        ("GET", context, 200),
+        ("POST", "", 405),
+        // Python only skips the boundary for a falsy header; whitespace passes it.
+        ("POST", "  ", 403),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(method)
+                    .uri("/fixture")
+                    .header("x-verdaxis-market-support-context", value)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), expected, "{method} {value:?}");
+    }
+}
+
+fn peer(mut request: Request<Body>, address: &str) -> Request<Body> {
+    request.extensions_mut().insert(axum::extract::ConnectInfo(
+        address.parse::<std::net::SocketAddr>().unwrap(),
+    ));
+    request
+}
+
+#[tokio::test]
+async fn cors_covers_every_status_and_denied_origin() {
+    use verdaxis_read::ApiError;
+    use verdaxis_read::runtime::http::middleware;
+    let app = middleware(Router::new().route("/ok", get(|| async { "ok" })).route(
+        "/invalid",
+        get(|| async {
+            ApiError {
+                status: axum::http::StatusCode::UNPROCESSABLE_ENTITY,
+                detail: serde_json::json!([{"type":"missing","loc":["query","limit"],
+                            "msg":"Field required","input":null}]),
+                retry_after: None,
+            }
+        }),
+    ));
+    let staging = "https://staging.verdaxis.exchange";
+    for (path, status, allowed) in [
+        ("/ok", 200, true),
+        ("/ok", 200, false),
+        ("/invalid", 422, true),
+        ("/invalid", 422, false),
+    ] {
+        let origin = if allowed {
+            staging
+        } else {
+            "https://denied.invalid"
+        };
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(path)
+                    .header("origin", origin)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), status);
+        let headers = response.headers();
+        // Starlette always sends credentials and expose headers for a simple
+        // response, but mirrors the origin only when it is allowed.
+        assert_eq!(headers["access-control-allow-credentials"], "true");
+        assert_eq!(
+            headers["access-control-expose-headers"],
+            "Retry-After, X-Request-ID, X-Verdaxis-Market-Support-Context-Invalid"
+        );
+        assert_eq!(
+            headers
+                .get("access-control-allow-origin")
+                .map(|value| value.to_str().unwrap()),
+            allowed.then_some(origin)
+        );
+        assert_eq!(
+            headers.get("vary").map(|v| v.to_str().unwrap()),
+            allowed.then_some("Origin")
+        );
+        assert!(!headers.contains_key("access-control-max-age"));
+    }
+    // A denied origin fails the preflight with the exact Starlette text.
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("OPTIONS")
+                .uri("/ok")
+                .header("origin", "https://denied.invalid")
+                .header("access-control-request-method", "GET")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 400);
+    assert_eq!(response.headers()["access-control-max-age"], "600");
+    assert_eq!(
+        response.headers()["access-control-allow-methods"],
+        "DELETE, GET, HEAD, OPTIONS, PATCH, POST, PUT"
+    );
+    assert!(
+        !response
+            .headers()
+            .contains_key("access-control-allow-origin")
+    );
+    assert_eq!(
+        to_bytes(response.into_body(), 1024).await.unwrap(),
+        "Disallowed CORS origin"
+    );
+    // An unknown preflight method fails on the method, not the origin.
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("OPTIONS")
+                .uri("/ok")
+                .header("origin", "https://denied.invalid")
+                .header("access-control-request-method", "TRACE")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        to_bytes(response.into_body(), 1024).await.unwrap(),
+        "Disallowed CORS origin, method"
+    );
+}
+
+#[tokio::test]
+async fn rate_limit_is_per_client_and_route() {
+    use verdaxis_read::runtime::http::middleware;
+    let app = middleware(
+        Router::new()
+            .route("/api/prices", get(|| async { "prices" }))
+            .route("/api/prices/reference", get(|| async { "reference" })),
+    );
+    let call = |path: &'static str, address: &'static str, forwarded: Option<&'static str>| {
+        let app = app.clone();
+        async move {
+            let mut request = Request::builder().uri(path);
+            if let Some(forwarded) = forwarded {
+                request = request.header("x-forwarded-for", forwarded);
+            }
+            app.oneshot(peer(request.body(Body::empty()).unwrap(), address))
+                .await
+                .unwrap()
+                .status()
+        }
+    };
+    // A loopback proxy peer trusts the final forwarded hop.
+    for _ in 0..60 {
+        assert_eq!(
+            call("/api/prices", "127.0.0.1:5000", Some("192.0.2.1")).await,
+            200
+        );
+    }
+    assert_eq!(
+        call("/api/prices", "127.0.0.1:5000", Some("192.0.2.1")).await,
+        429
+    );
+    // Another client and another route have their own buckets.
+    assert_eq!(
+        call("/api/prices", "127.0.0.1:5000", Some("192.0.2.2")).await,
+        200
+    );
+    assert_eq!(
+        call("/api/prices/reference", "127.0.0.1:5000", Some("192.0.2.1")).await,
+        200
+    );
+    // A non-loopback peer cannot spoof its client key.
+    assert_eq!(
+        call("/api/prices", "192.0.2.3:5000", Some("192.0.2.1")).await,
+        200
+    );
+    assert_eq!(
+        call("/api/prices", "192.0.2.3:5000", Some("192.0.2.9")).await,
+        200
+    );
+    // The spoof attempts never touched the trusted client's exhausted bucket.
+    assert_eq!(
+        call("/api/prices", "127.0.0.1:5000", Some("192.0.2.1")).await,
+        429
+    );
+}
+
+#[tokio::test]
+async fn cors_wraps_saturated_admission() {
+    use verdaxis_read::runtime::http::middleware_with_state;
+    let config = verdaxis_read::Config {
+        environment: "test".into(),
+        release_sha: verdaxis_read::compiled_sha().into(),
+        migration_revision: "kycg_20261014_staging".into(),
+        database_url: "postgres://fixture:fixture_pw@127.0.0.1:1/fixture_test".into(),
+        bind: "127.0.0.1:0".parse().unwrap(),
+        pool_max: 9,
+        python_budget: 52,
+        configured_max_connections: 100,
+    };
+    let pools = verdaxis_read::runtime::db::Pools {
+        read: sqlx::postgres::PgPoolOptions::new()
+            .max_connections(8)
+            .connect_lazy(&config.database_url)
+            .unwrap(),
+        health: sqlx::postgres::PgPoolOptions::new()
+            .max_connections(1)
+            .connect_lazy(&config.database_url)
+            .unwrap(),
+    };
+    let state = verdaxis_read::AppState::new(
+        config,
+        pools,
+        verdaxis_read::MarketPolicy {
+            source_sha: verdaxis_read::compiled_sha().into(),
+            products: vec![],
+            points: vec![],
+        },
+    )
+    .unwrap();
+    let app = middleware_with_state(
+        Router::new().route("/api/ports", get(|| async { "ports" })),
+        state.clone(),
+    );
+    // Occupy every public-read slot, as eight concurrent slow reads would.
+    let held: Vec<_> = (0..8)
+        .map(|_| state.reads.clone().try_acquire_owned().unwrap())
+        .collect();
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/ports")
+                .header("origin", "https://staging.verdaxis.exchange")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 503);
+    assert_eq!(response.headers()["retry-after"], "1");
+    assert_eq!(
+        response.headers()["access-control-allow-origin"],
+        "https://staging.verdaxis.exchange"
+    );
+    assert_eq!(
+        to_bytes(response.into_body(), 1024).await.unwrap(),
+        r#"{"detail":"Public market data is temporarily busy; retry shortly."}"#
+    );
+    // Releasing one slot admits the next request again.
+    let mut held = held;
+    let released = held.pop();
+    drop(released);
+    assert_eq!(state.reads.available_permits(), 1);
 }

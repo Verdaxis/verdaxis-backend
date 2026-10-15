@@ -1,6 +1,11 @@
 use crate::{ApiError, AppState, busy};
 use sqlx::Connection;
 
+/// Public-read admission slots, equal to Python's four workers times two
+/// per-worker slots (AD-02). The read pool is one connection larger, so the
+/// total connection budget of nine is unchanged.
+pub const ADMISSION_SLOTS: u32 = 8;
+
 tokio::task_local! {
     static REQUEST_PERMIT: std::sync::Mutex<Option<tokio::sync::OwnedSemaphorePermit>>;
 }
@@ -27,6 +32,14 @@ pub fn try_read(state: &AppState) -> Result<tokio::sync::OwnedSemaphorePermit, A
     state.reads.clone().try_acquire_owned().map_err(|_| busy())
 }
 
+/// Run one unit of admitted database work.
+///
+/// The permit and the pooled connection are both owned by a spawned task, so a
+/// client cancellation only detaches the caller. The task pings the connection
+/// (draining every pending response), completes the pool return, and only then
+/// releases the permit. A restarted caller can therefore never find a slot free
+/// while its previous query is still running. Failed work closes the connection
+/// instead of returning it to the pool.
 pub async fn run_admitted<T: Send + 'static>(
     state: &AppState,
     work: impl for<'c> FnOnce(
@@ -36,6 +49,8 @@ pub async fn run_admitted<T: Send + 'static>(
     > + Send
     + 'static,
 ) -> Result<T, ApiError> {
+    // The request middleware already admitted selected GETs; reuse its permit so
+    // one request never occupies two slots. MCP tools and tests acquire here.
     let inherited = REQUEST_PERMIT
         .try_with(|permit| permit.lock().expect("request permit lock").take())
         .ok()
@@ -50,8 +65,8 @@ pub async fn run_admitted<T: Send + 'static>(
         let mut connection = pool.acquire().await.map_err(|_| ApiError::internal())?;
         let result = work(&mut connection).await;
         if result.is_ok() && connection.ping().await.is_ok() {
-            // Complete SQLx's pool return before releasing admission. A plain
-            // drop schedules another ping and can leave a new read waiting.
+            // `return_to_pool` is the drop handler run eagerly, so the pool
+            // counts the connection as free before admission opens again.
             connection.return_to_pool().await;
             drop(connection);
             drop(permit);
@@ -61,6 +76,7 @@ pub async fn run_admitted<T: Send + 'static>(
             drop(permit);
             match result {
                 Err(error) => Err(error),
+                // The work succeeded but the connection is unusable.
                 Ok(_) => Err(ApiError::internal()),
             }
         }

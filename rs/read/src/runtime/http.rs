@@ -1,7 +1,6 @@
 use crate::{ApiError, request_id};
 use axum::{
     Router,
-    body::Body,
     extract::{ConnectInfo, MatchedPath, Request, State},
     http::{StatusCode, header},
     middleware::{self, Next},
@@ -13,6 +12,9 @@ use std::{
     sync::{Arc, Mutex},
     time::Instant,
 };
+
+/// The one credentialed browser origin in scope for Phase 1.
+const STAGING_ORIGIN: &str = "https://staging.verdaxis.exchange";
 
 pub fn client_ip(peer: Option<IpAddr>, forwarded: Option<&str>) -> String {
     if peer.is_some_and(|ip| ip.is_loopback())
@@ -72,9 +74,13 @@ async fn log_request(mut request: Request, next: Next) -> Response {
         .get::<MatchedPath>()
         .map(|p| p.as_str().to_owned())
         .unwrap_or_else(|| "unmatched".into());
+    // Later route and error code reads this correlation id from the request.
     request.extensions_mut().insert(id.clone());
     let started = Instant::now();
     let mut response = next.run(request).await;
+    // `error_class` and `sqlstate` stay empty here: only the database failure
+    // path knows them, and it reports them through the same event in later
+    // route tasks. Never add SQL parameters, URLs, headers, or bodies.
     tracing::info!(
         request_id = id,
         method = method.as_str(),
@@ -95,7 +101,7 @@ async fn cors(request: Request, next: Next) -> Response {
     let Some(origin) = request.headers().get(header::ORIGIN).cloned() else {
         return next.run(request).await;
     };
-    let allowed = origin == "https://staging.verdaxis.exchange";
+    let allowed = origin == STAGING_ORIGIN;
     let preflight = request.method() == "OPTIONS"
         && request
             .headers()
@@ -174,6 +180,13 @@ async fn cors(request: Request, next: Next) -> Response {
     response
 }
 
+/// The only GET paths this binary mounts. Data routes arrive in later tasks and
+/// must be added here with their `router` entry.
+const MOUNTED_GET_PATHS: [&str; 3] = ["/health/live", "/health/ready", "/health"];
+
+/// Apply the two rules that sit just outside route dispatch: the Market Support
+/// context boundary and the fixed-window price limits (AD-01). Admission and
+/// CORS are separate outer layers.
 async fn dispatch_boundary(
     State(state): State<HttpState>,
     request: Request,
@@ -186,7 +199,16 @@ async fn dispatch_boundary(
             .get("x-verdaxis-market-support-context")
             .is_some_and(|value| !value.is_empty())
     {
-        return ApiError { status: StatusCode::FORBIDDEN, detail: serde_json::json!({"code":"MARKET_SUPPORT_MUTATION_NOT_ALLOWED", "message":"This operation is not available in Market Support mode"}), retry_after: None }.into_response();
+        // Public reads never become private projections under a support context.
+        return ApiError {
+            status: StatusCode::FORBIDDEN,
+            detail: serde_json::json!({
+                "code": "MARKET_SUPPORT_MUTATION_NOT_ALLOWED",
+                "message": "This operation is not available in Market Support mode"
+            }),
+            retry_after: None,
+        }
+        .into_response();
     }
     let limit = match (request.method().as_str(), path) {
         ("GET", "/api/prices") => 60,
@@ -228,29 +250,17 @@ async fn dispatch_boundary(
             .into_response();
         }
     }
-    let head = request.method() == "HEAD";
-    let mut response = next.run(request).await;
-    if head {
-        *response.body_mut() = Body::empty();
-    }
-    response
+    next.run(request).await
 }
 
 pub fn router(state: crate::AppState) -> Router {
-    use axum::routing::{MethodFilter, on};
+    // Starlette adds HEAD to every GET route, so axum's `get` (which serves
+    // HEAD by running the GET handler with an emptied body) matches Python.
+    // Keep these paths in step with MOUNTED_GET_PATHS.
     let routes = Router::new()
-        .route(
-            "/health/live",
-            on(MethodFilter::GET, crate::live).head(method_not_allowed),
-        )
-        .route(
-            "/health/ready",
-            on(MethodFilter::GET, crate::ready).head(method_not_allowed),
-        )
-        .route(
-            "/health",
-            on(MethodFilter::GET, crate::ready).head(method_not_allowed),
-        )
+        .route("/health/live", axum::routing::get(crate::live))
+        .route("/health/ready", axum::routing::get(crate::ready))
+        .route("/health", axum::routing::get(crate::ready))
         .fallback(fallback)
         .method_not_allowed_fallback(method_not_allowed)
         .with_state(state.clone());
@@ -258,18 +268,21 @@ pub fn router(state: crate::AppState) -> Router {
 }
 
 async fn method_not_allowed() -> Response {
+    // Python joins the allowed-method set, which is unstable for two entries;
+    // Task 4 records the exact corpus value and will pin the order if needed.
     (
         StatusCode::METHOD_NOT_ALLOWED,
-        [(header::ALLOW, "GET")],
+        [(header::ALLOW, "GET, HEAD")],
         axum::Json(serde_json::json!({"detail":"Method Not Allowed"})),
     )
         .into_response()
 }
 
+/// Starlette redirects a trailing slash to the route that matches without it.
 async fn fallback(request: Request) -> Response {
     let path = request.uri().path();
     let trimmed = path.trim_end_matches('/');
-    if trimmed != path && ["/health", "/health/live", "/health/ready"].contains(&trimmed) {
+    if trimmed != path && MOUNTED_GET_PATHS.contains(&trimmed) {
         let host = request
             .headers()
             .get(header::HOST)

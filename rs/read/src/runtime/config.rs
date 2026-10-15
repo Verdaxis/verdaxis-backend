@@ -50,6 +50,13 @@ struct PreparedBudget {
     configured_max_connections: u32,
 }
 
+/// Python's aggregate public-read capacity: every worker reserves one fewer
+/// than its own pool plus overflow. Rust's single gate must match it (AD-02).
+pub fn public_read_slots(workers: u32, pool: u32, overflow: u32) -> Option<u32> {
+    let per_worker = pool.checked_add(overflow)?.checked_sub(1)?;
+    workers.checked_mul(per_worker)
+}
+
 /// Validate public budget metadata only; the prestart helper checks the secret file digest.
 pub fn validate_prepared_budget(config: &Config, json: &str) -> Result<(), String> {
     let budget: PreparedBudget =
@@ -69,12 +76,8 @@ pub fn validate_prepared_budget(config: &Config, json: &str) -> Result<(), Strin
             .environment_digest
             .bytes()
             .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-        || budget.workers.checked_mul(
-            budget
-                .pool
-                .saturating_add(budget.overflow)
-                .saturating_sub(1),
-        ) != Some(8)
+        || public_read_slots(budget.workers, budget.pool, budget.overflow)
+            != Some(crate::ADMISSION_SLOTS)
         || budget.rust_pool != config.pool_max
         || budget.python_budget != config.python_budget
         || budget.configured_max_connections != config.configured_max_connections
