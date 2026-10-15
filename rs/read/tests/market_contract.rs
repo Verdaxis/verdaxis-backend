@@ -226,6 +226,38 @@ fn window_sort_keys_and_labels_match_python() {
 // ---------------------------------------------------------------------------
 
 #[test]
+fn exact_stored_typed_decimals_match_python() {
+    let cases = vector(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../tests/rust_contract/vectors/terms/exact_typed_decimals.json"
+    )));
+    for case in cases.as_array().unwrap() {
+        let terms = &case["terms"];
+        let side = terms["side"].as_str().unwrap();
+        let profile = case["profile"].as_str().unwrap();
+        let validation = if profile == "lng_v1" {
+            validate_lng_terms(side, Some(terms))
+        } else {
+            validate_fame_terms(side, Some(terms), today())
+        };
+        assert_eq!(
+            validation.is_ok(),
+            case["accepted"].as_bool().unwrap(),
+            "{}: {validation:?}",
+            case["name"]
+        );
+        if case["accepted"] == true {
+            assert_eq!(
+                redact_terms(profile, terms).unwrap(),
+                case["public"],
+                "{}",
+                case["name"]
+            );
+        }
+    }
+}
+
+#[test]
 fn trailing_zero_declarations_match_python() {
     let cases = vector(include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),

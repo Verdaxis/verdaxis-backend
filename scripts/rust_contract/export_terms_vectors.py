@@ -297,6 +297,73 @@ def _public_terms_vectors() -> list[dict]:
     return cases
 
 
+def _exact_typed_decimal_vectors() -> list[dict]:
+    from copy import deepcopy
+    from pydantic import ValidationError
+    from app.schemas.fame_order import FameAskTerms, FameBidTerms
+    from app.schemas.lng_order import LngAskTerms, LngBidTerms
+    from app.services.fame_order import public_fame_terms
+    from app.services.lng_order import public_lng_terms
+
+    fame_bid = {"side": "BID", "neat_fame": True, "standard": "EN_14214",
+                "standard_edition": "EN 14214:2019", "sustainability_scheme": "ISCC_EU",
+                "ci_methodology": "ISCC", "ci_boundary": "WELL_TO_WAKE", "ci_basis": "ACTUAL"}
+    lng_bid = {"side": "BID", "accepted_schemes": ["ISCC_EU"],
+               "accepted_delivery_methods": ["SHIP_TO_SHIP"]}
+    cases = []
+    for profile, model, original, fields, project in (
+        ("fame_v1", FameAskTerms, _fame_private_terms(), ["cfpp_c", "cloud_point_c"], public_fame_terms),
+        ("fame_v1", FameBidTerms, fame_bid, ["max_cfpp_c", "max_cloud_point_c", "max_ci_gco2e_mj"], public_fame_terms),
+        ("lng_v1", LngAskTerms, _private_lng_ask_terms(), ["min_methane_number"], public_lng_terms),
+        ("lng_v1", LngBidTerms, lng_bid, ["max_wtt_ghg_gco2e_mj", "min_methane_number"], public_lng_terms),
+    ):
+        for field in fields:
+            for value in ("1E-29", "0E-100", "-0.000", "1.000000000000000000000000000001"):
+                terms = deepcopy(original)
+                terms[field] = value
+                stored = model.model_validate(terms).model_dump(mode="json")
+                cases.append({"name": f"{profile}-{model.__name__}-{field}-{value}",
+                              "profile": profile, "terms": stored, "accepted": True, "public": project(stored)})
+    for value in ("1E-29", "0E-100", "-0E-100", "1000000.0000000000000000000000000001", "-1E-29"):
+        terms = _fame_private_terms()
+        terms["quality_evidence"]["results"][0]["value"] = value
+        try:
+            stored = FameAskTerms.model_validate(terms).model_dump(mode="json")
+        except ValidationError:
+            cases.append({"name": f"quality-{value}", "profile": "fame_v1", "terms": terms, "accepted": False})
+        else:
+            cases.append({"name": f"quality-{value}", "profile": "fame_v1", "terms": stored,
+                          "accepted": True, "public": public_fame_terms(stored)})
+    for model, profile, original, project, field in (
+        (LngAskTerms, "lng_v1", _private_lng_ask_terms(), public_lng_terms, "bio_share_pct"),
+        (LngAskTerms, "lng_v1", _private_lng_ask_terms(), public_lng_terms, "wtt_ghg_gco2e_mj"),
+        (FameAskTerms, "fame_v1", _fame_private_terms(), public_fame_terms, "ci_gco2e_mj"),
+        (FameAskTerms, "fame_v1", _fame_private_terms(), public_fame_terms, "lhv_mj_kg"),
+    ):
+        for value in ("1.2300", "1.234", "1E-29", "1.230000000000000000000000000001"):
+            terms = deepcopy(original)
+            terms[field] = value
+            try:
+                stored = model.model_validate(terms).model_dump(mode="json")
+            except ValidationError:
+                cases.append({"name": f"{profile}-{field}-{value}", "profile": profile, "terms": terms, "accepted": False})
+            else:
+                cases.append({"name": f"{profile}-{field}-{value}", "profile": profile, "terms": stored,
+                              "accepted": True, "public": project(stored)})
+    # Positive lower bound and Python's context-normalized decimal_places check.
+    for field, value in (("min_bio_share_pct", "1.000000000000000000000000000001"),
+                         ("min_bio_share_pct", "0.999999999999999999999999999999")):
+        terms = {**lng_bid, field: value}
+        try:
+            stored = LngBidTerms.model_validate(terms).model_dump(mode="json")
+        except ValidationError:
+            cases.append({"name": f"{field}-{value}", "profile": "lng_v1", "terms": terms, "accepted": False})
+        else:
+            cases.append({"name": f"{field}-{value}", "profile": "lng_v1", "terms": stored,
+                          "accepted": True, "public": public_lng_terms(stored)})
+    return cases
+
+
 def _large_decimal_vectors() -> list[dict]:
     from app.services.order_terms import executable_order_terms, order_terms_digest
     cases = []
@@ -355,6 +422,7 @@ def build_vectors() -> dict[str, str]:
         "non_ascii.json": _non_ascii_vector(),
         "fame.json": _fame_vector(),
         "decimal_validation.json": _decimal_validation_vectors(),
+        "exact_typed_decimals.json": _exact_typed_decimal_vectors(),
         "public_terms.json": _public_terms_vectors(),
         "large_decimals.json": _large_decimal_vectors(),
         "windows.json": _window_vectors(),

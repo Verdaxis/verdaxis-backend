@@ -9,13 +9,12 @@
 //! (`scalar`, `fame_v1`, `lng_v1`) is read from `MarketPolicy`.
 
 use chrono::{DateTime, NaiveDate, Utc};
-use rust_decimal::Decimal;
 use serde_json::Map;
 use uuid::Uuid;
 
 use crate::{Json, MarketPolicy, ProductPolicy};
 
-use super::decimal::canonical_decimal_text;
+use super::decimal::{ExactDecimal, canonical_decimal_text};
 
 const ASK: &str = "ASK";
 const ORDERBOOK_MODE: &str = "ORDERBOOK";
@@ -329,10 +328,10 @@ fn decimal_wire_text(value: &Json) -> Result<String, String> {
     Ok(format!("{sign}{body}"))
 }
 
-fn decimal_of(value: &Json) -> Option<Decimal> {
+fn decimal_of(value: &Json) -> Option<ExactDecimal> {
     match value {
-        Json::String(text) => text.trim().parse().ok(),
-        Json::Number(number) => number.to_string().parse().ok(),
+        Json::String(text) => ExactDecimal::parse(text).ok(),
+        Json::Number(number) => ExactDecimal::parse(&number.to_string()).ok(),
         _ => None,
     }
 }
@@ -340,30 +339,30 @@ fn decimal_of(value: &Json) -> Option<Decimal> {
 fn required_decimal(
     object: &Map<String, Json>,
     key: &str,
-    min: Option<Decimal>,
-    max: Option<Decimal>,
+    min: Option<i32>,
+    max: Option<i32>,
     max_places: Option<u32>,
-) -> Result<Decimal, String> {
+) -> Result<ExactDecimal, String> {
     let value = object
         .get(key)
         .and_then(decimal_of)
         .ok_or_else(|| format!("{key} must be a decimal"))?;
-    check_decimal(key, value, min, max, max_places)?;
+    check_decimal(key, &value, min, max, max_places)?;
     Ok(value)
 }
 
 fn optional_decimal(
     object: &Map<String, Json>,
     key: &str,
-    min: Option<Decimal>,
-    max: Option<Decimal>,
+    min: Option<i32>,
+    max: Option<i32>,
     max_places: Option<u32>,
-) -> Result<Option<Decimal>, String> {
+) -> Result<Option<ExactDecimal>, String> {
     match object.get(key) {
         None | Some(Json::Null) => Ok(None),
         Some(value) => {
             let parsed = decimal_of(value).ok_or_else(|| format!("{key} must be a decimal"))?;
-            check_decimal(key, parsed, min, max, max_places)?;
+            check_decimal(key, &parsed, min, max, max_places)?;
             Ok(Some(parsed))
         }
     }
@@ -371,16 +370,16 @@ fn optional_decimal(
 
 fn check_decimal(
     key: &str,
-    value: Decimal,
-    min: Option<Decimal>,
-    max: Option<Decimal>,
+    value: &ExactDecimal,
+    min: Option<i32>,
+    max: Option<i32>,
     max_places: Option<u32>,
 ) -> Result<(), String> {
-    if min.is_some_and(|min| value < min) || max.is_some_and(|max| value > max) {
+    if min.is_some_and(|min| *value < min) || max.is_some_and(|max| *value > max) {
         return Err(format!("{key} is outside its allowed range"));
     }
     // Pydantic counts significant fractional places, not retained wire zeroes.
-    if max_places.is_some_and(|places| value.normalize().scale() > places) {
+    if max_places.is_some_and(|places| value.python_decimal_places() > u64::from(places)) {
         return Err(format!("{key} has too many decimal places"));
     }
     Ok(())
@@ -492,20 +491,8 @@ fn validate_lng_bid(object: &Map<String, Json>) -> Result<(), String> {
     if object.contains_key("accept_resellers") {
         required_bool(object, "accept_resellers")?;
     }
-    optional_decimal(
-        object,
-        "min_bio_share_pct",
-        Some(Decimal::ONE),
-        Some(Decimal::from(100)),
-        None,
-    )?;
-    optional_decimal(
-        object,
-        "max_wtt_ghg_gco2e_mj",
-        Some(Decimal::from(-150)),
-        Some(Decimal::from(100)),
-        None,
-    )?;
+    optional_decimal(object, "min_bio_share_pct", Some(1), Some(100), None)?;
+    optional_decimal(object, "max_wtt_ghg_gco2e_mj", Some(-150), Some(100), None)?;
     enum_list(
         object,
         "accepted_delivery_methods",
@@ -513,13 +500,7 @@ fn validate_lng_bid(object: &Map<String, Json>) -> Result<(), String> {
         1,
         3,
     )?;
-    optional_decimal(
-        object,
-        "min_methane_number",
-        Some(Decimal::ZERO),
-        Some(Decimal::from(100)),
-        None,
-    )?;
+    optional_decimal(object, "min_methane_number", Some(0), Some(100), None)?;
     Ok(())
 }
 
@@ -528,36 +509,18 @@ fn validate_lng_ask(object: &Map<String, Json>) -> Result<(), String> {
     required_enum(object, "sustainability_scheme", &LNG_SCHEMES)?;
     required_enum(object, "chain_of_custody", &LNG_CUSTODY)?;
     required_bool(object, "union_database_registered")?;
-    required_decimal(
-        object,
-        "bio_share_pct",
-        Some(Decimal::ONE),
-        Some(Decimal::from(100)),
-        Some(2),
-    )?;
+    required_decimal(object, "bio_share_pct", Some(1), Some(100), Some(2))?;
     required_enum(object, "feedstock", &LNG_FEEDSTOCKS)?;
     optional_string(object, "feedstock_detail", 0, 200)?;
     let country = required_string(object, "production_country", 0, 2)?;
     if !ISO_3166_1_ALPHA_2.contains(&country.as_str()) {
         return Err("production_country must be an assigned ISO 3166-1 alpha-2 code".to_owned());
     }
-    required_decimal(
-        object,
-        "wtt_ghg_gco2e_mj",
-        Some(Decimal::from(-150)),
-        Some(Decimal::from(100)),
-        Some(2),
-    )?;
+    required_decimal(object, "wtt_ghg_gco2e_mj", Some(-150), Some(100), Some(2))?;
     if required_string(object, "specification_standard", 0, 64)? != "ISO 23306:2020" {
         return Err("specification_standard must be ISO 23306:2020".to_owned());
     }
-    optional_decimal(
-        object,
-        "min_methane_number",
-        Some(Decimal::ZERO),
-        Some(Decimal::from(100)),
-        None,
-    )?;
+    optional_decimal(object, "min_methane_number", Some(0), Some(100), None)?;
     required_enum(object, "delivery_method", &LNG_DELIVERY_METHODS)?;
     required_bool(object, "seller_is_physical_supplier")?;
     required_enum(object, "pos_timing", &LNG_POS_TIMING)?;
@@ -776,27 +739,9 @@ fn validate_fame_bid(object: &Map<String, Json>) -> Result<(), String> {
     required_string(object, "standard_edition", 1, 200)?;
     let grade = optional_enum(object, "astm_grade", &FAME_ASTM_GRADES)?;
     optional_string(object, "en_climate_class", 1, 200)?;
-    optional_decimal(
-        object,
-        "max_cfpp_c",
-        Some(Decimal::from(-80)),
-        Some(Decimal::from(50)),
-        None,
-    )?;
-    optional_decimal(
-        object,
-        "max_cloud_point_c",
-        Some(Decimal::from(-80)),
-        Some(Decimal::from(80)),
-        None,
-    )?;
-    let max_ci = optional_decimal(
-        object,
-        "max_ci_gco2e_mj",
-        Some(Decimal::ZERO),
-        Some(Decimal::from(200)),
-        None,
-    )?;
+    optional_decimal(object, "max_cfpp_c", Some(-80), Some(50), None)?;
+    optional_decimal(object, "max_cloud_point_c", Some(-80), Some(80), None)?;
+    let max_ci = optional_decimal(object, "max_ci_gco2e_mj", Some(0), Some(200), None)?;
     let methodology = optional_string(object, "ci_methodology", 1, 200)?;
     let boundary = optional_string(object, "ci_boundary", 1, 200)?;
     let basis = optional_enum(object, "ci_basis", &FAME_CI_BASIS)?;
@@ -829,7 +774,7 @@ fn validate_fame_ask(object: &Map<String, Json>) -> Result<(), String> {
     let nomination = optional_enum(object, "nomination_status", &FAME_NOMINATION)?
         .unwrap_or_else(|| "PENDING".to_owned());
     let uco = required_decimal(object, "uco_mass_pct", None, None, None)?;
-    if uco != Decimal::from(100) {
+    if uco != 100 {
         return Err("uco_mass_pct must be 100".to_owned());
     }
     let standard = required_enum(object, "standard", &FAME_STANDARDS)?;
@@ -841,32 +786,14 @@ fn validate_fame_ask(object: &Map<String, Json>) -> Result<(), String> {
     let shipping_location = optional_string(object, "shipping_location", 1, 200)?;
     let batch_reference = optional_string(object, "batch_reference", 1, 200)?;
     let producing_site = optional_string(object, "producing_site", 1, 200)?;
-    optional_decimal(
-        object,
-        "cfpp_c",
-        Some(Decimal::from(-80)),
-        Some(Decimal::from(50)),
-        None,
-    )?;
-    optional_decimal(
-        object,
-        "cloud_point_c",
-        Some(Decimal::from(-80)),
-        Some(Decimal::from(80)),
-        None,
-    )?;
-    let ci = optional_decimal(
-        object,
-        "ci_gco2e_mj",
-        Some(Decimal::ZERO),
-        Some(Decimal::from(200)),
-        Some(2),
-    )?;
+    optional_decimal(object, "cfpp_c", Some(-80), Some(50), None)?;
+    optional_decimal(object, "cloud_point_c", Some(-80), Some(80), None)?;
+    let ci = optional_decimal(object, "ci_gco2e_mj", Some(0), Some(200), Some(2))?;
     let methodology = optional_string(object, "ci_methodology", 1, 120)?;
     let boundary = optional_string(object, "ci_boundary", 1, 200)?;
     let basis = optional_enum(object, "ci_basis", &FAME_CI_BASIS)?;
-    let lhv = optional_decimal(object, "lhv_mj_kg", None, Some(Decimal::from(50)), Some(2))?;
-    if lhv.is_some_and(|value| value <= Decimal::ZERO) {
+    let lhv = optional_decimal(object, "lhv_mj_kg", None, Some(50), Some(2))?;
+    if lhv.is_some_and(|value| value <= 0) {
         return Err("lhv_mj_kg must be greater than zero".to_owned());
     }
     required_enum(object, "sustainability_scheme", &FAME_SCHEMES)?;
@@ -925,7 +852,7 @@ fn validate_fame_ask(object: &Map<String, Json>) -> Result<(), String> {
 fn check_schema_version(object: &Map<String, Json>) -> Result<(), String> {
     match object.get("schema_version") {
         None | Some(Json::Null) => Ok(()),
-        Some(value) if decimal_of(value) == Some(Decimal::ONE) => Ok(()),
+        Some(value) if decimal_of(value).is_some_and(|number| number == 1) => Ok(()),
         _ => Err("schema_version must be 1".to_owned()),
     }
 }
@@ -1034,15 +961,15 @@ fn quality_evidence(value: Option<&Json>) -> Result<Option<QualitySummary>, Stri
     }))
 }
 
-fn quality_bounds(property: &str) -> (Decimal, Decimal) {
+fn quality_bounds(property: &str) -> (i32, i32) {
     if property == "FLASH_POINT_C" {
-        (Decimal::from(-100), Decimal::from(1000))
+        (-100, 1000)
     } else if property.ends_with("_PCT") {
-        (Decimal::ZERO, Decimal::from(100))
+        (0, 100)
     } else if property.ends_with("_MG_KG") {
-        (Decimal::ZERO, Decimal::from(1_000_000))
+        (0, 1_000_000)
     } else {
-        (Decimal::ZERO, Decimal::from(10_000))
+        (0, 10_000)
     }
 }
 
@@ -1064,14 +991,8 @@ fn sustainability_evidence(value: Option<&Json>) -> Result<Option<Sustainability
     let document_type = required_enum(object, "document_type", &FAME_DOCUMENT_TYPES)?;
     let reference = optional_string(object, "reference", 1, 200)?;
     optional_string(object, "issuer", 1, 200)?;
-    let quantity = optional_decimal(
-        object,
-        "quantity_mt",
-        None,
-        Some(Decimal::from(100_000)),
-        Some(2),
-    )?;
-    if quantity.is_some_and(|value| value <= Decimal::ZERO) {
+    let quantity = optional_decimal(object, "quantity_mt", None, Some(100_000), Some(2))?;
+    if quantity.is_some_and(|value| value <= 0) {
         return Err("quantity_mt must be greater than zero".to_owned());
     }
     optional_date(object, "supply_date")?;
