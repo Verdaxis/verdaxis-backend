@@ -283,7 +283,10 @@ CREATE EXTENSION IF NOT EXISTS postgis;
         if self.record_all:
             wait_for_port(python_port)
             python_url = f"http://127.0.0.1:{python_port}"
-            self.record_groups(python_url)
+            from unittest.mock import patch
+
+            with patch.dict(os.environ, base_env):
+                self.record_groups(python_url)
             return
         rust_config = json.dumps(
             {
