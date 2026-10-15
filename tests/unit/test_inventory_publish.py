@@ -64,7 +64,8 @@ def _make_inventory_item():
 
 class TestPublishInventoryItem:
     @pytest.mark.asyncio
-    async def test_publish_maps_exact_canonical_catalog_product_and_delivery_point(self, monkeypatch):
+    @pytest.mark.parametrize("product_name", ["Bio Methanol", "B30", "B100"])
+    async def test_publish_maps_exact_canonical_catalog_product_and_delivery_point(self, monkeypatch, product_name):
         monkeypatch.setattr("app.config.settings.AUTO_MATCHING_ENABLED", False)
         user = _make_user()
         item = _make_inventory_item()
@@ -124,12 +125,15 @@ class TestPublishInventoryItem:
 
         exact_product_result = MagicMock()
         catalog_product = MagicMock()
-        catalog_product.id = uuid4()
-        catalog_product.name = "Bio Methanol"
+        from app.market_catalog import PRODUCTS_BY_NAME, BIOFUEL_SPECIFICATION_STANDARDS
+        spec = PRODUCTS_BY_NAME[product_name]
+        catalog_product.id = spec.id
+        catalog_product.name = spec.name
         catalog_product.min_lot_size = Decimal("200.00")
         catalog_product.unit = "MT"
-        catalog_product.fuel_type = "Methanol"
-        catalog_product.fuel_grade = "Bio"
+        catalog_product.fuel_type = spec.fuel_type
+        catalog_product.fuel_grade = spec.fuel_grade
+        item.specification_standard = BIOFUEL_SPECIFICATION_STANDARDS.get(spec.id, "IMPCA")
         exact_product_result.scalar_one_or_none.return_value = catalog_product
         item.product_name = catalog_product.name
 
@@ -173,7 +177,7 @@ class TestPublishInventoryItem:
         assert listing.price_per_mt_usd == Decimal("850")
         assert listing.certification_declared is True
         assert listing.certification_scheme == "ISCC EU"
-        assert listing.specification_standard == "IMPCA"
+        assert listing.specification_standard == item.specification_standard
         assert listing.msds_available is True
         assert listing.carbon_intensity_gco2_mj == Decimal("21.5")
         assert listing.carbon_intensity_method == "ISCC EU"

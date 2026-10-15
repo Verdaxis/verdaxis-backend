@@ -24,7 +24,7 @@ from app.services.market_data_eligibility import (
 from app.services.market_provenance import canonical_availability_window_clause
 
 # Fuel types admitted to the public marketplace. FAME covers UCOME B100.
-APPROVED_MARKETPLACE_FUEL_TYPES = ("Methanol", "Ethanol", "FAME", "LNG")
+APPROVED_MARKETPLACE_FUEL_TYPES = ("Methanol", "Ethanol", "Biofuel", "FAME", "LNG")
 
 
 def _ensure_join(joins: list[tuple[object, object]], target: object, condition: object) -> None:

@@ -74,9 +74,9 @@ def test_demo_activity_builder_does_not_own_commit_or_rollback():
 @pytest.mark.parametrize(
     "now,expected_rows",
     [
-        (datetime(2026, 9, 30, 12, tzinfo=UTC), 14080),
-        (datetime(2026, 10, 1, 12, tzinfo=UTC), 15360),
-        (datetime(2026, 12, 31, 12, tzinfo=UTC), 14080),
+        (datetime(2026, 9, 30, 12, tzinfo=UTC), 21120),
+        (datetime(2026, 10, 1, 12, tzinfo=UTC), 23040),
+        (datetime(2026, 12, 31, 12, tzinfo=UTC), 21120),
     ],
 )
 def test_demo_market_coverage_has_ten_levels_and_contango_across_the_full_horizon(now, expected_rows):

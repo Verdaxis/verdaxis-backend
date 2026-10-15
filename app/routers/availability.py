@@ -16,6 +16,7 @@ from app.models.catalog import DeliveryPoint, Product
 from app.models.user import Organization, OrganizationProvenance, User
 from app.schemas.availability import PortFuelAvailability, AvailabilityLevel
 from app.schemas.market_activity import MarketScope, MarketSourceKind
+from app.services.execution_policy import biofuel_supplier_metadata_clause
 from app.services.market_data_eligibility import (
     active_market_catalog_clauses,
     canonical_market_product_expression,
@@ -112,6 +113,7 @@ async def get_fuel_availability(
         .where(
             Port.is_active.is_(True),
             *active_market_catalog_clauses(Product, DeliveryPoint),
+            biofuel_supplier_metadata_clause(InventoryItem, Product.id),
             Organization.provenance.not_in(
                 (
                     OrganizationProvenance.TEST.value,

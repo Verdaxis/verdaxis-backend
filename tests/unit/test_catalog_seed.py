@@ -8,6 +8,8 @@ from app.routers.catalog import DELIVERY_POINT_DISPLAY_ORDER
 
 
 EXPECTED_DEMO_PRODUCT_NAMES = {
+    "B30",
+    "B100",
     "Bio Methanol",
     "e-Methanol",
     "Bio Ethanol",
@@ -17,6 +19,8 @@ EXPECTED_DEMO_PRODUCT_NAMES = {
 EXPECTED_CATALOG_PRODUCT_NAMES = EXPECTED_DEMO_PRODUCT_NAMES | {"UCOME B100", "Bio-LNG"}
 
 EXPECTED_PRODUCT_IDS = {
+    "B30": UUID("c4cecebc-3d2d-5840-8021-57a9a11bc673"),
+    "B100": UUID("74eb9cb5-f0e3-55f1-b82c-fe29b7c45bf5"),
     "Bio-LNG": UUID("8f6f34a5-2927-54a6-8564-cca40ae7cb8a"),
     "UCOME B100": UUID("e561e43f-d9b2-598e-981c-f1d28d515ddc"),
     "Bio Methanol": UUID("9510c713-6e39-5080-add3-0a7c29657b79"),

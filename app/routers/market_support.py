@@ -916,6 +916,8 @@ async def create_authorization(
     )
     if fame_terms is None and lng_terms is None:
         _require_supplier_metadata(
+            product_id=body.order.product_id,
+            carbon_intensity_method=body.order.carbon_intensity_method,
             specification_standard=body.order.specification_standard.strip(),
             msds_available=body.order.msds_available,
             carbon_intensity_gco2_mj=body.order.carbon_intensity_gco2_mj,

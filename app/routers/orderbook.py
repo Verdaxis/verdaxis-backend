@@ -82,7 +82,7 @@ from app.services.availability_windows import (
 from pydantic import BaseModel
 from app.services.benchmarks import compute_premium_discount
 from app.services.watchlist_events import emit_order_created, emit_order_updated, _best_slice_price
-from app.services.execution_policy import normalize_certification_scheme
+from app.services.execution_policy import normalize_certification_scheme, supplier_product_metadata_error
 from app.services.market_locks import (
     acquire_market_slice_lock,
     acquire_market_slice_locks,
@@ -407,6 +407,8 @@ def _require_supplier_metadata(
     carbon_intensity_gco2_mj: Decimal | None,
     feedstock: str | None,
     origin: str | None,
+    product_id: UUID | None = None,
+    carbon_intensity_method: str | None = None,
 ) -> None:
     missing: list[str] = []
     if not (specification_standard or '').strip():
@@ -424,6 +426,14 @@ def _require_supplier_metadata(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"ASK orders require supplier details: {', '.join(missing)}",
         )
+
+    product_error = supplier_product_metadata_error(
+        product_id,
+        specification_standard=specification_standard,
+        carbon_intensity_method=carbon_intensity_method,
+    )
+    if product_error:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=product_error)
 
 
 async def _live_slice_benchmark_price(
@@ -1949,6 +1959,8 @@ async def create_order(
                 raise HTTPException(422, "ASK orders require an available safety data sheet")
         else:
             _require_supplier_metadata(
+                product_id=order_data.product_id,
+                carbon_intensity_method=order_data.carbon_intensity_method,
                 specification_standard=order_data.specification_standard,
                 msds_available=order_data.msds_available,
                 carbon_intensity_gco2_mj=order_data.carbon_intensity_gco2_mj,
@@ -2518,6 +2530,8 @@ async def update_order(
                 raise HTTPException(422, "ASK orders require an available safety data sheet")
         else:
             _require_supplier_metadata(
+                product_id=update_dict.get("product_id", order.product_id),
+                carbon_intensity_method=update_dict.get("carbon_intensity_method", order.carbon_intensity_method),
                 specification_standard=update_dict.get("specification_standard", order.specification_standard),
                 msds_available=bool(update_dict.get("msds_available", order.msds_available)),
                 carbon_intensity_gco2_mj=update_dict.get("carbon_intensity_gco2_mj", order.carbon_intensity_gco2_mj),
