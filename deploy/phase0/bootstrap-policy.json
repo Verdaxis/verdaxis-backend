@@ -1,0 +1,7 @@
+{
+  "mode": "synthetic",
+  "host_apply": false,
+  "target_revision": "kycd_20261015_staging",
+  "migration_graph_sha256": "39780b1ad463356792c5d4c622c2c148b6bf597ca8c0b1062abf792d6e5176d7",
+  "schema_sha256": "6fd8ce03449cb2b98a20bfcd286fa9a1e46f8fe64cb357192a2fb7742b7e7b78"
+}
