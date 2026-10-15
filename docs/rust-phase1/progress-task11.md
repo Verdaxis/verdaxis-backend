@@ -164,6 +164,40 @@ evidence replay, three-tool recursive privacy/error/cancellation tests and
 expanded voyage fixtures, including green market-price lookup differential
 cases. Preserve the single committed golden directory. This is not acceptance.
 
+## Zero-difference corpus and saved-evidence replay checkpoint
+
+- `7f878660`: transport/schema compatibility, with failing schema-order and
+  stateless transport tests before repair. GET remains an open header-first
+  stream; recorder closes it deterministically. rmcp owns normal dispatch.
+- `da958ba9`: recorded validation errors, Python string repr and port-name
+  canonicalization, plus three green voyage cases. The corpus is now 32 cases.
+- Fresh differential **32/32 matched in both KYC states**, and saved lane-wire
+  replay **32/32 matched in both states**. No comparator changes or source
+  nondeterminism were found in these cases.
+- Evidence: `work/rust-phase1/mcp-evidence/golden/da958ba9dbc60e6285f2de4e0790bfa2b47dc7bd/`;
+  each KYC state was stable across two recordings. It remains untracked.
+- Replay initially failed on 16 schema numeric types: diagnostic response.json
+  stringifies Decimal. The replay now reconstructs the expected exchange from
+  retained response.body through authoritative `capture`, and verifies the
+  stored body digest. This fixes the reader, not the comparison rules.
+- The new feature-gated `rs/contract/tests/mcp.rs` runs normal differential
+  comparison and, when `MCP_LANE_EVIDENCE` is supplied, the saved-wire replay.
+- Checks: fmt/clippy passed; workspace **134 passed**; disposable PostgreSQL
+  **142 passed** (two matrix tests filtered); Python contracts **110 passed**;
+  Python MCP/voyage **90 passed**. All test runs finished.
+
+**Still not full Task 11 acceptance.** Zero differences cover the current
+32 cases, not every Pydantic input or transport state. Next add the complete
+validation-domain tests/implementation (wrong types, bounds, extras, date
+coercion, nested error accumulation and truncation), three-tool recursive
+privacy/error-class tests, and real MCP SQL cancellation/capacity proofs.
+Current validation adapter covers missing top-level tool arguments and port
+errors only; other validation still comes from serde/engine and is not Python-
+message-compatible. Modern per-request metadata handling is only the recorded
+missing-envelope branch. Add adversarial body/version cases before expanding
+it. Full pure-engine caller-price lane checks and annual/rounding boundaries
+also remain. Resume with these acceptance gaps, not another transport rewrite.
+
 ## Remaining implementation and acceptance
 
 Task 11 is **not complete**. Implement the rmcp 3.5.1 adapter, all three tools,

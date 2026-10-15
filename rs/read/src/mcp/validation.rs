@@ -54,52 +54,53 @@ pub fn tool_arguments(tool: &str, arguments: &mut Json) -> Result<(), String> {
         }
     }
     if tool == "plan_voyage_fuel"
-        && let Some(legs) = arguments["request"]["legs"].as_array_mut() {
-            let original = Json::Array(legs.clone());
-            let catalog: Json =
-                serde_json::from_str(include_str!("../../../../deploy/rust/mcp-catalog.json"))
-                    .expect("catalog data");
-            let ports: Vec<_> = catalog["delivery_points"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|point| point["name"].as_str().unwrap())
-                .collect();
-            let mut invalid_legs = 0;
-            for (index, leg) in legs.iter_mut().enumerate() {
-                let mut invalid = false;
-                for field in ["from_port", "to_port"] {
-                    if let Some(port) = leg[field].as_str() {
-                        if let Some(canonical) = ports
-                            .iter()
-                            .find(|name| name.to_lowercase() == port.trim().to_lowercase())
-                        {
-                            leg[field] = Json::String((*canonical).into());
-                        } else {
-                            errors.push(diagnostic(
-                                &format!("request.legs.{index}.{field}"),
-                                &format!(
-                                    "Value error, Unsupported port {}. Supported ports: {}",
-                                    python_string_repr(port),
-                                    ports.join(", ")
-                                ),
-                                "value_error",
-                                &leg[field],
-                            ));
-                            invalid = true;
-                        }
+        && let Some(legs) = arguments["request"]["legs"].as_array_mut()
+    {
+        let original = Json::Array(legs.clone());
+        let catalog: Json =
+            serde_json::from_str(include_str!("../../../../deploy/rust/mcp-catalog.json"))
+                .expect("catalog data");
+        let ports: Vec<_> = catalog["delivery_points"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|point| point["name"].as_str().unwrap())
+            .collect();
+        let mut invalid_legs = 0;
+        for (index, leg) in legs.iter_mut().enumerate() {
+            let mut invalid = false;
+            for field in ["from_port", "to_port"] {
+                if let Some(port) = leg[field].as_str() {
+                    if let Some(canonical) = ports
+                        .iter()
+                        .find(|name| name.to_lowercase() == port.trim().to_lowercase())
+                    {
+                        leg[field] = Json::String((*canonical).into());
+                    } else {
+                        errors.push(diagnostic(
+                            &format!("request.legs.{index}.{field}"),
+                            &format!(
+                                "Value error, Unsupported port {}. Supported ports: {}",
+                                python_string_repr(port),
+                                ports.join(", ")
+                            ),
+                            "value_error",
+                            &leg[field],
+                        ));
+                        invalid = true;
                     }
                 }
-                invalid_legs += usize::from(invalid);
             }
-            if !legs.is_empty() && invalid_legs == legs.len() {
-                errors.push(diagnostic(
-                    "request.legs",
-                    "Tuple should have at least 1 item after validation, not 0",
-                    "too_short",
-                    &original,
-                ));
-            }
+            invalid_legs += usize::from(invalid);
+        }
+        if !legs.is_empty() && invalid_legs == legs.len() {
+            errors.push(diagnostic(
+                "request.legs",
+                "Tuple should have at least 1 item after validation, not 0",
+                "too_short",
+                &original,
+            ));
+        }
     }
     if errors.is_empty() {
         Ok(())

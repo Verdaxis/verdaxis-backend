@@ -7,6 +7,7 @@ from pathlib import Path
 
 from scripts.rust_contract.compare import (
     ContractError,
+    capture,
     load_cases,
     recording_differences,
 )
@@ -24,7 +25,13 @@ def compare_evidence(entries, evidence: Path, *, gate: bool):
         request = json.loads((directory / "request.json").read_text())
         if request != entry["request"]:
             raise ContractError(f"MCP evidence request mismatch: {entry['id']}")
-        expected.append({"id":entry["id"],"request":request,"exchange":json.loads((directory / "response.json").read_text())})
+        stored = json.loads((directory / "response.json").read_text())
+        # response.json is diagnostic JSON (Decimal values stringify there).
+        # Reparse the retained wire body through the authoritative capture path.
+        exchange = capture(stored["status"], stored["headers"], (directory / "response.body").read_bytes())
+        if exchange["body_sha256"] != stored["body_sha256"]:
+            raise ContractError("MCP evidence body digest mismatch")
+        expected.append({"id":entry["id"],"request":request,"exchange":exchange})
     return recording_differences(expected, stable(entries))
 
 
