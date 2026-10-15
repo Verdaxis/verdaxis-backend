@@ -218,3 +218,21 @@ fn excluded_origin_row_changes_price_quantity_and_count() {
     assert_eq!(rows.iter().map(|(q, _)| *q).sum::<D>(), D::TEN);
     assert_eq!(rows.len(), 1);
 }
+
+#[test]
+fn wrong_lane_lng_is_not_a_benchmark() {
+    let policy = policy();
+    let mut row = typed_row("lng_v1");
+    let product = policy
+        .products
+        .iter()
+        .find(|p| p.qualification_profile == "lng_v1")
+        .unwrap();
+    let point = policy
+        .points
+        .iter()
+        .find(|p| !product.lanes.contains(&p.id))
+        .unwrap();
+    row["delivery_point_id"] = json!(point.id);
+    assert!(!candidate_is_benchmark_qualified(&policy, &row, &clock()));
+}
