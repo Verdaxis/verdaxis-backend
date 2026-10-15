@@ -154,35 +154,29 @@ def record(
     entries = []
     for case in cases:
         if case.get("fixture") == "T4B-negative-fame":
-            from scripts.rust_contract.seed_corpus import matrix_module, attest_target
-            from app.seeds.safety import seed_connection
-            from sqlalchemy.engine import make_url
+            import asyncio
+            from scripts.rust_contract.seed_corpus import matrix_module, attest_session
+            from app.seeds.safety import seed_session
+            from sqlalchemy import text
 
-            url = make_url(os.environ["SEED_DATABASE_URL"])
-            attest_target(
-                environment=os.environ.get("ENVIRONMENT", ""),
-                expected_database=os.environ["SEED_TARGET_DATABASE"],
-                connected_database=url.database,
-                connected_user=url.username,
-                is_superuser=False,
-                host=url.host,
-            )
-            with seed_connection() as connection:
-                with connection.cursor() as cursor:
-                    cursor.execute(
-                        "UPDATE orderbook_orders SET status='OPEN' WHERE id=%s",
-                        (str(matrix_module().fid("order:typed_invalid_visible")),),
+            async def set_negative_status(status):
+                async with seed_session() as session:
+                    await attest_session(session)
+                    await session.execute(
+                        text("UPDATE orderbook_orders SET status=:status WHERE id=:id"),
+                        {
+                            "status": status,
+                            "id": matrix_module().fid("order:typed_invalid_visible"),
+                        },
                     )
-                connection.commit()
-                try:
-                    entries.append(perform(base_url, case))
-                finally:
-                    with connection.cursor() as cursor:
-                        cursor.execute(
-                            "UPDATE orderbook_orders SET status='CANCELLED' WHERE id=%s",
-                            (str(matrix_module().fid("order:typed_invalid_visible")),),
-                        )
-                    connection.commit()
+                    await session.commit()
+
+            asyncio.run(set_negative_status("OPEN"))
+            try:
+                entries.append(perform(base_url, case))
+            finally:
+                asyncio.run(set_negative_status("CANCELLED"))
+
         else:
             entries.append(perform(base_url, case))
     return entries
