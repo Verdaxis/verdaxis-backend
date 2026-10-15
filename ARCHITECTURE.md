@@ -151,6 +151,17 @@ SQLx counter records statement/returned-row counts without query text.
 `curve_fixtures.py` supplies the same depth, trusted-evidence, subsecond and
 10,000-order cases for differential checks and later golden publication.
 
+Task 11 adds `rs/read/src/mcp/` for the stateless rmcp adapter, anonymous market
+prices and pure voyage calculations. Database tools use shared `run_admitted`;
+catalog and protocol discovery bypass admission. `validation.rs` reads exported
+Python tool schemas and normalizes arguments before admission; the pure engine
+uses that same boundary. Date parsing reuses the existing price-query parser.
+`export_mcp_validation.py` and `mcp-validation-vectors.json` retain reproducible
+Python diagnostics and normalized inputs. This remains a partial acceptance
+checkpoint; `docs/rust-phase1/progress-task11.md` lists unresolved input-domain,
+protocol and error-class gaps. MCP wire recordings stay in untracked lane evidence
+until integration publishes them into the single golden corpus.
+
 ## File Map
 
 ```

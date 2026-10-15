@@ -263,16 +263,43 @@ comparator relaxation occurred. Single committed golden remains untouched.
 ### Exact repair resume point
 
 **M2, M3 and N1 are not fixed. Task 11 is not accepted.** No test remains running.
-Start with M2's failing table-driven input-domain tests: unknown intensity key,
-midnight datetime date coercion, padded Decimal, absent nested speed, wrong speed
-container, superscript IMO, tiny exponent, all nested extras, and aggregate
-Pydantic diagnostics/truncation. Run each invalid-input case with saturated
-admission too. Replace the partial validator in `mcp/validation.rs`; ensure the
-pure-engine entry point shares normalization rather than depending on HTTP.
+`c384156b` adds a failing-first 35-vector Python validation matrix and a
+schema-driven validator. It covers unknown intensity keys, midnight dates,
+padded Decimals, absent/wrong nested fields, superscript IMO rejection, the
+review's tiny exponent, nested extras, custom model/map checks and aggregate
+error ordering/truncation. All invalid matrix cases also run under saturated
+admission. The pure engine now shares normalization. The MCP corpus has 82 cases.
+
+**Continue M2, not M3 yet:** add failing vectors for integer float/string/bool
+coercion and exact integer errors; Unicode decimal digits (including valid IMO
+Nd digits); SDK pre-parsing of JSON-string `request` arguments; wrong root argument
+types and tuple maximum/error ordering. Replace the widened Decimal bound with
+a complete constructor/context-domain policy: raising it to 1,000,026 fixes
+`1e-10001`, but does not prove arbitrary Python Decimal exponents or underflow.
+The schema validator is deliberately not claimed as a general Pydantic engine.
+Keep source-derived schemas and do not add runtime Python calls or fixture lookups.
 Then fix M3's invalid JSON-RPC version before tool validation and empty/partial
 modern `_meta` envelopes. N1 needs a typed failure classification through the
 shared admission seam: currently join/panic and database errors both become
 `ApiError::internal()`. Do not relabel all 500s or change REST wire errors.
+
+The M2 checkpoint has 35 oracle vectors (31 rejected, four accepted), plus
+pre-admission saturation checks for all 31 rejected inputs. Offline workspace
+**139 passed**, PostgreSQL **147 passed** (existing matrix filters), Python
+contracts **119 passed**; fmt/clippy passed. The first recording crossed a Git
+commit between KYC states, so off-state replay failed with `FileNotFoundError`
+for the old SHA's missing evidence. This was a recorder invocation error, not
+Python nondeterminism. Never commit while `record_mcp` is running: it constructs
+a fresh runner/source SHA for each state. Fixed-HEAD recordings now contain 82
+stable cases in each KYC state beneath source
+`c384156b194a1b0db66d750f56367bad3b9f3af8`; the committed golden is untouched.
+Fresh differential and saved-wire replay **82/82 passed in both KYC states**,
+including hidden-value privacy and both SQL cancellation proofs. All runs ended.
+Logs: `work/rust-phase1/task11-m2-{record,on,off}-stable.log`.
+An extra combined Python run without explicit test database settings failed one
+lifespan test on refused local port 5432 (219 passed). Re-running with explicit
+in-memory SQLite passed **220 tests** (oracle plus contract suites); no live host
+was contacted. The required standalone contract suite passed **119 tests**.
 
 Commands for the next complete checkpoint (run from this worktree):
 
