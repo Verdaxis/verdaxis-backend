@@ -86,8 +86,9 @@ Python models, then bound to the final oracle SHA. Corpus publication: `5b293e2c
 No golden body was hand-edited. The prior corpus is retained only in ignored
 `work/` for diagnosis. The new recording includes 70 cases already added by
 merged lanes since the prior 164-case corpus. Among existing cases, response
-changes are readiness SHA, R18/R26 order/page membership, and price-summary
-permutations covered by decision 22.
+body changes are readiness SHA and R18/R26 order/page membership. Four price
+records add decision 22 comparison metadata (`price_summary_tokens`); their
+response bytes and all pre-existing fields are unchanged.
 
 The old list group included three Task 7c cases. Its first implemented run
 matched all Task 7b cases but failed those three unimplemented routes (11 paths).
@@ -129,5 +130,47 @@ this lane does not implement Task 7c or edit harness dispatch.
 
 ## Final verification
 
-Pending final running gates. Logs are under `work/rust-phase1/task7b-*`.
+Checks on implementation `6e9652db` (or identical source immediately before that
+commit), with full HEAD exported before Cargo:
+
+- `cargo fmt --all -- --check`: passed.
+- `cargo clippy --workspace --all-targets -- -D warnings`: passed; all-features
+  clippy also passed.
+- `cargo test --workspace`: **110 passed**.
+- `RUST_TEST_PYTHON=$PWD/venv/bin/python bash rs/read/tests/run_postgres.sh`:
+  **118 passed**; the runner's two dedicated matrix tests remain explicitly
+  filtered for their separate runner.
+- `orderbook_lists --seed-mode corpus`: **12/12 cases** in each KYC state,
+  plus **142 enabled / 154 disabled** exact edge comparisons, a non-null CI
+  overlay comparison per state, and one-benchmark-statement proof per state.
+- Regression groups in both KYC states: **simple_reads 29/29**, **prices 40/40**
+  plus both 17-probe passes, **curves_legacy 4/4** plus existing matrix/scale
+  probes, **orderbook_snapshot 3/3** plus all snapshot edge/isolation probes.
+- `venv/bin/python -m pytest tests/rust_contract -q`: **95 passed**.
+- Task Python suites (marketplace filters, crossing filters, schemas, CI fields,
+  router and live benchmarks): **83 passed**.
+- Full Python unit suite: **2027 passed, 19 failed**. All 19 are the known
+  `tests/unit/test_deploy_health.py` macOS Bash 3.2 failures (`mapfile: command
+  not found`). This is not a green full-unit gate; no deploy code was changed.
+- Assertion ledger and policy/terms export checks passed. `git diff --check`
+  passed. No requested task gate was skipped. MCP recording stays deferred by
+  decision 19; no MCP acceptance is claimed.
+
+One initial snapshot regression attempt passed the corpus and early edge probes
+but its second server refused startup (`connect failed`). That run overlapped
+Cargo builds across changing HEAD identities. The unchanged gate passed when
+rerun at a stable identity; the failure log is retained, not hidden.
+
+Logs are under `work/rust-phase1/task7b-*`.
 No live host, live database, push, skill or subagent was used.
+
+
+## Integration handoff
+
+Task 7b implementation is ready for independent review. Keep the oracle SHA
+`a417cf5136d3af755360ee0b8e87c7de0695bd29` when merging its generated artifacts;
+do not relabel them with the implementation commit. The PM adds decision 23
+to the plan. Task 7c owns the moved compatibility cases and their dispatch.
+Architecture integration should record `market/order_projection.rs` as the
+shared snapshot/list DTO and the four new public list routes; this lane leaves
+`ARCHITECTURE.md` integration-owned under the task file allowlist.
