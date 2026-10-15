@@ -178,6 +178,32 @@ def compare_news_tie_groups(expected, actual, *, request_path):
     )
 
 
+def recording_differences(
+    expected: Sequence[dict[str, Any]], actual: Sequence[dict[str, Any]]
+) -> list[str]:
+    """Compare two recordings of one group. Empty means equal.
+
+    Case counts and case ids are part of the contract: a shorter or reordered
+    recording is a difference. Nothing is zipped silently.
+    """
+    if len(expected) != len(actual):
+        return ["recording-length"]
+    problems: list[str] = []
+    for left, right in zip(expected, actual):
+        if left["id"] != right["id"]:
+            problems.append(f"{left['id']}:ordering")
+            continue
+        problems += [
+            f"{left['id']}:{path}"
+            for path in compare_news_tie_groups(
+                left["exchange"],
+                right["exchange"],
+                request_path=left.get("request", {}).get("path", ""),
+            )
+        ]
+    return problems
+
+
 def _declared_length(headers: Mapping[str, str]) -> int | None:
     for name, value in headers.items():
         if str(name).lower() == "content-length":
@@ -292,21 +318,20 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"contract setup failed: {error}", file=sys.stderr)
         return 2
 
-    failures = 0
-    for left, right in zip(expected, actual):
-        if left["id"] != right["id"]:
-            print(f"{left['id']}: ordering", file=sys.stderr)
-            failures += 1
-            continue
-        for path in compare_news_tie_groups(
-            left["exchange"], right["exchange"], request_path=left["request"]["path"]
-        ):
-            # Schema path and category only. Never a body value.
-            print(f"{left['id']}:{path}", file=sys.stderr)
-            failures += 1
-    if failures:
+    if len(expected) != len(actual):
         print(
-            f"contract group {args.group} failed: {failures} difference(s)",
+            f"contract group {args.group} failed: recorded case counts differ "
+            f"({len(expected)} expected, {len(actual)} actual)",
+            file=sys.stderr,
+        )
+        return 1
+    problems = recording_differences(expected, actual)
+    for problem in problems:
+        # Schema path and category only. Never a body value.
+        print(problem, file=sys.stderr)
+    if problems:
+        print(
+            f"contract group {args.group} failed: {len(problems)} difference(s)",
             file=sys.stderr,
         )
         return 1

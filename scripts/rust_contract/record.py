@@ -192,24 +192,9 @@ def stable(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 def differences(first: list[dict[str, Any]], second: list[dict[str, Any]]) -> list[str]:
     """Compare two recordings of the same group. Empty means stable."""
-    from scripts.rust_contract.compare import compare_news_tie_groups
+    from scripts.rust_contract.compare import recording_differences
 
-    problems: list[str] = []
-    if len(first) != len(second):
-        return ["recording-length"]
-    for left, right in zip(first, second):
-        if left["id"] != right["id"]:
-            problems.append(f"{left['id']}:ordering")
-            continue
-        problems += [
-            f"{left['id']}:{path}"
-            for path in compare_news_tie_groups(
-                left["exchange"],
-                right["exchange"],
-                request_path=left.get("request", {}).get("path", ""),
-            )
-        ]
-    return problems
+    return recording_differences(first, second)
 
 
 def write_golden(

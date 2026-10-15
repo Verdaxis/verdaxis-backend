@@ -6,16 +6,19 @@ object membership, array order, header presence, and raw body bytes all have
 to survive the walk.
 """
 
+import json
 from decimal import Decimal
 
 import pytest
 
+from scripts.rust_contract import compare as compare_module
 from scripts.rust_contract import record
 from scripts.rust_contract.compare import (
     ContractError,
     capture,
     compare,
     parse_json,
+    recording_differences,
     strip_headers,
 )
 
@@ -107,3 +110,84 @@ def test_bounded_read_refuses_an_endless_stream(monkeypatch):
 
     with pytest.raises(ContractError):
         record._read_bounded(Endless())
+
+
+def _entry(case_id: str) -> dict:
+    """One recorded case, shaped like `record.perform` output."""
+    return {
+        "id": case_id,
+        "request": {"method": "GET", "path": "/api/ping", "query": "", "headers": {}},
+        "exchange": capture(200, {"content-type": "application/json"}, b'{"ok":true}'),
+    }
+
+
+def test_one_sided_recording_never_zip_truncates():
+    # A recording with fewer entries must fail, not silently skip the surplus.
+    first = [_entry("A"), _entry("B")]
+    assert recording_differences(first, [_entry("A")]) == ["recording-length"]
+    assert recording_differences([_entry("A")], first) == ["recording-length"]
+
+
+def test_recording_case_id_mismatch_is_a_difference():
+    first = [_entry("A"), _entry("B")]
+    second = [_entry("A"), _entry("C")]
+    assert recording_differences(first, second) == ["B:ordering"]
+
+
+def test_identical_recordings_have_no_differences():
+    first = [_entry("A"), _entry("B")]
+    assert recording_differences(first, list(first)) == []
+
+
+def _main_with_fake_endpoints(
+    monkeypatch, tmp_path, *, case_ids, python_entries, rust_entries
+):
+    """Point `record` at two fake endpoints that return the given recordings."""
+    cases = tmp_path / "cases.json"
+    cases.write_text(json.dumps({"groups": {"g": [{"id": i} for i in case_ids]}}))
+    monkeypatch.setenv("PYTHON_CONTRACT_URL", "http://127.0.0.1:1")
+    monkeypatch.setenv("RUST_CONTRACT_URL", "http://127.0.0.1:2")
+    monkeypatch.setenv("DISPOSABLE_TEST_TOKEN", "token")
+    monkeypatch.setattr(compare_module, "attest", lambda url, token: {})
+
+    def fake_record(url, token, cases):
+        return list(python_entries if url.endswith(":1") else rust_entries)
+
+    monkeypatch.setattr(record, "record", fake_record)
+    return ["--group", "g", "--cases", str(cases)]
+
+
+def test_main_refuses_a_case_count_mismatch(monkeypatch, tmp_path, capsys):
+    argv = _main_with_fake_endpoints(
+        monkeypatch,
+        tmp_path,
+        case_ids=["A"],
+        python_entries=[_entry("A")],
+        rust_entries=[_entry("A"), _entry("B")],
+    )
+    assert compare_module.main(argv) == 1
+    assert "recorded case counts differ" in capsys.readouterr().err
+
+
+def test_main_refuses_a_case_id_mismatch(monkeypatch, tmp_path, capsys):
+    argv = _main_with_fake_endpoints(
+        monkeypatch,
+        tmp_path,
+        case_ids=["A", "B"],
+        python_entries=[_entry("A"), _entry("B")],
+        rust_entries=[_entry("A"), _entry("C")],
+    )
+    assert compare_module.main(argv) == 1
+    assert "B:ordering" in capsys.readouterr().err
+
+
+def test_main_passes_identical_recordings(monkeypatch, tmp_path, capsys):
+    argv = _main_with_fake_endpoints(
+        monkeypatch,
+        tmp_path,
+        case_ids=["A"],
+        python_entries=[_entry("A")],
+        rust_entries=[_entry("A")],
+    )
+    assert compare_module.main(argv) == 0
+    assert "contract group g OK: 1 case(s)" in capsys.readouterr().out
