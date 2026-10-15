@@ -1,6 +1,49 @@
 //! Task 7c pure projection checks.
 
 #[test]
+fn listing_fame_normalization_matches_python_without_changing_snapshot_projection() {
+    use verdaxis_read::market::terms::{public_response_terms, redact_terms};
+    let script = r#"
+import json
+from scripts.rust_contract.export_terms_vectors import _fame_private_terms
+from app.services.fame_order import public_fame_terms
+vectors = []
+for whitespace in [' ', '\t\n', ' ', ' ', '　', '\x1c', '\x1d', '\x1e', '\x1f']:
+    terms = _fame_private_terms()
+    for field in ['standard_edition', 'en_climate_class', 'production_origin',
+                  'feedstock_origin', 'shipping_location', 'ci_methodology', 'ci_boundary']:
+        terms[field] = whitespace + terms[field] + whitespace
+    vectors.append([terms, public_fame_terms(terms)])
+print(json.dumps(vectors))
+"#;
+    let output = std::process::Command::new(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../venv/bin/python"
+    ))
+    .current_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/../.."))
+    .env("ENVIRONMENT", "test")
+    .env("RELEASE_SHA", "test")
+    .env("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
+    .env("JWT_SECRET", "test-secret-key-for-testing-minimum-32-chars")
+    .args(["-c", script])
+    .output()
+    .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let vectors: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    for vector in vectors.as_array().unwrap() {
+        assert_eq!(redact_terms("fame_v1", &vector[0]).unwrap(), vector[1]);
+        assert_eq!(
+            public_response_terms("fame_v1", &vector[0]).unwrap()["standard_edition"],
+            vector[0]["standard_edition"]
+        );
+    }
+}
+
+#[test]
 fn map_decimal_matches_python_context_and_exact_comparison() {
     use verdaxis_read::routes::orderbook_map::map_decimal;
     let vectors = [
