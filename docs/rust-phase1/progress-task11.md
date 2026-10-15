@@ -235,6 +235,61 @@ boundaries. The current 44-case gate is green, but these untested domains remain
 acceptance gaps; Task 11 is still not declared complete. No nondeterminism or
 comparator relaxation occurred. Single committed golden remains untouched.
 
+## Independent-review repair checkpoint — 2026-10-16
+
+- `a7a50a9a` repairs **M1** and **M4**. Price-map keys use Python whitespace
+  and catalog case-fold equivalence, preserving the last canonical-key value.
+  Both lookup generation and pure-engine price consumption use one catalog-lane
+  predicate. Two new Rust tests failed first, then passed (three voyage tests
+  total), including green-only forbidden-lane input.
+- `99fdaa8a` repairs **N2**. Eight scanner tests failed first, then passed.
+  The acceptance gate reads actual private fixture IDs and declaration values
+  from the attested disposable database and checks both text and structured
+  output, including values under harmless keys. Public catalog IDs are excluded.
+- MCP now has **47 cases**: padded/case-folded price keys, canonical-key collision,
+  and a forbidden departure lane were added. A caller-supplied forbidden price
+  is a pure-engine input, not an HTTP tool argument; its direct regression is in
+  `rs/read/tests/voyage.rs`.
+- Two stable Python recordings per KYC state are under untracked
+  `work/rust-phase1/mcp-evidence/golden/ba5a5f57ceac899e2c098055902d89925c937abb/`.
+  That is the actual unchanged Python source HEAD at recording time. No committed
+  golden file changed. No Python source nondeterminism was found.
+- Fresh differential and saved-wire replay: **47/47 matched in both KYC states**.
+  Hidden-value privacy scans and both SQL cancellation proofs passed in both.
+- Checkpoint checks: fmt and clippy passed; offline Rust **137 passed**;
+  PostgreSQL **145 passed** (the existing two matrix filters remain); Python
+  contract tests **118 passed**. Logs: `work/rust-phase1/task11-fix-*.log`.
+
+### Exact repair resume point
+
+**M2, M3 and N1 are not fixed. Task 11 is not accepted.** No test remains running.
+Start with M2's failing table-driven input-domain tests: unknown intensity key,
+midnight datetime date coercion, padded Decimal, absent nested speed, wrong speed
+container, superscript IMO, tiny exponent, all nested extras, and aggregate
+Pydantic diagnostics/truncation. Run each invalid-input case with saturated
+admission too. Replace the partial validator in `mcp/validation.rs`; ensure the
+pure-engine entry point shares normalization rather than depending on HTTP.
+Then fix M3's invalid JSON-RPC version before tool validation and empty/partial
+modern `_meta` envelopes. N1 needs a typed failure classification through the
+shared admission seam: currently join/panic and database errors both become
+`ApiError::internal()`. Do not relabel all 500s or change REST wire errors.
+
+Commands for the next complete checkpoint (run from this worktree):
+
+```bash
+export RELEASE_SHA=$(git rev-parse HEAD)
+cargo fmt --manifest-path rs/Cargo.toml --all -- --check
+cargo clippy --manifest-path rs/Cargo.toml --workspace --all-targets -- -D warnings
+cargo test --manifest-path rs/Cargo.toml --workspace
+RUST_TEST_PYTHON=$PWD/venv/bin/python bash rs/read/tests/run_postgres.sh
+venv/bin/python -m pytest tests/rust_contract -q
+# Record the expanded corpus twice in each state, then replay that exact source.
+venv/bin/python -m scripts.rust_contract.record_mcp
+export MCP_LANE_EVIDENCE=$PWD/work/rust-phase1/mcp-evidence/golden/$RELEASE_SHA
+venv/bin/python -m scripts.rust_contract.run_disposable --group mcp --seed-mode corpus --kyc-gate enabled
+venv/bin/python -m scripts.rust_contract.run_disposable --group mcp --seed-mode corpus --kyc-gate disabled
+```
+
 ## Remaining implementation and acceptance
 
 Task 11 is **not complete**. Implement the rmcp 3.5.1 adapter, all three tools,
