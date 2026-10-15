@@ -1,7 +1,13 @@
+pub mod mcp;
+pub mod routes;
 pub mod runtime;
+pub use runtime::admission::{run_admitted, selected_read, try_read};
 pub use runtime::config::{check_revision, connection_budget, validate_budget, validate_config};
 pub use runtime::db::connect;
+pub use runtime::error::{busy, database_error};
 pub use runtime::health::{live, ready};
+pub use runtime::http::router;
+pub use runtime::logging::request_id;
 
 impl ApiError {
     pub fn internal() -> Self {
@@ -19,11 +25,33 @@ pub type ApiResult = Result<axum::response::Response, ApiError>;
 #[derive(Clone)]
 pub struct AppState {
     pub config: std::sync::Arc<Config>,
-    pub pool: sqlx::PgPool,
+    pub(crate) pools: runtime::db::Pools,
     pub policy: std::sync::Arc<MarketPolicy>,
     pub reads: std::sync::Arc<tokio::sync::Semaphore>,
 }
 
+impl AppState {
+    pub fn new(
+        config: Config,
+        pools: runtime::db::Pools,
+        policy: MarketPolicy,
+    ) -> Result<Self, String> {
+        validate_config(&config)?;
+        if pools.read.options().get_max_connections() != 8
+            || pools.health.options().get_max_connections() != 1
+        {
+            return Err("Phase 1 requires read/health pools of eight/one".into());
+        }
+        Ok(Self {
+            config: std::sync::Arc::new(config),
+            pools,
+            policy: std::sync::Arc::new(policy),
+            reads: std::sync::Arc::new(tokio::sync::Semaphore::new(8)),
+        })
+    }
+}
+
+#[derive(Debug)]
 pub struct ApiError {
     pub status: axum::http::StatusCode,
     pub detail: Json,

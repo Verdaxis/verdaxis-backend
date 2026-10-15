@@ -13,7 +13,13 @@ pub fn log_session_timezone(timezone: &str) {
     tracing::info!(database_timezone = timezone, "database session timezone");
 }
 
-pub async fn connect(config: &Config) -> Result<sqlx::PgPool, ApiError> {
+#[derive(Clone)]
+pub struct Pools {
+    pub read: sqlx::PgPool,
+    pub health: sqlx::PgPool,
+}
+
+pub async fn connect(config: &Config) -> Result<Pools, ApiError> {
     validate_config(config).map_err(|_| ApiError::internal())?;
     if config.environment == "staging" {
         // Trusted runtime preparation supplies this non-secret artifact content.
@@ -41,19 +47,31 @@ pub async fn connect(config: &Config) -> Result<sqlx::PgPool, ApiError> {
             ("default_transaction_read_only", "on"),
         ])
         .disable_statement_logging();
-    let pool = PgPoolOptions::new()
+    let read = PgPoolOptions::new()
         .min_connections(0)
-        .max_connections(config.pool_max)
+        .max_connections(config.pool_max - 1)
+        .acquire_timeout(Duration::from_secs(30))
+        .connect_with(options.clone())
+        .await
+        .map_err(|_| ApiError::internal())?;
+    if let Err(error) = attest(&read, config, &target.database, &target.user).await {
+        read.close().await;
+        return Err(error);
+    }
+    let health = match PgPoolOptions::new()
+        .min_connections(0)
+        .max_connections(1)
         .acquire_timeout(Duration::from_secs(30))
         .connect_with(options)
         .await
-        .map_err(|_| ApiError::internal())?;
-    let result = attest(&pool, config, &target.database, &target.user).await;
-    if result.is_err() {
-        pool.close().await;
-    }
-    result?;
-    Ok(pool)
+    {
+        Ok(pool) => pool,
+        Err(_) => {
+            read.close().await;
+            return Err(ApiError::internal());
+        }
+    };
+    Ok(Pools { read, health })
 }
 
 async fn attest(

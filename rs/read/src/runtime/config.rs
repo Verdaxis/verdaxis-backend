@@ -69,6 +69,12 @@ pub fn validate_prepared_budget(config: &Config, json: &str) -> Result<(), Strin
             .environment_digest
             .bytes()
             .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+        || budget.workers.checked_mul(
+            budget
+                .pool
+                .saturating_add(budget.overflow)
+                .saturating_sub(1),
+        ) != Some(8)
         || budget.rust_pool != config.pool_max
         || budget.python_budget != config.python_budget
         || budget.configured_max_connections != config.configured_max_connections

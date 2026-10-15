@@ -32,7 +32,14 @@ migrator connection. `scripts/prepare_rust_budget.py` creates private budget
 metadata and verifies environment-file drift. Staging pool startup consumes
 that metadata through `RUST_PREPARED_BUDGET` (JSON); deployment wiring remains
 owned by Task 12. The binary still only prints its compiled identity.
-See `docs/rust-phase1/progress.md` for the local checks and resume point.
+Task 3 splits the nine connections into an eight-connection read pool and a
+one-connection readiness pool. `runtime/admission.rs` transfers admission to a
+query-owning Tokio task so caller cancellation does not release database
+capacity. HTTP composition provides correlation, CORS, support boundaries and
+fixed-window price limits. Empty route and MCP modules reserve later task
+ownership. The binary accepts explicit `RUST_CONFIG` JSON and serves health;
+data routes remain unmounted. See `docs/rust-phase1/progress.md` for the local
+checks, remaining Task 3 gates, and resume point.
 
 ## File Map
 

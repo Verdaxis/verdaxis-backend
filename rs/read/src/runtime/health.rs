@@ -25,7 +25,7 @@ pub async fn probe(pool: &sqlx::PgPool, environment: &str, sha: &str) -> (Status
 
 pub async fn ready(State(state): State<AppState>) -> Response {
     let (status, body) = probe(
-        &state.pool,
+        &state.pools.health,
         &state.config.environment,
         &state.config.release_sha,
     )

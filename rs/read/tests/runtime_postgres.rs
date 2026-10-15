@@ -37,7 +37,15 @@ async fn raw_role_pool_and_health_contract() {
     let pool = connect(&config)
         .await
         .unwrap_or_else(|_| panic!("safe app role refused"));
-    assert_eq!(pool.options().get_max_connections(), 9);
+    assert_eq!(pool.read.options().get_max_connections(), 8);
+    assert_eq!(pool.health.options().get_max_connections(), 1);
+    let health = pool.health.clone();
+    let pool = pool.read;
+    assert_eq!(
+        probe(&health, "test", compiled_sha()).await.0,
+        axum::http::StatusCode::OK
+    );
+    health.close().await;
     assert_eq!(pool.options().get_min_connections(), 0);
     let response = probe(&pool, "test", compiled_sha()).await;
     assert_eq!(response.0, axum::http::StatusCode::OK);
