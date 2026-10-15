@@ -12,6 +12,46 @@ use verdaxis_read::Json;
 use verdaxis_read::routes::news::{NewsRow, isoformat_utc, news_query, news_response};
 use verdaxis_read::routes::ports::{PortRow, port_response, pydantic_datetime};
 
+#[test]
+fn news_padded_integer() {
+    assert_eq!(news_query("limit=%2020%20").unwrap().limit, 20);
+}
+
+#[test]
+fn news_integral_decimal() {
+    assert_eq!(news_query("limit=20.0").unwrap().limit, 20);
+}
+
+#[test]
+fn news_integer_separators() {
+    assert_eq!(news_query("limit=1_0").unwrap().limit, 10);
+}
+
+#[test]
+fn news_collects_errors_in_declaration_order() {
+    let error = news_query("limit=0&min_relevance=0").unwrap_err();
+    assert_eq!(
+        error.detail,
+        json!([
+            {"type":"greater_than_equal","loc":["query","limit"],"msg":"Input should be greater than or equal to 1","input":"0","ctx":{"ge":1}},
+            {"type":"greater_than_equal","loc":["query","min_relevance"],"msg":"Input should be greater than or equal to 1","input":"0","ctx":{"ge":1}}
+        ])
+    );
+}
+
+#[test]
+fn news_large_integer_has_bound_error() {
+    let error = news_query("limit=9223372036854775808").unwrap_err();
+    assert_eq!(
+        error.detail,
+        json!([{
+            "type":"less_than_equal","loc":["query","limit"],
+            "msg":"Input should be less than or equal to 100",
+            "input":"9223372036854775808","ctx":{"le":100}
+        }])
+    );
+}
+
 fn utc(value: &str) -> DateTime<Utc> {
     DateTime::parse_from_rfc3339(value)
         .expect("valid test instant")

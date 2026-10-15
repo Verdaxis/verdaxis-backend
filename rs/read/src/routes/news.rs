@@ -18,7 +18,7 @@ use serde_json::json;
 use sqlx::PgConnection;
 
 use crate::routes::ports::{query_error, utc_rfc3339};
-use crate::runtime::http::{QueryFields, QueryKind};
+use crate::runtime::http::{QueryFields, QueryKind, QueryValue};
 use crate::{ApiError, AppState, Json, run_admitted};
 
 /// The news query after Python-compatible validation.
@@ -59,8 +59,25 @@ pub fn routes() -> Router<AppState> {
 /// parser and the text lookup below both do.
 pub fn news_query(raw_query: &str) -> Result<NewsQuery, ApiError> {
     let fields = QueryFields::parse(raw_query);
-    let limit = integer(&fields, "limit", 1, 100, 20)?;
-    let min_relevance = integer(&fields, "min_relevance", 1, 5, 1)?;
+    let limit = integer(&fields, "limit", 1, 100, 20);
+    let min_relevance = integer(&fields, "min_relevance", 1, 5, 1);
+    let mut errors = Vec::new();
+    for result in [&limit, &min_relevance] {
+        if let Err(error) = result
+            && let Some(entries) = error.detail.as_array()
+        {
+            errors.extend(entries.iter().cloned());
+        }
+    }
+    if !errors.is_empty() {
+        return Err(ApiError {
+            status: axum::http::StatusCode::UNPROCESSABLE_ENTITY,
+            detail: Json::Array(errors),
+            retry_after: None,
+        });
+    }
+    let limit = limit?;
+    let min_relevance = min_relevance?;
     let category = url::form_urlencoded::parse(raw_query.as_bytes())
         .filter(|(key, _)| key == "category")
         .map(|(_, value)| value.into_owned())
@@ -79,11 +96,11 @@ fn integer(
     maximum: i64,
     default: i64,
 ) -> Result<i64, ApiError> {
-    let Some(value) = fields.validate(name, QueryKind::Integer { minimum, maximum }, false)? else {
-        return Ok(default);
-    };
-    // The validator accepts the text only when it parses inside the bounds.
-    Ok(value.parse().expect("validated integer"))
+    match fields.validate(name, QueryKind::Integer { minimum, maximum }, false)? {
+        None => Ok(default),
+        Some(QueryValue::Integer(value)) => Ok(value),
+        Some(QueryValue::Uuid(_)) => Err(ApiError::internal()),
+    }
 }
 
 async fn list_news(

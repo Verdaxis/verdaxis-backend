@@ -140,6 +140,36 @@
         "method": "GET",
         "path": "/api/news",
         "query": "category="
+      },
+      {
+        "id": "R05-padded-int",
+        "method": "GET",
+        "path": "/api/news",
+        "query": "limit=%2020%20"
+      },
+      {
+        "id": "R05-decimal-int",
+        "method": "GET",
+        "path": "/api/news",
+        "query": "limit=20.0"
+      },
+      {
+        "id": "R05-separator-int",
+        "method": "GET",
+        "path": "/api/news",
+        "query": "limit=1_0"
+      },
+      {
+        "id": "R05-both-invalid",
+        "method": "GET",
+        "path": "/api/news",
+        "query": "limit=0&min_relevance=0"
+      },
+      {
+        "id": "R05-large-int",
+        "method": "GET",
+        "path": "/api/news",
+        "query": "limit=9223372036854775808"
       }
     ],
     "orderbook_snapshot": [
