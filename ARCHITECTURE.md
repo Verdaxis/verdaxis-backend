@@ -102,6 +102,13 @@ response schemas separately from full execution validation: ignored private
 fields cannot fail public projection, but still affect the digest and benchmark
 qualification. `market/orderbook_query.json` records public schema field order.
 
+Tasks 7b/7c add paginated lists, CI lists, map/count/distinct reads and compatibility
+listings. `market/order_projection.rs` is the shared snapshot/list DTO; private
+digest input remains separate. `market/map_decimal.rs` preserves exact aggregate
+arithmetic, and `market/listing_terms.rs` retains compatibility schema ordering.
+R18/R26 use decision 23's created-time/UUID descending pagination in both languages.
+All projections apply shared eligibility before sorting, grouping and pagination.
+
 Task 6a adds `market/live_benchmarks.rs` and `sql/live_benchmarks.sql` for
 read-only, request-cached same-side benchmarks. It applies full typed/scalar
 qualification after Candidates selection and retains the current REAL/DEMO

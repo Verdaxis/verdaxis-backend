@@ -3466,7 +3466,7 @@
     }
   ],
   "task4b_fixture_gate": {
-    "source_sha": "a127672ee4c82fafbb4c633eb84f66bbdc676e75",
+    "source_sha": "9880b7144a38d188b0ba8583d7479a6c5dd6eb67",
     "status": "recorded",
     "families": [
       "ports_intelligence_news",
@@ -3482,6 +3482,6 @@
     ],
     "tests": "tests/rust_contract/test_seed_corpus.py",
     "case_prefix": "T4B-",
-    "recording_rule": "Nine groups excluding MCP under decision 19; both KYC states; two fixed-clock passes; zero unstable paths and failures; news tie rule decision 18"
+    "recording_rule": "Ten groups excluding MCP; 236 cases per KYC state; two fixed-clock passes; zero unstable paths/failures; decisions 18, 22, 23"
   }
 }
