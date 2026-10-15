@@ -8,6 +8,13 @@ other status (PENDING, SUBMITTED, legacy REVIEW_REQUIRED) is not approved.
 Assisted (market support) execution acts for a customer organization, so the
 same rule applies to the organization: at least one admitted member must be
 eligible. The administrator's own KYC is irrelevant.
+
+The rule is behind one switch, ``KYC_EXECUTION_GATE_ENABLED``. When the gate is
+off (Private Beta) the whole module follows the pre-gate advisory rule that the
+INDICATIVE policy keeps: only a rejection or a review bound to another
+organization revokes access, and an eligible user reports ``KYC_NOT_ENFORCED``.
+The switch is read here, in the one decision point, so routes and SQL mirrors
+never carry their own gate checks.
 """
 from __future__ import annotations
 
@@ -21,6 +28,7 @@ from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
+from app.config import settings
 from app.models.kyc_execution_grace import KycExecutionGrace
 from app.models.user import User, UserRole, UserStatus
 
@@ -40,13 +48,42 @@ class ExecutionEligibilityReason(str, Enum):
     KYC_GRACE = "KYC_GRACE"
     KYC_REQUIRED = "KYC_REQUIRED"
     KYC_REJECTED = "KYC_REJECTED"
+    # The gate is off and the pre-gate advisory rule admits this user.
+    KYC_NOT_ENFORCED = "KYC_NOT_ENFORCED"
     # Administrators and users without an organization never trade as a party.
     NOT_APPLICABLE = "NOT_APPLICABLE"
 
 
 _ELIGIBLE_REASONS = frozenset(
-    {ExecutionEligibilityReason.KYC_APPROVED, ExecutionEligibilityReason.KYC_GRACE}
+    {
+        ExecutionEligibilityReason.KYC_APPROVED,
+        ExecutionEligibilityReason.KYC_GRACE,
+        ExecutionEligibilityReason.KYC_NOT_ENFORCED,
+    }
 )
+
+
+def kyc_execution_gate_enabled() -> bool:
+    """Read the one switch. Enabled is the fail-safe default."""
+    return bool(settings.KYC_EXECUTION_GATE_ENABLED)
+
+
+def kyc_execution_gate_startup_message() -> str:
+    """The single line logged at startup so operators see the gate state."""
+    state = "enabled" if kyc_execution_gate_enabled() else "disabled"
+    return f"KYC execution gate: {state}"
+
+
+def advisory_kyc_allows(user: User) -> bool:
+    """The pre-gate advisory rule kept for indicative surfaces.
+
+    Only a rejection or a review bound to another organization revokes
+    access; every other status is advisory.
+    """
+    if getattr(user, "kyc_status", None) == KYC_REJECTED:
+        return False
+    kyc_organization_id = getattr(user, "kyc_organization_id", None)
+    return kyc_organization_id is None or kyc_organization_id == user.organization_id
 
 
 @dataclass(frozen=True)
@@ -93,6 +130,18 @@ async def evaluate_kyc_execution(
     organization_id = getattr(user, "organization_id", None)
     if getattr(user, "role", None) not in _EXECUTING_ROLES or organization_id is None:
         return KycExecutionEligibility(ExecutionEligibilityReason.NOT_APPLICABLE, kyc_status)
+    if not kyc_execution_gate_enabled():
+        # Gate off: the pre-gate advisory rule. A rejection or a review bound
+        # to another organization keeps its blocking reason; nothing else
+        # blocks, so grace and the review status no longer matter.
+        if not advisory_kyc_allows(user):
+            reason = (
+                ExecutionEligibilityReason.KYC_REJECTED
+                if kyc_status == KYC_REJECTED
+                else ExecutionEligibilityReason.KYC_REQUIRED
+            )
+            return KycExecutionEligibility(reason, kyc_status)
+        return KycExecutionEligibility(ExecutionEligibilityReason.KYC_NOT_ENFORCED, kyc_status)
     if kyc_status == KYC_REJECTED:
         return KycExecutionEligibility(ExecutionEligibilityReason.KYC_REJECTED, kyc_status)
     if (
@@ -139,12 +188,28 @@ def kyc_eligibility_error(eligibility: KycExecutionEligibility) -> HTTPException
     )
 
 
+def advisory_kyc_clause(user, organization_id):
+    """SQL mirror of ``advisory_kyc_allows`` for the pre-gate rule."""
+    return and_(
+        user.organization_id == organization_id,
+        user.kyc_status != KYC_REJECTED,
+        or_(
+            user.kyc_organization_id == organization_id,
+            user.kyc_organization_id.is_(None),
+        ),
+    )
+
+
 def kyc_execution_clause(user, organization_id, *, now=None):
     """SQL mirror of ``evaluate_kyc_execution`` for a user acting for an org.
 
     ``user`` is the User entity or an alias of it; ``organization_id`` is a
-    column or a value. ``now`` defaults to the database clock.
+    column or a value. ``now`` defaults to the database clock. With the gate
+    off this returns the advisory mirror, so read surfaces and matching follow
+    the same switch as the Python decision.
     """
+    if not kyc_execution_gate_enabled():
+        return advisory_kyc_clause(user, organization_id)
     now_value = now if now is not None else func.now()
     valid_grace = (
         select(KycExecutionGrace.id)
