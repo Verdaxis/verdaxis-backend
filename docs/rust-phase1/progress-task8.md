@@ -153,6 +153,11 @@ All Cargo commands used local Rust 1.95, the harness venv
   the empty category, the relevance filter, the row limit, and an unknown query
   key. Evidence: `work/rust-phase1/probe-final.txt`.
 - `git diff --check`: pass.
+- **Re-verified at the Task 8 commits.** After `fdffa71`, `2739a1a`, and
+  `c28c4ad`, the same commands were re-run against the committed HEAD with a
+  fresh `RELEASE_SHA`: rustfmt, clippy, 60 workspace tests, the 15-case group,
+  42 harness tests, 35 named unit tests, and 65/65 on the PostgreSQL runner.
+  Evidence: `work/rust-phase1/task8-postgres-final.txt`.
 
 ## Resume point
 
