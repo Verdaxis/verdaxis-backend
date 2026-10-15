@@ -20,8 +20,37 @@ pub struct SliceArguments {
     pub availability_window: String,
 }
 
+#[derive(Deserialize, schemars::JsonSchema)]
+struct VoyageArguments {
+    request: Json,
+}
+
 #[tool_router]
 impl MarketServer {
+    #[tool(
+        description = "Compare indicative voyage fuel, EU ETS and FuelEU strategies, never place orders."
+    )]
+    async fn plan_voyage_fuel(
+        &self,
+        Parameters(arguments): Parameters<VoyageArguments>,
+    ) -> CallToolResult {
+        let now = match crate::routes::prices::captured_now(&self.state) {
+            Ok(now) => now,
+            Err(_) => return tool_error("plan_voyage_fuel", "Internal error"),
+        };
+        match super::prices::voyage(&self.state, arguments.request, now).await {
+            Ok(value) => structured(value),
+            Err(error) => tool_error(
+                "plan_voyage_fuel",
+                match error.status.as_u16() {
+                    503 => "Verdaxis market tools are busy; retry shortly.",
+                    422 => error.detail.as_str().unwrap_or("Internal error"),
+                    _ => "Market data is temporarily unavailable.",
+                },
+            ),
+        }
+    }
+
     #[tool(
         description = "List supported products, delivery ports and EU scope before planning; no database access."
     )]

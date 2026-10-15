@@ -85,6 +85,112 @@ pub fn project_slice(
     }))
 }
 
+pub async fn voyage(state: &AppState, request: Json, now: DateTime<Utc>) -> Result<Json, ApiError> {
+    let owned = state.clone();
+    run_admitted(state, move |connection| {
+        Box::pin(async move {
+            let lookups = super::voyage::required_price_lookups(&request).map_err(invalid)?;
+            let prices = resolve_prices(connection, &owned, &lookups, now).await?;
+            super::voyage::voyage_plan(&request, &prices, now.date_naive()).map_err(invalid)
+        })
+    })
+    .await
+}
+
+async fn resolve_prices(
+    connection: &mut sqlx::PgConnection,
+    state: &AppState,
+    lookups: &Json,
+    now: DateTime<Utc>,
+) -> Result<Json, ApiError> {
+    use chrono::Datelike;
+    let lookups = lookups.as_array().ok_or_else(ApiError::internal)?;
+    if lookups.is_empty() {
+        return Ok(json!([]));
+    }
+    let mut targets = Vec::new();
+    for lookup in lookups {
+        let product = state
+            .policy
+            .products
+            .iter()
+            .find(|product| lookup["fuel"] == product.code);
+        let point = state
+            .policy
+            .points
+            .iter()
+            .find(|point| lookup["port"] == point.name);
+        if let (Some(product), Some(point)) = (product, point) {
+            let date: chrono::NaiveDate = lookup["departure_date"]
+                .as_str()
+                .ok_or_else(ApiError::internal)?
+                .parse()
+                .map_err(|_| ApiError::internal())?;
+            let month = format!("{}-{:02}", date.year(), date.month());
+            let mut windows = vec![
+                month.clone(),
+                format!("{}-Q{}", date.year(), (date.month() - 1) / 3 + 1),
+            ];
+            if date <= now.date_naive() + chrono::Duration::days(30) {
+                windows.insert(0, "SPOT".into());
+            }
+            targets.push((lookup.clone(), product.id, point.id, month, windows));
+        }
+    }
+    let keys: Vec<_> = targets.iter().flat_map(|(lookup,product,point,_,windows)|windows.iter().map(move |window|json!({"product_id":product,"delivery_point_id":point,"availability_window":window,"market_product":lookup["fuel"]}))).collect();
+    let query = order_query_sql(
+        "SELECT product_id, delivery_point_id, availability_window, price_per_mt_usd::text AS price, provenance::text AS provenance, carbon_intensity_gco2_mj::text AS ci, energy_density_mj_kg::text AS energy FROM eligible_orders WHERE EXISTS (SELECT 1 FROM jsonb_to_recordset($14::jsonb) AS k(product_id uuid, delivery_point_id uuid, availability_window text) WHERE k.product_id=eligible_orders.product_id AND k.delivery_point_id=eligible_orders.delivery_point_id AND k.availability_window=eligible_orders.availability_window) ORDER BY price_per_mt_usd, acceptance_ordinal",
+    );
+    let filters = PublicOrderFilters {
+        side: Some("ASK"),
+        ..Default::default()
+    };
+    let rows = bind_order_query(
+        &query,
+        &state.policy,
+        &VisibilityClock::at(now),
+        &state.config,
+        &filters,
+    )
+    .map_err(|_| ApiError::internal())?
+    .bind(json!(keys).to_string())
+    .fetch_all(&mut *connection)
+    .await
+    .map_err(|_| ApiError::internal())?;
+    let benchmark_keys: Vec<_> = targets.iter().map(|(lookup,_,point,month,_)|json!({"market_product":lookup["fuel"],"delivery_point_id":point,"availability_window":month})).collect();
+    let quotes = benchmarks::load(connection, &json!(benchmark_keys)).await?;
+    let mut output = Vec::new();
+    for (lookup, product, point, month, windows) in targets {
+        let row = windows.iter().find_map(|window| {
+            rows.iter().find(|row| {
+                row.get::<uuid::Uuid, _>("product_id") == product
+                    && row.get::<uuid::Uuid, _>("delivery_point_id") == point
+                    && row.get::<String, _>("availability_window") == *window
+            })
+        });
+        let price = if let Some(row) = row {
+            let real = row.get::<String, _>("provenance") == "REAL";
+            json!({"fuel":lookup["fuel"],"port":lookup["port"],"price_usd_per_mt":super::decimal::Decimal::parse(&row.get::<String,_>("price")).and_then(|v|v.quantize(2)).map_err(|_|ApiError::internal())?,"source":if real{"LIVE_ORDER"}else{"DEMO_ORDER"},"executable":real,"availability_window":row.get::<String,_>("availability_window"),"observed_at":curve_projection::timestamp(now),"carbon_intensity_gco2e_per_mj":row.get::<Option<String>,_>("ci"),"energy_density_mj_per_kg":row.get::<Option<String>,_>("energy")})
+        } else {
+            let key = (
+                lookup["fuel"]
+                    .as_str()
+                    .ok_or_else(ApiError::internal)?
+                    .to_owned(),
+                point.to_string(),
+                month.clone(),
+            );
+            let quote = benchmarks::board_quote(quotes.get(&key), &key, now);
+            if quote.is_null() {
+                continue;
+            }
+            json!({"fuel":lookup["fuel"],"port":lookup["port"],"price_usd_per_mt":quote["price"],"source":"BENCHMARK","executable":false,"availability_window":month,"observed_at":curve_projection::timestamp(now),"carbon_intensity_gco2e_per_mj":null,"energy_density_mj_per_kg":null})
+        };
+        output.push(json!({"lookup":lookup,"price":price}));
+    }
+    Ok(json!(output))
+}
+
 fn invalid(message: String) -> ApiError {
     ApiError {
         status: axum::http::StatusCode::UNPROCESSABLE_ENTITY,

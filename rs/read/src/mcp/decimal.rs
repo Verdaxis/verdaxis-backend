@@ -36,6 +36,30 @@ fn rounded_division(value: &BigInt, divisor: &BigInt, half_up: bool) -> BigInt {
 }
 
 impl Decimal {
+    pub fn compare(&self, other: &Self) -> Ordering {
+        let exponent = self.exponent.min(other.exponent);
+        (&self.coefficient * power((self.exponent - exponent) as u32))
+            .cmp(&(&other.coefficient * power((other.exponent - exponent) as u32)))
+    }
+
+    pub fn ceil_days(&self) -> Result<i64, String> {
+        use num_traits::ToPrimitive;
+        let value = if self.exponent >= 0 {
+            &self.coefficient * power(self.exponent as u32)
+        } else {
+            let divisor = power((-self.exponent) as u32);
+            let quotient = &self.coefficient / &divisor;
+            if self.coefficient.is_positive() && &self.coefficient % divisor != BigInt::zero() {
+                quotient + 1
+            } else {
+                quotient
+            }
+        };
+        value
+            .to_i64()
+            .ok_or_else(|| "calendar duration overflow".into())
+    }
+
     pub fn parse(text: &str) -> Result<Self, String> {
         let (mantissa, exponent) = text.split_once(['e', 'E']).unwrap_or((text, "0"));
         let exponent: i32 = exponent.parse().map_err(|_| "invalid decimal exponent")?;

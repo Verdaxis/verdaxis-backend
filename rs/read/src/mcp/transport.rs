@@ -48,7 +48,7 @@ pub fn python_envelope(mut value: crate::Json, method: &str) -> crate::Json {
                 .expect("tool schemas")
                 .iter()
                 .filter(|schema| registered.iter().any(|tool| tool["name"] == schema["name"]))
-                .cloned()
+                .map(|schema| serde_json::json!({"annotations":schema["annotations"],"description":schema["description"],"inputSchema":schema["inputSchema"],"name":schema["name"],"outputSchema":schema["outputSchema"]}))
                 .collect(),
         );
     }
@@ -57,7 +57,11 @@ pub fn python_envelope(mut value: crate::Json, method: &str) -> crate::Json {
         result["error"] = sorted(error);
     }
     if let Some(body) = value.get("result") {
-        result["result"] = sorted(body);
+        result["result"] = if method == "tools/list" {
+            body.clone()
+        } else {
+            sorted(body)
+        };
     }
     result
 }

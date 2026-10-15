@@ -2,6 +2,7 @@ pub mod decimal;
 pub mod prices;
 mod server;
 pub mod transport;
+pub mod voyage;
 
 use crate::AppState;
 use axum::{
@@ -35,11 +36,10 @@ async fn dispatch(State(state): State<AppState>, request: Request) -> Response {
         .and_then(|value| value.to_str().ok())
         .unwrap_or("");
     if !transport::host_allowed(&state.config.environment, host) {
-        return (
-            axum::http::StatusCode::MISDIRECTED_REQUEST,
-            "Invalid Host header",
-        )
-            .into_response();
+        return Response::builder()
+            .status(421)
+            .body(axum::body::Body::from("Invalid Host header"))
+            .expect("fixed Host response");
     }
     let (parts, body) = request.into_parts();
     let bytes = match axum::body::to_bytes(body, 4 * 1024 * 1024).await {

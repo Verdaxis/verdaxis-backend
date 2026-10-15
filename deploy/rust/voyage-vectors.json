@@ -1,0 +1,2098 @@
+[
+  {
+    "name": "golden",
+    "today": "2026-10-14",
+    "request": {
+      "vessel": {
+        "name": null,
+        "imo_number": null,
+        "speed_knots": "14",
+        "sea_consumption_mt_per_day": "40",
+        "berth_consumption_mt_per_day": "5",
+        "compatible_fuels": [
+          "VLSFO",
+          "UCOME_B100"
+        ]
+      },
+      "legs": [
+        {
+          "from_port": "Shanghai",
+          "to_port": "Singapore",
+          "route": "DEFAULT",
+          "distance_nm": "2200",
+          "berth_days_at_destination": "1"
+        },
+        {
+          "from_port": "Singapore",
+          "to_port": "Rotterdam",
+          "route": "DEFAULT",
+          "distance_nm": "8300",
+          "berth_days_at_destination": "2"
+        }
+      ],
+      "start_date": "2026-11-01",
+      "assumptions": {
+        "vlsfo_price_usd_per_mt": {
+          "Shanghai": "650",
+          "Singapore": "907"
+        },
+        "eua_price_eur_per_tco2": "80",
+        "fueleu_pool_price_eur_per_tco2e": "109",
+        "usd_per_eur": "1.10",
+        "ghg_intensity_gco2e_per_mj": {},
+        "reporting_year": null
+      }
+    },
+    "prices": [
+      {
+        "lookup": {
+          "fuel": "UCOME_B100",
+          "port": "Singapore",
+          "departure_date": "2026-11-09"
+        },
+        "price": {
+          "fuel": "UCOME_B100",
+          "port": "Singapore",
+          "price_usd_per_mt": "1445",
+          "source": "LIVE_ORDER",
+          "executable": true,
+          "availability_window": "2026-11",
+          "observed_at": null,
+          "carbon_intensity_gco2e_per_mj": null,
+          "energy_density_mj_per_kg": null
+        }
+      }
+    ],
+    "result": {
+      "disclaimer": "Indicative planning estimate from Verdaxis market data and the caller's assumptions. It is not a quote, an offer, or advice to trade. Only an order on the Verdaxis orderbook is executable.",
+      "reporting_year": 2026,
+      "legs": [
+        {
+          "from_port": "Shanghai",
+          "to_port": "Singapore",
+          "route": "DEFAULT",
+          "via": "Direct",
+          "distance_nm": "2200",
+          "distance_source": "CALLER",
+          "departure_date": "2026-11-01",
+          "arrival_date": "2026-11-08",
+          "sea_days": "6.5476",
+          "eu_scope_share": "0.0000",
+          "sea_energy_mj": "10738095",
+          "berth_days": "1.0000",
+          "berth_eu_scope_share": "0.0000",
+          "berth_energy_mj": "205000"
+        },
+        {
+          "from_port": "Singapore",
+          "to_port": "Rotterdam",
+          "route": "DEFAULT",
+          "via": "Suez Canal",
+          "distance_nm": "8300",
+          "distance_source": "CALLER",
+          "departure_date": "2026-11-09",
+          "arrival_date": "2026-12-04",
+          "sea_days": "24.7024",
+          "eu_scope_share": "0.5000",
+          "sea_energy_mj": "40511905",
+          "berth_days": "2.0000",
+          "berth_eu_scope_share": "1.0000",
+          "berth_energy_mj": "410000"
+        }
+      ],
+      "strategies": [
+        {
+          "strategy_id": "CONVENTIONAL_PENALTY",
+          "label": "Conventional Penalty",
+          "completeness": "COMPLETE",
+          "fuel_uses": [
+            {
+              "leg_index": 0,
+              "segment": "SEA",
+              "fuel": "VLSFO",
+              "tonnes": "261.90",
+              "bunkering_port": "Shanghai",
+              "price": {
+                "fuel": "VLSFO",
+                "port": "Shanghai",
+                "price_usd_per_mt": "650.00",
+                "source": "CALLER",
+                "executable": false,
+                "availability_window": null,
+                "observed_at": null,
+                "carbon_intensity_gco2e_per_mj": null,
+                "energy_density_mj_per_kg": null
+              },
+              "cost_usd": "170238.10"
+            },
+            {
+              "leg_index": 0,
+              "segment": "BERTH",
+              "fuel": "VLSFO",
+              "tonnes": "5.00",
+              "bunkering_port": "Shanghai",
+              "price": {
+                "fuel": "VLSFO",
+                "port": "Shanghai",
+                "price_usd_per_mt": "650.00",
+                "source": "CALLER",
+                "executable": false,
+                "availability_window": null,
+                "observed_at": null,
+                "carbon_intensity_gco2e_per_mj": null,
+                "energy_density_mj_per_kg": null
+              },
+              "cost_usd": "3250.00"
+            },
+            {
+              "leg_index": 1,
+              "segment": "SEA",
+              "fuel": "VLSFO",
+              "tonnes": "988.10",
+              "bunkering_port": "Singapore",
+              "price": {
+                "fuel": "VLSFO",
+                "port": "Singapore",
+                "price_usd_per_mt": "907.00",
+                "source": "CALLER",
+                "executable": false,
+                "availability_window": null,
+                "observed_at": null,
+                "carbon_intensity_gco2e_per_mj": null,
+                "energy_density_mj_per_kg": null
+              },
+              "cost_usd": "896202.38"
+            },
+            {
+              "leg_index": 1,
+              "segment": "BERTH",
+              "fuel": "VLSFO",
+              "tonnes": "10.00",
+              "bunkering_port": "Singapore",
+              "price": {
+                "fuel": "VLSFO",
+                "port": "Singapore",
+                "price_usd_per_mt": "907.00",
+                "source": "CALLER",
+                "executable": false,
+                "availability_window": null,
+                "observed_at": null,
+                "carbon_intensity_gco2e_per_mj": null,
+                "energy_density_mj_per_kg": null
+              },
+              "cost_usd": "9070.00"
+            }
+          ],
+          "in_scope_energy_mj": "20665952",
+          "ghg_intensity_gco2e_per_mj": "91.1600",
+          "fueleu_target_gco2e_per_mj": "89.3368",
+          "fueleu_balance_tco2e": "-37.68",
+          "intensity_sources": {
+            "VLSFO": "DEFAULT_ILLUSTRATIVE"
+          },
+          "fuel_cost_usd": "1078760.48",
+          "eu_ets_cost_eur": "127060.32",
+          "fueleu_cost_eur": "24194.29",
+          "fueleu_cost_basis": "PENALTY",
+          "total_cost_usd": "1245140.55",
+          "missing_inputs": []
+        },
+        {
+          "strategy_id": "CONVENTIONAL_POOL",
+          "label": "Conventional Pool",
+          "completeness": "COMPLETE",
+          "fuel_uses": [
+            {
+              "leg_index": 0,
+              "segment": "SEA",
+              "fuel": "VLSFO",
+              "tonnes": "261.90",
+              "bunkering_port": "Shanghai",
+              "price": {
+                "fuel": "VLSFO",
+                "port": "Shanghai",
+                "price_usd_per_mt": "650.00",
+                "source": "CALLER",
+                "executable": false,
+                "availability_window": null,
+                "observed_at": null,
+                "carbon_intensity_gco2e_per_mj": null,
+                "energy_density_mj_per_kg": null
+              },
+              "cost_usd": "170238.10"
+            },
+            {
+              "leg_index": 0,
+              "segment": "BERTH",
+              "fuel": "VLSFO",
+              "tonnes": "5.00",
+              "bunkering_port": "Shanghai",
+              "price": {
+                "fuel": "VLSFO",
+                "port": "Shanghai",
+                "price_usd_per_mt": "650.00",
+                "source": "CALLER",
+                "executable": false,
+                "availability_window": null,
+                "observed_at": null,
+                "carbon_intensity_gco2e_per_mj": null,
+                "energy_density_mj_per_kg": null
+              },
+              "cost_usd": "3250.00"
+            },
+            {
+              "leg_index": 1,
+              "segment": "SEA",
+              "fuel": "VLSFO",
+              "tonnes": "988.10",
+              "bunkering_port": "Singapore",
+              "price": {
+                "fuel": "VLSFO",
+                "port": "Singapore",
+                "price_usd_per_mt": "907.00",
+                "source": "CALLER",
+                "executable": false,
+                "availability_window": null,
+                "observed_at": null,
+                "carbon_intensity_gco2e_per_mj": null,
+                "energy_density_mj_per_kg": null
+              },
+              "cost_usd": "896202.38"
+            },
+            {
+              "leg_index": 1,
+              "segment": "BERTH",
+              "fuel": "VLSFO",
+              "tonnes": "10.00",
+              "bunkering_port": "Singapore",
+              "price": {
+                "fuel": "VLSFO",
+                "port": "Singapore",
+                "price_usd_per_mt": "907.00",
+                "source": "CALLER",
+                "executable": false,
+                "availability_window": null,
+                "observed_at": null,
+                "carbon_intensity_gco2e_per_mj": null,
+                "energy_density_mj_per_kg": null
+              },
+              "cost_usd": "9070.00"
+            }
+          ],
+          "in_scope_energy_mj": "20665952",
+          "ghg_intensity_gco2e_per_mj": "91.1600",
+          "fueleu_target_gco2e_per_mj": "89.3368",
+          "fueleu_balance_tco2e": "-37.68",
+          "intensity_sources": {
+            "VLSFO": "DEFAULT_ILLUSTRATIVE"
+          },
+          "fuel_cost_usd": "1078760.48",
+          "eu_ets_cost_eur": "127060.32",
+          "fueleu_cost_eur": "4106.92",
+          "fueleu_cost_basis": "POOL",
+          "total_cost_usd": "1223044.44",
+          "missing_inputs": []
+        },
+        {
+          "strategy_id": "UCOME_B100_MIN_BLEND",
+          "label": "Ucome B100 Min Blend",
+          "completeness": "COMPLETE",
+          "fuel_uses": [
+            {
+              "leg_index": 0,
+              "segment": "SEA",
+              "fuel": "VLSFO",
+              "tonnes": "261.90",
+              "bunkering_port": "Shanghai",
+              "price": {
+                "fuel": "VLSFO",
+                "port": "Shanghai",
+                "price_usd_per_mt": "650.00",
+                "source": "CALLER",
+                "executable": false,
+                "availability_window": null,
+                "observed_at": null,
+                "carbon_intensity_gco2e_per_mj": null,
+                "energy_density_mj_per_kg": null
+              },
+              "cost_usd": "170238.10"
+            },
+            {
+              "leg_index": 0,
+              "segment": "BERTH",
+              "fuel": "VLSFO",
+              "tonnes": "5.00",
+              "bunkering_port": "Shanghai",
+              "price": {
+                "fuel": "VLSFO",
+                "port": "Shanghai",
+                "price_usd_per_mt": "650.00",
+                "source": "CALLER",
+                "executable": false,
+                "availability_window": null,
+                "observed_at": null,
+                "carbon_intensity_gco2e_per_mj": null,
+                "energy_density_mj_per_kg": null
+              },
+              "cost_usd": "3250.00"
+            },
+            {
+              "leg_index": 1,
+              "segment": "SEA",
+              "fuel": "UCOME_B100",
+              "tonnes": "35.35",
+              "bunkering_port": "Singapore",
+              "price": {
+                "fuel": "UCOME_B100",
+                "port": "Singapore",
+                "price_usd_per_mt": "1445.00",
+                "source": "LIVE_ORDER",
+                "executable": true,
+                "availability_window": "2026-11",
+                "observed_at": null,
+                "carbon_intensity_gco2e_per_mj": null,
+                "energy_density_mj_per_kg": null
+              },
+              "cost_usd": "51087.52"
+            },
+            {
+              "leg_index": 1,
+              "segment": "SEA",
+              "fuel": "VLSFO",
+              "tonnes": "956.02",
+              "bunkering_port": "Singapore",
+              "price": {
+                "fuel": "VLSFO",
+                "port": "Singapore",
+                "price_usd_per_mt": "907.00",
+                "source": "CALLER",
+                "executable": false,
+                "availability_window": null,
+                "observed_at": null,
+                "carbon_intensity_gco2e_per_mj": null,
+                "energy_density_mj_per_kg": null
+              },
+              "cost_usd": "867107.72"
+            },
+            {
+              "leg_index": 1,
+              "segment": "BERTH",
+              "fuel": "UCOME_B100",
+              "tonnes": "0.36",
+              "bunkering_port": "Singapore",
+              "price": {
+                "fuel": "UCOME_B100",
+                "port": "Singapore",
+                "price_usd_per_mt": "1445.00",
+                "source": "LIVE_ORDER",
+                "executable": true,
+                "availability_window": "2026-11",
+                "observed_at": null,
+                "carbon_intensity_gco2e_per_mj": null,
+                "energy_density_mj_per_kg": null
+              },
+              "cost_usd": "517.03"
+            },
+            {
+              "leg_index": 1,
+              "segment": "BERTH",
+              "fuel": "VLSFO",
+              "tonnes": "9.68",
+              "bunkering_port": "Singapore",
+              "price": {
+                "fuel": "VLSFO",
+                "port": "Singapore",
+                "price_usd_per_mt": "907.00",
+                "source": "CALLER",
+                "executable": false,
+                "availability_window": null,
+                "observed_at": null,
+                "carbon_intensity_gco2e_per_mj": null,
+                "energy_density_mj_per_kg": null
+              },
+              "cost_usd": "8775.55"
+            }
+          ],
+          "in_scope_energy_mj": "20665952",
+          "ghg_intensity_gco2e_per_mj": "89.3368",
+          "fueleu_target_gco2e_per_mj": "89.3368",
+          "fueleu_balance_tco2e": "0.00",
+          "intensity_sources": {
+            "VLSFO": "DEFAULT_ILLUSTRATIVE",
+            "UCOME_B100": "DEFAULT_ILLUSTRATIVE"
+          },
+          "fuel_cost_usd": "1100975.91",
+          "eu_ets_cost_eur": "122935.39",
+          "fueleu_cost_eur": "0.00",
+          "fueleu_cost_basis": "NONE",
+          "total_cost_usd": "1236204.84",
+          "missing_inputs": []
+        },
+        {
+          "strategy_id": "UCOME_B100_FULL",
+          "label": "Ucome B100 Full",
+          "completeness": "COMPLETE",
+          "fuel_uses": [
+            {
+              "leg_index": 0,
+              "segment": "SEA",
+              "fuel": "VLSFO",
+              "tonnes": "261.90",
+              "bunkering_port": "Shanghai",
+              "price": {
+                "fuel": "VLSFO",
+                "port": "Shanghai",
+                "price_usd_per_mt": "650.00",
+                "source": "CALLER",
+                "executable": false,
+                "availability_window": null,
+                "observed_at": null,
+                "carbon_intensity_gco2e_per_mj": null,
+                "energy_density_mj_per_kg": null
+              },
+              "cost_usd": "170238.10"
+            },
+            {
+              "leg_index": 0,
+              "segment": "BERTH",
+              "fuel": "VLSFO",
+              "tonnes": "5.00",
+              "bunkering_port": "Shanghai",
+              "price": {
+                "fuel": "VLSFO",
+                "port": "Shanghai",
+                "price_usd_per_mt": "650.00",
+                "source": "CALLER",
+                "executable": false,
+                "availability_window": null,
+                "observed_at": null,
+                "carbon_intensity_gco2e_per_mj": null,
+                "energy_density_mj_per_kg": null
+              },
+              "cost_usd": "3250.00"
+            },
+            {
+              "leg_index": 1,
+              "segment": "SEA",
+              "fuel": "UCOME_B100",
+              "tonnes": "1089.03",
+              "bunkering_port": "Singapore",
+              "price": {
+                "fuel": "UCOME_B100",
+                "port": "Singapore",
+                "price_usd_per_mt": "1445.00",
+                "source": "LIVE_ORDER",
+                "executable": true,
+                "availability_window": "2026-11",
+                "observed_at": null,
+                "carbon_intensity_gco2e_per_mj": null,
+                "energy_density_mj_per_kg": null
+              },
+              "cost_usd": "1573647.91"
+            },
+            {
+              "leg_index": 1,
+              "segment": "BERTH",
+              "fuel": "UCOME_B100",
+              "tonnes": "11.02",
+              "bunkering_port": "Singapore",
+              "price": {
+                "fuel": "UCOME_B100",
+                "port": "Singapore",
+                "price_usd_per_mt": "1445.00",
+                "source": "LIVE_ORDER",
+                "executable": true,
+                "availability_window": "2026-11",
+                "observed_at": null,
+                "carbon_intensity_gco2e_per_mj": null,
+                "energy_density_mj_per_kg": null
+              },
+              "cost_usd": "15926.08"
+            }
+          ],
+          "in_scope_energy_mj": "20665952",
+          "ghg_intensity_gco2e_per_mj": "35.0000",
+          "fueleu_target_gco2e_per_mj": "89.3368",
+          "fueleu_balance_tco2e": "1122.92",
+          "intensity_sources": {
+            "VLSFO": "DEFAULT_ILLUSTRATIVE",
+            "UCOME_B100": "DEFAULT_ILLUSTRATIVE"
+          },
+          "fuel_cost_usd": "1763062.08",
+          "eu_ets_cost_eur": "0.00",
+          "fueleu_cost_eur": "-122398.47",
+          "fueleu_cost_basis": "SURPLUS_AT_POOL_PRICE",
+          "total_cost_usd": "1628423.77",
+          "missing_inputs": []
+        }
+      ],
+      "recommended_strategy_id": "CONVENTIONAL_POOL",
+      "recommendation_reason": "CONVENTIONAL_POOL has the lowest complete total: USD 1223044.44.",
+      "assumptions": [
+        "Fuel for a leg and its destination berth stay is bought at the departure port on the departure date.",
+        "Consumption uses a 41,000 MJ/t VLSFO-equivalent energy basis.",
+        "FuelEU is an annual per-ship balance; this is the voyage contribution, not the annual penalty after banking, borrowing and pooling.",
+        "EU scope ignores outermost-region and transshipment rules.",
+        "ETS methane and N2O are not included."
+      ],
+      "warnings": [
+        "Green fuels need a proof of sustainability for zero ETS CO2 and FuelEU credit."
+      ]
+    }
+  },
+  {
+    "name": "missing",
+    "today": "2026-10-14",
+    "request": {
+      "vessel": {
+        "name": null,
+        "imo_number": null,
+        "speed_knots": "14",
+        "sea_consumption_mt_per_day": "40",
+        "berth_consumption_mt_per_day": "5",
+        "compatible_fuels": [
+          "VLSFO",
+          "UCOME_B100"
+        ]
+      },
+      "legs": [
+        {
+          "from_port": "Shanghai",
+          "to_port": "Singapore",
+          "route": "DEFAULT",
+          "distance_nm": "2200",
+          "berth_days_at_destination": "1"
+        },
+        {
+          "from_port": "Singapore",
+          "to_port": "Rotterdam",
+          "route": "DEFAULT",
+          "distance_nm": "8300",
+          "berth_days_at_destination": "2"
+        }
+      ],
+      "start_date": "2026-11-01",
+      "assumptions": {
+        "vlsfo_price_usd_per_mt": {},
+        "eua_price_eur_per_tco2": null,
+        "fueleu_pool_price_eur_per_tco2e": null,
+        "usd_per_eur": null,
+        "ghg_intensity_gco2e_per_mj": {},
+        "reporting_year": null
+      }
+    },
+    "prices": [],
+    "result": {
+      "disclaimer": "Indicative planning estimate from Verdaxis market data and the caller's assumptions. It is not a quote, an offer, or advice to trade. Only an order on the Verdaxis orderbook is executable.",
+      "reporting_year": 2026,
+      "legs": [
+        {
+          "from_port": "Shanghai",
+          "to_port": "Singapore",
+          "route": "DEFAULT",
+          "via": "Direct",
+          "distance_nm": "2200",
+          "distance_source": "CALLER",
+          "departure_date": "2026-11-01",
+          "arrival_date": "2026-11-08",
+          "sea_days": "6.5476",
+          "eu_scope_share": "0.0000",
+          "sea_energy_mj": "10738095",
+          "berth_days": "1.0000",
+          "berth_eu_scope_share": "0.0000",
+          "berth_energy_mj": "205000"
+        },
+        {
+          "from_port": "Singapore",
+          "to_port": "Rotterdam",
+          "route": "DEFAULT",
+          "via": "Suez Canal",
+          "distance_nm": "8300",
+          "distance_source": "CALLER",
+          "departure_date": "2026-11-09",
+          "arrival_date": "2026-12-04",
+          "sea_days": "24.7024",
+          "eu_scope_share": "0.5000",
+          "sea_energy_mj": "40511905",
+          "berth_days": "2.0000",
+          "berth_eu_scope_share": "1.0000",
+          "berth_energy_mj": "410000"
+        }
+      ],
+      "strategies": [
+        {
+          "strategy_id": "CONVENTIONAL_PENALTY",
+          "label": "Conventional Penalty",
+          "completeness": "PARTIAL",
+          "fuel_uses": [
+            {
+              "leg_index": 0,
+              "segment": "SEA",
+              "fuel": "VLSFO",
+              "tonnes": "261.90",
+              "bunkering_port": "Shanghai",
+              "price": null,
+              "cost_usd": null
+            },
+            {
+              "leg_index": 0,
+              "segment": "BERTH",
+              "fuel": "VLSFO",
+              "tonnes": "5.00",
+              "bunkering_port": "Shanghai",
+              "price": null,
+              "cost_usd": null
+            },
+            {
+              "leg_index": 1,
+              "segment": "SEA",
+              "fuel": "VLSFO",
+              "tonnes": "988.10",
+              "bunkering_port": "Singapore",
+              "price": null,
+              "cost_usd": null
+            },
+            {
+              "leg_index": 1,
+              "segment": "BERTH",
+              "fuel": "VLSFO",
+              "tonnes": "10.00",
+              "bunkering_port": "Singapore",
+              "price": null,
+              "cost_usd": null
+            }
+          ],
+          "in_scope_energy_mj": "20665952",
+          "ghg_intensity_gco2e_per_mj": "91.1600",
+          "fueleu_target_gco2e_per_mj": "89.3368",
+          "fueleu_balance_tco2e": "-37.68",
+          "intensity_sources": {
+            "VLSFO": "DEFAULT_ILLUSTRATIVE"
+          },
+          "fuel_cost_usd": null,
+          "eu_ets_cost_eur": null,
+          "fueleu_cost_eur": "24194.29",
+          "fueleu_cost_basis": "PENALTY",
+          "total_cost_usd": null,
+          "missing_inputs": [
+            "vlsfo_price_usd_per_mt[Shanghai]",
+            "vlsfo_price_usd_per_mt[Singapore]",
+            "eua_price_eur_per_tco2",
+            "usd_per_eur"
+          ]
+        },
+        {
+          "strategy_id": "CONVENTIONAL_POOL",
+          "label": "Conventional Pool",
+          "completeness": "PARTIAL",
+          "fuel_uses": [
+            {
+              "leg_index": 0,
+              "segment": "SEA",
+              "fuel": "VLSFO",
+              "tonnes": "261.90",
+              "bunkering_port": "Shanghai",
+              "price": null,
+              "cost_usd": null
+            },
+            {
+              "leg_index": 0,
+              "segment": "BERTH",
+              "fuel": "VLSFO",
+              "tonnes": "5.00",
+              "bunkering_port": "Shanghai",
+              "price": null,
+              "cost_usd": null
+            },
+            {
+              "leg_index": 1,
+              "segment": "SEA",
+              "fuel": "VLSFO",
+              "tonnes": "988.10",
+              "bunkering_port": "Singapore",
+              "price": null,
+              "cost_usd": null
+            },
+            {
+              "leg_index": 1,
+              "segment": "BERTH",
+              "fuel": "VLSFO",
+              "tonnes": "10.00",
+              "bunkering_port": "Singapore",
+              "price": null,
+              "cost_usd": null
+            }
+          ],
+          "in_scope_energy_mj": "20665952",
+          "ghg_intensity_gco2e_per_mj": "91.1600",
+          "fueleu_target_gco2e_per_mj": "89.3368",
+          "fueleu_balance_tco2e": "-37.68",
+          "intensity_sources": {
+            "VLSFO": "DEFAULT_ILLUSTRATIVE"
+          },
+          "fuel_cost_usd": null,
+          "eu_ets_cost_eur": null,
+          "fueleu_cost_eur": null,
+          "fueleu_cost_basis": "POOL",
+          "total_cost_usd": null,
+          "missing_inputs": [
+            "vlsfo_price_usd_per_mt[Shanghai]",
+            "vlsfo_price_usd_per_mt[Singapore]",
+            "fueleu_pool_price_eur_per_tco2e",
+            "eua_price_eur_per_tco2"
+          ]
+        },
+        {
+          "strategy_id": "UCOME_B100_MIN_BLEND",
+          "label": "Ucome B100 Min Blend",
+          "completeness": "PARTIAL",
+          "fuel_uses": [
+            {
+              "leg_index": 0,
+              "segment": "SEA",
+              "fuel": "VLSFO",
+              "tonnes": "261.90",
+              "bunkering_port": "Shanghai",
+              "price": null,
+              "cost_usd": null
+            },
+            {
+              "leg_index": 0,
+              "segment": "BERTH",
+              "fuel": "VLSFO",
+              "tonnes": "5.00",
+              "bunkering_port": "Shanghai",
+              "price": null,
+              "cost_usd": null
+            },
+            {
+              "leg_index": 1,
+              "segment": "SEA",
+              "fuel": "UCOME_B100",
+              "tonnes": "35.35",
+              "bunkering_port": "Singapore",
+              "price": null,
+              "cost_usd": null
+            },
+            {
+              "leg_index": 1,
+              "segment": "SEA",
+              "fuel": "VLSFO",
+              "tonnes": "956.02",
+              "bunkering_port": "Singapore",
+              "price": null,
+              "cost_usd": null
+            },
+            {
+              "leg_index": 1,
+              "segment": "BERTH",
+              "fuel": "UCOME_B100",
+              "tonnes": "0.36",
+              "bunkering_port": "Singapore",
+              "price": null,
+              "cost_usd": null
+            },
+            {
+              "leg_index": 1,
+              "segment": "BERTH",
+              "fuel": "VLSFO",
+              "tonnes": "9.68",
+              "bunkering_port": "Singapore",
+              "price": null,
+              "cost_usd": null
+            }
+          ],
+          "in_scope_energy_mj": "20665952",
+          "ghg_intensity_gco2e_per_mj": "89.3368",
+          "fueleu_target_gco2e_per_mj": "89.3368",
+          "fueleu_balance_tco2e": "0.00",
+          "intensity_sources": {
+            "VLSFO": "DEFAULT_ILLUSTRATIVE",
+            "UCOME_B100": "DEFAULT_ILLUSTRATIVE"
+          },
+          "fuel_cost_usd": null,
+          "eu_ets_cost_eur": null,
+          "fueleu_cost_eur": "0.00",
+          "fueleu_cost_basis": "NONE",
+          "total_cost_usd": null,
+          "missing_inputs": [
+            "vlsfo_price_usd_per_mt[Shanghai]",
+            "market_price[UCOME_B100@Singapore]",
+            "vlsfo_price_usd_per_mt[Singapore]",
+            "eua_price_eur_per_tco2"
+          ]
+        },
+        {
+          "strategy_id": "UCOME_B100_FULL",
+          "label": "Ucome B100 Full",
+          "completeness": "PARTIAL",
+          "fuel_uses": [
+            {
+              "leg_index": 0,
+              "segment": "SEA",
+              "fuel": "VLSFO",
+              "tonnes": "261.90",
+              "bunkering_port": "Shanghai",
+              "price": null,
+              "cost_usd": null
+            },
+            {
+              "leg_index": 0,
+              "segment": "BERTH",
+              "fuel": "VLSFO",
+              "tonnes": "5.00",
+              "bunkering_port": "Shanghai",
+              "price": null,
+              "cost_usd": null
+            },
+            {
+              "leg_index": 1,
+              "segment": "SEA",
+              "fuel": "UCOME_B100",
+              "tonnes": "1089.03",
+              "bunkering_port": "Singapore",
+              "price": null,
+              "cost_usd": null
+            },
+            {
+              "leg_index": 1,
+              "segment": "BERTH",
+              "fuel": "UCOME_B100",
+              "tonnes": "11.02",
+              "bunkering_port": "Singapore",
+              "price": null,
+              "cost_usd": null
+            }
+          ],
+          "in_scope_energy_mj": "20665952",
+          "ghg_intensity_gco2e_per_mj": "35.0000",
+          "fueleu_target_gco2e_per_mj": "89.3368",
+          "fueleu_balance_tco2e": "1122.92",
+          "intensity_sources": {
+            "VLSFO": "DEFAULT_ILLUSTRATIVE",
+            "UCOME_B100": "DEFAULT_ILLUSTRATIVE"
+          },
+          "fuel_cost_usd": null,
+          "eu_ets_cost_eur": "0.00",
+          "fueleu_cost_eur": "0.00",
+          "fueleu_cost_basis": "NONE",
+          "total_cost_usd": null,
+          "missing_inputs": [
+            "vlsfo_price_usd_per_mt[Shanghai]",
+            "market_price[UCOME_B100@Singapore]"
+          ]
+        }
+      ],
+      "recommended_strategy_id": null,
+      "recommendation_reason": "No complete strategy. Supply: vlsfo_price_usd_per_mt[Shanghai], vlsfo_price_usd_per_mt[Singapore], eua_price_eur_per_tco2, usd_per_eur, fueleu_pool_price_eur_per_tco2e, market_price[UCOME_B100@Singapore].",
+      "assumptions": [
+        "Fuel for a leg and its destination berth stay is bought at the departure port on the departure date.",
+        "Consumption uses a 41,000 MJ/t VLSFO-equivalent energy basis.",
+        "FuelEU is an annual per-ship balance; this is the voyage contribution, not the annual penalty after banking, borrowing and pooling.",
+        "EU scope ignores outermost-region and transshipment rules.",
+        "ETS methane and N2O are not included."
+      ],
+      "warnings": [
+        "Green fuels need a proof of sustainability for zero ETS CO2 and FuelEU credit.",
+        "FuelEU surplus of 1122.92 tCO2e in UCOME_B100_FULL is not valued; supply fueleu_pool_price_eur_per_tco2e to value it."
+      ]
+    }
+  },
+  {
+    "name": "conventional",
+    "today": "2026-10-14",
+    "request": {
+      "vessel": {
+        "name": null,
+        "imo_number": null,
+        "speed_knots": "14",
+        "sea_consumption_mt_per_day": "40",
+        "berth_consumption_mt_per_day": "5",
+        "compatible_fuels": [
+          "VLSFO"
+        ]
+      },
+      "legs": [
+        {
+          "from_port": "Shanghai",
+          "to_port": "Singapore",
+          "route": "DEFAULT",
+          "distance_nm": "2200",
+          "berth_days_at_destination": "1"
+        },
+        {
+          "from_port": "Singapore",
+          "to_port": "Rotterdam",
+          "route": "DEFAULT",
+          "distance_nm": "8300",
+          "berth_days_at_destination": "2"
+        }
+      ],
+      "start_date": "2026-11-01",
+      "assumptions": {
+        "vlsfo_price_usd_per_mt": {
+          "Shanghai": "650",
+          "Singapore": "907"
+        },
+        "eua_price_eur_per_tco2": "80",
+        "fueleu_pool_price_eur_per_tco2e": "109",
+        "usd_per_eur": "1.10",
+        "ghg_intensity_gco2e_per_mj": {},
+        "reporting_year": null
+      }
+    },
+    "prices": [],
+    "result": {
+      "disclaimer": "Indicative planning estimate from Verdaxis market data and the caller's assumptions. It is not a quote, an offer, or advice to trade. Only an order on the Verdaxis orderbook is executable.",
+      "reporting_year": 2026,
+      "legs": [
+        {
+          "from_port": "Shanghai",
+          "to_port": "Singapore",
+          "route": "DEFAULT",
+          "via": "Direct",
+          "distance_nm": "2200",
+          "distance_source": "CALLER",
+          "departure_date": "2026-11-01",
+          "arrival_date": "2026-11-08",
+          "sea_days": "6.5476",
+          "eu_scope_share": "0.0000",
+          "sea_energy_mj": "10738095",
+          "berth_days": "1.0000",
+          "berth_eu_scope_share": "0.0000",
+          "berth_energy_mj": "205000"
+        },
+        {
+          "from_port": "Singapore",
+          "to_port": "Rotterdam",
+          "route": "DEFAULT",
+          "via": "Suez Canal",
+          "distance_nm": "8300",
+          "distance_source": "CALLER",
+          "departure_date": "2026-11-09",
+          "arrival_date": "2026-12-04",
+          "sea_days": "24.7024",
+          "eu_scope_share": "0.5000",
+          "sea_energy_mj": "40511905",
+          "berth_days": "2.0000",
+          "berth_eu_scope_share": "1.0000",
+          "berth_energy_mj": "410000"
+        }
+      ],
+      "strategies": [
+        {
+          "strategy_id": "CONVENTIONAL_PENALTY",
+          "label": "Conventional Penalty",
+          "completeness": "COMPLETE",
+          "fuel_uses": [
+            {
+              "leg_index": 0,
+              "segment": "SEA",
+              "fuel": "VLSFO",
+              "tonnes": "261.90",
+              "bunkering_port": "Shanghai",
+              "price": {
+                "fuel": "VLSFO",
+                "port": "Shanghai",
+                "price_usd_per_mt": "650.00",
+                "source": "CALLER",
+                "executable": false,
+                "availability_window": null,
+                "observed_at": null,
+                "carbon_intensity_gco2e_per_mj": null,
+                "energy_density_mj_per_kg": null
+              },
+              "cost_usd": "170238.10"
+            },
+            {
+              "leg_index": 0,
+              "segment": "BERTH",
+              "fuel": "VLSFO",
+              "tonnes": "5.00",
+              "bunkering_port": "Shanghai",
+              "price": {
+                "fuel": "VLSFO",
+                "port": "Shanghai",
+                "price_usd_per_mt": "650.00",
+                "source": "CALLER",
+                "executable": false,
+                "availability_window": null,
+                "observed_at": null,
+                "carbon_intensity_gco2e_per_mj": null,
+                "energy_density_mj_per_kg": null
+              },
+              "cost_usd": "3250.00"
+            },
+            {
+              "leg_index": 1,
+              "segment": "SEA",
+              "fuel": "VLSFO",
+              "tonnes": "988.10",
+              "bunkering_port": "Singapore",
+              "price": {
+                "fuel": "VLSFO",
+                "port": "Singapore",
+                "price_usd_per_mt": "907.00",
+                "source": "CALLER",
+                "executable": false,
+                "availability_window": null,
+                "observed_at": null,
+                "carbon_intensity_gco2e_per_mj": null,
+                "energy_density_mj_per_kg": null
+              },
+              "cost_usd": "896202.38"
+            },
+            {
+              "leg_index": 1,
+              "segment": "BERTH",
+              "fuel": "VLSFO",
+              "tonnes": "10.00",
+              "bunkering_port": "Singapore",
+              "price": {
+                "fuel": "VLSFO",
+                "port": "Singapore",
+                "price_usd_per_mt": "907.00",
+                "source": "CALLER",
+                "executable": false,
+                "availability_window": null,
+                "observed_at": null,
+                "carbon_intensity_gco2e_per_mj": null,
+                "energy_density_mj_per_kg": null
+              },
+              "cost_usd": "9070.00"
+            }
+          ],
+          "in_scope_energy_mj": "20665952",
+          "ghg_intensity_gco2e_per_mj": "91.1600",
+          "fueleu_target_gco2e_per_mj": "89.3368",
+          "fueleu_balance_tco2e": "-37.68",
+          "intensity_sources": {
+            "VLSFO": "DEFAULT_ILLUSTRATIVE"
+          },
+          "fuel_cost_usd": "1078760.48",
+          "eu_ets_cost_eur": "127060.32",
+          "fueleu_cost_eur": "24194.29",
+          "fueleu_cost_basis": "PENALTY",
+          "total_cost_usd": "1245140.55",
+          "missing_inputs": []
+        },
+        {
+          "strategy_id": "CONVENTIONAL_POOL",
+          "label": "Conventional Pool",
+          "completeness": "COMPLETE",
+          "fuel_uses": [
+            {
+              "leg_index": 0,
+              "segment": "SEA",
+              "fuel": "VLSFO",
+              "tonnes": "261.90",
+              "bunkering_port": "Shanghai",
+              "price": {
+                "fuel": "VLSFO",
+                "port": "Shanghai",
+                "price_usd_per_mt": "650.00",
+                "source": "CALLER",
+                "executable": false,
+                "availability_window": null,
+                "observed_at": null,
+                "carbon_intensity_gco2e_per_mj": null,
+                "energy_density_mj_per_kg": null
+              },
+              "cost_usd": "170238.10"
+            },
+            {
+              "leg_index": 0,
+              "segment": "BERTH",
+              "fuel": "VLSFO",
+              "tonnes": "5.00",
+              "bunkering_port": "Shanghai",
+              "price": {
+                "fuel": "VLSFO",
+                "port": "Shanghai",
+                "price_usd_per_mt": "650.00",
+                "source": "CALLER",
+                "executable": false,
+                "availability_window": null,
+                "observed_at": null,
+                "carbon_intensity_gco2e_per_mj": null,
+                "energy_density_mj_per_kg": null
+              },
+              "cost_usd": "3250.00"
+            },
+            {
+              "leg_index": 1,
+              "segment": "SEA",
+              "fuel": "VLSFO",
+              "tonnes": "988.10",
+              "bunkering_port": "Singapore",
+              "price": {
+                "fuel": "VLSFO",
+                "port": "Singapore",
+                "price_usd_per_mt": "907.00",
+                "source": "CALLER",
+                "executable": false,
+                "availability_window": null,
+                "observed_at": null,
+                "carbon_intensity_gco2e_per_mj": null,
+                "energy_density_mj_per_kg": null
+              },
+              "cost_usd": "896202.38"
+            },
+            {
+              "leg_index": 1,
+              "segment": "BERTH",
+              "fuel": "VLSFO",
+              "tonnes": "10.00",
+              "bunkering_port": "Singapore",
+              "price": {
+                "fuel": "VLSFO",
+                "port": "Singapore",
+                "price_usd_per_mt": "907.00",
+                "source": "CALLER",
+                "executable": false,
+                "availability_window": null,
+                "observed_at": null,
+                "carbon_intensity_gco2e_per_mj": null,
+                "energy_density_mj_per_kg": null
+              },
+              "cost_usd": "9070.00"
+            }
+          ],
+          "in_scope_energy_mj": "20665952",
+          "ghg_intensity_gco2e_per_mj": "91.1600",
+          "fueleu_target_gco2e_per_mj": "89.3368",
+          "fueleu_balance_tco2e": "-37.68",
+          "intensity_sources": {
+            "VLSFO": "DEFAULT_ILLUSTRATIVE"
+          },
+          "fuel_cost_usd": "1078760.48",
+          "eu_ets_cost_eur": "127060.32",
+          "fueleu_cost_eur": "4106.92",
+          "fueleu_cost_basis": "POOL",
+          "total_cost_usd": "1223044.44",
+          "missing_inputs": []
+        }
+      ],
+      "recommended_strategy_id": "CONVENTIONAL_POOL",
+      "recommendation_reason": "CONVENTIONAL_POOL has the lowest complete total: USD 1223044.44.",
+      "assumptions": [
+        "Fuel for a leg and its destination berth stay is bought at the departure port on the departure date.",
+        "Consumption uses a 41,000 MJ/t VLSFO-equivalent energy basis.",
+        "FuelEU is an annual per-ship balance; this is the voyage contribution, not the annual penalty after banking, borrowing and pooling.",
+        "EU scope ignores outermost-region and transshipment rules.",
+        "ETS methane and N2O are not included."
+      ],
+      "warnings": []
+    }
+  },
+  {
+    "name": "green-only",
+    "today": "2026-10-14",
+    "request": {
+      "vessel": {
+        "name": null,
+        "imo_number": null,
+        "speed_knots": "14",
+        "sea_consumption_mt_per_day": "40",
+        "berth_consumption_mt_per_day": "5",
+        "compatible_fuels": [
+          "BIO_METHANOL"
+        ]
+      },
+      "legs": [
+        {
+          "from_port": "Shanghai",
+          "to_port": "Singapore",
+          "route": "DEFAULT",
+          "distance_nm": "2200",
+          "berth_days_at_destination": "1"
+        },
+        {
+          "from_port": "Singapore",
+          "to_port": "Rotterdam",
+          "route": "DEFAULT",
+          "distance_nm": "8300",
+          "berth_days_at_destination": "2"
+        }
+      ],
+      "start_date": "2026-11-01",
+      "assumptions": {
+        "vlsfo_price_usd_per_mt": {
+          "Shanghai": "650",
+          "Singapore": "907"
+        },
+        "eua_price_eur_per_tco2": "80",
+        "fueleu_pool_price_eur_per_tco2e": "109",
+        "usd_per_eur": "1.10",
+        "ghg_intensity_gco2e_per_mj": {},
+        "reporting_year": null
+      }
+    },
+    "prices": [],
+    "result": {
+      "disclaimer": "Indicative planning estimate from Verdaxis market data and the caller's assumptions. It is not a quote, an offer, or advice to trade. Only an order on the Verdaxis orderbook is executable.",
+      "reporting_year": 2026,
+      "legs": [
+        {
+          "from_port": "Shanghai",
+          "to_port": "Singapore",
+          "route": "DEFAULT",
+          "via": "Direct",
+          "distance_nm": "2200",
+          "distance_source": "CALLER",
+          "departure_date": "2026-11-01",
+          "arrival_date": "2026-11-08",
+          "sea_days": "6.5476",
+          "eu_scope_share": "0.0000",
+          "sea_energy_mj": "10738095",
+          "berth_days": "1.0000",
+          "berth_eu_scope_share": "0.0000",
+          "berth_energy_mj": "205000"
+        },
+        {
+          "from_port": "Singapore",
+          "to_port": "Rotterdam",
+          "route": "DEFAULT",
+          "via": "Suez Canal",
+          "distance_nm": "8300",
+          "distance_source": "CALLER",
+          "departure_date": "2026-11-09",
+          "arrival_date": "2026-12-04",
+          "sea_days": "24.7024",
+          "eu_scope_share": "0.5000",
+          "sea_energy_mj": "40511905",
+          "berth_days": "2.0000",
+          "berth_eu_scope_share": "1.0000",
+          "berth_energy_mj": "410000"
+        }
+      ],
+      "strategies": [
+        {
+          "strategy_id": "BIO_METHANOL_FULL",
+          "label": "Bio Methanol Full",
+          "completeness": "PARTIAL",
+          "fuel_uses": [
+            {
+              "leg_index": 0,
+              "segment": "SEA",
+              "fuel": "BIO_METHANOL",
+              "tonnes": "539.60",
+              "bunkering_port": "Shanghai",
+              "price": null,
+              "cost_usd": null
+            },
+            {
+              "leg_index": 0,
+              "segment": "BERTH",
+              "fuel": "BIO_METHANOL",
+              "tonnes": "10.30",
+              "bunkering_port": "Shanghai",
+              "price": null,
+              "cost_usd": null
+            },
+            {
+              "leg_index": 1,
+              "segment": "SEA",
+              "fuel": "BIO_METHANOL",
+              "tonnes": "2035.77",
+              "bunkering_port": "Singapore",
+              "price": null,
+              "cost_usd": null
+            },
+            {
+              "leg_index": 1,
+              "segment": "BERTH",
+              "fuel": "BIO_METHANOL",
+              "tonnes": "20.60",
+              "bunkering_port": "Singapore",
+              "price": null,
+              "cost_usd": null
+            }
+          ],
+          "in_scope_energy_mj": "20665952",
+          "ghg_intensity_gco2e_per_mj": "31.0000",
+          "fueleu_target_gco2e_per_mj": "89.3368",
+          "fueleu_balance_tco2e": "1205.59",
+          "intensity_sources": {
+            "BIO_METHANOL": "DEFAULT_ILLUSTRATIVE"
+          },
+          "fuel_cost_usd": null,
+          "eu_ets_cost_eur": "0.00",
+          "fueleu_cost_eur": "-131408.82",
+          "fueleu_cost_basis": "SURPLUS_AT_POOL_PRICE",
+          "total_cost_usd": null,
+          "missing_inputs": [
+            "market_price[BIO_METHANOL@Shanghai]",
+            "market_price[BIO_METHANOL@Singapore]"
+          ]
+        }
+      ],
+      "recommended_strategy_id": null,
+      "recommendation_reason": "No complete strategy. Supply: market_price[BIO_METHANOL@Shanghai], market_price[BIO_METHANOL@Singapore].",
+      "assumptions": [
+        "Fuel for a leg and its destination berth stay is bought at the departure port on the departure date.",
+        "Consumption uses a 41,000 MJ/t VLSFO-equivalent energy basis.",
+        "FuelEU is an annual per-ship balance; this is the voyage contribution, not the annual penalty after banking, borrowing and pooling.",
+        "EU scope ignores outermost-region and transshipment rules.",
+        "ETS methane and N2O are not included."
+      ],
+      "warnings": [
+        "Green fuels need a proof of sustainability for zero ETS CO2 and FuelEU credit."
+      ]
+    }
+  },
+  {
+    "name": "missing-intensity",
+    "today": "2026-10-14",
+    "request": {
+      "vessel": {
+        "name": null,
+        "imo_number": null,
+        "speed_knots": "14",
+        "sea_consumption_mt_per_day": "40",
+        "berth_consumption_mt_per_day": "5",
+        "compatible_fuels": [
+          "VLSFO",
+          "BIO_ETHANOL"
+        ]
+      },
+      "legs": [
+        {
+          "from_port": "Shanghai",
+          "to_port": "Singapore",
+          "route": "DEFAULT",
+          "distance_nm": "2200",
+          "berth_days_at_destination": "1"
+        },
+        {
+          "from_port": "Singapore",
+          "to_port": "Rotterdam",
+          "route": "DEFAULT",
+          "distance_nm": "8300",
+          "berth_days_at_destination": "2"
+        }
+      ],
+      "start_date": "2026-11-01",
+      "assumptions": {
+        "vlsfo_price_usd_per_mt": {
+          "Shanghai": "650",
+          "Singapore": "907"
+        },
+        "eua_price_eur_per_tco2": "80",
+        "fueleu_pool_price_eur_per_tco2e": "109",
+        "usd_per_eur": "1.10",
+        "ghg_intensity_gco2e_per_mj": {},
+        "reporting_year": null
+      }
+    },
+    "prices": [],
+    "result": {
+      "disclaimer": "Indicative planning estimate from Verdaxis market data and the caller's assumptions. It is not a quote, an offer, or advice to trade. Only an order on the Verdaxis orderbook is executable.",
+      "reporting_year": 2026,
+      "legs": [
+        {
+          "from_port": "Shanghai",
+          "to_port": "Singapore",
+          "route": "DEFAULT",
+          "via": "Direct",
+          "distance_nm": "2200",
+          "distance_source": "CALLER",
+          "departure_date": "2026-11-01",
+          "arrival_date": "2026-11-08",
+          "sea_days": "6.5476",
+          "eu_scope_share": "0.0000",
+          "sea_energy_mj": "10738095",
+          "berth_days": "1.0000",
+          "berth_eu_scope_share": "0.0000",
+          "berth_energy_mj": "205000"
+        },
+        {
+          "from_port": "Singapore",
+          "to_port": "Rotterdam",
+          "route": "DEFAULT",
+          "via": "Suez Canal",
+          "distance_nm": "8300",
+          "distance_source": "CALLER",
+          "departure_date": "2026-11-09",
+          "arrival_date": "2026-12-04",
+          "sea_days": "24.7024",
+          "eu_scope_share": "0.5000",
+          "sea_energy_mj": "40511905",
+          "berth_days": "2.0000",
+          "berth_eu_scope_share": "1.0000",
+          "berth_energy_mj": "410000"
+        }
+      ],
+      "strategies": [
+        {
+          "strategy_id": "CONVENTIONAL_PENALTY",
+          "label": "Conventional Penalty",
+          "completeness": "COMPLETE",
+          "fuel_uses": [
+            {
+              "leg_index": 0,
+              "segment": "SEA",
+              "fuel": "VLSFO",
+              "tonnes": "261.90",
+              "bunkering_port": "Shanghai",
+              "price": {
+                "fuel": "VLSFO",
+                "port": "Shanghai",
+                "price_usd_per_mt": "650.00",
+                "source": "CALLER",
+                "executable": false,
+                "availability_window": null,
+                "observed_at": null,
+                "carbon_intensity_gco2e_per_mj": null,
+                "energy_density_mj_per_kg": null
+              },
+              "cost_usd": "170238.10"
+            },
+            {
+              "leg_index": 0,
+              "segment": "BERTH",
+              "fuel": "VLSFO",
+              "tonnes": "5.00",
+              "bunkering_port": "Shanghai",
+              "price": {
+                "fuel": "VLSFO",
+                "port": "Shanghai",
+                "price_usd_per_mt": "650.00",
+                "source": "CALLER",
+                "executable": false,
+                "availability_window": null,
+                "observed_at": null,
+                "carbon_intensity_gco2e_per_mj": null,
+                "energy_density_mj_per_kg": null
+              },
+              "cost_usd": "3250.00"
+            },
+            {
+              "leg_index": 1,
+              "segment": "SEA",
+              "fuel": "VLSFO",
+              "tonnes": "988.10",
+              "bunkering_port": "Singapore",
+              "price": {
+                "fuel": "VLSFO",
+                "port": "Singapore",
+                "price_usd_per_mt": "907.00",
+                "source": "CALLER",
+                "executable": false,
+                "availability_window": null,
+                "observed_at": null,
+                "carbon_intensity_gco2e_per_mj": null,
+                "energy_density_mj_per_kg": null
+              },
+              "cost_usd": "896202.38"
+            },
+            {
+              "leg_index": 1,
+              "segment": "BERTH",
+              "fuel": "VLSFO",
+              "tonnes": "10.00",
+              "bunkering_port": "Singapore",
+              "price": {
+                "fuel": "VLSFO",
+                "port": "Singapore",
+                "price_usd_per_mt": "907.00",
+                "source": "CALLER",
+                "executable": false,
+                "availability_window": null,
+                "observed_at": null,
+                "carbon_intensity_gco2e_per_mj": null,
+                "energy_density_mj_per_kg": null
+              },
+              "cost_usd": "9070.00"
+            }
+          ],
+          "in_scope_energy_mj": "20665952",
+          "ghg_intensity_gco2e_per_mj": "91.1600",
+          "fueleu_target_gco2e_per_mj": "89.3368",
+          "fueleu_balance_tco2e": "-37.68",
+          "intensity_sources": {
+            "VLSFO": "DEFAULT_ILLUSTRATIVE"
+          },
+          "fuel_cost_usd": "1078760.48",
+          "eu_ets_cost_eur": "127060.32",
+          "fueleu_cost_eur": "24194.29",
+          "fueleu_cost_basis": "PENALTY",
+          "total_cost_usd": "1245140.55",
+          "missing_inputs": []
+        },
+        {
+          "strategy_id": "CONVENTIONAL_POOL",
+          "label": "Conventional Pool",
+          "completeness": "COMPLETE",
+          "fuel_uses": [
+            {
+              "leg_index": 0,
+              "segment": "SEA",
+              "fuel": "VLSFO",
+              "tonnes": "261.90",
+              "bunkering_port": "Shanghai",
+              "price": {
+                "fuel": "VLSFO",
+                "port": "Shanghai",
+                "price_usd_per_mt": "650.00",
+                "source": "CALLER",
+                "executable": false,
+                "availability_window": null,
+                "observed_at": null,
+                "carbon_intensity_gco2e_per_mj": null,
+                "energy_density_mj_per_kg": null
+              },
+              "cost_usd": "170238.10"
+            },
+            {
+              "leg_index": 0,
+              "segment": "BERTH",
+              "fuel": "VLSFO",
+              "tonnes": "5.00",
+              "bunkering_port": "Shanghai",
+              "price": {
+                "fuel": "VLSFO",
+                "port": "Shanghai",
+                "price_usd_per_mt": "650.00",
+                "source": "CALLER",
+                "executable": false,
+                "availability_window": null,
+                "observed_at": null,
+                "carbon_intensity_gco2e_per_mj": null,
+                "energy_density_mj_per_kg": null
+              },
+              "cost_usd": "3250.00"
+            },
+            {
+              "leg_index": 1,
+              "segment": "SEA",
+              "fuel": "VLSFO",
+              "tonnes": "988.10",
+              "bunkering_port": "Singapore",
+              "price": {
+                "fuel": "VLSFO",
+                "port": "Singapore",
+                "price_usd_per_mt": "907.00",
+                "source": "CALLER",
+                "executable": false,
+                "availability_window": null,
+                "observed_at": null,
+                "carbon_intensity_gco2e_per_mj": null,
+                "energy_density_mj_per_kg": null
+              },
+              "cost_usd": "896202.38"
+            },
+            {
+              "leg_index": 1,
+              "segment": "BERTH",
+              "fuel": "VLSFO",
+              "tonnes": "10.00",
+              "bunkering_port": "Singapore",
+              "price": {
+                "fuel": "VLSFO",
+                "port": "Singapore",
+                "price_usd_per_mt": "907.00",
+                "source": "CALLER",
+                "executable": false,
+                "availability_window": null,
+                "observed_at": null,
+                "carbon_intensity_gco2e_per_mj": null,
+                "energy_density_mj_per_kg": null
+              },
+              "cost_usd": "9070.00"
+            }
+          ],
+          "in_scope_energy_mj": "20665952",
+          "ghg_intensity_gco2e_per_mj": "91.1600",
+          "fueleu_target_gco2e_per_mj": "89.3368",
+          "fueleu_balance_tco2e": "-37.68",
+          "intensity_sources": {
+            "VLSFO": "DEFAULT_ILLUSTRATIVE"
+          },
+          "fuel_cost_usd": "1078760.48",
+          "eu_ets_cost_eur": "127060.32",
+          "fueleu_cost_eur": "4106.92",
+          "fueleu_cost_basis": "POOL",
+          "total_cost_usd": "1223044.44",
+          "missing_inputs": []
+        },
+        {
+          "strategy_id": "BIO_ETHANOL_MIN_BLEND",
+          "label": "Bio Ethanol Min Blend",
+          "completeness": "PARTIAL",
+          "fuel_uses": [
+            {
+              "leg_index": 0,
+              "segment": "SEA",
+              "fuel": "VLSFO",
+              "tonnes": "261.90",
+              "bunkering_port": "Shanghai",
+              "price": {
+                "fuel": "VLSFO",
+                "port": "Shanghai",
+                "price_usd_per_mt": "650.00",
+                "source": "CALLER",
+                "executable": false,
+                "availability_window": null,
+                "observed_at": null,
+                "carbon_intensity_gco2e_per_mj": null,
+                "energy_density_mj_per_kg": null
+              },
+              "cost_usd": "170238.10"
+            },
+            {
+              "leg_index": 0,
+              "segment": "BERTH",
+              "fuel": "VLSFO",
+              "tonnes": "5.00",
+              "bunkering_port": "Shanghai",
+              "price": {
+                "fuel": "VLSFO",
+                "port": "Shanghai",
+                "price_usd_per_mt": "650.00",
+                "source": "CALLER",
+                "executable": false,
+                "availability_window": null,
+                "observed_at": null,
+                "carbon_intensity_gco2e_per_mj": null,
+                "energy_density_mj_per_kg": null
+              },
+              "cost_usd": "3250.00"
+            }
+          ],
+          "in_scope_energy_mj": "20665952",
+          "ghg_intensity_gco2e_per_mj": null,
+          "fueleu_target_gco2e_per_mj": "89.3368",
+          "fueleu_balance_tco2e": null,
+          "intensity_sources": {
+            "VLSFO": "DEFAULT_ILLUSTRATIVE"
+          },
+          "fuel_cost_usd": null,
+          "eu_ets_cost_eur": null,
+          "fueleu_cost_eur": null,
+          "fueleu_cost_basis": "NONE",
+          "total_cost_usd": null,
+          "missing_inputs": [
+            "ghg_intensity_gco2e_per_mj[BIO_ETHANOL]"
+          ]
+        },
+        {
+          "strategy_id": "BIO_ETHANOL_FULL",
+          "label": "Bio Ethanol Full",
+          "completeness": "PARTIAL",
+          "fuel_uses": [
+            {
+              "leg_index": 0,
+              "segment": "SEA",
+              "fuel": "VLSFO",
+              "tonnes": "261.90",
+              "bunkering_port": "Shanghai",
+              "price": {
+                "fuel": "VLSFO",
+                "port": "Shanghai",
+                "price_usd_per_mt": "650.00",
+                "source": "CALLER",
+                "executable": false,
+                "availability_window": null,
+                "observed_at": null,
+                "carbon_intensity_gco2e_per_mj": null,
+                "energy_density_mj_per_kg": null
+              },
+              "cost_usd": "170238.10"
+            },
+            {
+              "leg_index": 0,
+              "segment": "BERTH",
+              "fuel": "VLSFO",
+              "tonnes": "5.00",
+              "bunkering_port": "Shanghai",
+              "price": {
+                "fuel": "VLSFO",
+                "port": "Shanghai",
+                "price_usd_per_mt": "650.00",
+                "source": "CALLER",
+                "executable": false,
+                "availability_window": null,
+                "observed_at": null,
+                "carbon_intensity_gco2e_per_mj": null,
+                "energy_density_mj_per_kg": null
+              },
+              "cost_usd": "3250.00"
+            },
+            {
+              "leg_index": 1,
+              "segment": "SEA",
+              "fuel": "BIO_ETHANOL",
+              "tonnes": "1511.64",
+              "bunkering_port": "Singapore",
+              "price": null,
+              "cost_usd": null
+            },
+            {
+              "leg_index": 1,
+              "segment": "BERTH",
+              "fuel": "BIO_ETHANOL",
+              "tonnes": "15.30",
+              "bunkering_port": "Singapore",
+              "price": null,
+              "cost_usd": null
+            }
+          ],
+          "in_scope_energy_mj": "20665952",
+          "ghg_intensity_gco2e_per_mj": null,
+          "fueleu_target_gco2e_per_mj": "89.3368",
+          "fueleu_balance_tco2e": null,
+          "intensity_sources": {
+            "VLSFO": "DEFAULT_ILLUSTRATIVE"
+          },
+          "fuel_cost_usd": null,
+          "eu_ets_cost_eur": "0.00",
+          "fueleu_cost_eur": null,
+          "fueleu_cost_basis": "NONE",
+          "total_cost_usd": null,
+          "missing_inputs": [
+            "market_price[BIO_ETHANOL@Singapore]",
+            "ghg_intensity_gco2e_per_mj[BIO_ETHANOL]"
+          ]
+        }
+      ],
+      "recommended_strategy_id": "CONVENTIONAL_POOL",
+      "recommendation_reason": "CONVENTIONAL_POOL has the lowest complete total: USD 1223044.44.",
+      "assumptions": [
+        "Fuel for a leg and its destination berth stay is bought at the departure port on the departure date.",
+        "Consumption uses a 41,000 MJ/t VLSFO-equivalent energy basis.",
+        "FuelEU is an annual per-ship balance; this is the voyage contribution, not the annual penalty after banking, borrowing and pooling.",
+        "EU scope ignores outermost-region and transshipment rules.",
+        "ETS methane and N2O are not included."
+      ],
+      "warnings": [
+        "Green fuels need a proof of sustainability for zero ETS CO2 and FuelEU credit."
+      ]
+    }
+  },
+  {
+    "name": "no-eu",
+    "today": "2026-10-14",
+    "request": {
+      "vessel": {
+        "name": null,
+        "imo_number": null,
+        "speed_knots": "14",
+        "sea_consumption_mt_per_day": "40",
+        "berth_consumption_mt_per_day": "5",
+        "compatible_fuels": [
+          "VLSFO",
+          "UCOME_B100"
+        ]
+      },
+      "legs": [
+        {
+          "from_port": "Shanghai",
+          "to_port": "Singapore",
+          "route": "DEFAULT",
+          "distance_nm": null,
+          "berth_days_at_destination": "0"
+        }
+      ],
+      "start_date": "2026-11-01",
+      "assumptions": {
+        "vlsfo_price_usd_per_mt": {
+          "Shanghai": "650",
+          "Singapore": "907"
+        },
+        "eua_price_eur_per_tco2": "80",
+        "fueleu_pool_price_eur_per_tco2e": "109",
+        "usd_per_eur": "1.10",
+        "ghg_intensity_gco2e_per_mj": {},
+        "reporting_year": null
+      }
+    },
+    "prices": [],
+    "result": {
+      "disclaimer": "Indicative planning estimate from Verdaxis market data and the caller's assumptions. It is not a quote, an offer, or advice to trade. Only an order on the Verdaxis orderbook is executable.",
+      "reporting_year": 2026,
+      "legs": [
+        {
+          "from_port": "Shanghai",
+          "to_port": "Singapore",
+          "route": "DEFAULT",
+          "via": "Direct",
+          "distance_nm": "2210",
+          "distance_source": "VERDAXIS_TABLE",
+          "departure_date": "2026-11-01",
+          "arrival_date": "2026-11-08",
+          "sea_days": "6.5774",
+          "eu_scope_share": "0.0000",
+          "sea_energy_mj": "10786905",
+          "berth_days": "0.0000",
+          "berth_eu_scope_share": "0.0000",
+          "berth_energy_mj": "0"
+        }
+      ],
+      "strategies": [
+        {
+          "strategy_id": "CONVENTIONAL_PENALTY",
+          "label": "Conventional Penalty",
+          "completeness": "COMPLETE",
+          "fuel_uses": [
+            {
+              "leg_index": 0,
+              "segment": "SEA",
+              "fuel": "VLSFO",
+              "tonnes": "263.10",
+              "bunkering_port": "Shanghai",
+              "price": {
+                "fuel": "VLSFO",
+                "port": "Shanghai",
+                "price_usd_per_mt": "650.00",
+                "source": "CALLER",
+                "executable": false,
+                "availability_window": null,
+                "observed_at": null,
+                "carbon_intensity_gco2e_per_mj": null,
+                "energy_density_mj_per_kg": null
+              },
+              "cost_usd": "171011.90"
+            }
+          ],
+          "in_scope_energy_mj": "0",
+          "ghg_intensity_gco2e_per_mj": null,
+          "fueleu_target_gco2e_per_mj": "89.3368",
+          "fueleu_balance_tco2e": "0.00",
+          "intensity_sources": {
+            "VLSFO": "DEFAULT_ILLUSTRATIVE"
+          },
+          "fuel_cost_usd": "171011.90",
+          "eu_ets_cost_eur": "0.00",
+          "fueleu_cost_eur": "0.00",
+          "fueleu_cost_basis": "NONE",
+          "total_cost_usd": "171011.90",
+          "missing_inputs": []
+        },
+        {
+          "strategy_id": "CONVENTIONAL_POOL",
+          "label": "Conventional Pool",
+          "completeness": "COMPLETE",
+          "fuel_uses": [
+            {
+              "leg_index": 0,
+              "segment": "SEA",
+              "fuel": "VLSFO",
+              "tonnes": "263.10",
+              "bunkering_port": "Shanghai",
+              "price": {
+                "fuel": "VLSFO",
+                "port": "Shanghai",
+                "price_usd_per_mt": "650.00",
+                "source": "CALLER",
+                "executable": false,
+                "availability_window": null,
+                "observed_at": null,
+                "carbon_intensity_gco2e_per_mj": null,
+                "energy_density_mj_per_kg": null
+              },
+              "cost_usd": "171011.90"
+            }
+          ],
+          "in_scope_energy_mj": "0",
+          "ghg_intensity_gco2e_per_mj": null,
+          "fueleu_target_gco2e_per_mj": "89.3368",
+          "fueleu_balance_tco2e": "0.00",
+          "intensity_sources": {
+            "VLSFO": "DEFAULT_ILLUSTRATIVE"
+          },
+          "fuel_cost_usd": "171011.90",
+          "eu_ets_cost_eur": "0.00",
+          "fueleu_cost_eur": "0.00",
+          "fueleu_cost_basis": "NONE",
+          "total_cost_usd": "171011.90",
+          "missing_inputs": []
+        }
+      ],
+      "recommended_strategy_id": "CONVENTIONAL_PENALTY",
+      "recommendation_reason": "CONVENTIONAL_PENALTY has the lowest complete total: USD 171011.90.",
+      "assumptions": [
+        "Fuel for a leg and its destination berth stay is bought at the departure port on the departure date.",
+        "Consumption uses a 41,000 MJ/t VLSFO-equivalent energy basis.",
+        "FuelEU is an annual per-ship balance; this is the voyage contribution, not the annual penalty after banking, borrowing and pooling.",
+        "EU scope ignores outermost-region and transshipment rules.",
+        "ETS methane and N2O are not included."
+      ],
+      "warnings": []
+    }
+  },
+  {
+    "name": "too-old",
+    "today": "2026-10-14",
+    "request": {
+      "vessel": {
+        "name": null,
+        "imo_number": null,
+        "speed_knots": "14",
+        "sea_consumption_mt_per_day": "40",
+        "berth_consumption_mt_per_day": "5",
+        "compatible_fuels": [
+          "VLSFO",
+          "UCOME_B100"
+        ]
+      },
+      "legs": [
+        {
+          "from_port": "Shanghai",
+          "to_port": "Singapore",
+          "route": "DEFAULT",
+          "distance_nm": "2200",
+          "berth_days_at_destination": "1"
+        },
+        {
+          "from_port": "Singapore",
+          "to_port": "Rotterdam",
+          "route": "DEFAULT",
+          "distance_nm": "8300",
+          "berth_days_at_destination": "2"
+        }
+      ],
+      "start_date": "2026-09-13",
+      "assumptions": {
+        "vlsfo_price_usd_per_mt": {
+          "Shanghai": "650",
+          "Singapore": "907"
+        },
+        "eua_price_eur_per_tco2": "80",
+        "fueleu_pool_price_eur_per_tco2e": "109",
+        "usd_per_eur": "1.10",
+        "ghg_intensity_gco2e_per_mj": {},
+        "reporting_year": null
+      }
+    },
+    "prices": [],
+    "error": "start_date must be within 30 days before and 730 days after today"
+  },
+  {
+    "name": "too-far",
+    "today": "2026-10-14",
+    "request": {
+      "vessel": {
+        "name": null,
+        "imo_number": null,
+        "speed_knots": "14",
+        "sea_consumption_mt_per_day": "40",
+        "berth_consumption_mt_per_day": "5",
+        "compatible_fuels": [
+          "VLSFO",
+          "UCOME_B100"
+        ]
+      },
+      "legs": [
+        {
+          "from_port": "Shanghai",
+          "to_port": "Singapore",
+          "route": "DEFAULT",
+          "distance_nm": "2200",
+          "berth_days_at_destination": "1"
+        },
+        {
+          "from_port": "Singapore",
+          "to_port": "Rotterdam",
+          "route": "DEFAULT",
+          "distance_nm": "8300",
+          "berth_days_at_destination": "2"
+        }
+      ],
+      "start_date": "2028-10-14",
+      "assumptions": {
+        "vlsfo_price_usd_per_mt": {
+          "Shanghai": "650",
+          "Singapore": "907"
+        },
+        "eua_price_eur_per_tco2": "80",
+        "fueleu_pool_price_eur_per_tco2e": "109",
+        "usd_per_eur": "1.10",
+        "ghg_intensity_gco2e_per_mj": {},
+        "reporting_year": null
+      }
+    },
+    "prices": [],
+    "error": "start_date must be within 30 days before and 730 days after today"
+  },
+  {
+    "name": "too-long",
+    "today": "2026-10-14",
+    "request": {
+      "vessel": {
+        "name": null,
+        "imo_number": null,
+        "speed_knots": "1",
+        "sea_consumption_mt_per_day": "40",
+        "berth_consumption_mt_per_day": "5",
+        "compatible_fuels": [
+          "VLSFO",
+          "UCOME_B100"
+        ]
+      },
+      "legs": [
+        {
+          "from_port": "Shanghai",
+          "to_port": "Singapore",
+          "route": "DEFAULT",
+          "distance_nm": "30000",
+          "berth_days_at_destination": "0"
+        }
+      ],
+      "start_date": "2026-11-01",
+      "assumptions": {
+        "vlsfo_price_usd_per_mt": {
+          "Shanghai": "650",
+          "Singapore": "907"
+        },
+        "eua_price_eur_per_tco2": "80",
+        "fueleu_pool_price_eur_per_tco2e": "109",
+        "usd_per_eur": "1.10",
+        "ghg_intensity_gco2e_per_mj": {},
+        "reporting_year": null
+      }
+    },
+    "prices": [],
+    "error": "The voyage is longer than 365 days; check distances, speed and berth days."
+  },
+  {
+    "name": "invalid-cape",
+    "today": "2026-10-14",
+    "request": {
+      "vessel": {
+        "name": null,
+        "imo_number": null,
+        "speed_knots": "14",
+        "sea_consumption_mt_per_day": "40",
+        "berth_consumption_mt_per_day": "5",
+        "compatible_fuels": [
+          "VLSFO",
+          "UCOME_B100"
+        ]
+      },
+      "legs": [
+        {
+          "from_port": "Shanghai",
+          "to_port": "Singapore",
+          "route": "CAPE_OF_GOOD_HOPE",
+          "distance_nm": null,
+          "berth_days_at_destination": "0"
+        }
+      ],
+      "start_date": "2026-11-01",
+      "assumptions": {
+        "vlsfo_price_usd_per_mt": {
+          "Shanghai": "650",
+          "Singapore": "907"
+        },
+        "eua_price_eur_per_tco2": "80",
+        "fueleu_pool_price_eur_per_tco2e": "109",
+        "usd_per_eur": "1.10",
+        "ghg_intensity_gco2e_per_mj": {},
+        "reporting_year": null
+      }
+    },
+    "prices": [],
+    "error": "No Cape route for Shanghai to Singapore"
+  }
+]

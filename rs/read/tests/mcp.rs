@@ -164,6 +164,7 @@ async fn catalog_and_protocol_bypass_saturated_database_admission() {
             "tools/call",
             json!({"name":"get_market_slice","arguments":{"market_product":"fixture","delivery_point":"fixture","availability_window":"SPOT"}}),
         ),
+        ("tools/call", json!({"name":"plan_voyage_fuel","arguments":{"request":{}}})),
     ] {
         let request = Request::builder()
             .method("POST")
@@ -179,7 +180,7 @@ async fn catalog_and_protocol_bypass_saturated_database_admission() {
         assert_eq!(response.status(), 200);
         let bytes = to_bytes(response.into_body(), 1_000_000).await.unwrap();
         let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
-        if params["name"] == "get_market_slice" {
+        if params["name"] == "get_market_slice" || params["name"] == "plan_voyage_fuel" {
             assert_eq!(value["result"]["isError"], true);
             assert!(
                 String::from_utf8_lossy(&bytes)
