@@ -14,7 +14,8 @@
 #[test]
 fn simple_reads_match_python() {
     verdaxis_contract::compare_group("simple_reads").expect("simple_reads contract group");
-    let python = std::env::var("RUST_TEST_PYTHON").unwrap_or_else(|_| "python3".into());
+    let python = std::env::var("RUST_TEST_PYTHON")
+        .unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../venv/bin/python").into());
     let status = std::process::Command::new(python)
         .args(["-c", DUPLICATE_INTELLIGENCE])
         .current_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/../.."))

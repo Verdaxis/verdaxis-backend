@@ -207,6 +207,7 @@ pub fn utc_rfc3339(value: DateTime<Utc>, utc_suffix: &str) -> String {
 /// The three simple-read modules share this adapter so the market-path
 /// classifier and the retry rule stay in one place.
 pub(crate) fn query_error(path: &str, error: &sqlx::Error) -> ApiError {
+    crate::runtime::admission::log_sql_error("work", error);
     let sqlstate = match error {
         sqlx::Error::Database(database) => database.code().map(|code| code.into_owned()),
         _ => None,

@@ -8,7 +8,7 @@ const SLOW: &str = "SELECT pg_sleep(5)";
 
 /// Build the admitted state and keep the readiness pool as an out-of-band
 /// observer that never consumes an admission slot.
-async fn state() -> (Arc<AppState>, sqlx::PgPool) {
+async fn state() -> (Arc<AppState>, sqlx::PgPool, sqlx::PgPool) {
     let config = Config {
         environment: "test".into(),
         release_sha: compiled_sha().into(),
@@ -22,6 +22,7 @@ async fn state() -> (Arc<AppState>, sqlx::PgPool) {
     verdaxis_read::validate_config(&config).expect("valid disposable configuration");
     let pools = connect(&config).await.expect("connect");
     let observer = pools.health.clone();
+    let read = pools.read.clone();
     let state = AppState::new(
         config,
         pools,
@@ -32,7 +33,7 @@ async fn state() -> (Arc<AppState>, sqlx::PgPool) {
         },
     )
     .expect("state");
-    (state.into(), observer)
+    (state.into(), observer, read)
 }
 
 /// App-role connections used by the process: `read` capacity plus readiness.
@@ -69,7 +70,13 @@ async fn wait_for<F: Fn() -> std::pin::Pin<Box<dyn std::future::Future<Output = 
 
 #[tokio::test]
 async fn cancelled_query_keeps_slot_until_drop() {
-    let (state, observer) = state().await;
+    let subscriber = tracing_subscriber::fmt()
+        .json()
+        .without_time()
+        .with_writer(std::io::stderr)
+        .finish();
+    let _guard = tracing::subscriber::set_default(subscriber);
+    let (state, observer, read) = state().await;
     let app = verdaxis_read::runtime::http::middleware_with_state(
         axum::Router::new().route(
             "/api/ports",
@@ -83,7 +90,12 @@ async fn cancelled_query_keeps_slot_until_drop() {
                                 sqlx::query(SLOW)
                                     .execute(connection)
                                     .await
-                                    .map_err(|_| verdaxis_read::ApiError::internal())?;
+                                    .map_err(|error| {
+                                        verdaxis_read::runtime::admission::log_sql_error(
+                                            "work", &error,
+                                        );
+                                        verdaxis_read::ApiError::internal()
+                                    })?;
                                 Ok(())
                             })
                         })
@@ -172,18 +184,205 @@ async fn cancelled_query_keeps_slot_until_drop() {
         }
     }
 
-    // Failed work closes its connection instead of returning it to the pool.
-    assert!(
-        run_admitted(&state, |connection| Box::pin(async move {
-            sqlx::query("SELECT 1/0")
-                .execute(connection)
-                .await
-                .map_err(|_| verdaxis_read::ApiError::internal())?;
-            Ok(())
-        }))
-        .await
-        .is_err()
-    );
-    assert_eq!(state.reads.available_permits(), 8);
+    read.close().await;
     observer.close().await;
+}
+
+#[derive(Clone)]
+struct Capture(Arc<std::sync::Mutex<Vec<u8>>>);
+impl std::io::Write for Capture {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.0.lock().unwrap().extend_from_slice(bytes);
+        Ok(bytes.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+#[tokio::test]
+async fn cancelled_error_closes_before_replacement_and_logs_stage() {
+    let bytes = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let writer = Capture(bytes.clone());
+    let subscriber = tracing_subscriber::fmt()
+        .json()
+        .without_time()
+        .with_writer(move || writer.clone())
+        .finish();
+    let _guard = tracing::subscriber::set_default(subscriber);
+    let (state, observer, read) = state().await;
+    let release = Arc::new(tokio::sync::Notify::new());
+    let (started_tx, mut started_rx) = tokio::sync::mpsc::channel(8);
+    let mut callers = Vec::new();
+    for _ in 0..8 {
+        let state = state.clone();
+        let release = release.clone();
+        let started = started_tx.clone();
+        callers.push(tokio::spawn(async move {
+            run_admitted(&state, move |connection| {
+                Box::pin(async move {
+                    let pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+                        .fetch_one(&mut *connection)
+                        .await
+                        .unwrap();
+                    started.send(pid).await.unwrap();
+                    release.notified().await;
+                    sqlx::query("SELECT 1/0 /* secret-sentinel */")
+                        .execute(connection)
+                        .await
+                        .map_err(|error| {
+                            verdaxis_read::runtime::admission::log_sql_error("work", &error);
+                            verdaxis_read::database_error("/api/ports", "GET", Some("22012"))
+                        })?;
+                    Ok(())
+                })
+            })
+            .await
+        }));
+    }
+    let mut old_pids = Vec::new();
+    for _ in 0..8 {
+        old_pids.push(started_rx.recv().await.unwrap());
+    }
+    for caller in callers {
+        caller.abort();
+        assert!(caller.await.unwrap_err().is_cancelled());
+    }
+    assert_eq!(state.reads.available_permits(), 0);
+    let busy = run_admitted(&state, |_| Box::pin(async { Ok(()) }))
+        .await
+        .unwrap_err();
+    assert_eq!(busy.status, 503);
+    assert_eq!(busy.retry_after, Some(1));
+    release.notify_waiters();
+    let ready = state.clone();
+    wait_for("failed owners to close", move || {
+        let ready = ready.clone();
+        Box::pin(async move { ready.reads.available_permits() == 8 })
+    })
+    .await;
+    let pid: i32 = run_admitted(&state, |connection| {
+        Box::pin(async move {
+            sqlx::query_scalar("SELECT pg_backend_pid()")
+                .fetch_one(connection)
+                .await
+                .map_err(|_| verdaxis_read::ApiError::internal())
+        })
+    })
+    .await
+    .expect("fresh request after replacement");
+    assert!(!old_pids.contains(&pid));
+    assert_eq!(state.reads.available_permits(), 8);
+    assert!(connections(&observer).await <= 9);
+    let logs = String::from_utf8(bytes.lock().unwrap().clone()).unwrap();
+    assert!(!logs.contains("secret-sentinel"));
+    let failures: Vec<serde_json::Value> = logs
+        .lines()
+        .filter_map(|line| serde_json::from_str(line).ok())
+        .filter(|v: &serde_json::Value| v["fields"]["message"] == "admitted_database_failure")
+        .collect();
+    assert!(!failures.is_empty(), "missing stage diagnostics: {logs}");
+    assert_eq!(failures[0]["fields"]["stage"], "work");
+    assert_eq!(failures[0]["fields"]["error_class"], "database");
+    assert_eq!(failures[0]["fields"]["sqlstate"], "22012");
+    read.close().await;
+    observer.close().await;
+}
+
+#[tokio::test]
+async fn news_and_market_reads_share_capacity_in_both_directions() {
+    use axum::{
+        body::{Body, to_bytes},
+        http::Request,
+    };
+    use tower::ServiceExt;
+    for (occupier, rejected) in [
+        ("/api/ports", "/api/news"),
+        ("/api/news", "/api/catalog/products"),
+    ] {
+        let (state, observer, read) = state().await;
+        let release = Arc::new(tokio::sync::Notify::new());
+        let (started_tx, mut started_rx) = tokio::sync::mpsc::channel(8);
+        let held_state = state.clone();
+        let held_release = release.clone();
+        let held = axum::Router::new().route(
+            occupier,
+            axum::routing::get(move || {
+                let state = held_state.clone();
+                let release = held_release.clone();
+                let started = started_tx.clone();
+                async move {
+                    run_admitted(&state, move |connection| {
+                        Box::pin(async move {
+                            sqlx::query("SELECT 1")
+                                .execute(connection)
+                                .await
+                                .map_err(|error| {
+                                    verdaxis_read::runtime::admission::log_sql_error(
+                                        "work", &error,
+                                    );
+                                    verdaxis_read::ApiError::internal()
+                                })?;
+                            started.send(()).await.unwrap();
+                            release.notified().await;
+                            Ok(())
+                        })
+                    })
+                    .await
+                    .map(|_| "ok")
+                }
+            }),
+        );
+        let routes = if rejected == "/api/news" {
+            held.merge(verdaxis_read::routes::news::routes())
+        } else {
+            held.merge(verdaxis_read::routes::catalog::routes())
+        };
+        let app = verdaxis_read::runtime::http::middleware_with_state(
+            routes.with_state((*state).clone()),
+            (*state).clone(),
+        );
+        let mut callers = Vec::new();
+        for _ in 0..8 {
+            let app = app.clone();
+            callers.push(tokio::spawn(async move {
+                app.oneshot(
+                    Request::builder()
+                        .uri(occupier)
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap()
+            }));
+        }
+        for _ in 0..8 {
+            started_rx.recv().await.unwrap();
+        }
+        assert_eq!(state.reads.available_permits(), 0);
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri(rejected)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 503);
+        assert_eq!(response.headers()["retry-after"], "1");
+        let body = to_bytes(response.into_body(), 1024).await.unwrap();
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&body).unwrap(),
+            serde_json::json!({"detail":"Public market data is temporarily busy; retry shortly."})
+        );
+        assert!(connections(&observer).await <= 9);
+        release.notify_waiters();
+        for caller in callers {
+            assert_eq!(caller.await.unwrap().status(), 200);
+        }
+        assert_eq!(state.reads.available_permits(), 8);
+        read.close().await;
+        observer.close().await;
+    }
 }
