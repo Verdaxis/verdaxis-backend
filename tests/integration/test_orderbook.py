@@ -17,13 +17,13 @@ JWT_SECRET = settings.JWT_SECRET
 
 # Seeded user IDs from scripts/seed.py
 SUPPLIER_1_ID = "9e63f7a1-0000-4000-8000-000000000011"
-SUPPLIER_1_EMAIL = "itest-seller@disposable.invalid"
+SUPPLIER_1_EMAIL = "itest-seller@example.com"
 SUPPLIER_2_ID = "9e63f7a1-0000-4000-8000-000000000013"
-SUPPLIER_2_EMAIL = "itest-seller2@disposable.invalid"
+SUPPLIER_2_EMAIL = "itest-seller2@example.com"
 BUYER_1_ID = "9e63f7a1-0000-4000-8000-000000000012"
-BUYER_1_EMAIL = "itest-buyer@disposable.invalid"
+BUYER_1_EMAIL = "itest-buyer@example.com"
 BUYER_2_ID = "9e63f7a1-0000-4000-8000-000000000014"
-BUYER_2_EMAIL = "itest-buyer2@disposable.invalid"
+BUYER_2_EMAIL = "itest-buyer2@example.com"
 
 # Disposable catalog fixture IDs (the original LNG/MGO/biofuel/ammonia products and
 # ARA/Fujairah delivery points no longer exist — remapped 2026-07-04)
@@ -44,6 +44,9 @@ def create_test_token(user_id: str, email: str, role: str) -> str:
         "sub": user_id,
         "email": email,
         "role": role,
+        "iss": settings.JWT_ISSUER,
+        "aud": settings.JWT_AUDIENCE,
+        "type": "access",
         "exp": datetime.utcnow() + timedelta(hours=1),
         "iat": datetime.utcnow(),
     }

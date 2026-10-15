@@ -26,7 +26,7 @@ async def auth_client():
 @pytest.fixture
 async def buyer_tokens(auth_client: AsyncClient, itest_password):
     """Login as the disposable itest buyer and return both tokens."""
-    form = {"username": "itest-buyer@disposable.invalid", "password": itest_password}
+    form = {"username": "itest-buyer@example.com", "password": itest_password}
     res = await auth_client.post("/api/auth/login", data=form)
     assert res.status_code == 200, f"Login failed: {res.text}"
     data = res.json()
@@ -38,7 +38,7 @@ async def buyer_tokens(auth_client: AsyncClient, itest_password):
 @pytest.fixture
 async def seller_tokens(auth_client: AsyncClient, itest_password):
     """Login as the disposable itest seller and return both tokens."""
-    form = {"username": "itest-seller@disposable.invalid", "password": itest_password}
+    form = {"username": "itest-seller@example.com", "password": itest_password}
     res = await auth_client.post("/api/auth/login", data=form)
     assert res.status_code == 200, f"Login failed: {res.text}"
     return res.json()
@@ -57,7 +57,7 @@ class TestDualTokenLogin:
         res = await auth_client.get("/api/auth/me", headers=headers)
         assert res.status_code == 200
         user = res.json()
-        assert user["email"] == "itest-buyer@disposable.invalid"
+        assert user["email"] == "itest-buyer@example.com"
 
 
 class TestTokenRefresh:
