@@ -1385,6 +1385,16 @@
       "reviewed_by": ""
     },
     {
+      "source_id": "tests/unit/test_orderbook_marketplace_filters.py::TestMarketplaceFuelFiltering::test_legacy_pages_have_total_order_for_tied_created_at",
+      "source_file": "tests/unit/test_orderbook_marketplace_filters.py",
+      "behavior": "PM decision 23: tied creation timestamps use descending ID before pagination.",
+      "owner_task": "7b",
+      "target_id": "orderbook_lists",
+      "status": "pending",
+      "exclusion_reason": "",
+      "reviewed_by": ""
+    },
+    {
       "source_id": "tests/unit/test_orderbook_marketplace_filters.py::TestMarketplaceFuelFiltering::test_list_asks_excludes_non_methanol_ethanol_products",
       "source_file": "tests/unit/test_orderbook_marketplace_filters.py",
       "behavior": "",

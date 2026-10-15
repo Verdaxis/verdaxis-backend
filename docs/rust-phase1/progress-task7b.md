@@ -60,3 +60,74 @@ Preserve Task 7a's separate public response projection, shared visibility rules,
 one captured instant, Singapore date, batched benchmarks and explicit recorded
 database time zone. Run all requested gates after implementation. This stop
 neither completes Task 7b nor authorizes work on another task.
+
+## PM decision 23 — 2026-10-16 (supersedes the stop)
+
+The PM classified unordered legacy pagination as a user-facing Python bug.
+R18 and R26 now use `created_at DESC, id DESC` in both languages. No other
+Task 7b route needed a Python ordering repair: all four R16/R17 sorts already
+have complete tie-breakers. The Python freeze permits this bug fix.
+
+Python TDD: the two parameterized tied-timestamp tests failed before the fix
+and passed after it. The initial edit hook reformatted unrelated code; commit
+`b7ba7f81` removes that formatting. Net application changes are the two ORDER BY
+clauses only. Commits: `5653b128`, `b7ba7f81`.
+
+## Oracle refresh
+
+The recorder ran all ten current non-MCP groups twice in each KYC state.
+Final oracle: `a417cf5136d3af755360ee0b8e87c7de0695bd29`; 117 cases per state,
+234 total; `TOTAL_UNSTABLE=0; RECORD_FAILURES=0` in both states. MCP remains
+excluded under decision 19, not silently omitted. Policy, MCP catalog and manifest
+were regenerated. Catalog and nine terms-vector files were regenerated with
+unchanged bytes. Public schema-order data was regenerated and checked against
+Python models, then bound to the final oracle SHA. Corpus publication: `5b293e2c`.
+
+No golden body was hand-edited. The prior corpus is retained only in ignored
+`work/` for diagnosis. The new recording includes 70 cases already added by
+merged lanes since the prior 164-case corpus. Among existing cases, response
+changes are readiness SHA, R18/R26 order/page membership, and price-summary
+permutations covered by decision 22.
+
+The old list group included three Task 7c cases. Its first implemented run
+matched all Task 7b cases but failed those three unimplemented routes (11 paths).
+Commit `a417cf51` moves R19, R27 and the negative compatibility-listing probe to
+`orderbook_map`; all are retained in both-state recordings. No comparator rule
+was changed. Integration must mount the compatibility route for that group;
+this lane does not implement Task 7c or edit harness dispatch.
+
+## Implementation and regression coverage
+
+- Four routes use `run_admitted`, `OrderQuery`, `OrderSurface::Orderbook`, bound
+  filters/pagination and one captured instant. The benchmark helper uses that
+  instant's Singapore date and one request-local cache batch.
+- BID retains its separate total query. ASK uses the window count and a fallback
+  count only when a nonzero offset returns no row. No snapshot depth cap applies.
+- Exact opposing slice/provenance keys select public opposite-side prices in one
+  query. The opposing scope keeps Python's default off-spec exclusion even when
+  the requested page includes off-spec orders. Legacy lists keep crossed=false.
+- The existing snapshot DTO was moved unchanged into the new shared
+  `market/order_projection.rs`; snapshot and lists consume it. The type is
+  crate-private. Public schema validation remains separate from execution
+  validation, with the digest computed over private input before redaction.
+- This extraction requires small edits to snapshot imports and market module
+  registration. No existing shared SQL, predicate or catalog policy was changed.
+  No new shared relation was needed; `orderbook/opposing.sql` is only a consumer
+  aggregation over `eligible_orders`.
+- Pure tests cover alias precedence and checked offset arithmetic. Disposable
+  comparisons cover all four sort modes, page boundaries, totals beyond the end,
+  aliases, region/point names, empty fuel filters, malformed queries, full DTOs,
+  digests and benchmark/crossed values. Source regressions caught enum error order
+  and Python's empty-fuel-as-no-filter behavior; both were repaired.
+- The CI probe reuses disposable corpus rows with positive energy density to
+  exercise non-null overlays. LNG overlays stay null; financial benefits remain
+  UNPRICED with zero adjustment. No fixture IDs were added.
+- Disposable database statement logging verifies one benchmark SELECT for a full
+  ASK page. The setting is restored in a finally block before container removal.
+- The assertion ledger adds the new Python pagination regression without changing
+  other tasks' acceptance state.
+
+## Final verification
+
+Pending final running gates. Logs are under `work/rust-phase1/task7b-*`.
+No live host, live database, push, skill or subagent was used.
