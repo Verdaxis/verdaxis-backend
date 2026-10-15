@@ -197,3 +197,30 @@ async def test_reminders_cover_due_real_orders_once_and_preserve_expiry(monkeypa
             == visible_count
         )
     await engine.dispose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("environment", ["test", "staging", "development"])
+async def test_reminder_cli_refuses_nonproduction_before_database(environment, monkeypatch):
+    from app.cli import order_expiry_reminders as cli
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "ENVIRONMENT", environment)
+    verify = AsyncMock()
+    monkeypatch.setattr(cli, "verify_database_runtime", verify)
+    with pytest.raises(RuntimeError, match="production"):
+        await cli.run_once()
+    verify.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("environment", ["test", "staging", "development"])
+async def test_reminder_transport_disabled_outside_production(environment, monkeypatch):
+    from app.config import settings
+    from app.services import email
+
+    monkeypatch.setattr(settings, "ENVIRONMENT", environment)
+    send = AsyncMock(return_value=True)
+    monkeypatch.setattr(email, "_send_email_payload", send)
+    assert not await email.send_order_expiry_email({"to": ["synthetic@example.com"]}, uuid4())
+    send.assert_not_awaited()
