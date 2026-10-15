@@ -49,7 +49,8 @@ async def require_canonical_market_slice(
         and spec.available_delivery_point_ids is not None
         and delivery_point_id not in spec.available_delivery_point_ids
     ):
-        raise HTTPException(status_code=400, detail="This product is available for Singapore only")
+        raise HTTPException(status_code=400, detail=("Bio-LNG is available for Rotterdam only"
+                    if spec.market_product == "BIO_LNG" else "This product is available for Singapore only"))
     return product, point
 
 

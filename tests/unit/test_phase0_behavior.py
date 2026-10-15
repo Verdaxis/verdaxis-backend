@@ -65,7 +65,8 @@ async def test_put_profile_matches_get(gate, kyc, role, has_org, moved, monkeypa
                 must_change_password=False, kyc_status=kyc,
                 kyc_organization_id=uuid4() if moved else org_id)
     db = AsyncMock()
-    db.scalar.return_value = None
+    db.execute.return_value = MagicMock()
+    db.execute.return_value.scalar_one_or_none.return_value = None
     updated = await auth_simple.update_users_me(UserUpdate(first_name="Updated"), user, db)
     current = await auth_simple.read_users_me(user, db)
     assert UserResponse.model_validate(updated).model_dump() == current.model_dump()
@@ -107,7 +108,47 @@ async def test_lng_restricted_lane_names_rotterdam():
     db.execute.return_value = result
     with pytest.raises(HTTPException) as caught:
         await require_canonical_market_slice(db, product_id=PRODUCT_IDS["BIO_LNG"],
-                                             delivery_point_id=DELIVERY_POINT_IDS["SINGAPORE"])
+                                             delivery_point_id=DELIVERY_POINT_IDS["Singapore"])
     assert caught.value.status_code == 400
     assert "Rotterdam" in caught.value.detail
     assert "Singapore" not in caught.value.detail
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("gate", [True, False])
+@pytest.mark.parametrize("state,expected", [("pending_kyc", 200), ("rejected_kyc", 403),
+                                            ("moved_review", 403), ("unapproved", 403)])
+async def test_dismissal_uses_admission_not_execution(gate, state, expected, monkeypatch):
+    from fastapi import FastAPI
+    from httpx import ASGITransport, AsyncClient
+    from app.database import get_db
+    from app.routers import matchmaking
+
+    monkeypatch.setattr(settings, "KYC_EXECUTION_GATE_ENABLED", gate)
+    org_id = uuid4()
+    user = User(id=uuid4(), organization_id=org_id, role=UserRole.BUYER,
+                status=UserStatus.PENDING if state == "unapproved" else UserStatus.APPROVED,
+                email_verified=True, must_change_password=False,
+                kyc_status="REJECTED" if state == "rejected_kyc" else "PENDING",
+                kyc_organization_id=uuid4() if state == "moved_review" else None)
+    db = AsyncMock()
+    db.add = MagicMock()
+    order_id = uuid4()
+    def result(value):
+        row = MagicMock()
+        row.scalar_one_or_none.return_value = value
+        return row
+    db.execute.side_effect = [result(SimpleNamespace(id=org_id, verification_status="APPROVED")),
+                              result(SimpleNamespace(id=order_id)), result(None)]
+    app = FastAPI()
+    app.include_router(matchmaking.router)
+    app.dependency_overrides[auth_simple.get_current_user] = lambda: user
+    app.dependency_overrides[get_db] = lambda: db
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.patch(f"/matchmaking/suggestions/{order_id}/dismiss")
+    assert response.status_code == expected
+    if expected == 200:
+        assert response.json() == {"status": "dismissed"}
+        assert db.add.call_args.args[0].recipient_org_id == org_id
+    else:
+        db.add.assert_not_called()

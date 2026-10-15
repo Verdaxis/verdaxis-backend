@@ -3,7 +3,7 @@
 from decimal import Decimal
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, field_validator, model_validator
 
 from app.schemas.fame import SustainabilityScheme
 from app.reference.iso_countries import ISO_3166_1_ALPHA_2
@@ -31,7 +31,7 @@ class LngAskDeclaration(LngTerms):
     side: Literal["ASK"]
     sustainability_scheme: SustainabilityScheme
     chain_of_custody: ChainOfCustody
-    union_database_registered: bool
+    union_database_registered: StrictBool
     bio_share_pct: BioShare = Field(decimal_places=2)
     feedstock: FeedstockCategory
     feedstock_detail: str | None = Field(None, max_length=200)
@@ -40,7 +40,7 @@ class LngAskDeclaration(LngTerms):
     specification_standard: Literal["ISO 23306:2020"]
     min_methane_number: MethaneNumber | None = None
     delivery_method: DeliveryMethod
-    seller_is_physical_supplier: bool
+    seller_is_physical_supplier: StrictBool
     pos_timing: PosTiming
 
     @field_validator("production_country")
@@ -57,7 +57,7 @@ class LngAskTerms(LngAskDeclaration):
 
 
 class LngPublicAskTerms(LngAskDeclaration):
-    reseller: bool
+    reseller: StrictBool
     fueleu_recognition: Literal["UNION_DATABASE", "NOT_REGISTERED"]
 
     @model_validator(mode="before")
@@ -85,12 +85,12 @@ class LngBidTerms(LngTerms):
         default_factory=lambda: ["MASS_BALANCE", "PHYSICAL_SEGREGATION"],
         min_length=1, max_length=2,
     )
-    require_union_database: bool = True
+    require_union_database: StrictBool = True
     min_bio_share_pct: BioShare | None = None
     max_wtt_ghg_gco2e_mj: WttGhg | None = None
     accepted_delivery_methods: list[DeliveryMethod] = Field(min_length=1, max_length=3)
     min_methane_number: MethaneNumber | None = None
-    accept_resellers: bool = True
+    accept_resellers: StrictBool = True
 
     @field_validator("accepted_schemes", "accepted_custody", "accepted_delivery_methods")
     @classmethod
