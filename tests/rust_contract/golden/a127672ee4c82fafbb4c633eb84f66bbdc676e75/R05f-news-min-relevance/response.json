@@ -1,0 +1,24 @@
+{
+  "status": 422,
+  "headers": {
+    "content-type": "application/json",
+    "x-request-id": "00000000-0000-4000-8000-000000000001"
+  },
+  "body": {
+    "detail": [
+      {
+        "type": "greater_than_equal",
+        "loc": [
+          "query",
+          "min_relevance"
+        ],
+        "msg": "Input should be greater than or equal to 1",
+        "input": "0",
+        "ctx": {
+          "ge": 1
+        }
+      }
+    ]
+  },
+  "body_sha256": "d1ff3ef44de93545e2dc2bbd3fc71db24789a0ef4b10d9c42bd60ca033c0ebd8"
+}

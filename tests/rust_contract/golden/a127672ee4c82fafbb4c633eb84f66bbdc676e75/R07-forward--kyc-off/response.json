@@ -1,0 +1,24 @@
+{
+  "status": 200,
+  "headers": {
+    "content-type": "application/json",
+    "x-request-id": "00000000-0000-4000-8000-000000000001"
+  },
+  "body": {
+    "product_id": "8f6f34a5-2927-54a6-8564-cca40ae7cb8a",
+    "delivery_point_id": null,
+    "curve": [
+      {
+        "availability_window": "SPOT",
+        "best_bid": null,
+        "best_ask": "600.00",
+        "mid_price": null,
+        "spread": null,
+        "volume_mt": "400.00",
+        "order_count": 4
+      }
+    ],
+    "generated_at": "2026-10-15T12:00:00Z"
+  },
+  "body_sha256": "ffbff68c0185b2a77192bb45ada7b7fccaac6c2bd307975a3853327a0b9e4557"
+}

@@ -50,16 +50,6 @@
     "is_active": true
   },
   {
-    "id": "d186bffb-766d-5944-8825-989abbdcfc46",
-    "name": "Synthetic Ethanol",
-    "fuel_type": "Ethanol",
-    "fuel_grade": "Synthetic",
-    "unit": "MT",
-    "min_lot_size": "200.00",
-    "spec_description": "Synthetic ethanol produced via power-to-liquids or equivalent synthetic pathways",
-    "is_active": true
-  },
-  {
     "id": "8f6f34a5-2927-54a6-8564-cca40ae7cb8a",
     "name": "Legacy Alias",
     "fuel_type": "LNG",

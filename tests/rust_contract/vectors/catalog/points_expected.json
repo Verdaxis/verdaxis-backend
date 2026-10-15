@@ -47,12 +47,5 @@
     "region": "Americas",
     "timezone": "America/Los_Angeles",
     "is_active": true
-  },
-  {
-    "id": "a4762444-4e0b-5bc1-b647-a185047adae5",
-    "name": "Santos",
-    "region": "Americas",
-    "timezone": "America/Sao_Paulo",
-    "is_active": true
   }
 ]

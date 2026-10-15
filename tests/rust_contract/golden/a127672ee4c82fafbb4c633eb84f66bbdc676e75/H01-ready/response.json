@@ -1,0 +1,14 @@
+{
+  "status": 200,
+  "headers": {
+    "content-type": "application/json",
+    "x-request-id": "00000000-0000-4000-8000-000000000001"
+  },
+  "body": {
+    "status": "ok",
+    "db": "ok",
+    "environment": "test",
+    "release_sha": "a127672ee4c82fafbb4c633eb84f66bbdc676e75"
+  },
+  "body_sha256": "ce4e2e4317893c6647316f395543e043bc499afd38b128560f6819a9e5a9f844"
+}

@@ -1,0 +1,90 @@
+{
+  "status": 200,
+  "headers": {
+    "content-type": "application/json",
+    "x-request-id": "00000000-0000-4000-8000-000000000001"
+  },
+  "body": [
+    {
+      "id": "46951b60-c5de-54b2-b512-5297ff3da5ba",
+      "title": "Corpus bunkers",
+      "summary": null,
+      "source": "Corpus",
+      "source_url": "https://example.test",
+      "url": "https://example.test/bunkers",
+      "category": "bunkers",
+      "relevance": 5,
+      "published_at": "2026-10-15T12:00:00+00:00",
+      "fetched_at": "2026-10-15T12:00:00+00:00"
+    },
+    {
+      "id": "6bd896cc-effe-5e18-9063-42eb89ed12c7",
+      "title": "Corpus carbon",
+      "summary": null,
+      "source": "Corpus",
+      "source_url": "https://example.test",
+      "url": "https://example.test/carbon",
+      "category": "carbon",
+      "relevance": 5,
+      "published_at": "2026-10-15T12:00:00+00:00",
+      "fetched_at": "2026-10-15T12:00:00+00:00"
+    },
+    {
+      "id": "f4d79d28-620a-54fa-84e3-76026e82ec2f",
+      "title": "Corpus commodities",
+      "summary": null,
+      "source": "Corpus",
+      "source_url": "https://example.test",
+      "url": "https://example.test/commodities",
+      "category": "commodities",
+      "relevance": 5,
+      "published_at": "2026-10-15T12:00:00+00:00",
+      "fetched_at": "2026-10-15T12:00:00+00:00"
+    },
+    {
+      "id": "b91fbcd5-03b5-5782-a6bc-f80100afeb5c",
+      "title": "Corpus markets",
+      "summary": null,
+      "source": "Corpus",
+      "source_url": "https://example.test",
+      "url": "https://example.test/markets",
+      "category": "markets",
+      "relevance": 5,
+      "published_at": "2026-10-15T12:00:00+00:00",
+      "fetched_at": "2026-10-15T12:00:00+00:00"
+    },
+    {
+      "id": "ebcc657f-f5d2-5962-8741-038c667095eb",
+      "title": "Corpus regulation",
+      "summary": null,
+      "source": "Corpus",
+      "source_url": "https://example.test",
+      "url": "https://example.test/regulation",
+      "category": "regulation",
+      "relevance": 5,
+      "published_at": "2026-10-15T12:00:00+00:00",
+      "fetched_at": "2026-10-15T12:00:00+00:00"
+    },
+    {
+      "id": "fd5b9a55-0cef-5eed-9ae9-4a4cb575643a",
+      "title": "Corpus shipping",
+      "summary": null,
+      "source": "Corpus",
+      "source_url": "https://example.test",
+      "url": "https://example.test/shipping",
+      "category": "shipping",
+      "relevance": 5,
+      "published_at": "2026-10-15T12:00:00+00:00",
+      "fetched_at": "2026-10-15T12:00:00+00:00"
+    }
+  ],
+  "body_sha256": "b2de0f06a5187c36cae3ba5f9b14eccde4cd262fd7779c493835d9cb70b9efe8",
+  "news_exact_items": [
+    "{\"id\":\"46951b60-c5de-54b2-b512-5297ff3da5ba\",\"title\":\"Corpus bunkers\",\"summary\":null,\"source\":\"Corpus\",\"source_url\":\"https://example.test\",\"url\":\"https://example.test/bunkers\",\"category\":\"bunkers\",\"relevance\":5,\"published_at\":\"2026-10-15T12:00:00+00:00\",\"fetched_at\":\"2026-10-15T12:00:00+00:00\"}",
+    "{\"id\":\"6bd896cc-effe-5e18-9063-42eb89ed12c7\",\"title\":\"Corpus carbon\",\"summary\":null,\"source\":\"Corpus\",\"source_url\":\"https://example.test\",\"url\":\"https://example.test/carbon\",\"category\":\"carbon\",\"relevance\":5,\"published_at\":\"2026-10-15T12:00:00+00:00\",\"fetched_at\":\"2026-10-15T12:00:00+00:00\"}",
+    "{\"id\":\"f4d79d28-620a-54fa-84e3-76026e82ec2f\",\"title\":\"Corpus commodities\",\"summary\":null,\"source\":\"Corpus\",\"source_url\":\"https://example.test\",\"url\":\"https://example.test/commodities\",\"category\":\"commodities\",\"relevance\":5,\"published_at\":\"2026-10-15T12:00:00+00:00\",\"fetched_at\":\"2026-10-15T12:00:00+00:00\"}",
+    "{\"id\":\"b91fbcd5-03b5-5782-a6bc-f80100afeb5c\",\"title\":\"Corpus markets\",\"summary\":null,\"source\":\"Corpus\",\"source_url\":\"https://example.test\",\"url\":\"https://example.test/markets\",\"category\":\"markets\",\"relevance\":5,\"published_at\":\"2026-10-15T12:00:00+00:00\",\"fetched_at\":\"2026-10-15T12:00:00+00:00\"}",
+    "{\"id\":\"ebcc657f-f5d2-5962-8741-038c667095eb\",\"title\":\"Corpus regulation\",\"summary\":null,\"source\":\"Corpus\",\"source_url\":\"https://example.test\",\"url\":\"https://example.test/regulation\",\"category\":\"regulation\",\"relevance\":5,\"published_at\":\"2026-10-15T12:00:00+00:00\",\"fetched_at\":\"2026-10-15T12:00:00+00:00\"}",
+    "{\"id\":\"fd5b9a55-0cef-5eed-9ae9-4a4cb575643a\",\"title\":\"Corpus shipping\",\"summary\":null,\"source\":\"Corpus\",\"source_url\":\"https://example.test\",\"url\":\"https://example.test/shipping\",\"category\":\"shipping\",\"relevance\":5,\"published_at\":\"2026-10-15T12:00:00+00:00\",\"fetched_at\":\"2026-10-15T12:00:00+00:00\"}"
+  ]
+}
