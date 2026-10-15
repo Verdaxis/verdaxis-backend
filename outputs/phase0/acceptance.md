@@ -5,6 +5,78 @@ The Phase 0-specific gate passes. The complete existing PostgreSQL and HTTP
 suites do not. Do not turn this report into a green release by omitting them.
 All runs finished; owned containers were removed with their volumes.
 
+## PM-authorized fixture follow-up — stopped on product error path
+
+Baseline worktree at `b218ab264b92f99007bacc05d4871413e024b72a` was created
+under `work/`, tested with the same synthetic setup and pinned container, then
+removed. Evidence was copied out before removal. No host or live DB was used.
+
+| Follow-up run | Passed | Failed | Errors |
+|---|---:|---:|---:|
+| Unchanged HTTP suite on staging baseline | 24 | 49 | 6 |
+| Five migration tests on staging baseline | 5 | 0 | 0 |
+| HTTP after first fixture repairs | 46 | 28 | 5 |
+| Focused reset/runner unit checks | 9 | 0 | 0 |
+
+All 55 failing/error HTTP node IDs match the prior Phase 0 run exactly: these
+are pre-existing staging failures, not Phase 0 regressions. All five migration
+expectation failures are new with union; staging passes them. Raw evidence:
+`work/task9-baseline-{http,postgres}.{log,xml}` and
+`work/task9-baseline-http-server.log`. The baseline drift checks also passed.
+
+Partial fix commit `4ee95ef1` adds configured issuer/audience and access-token
+type to legacy token helpers, uses `example.com` synthetic addresses, and resets
+the existing limiter between tests through the disposable ASGI wrapper only.
+The reset requires the disposable secret and POST; its positive and denial
+checks pass. Product routes and limiter enforcement are unchanged. The temporary
+seed script uses matching addresses. No application code changed.
+
+**Stop required by PM instruction:** valid authentication exposed inventory's
+missing-reference error path. `POST /api/inventory` with `port_id=sg-sin` when
+that port does not exist returns HTTP 500 after `inventory_items_port_id_fkey`.
+This test setup lacks the port. Independently, the product accepts that reference
+through request validation, then maps the FK error to 500 rather than a client
+error. The same DBAPIError-to-500 handler exists at pinned staging lines 235–243
+and pinned production lines 209–217. This is inherited, not a new Phase 0 change.
+No handler or test expectation was changed to hide it. PM must decide whether to
+track that product defect separately and permit fixture repair to continue.
+
+Other exposed failures still need test repairs: five auth setup errors expect a
+refresh token in JSON rather than the current cookie contract; 27 trade failures
+use stale product/delivery IDs. These are not yet fixed or accepted.
+
+### Reserved-email 500 facts
+
+- Pinned staging reproduced the same two profile/login HTTP 500s as Phase 0.
+  Its log identifies `UserResponse.email` validation of
+  `itest-admin@disposable.invalid`. Registration of a reserved-domain address
+  returns 422 instead, so ordinary current registration does not create it.
+- Both pinned staging and production declare `UserBase.email: EmailStr`, and
+  `UserResponse` inherits it. Staging `_user_profile` calls
+  `UserResponse.model_validate(user)`; production does so too (line 1980).
+  A stored invalid email can therefore raise output validation in both. Production
+  behavior is established by source inspection, not a live or pinned-prod HTTP run.
+- The database stores `users.email` as a string with uniqueness, not an EmailStr
+  constraint. SQL/legacy fixtures can persist reserved domains. Copy retains all
+  user rows, including synthetic provenance; it does not validate emails or filter
+  canaries. Such a source row would survive and could hit this error after copy.
+- The inspected pinned production signup canary uses
+  `canary+<name>-<stamp>@<name>-<stamp>.canary.verdaxis.exchange`, not a reserved
+  domain. No reserved-domain user seed was found in the inspected production
+  `app`, `scripts` or `deploy` source. This is not proof of actual production rows.
+  Their existence is unknown without separately authorized host-local inspection.
+- Do not silently rewrite/drop user emails during copy or weaken validation.
+  PM owns the disposition; an authorized host inventory must report only bounded
+  counts externally and retain any row details privately on-host.
+
+Resume after PM decision: add the missing synthetic port and required publication
+metadata; update cookie assertions and catalog IDs; fix independently migrated
+predecessor lock fixtures and union expectations; then rerun every acceptance
+suite. Full unit/monitor/PostgreSQL/Phase 0 reruns were **not** done after this
+partial repair because the explicit product-defect stop rule took precedence.
+Prior counts below are historical, not validation of `4ee95ef1`. All started runs
+finished and their owned containers/volumes were removed; no background run remains.
+
 ## Frozen candidate identities
 
 - Backend / candidate Python oracle: `4be3fbb5ac39558fbacba6d3b6ae1f5057a2525c`.

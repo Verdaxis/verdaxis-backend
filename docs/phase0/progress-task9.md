@@ -1,5 +1,36 @@
 # Phase 0 Task 9 — integrated acceptance
 
+## PM-authorized follow-up checkpoint
+
+Baseline on exact staging `b218ab2`: HTTP **24 passed, 49 failed, 6 errors**,
+with all 55 failing/error node IDs identical to Phase 0. The five migration tests
+all passed on staging: their failures are new union test-expectation drift.
+Temporary baseline worktree was removed after saving evidence under `work/`.
+
+Commit `4ee95ef1` repairs configured JWT claims, accepted synthetic email domains
+and per-test limiter reset through a secret-protected test-only ASGI endpoint.
+Focused checks: **9 passed**. HTTP rerun: **46 passed, 28 failed, 5 errors**.
+No skips. Tests still need cookie-contract and stale catalog fixture repairs.
+
+Stopped under the PM's product-defect rule: the missing synthetic `sg-sin` port
+exposed `POST /inventory` returning 500 for an invalid FK reference. The source
+handler is inherited from both staging and prod. PM must decide whether to track
+this product error separately and permit completion of the fixtures. No product
+code or error expectation was changed. Full acceptance reruns have not run after
+this partial repair; prior full-run counts are not new verification.
+
+Reserved-email facts are in acceptance: staging reproduces the profile 500;
+prod has the same EmailStr output-validation path by source inspection. Database
+email strings can hold reserved domains, and copy preserves them. The inspected
+prod canary uses a valid `canary.verdaxis.exchange` subdomain. Actual production
+row contents are unknown; no live inspection was performed.
+
+Resume: after PM decision, seed the synthetic port/publication metadata, update
+refresh-cookie and canonical-ID tests, implement independent predecessor lock
+fixtures and union expectations, then rerun all six acceptance groups and drift
+checks. Every started run finished; owned containers and volumes were removed.
+No push, package install, host operation or application change occurred.
+
 ## Status
 
 **Blocked, not complete.** The signed evidence review is
