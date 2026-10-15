@@ -2,7 +2,6 @@
 import ast
 from pathlib import Path
 
-
 EXPECTED_AUDIT_CONSTANTS = {
     "ADMIN_ORGANIZATION_APPROVED": "admin.organization_approved",
     "ADMIN_ORGANIZATION_REJECTED": "admin.organization_rejected",
@@ -14,6 +13,7 @@ EXPECTED_AUDIT_CONSTANTS = {
     "KYC_APPROVED": "kyc.approved",
     "KYC_REJECTED": "kyc.rejected",
     "KYC_SUBMITTED": "kyc.submitted",
+    "KYC_DOCUMENT_VIEWED": "kyc.document_viewed",
     "KYC_MEMBERSHIP_INVALIDATED": "kyc.membership_invalidated",
     "MARKET_ACCESS_INVALIDATED": "market.access_invalidated",
     "MARKET_SUPPORT_AUTHORIZATION_CREATED": "market_support.authorization_created",

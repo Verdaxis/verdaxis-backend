@@ -1,17 +1,18 @@
-from sqladmin import Admin, ModelView, BaseView, expose
-from sqladmin.authentication import AuthenticationBackend
-from starlette.requests import Request
-from starlette.responses import RedirectResponse
-from app.database import engine
-from app.models.user import User, Organization
-from app.config import settings
-import psutil
-import time
 import os
-import sqladmin
+import time
 from secrets import compare_digest, token_hex
-from starlette.templating import Jinja2Templates
+
+import psutil
+import sqladmin
+from sqladmin import Admin, BaseView, ModelView, expose
+from sqladmin.authentication import AuthenticationBackend
 from sqlalchemy import text
+from starlette.requests import Request
+from starlette.templating import Jinja2Templates
+
+from app.config import settings
+from app.database import engine
+from app.models.user import Organization, User
 
 sqladmin_path = os.path.dirname(sqladmin.__file__)
 templates = Jinja2Templates(directory=["templates", os.path.join(sqladmin_path, "templates")])
@@ -44,17 +45,43 @@ class AdminAuth(AuthenticationBackend):
 
 authentication_backend = AdminAuth(secret_key=settings.ADMIN_SESSION_SECRET or "disabled")
 
+class RetentionAwareDelete:
+    """SQLAdmin displays the stable conflict in its list-page error banner."""
+
+    async def delete_model(self, request, pk):
+        from uuid import UUID
+
+        from sqlalchemy import select
+
+        from app.services.kyc_document_retention import require_no_retained_documents
+
+        async with self.session_maker() as session:
+            obj = await session.scalar(select(self.model).where(
+                self.model.id == UUID(str(pk))
+            ).with_for_update())
+            if obj is None:
+                return
+            if self.model is User:
+                await require_no_retained_documents(session, user_id=obj.id)
+            else:
+                await require_no_retained_documents(session, organization_id=obj.id)
+            await self.on_model_delete(obj, request)
+            await session.delete(obj)
+            await session.commit()
+            await self.after_model_delete(obj, request)
+
+
 def setup_admin(app):
     if not settings.ENABLE_SQLADMIN:
-        return None
+        return
     if not settings.ADMIN_SESSION_SECRET:
         raise RuntimeError("ENABLE_SQLADMIN requires ADMIN_SESSION_SECRET")
     admin = Admin(app, engine, authentication_backend=authentication_backend)
 
-    class OrganizationAdmin(ModelView, model=Organization):
+    class OrganizationAdmin(RetentionAwareDelete, ModelView, model=Organization):
         column_list = [Organization.id, Organization.name, Organization.type, Organization.supplier_tier]
 
-    class UserAdmin(ModelView, model=User):
+    class UserAdmin(RetentionAwareDelete, ModelView, model=User):
         column_list = [User.id, User.email, User.first_name, User.role]
 
     class SystemHealthView(BaseView):

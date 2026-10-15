@@ -10,10 +10,10 @@ from types import SimpleNamespace
 import httpx
 import pytest
 from google import genai
-from google.genai import errors, types
+from google.genai import types
 
 from app.config import settings
-from app.services import ai_service, gemini_provider, kyc, news_feed
+from app.services import ai_service, gemini_provider, news_feed
 
 
 class _Response:
@@ -149,73 +149,6 @@ def test_copilot_and_news_keep_their_provider_budgets(monkeypatch):
     assert calls[1][0] == news_feed.GEMINI_MODEL
     assert isinstance(calls[1][1], str) and "Shipping market update" in calls[1][1]
     assert calls[1][2] == news_feed.NEWS_PROVIDER_TIMEOUT_SECONDS
-
-
-def test_kyc_sends_document_as_typed_inline_bytes(monkeypatch):
-    calls = []
-    monkeypatch.setattr(settings, "GEMINI_API_KEY", "configured-not-logged")
-    monkeypatch.setattr(
-        kyc,
-        "generate_content",
-        lambda model, contents, timeout: calls.append((model, contents, timeout))
-        or SimpleNamespace(
-            text='{"valid":true,"readable":true,"tampered":false,"confidence":0.9,"issues":[]}'
-        ),
-    )
-
-    result = kyc._verify_document_with_gemini_sync(b"document-bytes", "application/pdf", "identity")
-
-    assert result["passed"] is True
-    assert calls[0][0] == gemini_provider.DEFAULT_GEMINI_MODEL
-    assert 0 < calls[0][2] <= kyc.KYC_PROVIDER_TIMEOUT_SECONDS
-    document_part = calls[0][1][1]
-    assert isinstance(document_part, types.Part)
-    assert document_part.inline_data.mime_type == "application/pdf"
-    assert document_part.inline_data.data == b"document-bytes"
-
-
-def test_kyc_fallback_cannot_restart_the_provider_budget(monkeypatch):
-    calls = []
-    clock = iter((100.0, 110.0, 130.0))
-
-    def missing_model(model, _contents, timeout):
-        calls.append((model, timeout))
-        raise RuntimeError("model 404 not found")
-
-    monkeypatch.setattr(kyc, "monotonic", lambda: next(clock))
-    monkeypatch.setattr(kyc, "generate_content", missing_model)
-
-    with pytest.raises(kyc.KYCProviderUnavailable, match="No configured KYC model"):
-        kyc._verify_document_with_gemini_sync(b"document", "application/pdf", "identity")
-
-    assert calls == [(gemini_provider.DEFAULT_GEMINI_MODEL, 20)]
-
-
-def test_kyc_uses_sdk_error_code_for_model_fallback(monkeypatch):
-    calls = []
-    clock = iter((100.0, 100.0, 101.0))
-
-    def provider_call(model, _contents, timeout):
-        calls.append((model, timeout))
-        if len(calls) == 1:
-            raise errors.ClientError(
-                404,
-                {"error": {"message": "Requested entity was not found."}},
-            )
-        return SimpleNamespace(
-            text='{"valid":true,"readable":true,"tampered":false,"confidence":0.9,"issues":[]}'
-        )
-
-    monkeypatch.setattr(kyc, "monotonic", lambda: next(clock))
-    monkeypatch.setattr(kyc, "generate_content", provider_call)
-
-    result = kyc._verify_document_with_gemini_sync(b"document", "application/pdf", "identity")
-
-    assert result["passed"] is True
-    assert calls == [
-        (gemini_provider.DEFAULT_GEMINI_MODEL, 30),
-        ("gemini-3.1-flash-lite", 29),
-    ]
 
 
 def test_copilot_does_not_abandon_timed_out_threads_or_release_capacity_early():

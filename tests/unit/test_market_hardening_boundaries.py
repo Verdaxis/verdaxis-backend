@@ -17,7 +17,7 @@ from app.routers import kyc as kyc_router
 from app.routers import ai as ai_router
 from app.routers import rfq as rfq_router
 from app.schemas.ai import AIChatRequest
-from app.services import ai_service, kyc as kyc_service
+from app.services import ai_service
 from app.services import news_feed
 from app.services.activity import publish_trade_event
 
@@ -36,28 +36,6 @@ async def test_kyc_upload_requires_matching_signature():
         await kyc_router._read_validated_document(_upload(b"%PDF-1.7", "image/png"))
 
     assert exc_info.value.status_code == 415
-
-
-@pytest.mark.asyncio
-async def test_kyc_provider_missing_configuration_fails_closed(monkeypatch):
-    monkeypatch.setattr(kyc_service.settings, "GEMINI_API_KEY", None)
-
-    with pytest.raises(kyc_service.KYCProviderUnavailable):
-        await kyc_service.verify_document_with_gemini(b"%PDF-1.7", "application/pdf", "identity document")
-
-
-@pytest.mark.asyncio
-async def test_kyc_provider_capacity_rejects_without_waiting(monkeypatch):
-    monkeypatch.setattr(kyc_service.settings, "GEMINI_API_KEY", "test-key")
-    capacity = SimpleNamespace(acquire=lambda: False)
-    monkeypatch.setattr(kyc_service, "_provider_capacity", capacity)
-    provider_call = AsyncMock()
-    monkeypatch.setattr(asyncio, "to_thread", provider_call)
-
-    with pytest.raises(kyc_service.KYCProviderUnavailable):
-        await kyc_service.verify_document_with_gemini(b"%PDF-1.7", "application/pdf", "identity document")
-
-    provider_call.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -88,11 +66,6 @@ async def test_kyc_submission_rejects_membership_change_during_provider_call(mon
     moved_user_result.scalar_one_or_none.return_value = moved_user
     db = AsyncMock()
     db.execute.side_effect = [original_org_result, moved_user_result]
-    monkeypatch.setattr(
-        kyc_router,
-        "verify_document_with_gemini",
-        AsyncMock(return_value={"passed": True}),
-    )
 
     request = Request(
         {

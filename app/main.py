@@ -1,81 +1,81 @@
 import asyncio
 import os
+import re
 import time
 import uuid as _uuid
-import re
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
 
 import anyio
+
+# ---------------------------------------------------------------------------
+# Structured logging
+# ---------------------------------------------------------------------------
+import structlog
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.exception_handlers import http_exception_handler as fastapi_http_exception_handler
+from fastapi.exception_handlers import (
+    http_exception_handler as fastapi_http_exception_handler,
+)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from slowapi.errors import RateLimitExceeded
 from sqlalchemy.exc import DBAPIError
 from starlette.routing import Route
 
-from app.mcp_server import MCP_PATH, build_mcp_http_app, build_mcp_server, mcp_enabled
-
+from app.admin import setup_admin
 from app.config import settings
+from app.mcp_server import MCP_PATH, build_mcp_http_app, build_mcp_server, mcp_enabled
+from app.middleware.market_support_scope import MarketSupportScopeMiddleware
+from app.middleware.preauth_rate_limit import preauth_rate_limit_middleware
+from app.middleware.public_market_read_admission import (
+    PublicMarketReadAdmissionMiddleware,
+)
+from app.rate_limit import limiter
+from app.routers.activity import router as activity_router
+from app.routers.admin_analytics import router as admin_analytics_router
+from app.routers.admin_attention import router as admin_attention_router
+from app.routers.ai import router as ai_router
+from app.routers.alerts import router as alerts_router
+from app.routers.audit import router as audit_router
+from app.routers.auth_simple import router as auth_router
+from app.routers.availability import router as availability_router
+from app.routers.benchmarks import router as benchmarks_router
+from app.routers.catalog import router as catalog_router
+from app.routers.compliance_api import router as compliance_api_router
+from app.routers.curves import router as curves_router
+from app.routers.demand import router as demand_router
+from app.routers.feedback import router as feedback_router
+from app.routers.fleet_intelligence import router as fleet_intel_router
+from app.routers.inventory import router as inventory_router
+from app.routers.kyc import router as kyc_router
+from app.routers.market_support import router as market_support_router
+from app.routers.matchmaking import router as matchmaking_router
+from app.routers.monitor import router as monitor_router
+from app.routers.negotiations import router as negotiations_router
+from app.routers.news import router as news_router
+from app.routers.notifications import router as notifications_router
+from app.routers.orderbook import router as orderbook_router
+from app.routers.orders import router as orders_router
+from app.routers.ports import router as ports_router
+from app.routers.preferences import router as preferences_router
+from app.routers.price_discovery import router as price_discovery_router
+from app.routers.producers import router as producers_router
+from app.routers.referrals import router as referrals_router
+from app.routers.rfq import router as rfq_router
+from app.routers.stream import router as stream_router
+from app.routers.subscriptions import router as subscriptions_router
+from app.routers.supplier_offers import router as supplier_offers_router
+from app.routers.trade_tape import router as trade_tape_router
+from app.routers.trades import router as trades_router
+from app.routers.vessels import router as vessels_router
+from app.routers.watchlists import router as watchlists_router
 from app.services.db_errors import (
     database_error_log_fields,
     is_contention_error,
     is_market_path,
     is_query_canceled_error,
 )
-from app.rate_limit import limiter
-from app.middleware.market_support_scope import MarketSupportScopeMiddleware
-from app.middleware.public_market_read_admission import (
-    PublicMarketReadAdmissionMiddleware,
-)
-from app.middleware.preauth_rate_limit import preauth_rate_limit_middleware
 from app.services.request_party import MARKET_SUPPORT_CONTEXT_INVALID_HEADER
-from app.routers.auth_simple import router as auth_router
-from app.admin import setup_admin
-
-from app.routers.ports import router as ports_router
-from app.routers.vessels import router as vessels_router
-from app.routers.inventory import router as inventory_router
-from app.routers.ai import router as ai_router
-from app.routers.orders import router as orders_router
-from app.routers.notifications import router as notifications_router
-from app.routers.preferences import router as preferences_router
-from app.routers.feedback import router as feedback_router
-from app.routers.admin_attention import router as admin_attention_router
-from app.routers.orderbook import router as orderbook_router
-from app.routers.market_support import router as market_support_router
-from app.routers.trades import router as trades_router
-from app.routers.price_discovery import router as price_discovery_router
-from app.routers.matchmaking import router as matchmaking_router
-from app.routers.producers import router as producers_router
-from app.routers.availability import router as availability_router
-from app.routers.demand import router as demand_router
-from app.routers.fleet_intelligence import router as fleet_intel_router
-from app.routers.audit import router as audit_router
-from app.routers.stream import router as stream_router
-from app.routers.compliance_api import router as compliance_api_router
-from app.routers.admin_analytics import router as admin_analytics_router
-from app.routers.kyc import router as kyc_router
-from app.routers.catalog import router as catalog_router
-from app.routers.curves import router as curves_router
-from app.routers.alerts import router as alerts_router
-from app.routers.activity import router as activity_router
-from app.routers.subscriptions import router as subscriptions_router
-from app.routers.referrals import router as referrals_router
-from app.routers.trade_tape import router as trade_tape_router
-from app.routers.rfq import router as rfq_router
-from app.routers.supplier_offers import router as supplier_offers_router
-from app.routers.negotiations import router as negotiations_router
-from app.routers.watchlists import router as watchlists_router
-from app.routers.news import router as news_router
-from app.routers.benchmarks import router as benchmarks_router
-from app.routers.monitor import router as monitor_router
-
-# ---------------------------------------------------------------------------
-# Structured logging
-# ---------------------------------------------------------------------------
-import structlog
 
 structlog.configure(
     processors=[
@@ -109,8 +109,10 @@ _redoc_url = "/redoc" if os.getenv("ENVIRONMENT") != "production" else None
 async def lifespan(app: FastAPI):
     from app.database import engine, verify_database_runtime
     from app.services.event_bus import event_bus
+    from app.services.kyc_document_vault import load_runtime_keys
     from app.services.market_event_dispatch import MarketEventDispatcher
 
+    app.state.kyc_document_keys = load_runtime_keys(settings)
     await verify_database_runtime()
     # Stage 5: durable shared SSE dispatch (outbox sequencer + hub fan-out).
     # Self-disables on non-PostgreSQL engines (the SQLite unit harness). This
@@ -329,8 +331,9 @@ async def health_live():
 @app.get("/health/ready")
 async def health_ready():
     """Bounded readiness probe — checks DB connectivity without leaking errors."""
-    from app.database import engine
     from sqlalchemy import text
+
+    from app.database import engine
     provenance = {
         "environment": settings.ENVIRONMENT,
         "release_sha": settings.RELEASE_SHA,
