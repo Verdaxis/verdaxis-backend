@@ -363,20 +363,24 @@ async fn map_response(state: AppState, compact: bool) -> ApiResult {
             let path = "/api/orderbook/map-summary";
             let groups = aggregates(connection, &owned, now, &Filters::default(), path).await?;
             let (markets, demo_groups) = if compact {
-                compact_groups(&groups, now.date_naive())?
+                match compact_groups(&groups, now.date_naive()) {
+                    Ok(groups) => groups,
+                    Err(_) => return Ok(crate::runtime::http::unhandled_server_error()),
+                }
             } else {
                 (Vec::new(), Vec::new())
             };
             let asks = recent(connection, &owned, now, path).await?;
-            Ok(if compact {
+            Ok(axum::Json(if compact {
                 json!({"markets":markets,"demo_groups":demo_groups,"recent_asks":asks})
             } else {
                 json!({"groups":groups,"recent_asks":asks})
             })
+            .into_response())
         })
     })
     .await?;
-    Ok(axum::Json(result).into_response())
+    Ok(result)
 }
 
 fn compare_amount(left: &Json, right: &Json) -> Result<std::cmp::Ordering, ApiError> {

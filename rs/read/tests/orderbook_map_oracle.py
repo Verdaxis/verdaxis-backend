@@ -28,13 +28,64 @@ def compare(url, path, query=""):
     return right[0]["exchange"]
 
 
+def compact_year_zero_failure(url):
+    """Compare an isolated malformed-history response, restoring the corpus."""
+    import asyncio
+
+    from sqlalchemy import text
+
+    from app.seeds.safety import seed_session
+    from scripts.rust_contract.seed_corpus import attest_session
+
+    from uuid import uuid4
+    order_id = uuid4()
+
+    async def set_fixture(present):
+        async with seed_session() as session:
+            await attest_session(session)
+            if present:
+                # Copy a valid DEMO scalar row through the normal insert guards.
+                # Slice identity is immutable, so never UPDATE its window.
+                from app.models.orderbook import OrderBookOrder
+                columns = [column.name for column in OrderBookOrder.__table__.columns
+                           if column.name not in {"id", "availability_window", "acceptance_ordinal"}]
+                names = ", ".join('"' + name + '"' for name in columns)
+                await session.execute(text(
+                    f"INSERT INTO orderbook_orders (id, availability_window, {names}) "
+                    f"SELECT :id, '0000-Q1', {names} FROM orderbook_orders "
+                    "WHERE provenance='DEMO' AND status='OPEN' "
+                    "AND fame_terms IS NULL AND lng_terms IS NULL "
+                    "AND idempotency_key IS NULL ORDER BY id LIMIT 1"
+                ), {"id": order_id})
+            else:
+                await session.execute(text(
+                    "DELETE FROM orderbook_orders WHERE id=:id"
+                ), {"id": order_id})
+            await session.commit()
+
+    asyncio.run(set_fixture(True))
+    try:
+        case = dict(id="7c-year-zero", method="GET",
+                    path="/api/orderbook/map-summary/compact", query="",
+                    headers={"Origin": "https://staging.verdaxis.exchange",
+                             "X-Request-ID": "task7c-year-zero"})
+        token = os.environ["DISPOSABLE_TEST_TOKEN"]
+        left = record(os.environ["PYTHON_CONTRACT_URL"], token, [case])
+        right = record(url, token, [case])
+        assert left[0]["exchange"]["status"] == 500
+        assert not differences(left, right), differences(left, right)
+    finally:
+        asyncio.run(set_fixture(False))
+
+
 def main():
     token = os.environ["DISPOSABLE_TEST_TOKEN"]
     url = os.environ["RUST_CONTRACT_URL"]
     attest(url, token)
     attest(os.environ["PYTHON_CONTRACT_URL"], token)
     policy = json.loads((ROOT / "deploy/rust/market-policy.json").read_text())
-    count = 0
+    compact_year_zero_failure(url)
+    count = 1
     for path in ["aggregated", "product-counts"]:
         base = "side=ASK&" if path == "product-counts" else ""
         queries = ["", "region=", "region=unmatched", "availability_window=SPOT",
