@@ -27,7 +27,7 @@ const POLICY_BYTES: &[u8] = include_bytes!(concat!(
 fn config(variable: &str) -> Config {
     let config = Config {
         kyc_execution_gate_enabled: true,
-        db_session_time_zone: "UTC".into(),
+        db_session_time_zone: "Asia/Singapore".into(),
         environment: "test".into(),
         release_sha: compiled_sha().into(),
         migration_revision: "kycg_20261014_staging".into(),
