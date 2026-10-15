@@ -18,11 +18,28 @@ use axum::{
 };
 use serde_json::json;
 use std::collections::HashMap;
-use verdaxis_read::{AppState, Config, MarketPolicy, compiled_sha, connect};
+use verdaxis_read::{AppState, Config, MarketPolicy, connect};
 
 const IDENTITY_PATH: &str = "/.well-known/verdaxis-disposable-test";
 const ECHO_PATH: &str = "/__contract__/echo";
 const PURPOSE: &str = "verdaxis-integration-test";
+
+/// The committed policy artifact, loaded exactly as the serving binary will.
+///
+/// The catalog routes project database rows through this policy, so a server
+/// with an empty policy would fail every catalog case instead of reporting a
+/// real difference. The artifact carries its own recorded oracle SHA, which is
+/// the same attestation Task 5's policy tests use.
+const POLICY_BYTES: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../deploy/rust/market-policy.json"
+));
+
+fn committed_policy() -> Result<MarketPolicy, String> {
+    let recorded: MarketPolicy = serde_json::from_slice(POLICY_BYTES)
+        .map_err(|_| "market policy is not a valid policy document".to_owned())?;
+    verdaxis_read::market::policy::load_policy(POLICY_BYTES, &recorded.source_sha)
+}
 
 /// Merge the modules one group owns. Health and echo need no data route.
 fn group_router(group: &str) -> Router<AppState> {
@@ -78,11 +95,7 @@ async fn serve() -> Result<(), String> {
     let group = std::env::var("CONTRACT_GROUP").map_err(|_| "CONTRACT_GROUP is required")?;
 
     let pools = connect(&config).await.map_err(|_| "connect failed")?;
-    let policy = MarketPolicy {
-        source_sha: compiled_sha().into(),
-        products: vec![],
-        points: vec![],
-    };
+    let policy = committed_policy()?;
     let state = AppState::new(config.clone(), pools, policy)?;
     // Route through the serving router so fallbacks, trailing-slash redirects,
     // and middleware match the real binary exactly.
