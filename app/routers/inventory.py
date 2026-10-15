@@ -18,6 +18,7 @@ from app.services.security_market_admission import require_security_market_admis
 from app.models.catalog import DeliveryPoint, Product
 from app.models.marketplace import FuelType as ModelFuelType
 from app.models.marketplace import InventoryItem
+from app.models.port import Port
 from app.models.orderbook import (
     OrderBookOrder,
     OrderBookStatus,
@@ -201,6 +202,11 @@ async def add_inventory(
             MarketActorOwnership(current_user.id, current_user.organization_id),
         ),
     )
+
+    # Match the port API's missing-reference response before attempting INSERT.
+    port = await db.scalar(select(Port.id).where(Port.id == item.port_id).with_for_update(read=True, key_share=True))
+    if port is None:
+        raise HTTPException(status_code=404, detail="Port not found")
 
     try:
         item_data = _inventory_write_values(item)
