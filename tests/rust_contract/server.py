@@ -51,7 +51,20 @@ class ContractOracleApp:
             from tests.rust_contract.live_benchmarks import project
 
             query = parse_qs(scope.get("query_string", b"").decode())
-            body = json.dumps(await project(query), separators=(",", ":")).encode()
+            # Helper cases run sequentially. Rebind the entire clock seam, not
+            # only expiry: it overrides explicit SQL and KYC clock arguments.
+            global _clock_stack
+            from tests.rust_contract.clock import fixed_clock_patches
+            instant = datetime.fromisoformat(query.get("as_of", [os.environ[CLOCK_ENV]])[0])
+            if _clock_stack is not None:
+                _clock_stack.close()
+            _clock_stack = fixed_clock_patches(instant)
+            try:
+                body = json.dumps(await project(query), separators=(",", ":")).encode()
+            finally:
+                _clock_stack.close()
+                _clock_stack = None
+                apply_fixed_clock()
             headers = [(b"content-type", b"application/json"), (b"content-length", str(len(body)).encode())]
             headers.extend((name, value) for name, value in scope.get("headers", []) if name == b"x-request-id")
             await send({"type": "http.response.start", "status": 200, "headers": headers})

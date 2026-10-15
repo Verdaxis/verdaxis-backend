@@ -81,6 +81,10 @@ current full HEAD as `RELEASE_SHA`; PostgreSQL uses the absolute harness Python.
 - The fixture probe initially attempted to move existing orders to an isolated
   slice. The database correctly refused the immutable slice update. Removed
   that update; the fixture retains mixed prices/quantities in its original slice.
+- The migrated as-of comparison exposed the test wrapper's frozen clock
+  overriding explicit SQL/KYC instants. The helper-only dispatch now closes
+  the outer clock stack, binds the complete existing clock manifest for the
+  request, then restores the corpus clock. No application clock changed.
 - No golden bytes were relabelled under the older oracle SHA. Task 4b owns the
   populated recording and policy refresh; this group compares fresh paired
   Python/Rust responses through the same comparator in the meantime.
