@@ -205,6 +205,7 @@ async def acceptance_fixtures(session, oracle, instant):
         fame_terms=FameBidTerms.model_validate(
             {
                 "side": "BID",
+                "neat_fame": True,
                 "standard": "EN_14214",
                 "standard_edition": "EN 14214:2019",
                 "sustainability_scheme": "ISCC_EU",
