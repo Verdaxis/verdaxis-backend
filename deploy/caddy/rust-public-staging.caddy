@@ -1,0 +1,40 @@
+# Import inside the existing site's route block, before its Python fallback.
+# Each argument is one independently approved upstream. For rollback, change
+# only that group's argument back to Python. Do not change the site's fallback.
+(verdaxis_rust_public) {
+	@rust_simple {
+		method GET
+		path_regexp simple ^/api/(ports(/[^/]+)?|catalog/(products|delivery-points)|news)/?$
+	}
+	handle @rust_simple {
+		reverse_proxy {args[0]}
+	}
+	@rust_orderbook {
+		method GET
+		path /api/orderbook /api/orderbook/ /api/orderbook/snapshot /api/orderbook/snapshot/ /api/orderbook/bids /api/orderbook/bids/ /api/orderbook/asks /api/orderbook/asks/ /api/orderbook/with-ci /api/orderbook/with-ci/ /api/orderbook/aggregated /api/orderbook/aggregated/ /api/orderbook/product-counts /api/orderbook/product-counts/ /api/orderbook/map-summary /api/orderbook/map-summary/ /api/orderbook/map-summary/compact /api/orderbook/map-summary/compact/ /api/orderbook/products /api/orderbook/products/ /api/orderbook/regions /api/orderbook/regions/ /api/orderbook/fuel-types /api/orderbook/fuel-types/ /api/listings /api/listings/
+	}
+	handle @rust_orderbook {
+		reverse_proxy {args[1]}
+	}
+	@rust_prices {
+		method GET
+		path /api/prices /api/prices/ /api/prices/reference /api/prices/reference/ /api/prices/reference/export /api/prices/reference/export/ /api/trade-tape /api/trade-tape/
+	}
+	handle @rust_prices {
+		reverse_proxy {args[2]}
+	}
+	@rust_curves {
+		method GET
+		path /api/curves/forward /api/curves/forward/ /api/curves/forward/export /api/curves/forward/export/ /api/curves/forward/table /api/curves/forward/table/ /api/curves/forward/slice /api/curves/forward/slice/ /api/curves/forward/board /api/curves/forward/board/
+	}
+	handle @rust_curves {
+		reverse_proxy {args[3]}
+	}
+	@rust_mcp {
+		method GET POST DELETE
+		path /mcp
+	}
+	handle @rust_mcp {
+		reverse_proxy {args[4]}
+	}
+}

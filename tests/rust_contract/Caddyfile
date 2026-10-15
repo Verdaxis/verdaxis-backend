@@ -1,0 +1,14 @@
+{
+	admin off
+	auto_https off
+}
+import {$ROUTE_SNIPPET}
+http://:{$CADDY_PORT} {
+	bind 127.0.0.1
+	route {
+		import verdaxis_rust_public {$SIMPLE_UPSTREAM} {$ORDERBOOK_UPSTREAM} {$PRICES_UPSTREAM} {$CURVES_UPSTREAM} {$MCP_UPSTREAM}
+		handle {
+			reverse_proxy {$PYTHON_UPSTREAM}
+		}
+	}
+}
