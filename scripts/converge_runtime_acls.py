@@ -5,20 +5,20 @@ from __future__ import annotations
 
 import argparse
 import os
-from pathlib import Path
 import stat
 import subprocess
 import sys
-from typing import Mapping, NamedTuple
+from collections.abc import Mapping
+from pathlib import Path
+from typing import NamedTuple
 
 from dotenv import dotenv_values
 from sqlalchemy.engine import URL, make_url
 from sqlalchemy.exc import ArgumentError
 
-
 _IDENTITIES = {
     "production": {
-        "database_name": "verdaxis",
+        "database_name": "verdaxis_prod",
         "app_role": "verdaxis_app",
         "migrator_role": "verdaxis_migrator",
         "backup_role": "verdaxis_backup",
