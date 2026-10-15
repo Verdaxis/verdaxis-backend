@@ -86,7 +86,7 @@ pub(crate) fn uuid(raw: &str, name: &str) -> Result<Option<Uuid>, ApiError> {
                     .strip_prefix('{')
                     .and_then(|v| v.strip_suffix('}'))
                     .unwrap_or(simple);
-                if !simple.contains('-') && simple.len() != 32 {
+                if simple.bytes().all(|c| c.is_ascii_hexdigit()) && simple.len() != 32 {
                     let cause = format!(
                         "invalid length: expected length 32 for simple format, found {}",
                         simple.len()

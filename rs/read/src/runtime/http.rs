@@ -241,6 +241,17 @@ async fn dispatch_boundary(
         _ => 0,
     };
     if limit != 0 {
+        // FastAPI validates typed parameters before SlowAPI invokes the endpoint.
+        // Handler-level filter checks still happen after this one shared bucket.
+        use crate::routes::prices::query::{Surface, validate};
+        let surface = match path {
+            "/api/prices" => Surface::Summary,
+            "/api/prices/reference" => Surface::Reference,
+            _ => Surface::Export,
+        };
+        if let Err(error) = validate(request.uri().query().unwrap_or_default(), surface) {
+            return error.into_response();
+        }
         let peer = request
             .extensions()
             .get::<ConnectInfo<SocketAddr>>()

@@ -34,9 +34,14 @@ pub fn parse(value: &str, name: &str) -> Result<NaiveDate, ApiError> {
         } else {
             number
         };
+        // Pydantic rounds the fractional timestamp to microseconds first,
+        // including a carry across midnight. Keep the integer part separate
+        // so large timestamps do not lose precision in a seconds-to-micros cast.
+        let whole = seconds.trunc() as i64;
+        let micros = (seconds.fract() * 1_000_000.0).round() as i64;
         let instant = DateTime::<Utc>::from_timestamp(
-            seconds.floor() as i64,
-            ((seconds - seconds.floor()) * 1_000_000.0).round() as u32 * 1000,
+            whole.saturating_add(micros.div_euclid(1_000_000)),
+            micros.rem_euclid(1_000_000) as u32 * 1000,
         )
         .ok_or_else(|| error("dates after 9999 are not supported as unix timestamps"))?;
         if instant.year() < 1 {
@@ -49,7 +54,7 @@ pub fn parse(value: &str, name: &str) -> Result<NaiveDate, ApiError> {
                 "dates after 9999 are not supported as unix timestamps",
             ));
         }
-        if seconds.rem_euclid(86400.0) != 0.0 {
+        if instant.time() != chrono::NaiveTime::MIN {
             return Err(inexact());
         }
         return Ok(instant.date_naive());

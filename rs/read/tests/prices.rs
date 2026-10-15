@@ -49,6 +49,93 @@ fn parameter_errors_follow_python_declaration_order() {
     assert_eq!(names, ["delivery_point_id", "demo_only", "skip", "limit"]);
 }
 
+#[test]
+fn uuid_character_errors_precede_short_length_errors() {
+    use verdaxis_read::routes::prices::query::{Surface, validate};
+    for value in ["x", "zzzz", "urn:uuid:x", "{x}"] {
+        let error = validate(&format!("product_id={value}"), Surface::Summary).unwrap_err();
+        assert!(
+            error.detail[0]["ctx"]["error"]
+                .as_str()
+                .unwrap()
+                .starts_with("invalid character:")
+        );
+    }
+    let error = validate("product_id=bad", Surface::Summary).unwrap_err();
+    assert_eq!(
+        error.detail[0]["ctx"]["error"],
+        "invalid length: expected length 32 for simple format, found 3"
+    );
+}
+
+#[test]
+fn numeric_date_uses_microsecond_precision_before_midnight_check() {
+    use verdaxis_read::routes::prices::query::{Surface, validate};
+    for value in [
+        "86400.0000001",
+        "-86400.0000001",
+        "86400000.0000001",
+        "0.0000001",
+    ] {
+        assert!(
+            validate(&format!("date_from={value}"), Surface::Reference).is_ok(),
+            "{value}"
+        );
+    }
+    assert!(validate("date_from=86400.000001", Surface::Reference).is_err());
+}
+
+#[tokio::test]
+async fn typed_validation_precedes_rate_limit_but_filter_validation_does_not() {
+    use axum::{Router, body::Body, http::Request, routing::get};
+    use tower::ServiceExt;
+    use verdaxis_read::runtime::http::middleware;
+    let app = middleware(Router::new().route("/api/prices", get(|| async { "ok" })));
+    for _ in 0..65 {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/prices?hours=0")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 422);
+    }
+    for _ in 0..60 {
+        assert_eq!(
+            app.clone()
+                .oneshot(
+                    Request::builder()
+                        .uri("/api/prices")
+                        .body(Body::empty())
+                        .unwrap()
+                )
+                .await
+                .unwrap()
+                .status(),
+            200
+        );
+    }
+    for (query, expected) in [("hours=0", 422), ("market_product=invalid", 429), ("", 429)] {
+        assert_eq!(
+            app.clone()
+                .oneshot(
+                    Request::builder()
+                        .uri(format!("/api/prices?{query}"))
+                        .body(Body::empty())
+                        .unwrap()
+                )
+                .await
+                .unwrap()
+                .status(),
+            expected
+        );
+    }
+}
+
 #[tokio::test]
 async fn unhandled_errors_bypass_response_headers_but_handled_errors_do_not() {
     use axum::{Router, body::Body, http::Request, routing::get};
