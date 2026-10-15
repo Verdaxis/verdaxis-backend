@@ -80,6 +80,17 @@ pub(crate) fn uuid(raw: &str, name: &str) -> Result<Option<Uuid>, ApiError> {
     let result = QueryFields::parse(raw)
         .validate(name, QueryKind::Uuid, false)
         .map_err(|mut error| {
+            // The pinned Python UUID parser reports one-based character offsets;
+            // Rust's uuid crate reports zero-based offsets, including prefixes.
+            if let Some(cause) = error.detail[0]["ctx"]["error"].as_str()
+                && cause.starts_with("invalid character:")
+                && let Some((prefix, position)) = cause.rsplit_once(" at ")
+                && let Ok(position) = position.parse::<usize>()
+            {
+                let cause = format!("{prefix} at {}", position + 1);
+                error.detail[0]["msg"] = json!(format!("Input should be a valid UUID, {cause}"));
+                error.detail[0]["ctx"]["error"] = json!(cause);
+            }
             if let Some(value) = fields(raw).get(name) {
                 let simple = value.strip_prefix("urn:uuid:").unwrap_or(value);
                 let simple = simple

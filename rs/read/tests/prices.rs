@@ -52,13 +52,16 @@ fn parameter_errors_follow_python_declaration_order() {
 #[test]
 fn uuid_character_errors_precede_short_length_errors() {
     use verdaxis_read::routes::prices::query::{Surface, validate};
-    for value in ["x", "zzzz", "urn:uuid:x", "{x}"] {
+    for (value, character, position) in [
+        ("x", 'x', 1),
+        ("zzzz", 'z', 1),
+        ("urn:uuid:x", 'x', 10),
+        ("{x}", 'x', 2),
+    ] {
         let error = validate(&format!("product_id={value}"), Surface::Summary).unwrap_err();
-        assert!(
-            error.detail[0]["ctx"]["error"]
-                .as_str()
-                .unwrap()
-                .starts_with("invalid character:")
+        assert_eq!(
+            error.detail[0]["ctx"]["error"],
+            format!("invalid character: found `{character}` at {position}")
         );
     }
     let error = validate("product_id=bad", Surface::Summary).unwrap_err();
