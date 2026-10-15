@@ -1,6 +1,6 @@
 -- Shared public-order visibility projection (Task 6).
 --
--- This is the complete bound statement: every caller value is a parameter, so
+-- This is the complete bound internal relation: every caller value is a parameter, so
 -- no route ever concatenates text into SQL. Parameters are
 --   $1  attested market policy (jsonb text)
 --   $2  captured UTC instant (timestamptz)

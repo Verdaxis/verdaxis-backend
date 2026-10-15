@@ -426,7 +426,7 @@ async def seed(session, clock: datetime) -> dict:
 
 async def select(session) -> dict:
     """Answer every matrix row with the production Python predicate."""
-    from sqlalchemy import select as sql_select
+    from sqlalchemy import select as sql_select, func, text
 
     from app.models.orderbook import OrderBookOrder, Trade
     from app.services.market_provenance import public_trade_evidence_clause
@@ -467,11 +467,14 @@ async def select(session) -> dict:
     ).order_by(OrderBookOrder.created_at.desc(), OrderBookOrder.id)
     listing_ids = [str(value) for value in (await session.execute(listings)).scalars()]
     from app.services.order_terms import executable_order_terms
+    from app.services.execution_policy import order_is_execution_qualified
     visible_ids = await visible(False)
     digest_inputs = {}
+    qualification = {}
     for order_row in (await session.execute(sql_select(OrderBookOrder))).scalars():
         if str(order_row.id) in visible_ids:
             digest_inputs[str(order_row.id)] = executable_order_terms(order_row)
+            qualification[str(order_row.id)] = order_is_execution_qualified(order_row)
     # Exact product/point filter combinations cannot leak another lane.
     from app.market_catalog import PRODUCT_IDS, CANONICAL_DELIVERY_POINTS
     points = {point.name: point.id for point in CANONICAL_DELIVERY_POINTS}
@@ -486,6 +489,24 @@ async def select(session) -> dict:
                 OrderBookOrder.product_id == product_id, OrderBookOrder.delivery_point_id == point_id))
             lane_filters.append({"product": str(product_id), "point": str(point_id),
                                  "ids": sorted(str(value) for value in result.scalars())})
+    # A confirmed snapshot survives later mutable catalog edits.
+    async with session.begin_nested() as savepoint:
+        await session.execute(text("UPDATE products SET name='Changed after confirmation' WHERE id=:id"),
+                              {"id": PRODUCT_IDS["BIO_METHANOL"]})
+        historical = sorted(str(value) for value in (await session.execute(
+            sql_select(Trade.id).where(public_trade_evidence_clause(Trade)))).scalars())
+        assert historical == sorted(trade_selected)
+        await savepoint.rollback()
+    # Snapshot depth is ranked only after visibility, not on the unfiltered book.
+    filters, joins = public_order_scope()
+    ranked = sql_select(OrderBookOrder.id, OrderBookOrder.side,
+        func.row_number().over(partition_by=OrderBookOrder.side,
+            order_by=(OrderBookOrder.price_per_mt_usd, OrderBookOrder.id)).label("rank"))
+    for target, condition in joins:
+        ranked = ranked.join(target, condition)
+    ranked = ranked.where(*filters).subquery()
+    depth = sorted(str(value) for value in (await session.execute(
+        sql_select(ranked.c.id).where(ranked.c.rank <= 2))).scalars())
     cutoffs = {}
     instant = datetime.fromisoformat(os.environ[CLOCK_ENV])
     for name, kwargs in (("since_equal", {"confirmed_since": instant}),
@@ -494,7 +515,10 @@ async def select(session) -> dict:
             sql_select(Trade.id).where(public_trade_evidence_clause(Trade, **kwargs))
         )).scalars())
     return {
+        "depth": depth,
+        "historical": historical,
         "lane_filters": lane_filters,
+        "qualification": qualification,
         "digest_inputs": digest_inputs,
         "cutoffs": cutoffs,
         "listings": listing_ids,

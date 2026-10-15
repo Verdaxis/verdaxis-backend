@@ -1,10 +1,9 @@
 //! Shared public visibility: the bound SQL and its parameter binding.
 //!
-//! The statements live in `rs/read/sql/` and are returned whole by
-//! [`public_order_sql`] and [`trade_evidence_sql`]; callers bind parameters
-//! and never build SQL text. Route code runs them through
-//! [`select_public_order_ids`] and [`select_trade_evidence_ids`] inside
-//! `runtime::admission::run_admitted`, so the permit covers the database work.
+//! The SQL files are unpaged internal relations. Sealed query constructors
+//! compose developer-owned static tails; bind helpers supply request values.
+//! Execute the query inside `runtime::admission::run_admitted` on its connection.
+//! Private digest input is internal only and must never become a public DTO.
 
 use chrono::{DateTime, NaiveDate, Utc};
 use uuid::Uuid;

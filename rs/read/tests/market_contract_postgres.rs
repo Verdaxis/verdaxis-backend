@@ -162,6 +162,16 @@ async fn public_visibility_matrix_matches_python() {
 
     use sqlx::Row;
     use verdaxis_read::market::visibility::{bind_order_query, order_query_sql};
+    let depth_sql = order_query_sql(
+        ", ranked AS (SELECT id, row_number() OVER (PARTITION BY side ORDER BY price_per_mt_usd, id) AS rank FROM eligible_orders) SELECT id FROM ranked WHERE rank <= 2",
+    );
+    let depth = bind_order_query(&depth_sql, &policy, &clock, &PublicOrderFilters::default())
+        .unwrap()
+        .fetch_all(&mut *connection)
+        .await
+        .unwrap();
+    let depth: Vec<Uuid> = depth.iter().map(|row| row.get("id")).collect();
+    assert_eq!(as_strings(&depth), ids(&expected["depth"]));
     let sql = order_query_sql("SELECT private_digest_input FROM eligible_orders ORDER BY id");
     let rows = bind_order_query(&sql, &policy, &clock, &PublicOrderFilters::default())
         .unwrap()
@@ -171,6 +181,24 @@ async fn public_visibility_matrix_matches_python() {
     for row in rows {
         let input: Value = row.get("private_digest_input");
         let canonical = verdaxis_read::canonical_terms_from_row(&input).unwrap();
+        let order = verdaxis_read::QualificationInput {
+            product_id: input["product_id"].as_str().map(|id| id.parse().unwrap()),
+            market_product: None,
+            side: input["side"].as_str().unwrap(),
+            delivery_point_id: input["delivery_point_id"].as_str(),
+            availability_window: input["availability_window"].as_str().unwrap(),
+            off_spec: input["off_spec"].as_bool().unwrap(),
+            msds_available: input["msds_available"].as_bool().unwrap(),
+            certification_scheme: input["certification_scheme"].as_str(),
+            certification_declared: input["certification_declared"].as_bool().unwrap(),
+            fame_terms: input.get("fame_terms").filter(|value| !value.is_null()),
+            lng_terms: input.get("lng_terms").filter(|value| !value.is_null()),
+        };
+        assert_eq!(
+            verdaxis_read::order_is_execution_qualified_at(&policy, &order, clock.singapore_date),
+            expected["qualification"][input["id"].as_str().unwrap()]
+        );
+
         assert_eq!(
             canonical,
             expected["digest_inputs"][input["id"].as_str().unwrap()]
