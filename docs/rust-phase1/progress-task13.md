@@ -55,12 +55,28 @@ Logs: ignored `work/rust-phase1/task13-*.log`.
 - Populated live-benchmark probe fails before comparison: it tries to insert
   existing corpus user `4e4b985d-a14e-5d26-8dbf-58997282248e` (`users_pkey`).
   This is a Task 6a/harness follow-up, not a reason to modify its fixture here.
-- Other ported corpus groups are still running; final results follow below.
+- All launched runs finished and removed their disposable containers. Populated
+  groups passing their complete targets: health 8 (both KYC states), echo 2,
+  simple reads 29, snapshot 3, lists 12, prices 40, legacy curves 4, canonical
+  curves 125. These cover 223 cases per enabled-state run across passing groups.
+  Lists also passed 24 integer boundaries, 136 edge comparisons, 15 non-null CI
+  projections and mixed-sort checks. Prices passed two sets of 17 probes;
+  canonical curves passed 112 probes.
+- Map's nine corpus cases match, but its extra probe failed on a Rust request
+  timeout for `/api/orderbook/aggregated?region=Busan`. This is not acceptance.
+  Together with live benchmarks, two full group targets failed. No timeout or
+  comparator rule was relaxed.
+- `cargo sqlx --version` failed: the Cargo SQLx subcommand is not installed.
+  Thus `cargo sqlx prepare --check` remains unrun, not passed.
+- Commits: `cdcb7a87` (Caddy ownership/rollback), `f231735a` (assembly,
+  attested loader, mixed runner and checkpoint notes). No running child or
+  container remains from these checks; `docker ps` was empty at final inspection.
 
 ## Remaining work / resume point
 
-1. Finish and record every running corpus group. Do not treat this checkpoint
-   as full Task 13 acceptance.
+1. Resume with the incomplete OpenAPI gate and method/slash differential cases.
+   Every launched test has finished; do not treat this checkpoint as full Task
+   13 acceptance. Preserve the two group failures listed above for their owners.
 2. Add the complete semantic OpenAPI export/comparison. Existing route DTOs have
    no utoipa derives; this requirement is not implemented or claimed complete.
 3. Complete the combined `--rust-target all --require-complete-ledger --report`
