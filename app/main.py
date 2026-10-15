@@ -105,8 +105,10 @@ _redoc_url = "/redoc" if os.getenv("ENVIRONMENT") != "production" else None
 async def lifespan(app: FastAPI):
     from app.database import engine, verify_database_runtime
     from app.services.event_bus import event_bus
+    from app.services.kyc_execution import kyc_execution_gate_startup_message
     from app.services.market_event_dispatch import MarketEventDispatcher
 
+    logger.info(kyc_execution_gate_startup_message())
     await verify_database_runtime()
     # Stage 5: durable shared SSE dispatch (outbox sequencer + hub fan-out).
     # Self-disables on non-PostgreSQL engines (the SQLite unit harness). This

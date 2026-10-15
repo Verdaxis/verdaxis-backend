@@ -13,7 +13,7 @@ from app.market_catalog import (
 from app.models.orderbook import OrderBookOrder, OrderCreationMethod, OrderSide
 from app.models.user import Organization, OrganizationProvenance, User, UserRole, UserStatus
 from app.services.kyc_execution import (
-    KYC_REJECTED,
+    advisory_kyc_allows,
     customer_organization_is_execution_eligible,
     evaluate_kyc_execution,
 )
@@ -31,7 +31,8 @@ class MarketPartyPolicy(str, Enum):
     CLEANUP = "CLEANUP"
     # Non-executable surfaces (RFQ, negotiation, inventory, suggestions): the
     # earlier advisory KYC, in which only a rejection or a review bound to
-    # another organization revokes access. Unchanged by the KYC gate.
+    # another organization revokes access. EXECUTION also falls back to this
+    # rule when the KYC execution gate is off.
     INDICATIVE = "INDICATIVE"
 
 
@@ -57,14 +58,6 @@ def _organization_admits(user: User, organization: Organization | None) -> bool:
 def account_is_admitted(user: User | None, organization: Organization | None) -> bool:
     """Account and tenant admission, independent of KYC."""
     return _user_account_is_admitted(user) and _organization_admits(user, organization)
-
-
-def advisory_kyc_allows(user: User) -> bool:
-    """The pre-gate advisory KYC kept for indicative surfaces."""
-    if getattr(user, "kyc_status", None) == KYC_REJECTED:
-        return False
-    kyc_organization_id = getattr(user, "kyc_organization_id", None)
-    return kyc_organization_id is None or kyc_organization_id == user.organization_id
 
 
 async def market_party_is_eligible(

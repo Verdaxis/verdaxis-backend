@@ -109,6 +109,11 @@ class Settings(BaseSettings):
     KYC_MAX_FILE_BYTES: int = Field(default=10 * 1024 * 1024, ge=1, le=100 * 1024 * 1024)
     KYC_MAX_TOTAL_BYTES: int = Field(default=20 * 1024 * 1024, ge=1, le=200 * 1024 * 1024)
 
+    # The KYC execution gate. The code default is fail safe (True): if the
+    # setting is absent, new economic commitments still require KYC. Deployed
+    # environments set it false for Private Beta; public launch turns it on.
+    KYC_EXECUTION_GATE_ENABLED: bool = True
+
     @model_validator(mode='after')
     def validate_db_pool_capacity(self) -> 'Settings':
         if self.DB_RESERVED_CONNECTIONS >= self.DB_MAX_CONNECTIONS:

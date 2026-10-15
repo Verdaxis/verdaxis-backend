@@ -292,6 +292,8 @@ New executions (`POST /api/orderbook`, `PUT /api/orderbook/{id}`, `POST /api/inv
 
 18. **The KYC gate has three policies.** Use `MarketPartyPolicy.EXECUTION` (the default, `require_execution_eligible_user`) for new commitments, `CLEANUP` for settling or withdrawing them, and `INDICATIVE` for RFQ, negotiation, inventory records and suggestions. Grace is written only by its migration; send the one-time email with `python -m app.cli.send_kyc_grace_notices --environment <env> --release-sha <sha>` (operator-run, no timer). Never create KYC approvals or grace for demo users.
 
+19. **The KYC execution gate has one on/off switch.** `KYC_EXECUTION_GATE_ENABLED` (default true, fail safe) lives only in `app/services/kyc_execution.py` — the one decision point — and its SQL mirrors and the `advisory_kyc_allows` helper follow it automatically. Do not add `if settings...` gate checks in routes or services; change the switch and the shared helpers. When it is false (Private Beta on prod and staging) the EXECUTION policy behaves as the pre-gate advisory rule: only `REJECTED` or a review bound to another organization blocks, and an eligible user reports `KYC_NOT_ENFORCED`. The startup log prints one line per worker with the state (four lines with four Uvicorn workers), and `python -m app.cli.send_kyc_grace_notices` refuses with a non-zero exit. The switch does not reach the availability map: `/api/availability` and `public_inventory_is_visible` still count a supplier's inventory as REAL stock only for `kyc_status == "APPROVED"` (`app/services/market_provenance.py:137`), unchanged from before the gate. Keep all KYC code and data; turning the gate back on blocks every user without approved KYC at once. See the KYC runbook (`docs/security-hardening-v2.md`).
+
 ## Environment Variables
 
 Key variables in `.env` (loaded by `pydantic-settings`):
@@ -325,6 +327,7 @@ MIGRATOR_LOCK_TIMEOUT_MS=30000
 MIGRATOR_IDLE_IN_TRANSACTION_SESSION_TIMEOUT_MS=300000
 KYC_MAX_FILE_BYTES=10485760   # 10 MiB per document
 KYC_MAX_TOTAL_BYTES=20971520  # 20 MiB per KYC request
+KYC_EXECUTION_GATE_ENABLED=true  # Prod/staging set false for Private Beta; true at launch
 HEALTH_READINESS_TIMEOUT_SECONDS=2
 BACKEND_CORS_ORIGINS=          # Omit for exact environment-specific allowlist
 ```
