@@ -1,6 +1,35 @@
 # Phase 0 Task 9 — integrated acceptance
 
-## P0-2 — approved user-facing fixes and completed local rerun
+## Sign-off M1 correction — current inventory authority
+
+Commit `48c2cc305dd5c6085ae18352b9e16f8f4e1c915e` supersedes P0-2's
+key-share read. PostgreSQL requires UPDATE for that read; the runtime correctly
+has SELECT only on ports. Use a plain existence SELECT. If deletion wins before
+INSERT, roll back the transaction and map only SQLSTATE 23503 with constraint
+`inventory_items_port_id_fkey` to the same 404. Other DB failures retain their
+existing treatment. No ACL, schema or reference write authority changed.
+
+New real app-role PostgreSQL/ASGI HTTP tests assert SELECT=true, UPDATE=false,
+existing-port success, missing-port refusal and a coordinated separate-connection
+deletion after the existence read. Refusals leave no inventory or outbox event.
+After correcting the test token setup, the pre-fix run returned **3 failures**
+(HTTP 500). Final run: **3 passed**. A fixture-isolation correction clears old
+outbox rows before each case; it does not change runtime behavior.
+
+The reproducible HTTP harness is now `venv/bin/python tests/phase0/http_runner.py`.
+It migrates as owner, seeds synthetic rows as administrator, applies and validates
+the unchanged ACL policy, then runs the server as `phase0_app_test`, never owner.
+Full HTTP: **79 passed** on both the initial and committed harness runs. Focused
+unit regression: **18 passed**. Both runner setup drift checks passed. Logs are
+`work/task9-m1-{red2,final,http-committed,unit}.log`.
+
+All runs finished and owned containers/volumes were removed. B1/B2 source files
+were not touched. Other independent-review findings remain open in their lanes;
+M1 closure is not whole-branch sign-off. Rust inventory goldens need this new
+application identity; the schema digest is unchanged. Full unit/monitor/Phase 0
+suites were not repeated for this narrow fix; their previous counts are historical.
+
+## P0-2 — approved user-facing fixes and completed local rerun (historical)
 
 PM decision **P0-2** permits two user-facing Python bug fixes during the freeze.
 Commit `a73703ba` fixes both; their tests failed first (**2 failed**) and then

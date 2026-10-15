@@ -6,7 +6,29 @@ P0-2 and the final rerun below supersede the earlier blocked counts and candidat
 identity. Earlier evidence is retained as history, not current failure status.
 All runs finished; owned containers were removed with their volumes.
 
-## Current P0-2 acceptance — final local rerun
+## Sign-off M1 correction — current application candidate
+
+**Candidate: `48c2cc305dd5c6085ae18352b9e16f8f4e1c915e`.** Independent sign-off
+found that P0-2's key-share read needs UPDATE on ports. That regression is now
+fixed with a SELECT-only existence read and exact port-FK error mapping after
+transaction rollback. No port UPDATE grant or schema change was made.
+
+New real constrained-role PostgreSQL/ASGI HTTP cases: **3 failed before fix,
+3 passed after** (existing port, missing port, deletion after the read). They
+assert SELECT-only port authority and no inventory/outbox record on refusals.
+Focused unit tests: **18 passed**. Full HTTP through committed
+`tests/phase0/http_runner.py`: **79 passed**, no failures/skips. The harness applies
+and validates canonical runtime ACLs and uses `phase0_app_test` for the app,
+not `phase0_owner`. Owner/admin connections remain setup-only. Both disposable
+migration drift checks passed. All runs finished and containers/volumes were removed.
+
+M1 is locally resolved; B1/B2/M2/M3 and independent re-review remain gates.
+B1/B2-owned bootstrap/copy/verify files were not touched. Previous full-suite
+counts below are historical; only the affected unit, real-role PostgreSQL and
+complete HTTP suites were rerun for M1. Rust inventory goldens need the candidate
+above; schema/revision digests remain unchanged. No host or Rust run was authorized.
+
+## P0-2 acceptance — historical local rerun (superseded for M1)
 
 Candidate backend/Python oracle: **`82f414847c2c8c2203a7ca42edd6be87a9830ba4`**.
 Frontend identity and schema/policy hashes below are unchanged. This candidate
