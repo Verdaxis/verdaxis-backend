@@ -1,15 +1,15 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import desc, select, func, update
-from typing import List, Any
 import uuid
+from datetime import datetime
+
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import UUID4, BaseModel
+from sqlalchemy import desc, func, select, update
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.models.notification import Notification
 from app.models.user import User
 from app.routers.auth_simple import get_current_user
-from pydantic import BaseModel, UUID4
-from datetime import datetime
 
 router = APIRouter(
     prefix="/notifications",
@@ -26,10 +26,17 @@ class NotificationResponse(BaseModel):
     is_read: bool
     created_at: datetime
 
+    @field_validator("data")
+    @classmethod
+    def hide_email_delivery_state(cls, value: dict | None) -> dict | None:
+        if value is None:
+            return None
+        return {key: item for key, item in value.items() if not key.startswith("_email_")}
+
     class Config:
         from_attributes = True
 
-@router.get("", response_model=List[NotificationResponse])
+@router.get("", response_model=list[NotificationResponse])
 async def get_notifications(
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=100),
@@ -40,7 +47,7 @@ async def get_notifications(
     Get current user's notifications.
     """
     stmt = select(Notification)\
-        .filter(Notification.recipient_id == current_user.id)\
+        .filter(Notification.recipient_id == current_user.id, func.coalesce(Notification.data["_email_only"].as_boolean(), False).is_(False))\
         .order_by(desc(Notification.created_at))\
         .offset(skip)\
         .limit(limit)
@@ -59,7 +66,7 @@ async def get_unread_count(
     """
     stmt = select(func.count())\
         .select_from(Notification)\
-        .filter(Notification.recipient_id == current_user.id, Notification.is_read == False)
+        .filter(Notification.recipient_id == current_user.id, Notification.is_read == False, func.coalesce(Notification.data["_email_only"].as_boolean(), False).is_(False))
     
     result = await db.execute(stmt)
     count = result.scalar()
