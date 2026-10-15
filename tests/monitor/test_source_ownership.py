@@ -5,7 +5,6 @@ import json
 import re
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[2]
 MONITOR = ROOT / "deploy/monitor"
 MANIFEST = MONITOR / "artifact-manifest.json"
@@ -21,10 +20,12 @@ MANIFEST = MONITOR / "artifact-manifest.json"
 # Licensed Webz.io news discovery adds a backend-only token and locked endpoint.
 # B100 supplier listings add an authenticated, non-executable offer router.
 # The read-only MCP endpoint adds a non-production route and shares the public read budget.
+# The KYC execution gate switch adds one setting (app/config.py) and one
+# startup log line (app/main.py).
 RUNTIME_OWNED_BLOBS = {
-    "app/config.py": "b063c9088332f933f800ddeeef65af67019a0d3e",
+    "app/config.py": "8fa6200652f9c29dcddfa4f2fa6c4305d5d8cddb",
     "app/database.py": "43456b2c2079c07368359d4d54f5ce9629c9b57b",
-    "app/main.py": "661c71eb1202aef2601b80d4a78f6a22c524012c",
+    "app/main.py": "a3a73bf74d817499cccac1f6ecc9ba062cbba3ea",
     "scripts/deploy.sh": "4298d424cf2af000ea96b66859adf5f776f78c4d",
     "scripts/run_demo_activity.py": "b92cee8429669c3f908a52047025acd6db804697",
 }

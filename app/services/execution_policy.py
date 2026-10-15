@@ -1,16 +1,31 @@
 from __future__ import annotations
 
-from app.market_catalog import PRODUCTS_BY_ID, PRODUCTS_BY_CODE
-from app.models.orderbook import OrderBookOrder, OrderCreationMethod, OrderSide
-from app.models.user import Organization, OrganizationProvenance, User, UserRole, UserStatus
-from sqlalchemy import select
-from app.services.kyc_execution import kyc_execution_eligibility, kyc_execution_clause
 from fastapi import HTTPException
-from app.services.lng_order import (
-    is_lng_product, lng_terms_compatible, validate_lng_order_terms,
+from sqlalchemy import select
+
+from app.market_catalog import PRODUCTS_BY_CODE, PRODUCTS_BY_ID
+from app.models.orderbook import OrderBookOrder, OrderCreationMethod, OrderSide
+from app.models.user import (
+    Organization,
+    OrganizationProvenance,
+    User,
+    UserRole,
+    UserStatus,
 )
 from app.services.fame_order import (
-    fame_terms_compatible, is_fame_product, validate_fame_order_terms,
+    fame_terms_compatible,
+    is_fame_product,
+    validate_fame_order_terms,
+)
+from app.services.kyc_execution import (
+    advisory_kyc_allows,
+    kyc_execution_clause,
+    kyc_execution_eligibility,
+)
+from app.services.lng_order import (
+    is_lng_product,
+    lng_terms_compatible,
+    validate_lng_order_terms,
 )
 
 
@@ -33,12 +48,8 @@ async def market_party_is_admitted(db, *, user: User, organization: Organization
         return False
     if getattr(user, "must_change_password", False):
         return False
-    if check_legacy_kyc:
-        if getattr(user, "kyc_status", None) == "REJECTED":
-            return False
-        kyc_organization_id = getattr(user, "kyc_organization_id", None)
-        if kyc_organization_id is not None and kyc_organization_id != user_org_id:
-            return False
+    if check_legacy_kyc and not advisory_kyc_allows(user):
+        return False
     if organization is None and hasattr(db, "execute"):
         result = await db.execute(select(Organization).where(Organization.id == user.organization_id))
         organization = result.scalar_one_or_none()

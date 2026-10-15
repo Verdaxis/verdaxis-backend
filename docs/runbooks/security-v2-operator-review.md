@@ -49,6 +49,31 @@ single-case decision endpoints. Hold production KYC execution enforcement until
 the product owner explicitly approves rollout.
 
 
+## KYC execution gate switch (Private Beta)
+
+`KYC_EXECUTION_GATE_ENABLED` (in `app/services/kyc_execution.py`, the one
+decision point) turns the KYC execution rule off without removing any KYC code
+or data. Its code default is `true` (fail safe): a missing setting still
+enforces KYC.
+
+- **Prod and staging run with it `false` through Private Beta.** Set
+  `KYC_EXECUTION_GATE_ENABLED=false` in each environment's `.env` and restart.
+  Confirm the startup log line `KYC execution gate: disabled` (one line per
+  Uvicorn worker) after each deploy.
+- **With the gate off**, only a `REJECTED` review or a review bound to another
+  organization revokes access. Every other status is admitted and reports
+  `KYC_NOT_ENFORCED` with no grace deadline; resting orders of non-KYC users
+  show and match again. KYC submission and admin approve/reject keep working.
+- `python -m app.cli.send_kyc_grace_notices` refuses with a non-zero exit while
+  the gate is off, so a notice is never sent that no user needs.
+
+**Launch note.** When the gate is turned back on, grace has expired (28 Oct
+2026), so every user without approved KYC is blocked at once: `/api/auth/me`
+reports `KYC_REQUIRED` and new executions return 403 `KYC_REQUIRED`. Plan KYC
+approvals — or write a new reviewed grace snapshot — before you set the switch
+to `true`.
+
+
 ## KYC key operations (separate operator approval required)
 
 Run only on the approved host as root. Use `/etc/verdaxis/kyc-document-keys-staging.json`

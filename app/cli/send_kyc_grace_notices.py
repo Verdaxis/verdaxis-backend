@@ -7,6 +7,16 @@ from datetime import UTC, datetime
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 
+from app.services.kyc_execution import kyc_execution_gate_enabled
+
+_GATE_DISABLED_MESSAGE = (
+    "kyc grace notices refused: the KYC execution gate is disabled"
+)
+
+
+class KycGraceNoticeGateDisabled(RuntimeError):
+    """The gate is off, so a sent notice would be misleading."""
+
 
 def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -59,6 +69,10 @@ async def run_once(environment: str, release_sha: str) -> int:
     from app.config import settings
 
     assert_runtime_identity(settings, environment, release_sha)
+    if not kyc_execution_gate_enabled():
+        # With the gate off no user depends on grace, so a notice would be
+        # wrong. Refuse before importing or contacting the database.
+        raise KycGraceNoticeGateDisabled(_GATE_DISABLED_MESSAGE)
     from app.database import AsyncSessionLocal
 
     async with AsyncSessionLocal() as db:
@@ -69,7 +83,11 @@ async def run_once(environment: str, release_sha: str) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_cli_args(argv)
-    return asyncio.run(run_once(args.environment, args.release_sha))
+    try:
+        return asyncio.run(run_once(args.environment, args.release_sha))
+    except KycGraceNoticeGateDisabled as refusal:
+        print(str(refusal))
+        return 2
 
 
 if __name__ == "__main__":

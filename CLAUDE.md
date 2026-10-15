@@ -275,6 +275,7 @@ KYC uses no Gemini or other external document provider. An advisory DeepSeek V4.
 - Assisted execution uses the shared customer-organization helper in `execution_policy.py`; administrator KYC is irrelevant. Never seed fake demo KYC.
 - `kyc_execution_grace` is runtime SELECT-only. Notice claims live separately. The operator-only `app.cli.send_kyc_grace_notices` requires explicit deployed environment and full release SHA; no timer is installed. Uncertain sends remain claimed and are not automatically retried.
 - `/api/auth/me` includes `kyc_status` and `execution_eligibility`. Positive execution fixtures must explicitly bind approved KYC to their organization.
+- The whole gate is behind one switch, `KYC_EXECUTION_GATE_ENABLED` (default `true`, fail safe). It lives only in `app/services/kyc_execution.py` — the one decision point — and the SQL mirror and every caller follow it. Do not add `if settings...` gate checks in routes or services. Prod and staging set it `false` for Private Beta; see `docs/security-hardening-v2.md` and the security operator runbook.
 
 ## Known Gotchas
 
@@ -312,6 +313,8 @@ KYC uses no Gemini or other external document provider. An advisory DeepSeek V4.
 
 17. **Production backend exposure is systemd-loopback only.** Production binds `127.0.0.1:8000` and staging binds `127.0.0.1:8001`; Caddy handles external traffic. Docker Compose remains a development/disposable topology and is not the live service manager.
 
+18. **The KYC execution gate has one on/off switch.** `KYC_EXECUTION_GATE_ENABLED` (default true, fail safe) is read only in `app/services/kyc_execution.py` — the one decision point — and its SQL mirror and every caller follow it automatically. Do not add `if settings...` gate checks in routes or services; change the switch and the shared helpers. When it is false (Private Beta on prod and staging) the EXECUTION policy behaves as the pre-gate advisory rule: only `REJECTED` or a review bound to another organization blocks, and an eligible user reports `KYC_NOT_ENFORCED`. The lifespan logs one line with the state, and `python -m app.cli.send_kyc_grace_notices` refuses with a non-zero exit. Keep all KYC code and data; turning the gate back on blocks every user without approved KYC at once. See the KYC runbook (`docs/security-hardening-v2.md`).
+
 ## Environment Variables
 
 Key variables in `.env` (loaded by `pydantic-settings`):
@@ -345,6 +348,7 @@ MIGRATOR_LOCK_TIMEOUT_MS=30000
 MIGRATOR_IDLE_IN_TRANSACTION_SESSION_TIMEOUT_MS=300000
 KYC_MAX_FILE_BYTES=10485760   # 10 MiB per document
 KYC_MAX_TOTAL_BYTES=20971520  # 20 MiB per KYC request
+KYC_EXECUTION_GATE_ENABLED=true  # Prod/staging set false for Private Beta; true at launch
 HEALTH_READINESS_TIMEOUT_SECONDS=2
 BACKEND_CORS_ORIGINS=          # Omit for exact environment-specific allowlist
 ```
