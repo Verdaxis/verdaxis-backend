@@ -152,6 +152,7 @@ sudo -n -u verdaxis-prod /home/verdaxis-prod/verdaxis/staging/be/scripts/deploy.
 
 | Table                | Purpose                                           |
 | -------------------- | ------------------------------------------------- |
+| `kyc_documents` | Append-only AES-256-GCM encrypted KYC evidence; RESTRICT user/org ownership |
 | `users`              | Auth, role (BUYER/SUPPLIER/ADMIN), status         |
 | `organizations`      | Companies. Users belong to orgs. Has `domain` for auto-matching on registration |
 | `orderbook_orders`   | Unified order book. side=BID (buyer wants) or ASK (seller offers) |
@@ -220,7 +221,11 @@ sudo -n -u verdaxis-prod /home/verdaxis-prod/verdaxis/staging/be/scripts/deploy.
 - `POST /api/matchmaking/generate/{order_id}` -- Trigger match generation
 - `PATCH /api/matchmaking/suggestions/{id}/dismiss`
 
+- `POST /api/kyc/submit` -- Retain encrypted ID and company documents; no external provider
+
 ### Admin Only
+- `GET /api/kyc/admin/{user_id}/documents` -- Up to 50 newest document metadata rows
+- `GET /api/kyc/admin/documents/{document_id}` -- Audited, no-store encrypted-vault download
 - `GET /api/auth/admin/invitations/organizations` -- Eligible real organizations for pre-approved invitations
 - `POST /api/auth/admin/invitations` -- Create or rotate a single-use pre-approved invitation, optionally creating its onboarding-approved organization atomically
 - `PUT /api/auth/approve/{user_id}` -- Approve a verified account and queue a frozen, transition-scoped sign-in email for row-serialized post-commit delivery
@@ -258,6 +263,10 @@ sudo -n -u verdaxis-prod /home/verdaxis-prod/verdaxis/staging/be/scripts/deploy.
 9. **Router prefix pattern:** Some routers define their prefix in `APIRouter(prefix="/...")`, others rely on `@router.get("/endpoint")` path. All are mounted with `prefix=settings.API_V1_STR` (`/api`) in `main.py`.
 10. **Orderbook router: static routes before parametric.** `/bids`, `/asks`, `/my`, `/aggregated`, `/regions`, `/fuel-types`, `/with-ci` are defined before `/{order_id}` to avoid path conflicts.
 11. **After completing work, update ARCHITECTURE.md if file structure or key relationships changed.**
+
+## KYC document retention
+
+KYC uses no Gemini or other external document provider. An advisory DeepSeek V4.1 Flash check on a non-PRC host is planned, not built. Store both encrypted rows with status and audit; retain history. Runtime access is SELECT/INSERT only. Never weaken RESTRICT or register documents in SQLAdmin. Keys come from systemd credentials (explicit file path only for development/test); missing/invalid keys disable storage, not readiness. See the security operator runbook for offline backup and rotation.
 
 ## KYC execution gate
 
