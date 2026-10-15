@@ -2,8 +2,8 @@
 
 import fcntl
 import hashlib
-import io
 import importlib.util
+import io
 import json
 import os
 import re
@@ -16,8 +16,10 @@ from pathlib import Path
 
 import pytest
 
-from scripts.validate_health_response import HealthResponseError, validate_health_response
-
+from scripts.validate_health_response import (
+    HealthResponseError,
+    validate_health_response,
+)
 
 ROOT = Path(__file__).parents[2]
 SHA = "a" * 40
@@ -166,7 +168,7 @@ def _deployment_checkout(tmp_path: Path) -> tuple[Path, Path, str]:
     for name in ("app_acl_policy.sql", "converge_runtime_object_acls.sql"):
         shutil.copy2(ROOT / "deploy/postgres" / name, postgres_policy / name)
     (source / ".gitignore").write_text(
-        "venv/\n.runtime-release.env\n.runtime-deploy/\n"
+        "venv/\n.runtime-release.env\n.runtime-monitor.env\n.runtime-deploy/\n"
     )
     (source / "requirements.txt").write_text("deployment-test==1\n")
     (source / "constraints.txt").write_text("deployment-test==1\n")

@@ -316,6 +316,17 @@ acquire_restart_window_lock() {
     fi
 }
 
+write_monitor_identity() {
+    local release_sha="$1"
+    local identity_file="$BACKEND_DIR/.runtime-monitor.env"
+    local temporary_file="${identity_file}.tmp.$$"
+
+    printf 'ENVIRONMENT=%s\nRELEASE_SHA=%s\n' \
+        "$DEPLOY_ENVIRONMENT" "$release_sha" > "$temporary_file"
+    chmod 0644 "$temporary_file"
+    mv -- "$temporary_file" "$identity_file"
+}
+
 write_release_artifact() {
     local release_sha="$1"
     local migration_revision="$2"
@@ -328,6 +339,9 @@ write_release_artifact() {
         > "$temporary_file"
     chmod 0600 "$temporary_file"
     mv -- "$temporary_file" "$RELEASE_ENV_FILE"
+    # Both identities publish under durable blocked state, before candidate code
+    # or a restart. A failed second replacement leaves starts blocked.
+    write_monitor_identity "$release_sha"
 }
 
 write_deploy_state() {

@@ -297,11 +297,21 @@ forward-compatible corrective migration.
 
 ## Database roles and session timeouts
 
-Deployed identities are exact:
+Canonical Phase 0 release identities are exact. The old production release
+continues to require `verdaxis` for complete-tuple rollback; do not point either
+release at the other's database. This source change is not a live cutover.
+See [the fenced one-use checklist](runbooks/phase0-cutover.md).
+
+Both fixed checkout paths select canonical `staging`. Normal deploy publishes
+`.runtime-release.env` and credential-free `.runtime-monitor.env` while durable
+state blocks starts. The external Phase 0 guard adds a root-owned operator-lock
+condition; it never replaces the existing two-lock guard or migration gates.
+
+Canonical identities:
 
 | Environment | Database | Runtime app role | Migrator role |
 |---|---|---|---|
-| production | `verdaxis` | `verdaxis_app` | `verdaxis_migrator` |
+| production | `verdaxis_prod` | `verdaxis_app` | `verdaxis_migrator` |
 | staging | `verdaxis_staging` | `verdaxis_app_staging` | `verdaxis_migrator_staging` |
 
 Both environments require PostgreSQL URLs, explicit non-default passwords in

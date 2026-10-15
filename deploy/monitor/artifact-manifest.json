@@ -35,7 +35,7 @@
       "source": "outbox_backlog_probe.py",
       "destination": "/usr/local/libexec/verdaxis-monitor/outbox_backlog_probe.py",
       "mode": "0755",
-      "sha256": "1b16a512849901daa9d13f95169ce6ee0652e4c8bc2ce814bbe2c1d61e40b726"
+      "sha256": "2a8a2175625c8614875650c68c282bc147900006c01958062851ba8d75a21b3b"
     },
     {
       "source": "retirement-evidence.example.json",
