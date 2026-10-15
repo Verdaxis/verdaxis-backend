@@ -13,8 +13,8 @@
 --   $9  market_product code (text, null = any)
 --   $10 region (text, null = any)
 --   $11 availability_window (text, null = any)
---   $12 limit (bigint)
---   $13 offset (bigint)
+--   $12 surface: orderbook, listings, or candidates (text)
+-- No pagination here: consumers rank, aggregate and page the shared relation.
 --
 -- Product identity comes only from the policy. The statement never names a
 -- product, a product code, or a product UUID.
@@ -42,7 +42,18 @@ policy_points AS (
         display_order integer
     )
 )
-SELECT o.id
+SELECT o.*, p.name AS product_name, p.fuel_type AS product_fuel_type,
+       p.fuel_grade AS product_fuel_grade, p.is_active AS product_is_active,
+       dp.name AS delivery_point_name, dp.region AS delivery_point_region,
+       (SELECT pp.code FROM policy_products pp WHERE pp.id = p.id) AS market_product,
+       -- Internal only. Never serialize this object as a public DTO.
+       to_jsonb(o) || jsonb_build_object(
+           'quantity_mt', o.quantity_mt::text,
+           'remaining_quantity_mt', o.remaining_quantity_mt::text,
+           'price_per_mt_usd', o.price_per_mt_usd::text,
+           'carbon_intensity_gco2_mj', o.carbon_intensity_gco2_mj::text,
+           'energy_density_mj_kg', o.energy_density_mj_kg::text
+       ) AS private_digest_input
 FROM orderbook_orders AS o
 JOIN products AS p ON p.id = o.product_id
 JOIN delivery_points AS dp ON dp.id = o.delivery_point_id
@@ -71,12 +82,12 @@ WHERE o.status IN ('OPEN', 'PARTIALLY_FILLED')
         WHERE pq.id = dp.id AND pq.name = dp.name AND pq.region = dp.region
     )
     -- Canonical availability-window grammar.
-    AND (
+    AND ($12::text <> 'orderbook' OR (
         o.availability_window = 'SPOT'
         OR o.availability_window ~ '^[0-9]{4}-(0[1-9]|1[0-2])$'
         OR o.availability_window ~ '^[0-9]{4}-Q[1-4]$'
         OR o.availability_window ~ '^[0-9]{4}-CAL$'
-    )
+    ))
     -- Currency: an explicit future expiry, or a null expiry on REAL/UNKNOWN.
     AND (
         o.expires_at > $2::timestamptz
@@ -235,7 +246,7 @@ WHERE o.status IN ('OPEN', 'PARTIALLY_FILLED')
     -- Admitted fuel types.
     AND p.fuel_type IN ('Methanol', 'Ethanol', 'FAME', 'LNG')
     -- Scalar ASK quality declarations.
-    AND (
+    AND ($12::text <> 'orderbook' OR (
         o.side <> 'ASK'
         OR (
             length(btrim(coalesce(o.certification_scheme, ''))) > 0
@@ -269,8 +280,11 @@ WHERE o.status IN ('OPEN', 'PARTIALLY_FILLED')
             )
         )
     )
+    )
     -- Off-spec rows are hidden unless the caller asks for them.
-    AND (o.off_spec = false OR $4::boolean)
+    AND ($12::text <> 'orderbook' OR o.off_spec = false OR $4::boolean)
+    AND ($12::text <> 'listings' OR o.side = 'ASK')
+    AND $12::text IN ('orderbook', 'listings', 'candidates')
     -- Route filters.
     AND ($5::uuid IS NULL OR o.product_id = $5::uuid)
     AND ($6::uuid IS NULL OR o.delivery_point_id = $6::uuid)
@@ -290,4 +304,4 @@ WHERE o.status IN ('OPEN', 'PARTIALLY_FILLED')
     )
     AND ($10::text IS NULL OR dp.region = $10::text)
     AND ($11::text IS NULL OR o.availability_window = $11::text)
-LIMIT $12::bigint OFFSET $13::bigint
+

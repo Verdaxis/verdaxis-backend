@@ -36,7 +36,7 @@ async def _insert(session, statement: str, values: dict) -> None:
     await session.execute(text(statement), values)
 
 
-async def seed(session, clock: datetime) -> None:
+async def seed(session, clock: datetime) -> dict:
     """Insert the fixture matrix. Every row is explicit; nothing is inferred."""
     from app.market_catalog import CANONICAL_DELIVERY_POINTS, CANONICAL_PRODUCTS
     from sqlalchemy import text
@@ -137,6 +137,15 @@ async def seed(session, clock: datetime) -> None:
         "customer": ("real", "SUPPLIER", "APPROVED", True, False, "APPROVED", "real"),
         "admin_only": ("real_admin_only", "ADMIN", "APPROVED", True, False, "PENDING", None),
     }
+    users.update({
+        "rejected_with_grace": ("real", "BUYER", "APPROVED", True, False, "REJECTED", "real"),
+        "wrong_kyc_org": ("real", "BUYER", "APPROVED", True, False, "APPROVED", "real_alt"),
+        "wrong_grace_org": ("real", "BUYER", "APPROVED", True, False, "PENDING", None),
+        "grace_before": ("real", "BUYER", "APPROVED", True, False, "PENDING", None),
+        "grace_after": ("real", "BUYER", "APPROVED", True, False, "PENDING", None),
+        "org_revoked": ("pending", "BUYER", "APPROVED", True, False, "APPROVED", "pending"),
+        "admin_rejected": ("real", "ADMIN", "REJECTED", True, False, "APPROVED", "real"),
+    })
     user = {}
     for key, (org_key, role, status, verified, must_change, kyc, kyc_org) in users.items():
         identifier = fid(f"user:{key}")
@@ -152,11 +161,15 @@ async def seed(session, clock: datetime) -> None:
             "kyc_status": kyc,
             "kyc_organization_id": org[kyc_org] if kyc_org else None,
         })
-    for key, delta in (("grace_ok", timedelta(hours=1)), ("grace_edge", timedelta(0))):
+    for key, delta in (("grace_ok", timedelta(hours=1)), ("grace_edge", timedelta(0)),
+                       ("rejected_with_grace", timedelta(hours=1)),
+                       ("wrong_grace_org", timedelta(hours=1)),
+                       ("grace_before", timedelta(microseconds=-1)),
+                       ("grace_after", timedelta(microseconds=1))):
         await _insert(session, INSERT_GRACE, {
             "id": fid(f"grace:{key}"),
             "user_id": user[key],
-            "organization_id": org["real"],
+            "organization_id": org["real_alt"] if key == "wrong_grace_org" else org["real"],
             "expires_at": clock + delta,
         })
 
@@ -293,8 +306,43 @@ async def seed(session, clock: datetime) -> None:
               owner_user_id=None, expires_at=past),
         order("real_expired_bid", expires_at=past),
     ]
+    additions = {
+        name: order(name, owner_user_id=user[name])
+        for name in ("rejected_with_grace", "wrong_kyc_org", "wrong_grace_org", "grace_before", "grace_after")
+    }
+    additions.update({
+        "org_revoked": order("org_revoked", organization_id=org["pending"], owner_user_id=user["org_revoked"]),
+        "assisted_rejected": order("assisted_rejected", creation_method="MARKET_SUPPORT",
+            owner_user_id=user["admin_rejected"], created_by_actor_user_id=user["admin_rejected"]),
+        "assisted_mismatched": order("assisted_mismatched", creation_method="MARKET_SUPPORT",
+            owner_user_id=user["admin"], created_by_actor_user_id=user["admin_only"]),
+        "admin_kyc_only": order("admin_kyc_only", organization_id=org["real_admin_only"],
+            creation_method="MARKET_SUPPORT", owner_user_id=user["admin_only"], created_by_actor_user_id=user["admin_only"]),
+        "expiry_equal": order("expiry_equal", expires_at=clock),
+        "demo_null_expiry": order("demo_null_expiry", provenance="DEMO", organization_id=org["demo_buyer"], owner_user_id=None),
+        "zero_remaining": order("zero_remaining", remaining_quantity_mt="0.00"),
+        "typed_invalid_visible": order("typed_invalid_visible", side="ASK", product_id=fame,
+            fame_terms={**fame_terms, "certificate_holder": ""}, **scalar_declarations),
+        "fame_wrong_lane": order("fame_wrong_lane", side="ASK", product_id=fame,
+            delivery_point_id=rotterdam, fame_terms=fame_terms, **scalar_declarations),
+        "lng_wrong_lane": order("lng_wrong_lane", side="ASK", product_id=lng,
+            delivery_point_id=singapore, lng_terms=lng_terms, **scalar_declarations),
+    })
+    from sqlalchemy.exc import IntegrityError, DBAPIError
+    cases = {}
     for values in rows:
         await _insert(session, INSERT_ORDER, values)
+    for name, values in additions.items():
+        try:
+            async with session.begin_nested():
+                await _insert(session, INSERT_ORDER, values)
+        except (IntegrityError, DBAPIError) as error:
+            if name not in {"fame_wrong_lane", "lng_wrong_lane", "demo_null_expiry", "zero_remaining", "assisted_mismatched"}:
+                raise
+            cases[name] = {"guard_refused": True, "sqlstate": getattr(error.orig, "sqlstate", None)}
+        else:
+            cases[name] = {"id": str(values["id"])}
+    await session.execute(text("UPDATE users SET kyc_status='APPROVED', kyc_organization_id=organization_id WHERE id=:id"), {"id": user["admin_only"]})
 
     trade_product = {
         "product_id": methanol,
@@ -337,6 +385,8 @@ async def seed(session, clock: datetime) -> None:
         trade("demo_demo", buyer_id=org["demo_buyer"], seller_id=org["demo_seller"],
               buyer_provenance="DEMO", seller_provenance="DEMO",
               initiator_org_id=org["demo_buyer"], status="CONFIRMED"),
+        trade("delivered", status="DELIVERED", delivered_at=clock,
+              final_quantity_mt="100.00", final_price_per_mt="600.00", final_total_usd="60000.00"),
         trade("pending", status="PENDING_CONFIRMATION", confirmed_at=None),
         trade("cancelled", status="CANCELLED", confirmed_at=None),
         trade("paid", status="PAID", delivered_at=clock, paid_at=clock,
@@ -350,12 +400,28 @@ async def seed(session, clock: datetime) -> None:
     for values in trades:
         await _insert(session, INSERT_TRADE, values)
 
+    # Guards are acceptance evidence too: never disable them to create impossible rows.
+    for name, statement, values in (
+        ("canary_org", INSERT_ORGANIZATION, {"id": fid("org:canary"), "name": "Canary", "verification_status": "APPROVED", "provenance": "CANARY"}),
+        ("unregistered_test_org", INSERT_ORGANIZATION, {"id": fid("org:test-invalid"), "name": "Test", "verification_status": "APPROVED", "provenance": "TEST"}),
+        ("mixed_trade", INSERT_TRADE, trade("mixed_trade", seller_id=org["demo_seller"], seller_provenance="DEMO")),
+        ("legacy_trade_insert", INSERT_TRADE, trade("legacy_trade_insert", market_snapshot_version=0)),
+    ):
+        try:
+            async with session.begin_nested():
+                await _insert(session, statement, values)
+        except DBAPIError as error:
+            cases[name] = {"guard_refused": True, "sqlstate": getattr(error.orig, "sqlstate", None)}
+        else:
+            raise AssertionError(f"expected database guard refusal: {name}")
+
     # The attestation is a policy check, not an authorization claim.
     row = (await session.execute(text(ATTESTATION_SQL))).one()
     if row[0] != os.environ.get("RUST_MARKET_EXPECTED_DATABASE"):
         raise RuntimeError("the oracle refused an unattested fixture database")
     if row[1]:
         raise RuntimeError("the oracle refuses a superuser fixture writer")
+    return cases
 
 
 async def select(session) -> dict:
@@ -387,7 +453,51 @@ async def select(session) -> dict:
             sql_select(Trade.id).where(public_trade_evidence_clause(Trade))
         )
     ).scalars()}
+    from app.models.catalog import Product, DeliveryPoint
+    from app.services.market_data_eligibility import (
+        current_public_order_clause, public_order_collection_provenance_clause,
+        active_market_catalog_clauses,
+    )
+    listings = sql_select(OrderBookOrder.id).join(Product).join(DeliveryPoint).where(
+        OrderBookOrder.side == "ASK",
+        OrderBookOrder.status.in_(("OPEN", "PARTIALLY_FILLED")),
+        current_public_order_clause(OrderBookOrder),
+        public_order_collection_provenance_clause(OrderBookOrder),
+        *active_market_catalog_clauses(Product, DeliveryPoint),
+    ).order_by(OrderBookOrder.created_at.desc(), OrderBookOrder.id)
+    listing_ids = [str(value) for value in (await session.execute(listings)).scalars()]
+    from app.services.order_terms import executable_order_terms
+    visible_ids = await visible(False)
+    digest_inputs = {}
+    for order_row in (await session.execute(sql_select(OrderBookOrder))).scalars():
+        if str(order_row.id) in visible_ids:
+            digest_inputs[str(order_row.id)] = executable_order_terms(order_row)
+    # Exact product/point filter combinations cannot leak another lane.
+    from app.market_catalog import PRODUCT_IDS, CANONICAL_DELIVERY_POINTS
+    points = {point.name: point.id for point in CANONICAL_DELIVERY_POINTS}
+    lane_filters = []
+    for product_id in (PRODUCT_IDS["UCOME_B100"], PRODUCT_IDS["BIO_LNG"]):
+        for point_id in (points["Singapore"], points["Rotterdam"]):
+            filters, joins = public_order_scope()
+            query = sql_select(OrderBookOrder.id)
+            for target, condition in joins:
+                query = query.join(target, condition)
+            result = await session.execute(query.where(*filters,
+                OrderBookOrder.product_id == product_id, OrderBookOrder.delivery_point_id == point_id))
+            lane_filters.append({"product": str(product_id), "point": str(point_id),
+                                 "ids": sorted(str(value) for value in result.scalars())})
+    cutoffs = {}
+    instant = datetime.fromisoformat(os.environ[CLOCK_ENV])
+    for name, kwargs in (("since_equal", {"confirmed_since": instant}),
+                         ("before_equal", {"confirmed_before": instant})):
+        cutoffs[name] = sorted(str(value) for value in (await session.execute(
+            sql_select(Trade.id).where(public_trade_evidence_clause(Trade, **kwargs))
+        )).scalars())
     return {
+        "lane_filters": lane_filters,
+        "digest_inputs": digest_inputs,
+        "cutoffs": cutoffs,
+        "listings": listing_ids,
         "all_orders": sorted(all_orders),
         "selected": sorted(await visible(False)),
         "selected_with_off_spec": sorted(await visible(True)),
@@ -479,13 +589,19 @@ async def _main() -> None:
     sessionmaker = async_sessionmaker(engine, expire_on_commit=False)
     try:
         async with sessionmaker() as session:
-            await seed(session, instant)
+            cases = await seed(session, instant)
             await session.commit()
         async with sessionmaker() as session:
             selected = await select(session)
+            for name, case in cases.items():
+                if "id" in case:
+                    wanted = name in {"grace_after", "typed_invalid_visible"}
+                    assert (case["id"] in selected["selected"]) == wanted, name
+                    case["visible"] = wanted
     finally:
         stack.close()
     payload = {
+        "cases": cases,
         "clock": instant.isoformat(),
         "singapore_date": singapore_date,
         **selected,

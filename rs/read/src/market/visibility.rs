@@ -10,6 +10,7 @@ use chrono::{DateTime, NaiveDate, Utc};
 use uuid::Uuid;
 
 use crate::MarketPolicy;
+use sqlx::{postgres::PgArguments, query::Query};
 
 /// The complete bound public-order SELECT.
 pub fn public_order_sql() -> &'static str {
@@ -39,10 +40,88 @@ impl VisibilityClock {
     }
 }
 
+/// Surface policy. Candidates retain only shared current/catalog/provenance rules;
+/// benchmarks and curves apply their own typed/scalar qualification afterwards.
+#[derive(Clone, Copy, Debug, Default)]
+pub enum OrderSurface {
+    #[default]
+    Orderbook,
+    Listings,
+    Candidates,
+}
+impl OrderSurface {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Orderbook => "orderbook",
+            Self::Listings => "listings",
+            Self::Candidates => "candidates",
+        }
+    }
+}
+
+/// Compose only developer-owned static SQL around the shared relation. The tail
+/// reads `eligible_orders` and owns projection, extra filters, ranking and limits.
+/// Values remain SQLx binds; no request text is accepted here.
+pub struct OrderQuery(String);
+pub struct TradeQuery(String);
+
+pub fn order_query_sql(tail: &'static str) -> OrderQuery {
+    OrderQuery(format!(
+        "WITH eligible_orders AS ({}) {}",
+        public_order_sql(),
+        tail
+    ))
+}
+
+/// Same composition boundary for immutable historical evidence.
+pub fn trade_query_sql(tail: &'static str) -> TradeQuery {
+    TradeQuery(format!(
+        "WITH eligible_trades AS ({}) {}",
+        trade_evidence_sql(),
+        tail
+    ))
+}
+
+pub fn bind_order_query<'q>(
+    sql: &OrderQuery,
+    policy: &MarketPolicy,
+    clock: &VisibilityClock,
+    filters: &PublicOrderFilters<'_>,
+) -> Result<Query<'q, sqlx::Postgres, PgArguments>, sqlx::Error> {
+    Ok(sqlx::query(sqlx::AssertSqlSafe(sql.0.clone()))
+        .bind(policy_json(policy)?)
+        .bind(clock.now)
+        .bind(clock.singapore_date.format("%Y-%m-%d").to_string())
+        .bind(filters.include_off_spec)
+        .bind(filters.product_id)
+        .bind(filters.delivery_point_id)
+        .bind(filters.side.map(str::to_owned))
+        .bind(filters.fuel_type.map(str::to_owned))
+        .bind(filters.market_product.map(str::to_owned))
+        .bind(filters.region.map(str::to_owned))
+        .bind(filters.availability_window.map(str::to_owned))
+        .bind(filters.surface.as_str()))
+}
+
+pub fn bind_trade_query<'q>(
+    sql: &TradeQuery,
+    policy: &MarketPolicy,
+    filters: &TradeEvidenceFilters<'_>,
+) -> Result<Query<'q, sqlx::Postgres, PgArguments>, sqlx::Error> {
+    Ok(sqlx::query(sqlx::AssertSqlSafe(sql.0.clone()))
+        .bind(policy_json(policy)?)
+        .bind(filters.confirmed_since)
+        .bind(filters.confirmed_before)
+        .bind(filters.product_id)
+        .bind(filters.delivery_point_id)
+        .bind(filters.availability_window.map(str::to_owned)))
+}
+
 /// Route filters for the shared public-order statement. Every field is bound;
 /// `None` means "no filter". `limit` must be positive.
 #[derive(Clone, Debug)]
 pub struct PublicOrderFilters<'a> {
+    pub surface: OrderSurface,
     pub side: Option<&'a str>,
     pub product_id: Option<Uuid>,
     pub delivery_point_id: Option<Uuid>,
@@ -58,6 +137,7 @@ pub struct PublicOrderFilters<'a> {
 impl Default for PublicOrderFilters<'_> {
     fn default() -> Self {
         Self {
+            surface: OrderSurface::Orderbook,
             side: None,
             product_id: None,
             delivery_point_id: None,
@@ -83,24 +163,14 @@ pub async fn select_public_order_ids(
     clock: &VisibilityClock,
     filters: &PublicOrderFilters<'_>,
 ) -> Result<Vec<Uuid>, sqlx::Error> {
-    let policy = policy_json(policy)?;
-    let singapore_date = clock.singapore_date.format("%Y-%m-%d").to_string();
-    sqlx::query_scalar::<_, Uuid>(public_order_sql())
-        .bind(policy)
-        .bind(clock.now)
-        .bind(singapore_date)
-        .bind(filters.include_off_spec)
-        .bind(filters.product_id)
-        .bind(filters.delivery_point_id)
-        .bind(filters.side)
-        .bind(filters.fuel_type)
-        .bind(filters.market_product)
-        .bind(filters.region)
-        .bind(filters.availability_window)
+    let sql = order_query_sql("SELECT id FROM eligible_orders ORDER BY id LIMIT $13 OFFSET $14");
+    let rows = bind_order_query(&sql, policy, clock, filters)?
         .bind(filters.limit)
         .bind(filters.skip)
         .fetch_all(connection)
-        .await
+        .await?;
+    use sqlx::Row;
+    rows.iter().map(|row| row.try_get("id")).collect()
 }
 
 /// Route filters for the shared trade-evidence statement.
@@ -135,16 +205,12 @@ pub async fn select_trade_evidence_ids(
     policy: &MarketPolicy,
     filters: &TradeEvidenceFilters<'_>,
 ) -> Result<Vec<Uuid>, sqlx::Error> {
-    let policy = policy_json(policy)?;
-    sqlx::query_scalar::<_, Uuid>(trade_evidence_sql())
-        .bind(policy)
-        .bind(filters.confirmed_since)
-        .bind(filters.confirmed_before)
-        .bind(filters.product_id)
-        .bind(filters.delivery_point_id)
-        .bind(filters.availability_window)
+    let sql = trade_query_sql("SELECT id FROM eligible_trades ORDER BY id LIMIT $7 OFFSET $8");
+    let rows = bind_trade_query(&sql, policy, filters)?
         .bind(filters.limit)
         .bind(filters.skip)
         .fetch_all(connection)
-        .await
+        .await?;
+    use sqlx::Row;
+    rows.iter().map(|row| row.try_get("id")).collect()
 }

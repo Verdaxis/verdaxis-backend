@@ -13,8 +13,7 @@
 --   $4 product_id (uuid, null = any)
 --   $5 delivery_point_id (uuid, null = any)
 --   $6 availability_window (text, null = any)
---   $7 limit (bigint)
---   $8 offset (bigint)
+-- No pagination: consumers filter evidence class, aggregate and page afterwards.
 WITH policy_products AS (
     SELECT *
     FROM jsonb_to_recordset(($1::jsonb) -> 'products') AS policy_product(
@@ -39,7 +38,7 @@ policy_points AS (
         display_order integer
     )
 )
-SELECT t.id
+SELECT t.*
 FROM trades AS t
 WHERE t.market_snapshot_version = 1
     AND EXISTS (
@@ -76,4 +75,4 @@ WHERE t.market_snapshot_version = 1
     AND ($4::uuid IS NULL OR t.product_id = $4::uuid)
     AND ($5::uuid IS NULL OR t.delivery_point_id = $5::uuid)
     AND ($6::text IS NULL OR t.availability_window = $6::text)
-LIMIT $7::bigint OFFSET $8::bigint
+

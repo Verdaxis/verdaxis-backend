@@ -68,6 +68,8 @@ Founder (15 Oct): the benchmark should use REAL orders only in the end; keep the
 
 Staging and prod PostgreSQL servers use different default time zones (staging `Asia/Singapore`, prod `UTC`), so day grouping differs between the environments. Phase 0 picks one.
 
+Python edge contracts found during Task 6 repair (not changed): scalar CI has no upper bound; digest normalization uses Python's default 28-digit half-even context. Window query normalization accepts Unicode decimal years and year zero, while date construction rejects year zero. Rust preserves these behaviors rather than tightening Python inputs.
+
 ### Review disposition
 
 Applied B1 using the PM's AD-01 decision instead of changing Python or reducing scope. Applied M1 with a dedicated shared live-benchmark task. Applied M2–M6 and N1–N3 through executable task gates, test-only complete clock injection, effective budget checks, an assertion ledger, smaller checkpoints, and one external comparator. The review is `/Users/jonathanjie/Documents/workspace/Verdaxis/outputs/research/rust-phase1-plan-review.md`. No review finding authorizes live execution.
@@ -854,6 +856,21 @@ pub fn redact_terms(profile: &str, terms: &Json) -> Result<Json, String>;
 pub fn normalize_window(value: &str, today: chrono::NaiveDate) -> Result<String, String>;
 pub fn public_order_sql() -> &'static str;
 pub fn trade_evidence_sql() -> &'static str;
+// market::visibility: sealed static-SQL composition; no request text in SQL.
+pub enum OrderSurface { Orderbook, Listings, Candidates }
+pub struct OrderQuery(/* private */);
+pub struct TradeQuery(/* private */);
+pub fn order_query_sql(tail: &'static str) -> OrderQuery;
+pub fn trade_query_sql(tail: &'static str) -> TradeQuery;
+pub fn bind_order_query<'q>(sql: &OrderQuery, policy: &MarketPolicy,
+    clock: &VisibilityClock, filters: &PublicOrderFilters<'_>)
+    -> Result<sqlx::query::Query<'q, sqlx::Postgres, sqlx::postgres::PgArguments>, sqlx::Error>;
+pub fn bind_trade_query<'q>(sql: &TradeQuery, policy: &MarketPolicy,
+    filters: &TradeEvidenceFilters<'_>)
+    -> Result<sqlx::query::Query<'q, sqlx::Postgres, sqlx::postgres::PgArguments>, sqlx::Error>;
+// Digest input never narrows unconstrained NUMERIC to rust_decimal.
+pub fn canonical_decimal_text(text: &str) -> Result<String, String>;
+pub fn canonical_terms_from_row(row: &Json) -> Result<Json, String>;
 // In market::terms. Port of app/services/execution_policy.py:112-150 order_is_execution_qualified.
 // Tasks 6a and 10b consume it; no other task reimplements it. The product rules come from
 // MarketPolicy (Task 5), never from product names in code.
@@ -871,9 +888,15 @@ pub struct QualificationInput<'a> {
     pub lng_terms: Option<&'a Json>,
 }
 pub fn order_is_execution_qualified(policy: &MarketPolicy, order: &QualificationInput<'_>) -> bool;
+pub fn order_is_execution_qualified_at(policy: &MarketPolicy,
+    order: &QualificationInput<'_>, singapore_date: chrono::NaiveDate) -> bool;
 ```
 
-`public_order_sql()` returns the complete bound SELECT from `rs/read/sql/public_orders.sql`; it is not a fragment concatenated with user input. Bind policy JSON, query filters, captured UTC, and Singapore date. The query projects private digest input separately from the public DTO. `trade_evidence_sql()` reads immutable snapshots and applies exact provenance pairs.
+`public_order_sql()` and `trade_evidence_sql()` now return unpaged internal relations. The order relation projects order columns, catalog labels, and `private_digest_input` with exact NUMERIC text. Never serialize that internal object publicly. `order_query_sql(static_tail)` wraps it as `eligible_orders`; `trade_query_sql(static_tail)` wraps snapshots as `eligible_trades`. Sealed query types prevent callers from passing request strings to the bind helpers. Static tails may add CTEs, exact tuple filters, ranking, aggregation and pagination. Run the bound query on the admitted transaction connection.
+
+Order binds are policy, UTC instant, Singapore date, off-spec toggle, product, point, side, fuel, market product, region, window, surface (`$1..$12`). Additional tail binds start at `$13`. Trade binds are policy, inclusive since, exclusive before, product, point, window (`$1..$6`); tail binds start at `$7`. `PublicOrderFilters.surface` is `Orderbook` by default. `Listings` applies its narrower ASK query without main scalar qualification. `Candidates` retains shared catalog/current/provenance rules but leaves scalar/typed qualification to benchmarks and curves. No relation applies a positive remaining-quantity filter. Consumers apply it where Python does. Existing ID helpers remain test/convenience adapters, not route pagination APIs. `skip`/`limit` on filter structs are used only by those adapters.
+
+Tasks 6a and 10b must use `VisibilityClock::at(now).singapore_date` with `order_is_execution_qualified_at`; never read the process clock within a captured-clock request.
 
 - [ ] **Step 1: Add regression tests.**
 
@@ -950,7 +973,7 @@ Do not infer `is_verdaxis_verified` from declared certificates. Use allowlisted 
 
 **Files:** Create `rs/read/src/market/live_benchmarks.rs`, `rs/read/sql/live_benchmarks.sql`, `rs/read/tests/live_benchmarks.rs`. Task 3 pre-registers the module; Task 6a owns it exclusively.
 
-**Interfaces:** Consumes shared visibility, policy, typed qualification and Decimal rules. Produces:
+**Interfaces:** Consumes shared visibility, policy, typed qualification and Decimal rules. Produces: Uses `order_query_sql(&'static str) -> OrderQuery` and `bind_order_query(&OrderQuery, &MarketPolicy, &VisibilityClock, &PublicOrderFilters) -> Result<Query, sqlx::Error>` with `OrderSurface::Candidates`; applies typed qualification with `order_is_execution_qualified_at` before aggregation.
 
 ```rust
 #[derive(Clone, Eq, PartialEq, Hash)]
@@ -1008,7 +1031,7 @@ Port `public_slice_order_qualified` exactly, including catalog tuple, lane, stat
 
 **Files:** Create `rs/read/src/routes/orderbook_snapshot.rs`, `rs/read/sql/orderbook/snapshot.sql`, `rs/read/tests/orderbook_snapshot.rs`.
 
-**Interfaces:** Consumes shared visibility, policy, digest, `live_benchmarks`, and read-only SQLx transactions. Produces `pub fn routes() -> axum::Router<AppState>` and `pub async fn snapshot(state: axum::extract::State<AppState>, query: axum::extract::RawQuery) -> ApiResult`. RawQuery uses the Python-compatible validation layer. Covers R15 only.
+**Interfaces:** Consumes shared visibility, policy, digest, `live_benchmarks`, and read-only SQLx transactions. Produces `pub fn routes() -> axum::Router<AppState>` and `pub async fn snapshot(state: axum::extract::State<AppState>, query: axum::extract::RawQuery) -> ApiResult`. RawQuery uses the Python-compatible validation layer. Covers R15 only. Uses the Task 6 `order_query_sql`/`bind_order_query` signatures with `OrderSurface::Orderbook`; ranks `eligible_orders` after shared eligibility, and reads `private_digest_input` before redaction.
 
 - [ ] **Step 1: Add corpus and edge tests.**
 
@@ -1053,7 +1076,7 @@ Select only ranks <=15. Keep the captured time through visibility and benchmark 
 
 **Files:** Create `rs/read/src/routes/orderbook_lists.rs`, `rs/read/sql/orderbook/{bids,asks,list,with_ci}.sql`, `rs/read/tests/orderbook_lists.rs`.
 
-**Interfaces:** Consumes `live_benchmarks`, public projection and digest helpers. Produces `pub fn routes() -> axum::Router<AppState>` and `pub fn page_offset(skip: u64, limit: u64, page: Option<u64>, page_size: Option<u64>) -> Option<(u64,u64)>`. Covers R16–R18 and R26.
+**Interfaces:** Consumes `live_benchmarks`, public projection and digest helpers. Produces `pub fn routes() -> axum::Router<AppState>` and `pub fn page_offset(skip: u64, limit: u64, page: Option<u64>, page_size: Option<u64>) -> Option<(u64,u64)>`. Covers R16–R18 and R26. Uses the Task 6 `order_query_sql`/`bind_order_query` signatures with `OrderSurface::Orderbook`; static tails own ordering, count and pagination.
 
 - [ ] **Step 1: Add the failing test.**
 
@@ -1087,7 +1110,7 @@ For ASK, use `count(*) OVER()` and a fallback total query when a nonzero offset 
 
 **Files:** Create `rs/read/src/routes/{orderbook_map,listings}.rs`, `rs/read/sql/orderbook/{aggregate,counts,recent_asks,distinct,listings}.sql`, `rs/read/tests/orderbook_map.rs`.
 
-**Interfaces:** Consumes shared visibility and policy. Produces `pub fn routes() -> axum::Router<AppState>` in both modules and `pub fn product_counts(codes: &[String], rows: &[(String,u64)]) -> std::collections::BTreeMap<String,u64>`. Covers R19–R25/R27.
+**Interfaces:** Consumes shared visibility and policy. Produces `pub fn routes() -> axum::Router<AppState>` in both modules and `pub fn product_counts(codes: &[String], rows: &[(String,u64)]) -> std::collections::BTreeMap<String,u64>`. Covers R19–R25/R27. Uses the Task 6 `order_query_sql`/`bind_order_query` signatures; `Orderbook` for maps/counts/distinct, `Listings` for R27. No predicate copying.
 
 - [ ] **Step 1: Add the failing test.**
 
@@ -1176,7 +1199,7 @@ Check each database column's nullability against `app/models/news.py` before fin
 
 **Files:** Create `rs/read/src/routes/{prices,trade_tape}.rs`, `rs/read/sql/prices/{summary,latest,quarantine,reference,tape,tape_count}.sql`, `rs/read/tests/prices.rs`.
 
-**Interfaces:** Consumes trade evidence policy, Decimal formatting, window normalization, rate limiter, and query validation. Produces `pub fn routes() -> axum::Router<AppState>` in both modules and `pub fn reference_csv(rows: &[Json]) -> Result<Vec<u8>, String>`. Covers R06 and R12–R14.
+**Interfaces:** Consumes trade evidence policy, Decimal formatting, window normalization, rate limiter, and query validation. Produces `pub fn routes() -> axum::Router<AppState>` in both modules and `pub fn reference_csv(rows: &[Json]) -> Result<Vec<u8>, String>`. Covers R06 and R12–R14. Uses `trade_query_sql(&'static str) -> TradeQuery` and `bind_trade_query(&TradeQuery, &MarketPolicy, &TradeEvidenceFilters) -> Result<Query, sqlx::Error>`; static tails separate evidence classes and aggregate/page `eligible_trades`.
 
 - [ ] **Step 1: Add evidence and CSV tests.**
 
@@ -1258,7 +1281,7 @@ Export midpoint from this module. Keep source prices REAL-only (`app/routers/cur
 
 **Files:** Create `rs/read/src/routes/curves_canonical.rs`, `rs/read/src/market/{benchmarks,signals,curve_projection}.rs`, `rs/read/sql/curves/{orders,benchmarks,indications,stems,bands,trades}.sql`, `rs/read/tests/curves_canonical.rs`.
 
-**Interfaces:** Consumes policy, visibility, trade evidence, and route query parser. Produces `pub fn routes() -> axum::Router<AppState>` and `pub async fn load_curve(state: &AppState, query: &Json, now: chrono::DateTime<chrono::Utc>) -> Result<Json, ApiError>`. `query` first passes the route schema; it is never SQL. Covers R09–R11. `market/benchmarks.rs` owns external/manual quotes only; Task 6a owns the distinct live-slice helper.
+**Interfaces:** Consumes policy, visibility, trade evidence, and route query parser. Produces `pub fn routes() -> axum::Router<AppState>` and `pub async fn load_curve(state: &AppState, query: &Json, now: chrono::DateTime<chrono::Utc>) -> Result<Json, ApiError>`. `query` first passes the route schema; it is never SQL. Covers R09–R11. `market/benchmarks.rs` owns external/manual quotes only; Task 6a owns the distinct live-slice helper. Uses Task 6 `order_query_sql`/`bind_order_query` with `Candidates` and `trade_query_sql`/`bind_trade_query`; static tails apply surface-specific qualification, sparse keys and limits. Use `order_is_execution_qualified_at` with the captured Singapore date.
 
 - [ ] **Step 1: Add curve tests.**
 
