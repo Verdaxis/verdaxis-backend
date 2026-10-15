@@ -1,8 +1,5 @@
--- R02 GET /api/ports/{port_id}: one port with its optional intelligence row.
---
--- Identical projection to `ports.sql`; Python looks the primary key up by its
--- string code and answers 404 when no row matches.
--- Binding: $1 port id (text).
+-- Port rows only; intelligence is loaded in select-in batches after this query.
+-- No active filter or ORDER BY: preserve the Python port selection.
 SELECT
     p.id,
     p.name,
@@ -10,12 +7,6 @@ SELECT
     p.timezone,
     p.is_active,
     ST_X(p.location::geometry) AS lng,
-    ST_Y(p.location::geometry) AS lat,
-    i.port_id AS intelligence_port_id,
-    i.congestion_level,
-    i.methanol_price_avg::float8 AS methanol_price_avg,
-    i.biofuel_price_avg::float8 AS biofuel_price_avg,
-    i.captured_at
+    ST_Y(p.location::geometry) AS lat
 FROM ports AS p
-LEFT JOIN port_intelligence AS i ON i.port_id = p.id
 WHERE p.id = $1
