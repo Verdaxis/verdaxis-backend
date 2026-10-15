@@ -36,7 +36,7 @@ async def state(monkeypatch):
         request = Request({"type": "http", "method": "POST", "path": "/api/kyc/submit",
                            "headers": [], "client": ("127.0.0.1", 4321),
                            "app": SimpleNamespace(state=SimpleNamespace(kyc_document_keys=ring))})
-        monkeypatch.setattr(kyc, "verify_document_with_gemini", AsyncMock(return_value={"passed": True}))
+        monkeypatch.setattr(kyc, "verify_document_with_gemini", AsyncMock(side_effect=AssertionError("External KYC call forbidden")), raising=False)
         monkeypatch.setattr(kyc.limiter, "enabled", False)
         yield db, user, admin, request
     await engine.dispose()
@@ -55,10 +55,7 @@ async def submit(state):
     return result
 
 
-@pytest.mark.parametrize("unavailable", [False, True])
-async def test_submit_retains_two_documents_and_history(state, monkeypatch, unavailable):
-    if unavailable:
-        monkeypatch.setattr(kyc, "verify_document_with_gemini", AsyncMock(side_effect=kyc.KYCProviderUnavailable()))
+async def test_submit_retains_two_documents_and_history(state):
     db, user, _, request = state
     await submit(state)
     rows = (await db.scalars(select(KYCDocument))).all()

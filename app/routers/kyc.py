@@ -43,8 +43,6 @@ from app.services.audit_service import record_audit, request_audit_context
 from app.services.email import send_kyc_approved_email, send_kyc_rejected_email
 from app.services.kyc import (
     KYC_REVIEW_REQUIRED,
-    KYCProviderUnavailable,
-    verify_document_with_gemini,
 )
 from app.services.market_data_eligibility import user_has_public_market_projection
 from app.services.market_events import enqueue_market_events, participant_market_event
@@ -213,21 +211,7 @@ async def submit_kyc(
         registration_number=registration_number,
     )
     await db.rollback()
-    advisory_results: dict[str, object] = {"provider": "gemini", "status": "unavailable"}
-    try:
-        passport_result = await verify_document_with_gemini(passport_bytes, passport_mime, "passport or government-issued ID")
-        company_result = await verify_document_with_gemini(company_bytes, company_mime, "company registration document")
-        advisory_results = {
-            "provider": "gemini",
-            "status": "advisory_complete",
-            "passport_passed": bool(passport_result.get("passed")),
-            "company_passed": bool(company_result.get("passed")),
-        }
-    except KYCProviderUnavailable:
-        # Provider availability never changes the authoritative workflow.
-        # Admin review remains required and can proceed from the submitted
-        # evidence even when Gemini is unavailable.
-        passport_result = company_result = None
+    advisory_results = {"provider": "none", "status": "disabled"}
 
     result = await db.execute(select(User).where(User.id == user_id).with_for_update())
     current_user = result.scalar_one_or_none()
