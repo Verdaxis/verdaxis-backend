@@ -30,6 +30,8 @@ verdaxis-contract = { path = "../contract" }
 axum = "0.8"
 chrono = { version = "0.4.45", features = ["serde"] }
 chrono-tz = "0.10.4"
+num-bigint = "0.4"
+num-traits = "0.2"
 percent-encoding = "2.3.2"
 rmcp = { version = "3.5.1", features = ["server", "transport-streamable-http-server"] }
 rust_decimal = "1.43.0"

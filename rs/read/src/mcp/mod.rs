@@ -1,3 +1,4 @@
+pub mod decimal;
 pub mod prices;
 mod server;
 pub mod transport;
@@ -40,6 +41,16 @@ async fn dispatch(State(state): State<AppState>, request: Request) -> Response {
         )
             .into_response();
     }
+    let (parts, body) = request.into_parts();
+    let bytes = match axum::body::to_bytes(body, 4 * 1024 * 1024).await {
+        Ok(bytes) => bytes,
+        Err(_) => return axum::http::StatusCode::PAYLOAD_TOO_LARGE.into_response(),
+    };
+    let method = serde_json::from_slice::<crate::Json>(&bytes)
+        .ok()
+        .and_then(|value| value["method"].as_str().map(str::to_owned))
+        .unwrap_or_default();
+    let request = Request::from_parts(parts, axum::body::Body::from(bytes));
     let service = StreamableHttpService::new(
         move || {
             Ok(server::MarketServer {
@@ -53,7 +64,22 @@ async fn dispatch(State(state): State<AppState>, request: Request) -> Response {
             .disable_allowed_hosts(),
     );
     match service.oneshot(request).await {
-        Ok(response) => response.map(axum::body::Body::new),
+        Ok(response) => {
+            let (mut parts, body) = response.into_parts();
+            let bytes =
+                match axum::body::to_bytes(axum::body::Body::new(body), 8 * 1024 * 1024).await {
+                    Ok(bytes) => bytes,
+                    Err(_) => return axum::http::StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+                };
+            let body = match serde_json::from_slice::<crate::Json>(&bytes) {
+                Ok(value) => transport::python_envelope(value, &method)
+                    .to_string()
+                    .into_bytes(),
+                Err(_) => bytes.to_vec(),
+            };
+            parts.headers.remove(axum::http::header::CONTENT_LENGTH);
+            Response::from_parts(parts, axum::body::Body::from(body))
+        }
         Err(_) => axum::http::StatusCode::INTERNAL_SERVER_ERROR.into_response(),
     }
 }

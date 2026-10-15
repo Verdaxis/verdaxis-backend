@@ -1,4 +1,45 @@
 use serde_json::json;
+
+#[test]
+fn protocol_adapter_preserves_python_envelope_order() {
+    let input = json!({"jsonrpc":"2.0","id":7,"result":{"content":[{"type":"text","text":"hello"}],"structuredContent":{"quantity":"1.00"},"isError":false}});
+    let result = verdaxis_read::mcp::transport::python_envelope(input, "tools/call");
+    assert_eq!(
+        result.to_string(),
+        r#"{"jsonrpc":"2.0","id":7,"result":{"content":[{"text":"hello","type":"text"}],"isError":false,"structuredContent":{"quantity":"1.00"}}}"#
+    );
+}
+
+#[test]
+fn voyage_decimal_context_matches_python_vectors() {
+    use verdaxis_read::mcp::decimal::Decimal;
+    let vectors: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../deploy/rust/voyage-decimal-vectors.json"
+    ))
+    .unwrap();
+    for vector in vectors.as_array().unwrap() {
+        let left = Decimal::parse(vector["left"].as_str().unwrap()).unwrap();
+        let right = Decimal::parse(vector["right"].as_str().unwrap()).unwrap();
+        let result = match vector["operation"].as_str().unwrap() {
+            "add" => left.add(&right),
+            "subtract" => left.subtract(&right),
+            "multiply" => left.multiply(&right),
+            "divide" => left.divide(&right).unwrap(),
+            _ => unreachable!(),
+        };
+        assert_eq!(
+            result.text(),
+            vector["result"].as_str().unwrap(),
+            "{vector}"
+        );
+        assert_eq!(
+            result.quantize(2).unwrap(),
+            vector["money"].as_str().unwrap(),
+            "{vector}"
+        );
+    }
+}
+
 use verdaxis_read::mcp::transport::{host_allowed, reject_origin};
 
 #[test]

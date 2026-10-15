@@ -91,6 +91,44 @@ The present mount is a checkpoint, not a parity-complete implementation.
 - Not run because not implemented: Rust voyage decimal vectors and full
   three-tool cancellation/privacy/error acceptance. No test process remains.
 
+## Single-golden correction and Decimal checkpoint
+
+The user's later direction supersedes the separate committed MCP SHA layout.
+Commit `c6bdd53c` moves all 58 MCP recordings to untracked
+`work/rust-phase1/mcp-evidence/golden/1fb9f26d87588b827b294d62230f46eef60a762a/`.
+`record_mcp.py` now writes only beneath that evidence root. The PM records MCP
+into the single merged golden after lane merge. Contract tests are green again.
+
+Added `mcp/decimal.rs`: signed arbitrary-precision integer coefficients with
+28-significant-digit half-even operations and half-up output quantization.
+The dependency correction adds `num-bigint` and `num-traits` (and the resolved
+`num-integer` transitive dependency); no float arithmetic or tolerance changes.
+A reproducible Python exporter produces **938 exact operation/output vectors**,
+including signed zero, tiny decimals, thirds and rounding boundaries. The Rust
+test failed before implementation and now passes all vectors. The adapter is
+not yet a full voyage engine; its input exponent bound needs review against the
+final typed request domain before acceptance.
+
+The protocol adapter now preserves Python envelope field order without sorting
+structured payloads, uses recorded schemas only for tools actually registered,
+retains pretty text output, and prefixes slice errors as Python does. Initialize
+metadata and Origin header absence were repaired. rmcp still owns dispatch.
+Current populated differential gate: **41 differences**, not zero. Success
+catalog/slice cases now match. Full voyage, transport errors and validation
+remain incomplete. The gate compared fresh Python/Rust on one disposable DB;
+a saved lane-evidence replay command remains to be added.
+
+Latest checks: fmt/clippy pass; workspace **131 passed**; disposable PostgreSQL
+**139 passed** (two matrix tests filtered by its existing split); Python contract
+suite **110 passed**; Python MCP/voyage **90 passed**. No test remains running.
+Logs: `work/rust-phase1/task11-current-*.txt`.
+
+**Resume here:** implement `mcp/voyage.rs` and typed request validation using the
+new Decimal adapter, then the batched voyage ASK/benchmark resolver and third
+rmcp tool. Add full-engine oracle vectors before implementation. Finish the
+41 protocol/validation differences, three-tool privacy/error/cancellation
+coverage and lane-evidence replay. Do not claim Task 11 complete at this point.
+
 ## Remaining implementation and acceptance
 
 Task 11 is **not complete**. Implement the rmcp 3.5.1 adapter, all three tools,

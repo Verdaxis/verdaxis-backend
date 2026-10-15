@@ -44,7 +44,7 @@ impl MarketServer {
     ) -> CallToolResult {
         let now = match crate::routes::prices::captured_now(&self.state) {
             Ok(now) => now,
-            Err(_) => return tool_error("Internal error"),
+            Err(_) => return tool_error("get_market_slice", "Internal error"),
         };
         match super::prices::market_slice(
             &self.state,
@@ -62,7 +62,7 @@ impl MarketServer {
                     422 => error.detail.as_str().unwrap_or("Internal error"),
                     _ => "Market data is temporarily unavailable.",
                 };
-                tool_error(message)
+                tool_error("get_market_slice", message)
             }
         }
     }
@@ -75,8 +75,10 @@ fn structured(value: Json) -> CallToolResult {
     result
 }
 
-pub fn tool_error(message: &str) -> CallToolResult {
-    CallToolResult::error(vec![rmcp::model::ContentBlock::text(message)])
+pub fn tool_error(tool: &str, message: &str) -> CallToolResult {
+    CallToolResult::error(vec![rmcp::model::ContentBlock::text(format!(
+        "Error executing tool {tool}: {message}"
+    ))])
 }
 
 #[tool_handler]
@@ -86,6 +88,15 @@ impl ServerHandler for MarketServer {
         info.capabilities = rmcp::model::ServerCapabilities::builder()
             .enable_tools()
             .build();
+        info.capabilities = serde_json::from_value(serde_json::json!({
+            "prompts":{"listChanged":false},
+            "resources":{"listChanged":false,"subscribe":false},
+            "tools":{"listChanged":false}
+        }))
+        .expect("Python server capabilities");
+        info.server_info =
+            serde_json::from_value(serde_json::json!({"name":"verdaxis-market","version":""}))
+                .expect("Python server identity");
         info.instructions = Some("These tools are read-only. Prices come from Verdaxis market data and caller assumptions. State the provenance of each price. Never present a demo or benchmark price as executable. Results are indicative planning estimates, not quotes or offers.".into());
         info
     }
