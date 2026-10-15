@@ -303,5 +303,5 @@ WHERE o.status IN ('OPEN', 'PARTIALLY_FILLED')
               AND pm.fuel_grade = p.fuel_grade
         )
     )
-    AND ($10::text IS NULL OR dp.region = $10::text)
+    AND ($10::text IS NULL OR $10::text = '' OR dp.region = $10::text OR dp.name = $10::text)
     AND ($11::text IS NULL OR o.availability_window = $11::text)

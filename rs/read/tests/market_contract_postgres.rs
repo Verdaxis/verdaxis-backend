@@ -145,6 +145,22 @@ async fn public_visibility_matrix_matches_python() {
         );
     }
 
+    for case in expected["region_filters"].as_array().unwrap() {
+        let filters = PublicOrderFilters {
+            region: case["region"].as_str(),
+            ..PublicOrderFilters::default()
+        };
+        let actual = select_public_order_ids(&mut connection, &policy, &clock, &config, &filters)
+            .await
+            .unwrap();
+        assert_eq!(
+            as_strings(&actual),
+            ids(&case["ids"]),
+            "region {}",
+            case["region"]
+        );
+    }
+
     for case in expected["lane_filters"].as_array().unwrap() {
         let filters = PublicOrderFilters {
             product_id: Some(case["product"].as_str().unwrap().parse().unwrap()),

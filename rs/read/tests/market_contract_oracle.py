@@ -503,6 +503,18 @@ async def select(session) -> dict:
                 OrderBookOrder.product_id == product_id, OrderBookOrder.delivery_point_id == point_id))
             lane_filters.append({"product": str(product_id), "point": str(point_id),
                                  "ids": sorted(str(value) for value in result.scalars())})
+    # Route semantics: region is also a point name; empty means no filter.
+    from sqlalchemy import or_
+    region_filters = []
+    for region in ("Singapore", "Asia", "Rotterdam", "Europe", "Not a region", "", None):
+        filters, joins = public_order_scope()
+        if region:
+            filters.append(or_(DeliveryPoint.region == region, DeliveryPoint.name == region))
+        query = sql_select(OrderBookOrder.id)
+        for target, condition in joins:
+            query = query.join(target, condition)
+        result = await session.execute(query.where(*filters))
+        region_filters.append({"region": region, "ids": sorted(str(value) for value in result.scalars())})
     # A confirmed snapshot survives later mutable catalog edits.
     async with session.begin_nested() as savepoint:
         await session.execute(text("UPDATE products SET name='Changed after confirmation' WHERE id=:id"),
@@ -532,6 +544,7 @@ async def select(session) -> dict:
         "depth": depth,
         "historical": historical,
         "lane_filters": lane_filters,
+        "region_filters": region_filters,
         "qualification": qualification,
         "digest_inputs": digest_inputs,
         "cutoffs": cutoffs,

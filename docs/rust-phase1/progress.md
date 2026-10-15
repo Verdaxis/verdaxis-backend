@@ -828,4 +828,6 @@ KYC switch: red comparison failed for `KYC gate false`; green comparison passes 
 
 R1: added stored-form Python vectors for FAME/LNG ASK/BID unconstrained-scale fields, quality results, signed zero, exact range edges and constrained decimal_places. Red failed on stored `cfpp_c=1E-29`; green passes all 23 market tests and six Python vector tests. Typed validation now compares exact coefficient/exponent values to schema integer bounds, and applies Python's 28-digit context only to decimal_places validation. Wire spelling and digest normalization remain separate. Logs: `work/rust-phase1/r1-{red,green}.txt`.
 
-Next: region aliases (R2). R3 remains assigned to Tasks 9, 10a and 10b under decision 16. R4 is already corrected by the PM.
+R2: red failed on `region Singapore`. The shared relation now matches region OR delivery-point name and treats an empty string as no filter. Oracle cases cover Singapore/Asia, Rotterdam/Europe, unmatched, empty and absent filters. Green: two migrated market tests pass. Logs: `work/rust-phase1/r2-{red,green}.txt`.
+
+Implementation complete for this step; final full checks follow. R3 remains assigned to Tasks 9, 10a and 10b under decision 16. R4 is already corrected by the PM.
