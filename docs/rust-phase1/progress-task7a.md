@@ -91,6 +91,27 @@ Every Cargo invocation exports the current full HEAD as `RELEASE_SHA`.
   eventual update should describe the admitted snapshot transaction and the
   schema-order data dependency above.
 
+## Independent review repair — 2026-10-16
+
+M1 is repaired. The snapshot now calls `public_response_terms`, which validates
+public FAME/LNG schemas independently of full execution declarations. FAME
+private identity and nested traceability fields are ignored; public required
+fields and quality-result bounds remain checked. LNG removes its two private
+identity fields before declaration validation. Existing validated-declaration
+helpers retain their strict boundary. Digest input and benchmark qualification
+remain unchanged.
+
+TDD: the new unit probe failed on blank `certificate_holder`; the disposable
+HTTP comparison failed on `negative-fame-holder`. The HTTP regression reopens
+only a copy of Task 4b's labelled malformed fixture in a separate window. It
+compares full response bytes, verifies both rows remain public, and checks that
+only the qualified row sets the benchmark. A matching LNG case checks both
+private identity fields. Pure tests also cover malformed nested private evidence
+and missing public fields. No golden data or Python feature code changed.
+
+This resolves the malformed-history deferral above. Architecture documentation
+now records the public-response boundary. Logs use `work/rust-phase1/task7a-fix-*`.
+
 ## Resume point
 
 R15 implementation and its local gates are recorded here. The PM can merge the

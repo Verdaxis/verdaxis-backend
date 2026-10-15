@@ -20,7 +20,7 @@ use super::{
 };
 use crate::market::{
     live_benchmarks::{LiveBenchmark, LiveBenchmarkCache, LiveBenchmarkKey},
-    terms::{canonical_terms_from_row, digest_terms, redact_terms},
+    terms::{canonical_terms_from_row, digest_terms, public_response_terms},
     visibility::{
         OrderSurface, PublicOrderFilters, VisibilityClock, bind_order_query, order_query_sql,
     },
@@ -246,8 +246,8 @@ impl SnapshotOrder {
             ("fame_terms", "fame_v1", "fame"),
             ("lng_terms", "lng_v1", "lng"),
         ] {
-            let public =
-                redact_terms(profile, &self.private[name]).map_err(|_| ApiError::internal())?;
+            let public = public_response_terms(profile, &self.private[name])
+                .map_err(|_| ApiError::internal())?;
             let schema = format!("{schema}_{}", self.side.to_lowercase());
             out.insert(name.into(), ordered_public_terms(&public, &schema)?);
         }

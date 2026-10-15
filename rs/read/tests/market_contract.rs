@@ -7,15 +7,15 @@
 
 use chrono::NaiveDate;
 use rust_decimal::Decimal;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use uuid::Uuid;
 
 use verdaxis_read::{
-    canonical_terms_from_row, decimal_text, digest_terms, normalize_certification_scheme,
-    normalize_window, order_is_execution_qualified_at, public_order_sql, redact_terms,
-    trade_evidence_sql, validate_fame_terms, validate_lng_terms, window_display_label,
-    window_sort_key, window_start_date, Json, MarketPolicy, PointPolicy, ProductPolicy,
-    QualificationInput,
+    Json, MarketPolicy, PointPolicy, ProductPolicy, QualificationInput, canonical_terms_from_row,
+    decimal_text, digest_terms, normalize_certification_scheme, normalize_window,
+    order_is_execution_qualified_at, public_order_sql, redact_terms, trade_evidence_sql,
+    validate_fame_terms, validate_lng_terms, window_display_label, window_sort_key,
+    window_start_date,
 };
 
 const PRIVATE_VECTOR: &str = include_str!(concat!(
@@ -294,10 +294,15 @@ fn public_asks_ignore_private_validation_but_execution_does_not() {
             vec!["scheme_certificate_number", "physical_supplier_name"],
         ),
     ] {
-        let expected = redact_terms(profile, &terms).unwrap();
+        let expected =
+            verdaxis_read::market::terms::public_response_terms(profile, &terms).unwrap();
         for field in private_fields {
             terms[field] = json!("");
-            assert_eq!(redact_terms(profile, &terms).unwrap(), expected, "{field}");
+            assert_eq!(
+                verdaxis_read::market::terms::public_response_terms(profile, &terms).unwrap(),
+                expected,
+                "{field}"
+            );
             let qualified = if profile == "fame_v1" {
                 validate_fame_terms("ASK", Some(&terms), today())
             } else {
@@ -309,6 +314,66 @@ fn public_asks_ignore_private_validation_but_execution_does_not() {
             );
         }
     }
+}
+
+#[test]
+fn public_fame_evidence_ignores_private_traceability() {
+    use verdaxis_read::market::terms::public_response_terms;
+    let original = vector(FAME_VECTOR)["fame_terms"].clone();
+    let expected = public_response_terms("fame_v1", &original).unwrap();
+    for (section, field) in [
+        ("quality_evidence", "reference"),
+        ("quality_evidence", "batch_reference"),
+        ("quality_evidence", "laboratory"),
+        ("quality_evidence", "sampled_on"),
+        ("quality_evidence", "tested_on"),
+        ("sustainability_evidence", "reference"),
+        ("sustainability_evidence", "quantity_mt"),
+        ("sustainability_evidence", "supply_date"),
+    ] {
+        let mut terms = original.clone();
+        terms[section][field] = json!({"malformed": true});
+        assert_eq!(public_response_terms("fame_v1", &terms).unwrap(), expected);
+        assert!(validate_fame_terms("ASK", Some(&terms), today()).is_err());
+    }
+}
+
+#[test]
+fn public_response_still_requires_public_fields() {
+    use verdaxis_read::market::terms::public_response_terms;
+    for (profile, original, fields) in [
+        (
+            "fame_v1",
+            vector(FAME_VECTOR)["fame_terms"].clone(),
+            vec![
+                "nomination_status",
+                "standard",
+                "certificate_valid_until",
+                "evidence_due",
+            ],
+        ),
+        (
+            "lng_v1",
+            vector(PRIVATE_VECTOR)["lng_terms"].clone(),
+            vec![
+                "production_country",
+                "bio_share_pct",
+                "seller_is_physical_supplier",
+            ],
+        ),
+    ] {
+        for field in fields {
+            let mut terms = original.clone();
+            terms.as_object_mut().unwrap().remove(field);
+            assert!(public_response_terms(profile, &terms).is_err(), "{field}");
+        }
+    }
+    let mut fame = vector(FAME_VECTOR)["fame_terms"].clone();
+    fame["quality_evidence"]
+        .as_object_mut()
+        .unwrap()
+        .remove("results");
+    assert!(public_response_terms("fame_v1", &fame).is_err());
 }
 
 #[test]
