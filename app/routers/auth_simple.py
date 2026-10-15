@@ -2028,7 +2028,7 @@ async def update_users_me(
 
     await db.commit()
     await db.refresh(current_user)
-    return current_user
+    return await _user_profile(db, current_user)
 
 
 @router.put("/me/password")

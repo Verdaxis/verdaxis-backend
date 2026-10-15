@@ -64,10 +64,16 @@ def lng_metadata_fields(terms: Any) -> dict:
     if isinstance(parsed, LngAskTerms):
         result.update(
             certification_declared=True,
+            certifications=[_SCHEME_LABELS[parsed.sustainability_scheme]],
             certification_scheme=_SCHEME_LABELS[parsed.sustainability_scheme],
             specification_standard=parsed.specification_standard,
             feedstock=_FEEDSTOCK_LABELS[parsed.feedstock],
             origin=parsed.production_country,
+        )
+    else:
+        result.update(
+            certification_scheme=None,
+            certifications=[_SCHEME_LABELS[scheme] for scheme in parsed.accepted_schemes],
         )
     return result
 
