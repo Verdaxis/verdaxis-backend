@@ -77,7 +77,13 @@ only developer-owned static tails around `eligible_orders`/`eligible_trades`.
 `OrderSurface` separates main orderbook, compatibility listings and candidate
 reads; ranking, aggregation and pagination occur after the shared relation.
 Digest decimals use text-based Python context normalization, while public terms
-retain Pydantic scale, signed zero and schema defaults.
+retain Pydantic scale, signed zero and schema defaults. Typed decimal validation
+uses exact coefficient/exponent comparisons, not `rust_decimal` narrowing.
+The runtime `Config.kyc_execution_gate_enabled` defaults true and supplies order
+bind `$13`; extra consumer binds begin at `$14`. Both owner and assisted-member
+admission use the same strict/advisory switch as Python. Request filters cannot
+set that switch. Region filters match a region or delivery-point name; empty
+means no filter. Curve and quarantine metadata policies remain later-task work.
 
 Task 8 ports the simple public reads. `rs/read/src/routes/ports.rs` serves
 `/api/ports` and `/api/ports/{port_id}` from `rs/read/sql/{ports,port}.sql`,

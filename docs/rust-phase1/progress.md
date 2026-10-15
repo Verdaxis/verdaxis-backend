@@ -830,4 +830,22 @@ R1: added stored-form Python vectors for FAME/LNG ASK/BID unconstrained-scale fi
 
 R2: red failed on `region Singapore`. The shared relation now matches region OR delivery-point name and treats an empty string as no filter. Oracle cases cover Singapore/Asia, Rotterdam/Europe, unmatched, empty and absent filters. Green: two migrated market tests pass. Logs: `work/rust-phase1/r2-{red,green}.txt`.
 
-Implementation complete for this step; final full checks follow. R3 remains assigned to Tasks 9, 10a and 10b under decision 16. R4 is already corrected by the PM.
+Implementation complete. R3 remains assigned to Tasks 9, 10a and 10b under decision 16. R4 is already corrected by the PM.
+
+### Final checks on code commit `10e2e26`
+
+All commands set `RELEASE_SHA` from HEAD. Docker context was `colima`; runners used their pinned PostGIS image and disposable loopback databases only.
+
+- `cargo fmt --all -- --check`: passed.
+- `cargo clippy --workspace --all-targets -- -D warnings`: passed.
+- `cargo test --workspace`: **74 passed**.
+- `RUST_TEST_PYTHON=<absolute worktree>/venv/bin/python bash rs/read/tests/run_postgres.sh`: **81 passed**, two market matrix tests explicitly filtered for their dedicated runner.
+- `RUST_TEST_PYTHON=<absolute worktree>/venv/bin/python bash rs/read/tests/run_market_contract.sh`: **2 passed**, both KYC states compared; 14/46 strict-mode orders and 4/6 formal trades.
+- `venv/bin/python scripts/rust_contract/run_disposable.py --group simple_reads --seed-mode ordinary`: **20 contract cases matched**, one Rust integration test passed, including the existing duplicate-intelligence probe. Ordinary mode does not replace Task 4b's populated gate.
+- `venv/bin/python -m pytest tests/rust_contract -q`: **42 passed**, five warnings.
+- Full Python unit suite with explicit test/SQLite settings: **2025 passed, 19 failed**. All 19 failures are in `tests/unit/test_deploy_health.py`, the known macOS Bash 3.2 `mapfile` limitation. No other failure. No deploy source was changed to hide it.
+- `git diff --check`: passed. The only Python application difference from merged staging is the preserved partial-fill seed fix.
+
+Logs: `work/rust-phase1/followup-{workspace,postgres,market,simple,python-contract,python-unit}.txt`. All requested commands ran. The final documentation-only commit records these results; no source changes follow the checked code commit. No push or live activation.
+
+Commits: merge `9977ac1`; KYC `d9f8d8a`; R1 `d5f356f`; R2 `10e2e26`. Resume at Task 4b/consumer work with the new `&Config` order binder and 55 exact-decimal oracle vectors (44 accepted, 11 rejected). Runtime JSON accepts `kyc_execution_gate_enabled` or its uppercase alias, not both; launch tooling must forward the approved runtime setting rather than read a request or implicitly load Python's `.env`.
