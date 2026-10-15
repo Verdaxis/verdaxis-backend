@@ -75,4 +75,3 @@ WHERE t.market_snapshot_version = 1
     AND ($4::uuid IS NULL OR t.product_id = $4::uuid)
     AND ($5::uuid IS NULL OR t.delivery_point_id = $5::uuid)
     AND ($6::text IS NULL OR t.availability_window = $6::text)
-

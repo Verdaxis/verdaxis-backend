@@ -304,4 +304,3 @@ WHERE o.status IN ('OPEN', 'PARTIALLY_FILLED')
     )
     AND ($10::text IS NULL OR dp.region = $10::text)
     AND ($11::text IS NULL OR o.availability_window = $11::text)
-
