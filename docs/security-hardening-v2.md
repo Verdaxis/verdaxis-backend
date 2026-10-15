@@ -264,7 +264,9 @@ The central execution gate requires a concrete BUYER/SUPPLIER user whose
 `organization_id` exactly equals a non-null approved organization, approved
 user/email state, and no required password change. Pending/legacy KYC is
 advisory; a bound KYC organization must match current membership, and explicit
-rejection revokes eligibility. ADMIN has no acting-mode contract.
+rejection revokes eligibility. ADMIN has no acting-mode contract. The KYC part
+of this gate follows `KYC_EXECUTION_GATE_ENABLED`; see "KYC execution gate
+switch" below.
 
 Order matching, direct trades, RFQ acceptance, negotiations, trade lifecycle,
 and inventory publication lock and revalidate every concrete user and exact
@@ -303,6 +305,41 @@ subscribed organization every 15 seconds using short-lived sessions. All
 subscription paths unsubscribe on error/cancellation. Production and staging
 systemd units disable Uvicorn access logs so query tokens are not logged;
 application logs contain only fixed event names and path-safe metadata.
+
+## KYC execution gate switch (Private Beta)
+
+`KYC_EXECUTION_GATE_ENABLED` turns the KYC execution rule off without removing
+any KYC code or data. The code default is `true` (fail safe): a missing setting
+still enforces KYC. **Production and staging run with it `false` through
+Private Beta; public launch turns it on.**
+
+With the gate off, one decision point (`app/services/kyc_execution.py`) makes
+the EXECUTION policy behave as the pre-gate advisory rule: only a `REJECTED`
+review or a review bound to another organization revokes access; every other
+status is admitted and reports the new `KYC_NOT_ENFORCED` reason with no grace
+deadline. The SQL mirror (`kyc_execution_clause` → `advisory_kyc_clause`) and
+every layer above the helpers follow the same switch, so non-KYC resting orders
+show and match again: route gates (`require_kyc_execution`), the shared
+`execution_party_is_eligible` / `market_party_is_admitted` admission helper,
+assisted customer-organization execution (`customer_organization_is_execution_eligible`),
+matching, the public order-book owner-admission mirror, and the trade
+action-required projection. Route handlers and services must not carry their
+own gate checks.
+
+- The lifespan logs one line: `KYC execution gate: enabled` or `disabled`
+  (once per Uvicorn worker).
+- `python -m app.cli.send_kyc_grace_notices --environment <env> --release-sha
+  <sha>` refuses with a clear message and a non-zero exit while the gate is
+  off, before any database contact.
+- Unchanged: KYC submission, admin approve/reject, `kyc_execution_grace` rows
+  (they still expire on 28 Oct 2026), the migration chain (no new migration),
+  and ACLs.
+
+**Launch note.** Turn the gate on only after planning KYC handling. Grace has
+expired by then, so every user without approved KYC is blocked at once:
+`/api/auth/me` reports `KYC_REQUIRED`, and new executions return 403
+`KYC_REQUIRED`. Approve the KYC of every trading user first, or write a new
+reviewed grace snapshot, before you set the switch to `true`.
 
 ## Removed and scheduled surfaces
 

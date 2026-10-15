@@ -119,7 +119,7 @@ app/
     kyc.py                      # Human-review state constant; no external document provider
     kyc_document_vault.py       # Strict key-ring loading and AES-256-GCM envelope encryption
     kyc_document_retention.py   # Account/organization retention conflict checks
-    kyc_execution.py            # Organization-bound KYC/grace decision and SQL predicate
+    kyc_execution.py            # Organization-bound KYC/grace decision behind KYC_EXECUTION_GATE_ENABLED and its SQL predicate
     execution_policy.py         # Execution admission and shared assisted customer eligibility
     matchmaking.py              # Score-based BID/ASK matching (0-100)
     watchlists.py               # Market Radar helpers: default container, typed targets, slice summaries
@@ -213,6 +213,8 @@ alembic/versions/               # Migrations incl. canonical availability-window
 New order creation/amendment, inventory publication, taking, matching and confirmation require organization-bound APPROVED KYC or unexpired migration-enrolled grace. REJECTED overrides grace. Assisted orders require at least one admitted customer member; staff KYC cannot substitute for customer eligibility. Exact owned command replays precede the KYC check. Cancel, decline, deliver, pay and retract retain authentication/ownership checks without KYC admission. Indicative RFQs, negotiations and offers retain their prior admission policy. The exact allowlisted demo-to-demo matching path is unchanged and has no fabricated KYC.
 
 `kyc_execution_grace` is runtime SELECT-only. Migration `kycg_20261014_staging` snapshots eligible existing users for fourteen days. Uploads do not renew grace; changed membership cannot use another organization's row. `/api/auth/me` and login profiles expose `kyc_status` and `execution_eligibility`; public order and trade-action projections share the SQL rule.
+
+The rule is behind one switch, `KYC_EXECUTION_GATE_ENABLED` (default true, fail safe). It is read only in `app/services/kyc_execution.py`: `kyc_execution_eligibility` and `kyc_execution_clause` (with the `advisory_kyc_allows` / `advisory_kyc_clause` mirror) and every layer above them — route gates, `execution_party_is_eligible` / `market_party_is_admitted`, the assisted customer-organization helper, matching, public order visibility and the trade action-required projection — follow it without their own gate checks. With the gate off (Private Beta on prod and staging) the EXECUTION policy follows the pre-gate advisory rule: only `REJECTED` or a review bound to another organization blocks, and an eligible user reports the new `KYC_NOT_ENFORCED` reason with no grace deadline; a blocked result keeps `KYC_REJECTED` or `KYC_REQUIRED`. Non-KYC resting orders show and match again. The lifespan logs one line (`KYC execution gate: enabled|disabled`), and `app/cli/send_kyc_grace_notices` refuses with a non-zero exit. The migration chain, ACLs, grace rows and admin KYC routes are unchanged. See `docs/security-hardening-v2.md`.
 
 The operator runs `python -m app.cli.send_kyc_grace_notices --environment staging --release-sha <full-sha>` with the deployed runtime environment loaded. No timer or web worker sends notices. A separate `kyc_grace_notices` claim is committed before provider I/O. Successful sends record `sent_at`; failed or interrupted claims are deliberately not retried automatically, so the operator must review uncertain delivery rather than risk duplicate mail.
 
