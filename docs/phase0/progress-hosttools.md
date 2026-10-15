@@ -1,6 +1,57 @@
 # Phase 0 host-tool sign-off fixes — partial checkpoint
 
-## Current checkpoint 2 — authority primitives, report writes and flags
+## Current checkpoint 3 — production-named synthetic database fixture
+
+**B1 and production B2 remain open. The production CLI chain is not implemented.**
+
+- `d9140536`: fixture contract tests; initial run had four missing-module errors.
+- `f0ffe501`: test-only `tests/phase0/production_scratch.py`. Creates synthetic
+  `verdaxis` from the runner's pinned production template and empty
+  `verdaxis_prod` from its PostGIS template. Uses exact `verdaxis_app`,
+  `verdaxis_migrator`, `verdaxis_backup` roles with three independent generated
+  passwords, distinct from the runner administrator password. All storage is
+  in the runner-owned disposable cluster, with its independently observed system
+  identifier and ephemeral loopback endpoint. No live cluster is contacted.
+- Collision and wrong-cluster checks precede mutation. Cleanup drops only the
+  databases/roles created by this fixture. The source backup role has SELECT
+  only; an UPDATE probe refuses. Source ownership changes apply only to the new
+  synthetic clone, not its template or any existing database.
+- Production Settings validates the exact field names and effective app/migrator
+  URLs. The first green attempt had one failure because the test omitted the
+  explicit `DATABASE_NAME`/`DATABASE_USER` fields; the fixture test now supplies
+  both, without relaxing Settings. Corrected focused run: **4 passed**.
+
+### Environment limitation and exact resume point
+
+The complete root-owned execution-authority test needs a Linux Python runtime
+with the required dependencies. Inspection found only the pinned PostGIS image
+in the local Docker cache. That image has no `python` or `python3`. The supplied
+`venv/bin/python` is a Darwin interpreter, not usable inside that Linux image.
+No package was installed and no ownership check was patched to bypass this.
+A cached compatible runtime/dependency bundle, or explicit permission to prepare
+one, is needed for the planned Linux CLI acceptance test.
+
+Resume with checkpoint 2's **execution-authority integration steps 1–6**, using
+`production_scratch()` as the production-named synthetic storage fixture. The
+fixture alone does not provide root-owned manifests, a trusted installed tool
+release, continuous isolation, or bootstrap receipts. Its observed Docker
+server address is not the final host-loopback authority contract. Do not expand
+production host endpoint rules merely to accommodate Docker port translation.
+The production entry points remain closed until the complete authority and
+bootstrap → copy → verify tests exist and pass. All current command interfaces
+remain those recorded in checkpoint 2; no final production format is claimed.
+
+Completed checks at `f0ffe501`:
+
+- Full PostgreSQL runner: **170 passed**, 62 warnings, 639.07 seconds; exit 0.
+  The owned container and volumes were removed.
+- Full unit suite: **2209 passed, 19 failed**, 518 warnings, 111.50 seconds.
+  Every failure is in the known macOS `test_deploy_health.py` group.
+- Logs: `work/hosttools-scratch-{red,green,green2}.log`,
+  `work/hosttools-postgres-checkpoint3.log`, `work/hosttools-unit-checkpoint3.log`.
+- All test runs finished. No packages, host access, push, Skill or Agent calls.
+
+## Checkpoint 2 — authority primitives, report writes and flags
 
 **B1 remains open. B2 production authority remains open. No host use approved.**
 The production contract validator is deliberately not wired to execution. It
