@@ -78,6 +78,19 @@ The present mount is a checkpoint, not a parity-complete implementation.
 `work/rust-phase1/task11-expanded-red.txt` records the 73 current differences;
 `task11-golden-record.txt` records both stable oracle passes. All runs finished.
 
+### Checks after commits `6a58e439` and `668996d3`
+
+- fmt passed; workspace **129 passed**; clippy passed.
+- Disposable PostgreSQL runner **137 passed**; two matrix tests remain filtered
+  by its existing dedicated-runner split.
+- Python MCP/voyage suites **90 passed**.
+- Current populated MCP differential gate: **67 differences**, down from 73
+  after matching success text formatting. This is still a failed gate.
+- Python contract suite: **92 passed, 16 failed**, all the catalog-oracle
+  directory-selection issue described above. No comparator was weakened.
+- Not run because not implemented: Rust voyage decimal vectors and full
+  three-tool cancellation/privacy/error acceptance. No test process remains.
+
 ## Remaining implementation and acceptance
 
 Task 11 is **not complete**. Implement the rmcp 3.5.1 adapter, all three tools,
