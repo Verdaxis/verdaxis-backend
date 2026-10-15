@@ -91,3 +91,19 @@ Task 4b owns the union schema checkpoint. Task 5 owns notice reconciliation.
 Task 7 owns deployed runtime identity and unit changes. Task 8 must consume the
 response notes above. No changes to `progress.md`, units, migrations, runtime
 ACLs, catalog IDs or the existing KYC switch are included.
+
+## Review follow-ups (lane `feat/phase0-task3minor`)
+
+The independent review of 2026-10-16 raised N1 and N2. Both are closed here.
+
+- N1: `_user_profile` now uses the production condition
+  (`role not in (BUYER, SUPPLIER) or organization_id is None`) for the
+  `NOT_APPLICABLE` branch, so a role-less onboarding profile no longer reports
+  `KYC_NOT_ENFORCED`. Login, GET and PUT vectors cover both gate states.
+- N2: `tests/postgres/test_order_expiry_reminders_concurrency.py` proves
+  concurrent scan dedup, the persisted retry lease across the uncertain-send
+  window, and copied-row inbox privacy on PostgreSQL 17. Run with
+  `bash scripts/run_product_analytics_postgres_tests.sh <file>`; 3 passed.
+
+Pinned production behavior, the privacy and environment guards, the KYC switch
+and the reminder service are unchanged.

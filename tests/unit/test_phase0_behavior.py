@@ -76,6 +76,34 @@ async def test_put_profile_matches_get(gate, kyc, role, has_org, moved, monkeypa
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("gate", [True, False])
+async def test_roleless_profile_reports_not_applicable(gate, monkeypatch):
+    """A role-less onboarding profile matches production for every surface.
+
+    Pinned production returns NOT_APPLICABLE for any role outside
+    BUYER/SUPPLIER, before the gate is read. Login, GET and PUT all compute
+    the profile through ``_user_profile``; each must agree.
+    """
+    monkeypatch.setattr(settings, "KYC_EXECUTION_GATE_ENABLED", gate)
+    user = User(id=uuid4(), email="profile@example.com", role=None,
+                status=UserStatus.APPROVED, organization_id=uuid4(),
+                must_change_password=False, kyc_status="PENDING",
+                kyc_organization_id=None)
+    db = AsyncMock()
+    db.execute.return_value = MagicMock()
+    db.execute.return_value.scalar_one_or_none.return_value = None
+
+    expected = {"eligible": False, "reason": "NOT_APPLICABLE", "grace_expires_at": None}
+    login_profile = await auth_simple._user_profile(db, user)
+    current = await auth_simple.read_users_me(user, db)
+    updated = await auth_simple.update_users_me(UserUpdate(first_name="Updated"), user, db)
+    for profile in (login_profile, current, updated):
+        assert profile.execution_eligibility.model_dump() == expected
+    # PUT still applies the profile edit for a role-less user.
+    assert updated.first_name == "Updated"
+
+
+@pytest.mark.asyncio
 async def test_copied_notification_privacy_and_counts():
     engine = create_async_engine("sqlite+aiosqlite://")
     async with engine.begin() as conn:
@@ -121,6 +149,7 @@ async def test_lng_restricted_lane_names_rotterdam():
 async def test_dismissal_uses_admission_not_execution(gate, state, expected, monkeypatch):
     from fastapi import FastAPI
     from httpx import ASGITransport, AsyncClient
+
     from app.database import get_db
     from app.routers import matchmaking
 
