@@ -16,6 +16,9 @@ WorkingDirectory=/home/verdaxis-prod/verdaxis/prod/be
 EnvironmentFile=/home/verdaxis-prod/verdaxis/prod/be/.env
 EnvironmentFile=/home/verdaxis-prod/verdaxis/prod/be/.runtime-release.env
 Environment=UVICORN_WORKERS=4
+# An absent key disables KYC storage, not the backend (systemd 249 and 255).
+SetCredential=kyc-document-keys:
+LoadCredential=kyc-document-keys:/etc/verdaxis/kyc-document-keys.json
 ExecStartPre=/usr/bin/test -r /home/verdaxis-prod/verdaxis/prod/be/.env
 ExecStartPre=/usr/bin/test -r /home/verdaxis-prod/verdaxis/prod/be/.runtime-release.env
 ExecStartPre=/usr/bin/env -i /usr/bin/python3 -I -S -B /home/verdaxis-prod/verdaxis/prod/be/scripts/verify_deploy_start_guard.py --environment production --expected-release-sha ${RELEASE_SHA}

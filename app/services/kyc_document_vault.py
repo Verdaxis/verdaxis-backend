@@ -38,6 +38,25 @@ def _wrap_data(row: KYCDocument) -> bytes:
     return json.dumps(["kyc-key-v1", str(row.id), row.key_id], separators=(",", ":")).encode("utf-8")
 
 
+def load_runtime_keys(settings) -> "KeyRing | None":
+    """Called once per worker startup; failure disables storage, not readiness."""
+    import logging
+
+    credential_directory = os.environ.get("CREDENTIALS_DIRECTORY")
+    path = None
+    if credential_directory:
+        path = Path(credential_directory) / "kyc-document-keys"
+    elif settings.ENVIRONMENT in {"development", "test"}:
+        path = settings.KYC_DOCUMENT_KEYS_PATH
+    try:
+        if not path:
+            raise KeyFileError("No key file")
+        return KeyRing.load(path)
+    except KeyFileError:
+        logging.getLogger(__name__).error("KYC document storage unavailable: key file missing or invalid")
+        return None
+
+
 class KeyRing:
     def __init__(self, active: str, keys: dict[str, bytes]):
         self.active = active
