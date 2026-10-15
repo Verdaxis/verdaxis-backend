@@ -34,13 +34,43 @@ fn csv_has_exact_python_header_nulls_scale_quoting_and_lf() {
 }
 
 #[test]
+fn stored_price_text_survives_alias_selection_and_csv() {
+    use verdaxis_read::routes::curves_legacy::{CurveAggregate, curve_points};
+    let bid = format!("1.{}", "0".repeat(30));
+    let ask = format!("1.01{}", "0".repeat(28));
+    let row = |window: &str, side: &str, price: &str| CurveAggregate {
+        window: window.into(),
+        side: side.into(),
+        max_price: Some(price.into()),
+        min_price: Some(price.into()),
+        volume: Decimal::from_str("100.00").unwrap(),
+        count: 1,
+    };
+    let points = curve_points(
+        vec![
+            row("Q1_2026", "BID", "0.99"),
+            row("2026-Q1", "BID", &bid),
+            row("Q1 2026", "ASK", &ask),
+        ],
+        chrono::NaiveDate::from_ymd_opt(2026, 10, 15).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(points[0]["best_bid"], bid);
+    assert_eq!(points[0]["best_ask"], ask);
+    assert_eq!(points[0]["mid_price"], "1.00");
+    assert_eq!(points[0]["spread"], "0.01");
+    let csv = String::from_utf8(curve_csv(&points).unwrap()).unwrap();
+    assert!(csv.contains(&format!("2026-Q1,{bid},{ask},1.00,0.01,300.00,3\n")));
+}
+
+#[test]
 fn aliases_merge_before_midpoint_volume_count_and_window_sort() {
     use verdaxis_read::routes::curves_legacy::{CurveAggregate, curve_points};
     let row = |window: &str, side: &str, price: &str, volume: &str, count| CurveAggregate {
         window: window.into(),
         side: side.into(),
-        max_price: Some(Decimal::from_str(price).unwrap()),
-        min_price: Some(Decimal::from_str(price).unwrap()),
+        max_price: Some(price.to_owned()),
+        min_price: Some(price.to_owned()),
         volume: Decimal::from_str(volume).unwrap(),
         count,
     };

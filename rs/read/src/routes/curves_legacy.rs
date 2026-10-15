@@ -44,16 +44,38 @@ fn rounded(value: Decimal) -> String {
 pub struct CurveAggregate {
     pub window: String,
     pub side: String,
-    pub max_price: Option<Decimal>,
-    pub min_price: Option<Decimal>,
+    pub max_price: Option<String>,
+    pub min_price: Option<String>,
     pub volume: Decimal,
     pub count: i64,
+}
+
+/// Keep the selected database spelling separate from its bounded arithmetic value.
+/// The order numeric constraint permits only cent values up to 1,000,000, but
+/// PostgreSQL can store any number of trailing zeroes. Remove only those zeroes
+/// for exact arithmetic; never normalize the public price text.
+#[derive(Debug)]
+struct CurvePrice {
+    wire: String,
+    value: Decimal,
+}
+
+impl CurvePrice {
+    fn parse(wire: String) -> Result<Self, String> {
+        let numeric = if wire.contains('.') {
+            wire.trim_end_matches('0').trim_end_matches('.')
+        } else {
+            &wire
+        };
+        let value = Decimal::from_str_exact(numeric).map_err(|e| e.to_string())?;
+        Ok(Self { wire, value })
+    }
 }
 
 pub fn curve_points(rows: Vec<CurveAggregate>, today: NaiveDate) -> Result<Vec<Json>, String> {
     let mut windows: std::collections::BTreeMap<
         String,
-        (Option<Decimal>, Option<Decimal>, Decimal, i64),
+        (Option<CurvePrice>, Option<CurvePrice>, Decimal, i64),
     > = std::collections::BTreeMap::new();
     for row in rows {
         let window = normalize_window(&row.window, today)?;
@@ -62,12 +84,18 @@ pub fn curve_points(rows: Vec<CurveAggregate>, today: NaiveDate) -> Result<Vec<J
             .or_insert((None, None, Decimal::ZERO, 0));
         if row.side == "BID" {
             if let Some(price) = row.max_price {
-                bucket.0 = Some(bucket.0.map_or(price, |old| old.max(price)));
+                let price = CurvePrice::parse(price)?;
+                if bucket.0.as_ref().is_none_or(|old| price.value > old.value) {
+                    bucket.0 = Some(price);
+                }
             }
         } else if row.side == "ASK"
             && let Some(price) = row.min_price
         {
-            bucket.1 = Some(bucket.1.map_or(price, |old| old.min(price)));
+            let price = CurvePrice::parse(price)?;
+            if bucket.1.as_ref().is_none_or(|old| price.value < old.value) {
+                bucket.1 = Some(price);
+            }
         }
         bucket.2 += row.volume;
         bucket.3 += row.count;
@@ -75,14 +103,16 @@ pub fn curve_points(rows: Vec<CurveAggregate>, today: NaiveDate) -> Result<Vec<J
     let mut ordered = Vec::new();
     for (window, (bid, ask, volume, count)) in windows {
         let key = window_sort_key(&window, today)?;
+        let bid_value = bid.as_ref().map(|price| price.value);
+        let ask_value = ask.as_ref().map(|price| price.value);
         ordered.push((
             key,
             json!({
                 "availability_window": window,
-                "best_bid": bid.map(|v| v.to_string()),
-                "best_ask": ask.map(|v| v.to_string()),
-                "mid_price": midpoint(bid, ask).map(rounded),
-                "spread": bid.zip(ask).map(|(b, a)| rounded(a - b)),
+                "best_bid": bid.map(|price| price.wire),
+                "best_ask": ask.map(|price| price.wire),
+                "mid_price": midpoint(bid_value, ask_value).map(rounded),
+                "spread": bid_value.zip(ask_value).map(|(b, a)| rounded(a - b)),
                 "volume_mt": volume.to_string(),
                 "order_count": count
             }),
