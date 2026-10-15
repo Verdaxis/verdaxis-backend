@@ -99,3 +99,46 @@ Final raw logs: `work/task4a-final-focused.log`, `work/task4a-final-postgres.log
 fixture directory is `work/phase0-fixtures/883726f3ff3f45408bc92e4657bc3008`.
 Its `bootstrap-evidence.json` retains the run-specific identity and B/C hashes.
 These temporary logs and fixtures are deliberately not committed.
+
+## Independent-review fix — physical transaction gate (2026-10-16)
+
+The review found that SQLAlchemy's `in_transaction()` can be true while the
+asyncpg driver is in AUTOCOMMIT mode. The supplied path now starts the driver's
+lazy transaction with `SELECT 1`, then checks asyncpg's public
+`is_in_transaction()` method before identity queries, advisory lock acquisition
+or DDL. Unsupported drivers are refused. It does not change isolation mode or
+create a replacement connection. Both supplied entry points use this gate.
+The ordinary Alembic/deployment/checkpoint paths remain unchanged.
+
+TDD evidence:
+
+- Red PostgreSQL run: **4 failed, 3 passed, 26 deselected**. All four combinations
+  of engine/connection AUTOCOMMIT and helper/direct entry reached migration DDL
+  and failed at `LOCK TABLE` instead of refusing before DDL.
+- Tests were committed first as `5696e1a`; the physical transaction fix is
+  `4c29220`.
+- New checks record DDL statements and require none for AUTOCOMMIT. They also
+  check that no application/version tables appear.
+- The mid-migration test raises after `organizations` is created and confirms
+  that both it and `alembic_version` disappear on rollback.
+- A separate connection cannot acquire the bootstrap lock during post-migration
+  schema verification. It can acquire the lock after either commit or rollback.
+
+Verification after the fix:
+
+- Bootstrap suite: **33 passed**, 46 warnings, no skips.
+- `bash scripts/run_phase0_postgres_tests.sh`: **72 passed**, 46 warnings,
+  no skips. Fixture evidence is under
+  `work/phase0-fixtures/6bee7bc6b07f40bdac1f86322c51b45d/`.
+  The runner removed its disposable containers and volumes.
+- Checkpoint suite: **24 passed**.
+- Full unit suite: **2074 passed, 19 failed**, 509 warnings. All failures remain
+  in `tests/unit/test_deploy_health.py`, with the known macOS Bash 3.2
+  `scripts/deploy.sh: line 479: mapfile: command not found` and dependent checks.
+- Syntax parsing and `git diff --check` passed.
+
+Logs: `work/task4a-review-red.log`, `work/task4a-review-bootstrap.log`,
+`work/task4a-review-postgres.log`, `work/task4a-review-checkpoint.log`, and
+`work/task4a-review-unit-final.log`. All PostgreSQL runs use Colima and the
+runner's pinned disposable image. No staging or production access, push, Skill,
+Agent or subagent was used.
