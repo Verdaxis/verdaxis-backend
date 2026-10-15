@@ -55,7 +55,13 @@ export RELEASE_SHA=$(git rev-parse HEAD)
 
 log=$(mktemp "${TMPDIR:-/tmp}/rust-postgres-tests.XXXXXX")
 set +e
-cargo test --manifest-path rs/Cargo.toml --locked --workspace --features contract-tests -- --test-threads=1 2>&1 | tee "$log"
+# The Task 6 visibility and trade-evidence matrices need the seeded fixture
+# catalog and the Python oracle, which this database does not carry. They are
+# named here rather than silently skipped: rs/read/tests/run_market_contract.sh
+# runs them against their own disposable database.
+cargo test --manifest-path rs/Cargo.toml --locked --workspace --features contract-tests \
+  -- --test-threads=1 --skip public_visibility_matrix_matches_python \
+  --skip trade_evidence_matrix_matches_python 2>&1 | tee "$log"
 cargo_status=${PIPESTATUS[0]}
 set -e
 if (( cargo_status != 0 )); then

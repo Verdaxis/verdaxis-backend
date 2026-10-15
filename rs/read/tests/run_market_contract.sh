@@ -50,7 +50,7 @@ done
 port=$(docker port "$container" 5432/tcp)
 port=${port##*:}
 docker exec -i "$container" psql -U postgres -v ON_ERROR_STOP=1 <<SQL
-CREATE ROLE rust_market_writer LOGIN NOSUPERUSER PASSWORD 'disposable_writer_pw';
+CREATE ROLE rust_market_writer LOGIN NOINHERIT NOSUPERUSER PASSWORD 'disposable_writer_pw';
 CREATE ROLE rust_app LOGIN NOINHERIT PASSWORD 'disposable_app_pw';
 CREATE DATABASE $db OWNER rust_market_writer;
 \connect $db

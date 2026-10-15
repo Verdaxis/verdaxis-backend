@@ -102,6 +102,9 @@ async fn public_visibility_matrix_matches_python() {
         assert_eq!(actual, ids(&expected[key]), "visibility mismatch for {key}");
     }
 
+    // The pool close waits for every connection to return, so the borrowed
+    // connection must go out of scope first.
+    drop(connection);
     pools.read.close().await;
 }
 
@@ -126,5 +129,6 @@ async fn trade_evidence_matrix_matches_python() {
         "trade evidence mismatch"
     );
 
+    drop(connection);
     pools.read.close().await;
 }

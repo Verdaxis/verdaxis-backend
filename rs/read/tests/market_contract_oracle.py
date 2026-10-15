@@ -43,6 +43,8 @@ async def seed(session, clock: datetime) -> None:
 
     product = {"Bio-LNG": None, "UCOME B100": None, "Bio Methanol": None,
                "e-Methanol": None, "Bio Ethanol": None, "Synthetic Ethanol": None}
+    # The catalog migrations already seed these rows; this only completes or
+    # deactivates them so the matrix is independent of seed history.
     for spec in CANONICAL_PRODUCTS:
         await _insert(session, INSERT_PRODUCT, {
             "id": spec.id,
@@ -51,7 +53,7 @@ async def seed(session, clock: datetime) -> None:
             "fuel_grade": spec.fuel_grade,
             "unit": spec.unit,
             "min_lot_size": spec.min_lot_size,
-            "is_active": spec.name != "Synthetic Ethanol",  # the inactive case
+            "is_active": True,
         })
         product[spec.name] = spec.id
     point = {}
@@ -61,9 +63,14 @@ async def seed(session, clock: datetime) -> None:
             "name": spec.name,
             "region": spec.region,
             "timezone": spec.timezone,
-            "is_active": spec.name != "Santos",  # the inactive case
+            "is_active": True,
         })
         point[spec.name] = spec.id
+
+    # The inactive cases: one canonical product and one canonical point are
+    # still fully canonical by identity but carry an inactive row.
+    await _insert(session, DEACTIVATE_PRODUCT, {"id": product["Synthetic Ethanol"]})
+    await _insert(session, DEACTIVATE_POINT, {"id": point["Santos"]})
 
     # Non-canonical decoys: an alias product and an alias delivery point.
     alias_product = fid("product:alias")
@@ -77,6 +84,17 @@ async def seed(session, clock: datetime) -> None:
         "timezone": "Europe/Amsterdam", "is_active": True,
     })
 
+    # The organizations trigger admits DEMO and TEST provenance only for the
+    # deterministic seed identities, and refuses CANARY outright. A CANARY
+    # market row is therefore unrepresentable in a freshly migrated database
+    # and is not part of this matrix.
+    from app.demo_identities import (
+        DEMO_SEED_BUYERS,
+        DEMO_SEED_SUPPLIERS,
+        KNOWN_TEST_ORG_IDS,
+    )
+
+    test_ids = sorted(KNOWN_TEST_ORG_IDS)
     organizations = {
         "real": ("REAL", "APPROVED"),
         "real_alt": ("REAL", "APPROVED"),
@@ -85,18 +103,16 @@ async def seed(session, clock: datetime) -> None:
         "demo_seller": ("DEMO", "APPROVED"),
         "test_a": ("TEST", "APPROVED"),
         "test_b": ("TEST", "APPROVED"),
-        "canary": ("CANARY", "APPROVED"),
         "unknown": ("UNKNOWN", "APPROVED"),
         "pending": ("REAL", "PENDING"),
     }
     org = {}
     for key, (provenance, verification) in organizations.items():
-        # DEMO trade counterparts must be canonical demo identities.
-        from app.demo_identities import DEMO_SEED_BUYERS, DEMO_SEED_SUPPLIERS
-
         fixed = {
             "demo_buyer": DEMO_SEED_BUYERS[0][0],
             "demo_seller": DEMO_SEED_SUPPLIERS[0][0],
+            "test_a": test_ids[0],
+            "test_b": test_ids[1],
         }.get(key)
         identifier = fixed or fid(f"org:{key}")
         org[key] = identifier
@@ -230,10 +246,16 @@ async def seed(session, clock: datetime) -> None:
     past = clock - timedelta(hours=24)
     rows = [
         order("real_scalar_bid"),
-        order("demo_ownerless_bid", provenance="DEMO", owner_user_id=None, expires_at=future),
-        order("unknown_ownerless_bid", provenance="UNKNOWN", owner_user_id=None),
-        order("test_ownerless_bid", provenance="TEST", owner_user_id=None, expires_at=future),
-        order("canary_ownerless_bid", provenance="CANARY", owner_user_id=None, expires_at=future),
+        # The database requires an order's provenance to equal its owner
+        # organization's, so each synthetic class uses its own fixture org.
+        order("demo_ownerless_bid", provenance="DEMO", organization_id=org["demo_buyer"],
+              owner_user_id=None, expires_at=future),
+        order("unknown_ownerless_bid", provenance="UNKNOWN",
+              organization_id=org["unknown"], owner_user_id=None),
+        order("unknown_expired_bid", provenance="UNKNOWN",
+              organization_id=org["unknown"], owner_user_id=None, expires_at=past),
+        order("test_ownerless_bid", provenance="TEST", organization_id=org["test_a"],
+              owner_user_id=None, expires_at=future),
         order("rejected_owner_bid", owner_user_id=user["rejected"]),
         order("grace_ok_bid", owner_user_id=user["grace_ok"]),
         order("grace_edge_bid", owner_user_id=user["grace_edge"]),
@@ -267,10 +289,9 @@ async def seed(session, clock: datetime) -> None:
               **{k: v for k, v in scalar_declarations.items() if k != "carbon_intensity_gco2_mj"}),
         order("partial_bid", status="PARTIALLY_FILLED", remaining_quantity_mt="40.00"),
         order("filled_bid", status="FILLED", remaining_quantity_mt="0.00"),
-        order("demo_expired_bid", provenance="DEMO", owner_user_id=None, expires_at=past),
+        order("demo_expired_bid", provenance="DEMO", organization_id=org["demo_buyer"],
+              owner_user_id=None, expires_at=past),
         order("real_expired_bid", expires_at=past),
-        order("unknown_rejected_owner_bid", provenance="UNKNOWN",
-              owner_user_id=user["rejected"]),
     ]
     for values in rows:
         await _insert(session, INSERT_ORDER, values)
@@ -302,6 +323,11 @@ async def seed(session, clock: datetime) -> None:
             "status": "CONFIRMED",
             "confirmed_at": clock,
             "market_snapshot_version": 1,
+            "delivered_at": None,
+            "paid_at": None,
+            "final_quantity_mt": None,
+            "final_price_per_mt": None,
+            "final_total_usd": None,
         }
         values.update(fields)
         return values
@@ -311,13 +337,15 @@ async def seed(session, clock: datetime) -> None:
         trade("demo_demo", buyer_id=org["demo_buyer"], seller_id=org["demo_seller"],
               buyer_provenance="DEMO", seller_provenance="DEMO",
               initiator_org_id=org["demo_buyer"], status="CONFIRMED"),
-        trade("mixed", buyer_provenance="REAL", seller_provenance="DEMO",
-              market_snapshot_version=None),
-        trade("test_pair", buyer_id=org["test_a"], seller_id=org["test_b"],
-              buyer_provenance="TEST", seller_provenance="TEST",
-              initiator_org_id=org["test_a"], market_snapshot_version=None),
         trade("pending", status="PENDING_CONFIRMATION", confirmed_at=None),
-        trade("snapshot_mismatch", product_name="Alias Fuel"),
+        trade("cancelled", status="CANCELLED", confirmed_at=None),
+        trade("paid", status="PAID", delivered_at=clock, paid_at=clock,
+              final_quantity_mt="100.00", final_price_per_mt="600.00",
+              final_total_usd="60000.00"),
+        # A mixed-provenance pair, a mismatched or non-canonical snapshot, and
+        # a TEST or CANARY pair are all unrepresentable: the snapshot guard,
+        # the version-1 domain rule, and the party provenance rule refuse them
+        # before any read can see them.
     ]
     for values in trades:
         await _insert(session, INSERT_TRADE, values)
@@ -338,14 +366,13 @@ async def select(session) -> dict:
     from app.services.market_provenance import public_trade_evidence_clause
     from app.services.public_order_scope import public_order_scope
 
-    def visible(include_off_spec: bool) -> set[str]:
+    async def visible(include_off_spec: bool) -> set[str]:
         filters, joins = public_order_scope(include_off_spec=include_off_spec)
         statement = sql_select(OrderBookOrder.id)
         for target, condition in joins:
             statement = statement.join(target, condition)
-        return {str(value) for value in (
-            (await session.execute(statement.where(*filters))).scalars()
-        )}
+        result = await session.execute(statement.where(*filters))
+        return {str(value) for value in result.scalars()}
 
     all_orders = {
         str(value) for value in (
@@ -362,8 +389,8 @@ async def select(session) -> dict:
     ).scalars()}
     return {
         "all_orders": sorted(all_orders),
-        "selected": sorted(visible(False)),
-        "selected_with_off_spec": sorted(visible(True)),
+        "selected": sorted(await visible(False)),
+        "selected_with_off_spec": sorted(await visible(True)),
         "all_trades": sorted(all_trades),
         "trade_selected": sorted(trade_selected),
     }
@@ -376,15 +403,19 @@ ATTESTATION_SQL = (
 
 INSERT_PRODUCT = (
     "INSERT INTO products (id, name, fuel_type, fuel_grade, unit, min_lot_size, is_active) "
-    "VALUES (:id, :name, :fuel_type, :fuel_grade, :unit, :min_lot_size, :is_active)"
+    "VALUES (:id, :name, :fuel_type, :fuel_grade, :unit, :min_lot_size, :is_active) "
+    "ON CONFLICT (id) DO NOTHING"
 )
 INSERT_POINT = (
     "INSERT INTO delivery_points (id, name, region, timezone, is_active) "
-    "VALUES (:id, :name, :region, :timezone, :is_active)"
+    "VALUES (:id, :name, :region, :timezone, :is_active) ON CONFLICT (id) DO NOTHING"
 )
+DEACTIVATE_PRODUCT = "UPDATE products SET is_active = false WHERE id = :id"
+DEACTIVATE_POINT = "UPDATE delivery_points SET is_active = false WHERE id = :id"
 INSERT_ORGANIZATION = (
     "INSERT INTO organizations (id, name, type, verification_status, provenance) "
-    "VALUES (:id, :name, 'FUEL_SUPPLIER', :verification_status, :provenance)"
+    "VALUES (:id, :name, 'FUEL_SUPPLIER', :verification_status, :provenance) "
+    "ON CONFLICT (id) DO NOTHING"
 )
 INSERT_USER = (
     "INSERT INTO users (id, email, password_hash, role, status, organization_id, "
@@ -416,12 +447,14 @@ INSERT_TRADE = (
     "market_product, delivery_point_id, delivery_point_name, delivery_point_region, "
     "availability_window, buyer_id, seller_id, buyer_provenance, seller_provenance, "
     "initiated_by, initiator_org_id, quantity_mt, price_per_mt_usd, status, "
-    "confirmed_at, market_snapshot_version) "
+    "confirmed_at, market_snapshot_version, delivered_at, paid_at, "
+    "final_quantity_mt, final_price_per_mt, final_total_usd) "
     "VALUES (:id, :product_id, :product_name, :fuel_type, :fuel_grade, :market_product, "
     ":delivery_point_id, :delivery_point_name, :delivery_point_region, "
     ":availability_window, :buyer_id, :seller_id, :buyer_provenance, :seller_provenance, "
     ":initiated_by, :initiator_org_id, :quantity_mt, :price_per_mt_usd, :status, "
-    ":confirmed_at, :market_snapshot_version)"
+    ":confirmed_at, :market_snapshot_version, :delivered_at, :paid_at, "
+    ":final_quantity_mt, :final_price_per_mt, :final_total_usd)"
 )
 
 
