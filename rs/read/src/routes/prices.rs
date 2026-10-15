@@ -1,4 +1,8 @@
-//! Immutable price summaries and REAL-only daily reference prices.
+#[path = "prices_date.rs"]
+mod date_parser;
+#[path = "prices_query.rs"]
+pub mod query;
+// Immutable price summaries and REAL-only daily reference prices.
 use crate::market::visibility::{
     TradeEvidenceFilters, bind_trade_query, price_quarantine::price_quarantine_query,
     trade_query_sql,
@@ -145,10 +149,7 @@ fn date_query(values: &HashMap<String, String>, name: &str) -> Result<Option<Nai
     let Some(value) = values.get(name) else {
         return Ok(None);
     };
-    NaiveDate::parse_from_str(value,"%Y-%m-%d").map(Some).map_err(|_| {
-        let reason = if value.len() < 10 { "input is too short" } else { "invalid character in year" };
-        ApiError { status: StatusCode::UNPROCESSABLE_ENTITY, detail: json!([{"type":"date_from_datetime_parsing","loc":["query",name],"msg":format!("Input should be a valid date or datetime, {reason}"),"input":value,"ctx":{"error":reason}}]), retry_after: None }
-    })
+    date_parser::parse(value, name).map(Some)
 }
 fn date_range(raw: &str, filters: &mut PriceFilters, export: bool) -> Result<(), ApiError> {
     let values = fields(raw);
@@ -218,6 +219,7 @@ async fn summary(
 ) -> Result<Response, ApiError> {
     let raw = raw.unwrap_or_default();
     let now = captured_now(&state)?;
+    query::validate(&raw, query::Surface::Summary)?;
     let hours = integer(&raw, "hours", 1, 168, 24)?;
     let filters = PriceFilters::parse(&raw, &state, now)?;
     let policy = state.policy.clone();
@@ -339,6 +341,14 @@ async fn reference_response(
     export: bool,
 ) -> Result<Response, ApiError> {
     let now = captured_now(&state)?;
+    query::validate(
+        &raw,
+        if export {
+            query::Surface::Export
+        } else {
+            query::Surface::Reference
+        },
+    )?;
     let mut filters = PriceFilters::parse(&raw, &state, now)?;
     date_range(&raw, &mut filters, export)?;
     let visibility = fields(&raw)

@@ -27,6 +27,7 @@ async fn tape(
     RawQuery(raw): RawQuery,
 ) -> Result<Response, ApiError> {
     let raw = raw.unwrap_or_default();
+    super::prices::query::validate(&raw, super::prices::query::Surface::Tape)?;
     let mut values = fields(&raw);
     let now = captured_now(&state)?;
     let point = uuid(&raw, "delivery_point_id")?;
@@ -47,9 +48,7 @@ async fn tape(
         Some(v) => match normalize_window(&v, now.date_naive()) {
             Ok(v) => Some(v),
             Err(_) => {
-                return Ok(
-                    (StatusCode::INTERNAL_SERVER_ERROR, "Internal Server Error").into_response()
-                );
+                return Ok(crate::runtime::http::unhandled_server_error());
             }
         },
         None => None,

@@ -30,3 +30,60 @@ fn price_rounding_uses_half_even() {
 fn empty_reference_csv_has_header_only() {
     assert_eq!(reference_csv(&[]).unwrap(), b"date,product_name,market_product,availability_window,fuel_type,delivery_point_name,region,vwap_usd,volume_mt,trade_count\r\n");
 }
+
+#[test]
+fn parameter_errors_follow_python_declaration_order() {
+    use verdaxis_read::routes::prices::query::{Surface, validate};
+    let error = validate(
+        "delivery_point_id=bad&demo_only=bad&skip=-1&limit=0",
+        Surface::Tape,
+    )
+    .unwrap_err();
+    let names: Vec<_> = error
+        .detail
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| e["loc"][1].as_str().unwrap())
+        .collect();
+    assert_eq!(names, ["delivery_point_id", "demo_only", "skip", "limit"]);
+}
+
+#[tokio::test]
+async fn unhandled_errors_bypass_response_headers_but_handled_errors_do_not() {
+    use axum::{Router, body::Body, http::Request, routing::get};
+    use tower::ServiceExt;
+    use verdaxis_read::runtime::http::{middleware, unhandled_server_error};
+    let app = middleware(
+        Router::new()
+            .route("/unhandled", get(|| async { unhandled_server_error() }))
+            .route(
+                "/handled",
+                get(|| async { verdaxis_read::ApiError::internal() }),
+            ),
+    );
+    for path in ["/unhandled", "/handled"] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(path)
+                    .header("origin", "https://staging.verdaxis.exchange")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 500);
+        assert_eq!(
+            response.headers().contains_key("x-request-id"),
+            path == "/handled"
+        );
+        assert_eq!(
+            response
+                .headers()
+                .contains_key("access-control-allow-origin"),
+            path == "/handled"
+        );
+    }
+}
