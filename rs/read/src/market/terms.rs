@@ -1115,6 +1115,29 @@ pub fn public_fame_terms(terms: &Json) -> Result<Json, String> {
     let mut normalized = terms.clone();
     if side == "ASK" {
         let object = normalized.as_object_mut().unwrap();
+        // Full FameAskTerms strips these public string fields before dumping.
+        // The snapshot's public schema does not. Literal enum fields must not
+        // be stripped, and nested evidence has its own schema normalization.
+        for field in [
+            "standard_edition",
+            "en_climate_class",
+            "production_origin",
+            "feedstock_origin",
+            "shipping_location",
+            "ci_methodology",
+            "ci_boundary",
+        ] {
+            if let Some(Json::String(value)) = object.get_mut(field) {
+                *value = value
+                    .trim_matches(|character| {
+                        // Pydantic uses Unicode White_Space, unlike str.strip's
+                        // additional four information separators.
+                        super::whitespace::is_python_whitespace(character)
+                            && !matches!(character, '\u{001c}'..='\u{001f}')
+                    })
+                    .to_owned();
+            }
+        }
         object
             .entry("nomination_status")
             .or_insert(serde_json::json!("PENDING"));
