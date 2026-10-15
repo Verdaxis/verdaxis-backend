@@ -84,7 +84,7 @@ class KeyRing:
                     raise ValueError("Invalid key encoding")
                 keys[key_id] = key
             return cls(active, keys)
-        except (OSError, ValueError, TypeError):
+        except (OSError, ValueError, TypeError, RecursionError, MemoryError):
             raise KeyFileError("Invalid KYC document key file") from None
 
     def encrypt(self, plaintext: bytes, *, id: UUID, submission_id: UUID,
