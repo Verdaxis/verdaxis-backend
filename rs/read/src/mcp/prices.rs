@@ -216,9 +216,9 @@ pub async fn market_slice(
         let product_id = owned.policy.products.iter().find(|value| value.code == product).map(|value| value.id).ok_or_else(|| {
             let mut codes: Vec<_> = owned.policy.products.iter().map(|value| value.code.as_str()).collect();
             codes.sort();
-            invalid(format!("Unsupported market product {product:?}. Supported products: {}", codes.join(", ")))
+            invalid(format!("Unsupported market product {}. Supported products: {}", super::transport::python_string_repr(&product), codes.join(", ")))
         })?;
-        let point_id = owned.policy.points.iter().find(|value| value.name == point).map(|value| value.id).ok_or_else(|| invalid(format!("Unsupported delivery point {point:?}. Supported delivery points: {}", owned.policy.points.iter().map(|value| value.name.as_str()).collect::<Vec<_>>().join(", "))))?;
+        let point_id = owned.policy.points.iter().find(|value| value.name == point).map(|value| value.id).ok_or_else(|| invalid(format!("Unsupported delivery point {}. Supported delivery points: {}", super::transport::python_string_repr(&point), owned.policy.points.iter().map(|value| value.name.as_str()).collect::<Vec<_>>().join(", "))))?;
         let query = order_query_sql("SELECT side::text AS side, price_per_mt_usd::text AS price, remaining_quantity_mt::text AS quantity, provenance::text AS provenance FROM eligible_orders");
         let filters = PublicOrderFilters { product_id: Some(product_id), delivery_point_id: Some(point_id), availability_window: Some(&window), ..Default::default() };
         let rows = bind_order_query(&query, &owned.policy, &VisibilityClock::at(now), &owned.config, &filters)
