@@ -1,5 +1,26 @@
 # Phase 0 Task 9 — integrated acceptance
 
+## CI PostgreSQL partition correction
+
+Read failed run `38813274619` with `gh run view --log-failed`: analytics collected
+Phase 0 suites without `PHASE0_PORT`. The runner now explicitly excludes the
+three `tests/postgres/test_phase0_*` files and `tests/phase0`. Their guards are
+unchanged. New Linux job `postgres-phase0` runs the complete Phase 0 runner with
+full Git history, CPython 3.12, constrained dependencies and its expected venv.
+Both runners use the same pinned PostGIS image; analytics cleanup now also removes
+volumes. The old unit-job fence step moves into the complete Phase 0 job, avoiding
+duplicate execution. A unit regression compares the complete/disjoint file sets
+and checks the new job's history, venv and invocation.
+
+TDD: partition tests **2 failed → 2 passed**. Exact local runner commands finished:
+- `bash scripts/run_product_analytics_postgres_tests.sh tests/postgres`:
+  **264 passed, 1 error**, only the known macOS `/proc` SSE fixture; no Phase 0
+  collection or guard failures. Both initial migration drift checks passed.
+- `bash scripts/run_phase0_postgres_tests.sh`: **153 passed**, zero skips/failures.
+Logs: `work/task9-ci-{failed,analytics,phase0}.log`. Owned containers and volumes
+were removed. No push; PM owns publication. Linux CI is not claimed verified
+until the PM pushes and the new run finishes.
+
 ## Sign-off M1 correction — current inventory authority
 
 Commit `48c2cc305dd5c6085ae18352b9e16f8f4e1c915e` supersedes P0-2's
