@@ -51,12 +51,17 @@ Logs are uncommitted under `work/rust-phase1/task7c-*.log`.
 - Workspace: 112 passed.
 - Disposable PostgreSQL runner: 120 passed on final repetition. Its two dedicated
   market matrices remain filtered by the existing runner.
-- Map populated corpus: six cases and 94 edge comparisons pass in both KYC states.
+- Map populated corpus: six cases and 96 edge/corpus comparisons pass in both KYC states.
 - Python contract suite: 95 passed, five warnings.
 - All six task-named Python unit files: 76 passed, 11 warnings.
 - Combined Python contract and task-named unit run: 171 passed, 11 warnings.
-- Compatibility-containing `orderbook_lists` group: final result pending. Task 7b
-  is absent from this lane; its failures must not be repaired here.
+- Compatibility-containing `orderbook_lists` group: 39 differences across 13 cases,
+  all absent Task 7b routes or R19's integration-owned dispatch gap. Both R27
+  cases match, including malformed private history. The task-local R19 comparisons
+  pass. No unrelated implementation or dispatch was changed.
+- The full Python unit suite and dedicated shared-market matrix runner were not
+  repeated: this task changes neither Python nor shared eligibility. All requested
+  Task 7c checks ran. Other sessions' Docker containers were left untouched.
 
 ## Deviations and resume point
 
@@ -72,5 +77,19 @@ Logs are uncommitted under `work/rust-phase1/task7c-*.log`.
   aggregate only in the map group. Task-local comparisons cover both without
   changing that integration-owned dispatch.
 
-Resume: complete final repeated checks, record compatibility group differences,
-then commit verification notes. PM review and merge remain separate.
+## Final commits and resume
+
+- `2fa7fe2a`: public map and compatibility reads, SQL tails and regression tests.
+- `6dc1baa7`: exact legacy serializer failure envelope and malformed-history probe.
+- The following documentation-only commit records final verification.
+
+The compatibility repair was test-first: the full list-group corpus exposed four
+owned differences in `T4B-negative-fame-holder`. The existing unhandled-server-error
+seam preserves Python's plain-text 500 and missing CORS/request-ID headers. After
+repair, those four differences disappear; 39 unrelated dispatch/list differences
+remain. Both map runs include explicit legacy missing-declaration visibility and
+public identity-omission assertions. No corpus normalization was added.
+
+Resume: PM review and merge Task 7c. Task 13 must assemble routing and resolve the
+recorded dispatch gap. Task 7b, Phase 0, architecture integration and deployment
+remain separate work. No further implementation is pending in this lane.
