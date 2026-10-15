@@ -2,7 +2,7 @@
 
 > **For agentic workers:** Use `superpowers:executing-plans` or `superpowers:subagent-driven-development` to implement this plan task by task. Steps use checkbox (`- [ ]`) syntax. This document is a plan, not permission to deploy.
 
-**Goal:** Port the staging public read API and MCP to Rust with zero contract differences, at least 50% lower measured route-service memory, and no p95 latency regression.
+**Goal:** Port the staging public read API and MCP to Rust with zero unapproved contract differences, at least 50% lower measured route-service memory, and no p95 latency regression.
 
 **Architecture:** Add a Cargo workspace in `rs/`. Keep Python as the writer and Alembic as the only schema owner. Caddy selects exact public methods and paths for Rust; all other traffic stays on Python. Both processes use the existing app role. One canonical deployment transaction controls both services.
 
@@ -32,10 +32,10 @@
 
 These five failures are not covered by the initial happy-path port tests. Each owning task below adds the named regression.
 
-1. **An offset beyond the last ASK still needs the true total.** Test `ask_offset_past_end_keeps_total` in Task 7. The window-count query has an explicit fallback (`app/routers/orderbook.py:1003-1012`).
+1. **An offset beyond the last ASK still needs the true total.** Test `ask_offset_past_end_keeps_total` in Task 7b. The window-count query has an explicit fallback (`app/routers/orderbook.py:1003-1012`).
 2. **A public read produces a digest that Python rejects on a later take.** Test `private_terms_digest_matches_python` in Task 6. Compute the digest before redaction; never expose its private input (`app/services/order_terms.py:49-122`).
 3. **Cancellation releases capacity before database work stops.** Test `cancelled_query_keeps_slot_until_drop` in Task 3. Test REST and MCP against the same gate. Python holds admission until the ASGI call exits (`app/middleware/public_market_read_admission.py:104-113`).
-4. **An old binary claims a new source SHA after a failed deployment.** Test `wrong_binary_refuses_new_release` in Task 12. Bind compiled identity, artifact digest, runtime identity, and both readiness results before clearing state (`scripts/deploy.sh:619-649,685-712`).
+4. **An old binary claims a new source SHA after a failed deployment.** Test `wrong_binary_refuses_new_release` in Task 12a and transaction failure retention in Task 12b. Bind compiled identity, artifact digest, runtime identity, and both readiness results before clearing state (`scripts/deploy.sh:619-649,685-712`).
 5. **A midnight or grace-expiry boundary becomes a false parity pass.** Test `clock_boundary_changes_are_not_normalized` in Task 4. Never remove expiry, staleness, or evidence timestamps from comparison (`app/services/market_data_eligibility.py:230-274`; `app/services/kyc_execution.py:20-30`).
 
 ## Design corrections and decisions
@@ -48,11 +48,19 @@ These five failures are not covered by the initial happy-path port tests. Each o
 6. **Curves overlap Phase 5:** Port the five existing public curve routes and the read-only benchmark calculations they call now. Leave `/api/benchmarks` ownership and all ingestion on Python. Do not defer curve dependencies merely because Phase 5 also says “forward curves” (`app/routers/curves.py:850-962`; `app/main.py:312`).
 7. **Integration target:** The suite is not pointed at live staging Caddy. It runs unchanged against a disposable Caddy, whose identity endpoint remains served by `tests.disposable_server` (`tests/disposable_server.py:48-73`).
 8. **Memory baseline:** Founder-supplied measurements on 15 October are production 754 MiB steady, 807 MiB peak, cap 1 GiB, four workers at 108–261 MiB, about 6% of one core; staging 642 MiB. These are context, not a route-level benchmark. The older 530–538 MiB figure is historical (`docs/runtime-hardening.md:46-50`).
-9. **Rate-limit topology:** Python counters are process-local; a Rust process cannot reproduce random dispatch across four independent counters. Preserve per-client, per-route 60/30/10 limits and exact 429 bodies. Measure the effective multi-worker difference separately. Do not multiply limits by four or call that exact parity. Block cutover if supported-client tests show a changed observable rate-limit contract (`app/rate_limit.py:16-33`; `app/routers/price_discovery.py:381-392,551-566,603-616`).
+9. **Approved difference AD-01 — rate-limit counts:** The PM defines the contract as 60/30/10 requests per minute per client on prices/reference/export, enforced once per client and route. Python's four process-local counters can admit up to four times those counts; that is an implementation artifact (`app/rate_limit.py:16-33`; `deploy/systemd/verdaxis-backend-staging.service:18-23`; `app/routers/price_discovery.py:381-392,551-566,603-616`). Rust enforces the documented limits exactly. Do not change Python or multiply Rust limits by four. This is the **one approved, listed contract difference**. Exclude threshold counts and the resulting accept/reject sequence from golden/shadow parity. Retain exact 429 body/header and client-key tests. Rust-only burst/reset tests prove the boundary. All other differences remain failures.
+
+### Product issues found (not changed in Phase 1)
+
+The current same-side live-slice VWAP combines qualified REAL and DEMO orders under a key that omits provenance (`app/services/live_benchmarks.py:134-204`). Public order responses expose this benchmark and premium/discount (`app/routers/orderbook.py:429-466`). Rust copies this behavior, including additional typed qualification. The founder may review separation as a later product change. REAL-only confirmed-trade reference prices remain separate and unchanged.
+
+### Review disposition
+
+Applied B1 using the PM's AD-01 decision instead of changing Python or reducing scope. Applied M1 with a dedicated shared live-benchmark task. Applied M2–M6 and N1–N3 through executable task gates, test-only complete clock injection, effective budget checks, an assertion ledger, smaller checkpoints, and one external comparator. The review is `/Users/jonathanjie/Documents/workspace/Verdaxis/outputs/research/rust-phase1-plan-review.md`. No review finding authorizes live execution.
 
 ### Pre-plan review
 
-- **Architecture — WARN:** A second runtime needs a binary-aware extension to the one deploy transaction. A separate deploy script would create an unsafe second owner. Task 12 owns the extension.
+- **Architecture — WARN:** A second runtime needs a binary-aware extension to the one deploy transaction. A separate deploy script would create an unsafe second owner. Task 12b owns the extension; 12a and 12c have separate artifact and unit gates.
 - **Code quality — WARN:** Use shared visibility, evidence, and serialization modules. Do not copy predicates into each route. Tasks 5–6 own them.
 - **Test coverage — WARN:** Existing integration tests alone do not cover all public reads. Tasks 4 and 13 add the full route corpus without changing the existing suite.
 - **Performance — WARN:** Bound reads and batch benchmark lookups. Preserve the two-statement snapshot design (`app/routers/orderbook.py:770-811`). Tasks 7 and 14 verify query count and measured cost.
@@ -111,7 +119,7 @@ Shared query sets:
 
 - **Serialization:** Preserve decimal strings, including scale. Do not convert NUMERIC to f64. Ports' intelligence prices and coordinates are floats, not Decimal (`app/schemas/port.py:11-34`). Product minimum lot is Decimal (`app/schemas/catalog.py:7-20`). Order, aggregate, and price Decimal fields are declared in `app/schemas/orderbook.py:234-269,401-570`.
 - **Null versus absent:** Keep declared optional response fields as null unless the schema explicitly excludes them. The curve table excludes `benchmark_observed_at` (`app/schemas/curves.py:396`). Public terms omit private fields; do not replace omissions with null (`app/services/lng_order.py:123-134`; `app/services/fame_order.py:162`). News dates are explicit null or `isoformat()` strings (`app/routers/news.py:27-39`). Listings use their own serializer, not OrderResponse (`app/routers/inventory.py:762-800`).
-- **Key order:** No frontend was inspected. Do not claim a frontend dependency on key order. Record Python object order and preserve it with structs or ordered maps. Compare key order as a conservative compatibility gate. Keep array order exact. Never sort every array to hide a mismatch. Ports have no ORDER BY; prices have incompletely ordered aggregate groups. Test these separately as source nondeterminism, not as permission to reorder all results (`app/routers/ports.py:18-24`; `app/routers/price_discovery.py:193-205,484-489`).
+- **Key order:** No named consumer in this review requires JSON object key order. Compare exact object membership, types, values, Decimal scale, and null versus absence; ignore object key order by default. An ordered-object exception needs a named consumer, source citation, and exact JSON path in `ordered-object-paths.json` (initially empty). Keep raw bytes for diagnosis and array order exact. Never sort every array to hide a mismatch. Ports have no ORDER BY; prices have incompletely ordered aggregate groups. Test these separately as source nondeterminism, not as permission to reorder all results (`app/routers/ports.py:18-24`; `app/routers/price_discovery.py:193-205,484-489`).
 - **Cache and ETag:** These public handlers set no Cache-Control or ETag. CSV handlers add only their attachment header (`app/routers/curves.py:958-962`; `app/routers/price_discovery.py:643-647`). The public OrderResponse contains a terms digest, not an HTTP ETag; owner ETags belong to OrderMyResponse (`app/schemas/orderbook.py:234-298`). Record header absence as part of the contract. Do not add caching or conditional 304 responses. The disposable identity route alone uses `no-store` (`tests/disposable_server.py:62-70`). Capture proxy-added headers separately; the live Caddy configuration is not established by this source review.
 - **Errors:** Preserve detail strings, structured detail objects, and Pydantic 422 lists as distinct forms. Invalid order-book window normalization returns 400 (`app/routers/orderbook.py:300-306`). Price alias conflicts and reverse date ranges return 422 (`app/routers/price_discovery.py:94-136,573-582`). The export's `format` argument is not validated (`app/routers/price_discovery.py:603-647`). Do not “fix” it during the port.
 - **Global database failures:** Retryable market contention or canceled GET/HEAD queries return 503, `Retry-After: 1`, and `Market is temporarily busy; retry shortly.` Other database errors return 500 and `Database operation failed.` (`app/main.py:187-214`). Match the market-path classifier from `app/services/db_errors.py`, not all routes indiscriminately.
@@ -134,7 +142,8 @@ Keep `/api/availability`, `/api/demand`, `/api/producers`, `/api/benchmarks`, `/
 | Bio-LNG | `app/services/market_data_eligibility.py:266-273`; `app/services/lng_order.py:60-72,123-134` | Rotterdam lane, same-side terms, no off-spec; omit certificate number and physical supplier name. WTT stays out of lifecycle CI. No synthetic benchmark or seed price (`CLAUDE.md:5-9`). Preserve the separate writer reseller block. |
 | Public serializer | `app/schemas/orderbook.py:234-269`; `app/services/order_terms.py:49-122` | Never expose organization, owner, actor, support, or inventory identifiers. Digest uses the full reviewed terms before public redaction. |
 | Trade evidence | `app/services/market_provenance.py:144-239` | Use immutable canonical snapshots and confirmed/delivered/paid states. Admit REAL/REAL and DEMO/DEMO separately. Exclude TEST/CANARY and mismatched classes from economics. Do not join mutable order metadata to reconstruct history. |
-| Aggregate provenance | `app/services/market_provenance.py:51-95`; `app/routers/price_discovery.py:295-375` | Prefer REAL then disclosed DEMO in selected aggregates. UNKNOWN contributes metadata only where Python does so. Never turn unknown into real or blend real and demo values. |
+| Aggregate provenance | `app/services/market_provenance.py:51-95`; `app/routers/price_discovery.py:295-375` | Prefer REAL then disclosed DEMO in selected aggregates. UNKNOWN contributes metadata only where Python does so. Never turn unknown into real. Preserve each surface's evidence selection; the live-slice benchmark below intentionally differs. |
+| Live-slice order benchmark | `app/services/live_benchmarks.py:35-93,124-204`; `app/routers/orderbook.py:429-466` | Combine qualified REAL and DEMO remaining quantities in same-side product/point/window VWAP. Provenance is not part of its key. Require positive remaining quantity, no off-spec, current catalog/lane, typed FAME/LNG execution qualification, and scalar ASK qualification. Public visibility alone is insufficient. No rebuild/write call. |
 | Trade privacy | `app/routers/trade_tape.py:30-59` | Eight-character public ID; no party IDs. Delivery-point detail appears only for an exact point filter. Market hours is always true. |
 | Admission | `app/middleware/public_market_read_admission.py:10-43,92-113`; `app/main.py:139-150` | Selected GETs and database MCP tools share one fail-fast budget. News bypasses it. Reserve one pool slot. Busy REST is 503 plus Retry-After 1 with the exact public-market detail. |
 | Rate limits | `app/rate_limit.py:16-33`; `app/main.py:168-173`; `app/routers/price_discovery.py:382,552,604` | Trust the final X-Forwarded-For hop only from loopback. Preserve route-specific 60/30/10 minute buckets and exact 429 detail. No invented Retry-After on that handler. |
@@ -150,14 +159,16 @@ Create one library/binary package, `verdaxis-read`, plus an independent `verdaxi
 | Astra | `rs/read/src/runtime/{config,db,health,http,admission,error,logging}.rs` | runtime boundaries |
 | Astra | `rs/read/src/market/{policy,visibility,provenance,terms,decimal,windows}.rs` | shared rules |
 | DeepSeek | `rs/read/src/routes/{ports,catalog,news}.rs` | simple read ports |
-| Astra | `rs/read/src/routes/{orderbook,curves,prices,trade_tape,listings}.rs` | subtle reads and projection |
+| Astra | `rs/read/src/routes/{orderbook_snapshot,orderbook_lists,orderbook_map,curves_legacy,curves_canonical,prices,trade_tape,listings}.rs` | independently reviewed read projections |
 | Astra | `rs/read/src/mcp/{mod,voyage,prices,transport}.rs` | MCP and pure voyage engine |
 | Astra | `rs/contract/`, `tests/rust_contract/`, `scripts/rust_contract/` | oracle, fixtures, comparison, shadow, measurement |
 | Astra | `deploy/rust/`, `deploy/caddy/`, staging unit, CI and deploy helper edits | release and operator boundary |
 
-Dependency chain: 1 -> 2 -> 3 -> 4 -> 5 -> 6. After 6, Tasks 7, 8, 9, and 10 can run in separate worktrees. Task 11 depends on 9 and 10. Task 12 can proceed after 3 and 5, but activation waits for 13. Task 13 depends on 7–12. Task 14 follows 13 and includes the measured founder gate.
+**20 independently accepted tasks:** 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 6a -> 7a -> 7b -> 7c -> 8 -> 9 -> 10a -> 10b -> 11 -> 12a -> 12b -> 12c -> 13 -> 14. Letter suffixes preserve review references; each is a separate test/commit checkpoint.
 
-Only Task 1/3's integration owner edits the root module registration and Cargo manifests. In Task 3, pre-register empty route modules with `pub fn routes() -> axum::Router<AppState> { axum::Router::new() }` for ports, catalog, news, orderbook, listings, prices, trade_tape, and curves. Create an empty `mcp_router` at the same time. These return 404, so later corpus tests fail honestly. Each route worker replaces only their module and uses a task-local test server that merges that module's `routes()` with health and the test-only disposable identity wrapper. Task 13 assembles all completed modules in the serving binary. This lets route tests pass before global integration without file clashes. Task 5 owns policy data. Task 6 owns shared predicates. Do not let route workers edit either. Task 12 alone edits deploy/systemd/CI files. Tasks 4 and 14 share harness files and therefore run sequentially. Phase 0 keeps its own worktree and migration ownership. Stop at a shared-policy conflict; reconcile source and golden corpus before continuing.
+Parallel lanes after 6: 8 (simple reads), 9 (prices/tape), 10a then 10b (curves), and 6a then 7a/7b/7c (orderbook). Task 11 requires 9 and 10b. Tasks 12a/12b/12c may start after 3/5 using fixture binaries and fixture units; their local acceptance does not require route HTTP parity. Artifact publication waits for Task 13's complete contract job. Task 13 requires all route and release checkpoints. Task 14 follows 13. No task's acceptance claims a future handler exists.
+
+Only the integration owner in Tasks 1, 3, and 4 edits root module registration, test-server dispatch, and Cargo manifests. In Task 3, pre-register empty route modules with `pub fn routes() -> axum::Router<AppState> { axum::Router::new() }` for ports, catalog, news, orderbook_snapshot, orderbook_lists, orderbook_map, listings, prices, trade_tape, curves_legacy, and curves_canonical. Create an empty `mcp_router` at the same time. These return 404, so later corpus tests fail honestly. Each route worker replaces only their module and uses a task-local test server that merges that module's `routes()` with health and the test-only disposable identity wrapper. Task 13 assembles all completed modules in the serving binary. This lets route tests pass before global integration without file clashes. Task 5 owns policy data. Task 6 owns shared predicates. Do not let route workers edit either. Tasks 12a -> 12b -> 12c alone edit their listed CI, deploy, and unit files, sequentially. Tasks 4 and 14 share harness files and therefore run sequentially. Phase 0 keeps its own worktree and migration ownership. Stop at a shared-policy conflict; reconcile source and golden corpus before continuing.
 
 Astra owns every subtle port. DeepSeek owns Task 8 only; its fixed pattern and golden corpus must exist first. A later independent Astra review is an implementation acceptance step, not an agent started while writing this plan.
 
@@ -191,6 +202,8 @@ pub struct Config {
     pub database_url: String,
     pub bind: std::net::SocketAddr,
     pub pool_max: u32,
+    pub python_budget: u32,
+    pub configured_max_connections: u32,
 }
 
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
@@ -222,6 +235,10 @@ pub struct PointPolicy {
 ```
 
 Use `qualification_profile` for generic rules (`scalar`, `fame_v1`, `lng_v1`). Profile names are rule versions, not product identities. The serialized policy may contain product names; executable Rust must not. Extend profile data for Phase 0 contracts only after that Python contract is merged and tested.
+
+**Build environment (required at every task/resume):** Run `export RELEASE_SHA=$(git rev-parse HEAD)` from the implementation worktree before every Cargo build/test/check/clippy command below. This is the full compiled source identity, not the unit-test Python `test` sentinel. CI sets it to its checked-out full `GITHUB_SHA`. Every runner must set it explicitly for child Cargo commands. This paragraph is the shared command prelude; never rely on a prior session's environment.
+
+**Test classes:** Pure/offline Rust tests run without external services. Put every HTTP/PostgreSQL-dependent test in a test target with `required-features = ["contract-tests"]`; declare `contract-tests = []` in the read manifest. Do not use `#[ignore]` or silently return success for absent URLs. SQLX_OFFLINE only controls compile-time query metadata. The explicit contract job starts its own database and servers, then enables this feature. Each task runs both its pure tests and its named contract group before acceptance.
 
 Use these commands from the implementation worktree. Do not run them from a live checkout:
 
@@ -330,7 +347,7 @@ Read each resolved crate's local source for version-specific APIs before coding.
 
 ### Task 2: Validate configuration, pool authority, and startup revision — Astra
 
-**Files:** Create `rs/read/src/runtime/mod.rs`, `config.rs`, `db.rs`, `health.rs`, `rs/read/tests/runtime.rs`, `deploy/rust/allowed-revisions.json`. Modify the library exports. Reuse, but do not weaken, `scripts/verify_migration_revision.py:20-33`.
+**Files:** Create `rs/read/src/runtime/mod.rs`, `config.rs`, `db.rs`, `health.rs`, `rs/read/tests/runtime.rs`, `deploy/rust/allowed-revisions.json`, and `scripts/prepare_rust_budget.py`. The budget helper exposes a pure `derive_budget(settings, rust_pool)` and a no-follow environment-file CLI; Task 12b invokes it under the deploy lock. Modify the library exports. Reuse, but do not weaken, `scripts/verify_migration_revision.py:20-33`.
 
 **Interfaces:** Consumes `Config`, `compiled_sha()`, `verify_release()`. Produces:
 
@@ -363,7 +380,7 @@ async fn readiness_failure_has_no_identity() {
 }
 ```
 
-Define the test-visible `pub async fn probe(pool: &sqlx::PgPool, environment: &str, sha: &str) -> (axum::http::StatusCode, Json)` in `health.rs`. Add tests for wrong role, URL query routing, non-loopback deployed database, empty/encoded-whitespace password, unsafe role membership, and observed max_connections below 55. Use a disposable PostgreSQL role test for authority; SQLite is not proof.
+Define the test-visible `pub async fn probe(pool: &sqlx::PgPool, environment: &str, sha: &str) -> (axum::http::StatusCode, Json)` in `health.rs`. Add tests for wrong role, URL query routing, non-loopback deployed database, empty/encoded-whitespace password, unsafe role membership, and configured or observed max_connections below the computed effective total. Use a disposable PostgreSQL role test for authority; SQLite is not proof.
 
 - [ ] **Step 2: Run** `cargo test --manifest-path rs/Cargo.toml -p verdaxis-read --test runtime`. Expected failure: missing runtime exports.
 - [ ] **Step 3: Implement config and health.** Only accept development/test/staging; refuse production in this Phase 1 binary. Require staging database `verdaxis_staging`, user `verdaxis_app_staging`, host `127.0.0.1`, port 5432, no URL query, explicit non-placeholder password, loopback HTTP bind, and matching compiled SHA. For tests require a numeric-loopback database ending `_test`; never derive it from `.env`. Match role attestation SQL from `app/database.py:178-185` and role flags from `app/database.py:148-175`.
@@ -401,14 +418,33 @@ let options = options.options([
     ("idle_in_transaction_session_timeout", "60000"),
 ]);
 let pool = sqlx::postgres::PgPoolOptions::new()
-    .min_connections(0).max_connections(3)
+    .min_connections(0).max_connections(config.pool_max)
     .acquire_timeout(std::time::Duration::from_secs(30))
     .connect_with(options).await.map_err(|_| ApiError::internal())?;
 ```
 
 Define `ApiError::internal() -> ApiError` in this task with status 500, detail string `Database operation failed.`, and no retry header. Task 3 adds its HTTP conversion; its displayed constructor is the required unchanged definition, not a second implementation. This keeps Task 2 independently compilable. Do not print parse errors containing credentials.
 
-Budget: retain the conservative Python count **52**, then add Rust **3**, for **55 <= 100**. This is stronger than the physical host count of 16 Python connections + 3 Rust + 20 reserve = 39. Include any measurement or shadow clients separately; they must not consume new database pools. Check the live configured max_connections at startup. Python's conservative formula is `app/database.py:49-61`; it is not a topology discovery mechanism.
+**Effective budget gate:** Trusted runtime preparation reads effective Python Settings from the attested environment file and derives `services * workers * (pool_size + overflow + 1 dispatcher) + reserve`. Add Rust `config.pool_max`. Bind all inputs, total, configured max_connections, release SHA, and environment-file digest into the private runtime budget artifact. Startup rechecks the total against both configured and observed `SHOW max_connections`. A short-lived prestart control-plane check recomputes the environment digest and rejects drift until preparation reruns under the canonical deployment lock. The Rust HTTP process checks the prepared release identity and budget, but does not read the secret-rich `.env` file. Never use 55 as a constant gate. Defaults give 52 + 3 = 55; pool size 8 with the other defaults gives 100 + 3 = 103 and must fail against 100 (`app/database.py:49-61,102-107`).
+
+```rust
+pub fn connection_budget(services: u32, workers: u32, pool: u32,
+    overflow: u32, reserve: u32, rust_pool: u32) -> Option<u32> {
+    services.checked_mul(workers)?
+        .checked_mul(pool.checked_add(overflow)?.checked_add(1)?)?
+        .checked_add(reserve)?.checked_add(rust_pool)
+}
+#[test]
+fn budget_uses_effective_settings() {
+    assert_eq!(connection_budget(2, 4, 2, 1, 20, 3), Some(55));
+    assert_eq!(connection_budget(2, 4, 8, 1, 20, 3), Some(103));
+    let need = connection_budget(2, 4, 8, 1, 20, 3).unwrap();
+    assert!(need <= 103);
+    assert!(!(need <= 102));
+}
+```
+
+Add `pub fn validate_budget(total: u32, configured_max: u32, observed_max: u32) -> Result<(), String>`; accept only `total <= configured_max && total <= observed_max`. Test equality and one-below for each limit independently, changed workers/overflow/reserve, stale config digest, and overflow. `Config` carries `python_budget: u32` and `configured_max_connections: u32` from trusted preparation. Keep `pool_max` validated at exactly 3 during Phase 1 and use it consistently for SQLx and admission (`pool_max - 1`). Shadow opens no DB pool. This is a conservative configured bound, not discovery of the physical topology.
 
 Initial compiled revision data is exactly `["kycg_20261014_staging"]`. A new Phase 0 revision needs an explicit compatibility test and allowlist update. The systemd prestart performs the live singleton revision read with the existing separate migrator-backed verifier. The Rust process checks this attested revision against its embedded allowlist before listening. The HTTP process must not open `MIGRATOR_DATABASE_URL` or run Alembic.
 
@@ -500,20 +536,51 @@ Compose middleware from outside inward: request ID/logging, CORS, public admissi
 
 Use JSON logs with `request_id`, method, route template, status, duration_ms, error class, and SQLSTATE. Do not log SQL parameters, URLs, authorization, MCP arguments, or bodies. This deliberately omits Python's client-address field from new operational logs; it is not an HTTP contract change (`app/main.py:260-267`). Rate counters still use the correctly resolved client IP in memory.
 
-For price limits, use independent fixed-window buckets keyed by resolved IP and route. Preserve the source's final-hop loopback trust rule. Record exact slowapi 429 text from Python; do not assume its formatting from the limit declaration. Custom query extractors must produce Python's 422 `detail` entries, `loc`, `type`, `msg`, `input`, and `ctx` where present. Do not expose axum's default plain-text rejection.
+For price limits, implement AD-01 with one atomic fixed-window bucket per resolved client IP and route, shared across all Rust connections. A window begins on the first admitted request and expires after 60 monotonic seconds. Request L+1 is rejected; rejection does not extend the window. Add `pub struct RateBucket { pub started_ms: u64, pub used: u32 }` and `pub fn admit(bucket: &mut RateBucket, limit: u32, now_ms: u64) -> bool`.
 
-- [ ] **Step 4: Run** middleware tests, health corpus, and cancellation test under PostgreSQL. Expected pass. Verify no secret sentinel appears in captured JSON logs. Record the four-worker rate-limit topology caveat separately from single-worker parity.
+```rust
+pub fn admit(bucket: &mut RateBucket, limit: u32, now_ms: u64) -> bool {
+    if now_ms.saturating_sub(bucket.started_ms) >= 60_000 {
+        bucket.started_ms = now_ms;
+        bucket.used = 0;
+    }
+    if bucket.used >= limit { return false; }
+    bucket.used += 1;
+    true
+}
+#[test]
+fn exact_limit_and_reset() {
+    for limit in [60, 30, 10] {
+        let mut b = RateBucket { started_ms: 1_000, used: 0 };
+        for _ in 0..limit { assert!(admit(&mut b, limit, 1_000)); }
+        assert!(!admit(&mut b, limit, 60_999));
+        assert!(admit(&mut b, limit, 61_000));
+    }
+}
+```
+
+Add concurrent HTTP bursts over fresh and reused connections with the same client key: exactly L succeed and the rest receive 429. Test independent clients/routes, reset boundary, and spoofed forwarded headers. Keep these Rust-only threshold tests outside golden/shadow parity. Record Python's four-worker count difference only as AD-01 evidence; do not require equal counts. Preserve the source's final-hop loopback trust rule. Record exact slowapi 429 text from Python; do not assume its formatting from the limit declaration. Custom query extractors must produce Python's 422 `detail` entries, `loc`, `type`, `msg`, `input`, and `ctx` where present. Do not expose axum's default plain-text rejection.
+
+- [ ] **Step 4: Run** middleware tests, health corpus, and cancellation test under PostgreSQL. Expected pass. Verify no secret sentinel appears in captured JSON logs. Require Rust exact-boundary burst/reset tests and record AD-01 separately; no rate-count parity gate remains.
 - [ ] **Step 5: Commit** only the listed middleware/composition files: `git commit -m 'feat: preserve public HTTP admission and error contracts'` with trailer.
 
 **Resume point:** Task 4 records the full Python oracle. Re-run these middleware tests after every later route registration.
 
 ### Task 4: Build the disposable oracle and golden comparator — Astra
 
-**Files:** Create `scripts/rust_contract/{record,compare,seed_corpus,run_disposable}.py`, `tests/rust_contract/{test_compare,test_inventory,test_clock}.py`, `tests/rust_contract/cases.json`, `tests/rust_contract/golden/`, `rs/contract/src/{lib,main}.rs`. Modify no live test target guard. Add a test-only wrapper `tests/rust_contract/server.py` around `tests.disposable_server.DisposableIdentityApp`.
+**Files:** Create `scripts/rust_contract/{record,compare,seed_corpus,run_disposable,check_assertions}.py`, `tests/rust_contract/{test_compare,test_inventory,test_clock,clock}.py`, `tests/rust_contract/{cases,assertions,ordered-object-paths}.json`, `tests/rust_contract/golden/`, `rs/contract/src/{lib,main}.rs`, `rs/read/examples/contract_server.rs`. Task 4 alone registers feature-gated test targets and all test-server dispatch groups in Cargo/module files. Modify no live test target guard. Add a test-only wrapper `tests/rust_contract/server.py` around `tests.disposable_server.DisposableIdentityApp`.
 
-**Interfaces:** Consumes the 33 method/path pairs and `tests.disposable_server.validate_config`. Produces Rust `pub fn compare_pair(expected: &RecordedPair, actual: &RecordedPair) -> Vec<Difference>` and `pub fn compare_group(group: &str) -> Result<(), String>`. The CLI is `verdaxis-contract compare --group GROUP --python URL --rust URL --token TOKEN`; it validates both disposable endpoints before any request. Python helpers expose `def compare(expected: dict, actual: dict) -> list[str]` and `def record(base_url: str, token: str, cases: list[dict]) -> list[dict]`. The Rust CLI and Python comparator must pass the same small comparator fixtures.
+**Interfaces:** Consumes the 33 method/path pairs and `tests.disposable_server.validate_config`. Produces the single authoritative Python comparator `def compare(expected: dict, actual: dict) -> list[str]` and recorder `def record(base_url: str, token: str, cases: list[dict]) -> list[dict]`. Rust exposes only `pub fn compare_group(group: &str) -> Result<(), String>`, a subprocess adapter to `venv/bin/python -m scripts.rust_contract.compare --group GROUP`. It supplies explicit `PYTHON_CONTRACT_URL`, `RUST_CONTRACT_URL`, and `DISPOSABLE_TEST_TOKEN`; the external comparator attests both endpoints before requests. Missing inputs, failed handshakes, unknown groups, zero cases, or any mismatch fail. The Rust package contains no second comparator or normalization implementation. Shadow imports this same Python comparator. Diagnostics contain schema paths/categories, never body values.
 
-Define Rust `RecordedPair { status: u16, headers: std::collections::BTreeMap<String,String>, body: Vec<u8> }` and `Difference { location: String, category: String }`. No body values occur in Difference. `compare_group` loads the named committed cases, uses the explicit disposable URLs from environment, validates the handshake, and returns nonempty diagnostic paths as an error. It is never a success stub.
+```rust
+pub fn compare_group(group: &str) -> Result<(), String> {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let status = std::process::Command::new(root.join("venv/bin/python"))
+        .current_dir(&root).args(["-m", "scripts.rust_contract.compare", "--group", group])
+        .status().map_err(|_| "comparator could not start")?;
+    if status.success() { Ok(()) } else { Err(format!("contract group failed: {group}")) }
+}
+```
 
 - [ ] **Step 1: Add comparator tests.**
 
@@ -532,8 +599,9 @@ def test_clock_boundary_changes_are_not_normalized():
     assert compare(base, {**base, "body": {"items": [], "staleness_status": "STALE"}})
 
 
-def test_key_and_array_order_are_preserved():
-    assert compare({"body": {"a": 1, "b": 2}}, {"body": {"b": 2, "a": 1}})
+def test_object_membership_and_array_order():
+    assert not compare({"body": {"a": 1, "b": 2}}, {"body": {"b": 2, "a": 1}})
+    assert compare({"body": {"a": 1}}, {"body": {"b": 1}})
     assert compare({"body": [1, 2]}, {"body": [2, 1]})
 ```
 
@@ -547,9 +615,9 @@ def compare(expected: dict, actual: dict) -> list[str]:
         if type(left) is not type(right):
             differences.append(path + ":type")
         elif isinstance(left, dict):
-            if list(left) != list(right):
+            if left.keys() != right.keys():
                 differences.append(path + ":keys")
-            for key in left.keys() & right.keys():
+            for key in sorted(left.keys() & right.keys()):
                 walk(left[key], right[key], path + "/" + key)
         elif isinstance(left, list):
             if len(left) != len(right):
@@ -594,7 +662,56 @@ venv/bin/python -m scripts.rust_contract.seed_corpus
 
 `seed_corpus` must first attest environment, numeric loopback, connected `_test` name, and non-superuser fixture writer. Add fixed UUID cases for ports/intelligence/news, admitted REAL owners, DEMO ownerless rows with expiry, TEST/CANARY/UNKNOWN rows, rejected/moved/unverified owners, KYC grace boundary, private FAME/LNG terms, real/demo/mixed trade snapshots, missing benchmark, and trusted/untrusted signals. Use the test harness's explicit trusted fixture setup for provenance; never grant app writes or run it on staging. Do not seed fake demo KYC. A synthetic REAL-class fixture may carry an explicit test-only LNG order price to test serialization; label it as fixture data and keep it in the disposable database. Never insert an LNG benchmark or DEMO quote. The ordinary seed remains unchanged and creates no LNG synthetic liquidity.
 
-**Clock control:** The test-only wrapper freezes Python module clocks and injects SQL `now_expression` in the tested visibility dependency. A frozen Python datetime alone does not freeze PostgreSQL `now()`. For SQL-clock boundary tests, call predicates with explicit `as_of`; for full HTTP recordings, seed expiry/observation values well away from the capture window and record the actual interval. Rust receives the same fixed clock only under `ENVIRONMENT=test`. Reject any clock override in staging. No public clock header is added.
+**Clock control:** Use a test-only injection wrapper; change no production Python helper. Passing outer `as_of` does not reach owner KYC (`app/services/market_data_eligibility.py:71,89,230,264`). Patch the exact imported `kyc_execution_clause` symbol in `app.services.market_data_eligibility` before serving; both normal-owner and assisted-customer branches then use the same explicit SQL timestamp. Also patch `current_public_order_clause` at every imported call site used by a ported route, and patch module-local datetime symbols for SQL cutoffs, generation times, certificate checks, and window aliases. Keep an explicit symbol manifest in `tests/rust_contract/clock.py`; source drift invalidates it.
+
+```python
+from datetime import date, datetime, UTC
+from unittest.mock import patch
+from contextlib import ExitStack
+from app.models.user import User
+from app.services import market_data_eligibility as eligibility
+from app.services import kyc_execution
+
+
+def fixed_clock_patches(now):
+    original_current = eligibility.current_public_order_clause
+    original_kyc = kyc_execution.kyc_execution_clause
+    class FrozenDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return now.astimezone(tz) if tz else now.replace(tzinfo=None)
+    class FrozenDate(date):
+        @classmethod
+        def today(cls):
+            return now.date()
+    def current(order, *, now_expression=None):
+        return original_current(order, now_expression=now)
+    def kyc(user=User, *, now=None):
+        return original_kyc(user, now=fixed)
+    fixed = now
+    stack = ExitStack()
+    stack.enter_context(patch.object(eligibility, "kyc_execution_clause", kyc))
+    windows = __import__("app.services.availability_windows", fromlist=["date"])
+    stack.enter_context(patch.object(windows, "date", FrozenDate))
+    for module in ("app.services.market_data_eligibility", "app.services.fame_order",
+                   "app.services.live_benchmarks", "app.services.forward_curve_market_slices",
+                   "app.services.forward_monitoring", "app.services.availability_windows", "app.schemas.curves",
+                   "app.routers.orderbook", "app.routers.curves",
+                   "app.routers.price_discovery", "app.routers.trade_tape", "app.mcp_server"):
+        # The checked symbol manifest lists only symbols present in this tree.
+        imported = __import__(module, fromlist=["datetime"])
+        if hasattr(imported, "datetime"):
+            stack.enter_context(patch.object(imported, "datetime", FrozenDatetime))
+    for module in (eligibility, __import__("app.services.public_order_scope", fromlist=["x"]),
+                   __import__("app.services.live_benchmarks", fromlist=["x"]),
+                   __import__("app.routers.curves", fromlist=["x"]),
+                   __import__("app.routers.inventory", fromlist=["x"]),
+                   __import__("app.services.forward_curve_market_slices", fromlist=["x"])):
+        stack.enter_context(patch.object(module, "current_public_order_clause", current))
+    return stack
+```
+
+The wrapper first requires `ENVIRONMENT=test` and the disposable database/HTTP attestations. Test the symbol manifest against source imports; the guarded `hasattr` above must not silently omit a previously recorded clock. Add any date.today call to the manifest explicitly. Use fixed clocks immediately before, exactly at, and after grace expiry for **full HTTP** normal-owner and assisted-customer cases. Inspect compiled SQL parameters to prove both KYC EXISTS clauses bind the frozen timestamp rather than `now()`. Add Singapore-midnight certificate cases. Rust's test server receives the same UTC instant. Reject clock overrides in staging, add no public clock header, and never normalize admission results.
 
 **Volatile fields permitted for paired live observations only:**
 
@@ -603,11 +720,53 @@ venv/bin/python -m scripts.rust_contract.seed_corpus
 - MCP `get_market_slice` result `observed_at`, which is explicitly the supplied request clock, not a stored observation (`app/services/voyage_prices.py:374-395`). Normalize the same field inside the SDK's text JSON and structured content, if both exist.
 - X-Request-ID only in tests that deliberately request a generated ID; validate UUID syntax and uniqueness instead.
 
-For each permitted timestamp, first require valid UTC syntax and a value within that request's measured start/end interval. Replace it with one fixed marker only after validation. Golden runs with a fixed clock compare it exactly. Never normalize `created_at`, `confirmed_at`, `expires_at`, certificate dates, stored `observed_at`, benchmark observation time, staleness status, price, quantity, digest, UUID, pagination, or schema order. A changed data/time boundary is an inconclusive shadow pair, not a pass.
+For each permitted timestamp, first require valid UTC syntax and a value within that request's measured start/end interval. Replace it with one fixed marker only after validation. Golden runs with a fixed clock compare it exactly. Never normalize `created_at`, `confirmed_at`, `expires_at`, certificate dates, stored `observed_at`, benchmark observation time, staleness status, price, quantity, digest, UUID, pagination, or array order. A changed data/time boundary is an inconclusive shadow pair, not a pass.
 
 Record all query defaults and boundary cases. Add empty result, one result, populated page, out-of-range page, tie sort, invalid/duplicate/unknown query key, malformed UUID/enum/date, percent encoding, Unicode, and each handler's documented error. Record MCP initialize, tools/list, each tool, notifications, malformed JSON, unsupported method/version, missing Accept, empty Origin, invalid Host, and body limit. Snapshot Python OpenAPI and MCP tool schemas before writing Rust DTOs.
 
-- [ ] **Step 4: Run** comparator unit tests, inventory meta-test, and the complete Python recording twice against the unchanged database. Expected: comparator tests pass; repeated captures differ only at explicitly validated volatile paths. Any unstable array is a recorded source limitation that blocks claiming exact parity until resolved. Do not silently sort it.
+**Assertion migration ledger (required before route implementation):** Create `tests/rust_contract/assertions.json` and `scripts/rust_contract/check_assertions.py`. Each row records Python test node ID, assertion source line, parametrized cases, behavior, owner task, Rust test or golden case ID, and status. Exclusions need a reason and reviewer approval; excluded writes/seed mechanics do not excuse shared read assertions. Start from this route-to-source ledger and enumerate every assertion in these files, including class methods and parametrization:
+
+| Owner/surface | Existing tests to inventory | Required destination |
+|---|---|---|
+| 3, health/admission | `tests/unit/test_public_market_read_admission.py:48-227`; runtime/readiness tests found by import search | runtime/http pure tests and contract cases |
+| 5/8, catalog/news/ports | `tests/unit/test_public_market_catalog_contract.py:19`; `test_catalog_models.py`; `test_news_feed.py`; integration port assertions | pure policy vectors and simple_reads cases; exclude news-fetch mutations explicitly |
+| 6/6a, visibility/benchmark | `test_public_owner_admission.py`; `test_market_evidence_policy.py`; `test_orderbook_live_benchmarks.py:291-355,440-499,660` | market_contract/live_benchmarks vectors; rebuild write assertions excluded |
+| 7a, snapshot | `test_orderbook_live_benchmarks.py:149-248` | coherent depth/expiry/query-count tests |
+| 7b/7c, lists/map | `test_orderbook_marketplace_filters.py`; `test_orderbook_crossing_filters.py`; `test_orderbook_schemas.py`; `test_ci_orderbook_fields.py`; `test_orderbook_map_compact.py:70-239`; `test_orderbook_router.py` | orderbook list/map cases; private templates and mutation-only assertions excluded with reasons |
+| 9, prices/tape | `test_price_discovery_router.py:151-1176`; `test_reference_price_export.py`; `test_trade_tape.py` | prices/tape/CSV cases and pure rounding tests |
+| 10a, legacy curves | `test_curves.py:34-116,424-896` | two-sided, one-sided, empty, filters, rounding and CSV cases |
+| 10b, board/table/slice | `test_curves.py:141-378,915`; `test_forward_curve_market_slices.py` | canonical/board DTO, evidence, label and bound cases |
+| 11, MCP/voyage | `test_mcp_server.py`; `test_voyage_prices.py`; `test_voyage_fuel_plan.py`; `test_sea_distances.py` | transport, privacy, pure arithmetic and price-source cases |
+
+Test filenames without line suffix are under `tests/unit/`; they are scan inputs, not a claim that every assertion applies. Also search tests importing each ported handler/helper and add missing sources. Store the source SHA and a digest of each scanned file. This ledger transfers behavior, not Python mocks.
+
+```python
+def test_every_discovered_assertion_is_accounted_for(discovered, ledger):
+    assert set(discovered) == {row["source_id"] for row in ledger}
+    for row in ledger:
+        assert row["target_id"] or (row["exclusion_reason"] and row["reviewed_by"])
+```
+
+The checker must prove referenced target tests/cases exist and pass in that route's result manifest. Before a route task starts, its mapping must be complete; pending target implementation is allowed. At acceptance, require **zero unmapped and zero unpassed applicable assertions**. Each split task owns its subset and records its own count.
+
+**One disposable runner, explicit launches:** `run_disposable` builds with a full RELEASE_SHA, starts its own database and Python wrapper, then starts `rs/read/examples/contract_server.rs` with `--group` selecting only completed route modules. The example exposes the disposable identity endpoint only in test mode and numeric loopback. It allocates ephemeral ports and validates both handshakes. It then invokes the relevant `cargo test --features contract-tests --test TARGET` and external comparator, with explicit URLs/token. It cleans only its children/database in a finally block. Unknown group or unavailable route fails. No task depends on Task 13's global router.
+
+| Checkpoint | Exact launch/acceptance command |
+|---|---|
+| 6 | `venv/bin/python -m scripts.rust_contract.run_disposable --group market_contract --rust-target market_contract` |
+| 6a | `venv/bin/python -m scripts.rust_contract.run_disposable --group live_benchmarks --rust-target live_benchmarks` |
+| 7a | `venv/bin/python -m scripts.rust_contract.run_disposable --group orderbook_snapshot --rust-target orderbook_snapshot` |
+| 7b | `venv/bin/python -m scripts.rust_contract.run_disposable --group orderbook_lists --rust-target orderbook_lists` |
+| 7c | `venv/bin/python -m scripts.rust_contract.run_disposable --group orderbook_map --rust-target orderbook_map` |
+| 8 | `venv/bin/python -m scripts.rust_contract.run_disposable --group simple_reads --rust-target simple_reads` |
+| 9 | `venv/bin/python -m scripts.rust_contract.run_disposable --group prices --rust-target prices` |
+| 10a | `venv/bin/python -m scripts.rust_contract.run_disposable --group curves_legacy --rust-target curves_legacy` |
+| 10b | `venv/bin/python -m scripts.rust_contract.run_disposable --group curves_canonical --rust-target curves_canonical` |
+| 11 | `venv/bin/python -m scripts.rust_contract.run_disposable --group mcp --rust-target mcp` |
+
+Task 4 validates this runner with health and a test-only echo projection; it does not require future routes to pass. Add all group dispatch/module declarations here with 404 initial routers. Later workers replace only their assigned modules. Pure tests remain independently runnable without the feature. PostgreSQL tests in Tasks 2/3 use the existing disposable runner until this harness exists; they do not depend on Task 4.
+
+- [ ] **Step 4: Run** comparator unit tests, inventory/ledger meta-tests, runner self-test, and the complete Python recording twice against the unchanged database. Expected: comparator tests pass; repeated captures differ only at explicitly validated volatile paths. Any unstable array is a recorded source limitation that blocks claiming exact parity until resolved. Do not silently sort it.
 - [ ] **Step 5: Commit** the scripts, test wrapper, synthetic fixtures, and contract package: `git commit -m 'test: record public Python contracts on disposable PostgreSQL'` with trailer.
 
 **Resume point:** Record corpus SHA, seed manifest SHA, schema revision, tool versions, and exact route count. Tasks 5–11 consume this corpus. Never regenerate expected results merely because Rust differs.
@@ -662,7 +821,7 @@ pub fn product_matches(p: &ProductPolicy, id: uuid::Uuid, name: &str,
 
 Use `jsonb_to_recordset($1::jsonb)` or bound UUID/label arrays to join policy records in SQL. Do not select all active products and filter after pagination. The database remains the source for mutable fields; the policy remains the source for approved identity, lane, and display order. Unknown active rows are excluded.
 
-- [ ] **Step 4: Run** policy tests and compare R03/R04/list_markets against Python. Expected pass. Regenerate export into `work/` and byte-compare with the committed file; a drift fails CI.
+- [ ] **Step 4: Run** policy export/load tests and pure catalog-projection vectors captured from `app/routers/catalog.py:20-49` and `app/mcp_server.py:50-71`. Expected pass. Do not require unavailable HTTP handlers here; R03/R04 acceptance belongs to Task 8 and list_markets to Task 11. Add `pub fn project_catalog(policy: &MarketPolicy, rows: &[Json]) -> Result<Json, String>` for ordered, strict identity projection of synthetic database rows. Regenerate export into `work/` and byte-compare with the committed file; drift fails CI.
 - [ ] **Step 5: Commit** listed files: `git commit -m 'feat: load canonical market policy from attested data'` with trailer.
 
 **Resume point:** Record the policy source SHA and digest. If Phase 0 changes catalog policy, repeat this task and Task 4 before port acceptance.
@@ -690,7 +849,7 @@ pub fn trade_evidence_sql() -> &'static str;
 #[test]
 fn private_terms_digest_matches_python() {
     let vector: Json = serde_json::from_str(include_str!(
-        "../../../tests/rust_contract/golden/terms/private.json")).unwrap();
+        concat!(env!("CARGO_MANIFEST_DIR"), "/../../tests/rust_contract/golden/terms/private.json"))).unwrap();
     assert_eq!(digest_terms(&vector["canonical_terms"]).unwrap(), vector["digest"]);
     let public = redact_terms("lng_v1", &vector["lng_terms"]).unwrap();
     assert!(public.get("scheme_certificate_number").is_none());
@@ -755,28 +914,82 @@ Do not infer `is_verdaxis_verified` from declared certificates. Use allowlisted 
 
 **Resume point:** Publish function signatures and policy/vector digests in progress. Route workers may now start. They must not fork these predicates.
 
-### Task 7: Port order-book reads and compatibility listings — Astra
+### Task 6a: Port read-only live-slice benchmarks — Astra
 
-**Files:** Create `rs/read/src/routes/{orderbook,listings}.rs`, `rs/read/sql/orderbook/{snapshot,bids,asks,aggregate,counts,recent_asks,distinct,list,with_ci,listings}.sql`, `rs/read/tests/orderbook.rs`.
+**Files:** Create `rs/read/src/market/live_benchmarks.rs`, `rs/read/sql/live_benchmarks.sql`, `rs/read/tests/live_benchmarks.rs`. Task 3 pre-registers the module; Task 6a owns it exclusively.
 
-**Interfaces:** Consumes shared visibility, policy, digest, and read-only SQLx transactions. Produces `pub fn routes() -> axum::Router<AppState>` in each module and `pub async fn snapshot(state: axum::extract::State<AppState>, query: axum::extract::RawQuery) -> ApiResult`. Each route parses RawQuery through the recorded Python-compatible validation layer. Covers R15–R27.
+**Interfaces:** Consumes shared visibility, policy, typed qualification and Decimal rules. Produces:
+
+```rust
+#[derive(Clone, Eq, PartialEq, Hash)]
+pub struct LiveBenchmarkKey {
+    pub side: String, pub product: String, pub point: uuid::Uuid, pub window: String,
+}
+pub struct LiveBenchmark {
+    pub price: rust_decimal::Decimal,
+    pub quantity: rust_decimal::Decimal,
+    pub count: u64,
+}
+pub async fn live_benchmarks(tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    policy: &MarketPolicy, keys: &[LiveBenchmarkKey], now: chrono::DateTime<chrono::Utc>)
+    -> Result<std::collections::HashMap<LiveBenchmarkKey, LiveBenchmark>, ApiError>;
+pub fn qualified_vwap(rows: &[(rust_decimal::Decimal, rust_decimal::Decimal)])
+    -> Option<rust_decimal::Decimal>;
+```
+
+- [ ] **Step 1: Write the failing arithmetic and PostgreSQL fixture tests.**
+
+```rust
+#[test]
+fn mixed_real_demo_vwap_matches_current_python() {
+    use rust_decimal::Decimal as D;
+    // Fixture provenance: REAL 10 MT at 100, DEMO 30 MT at 200.
+    assert_eq!(qualified_vwap(&[(D::from(10), D::from(100)),
+        (D::from(30), D::from(200))]), Some(D::from(175).round_dp(2)));
+}
+```
+
+Add `visible_but_benchmark_ineligible`: a typed ASK whose stored declaration satisfies the SQL side/date/lane tests but fails a required typed declaration field remains visible to the shallow listing predicate and is excluded by benchmark execution qualification (`app/services/market_data_eligibility.py:231-249,266-273`; `app/services/live_benchmarks.py:73-76`). Also test an OPEN zero-remaining-quantity row where the listing predicate permits it but the benchmark rejects it. Do not invent an allowed-scheme list: `normalize_certification_scheme` only trims and uppercases (`app/services/execution_policy.py:107-111`). Add typed FAME and LNG invalid-declaration cases, positive remaining-quantity checks, mixed classes, sparse keys, missing results, and as-of expiry. Use a small test-only HTTP projection of the Python/Rust helper through the Task 4 runner; no public route or writer is added.
+
+- [ ] **Step 2: Run** `venv/bin/python -m scripts.rust_contract.run_disposable --group live_benchmarks --rust-target live_benchmarks`. Expected failure: helper absent.
+- [ ] **Step 3: Implement the batched SELECT and typed qualification before aggregation.**
+
+```rust
+pub fn qualified_vwap(rows: &[(rust_decimal::Decimal, rust_decimal::Decimal)])
+    -> Option<rust_decimal::Decimal> {
+    use rust_decimal::{Decimal, RoundingStrategy};
+    let quantity: Decimal = rows.iter().map(|(q, _)| *q).sum();
+    if quantity <= Decimal::ZERO { return None; }
+    let weighted: Decimal = rows.iter().map(|(q, p)| *q * *p).sum();
+    Some((weighted / quantity).round_dp_with_strategy(2, RoundingStrategy::MidpointNearestEven))
+}
+```
+
+Port `public_slice_order_qualified` exactly, including catalog tuple, lane, status, expiry, positive remaining quantity, off-spec, typed FAME/LNG `order_is_execution_qualified`, and normalized scalar ASK certification (`app/services/live_benchmarks.py:35-93`; `app/services/execution_policy.py:114-145`). The map key has side/product/point/window only: do not add provenance. Cache missing keys within the request. Never invoke rebuild or persist `live_slice_benchmarks`.
+
+- [ ] **Step 4: Re-run** the named runner, pure arithmetic tests, and assertion ledger check. Expected pass with zero helper differences and one batched data query. This task does not depend on Task 7's routes.
+- [ ] **Step 5: Commit** the three listed files and fixture cases: `git commit -m 'feat: preserve current live slice benchmark reads'` with trailer.
+
+**Resume point:** Tasks 7a/7b consume this exact interface. Curves use external benchmark quotes separately; Task 10 does not own or redefine this helper.
+
+### Task 7a: Port the coherent order-book snapshot — Astra
+
+**Files:** Create `rs/read/src/routes/orderbook_snapshot.rs`, `rs/read/sql/orderbook/snapshot.sql`, `rs/read/tests/orderbook_snapshot.rs`.
+
+**Interfaces:** Consumes shared visibility, policy, digest, `live_benchmarks`, and read-only SQLx transactions. Produces `pub fn routes() -> axum::Router<AppState>` and `pub async fn snapshot(state: axum::extract::State<AppState>, query: axum::extract::RawQuery) -> ApiResult`. RawQuery uses the Python-compatible validation layer. Covers R15 only.
 
 - [ ] **Step 1: Add corpus and edge tests.**
 
 ```rust
 #[test]
-fn all_orderbook_contracts_match() {
-    verdaxis_contract::compare_group("orderbook").unwrap();
-}
-#[test]
-fn ask_offset_past_end_keeps_total() {
-    verdaxis_contract::compare_group("ask_offset_past_end").unwrap();
+fn snapshot_contract_matches() {
+    verdaxis_contract::compare_group("orderbook_snapshot").unwrap();
 }
 ```
 
-The second group contains an ASK query with `skip` greater than fixture count and expects `items=[]` with the original total. Add a concurrent writer test around snapshot reads: update a price between depth and benchmark queries; assert each snapshot is entirely before or entirely after the update. Test 16 orders per side, equal-price acceptance order, differing provenance, all sort modes, deprecated page aliases, and public/private route exclusion.
+Add a concurrent writer test around snapshot reads: update a price between depth and benchmark queries; assert each snapshot is entirely before or entirely after the update. Test 16 orders per side, equal-price acceptance order, differing provenance, typed benchmark exclusion, and public/private route exclusion.
 
-- [ ] **Step 2: Run** the orderbook test target with disposable URLs. Expected failure: Rust routes absent or nonmatching.
+- [ ] **Step 2: Run** `venv/bin/python -m scripts.rust_contract.run_disposable --group orderbook_snapshot --rust-target orderbook_snapshot`. Expected failure: Rust route absent or nonmatching.
 - [ ] **Step 3: Implement read transactions and ranked depth.**
 
 ```rust
@@ -799,12 +1012,78 @@ row_number() OVER (
 
 Select only ranks <=15. Keep the captured time through visibility and benchmark reads. Fetch benchmark inputs once for all visible keys, including missing results. Keep `is_crossed` separated by provenance and exact product/point/window (`app/routers/orderbook.py:290-297,813-838`). Do not calculate it from all products at a port.
 
-For ASK pagination, use `count(*) OVER()` on the eligible page and a count fallback when skip is nonzero and the page is empty. Preserve BID's semantics even if SQL implementation is shared. Build full OrderResponse fields with exact public terms and digest. Map-summary uses all groups under its current bound and latest asks per delivery point; compact output preserves its existing demo-window reduction, not a new pagination scheme (`app/routers/orderbook.py:1663-1685`). Distinct selectors retain lexical order. Listings uses its own narrower query and own dict projection, not the full order-book filter (`app/routers/inventory.py:804-832`). CI overlay preserves UNPRICED/zero financial adjustment and excludes LNG (`app/routers/orderbook.py:1080-1095`; `app/schemas/orderbook.py:551-570`).
+- [ ] **Step 4: Run** the named runner, snapshot concurrency, digest vectors, and query-count tests. Expected pass for R15 and zero unmapped snapshot assertions. Confirm one batched benchmark read.
+- [ ] **Step 5: Commit** listed files: `git commit -m 'feat: port coherent public orderbook snapshot'` with trailer.
 
-- [ ] **Step 4: Run** all R15–R27 golden cases, snapshot concurrency, digest cross-language vectors, and query-count tests. Expected pass. Confirm no per-row benchmark query. Record SQL statement counts beside Python's counts.
-- [ ] **Step 5: Commit** listed route/SQL/test files: `git commit -m 'feat: port public orderbook reads to Rust'` with trailer.
+**Resume point:** Record R15 acceptance. Task 7b can start; its lists do not change snapshot isolation.
 
-**Resume point:** Hand the two `routes()` functions to Task 13's integration owner. Keep private GETs and all mutations out of this router.
+### Task 7b: Port paginated and legacy order lists — Astra
+
+**Files:** Create `rs/read/src/routes/orderbook_lists.rs`, `rs/read/sql/orderbook/{bids,asks,list,with_ci}.sql`, `rs/read/tests/orderbook_lists.rs`.
+
+**Interfaces:** Consumes `live_benchmarks`, public projection and digest helpers. Produces `pub fn routes() -> axum::Router<AppState>` and `pub fn page_offset(skip: u64, limit: u64, page: Option<u64>, page_size: Option<u64>) -> Option<(u64,u64)>`. Covers R16–R18 and R26.
+
+- [ ] **Step 1: Add the failing test.**
+
+```rust
+#[test]
+fn ask_offset_past_end_keeps_total() {
+    verdaxis_contract::compare_group("ask_offset_past_end").unwrap();
+}
+```
+
+Add all sort ties, page aliases, full public DTO/digest, crossed-state provenance, mixed live benchmark, and null LNG CI overlay cases.
+- [ ] **Step 2: Run** `venv/bin/python -m scripts.rust_contract.run_disposable --group orderbook_lists --rust-target orderbook_lists`. Expected failure: handlers absent.
+- [ ] **Step 3: Implement list queries with bound pagination.**
+
+```rust
+pub fn page_offset(skip: u64, limit: u64, page: Option<u64>, page_size: Option<u64>)
+    -> Option<(u64,u64)> {
+    let size = page_size.unwrap_or(limit);
+    let offset = match page { Some(p) => p.checked_sub(1)?.checked_mul(size)?, None => skip };
+    Some((offset, size))
+}
+```
+
+For ASK, use `count(*) OVER()` and a fallback total query when a nonzero offset returns no row (`app/routers/orderbook.py:973-1012`). Preserve BID total semantics, all stable sort clauses, and legacy created-time order. Use one benchmark batch per request. CI remains UNPRICED with zero financial adjustment and no LNG overlay (`app/routers/orderbook.py:1080-1095`). Do not reuse snapshot's 15-row cap.
+- [ ] **Step 4: Re-run** the named runner, offset regression, and assertion ledger. Expected pass for R16–R18/R26; no per-row benchmark queries.
+- [ ] **Step 5: Commit** listed files: `git commit -m 'feat: port public orderbook list projections'` with trailer.
+
+**Resume point:** Record four-route acceptance and sorted-page evidence. Task 7c owns map/compatibility output, not this module.
+
+### Task 7c: Port map, count, distinct, and compatibility projections — Astra
+
+**Files:** Create `rs/read/src/routes/{orderbook_map,listings}.rs`, `rs/read/sql/orderbook/{aggregate,counts,recent_asks,distinct,listings}.sql`, `rs/read/tests/orderbook_map.rs`.
+
+**Interfaces:** Consumes shared visibility and policy. Produces `pub fn routes() -> axum::Router<AppState>` in both modules and `pub fn product_counts(codes: &[String], rows: &[(String,u64)]) -> std::collections::BTreeMap<String,u64>`. Covers R19–R25/R27.
+
+- [ ] **Step 1: Add the failing test.**
+
+```rust
+#[test]
+fn map_and_compatibility_match_python() {
+    verdaxis_contract::compare_group("orderbook_map").unwrap();
+}
+```
+
+Include empty zero-count products, separate evidence-class groups, all-window totals, nearest demo window, latest ASK per point, distinct lexical order, and listings visible under its narrower qualification.
+- [ ] **Step 2: Run** `venv/bin/python -m scripts.rust_contract.run_disposable --group orderbook_map --rust-target orderbook_map`. Expected failure: projections absent.
+- [ ] **Step 3: Implement zero-filled counts and route-specific projections.**
+
+```rust
+pub fn product_counts(codes: &[String], rows: &[(String,u64)])
+    -> std::collections::BTreeMap<String,u64> {
+    let mut counts: std::collections::BTreeMap<_,_> = codes.iter().map(|c| (c.clone(),0)).collect();
+    for (code, count) in rows { if let Some(value) = counts.get_mut(code) { *value = *count; } }
+    counts
+}
+```
+
+Apply eligibility before grouping. Preserve compact map reduction (`app/routers/orderbook.py:1663-1685`). Listings retains its own dict serializer and narrower query (`app/routers/inventory.py:762-832`); do not impose every main-orderbook qualification.
+- [ ] **Step 4: Re-run** the named runner and assertion ledger. Expected pass for eight routes, no private fields, no lost totals.
+- [ ] **Step 5: Commit** listed files: `git commit -m 'feat: port public map and compatibility reads'` with trailer.
+
+**Resume point:** Task 13 merges the three orderbook modules plus listings. Keep all private GETs and writes on Python.
 
 ### Task 8: Port ports, catalog, and news from the fixed pattern — DeepSeek
 
@@ -825,7 +1104,7 @@ fn simple_reads_match_python() {
 
 Cases include null location/intelligence, inactive port still returned by the unfiltered port route, unknown port 404, inactive/alias catalog exclusion, empty news, nullable dates, category empty string, relevance bounds, and repeated limit. Port coordinates remain JSON numbers, not strings.
 
-- [ ] **Step 2: Run** `cargo test --manifest-path rs/Cargo.toml -p verdaxis-read --test simple_reads`. Expected failure: missing routes or contract differences.
+- [ ] **Step 2: Run** `venv/bin/python -m scripts.rust_contract.run_disposable --group simple_reads --rust-target simple_reads`. Expected failure: missing routes or contract differences.
 - [ ] **Step 3: Implement parameterized queries and ordered DTOs.**
 
 ```sql
@@ -882,9 +1161,9 @@ fn unknown_trade_has_no_economics() {
 }
 ```
 
-Include mismatched buyer/seller provenance, mutable product/order edits after confirmation, seven-day and hour-cutoff equality, exact delivery-point privacy, demo_only, no trade rows, zero-volume reference, alias conflicts, invalid date order, and `format=other` still returning current CSV behavior.
+Include mismatched buyer/seller provenance, mutable product/order edits after confirmation, seven-day and hour-cutoff equality, exact delivery-point privacy, demo_only, no trade rows, zero-volume reference, alias conflicts, invalid date order, and `format=other` still returning current CSV behavior. Tape fuel/product matching is exact; region matches region OR point name; with a point filter the output region becomes the point name (`app/routers/trade_tape.py:30-59,106-118`). Prices use case-insensitive substring fuel/region filters and arithmetic average, not VWAP (`app/routers/price_discovery.py:162-165,198,265-268`). Tape's invalid window is not caught as price's 422; record its actual HTTP server-error response with exception propagation disabled (`app/routers/trade_tape.py:117-118`). Do not silently normalize that error contract.
 
-- [ ] **Step 2: Run** the prices target. Expected failure: absent Rust handlers.
+- [ ] **Step 2: Run** `venv/bin/python -m scripts.rust_contract.run_disposable --group prices --rust-target prices`. Expected failure: absent Rust handlers.
 - [ ] **Step 3: Implement immutable aggregation.**
 
 ```sql
@@ -910,18 +1189,51 @@ This is the aggregation core, not the full admissibility query. Apply `trade_evi
 
 **Resume point:** Publish CSV byte fixtures and historical-evidence results. Task 10 may reuse read helpers but must not change these contracts.
 
-### Task 10: Port the five curve read models — Astra
+### Task 10a: Port legacy curve JSON and CSV — Astra
 
-**Files:** Create `rs/read/src/routes/curves.rs`, `rs/read/src/market/{benchmarks,signals,curve_projection}.rs`, `rs/read/sql/curves/{orders,benchmarks,indications,stems,bands,trades}.sql`, `rs/read/tests/curves.rs`.
+**Files:** Create `rs/read/src/routes/curves_legacy.rs`, `rs/read/sql/curves/legacy_orders.sql`, `rs/read/tests/curves_legacy.rs`.
 
-**Interfaces:** Consumes policy, visibility, trade evidence, and route query parser. Produces `pub fn routes() -> axum::Router<AppState>`, `pub async fn load_curve(state: &AppState, query: &Json, now: chrono::DateTime<chrono::Utc>) -> Result<Json, ApiError>`, and `pub fn curve_csv(points: &[Json]) -> Result<Vec<u8>, String>`. `query` must first pass the specific route schema; it is never interpreted as SQL. Covers R07–R11.
+**Interfaces:** Consumes shared visibility and Decimal/window rules. Produces `pub fn routes() -> axum::Router<AppState>` and `pub fn curve_csv(points: &[Json]) -> Result<Vec<u8>, String>`. Covers R07/R08 only.
+
+- [ ] **Step 1: Add the failing contract test.**
+
+```rust
+#[test]
+fn legacy_curve_contracts_match() {
+    verdaxis_contract::compare_group("curves_legacy").unwrap();
+}
+```
+
+Map two-sided and one-sided curve assertions from `tests/unit/test_curves.py:34-84`; add no data, aliases, real-only economics, null-to-empty CSV, half-even ties, and exact LF bytes.
+- [ ] **Step 2: Run** `venv/bin/python -m scripts.rust_contract.run_disposable --group curves_legacy --rust-target curves_legacy`. Expected failure: handlers absent.
+- [ ] **Step 3: Implement REAL-only grouping and nullable midpoint.**
+
+```rust
+pub fn midpoint(bid: Option<rust_decimal::Decimal>, ask: Option<rust_decimal::Decimal>)
+    -> Option<rust_decimal::Decimal> {
+    bid.zip(ask).map(|(b,a)| ((b+a)/rust_decimal::Decimal::from(2))
+        .round_dp_with_strategy(2, rust_decimal::RoundingStrategy::MidpointNearestEven))
+}
+```
+
+Export midpoint from this module. Keep source prices REAL-only (`app/routers/curves.py:177-185`). Preserve all seven CSV fields, empty nulls, LF, and attachment name (`app/routers/curves.py:826-846,958-962`). Do not add board benchmark fallback.
+- [ ] **Step 4: Re-run** the runner and assertion ledger. Expected pass for two routes with exact CSV bytes and zero unmapped applicable assertions.
+- [ ] **Step 5: Commit** listed files: `git commit -m 'feat: port legacy public curve projections'` with trailer.
+
+**Resume point:** Record R07/R08 acceptance. Task 10b has separate canonical/board files and does not modify this module.
+
+### Task 10b: Port canonical curve and board projections — Astra
+
+**Files:** Create `rs/read/src/routes/curves_canonical.rs`, `rs/read/src/market/{benchmarks,signals,curve_projection}.rs`, `rs/read/sql/curves/{orders,benchmarks,indications,stems,bands,trades}.sql`, `rs/read/tests/curves_canonical.rs`.
+
+**Interfaces:** Consumes policy, visibility, trade evidence, and route query parser. Produces `pub fn routes() -> axum::Router<AppState>` and `pub async fn load_curve(state: &AppState, query: &Json, now: chrono::DateTime<chrono::Utc>) -> Result<Json, ApiError>`. `query` first passes the route schema; it is never SQL. Covers R09–R11. `market/benchmarks.rs` owns external/manual quotes only; Task 6a owns the distinct live-slice helper.
 
 - [ ] **Step 1: Add curve tests.**
 
 ```rust
 #[test]
 fn all_curve_shapes_match_python() {
-    for group in ["curve", "curve_csv", "curve_table", "curve_slice", "curve_board"] {
+    for group in ["curve_table", "curve_slice", "curve_board"] {
         verdaxis_contract::compare_group(group).unwrap();
     }
 }
@@ -933,8 +1245,8 @@ fn real_evidence_wins_before_focus_limit() {
 
 Include complete grid and sparse tuple requests, duplicate windows, unsupported product/lane, unknown point, no data, demo-only, mixed real/demo, unverified ingestion, stale observations, default focus fallback, ten-level depth, missing benchmark, and excluded table field. Pin the current bounds: 30-day trade lookback, seven-day freshness, ten depth levels, eight slice trades, ten indications, six stems, and `FORWARD_QUARTER_COUNT + 4` table windows (`app/services/forward_curve_market_slices.py:91-97`). Bound focus detail before serializing. Do not remove UNKNOWN metadata merely because it has no price.
 
-- [ ] **Step 2: Run** the curves target. Expected failure: missing curve ports.
-- [ ] **Step 3: Port three separate projection contracts.** Preserve legacy REAL-only curve, older board, and canonical table/slice as separate functions. Reuse SQL inputs and evidence policy, not one lossy common DTO. Use the aggregation core:
+- [ ] **Step 2: Run** `venv/bin/python -m scripts.rust_contract.run_disposable --group curves_canonical --rust-target curves_canonical`. Expected failure: missing curve ports.
+- [ ] **Step 3: Port the board and canonical table/slice contracts as separate functions.** Leave legacy routes in Task 10a. Reuse SQL inputs and evidence policy, not one lossy common DTO. Use the aggregation core:
 
 ```rust
 pub fn midpoint(bid: Option<rust_decimal::Decimal>, ask: Option<rust_decimal::Decimal>)
@@ -947,12 +1259,12 @@ pub fn midpoint(bid: Option<rust_decimal::Decimal>, ask: Option<rust_decimal::De
 
 Export `midpoint` in `curve_projection.rs` for tests. Port label policy, evidence selection, staleness thresholds, and window normalization from `app/services/forward_curve_market_slices.py`, rather than rewriting labels from the older board. Preserve the board's fallback and unsupported-lane error (`app/routers/curves.py:623-644`). Batch requested keys with compact axis predicates only for complete grids; sparse requests require exact tuples (`ARCHITECTURE.md:193`). Use verified REAL signal evidence before limits, with disclosed DEMO fallback. Keep benchmark reads read-only; never call rebuild or ingestion.
 
-Legacy CSV uses the seven fields in `app/routers/curves.py:826-846`, null as empty string, and LF. Its source prices remain REAL-only (`app/routers/curves.py:177-185`). Test round-half-even values ending in .005 and signed zero against Python. No synthetic LNG price is allowed.
+Test round-half-even values ending in .005 and signed zero against Python. No synthetic LNG price is allowed. Preserve the separate older board field layout and canonical label policy; do not collapse their DTOs.
 
 - [ ] **Step 4: Run** all curve corpus and projection vectors, SQL query count tests, and PostgreSQL trusted-evidence tests. Expected pass. Compare public field omission and labels, not just economics.
 - [ ] **Step 5: Commit** listed files: `git commit -m 'feat: port public forward curve read models'` with trailer.
 
-**Resume point:** Record all five route results and evidence query counts. Task 11 can reuse anonymous slice data only after privacy tests pass.
+**Resume point:** Record R09–R11 results, zero unmapped assertions, and evidence query counts. Task 11 can reuse anonymous slice data only after privacy tests pass.
 
 ### Task 11: Port market and voyage MCP through rmcp — Astra
 
@@ -986,7 +1298,7 @@ fn voyage_rounding_matches_decimal_oracle() {
 
 Port the existing assertions for Origin, Host, body limit, privacy, cancellation, and shared REST/MCP capacity (`tests/unit/test_mcp_server.py:171-227,271-306`). Include missing prices, no EU scope, no conventional fuel, missing intensity, invalid Cape route, 365-day limit, and 30-day/730-day start bounds. Copy output schemas and tool annotations exactly; test both text and structured content.
 
-- [ ] **Step 2: Run** the MCP target. Expected failure: no rmcp endpoint.
+- [ ] **Step 2: Run** `venv/bin/python -m scripts.rust_contract.run_disposable --group mcp --rust-target mcp`. Expected failure: no rmcp endpoint.
 - [ ] **Step 3: Implement the transport adapter and pure arithmetic.** Reject any Origin header before invoking rmcp. Reject a nonallowlisted Host with the recorded Python status/body. Do not assume SDK defaults match the Python SDK. Configure rmcp's pinned `StreamableHttpService` for stateless operation and JSON responses. Compile a minimal initialize/list/call roundtrip against the resolved SDK first. Use its generated tool router for exactly `list_markets`, `get_market_slice`, and `plan_voyage_fuel`. Adapt protocol errors only where the golden transport proves a difference; do not create a second MCP protocol implementation.
 
 ```rust
@@ -1011,34 +1323,34 @@ Port the pure engine in the same operation order as `app/services/voyage_fuel_pl
 
 **Resume point:** Record rmcp version and protocol matrix. Task 13 registers `/mcp` exactly, with no slash redirect and no session store.
 
-### Task 12: Build an attested Linux artifact and extend staging deployment — Astra
+### Task 12a: Verify artifacts and gate CI publication — Astra
 
-**Files:** Create `.github/workflows/rust-read-ci.yml`, `scripts/{verify_rust_artifact,prepare_rust_runtime}.py`, `deploy/rust/artifact.schema.json`, `deploy/systemd/verdaxis-rust-staging.service`, `deploy/caddy/rust-public-staging.caddy`, `tests/unit/test_rust_release.py`. Modify `scripts/deploy.sh:467-565,611-712`, `deploy/systemd/runtime-units.manifest`, and runtime/deploy unit tests. Update `ARCHITECTURE.md` and `docs/runtime-hardening.md` only during implementation. Do not edit app ACL policy or installer ownership.
+**Files:** Create `.github/workflows/rust-read-ci.yml`, `scripts/verify_rust_artifact.py`, `deploy/rust/artifact.schema.json`, `tests/unit/test_rust_artifact.py`, `rs/read/src/runtime/artifact.rs`. Do not edit deploy transaction, units, or ACL policy in this checkpoint.
 
 **Interfaces:** Consumes approved full SHA, compiled binary SHA, exact migration checkpoint, artifact digest, and existing main/restart locks. Produces Rust `pub fn verify_artifact_identity(compiled: &str, runtime: &str) -> Result<(), String>` and operator artifact verification CLI `python scripts/verify_rust_artifact.py --archive PATH --source-sha SHA --target x86_64-unknown-linux-gnu --output-dir PATH`. The CLI verifies provenance before extraction and rejects symlinks, hardlinks, absolute paths, traversal, duplicate members, oversized archives, and unexpected members.
 
 **Build recommendation:** Use a CI-built Linux artifact, not a host build. This keeps Cargo/build scripts and compiler memory off the shared staging host. It also separates compilation from live credentials. Build on a pinned Linux runner/container compatible with the host's libc, after an operator checks `uname -m` and `ldd --version`. The proposed target is `x86_64-unknown-linux-gnu`; it is not a claim that the host was inspected. Record toolchain, target, libc minimum, lockfile hash, source SHA, binary SHA-256, policy hashes, and revision allowlist hash. Use GitHub artifact attestation and an operator-approved workflow identity. Pin Actions by reviewed commit SHA during implementation. Do not use an unsigned digest from the same untrusted download as sole provenance.
 
-- [ ] **Step 1: Add release tests.**
+- [ ] **Step 1: Add artifact tests.**
 
-```python
-def test_wrong_binary_refuses_new_release(release_fixture):
-    result = release_fixture.deploy(binary_sha="a" * 40, approved_sha="b" * 40)
-    assert result.returncode != 0
-    assert result.state == "blocked"
-    assert not result.rust_started
-
-
-def test_dry_run_never_executes_build_code(release_fixture):
-    result = release_fixture.dry_run(candidate_build_script="exit 99")
-    assert result.returncode == 0
-    assert result.executed_candidate_commands == []
+```rust
+#[test]
+fn wrong_binary_refuses_new_release() {
+    assert!(verify_artifact_identity(&"a".repeat(40), &"b".repeat(40)).is_err());
+}
 ```
 
-Implement `release_fixture` as a temporary filesystem/subprocess harness around the real deploy helper, with trusted command shims and an append-only command ledger. Use real child processes for locks and interruption; do not fake lock ownership with booleans. Test wrong digest, wrong workflow/ref, moved staging SHA, absent artifact, symlink artifact, missing unit, wrong revision, stale authorization after process exit, Python-ready/Rust-unready, Rust-ready/Python-unready, and crash before/after identity publication. Verify both services stop on a post-restart failure, durable state remains, and checked-out source matches published identity.
+Add archive fixtures for wrong digest/source/workflow/target, absent binary, duplicate/traversing members, links, and oversized input. Verify refusal before extraction or execution.
+- [ ] **Step 2: Run** `venv/bin/python -m pytest tests/unit/test_rust_artifact.py -q` and the pure Rust identity test. Expected failure: verifier absent.
+- [ ] **Step 3: Implement identity and staged artifact validation.**
 
-- [ ] **Step 2: Run** `venv/bin/python -m pytest tests/unit/test_rust_release.py -q`. Expected failure: artifact and dual-service deploy support absent.
-- [ ] **Step 3: Add CI build and extend the canonical transaction.** CI performs:
+```rust
+pub fn verify_artifact_identity(compiled: &str, runtime: &str) -> Result<(), String> {
+    if compiled == runtime { Ok(()) } else { Err("binary release mismatch".into()) }
+}
+```
+
+CI's offline job performs:
 
 ```bash
 export RELEASE_SHA="$GITHUB_SHA"
@@ -1049,9 +1361,47 @@ SQLX_OFFLINE=true cargo build --manifest-path rs/Cargo.toml --locked --release \
 sha256sum rs/target/x86_64-unknown-linux-gnu/release/verdaxis-read
 ```
 
-Generate SQLx offline metadata against the disposable migrated database in a separate job before the offline build. Commit `.sqlx` query metadata and verify it is current. CI never receives staging secrets. Package the binary, artifact manifest, market policy, voyage data, and revision allowlist. The binary must print machine-readable compiled identity with `--version-json` before it can serve.
+Only pure tests run in the offline job; `contract-tests` is not enabled. A separate **contract** job starts its own disposable PostgreSQL, Python, Rust, and Caddy in that same job. It must not rely on processes from another job. Run:
 
-Extend `scripts/deploy.sh`, not a new competing deploy owner:
+```bash
+export RELEASE_SHA="$GITHUB_SHA"
+venv/bin/python -m scripts.rust_contract.run_disposable \
+  --group all --rust-target all --mixed-caddy --require-complete-ledger \
+  --report outputs/rust-phase1/ci-contract.json
+```
+
+The runner owns lifecycle, allocates ephemeral ports, exports `DATABASE_URL`, `MIGRATOR_DATABASE_URL`, `PYTHON_CONTRACT_URL`, `RUST_CONTRACT_URL`, `DISPOSABLE_TARGET_URL`, `DISPOSABLE_TEST_TOKEN`, and `RELEASE_SHA`, validates all identities, and runs feature-gated contract targets plus the unchanged integration suite. It fails for absent cases, zero tests, skipped contract tests, or unmapped assertions. Check SQLx metadata with `cargo sqlx prepare --check` against that job's migrated disposable database. The **publish** job has `needs: [offline, contract]`; require both results to equal success, not skipped. It attests the exact binary digest tested by the contract job. Package policy/voyage/revision data and the complete coverage report. Commit `.sqlx` metadata; CI never receives staging secrets. The binary exposes `--version-json` before serving.
+
+- [ ] **Step 4: Run** artifact safety tests and the offline job locally. Run the contract job on the assembled Task 13 tree before publication; while assembly is absent, publication is blocked, not green. Artifact-verifier acceptance itself uses fixture archives and needs no future route code.
+- [ ] **Step 5: Commit** listed files: `git commit -m 'build: verify Rust artifacts and require contract CI'` with trailer.
+
+**Resume point:** Artifact verification is independently accepted. CI publication remains a final Task 13 gate. Task 12b consumes this verifier.
+
+### Task 12b: Extend the canonical deploy transaction — Astra
+
+**Files:** Modify `scripts/deploy.sh:467-565,611-712`. Create `scripts/prepare_rust_runtime.py`, `tests/unit/test_rust_release.py`, and `deploy/rust/staging-policy.json`. Do not edit installed unit bytes in this task.
+
+**Interfaces:** Consumes artifact verifier CLI, effective budget gate, and existing main/restart locks. Produces `prepare_rust_runtime.py --environment-file PATH --release-sha SHA --output-dir PATH`. Rust consumes the Task 2 `Config` and Task 12a `verify_artifact_identity(compiled: &str, runtime: &str) -> Result<(), String>` unchanged.
+
+- [ ] **Step 1: Add failure-injection tests.**
+
+```python
+def test_both_health_results_are_required(release_fixture):
+    result = release_fixture.deploy(python_ready=True, rust_ready=False)
+    assert result.returncode != 0
+    assert result.state == "blocked"
+    assert result.stopped_services == {"python", "rust"}
+
+
+def test_dry_run_never_executes_build_code(release_fixture):
+    result = release_fixture.dry_run(candidate_build_script="exit 99")
+    assert result.returncode == 0
+    assert result.executed_candidate_commands == []
+```
+
+Implement `release_fixture` as a temporary real subprocess/filesystem harness with command ledger. Use real child-process flocks. Test moved SHA, missing unit, wrong revision, stale authorization, opposite partial-health result, changed budget, and interruption at each publication/restart boundary. Unit commands use fixture units here; no future Task 12c file is needed.
+- [ ] **Step 2: Run** `venv/bin/python -m pytest tests/unit/test_rust_release.py -q`. Expected failure: dual-service transaction absent.
+- [ ] **Step 3: Extend** `scripts/deploy.sh`, not a new competing deploy owner:
 
 1. Dry-run still archives and validates immutable source bytes only. Add the Rust unit and artifact-policy data to attestation. It must not execute Cargo, the binary, or candidate Python. Report that artifact runtime compatibility remains untested.
 2. Real deploy validates all four existing approval variables and exact checkpoint pair before source mutation. Verify the separately approved artifact against SHA, workflow identity, and digest before stopping services.
@@ -1061,7 +1411,43 @@ Extend `scripts/deploy.sh`, not a new competing deploy owner:
 6. Hold both locks before `restart-authorized`. Restart both staging units inside that window. Then write readiness-pending. Validate Python's existing public readiness and Rust's direct loopback readiness against the same full SHA. Check artifact compiled identity as well. Clear state only after both pass.
 7. On failure, stop both attempted services, retain the selected code/identity and blocked state, and require a forward correction. Never restore old metadata over new bytes.
 
-The Rust unit is proposed as:
+Implement the restart block under the already acquired locks:
+
+```bash
+write_deploy_state restart-authorized "$CURRENT_SHA"
+SERVICE_RESTART_ATTEMPTED=1
+sudo systemctl restart verdaxis-backend-staging.service verdaxis-rust-staging.service
+write_deploy_state readiness-pending "$CURRENT_SHA"
+```
+
+The subsequent health loop validates both services before state removal. The failure trap stops both attempted units. Trusted preparation computes the effective Task 2 budget and config digest; no fixed default total is accepted.
+- [ ] **Step 4: Re-run** release failure-injection and existing deploy/start-guard tests. Expected pass; ACL policy diff empty, state retained on failure, both identities aligned.
+- [ ] **Step 5: Commit** listed files: `git commit -m 'feat: extend guarded staging deploy to Rust'` with trailer.
+
+**Resume point:** Record transaction interruption matrix and fixture-unit tests. Task 12c adds actual audited unit bytes without changing transaction ownership.
+
+### Task 12c: Integrate unit manifest and bootstrap sequence — Astra
+
+**Files:** Create `deploy/systemd/verdaxis-rust-staging.service`, `tests/unit/test_rust_units.py`. Modify `deploy/systemd/runtime-units.manifest`, `.gitignore`, `ARCHITECTURE.md`, and `docs/runtime-hardening.md` during implementation only.
+
+**Interfaces:** Consumes Task 12b preparation CLI and Task 2 startup checks. Produces the manifest-selected staging unit; Rust's `connect(config: &Config) -> Result<sqlx::PgPool, ApiError>` remains unchanged.
+
+- [ ] **Step 1: Add the unit contract test.**
+
+```python
+def test_rust_unit_keeps_runtime_credentials_separate():
+    from pathlib import Path
+    unit = Path("deploy/systemd/verdaxis-rust-staging.service").read_text()
+    assert "--bind 127.0.0.1:8011" in unit
+    assert "MemoryMax=256M" in unit
+    assert "EnvironmentFile=/home/verdaxis-prod/verdaxis/staging/be/.env\n" not in unit
+    assert "verify_deploy_start_guard.py" in unit
+    assert "verify_migration_revision.py" in unit
+```
+
+Add immutable installer and two-release bootstrap tests: bootstrap requires no Rust unit or artifact; activation requires the installed compatible unit and verified artifact; installer HEAD must equal source-ref.
+- [ ] **Step 2: Run** `venv/bin/python -m pytest tests/unit/test_rust_units.py -q`. Expected failure: unit absent.
+- [ ] **Step 3: Add the unit bytes:**
 
 ```ini
 [Unit]
@@ -1082,6 +1468,7 @@ EnvironmentFile=/home/verdaxis-prod/verdaxis/staging/be/.runtime-release.env
 EnvironmentFile=/home/verdaxis-prod/verdaxis/staging/be/.runtime-rust/runtime.env
 ExecStartPre=/usr/bin/env -i /usr/bin/python3 -I -S -B /home/verdaxis-prod/verdaxis/staging/be/scripts/verify_deploy_start_guard.py --environment staging --expected-release-sha ${RELEASE_SHA}
 ExecStartPre=/home/verdaxis-prod/verdaxis/staging/be/venv/bin/python scripts/verify_migration_revision.py --expected ${MIGRATION_REVISION}
+ExecStartPre=/home/verdaxis-prod/verdaxis/staging/be/venv/bin/python scripts/prepare_rust_budget.py --check --environment-file /home/verdaxis-prod/verdaxis/staging/be/.env --release-sha ${RELEASE_SHA} --budget-file /home/verdaxis-prod/verdaxis/staging/be/.runtime-rust/budget.json
 ExecStart=/home/verdaxis-prod/verdaxis/staging/be/.runtime-rust/verdaxis-read --bind 127.0.0.1:8011
 Restart=on-failure
 RestartSec=5
@@ -1122,7 +1509,7 @@ Add only `staging\tverdaxis-rust-staging.service` to the manifest. The existing 
 
 ### Task 13: Assemble exact routing and run unchanged integration tests — Astra
 
-**Files:** Modify `rs/read/src/runtime/http.rs` to register completed modules. Create `tests/rust_contract/Caddyfile`, `tests/rust_contract/test_routing.py`, `scripts/rust_contract/run_integration.py`. Complete `deploy/caddy/rust-public-staging.caddy` from the route inventory.
+**Files:** Modify `rs/read/src/runtime/http.rs` to register completed modules. Create `tests/rust_contract/Caddyfile`, `tests/rust_contract/test_routing.py`, and `deploy/caddy/rust-public-staging.caddy` from the route inventory. Extend the one `scripts/rust_contract/run_disposable.py` with `--mixed-caddy` and unchanged integration-suite execution; do not add a second lifecycle runner.
 
 **Interfaces:** Consumes every route module's `routes()`, `mcp_router`, and the disposable identity producer. Produces `pub fn public_router(state: AppState) -> axum::Router` and a disposable Caddy target that preserves Python for every nonported route.
 
@@ -1152,11 +1539,14 @@ pub fn public_router(state: AppState) -> axum::Router {
         .merge(crate::routes::ports::routes())
         .merge(crate::routes::catalog::routes())
         .merge(crate::routes::news::routes())
-        .merge(crate::routes::orderbook::routes())
+        .merge(crate::routes::orderbook_snapshot::routes())
+        .merge(crate::routes::orderbook_lists::routes())
+        .merge(crate::routes::orderbook_map::routes())
         .merge(crate::routes::listings::routes())
         .merge(crate::routes::prices::routes())
         .merge(crate::routes::trade_tape::routes())
-        .merge(crate::routes::curves::routes())
+        .merge(crate::routes::curves_legacy::routes())
+        .merge(crate::routes::curves_canonical::routes())
         .with_state(state)
 }
 ```
@@ -1199,7 +1589,7 @@ venv/bin/python -m pytest tests/integration -q \
 
 The runner must allocate free ephemeral ports, then render them into the Caddyfile. `59123` is an example chosen only after bind succeeds; never reuse occupied ports. Start `ENVIRONMENT=test RELEASE_SHA=<full-sha> python -m tests.disposable_server --port <python-port>` or the Task 4 wrapper, then Rust, then Caddy. Test the identity handshake before launching pytest. Keep request writes on Python; do not disable failing integration cases or alter their assertions to accommodate Rust.
 
-- [ ] **Step 4: Run** all golden groups, route ownership tests, unchanged integration suite, full Python unit suite, Rust workspace tests, rustfmt, and clippy. Expected pass. Run `cargo sqlx prepare --check` against the disposable schema. Capture exact pass/fail/skip counts. A skipped integration suite is not acceptance.
+- [ ] **Step 4: Run** `venv/bin/python -m scripts.rust_contract.run_disposable --group all --rust-target all --mixed-caddy --require-complete-ledger --report outputs/rust-phase1/ci-contract.json`, then the full Python unit suite, pure Rust workspace tests, rustfmt, and clippy. Require the CI contract job and artifact publication dependency check to pass at this assembled commit. Every route/tool has nonzero case counts, zero unpassed assertions, and AD-01 counted separately. Expected pass. Run `cargo sqlx prepare --check` against the disposable schema. Capture exact pass/fail/skip counts. A skipped integration suite is not acceptance.
 - [ ] **Step 5: Commit** integration files: `git commit -m 'test: verify mixed Python Rust routing and integration parity'` with trailer.
 
 **Resume point:** Independent Astra review checks public exposure, SQL authority, DTO privacy, MCP transport, and dual-service release failures. Resolve findings before requesting operator approval for shadow activation.
@@ -1238,7 +1628,9 @@ pub fn passes_gate(differences: u64, python_memory: u64, rust_memory: u64,
 }
 ```
 
-**Shadow recommendation: seven consecutive full days per candidate SHA and route group.** Any code/policy/schema change resets that group's clock. Any unexplained difference resets it. Require at least 1,000 stable pairs per route, all registered groups each day, at least one nonempty case where data exists, and no missing-day gap. A route with no live nonempty data still needs its populated disposable corpus and explicit coverage note. Zero traffic is not zero differences.
+`passes_gate` receives only **unapproved** difference count. AD-01 is a separately required report row, never an arbitrary allowlist for other failures. Golden and shadow do not compare rate-limit threshold counts or accept/reject sequences; a rate-limited pair is recorded as excluded AD-01 coverage and retried only after backoff. It is not a successful economic comparison. Rust burst/reset tests must pass independently.
+
+**Shadow recommendation: seven consecutive full days per candidate SHA and route group.** Any code/policy/schema change resets that group's clock. Any unexplained difference resets it. Require at least 1,000 stable pairs per route, all registered groups each day, at least one nonempty case where data exists, and no missing-day gap. A route with no live nonempty data still needs its populated disposable corpus and explicit coverage note. Zero traffic is not zero differences. Track all three MCP tools separately: require successful nonempty coverage where supported and each tool's error-class coverage. A POST /mcp route count alone is insufficient. Busy/tool-error responses do not count as successful nonempty economic coverage.
 
 Run the shadow harness on the staging host as a separately invoked, short-lived low-priority process after operator authorization. It calls Python `127.0.0.1:8001` and Rust `127.0.0.1:8011`; it opens no database connections. Use fixed synthetic public queries from the corpus. Do not mirror user requests, cookies, bearer tokens, client IPs, or arbitrary query parameters. Use a fixed shadow request ID and a safe Host header for MCP. Do not bypass application rate limits.
 
@@ -1247,6 +1639,8 @@ Limit concurrency to one. Limit total upstream calls to three per ten seconds, w
 Use a Python–Rust–Python sandwich. Compare the two Python results first after narrowly validated generation-time normalization. If they differ, classify the pair as `data_changed`; do not count it toward the zero-difference gate. If they agree, compare Rust. A boundary result remains unexplained until replayed against a disposable frozen fixture. Do not discard such differences merely because “the market moved.” Track inconclusive rate and require at least 99% stable pairs; otherwise reduce sample complexity or investigate, rather than claiming a pass.
 
 Persist only candidate SHA, policy hash, route ID, case ID, status pair, field path, difference category, byte counts, durations, and aggregate counters. Field paths use schema keys and array indexes, not map keys supplied by users. Do not persist bodies, row IDs, amounts, user data, raw URLs, client IPs, or unsalted hashes of sensitive values. Rotate a bounded local file daily; retain seven days of sanitized diagnostics and the final aggregate report. A secure disposable replay, not a staging payload dump, is the debugging method.
+
+**Workload manifest before measurement:** Commit exact fixture cardinalities, distribution seed, route/tool weights, query cases, and expected response-size bands before either run. Use representative and large datasets: proposed starting sizes are 1,000/100,000 orders, 1,000/100,000 historical trades, and 100/10,000 news rows, spread over all approved lanes/windows with disclosed evidence classes. Adjust these proposed sizes only before the run and record why. Never seed LNG demo/benchmark prices. Use an equal-weight route baseline plus a separately declared representative mix. Require at least 1,000 completed observations per measured route and MCP tool across repetitions; extend duration for rate-limited routes rather than bypassing limits. Report missing observations as inconclusive.
 
 **Measurement method:**
 
@@ -1268,7 +1662,7 @@ The measurement script reads cgroup counters directly and stores timestamped CSV
 
 ## Operator-only staging checklists
 
-**Do not run these during plan writing or local implementation.** Obtain separate approval for bootstrap, artifact retrieval, unit apply, shadow execution, and each Caddy cutover. Commands below are for the authorized operator. Future artifact helpers and routing files must first exist, pass Task 12/13 tests, and be committed.
+**Do not run these during plan writing or local implementation.** Obtain separate approval for bootstrap, artifact retrieval, unit apply, shadow execution, and each Caddy cutover. Commands below are for the authorized operator. Future artifact helpers and routing files must first exist, pass Tasks 12a–12c and 13 tests, and be committed.
 
 ### A. Verify target and capture inputs
 
@@ -1282,12 +1676,47 @@ The measurement script reads cgroup counters directly and stores timestamped CSV
 - [ ] Run `sudo -n -u verdaxis-prod git -C /home/verdaxis-prod/verdaxis/staging/be status --porcelain`. Require empty output.
 - [ ] Record active staging timers with `systemctl list-timers --all --no-pager`. Stop only the approved relevant timers. Let active oneshots drain. Verify `systemctl list-jobs --no-pager` has no pending relevant job. Record the exact prior-active set for restoration.
 
-### B. Approve and verify the artifact
+### B0. Install the Python-only bootstrap first
 
-The operator supplies these values from the reviewed release record, not guessed current heads:
+Do this before B invokes the new verifier. `BOOTSTRAP_SHA` and `ACTIVATION_SHA` are distinct full approved commits. Bootstrap includes tested helper/verifier/unit support with committed Rust activation disabled. It needs no Rust artifact and starts no Rust service. The activation release must use identical compatible unit bytes; otherwise stop and approve a separate inactive unit-transition release first.
 
 ```bash
-read -r -p 'Approved full staging SHA: ' APPROVED_RELEASE_SHA
+read -r -p 'Approved bootstrap full SHA: ' BOOTSTRAP_SHA
+read -r -p 'Verified current checkpoint: ' BOOTSTRAP_REVISION
+[[ "$BOOTSTRAP_SHA" =~ ^[0-9a-f]{40}$ ]] || exit 1
+sudo -n -u verdaxis-prod -H bash -lc \
+ 'cd /home/verdaxis-prod/verdaxis/staging/be && ./scripts/deploy.sh --dry-run'
+```
+
+- [ ] Require the old helper's printed approved SHA to equal BOOTSTRAP_SHA and the exact current-to-current checkpoint pair to be allowlisted. Deploy through the existing Python-only path:
+
+```bash
+sudo -n -u verdaxis-prod -H env \
+ APPROVED_RELEASE_SHA="$BOOTSTRAP_SHA" MIGRATION_APPROVED_SOURCE_SHA="$BOOTSTRAP_SHA" \
+ MIGRATION_EXPECTED_CURRENT_REVISION="$BOOTSTRAP_REVISION" \
+ MIGRATION_TARGET_REVISION="$BOOTSTRAP_REVISION" \
+ /home/verdaxis-prod/verdaxis/staging/be/scripts/deploy.sh
+sudo -n -u verdaxis-prod git -C /home/verdaxis-prod/verdaxis/staging/be rev-parse HEAD
+```
+
+- [ ] Require HEAD=BOOTSTRAP_SHA, exact Python readiness, and absent deploy state. Run the now-live dry-run for the same source. Then install units only at that current HEAD:
+
+```bash
+sudo /home/verdaxis-prod/verdaxis/staging/be/scripts/install_systemd_units.sh \
+ --dry-run --environment staging --source-ref "$BOOTSTRAP_SHA"
+sudo /home/verdaxis-prod/verdaxis/staging/be/scripts/install_systemd_units.sh \
+ --apply --environment staging --source-ref "$BOOTSTRAP_SHA"
+```
+
+- [ ] Keep Rust stopped and Caddy unchanged. The installer never activates it. Keep timers quiesced through activation. Never pass ACTIVATION_SHA to the installer while HEAD is BOOTSTRAP_SHA (`scripts/install_systemd_units.sh:87-96`).
+
+### B. Approve and verify the activation artifact
+
+Precondition: B0 completed, so the reviewed verifier exists in the live bootstrap tree. The operator supplies activation values from the reviewed release record, not guessed current heads:
+
+```bash
+read -r -p 'Approved activation full SHA: ' ACTIVATION_SHA
+export APPROVED_RELEASE_SHA="$ACTIVATION_SHA"
 read -r -p 'Approved CI run ID: ' RUST_CI_RUN_ID
 read -r -p 'Exact current Alembic revision: ' MIGRATION_EXPECTED_CURRENT_REVISION
 read -r -p 'Approved literal target revision: ' MIGRATION_TARGET_REVISION
@@ -1334,7 +1763,7 @@ The operator must provision read access to the archive for `verdaxis-prod` witho
 
 ### C. Deploy and install through canonical gates
 
-- [ ] Execute the approved bootstrap code release with Caddy unchanged and Rust inactive. Use all four variables:
+- [ ] Execute the approved activation release after B0 and B. Require its committed Rust unit bytes to match the installed bootstrap unit. Keep Caddy unchanged. Use all four activation variables:
 
 ```bash
 sudo -n -u verdaxis-prod -H env \
@@ -1345,8 +1774,8 @@ sudo -n -u verdaxis-prod -H env \
  /home/verdaxis-prod/verdaxis/staging/be/scripts/deploy.sh
 ```
 
-- [ ] Require exact Python readiness and absent state. Run the now-live helper dry-run again. It must attest the same current approved SHA and helper bytes.
-- [ ] Run the immutable installer dry-run, review, then apply the exact same SHA:
+- [ ] Require exact Python and Rust readiness, absent state, and checkout HEAD=ACTIVATION_SHA. Run the now-live helper dry-run again. Attest the unchanged installed unit bytes at this current SHA; never install future-ref bytes before the checkout advances:
+- [ ] Run the immutable installer dry-run at the activation HEAD. Apply only after review if reconciliation is needed:
 
 ```bash
 sudo /home/verdaxis-prod/verdaxis/staging/be/scripts/install_systemd_units.sh \
@@ -1355,7 +1784,7 @@ sudo /home/verdaxis-prod/verdaxis/staging/be/scripts/install_systemd_units.sh \
  --apply --environment staging --source-ref "$APPROVED_RELEASE_SHA"
 ```
 
-- [ ] Do not manually start Rust between code deployment and unit installation. Promote the reviewed Rust-active policy release through a new dry-run and exact four-variable deploy. If its SHA differs, repeat artifact verification and installer attestation at that SHA.
+- [ ] Rust starts only inside the activation deploy's two-lock restart window. Do not use a manual start to bypass failed artifact, budget, revision, or readiness checks.
 - [ ] Verify both loopback health responses with the canonical validator:
 
 ```bash
@@ -1441,8 +1870,16 @@ Write the completed report to `outputs/rust-phase1/go-no-go.md`. Keep all unknow
 - CPU table: core-equivalents and microseconds/completed request.
 - Latency table: per-route and mixed p50/p95/p99, errors, confidence/spread.
 - Coexistence: Python + Rust combined memory/CPU; not route-only savings.
-- Gate: zero differences; Rust memory <=50%; every p95 <=Python.
-- Rate-limit/admission topology findings:
+- Gate: zero unapproved differences; Rust memory <=50%; every p95 <=Python.
+- Approved differences (exactly one):
+
+| ID | What changed | Why approved | Proof |
+|---|---|---|---|
+| AD-01 | Rust enforces 60/30/10 requests per minute once per client/route; Python's four local counters can admit up to four times more | PM defines documented per-client limits as the contract; worker multiplication is an implementation artifact; Python unchanged | Rust exact-boundary concurrent burst/reset tests; counts excluded from golden/shadow parity |
+
+- Rate-limit counts excluded from parity; all other status/body/header contracts retained.
+- Admission topology findings (no additional approved exception):
+- Assertion ledger: applicable/mapped/passed/excluded counts and reviewed exclusions:
 - Engineering effort: elapsed work, review effort, rework, remaining cost.
 - Three largest unresolved risks and rollback readiness:
 - Independent review commit and resolved findings:
@@ -1461,7 +1898,7 @@ Rust can reach production only after Phase 0 completes and the founder reviews t
 - [ ] Resume at the first unchecked task. Re-run that task's entry test before editing.
 - [ ] Require 27 data routes, 3 health routes, 3 MCP transport pairs, and all three tools in the coverage ledger.
 - [ ] Require no ACL widening, no SQLx migrations, no new runtime writer, no product literals in Rust, and no private path captured by Caddy.
-- [ ] Require all golden, raw-role PostgreSQL, unchanged integration, Python unit, Rust test, formatting, and clippy gates to pass.
+- [ ] Require all golden, raw-role PostgreSQL, unchanged integration, Python unit, Rust test, formatting, and clippy gates to pass. Require zero unmapped/unpassed applicable assertions and exactly one listed exception, AD-01, with passing Rust burst/reset tests.
 - [ ] Require independent Astra review and the seven-day shadow evidence before each group switch.
 - [ ] Require measured memory/CPU/p95 and an explicit founder go/no-go decision.
 - [ ] Keep failed, skipped, or inconclusive checks visible. Do not replace them with a narrative claim of completion.
