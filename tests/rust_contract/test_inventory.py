@@ -22,6 +22,7 @@ ROUTE_GROUPS = {
     "health",
     "echo",
     "simple_reads",
+    "live_benchmarks",  # Task 6a's test-only helper projection.
     "orderbook_snapshot",
     "orderbook_lists",
     "orderbook_map",

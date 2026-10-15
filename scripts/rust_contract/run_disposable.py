@@ -42,6 +42,7 @@ GROUPS = {
     "health": "health",
     "echo": "echo",
     "simple_reads": "simple_reads",
+    "live_benchmarks": "live_benchmarks",
     "orderbook_snapshot": "orderbook_snapshot",
     "orderbook_lists": "orderbook_lists",
     "orderbook_map": "orderbook_map",

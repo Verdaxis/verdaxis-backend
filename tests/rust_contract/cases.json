@@ -1,6 +1,12 @@
 {
   "schema_revision": 1,
   "groups": {
+    "live_benchmarks": [
+      {"id": "LB-empty", "method": "GET", "path": "/__contract__/live-benchmarks?selection=empty"},
+      {"id": "LB-all", "method": "GET", "path": "/__contract__/live-benchmarks"},
+      {"id": "LB-sparse", "method": "GET", "path": "/__contract__/live-benchmarks?selection=sparse"},
+      {"id": "LB-expired", "method": "GET", "path": "/__contract__/live-benchmarks?as_of=2036-10-15T12:00:00Z"}
+    ],
     "health": [
       {
         "id": "H01-ready",
