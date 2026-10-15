@@ -182,6 +182,17 @@ scripts/verify_systemd_source.py # Exact clean release-ref/commit archive + dige
 alembic/versions/               # Migrations incl. canonical availability-window rewrite + runtime metadata alignment
 ```
 
+## Phase 0 acceptance boundary
+
+`outputs/phase0/acceptance.md` freezes the candidate Python oracle, frontend
+identity, union schema and test evidence. The Task 9 integrated gate is blocked
+by existing PostgreSQL migration-test assumptions and HTTP fixture failures;
+passing Phase 0-specific tests do not authorize host rehearsal. The existing
+Phase 0 runner now checks every Phase 0 suite and local Review Focus case and
+records JUnit counts and artifact hashes under its disposable fixture directory.
+The frontend two-bundle evidence is reviewed separately, with its explicit PM
+exception. Host bootstrap/copy remain synthetic-only.
+
 ## Key Patterns
 
 - **Match-on-insert:** `POST /orderbook` → `db.flush()` → `match_order()` → `db.commit()` (atomic); executable matches now require exact `product + delivery_point + availability_window`. Order and trade create routes build responses before commit; committed replays keep separate return paths, and analytics stays after commit.
