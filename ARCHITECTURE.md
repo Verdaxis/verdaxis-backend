@@ -16,6 +16,15 @@ comes from each environment's `/health/ready` response, not a dated SHA in
 source documentation. The shared-host marker is
 `/home/verdaxis-prod/verdaxis/PRODUCTION_HOST.md`.
 
+## Rust Phase 1 bootstrap
+
+`rs/` is a Rust 1.95 workspace with two packages. `verdaxis-read` defines the
+shared types and build-time release identity; its binary only prints that
+identity. `verdaxis-contract` is an empty independent library and CLI scaffold,
+used only as a development dependency of `verdaxis-read`. No Rust routes,
+database connections, or deployment changes are implemented in Task 1.
+See `docs/rust-phase1/progress.md` for the local checks and resume point.
+
 ## File Map
 
 ```

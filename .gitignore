@@ -69,3 +69,7 @@ venv/
 # Runtime log artifacts
 remote_logs.txt
 *.log
+
+# Local implementation evidence and Rust build output
+/work/
+/rs/target/
