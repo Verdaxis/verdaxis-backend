@@ -259,6 +259,20 @@ fn assert_public_vectors(quality: bool) {
     }
 }
 
+#[test]
+fn large_decimal_digest_matches_python() {
+    let cases = vector(include_str!(concat!(env!("CARGO_MANIFEST_DIR"),
+        "/../../tests/rust_contract/vectors/terms/large_decimals.json")));
+    for case in cases.as_array().unwrap() {
+        let canonical = canonical_terms_from_row(&case["row"]).unwrap();
+        assert_eq!(canonical, case["canonical_terms"]);
+        assert_eq!(digest_terms(&canonical).unwrap(), case["digest"]);
+    }
+    let mut invalid = vector(PRIVATE_VECTOR)["row"].clone();
+    invalid["carbon_intensity_gco2_mj"] = json!("not a decimal");
+    assert!(canonical_terms_from_row(&invalid).is_err());
+}
+
 fn id(n: u128) -> Uuid {
     Uuid::from_u128(n)
 }

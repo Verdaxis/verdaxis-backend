@@ -15,7 +15,7 @@ use uuid::Uuid;
 
 use crate::{Json, MarketPolicy, ProductPolicy};
 
-use super::decimal::decimal_text;
+use super::decimal::canonical_decimal_text;
 
 const ASK: &str = "ASK";
 const ORDERBOOK_MODE: &str = "ORDERBOOK";
@@ -1275,7 +1275,7 @@ pub fn canonical_terms_from_row(row: &Json) -> Result<Json, String> {
         optional_text(row, "inventory_item_id"),
     );
     for key in ["quantity_mt", "remaining_quantity_mt", "price_per_mt_usd"] {
-        out.insert(key.to_owned(), optional_decimal_text(row, key));
+        out.insert(key.to_owned(), optional_decimal_text(row, key)?);
     }
     out.insert(
         "availability_window".to_owned(),
@@ -1312,11 +1312,11 @@ pub fn canonical_terms_from_row(row: &Json) -> Result<Json, String> {
     }
     out.insert(
         "carbon_intensity_gco2_mj".to_owned(),
-        optional_decimal_text(row, "carbon_intensity_gco2_mj"),
+        optional_decimal_text(row, "carbon_intensity_gco2_mj")?,
     );
     out.insert(
         "energy_density_mj_kg".to_owned(),
-        optional_decimal_text(row, "energy_density_mj_kg"),
+        optional_decimal_text(row, "energy_density_mj_kg")?,
     );
     out.insert(
         "fame_terms".to_owned(),
@@ -1342,10 +1342,12 @@ fn optional_text(row: &Map<String, Json>, key: &str) -> Json {
     }
 }
 
-fn optional_decimal_text(row: &Map<String, Json>, key: &str) -> Json {
-    match row.get(key).and_then(decimal_of) {
-        Some(value) => Json::String(decimal_text(value)),
-        None => Json::Null,
+fn optional_decimal_text(row: &Map<String, Json>, key: &str) -> Result<Json, String> {
+    match row.get(key) {
+        None | Some(Json::Null) => Ok(Json::Null),
+        Some(Json::String(text)) => canonical_decimal_text(text).map(Json::String),
+        Some(Json::Number(number)) => canonical_decimal_text(&number.to_string()).map(Json::String),
+        Some(_) => Err(format!("{key} must be decimal text or null")),
     }
 }
 

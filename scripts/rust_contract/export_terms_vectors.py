@@ -291,6 +291,19 @@ def _public_terms_vectors() -> list[dict]:
     return cases
 
 
+def _large_decimal_vectors() -> list[dict]:
+    from app.services.order_terms import executable_order_terms, order_terms_digest
+    cases = []
+    for value in ("100000000000000000000000000000", "12345678901234567890123456789",
+                  "12345678901234567890123456785", "0.00000000000000000000000000001",
+                  "-0.00"):
+        row = _row(carbon_intensity_gco2_mj=value)
+        order = _namespace(row)
+        cases.append({"row": row, "canonical_terms": executable_order_terms(order),
+                      "digest": order_terms_digest(order)})
+    return cases
+
+
 def build_vectors() -> dict[str, str]:
     """Return vector file name -> exact committed text."""
     payloads = {
@@ -299,6 +312,7 @@ def build_vectors() -> dict[str, str]:
         "fame.json": _fame_vector(),
         "decimal_validation.json": _decimal_validation_vectors(),
         "public_terms.json": _public_terms_vectors(),
+        "large_decimals.json": _large_decimal_vectors(),
     }
     return {
         name: json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
