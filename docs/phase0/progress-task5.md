@@ -59,7 +59,17 @@ The existing `tests/postgres/test_runtime_role_policy.py` suite passed all
 and applies the existing policy there, without replication-role permission.
 This does not yet prove post-copy ACL convergence on the final union target.
 
-Final full Phase 0 counts will be recorded after the verification run.
+Final `bash scripts/run_phase0_postgres_tests.sh`: **39 passed**, no skips,
+124.08 s. This includes all **23 Task 5 tests** and 16 Task 1 inventory tests.
+All six failure boundaries were reached explicitly; source hashes stayed equal,
+original FK/trigger definitions returned, and started/sequence-mutated/populated
+targets refused retry. Python compilation and `git diff --check` also passed.
+
+Implementation commit: `5771d1c`. No push. No live or final-union tests ran:
+Task 4b has not landed and host operations are not authorized. The final host
+identity path and copied-union ACL integration remain blocked, not claimed done.
+No other lane-owned file was changed. The runner wait/role-test extension is
+within the plan's permitted Task 1 runner ownership exception.
 
 ## Required Task 4b / integration re-checks
 
