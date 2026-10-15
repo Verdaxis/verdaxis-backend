@@ -15,6 +15,8 @@
 - Start from staging commit `2a7137bf71dc1f12191b4f619b94541060a1e1ed`. Reconcile later Phase 0 changes before each route cutover.
 - Phase 1 can proceed beside Phase 0. This plan contains no production task.
 - Freeze feature changes in each module during its port. A parity repair is not a new feature.
+- **Python freeze (founder, 15 Oct, tracker decision 47):** no new features in Python at all. Allowed Python changes: Phase 0 convergence; security fixes, user-facing bug fixes and data repairs; operations and settings. New features wait for Rust. Two stacks are transitional; the design's phase 10 removes Python.
+- **Pilot pace (founder, 16 Oct):** Verdaxis is in a pilot with no real money at risk, and the founder wants Rust in production before the pilot ends. Prefer parallel lanes and folded fix rounds. Keep these gates at full strength: privacy and KYC redaction, zero contract differences on the populated corpus and the differential simulation, backups before any prod change, and the one-change Caddy rollback.
 - Retain distinct B30, B100, and UCOME_B100 identities. Do not rename or merge products. Do not insert B30/B100 into staging as a side effect of this port.
 - Rust catalog and order-book selection must use reviewed data. Do not put product names, product UUIDs, or product-code branches into Rust source or SQL literals.
 - Keep Alembic as the only schema owner. Do not introduce SQLx migrations, database views, functions, or new grants for this port.
@@ -57,6 +59,11 @@ These five failures are not covered by the initial happy-path port tests. Each o
     - A CSV body is produced in full inside the task, so the permit covers all database work. Python's `/api/prices/reference/export` has no row bound and reads the full result before it writes (`app/routers/price_discovery.py:443-492,630-641`); Rust does the same (feature rule). The 30 s statement timeout and the AD-01 limit of 10 exports per minute bound it. A row cap is a separate Python change for later, listed under "Product issues found".
     - Route code never touches the plain pool. A test with 8 concurrent slow reads (`pg_sleep`), 8 client cancellations and 8 new requests proves: no acquire timeout, the 9th concurrent request gets the unchanged 503 + `Retry-After`, and `pg_stat_activity` never shows more than 9 connections for the app role.
 12. **Disposable PostgreSQL (PM, 15 Oct):** Docker runs locally through Colima. Contract tests start a disposable `postgis/postgis:17-3.6-alpine` container with the pinned digest from `scripts/run_product_analytics_postgres_tests.sh`, on a Docker-assigned loopback port, and remove it at exit. Never use staging or prod.
+13. **Approved difference AD-03 — news admission (PM, 15 Oct, after the Task 8 review):** Rust admits `/api/news` through the 8-slot public-read limiter; Python's gate does not cover news (`app/middleware/public_market_read_admission.py:10-41`). Under full capacity Rust answers news 503 with `Retry-After` and the busy body, and news load can make market reads 503. Accepted because every Rust database use then holds a permit, permits never exceed read connections, and no request waits on the pool. Tested in both contention directions (`rs/read/tests/admission_postgres.rs`). Reported in Task 14.
+14. **Comparator keeps exact JSON body bytes (PM, 15 Oct):** stricter than the key-order rule in the route inventory. Rust already writes Python's key order, and exact bytes keep differential runs simple. If a future consumer cannot match Python's order, record an ordered-object exception instead of relaxing the comparator globally.
+15. **Task 4b owns the populated corpus (PM, 15 Oct):** Task 4 deferred the fixture families of the `seed_corpus` rule in Task 4. Task 4b builds all of them once, after the build branch is rebased onto current staging, and records the golden corpus once. Final acceptance of Tasks 6, 6a, 7a-7c, 8, 9, 10a, 10b and 11 waits for their populated gates; development continues.
+16. **Consumer policies stay in the shared module (PM, 16 Oct, after the Task 6 re-review R3):** curve UNKNOWN metadata, legacy curve catalog scope and price quarantine metadata need relations that `OrderSurface` does not provide yet. Tasks 9, 10a and 10b add each policy to `rs/read/src/market/` as a named surface or metadata relation with its own comparison tests. Do not copy predicates into routes, and do not broaden the economic relation.
+17. **No multi-day shadow clock (founder, 16 Oct, tracker decision 48):** "we don't need 7-days to review, we just run it against our own tests/simulations". The Phase 1 gate is: the populated corpus (Task 4b), a seeded differential simulation at the Task 14 workload sizes, the unchanged integration suite (Task 13), and one short read-only differential pass on staging data. Task 14 is rewritten to this at its start; its seven-day text below is superseded.
 
 ### Product issues found (not changed in Phase 1)
 
@@ -135,7 +142,7 @@ Shared query sets:
 
 - **Serialization:** Preserve decimal strings, including scale. Do not convert NUMERIC to f64. Ports' intelligence prices and coordinates are floats, not Decimal (`app/schemas/port.py:11-34`). Product minimum lot is Decimal (`app/schemas/catalog.py:7-20`). Order, aggregate, and price Decimal fields are declared in `app/schemas/orderbook.py:234-269,401-570`.
 - **Null versus absent:** Keep declared optional response fields as null unless the schema explicitly excludes them. The curve table excludes `benchmark_observed_at` (`app/schemas/curves.py:396`). Public terms omit private fields; do not replace omissions with null (`app/services/lng_order.py:123-134`; `app/services/fame_order.py:162`). News dates are explicit null or `isoformat()` strings (`app/routers/news.py:27-39`). Listings use their own serializer, not OrderResponse (`app/routers/inventory.py:762-800`).
-- **Key order:** No named consumer in this review requires JSON object key order. Compare exact object membership, types, values, Decimal scale, and null versus absence; ignore object key order by default. An ordered-object exception needs a named consumer, source citation, and exact JSON path in `ordered-object-paths.json` (initially empty). Keep raw bytes for diagnosis and array order exact. Never sort every array to hide a mismatch. Ports have no ORDER BY; prices have incompletely ordered aggregate groups. Test these separately as source nondeterminism, not as permission to reorder all results (`app/routers/ports.py:18-24`; `app/routers/price_discovery.py:193-205,484-489`).
+- **Key order:** Superseded by decision 14: the comparator compares exact JSON body bytes, so Rust must write Python's key order. (Original text: no named consumer in this review requires JSON object key order. Compare exact object membership, types, values, Decimal scale, and null versus absence; ignore object key order by default.) An ordered-object exception needs a named consumer, source citation, and exact JSON path in `ordered-object-paths.json` (initially empty). Keep raw bytes for diagnosis and array order exact. Never sort every array to hide a mismatch. Ports have no ORDER BY; prices have incompletely ordered aggregate groups. Test these separately as source nondeterminism, not as permission to reorder all results (`app/routers/ports.py:18-24`; `app/routers/price_discovery.py:193-205,484-489`).
 - **Cache and ETag:** These public handlers set no Cache-Control or ETag. CSV handlers add only their attachment header (`app/routers/curves.py:958-962`; `app/routers/price_discovery.py:643-647`). The public OrderResponse contains a terms digest, not an HTTP ETag; owner ETags belong to OrderMyResponse (`app/schemas/orderbook.py:234-298`). Record header absence as part of the contract. Do not add caching or conditional 304 responses. The disposable identity route alone uses `no-store` (`tests/disposable_server.py:62-70`). Capture proxy-added headers separately; the live Caddy configuration is not established by this source review.
 - **Errors:** Preserve detail strings, structured detail objects, and Pydantic 422 lists as distinct forms. Invalid order-book window normalization returns 400 (`app/routers/orderbook.py:300-306`). Price alias conflicts and reverse date ranges return 422 (`app/routers/price_discovery.py:94-136,573-582`). The export's `format` argument is not validated (`app/routers/price_discovery.py:603-647`). Do not “fix” it during the port.
 - **Global database failures:** Retryable market contention or canceled GET/HEAD queries return 503, `Retry-After: 1`, and `Market is temporarily busy; retry shortly.` Other database errors return 500 and `Database operation failed.` (`app/main.py:187-214`). Match the market-path classifier from `app/services/db_errors.py`, not all routes indiscriminately.
@@ -180,7 +187,7 @@ Create one library/binary package, `verdaxis-read`, plus an independent `verdaxi
 | Astra | `rs/contract/`, `tests/rust_contract/`, `scripts/rust_contract/` | oracle, fixtures, comparison, shadow, measurement |
 | Astra | `deploy/rust/`, `deploy/caddy/`, staging unit, CI and deploy helper edits | release and operator boundary |
 
-**20 independently accepted tasks:** 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 6a -> 7a -> 7b -> 7c -> 8 -> 9 -> 10a -> 10b -> 11 -> 12a -> 12b -> 12c -> 13 -> 14. Letter suffixes preserve review references; each is a separate test/commit checkpoint.
+**21 independently accepted tasks (Task 4b added 15 Oct):** 1 -> 2 -> 3 -> 4 -> 4b (after the staging rebase) -> 5 -> 6 -> 6a -> 7a -> 7b -> 7c -> 8 -> 9 -> 10a -> 10b -> 11 -> 12a -> 12b -> 12c -> 13 -> 14. Letter suffixes preserve review references; each is a separate test/commit checkpoint.
 
 Parallel lanes after 6: 8 (simple reads), 9 (prices/tape), 10a then 10b (curves), and 6a then 7a/7b/7c (orderbook). Task 11 requires 9 and 10b. Tasks 12a/12b/12c may start after 3/5 using fixture binaries and fixture units; their local acceptance does not require route HTTP parity. Artifact publication waits for Task 13's complete contract job. Task 13 requires all route and release checkpoints. Task 14 follows 13. No task's acceptance claims a future handler exists.
 
@@ -547,7 +554,7 @@ pub fn request_id(supplied: Option<&str>) -> String {
 }
 ```
 
-Create the semaphore with eight slots, equal to Python's aggregate public-read admission (4 workers x 2 per-worker slots, read from the attested release configuration; refuse to start if they differ). Rust pool 9 = 8 slots + 1 reserved connection. This is AD-02. Apply it only to GETs selected by the Python path table; news bypasses it. Hold the owned permit through response-body completion, including CSV streaming. Use an RAII body wrapper, not a permit dropped when response headers are returned. MCP uses this same semaphore inside database tools, not at initialize/list-tools/list-markets.
+Create the semaphore with eight slots, equal to Python's aggregate public-read admission (4 workers x 2 per-worker slots, read from the attested release configuration; refuse to start if they differ). Rust pool 9 = 8 slots + 1 reserved connection. This is AD-02. Apply it to GETs selected by the Python path table and to `/api/news` (AD-03, decision 13). Hold the owned permit through response-body completion, including CSV streaming. Use an RAII body wrapper, not a permit dropped when response headers are returned. MCP uses this same semaphore inside database tools, not at initialize/list-tools/list-markets.
 
 Compose middleware from outside inward: request ID/logging, CORS, public admission, support-context boundary, route dispatch. Preserve exact staging origin `https://staging.verdaxis.exchange`, credentials, reflected requested headers, allowed methods, Vary, and exposed headers from the recorded Python corpus (`app/main.py:225-243`). Preserve the support-scope behavior of `app/middleware/market_support_scope.py`; public GETs must not become private projections when the context header is present.
 
@@ -788,6 +795,27 @@ Task 4 validates this runner with health and a test-only echo projection; it doe
 
 **Resume point:** Record corpus SHA, seed manifest SHA, schema revision, tool versions, and exact route count. Tasks 5–11 consume this corpus. Never regenerate expected results merely because Rust differs.
 
+### Task 4b: Build every corpus fixture family and record the golden corpus once — Astra
+
+**Added:** 15 Oct by the PM (decision 15). **Starts after:** the build branch is rebased onto current `origin/staging`, including the KYC execution gate switch.
+
+**Files:** Modify `scripts/rust_contract/seed_corpus.py`, `scripts/rust_contract/run_disposable.py`, `tests/rust_contract/cases.json`, `tests/rust_contract/assertions.json`. Create `tests/rust_contract/test_seed_corpus.py`. Regenerate `tests/rust_contract/golden/<oracle-sha>/`, `deploy/rust/market-policy.json`, the MCP artifact, the contract manifest and the terms vectors from the same oracle SHA.
+
+**Interfaces:**
+- Consumes: the `seed_corpus` rule in Task 4 (attested environment, numeric loopback, `_test` database name, non-superuser fixture writer); `scripts/rust_contract/export_policy.py`; the Task 6 vector exporter.
+- Produces: `python -m scripts.rust_contract.seed_corpus` that builds every family and exits non-zero on any missing family; `run_disposable.py --seed-mode corpus` as the default gate for every group; one golden directory for one oracle SHA.
+
+**Families (each with fixed UUIDs, row counts and its assertion ledger rows):** the families named in the Task 4 seed rule; ports with and without intelligence, one port with two intelligence rows (fixed row order), high-precision PostGIS coordinates; news with tied dates, null optional fields and every category; orders at delivery-point names and region names (`Singapore` and `Asia`); stored FAME and LNG terms with small and scientific decimals (`1E-29`, `0E-100`); KYC owners in both gate states (pin the oracle's `KYC_EXECUTION_GATE_ENABLED` per run and record it); historical version-0 terms and quarantined trade snapshots built through the legal path of a pre-guard revision, then upgraded by the real migration chain (Task 6 N3).
+
+- [ ] **Step 1: Write the failing test.** `tests/rust_contract/test_seed_corpus.py` asserts each family's exact row count and that `seed_corpus` refuses a superuser writer, a non-loopback host and a non-`_test` database.
+- [ ] **Step 2: Run** `venv/bin/python -m pytest tests/rust_contract/test_seed_corpus.py -q`. Expected: FAIL (families missing).
+- [ ] **Step 3: Implement the families** in `seed_corpus.py` through the fixture writer only. Never disable a database guard or trigger to insert a row.
+- [ ] **Step 4: Run** the test again. Expected: PASS.
+- [ ] **Step 5: Record once.** Record every group twice under the fixed clock; require `TOTAL_UNSTABLE=0`. Regenerate the policy, MCP artifact, manifest and vectors from the same oracle SHA. Run every group with `--seed-mode corpus`; list each Rust difference by group.
+- [ ] **Step 6: Commit** the fixtures, tests and regenerated artifacts in separate commits.
+
+**Resume point:** every group records and compares under `--seed-mode corpus`. Route differences found here go back to the owning task as fix items; Task 4b does not change route code.
+
 ### Task 5: Export catalog policy as data — Astra
 
 **Files:** Create `scripts/rust_contract/export_policy.py`, `deploy/rust/market-policy.json`, `rs/read/src/market/{mod,policy}.rs`, `rs/read/tests/policy.rs`, `tests/rust_contract/test_policy_export.py`.
@@ -923,9 +951,8 @@ Add a PostgreSQL visibility matrix for each row in the public rules table. Inclu
 - [ ] **Step 3: Implement pure digest helpers and SQL rules.**
 
 ```rust
-pub fn decimal_text(value: rust_decimal::Decimal) -> String {
-    if value.is_zero() { "0".into() } else { value.normalize().to_string() }
-}
+// Superseded by the M3 repair: digest decimals use the text-based 28-digit
+// half-even normalization in rs/read/src/market/decimal.rs, not rust_decimal.
 pub fn digest_terms(canonical_terms: &Json) -> Result<String, String> {
     fn sorted(value: &Json) -> Json {
         match value {
@@ -1020,7 +1047,7 @@ pub fn qualified_vwap(rows: &[(rust_decimal::Decimal, rust_decimal::Decimal)])
 }
 ```
 
-Port `public_slice_order_qualified` exactly, including catalog tuple, lane, status, expiry, positive remaining quantity, off-spec, typed FAME/LNG `order_is_execution_qualified` (call `market::terms::order_is_execution_qualified` from Task 6; do not reimplement it), and normalized scalar ASK certification (`app/services/live_benchmarks.py:35-93`; `app/services/execution_policy.py:114-145`). The map key has side/product/point/window only: do not add provenance. Cache missing keys within the request. Never invoke rebuild or persist `live_slice_benchmarks`.
+Port `public_slice_order_qualified` exactly, including catalog tuple, lane, status, expiry, positive remaining quantity, off-spec, typed FAME/LNG `order_is_execution_qualified` (call `market::terms::order_is_execution_qualified_at` from Task 6 with the request's captured Singapore date; never the live-clock wrapper; do not reimplement it), and normalized scalar ASK certification (`app/services/live_benchmarks.py:35-93`; `app/services/execution_policy.py:114-145`). The map key has side/product/point/window only: do not add provenance. Cache missing keys within the request. Never invoke rebuild or persist `live_slice_benchmarks`.
 
 - [ ] **Step 4: Re-run** the named runner, pure arithmetic tests, and assertion ledger check. Expected pass with zero helper differences and one batched data query. This task does not depend on Task 7's routes.
 - [ ] **Step 5: Commit** the three listed files and fixture cases: `git commit -m 'feat: preserve current live slice benchmark reads'` with trailer.
@@ -1651,6 +1678,8 @@ The runner must allocate free ephemeral ports, then render them into the Caddyfi
 
 ### Task 14: Shadow, measure, and prepare the founder decision — Astra
 
+> **Superseded in part (decision 17, founder, 16 Oct):** no seven-day shadow clock. Rewrite this task at its start: the gate is the populated corpus, a seeded differential simulation at the workload sizes below, the unchanged integration suite, and one short read-only differential pass on staging data. Memory and p95 use the same simulation workload.
+
 **Files:** Create `scripts/rust_contract/{shadow,measure,report}.py`, `tests/rust_contract/{test_shadow,test_measure}.py`, `docs/rust-phase1/go-no-go.md`, and `scripts/rust_contract/staging.example.toml` (the reviewed `--config` template: target URLs, sampling rate, duration and output paths, with no secrets; the operator copies it to `work/rust-phase1/staging.toml` and fills the URLs). Use `work/rust-phase1/` for raw benchmark samples. No changes to economic code in this task.
 
 **Interfaces:** Consumes the approved route corpus and both readiness identities. Produces Rust `pub fn passes_gate(contract_differences: u64, python_memory: u64, rust_memory: u64, python_p95: f64, rust_p95: f64) -> bool` in `rs/contract/src/lib.rs`, and a report with raw-evidence digests. CLI: `python -m scripts.rust_contract.shadow --config PATH --duration-seconds N`; `python -m scripts.rust_contract.measure --config PATH --output PATH`. Config is an explicit reviewed file; no implicit URL defaults.
@@ -1932,6 +1961,7 @@ Write the completed report to `docs/rust-phase1/go-no-go.md`. Keep all unknown r
 |---|---|---|---|
 | AD-01 | Rust enforces 60/30/10 requests per minute once per client/route; Python's four local counters can admit up to four times more | PM defines documented per-client limits as the contract; worker multiplication is an implementation artifact; Python unchanged | Rust exact-boundary concurrent burst/reset tests; counts excluded from golden/shadow parity |
 | AD-02 | Rust uses one 8-slot public-read admission gate; Python uses 2 slots in each of 4 workers | Same total capacity; Rust admits at least every request Python's aggregate admits, while Python can return 503 earlier under uneven load; overload behavior is capacity, not an API shape | Mixed-concurrency test: 8 concurrent slow reads admitted, the 9th gets the unchanged 503 + `Retry-After`; 503 rates recorded for both in shadow/measure |
+| AD-03 | Rust admits `/api/news` through the same 8-slot gate; Python's gate does not cover news | Every Rust database use holds a permit and no request waits on the pool (decision 13) | Two-direction contention test in `rs/read/tests/admission_postgres.rs` |
 
 - Rate-limit counts excluded from parity; all other status/body/header contracts retained.
 - Admission topology findings (AD-02 evidence; no other exception):
@@ -1954,7 +1984,7 @@ Rust can reach production only after Phase 0 completes and the founder reviews t
 - [ ] Resume at the first unchecked task. Re-run that task's entry test before editing.
 - [ ] Require 27 data routes, 3 health routes, 3 MCP transport pairs, and all three tools in the coverage ledger.
 - [ ] Require no ACL widening, no SQLx migrations, no new runtime writer, no product literals in Rust, and no private path captured by Caddy.
-- [ ] Require all golden, raw-role PostgreSQL, unchanged integration, Python unit, Rust test, formatting, and clippy gates to pass. Require zero unmapped/unpassed applicable assertions and exactly two listed exceptions, AD-01 (rate limits, with passing Rust burst/reset tests) and AD-02 (admission capacity, with the passing mixed-concurrency test).
+- [ ] Require all golden, raw-role PostgreSQL, unchanged integration, Python unit, Rust test, formatting, and clippy gates to pass. Require zero unmapped/unpassed applicable assertions and exactly three listed exceptions, AD-01 (rate limits, with passing Rust burst/reset tests), AD-02 (admission capacity, with the passing mixed-concurrency test) and AD-03 (news admission, with the passing two-direction contention test).
 - [ ] Require independent Astra review and the seven-day shadow evidence before each group switch.
 - [ ] Require measured memory/CPU/p95 and an explicit founder go/no-go decision.
 - [ ] Keep failed, skipped, or inconclusive checks visible. Do not replace them with a narrative claim of completion.
