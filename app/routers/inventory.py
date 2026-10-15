@@ -204,7 +204,7 @@ async def add_inventory(
     )
 
     # Match the port API's missing-reference response before attempting INSERT.
-    port = await db.scalar(select(Port.id).where(Port.id == item.port_id).with_for_update(read=True, key_share=True))
+    port = await db.scalar(select(Port.id).where(Port.id == item.port_id))
     if port is None:
         raise HTTPException(status_code=404, detail="Port not found")
 
@@ -242,6 +242,12 @@ async def add_inventory(
         if is_retryable_market_transaction_error(exc):
             raise
         await db.rollback()
+        # A reference can disappear after the SELECT-only existence check.
+        # asyncpg exposes constraint metadata on the adapter's original cause.
+        cause = getattr(exc.orig, "__cause__", None)
+        if (getattr(cause, "sqlstate", None) == "23503"
+                and getattr(cause, "constraint_name", None) == "inventory_items_port_id_fkey"):
+            raise HTTPException(status_code=404, detail="Port not found") from exc
         logger.exception(
             "inventory_create_failed",
             extra={"organization_id": str(current_user.organization_id)},
