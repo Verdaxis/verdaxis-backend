@@ -93,3 +93,27 @@ public identity-omission assertions. No corpus normalization was added.
 Resume: PM review and merge Task 7c. Task 13 must assemble routing and resolve the
 recorded dispatch gap. Task 7b, Phase 0, architecture integration and deployment
 remain separate work. No further implementation is pending in this lane.
+
+## Acceptance review repairs — 16 October
+
+- `748af5d5` fixes M1. A disposable year-zero DEMO order first exposed four
+  HTTP differences. Compact reduction now returns Task 9's shared unhandled
+  response, preserving plain-text 500 and absent CORS/request-ID headers.
+  SQL and admission errors retain their handled contracts. The regression inserts
+  through normal guards and deletes its own row in `finally`; an initial attempt
+  to update a slice was correctly refused by the immutable-identity trigger.
+- `9f82c031` fixes N1. A direct Python comparison first failed on padded FAME
+  public strings. Full declaration projection now strips the seven public text
+  fields while snapshot projection remains unchanged. Nine whitespace vectors
+  compare complete public terms. The shared Python whitespace predicate is used
+  with Pydantic's U+001C–U+001F exclusion: the actual Python schema preserves those
+  four separators. Literal enums and nested evidence keep their own rules.
+- Final checks on `9f82c031`: fmt and clippy passed; workspace 113 passed;
+  disposable PostgreSQL runner 121 passed (its existing two matrix tests remain
+  filtered); Python contract suite 95 passed with five existing warnings.
+- Populated map group: six cases plus 97 edge comparisons passed separately with
+  KYC enabled and disabled. This includes the year-zero HTTP regression and both
+  existing compatibility cases. Red/green and final logs are under ignored
+  `work/rust-phase1/7c-*.log`.
+- No Task 7b merge, golden refresh, push or live access occurred. PM merges 7b
+  first, then reruns these groups against decision 23's new oracle/corpus.
