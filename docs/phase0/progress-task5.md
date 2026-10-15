@@ -71,28 +71,95 @@ identity path and copied-union ACL integration remain blocked, not claimed done.
 No other lane-owned file was changed. The runner wait/role-test extension is
 within the plan's permitted Task 1 runner ownership exception.
 
+## Independent-review fixes — 2026-10-16
+
+All four findings have separate implementation commits. Host apply remains closed.
+
+- **M1 (`964c9cb`)**: pin UTC, ISO/YMD dates, postgres intervals, full float text
+  precision and hex bytea on source/target and independent hash reads. The three
+  formatting tests failed before the fix. They now check binary float/date
+  equality after copy and detect rounded floats/swapped dates in hashes.
+  An initial ISO interval setting failed catalog attestation because it changed
+  rendered CHECK text; the final setting matches the frozen catalog.
+- **M2 (`972bbf2`)**: refuse application-table RLS ENABLE/FORCE flags and role
+  BYPASSRLS. Set transaction-local `row_security=off` so later filtered reads
+  fail instead of omitting rows. No bypass or source ACL change is granted.
+  Four red RLS cases now pass, including standalone verification where both
+  source visibility and target rows omit the same notifications.
+- **M3 (`fad8a50`)**: consume the exact expected target-only baseline set by ID
+  and compare every value. Refuse missing leftovers. Missing product/delivery
+  baseline tests failed before the fix; all four missing/changed tests pass.
+  The provisional migration has no delivery baseline, so that regression uses
+  an explicit synthetic target-only baseline, not a claimed migration row.
+- **N1 (`97ac741`)**: create two temporary UNKNOWN parties in a savepoint and
+  require the exact trade INSERT guard error. Always roll back the parties and
+  probe trade. Both zero-trade copy and empty-target probe failed before the fix
+  and now pass; source hashes and target organization counts stay unchanged.
+  A disabled-trigger test also checks refusal and cleanup.
+
+Focused runs: **4 RLS tests passed**; **9 formatting/reference/empty-history tests
+passed**. Initial regression run: 10 failed, 3 passed. After correcting test
+isolation and the absent delivery baseline assumption, the formatting/reference
+red run returned 5 failed, 2 passed. No failure was hidden or counted as green.
+
+Final foreground verification (both commands completed):
+
+- `bash scripts/run_phase0_postgres_tests.sh`: **53 passed**, no skips or
+  failures, 222.65 s. This includes all 14 new regressions and the existing 39
+  tests. The pinned disposable Colima container was removed with `docker rm -f -v`
+  by the runner. Other reviewers' containers were not touched.
+- Required SQLite unit command: **2087 passed, 19 failed**, 513 warnings,
+  98.21 s. Every failure is in the known macOS `tests/unit/test_deploy_health.py`
+  suite; no other unit test failed.
+
+The earlier background full PostgreSQL run ended without a completion record;
+its partial output is not acceptance evidence. The completed foreground runs
+replace it. Logs: `work/task5-postgres-foreground.log` and
+`work/task5-unit-foreground.log`. They contain only synthetic test data.
+No staging/production connection or push was performed. Host apply remains closed.
+
 ## Required Task 4b / integration re-checks
 
-1. Freeze the actual union catalog, complete columns/types, checks, FK edges,
-   trigger/function bytes, extensions, owned/global sequences and baseline.
-   Update only reviewed copy-manifest differences. Re-run all copy proofs.
-2. Add populated B30/B100 history to the union target proof. Preserve all eight
-   product IDs and source catalog values. The pinned staging checks cannot
-   accept all production biofuel snapshots; no checks are weakened here.
-3. Bind final host manifests to root ownership, exact old/new database names,
-   OIDs, endpoint/cluster identities, host and full SHAs, source fingerprint,
-   target revision and exact bootstrap baseline. Replace the synthetic-only
-   gate only after separate host-mode review; no real data may reach this Mac.
-4. Integrate the approved canonical ACL convergence bundle on the new database
-   only; re-run raw app/backup denial and import-as-app tests on the copied union
-   target. Runtime import authority must remain absent.
-5. Verify the source outbox is drained after all producers stop. Preserve
-   uncertain mail claims; no notice/reminder sender runs during copying.
-6. Re-run numeric/JSON/null/EWKB, cyclic FK, trigger restoration, sequence
-   next-value and all six failure-boundary tests on the final schema. Review
-   any newly discovered owned sequence or FK; do not silently broaden policy.
-7. Publish final counts, schema/data digests and measured runtime for Tasks 9/10.
-   Receipt-publication failure after commit requires verification, never replay.
+1. Freeze the final full release SHA and literal union revision, not only the
+   staging base SHA. Review complete columns/types, checks, FK edges, exact
+   trigger/function bytes, extension versions/membership, sequences and the
+   migration-created baseline. Keep the immutable production source pin.
+   Publish the final contract digest and re-run affected Rust goldens.
+2. Add populated B30/B100 orders, trades, receipts and dependent histories.
+   Preserve all eight product IDs, source reference values and inactive history.
+   Keep UCOME distinct. Require the complete target-only baseline, not only
+   membership of rows that happen to remain. No stronger check is weakened.
+3. Review `CYCLIC_FKS`, import ordering, named triggers, global/owned sequences,
+   all 15 added-column mappings, target-only tables and skips against that
+   catalog. Keep LNG missing-evidence and lane blockers. Never derive missing
+   historical terms from current orders.
+4. Re-run formatting and RLS regressions on the final schema: opposing role
+   DateStyle values, low extra_float_digits, UTC/microseconds, exact float bytes,
+   high-precision Decimal/JSON, SQL NULL versus JSON null, EWKB and empty trade
+   history. RLS ENABLE or FORCE flags and BYPASSRLS remain refused; do not grant
+   a bypass. Add bytea/native-array vectors if either becomes a copied type.
+   Exercise cyclic references across more than one 256-row batch and all empty,
+   uncalled, sparse and cached sequence states.
+5. Review host mode separately. Bind root-owned manifests and trusted bootstrap
+   evidence to exact host, old/new database names, OIDs, endpoints, independently
+   checked cluster identities, source revision/fingerprint, final SHA and target
+   revision. Do not recapture a baseline from an arbitrary existing target.
+   Require private local evidence directories and a durable attempt identity.
+   Keep the synthetic-only gate until approval; no real data reaches this Mac.
+6. Drain all producers and the outbox before freezing the source, including
+   sequence writers. Preserve uncertain mail claims and stop senders. Enforce
+   target isolation throughout import and ACL acceptance, not only at the first
+   session count. Attest scratch egress, local storage and database logging:
+   customer rows, private diagnostics and credentials must not leave the host.
+7. Converge the approved canonical ACL bundle on the new database only. Prove
+   raw app/backup authority and import-as-app denial on the copied union for
+   grace, receipts/evidence, provenance, vault and control tables. Never alter
+   global live roles wholesale or grant runtime import authority.
+8. Repeat all six failure boundaries on the final union. Include post-commit
+   receipt-publication failure and read-only recovery verification of complete
+   business/reference sets, restored schema/triggers, sequence state and source
+   freeze/snapshot identity. Publish aggregate counts/digests and measured runtime
+   for Tasks 9/10. Recover by verification or rebuild, never replay.
 
 ## Lane ownership
 
