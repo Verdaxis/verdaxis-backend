@@ -118,3 +118,30 @@ Task 7 must consume the union literal and policy hashes without enabling host
 apply by editing JSON. Task 9 owns the final release oracle and affected Rust
 goldens. Freeze the eventual integrated release SHA after all lanes merge; the
 staging base SHA is ancestry evidence, never that release's approval.
+
+## Task 8 direct-take follow-up
+
+The two-bundle gate used backend `4a61ab277323797010a462906728c149e5de3341`,
+before union. The existing fix is **`a588e19c`**, revision `p0_20261016_union`.
+No further migration or runtime change was needed.
+
+New test commit **`e4bc8d6d`** exercises authenticated `POST /api/trades/` for
+B30 and B100 through ASGI and real PostgreSQL, with real admission dependencies
+and a reviewed terms digest. It checks HTTP 200, committed product identity,
+version-1 scalar snapshots, null FAME/LNG terms and exact remaining quantity.
+Only the database dependency is redirected to the disposable database.
+
+TDD: restoring the predecessor trade function in the disposable target produced
+**2 failures**, both HTTP 500 and SQLSTATE P0001, as in Task 8. With the union
+function, both requests succeeded. The first green attempt exposed an incorrect
+201 test expectation; the route's existing contract is 200. Corrected focused
+run: **2 passed**, 17 warnings. Union schema/lane preservation: **2 passed**.
+UCOME/FAME/LNG guards were not edited or bypassed.
+
+Required unit rerun: **2132 passed, 19 failed**, all the known macOS Bash 3.2
+`test_deploy_health.py` cases; no other failure. Required full PostgreSQL runner:
+**92 passed**, 62 warnings, no skips or failures, 463.19 seconds. The runner
+removed its disposable container and volumes. Syntax and diff checks passed.
+Logs: `work/task4b-take-{red,focused,guards,postgres,unit}.log`.
+Task 8 must rerun its browser gate with a database migrated to union; these route
+tests do not replace the old/new bundle acceptance test. No host or push occurred.
