@@ -176,6 +176,13 @@ def compare_news_tie_groups(expected, actual, *, request_path, rules_path=None):
     right_keys = [item["published_at"] for item in right]
     if left_keys != right_keys:
         return ["/body/published_at:sequence"]
+    if not all(isinstance(key, str) for key in left_keys):
+        return ["/body/published_at:type"]
+    if left_keys != sorted(left_keys, reverse=True):
+        # Decision 18: Rust must retain descending published-time order. Equal
+        # key sequences are not enough: a matching ascending pair is a
+        # difference, not a reviewed relaxation.
+        return ["/body/published_at:order"]
     if "news_exact_items" not in expected or "news_exact_items" not in actual:
         return compare(expected, actual)
 

@@ -65,6 +65,25 @@ def test_other_paths_remain_byte_exact():
     )
 
 
+def test_ascending_published_at_order_fails():
+    # Decision 18: the keys must match and be in descending published-time
+    # order. An identical ascending pair used to compare equal.
+    ascending = b"[" + C + b"," + A + b"," + B + b"]"
+    assert compare_news_tie_groups(
+        envelope(ascending), envelope(ascending), request_path="/api/news"
+    ) == ["/body/published_at:order"]
+
+
+def test_equal_descending_news_pair_stays_equal():
+    descending = b"[" + A + b"," + B + b"," + C + b"]"
+    assert (
+        compare_news_tie_groups(
+            envelope(descending), envelope(descending), request_path="/api/news"
+        )
+        == []
+    )
+
+
 def test_checked_in_rule_file_holds_only_the_approved_news_rule():
     rules = json.loads((ROOT / "tests/rust_contract/news-tie-paths.json").read_text())
     assert rules == [APPROVED_RULE]
