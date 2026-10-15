@@ -13,7 +13,13 @@ use sqlx::{postgres::PgArguments, query::Query};
 
 /// The complete bound public-order SELECT.
 pub fn public_order_sql() -> &'static str {
-    include_str!("../../sql/public_orders.sql")
+    static SQL: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+        include_str!("../../sql/public_orders.sql").replace(
+            "/* current_order_rule */",
+            include_str!("../../sql/current_order_rule.sql"),
+        )
+    });
+    &SQL
 }
 
 /// The complete bound formal-trade-evidence SELECT.
@@ -61,7 +67,7 @@ impl OrderSurface {
 /// Compose only developer-owned static SQL around the shared relation. The tail
 /// reads `eligible_orders` and owns projection, extra filters, ranking and limits.
 /// Values remain SQLx binds; no request text is accepted here.
-pub struct OrderQuery(String);
+pub struct OrderQuery(pub(super) String);
 pub struct TradeQuery(String);
 
 pub fn order_query_sql(tail: &'static str) -> OrderQuery {
