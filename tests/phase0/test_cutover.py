@@ -37,7 +37,7 @@ def test_outbox_drain_before_final_snapshot():
 
 
 @pytest.mark.parametrize("boundary", ["tuple", "units", "restart", "readiness"])
-def test_interrupt_each_cutover_boundary_keeps_runtime_tuple_blocked(tmp_path, boundary):
+def test_operator_lock_release_denies_stale_permit(tmp_path, boundary):
     from scripts.phase0.start_fence import start_is_allowed
 
     control = tmp_path / "control"
@@ -184,6 +184,7 @@ def test_external_fence_does_not_replace_two_lock_guard(tmp_path):
 
 def test_in_flight_producer_invalidates_first_zero(tmp_path):
     import sqlite3
+
     from scripts.phase0.assert_host import require_outbox_drained
     database = tmp_path / "synthetic-outbox.sqlite"
     with sqlite3.connect(database) as connection:
@@ -224,6 +225,7 @@ with sqlite3.connect(sys.argv[1]) as connection:
 
 def test_tuple_assertion_binds_runtime_and_monitor_bytes(tmp_path, monkeypatch):
     import hashlib
+
     from scripts.phase0 import assert_host
     root = tmp_path / "be"
     root.mkdir()
