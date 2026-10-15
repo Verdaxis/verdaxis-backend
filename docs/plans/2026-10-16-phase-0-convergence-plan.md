@@ -35,7 +35,7 @@ All proposed names, APIs, tests and commands below are **implementation requirem
 - Keep B30, B100 and UCOME_B100 distinct. Keep all existing IDs, economic terms, order priorities, receipts and timestamps. No seed prices for LNG or UCOME.
 - Keep `KYC_EXECUTION_GATE_ENABLED=false` in both pilot environments. Keep rejection and organization-binding rules. Do not send grace emails.
 - Never copy a production dump, personal data, document, password hash or key to this Mac. Local tests use synthetic fixtures built through the pinned production migrations.
-- The old `verdaxis` database is read-only input to this procedure. Do not change its schema, rows, ACLs, database name or settings. Do not run the new ACL convergence against it.
+- After producers and the existing outbox sequencer drain, freeze the old `verdaxis` database as read-only input to this procedure. Do not change its schema, rows, ACLs, database name or settings. Do not run the new ACL convergence against it.
 - Copy through a read-only source connection and a separate target owner/migrator connection. The runtime app must not gain import authority.
 - A target may contain only its exact migration-generated baseline before import. Refuse all other non-empty targets. No merge/upsert mode for business records.
 - Keep four Python workers, loopback listeners, distinct app/migrator roles, exact readiness, two deploy locks, durable state, and immutable unit installation. Current contracts: `origin/staging:scripts/deploy.sh:52–76,611–713`; `origin/staging:deploy/systemd/verdaxis-backend.service:9–48`.
@@ -45,14 +45,37 @@ All proposed names, APIs, tests and commands below are **implementation requirem
 
 ## Decision problems
 
-1. **A new database cannot use the present production identity unchanged.** Settings require `verdaxis`; the ACL helper repeats that literal (`origin/staging:app/config.py:10–20,195–224`; `origin/staging:scripts/converge_runtime_acls.py:19–32`). Renaming the old database would violate “untouched.” Use the new exact name **`verdaxis_phase0`** in the canonical release. Keep the existing exact production role names. Update every identity consumer and backup job for that one new name. Do not introduce an arbitrary database-name override. The old release still requires `verdaxis` for rollback. Task 7 owns this change and its host approval.
-2. **An empty database cannot pass the ordinary checkpoint helper.** Deploy requires a literal current revision and the helper requires one current row (`origin/staging:scripts/deploy.sh:577–615`; `origin/staging:scripts/apply_migration_checkpoint.py:109–154,283–317`). Task 4 adds a separate empty-database bootstrap. It runs real migrations to a literal approved target. No stamp and no new `base` alias in the normal checkpoint policy.
+1. **A new database cannot use the present production identity unchanged.** Settings require `verdaxis`; the ACL helper repeats that literal (`origin/staging:app/config.py:10–20,195–224`; `origin/staging:scripts/converge_runtime_acls.py:19–32`). Renaming the old database would violate “untouched.” Use the new exact name **`verdaxis_prod`** in the canonical release. Keep the existing exact production role names. Update every identity consumer and backup job for that one new name. Do not introduce an arbitrary database-name override. The old release still requires `verdaxis` for rollback. Task 7 owns this change and its host approval.
+2. **An empty database cannot pass the ordinary checkpoint helper.** Deploy requires a literal current revision and the helper requires one current row (`origin/staging:scripts/deploy.sh:577–615`; `origin/staging:scripts/apply_migration_checkpoint.py:109–154,283–317`). Task 4a adds a separate empty-database bootstrap. It runs real migrations to a literal approved target. No stamp and no new `base` alias in the normal checkpoint policy.
 3. **“504/503 fail-closed” is not the current vault contract.** Missing/invalid keys produce submission **503**. Download decryption failure produces **500**, not 504 (`origin/staging:app/routers/kyc.py:283–287,330–337`). Test 503 and 500 exactly. Also inject a proxy 504 and prove that the client does not report success. Do not manufacture a vault 504 or weaken the retained-document transaction. A 504 can occur after a successful commit; it is not proof of no submission.
 4. **Old discarded KYC files cannot be copied.** Production has KYC review fields and grace, but no `kyc_documents` migration at the pinned SHA. Staging explicitly documents discarded files as unrecoverable (`origin/staging:docs/security-hardening-v2.md:132–151`). Preserve review evidence and audit. Start the new vault empty. Do not invent document rows or ask users to resubmit as part of automatic import.
-5. **Lossless rollback has a time boundary.** A frozen old database cannot contain writes accepted by the new one. The tested immediate rollback is lossless only before public writes resume. After that, preserve both databases and reconcile new writes; never silently discard them.
+5. **Lossless rollback has a time boundary.** A frozen old database cannot contain writes accepted by the new one. The tested immediate rollback is lossless only before customer writes resume and after internal-write reconciliation. After that, preserve both databases and reconcile new writes; never silently discard them.
 6. **Google Drive is not an unencrypted key vault.** The founder uploads an encrypted offline key-ring archive. Keep recovery access outside Drive and outside the database backup. Verify recovery before acceptance. Do not upload raw keys or customer documents.
 
-These are explicit operational resolutions, not silent changes to founder decisions. Approve the exact new database name, bootstrap authority and pre-write rollback boundary before Task 10.
+**PM decision:** use `verdaxis_prod` permanently. At rehearsal preflight, prove it does not already exist on the live cluster. Stop on a collision; do not drop or reuse it. Keep exact production roles and update identity/backup consumers together.
+
+**PM-proposed, founder confirms before Task 10 — answers 2–6:**
+
+2. Approve a one-use empty bootstrap to the exact reviewed union revision. Bind DDL to the attested connection. Rehearse in a separate host-local cluster. No stamp, generic `base` policy or mutation authority from a dry-run.
+3. Accept storage 503 and decryption 500. Treat proxy 504 as uncertain. The client must not claim success or promise that nothing committed. Add no new KYC feature.
+4. Copy all KYC review, audit and grace evidence. Start the document table empty. Do not fabricate files or require automatic resubmission. Investigate separately if authorized inspection finds retained files outside this schema.
+5. Permit immediate rollback only before new customer writes. Prove the full switch-back in host rehearsal. Keep production closed until acceptance. Drain internal outbox writes too. After reopening, use a forward fix or approved reconciliation; never discard writes automatically.
+6. The founder uploads only an encrypted complete key ring. Keep its decryption secret and recovery access separate from Drive and database backups. Prove restore on-host or in an approved offline boundary. Never put raw keys or customer documents in chat or CI.
+
+These proposals do not authorize host operations. Record founder confirmation before Task 10.
+
+## Review changes and scope cuts
+
+This revision adopts `outputs/research/phase0-plan-review-2026-10-16.md` in full for M1–M4 and N1–N3. Task 4a binds Alembic to the checked connection. Task 10 uses exact production identities in a separate scratch cluster. Tasks 7/11 add an outbox-drain gate. Tasks 1/5 correct historical fixtures and catalog/JSON/sequence preservation. Task 8 tests the exact preference routes.
+
+Adopt all five pilot cuts:
+- Use one-use operator steps, small assertions, a durable fence and a simple journal. No coordinator, generic workflow engine or mount-namespace venv builder. Build the venv at its final path under maintenance.
+- Extend the existing test runner and use one signed acceptance checklist. Do not build an acceptance framework.
+- Inject copy failures at representative transaction boundaries, not every batch. Hash every table.
+- Run one frontend promotion workflow with its own build-once candidate checks. Reuse existing evidence. If approval must pause, retain and promote the same immutable candidate through the existing release procedure; do not build a candidate-reuse platform.
+- Run the full switch-back only in the isolated host rehearsal. Keep pre-write emergency rollback for production.
+
+**Do not cut:** complete schema classification, source preservation, all data hashes, real PostgreSQL trigger/FK/sequence proofs, runtime ACL denials, provider egress isolation, KYC encryption/recovery, restored-backup verification, or full rollback proof. Keep existing deploy, unit-provenance, checkpoint, two-lock/start-guard and exact readiness gates. No seven-day soak is required.
 
 ## Review Focus
 
@@ -60,7 +83,7 @@ These five cross-boundary failures are not proved by the existing single-branch 
 
 | Failure mode | Required added test | Owner |
 |---|---|---|
-| Historical trades fail INSERT-time guards even when their stored state is valid; a naive import rewrites their snapshots | `test_historical_snapshot_import_restores_exact_guards` with version-0/NULL snapshots and changed current organization state | 5 |
+| Historical trades fail INSERT-time guards even when their stored state is valid; a naive import rewrites their snapshots | `test_historical_snapshot_import_restores_exact_guards` with NULL historical snapshots and version-1 snapshots whose current party state later changed | 5 |
 | Copy counts pass but cyclic foreign keys or global sequences cause the next user command to fail | `test_copy_cycles_and_next_sequence_values` with RFQ/quote and support/order cycles, sparse outbox sequences, consumed receipts | 5 |
 | Failure after `.env` switch starts old code on new data, or new code on old data | `test_interrupt_each_cutover_boundary_keeps_runtime_tuple_blocked` using real subprocess locks and filesystem replacement | 7 |
 | Cached production frontend calls retired activity or stale quote methods after backend switch | `test_old_and_new_browser_contracts_during_cutover` plus network assertions for zero activity calls in the new build | 8 |
@@ -171,7 +194,7 @@ All citations in this table are `origin/prod:`. `models/...` expands to `app/mod
 | user_activity_delivery_reports | Skip | Retired tracker loss reports; `models/user_activity.py:69–107` |
 | alembic_version | Skip | Target is created by real canonical migrations, never copied/stamped; `scripts/apply_migration_checkpoint.py:283–317` |
 
-**Reference regeneration is not destructive replacement.** Bootstrap only deterministic catalog rows, using frozen values from the canonical catalog seed/migrations. For each source product/delivery row, compare ID, name, fuel type/grade, unit, lane and minimum. Preserve original timestamps and mutable active state. Insert any noncanonical historical row with its original ID and inactive/active state, but do not admit it to the canonical public catalog. Refuse conflicting identities. Record source-derived rows separately from new canonical rows. The classification remains “regenerate reference baseline,” with explicit source preservation; it is not a claim that every source catalog row equals a seed.
+**Reference regeneration is not destructive replacement.** Bootstrap only deterministic catalog rows, using frozen values from the canonical catalog seed/migrations. Preserve **every source catalog column**. Products: `id`, `name`, `fuel_type`, `fuel_grade`, `unit`, `min_lot_size`, `spec_description`, `is_active`, `created_at`. Delivery points: `id`, `name`, `region`, `timezone`, `is_active`, `created_at` (`origin/prod:app/models/catalog.py:11–19,40–45`). There are no approved value exceptions for source-derived rows. Compare every value, not only the column set. Database session UTC must not replace geographical `delivery_points.timezone` metadata. Validate code-owned lane policy separately. Insert any noncanonical historical row with its original ID and inactive/active state, but do not admit it to the canonical public catalog. Refuse conflicting identities. Record source-derived rows separately from new canonical rows. The classification remains “regenerate reference baseline,” with explicit source preservation; it is not a claim that every source catalog row equals a seed.
 
 New target-only tables: `supplier_offers`, `kyc_grace_notices`, `kyc_documents`. Leave offers/documents empty. Populate notices only from exact production sent-audit evidence. Source: `origin/staging:alembic/versions/fame_20260922_supplier_offers.py:40–82`; `origin/staging:alembic/versions/kycg_20261014_staging.py:33–40`; `origin/staging:alembic/versions/kycd_20261015_staging.py:17–37`.
 
@@ -184,7 +207,7 @@ Use an explicit committed mapping manifest. No `SELECT *`, implicit ORM defaults
 | rfqs | Preserve all shared columns. New `contract_terms`, `source_offer_id`, `target_supplier_org_id`, `source_offer_snapshot` = SQL NULL. No fabricated FAME declarations. |
 | rfq_quotes | Preserve shared fields. `offer_terms` and `expires_at` = NULL; `revision` = 1. Do not turn a past quote into an executable offer. |
 | orderbook_orders | Preserve `lng_terms` byte-equivalent JSON meaning; `fame_terms` = NULL. Keep acceptance ordinal and remaining quantity. |
-| trades | Preserve every existing snapshot, including `lng_terms_snapshot`; `fame_terms_snapshot` = NULL. Keep NULL/version-0 historical snapshots unchanged. |
+| trades | Preserve every existing snapshot, including `lng_terms_snapshot`; `fame_terms_snapshot` = NULL. Keep NULL historical snapshots and version-1 snapshots unchanged. Numeric `market_snapshot_version=0` is source drift and blocks import. |
 | negotiations | `fame_terms_snapshot` = NULL. `lng_terms_snapshot` = NULL only for non-LNG rows. A source LNG row without a recorded paired snapshot is a blocker, not a reason to derive historical terms from today's orders. |
 | inventory_items | `fame_terms` = NULL; `lng_terms` = NULL for non-LNG rows. Source Bio-LNG inventory without required terms blocks import pending an exact reviewed disposition. No fabricated declarations. |
 | market_support_authorizations | New FAME/LNG terms = NULL for nonmatching products. LNG authorization lacking its frozen terms blocks import. Never infer customer authority from a current order. |
@@ -200,15 +223,15 @@ Evidence for the 15 new shared-table columns: `origin/staging:alembic/versions/f
 
 ### Copy algorithm and authority
 
-The copy script runs only on the production host for real data. Local mode accepts only a disposable numeric-loopback PostgreSQL cluster and synthetic fixtures. Host mode requires a root-owned manifest, exact source/target database names and OIDs, host ID, full release SHA, source revision and schema fingerprints. URLs come from no-follow mode-0600 files, never arguments or logs. Reject URL query routing and identical endpoints/database OIDs.
+The copy script runs only on the production host for real data. Local mode accepts only a disposable numeric-loopback PostgreSQL cluster and synthetic fixtures. Host mode requires a root-owned manifest, exact source/target database names and OIDs, cluster system identifiers and endpoints, host ID, full release SHA, source revision and schema fingerprints. URLs come from no-follow mode-0600 files, never arguments or logs. Reject URL query routing and identical source/target database identity tuples. An OID is unique only within its cluster. Bind each tuple to the cluster system identifier, endpoint, database name and OID; obtain the cluster identifier through a separate trusted operator check without granting runtime control privileges.
 
 1. Open source with the existing read-only backup role. Start one `REPEATABLE READ READ ONLY` transaction. Set its session zone to UTC. Attest source revision and catalog fingerprint.
 2. Open target as its migrator owner. Acquire an import advisory lock. Assert exact target revision, baseline fingerprints, no app sessions and no business rows. Baseline catalog/extension rows must equal the bootstrap manifest.
-3. Start one target transaction. Lock import tables. Copy the explicit columns in bounded batches. Use text/binary codecs that retain Decimal, UUID, JSON and timestamptz; preserve PostGIS EWKB/SRID. Never use float or ORM constructors with timestamp defaults.
+3. Start one target transaction. Lock import tables. Copy the explicit columns in bounded batches. Use text/binary codecs that retain Decimal, UUID, JSON and timestamptz; preserve PostGIS EWKB/SRID. Never use float or ORM constructors with timestamp defaults. Preserve SQL NULL separately from JSON `null`. Use raw JSON text or an exact Decimal codec. Hash those values without merging them. Test high-precision JSON numbers, SQL NULL and JSON `null`.
 4. Cyclic FKs need a deliberate import phase. Capture exact FK definitions; temporarily replace only reviewed cyclic FKs with deferrable equivalents inside this transaction, defer them, then restore original definitions and validate before commit. Noncyclic FKs stay active.
 5. Historical records may not satisfy **new INSERT** guards. Example: the trade trigger requires version 1 and current party provenance on INSERT (`origin/staging:alembic/versions/blng_20261014_staging.py:136–191`). Attest the complete named user-trigger set. Disable only these exact user triggers in the target import transaction as the table owner. Do not use `session_replication_role`, disable system FK triggers, or grant superuser. Check all target constraints and dedicated historical invariants. Re-enable and compare every trigger/function byte fingerprint before commit. No running app can access the import target.
-6. Historical invariants preserve source-valid version-0/NULL snapshots; they do not require current-party equality for old trades. New version-1 rows require valid frozen identity and allowed provenance pairs. Prove that source and target snapshots match. Exercise the restored new-INSERT guard with a savepoint and an invalid synthetic row; it must reject.
-7. Copy notice receipt mappings. Restore sequence state to at least both source `last_value` and target `max(column)`, retaining `is_called` semantics. Cover `orderbook_acceptance_ordinal_seq` and `market_event_stream_seq`, plus every discovered owned sequence. A rolled-back sequence change makes the target non-pristine; a retry must refuse it, not silently reuse it.
+6. Historical invariants preserve source-valid NULL historical snapshots and version-1 snapshots; they do not require current-party equality for old trades. New version-1 rows require valid frozen identity and allowed provenance pairs. Prove that source and target snapshots match. Exercise the restored new-INSERT guard with a savepoint and an invalid synthetic row; it must reject.
+7. Copy notice receipt mappings. Set each sequence so its **next** value exceeds every imported value and does not reuse a source-reserved value. For a positive increment, use a called high-water value at least as large as source `last_value` and imported maximum when rows exist. Preserve an uncalled initial value only for an empty sequence with no imported value at or above it. Verify increment, bounds and cache settings. Test empty, uncalled, sparse and cached sequences; do not call `nextval` on the source. Cover `orderbook_acceptance_ordinal_seq` and `market_event_stream_seq`, plus every discovered owned sequence. A rolled-back sequence change makes the target non-pristine; a retry must refuse it, not silently reuse it.
 8. Verify counts, sorted-primary-key streaming hashes and column-value hashes. Check every FK, decimal total, order reservation, trade lifecycle, snapshot, grace deadline, notice claim, receipt, event cursor and reference identity. Run no external side effect.
 9. Commit only after all checks pass. Write a private copy receipt with aggregate counts, source snapshot identity, manifest digest and target OID. If receipt publication fails after commit, the next attempt refuses the populated target. Recover by verification, not replay.
 10. Converge/validate ACLs from the approved canonical bundle on the **new** database only. Test raw runtime denial of grace/evidence/receipt UPDATE, provenance UPDATE, vault DELETE and control-table writes. The exact current policy is `origin/staging:deploy/postgres/app_acl_policy.sql:22–88,101–217,225–229`.
@@ -221,14 +244,14 @@ Do not silently filter a row that fails a stronger constraint. Emit only table, 
 
 ### Backend-call divergence inventory
 
-The call-site inventory covers the API wrapper, direct fetch calls, auth context, AI client and SSE hook. It distinguishes actual route gaps from dead client methods. Task 8 must turn this static inventory into an executable request manifest and fail on an unclassified call.
+The call-site inventory covers the API wrapper, direct fetch calls, auth context, AI client and SSE hook. It distinguishes actual route gaps from dead client methods. Task 8 must generate an executable request manifest from reachable client calls and fail on an unclassified call. Paths in the table are under `/api`. Review exact methods and product-bearing cases; prose categories do not prove route coverage.
 
 | Direction / calls | Difference and disposition | Evidence |
 |---|---|---|
 | Prod → staging: `POST /activity/events`; `GET /admin/users/{id}/activity` | Routes absent in staging. Remove capture, delivery reporting and drawer. Old tabs may receive 404; no retry loop or financial effect. | `FE origin/prod:src/services/api.ts:652–678,1238–1252`; `origin/prod:app/routers/user_activity.py:71–115` |
 | Prod → staging: catalog products; orderbook list/bids/asks/snapshot/with-ci/aggregated/product-counts/map-summary; listings; availability; demand; prices/reference; trade-tape; curves forward/board/table/slice | B30/B100 missing from staging policy; UCOME added. Port IDs, filters, labels and eligibility. CI pricing intentionally differs; update UI to unpriced/nullable monetary values. | `FE origin/prod:src/services/api.ts:902–1123,1194–1228,1367–1410,1492–1503`; `origin/prod:app/market_catalog.py:97–118`; `origin/staging:ARCHITECTURE.md:250–267` |
 | Prod → staging: order POST/PUT, trade POST and lifecycle reads, inventory add/update/publish, support authorization/final confirmation | Prod B30/B100 scalar contract must remain. LNG property name stays `lng_terms`, but scalar/certification derivation and strictness differ. Staging adds FAME paired snapshots and review mapping. | `FE origin/prod:src/services/api.ts:791–871,1012–1060,1128–1190,1339–1363`; `origin/prod:app/services/lng_terms.py:92–115`; `origin/staging:app/services/lng_order.py:57–70`; `FE origin/staging:src/services/orderTerms.ts:1–11` |
-| Both: `GET/PUT /preferences`, watchlist slice targets | Staging preferences hardcode four alcohol products. Prod can persist B30/B100/LNG. Restore canonical enum; include UCOME. Keep saved filters after copy. | `FE origin/prod:src/services/api.ts:681–694,1514–1520`; `origin/staging:app/schemas/preferences.py:1–14`; `origin/prod:app/schemas/preferences.py:1–25` |
+| Both: `GET /users/me/preferences`, `PUT /users/me/preferences/{namespace}`, watchlist slice targets | Staging preferences hardcode four alcohol products. Prod can persist B30/B100/LNG. Restore canonical enum; include UCOME. Keep saved filters after copy. | `FE origin/prod:src/services/api.ts:681–694,1514–1520`; `origin/staging:app/schemas/preferences.py:1–14`; `origin/prod:app/schemas/preferences.py:1–25` |
 | Prod → staging: notification list/unread | Without port, hidden email-only records appear and private email fields leak. Port redaction before data copy becomes reachable. Read/mark methods stay supported. | `FE origin/prod:src/services/api.ts:876–899`; `origin/prod:app/routers/notifications.py:29–69` |
 | Both: login, GET/PUT `/auth/me`, password/refresh/logout, signup/invitations | Session mechanics stay shared. PUT profile currently loses computed eligibility on staging; admin/no-org result differs. Keep explicit NOT_APPLICABLE for nontraders; require consistent trader profile after PUT/login/GET. Refresh rows are intentionally absent after copy. | `FE origin/prod:src/context/AuthContext.tsx:127,205,252,278,305`; `origin/prod:app/routers/auth_simple.py:1976–2046`; `origin/staging:app/routers/auth_simple.py:1961–2031` |
 | Both: `POST /kyc/submit` | Same multipart call; target retains encrypted evidence and may return storage 503. It no longer calls an external document provider. No new review UI in Phase 0. | `FE origin/prod:src/pages/KycPage.tsx:38`; `origin/staging:app/routers/kyc.py:270–287`; `origin/staging:docs/security-hardening-v2.md:132–158` |
@@ -248,40 +271,46 @@ MCP and vault-admin downloads are backend additions, not current frontend call g
 - B30/B100 types, product lists, fixed specifications, order/take/display behavior, maps, radar filters and bilingual labels. Evidence: `FE origin/prod:src/utils/marketProduct.ts:10–11`; `FE origin/prod:src/utils/marketProducts.ts:18–19`; `FE origin/prod:src/utils/biofuelSpecification.ts:1–12`.
 - Public-site content and producer dataset notice; preserve production wording while retaining staging's corrected compliance claims. Inventory changed pages/locales explicitly, not a blanket “take ours.” Evidence: `FE origin/prod:src/pages/public/ProducerMapPage.tsx:19,495`; `FE origin/prod:src/components/public/ProducerDatasetNotice.tsx:1–40`.
 - Public route lazy loading, prerender and hydration, metadata, mobile bundle checks and release smoke scripts. Evidence: `FE origin/prod:src/App.tsx:61–113,523`; `FE origin/prod:vite.config.ts:32–97`; `FE origin/prod:src/prerender/renderPublicRoute.tsx:1–40`.
-- Vercel production release workflow and all referenced tooling. The workflow checks out `prod`, and the script requires `origin/prod`; both must change together to pinned canonical `staging`. Preserve candidate-only checks, canary CORS, build-once promotion and previous deployment ID. Evidence: `FE origin/prod:.github/workflows/release-vercel.yml:24–81`; `FE origin/prod:scripts/release-vercel.sh:300–315,354–403,426–450`.
+- Vercel production release workflow and all referenced tooling. The workflow checks out `prod`, and the script requires `origin/prod`; both must change together to pinned canonical `staging`. Preserve candidate checks, the optional candidate-only mode, canary CORS, build-once promotion and previous deployment ID. Evidence: `FE origin/prod:.github/workflows/release-vercel.yml:24–81`; `FE origin/prod:scripts/release-vercel.sh:300–315,354–403,426–450`.
 - Do **not** port `ActivityTrackingProvider`, `UserActivityDrawer`, activity queue/loss reports or their consent hooks. Retain unrelated analytics/cookie privacy behavior.
 
 ## Task order, lanes and estimates
 
 Estimates are focused agent hours plus human/independent review hours, not elapsed calendar promises. They exclude waiting for founder approval. Optimize for one short rehearsal and one cutover, not a seven-day soak.
 
-| Task | Lane / owner | Dependencies | Agent + review |
+| Task | Owner | Start dependency; final gate | Agent + review |
 |---|---|---|---|
-| 1. Freeze manifest and disposable source fixtures | Astra | none | 4 + 2 h |
-| 2. Union catalog and production market rules | Astra | 1 | 6 + 2 h |
-| 3. Auth/LNG/reminders/privacy integration | Astra | 1; integrate after 2 | 6 + 2 h |
-| 4. Canonical migration and empty bootstrap | Astra | 2, 3 | 6 + 3 h |
-| 5. Copy and verification tool | Astra | 1, 4 | 12 + 4 h |
-| 6. UTC policy and daily figures | DeepSeek | 1 | 2 + 1 h |
-| 7. Deployment identity and reversible switch | Astra | 3, 4, 6 | 10 + 4 h |
-| 8. Frontend convergence and release contract | Astra | 1; contract gate after 2, 3 | 8 + 3 h |
-| 9. Integrated acceptance and Rust handoff | Astra | 2–8 | 5 + 3 h |
-| 10. Host rehearsal, operator-run | Astra | 9 and explicit approval | 3 + 2 h |
-| 11. Cutover and pre-write rollback gate | Astra | 10 and explicit approval | 2 + 2 h |
+| 1. Pins, mappings and fresh schema fixtures | Astra | none | 4 + 2 h |
+| 2. Union catalog and market rules | Astra | 1 | 6 + 2 h |
+| 3. Auth/LNG/reminders/privacy | Astra | 1; integrate with 2 | 6 + 2 h |
+| 4a. Supplied connection and empty bootstrap proof | Astra | 1; production identity test with 7 | 4 + 2 h |
+| 4b. Union revision and final checkpoint policy | Astra | 2, 4a; final contract check with 3 | 3 + 1 h |
+| 5. Copy codecs, import and verification | Astra | 1; final acceptance after 4b | 10 + 3 h |
+| 6. UTC policy | DeepSeek | 1 | 2 + 1 h |
+| 7. Identity, fence and one-use operator steps | Astra | 1; final gate after 3, 4b, 6 | 5 + 3 h |
+| 8. Frontend and release contract | Astra | 1; final contract gate after 2, 3 | 7 + 3 h |
+| 9. Existing-runner acceptance and Rust handoff | Astra | 2, 3, 4b, 5–8 | 3 + 2 h |
+| 10. Isolated host-cluster rehearsal | Astra | 9; founder confirmation and host approval | 4 + 2 h |
+| 11. Supervised cutover; emergency rollback only | Astra | 10; short staging check and host approval | 2 + 1 h |
 
-**Total: 64 agent hours + 28 review/operator hours = 92 focused hours.** Budget 3–5 working days with parallel lanes, subject to import blockers. No measured migration duration exists yet. Tasks 10/11 estimates exclude data-volume-dependent copy time.
+**Total: 56 agent hours + 24 review/operator hours = 80 focused hours.** This is 12 hours below the earlier 92-hour estimate. It includes the supplied-connection path, exact-identity scratch cluster and outbox-drain work. It is not a calendar promise. Re-estimate after the first fresh-schema proof. Host approval waits and data-volume-dependent dump/copy time are excluded.
 
-Parallel work: Task 8 in a frontend worktree; Task 6 in a narrow backend worktree; Task 2 and Task 3 in separate backend worktrees with explicit file ownership. Task 2 owns catalog/qualification/market routers. Task 3 owns auth/KYC/LNG schemas/reminder/notification files; coordinate any shared `execution_policy.py` edit through the integration owner. Tasks 4 and 7 serialize deploy/migration policy edits. Task 5 can build codecs/fixtures before Task 4, but cannot pass until the target schema is fixed. No parallel live operations.
+Fastest safe order and file ownership:
+1. Task 1 freezes pins, column mapping and the provisional union contract, then builds the pinned production and staging schemas immediately. Do not wait for all product ports. Task 4a starts as soon as these fixtures exist.
+2. Run Tasks 2, 3, 6 and 8 in separate owned lanes. Task 2 owns catalog/qualification/market routers. Task 3 owns auth/LNG/reminder/notification files. The integration owner resolves shared `execution_policy.py` edits.
+3. Task 5 starts codecs and FK/trigger/sequence inspection against pinned schemas after Task 1. Only final import acceptance waits for Task 4b. Task 7 starts fixed identity and fence tests after Task 1; it does not wait for the union migration. Task 4b alone owns final checkpoint-policy edits.
+4. Publish a provisional frozen union contract after Task 1: eight product IDs, column mappings, UTC and KYC-off semantics. Rust may use it with synthetic fixtures. Mark its digest provisional. Deliver the final Python oracle/schema digest after Task 9, before production cutover; rerun affected goldens if it changes.
+5. Run one integrated local gate, one authorized host-local rehearsal, one short staging check and one supervised production cutover. Prepare frontend artifacts before maintenance where the existing release permits. Canonical-backend smoke still waits for backend readiness. Live operations are serial.
 
 ### Task 1: Freeze source and build synthetic source fixtures — Astra
 
-**Files:** Create `scripts/phase0/manifest.py`, `deploy/phase0/copy-manifest.json`, `tests/phase0/conftest.py`, `tests/phase0/test_inventory.py`, `scripts/run_phase0_postgres_tests.sh`. Read pinned `alembic/`, models and the analysis. Modify no deployed history.
+**Files:** Create `scripts/phase0/manifest.py`, `deploy/phase0/copy-manifest.json`, `deploy/phase0/provisional-union.json`, `tests/phase0/conftest.py`, `tests/phase0/test_inventory.py`, `scripts/run_phase0_postgres_tests.sh`. Read pinned `alembic/`, models and the analysis. Modify no deployed history.
 
 **Interfaces:** `inspect_catalog(connection) -> CatalogManifest`; manifest records full source SHA, revision, tables/columns/types, FK/trigger/check/index/sequence definitions and reference rows. Test runner creates an isolated PostgreSQL 17/PostGIS 3.6 container with a unique loopback port. It accepts no deployed URL.
 
 - [ ] **Failing test:** assert the manifest accounts for the 61 names above; detect an injected ordinary table/column and refuse. Fixture must include every copy table, all trade states, pending membership, rejected/moved KYC, expired grace, old notice audit, private notification fields, old snapshots, cycles and sparse sequence values.
 - [ ] **Run:** `bash scripts/run_phase0_postgres_tests.sh tests/phase0/test_inventory.py`. Initially FAIL because runner/manifest are absent. A skipped suite is failure.
-- [ ] **Implement:** materialize the pinned production tree using `git archive c08266bd6969143812dec7c5033338428cd5f159` under `work/phase0-fixtures/`. Build its schema using its real migrations and its own import path/venv. Populate pre-guard historical rows at the legal predecessor, then upgrade to `kycg_20261014_prod`. Never create the source schema from staging ORM metadata. Build the target independently from staging-derived migrations. Inspect catalogs, not only model declarations.
+- [ ] **Implement:** materialize the pinned production tree using `git archive c08266bd6969143812dec7c5033338428cd5f159` under `work/phase0-fixtures/`. Build its schema using its real migrations and its own import path/venv. Populate NULL historical snapshots at the legal predecessor, then upgrade to `kycg_20261014_prod`. Include version-1 snapshots with later-changed party state. Never insert numeric `market_snapshot_version=0`: both pinned heads permit only NULL or 1 (`origin/prod:alembic/versions/blng_20261014_prod.py:119–130`; `origin/staging:alembic/versions/blng_20261014_staging.py:217–228`). A zero found in host data is drift, not a normal fixture. Never create the source schema from staging ORM metadata. Build the target independently from staging-derived migrations. Inspect catalogs, not only model declarations.
 
 ```python
 PROD_SHA = "c08266bd6969143812dec7c5033338428cd5f159"
@@ -296,7 +325,7 @@ def require_complete_inventory(actual: set[str], declared: set[str]) -> None:
 - [ ] **Run:** runner again; require PostgreSQL version/extension assertions, nonzero tests, exact production source revision, no undeclared table/column and no live-network access. Include renamed legacy tables in comparison.
 - [ ] **Commit:** `test: add Phase 0 source schema and copy inventory fixtures`.
 
-**Resume/check:** Record fixture SHA, schema hashes, table counts and test totals in `outputs/phase0/task-01.md`. If the fresh historical chain cannot build, fix the disposable bootstrap explicitly; do not stamp over it. Task 4 must consume that proof.
+**Resume/check:** Record fixture SHA, schema hashes, provisional union digest, table counts and test totals in `outputs/phase0/task-01.md`. If the fresh historical chain cannot build, fix the disposable bootstrap explicitly; do not stamp over it. Task 4a must consume that proof.
 
 ### Task 2: Preserve production products on the staging base — Astra
 
@@ -333,7 +362,7 @@ Port the SQL mirror from `origin/prod:app/services/execution_policy.py:173–193
 - [ ] **Run:** new tests plus `tests/unit/test_fame_catalog_execution.py`, `test_lng_catalog_execution.py`, `test_market_seed.py`, `test_public_market_catalog_contract.py`, `test_preferences.py`, and all affected market PostgreSQL suites. Assert no inferred compliance cash savings.
 - [ ] **Commit:** `feat: preserve production biofuel contracts on canonical staging`.
 
-**Resume/check:** Record product/delivery policy digest and all API fixtures. Task 4 uses frozen SQL literals from this reviewed union. Task 8 uses these IDs, not display labels.
+**Resume/check:** Record product/delivery policy digest and all API fixtures. Task 4b uses frozen SQL literals from this reviewed union. Task 8 uses these IDs, not display labels.
 
 ### Task 3: Integrate auth, LNG, reminders and privacy — Astra
 
@@ -364,15 +393,52 @@ Apply `func.coalesce(Notification.data["_email_only"].as_boolean(), False).is_(F
 
 **Resume/check:** Record production request vectors and target results. No unit activation. Task 7 owns unit ports. Notice reconciliation belongs to Task 5, not a sender rewrite.
 
-### Task 4: Add the union revision and empty-database bootstrap — Astra
+### Task 4a: Bind Alembic to the checked connection — Astra
 
-**Files:** Create `alembic/versions/p0_20261016_union.py`, `scripts/phase0/bootstrap.py`, `deploy/phase0/bootstrap-policy.json`, `tests/phase0/test_bootstrap.py`, `tests/postgres/test_phase0_union_migration.py`. Modify `deploy/migration-checkpoints.tsv`, `app/market_constraints.py` and exact drift fingerprints where needed. Do not alter earlier revision parents.
+**Files:** Modify `alembic/env.py`. Create `scripts/phase0/bootstrap.py`, `deploy/phase0/bootstrap-policy.json`, `tests/phase0/test_bootstrap.py`. Reuse Task 1 fixtures. Do not change deployed revision parents.
 
-**Interfaces:** New revision `p0_20261016_union`, parent `kycd_20261015_staging`. Bootstrap CLI requires immutable source, manifest, explicit target env file and mode. The normal checkpoint helper remains unchanged for empty state.
+**Interfaces:** One supplied SQLAlchemy synchronous connection enters Alembic through `Config.attributes`. The bootstrap owns the outer transaction. The ordinary environment-driven deploy path remains unchanged. The one-use CLI takes an approved manifest, explicit target env file and `--apply`; its default checks only manifest structure.
 
-- [ ] **Failing test:** upgrade a populated staging fixture to union; independently bootstrap a completely empty target. Prove schema/catalog equality, one revision and no users/grace enrolled by bootstrap. Refuse nonempty target, wrong SHA/OID, source DB, missing approval and aliases.
-- [ ] **Run:** `bash scripts/run_phase0_postgres_tests.sh tests/phase0/test_bootstrap.py tests/postgres/test_phase0_union_migration.py`. Expect missing revision/helper.
-- [ ] **Implement:** add B30/B100 reference identities; update the four product-domain checks and trade function with the union. Preserve FAME/LNG checks and immutable snapshots. Keep staging grace RESTRICT semantics. Freeze SQL in this migration; no imports from a mutable runtime catalog.
+Current `env.py` overwrites the Config URL and opens a new engine (`origin/staging:alembic/env.py:26–29,83–112`). Its normal attestation path commits before migration (`origin/staging:alembic/env.py:65–80`). A Config connection attribute alone does not fix this.
+
+- [ ] **Failing test:** supply target connection A while valid Settings and Config URLs point at unrelated B and source C. Assert DDL uses only A; neither B nor C changes. Test wrong endpoint, cluster identity, database OID, role, absent outer transaction and absent bootstrap approval. Test rollback of DDL on an injected failure. Keep ordinary checkpoint tests unchanged.
+- [ ] **Run:** `bash scripts/run_phase0_postgres_tests.sh tests/phase0/test_bootstrap.py`. Expect the current environment to ignore the supplied connection.
+- [ ] **Implement:** separate connection setup from the migration body. For the supplied path, require a typed, validated bootstrap identity and an already-open caller transaction. On that exact connection, immediately before DDL, attest endpoint, database name/OID, role and role properties, plus the approved cluster binding. Recheck emptiness while holding the bootstrap lock. Never call `commit`, `rollback`, `close`, `asyncio.run` or create an engine in this path. The caller commits only after exact revision/schema verification. Preserve the ordinary path's transaction behavior.
+
+```python
+# In env.py; configure_migrations contains the existing context.configure/body.
+supplied = config.attributes.get("connection")
+if supplied is not None:
+    if context.is_offline_mode() or not isinstance(supplied, Connection):
+        raise ValueError("Invalid bootstrap connection")
+    if not supplied.in_transaction():
+        raise ValueError("Bootstrap must own an outer transaction")
+    identity = config.attributes.get("phase0_bootstrap_identity")
+    attest_bootstrap_connection(supplied, identity)
+    configure_migrations(supplied)
+else:
+    # Retain the current offline/online routing and Settings URL selection.
+    run_existing_environment_path()
+```
+
+The named helpers are narrow implementation interfaces, not existing functions. Move the Settings URL override into the ordinary path. Do not let conflicting Settings silently select a different engine. Runtime Settings still validate their own values; the bootstrap identity, not their URL, authorizes supplied-connection DDL. Implement the async caller with `AsyncConnection.run_sync`: set `config.attributes["connection"]` to that synchronous connection inside the callback, invoke `command.upgrade`, then remove the attributes in `finally`. The caller holds `async with connection.begin()` across attestation, upgrade and verification. Reject migrations that require an autocommit escape. Test that `context.begin_transaction()` joins this outer transaction rather than committing it.
+
+Use pinned staging head `kycd_20261015_staging` for early synthetic proof only. No host bootstrap is approved to this intermediate target. Task 4b pins the final policy to union. Tests with production Settings use Task 7's exact identity and the separate-cluster model, not arbitrary deployed-name overrides.
+
+- [ ] **Run:** supplied/ordinary path tests, conflicting URL tests and transaction failure tests. Prove zero customer/grace rows after fresh schema build. Verify no new runtime control privileges.
+- [ ] **Commit:** `fix: bind Phase 0 bootstrap to its attested Alembic connection`.
+
+**Resume/check:** Record exact engine connection count, cluster/database identities, untouched B/C hashes and transaction outcome. Task 5 can continue codec/import work. No host action yet.
+
+### Task 4b: Add the union revision and final bootstrap policy — Astra
+
+**Files:** Create `alembic/versions/p0_20261016_union.py`, `tests/postgres/test_phase0_union_migration.py`. Modify `deploy/migration-checkpoints.tsv`, `deploy/phase0/bootstrap-policy.json`, `app/market_constraints.py` and exact drift fingerprints. Do not alter earlier revision parents.
+
+**Interfaces:** Revision `p0_20261016_union`, parent `kycd_20261015_staging`. Production bootstrap is a one-use `EMPTY -> p0_20261016_union` operation with exact source/graph hashes and target `verdaxis_prod`. It uses Task 4a's supplied connection. Normal deploy still requires a current revision.
+
+- [ ] **Failing test:** upgrade populated staging and independently build an empty union target. Compare schema, reference data and ACLs. Refuse nonempty target, wrong SHA/cluster/OID, source DB, missing approval and aliases. Prove no customer grace enrollment.
+- [ ] **Run:** `bash scripts/run_phase0_postgres_tests.sh tests/phase0/test_bootstrap.py tests/postgres/test_phase0_union_migration.py`. Expect the union revision to be absent.
+- [ ] **Implement:** add B30/B100 identities, four product-domain checks and union trade function. Keep FAME/LNG constraints and immutable snapshots. Keep staging grace RESTRICT semantics. Freeze SQL; do not import the mutable runtime catalog.
 
 ```python
 revision = "p0_20261016_union"
@@ -381,21 +447,19 @@ branch_labels = None
 depends_on = None
 ```
 
-Append these literal policy rows:
+Append only these normal checkpoint rows:
 
 ```text
 kycd_20261015_staging	p0_20261016_union
 p0_20261016_union	p0_20261016_union
 ```
 
-Bootstrap policy separately binds `EMPTY -> p0_20261016_union` to exact source/migration graph hashes and production target `verdaxis_phase0` or explicitly disposable target. The helper checks no application/control tables exist, attests target migrator ownership and calls `alembic.command.upgrade(config, "p0_20261016_union")` with the attested connection. It executes the historical chain **before data import**, so enrollment migrations see no customers. Never copy old `alembic_version`; never call `stamp`.
+Run the historical chain before data import. Never copy `alembic_version`, stamp, or add `base` to normal deploy policy. Bootstrap manifest checking is not deploy approval. Real DDL needs explicit approval and an empty attested target. Local synthetic tests use disposable attestation. Host rehearsal runs `ENVIRONMENT=production` with exact identities in its own cluster; never relabel real data as test data.
 
-The bootstrap is an approved mutating operation, not a deploy dry-run. It must support `--check` that inspects manifests only without candidate execution or secrets. Disposable mode must have a separate positive loopback/container attestation; do not label a real target `ENVIRONMENT=test` to bypass identity checks.
+- [ ] **Run:** both upgrade paths, `alembic check`, complete schema/ACL comparison and interruption tests. Prove no activity tables, valid B30/B100 history and rejection of invalid UCOME lanes.
+- [ ] **Commit:** `feat: add canonical Phase 0 union schema and bootstrap policy`.
 
-- [ ] **Run:** fresh and staging-upgrade paths, `alembic check`, full check/function/FK/index/ACL comparison and bootstrap interruption tests. Prove no activity tables. Prove union schema permits production B30/B100 snapshots and rejects UCOME outside its lane.
-- [ ] **Commit:** `feat: add canonical Phase 0 schema and guarded empty bootstrap`.
-
-**Resume/check:** Record revision, graph digest, pristine-baseline manifest and target-only rows. A production data copy cannot start before this is green.
+**Resume/check:** Record final revision, graph digest and pristine baseline. Task 5's final acceptance and Task 7's final deploy checks now consume these artifacts. Publish the final migration contract to Rust; Task 9 supplies its tested oracle.
 
 ### Task 5: Implement host-local copy and verification — Astra
 
@@ -403,7 +467,7 @@ The bootstrap is an approved mutating operation, not a deploy dry-run. It must s
 
 **Interfaces:** `copy_database(manifest, source, target) -> CopyReceipt`; `verify_database(...) -> VerificationReport`. CLI: `python -m scripts.phase0.copy --manifest <private-path> --source-environment-file <path> --target-environment-file <path> --source-sha <40hex> --target-sha <40hex> --apply`. Default is validation only. Secret files are opened once, no-follow; URLs never print.
 
-- [ ] **Failing test:** implement both Review Focus import tests. Add failure injection after each table batch, constraint phase, sequence phase, commit and receipt publication. Assert old source is unchanged and a second copy refuses a populated/partially prepared target. Include unexpected columns and different DB OIDs behind the same URL text.
+- [ ] **Failing test:** implement both Review Focus import tests. Inject failures at six representative boundaries: before data, during a cyclic table, after trigger restoration, after sequence changes, after commit, and before receipt publication. Do not test every batch number. Still hash every table. Assert old source is unchanged and a second copy refuses a populated/partially prepared target. Include unexpected columns and different DB OIDs behind the same URL text.
 - [ ] **Run:** `bash scripts/run_phase0_postgres_tests.sh tests/phase0/test_copy.py tests/phase0/test_copy_history.py tests/phase0/test_copy_authority.py`. Expect missing implementation, not collection skips.
 - [ ] **Implement:** follow the ten-step algorithm and mapping above. A small explicit mapping primitive is:
 
@@ -457,7 +521,7 @@ ALTER ROLE :"migrator_role" IN DATABASE :"database_name" SET timezone TO 'UTC';
 ALTER ROLE :"backup_role" IN DATABASE :"database_name" SET timezone TO 'UTC';
 ```
 
-Production target is `verdaxis_phase0`; staging is `verdaxis_staging`. Do not modify old `verdaxis`. Inspect and reject unexplained higher-priority connection options. Recycle API pools and all CLI processes. Database defaults do not change already-open sessions.
+Production target is `verdaxis_prod`; staging is `verdaxis_staging`. Do not modify old `verdaxis`. Inspect and reject unexplained higher-priority connection options. Recycle API pools and all CLI processes. Database defaults do not change already-open sessions.
 
 Current daily SQL uses session-sensitive date conversion (`origin/staging:app/routers/price_discovery.py:440`; `origin/staging:app/routers/admin_analytics.py:406,421`). Explicit UTC product analytics already converts with `timezone('UTC', ...)` (`origin/staging:app/services/product_analytics.py:189–202`). **Effect:** staging's session-sensitive day boundary moves from 16:00 UTC to 00:00 UTC. An event at 16:30 UTC stays on its UTC date rather than the next Singapore date. Rolling durations, stored timestamptz instants and all-time totals do not change. Never shift stored timestamps by eight hours. Naive timestamps copy literally; do not guess a zone.
 
@@ -466,20 +530,20 @@ Current daily SQL uses session-sensitive date conversion (`origin/staging:app/ro
 
 **Resume/check:** Record before/after daily fixture values and `SHOW TimeZone` for all three roles. Task 10 repeats this on host scratch; Task 11 checks fresh live pools.
 
-### Task 7: Build the exact deployment and rollback transaction — Astra
+### Task 7: Prepare identity and one-use fenced operator steps — Astra
 
-**Files:** Modify `app/config.py`, `scripts/converge_runtime_acls.py`, `scripts/deploy.sh`, `deploy/systemd/runtime-units.manifest`, both reminder service/timer pairs, `.github/workflows/backend-ci.yml`, `docs/runtime-hardening.md`, `README.md`, `ARCHITECTURE.md`. Port production `deploy/external_monitor/` source and `tests/monitor/` additions without activation. Create `scripts/phase0/cutover.py`, `deploy/phase0/cutover.schema.json`, `tests/phase0/test_cutover.py`, `tests/unit/test_phase0_runtime.py`.
+**Files:** Modify `app/config.py`, `scripts/converge_runtime_acls.py`, `scripts/deploy.sh`, `deploy/systemd/runtime-units.manifest`, both reminder service/timer pairs, `.github/workflows/backend-ci.yml`, `docs/runtime-hardening.md`, `README.md`, `ARCHITECTURE.md`. Port production monitor source/tests without activation. Create `scripts/phase0/assert_host.py`, `scripts/phase0/start_fence.py`, `tests/phase0/test_cutover.py`, `tests/unit/test_phase0_runtime.py`, and `docs/runbooks/phase0-cutover.md` as the one-use operator checklist. Do not create a coordinator or journal schema engine.
 
-**Interfaces:** Fixed production database becomes `verdaxis_phase0`; staging unchanged. Canonical deploy branch becomes `staging` for both fixed directories. One-off cutover coordinator owns maintenance, tuple preparation and rollback. It calls normal deploy only after exact target revision exists. It must not hold the deploy flock while calling a child that attempts the same flock.
+**Interfaces:** Exact production database `verdaxis_prod`; exact existing roles; canonical branch `staging` in both fixed checkout paths. The assertion script is read-only and fails closed. It checks one named boundary and emits bounded facts. It does not advance state or run arbitrary commands. The journal is a root-owned append-only text record of operator-verified steps and artifact digests.
 
-- [ ] **Failing test:** `test_interrupt_each_cutover_boundary_keeps_runtime_tuple_blocked`. Use real child processes/flocks and real file/dir renames. Kill at every boundary: source staging, env staging, tuple publish, unit install, restart authorization, local readiness, public readiness and state clear. Test wrong SHA, moved remote, dirty tree, symlink state, unknown DB, wrong role, pending timer and old source/new DB mismatch.
-- [ ] **Run:** `python -m pytest tests/phase0/test_cutover.py tests/unit/test_phase0_runtime.py tests/unit/test_deploy_health.py -q`; initially FAIL.
-- [ ] **Implement:** use these fixed policy edits, not ambient overrides:
+- [ ] **Failing test:** `test_interrupt_each_cutover_boundary_keeps_runtime_tuple_blocked` uses real processes/flocks and filesystem renames. Kill at tuple replacement, unit replacement, restart and readiness boundaries. Test wrong SHA, role, cluster, DB, pending job, dangling fence and stale start permission. Add `test_outbox_drain_before_final_snapshot`: an in-flight producer commits after the first zero count; snapshot must wait for producer drain, sequencer drain and the post-stop zero check.
+- [ ] **Run:** `python -m pytest tests/phase0/test_cutover.py tests/unit/test_phase0_runtime.py tests/unit/test_deploy_health.py -q`; expect missing assertions/fence.
+- [ ] **Implement:** change only fixed production identity and branch bindings. Start this work after Task 1, without waiting for Task 4b.
 
 ```python
 _DEPLOYED_DATABASE_IDENTITIES = {
     "production": {
-        "database": "verdaxis_phase0",
+        "database": "verdaxis_prod",
         "app_role": "verdaxis_app",
         "migrator_role": "verdaxis_migrator",
     },
@@ -491,32 +555,22 @@ _DEPLOYED_DATABASE_IDENTITIES = {
 }
 ```
 
-Update the ACL helper's separately attested identity table and tests in the same commit. Audit all `verdaxis` literals: backup, monitor, preflight, migration, CLI and seed-denial paths. Do not loosen seed denial for `verdaxis_phase0`. Keep it explicitly forbidden. Production CORS includes the existing canary exact origin.
+Update the ACL helper identity table in the same commit. Audit backup, monitor, migration, preflight and CLI consumers. Explicitly forbid `verdaxis_prod` in seed paths. Keep production canary CORS. Change only production `DEFAULT_BRANCH` to `staging` in deploy; retain paths, roles, service and health URL. Task 4b alone owns final checkpoint rows. Port reminder units and dangling-state denial. Keep vault credentials and four workers.
 
-In `scripts/deploy.sh` change the production fixed `DEFAULT_BRANCH` to `staging`; retain environment, service, path, role, health URL and locks. Preserve normal dry-run behavior and all four approval values. Port reminder units through the manifest. Make reminder start guards reject both existing and dangling state paths. Preserve four workers and staging diagnostic entrypoint. Keep vault SetCredential/LoadCredential bytes from staging.
+**Small fixed fence:** install a root-owned systemd drop-in and guard outside the checkout, before replacing source. While `/var/lib/verdaxis/phase0/fence` exists (including a dangling symlink), the guard denies starts unless a root-owned permit binds the exact environment, SHA, database identity and current operator-lock inode. The operator must hold that one-use flock, and the existing deploy guard must independently pass its normal two-lock check. Missing/malformed paths, a released operator lock or stale permit deny. Test this composition; do not replace the existing deploy guard. The permit never authorizes a migration. Recovery/timers remain stopped. Keep the fence until acceptance; do not build automatic recovery.
 
-The coordinator must implement this finite state machine:
+**Simple journal:** record old/new cluster identity, DB OID, SHA, revision, env/unit/monitor digests, rollback directory, active/enabled/masked timers, outbox count and hash evidence. Append only after each manual check passes. A failed step leaves the fence and maintenance closed. An operator inspects actual state before retry; the journal is not an automatic resume program.
 
-```text
-PREPARED -> WRITERS_DRAINED -> DATA_VERIFIED -> TUPLE_INSTALLED
-         -> UNITS_INSTALLED -> DEPLOY_VERIFIED -> ACCEPTED
-any pre-ACCEPTED failure -> BLOCKED -> RESTORE_OLD_TUPLE -> OLD_VERIFIED
-```
+**One-use source switch:** prepare the exact new Git tree and dependencies before maintenance. Preserve the old complete checkout, venv, env, units and runtime/monitor metadata. Under the fence, rename the old directory to its approved rollback location, then rename the clean new tree into the fixed path. Build/install the new venv at that final path from approved cached packages. No mount-namespace build, symlinked root or destructive Git reset. Verify shebangs and source/env identity. The old venv is usable again only when its directory returns to the original path. Publish matching runtime/monitor identity before executing new code with credentials.
 
-A root-owned mode-0600 journal outside the checkout records old/new DB OIDs, SHA, revision, env digest, unit digest, virtualenv/release directory, monitor identity digest and timer state. It holds a separate one-off cutover lock throughout. It establishes a persistent external maintenance/start fence before replacing a directory. Do not rely on a state file inside a directory that is about to move.
+Run the existing helper dry-run, exact-SHA unit installer and normal same-revision deploy. The operator does not hold either normal deploy flock; the helper owns them. No extra wrapper engine. The external fence permit only composes with the existing guard for this supervised start. Remove its permit after the helper exits. Failures stay blocked.
 
-Implement the external start fence as a root-owned systemd drop-in plus a fixed root-owned guard outside either checkout. The guard refuses while the journal is incomplete. During an authorized restart it requires the approved environment/SHA tuple and contention of both normal deploy locks, using the same semantics as `verify_deploy_start_guard.py`. It must reject dangling paths, stale authorization and a dead coordinator. Install and test this fence before moving any directory. Keep timers stopped and recovery disabled throughout; the fence protects new starts, not existing workers.
+**Emergency rollback:** stop new workers, revoke the permit, retain new DB/evidence, restore the old complete tuple to its original path, reinstall its attested units and verify old DB/revision. Use the existing guard ABI under a reviewed one-use restart block holding both deploy locks. Publish exact old restart-authorized state only while both locks are held; require exact old readiness before clearing it. Do not run old SHA through the new graph or change only metadata. Exercise this block in Task 10, not routinely in Task 11.
 
-Prepare the new clean checkout and venv outside the fixed path. A virtualenv contains absolute script paths: build it for the final canonical path in a private mount namespace, or recreate/verify its entrypoints after the rename while the fence is closed. Do not assume a moved venv works. Preserve the old checkout, venv, `.env`, runtime artifact, installed units and monitor identity as a complete private rollback bundle. Under stopped writers, atomically rename directories into the fixed path; no `git reset --hard`, checkout over dirty files or symlinked canonical root. Publish the new env/runtime/monitor tuple before any new code executes with credentials. Keep an absent normal deploy state only during the handoff to normal `deploy.sh`; the persistent external start fence prevents unattended starts. The coordinator is the sole authorized caller. A crash leaves the fence and journal in place.
+- [ ] **Run:** boundary kill tests, outbox-drain tests, existing migration/runtime/health/unit/key-source/monitor suites. Prove no old DB grants change and no provider/recovery writer escapes maintenance. Final integration waits for Tasks 3, 4b and 6.
+- [ ] **Commit:** `ops: prepare fixed production identity and one-use fenced cutover`.
 
-After fixed-path installation: run new helper dry-run; require printed SHA; installer dry-run/apply at matching HEAD; run same-revision normal deploy with `p0_20261016_union` as expected and target. The normal helper owns its two locks and deploy state. Release the external start fence only through the reviewed handoff that permits this controlled restart, not an unguarded `systemctl start`. Keep public mutation maintenance until acceptance.
-
-Rollback restores the **whole** old tuple under the same journal/fence, installs old attested unit bytes, uses old DB `verdaxis` and old SHA/revision, then performs a guarded restart with strict old readiness. This exceptional rollback is not the normal forward-only deploy helper. Test its guard ABI and old venv. Do not try to deploy the old SHA through the new canonical migration graph. Preserve failed new DB and journal for investigation.
-
-- [ ] **Run:** cutover harness, migration checkpoint, runtime hardening, health, unit provenance, key-source preflight and all monitor suites. Prove no runtime grants changed on old DB. Prove external monitor cannot restart or seed either DB during maintenance. Verify backup command selects `verdaxis_phase0` after acceptance.
-- [ ] **Commit:** `ops: add guarded canonical production cutover and tuple rollback`.
-
-**Resume/check:** Publish the exact CLI help, approved journal schema and fault matrix in `outputs/phase0/task-07.md`. Host commands below are conditional on this implementation passing. A placeholder helper is not acceptable for execution.
+**Resume/check:** Record tested assertion CLI, fence/drop-in bytes, manual restart block and journal example in `outputs/phase0/task-07.md`. No generic state machine, automatic repair or arbitrary command execution. Missing host-specific commands block Task 10.
 
 ### Task 8: Converge the frontend and release tooling — Astra
 
@@ -524,7 +578,7 @@ Rollback restores the **whole** old tuple under the same journal/fence, installs
 
 **Interfaces:** One canonical frontend source; separate environment builds/API URLs. Production workflow requires an explicit 40-hex `source_sha` equal to approved canonical branch tip. Candidate and promotion bind the same backend release identity. Old and new frontend builds must be tested against the new backend before switching.
 
-- [ ] **Failing test:** build a manifest of all static and direct API calls from both pinned trees; reject any unmapped method/path. Implement `test_old_and_new_browser_contracts_during_cutover`. Test B30/B100/UCOME distinction, LNG/FAME terms, old RFQ detail, PUT revision, no activity network calls, private notifications, null compliance values and re-login after refresh loss.
+- [ ] **Failing test:** build a manifest of all static and direct API calls from both pinned trees; reject any unmapped method/path. Implement `test_old_and_new_browser_contracts_during_cutover`. Test exact `GET /api/users/me/preferences` and `PUT /api/users/me/preferences/{namespace}` calls with saved B30/B100/LNG filters. Test B30/B100/UCOME distinction, LNG/FAME terms, old RFQ detail, PUT revision, no activity network calls, private notifications, null compliance values and re-login after refresh loss.
 - [ ] **Run:** `npm ci && npm test -- --run src/tests/phase0-api-contract.test.ts src/tests/phase0-cutover.test.tsx`; `python -m pytest scripts/test_phase0_release.py -q`. Expect missing ports and stale branch checks.
 - [ ] **Implement:** follow the frontend ledger. Keep typed FAME/LNG response normalization. Port production public content/build behavior deliberately. Remove stale RFQ wrapper methods with no server route instead of inventing endpoints. No new KYC admin screen.
 
@@ -539,6 +593,8 @@ export function fixedBiofuelStandard(product: string): string | undefined {
 }
 ```
 
+Use one approved promotion run with its own build-once candidate checks. Do not require a separate candidate-only rebuild. If approval must pause, retain that immutable candidate and use the existing reviewed promotion procedure; add no candidate-reuse subsystem. Remote browser checks use synthetic fixtures or public pages only. Never publish private captures, customer screenshots or row payloads as CI/Vercel artifacts.
+
 Workflow checkout uses the approved input SHA, fetches canonical staging, and verifies exact equality before build. Keep `candidate_only=true` default. Add `backend_release_sha` input and assert exact readiness before canary/promotion. Production release still uses `release-vercel.yml`; do not push a manual Vercel build. Keep current project/org, Mapbox gate, immutable candidate, before/after alias checks and dependency-aware rollback. Staging builds from the same SHA with its staging API URL; never reuse the production-configured JS bundle there.
 
 - [ ] **Run:** full Vitest/typecheck/build suites, release script self-test, artifact checker and synthetic browser smoke against disposable canonical backend. Build both environments and assert exactly the intended API origin in artifacts. Test cached old bundle against target backend; classify expected activity 404 as retired, not an API outage.
@@ -546,97 +602,93 @@ Workflow checkout uses the approved input SHA, fetches canonical staging, and ve
 
 **Resume/check:** Record frontend SHA, build hashes, API call manifest, candidate workflow tests and prior production release procedure. Do not release during this task.
 
-### Task 9: Prove the integrated release and hand it to Rust — Astra
+### Task 9: Run integrated acceptance and hand the oracle to Rust — Astra
 
-**Files:** Create `tests/phase0/test_acceptance.py`, `scripts/phase0/acceptance.py`, `outputs/phase0/acceptance-template.md`; update `ARCHITECTURE.md` and runtime/KYC runbooks. Coordinate, but do not edit the other task's Rust worktree without its owner's agreement.
+**Files:** Extend `scripts/run_phase0_postgres_tests.sh` and its runner tests. Add one signed checklist at `outputs/phase0/acceptance.md`. Update architecture/runtime/KYC docs. Do not create `acceptance.py` or a separate status-dictionary framework.
 
-**Interfaces:** `acceptance.py --manifest ...` returns nonzero for any missing table, skipped required suite, unclassified API difference, failed permission check or incomplete rollback proof. Reports contain aggregates, not secrets.
+**Interfaces:** The existing runner records commands, test counts, required-suite coverage and artifact hashes. It fails on a subprocess error, missing table, zero tests or skipped required suite. A reviewer signs eleven categories: inventory, schema, copy, ACL, products, auth, privacy, timezone, vault, frontend and rollback. Local rollback proof is required here; host proof is added in Task 10.
 
-- [ ] **Failing test:** a report missing one table, one role, one API family or rollback evidence must fail. Require all five Review Focus tests.
-- [ ] **Run:** `python -m pytest tests/phase0/test_acceptance.py -q`; expect missing acceptance checker.
-- [ ] **Implement:** aggregate the exact suite results and identities. Do not infer success from a subprocess starting or an empty result list.
+- [ ] **Failing test:** omit a required suite or return zero tests; the runner must fail. Use existing runner tests rather than a new acceptance engine. Require all five Review Focus tests plus supplied-connection and outbox-drain cases.
+- [ ] **Run:** runner self-tests; expect missing required-suite checks.
+- [ ] **Implement:** collect existing suite results and digests once. Link them in the signed checklist. Do not duplicate product/KYC suites or infer success from an empty report.
+- [ ] **Run:** full unit/monitor suites, complete disposable PostgreSQL runner, both frontend builds and disposable HTTP integration. Preserve explicit JWT/issuer/audience and ephemeral-loopback integration guards (`origin/staging:README.md:257–295`). Record pass/fail/skip counts and evidence for every category.
+- [ ] **Commit:** `test: record Phase 0 integrated gates and Rust oracle handoff`.
 
-```python
-REQUIRED_GATES = frozenset({
-    "inventory", "schema", "copy", "acl", "products", "auth",
-    "privacy", "timezone", "vault", "frontend", "rollback",
-})
-
-
-def require_gates(results: dict[str, str]) -> None:
-    if set(results) != REQUIRED_GATES or any(v != "passed" for v in results.values()):
-        raise ValueError("Phase 0 acceptance is incomplete")
-```
-
-- [ ] **Run:** all unit and monitor suites, complete disposable PostgreSQL runner, both frontend builds and disposable HTTP integration. Use explicit test JWT/issuer/audience and loopback ephemeral integration token. Preserve the repository's `--run-disposable-integration` guard (`origin/staging:README.md:257–295`). Record totals and failures, not just “green.”
-- [ ] **Commit:** `test: gate Phase 0 convergence and Rust oracle handoff`.
-
-**Rust handoff:** deliver one canonical schema at `p0_20261016_union`, one reviewed revision allowlist and one Python oracle SHA. Regenerate catalog policy, goldens and SQLx metadata from that SHA with UTC and pilot KYC off. Include all eight products, no prices for absent liquidity, historical snapshots, notification privacy and copied reference IDs. The Phase 1 plan's Task 2 still names `kycg_20261014_staging` and Singapore defaults (`feat/rust-phase-1-20261015:docs/plans/2026-10-15-rust-phase-1-plan.md:434,473`); its owner must replace those assumptions after compatibility proof. Do not grant Rust SELECT on `alembic_version`: keep the migrator-backed prestart and compiled allowlist (`same plan:47–48`). Phase 0 makes prod a valid target for a **separately approved** Rust Phase 1 production rollout; it does not itself authorize that rollout. Keep the founder go/no-go and measured simulation gate, not a seven-day shadow clock (`same plan:1978–1983`; rewrite design:97–101).
+**Rust handoff:** Rust may already use Task 1’s provisional union contract with synthetic fixtures. After this local integrated gate, deliver the final tested digest; do not wait for production cutover. Rerun affected goldens if it changes. Deliver one canonical schema at `p0_20261016_union`, one reviewed revision allowlist and one Python oracle SHA. Regenerate catalog policy, goldens and SQLx metadata from that SHA with UTC and pilot KYC off. Include all eight products, no prices for absent liquidity, historical snapshots, notification privacy and copied reference IDs. The Phase 1 plan's Task 2 still names `kycg_20261014_staging` and Singapore defaults (`feat/rust-phase-1-20261015:docs/plans/2026-10-15-rust-phase-1-plan.md:434,473`); its owner must replace those assumptions after compatibility proof. Do not grant Rust SELECT on `alembic_version`: keep the migrator-backed prestart and compiled allowlist (`same plan:47–48`). Phase 0 makes prod a valid target for a **separately approved** Rust Phase 1 production rollout; it does not itself authorize that rollout. Keep the founder go/no-go and measured simulation gate, not a seven-day shadow clock (`same plan:1978–1983`; rewrite design:97–101).
 
 **Resume/check:** Acceptance artifact records backend/frontend SHAs, schema/policy/corpus hashes, UTC, gate-off, role proof and rollback result. Any later code change invalidates the corresponding evidence before host rehearsal.
 
 ## Operator command conventions
 
-The following blocks are **not run by this planning task**. Commands marked `scripts.phase0.*` are proposed tools owned by Tasks 1, 4, 5, 7 and 9. Task 7 must implement and test their exact CLI before operator use. Do not substitute ad hoc SQL or skip a failed check.
+No commands below ran while writing this plan. The small `scripts.phase0` assertions/bootstrap/copy tools must first pass their owning tasks. They are not orchestration commands. Host-specific proxy, monitor and service commands are written into the approved one-use checklist after reading both authority files. Missing commands are a hard stop.
 
-The coordinator's manifest supplies host-specific maintenance/recovery commands after reading the host authority files. There is no safe universal command for the current Caddy and external-monitor ownership without inspecting those files. Missing reviewed maintenance commands are a hard stop, not permission to improvise. The coordinator validates that all commands are exact allowlisted argv arrays, not shell text from a data file.
+Use root-owned mode-0600 manifests and secret files under `/root/verdaxis-phase0/`. Keep dumps, hashes and the simple journal under `/var/lib/verdaxis/phase0/` (0700). Record old/new SHAs, revisions, frontend SHA, prior Vercel deployment ID, endpoint and cluster system identifier, DB name/OID, source/target fingerprints, env/unit/monitor digests and timer states. Passwords remain in separate no-follow env/libpq files. The tools do not execute command strings from the manifest.
 
-Private host paths:
+`/opt/verdaxis-phase0` below is a root-controlled exact-SHA tool installation, prepared and checked before the window. Assertion CLI: `python -m scripts.phase0.assert_host --manifest <path> --check <fixed-name>`. Checks are read-only. Fixed names are `identity`, `quiesced`, `outbox-empty`, `tuple`, `readiness`, `rollback-safe`, `timers`. No check mutates services or advances a journal. Task 7 defines and tests them.
 
-```text
-/root/verdaxis-phase0/approved.json             root:root 0600, no passwords
-/root/verdaxis-phase0/source.env                root:root 0600, read-only source URL
-/root/verdaxis-phase0/target.env                root:root 0600, exact new app/migrator URLs
-/root/verdaxis-phase0/rehearsal-source.env      scratch source only
-/root/verdaxis-phase0/rehearsal-target.env      scratch target only
-/var/lib/verdaxis/phase0/                      root:root 0700, journal/reports/dumps
-```
+### Task 10: Rehearse in a separate host-local PostgreSQL cluster — Astra, operator-run
 
-The approved manifest includes old/new full backend SHAs, old/new revisions, frontend SHA and prior Vercel deployment ID, exact DB names/OIDs, backup role, host, extension versions, source catalog hash, target baseline hash, env file digests, unit manifest digests, maintenance commands and timer list. Secrets never appear in the manifest. Unknown current old SHA/revision must be read and approved; do not assume this plan's pinned source is still live.
+**Files:** Private rehearsal manifest, scratch cluster configuration, restored dump, signed checklist and reports. No new orchestration code.
 
-### Task 10: Rehearse on the production host — Astra, operator-run
+**Interfaces:** Run old and new production-mode runtimes against a **separate host-local scratch PostgreSQL cluster**. Old DB is `verdaxis`; new DB is `verdaxis_prod`. Both use exact roles `verdaxis_app`, `verdaxis_migrator`, `verdaxis_backup`. These are different role objects and credentials from the live cluster. Bind every operation to endpoint, cluster system identifier and database OID. Use `ENVIRONMENT=production`; do not add name overrides or use test mode with real data.
 
-**Files:** Produce private `/var/lib/verdaxis/phase0/rehearsal-report.json` and encrypted dump/restore evidence. No source edits. Tool ownership is Tasks 4/5/7/9.
-
-**Interfaces:** Rehearsal reads live prod through backup authority, restores to scratch source, imports to scratch target and runs a fenced scratch service on an ephemeral loopback port. It never changes live routing or sends external mail.
-
-- [ ] **Failing test:** first run Task 7's Linux/systemd fixture failure matrix with an intentionally wrong target OID and missing key; expect refusal/503. Do not create a live fault to prove this.
-- [ ] **Run local acceptance:** require Task 9's exact release evidence and founder approval for host inspection/rehearsal.
-- [ ] **Implement the rehearsal checklist:** at the authorized EU administrator prompt:
+- [ ] **Failing test:** in the synthetic Linux fixture, point an assertion at the live-cluster identity or wrong scratch OID. It must refuse. A missing vault key returns 503 in the isolated service. Never induce a live failure for this test.
+- [ ] **Run:** require Task 9 evidence, founder confirmation of decision answers 2–6 and separate host approval.
+- [ ] **Implement this one-use rehearsal:** at the authorized EU administrator prompt:
 
 ```bash
 set -euo pipefail
 set +x
 test "$(hostname)" = vmi3623757
 sudo -n less /home/verdaxis-prod/verdaxis/PRODUCTION_HOST.md
-# Read the separately approved copy of shared-host VPS_MAP.md supplied by its owner.
-# Do not assume an EU path for a shared-host authority document.
+# Read the approved copy of /home/jons-openclaw/VPS_MAP.md from its owner.
 getent ahostsv4 api.verdaxis.exchange
 getent ahostsv4 app.verdaxis.exchange
 sudo -n systemctl show verdaxis-backend.service -p User -p WorkingDirectory -p ExecStart
-sudo -n install -d -m 0700 -o root -g root /root/verdaxis-phase0 /var/lib/verdaxis/phase0
 sudo -n -u postgres psql -X -d postgres -v ON_ERROR_STOP=1 -Atc \
-  "SELECT datname, oid FROM pg_database WHERE datname IN ('verdaxis','verdaxis_phase0');"
+  "SELECT datname, oid FROM pg_database WHERE datname IN ('verdaxis','verdaxis_prod');"
 ```
 
-Check API DNS points to the approved EU topology; frontend may resolve to Vercel. Verify service user `verdaxis-prod` and working directory `/home/verdaxis-prod/verdaxis/prod/be`. Read both authority documents before continuing. If the old source/revision differs from the manifest, stop and repeat inventory/review.
+Require **no live `verdaxis_prod` database**. If present, stop for review; never drop/reuse it. Verify host/DNS/user/path and current old SHA/revision. Do not infer live identity from this dated plan.
 
-Use the implemented coordinator to create a fresh private dump with the existing backup role and a consistent snapshot, restore to `verdaxis_phase0_source_test`, and bootstrap `verdaxis_phase0_target_test`. It invokes `pg_dump --format=custom --no-owner --no-acl` using a private libpq service/passfile, not a password in argv. It verifies exit status, archive readability and a complete restore. It records `pg_dump --version`, server/PostGIS versions, dump digest and source revision. Do not assume a nonempty dump file is valid.
+Create a fresh private dump with the existing backup role. Use a root-managed libpq service/passfile, with no password in argv. Example service names below must resolve to the approved endpoints and roles:
 
 ```bash
-sudo -n /opt/verdaxis-phase0/bin/python -m scripts.phase0.cutover \
-  rehearse --manifest /root/verdaxis-phase0/approved.json \
-  --source-environment-file /root/verdaxis-phase0/source.env \
-  --scratch-source verdaxis_phase0_source_test \
-  --scratch-target verdaxis_phase0_target_test
+sudo -n /usr/bin/pg_dump --dbname=service=phase0-live-backup \
+  --format=custom --no-owner --no-acl \
+  --file=/var/lib/verdaxis/phase0/rehearsal.dump
+sudo -n /usr/bin/pg_restore --list /var/lib/verdaxis/phase0/rehearsal.dump >/dev/null
+```
+
+Use a fresh PostgreSQL 17/PostGIS 3.6 scratch cluster with a separate data directory and system identifier. The reviewed one-use host checklist supplies exact `initdb`, `pg_ctl`, HBA and role-provisioning commands after binary/version/path checks. Bind it only inside an isolated local rehearsal service boundary. Allocate a separate loopback endpoint or Unix socket; no public listener. Capture its system identifier via trusted operator access. Do not reuse live role credentials or change live global role attributes/memberships.
+
+Run the real production units/helpers in an isolated host-local Linux service environment with its own systemd, fixed checkout paths and loopback listeners. Use an existing container/service isolation facility; do not engineer a venv namespace builder. The cluster and runtime boundary have no route to the live database, public API or outbound providers. Verify network denial for Resend, Gemini, Webz, Telegram and Umami before restoring real data. Prepare Git objects and packages before isolation. Provide a read-only local Git mirror with the exact approved branch/SHA and a local package cache, so normal helper fetch/install checks run without outbound access. Attest mirror refs against the approved full SHA; never substitute a fake remote response. Local-only test DNS/proxy maps readiness URLs to scratch Caddy; it must never fall through to public DNS. The exact mechanism and commands are approval prerequisites, not assumed host capabilities.
+
+Restore the dump to scratch `verdaxis`, with scratch production ownership/ACLs. Recreate source grants from the pinned old policy, never mutate live roles. Bootstrap scratch `verdaxis_prod` through Task 4a/4b, then copy and verify. Each service-file endpoint must be attested against the scratch cluster manifest before use:
+
+```bash
+sudo -n /usr/bin/pg_restore --exit-on-error --no-owner --no-acl \
+  --dbname=service=phase0-scratch-old-owner /var/lib/verdaxis/phase0/rehearsal.dump
+sudo -n /opt/verdaxis-phase0/bin/python -m scripts.phase0.bootstrap \
+  --manifest /root/verdaxis-phase0/rehearsal.json \
+  --target-environment-file /root/verdaxis-phase0/rehearsal-target.env --apply
+sudo -n /opt/verdaxis-phase0/bin/python -m scripts.phase0.copy \
+  --manifest /root/verdaxis-phase0/rehearsal.json \
+  --source-environment-file /root/verdaxis-phase0/rehearsal-source.env \
+  --target-environment-file /root/verdaxis-phase0/rehearsal-target.env \
+  --source-sha "$OLD_SHA" --target-sha "$RELEASE_SHA" --apply
 sudo -n /opt/verdaxis-phase0/bin/python -m scripts.phase0.verify \
-  --manifest /root/verdaxis-phase0/approved.json \
+  --manifest /root/verdaxis-phase0/rehearsal.json \
   --source-environment-file /root/verdaxis-phase0/rehearsal-source.env \
   --target-environment-file /root/verdaxis-phase0/rehearsal-target.env \
   --report /var/lib/verdaxis/phase0/rehearsal-report.json
 ```
 
-`/opt/verdaxis-phase0` is a root-controlled, exact-SHA tool installation prepared from the approved release; it is not the mutable live checkout. The rehearsal command must reproduce normal deploy/unit/readiness behavior in a private namespace with scratch services and scratch locks. Scratch app/migrator roles are separate non-superusers; no global edits to live roles. Block Resend, Gemini, Webz, Telegram, Umami and public routing at the scratch service boundary. Keep real data on host. Synthetic KYC round trips may run in the scratch copy only, with no customer document download.
+Read SHAs from the approved manifest. Restore exit success and complete table hashes are required; `pg_restore --list` alone is not backup proof. Rehearse Task 11's actual operator steps, deploy helper, immutable installer, fence and old-tuple emergency restoration in this boundary. Seed a pending outbox case only in synthetic tests; a fresh host dump can also contain pending events. Drain scratch producers/sequencer before freezing its source. Preserve hashes around old and new starts and the full switch-back. No SSE clients or authenticated side-effecting GETs during the rollback proof. The live old runtime is not restarted by this rehearsal.
+
+Before and after each runtime start, run the same snapshot/hash verifier. Require zero pending outbox after producer drain, then stop workers and repeat the count before freezing. The full old→new→old tuple switch must preserve the frozen source hashes. Resolve any intentional synthetic test write separately; do not ignore an unexplained delta.
+
+Keep real row IDs, payloads, SQL error details, logs and customer screenshots on the host. Remote/CI checks use synthetic data or public pages only. Customer documents never enter artifacts. Only the founder-approved encrypted key archive may leave through its approved recovery boundary.
 
 **KYC key creation (after separate approval, on prod host):** inspect `/etc/verdaxis` first; if a key exists, verify it and stop rather than replacing it. Create only a new file:
 
@@ -677,17 +729,17 @@ Founder step: create an encrypted archive of the complete ring using the approve
 
 **Resume/check:** A failed rehearsal blocks Task 11. Rehearse again from a fresh dump after any mapping/deploy change. No multi-day wait is required.
 
-### Task 11: Cut over, verify, and test rollback before writes — Astra, operator-run
+### Task 11: Cut over once; retain pre-write emergency rollback — Astra, operator-run
 
-**Files:** Private journal, final dump, final copy report, old tuple backup and acceptance record. No application edits during the window.
+**Files:** Private journal, final dump/copy report, old tuple backup and signed acceptance checklist. No source edits during the window.
 
-**Interfaces:** Explicit founder approval for production cutover, staging UTC/deploy and frontend promotion are separate. The canonical helper uses all four approval values. The coordinator implements only the reviewed transition from the attested old tuple to the attested new tuple.
+**Interfaces:** Founder approves production, staging operations and frontend promotion separately. Operators run the reviewed one-use checklist and existing helpers directly. Assertion scripts only verify boundaries. There is no `cutover` coordinator CLI.
 
-- [ ] **Failing test / preflight:** run the coordinator `check` with a copied manifest containing the wrong expected current revision. It must refuse without mutation. Then run the approved check. This is a manifest/identity check, not permission to execute candidate code in a deploy dry-run.
-- [ ] **Run:** verify the exact release is still canonical remote tip; require clean prepared checkouts, Task 10 report, disk capacity for old DB + new DB + dump + scratch, and the encrypted key backup acknowledgement.
-- [ ] **Implement the operator checklist in order:**
+- [ ] **Failing test / preflight:** in the synthetic fixture, wrong expected revision and nonzero pending outbox must fail assertions. On host, run only the approved read-only assertions. Do not execute a deliberately wrong live deploy.
+- [ ] **Run:** verify Task 10 evidence, exact remote SHA, clean prepared trees, cached dependencies, disk reserve, permanent-name availability and encrypted key recovery acknowledgement. Reserve time for one supervised cutover, not a routine live rollback/reapply cycle.
+- [ ] **Implement these steps in order:**
 
-**A. Stage first.** Deploy canonical backend to staging through its normal literal `kycd_20261015_staging -> p0_20261016_union` row, or the actually attested allowlisted current revision. Stop/drain its recorded timers before installation. On the separately authorized staging host, set UTC with the committed Task 6 SQL:
+**A. Short staging check.** After host rehearsal, deploy the canonical backend to staging through the exact allowlisted current→union transition. Stop/drain its recorded timers. Use existing helper dry-run, four approval variables and immutable installer. Set UTC on staging and recycle connections:
 
 ```bash
 test "$(hostname -s)" = vmi1840561
@@ -697,32 +749,58 @@ sudo -n -u postgres psql -X -d postgres -v ON_ERROR_STOP=1 \
   -f /home/verdaxis-prod/verdaxis/staging/be/deploy/phase0/set_timezone.sql
 ```
 
-The new production database uses the same command on the EU host with `database_name=verdaxis_phase0`, `app_role=verdaxis_app`, `migrator_role=verdaxis_migrator`, `backup_role=verdaxis_backup` and the approved release's SQL path. Never run it against old `verdaxis`. The bootstrap/coordinator runs that production operation before import. Reconnect and verify. Keep KYC off and no new reminder activation. Release the common frontend SHA to staging with staging API configuration. Run the short approved acceptance check, not mutating production tests.
+Keep KYC off. Do not activate previously inactive reminders. Build the common frontend SHA with staging API settings and run a short approved check. Restore only recorded active staging timers after state is absent.
 
-**B. Prepare production frontend, but do not promote.** The updated workflow takes the exact frontend and backend SHAs. Its normal production API canary must run only after the canonical backend is available; pre-cutover testing uses the disposable backend. Do not mistake candidate-only deployment for a production alias change.
+**B. Prepare production artifacts.** Read `OLD_SHA`, `RELEASE_SHA` and `FRONTEND_SHA` from the approved manifest. Prepare the clean backend Git tree, cached dependencies, old tuple backup and frontend release evidence before maintenance. Keep production frontend alias unchanged. Its canonical-backend smoke must wait for new backend readiness. One promotion workflow will test and promote its own immutable candidate.
 
-**C. Record and stop all writers.** The coordinator enumerates timers from installed units and host authority, records active/enabled/masked state, then stops the relevant timers. Include news, auth maintenance, analytics prune, reminders, onboarding attention, demo jobs, signup canary and auto-recovery. Preserve backup scheduling under a reviewed nonconflicting window. Do not merely stop the four known application timers and ignore external writers. Let running oneshots finish naturally. Require no pending job. Set maintenance at the proxy for all API mutations and close/stop existing API workers/SSE before the final dump. Disable SQLAdmin mutations and all direct writer jobs.
+**C. Fence producers, then drain the outbox.** Install Task 7's durable start fence and close public API traffic except readiness/public nonmutating checks. Block all producers, including authenticated GET side effects, SSE clients and SQLAdmin. Record active/enabled/masked timer state. Stop news, auth maintenance, analytics prune, reminders, onboarding, demo, signup canary and recovery timers through the approved host list. Let active oneshots and in-flight requests finish naturally. Require no pending job. Stop independent writer services. Keep the old API workers running briefly **only to drain their sequencer**.
+
+The dispatcher is an automatic writer, not a timer (`origin/staging:app/main.py:119–124`). It updates `stream_seq`, `dispatched_at` and `delivery_attempts` (`origin/prod:app/services/market_event_dispatch.py:74–89`). A public mutation fence alone is insufficient.
+
+After all producers have finished, poll the exact pending predicate to zero with a bounded deadline. Record count, event high-water mark and hashes. Then stop the last old worker and recheck zero plus absence of writer sessions. Timeout/nonzero means stop the procedure; do not sequence rows with ad hoc SQL.
 
 ```bash
-sudo -n /opt/verdaxis-phase0/bin/python -m scripts.phase0.cutover \
-  quiesce --manifest /root/verdaxis-phase0/approved.json
 sudo -n systemctl list-jobs --no-pager
-sudo -n systemctl show verdaxis-backend.service -p ActiveState -p SubState
-sudo -n -u postgres psql -X -d postgres -v ON_ERROR_STOP=1 -Atc \
-  "SELECT datname, usename, state, count(*) FROM pg_stat_activity
-   WHERE datname IN ('verdaxis','verdaxis_phase0')
-   GROUP BY datname, usename, state ORDER BY 1,2,3;"
+# phase0-live-backup is the approved read-only libpq service.
+sudo -n psql -X --dbname=service=phase0-live-backup -v ON_ERROR_STOP=1 -Atc \
+  "SELECT count(*) FROM market_event_outbox WHERE stream_seq IS NULL;"
+# Continue only after producers drained and this count is zero.
+sudo -n systemctl stop verdaxis-backend.service
+sudo -n /opt/verdaxis-phase0/bin/python -m scripts.phase0.assert_host \
+  --manifest /root/verdaxis-phase0/approved.json --check quiesced
+sudo -n /opt/verdaxis-phase0/bin/python -m scripts.phase0.assert_host \
+  --manifest /root/verdaxis-phase0/approved.json --check outbox-empty
 ```
 
-Expected: backend stopped, no relevant pending/running jobs, no writer connection on either database. The approved coordinator verifies exact writer-role/session absence, not only `state='active'`. Do not kill unknown sessions or change old DB ACLs as a shortcut. Find their owner and stop them through the approved service boundary.
+The assertions check every writer session, not only active queries. No SSE connection or authenticated request may reopen. Do not terminate unknown sessions or alter old DB grants; find and stop their owner. The post-stop zero check and frozen hash mark the start of the untouched old-DB guarantee. No routine old-runtime restart follows.
 
-**D. Final dump, new database, copy.** Keep the start fence and maintenance active. Create the new DB with exact owner, PostGIS extension and UTC; do not reuse rehearsal target. Bootstrap to union before copying users. Create all roles through reviewed bootstrap policy without changing live old-role passwords/memberships/global settings. Apply database-scoped grants only on the new DB.
+**D. Final backup, bootstrap and copy.** With the fence and maintenance closed, take a fresh consistent dump. Restore it in the isolated scratch cluster and verify completeness. Do not accept only archive readability. Never copy a live PostgreSQL data directory.
 
 ```bash
-sudo -n /opt/verdaxis-phase0/bin/python -m scripts.phase0.cutover \
-  final-copy --manifest /root/verdaxis-phase0/approved.json \
+sudo -n pg_dump --dbname=service=phase0-live-backup \
+  --format=custom --no-owner --no-acl \
+  --file=/var/lib/verdaxis/phase0/final.dump
+sudo -n pg_restore --list /var/lib/verdaxis/phase0/final.dump >/dev/null
+```
+
+Run the already rehearsed restore/hash commands against a newly prepared scratch restore target. Keep all customer data on the host. Record the dump digest and source snapshot hash in the journal.
+
+Recheck that live `verdaxis_prod` is absent. Create it with exact migrator owner and reviewed PostGIS setup. Keep existing role credentials/properties unchanged; do not run global role bootstrap on the live cluster. Apply only target-scoped ownership/grants. Set UTC on the new DB with Task 6 SQL and exact production roles. Do not alter old `verdaxis`:
+
+```bash
+sudo -n -u postgres createdb --owner=verdaxis_migrator verdaxis_prod
+sudo -n -u postgres psql -X -d postgres -v ON_ERROR_STOP=1 \
+  -v database_name=verdaxis_prod -v app_role=verdaxis_app \
+  -v migrator_role=verdaxis_migrator -v backup_role=verdaxis_backup \
+  -f /opt/verdaxis-phase0/source/deploy/phase0/set_timezone.sql
+sudo -n /opt/verdaxis-phase0/bin/python -m scripts.phase0.bootstrap \
+  --manifest /root/verdaxis-phase0/approved.json \
+  --target-environment-file /root/verdaxis-phase0/target.env --apply
+sudo -n /opt/verdaxis-phase0/bin/python -m scripts.phase0.copy \
+  --manifest /root/verdaxis-phase0/approved.json \
   --source-environment-file /root/verdaxis-phase0/source.env \
-  --target-environment-file /root/verdaxis-phase0/target.env
+  --target-environment-file /root/verdaxis-phase0/target.env \
+  --source-sha "$OLD_SHA" --target-sha "$RELEASE_SHA" --apply
 sudo -n /opt/verdaxis-phase0/bin/python -m scripts.phase0.verify \
   --manifest /root/verdaxis-phase0/approved.json \
   --source-environment-file /root/verdaxis-phase0/source.env \
@@ -730,39 +808,21 @@ sudo -n /opt/verdaxis-phase0/bin/python -m scripts.phase0.verify \
   --report /var/lib/verdaxis/phase0/final-copy-report.json
 ```
 
-`final-copy` makes and restores/verifies the final backup, executes the approved empty bootstrap, then the copy. It refuses an existing non-pristine target. It records counts and all invariants. No customer data leaves the host. Do not rerun seeds after copy.
+The manifest binds the preapproved new database name and cluster. After creation, record its OID in a separately signed identity record before bootstrap; an absent/changed OID refuses. Complete the rehearsed extension and target-scoped ACL setup before bootstrap. Bootstrap runs real migrations on the supplied connection before copying customers. Copy refuses any non-pristine target. No seeds or upserts.
 
-**E. Switch the tuple and deploy.** Update **both** `DATABASE_URL` and `MIGRATOR_DATABASE_URL` in the staged environment to `verdaxis_phase0`, keeping exact roles and endpoint. Update component settings consistently; remove conflicting routes. Preserve all other production secrets, issuer/audience, URLs, provider settings and gate-off. Preserve old env privately. Do not print env diffs. Skip refresh sessions; keep password/token-cutoff fields unchanged. Existing access tokens may remain valid until expiry; the mutation fence prevents use during acceptance. Do not rotate the JWT secret merely for the copy, since that can affect outstanding signed links.
+**E. Install the new tuple under the durable fence.** Follow Task 7's tested rename procedure. Preserve old source/venv/env/runtime/units/monitor tuple. Install the clean new tree at the fixed path. Build its venv there from the approved cached dependencies, and check entrypoints. Update both explicit URLs and component settings to `verdaxis_prod`; preserve all other production secrets and gate-off. Do not print env diffs. Publish matching source/runtime/monitor identity. Skip refresh sessions but preserve password hashes and token cutoffs; do not rotate JWT merely for this copy.
+
+Append tuple digests to the journal, then assert them. Hold the one-use operator lock for authorized starts; do not hold the helper's deploy locks. Install the root-owned start permit only after tuple verification. It does not bypass the existing guard.
 
 ```bash
-sudo -n /opt/verdaxis-phase0/bin/python -m scripts.phase0.cutover \
-  install-tuple --manifest /root/verdaxis-phase0/approved.json
-# The coordinator now owns the external maintenance/start fence.
-# Run at the fixed, clean canonical production checkout:
+sudo -n /opt/verdaxis-phase0/bin/python -m scripts.phase0.assert_host \
+  --manifest /root/verdaxis-phase0/approved.json --check tuple
 sudo -n -u verdaxis-prod -H \
   /home/verdaxis-prod/verdaxis/prod/be/scripts/deploy.sh --dry-run
-```
-
-Require printed `APPROVED_RELEASE_SHA` to equal the approved canonical SHA. The dry-run does not prove DB state or execute the candidate. Repeat this now-live helper dry-run even if an old helper checked the release before tuple installation.
-
-```bash
-read -r -p 'Approved canonical backend full SHA: ' RELEASE_SHA
-[[ "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]]
 sudo -n /home/verdaxis-prod/verdaxis/prod/be/scripts/install_systemd_units.sh \
   --dry-run --environment production --source-ref "$RELEASE_SHA"
 sudo -n /home/verdaxis-prod/verdaxis/prod/be/scripts/install_systemd_units.sh \
   --apply --environment production --source-ref "$RELEASE_SHA"
-sudo -n /opt/verdaxis-phase0/bin/python -m scripts.phase0.cutover \
-  deploy --manifest /root/verdaxis-phase0/approved.json \
-  --approved-release-sha "$RELEASE_SHA" \
-  --migration-approved-source-sha "$RELEASE_SHA" \
-  --migration-expected-current-revision p0_20261016_union \
-  --migration-target-revision p0_20261016_union
-```
-
-The last command performs the reviewed fence handoff and invokes normal deploy with:
-
-```bash
 sudo -n -u verdaxis-prod -H env \
   APPROVED_RELEASE_SHA="$RELEASE_SHA" \
   MIGRATION_APPROVED_SOURCE_SHA="$RELEASE_SHA" \
@@ -771,9 +831,9 @@ sudo -n -u verdaxis-prod -H env \
   /home/verdaxis-prod/verdaxis/prod/be/scripts/deploy.sh
 ```
 
-Do not run this inner command independently of the coordinator's fence handoff. Normal deploy verifies the new DB's existing union revision, uses the union→union allowlist row, converges target ACLs, publishes exact runtime metadata, holds both locks for restart and clears state only after readiness. No old-production revision appears in the canonical graph or allowlist.
+The operator must compare the dry-run printed SHA with the approved manifest before continuing. Repeat this now-live helper dry-run even if the old helper inspected the candidate. The dry-run is not DB or application proof. The installer validates immutable bytes but starts nothing. Normal deploy owns both locks, verifies the union→union row, converges new-target ACLs, publishes exact identity and checks readiness before clearing state. Remove the external permit after deploy exits; keep the fence and public maintenance until acceptance. A failure leaves recovery to the operator.
 
-**F. Verify while public writes remain blocked.**
+**F. Verify before new customer writes.**
 
 ```bash
 sudo -n systemctl is-active --quiet verdaxis-backend.service
@@ -783,56 +843,34 @@ curl --fail --silent --show-error https://api.verdaxis.exchange/health/ready |
   --environment production --release-sha "$RELEASE_SHA"
 sudo -n test ! -e /home/verdaxis-prod/verdaxis/prod/be/.runtime-deploy/production.state
 sudo -n test ! -L /home/verdaxis-prod/verdaxis/prod/be/.runtime-deploy/production.state
-sudo -n journalctl -u verdaxis-backend.service --since '15 minutes ago' --no-pager \
-  --grep 'KYC execution gate:|KYC document storage unavailable'
-sudo -n /opt/verdaxis-phase0/bin/python -m scripts.phase0.cutover \
-  verify-live --manifest /root/verdaxis-phase0/approved.json
+sudo -n /opt/verdaxis-phase0/bin/python -m scripts.phase0.assert_host \
+  --manifest /root/verdaxis-phase0/approved.json --check readiness
 ```
 
-Require exact four-key readiness, local and public; full new SHA; `db=ok`; environment production; target DB/revision/role; UTC on fresh connections; four worker gate-disabled log lines for the current start. No vault-unavailable line is allowed for acceptance. Check vault round trip in scratch using the installed credential contract; use a separately approved synthetic production canary only if required, and retain its audited encrypted records. Never use a customer's ID as a smoke test. Readiness alone is not a vault check.
+Require exact local/public four-key readiness, full SHA, DB/revision/role, UTC and four worker gate-disabled log lines for the current start. Require no vault-unavailable line. Readiness alone is not a vault check: use the rehearsal credential round trip and installer metadata proof. If a synthetic production submission is separately required, record its durable evidence; do not test with customer documents.
 
-Verify B30/B100/UCOME IDs and lanes, copied customer counts, read-only account/trade/order views, private notification redaction, receipts and old frontend compatibility. No real trade mutation test. Keep the command receipt and outbox verification in the disposable suite.
+Compare source and target hashes after new startup. Drained outbox rows must remain unchanged. Any unexpected internal write blocks acceptance. Keep authenticated side-effecting reads and SSE blocked. Product IDs, lanes and public privacy checks may run; private account/order/trade tests stay in the host rehearsal or synthetic fixtures. Never export customer captures to CI. Preserve receipts and audit values.
 
-**G. Exercise the pre-write rollback once, then reapply.** Founder approval covers this planned rollback drill. Under maintenance, invoke:
+**G. Emergency rollback only.** Do not run a routine live drill. Task 10 already proved the full switch-back. If a pre-write check fails, keep maintenance, stop new workers and run `assert_host --check rollback-safe`. Require no customer writes and account for all internal/canary writes since the snapshot. Unexplained writes block automatic assumptions of a lossless return.
 
-```bash
-sudo -n /opt/verdaxis-phase0/bin/python -m scripts.phase0.cutover \
-  rollback --manifest /root/verdaxis-phase0/approved.json --require-no-public-writes
-sudo -n /opt/verdaxis-phase0/bin/python -m scripts.phase0.cutover \
-  verify-old --manifest /root/verdaxis-phase0/approved.json
-```
+Restore the old complete tuple and URL pair (`verdaxis`) with Task 7's tested manual steps. Keep the failed new DB and evidence. Restore original paths so the old venv works. Install exact old units. With the operator lock and both deploy/restart locks held, use the tested old guard ABI and exact old SHA/revision for the one-use restart. Check old local/public readiness before clearing state. No Alembic downgrade, metadata-only rollback or destructive Git reset. Do not try old source through the canonical migration graph. If frontend promotion occurred, restore its recorded previous deployment too. Timers stay stopped until the operator accepts the recovered state. After reopening customer writes, use a forward fix or separately approved data reconciliation instead.
 
-The rollback command stops new workers, restores the old DB URL pair and old complete source/venv/unit/runtime/monitor tuple, then uses the tested two-lock restart guard and exact old readiness SHA/revision. The old DB remains unchanged by import. No Alembic downgrade, metadata-only reset, `git reset --hard` or deletion of new evidence. Restore the old frontend alias only if it changed. Timers stay stopped. If any public mutation occurred, this command refuses.
-
-Reapply the already verified new tuple through `install-tuple`, repeat helper dry-run, installer dry-run/apply and the same-revision deploy. Do not copy again into the populated new DB. Re-verify source/target preservation and no unexpected writes. If canary auth/audit writes occurred, record them explicitly and prove no customer mutation before declaring the drill lossless.
-
-**H. Release frontend, then open writes.** Run the updated protected workflow against the approved common frontend SHA and new backend SHA. First candidate-only, then promotion; do not assume separate runs produce the same candidate unless the implemented workflow supports reuse. Each promotion run must build once, test its own candidate and promote those same bytes.
+**H. One frontend promotion, then acceptance.** With promotion approval already granted, run one protected workflow. It builds once, tests its candidate against the canonical backend and promotes the same bytes. Keep alias comparisons and the prior deployment ID. Do not add a separate candidate-only rebuild just for a second report.
 
 ```bash
-gh workflow run release-vercel.yml --repo Verdaxis/verdaxis-frontend --ref staging \
-  -f source_sha="$FRONTEND_SHA" -f backend_release_sha="$RELEASE_SHA" \
-  -f candidate_only=true -f notify_release=false
-# Review the completed candidate report and obtain promotion approval.
 gh workflow run release-vercel.yml --repo Verdaxis/verdaxis-frontend --ref staging \
   -f source_sha="$FRONTEND_SHA" -f backend_release_sha="$RELEASE_SHA" \
   -f candidate_only=false -f notify_release=true
 ```
 
-`FRONTEND_SHA` must be read from the approved manifest, not guessed. The workflow needs its Task 8 inputs and branch checks before these commands are valid. Confirm actual rendered bundle/API URL, all product IDs, KYC errors and no activity requests. Existing Vercel rollback retains the prior deployment ID; backend rollback remains a separate complete tuple operation.
+These Task 8 inputs must exist and pass release tests first. If separate approval must pause promotion, retain the immutable candidate and use the existing approved release procedure; do not build a new candidate-reuse platform. Smoke must not call customer-authenticated APIs while the rollback window is open. Use public pages/synthetic evidence. Verify intended API URL, products, no activity capture and release identity.
 
-Open public mutations only after founder acceptance. Record this instant as the end of the lossless old-DB rollback window. Restore **only** timers recorded active before the window, and only after deploy state is absent. Do not enable previously inactive or masked units. Require no duplicate scheduler and correct new DB identity for each restored job. Keep grace sender disabled. Update the approved backup target to the new database; keep old DB and final dump under restricted retention.
+After founder acceptance, append the write-open time and signed eleven-category checklist. Remove the one-use fence/drop-in through its approved cleanup steps; daemon-reload and verify normal guard ownership remains. Open customer traffic. Restore **only** timers recorded active, and only after deploy state is absent. Do not enable inactive/masked jobs. Check their new DB identity and single scheduler. Keep grace sender off. Update backup target to `verdaxis_prod`; retain old DB and final dump under restricted retention.
 
-```bash
-sudo -n /opt/verdaxis-phase0/bin/python -m scripts.phase0.cutover \
-  accept --manifest /root/verdaxis-phase0/approved.json
-sudo -n /opt/verdaxis-phase0/bin/python -m scripts.phase0.cutover \
-  restore-recorded-timers --manifest /root/verdaxis-phase0/approved.json
-```
+- [ ] **Run final checks:** canonical source/schema, UTC fresh connections, KYC off, vault recovery, correct backup target, no old DB writer, no activity tracker and exact restored timer state.
+- [ ] **Commit/checkpoint:** later implementation session commits only redacted sign-off and docs. No dumps, keys, env, host journal, customer payloads or identifiers.
 
-- [ ] **Run final checks:** both environments use the same canonical source policy and union schema; fresh connections show UTC; gate remains off; vault backup/recovery is proved; correct release identity and backup target; no old DB writer; no active activity tracker; prior timer state restored exactly. Record any environment-specific activation difference.
-- [ ] **Commit/checkpoint:** later authorized implementation session commits only redacted acceptance evidence and updated architecture/runbooks. Never commit dumps, keys, env files, host journals or customer identifiers.
-
-**Resume/check:** If stopped before acceptance, leave maintenance/fence in place and resume from the root-owned journal's last verified state. Do not clear state by hand. After acceptance, failures use a forward fix or separately approved reconciliation, not automatic old-DB rollback.
+**Resume/check:** A failed step leaves maintenance/fence closed. Inspect actual files, processes, locks and DB identities against the journal before any manual retry. Do not clear a guard to make a failed start work. No automatic resumption or repair engine.
 
 ## Final acceptance and durable resume point
 
@@ -845,7 +883,7 @@ Phase 0 is complete only when:
 - [ ] One canonical backend branch and frontend branch serve both environments with explicit environment activation/configuration.
 - [ ] All 61 source application/control tables are accounted for; copy/reference/skip counts and invariants are verified on the host.
 - [ ] B30, B100 and UCOME_B100 remain distinct; original production IDs and economic history survive.
-- [ ] Old production database and old complete release tuple remain recoverable; pre-write rollback was exercised.
+- [ ] Old production database and old complete release tuple remain recoverable; full pre-write rollback was exercised in the isolated host rehearsal, not routinely on the live old database.
 - [ ] UTC is effective on fresh connections; no stored timestamps were shifted.
 - [ ] Production vault works; encrypted offline key backup and recovery are verified; pilot KYC gate stays off.
 - [ ] Frontend production release passes its protected Vercel candidate/promotion checks; no activity capture remains.
