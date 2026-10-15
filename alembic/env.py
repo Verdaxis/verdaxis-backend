@@ -16,17 +16,13 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-from app.database import Base, migrator_connect_args, verify_migrator_connection
-from app.models import *  # Import all models to register them
 from app.config import settings
+from app.database import Base, migrator_connect_args, verify_migrator_connection
 from app.migration_drift import compare_server_default, compare_type, include_object
+from app.models import *  # Import all models to register them
 
 target_metadata = Base.metadata
 
-# Override sqlalchemy.url in config
-config.set_main_option(
-    "sqlalchemy.url", settings.MIGRATOR_DATABASE_URL or settings.DATABASE_URL
-)
 
 # other values from the config, defined by the needs of env.py,
 # can be acquired:
@@ -67,6 +63,10 @@ def do_run_migrations(connection: Connection) -> None:
     # The attestation SELECT starts SQLAlchemy's implicit transaction. Close
     # that read-only transaction so Alembic owns and commits its DDL boundary.
     connection.commit()
+    configure_migrations(connection)
+
+
+def configure_migrations(connection: Connection, *, bootstrap=False) -> None:
     context.configure(
         connection=connection, 
         target_metadata=target_metadata,
@@ -76,6 +76,9 @@ def do_run_migrations(connection: Connection) -> None:
         compare_comments=True,
     )
 
+    if bootstrap:
+        from scripts.phase0.bootstrap import refuse_autocommit
+        context.get_context().autocommit_block = refuse_autocommit
     with context.begin_transaction():
         context.run_migrations()
 
@@ -106,7 +109,29 @@ def run_migrations_online() -> None:
     asyncio.run(run_async_migrations())
 
 
-if context.is_offline_mode():
-    run_migrations_offline()
+supplied = config.attributes.get("connection")
+if supplied is not None:
+    from scripts.phase0.bootstrap import attest_bootstrap_connection
+
+    if context.is_offline_mode() or not isinstance(supplied, Connection):
+        raise ValueError("Invalid bootstrap connection")
+    if not supplied.in_transaction():
+        raise ValueError("Bootstrap must own an outer transaction")
+    attest_bootstrap_connection(
+        supplied, config.attributes.get("phase0_bootstrap_identity")
+    )
+    from scripts.phase0.bootstrap import load_policy
+
+    if config.attributes.get("phase0_bootstrap_approved") is not True:
+        raise ValueError("Explicit bootstrap approval required")
+    if context.get_revision_argument() != load_policy()["target_revision"]:
+        raise ValueError("Bootstrap requires the approved literal revision")
+    configure_migrations(supplied, bootstrap=True)
 else:
-    run_migrations_online()
+    config.set_main_option(
+        "sqlalchemy.url", settings.MIGRATOR_DATABASE_URL or settings.DATABASE_URL
+    )
+    if context.is_offline_mode():
+        run_migrations_offline()
+    else:
+        run_migrations_online()
