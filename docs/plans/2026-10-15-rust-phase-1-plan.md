@@ -49,6 +49,7 @@ These five failures are not covered by the initial happy-path port tests. Each o
 7. **Integration target:** The suite is not pointed at live staging Caddy. It runs unchanged against a disposable Caddy, whose identity endpoint remains served by `tests.disposable_server` (`tests/disposable_server.py:48-73`).
 8. **Memory baseline:** Founder-supplied measurements on 15 October are production 754 MiB steady, 807 MiB peak, cap 1 GiB, four workers at 108–261 MiB, about 6% of one core; staging 642 MiB. These are context, not a route-level benchmark. The older 530–538 MiB figure is historical (`docs/runtime-hardening.md:46-50`).
 9. **Approved difference AD-01 — rate-limit counts:** The PM defines the contract as 60/30/10 requests per minute per client on prices/reference/export, enforced once per client and route. Python's four process-local counters can admit up to four times those counts; that is an implementation artifact (`app/rate_limit.py:16-33`; `deploy/systemd/verdaxis-backend-staging.service:18-23`; `app/routers/price_discovery.py:381-392,551-566,603-616`). Rust enforces the documented limits exactly. Do not change Python or multiply Rust limits by four. This is the **one approved, listed contract difference**. Exclude threshold counts and the resulting accept/reject sequence from golden/shadow parity. Retain exact 429 body/header and client-key tests. Rust-only burst/reset tests prove the boundary. All other differences remain failures.
+10. **Approved difference AD-02 — admission capacity (PM, 15 Oct):** Rust's single public-read gate has 8 slots, equal to Python's 4 workers x 2 slots. Rust never refuses a request that Python's aggregate capacity admits; Python's per-worker gates can refuse earlier under uneven load. Tested in Task 3 and reported in Task 14.
 
 ### Product issues found (not changed in Phase 1)
 
@@ -243,6 +244,7 @@ Use `qualification_profile` for generic rules (`scalar`, `fame_v1`, `lng_v1`). P
 Use these commands from the implementation worktree. Do not run them from a live checkout:
 
 ```bash
+export RELEASE_SHA=$(git rev-parse HEAD)
 cargo test --manifest-path rs/Cargo.toml --locked --workspace
 cargo fmt --manifest-path rs/Cargo.toml --all -- --check
 cargo clippy --manifest-path rs/Cargo.toml --locked --workspace --all-targets -- -D warnings
@@ -436,15 +438,15 @@ pub fn connection_budget(services: u32, workers: u32, pool: u32,
 }
 #[test]
 fn budget_uses_effective_settings() {
-    assert_eq!(connection_budget(2, 4, 2, 1, 20, 3), Some(55));
-    assert_eq!(connection_budget(2, 4, 8, 1, 20, 3), Some(103));
-    let need = connection_budget(2, 4, 8, 1, 20, 3).unwrap();
-    assert!(need <= 103);
-    assert!(!(need <= 102));
+    assert_eq!(connection_budget(2, 4, 2, 1, 20, 9), Some(61));
+    assert_eq!(connection_budget(2, 4, 8, 1, 20, 9), Some(109));
+    let need = connection_budget(2, 4, 8, 1, 20, 9).unwrap();
+    assert!(need <= 109);
+    assert!(!(need <= 108));
 }
 ```
 
-Add `pub fn validate_budget(total: u32, configured_max: u32, observed_max: u32) -> Result<(), String>`; accept only `total <= configured_max && total <= observed_max`. Test equality and one-below for each limit independently, changed workers/overflow/reserve, stale config digest, and overflow. `Config` carries `python_budget: u32` and `configured_max_connections: u32` from trusted preparation. Keep `pool_max` validated at exactly 3 during Phase 1 and use it consistently for SQLx and admission (`pool_max - 1`). Shadow opens no DB pool. This is a conservative configured bound, not discovery of the physical topology.
+Add `pub fn validate_budget(total: u32, configured_max: u32, observed_max: u32) -> Result<(), String>`; accept only `total <= configured_max && total <= observed_max`. Test equality and one-below for each limit independently, changed workers/overflow/reserve, stale config digest, and overflow. `Config` carries `python_budget: u32` and `configured_max_connections: u32` from trusted preparation. Keep `pool_max` validated at exactly 9 during Phase 1 (8 admission slots plus 1 reserved connection; see Task 3) and use it consistently for SQLx and admission (`pool_max - 1`). Shadow opens no DB pool. This is a conservative configured bound, not discovery of the physical topology.
 
 Initial compiled revision data is exactly `["kycg_20261014_staging"]`. A new Phase 0 revision needs an explicit compatibility test and allowlist update. The systemd prestart performs the live singleton revision read with the existing separate migrator-backed verifier. The Rust process checks this attested revision against its embedded allowlist before listening. The HTTP process must not open `MIGRATOR_DATABASE_URL` or run Alembic.
 
@@ -490,7 +492,7 @@ async fn cancelled_query_keeps_slot_until_drop() {
 }
 ```
 
-Extend the cancellation test with a real disposable `pg_sleep` query: cancel the HTTP client, wait for database cancellation and connection return, then assert admission returns to two slots. Do not spawn detached database work that outlives the permit. Add HTTP tests for allowed and denied origins on 200/422/429/503, preflight, invalid support context headers, malformed query validation, HEAD, 405/Allow, slash redirects, and fixed-window reset. Port assertions from `tests/unit/test_public_market_read_admission.py:48-113,168-227`.
+Extend the cancellation test with a real disposable `pg_sleep` query: cancel the HTTP client, wait for database cancellation and connection return, then assert admission returns to eight slots. Do not spawn detached database work that outlives the permit. Add HTTP tests for allowed and denied origins on 200/422/429/503, preflight, invalid support context headers, malformed query validation, HEAD, 405/Allow, slash redirects, and fixed-window reset. Port assertions from `tests/unit/test_public_market_read_admission.py:48-113,168-227`.
 
 - [ ] **Step 2: Run** `cargo test --manifest-path rs/Cargo.toml -p verdaxis-read --test http_contract`. Expected failure: missing middleware exports.
 - [ ] **Step 3: Implement the error and gate core.**
@@ -530,7 +532,7 @@ pub fn request_id(supplied: Option<&str>) -> String {
 }
 ```
 
-Create the semaphore with two slots: Rust pool 3 minus one reserved connection. Apply it only to GETs selected by the Python path table; news bypasses it. Hold the owned permit through response-body completion, including CSV streaming. Use an RAII body wrapper, not a permit dropped when response headers are returned. MCP uses this same semaphore inside database tools, not at initialize/list-tools/list-markets.
+Create the semaphore with eight slots, equal to Python's aggregate public-read admission (4 workers x 2 per-worker slots, read from the attested release configuration; refuse to start if they differ). Rust pool 9 = 8 slots + 1 reserved connection. This is AD-02. Apply it only to GETs selected by the Python path table; news bypasses it. Hold the owned permit through response-body completion, including CSV streaming. Use an RAII body wrapper, not a permit dropped when response headers are returned. MCP uses this same semaphore inside database tools, not at initialize/list-tools/list-markets.
 
 Compose middleware from outside inward: request ID/logging, CORS, public admission, support-context boundary, route dispatch. Preserve exact staging origin `https://staging.verdaxis.exchange`, credentials, reflected requested headers, allowed methods, Vary, and exposed headers from the recorded Python corpus (`app/main.py:225-243`). Preserve the support-scope behavior of `app/middleware/market_support_scope.py`; public GETs must not become private projections when the context header is present.
 
@@ -828,7 +830,7 @@ Use `jsonb_to_recordset($1::jsonb)` or bound UUID/label arrays to join policy re
 
 ### Task 6: Port shared visibility, decimal, digest, and public projection rules — Astra
 
-**Files:** Create `rs/read/src/market/{visibility,provenance,terms,decimal,windows}.rs`, `rs/read/sql/{public_orders,trade_evidence}.sql`, `rs/read/tests/market_contract.rs`. Create synthetic digest vectors in `tests/rust_contract/golden/terms/`.
+**Files:** Create `rs/read/src/market/{visibility,provenance,terms,decimal,windows}.rs`, `rs/read/sql/{public_orders,trade_evidence}.sql`, `rs/read/tests/market_contract.rs`. Create synthetic digest vectors in `tests/rust_contract/vectors/terms/` (synthetic vectors, not golden pairs, so they stay outside the `golden/<source-sha>/<case-id>/` layout).
 
 **Interfaces:** Consumes `MarketPolicy`, SQLx transactions, and policy-bound JSON. Produces:
 
@@ -839,6 +841,9 @@ pub fn redact_terms(profile: &str, terms: &Json) -> Result<Json, String>;
 pub fn normalize_window(value: &str, today: chrono::NaiveDate) -> Result<String, String>;
 pub fn public_order_sql() -> &'static str;
 pub fn trade_evidence_sql() -> &'static str;
+// In market::terms. Port of app/services/execution_policy.py order_is_execution_qualified.
+// Tasks 6a and 10b consume it; no other task reimplements it.
+pub fn order_is_execution_qualified(profile: &str, terms: &Json, side: &str) -> bool;
 ```
 
 `public_order_sql()` returns the complete bound SELECT from `rs/read/sql/public_orders.sql`; it is not a fragment concatenated with user input. Bind policy JSON, query filters, captured UTC, and Singapore date. The query projects private digest input separately from the public DTO. `trade_evidence_sql()` reads immutable snapshots and applies exact provenance pairs.
@@ -849,7 +854,7 @@ pub fn trade_evidence_sql() -> &'static str;
 #[test]
 fn private_terms_digest_matches_python() {
     let vector: Json = serde_json::from_str(include_str!(
-        concat!(env!("CARGO_MANIFEST_DIR"), "/../../tests/rust_contract/golden/terms/private.json"))).unwrap();
+        concat!(env!("CARGO_MANIFEST_DIR"), "/../../tests/rust_contract/vectors/terms/private.json"))).unwrap();
     assert_eq!(digest_terms(&vector["canonical_terms"]).unwrap(), vector["digest"]);
     let public = redact_terms("lng_v1", &vector["lng_terms"]).unwrap();
     assert!(public.get("scheme_certificate_number").is_none());
@@ -965,7 +970,7 @@ pub fn qualified_vwap(rows: &[(rust_decimal::Decimal, rust_decimal::Decimal)])
 }
 ```
 
-Port `public_slice_order_qualified` exactly, including catalog tuple, lane, status, expiry, positive remaining quantity, off-spec, typed FAME/LNG `order_is_execution_qualified`, and normalized scalar ASK certification (`app/services/live_benchmarks.py:35-93`; `app/services/execution_policy.py:114-145`). The map key has side/product/point/window only: do not add provenance. Cache missing keys within the request. Never invoke rebuild or persist `live_slice_benchmarks`.
+Port `public_slice_order_qualified` exactly, including catalog tuple, lane, status, expiry, positive remaining quantity, off-spec, typed FAME/LNG `order_is_execution_qualified` (call `market::terms::order_is_execution_qualified` from Task 6; do not reimplement it), and normalized scalar ASK certification (`app/services/live_benchmarks.py:35-93`; `app/services/execution_policy.py:114-145`). The map key has side/product/point/window only: do not add provenance. Cache missing keys within the request. Never invoke rebuild or persist `live_slice_benchmarks`.
 
 - [ ] **Step 4: Re-run** the named runner, pure arithmetic tests, and assertion ledger check. Expected pass with zero helper differences and one batched data query. This task does not depend on Task 7's routes.
 - [ ] **Step 5: Commit** the three listed files and fixture cases: `git commit -m 'feat: preserve current live slice benchmark reads'` with trailer.
@@ -1596,7 +1601,7 @@ The runner must allocate free ephemeral ports, then render them into the Caddyfi
 
 ### Task 14: Shadow, measure, and prepare the founder decision — Astra
 
-**Files:** Create `scripts/rust_contract/{shadow,measure,report}.py`, `tests/rust_contract/{test_shadow,test_measure}.py`, `docs/rust-phase1/go-no-go.md`. Use `work/rust-phase1/` for raw benchmark samples. No changes to economic code in this task.
+**Files:** Create `scripts/rust_contract/{shadow,measure,report}.py`, `tests/rust_contract/{test_shadow,test_measure}.py`, `docs/rust-phase1/go-no-go.md`, and `scripts/rust_contract/staging.example.toml` (the reviewed `--config` template: target URLs, sampling rate, duration and output paths, with no secrets; the operator copies it to `work/rust-phase1/staging.toml` and fills the URLs). Use `work/rust-phase1/` for raw benchmark samples. No changes to economic code in this task.
 
 **Interfaces:** Consumes the approved route corpus and both readiness identities. Produces Rust `pub fn passes_gate(contract_differences: u64, python_memory: u64, rust_memory: u64, python_p95: f64, rust_p95: f64) -> bool` in `rs/contract/src/lib.rs`, and a report with raw-evidence digests. CLI: `python -m scripts.rust_contract.shadow --config PATH --duration-seconds N`; `python -m scripts.rust_contract.measure --config PATH --output PATH`. Config is an explicit reviewed file; no implicit URL defaults.
 
@@ -1651,7 +1656,7 @@ Persist only candidate SHA, policy hash, route ID, case ID, status pair, field p
 5. Record end-to-end Caddy p50/p95/p99 for each route and the weighted mix, plus direct-upstream diagnostics. Use a monotonic clock and a fixed-rate generator so queuing is included. Report failed requests separately; never omit slow timeouts from the outcome. Compare every route's p95, not only the blended mix.
 6. Primary memory gate uses the median steady-state cgroup memory across repetitions, for Python serving the same ported-route workload versus Rust. Require Rust <=50% of Python for each declared workload. Also report p95 memory, peak, idle baseline, anonymous memory, and measurement spread. Require no p95 regression per route and mix; if uncertainty spans a regression, mark inconclusive and collect more samples. CPU is measured and reviewed even though the founder supplied no numeric CPU threshold.
 7. Separately measure the **coexistence** footprint with Python still running and Rust active. Report Python + Rust combined memory and CPU, plus staging's 642 MiB supplied baseline. Do not call route-service savings a 50% reduction in whole-host or whole-backend memory. Python retains writers/SSE and may not shrink materially.
-8. Keep public-read concurrency and rate-limit ceilings in the report. The one-process Rust gate has two slots; Python has two slots per worker. If this creates overload or p95 regression at the agreed load, do not increase the gate silently. Review a pool/capacity change with the 100-connection budget and re-run parity and measurement.
+8. Keep public-read concurrency and rate-limit ceilings in the report. The one-process Rust gate has eight slots, equal to Python's aggregate (two per worker, four workers); Python's per-worker gates can refuse earlier when requests land unevenly (AD-02). Record observed 503 rates for both. If Rust shows overload or p95 regression at the agreed load, do not increase the gate silently. Review a pool/capacity change with the 100-connection budget and re-run parity and measurement.
 
 The measurement script reads cgroup counters directly and stores timestamped CSV samples plus request latency NDJSON under `work/rust-phase1/`. It writes only aggregate, redacted evidence and input hashes to `docs/rust-phase1/`. No measured result is prefilled by this plan.
 
@@ -1871,14 +1876,15 @@ Write the completed report to `docs/rust-phase1/go-no-go.md`. Keep all unknown r
 - Latency table: per-route and mixed p50/p95/p99, errors, confidence/spread.
 - Coexistence: Python + Rust combined memory/CPU; not route-only savings.
 - Gate: zero unapproved differences; Rust memory <=50%; every p95 <=Python.
-- Approved differences (exactly one):
+- Approved differences (exactly two):
 
 | ID | What changed | Why approved | Proof |
 |---|---|---|---|
 | AD-01 | Rust enforces 60/30/10 requests per minute once per client/route; Python's four local counters can admit up to four times more | PM defines documented per-client limits as the contract; worker multiplication is an implementation artifact; Python unchanged | Rust exact-boundary concurrent burst/reset tests; counts excluded from golden/shadow parity |
+| AD-02 | Rust uses one 8-slot public-read admission gate; Python uses 2 slots in each of 4 workers | Same total capacity; Rust admits at least every request Python's aggregate admits, while Python can return 503 earlier under uneven load; overload behavior is capacity, not an API shape | Mixed-concurrency test: 8 concurrent slow reads admitted, the 9th gets the unchanged 503 + `Retry-After`; 503 rates recorded for both in shadow/measure |
 
 - Rate-limit counts excluded from parity; all other status/body/header contracts retained.
-- Admission topology findings (no additional approved exception):
+- Admission topology findings (AD-02 evidence; no other exception):
 - Assertion ledger: applicable/mapped/passed/excluded counts and reviewed exclusions:
 - Engineering effort: elapsed work, review effort, rework, remaining cost.
 - Three largest unresolved risks and rollback readiness:
@@ -1898,7 +1904,7 @@ Rust can reach production only after Phase 0 completes and the founder reviews t
 - [ ] Resume at the first unchecked task. Re-run that task's entry test before editing.
 - [ ] Require 27 data routes, 3 health routes, 3 MCP transport pairs, and all three tools in the coverage ledger.
 - [ ] Require no ACL widening, no SQLx migrations, no new runtime writer, no product literals in Rust, and no private path captured by Caddy.
-- [ ] Require all golden, raw-role PostgreSQL, unchanged integration, Python unit, Rust test, formatting, and clippy gates to pass. Require zero unmapped/unpassed applicable assertions and exactly one listed exception, AD-01, with passing Rust burst/reset tests.
+- [ ] Require all golden, raw-role PostgreSQL, unchanged integration, Python unit, Rust test, formatting, and clippy gates to pass. Require zero unmapped/unpassed applicable assertions and exactly two listed exceptions, AD-01 (rate limits, with passing Rust burst/reset tests) and AD-02 (admission capacity, with the passing mixed-concurrency test).
 - [ ] Require independent Astra review and the seven-day shadow evidence before each group switch.
 - [ ] Require measured memory/CPU/p95 and an explicit founder go/no-go decision.
 - [ ] Keep failed, skipped, or inconclusive checks visible. Do not replace them with a narrative claim of completion.
