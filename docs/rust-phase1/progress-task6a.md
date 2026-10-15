@@ -44,8 +44,12 @@ The PM approved minimum wiring after the initial stop:
 - An unquoted SQL `window` record field caused the first implementation's
   data-bearing calls to fail. Quoted it; kept failure evidence.
 - A correlated sparse-key EXISTS timed out under the ordinary seeded book.
-  The task-local tail now materializes distinct requested tuples and joins them;
-  it does not change shared SQL or broaden sparse selections.
+  Materializing requested tuples alone still timed out. The task-local tail
+  now also materializes the shared candidate projection before the key join;
+  it does not change shared SQL or broaden sparse selections. The four ordinary
+  contract cases then passed with exact bytes (`task6a-green5.txt`). That run's
+  additional fixture probe failed its explicit database-name attestation; the
+  probe now forwards `SEED_TARGET_DATABASE` to the existing oracle guard.
 - Offline regressions cover weighted REAL/DEMO arithmetic, two-place half-even
   rounding, zero/negative quantity, off-spec, scalar declaration requirements,
   custom certification schemes, invalid FAME/LNG declarations and Singapore

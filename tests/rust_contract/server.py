@@ -47,6 +47,16 @@ class ContractOracleApp:
         if scope.get("type") == "http" and scope.get("path") == ECHO_PATH:
             await self._echo(scope, send)
             return
+        if scope.get("type") == "http" and scope.get("path") == "/__contract__/live-benchmarks":
+            from tests.rust_contract.live_benchmarks import project
+
+            query = parse_qs(scope.get("query_string", b"").decode())
+            body = json.dumps(await project(query), separators=(",", ":")).encode()
+            headers = [(b"content-type", b"application/json"), (b"content-length", str(len(body)).encode())]
+            headers.extend((name, value) for name, value in scope.get("headers", []) if name == b"x-request-id")
+            await send({"type": "http.response.start", "status": 200, "headers": headers})
+            await send({"type": "http.response.body", "body": body})
+            return
         await self.identity(scope, receive, send)
 
     async def _echo(self, scope, send) -> None:
@@ -100,8 +110,9 @@ def main(argv: list[str] | None = None) -> int:
         args.port,
         os.environ.get("RELEASE_SHA", ""),
     )
-    from app.main import app
     import uvicorn
+
+    from app.main import app
 
     apply_fixed_clock()
     uvicorn.run(ContractOracleApp(app, token), host=host, port=args.port, log_level="warning")

@@ -20,6 +20,9 @@ use serde_json::json;
 use std::collections::HashMap;
 use verdaxis_read::{AppState, Config, MarketPolicy, connect};
 
+#[path = "../tests/support/live_benchmarks_http.rs"]
+mod live_benchmarks_http;
+
 const IDENTITY_PATH: &str = "/.well-known/verdaxis-disposable-test";
 const ECHO_PATH: &str = "/__contract__/echo";
 const PURPOSE: &str = "verdaxis-integration-test";
@@ -107,6 +110,10 @@ fn group_router(group: &str) -> Router<AppState> {
     use verdaxis_read::routes as r;
     match group {
         "health" | "echo" => Router::new(),
+        "live_benchmarks" => Router::new().route(
+            "/__contract__/live-benchmarks",
+            get(live_benchmarks_http::project),
+        ),
         "simple_reads" => r::ports::routes()
             .merge(r::catalog::routes())
             .merge(r::news::routes()),
