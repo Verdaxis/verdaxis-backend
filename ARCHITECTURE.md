@@ -49,6 +49,11 @@ manifest, the meta-tests, and the golden corpus; `rs/read/examples/contract_serv
 serves one route group through the serving router. Health and echo are proven;
 the seeded and MCP groups are deferred as recorded in
 `docs/rust-phase1/progress.md`.
+Task 4b adds attested corpus construction: legal pre-guard history is inserted at
+`miq_20260720_market_quarantine`, then upgraded by the normal migration chain.
+Current fixtures reuse the Task 6 matrix and add ports, news, exact terms and
+trusted/untrusted signals. The runner pins the runtime KYC switch and records
+all groups twice; incomplete or unstable recordings cannot replace golden data.
 
 Task 5 exports the catalog policy as data. `scripts/rust_contract/export_policy.py`
 turns the approved `app.market_catalog` constants and the reviewed
