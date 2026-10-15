@@ -152,10 +152,57 @@ async fn router_health_methods_and_empty_routes() {
         },
     )
     .unwrap();
-    let app = verdaxis_read::router(state);
+    let assembled = verdaxis_read::router(state.clone());
+    for path in verdaxis_read::runtime::http::MOUNTED_GET_PATHS
+        .iter()
+        .copied()
+        .chain(std::iter::once("/api/ports/SGSIN"))
+    {
+        for method in ["HEAD", "OPTIONS"] {
+            let response = assembled
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .method(method)
+                        .uri(path)
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), 405, "{method} {path}");
+            assert_eq!(response.headers()["allow"], "GET", "{method} {path}");
+            assert_eq!(response.headers()["content-type"], "application/json");
+            if method == "HEAD" {
+                assert!(
+                    to_bytes(response.into_body(), 1024)
+                        .await
+                        .unwrap()
+                        .is_empty()
+                );
+            }
+        }
+        let response = assembled
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!("{path}/?probe=1"))
+                    .header("host", "localhost")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 307, "{path}");
+        assert_eq!(
+            response.headers()["location"],
+            format!("http://localhost{path}?probe=1")
+        );
+    }
+    let app = verdaxis_read::runtime::http::router_with(Router::new(), state);
     for (method, path, status) in [
         ("GET", "/health/live", 200),
-        ("HEAD", "/health/live", 200),
+        ("HEAD", "/health/live", 405),
         ("POST", "/health/live", 405),
         ("OPTIONS", "/health/live", 405),
         ("GET", "/health/live/", 307),
@@ -177,8 +224,7 @@ async fn router_health_methods_and_empty_routes() {
             .unwrap();
         assert_eq!(response.status(), status, "{method} {path}");
         if status == 405 {
-            // Python joins an unordered set; Task 4 pins the recorded order.
-            assert_eq!(response.headers()["allow"], "GET, HEAD");
+            assert_eq!(response.headers()["allow"], "GET");
             assert_eq!(response.headers()["content-type"], "application/json");
         }
         if status == 307 {

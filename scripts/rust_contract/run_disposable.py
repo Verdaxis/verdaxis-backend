@@ -107,7 +107,9 @@ class Runner:
         seed_mode: str,
         record_all: bool = False,
         gate: bool = True,
+        mixed_caddy: bool = False,
     ) -> None:
+        self.mixed_caddy = mixed_caddy
         self.record_all = record_all
         self.gate = gate
         self.group = group
@@ -322,6 +324,10 @@ CREATE EXTENSION IF NOT EXISTS postgis;
         attest(python_url, self.token)
         attest(rust_url, self.token)
 
+        if self.mixed_caddy:
+            self.run_mixed(base_env, python_port, rust_port)
+            return
+
         target = GROUPS[self.group]
         if not (ROOT / "rs/contract/tests" / f"{target}.rs").exists():
             # Unported groups still have a router (currently empty). Compare it
@@ -356,9 +362,40 @@ CREATE EXTENSION IF NOT EXISTS postgis;
             check=True,
         )
 
+    def run_mixed(self, env: dict[str, str], python_port: int, rust_port: int) -> None:
+        caddy = os.environ.get("CADDY_BIN") or shutil.which("caddy")
+        if not caddy:
+            caddy = str(ROOT / "work/rust-phase1/bin/caddy")
+        if not Path(caddy).is_file():
+            raise RunnerError("Set CADDY_BIN to a local Caddy executable")
+        port = ephemeral_port()
+        caddy_env = {
+            **env,
+            "ROUTE_SNIPPET": str(ROOT / "deploy/caddy/rust-public-staging.caddy"),
+            "CADDY_PORT": str(port),
+            "PYTHON_UPSTREAM": f"127.0.0.1:{python_port}",
+            **{f"{group}_UPSTREAM": f"127.0.0.1:{rust_port}"
+               for group in ("SIMPLE", "ORDERBOOK", "PRICES", "CURVES", "MCP")},
+        }
+        config = str(ROOT / "tests/rust_contract/Caddyfile")
+        subprocess.run([caddy, "adapt", "--config", config, "--validate"],
+                       cwd=ROOT, env=caddy_env, check=True)
+        self.spawn([caddy, "run", "--config", config], caddy_env)
+        wait_for_port(port)
+        url = f"http://127.0.0.1:{port}"
+        attest(url, self.token)
+        subprocess.run(
+            [self.python_bin, "-m", "pytest", "tests/integration", "-q",
+             "--run-disposable-integration", "--disposable-target-url", url,
+             "--disposable-target-token", self.token],
+            cwd=ROOT,
+            env={**env, "DISPOSABLE_ITEST_PASSWORD": "Disposable-integration-13!"},
+            check=True,
+        )
+
     def record_groups(self, python_url: str) -> None:
         sys.path.insert(0, str(ROOT))
-        from scripts.rust_contract.record import record, differences, write_golden
+        from scripts.rust_contract.record import differences, record, write_golden
 
         cases = json.loads((ROOT / "tests/rust_contract/cases.json").read_text())[
             "groups"
@@ -468,7 +505,8 @@ CREATE EXTENSION IF NOT EXISTS postgis;
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--group", default="health", choices=sorted(GROUPS))
+    parser.add_argument("--group", default="health", choices=sorted([*GROUPS, "all"]))
+    parser.add_argument("--mixed-caddy", action="store_true")
     parser.add_argument("--record-all", action="store_true")
     parser.add_argument(
         "--kyc-gate", choices=("enabled", "disabled"), default="enabled"
@@ -488,6 +526,8 @@ def main(argv: list[str] | None = None) -> int:
         help="ordinary applies only scripts/seed.py; corpus also applies the fixture families",
     )
     args = parser.parse_args(argv)
+    if (args.group == "all") != args.mixed_caddy or (args.mixed_caddy and args.record_all):
+        parser.error("--mixed-caddy requires --group all and cannot record golden data")
     if args.no_seed and args.group not in ("health", "echo"):
         print("--no-seed is only valid for the health and echo groups", file=sys.stderr)
         return 2
@@ -502,6 +542,7 @@ def main(argv: list[str] | None = None) -> int:
         seed_mode=args.seed_mode,
         record_all=args.record_all,
         gate=args.kyc_gate == "enabled",
+        mixed_caddy=args.mixed_caddy,
     )
     try:
         runner.run()

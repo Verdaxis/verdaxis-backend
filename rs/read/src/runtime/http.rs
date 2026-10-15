@@ -204,9 +204,45 @@ async fn cors(request: Request, next: Next) -> Response {
     response
 }
 
-/// The only GET paths this binary mounts. Data routes arrive in later tasks and
-/// must be added here with their `router` entry.
-const MOUNTED_GET_PATHS: [&str; 3] = ["/health/live", "/health/ready", "/health"];
+/// Exact public GET inventory. Private paths and MCP never use slash redirects.
+pub const MOUNTED_GET_PATHS: &[&str] = &[
+    "/health/live",
+    "/health/ready",
+    "/health",
+    "/api/ports",
+    "/api/catalog/products",
+    "/api/catalog/delivery-points",
+    "/api/news",
+    "/api/orderbook",
+    "/api/orderbook/snapshot",
+    "/api/orderbook/bids",
+    "/api/orderbook/asks",
+    "/api/orderbook/with-ci",
+    "/api/orderbook/aggregated",
+    "/api/orderbook/product-counts",
+    "/api/orderbook/map-summary",
+    "/api/orderbook/map-summary/compact",
+    "/api/orderbook/products",
+    "/api/orderbook/regions",
+    "/api/orderbook/fuel-types",
+    "/api/listings",
+    "/api/prices",
+    "/api/prices/reference",
+    "/api/prices/reference/export",
+    "/api/trade-tape",
+    "/api/curves/forward",
+    "/api/curves/forward/export",
+    "/api/curves/forward/table",
+    "/api/curves/forward/slice",
+    "/api/curves/forward/board",
+];
+
+fn public_get_path(path: &str) -> bool {
+    MOUNTED_GET_PATHS.contains(&path)
+        || path
+            .strip_prefix("/api/ports/")
+            .is_some_and(|id| !id.is_empty() && !id.contains('/'))
+}
 
 /// Apply the two rules that sit just outside route dispatch: the Market Support
 /// context boundary and the fixed-window price limits (AD-01). Admission and
@@ -285,11 +321,40 @@ async fn dispatch_boundary(
             .into_response();
         }
     }
+    // FastAPI's explicit GET operations do not implicitly accept HEAD.
+    if request.method() == "HEAD"
+        && request.extensions().get::<MatchedPath>().is_some()
+        && public_get_path(path)
+    {
+        let mut response = method_not_allowed().await;
+        *response.body_mut() = axum::body::Body::empty();
+        return response;
+    }
     next.run(request).await
 }
 
+pub fn public_routes() -> Router<crate::AppState> {
+    Router::new()
+        .merge(crate::routes::ports::routes())
+        .merge(crate::routes::catalog::routes())
+        .merge(crate::routes::news::routes())
+        .merge(crate::routes::orderbook_snapshot::routes())
+        .merge(crate::routes::orderbook_lists::routes())
+        .merge(crate::routes::orderbook_map::routes())
+        .merge(crate::routes::listings::routes())
+        .merge(crate::routes::prices::routes())
+        .merge(crate::routes::trade_tape::routes())
+        .merge(crate::routes::curves_legacy::routes())
+        .merge(crate::routes::curves_canonical::routes())
+        .merge(crate::mcp::mcp_router())
+}
+
+pub fn public_router(state: crate::AppState) -> Router {
+    router_with(public_routes(), state)
+}
+
 pub fn router(state: crate::AppState) -> Router {
-    router_with(Router::new(), state)
+    public_router(state)
 }
 
 /// Compose the serving router with extra routes merged before the layers.
@@ -298,9 +363,7 @@ pub fn router(state: crate::AppState) -> Router {
 /// the same fallbacks, redirects, and middleware as the serving binary, so it
 /// can never mask a routing difference.
 pub fn router_with(extra: Router<crate::AppState>, state: crate::AppState) -> Router {
-    // These use axum's `get`, which also serves HEAD. The recorded Python
-    // corpus answers HEAD with 405 and `Allow: GET`, so the exact-routing task
-    // must override this; see docs/rust-phase1/progress.md.
+    // The dispatch boundary overrides axum's implicit HEAD handler.
     let routes = Router::new()
         .route("/health/live", axum::routing::get(crate::live))
         .route("/health/ready", axum::routing::get(crate::ready))
@@ -313,11 +376,9 @@ pub fn router_with(extra: Router<crate::AppState>, state: crate::AppState) -> Ro
 }
 
 async fn method_not_allowed() -> Response {
-    // Python joins the allowed-method set, which is unstable for two entries;
-    // Task 4 records the exact corpus value and will pin the order if needed.
     (
         StatusCode::METHOD_NOT_ALLOWED,
-        [(header::ALLOW, "GET, HEAD")],
+        [(header::ALLOW, "GET")],
         axum::Json(serde_json::json!({"detail":"Method Not Allowed"})),
     )
         .into_response()
@@ -327,7 +388,7 @@ async fn method_not_allowed() -> Response {
 async fn fallback(request: Request) -> Response {
     let path = request.uri().path();
     let trimmed = path.trim_end_matches('/');
-    if trimmed != path && MOUNTED_GET_PATHS.contains(&trimmed) {
+    if trimmed != path && public_get_path(trimmed) {
         let host = request
             .headers()
             .get(header::HOST)

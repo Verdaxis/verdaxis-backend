@@ -1,4 +1,5 @@
-use verdaxis_read::{AppState, Config, MarketPolicy, compiled_sha, connect, router};
+use verdaxis_read::runtime::policy::committed_policy;
+use verdaxis_read::{AppState, Config, connect, router};
 
 #[tokio::main]
 async fn main() {
@@ -15,12 +16,7 @@ async fn serve() -> Result<(), ()> {
         serde_json::from_str(&std::env::var("RUST_CONFIG").map_err(|_| ())?).map_err(|_| ())?;
     let pools = connect(&config).await.map_err(|_| ())?;
     let bind = config.bind;
-    // Task 5 supplies the policy loader; no data routes are mounted yet.
-    let policy = MarketPolicy {
-        source_sha: compiled_sha().into(),
-        products: vec![],
-        points: vec![],
-    };
+    let policy = committed_policy().map_err(|_| ())?;
     let state = AppState::new(config, pools, policy).map_err(|_| ())?;
     let listener = tokio::net::TcpListener::bind(bind).await.map_err(|_| ())?;
     axum::serve(
