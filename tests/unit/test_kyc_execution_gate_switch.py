@@ -79,6 +79,9 @@ _DELETE_ORDER = [
     "trades",
     "subscriptions",
     "orderbook_orders",
+    # kyc_execution_grace references users and organizations, so delete it
+    # before them.
+    "kyc_execution_grace",
     "users",
     "delivery_points",
     "products",

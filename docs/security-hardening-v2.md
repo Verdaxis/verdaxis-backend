@@ -158,7 +158,18 @@ the action-required projection) follow the same switch, so non-KYC resting
 orders show and match again. Route handlers and services must not carry their
 own gate checks.
 
-- The lifespan logs one line: `KYC execution gate: enabled` or `disabled`.
+**The availability map does not follow the switch.** `/api/availability` and
+`public_inventory_is_visible` count a supplier's inventory as REAL stock only
+when `user.kyc_status == "APPROVED"`
+(`app/services/market_provenance.py:137`, `organization_evidence_clause`). That
+condition is unchanged from before the gate and does not read
+`KYC_EXECUTION_GATE_ENABLED`. With the gate off, a PENDING supplier's ASK shows
+and matches, but the same supplier's inventory stays hidden from availability.
+This matches the pre-gate behavior; the order book and the map can differ.
+
+- The lifespan logs one line per worker: `KYC execution gate: enabled` or
+  `disabled`. Four Uvicorn workers print four lines; each worker logs its own
+  state.
 - `python -m app.cli.send_kyc_grace_notices` refuses with a clear message and a
   non-zero exit while the gate is off, before any database contact.
 - Unchanged: KYC submission, admin approve/reject, `kyc_execution_grace` rows
