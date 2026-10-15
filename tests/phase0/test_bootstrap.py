@@ -284,6 +284,111 @@ async def test_role_properties_checked_on_ddl_connection(target, attribute, rese
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize('isolation_source', ['engine', 'connection'])
+@pytest.mark.parametrize('entry', ['helper', 'direct'])
+async def test_autocommit_refused_before_ddl(target, isolation_source, entry):
+    from scripts.phase0.bootstrap import BootstrapIdentity, bootstrap_connection
+
+    _, values = target
+    options = {'isolation_level': 'AUTOCOMMIT'} if isolation_source == 'engine' else {}
+    engine = create_async_engine(url(values['database']), **options)
+    ddl = []
+
+    def record_ddl(connection, cursor, statement, parameters, context, executemany):
+        if statement.lstrip().split()[0].upper() in ('CREATE', 'ALTER', 'DROP'):
+            ddl.append(statement)
+
+    event.listen(engine.sync_engine, 'before_cursor_execute', record_ddl)
+    try:
+        async with engine.connect() as connection:
+            if isolation_source == 'connection':
+                await connection.execution_options(isolation_level='AUTOCOMMIT')
+            identity = BootstrapIdentity(**values)
+            cfg = config()
+            with pytest.raises(ValueError, match='physical transaction'):
+                if entry == 'helper':
+                    await bootstrap_connection(connection, identity, cfg, apply=True)
+                else:
+                    async with connection.begin():
+                        def upgrade(sync):
+                            cfg.attributes.update(connection=sync,
+                                phase0_bootstrap_identity=identity,
+                                phase0_bootstrap_approved=True)
+                            command.upgrade(cfg, REVISION)
+                        await connection.run_sync(upgrade)
+            assert ddl == []
+            assert (await connection.execute(text(
+                "SELECT to_regclass('users'), to_regclass('alembic_version')"
+            ))).one() == (None, None)
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_mid_migration_failure_rolls_back_schema(target):
+    from scripts.phase0.bootstrap import BootstrapIdentity, bootstrap_connection
+
+    engine, values = target
+    observed = []
+
+    def fail_after_ddl(connection, cursor, statement, parameters, context, executemany):
+        if statement.lstrip().startswith('CREATE TABLE organizations'):
+            observed.append(connection.execute(text("SELECT to_regclass('organizations')")).scalar_one())
+            raise ValueError('injected mid-migration failure')
+
+    event.listen(engine.sync_engine, 'after_cursor_execute', fail_after_ddl)
+    cfg = config()
+    try:
+        async with engine.connect() as connection:
+            with pytest.raises(ValueError, match='mid-migration'):
+                await bootstrap_connection(connection, BootstrapIdentity(**values), cfg, apply=True)
+            assert observed == ['organizations']
+            assert cfg.attributes == {}
+            assert (await connection.execute(text(
+                "SELECT to_regclass('organizations'), to_regclass('alembic_version')"
+            ))).one() == (None, None)
+    finally:
+        event.remove(engine.sync_engine, 'after_cursor_execute', fail_after_ddl)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('outcome', ['commit', 'rollback'])
+async def test_bootstrap_lock_held_through_verification(target, monkeypatch, outcome):
+    from scripts.phase0 import bootstrap
+
+    engine, values = target
+    original_verify = bootstrap.verify_bootstrap_schema
+    checks = []
+    async with engine.connect() as observer:
+        def verify(connection, policy):
+            original_verify(connection, policy)
+            # run_sync permits a second asyncpg connection through its sync adapter.
+            acquired = observer.sync_connection.execute(text(
+                'SELECT pg_try_advisory_xact_lock(:key)'
+            ), {'key': bootstrap.BOOTSTRAP_LOCK}).scalar_one()
+            checks.append(acquired)
+            assert acquired is False
+            observer.sync_connection.rollback()
+            if outcome == 'rollback':
+                raise ValueError('injected locked verification failure')
+
+        monkeypatch.setattr(bootstrap, 'verify_bootstrap_schema', verify)
+        async with engine.connect() as connection:
+            if outcome == 'rollback':
+                with pytest.raises(ValueError, match='locked verification'):
+                    await bootstrap.bootstrap_connection(connection,
+                        bootstrap.BootstrapIdentity(**values), config(), apply=True)
+            else:
+                await bootstrap.bootstrap_connection(connection,
+                    bootstrap.BootstrapIdentity(**values), config(), apply=True)
+            assert not connection.in_transaction()
+        assert checks == [False]
+        assert (await observer.execute(text('SELECT pg_try_advisory_xact_lock(:key)'),
+            {'key': bootstrap.BOOTSTRAP_LOCK})).scalar_one() is True
+        await observer.rollback()
+
+
+@pytest.mark.asyncio
 async def test_ordinary_path_still_uses_settings_url(target):
     engine, values = target
     environment = dict(os.environ, DATABASE_URL=url(values['database']),
