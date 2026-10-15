@@ -82,6 +82,17 @@ Install units only through the exact-SHA manifest installer in runtime-hardening
 The approved empty SetCredential fallback works on systemd 249 and 255 (source
 links in security-hardening-v2.md). Missing/invalid keys log one error per worker
 and make submission return 503; readiness does not assert vault availability.
-Unreadable source files can still fail systemd startup. Verify owner/mode before
-activation and test KYC storage separately from readiness. No live action was
-performed by the implementation task.
+The unit installer's dry-run and apply modes now check source metadata as root,
+using isolated system Python before any unit replacement. An existing source must
+be a regular file (not a symlink), owned by root:root, with exact mode 0400.
+`/`, `/etc`, and `/etc/verdaxis` must be root-owned directories without group or
+other write permission; symlink parents are refused. A missing key or missing
+`/etc/verdaxis` is allowed and leaves KYC storage disabled. The check never reads
+key contents. It checks the host source, not the systemd credential copy, whose
+owner can be the service user. Run this installer preflight after restoring or
+rotating a key file; a prior check does not protect later metadata changes.
+The code deploy dry-run does not perform this host metadata check.
+Unreadable source files can still fail systemd startup. Test KYC storage separately
+from readiness. Development/test explicit paths are not covered by this root-only
+host check; use synthetic documents and keys there, not real customer evidence.
+No live action was performed by the implementation task.
