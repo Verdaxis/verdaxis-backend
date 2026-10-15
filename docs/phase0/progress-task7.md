@@ -68,7 +68,25 @@ an intermediate canonical revision. No checkpoint file was changed here.
 
 Host-specific maintenance/egress, timer/cron inventory, backup producer changes,
 monitor wiring, effective systemd drop-in and full rollback are Task 10 approval
-gates. The Mac tests use actual subprocess locks and filesystem replacement, but
-synthetic restart/readiness markers, not systemd. The late-commit test uses a
-synthetic SQLite transaction; real PostgreSQL data/copy checks use the existing
-runner. No claim of a completed host cutover or Linux restart is made.
+gates. The original marker test remains as a lock-reader regression. The review
+fix adds executable old/new tuples, mixed environment/runtime/monitor publication,
+separate cached unit state, real guards and killed lock holders, public-write
+refusal, and complete old-tuple restoration against synthetic SQLite databases.
+Negative controls detect an unloaded fence and an open write route. This is not
+systemd or Caddy proof; actual manager/proxy behavior remains a Linux rehearsal
+gate. The PostgreSQL runner now executes the database assertion path and rejects
+non-app sessions. No live host was contacted.
+
+## Independent review fixes
+
+M1 uses the declared asyncpg driver, bounded read-only transactions and normalized
+server addresses. M2 counts every other database session, including idle backup
+and administrator connections. M3 requires explicit daemon reload and loaded
+manager command inspection before replacement and rollback. M4 adds executable
+boundary tests rather than treating readiness marker files as proof.
+
+Task 4b is on `feat/phase0-convergence-20261016`; it was not merged here. After PM
+integration, repeat union bootstrap/copy, exact Settings/ACLs, same-revision deploy
+and combined unit/identity proofs. The runbook also records the PM's cached-bundle
+choice: verify new frontend entry HTML and send the founder's refresh note when
+public access reopens. Final test evidence is in `outputs/phase0/task-07-review-fixes.md`.

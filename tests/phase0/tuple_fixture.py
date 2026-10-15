@@ -236,7 +236,7 @@ with sqlite3.connect(root / 'verdaxis_prod.sqlite') as connection:
         self.reload_unit()
         self.require_ready(OLD_SHA)
 
-    def restore_source_only(self, database):
+    def restore_source_only(self):
         if not self.root.exists():
             (self.workspace / 'rollback').rename(self.root)
 

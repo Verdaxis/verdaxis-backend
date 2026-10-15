@@ -142,6 +142,9 @@ scripts/phase0/manifest.py       # Read-only catalog inspection and frozen sourc
 scripts/run_phase0_postgres_tests.sh # Owns pinned disposable PostgreSQL; no caller database URL
 deploy/phase0/                   # Explicit copy mapping and provisional eight-product union contract
 tests/phase0/                    # Independently migrated pinned schemas and synthetic source history
+  test_host_assertions_postgres.py # Read-only asyncpg assertions; every other session blocks drain
+  test_tuple_interruptions.py     # Executable synthetic tuples, killed locks, write fence and rollback
+  tuple_fixture.py                # Test-only loaded-unit cache and release executables; not host orchestration
 outputs/phase0/task-01.md        # Task 1 acceptance evidence and fixture resume command
 
 tests/unit/                     # Unit coverage (auth, matching, runtime, compliance, events, pricing, schemas)

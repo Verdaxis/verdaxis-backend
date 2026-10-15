@@ -13,8 +13,8 @@ def test_interrupt_each_cutover_boundary_keeps_runtime_tuple_blocked(tmp_path, b
     from tests.phase0.tuple_fixture import TupleFixture
 
     fixture = TupleFixture(tmp_path)
-    fixture.advance_to(boundary)
     try:
+        fixture.advance_to(boundary)
         # Both real start predicates run before the executable tuple probe.
         fixture.assert_public_write_blocked()
         fixture.assert_starts_match_or_are_blocked()
@@ -38,7 +38,7 @@ def test_mixed_environment_never_executes_under_fence(tmp_path, database):
     try:
         fixture.advance_to('new-renamed' if database == 'verdaxis' else 'old-renamed')
         fixture.interrupt()
-        fixture.restore_source_only(database)
+        fixture.restore_source_only()
         fixture.write_environment(database)
         assert fixture.start().returncode != 0
         fixture.assert_public_write_blocked()

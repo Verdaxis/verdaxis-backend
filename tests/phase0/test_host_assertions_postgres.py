@@ -71,6 +71,25 @@ async def test_declared_driver_runs_identity_and_post_stop_assertions(assertion_
 
 
 @pytest.mark.asyncio
+async def test_assertion_cli_runs_all_database_checks(assertion_database, monkeypatch, capsys):
+    import hashlib
+    import json
+    import sys
+
+    manifest, arguments = assertion_database
+    evidence = b'synthetic reviewed reconciliation'
+    manifest.update(reconciliation_file='/reconciliation',
+                    reconciliation_sha256=hashlib.sha256(evidence).hexdigest())
+    files = {'/manifest': json.dumps(manifest).encode(),
+             '/synthetic': arguments['password'].encode(), '/reconciliation': evidence}
+    monkeypatch.setattr(assert_host, 'private_bytes', lambda path: files[str(path)])
+    for check in ('identity', 'outbox-empty', 'rollback-safe'):
+        monkeypatch.setattr(sys, 'argv', ['assert_host', '--manifest', '/manifest', '--check', check])
+        assert await asyncio.to_thread(assert_host.main) == 0
+        assert capsys.readouterr().out == f'{check}: verified\n'
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize('role', ['postgres', 'verdaxis_backup'])
 async def test_post_stop_gate_refuses_every_other_session(assertion_database, role):
     manifest, arguments = assertion_database
