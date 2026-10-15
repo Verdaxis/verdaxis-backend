@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
 import signal
 import subprocess
 import sys
 import time
 import uuid
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 IMAGE = "postgis/postgis:17-3.6-alpine@sha256:49b4d46c9fb8b158ddecd14d1894871a21ed4acb7ef376e2050f43f79c7b7272"
@@ -42,7 +42,9 @@ def main():
         command("docker", "run", "-d", "--platform", "linux/amd64", "--name", container,
                 "-e", f"POSTGRES_PASSWORD={password}",
                 "-p", "127.0.0.1::5432", IMAGE, stdout=subprocess.DEVNULL)
-        for attempt in range(60):
+        # The pinned amd64 image initializes under emulation and can take over a
+        # minute on a loaded host, so allow a generous readiness window.
+        for attempt in range(240):
             ready = subprocess.run(["docker", "exec", container, "pg_isready", "-h", "127.0.0.1", "-U", "postgres"], capture_output=True)
             if ready.returncode == 0:
                 break
