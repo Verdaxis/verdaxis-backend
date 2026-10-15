@@ -28,6 +28,7 @@ async def seed():
     async with seed_session() as session:
         for name in ("buyer", "seller"):
             await session.execute(text(oracle.INSERT_ORGANIZATION), dict(id=uid(name), name="Task 9 " + name, verification_status="APPROVED", provenance="REAL"))
+        await session.execute(text(oracle.INSERT_USER), dict(id=uid('seller-user'), email='task9-seller@example.test', role='SUPPLIER', status='APPROVED', organization_id=uid('seller'), email_verified=True, must_change_password=False, kyc_status='APPROVED', kyc_organization_id=uid('seller')))
         base = dict(product_id=product.id, product_name=product.name, fuel_type=product.fuel_type, fuel_grade=product.fuel_grade, market_product=product.market_product.value, delivery_point_id=point.id, delivery_point_name=point.name, delivery_point_region=point.region, availability_window="SPOT", buyer_id=uid("buyer"), seller_id=uid("seller"), buyer_provenance="REAL", seller_provenance="REAL", initiated_by="BUYER", initiator_org_id=uid("buyer"), quantity_mt="2.00", price_per_mt_usd="12.50", status="CONFIRMED", confirmed_at=clock, market_snapshot_version=1, delivered_at=None, paid_at=None, final_quantity_mt=None, final_price_per_mt=None, final_total_usd=None)
         fixtures = [
             ("latest", timedelta(seconds=1), "2.00", "12.50"),
@@ -63,6 +64,12 @@ def compare_populated():
         ("/api/trade-tape", "fuel_type="+product.fuel_type),
         ("/api/trade-tape", "fuel_type="+product.fuel_type.lower()),
         ("/api/trade-tape", "demo_only=true"),
+        ("/api/prices", "product_id=x"),
+        ("/api/prices", "product_id=zzzz"),
+        ("/api/prices/reference", "date_from=86400.0000001"),
+        ("/api/prices/reference", "date_from=-86400.0000001"),
+        ("/api/prices/reference", "date_from=86399.9999999"),
+        ("/api/prices/reference/export", "from_date=0.0000001"),
     ])]
     # Keep each probe independent of earlier AD-01 counters.
     for case in cases:
@@ -130,6 +137,8 @@ async def mutate_catalog(active):
     async with seed_session() as session:
         await session.execute(text("UPDATE products SET is_active=:active WHERE id=:id"), dict(active=active,id=product.id))
         await session.execute(text("UPDATE delivery_points SET is_active=:active WHERE id=:id"), dict(active=active,id=point.id))
+        await session.execute(text("UPDATE organizations SET verification_status=:status WHERE id=:id"), dict(status='APPROVED' if active else 'REJECTED', id=uid('seller')))
+        await session.execute(text("UPDATE users SET kyc_status=:status, organization_id=:org WHERE id=:id"), dict(status='APPROVED' if active else 'REJECTED', org=uid('seller') if active else uid('buyer'), id=uid('seller-user')))
         await session.commit()
 
 asyncio.run(seed())
