@@ -285,18 +285,36 @@ Fresh differential and saved-wire replay **99/99 passed in both KYC states**;
 hidden-value privacy and both SQL cancellation proofs passed. All test runs
 finished before this checkpoint. The single committed golden remains untouched.
 
-**Continue M2, not M3 yet:** Decimal constructor/context parity is next. Add
-failing vectors for `1e-1000027`, `1e-2147483648` and
-`1e-1999999999999999997`: Python accepts all and rounds arithmetic underflow at
-Etiny=-1000026. Python constructor limits on this 64-bit oracle are
-MIN_ETINY=-1999999999999999997 and MAX_EMAX=999999999999999999, distinct from the
-28-digit arithmetic context. Use wide exponents, magnitude-based comparisons
-and bounded rounding; never allocate a power-of-ten proportional to these extreme
-exponents. Raising the cap again is not a fix. Add pure-voyage underflow vectors,
-wrong root argument types, tuple maximum/error ordering and scientific-notation
-integer numeric cases. Replace the widened Decimal bound with
-a complete constructor/context-domain policy: raising it to 1,000,026 fixes
-`1e-10001`, but does not prove arbitrary Python Decimal exponents or underflow.
+`8dde3cbb` repairs the concrete wide-exponent/underflow gap: i64 constructor
+exponents, magnitude-based comparisons, bounded half-even subnormal rounding,
+zero exponent clamping and bounded output quantization. Wide operation vectors
+failed first; a separate exact-cancellation vector exposed an early-rounding
+regression, then passed after preserving close opposite-sign operands. Three
+full-voyage underflow vectors and six wire constructor-bound cases were added.
+The matrix now has 58 inputs and MCP has 105 cases. Additional independent
+probes compared 4,800 bounded random operations and 1,600 subnormal operations
+with Python: zero differences. Initial exporter execution failed because a
+formatter removed an unused import before its use was added; the import was
+restored before generating the red vectors. Checkpoint checks: fmt/clippy pass;
+offline workspace **139**, PostgreSQL **147**, Python contracts **120**, combined
+Python oracle/contracts **221** passed. The arithmetic corpus has **984 vectors**;
+full-voyage corpus has **13 vectors**. Both KYC recordings have 105 cases stable
+across two passes at source `8dde3cbb9376dac499ffa5ff75ab56d41ae2f6ac`.
+Fresh differential and saved-wire replay **105/105 passed in both KYC states**;
+privacy and both SQL cancellation proofs passed. All runs finished. No source
+nondeterminism was found and no committed golden changed.
+Logs: `work/rust-phase1/task11-wide-*.log`.
+
+**Continue M2, not M3 yet:** add failing vectors for wrong root argument types,
+tuple maximum/error ordering and scientific-notation integer numeric cases.
+Confirmed remaining tuple rule: seven invalid fuel names produce seven enum
+errors plus `too_short`, but no `too_long`; the current adapter checks raw length.
+Also add constructor adjusted-exponent overflow for multi-digit coefficients:
+Python rejects `10e999999999999999999`, while the current parser only checks the
+stored exponent. Verify near-context overflow/error classification and
+long-coefficient cancellation.
+The current wide repair covers the tested constructor bounds and underflow, not
+every possible Decimal operation exposed by the public arithmetic helper.
 The schema validator is deliberately not claimed as a general Pydantic engine.
 Keep source-derived schemas and do not add runtime Python calls or fixture lookups.
 Then fix M3's invalid JSON-RPC version before tool validation and empty/partial
