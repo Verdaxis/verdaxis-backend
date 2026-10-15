@@ -85,6 +85,12 @@ admission use the same strict/advisory switch as Python. Request filters cannot
 set that switch. Region filters match a region or delivery-point name; empty
 means no filter. Curve and quarantine metadata policies remain later-task work.
 
+Task 6a adds `market/live_benchmarks.rs` and `sql/live_benchmarks.sql` for
+read-only, request-cached same-side benchmarks. It applies full typed/scalar
+qualification after Candidates selection and retains the current REAL/DEMO
+blend. `market/whitespace.rs` owns Python-compatible whitespace for scalar text
+presence and certification normalization; SQL trimming is unchanged.
+
 Task 8 ports the simple public reads. `rs/read/src/routes/ports.rs` serves
 `/api/ports` and `/api/ports/{port_id}` from `rs/read/sql/{ports,port}.sql`,
 casting each geography column to geometry before `ST_X`/`ST_Y` and returning

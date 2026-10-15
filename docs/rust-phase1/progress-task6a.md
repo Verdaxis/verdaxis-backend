@@ -106,3 +106,85 @@ the admitted transaction and the request's captured UTC instant. Keep each cache
 within that transaction/instant. The test-only HTTP endpoints must never be
 mounted by the serving binary. All containers started by these runners were
 removed with their volumes on exit; other lanes' containers were not touched.
+
+## Independent review repair — 2026-10-16
+
+M1 is fixed in `43b4f67`. `market/whitespace.rs` contains one explicit Python
+Unicode whitespace predicate, including U+001C–U+001F. Scalar benchmark text
+and shared certification normalization use it. SQL `btrim` is unchanged.
+The complete Unicode inventory is checked; the four control characters are
+covered for origin, specification, feedstock and scheme, with a custom-scheme
+positive control. The exact two-row regression failed at price 150 instead of
+100 before the fix and passes with price 100, quantity 10 and count 1 afterward.
+Red/green evidence is in `work/rust-phase1/task6a-{m1,two-row}-*.txt`.
+
+The expanded helper fixtures cover joined Singapore midnight, independent
+sampling/test-date transitions, expiry at -1/0/+1 microsecond, and KYC grace at
+those boundaries in both switch states. Pending, submitted, foreign-bound
+review with grace and rejected-with-grace cases have explicit aggregate checks.
+Stored `1E-29` and `0E-100` FAME values pass through Pydantic storage dumping,
+PostgreSQL and both helpers. Typed BID, null-CI LNG, legal half-cent weighted
+pairs, maximum arithmetic values, partial remaining quantities and Q/CAL windows
+are covered. Cache checks add expansion, duplicate replay and new-cache isolation.
+The helper-only gate/window controls are not mounted in the serving binary.
+
+Wrong-lane LNG insertion is refused by the current database constraint. The
+suite asserts that refusal and separately tests the pure helper exclusion. It
+does not disable a guard or claim a historical wrong-lane SQL comparison.
+
+During test development, setup failures exposed an Arc clone mistake, a fixture
+bind-name parser that omitted digits, and an unescaped `+00:00` query offset.
+A typed BID fixture also needed its required `neat_fame` declaration and
+Pydantic-populated storage defaults. These were corrected in test code. Three
+ordinary seed attempts timed out before helper tests; the unchanged command was
+retried without changing seed behavior or timeouts. Running three full helper
+queries in every comparison exceeded the HTTP case deadline; cache expansion is now one separate
+case. No timeout or production query policy was relaxed.
+
+### PM integration handoff
+
+Task 4b has landed on the build branch, with accepted golden oracle SHA
+`a127672` and `--seed-mode corpus` (PM-provided status). It was not merged into
+this lane. After the PM merges both lanes, move the new whitespace, midnight,
+expiry/KYC, stored-decimal, typed-BID/null-CI-LNG, arithmetic and Q/CAL/partial
+fixture families and their explicit assertions into the central corpus ledger.
+Keep pure arithmetic/whitespace tests and cache-abort instrumentation local.
+Run the populated helper group with `--seed-mode corpus`; do not relabel the
+existing golden bytes as if these new cases had already been accepted.
+
+Review item 8 remains owned by Tasks 7a and 14: concurrent-writer snapshot
+coherence, one captured instant through depth and benchmark queries, full public
+DTO scale/null behavior, and sparse/large-book cost at the declared workload.
+Task 7 adapters still own canonical key normalization. This lane adds no route
+or deployment activation. Keep the runtime `&Config` argument and do not copy
+benchmark-only typed qualification into curve economics.
+
+### Repair verification
+
+- `cargo fmt --all --check`: passed.
+- Workspace/all-target/all-feature clippy with warnings denied: passed.
+- `cargo test --workspace`: 86 passed (12 task-local pure tests).
+- `RUST_TEST_PYTHON=$PWD/venv/bin/python bash rs/read/tests/run_postgres.sh`:
+  93 passed; the same two Task 6 matrix tests remain explicitly filtered.
+- `venv/bin/python -m pytest tests/rust_contract -q`: 42 passed, five existing
+  deprecation warnings.
+- Python source benchmark/owner-admission/evidence tests: 34 passed.
+- Task-local Python Ruff checks and `git diff --check`: passed.
+
+Logs: `work/rust-phase1/task6a-final-{offline5,postgres3,python5}.txt`.
+
+
+**Remaining verification gate:** the required ordinary helper runner was run,
+but the final three attempts (`task6a-acceptance-green5.txt` through `green7.txt`)
+failed during `scripts/seed.py`, before any HTTP acceptance cases. PostgreSQL
+reported `QueryCanceledError: canceling statement due to statement timeout` on
+the ordinary order bulk insert. Shared Colima load was high; no timeout, seed
+size, container allocation or other lane's container was changed. Earlier runs
+passed the four existing ordinary cases but exposed test setup errors described
+above. The corrected seven additional acceptance cases have **not** completed
+a green end-to-end run. Do not mark them accepted from the 93-test runtime suite,
+which does not execute this helper HTTP group.
+
+Resume with the exact required ordinary command when local capacity is available,
+then merge the corpus families through the PM and run the populated gate. Code
+commits: `43b4f67` (M1), `d3028dd` (acceptance tests), `a9e58e4` (typed BID fixture).
