@@ -90,3 +90,17 @@ integration, repeat union bootstrap/copy, exact Settings/ACLs, same-revision dep
 and combined unit/identity proofs. The runbook also records the PM's cached-bundle
 choice: verify new frontend entry HTML and send the founder's refresh note when
 public access reopens. Final test evidence is in `outputs/phase0/task-07-review-fixes.md`.
+
+## Final review-fix verification
+
+The full pinned PostgreSQL runner completed in the foreground with exit 0:
+**124 passed, zero failures/skips, 46 warnings**, in 384.52 seconds. Log:
+`work/task7-postgres-foreground-final.log`; synthetic fixture evidence:
+`work/phase0-fixtures/aa3d2a1735544ccba1a5ce58d17e66b2`.
+The earlier background rerun had no completion record and is not acceptance evidence.
+Always wait for a test run to finish before ending the turn.
+
+Other completed checks: Task 7 focused **46 passed**; monitor **290 passed,
+1 platform skip**; unit **2,144 passed, 19 known macOS deploy-test failures**;
+database assertion CLI **4 passed**; identity/ACL/checkpoint **72 passed**.
+Task 4b remains unmerged. No push or staging/production contact occurred.
