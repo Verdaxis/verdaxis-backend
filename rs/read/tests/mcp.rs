@@ -2,26 +2,69 @@ use serde_json::json;
 
 #[tokio::test]
 async fn stateless_transport_matches_python_terminal_responses() {
-    use axum::{body::{Body,to_bytes},http::Request};
+    use axum::{
+        body::{Body, to_bytes},
+        http::Request,
+    };
     use tower::ServiceExt;
-    let app=verdaxis_read::mcp::mcp_router().with_state(state());
-    for (method,body,status,message) in [
-        ("POST","{",400,"Parse error: EOF while parsing an object at line 1 column 1"),
-        ("DELETE","",405,"Method Not Allowed: Session termination not supported"),
-        ("POST",r#"{"jsonrpc":"2.0","id":3,"method":"nope","params":{}}"#,200,"Method not found"),
+    let app = verdaxis_read::mcp::mcp_router().with_state(state());
+    for (method, body, status, message) in [
+        (
+            "POST",
+            "{",
+            400,
+            "Parse error: EOF while parsing an object at line 1 column 1",
+        ),
+        (
+            "DELETE",
+            "",
+            405,
+            "Method Not Allowed: Session termination not supported",
+        ),
+        (
+            "POST",
+            r#"{"jsonrpc":"2.0","id":3,"method":"nope","params":{}}"#,
+            200,
+            "Method not found",
+        ),
     ] {
-        let response=app.clone().oneshot(Request::builder().method(method).uri("/mcp").header("host","testserver").header("content-type","application/json").header("accept","application/json, text/event-stream").body(Body::from(body)).unwrap()).await.unwrap();
-        assert_eq!(response.status(),status);
-        let bytes=to_bytes(response.into_body(),100000).await.unwrap();
-        let value:serde_json::Value=serde_json::from_slice(&bytes).unwrap();
-        assert_eq!(value["error"]["message"],message);
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(method)
+                    .uri("/mcp")
+                    .header("host", "testserver")
+                    .header("content-type", "application/json")
+                    .header("accept", "application/json, text/event-stream")
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), status);
+        let bytes = to_bytes(response.into_body(), 100000).await.unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(value["error"]["message"], message);
     }
-    let response=app.oneshot(Request::builder().uri("/mcp").header("host","testserver").header("accept","text/event-stream").body(Body::empty()).unwrap()).await.unwrap();
-    assert_eq!(response.status(),200);
-    assert_eq!(response.headers()["content-type"],"text/event-stream");
-    assert_eq!(response.headers()["cache-control"],"no-cache, no-transform");
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/mcp")
+                .header("host", "testserver")
+                .header("accept", "text/event-stream")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    assert_eq!(response.headers()["content-type"], "text/event-stream");
+    assert_eq!(
+        response.headers()["cache-control"],
+        "no-cache, no-transform"
+    );
 }
-
 
 #[test]
 fn protocol_adapter_preserves_python_envelope_order() {
@@ -36,10 +79,26 @@ fn protocol_adapter_preserves_python_envelope_order() {
 #[test]
 fn tool_schemas_use_python_model_field_order() {
     let input = json!({"id":1,"result":{"tools":[{"name":"list_markets"}]}});
-    let result = verdaxis_read::mcp::transport::python_envelope(input,"tools/list");
+    let result = verdaxis_read::mcp::transport::python_envelope(input, "tools/list");
     let tool = &result["result"]["tools"][0];
-    assert_eq!(tool["inputSchema"].as_object().unwrap().keys().map(String::as_str).collect::<Vec<_>>(), vec!["properties","type","title"]);
-    assert_eq!(tool["annotations"].as_object().unwrap().keys().map(String::as_str).collect::<Vec<_>>(), vec!["destructiveHint","idempotentHint","readOnlyHint"]);
+    assert_eq!(
+        tool["inputSchema"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect::<Vec<_>>(),
+        vec!["properties", "type", "title"]
+    );
+    assert_eq!(
+        tool["annotations"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect::<Vec<_>>(),
+        vec!["destructiveHint", "idempotentHint", "readOnlyHint"]
+    );
 }
 
 #[test]
