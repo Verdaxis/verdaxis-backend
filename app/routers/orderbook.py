@@ -1,98 +1,106 @@
 import hashlib
 from dataclasses import dataclass
-
-from fastapi import APIRouter, Body, Depends, Header, HTTPException, Request, Response, status, Query
-from fastapi.responses import JSONResponse
-from app.services.audit_service import record_audit, request_audit_context
-from app.services.audit_actions import (
-    ORDER_CANCELLED,
-    ORDER_CREATED,
-    ORDER_UPDATED,
-    MARKET_SUPPORT_AUTHORIZATION_CREATED,
-)
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, or_, and_, case
-from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import contains_eager, joinedload, selectinload
-from typing import Annotated, Literal, Optional
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime
 from decimal import Decimal
+from typing import Annotated, Literal, Optional
 from uuid import UUID
 
-from app.database import get_db
+from fastapi import (
+    APIRouter,
+    Body,
+    Depends,
+    Header,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+    status,
+)
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel
+from sqlalchemy import and_, case, func, or_, select
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import contains_eager, joinedload, selectinload
+
 from app.config import settings
-from app.routing import MarketJSONBodyLimitRoute
-from app.routers.auth_simple import get_authenticated_user, get_current_user
+from app.database import get_db
+from app.market_catalog import APPROVED_MARKET_PRODUCTS, PRODUCTS_BY_ID, MarketProduct
 from app.middleware.execution import require_execution_eligible_user
-from app.models.user import OrganizationProvenance, User, UserRole
-from app.models.orderbook import OrderBookOrder, OrderSide, OrderBookStatus, OrderCreationMethod
+from app.models.catalog import DeliveryPoint, Product
 from app.models.market_support import (
     MarketSupportAuthorization,
     MarketSupportAuthorizationStatus,
+)
+from app.models.market_support import (
     MarketSupportContext as MarketSupportContextModel,
 )
 from app.models.notification import NotificationType
-from app.market_catalog import APPROVED_MARKET_PRODUCTS, MarketProduct, PRODUCTS_BY_ID
-from app.services.market_catalog_validation import require_orderbook_product
-from app.services.lng_order import (
-    is_lng_product, lng_metadata_fields, validate_lng_order_admission,
+from app.models.orderbook import (
+    OrderBookOrder,
+    OrderBookStatus,
+    OrderCreationMethod,
+    OrderSide,
 )
-from app.services.fame_order import (
-    fame_metadata_fields, is_fame_product, public_fame_terms, validate_fame_order_terms,
-)
-from app.models.catalog import Product, DeliveryPoint
-from app.schemas.orderbook import (
-    OrderCreate,
-    OrderCancelRequest,
-    OrderUpdate,
-    OrderResponse,
-    OrderBookSnapshotResponse,
-    OrderMyResponse,
-    SupplierListingTemplateResponse,
-    AggregatedOrderbookResponse,
-    MapCompactMarketResponse,
-    MapCompactSummaryResponse,
-    MapRecentAskResponse,
-    MapSummaryResponse,
-    OrderResponseWithCI,
-    ProductCountResponse,
-)
-from app.schemas.pagination import PaginatedResponse
+from app.models.user import OrganizationProvenance, User, UserRole
+from app.routers.auth_simple import get_authenticated_user, get_current_user
+from app.routing import MarketJSONBodyLimitRoute
 from app.schemas.market_activity import (
     MarketDataProvenance,
     MarketDemoStatus,
     MarketScope,
     MarketSourceKind,
 )
-from app.services.ci_pricing import calculate_ci_adjusted_price
-from app.services.activity import order_activity_provenance
-from app.services.market_events import (
-    commit_market_events,
-    enqueue_market_events,
-    participant_market_event,
+from app.schemas.orderbook import (
+    AggregatedOrderbookResponse,
+    MapCompactMarketResponse,
+    MapCompactSummaryResponse,
+    MapRecentAskResponse,
+    MapSummaryResponse,
+    OrderBookSnapshotResponse,
+    OrderCancelRequest,
+    OrderCreate,
+    OrderMyResponse,
+    OrderResponse,
+    OrderResponseWithCI,
+    OrderUpdate,
+    ProductCountResponse,
+    SupplierListingTemplateResponse,
 )
-from app.services.market_transactions import retry_market_transaction
-from app.services.org_notifications import notify_org_users_batched
+from app.schemas.pagination import PaginatedResponse
 from app.services import market_transactions
+from app.services.activity import order_activity_provenance
+from app.services.audit_actions import (
+    MARKET_SUPPORT_AUTHORIZATION_CREATED,
+    ORDER_CANCELLED,
+    ORDER_CREATED,
+    ORDER_UPDATED,
+)
+from app.services.audit_service import record_audit, request_audit_context
+from app.services.auto_match_side_effects import collect_auto_match_side_effects
 from app.services.availability_windows import (
     availability_window_sort_key,
     is_tradable_availability_window,
     normalize_availability_window,
 )
-from pydantic import BaseModel
-from app.services.benchmarks import compute_premium_discount
-from app.services.watchlist_events import emit_order_created, emit_order_updated, _best_slice_price
-from app.services.execution_policy import normalize_certification_scheme
-from app.services.market_locks import (
-    acquire_market_slice_lock,
-    acquire_market_slice_locks,
-    next_order_acceptance_ordinal,
+from app.services.behavioral_analytics import (
+    order_created_event,
+    track_analytics_event,
+    trade_created_event,
 )
+from app.services.benchmarks import compute_premium_discount
+from app.services.ci_pricing import calculate_ci_adjusted_price
 from app.services.command_results import (
     ORDER_AMEND_OPERATION,
     ORDER_CANCEL_OPERATION,
     prepare_command_attempt,
     record_command_success,
+)
+from app.services.execution_policy import normalize_certification_scheme
+from app.services.fame_order import (
+    fame_metadata_fields,
+    is_fame_product,
+    validate_fame_order_terms,
 )
 from app.services.idempotency import (
     ORDER_CREATE_OPERATION,
@@ -101,22 +109,6 @@ from app.services.idempotency import (
     normalize_idempotency_key,
 )
 from app.services.inventory_reservations import release_inventory, reserve_inventory
-from app.services.order_quantity import require_minimum_order_quantity
-from app.services.provenance import snapshot_organization_provenance
-from app.services.market_provenance import (
-    order_market_provenance,
-    public_order_evidence_clause,
-)
-from app.services.market_data_eligibility import (
-    canonical_delivery_point_clause,
-    canonical_market_product_expression,
-    public_order_is_visible,
-    public_trade_is_visible,
-)
-from app.services.public_order_scope import (
-    apply_public_marketplace_scope as _apply_public_marketplace_scope,
-    public_order_scope as _public_order_scope,
-)
 from app.services.live_benchmarks import (
     LiveBenchmarkKey,
     get_live_slice_benchmark_price,
@@ -124,15 +116,34 @@ from app.services.live_benchmarks import (
     live_benchmark_key_for_order,
     rebuild_live_slice_benchmarks_for_keys,
 )
-from app.services.behavioral_analytics import (
-    order_created_event,
-    track_analytics_event,
-    trade_created_event,
+from app.services.lng_order import (
+    is_lng_product,
+    lng_metadata_fields,
+    validate_lng_order_admission,
 )
-from app.services.auto_match_side_effects import collect_auto_match_side_effects
 from app.services.market_admission import (
     MarketActorOwnership,
     lock_and_load_market_organizations,
+)
+from app.services.market_catalog_validation import require_orderbook_product
+from app.services.market_data_eligibility import (
+    canonical_delivery_point_clause,
+    canonical_market_product_expression,
+    public_order_is_visible,
+    public_trade_is_visible,
+)
+from app.services.market_events import (
+    enqueue_market_events,
+    participant_market_event,
+)
+from app.services.market_locks import (
+    acquire_market_slice_lock,
+    acquire_market_slice_locks,
+    next_order_acceptance_ordinal,
+)
+from app.services.market_provenance import (
+    order_market_provenance,
+    public_order_evidence_clause,
 )
 from app.services.market_support import (
     authorization_terms_digest,
@@ -141,6 +152,17 @@ from app.services.market_support import (
     order_etag,
     require_matching_etag,
 )
+from app.services.market_support_post_only import assess_locked_order
+from app.services.market_transactions import retry_market_transaction
+from app.services.order_quantity import require_minimum_order_quantity
+from app.services.org_notifications import notify_org_users_batched
+from app.services.provenance import snapshot_organization_provenance
+from app.services.public_order_scope import (
+    apply_public_marketplace_scope as _apply_public_marketplace_scope,
+)
+from app.services.public_order_scope import (
+    public_order_scope as _public_order_scope,
+)
 from app.services.request_party import (
     MARKET_SUPPORT_CONTEXT_HEADER,
     RequestParty,
@@ -148,7 +170,11 @@ from app.services.request_party import (
     lock_request_party_context,
     resolve_request_party,
 )
-from app.services.market_support_post_only import assess_locked_order
+from app.services.watchlist_events import (
+    _best_slice_price,
+    emit_order_created,
+    emit_order_updated,
+)
 
 router = APIRouter(
     prefix="/orderbook",
@@ -272,7 +298,7 @@ def _market_product_filter_condition(market_product: str):
     return canonical_market_product_expression(Product) == market_product
 
 
-def compute_is_crossed(side: str, price: Decimal, best_opposing_price: Optional[Decimal]) -> bool:
+def compute_is_crossed(side: str, price: Decimal, best_opposing_price: Decimal | None) -> bool:
     """Returns True if this order crosses the market.
 
     A BID crosses when its price >= best available ASK price (buyer willing to
@@ -854,12 +880,12 @@ async def get_orderbook_snapshot(
 
 @router.get("/bids", response_model=PaginatedResponse[OrderResponse])
 async def list_bids(
-    product_id: Optional[UUID] = Query(None, description="Filter by product"),
-    delivery_point_id: Optional[UUID] = Query(None, description="Filter by delivery point"),
-    fuel_type: Optional[str] = Query(None, description="Filter by fuel type (e.g. Methanol, LNG)"),
-    market_product: Optional[MarketProduct] = Query(None, description="Filter by canonical market product"),
-    region: Optional[str] = Query(None, description="Filter by region"),
-    availability_window: Optional[str] = Query(None, description="Filter by availability window"),
+    product_id: UUID | None = Query(None, description="Filter by product"),
+    delivery_point_id: UUID | None = Query(None, description="Filter by delivery point"),
+    fuel_type: str | None = Query(None, description="Filter by fuel type (e.g. Methanol, LNG)"),
+    market_product: MarketProduct | None = Query(None, description="Filter by canonical market product"),
+    region: str | None = Query(None, description="Filter by region"),
+    availability_window: str | None = Query(None, description="Filter by availability window"),
     include_off_spec: bool = Query(False, description="Include off-spec orders"),
     sort_by: Annotated[OrderbookSort, Query()] = "newest",
     skip: int = Query(0, ge=0),
@@ -935,12 +961,12 @@ async def list_bids(
 
 @router.get("/asks", response_model=PaginatedResponse[OrderResponse])
 async def list_asks(
-    product_id: Optional[UUID] = Query(None, description="Filter by product"),
-    delivery_point_id: Optional[UUID] = Query(None, description="Filter by delivery point"),
-    fuel_type: Optional[str] = Query(None, description="Filter by fuel type (e.g. Methanol, LNG)"),
-    market_product: Optional[MarketProduct] = Query(None, description="Filter by canonical market product"),
-    region: Optional[str] = Query(None, description="Filter by region"),
-    availability_window: Optional[str] = Query(None, description="Filter by availability window"),
+    product_id: UUID | None = Query(None, description="Filter by product"),
+    delivery_point_id: UUID | None = Query(None, description="Filter by delivery point"),
+    fuel_type: str | None = Query(None, description="Filter by fuel type (e.g. Methanol, LNG)"),
+    market_product: MarketProduct | None = Query(None, description="Filter by canonical market product"),
+    region: str | None = Query(None, description="Filter by region"),
+    availability_window: str | None = Query(None, description="Filter by availability window"),
     include_off_spec: bool = Query(False, description="Include off-spec orders"),
     sort_by: Annotated[OrderbookSort, Query()] = "newest",
     skip: int = Query(0, ge=0),
@@ -1035,9 +1061,9 @@ async def list_asks(
 
 @router.get("/with-ci", response_model=list[OrderResponseWithCI], deprecated=True)
 async def list_orders_with_ci(
-    product_id: Optional[UUID] = Query(None),
-    delivery_point_id: Optional[UUID] = Query(None),
-    side: Optional[OrderSide] = Query(None),
+    product_id: UUID | None = Query(None),
+    delivery_point_id: UUID | None = Query(None),
+    side: OrderSide | None = Query(None),
     include_off_spec: bool = Query(False, description="Include off-spec orders"),
     skip: Annotated[int, Query(ge=0)] = 0,
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
@@ -1065,7 +1091,7 @@ async def list_orders_with_ci(
         query = query.join(join_target, join_cond)
     query = (
         query.where(*filters)
-        .order_by(OrderBookOrder.created_at.desc())
+        .order_by(OrderBookOrder.created_at.desc(), OrderBookOrder.id.desc())
         .offset(skip)
         .limit(limit)
     )
@@ -1327,12 +1353,12 @@ async def _aggregate_orderbook(
 
 @router.get("/aggregated", response_model=list[AggregatedOrderbookResponse])
 async def list_aggregated_orderbook(
-    product_id: Optional[UUID] = Query(None, description="Filter by product"),
-    delivery_point_id: Optional[UUID] = Query(None, description="Filter by delivery point"),
-    fuel_type: Optional[str] = Query(None, description="Filter by fuel type"),
-    market_product: Optional[MarketProduct] = Query(None, description="Filter by canonical market product"),
-    region: Optional[str] = Query(None, description="Filter by region or delivery point name"),
-    availability_window: Optional[str] = Query(None, description="Filter by availability window"),
+    product_id: UUID | None = Query(None, description="Filter by product"),
+    delivery_point_id: UUID | None = Query(None, description="Filter by delivery point"),
+    fuel_type: str | None = Query(None, description="Filter by fuel type"),
+    market_product: MarketProduct | None = Query(None, description="Filter by canonical market product"),
+    region: str | None = Query(None, description="Filter by region or delivery point name"),
+    availability_window: str | None = Query(None, description="Filter by availability window"),
     include_off_spec: bool = Query(False, description="Include off-spec orders"),
     limit: Annotated[int, Query(ge=1, le=2048)] = 1024,
     db: AsyncSession = Depends(get_db),
@@ -1354,9 +1380,9 @@ async def list_aggregated_orderbook(
 @router.get("/product-counts", response_model=ProductCountResponse)
 async def list_product_counts(
     side: OrderSide = Query(..., description="Listing side to count"),
-    delivery_point_id: Optional[UUID] = Query(None, description="Filter by delivery point"),
-    region: Optional[str] = Query(None, description="Filter by region or delivery point name"),
-    availability_window: Optional[str] = Query(None, description="Filter by availability window"),
+    delivery_point_id: UUID | None = Query(None, description="Filter by delivery point"),
+    region: str | None = Query(None, description="Filter by region or delivery point name"),
+    availability_window: str | None = Query(None, description="Filter by availability window"),
     include_off_spec: bool = Query(False, description="Include off-spec orders"),
     db: AsyncSession = Depends(get_db),
 ) -> ProductCountResponse:
@@ -1466,11 +1492,11 @@ class _CompactMapAccumulator:
     observed_at: datetime
     bid_min_price: Decimal | None = None
     bid_max_price: Decimal | None = None
-    bid_total_quantity: Decimal = Decimal("0")
+    bid_total_quantity: Decimal = Decimal(0)
     bid_order_count: int = 0
     ask_min_price: Decimal | None = None
     ask_max_price: Decimal | None = None
-    ask_total_quantity: Decimal = Decimal("0")
+    ask_total_quantity: Decimal = Decimal(0)
     ask_order_count: int = 0
     spot_best_bid: Decimal | None = None
     spot_best_ask: Decimal | None = None
@@ -1749,10 +1775,10 @@ async def list_fuel_types(db: AsyncSession = Depends(get_db)):
 
 @router.get("", response_model=list[OrderResponse], deprecated=True)
 async def list_orders(
-    product_id: Optional[UUID] = Query(None, description="Filter by product"),
-    delivery_point_id: Optional[UUID] = Query(None, description="Filter by delivery point"),
-    side: Optional[OrderSide] = Query(None, description="Filter by side (BID or ASK)"),
-    availability_window: Optional[str] = Query(None, description="Filter by availability window"),
+    product_id: UUID | None = Query(None, description="Filter by product"),
+    delivery_point_id: UUID | None = Query(None, description="Filter by delivery point"),
+    side: OrderSide | None = Query(None, description="Filter by side (BID or ASK)"),
+    availability_window: str | None = Query(None, description="Filter by availability window"),
     include_off_spec: bool = Query(False, description="Include off-spec orders"),
     skip: Annotated[int, Query(ge=0)] = 0,
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
@@ -1789,7 +1815,7 @@ async def list_orders(
         query = query.join(join_target, join_cond)
     query = (
         query.where(*filters)
-        .order_by(OrderBookOrder.created_at.desc())
+        .order_by(OrderBookOrder.created_at.desc(), OrderBookOrder.id.desc())
         .offset(effective_skip)
         .limit(effective_limit)
     )
@@ -2019,7 +2045,9 @@ async def create_order(
     )
     organization = organizations[effective_organization_id]
     if party.mode == RequestPartyMode.MARKET_SUPPORT:
-        from app.services.execution_policy import require_customer_organization_execution
+        from app.services.execution_policy import (
+            require_customer_organization_execution,
+        )
 
         await require_customer_organization_execution(db, organization)
     require_minimum_order_quantity(
