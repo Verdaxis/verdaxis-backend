@@ -18,6 +18,30 @@ class VerificationReport:
     notice_count: int
 
 
+async def require_unfiltered_reads(connection):
+    # This one-use contract permits no RLS, even owner-bypassed or FORCE-only
+    # drift. row_security=off makes a later filtered read fail, not bypass RLS.
+    await connection.execute(text('SET LOCAL row_security=off'))
+    bypass = (await connection.execute(text(
+        'SELECT rolbypassrls FROM pg_roles WHERE rolname=current_user'
+    ))).scalar_one()
+    secured = (await connection.execute(text("""
+        SELECT EXISTS (
+            SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+            WHERE c.relkind IN ('r','p')
+              AND n.nspname NOT IN ('pg_catalog','information_schema')
+              AND n.nspname NOT LIKE 'pg_toast%'
+              AND (c.relrowsecurity OR c.relforcerowsecurity)
+              AND NOT EXISTS (
+                  SELECT 1 FROM pg_depend d WHERE d.classid='pg_class'::regclass
+                    AND d.objid=c.oid AND d.deptype='e'
+              )
+        )
+    """))).scalar_one()
+    if bypass or secured:
+        raise ValueError('Row-level security or bypass authority is not approved')
+
+
 async def sequence_states(connection, catalog):
     states = {}
     for sequence in catalog['sequences']:
@@ -39,6 +63,7 @@ async def table_hash(connection, table, columns=None):
 
 async def fingerprint_database(connection, catalog):
     await connection.execute(text("SET LOCAL TIME ZONE 'UTC'"))
+    await require_unfiltered_reads(connection)
     tables = {name: await table_hash(connection, table) for name, table in catalog['tables'].items()}
     return dict(tables=tables, sequences=await sequence_states(connection, catalog))
 
@@ -83,6 +108,8 @@ async def check_historical_invariants(connection):
 
 
 async def verify_database(manifest, source, target) -> VerificationReport:
+    await require_unfiltered_reads(source)
+    await require_unfiltered_reads(target)
     tables, totals, new_reference = {}, {}, {}
     for name, mapping in manifest['tables'].items():
         if mapping['classification'] == 'skip':

@@ -38,6 +38,7 @@ from scripts.phase0.verify import (
     VerificationReport,
     check_historical_invariants,
     notice_receipts,
+    require_unfiltered_reads,
     sequence_states,
     verify_database,
 )
@@ -170,6 +171,7 @@ async def attest(connection, identity, *, owner):
         raise CopyRefused('Role authority refused')
     if row['owns_database'] != owner:
         raise CopyRefused('Database ownership refused')
+    await require_unfiltered_reads(connection)
     if owner:
         count = (await connection.execute(text("""
             SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
