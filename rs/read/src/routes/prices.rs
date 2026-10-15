@@ -1,5 +1,5 @@
 #[path = "prices_date.rs"]
-mod date_parser;
+pub(crate) mod date_parser;
 #[path = "prices_query.rs"]
 pub mod query;
 // Immutable price summaries and REAL-only daily reference prices.

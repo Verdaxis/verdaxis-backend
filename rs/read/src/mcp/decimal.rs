@@ -5,7 +5,9 @@ use num_traits::{Signed, Zero};
 use std::cmp::Ordering;
 
 const PRECISION: usize = 28;
-const MAX_EXPONENT: i32 = 10000;
+// Python's default arithmetic context permits exponents down to Etiny
+// (Emin - precision + 1). Full constructor-domain parity remains separate.
+const MAX_EXPONENT: i32 = 1_000_026;
 
 #[derive(Clone, Debug)]
 pub struct Decimal {

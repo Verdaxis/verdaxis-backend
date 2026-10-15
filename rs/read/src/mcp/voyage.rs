@@ -64,7 +64,7 @@ fn available(fuel: &str, port: &str) -> bool {
         })
 }
 
-fn canonical_port(port: &str) -> Result<String, String> {
+pub(super) fn canonical_port(port: &str) -> Result<String, String> {
     // Catalog names are ASCII. Long s is the additional Unicode case-fold
     // equivalence that can occur in these names (Python uses str.casefold).
     let folded: String = port
@@ -99,14 +99,9 @@ fn canonical_port(port: &str) -> Result<String, String> {
 }
 
 fn parse_request(input: &Json) -> Result<Request, String> {
-    let mut request: Request =
-        serde_json::from_value(input.clone()).map_err(|error| error.to_string())?;
-    let mut prices = serde_json::Map::new();
-    for (port, price) in request.assumptions.vlsfo_price_usd_per_mt {
-        prices.insert(canonical_port(&port)?, price);
-    }
-    request.assumptions.vlsfo_price_usd_per_mt = prices;
-    Ok(request)
+    let mut arguments = json!({"request": input});
+    super::validation::tool_arguments("plan_voyage_fuel", &mut arguments)?;
+    serde_json::from_value(arguments["request"].clone()).map_err(|error| error.to_string())
 }
 
 fn conventional() -> &'static str {

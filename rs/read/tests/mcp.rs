@@ -296,6 +296,58 @@ async fn catalog_and_protocol_bypass_saturated_database_admission() {
 }
 
 #[tokio::test]
+async fn invalid_matrix_inputs_precede_saturated_admission() {
+    use axum::{
+        body::{Body, to_bytes},
+        http::Request,
+    };
+    use tower::ServiceExt;
+    let state = state();
+    let _permit = state.reads.clone().acquire_many_owned(8).await.unwrap();
+    let app = verdaxis_read::mcp::mcp_router().with_state(state.clone());
+    let vectors: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../deploy/rust/mcp-validation-vectors.json"
+    ))
+    .unwrap();
+    for vector in vectors.as_array().unwrap() {
+        let Some(expected) = vector["error"].as_str() else {
+            continue;
+        };
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/mcp")
+                    .header("host", "testserver")
+                    .header("accept", "application/json, text/event-stream")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        json!({"jsonrpc":"2.0","id":1,"method":"tools/call",
+                "params":{"name":vector["tool"],"arguments":vector["arguments"]}})
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 200);
+        let bytes = to_bytes(response.into_body(), 100000).await.unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(
+            value["result"]["content"][0]["text"],
+            format!(
+                "Error executing tool {}: {expected}",
+                vector["tool"].as_str().unwrap()
+            ),
+            "{}",
+            vector["name"]
+        );
+        assert_eq!(state.reads.available_permits(), 0);
+    }
+}
+
+#[tokio::test]
 async fn database_unavailability_is_sanitized_and_catalog_stays_available() {
     use axum::{
         body::{Body, to_bytes},
