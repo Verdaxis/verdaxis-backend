@@ -66,10 +66,10 @@ def write_fixture(
         "ok": True,
         "completed_at": (NOW - timedelta(hours=1)).isoformat(),
         "backup_id": backup_id,
-        "databases": ["verdaxis", "verdaxis_staging", "umami"],
+        "databases": ["verdaxis_prod", "verdaxis_staging", "umami"],
     }
     (directory / "status.json").write_text(json.dumps(payload))
-    prefixes = ("verdaxis", "verdaxis-staging", "umami")
+    prefixes = ("verdaxis-prod", "verdaxis-staging", "umami")
     completed_at = datetime.fromisoformat(payload["completed_at"].replace("Z", "+00:00"))
     for prefix in prefixes:
         artifact = directory / f"{prefix}-{backup_id}.sql.gz"
@@ -122,7 +122,7 @@ def test_expected_inventory_and_complete_gzip_set_pass(tmp_path):
     assert {result["name"] for result in results} == {
         "backup_attempt",
         "backup_metadata",
-        "verdaxis_artifact",
+        "verdaxis_prod_artifact",
         "verdaxis_staging_artifact",
         "umami_artifact",
     }
@@ -178,7 +178,7 @@ def test_only_a_newer_verified_success_recovers_from_a_failed_attempt(tmp_path):
             "ok": True,
             "completed_at": newer_completed.isoformat(),
             "backup_id": newer_id,
-            "databases": ["verdaxis", "verdaxis_staging", "umami"],
+            "databases": ["verdaxis_prod", "verdaxis_staging", "umami"],
         },
         backup_id=newer_id,
     )
@@ -245,7 +245,7 @@ def test_symlinked_attempt_record_fails_closed(tmp_path):
 @pytest.mark.parametrize(
     ("change", "expected_code"),
     [
-        (lambda payload: payload.update(databases=["verdaxis"]), "unexpected_inventory"),
+        (lambda payload: payload.update(databases=["verdaxis_prod"]), "unexpected_inventory"),
         (lambda payload: payload.update(completed_at="not-a-time"), "invalid_timestamp"),
         (lambda payload: payload.update(completed_at=(NOW + timedelta(minutes=6)).isoformat()), "future_timestamp"),
         (lambda payload: payload.update(completed_at=(NOW - timedelta(hours=31)).isoformat()), "stale_status"),
@@ -269,8 +269,8 @@ def test_corrupt_future_stale_and_inventory_metadata_fail_safely(tmp_path, chang
     [
         None,
         "verdaxis,verdaxis_staging,umami",
-        [{"name": "verdaxis"}, "verdaxis_staging", "umami"],
-        [["verdaxis"], "verdaxis_staging", "umami"],
+        [{"name": "verdaxis_prod"}, "verdaxis_staging", "umami"],
+        [["verdaxis_prod"], "verdaxis_staging", "umami"],
     ],
 )
 def test_malformed_database_inventory_types_fail_without_crashing(tmp_path, inventory):
@@ -299,7 +299,7 @@ def test_backup_metadata_rejects_duplicate_json_keys(tmp_path):
     (tmp_path / "status.json").write_text(
         '{"ok":true,"ok":true,"completed_at":"2026-07-20T03:00:00Z",'
         '"backup_id":"20260720-030000",'
-        '"databases":["verdaxis","verdaxis_staging","umami"]}'
+        '"databases":["verdaxis_prod","verdaxis_staging","umami"]}'
     )
 
     assert codes(verify(tmp_path)) == {"metadata_invalid_json"}
@@ -354,7 +354,7 @@ def test_metadata_symlink_is_rejected(tmp_path):
 
 def test_newer_artifact_than_status_is_rejected(tmp_path):
     write_fixture(tmp_path)
-    with gzip.open(tmp_path / "verdaxis-20260720-033000.sql.gz", "wb") as handle:
+    with gzip.open(tmp_path / "verdaxis-prod-20260720-033000.sql.gz", "wb") as handle:
         handle.write(b"newer")
 
     results = verify(tmp_path)

@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
+import os
+import re
+from collections.abc import Mapping
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from ipaddress import ip_address
-import os
-import re
-from typing import Mapping
 
 from sqlalchemy import text
 from sqlalchemy.engine import URL, make_url
@@ -15,10 +15,9 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from app.services.availability_windows import normalize_availability_window
 
-
 _OPT_IN = "I_UNDERSTAND_SEED_MUTATIONS"
 _DISPOSABLE_NAME = re.compile(r"^[a-z0-9][a-z0-9_-]*_test$")
-_DENIED_DATABASES = {"verdaxis", "postgres", "template0", "template1"}
+_DENIED_DATABASES = {"verdaxis", "verdaxis_prod", "postgres", "template0", "template1"}
 _DENIED_ROLES = {"postgres", "root"}
 
 

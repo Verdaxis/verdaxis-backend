@@ -25,7 +25,7 @@ CANONICAL_DEPLOY_LAYOUT=0
 
 case "$BACKEND_DIR" in
     */prod/be)
-        DEFAULT_BRANCH="prod"
+        DEFAULT_BRANCH="staging"
         DEPLOY_ENVIRONMENT="production"
         SERVICE_NAME="verdaxis-backend.service"
         HEALTH_URL="https://api.verdaxis.exchange/health/ready"

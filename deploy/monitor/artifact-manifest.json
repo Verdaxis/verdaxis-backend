@@ -17,7 +17,7 @@
       "source": "backup_verify.py",
       "destination": "/usr/local/libexec/verdaxis-monitor/backup_verify.py",
       "mode": "0755",
-      "sha256": "074856135655a95a4a656e73be3881d20b0d940f1e4668fd98d5c367b079059e"
+      "sha256": "189feb352cd10fce1b98146f0748f39c17ca8220e4b4a09e3cd251611c58973e"
     },
     {
       "source": "legacy_retirement.py",
