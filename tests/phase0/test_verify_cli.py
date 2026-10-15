@@ -37,6 +37,8 @@ async def prepare_cli(case, tmp_path, *, receipt_failure=False):
     # Close both caller connections: verification must use independent sessions.
     await source.close()
     await target.close()
+    await source.engine.dispose()
+    await target.engine.dispose()
     return verification
 
 

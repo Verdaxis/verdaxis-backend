@@ -7,7 +7,13 @@ from uuid import UUID
 
 from sqlalchemy import text
 
-from scripts.phase0.codecs import RowHash, configure_text_session, quote, relation, text_batches
+from scripts.phase0.codecs import (
+    RowHash,
+    configure_text_session,
+    quote,
+    relation,
+    text_batches,
+)
 
 
 @dataclass(frozen=True)
@@ -182,3 +188,134 @@ async def verify_database(manifest, source, target) -> VerificationReport:
         raise ValueError('Notice receipt mapping differs')
     await check_historical_invariants(target)
     return VerificationReport(tables, totals, new_reference, len(expected))
+
+
+async def verify_sequences(manifest, source, target):
+    from scripts.phase0.codecs import next_sequence_state
+    from scripts.phase0.copy import GLOBAL_SEQUENCES
+
+    source_states = await sequence_states(source, manifest['source_catalog'])
+    target_states = await sequence_states(target, manifest['target_catalog'])
+    if manifest['source_catalog']['sequences'] != manifest['target_catalog']['sequences']:
+        raise ValueError('Sequence definitions differ')
+    results = {}
+    for definition in manifest['target_catalog']['sequences']:
+        name = definition['name']
+        if definition['owner_table']:
+            table, column = definition['owner_table'], definition['owner_column']
+        else:
+            table, column = GLOBAL_SEQUENCES[name]
+        maximum = (await target.execute(text(
+            f'SELECT max({quote(column)}) FROM {relation(table)}'
+        ))).scalar_one()
+        state = source_states[name]
+        value, called, next_value = next_sequence_state(
+            definition, state['last_value'], state['is_called'], maximum,
+        )
+        if target_states[name] != dict(last_value=value, is_called=called):
+            raise ValueError('Target sequence state differs')
+        results[name] = dict(source=state, last_value=value, is_called=called, next_value=next_value)
+    return results
+
+
+async def verify_independent(manifest, source, target):
+    """Verify committed storage without a copy receipt or any write transaction."""
+    from dataclasses import asdict
+
+    from scripts.phase0.copy import attest, validate_manifest
+    from scripts.phase0.manifest import (
+        digest,
+        inspect_catalog,
+        require_complete_inventory,
+    )
+
+    validate_manifest(manifest)
+    execution = manifest['execution']
+    if execution['source_catalog_sha256'] != digest(manifest['source_catalog']):
+        raise ValueError('Frozen source catalog binding differs')
+    frozen = execution['frozen_source']
+    if source.in_transaction() or target.in_transaction():
+        raise ValueError('Verification owns independent transactions')
+    async with source.begin(), target.begin():
+        for side, connection in (('source', source), ('target', target)):
+            await connection.execute(text('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY'))
+            await configure_text_session(connection)
+            await connection.execute(text('SET LOCAL search_path=public,pg_catalog'))
+            await attest(connection, execution[side], owner=side == 'target')
+            cluster = (await connection.execute(text(
+                'SELECT system_identifier::text FROM pg_control_system()'
+            ))).scalar_one()
+            if cluster != execution[side]['cluster_system_identifier']:
+                raise ValueError('Connected cluster differs')
+            require_complete_inventory(await connection.run_sync(inspect_catalog), manifest[f'{side}_catalog'])
+        source_fingerprint = await fingerprint_database(source, manifest['source_catalog'])
+        if source_fingerprint != frozen:
+            raise ValueError('Frozen source changed')
+        verification = await verify_database(manifest, source, target)
+        sequences = await verify_sequences(manifest, source, target)
+        # Sequences are not MVCC snapshots: a late sequence writer must refuse.
+        if await sequence_states(source, manifest['source_catalog']) != frozen['sequences']:
+            raise ValueError('Frozen source sequence changed')
+        return dict(manifest_digest=digest(manifest), source_fingerprint=source_fingerprint,
+                    verification=asdict(verification), sequences=sequences,
+                    source_identity=execution['source'], target_identity=execution['target'])
+
+
+def main():
+    import argparse
+    import asyncio
+    import json
+    import os
+    from pathlib import Path
+
+    from sqlalchemy.ext.asyncio import create_async_engine
+    from sqlalchemy.pool import NullPool
+
+    from scripts.phase0.copy import (
+        private_json,
+        read_private_file,
+        validate_manifest,
+        validate_url,
+    )
+
+    parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
+    parser.add_argument('--manifest', type=Path, required=True)
+    parser.add_argument('--source-environment-file', type=Path, required=True)
+    parser.add_argument('--target-environment-file', type=Path, required=True)
+    parser.add_argument('--report', type=Path, required=True)
+    args = parser.parse_args()
+    try:
+        if os.path.lexists(args.report):
+            raise ValueError('Report destination already exists')
+        manifest = json.loads(read_private_file(args.manifest))
+        validate_manifest(manifest)
+        # Require the freeze before opening a connection, including after receipt loss.
+        if not manifest['execution']['frozen_source'] or not manifest['execution']['source_catalog_sha256']:
+            raise ValueError('Frozen source evidence required')
+        urls = []
+        for path in (args.source_environment_file, args.target_environment_file):
+            lines = read_private_file(path).splitlines()
+            if len(lines) != 1 or not lines[0].startswith('DATABASE_URL='):
+                raise ValueError('Expected one explicit DATABASE_URL entry')
+            urls.append(validate_url(lines[0].split('=', 1)[1], manifest['execution']))
+
+        async def run():
+            engines = [create_async_engine(url, hide_parameters=True, poolclass=NullPool,
+                       connect_args={'server_settings': {'default_transaction_read_only': 'on'}})
+                       for url in urls]
+            try:
+                async with engines[0].connect() as source, engines[1].connect() as target:
+                    return await verify_independent(manifest, source, target)
+            finally:
+                for engine in engines:
+                    await engine.dispose()
+
+        report = asyncio.run(run())
+        private_json(args.report, report)
+    except Exception:
+        parser.exit(1, 'Verification refused; no successful report published\n')
+    print('Committed copy verified; private report published')
+
+
+if __name__ == '__main__':
+    main()
