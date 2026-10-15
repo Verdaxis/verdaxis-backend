@@ -174,4 +174,37 @@ never disable guards. Same-day groups and equal-time tape/latest-price rows stil
 need source-nondeterminism accounting, not global array sorting. Task 13 retains
 method/HEAD/slash integration ownership.
 
-Final verification results are recorded below when complete.
+### Repair verification record
+
+- The extended HTTP probe exposed UUID character offsets after the initial N1
+  repair: Rust used zero-based offsets and Python used one-based offsets.
+  `4f81a5b` fixes this, with exact-message red/green tests for plain, braced and
+  URN UUID inputs. The initial 40 cases passed; the expanded probe correctly
+  failed rather than suppressing that difference.
+- The first startup-options implementation failed the real Singapore test;
+  the approved after_connect implementation passed the full 93-test PostgreSQL
+  run, including replacement and JSON/CSV boundary checks.
+- A later contract rerun exhausted the disposable database readiness wait under
+  concurrent local Docker load. It did not reach contract cases and is not a
+  parity result. The runner cleaned up its container. The next retry passed
+  migrations and drift checks but hit the ordinary seed's statement timeout on
+  its large order insert, before contract cases. A fresh retry retained all
+  original timeouts and acceptance criteria.
+- Formatting and default/feature-enabled clippy passed. Offline workspace:
+  85 passed. Python contract meta-tests: 42 passed, 5 warnings. Python price
+  router/schema/export/tape suite: 80 passed, 11 warnings (existing deprecations).
+- Final PostgreSQL rerun: **93 passed**, two existing market-matrix tests
+  intentionally filtered by the runner (their migrated corpus belongs to 4b).
+  Container cleanup completed. An additional deterministic 1,000-vector local
+  product-format probe matched Python across trailing-zero scales.
+- Final ordinary contract (`task9-resumed-contract.log`): **40/40 cases matched**,
+  **34/34 populated probes matched** (17 before and 17 after catalog/activity,
+  organization approval and member KYC/membership changes), **20 formal snapshots**
+  compared. Quarantine remains empty under current guards. Persisted product
+  precision below/at/above 28 digits and the new UUID/numeric-date cases passed.
+  The runner completed migrations, drift verification and container cleanup.
+- Resumed checks on the final source: fmt and clippy passed; workspace **85**,
+  Python contract **42**, Python price/schema/export/tape **80** passed. The
+  final real-pool run above remains **93 passed**. No push or live access.
+- All five review findings are repaired. Final populated historical acceptance
+  still requires the PM's Task 4b merge and corpus run described above.
