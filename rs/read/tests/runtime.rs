@@ -5,6 +5,7 @@ use verdaxis_read::{
 
 fn staging() -> Config {
     Config {
+        kyc_execution_gate_enabled: true,
         environment: "staging".into(),
         release_sha: compiled_sha().into(),
         migration_revision: "kycg_20261014_staging".into(),
@@ -15,6 +16,36 @@ fn staging() -> Config {
         python_budget: 52,
         configured_max_connections: 100,
     }
+}
+
+#[test]
+fn kyc_runtime_input_defaults_enabled_and_rejects_ambiguous_values() {
+    let mut input = serde_json::json!({
+        "environment": "test", "release_sha": compiled_sha(),
+        "migration_revision": "kycg_20261014_staging",
+        "database_url": "postgres://rust_app:pw@127.0.0.1:12345/verdaxis_test",
+        "bind": "127.0.0.1:0", "pool_max": 9, "python_budget": 52,
+        "configured_max_connections": 100
+    });
+    assert!(
+        serde_json::from_value::<Config>(input.clone())
+            .unwrap()
+            .kyc_execution_gate_enabled
+    );
+    input["KYC_EXECUTION_GATE_ENABLED"] = serde_json::json!(false);
+    assert!(
+        !serde_json::from_value::<Config>(input.clone())
+            .unwrap()
+            .kyc_execution_gate_enabled
+    );
+    input["kyc_execution_gate_enabled"] = serde_json::json!(true);
+    assert!(serde_json::from_value::<Config>(input.clone()).is_err());
+    input
+        .as_object_mut()
+        .unwrap()
+        .remove("kyc_execution_gate_enabled");
+    input["KYC_EXECUTION_GATE_ENABLED"] = serde_json::json!("false");
+    assert!(serde_json::from_value::<Config>(input).is_err());
 }
 
 #[test]

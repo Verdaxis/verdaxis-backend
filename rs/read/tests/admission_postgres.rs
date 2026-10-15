@@ -10,6 +10,7 @@ const SLOW: &str = "SELECT pg_sleep(5)";
 /// observer that never consumes an admission slot.
 async fn state() -> (Arc<AppState>, sqlx::PgPool, sqlx::PgPool) {
     let config = Config {
+        kyc_execution_gate_enabled: true,
         environment: "test".into(),
         release_sha: compiled_sha().into(),
         migration_revision: "kycg_20261014_staging".into(),

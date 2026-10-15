@@ -14,6 +14,7 @@
 --   $10 region (text, null = any)
 --   $11 availability_window (text, null = any)
 --   $12 surface: orderbook, listings, or candidates (text)
+--   $13 runtime KYC execution gate enabled (boolean)
 -- No pagination here: consumers rank, aggregate and page the shared relation.
 --
 -- Product identity comes only from the policy. The statement never names a
@@ -115,19 +116,19 @@ WHERE o.status IN ('OPEN', 'PARTIALLY_FILLED')
                         AND member.email_verified
                         AND NOT member.must_change_password
                         AND member.kyc_status <> 'REJECTED'
-                        AND (
-                            (
-                                member.kyc_status = 'APPROVED'
-                                AND member.kyc_organization_id = member.organization_id
-                            )
+                        AND CASE WHEN $13::boolean THEN (
+                            (member.kyc_status = 'APPROVED'
+                             AND member.kyc_organization_id = member.organization_id)
                             OR EXISTS (
-                                SELECT 1
-                                FROM kyc_execution_grace AS grace
+                                SELECT 1 FROM kyc_execution_grace AS grace
                                 WHERE grace.user_id = member.id
                                   AND grace.organization_id = member.organization_id
                                   AND grace.expires_at > $2::timestamptz
                             )
-                        )
+                        ) ELSE (
+                            member.kyc_organization_id IS NULL
+                            OR member.kyc_organization_id = member.organization_id
+                        ) END
                   )
                   AND EXISTS (
                       SELECT 1
@@ -149,19 +150,19 @@ WHERE o.status IN ('OPEN', 'PARTIALLY_FILLED')
                       AND owner.email_verified
                       AND NOT owner.must_change_password
                       AND owner.kyc_status <> 'REJECTED'
-                      AND (
-                          (
-                              owner.kyc_status = 'APPROVED'
-                              AND owner.kyc_organization_id = owner.organization_id
-                          )
+                      AND CASE WHEN $13::boolean THEN (
+                          (owner.kyc_status = 'APPROVED'
+                           AND owner.kyc_organization_id = owner.organization_id)
                           OR EXISTS (
-                              SELECT 1
-                              FROM kyc_execution_grace AS grace
+                              SELECT 1 FROM kyc_execution_grace AS grace
                               WHERE grace.user_id = owner.id
                                 AND grace.organization_id = owner.organization_id
                                 AND grace.expires_at > $2::timestamptz
                           )
-                      )
+                      ) ELSE (
+                          owner.kyc_organization_id IS NULL
+                          OR owner.kyc_organization_id = owner.organization_id
+                      ) END
                       AND EXISTS (
                           SELECT 1
                           FROM organizations AS org

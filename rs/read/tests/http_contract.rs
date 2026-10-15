@@ -121,6 +121,7 @@ async fn rate_bursts_share_one_client_route_bucket() {
 #[tokio::test]
 async fn router_health_methods_and_empty_routes() {
     let config = verdaxis_read::Config {
+        kyc_execution_gate_enabled: true,
         environment: "test".into(),
         release_sha: verdaxis_read::compiled_sha().into(),
         migration_revision: "kycg_20261014_staging".into(),
@@ -577,6 +578,7 @@ async fn rate_limit_is_per_client_and_route() {
 async fn cors_wraps_saturated_admission() {
     use verdaxis_read::runtime::http::middleware_with_state;
     let config = verdaxis_read::Config {
+        kyc_execution_gate_enabled: true,
         environment: "test".into(),
         release_sha: verdaxis_read::compiled_sha().into(),
         migration_revision: "kycg_20261014_staging".into(),

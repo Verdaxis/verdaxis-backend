@@ -75,6 +75,9 @@ pub struct ApiError {
 
 #[derive(Clone, serde::Deserialize)]
 pub struct Config {
+    /// Runtime-owned KYC_EXECUTION_GATE_ENABLED; never a request filter.
+    #[serde(default = "kyc_gate_default", alias = "KYC_EXECUTION_GATE_ENABLED")]
+    pub kyc_execution_gate_enabled: bool,
     pub environment: String,
     pub release_sha: String,
     pub migration_revision: String,
@@ -83,6 +86,10 @@ pub struct Config {
     pub pool_max: u32,
     pub python_budget: u32,
     pub configured_max_connections: u32,
+}
+
+fn kyc_gate_default() -> bool {
+    true
 }
 
 #[derive(Clone, serde::Serialize, serde::Deserialize)]

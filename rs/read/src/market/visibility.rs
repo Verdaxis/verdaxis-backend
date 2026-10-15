@@ -8,7 +8,7 @@
 use chrono::{DateTime, NaiveDate, Utc};
 use uuid::Uuid;
 
-use crate::MarketPolicy;
+use crate::{Config, MarketPolicy};
 use sqlx::{postgres::PgArguments, query::Query};
 
 /// The complete bound public-order SELECT.
@@ -85,6 +85,7 @@ pub fn bind_order_query<'q>(
     sql: &OrderQuery,
     policy: &MarketPolicy,
     clock: &VisibilityClock,
+    config: &Config,
     filters: &PublicOrderFilters<'_>,
 ) -> Result<Query<'q, sqlx::Postgres, PgArguments>, sqlx::Error> {
     Ok(sqlx::query(sqlx::AssertSqlSafe(sql.0.clone()))
@@ -99,7 +100,8 @@ pub fn bind_order_query<'q>(
         .bind(filters.market_product.map(str::to_owned))
         .bind(filters.region.map(str::to_owned))
         .bind(filters.availability_window.map(str::to_owned))
-        .bind(filters.surface.as_str()))
+        .bind(filters.surface.as_str())
+        .bind(config.kyc_execution_gate_enabled))
 }
 
 pub fn bind_trade_query<'q>(
@@ -160,10 +162,11 @@ pub async fn select_public_order_ids(
     connection: &mut sqlx::PgConnection,
     policy: &MarketPolicy,
     clock: &VisibilityClock,
+    config: &Config,
     filters: &PublicOrderFilters<'_>,
 ) -> Result<Vec<Uuid>, sqlx::Error> {
-    let sql = order_query_sql("SELECT id FROM eligible_orders ORDER BY id LIMIT $13 OFFSET $14");
-    let rows = bind_order_query(&sql, policy, clock, filters)?
+    let sql = order_query_sql("SELECT id FROM eligible_orders ORDER BY id LIMIT $14 OFFSET $15");
+    let rows = bind_order_query(&sql, policy, clock, config, filters)?
         .bind(filters.limit)
         .bind(filters.skip)
         .fetch_all(connection)

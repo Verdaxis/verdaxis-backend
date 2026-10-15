@@ -891,7 +891,7 @@ pub struct TradeQuery(/* private */);
 pub fn order_query_sql(tail: &'static str) -> OrderQuery;
 pub fn trade_query_sql(tail: &'static str) -> TradeQuery;
 pub fn bind_order_query<'q>(sql: &OrderQuery, policy: &MarketPolicy,
-    clock: &VisibilityClock, filters: &PublicOrderFilters<'_>)
+    clock: &VisibilityClock, config: &Config, filters: &PublicOrderFilters<'_>)
     -> Result<sqlx::query::Query<'q, sqlx::Postgres, sqlx::postgres::PgArguments>, sqlx::Error>;
 pub fn bind_trade_query<'q>(sql: &TradeQuery, policy: &MarketPolicy,
     filters: &TradeEvidenceFilters<'_>)
@@ -922,7 +922,7 @@ pub fn order_is_execution_qualified_at(policy: &MarketPolicy,
 
 `public_order_sql()` and `trade_evidence_sql()` now return unpaged internal relations. The order relation projects order columns, catalog labels, and `private_digest_input` with exact NUMERIC text. Never serialize that internal object publicly. `order_query_sql(static_tail)` wraps it as `eligible_orders`; `trade_query_sql(static_tail)` wraps snapshots as `eligible_trades`. Sealed query types prevent callers from passing request strings to the bind helpers. Static tails may add CTEs, exact tuple filters, ranking, aggregation and pagination. Run the bound query on the admitted transaction connection.
 
-Order binds are policy, UTC instant, Singapore date, off-spec toggle, product, point, side, fuel, market product, region, window, surface (`$1..$12`). Additional tail binds start at `$13`. Trade binds are policy, inclusive since, exclusive before, product, point, window (`$1..$6`); tail binds start at `$7`. `PublicOrderFilters.surface` is `Orderbook` by default. `Listings` applies its narrower ASK query without main scalar qualification. `Candidates` retains shared catalog/current/provenance rules but leaves scalar/typed qualification to benchmarks and curves. No relation applies a positive remaining-quantity filter. Consumers apply it where Python does. Existing ID helpers remain test/convenience adapters, not route pagination APIs. `skip`/`limit` on filter structs are used only by those adapters.
+Order binds are policy, UTC instant, Singapore date, off-spec toggle, product, point, side, fuel, market product, region, window, surface, runtime KYC gate (`$1..$13`). Additional tail binds start at `$14`. The gate comes only from `Config.kyc_execution_gate_enabled` (default true), never request filters. Trade binds are policy, inclusive since, exclusive before, product, point, window (`$1..$6`); tail binds start at `$7`. `PublicOrderFilters.surface` is `Orderbook` by default. `Listings` applies its narrower ASK query without main scalar qualification. `Candidates` retains shared catalog/current/provenance rules but leaves scalar/typed qualification to benchmarks and curves. No relation applies a positive remaining-quantity filter. Consumers apply it where Python does. Existing ID helpers remain test/convenience adapters, not route pagination APIs. `skip`/`limit` on filter structs are used only by those adapters.
 
 Tasks 6a and 10b must use `VisibilityClock::at(now).singapore_date` with `order_is_execution_qualified_at`; never read the process clock within a captured-clock request.
 
@@ -975,7 +975,7 @@ pub fn digest_terms(canonical_terms: &Json) -> Result<String, String> {
 
 The canonical input builder must emit every field in `app/services/order_terms.py:60-112`, including private identifiers, exact boolean defaults, omitted absent LNG terms, normalized Decimal strings, and UTC microsecond `Z` timestamps. Do not hash public DTOs. `decimal_text` is for the digest only; wire amounts retain Python scale. Add non-ASCII and escaping vectors because different JSON encoders can hash different bytes.
 
-Implement visibility SQL from the cited predicates, with SQL three-valued null behavior intact. Use the exact KYC clause below inside the full owner/assisted branches:
+Implement visibility SQL from the cited predicates, with SQL three-valued null behavior intact. Use the exact enabled KYC clause below inside the full owner/assisted branches. With runtime `KYC_EXECUTION_GATE_ENABLED=false`, use `u.kyc_status <> 'REJECTED' AND (u.kyc_organization_id IS NULL OR u.kyc_organization_id = u.organization_id)` instead; grace does not override a foreign review in advisory mode:
 
 ```sql
 u.kyc_status <> 'REJECTED'
@@ -1000,7 +1000,7 @@ Do not infer `is_verdaxis_verified` from declared certificates. Use allowlisted 
 
 **Files:** Create `rs/read/src/market/live_benchmarks.rs`, `rs/read/sql/live_benchmarks.sql`, `rs/read/tests/live_benchmarks.rs`. Task 3 pre-registers the module; Task 6a owns it exclusively.
 
-**Interfaces:** Consumes shared visibility, policy, typed qualification and Decimal rules. Produces: Uses `order_query_sql(&'static str) -> OrderQuery` and `bind_order_query(&OrderQuery, &MarketPolicy, &VisibilityClock, &PublicOrderFilters) -> Result<Query, sqlx::Error>` with `OrderSurface::Candidates`; applies typed qualification with `order_is_execution_qualified_at` before aggregation.
+**Interfaces:** Consumes shared visibility, policy, typed qualification and Decimal rules. Produces: Uses `order_query_sql(&'static str) -> OrderQuery` and `bind_order_query(&OrderQuery, &MarketPolicy, &VisibilityClock, &Config, &PublicOrderFilters) -> Result<Query, sqlx::Error>` with `OrderSurface::Candidates`; applies typed qualification with `order_is_execution_qualified_at` before aggregation.
 
 ```rust
 #[derive(Clone, Eq, PartialEq, Hash)]

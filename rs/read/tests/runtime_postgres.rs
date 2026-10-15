@@ -4,6 +4,7 @@ use verdaxis_read::{Config, compiled_sha, connect, validate_config};
 
 fn config(variable: &str) -> Config {
     let config = Config {
+        kyc_execution_gate_enabled: true,
         environment: "test".into(),
         release_sha: compiled_sha().into(),
         migration_revision: "kycg_20261014_staging".into(),

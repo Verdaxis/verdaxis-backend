@@ -99,6 +99,8 @@ async def seed(session, clock: datetime) -> dict:
         "real": ("REAL", "APPROVED"),
         "real_alt": ("REAL", "APPROVED"),
         "real_admin_only": ("REAL", "APPROVED"),
+        "advisory_customer": ("REAL", "APPROVED"),
+        "foreign_customer": ("REAL", "APPROVED"),
         "demo_buyer": ("DEMO", "APPROVED"),
         "demo_seller": ("DEMO", "APPROVED"),
         "test_a": ("TEST", "APPROVED"),
@@ -145,6 +147,11 @@ async def seed(session, clock: datetime) -> dict:
         "grace_after": ("real", "BUYER", "APPROVED", True, False, "PENDING", None),
         "org_revoked": ("pending", "BUYER", "APPROVED", True, False, "APPROVED", "pending"),
         "admin_rejected": ("real", "ADMIN", "REJECTED", True, False, "APPROVED", "real"),
+        "pending_no_grace": ("real", "BUYER", "APPROVED", True, False, "PENDING", None),
+        "submitted_no_grace": ("real", "BUYER", "APPROVED", True, False, "SUBMITTED", "real"),
+        "foreign_review_grace": ("real", "BUYER", "APPROVED", True, False, "APPROVED", "real_alt"),
+        "advisory_customer": ("advisory_customer", "SUPPLIER", "APPROVED", True, False, "SUBMITTED", "advisory_customer"),
+        "foreign_customer": ("foreign_customer", "SUPPLIER", "APPROVED", True, False, "APPROVED", "real_alt"),
     })
     user = {}
     for key, (org_key, role, status, verified, must_change, kyc, kyc_org) in users.items():
@@ -165,11 +172,13 @@ async def seed(session, clock: datetime) -> dict:
                        ("rejected_with_grace", timedelta(hours=1)),
                        ("wrong_grace_org", timedelta(hours=1)),
                        ("grace_before", timedelta(microseconds=-1)),
-                       ("grace_after", timedelta(microseconds=1))):
+                       ("grace_after", timedelta(microseconds=1)),
+                       ("foreign_review_grace", timedelta(hours=1)),
+                       ("foreign_customer", timedelta(hours=1))):
         await _insert(session, INSERT_GRACE, {
             "id": fid(f"grace:{key}"),
             "user_id": user[key],
-            "organization_id": org["real_alt"] if key == "wrong_grace_org" else org["real"],
+            "organization_id": org["real_alt"] if key == "wrong_grace_org" else org["foreign_customer"] if key == "foreign_customer" else org["real"],
             "expires_at": clock + delta,
         })
 
@@ -308,7 +317,8 @@ async def seed(session, clock: datetime) -> dict:
     ]
     additions = {
         name: order(name, owner_user_id=user[name])
-        for name in ("rejected_with_grace", "wrong_kyc_org", "wrong_grace_org", "grace_before", "grace_after")
+        for name in ("rejected_with_grace", "wrong_kyc_org", "wrong_grace_org", "grace_before", "grace_after",
+                     "pending_no_grace", "submitted_no_grace", "foreign_review_grace")
     }
     additions.update({
         "org_revoked": order("org_revoked", organization_id=org["pending"], owner_user_id=user["org_revoked"]),
@@ -318,6 +328,10 @@ async def seed(session, clock: datetime) -> dict:
             owner_user_id=user["admin"], created_by_actor_user_id=user["admin_only"]),
         "admin_kyc_only": order("admin_kyc_only", organization_id=org["real_admin_only"],
             creation_method="MARKET_SUPPORT", owner_user_id=user["admin_only"], created_by_actor_user_id=user["admin_only"]),
+        "assisted_advisory": order("assisted_advisory", organization_id=org["advisory_customer"],
+            creation_method="MARKET_SUPPORT", owner_user_id=user["admin"], created_by_actor_user_id=user["admin"]),
+        "assisted_foreign_grace": order("assisted_foreign_grace", organization_id=org["foreign_customer"],
+            creation_method="MARKET_SUPPORT", owner_user_id=user["admin"], created_by_actor_user_id=user["admin"]),
         "expiry_equal": order("expiry_equal", expires_at=clock),
         "demo_null_expiry": order("demo_null_expiry", provenance="DEMO", organization_id=org["demo_buyer"], owner_user_id=None),
         "zero_remaining": order("zero_remaining", remaining_quantity_mt="0.00"),
@@ -615,17 +629,32 @@ async def _main() -> None:
         async with sessionmaker() as session:
             cases = await seed(session, instant)
             await session.commit()
+        from app.config import settings
+        from unittest.mock import patch
+
+        # Pin each decision independently of the shell and local .env.
         async with sessionmaker() as session:
-            selected = await select(session)
+            with patch.object(settings, "KYC_EXECUTION_GATE_ENABLED", True):
+                selected = await select(session)
+            with patch.object(settings, "KYC_EXECUTION_GATE_ENABLED", False):
+                advisory = await select(session)
             for name, case in cases.items():
                 if "id" in case:
-                    wanted = name in {"grace_after", "typed_invalid_visible"}
+                    wanted = name in {"grace_after", "typed_invalid_visible", "foreign_review_grace", "assisted_foreign_grace"}
+                    advisory_wanted = name in {"grace_after", "typed_invalid_visible", "wrong_grace_org", "grace_before",
+                                               "pending_no_grace", "submitted_no_grace", "assisted_advisory"}
                     assert (case["id"] in selected["selected"]) == wanted, name
+                    assert (case["id"] in advisory["selected"]) == advisory_wanted, name
                     case["visible"] = wanted
+                    case["advisory_visible"] = advisory_wanted
     finally:
         stack.close()
     payload = {
         "cases": cases,
+        "kyc_gate_runs": [
+            {"enabled": True, "selected": selected["selected"]},
+            {"enabled": False, "selected": advisory["selected"]},
+        ],
         "clock": instant.isoformat(),
         "singapore_date": singapore_date,
         **selected,

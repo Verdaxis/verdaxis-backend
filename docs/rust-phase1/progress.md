@@ -824,4 +824,6 @@ Merged staging `b218ab264b92f99007bacc05d4871413e024b72a` into the build branch 
 
 The golden directory and policy manifest stay pinned to oracle `775a75c4dce449b875de5dd21998f1c34f9766aa` until Task 4b records the populated corpus and regenerates artifacts together. Existing source-SHA checks must use that oracle, not relabel old golden bytes as the merged source. Task 6 targeted vectors and the disposable market oracle can test the new rules independently.
 
-Next: TDD for the runtime KYC switch, exact typed decimal validation (R1), and region aliases (R2). R3 remains assigned to Tasks 9, 10a and 10b under decision 16. R4 is already corrected by the PM.
+KYC switch: red comparison failed for `KYC gate false`; green comparison passes both pinned Python states (46 stored orders, 14 strict-mode public orders; four formal trades). Added pending/submitted no-grace and foreign-review-with-grace owners, plus isolated assisted customer organizations. Runtime config defaults enabled, accepts the `KYC_EXECUTION_GATE_ENABLED` JSON key, and rejects duplicate aliases/non-boolean values. The shared binder now takes `&Config`; gate is `$13`, tail binds start at `$14`. Trade bindings do not change. Logs: `work/rust-phase1/kyc-switch-{red,green,final}.txt`. A SQL cleanup briefly failed syntax validation; the corrected final runner passes two tests.
+
+Next: exact typed decimal validation (R1), then region aliases (R2). R3 remains assigned to Tasks 9, 10a and 10b under decision 16. R4 is already corrected by the PM.

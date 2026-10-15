@@ -26,6 +26,7 @@ const POLICY_BYTES: &[u8] = include_bytes!(concat!(
 
 fn config(variable: &str) -> Config {
     let config = Config {
+        kyc_execution_gate_enabled: true,
         environment: "test".into(),
         release_sha: compiled_sha().into(),
         migration_revision: "kycg_20261014_staging".into(),
@@ -117,11 +118,31 @@ async fn public_visibility_matrix_matches_python() {
             ..PublicOrderFilters::default()
         };
         let actual = as_strings(
-            &select_public_order_ids(&mut connection, &policy, &clock, &filters)
+            &select_public_order_ids(&mut connection, &policy, &clock, &config, &filters)
                 .await
                 .expect("the bound statement must run under the app role"),
         );
         assert_eq!(actual, ids(&expected[key]), "visibility mismatch for {key}");
+    }
+
+    for run in expected["kyc_gate_runs"].as_array().unwrap() {
+        let mut config = config.clone();
+        config.kyc_execution_gate_enabled = run["enabled"].as_bool().unwrap();
+        let actual = select_public_order_ids(
+            &mut connection,
+            &policy,
+            &clock,
+            &config,
+            &PublicOrderFilters::default(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            as_strings(&actual),
+            ids(&run["selected"]),
+            "KYC gate {}",
+            run["enabled"]
+        );
     }
 
     for case in expected["lane_filters"].as_array().unwrap() {
@@ -130,7 +151,7 @@ async fn public_visibility_matrix_matches_python() {
             delivery_point_id: Some(case["point"].as_str().unwrap().parse().unwrap()),
             ..PublicOrderFilters::default()
         };
-        let actual = select_public_order_ids(&mut connection, &policy, &clock, &filters)
+        let actual = select_public_order_ids(&mut connection, &policy, &clock, &config, &filters)
             .await
             .unwrap();
         assert_eq!(as_strings(&actual), ids(&case["ids"]));
@@ -151,9 +172,10 @@ async fn public_visibility_matrix_matches_python() {
         include_off_spec: true,
         ..PublicOrderFilters::default()
     };
-    let listings = select_public_order_ids(&mut connection, &policy, &clock, &listing_filters)
-        .await
-        .unwrap();
+    let listings =
+        select_public_order_ids(&mut connection, &policy, &clock, &config, &listing_filters)
+            .await
+            .unwrap();
     assert_eq!(
         as_strings(&listings),
         ids(&expected["listings"]),
@@ -165,19 +187,31 @@ async fn public_visibility_matrix_matches_python() {
     let depth_sql = order_query_sql(
         ", ranked AS (SELECT id, row_number() OVER (PARTITION BY side ORDER BY price_per_mt_usd, id) AS rank FROM eligible_orders) SELECT id FROM ranked WHERE rank <= 2",
     );
-    let depth = bind_order_query(&depth_sql, &policy, &clock, &PublicOrderFilters::default())
-        .unwrap()
-        .fetch_all(&mut *connection)
-        .await
-        .unwrap();
+    let depth = bind_order_query(
+        &depth_sql,
+        &policy,
+        &clock,
+        &config,
+        &PublicOrderFilters::default(),
+    )
+    .unwrap()
+    .fetch_all(&mut *connection)
+    .await
+    .unwrap();
     let depth: Vec<Uuid> = depth.iter().map(|row| row.get("id")).collect();
     assert_eq!(as_strings(&depth), ids(&expected["depth"]));
     let sql = order_query_sql("SELECT private_digest_input FROM eligible_orders ORDER BY id");
-    let rows = bind_order_query(&sql, &policy, &clock, &PublicOrderFilters::default())
-        .unwrap()
-        .fetch_all(&mut *connection)
-        .await
-        .unwrap();
+    let rows = bind_order_query(
+        &sql,
+        &policy,
+        &clock,
+        &config,
+        &PublicOrderFilters::default(),
+    )
+    .unwrap()
+    .fetch_all(&mut *connection)
+    .await
+    .unwrap();
     for row in rows {
         let input: Value = row.get("private_digest_input");
         let canonical = verdaxis_read::canonical_terms_from_row(&input).unwrap();
@@ -205,9 +239,9 @@ async fn public_visibility_matrix_matches_python() {
         );
     }
     let sql = order_query_sql(
-        "SELECT id FROM eligible_orders ORDER BY created_at DESC, id LIMIT $13 OFFSET $14",
+        "SELECT id FROM eligible_orders ORDER BY created_at DESC, id LIMIT $14 OFFSET $15",
     );
-    let rows = bind_order_query(&sql, &policy, &clock, &listing_filters)
+    let rows = bind_order_query(&sql, &policy, &clock, &config, &listing_filters)
         .unwrap()
         .bind(2_i64)
         .bind(1_i64)
