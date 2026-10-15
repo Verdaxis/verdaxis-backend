@@ -47,10 +47,7 @@ pub async fn connect(config: &Config) -> Result<Pools, ApiError> {
             ("default_transaction_read_only", "on"),
         ])
         .disable_statement_logging();
-    let read = PgPoolOptions::new()
-        .min_connections(0)
-        .max_connections(config.pool_max - 1)
-        .acquire_timeout(Duration::from_secs(30))
+    let read = pool_options(config.pool_max - 1, config.db_session_time_zone.clone())
         .connect_with(options.clone())
         .await
         .map_err(|_| ApiError::internal())?;
@@ -58,10 +55,7 @@ pub async fn connect(config: &Config) -> Result<Pools, ApiError> {
         read.close().await;
         return Err(error);
     }
-    let health = match PgPoolOptions::new()
-        .min_connections(0)
-        .max_connections(1)
-        .acquire_timeout(Duration::from_secs(30))
+    let health = match pool_options(1, config.db_session_time_zone.clone())
         .connect_with(options)
         .await
     {
@@ -72,6 +66,34 @@ pub async fn connect(config: &Config) -> Result<Pools, ApiError> {
         }
     };
     Ok(Pools { read, health })
+}
+
+fn pool_options(max_connections: u32, timezone: String) -> PgPoolOptions {
+    PgPoolOptions::new()
+        .min_connections(0)
+        .max_connections(max_connections)
+        .acquire_timeout(Duration::from_secs(30))
+        .after_connect(move |connection, _metadata| {
+            let timezone = timezone.clone();
+            Box::pin(async move {
+                // SQLx 0.9 sends TimeZone=UTC in its startup packet; .options()
+                // cannot override it. set_config is the bound equivalent of SET
+                // SESSION, executed once before this connection enters the pool.
+                sqlx::query("SELECT set_config('TimeZone', $1, false)")
+                    .bind(&timezone)
+                    .execute(&mut *connection)
+                    .await?;
+                let actual: String = sqlx::query_scalar("SHOW TimeZone")
+                    .fetch_one(&mut *connection)
+                    .await?;
+                if actual != timezone {
+                    return Err(sqlx::Error::Protocol(
+                        "database session timezone mismatch".into(),
+                    ));
+                }
+                Ok(())
+            })
+        })
 }
 
 async fn attest(
@@ -120,6 +142,23 @@ async fn attest(
         .fetch_one(&mut *connection)
         .await
         .map_err(|_| ApiError::internal())?;
+    let database_timezone: Option<String> = sqlx::query_scalar(
+        "SELECT split_part(setting, '=', 2) FROM pg_catalog.pg_db_role_setting s \
+         CROSS JOIN LATERAL unnest(s.setconfig) AS setting \
+         WHERE s.setdatabase = (SELECT oid FROM pg_catalog.pg_database WHERE datname = current_database()) \
+         AND s.setrole = 0 AND lower(split_part(setting, '=', 1)) = 'timezone'",
+    )
+    .fetch_optional(&mut *connection)
+    .await
+    .map_err(|_| ApiError::internal())?;
+    if timezone != config.db_session_time_zone
+        || database_timezone
+            .as_ref()
+            .is_some_and(|zone| zone != &config.db_session_time_zone)
+    {
+        tracing::error!("database session timezone does not match configured policy");
+        return Err(ApiError::internal());
+    }
     log_session_timezone(&timezone);
     Ok(())
 }

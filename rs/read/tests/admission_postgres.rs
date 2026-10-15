@@ -11,6 +11,7 @@ const SLOW: &str = "SELECT pg_sleep(5)";
 async fn state() -> (Arc<AppState>, sqlx::PgPool, sqlx::PgPool) {
     let config = Config {
         kyc_execution_gate_enabled: true,
+        db_session_time_zone: "UTC".into(),
         environment: "test".into(),
         release_sha: compiled_sha().into(),
         migration_revision: "kycg_20261014_staging".into(),

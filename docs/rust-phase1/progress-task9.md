@@ -132,3 +132,46 @@ current guard checks. Historical numeric values outside current guard bounds
 need explicit comparison before claiming that historical domain is accepted.
 
 Temporary logs are under `work/rust-phase1/task9-*.log` and are not committed.
+
+## Acceptance repairs — decision 21
+
+- N1–N3: `d75f550` preserves UUID invalid-character precedence, checks numeric
+  dates after microsecond conversion, and validates typed price parameters before
+  the one AD-01 bucket. Handler filter errors remain after the bucket. Three new
+  tests failed before the repair; all eight price tests passed afterwards.
+- M2: `de752db` applies Python's 28-significant-digit half-even context to the
+  exact SQL product, preserving Python wire scale rather than digest normalization.
+  Quantity and price remain unchanged. Tests cover below/at/above precision,
+  ties, carry and scientific notation; persisted trailing-zero fixtures are added.
+- **PM decision 21, amended:** SQLx 0.9 hard-codes `TimeZone=UTC` in its startup
+  packet. `.options()` cannot override it; the Singapore real-pool test failed.
+  No SQLx vendoring. The PM approved `after_connect`: each new connection sets
+  the required `DB_SESSION_TIME_ZONE` once (bound `set_config`, equivalent to
+  session SET), then checks `SHOW TimeZone` on that connection before pool use.
+  Both pools use the same hook, including error/cancellation replacements.
+- `RUST_CONFIG` requires `db_session_time_zone` (uppercase alias supported), with
+  no default. Startup compares any database-level `pg_db_role_setting` TimeZone
+  with that value and refuses a mismatch, then logs the effective zone. The
+  contract runner supplies its recorded `ORACLE_TIMEZONE=Asia/Singapore`.
+  Staging remains Singapore until Phase 0 moves both databases to UTC.
+- Real-pool tests cover eight read connections plus health, an admitted SQL error
+  followed by a distinct replacement backend, and Singapore/UTC reference JSON
+  and CSV around 16:00Z and 00:00Z, before and after replacement. The lightweight
+  runtime fixture is not a migrated historical corpus and is not claimed as one.
+- Added allowed/denied/absent-Origin header tests and persisted scale assertions.
+  The ordinary oracle also changes current organization approval and member
+  KYC/membership after confirmation, in addition to catalog activity.
+
+### Merge handoff
+
+Task 4b has landed on the build branch with oracle SHA `a127672` and
+`--seed-mode corpus`. It is not merged into this lane. After the PM merge, run
+prices against that corpus and move the lane's persisted scale, cutoff, identity
+mutation and timezone boundary cases into its fixture/ledger ownership. Retain
+historical UNKNOWN/mixed/null provenance, version-0, zero-volume/extreme values,
+and mutable linked-order cases as corpus gates through the real migration path;
+never disable guards. Same-day groups and equal-time tape/latest-price rows still
+need source-nondeterminism accounting, not global array sorting. Task 13 retains
+method/HEAD/slash integration ownership.
+
+Final verification results are recorded below when complete.

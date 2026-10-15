@@ -6,6 +6,7 @@ use verdaxis_read::{
 fn staging() -> Config {
     Config {
         kyc_execution_gate_enabled: true,
+        db_session_time_zone: "UTC".into(),
         environment: "staging".into(),
         release_sha: compiled_sha().into(),
         migration_revision: "kycg_20261014_staging".into(),
@@ -25,7 +26,7 @@ fn kyc_runtime_input_defaults_enabled_and_rejects_ambiguous_values() {
         "migration_revision": "kycg_20261014_staging",
         "database_url": "postgres://rust_app:pw@127.0.0.1:12345/verdaxis_test",
         "bind": "127.0.0.1:0", "pool_max": 9, "python_budget": 52,
-        "configured_max_connections": 100
+        "configured_max_connections": 100, "db_session_time_zone": "UTC"
     });
     assert!(
         serde_json::from_value::<Config>(input.clone())
@@ -46,6 +47,25 @@ fn kyc_runtime_input_defaults_enabled_and_rejects_ambiguous_values() {
         .remove("kyc_execution_gate_enabled");
     input["KYC_EXECUTION_GATE_ENABLED"] = serde_json::json!("false");
     assert!(serde_json::from_value::<Config>(input).is_err());
+}
+
+#[test]
+fn timezone_policy_is_required_and_cannot_inject_startup_options() {
+    let input = serde_json::json!({
+        "environment":"test", "release_sha":compiled_sha(), "migration_revision":"kycg_20261014_staging",
+        "database_url":"postgres://rust_app:pw@127.0.0.1:12345/verdaxis_test",
+        "bind":"127.0.0.1:0", "pool_max":9, "python_budget":52, "configured_max_connections":100
+    });
+    assert!(serde_json::from_value::<Config>(input).is_err());
+    let mut config = staging();
+    for zone in ["", "UTC -c default_transaction_read_only=off", "not/a-zone"] {
+        config.db_session_time_zone = zone.into();
+        assert!(validate_config(&config).is_err());
+    }
+    for zone in ["Asia/Singapore", "UTC"] {
+        config.db_session_time_zone = zone.into();
+        assert!(validate_config(&config).is_ok());
+    }
 }
 
 #[test]

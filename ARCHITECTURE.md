@@ -26,7 +26,12 @@ external HTTP contract comparison and never links `verdaxis-read`.
 Task 2 adds `rs/read/src/runtime/` for configuration, pool authority, and health
 checks. The pool has nine connections and read-only session defaults. Startup
 checks the compiled revision allowlist, exact database role, memberships, and
-connection budget, then logs the inherited server timezone. It does not open a
+connection budget. Required `DB_SESSION_TIME_ZONE` (`db_session_time_zone` in
+`RUST_CONFIG`) is applied and verified by `after_connect` on every new read and
+health connection, including replacements. Startup refuses a conflicting
+`pg_db_role_setting` database default and logs the effective zone. SQLx 0.9's
+hard-coded UTC startup field cannot be overridden through `.options()`.
+Staging uses `Asia/Singapore` until Phase 0 convergence, then `UTC`. It does not open a
 migrator connection. `scripts/prepare_rust_budget.py` creates private budget
 metadata and verifies environment-file drift. Staging pool startup consumes
 that metadata through `RUST_PREPARED_BUDGET` (JSON); deployment wiring remains
