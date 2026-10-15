@@ -267,8 +267,11 @@ lifecycle CI metadata, certification, MSDS, feedstock and origin. Zero CI is
 valid; missing CI is not. Suppliers fill scalar biofuel BIDs through qualified
 ASK matching, not an undeclared direct take. Public reads use the same rule.
 Production demo definitions remain labelled synthetic and add no LNG/UCOME prices.
-Task 4b owns the union migration; these runtime changes alone are not a deployable
-schema checkpoint. See `docs/phase0/progress-task2.md`.
+Revision `p0_20261016_union` follows `kycd_20261015_staging`, adds missing canonical
+reference rows, extends four product checks and freezes the union trade guard.
+The copy manifest pins its complete schema. Empty bootstrap uses the checked
+connection and exact graph/schema/reference hashes; host apply remains disabled.
+See `docs/phase0/progress-task4b.md` for acceptance and remaining host gates.
 
 ## UCOME B100 shared execution
 

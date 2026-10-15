@@ -1,6 +1,6 @@
 {
   "format_version": 1,
-  "status": "provisional",
+  "status": "union schema reviewed; synthetic apply only",
   "source_sha": "c08266bd6969143812dec7c5033338428cd5f159",
   "target_base_sha": "b218ab264b92f99007bacc05d4871413e024b72a",
   "source_catalog": {
@@ -14530,7 +14530,7 @@
     }
   },
   "target_catalog": {
-    "revision": "kycd_20261015_staging",
+    "revision": "p0_20261016_union",
     "tables": {
       "alembic_version": {
         "schema": "public",
@@ -16091,7 +16091,7 @@
             "name": "ck_fair_price_bands_market_product",
             "kind": "c",
             "validated": true,
-            "definition": "CHECK ((market_product::text = ANY (ARRAY['BIO_LNG'::character varying, 'UCOME_B100'::character varying, 'BIO_METHANOL'::character varying, 'E_METHANOL'::character varying, 'BIO_ETHANOL'::character varying, 'SYNTHETIC_ETHANOL'::character varying]::text[])) AND (market_product::text <> 'UCOME_B100'::text OR replace(delivery_point_id::text, '-'::text, ''::text) = '73835e92820e584b8280bb61c63aa28e'::text) AND (market_product::text <> 'BIO_LNG'::text OR replace(delivery_point_id::text, '-'::text, ''::text) = '1379d36c1ca955b79c0d5235a0ba1f36'::text))"
+            "definition": "CHECK ((market_product::text = ANY (ARRAY['B30'::character varying, 'B100'::character varying, 'BIO_LNG'::character varying, 'UCOME_B100'::character varying, 'BIO_METHANOL'::character varying, 'E_METHANOL'::character varying, 'BIO_ETHANOL'::character varying, 'SYNTHETIC_ETHANOL'::character varying]::text[])) AND (market_product::text <> 'UCOME_B100'::text OR replace(delivery_point_id::text, '-'::text, ''::text) = '73835e92820e584b8280bb61c63aa28e'::text) AND (market_product::text <> 'BIO_LNG'::text OR replace(delivery_point_id::text, '-'::text, ''::text) = '1379d36c1ca955b79c0d5235a0ba1f36'::text))"
           },
           {
             "name": "ck_fair_price_bands_mid_above_low",
@@ -17555,7 +17555,7 @@
             "name": "ck_market_indications_market_product",
             "kind": "c",
             "validated": true,
-            "definition": "CHECK ((market_product::text = ANY (ARRAY['BIO_LNG'::character varying, 'UCOME_B100'::character varying, 'BIO_METHANOL'::character varying, 'E_METHANOL'::character varying, 'BIO_ETHANOL'::character varying, 'SYNTHETIC_ETHANOL'::character varying]::text[])) AND (market_product::text <> 'UCOME_B100'::text OR replace(delivery_point_id::text, '-'::text, ''::text) = '73835e92820e584b8280bb61c63aa28e'::text) AND (market_product::text <> 'BIO_LNG'::text OR replace(delivery_point_id::text, '-'::text, ''::text) = '1379d36c1ca955b79c0d5235a0ba1f36'::text))"
+            "definition": "CHECK ((market_product::text = ANY (ARRAY['B30'::character varying, 'B100'::character varying, 'BIO_LNG'::character varying, 'UCOME_B100'::character varying, 'BIO_METHANOL'::character varying, 'E_METHANOL'::character varying, 'BIO_ETHANOL'::character varying, 'SYNTHETIC_ETHANOL'::character varying]::text[])) AND (market_product::text <> 'UCOME_B100'::text OR replace(delivery_point_id::text, '-'::text, ''::text) = '73835e92820e584b8280bb61c63aa28e'::text) AND (market_product::text <> 'BIO_LNG'::text OR replace(delivery_point_id::text, '-'::text, ''::text) = '1379d36c1ca955b79c0d5235a0ba1f36'::text))"
           },
           {
             "name": "ck_market_indications_price_positive",
@@ -21001,7 +21001,7 @@
             "name": "ck_physical_stems_market_product",
             "kind": "c",
             "validated": true,
-            "definition": "CHECK ((market_product::text = ANY (ARRAY['BIO_LNG'::character varying, 'UCOME_B100'::character varying, 'BIO_METHANOL'::character varying, 'E_METHANOL'::character varying, 'BIO_ETHANOL'::character varying, 'SYNTHETIC_ETHANOL'::character varying]::text[])) AND (market_product::text <> 'UCOME_B100'::text OR replace(delivery_point_id::text, '-'::text, ''::text) = '73835e92820e584b8280bb61c63aa28e'::text) AND (market_product::text <> 'BIO_LNG'::text OR replace(delivery_point_id::text, '-'::text, ''::text) = '1379d36c1ca955b79c0d5235a0ba1f36'::text))"
+            "definition": "CHECK ((market_product::text = ANY (ARRAY['B30'::character varying, 'B100'::character varying, 'BIO_LNG'::character varying, 'UCOME_B100'::character varying, 'BIO_METHANOL'::character varying, 'E_METHANOL'::character varying, 'BIO_ETHANOL'::character varying, 'SYNTHETIC_ETHANOL'::character varying]::text[])) AND (market_product::text <> 'UCOME_B100'::text OR replace(delivery_point_id::text, '-'::text, ''::text) = '73835e92820e584b8280bb61c63aa28e'::text) AND (market_product::text <> 'BIO_LNG'::text OR replace(delivery_point_id::text, '-'::text, ''::text) = '1379d36c1ca955b79c0d5235a0ba1f36'::text))"
           },
           {
             "name": "ck_physical_stems_quantity_positive",
@@ -24069,7 +24069,7 @@
             "name": "ck_trades_snapshot",
             "kind": "c",
             "validated": true,
-            "definition": "CHECK (market_snapshot_version IS NULL OR market_snapshot_version = 1 AND product_id IS NOT NULL AND product_name IS NOT NULL AND TRIM(BOTH FROM product_name) <> ''::text AND fuel_type IS NOT NULL AND TRIM(BOTH FROM fuel_type) <> ''::text AND fuel_grade IS NOT NULL AND TRIM(BOTH FROM fuel_grade) <> ''::text AND (market_product::text = ANY (ARRAY['BIO_LNG'::character varying, 'UCOME_B100'::character varying, 'BIO_METHANOL'::character varying, 'E_METHANOL'::character varying, 'BIO_ETHANOL'::character varying, 'SYNTHETIC_ETHANOL'::character varying]::text[])) AND availability_window IS NOT NULL AND (availability_window::text = 'SPOT'::text OR availability_window::text ~ '^[0-9]{4}-(0[1-9]|1[0-2])$'::text OR availability_window::text ~ '^[0-9]{4}-Q[1-4]$'::text OR availability_window::text ~ '^[0-9]{4}-CAL$'::text) AND delivery_point_id IS NOT NULL AND delivery_point_name IS NOT NULL AND delivery_point_region IS NOT NULL)"
+            "definition": "CHECK (market_snapshot_version IS NULL OR market_snapshot_version = 1 AND product_id IS NOT NULL AND product_name IS NOT NULL AND TRIM(BOTH FROM product_name) <> ''::text AND fuel_type IS NOT NULL AND TRIM(BOTH FROM fuel_type) <> ''::text AND fuel_grade IS NOT NULL AND TRIM(BOTH FROM fuel_grade) <> ''::text AND (market_product::text = ANY (ARRAY['B30'::character varying, 'B100'::character varying, 'BIO_LNG'::character varying, 'UCOME_B100'::character varying, 'BIO_METHANOL'::character varying, 'E_METHANOL'::character varying, 'BIO_ETHANOL'::character varying, 'SYNTHETIC_ETHANOL'::character varying]::text[])) AND availability_window IS NOT NULL AND (availability_window::text = 'SPOT'::text OR availability_window::text ~ '^[0-9]{4}-(0[1-9]|1[0-2])$'::text OR availability_window::text ~ '^[0-9]{4}-Q[1-4]$'::text OR availability_window::text ~ '^[0-9]{4}-CAL$'::text) AND delivery_point_id IS NOT NULL AND delivery_point_name IS NOT NULL AND delivery_point_region IS NOT NULL)"
           },
           {
             "name": "fk_trades_buyer_user_id",
@@ -24217,7 +24217,7 @@
             "name": "trades_snapshot_guard",
             "enabled": "O",
             "definition": "CREATE TRIGGER trades_snapshot_guard BEFORE INSERT OR UPDATE ON trades FOR EACH ROW EXECUTE FUNCTION verdaxis_validate_trade_snapshot()",
-            "function": "CREATE OR REPLACE FUNCTION public.verdaxis_validate_trade_snapshot()\n RETURNS trigger\n LANGUAGE plpgsql\nAS $function$\n            DECLARE current_buyer_provenance text;\n            DECLARE current_seller_provenance text;\n            DECLARE product_row products%ROWTYPE;\n            DECLARE delivery_point_row delivery_points%ROWTYPE;\n            DECLARE expected_market_product text;\n            BEGIN\n                IF TG_OP = 'INSERT' THEN\n                    SELECT provenance INTO STRICT current_buyer_provenance\n                    FROM organizations WHERE id = NEW.buyer_id;\n                    SELECT provenance INTO STRICT current_seller_provenance\n                    FROM organizations WHERE id = NEW.seller_id;\n                    IF NEW.buyer_provenance IS DISTINCT FROM current_buyer_provenance\n                       OR NEW.seller_provenance IS DISTINCT FROM current_seller_provenance THEN\n                        RAISE EXCEPTION 'trade provenance snapshots must equal current party provenance';\n                    END IF;\n                    IF NEW.market_snapshot_version IS DISTINCT FROM 1 THEN\n                        RAISE EXCEPTION 'new trades require immutable market snapshot version 1';\n                    END IF;\n                    SELECT * INTO STRICT product_row\n                    FROM products WHERE id = NEW.product_id;\n                    expected_market_product := CASE WHEN product_row.id = '9510c713-6e39-5080-add3-0a7c29657b79' AND product_row.name = 'Bio Methanol' AND product_row.fuel_type = 'Methanol' AND product_row.fuel_grade = 'Bio' THEN 'BIO_METHANOL' WHEN product_row.id = 'f9b20492-b445-59cd-b292-a386d913f488' AND product_row.name = 'e-Methanol' AND product_row.fuel_type = 'Methanol' AND product_row.fuel_grade = 'E' THEN 'E_METHANOL' WHEN product_row.id = 'c4a688be-f7c2-5edc-8f93-6b34e387609c' AND product_row.name = 'Bio Ethanol' AND product_row.fuel_type = 'Ethanol' AND product_row.fuel_grade = 'Bio' THEN 'BIO_ETHANOL' WHEN product_row.id = 'd186bffb-766d-5944-8825-989abbdcfc46' AND product_row.name = 'Synthetic Ethanol' AND product_row.fuel_type = 'Ethanol' AND product_row.fuel_grade = 'Synthetic' THEN 'SYNTHETIC_ETHANOL' WHEN product_row.id = 'e561e43f-d9b2-598e-981c-f1d28d515ddc' AND product_row.name = 'UCOME B100' AND product_row.fuel_type = 'FAME' AND product_row.fuel_grade = 'UCOME' THEN 'UCOME_B100' WHEN product_row.id = '8f6f34a5-2927-54a6-8564-cca40ae7cb8a' AND product_row.name = 'Bio-LNG' AND product_row.fuel_type = 'LNG' AND product_row.fuel_grade = 'Bio' THEN 'BIO_LNG' ELSE NULL END;\n                    IF product_row.is_active IS DISTINCT FROM true\n                       OR expected_market_product IS NULL THEN\n                        RAISE EXCEPTION 'trade product snapshot must reference an active canonical product';\n                    END IF;\n                    IF ROW(\n                        NEW.product_name, NEW.fuel_type, NEW.fuel_grade,\n                        NEW.market_product\n                    ) IS DISTINCT FROM ROW(\n                        product_row.name, product_row.fuel_type,\n                        product_row.fuel_grade, expected_market_product\n                    ) THEN\n                        RAISE EXCEPTION 'trade product snapshot labels do not match referenced product';\n                    END IF;\n                    SELECT * INTO STRICT delivery_point_row\n                    FROM delivery_points WHERE id = NEW.delivery_point_id;\n                    IF delivery_point_row.is_active IS DISTINCT FROM true\n                       OR NOT ((delivery_point_row.id = '78281fb3-e726-5396-802e-34b01fda21e8' AND delivery_point_row.name = 'Dalian' AND delivery_point_row.region = 'Asia') OR (delivery_point_row.id = '262d36ae-6f35-5785-b9e8-9e221b0f1b78' AND delivery_point_row.name = 'Busan' AND delivery_point_row.region = 'Asia') OR (delivery_point_row.id = '633c0593-f9b9-52ad-abe5-a0285f6888d3' AND delivery_point_row.name = 'Shanghai' AND delivery_point_row.region = 'Asia') OR (delivery_point_row.id = '73835e92-820e-584b-8280-bb61c63aa28e' AND delivery_point_row.name = 'Singapore' AND delivery_point_row.region = 'Asia') OR (delivery_point_row.id = '1379d36c-1ca9-55b7-9c0d-5235a0ba1f36' AND delivery_point_row.name = 'Rotterdam' AND delivery_point_row.region = 'Europe') OR (delivery_point_row.id = 'a083db06-b050-56c2-a274-3897eac2fdae' AND delivery_point_row.name = 'Houston' AND delivery_point_row.region = 'Americas') OR (delivery_point_row.id = '1be2a5cb-fc34-5e88-8b15-7f7d0fd6e534' AND delivery_point_row.name = 'Los Angeles' AND delivery_point_row.region = 'Americas') OR (delivery_point_row.id = 'a4762444-4e0b-5bc1-b647-a185047adae5' AND delivery_point_row.name = 'Santos' AND delivery_point_row.region = 'Americas')) THEN\n                        RAISE EXCEPTION 'trade delivery snapshot must reference an active canonical delivery point';\n                    END IF;\n                    IF ROW(\n                        NEW.delivery_point_name, NEW.delivery_point_region\n                    ) IS DISTINCT FROM ROW(\n                        delivery_point_row.name, delivery_point_row.region\n                    ) THEN\n                        RAISE EXCEPTION 'trade delivery snapshot labels do not match referenced delivery point';\n                    END IF;\n                    IF NEW.availability_window IS NULL OR NOT (\n                        NEW.availability_window = 'SPOT'\n                        OR NEW.availability_window ~ '^[0-9]{4}-(0[1-9]|1[0-2])$'\n                        OR NEW.availability_window ~ '^[0-9]{4}-Q[1-4]$'\n                        OR NEW.availability_window ~ '^[0-9]{4}-CAL$'\n                    ) THEN\n                        RAISE EXCEPTION 'trade snapshot requires a canonical availability window';\n                    END IF;\n                    IF NOT (\n                        (NEW.buyer_provenance = 'REAL' AND NEW.seller_provenance = 'REAL')\n                        OR (NEW.buyer_provenance = 'DEMO' AND NEW.seller_provenance = 'DEMO'\n                            AND NEW.buyer_id IN ('4da7b285-34ee-5443-9406-f96b4ed1a251','0dbce576-2026-5925-ab66-674d505e98ad','3cd0bc8a-0e92-5eb8-9ae3-3c87a7460a6a','277491df-cb0d-5f2d-a2cf-5746829c6da6','3b302066-d65c-5c3e-8fcc-70b3da3bcafd','79609f48-0a3e-560e-a1e1-63d90601d84a','2c4e387e-de22-5adb-ad88-9274ba84ebe1','612953c7-567a-58b3-bc42-ee817d2bbe74','93ccda09-54b3-53ee-afc0-759d3048161f','82426590-0963-5486-9b05-f81e97afe6ef','acc3f20a-fe94-4463-9029-a55e35634eb7','c9c1ccbf-66fe-4a1b-b171-fe4f7ddc31a4','7cc77115-0a9f-4ec4-8c74-05aa10050111','d1e43e55-3fb0-4b5e-9f0b-93aa10050222')\n                            AND NEW.seller_id IN ('4da7b285-34ee-5443-9406-f96b4ed1a251','0dbce576-2026-5925-ab66-674d505e98ad','3cd0bc8a-0e92-5eb8-9ae3-3c87a7460a6a','277491df-cb0d-5f2d-a2cf-5746829c6da6','3b302066-d65c-5c3e-8fcc-70b3da3bcafd','79609f48-0a3e-560e-a1e1-63d90601d84a','2c4e387e-de22-5adb-ad88-9274ba84ebe1','612953c7-567a-58b3-bc42-ee817d2bbe74','93ccda09-54b3-53ee-afc0-759d3048161f','82426590-0963-5486-9b05-f81e97afe6ef','acc3f20a-fe94-4463-9029-a55e35634eb7','c9c1ccbf-66fe-4a1b-b171-fe4f7ddc31a4','7cc77115-0a9f-4ec4-8c74-05aa10050111','d1e43e55-3fb0-4b5e-9f0b-93aa10050222'))\n                    ) THEN\n                        RAISE EXCEPTION 'trade execution requires REAL-REAL or an allowlisted DEMO-DEMO pair';\n                    END IF;\n                ELSE\n                    IF ROW(\n                        OLD.bid_order_id, OLD.ask_order_id,\n                        OLD.buyer_id, OLD.seller_id, OLD.initiator_org_id,\n                        OLD.buyer_provenance, OLD.seller_provenance,\n                        OLD.product_id, OLD.product_name, OLD.fuel_type, OLD.fuel_grade,\n                        OLD.market_product, OLD.delivery_point_id, OLD.delivery_point_name,\n                        OLD.delivery_point_region, OLD.availability_window, OLD.market_snapshot_version\n                    ) IS DISTINCT FROM ROW(\n                        NEW.bid_order_id, NEW.ask_order_id,\n                        NEW.buyer_id, NEW.seller_id, NEW.initiator_org_id,\n                        NEW.buyer_provenance, NEW.seller_provenance,\n                        NEW.product_id, NEW.product_name, NEW.fuel_type, NEW.fuel_grade,\n                        NEW.market_product, NEW.delivery_point_id, NEW.delivery_point_name,\n                        NEW.delivery_point_region, NEW.availability_window, NEW.market_snapshot_version\n                    ) OR OLD.fame_terms_snapshot::jsonb IS DISTINCT FROM NEW.fame_terms_snapshot::jsonb OR OLD.lng_terms_snapshot::jsonb IS DISTINCT FROM NEW.lng_terms_snapshot::jsonb THEN\n                        RAISE EXCEPTION 'trade parties, provenance, and market snapshots are immutable';\n                    END IF;\n                END IF;\n                RETURN NEW;\n            END;\n            $function$\n"
+            "function": "CREATE OR REPLACE FUNCTION public.verdaxis_validate_trade_snapshot()\n RETURNS trigger\n LANGUAGE plpgsql\nAS $function$\n            DECLARE current_buyer_provenance text;\n            DECLARE current_seller_provenance text;\n            DECLARE product_row products%ROWTYPE;\n            DECLARE delivery_point_row delivery_points%ROWTYPE;\n            DECLARE expected_market_product text;\n            BEGIN\n                IF TG_OP = 'INSERT' THEN\n                    SELECT provenance INTO STRICT current_buyer_provenance\n                    FROM organizations WHERE id = NEW.buyer_id;\n                    SELECT provenance INTO STRICT current_seller_provenance\n                    FROM organizations WHERE id = NEW.seller_id;\n                    IF NEW.buyer_provenance IS DISTINCT FROM current_buyer_provenance\n                       OR NEW.seller_provenance IS DISTINCT FROM current_seller_provenance THEN\n                        RAISE EXCEPTION 'trade provenance snapshots must equal current party provenance';\n                    END IF;\n                    IF NEW.market_snapshot_version IS DISTINCT FROM 1 THEN\n                        RAISE EXCEPTION 'new trades require immutable market snapshot version 1';\n                    END IF;\n                    SELECT * INTO STRICT product_row\n                    FROM products WHERE id = NEW.product_id;\n                    expected_market_product := CASE WHEN product_row.id = 'c4cecebc-3d2d-5840-8021-57a9a11bc673' AND product_row.name = 'B30' AND product_row.fuel_type = 'Biofuel' AND product_row.fuel_grade = 'B30' THEN 'B30' WHEN product_row.id = '74eb9cb5-f0e3-55f1-b82c-fe29b7c45bf5' AND product_row.name = 'B100' AND product_row.fuel_type = 'Biofuel' AND product_row.fuel_grade = 'B100' THEN 'B100' WHEN product_row.id = '9510c713-6e39-5080-add3-0a7c29657b79' AND product_row.name = 'Bio Methanol' AND product_row.fuel_type = 'Methanol' AND product_row.fuel_grade = 'Bio' THEN 'BIO_METHANOL' WHEN product_row.id = 'f9b20492-b445-59cd-b292-a386d913f488' AND product_row.name = 'e-Methanol' AND product_row.fuel_type = 'Methanol' AND product_row.fuel_grade = 'E' THEN 'E_METHANOL' WHEN product_row.id = 'c4a688be-f7c2-5edc-8f93-6b34e387609c' AND product_row.name = 'Bio Ethanol' AND product_row.fuel_type = 'Ethanol' AND product_row.fuel_grade = 'Bio' THEN 'BIO_ETHANOL' WHEN product_row.id = 'd186bffb-766d-5944-8825-989abbdcfc46' AND product_row.name = 'Synthetic Ethanol' AND product_row.fuel_type = 'Ethanol' AND product_row.fuel_grade = 'Synthetic' THEN 'SYNTHETIC_ETHANOL' WHEN product_row.id = 'e561e43f-d9b2-598e-981c-f1d28d515ddc' AND product_row.name = 'UCOME B100' AND product_row.fuel_type = 'FAME' AND product_row.fuel_grade = 'UCOME' THEN 'UCOME_B100' WHEN product_row.id = '8f6f34a5-2927-54a6-8564-cca40ae7cb8a' AND product_row.name = 'Bio-LNG' AND product_row.fuel_type = 'LNG' AND product_row.fuel_grade = 'Bio' THEN 'BIO_LNG' ELSE NULL END;\n                    IF product_row.is_active IS DISTINCT FROM true\n                       OR expected_market_product IS NULL THEN\n                        RAISE EXCEPTION 'trade product snapshot must reference an active canonical product';\n                    END IF;\n                    IF ROW(\n                        NEW.product_name, NEW.fuel_type, NEW.fuel_grade,\n                        NEW.market_product\n                    ) IS DISTINCT FROM ROW(\n                        product_row.name, product_row.fuel_type,\n                        product_row.fuel_grade, expected_market_product\n                    ) THEN\n                        RAISE EXCEPTION 'trade product snapshot labels do not match referenced product';\n                    END IF;\n                    SELECT * INTO STRICT delivery_point_row\n                    FROM delivery_points WHERE id = NEW.delivery_point_id;\n                    IF delivery_point_row.is_active IS DISTINCT FROM true\n                       OR NOT ((delivery_point_row.id = '78281fb3-e726-5396-802e-34b01fda21e8' AND delivery_point_row.name = 'Dalian' AND delivery_point_row.region = 'Asia') OR (delivery_point_row.id = '262d36ae-6f35-5785-b9e8-9e221b0f1b78' AND delivery_point_row.name = 'Busan' AND delivery_point_row.region = 'Asia') OR (delivery_point_row.id = '633c0593-f9b9-52ad-abe5-a0285f6888d3' AND delivery_point_row.name = 'Shanghai' AND delivery_point_row.region = 'Asia') OR (delivery_point_row.id = '73835e92-820e-584b-8280-bb61c63aa28e' AND delivery_point_row.name = 'Singapore' AND delivery_point_row.region = 'Asia') OR (delivery_point_row.id = '1379d36c-1ca9-55b7-9c0d-5235a0ba1f36' AND delivery_point_row.name = 'Rotterdam' AND delivery_point_row.region = 'Europe') OR (delivery_point_row.id = 'a083db06-b050-56c2-a274-3897eac2fdae' AND delivery_point_row.name = 'Houston' AND delivery_point_row.region = 'Americas') OR (delivery_point_row.id = '1be2a5cb-fc34-5e88-8b15-7f7d0fd6e534' AND delivery_point_row.name = 'Los Angeles' AND delivery_point_row.region = 'Americas') OR (delivery_point_row.id = 'a4762444-4e0b-5bc1-b647-a185047adae5' AND delivery_point_row.name = 'Santos' AND delivery_point_row.region = 'Americas')) THEN\n                        RAISE EXCEPTION 'trade delivery snapshot must reference an active canonical delivery point';\n                    END IF;\n                    IF ROW(\n                        NEW.delivery_point_name, NEW.delivery_point_region\n                    ) IS DISTINCT FROM ROW(\n                        delivery_point_row.name, delivery_point_row.region\n                    ) THEN\n                        RAISE EXCEPTION 'trade delivery snapshot labels do not match referenced delivery point';\n                    END IF;\n                    IF NEW.availability_window IS NULL OR NOT (\n                        NEW.availability_window = 'SPOT'\n                        OR NEW.availability_window ~ '^[0-9]{4}-(0[1-9]|1[0-2])$'\n                        OR NEW.availability_window ~ '^[0-9]{4}-Q[1-4]$'\n                        OR NEW.availability_window ~ '^[0-9]{4}-CAL$'\n                    ) THEN\n                        RAISE EXCEPTION 'trade snapshot requires a canonical availability window';\n                    END IF;\n                    IF NOT (\n                        (NEW.buyer_provenance = 'REAL' AND NEW.seller_provenance = 'REAL')\n                        OR (NEW.buyer_provenance = 'DEMO' AND NEW.seller_provenance = 'DEMO'\n                            AND NEW.buyer_id IN ('4da7b285-34ee-5443-9406-f96b4ed1a251','0dbce576-2026-5925-ab66-674d505e98ad','3cd0bc8a-0e92-5eb8-9ae3-3c87a7460a6a','277491df-cb0d-5f2d-a2cf-5746829c6da6','3b302066-d65c-5c3e-8fcc-70b3da3bcafd','79609f48-0a3e-560e-a1e1-63d90601d84a','2c4e387e-de22-5adb-ad88-9274ba84ebe1','612953c7-567a-58b3-bc42-ee817d2bbe74','93ccda09-54b3-53ee-afc0-759d3048161f','82426590-0963-5486-9b05-f81e97afe6ef','acc3f20a-fe94-4463-9029-a55e35634eb7','c9c1ccbf-66fe-4a1b-b171-fe4f7ddc31a4','7cc77115-0a9f-4ec4-8c74-05aa10050111','d1e43e55-3fb0-4b5e-9f0b-93aa10050222')\n                            AND NEW.seller_id IN ('4da7b285-34ee-5443-9406-f96b4ed1a251','0dbce576-2026-5925-ab66-674d505e98ad','3cd0bc8a-0e92-5eb8-9ae3-3c87a7460a6a','277491df-cb0d-5f2d-a2cf-5746829c6da6','3b302066-d65c-5c3e-8fcc-70b3da3bcafd','79609f48-0a3e-560e-a1e1-63d90601d84a','2c4e387e-de22-5adb-ad88-9274ba84ebe1','612953c7-567a-58b3-bc42-ee817d2bbe74','93ccda09-54b3-53ee-afc0-759d3048161f','82426590-0963-5486-9b05-f81e97afe6ef','acc3f20a-fe94-4463-9029-a55e35634eb7','c9c1ccbf-66fe-4a1b-b171-fe4f7ddc31a4','7cc77115-0a9f-4ec4-8c74-05aa10050111','d1e43e55-3fb0-4b5e-9f0b-93aa10050222'))\n                    ) THEN\n                        RAISE EXCEPTION 'trade execution requires REAL-REAL or an allowlisted DEMO-DEMO pair';\n                    END IF;\n                ELSE\n                    IF ROW(\n                        OLD.bid_order_id, OLD.ask_order_id,\n                        OLD.buyer_id, OLD.seller_id, OLD.initiator_org_id,\n                        OLD.buyer_provenance, OLD.seller_provenance,\n                        OLD.product_id, OLD.product_name, OLD.fuel_type, OLD.fuel_grade,\n                        OLD.market_product, OLD.delivery_point_id, OLD.delivery_point_name,\n                        OLD.delivery_point_region, OLD.availability_window, OLD.market_snapshot_version\n                    ) IS DISTINCT FROM ROW(\n                        NEW.bid_order_id, NEW.ask_order_id,\n                        NEW.buyer_id, NEW.seller_id, NEW.initiator_org_id,\n                        NEW.buyer_provenance, NEW.seller_provenance,\n                        NEW.product_id, NEW.product_name, NEW.fuel_type, NEW.fuel_grade,\n                        NEW.market_product, NEW.delivery_point_id, NEW.delivery_point_name,\n                        NEW.delivery_point_region, NEW.availability_window, NEW.market_snapshot_version\n                    ) OR OLD.fame_terms_snapshot::jsonb IS DISTINCT FROM NEW.fame_terms_snapshot::jsonb OR OLD.lng_terms_snapshot::jsonb IS DISTINCT FROM NEW.lng_terms_snapshot::jsonb THEN\n                        RAISE EXCEPTION 'trade parties, provenance, and market snapshots are immutable';\n                    END IF;\n                END IF;\n                RETURN NEW;\n            END;\n            $function$\n"
           }
         ]
       },
@@ -29410,6 +29410,17 @@
     "reference_rows": {
       "products": [
         {
+          "id": "74eb9cb5-f0e3-55f1-b82c-fe29b7c45bf5",
+          "name": "B100",
+          "fuel_type": "Biofuel",
+          "fuel_grade": "B100",
+          "unit": "MT",
+          "min_lot_size": "200.00",
+          "spec_description": "100% FAME, excluding HVO; finished fuel meets ISO 8217:2024 DFA with sulphur at most 0.10% by mass",
+          "is_active": "true",
+          "created_at": "2026-10-15 18:59:49.324426+00"
+        },
+        {
           "id": "8f6f34a5-2927-54a6-8564-cca40ae7cb8a",
           "name": "Bio-LNG",
           "fuel_type": "LNG",
@@ -29418,7 +29429,7 @@
           "min_lot_size": "1.00",
           "spec_description": "Liquefied biomethane (bio-LNG) for marine fuel use, delivered to ISO 23306:2020 with a certified Proof of Sustainability.",
           "is_active": "true",
-          "created_at": "2026-10-15 17:04:47.127246+00"
+          "created_at": "2026-10-15 18:59:49.324426+00"
         },
         {
           "id": "9510c713-6e39-5080-add3-0a7c29657b79",
@@ -29429,7 +29440,7 @@
           "min_lot_size": "200.00",
           "spec_description": "Bio-methanol produced from biogenic feedstocks for marine fuel use",
           "is_active": "true",
-          "created_at": "2026-10-15 17:04:47.127246+00"
+          "created_at": "2026-10-15 18:59:49.324426+00"
         },
         {
           "id": "c4a688be-f7c2-5edc-8f93-6b34e387609c",
@@ -29440,7 +29451,18 @@
           "min_lot_size": "200.00",
           "spec_description": "Second-generation bioethanol from waste feedstocks",
           "is_active": "true",
-          "created_at": "2026-10-15 17:04:47.127246+00"
+          "created_at": "2026-10-15 18:59:49.324426+00"
+        },
+        {
+          "id": "c4cecebc-3d2d-5840-8021-57a9a11bc673",
+          "name": "B30",
+          "fuel_type": "Biofuel",
+          "fuel_grade": "B30",
+          "unit": "MT",
+          "min_lot_size": "200.00",
+          "spec_description": "30% FAME by volume blended with 70% VLSFO; finished blend meets ISO 8217:2024 RF 380 with sulphur at most 0.50% by mass",
+          "is_active": "true",
+          "created_at": "2026-10-15 18:59:49.324426+00"
         },
         {
           "id": "d186bffb-766d-5944-8825-989abbdcfc46",
@@ -29451,7 +29473,7 @@
           "min_lot_size": "200.00",
           "spec_description": "Synthetic ethanol produced via power-to-liquids or equivalent synthetic pathways",
           "is_active": "true",
-          "created_at": "2026-10-15 17:04:47.127246+00"
+          "created_at": "2026-10-15 18:59:49.324426+00"
         },
         {
           "id": "e561e43f-d9b2-598e-981c-f1d28d515ddc",
@@ -29462,7 +29484,7 @@
           "min_lot_size": "1.00",
           "spec_description": "Neat B100 used cooking oil methyl ester for wholesale Singapore trading. 1 MT is the platform input minimum; orders require compatible quality and delivery terms.",
           "is_active": "true",
-          "created_at": "2026-10-15 17:04:47.127246+00"
+          "created_at": "2026-10-15 18:59:49.324426+00"
         },
         {
           "id": "f9b20492-b445-59cd-b292-a386d913f488",
@@ -29473,10 +29495,75 @@
           "min_lot_size": "200.00",
           "spec_description": "Synthetic methanol produced from renewable hydrogen and captured CO2",
           "is_active": "true",
-          "created_at": "2026-10-15 17:04:47.127246+00"
+          "created_at": "2026-10-15 18:59:49.324426+00"
         }
       ],
-      "delivery_points": []
+      "delivery_points": [
+        {
+          "id": "1379d36c-1ca9-55b7-9c0d-5235a0ba1f36",
+          "name": "Rotterdam",
+          "region": "Europe",
+          "timezone": "Europe/Amsterdam",
+          "is_active": "true",
+          "created_at": "2026-10-15 18:59:49.324426+00"
+        },
+        {
+          "id": "1be2a5cb-fc34-5e88-8b15-7f7d0fd6e534",
+          "name": "Los Angeles",
+          "region": "Americas",
+          "timezone": "America/Los_Angeles",
+          "is_active": "true",
+          "created_at": "2026-10-15 18:59:49.324426+00"
+        },
+        {
+          "id": "262d36ae-6f35-5785-b9e8-9e221b0f1b78",
+          "name": "Busan",
+          "region": "Asia",
+          "timezone": "Asia/Seoul",
+          "is_active": "true",
+          "created_at": "2026-10-15 18:59:49.324426+00"
+        },
+        {
+          "id": "633c0593-f9b9-52ad-abe5-a0285f6888d3",
+          "name": "Shanghai",
+          "region": "Asia",
+          "timezone": "Asia/Shanghai",
+          "is_active": "true",
+          "created_at": "2026-10-15 18:59:49.324426+00"
+        },
+        {
+          "id": "73835e92-820e-584b-8280-bb61c63aa28e",
+          "name": "Singapore",
+          "region": "Asia",
+          "timezone": "Asia/Singapore",
+          "is_active": "true",
+          "created_at": "2026-10-15 18:59:49.324426+00"
+        },
+        {
+          "id": "78281fb3-e726-5396-802e-34b01fda21e8",
+          "name": "Dalian",
+          "region": "Asia",
+          "timezone": "Asia/Shanghai",
+          "is_active": "true",
+          "created_at": "2026-10-15 18:59:49.324426+00"
+        },
+        {
+          "id": "a083db06-b050-56c2-a274-3897eac2fdae",
+          "name": "Houston",
+          "region": "Americas",
+          "timezone": "America/Chicago",
+          "is_active": "true",
+          "created_at": "2026-10-15 18:59:49.324426+00"
+        },
+        {
+          "id": "a4762444-4e0b-5bc1-b647-a185047adae5",
+          "name": "Santos",
+          "region": "Americas",
+          "timezone": "America/Sao_Paulo",
+          "is_active": "true",
+          "created_at": "2026-10-15 18:59:49.324426+00"
+        }
+      ]
     }
   },
   "tables": {

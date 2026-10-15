@@ -21,9 +21,9 @@ def test_no_external_network():
 
 def test_target_catalog_and_mapping():
     manifest = load_manifest()
-    actual = json.loads((Path(os.environ['PHASE0_WORK']) / 'staging-catalog.json').read_text())
+    actual = json.loads((Path(os.environ['PHASE0_WORK']) / 'union-catalog.json').read_text())
     require_complete_inventory(actual, manifest['target_catalog'])
-    assert actual['revision'] == 'kycd_20261015_staging'
+    assert actual['revision'] == 'p0_20261016_union'
     assert len(actual['tables']) == 62
     assert sum(len(item['target_additions']) for item in manifest['tables'].values()) == 15
     for name, item in manifest['tables'].items():
@@ -54,7 +54,7 @@ async def test_historical_snapshots_and_states(source_connection):
     rows = (await source_connection.execute(text('SELECT status, market_snapshot_version FROM trades'))).all()
     assert {row[0] for row in rows if row[1] is None} == {'PENDING_CONFIRMATION','CONFIRMED','DELIVERED','PAID','CANCELLED','DECLINED'}
     assert all(row[1] in (None, 1) for row in rows)
-    row = (await source_connection.execute(text("SELECT t.buyer_provenance, o.verification_status FROM trades t JOIN organizations o ON o.id=t.buyer_id WHERE t.market_snapshot_version=1"))).one()
+    row = (await source_connection.execute(text("SELECT t.buyer_provenance, o.verification_status FROM trades t JOIN organizations o ON o.id=t.buyer_id WHERE t.market_snapshot_version=1 AND t.market_product='BIO_METHANOL'"))).one()
     assert tuple(row) == ('REAL', 'REJECTED')
     transaction = await source_connection.begin_nested()
     try:

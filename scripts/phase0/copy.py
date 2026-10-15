@@ -419,7 +419,16 @@ def main():
         manifest_text = read_private_file(args.manifest, root_owned=os.geteuid() == 0)
         manifest = json.loads(manifest_text)
         validate_manifest(manifest)
-        if args.source_sha != manifest['source_sha'] or args.target_sha != manifest['target_base_sha']:
+        from scripts.phase0.bootstrap import load_policy
+        import subprocess
+
+        load_policy()  # Attest the final union graph, not only its staging ancestor.
+        git_environment = {key: value for key, value in os.environ.items() if not key.startswith('GIT_')}
+        target_sha = subprocess.check_output(
+            ['git', '-C', str(Path(__file__).resolve().parents[2]), 'rev-parse', 'HEAD'],
+            env=git_environment, text=True,
+        ).strip()
+        if args.source_sha != manifest['source_sha'] or args.target_sha != target_sha:
             raise CopyRefused('Release SHA differs')
         if not args.apply:
             print('Manifest valid; no connections opened; no mutation authorized')

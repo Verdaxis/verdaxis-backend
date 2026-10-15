@@ -114,6 +114,25 @@ async def populate(connection, catalog):
                  product_id=PRODUCT, product_name='Bio Methanol', fuel_type='Methanol', fuel_grade='Bio',
                  market_product='BIO_METHANOL', delivery_point_id=POINT, delivery_point_name='Singapore',
                  delivery_point_region='Asia', availability_window='SPOT', market_snapshot_version=1, created_at=TIME)
+    for product_name, product_id in (('B30', 'c4cecebc-3d2d-5840-8021-57a9a11bc673'),
+                                     ('B100', '74eb9cb5-f0e3-55f1-b82c-fe29b7c45bf5')):
+        for side, organization, user in (('BID', real_buyer, buyer_user), ('ASK', real_seller, seller_user)):
+            await insert('orderbook_orders', id=uid(product_name + side), organization_id=organization,
+                         owner_user_id=user, side=side, quantity_mt=200, remaining_quantity_mt=200,
+                         price_per_mt_usd=700, product_id=UUID(product_id), provenance='REAL',
+                         delivery_point_id=POINT, availability_window='SPOT')
+        await insert('trades', id=uid(product_name + '-trade'), buyer_id=real_buyer, seller_id=real_seller,
+                     bid_order_id=uid(product_name + 'BID'), ask_order_id=uid(product_name + 'ASK'),
+                     initiator_org_id=real_buyer, buyer_provenance='REAL', seller_provenance='REAL', initiated_by='BUYER',
+                     quantity_mt=10, price_per_mt_usd=700, status='CONFIRMED', confirmed_at=TIME,
+                     product_id=UUID(product_id), product_name=product_name, fuel_type='Biofuel', fuel_grade=product_name,
+                     market_product=product_name, delivery_point_id=POINT, delivery_point_name='Singapore',
+                     delivery_point_region='Asia', availability_window='SPOT', market_snapshot_version=1)
+        await insert('market_command_results', id=uid(product_name + '-receipt'), actor_user_id=buyer_user,
+                     effective_organization_id=real_buyer, operation='trade.confirm',
+                     idempotency_key=product_name + '-synthetic', request_hash='d'*64,
+                     resource_type='trade', resource_id=uid(product_name + '-trade'), response_status=200,
+                     response_body={'product': product_name, 'status': 'CONFIRMED'})
     # Owner maintenance changes current party state; the stored version-1
     # snapshot must remain REAL and must not be reconstructed on import.
     await connection.execute(text("UPDATE organizations SET verification_status='REJECTED' WHERE id=:id"), {'id': real_buyer})

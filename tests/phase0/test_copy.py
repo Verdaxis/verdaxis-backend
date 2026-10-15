@@ -23,7 +23,7 @@ async def copy_case(tmp_path):
     source_name, target_name = f'phase0_source_{suffix}', f'phase0_target_{suffix}'
     backup = f'phase0_backup_{suffix}'
     await admin.execute(f'CREATE ROLE {backup} LOGIN NOINHERIT PASSWORD \'{password}\'')
-    for name, template in ((source_name, 'phase0_prod_test'), (target_name, 'phase0_staging_test')):
+    for name, template in ((source_name, 'phase0_prod_test'), (target_name, 'phase0_union_test')):
         await admin.execute(f'CREATE DATABASE {name} OWNER phase0_owner TEMPLATE {template}')
     engines = []
     async def connect(name, role='phase0_owner'):

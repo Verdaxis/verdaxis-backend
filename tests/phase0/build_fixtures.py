@@ -65,6 +65,30 @@ async def inspect(name):
         await engine.dispose()
 
 
+async def build_union():
+    import asyncpg
+
+    admin = await asyncpg.connect(host='127.0.0.1', port=int(os.environ['PHASE0_PORT']),
+                                 user='postgres', password=os.environ['PHASE0_PASSWORD'], database='postgres')
+    try:
+        await admin.execute('CREATE DATABASE phase0_union_test OWNER phase0_owner')
+    finally:
+        await admin.close()
+    url = f"postgresql+asyncpg://phase0_owner:{os.environ['PHASE0_PASSWORD']}@127.0.0.1:{os.environ['PHASE0_PORT']}/phase0_union_test"
+    subprocess.run([str(ROOT / 'venv/bin/python'), '-m', 'alembic', 'upgrade', 'p0_20261016_union'],
+                   cwd=ROOT, env=dict(os.environ, DATABASE_URL=url, MIGRATOR_DATABASE_URL=url), check=True)
+    subprocess.run([str(ROOT / 'venv/bin/python'), '-m', 'alembic', 'check'],
+                   cwd=ROOT, env=dict(os.environ, DATABASE_URL=url, MIGRATOR_DATABASE_URL=url), check=True)
+    engine = create_async_engine(url)
+    try:
+        async with engine.connect() as connection:
+            catalog = await connection.run_sync(inspect_catalog)
+            (Path(os.environ['PHASE0_WORK']) / 'union-catalog.json').write_text(json.dumps(catalog, indent=2) + '\n')
+    finally:
+        await engine.dispose()
+
+
 if __name__ == "__main__":
     for name in ("prod", "staging"):
         asyncio.run(inspect(name))
+    asyncio.run(build_union())
