@@ -239,6 +239,26 @@ fn trailing_zero_declarations_match_python() {
     }
 }
 
+#[test]
+fn public_quality_wire_decimals_match_python() {
+    assert_public_vectors(true);
+}
+
+#[test]
+fn public_bid_defaults_match_python() {
+    assert_public_vectors(false);
+}
+
+fn assert_public_vectors(quality: bool) {
+    let cases = vector(include_str!(concat!(env!("CARGO_MANIFEST_DIR"),
+        "/../../tests/rust_contract/vectors/terms/public_terms.json")));
+    for case in cases.as_array().unwrap() {
+        if case["name"].as_str().unwrap().starts_with("quality-") != quality { continue; }
+        assert_eq!(redact_terms(case["profile"].as_str().unwrap(), &case["terms"]).unwrap(),
+            case["public"], "{}", case["name"]);
+    }
+}
+
 fn id(n: u128) -> Uuid {
     Uuid::from_u128(n)
 }
@@ -569,13 +589,13 @@ fn typed_validators_reject_a_side_mismatch_and_an_unassigned_country() {
         "sustainability_scheme": "ISCC_EU"
     });
     assert!(validate_fame_terms("BID", Some(&bid), today()).is_ok());
-    assert_eq!(redact_terms("fame_v1", &bid).unwrap(), bid);
+    assert_eq!(redact_terms("fame_v1", &bid).unwrap()["require_quality_evidence"], json!(false));
     let lng_bid = json!({
         "side": "BID",
         "accepted_schemes": ["ISCC_EU"],
         "accepted_delivery_methods": ["SHIP_TO_SHIP"]
     });
-    assert_eq!(redact_terms("lng_v1", &lng_bid).unwrap(), lng_bid);
+    assert_eq!(redact_terms("lng_v1", &lng_bid).unwrap()["require_union_database"], json!(true));
 }
 
 // ---------------------------------------------------------------------------

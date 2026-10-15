@@ -276,6 +276,46 @@ fn literal_true(object: &Map<String, Json>, key: &str) -> Result<(), String> {
     }
 }
 
+/// Pydantic's Decimal JSON uses Python's Decimal spelling, including scale,
+/// signed zero and scientific notation when the adjusted exponent is below -6.
+fn decimal_wire_text(value: &Json) -> Result<String, String> {
+    let text = match value {
+        Json::String(text) => text.trim().to_owned(),
+        Json::Number(number) => number.to_string(),
+        _ => return Err("expected decimal text".to_owned()),
+    };
+    let negative = text.starts_with('-');
+    let unsigned = text.trim_start_matches(['-', '+']);
+    let (mantissa, exponent) = match unsigned.split_once(['e', 'E']) {
+        Some((mantissa, exponent)) => (mantissa, exponent.parse::<i32>().map_err(|_| "invalid decimal exponent")?),
+        None => (unsigned, 0),
+    };
+    let fractional = mantissa.split_once('.').map_or(0, |(_, fraction)| fraction.len());
+    let digits: String = mantissa.chars().filter(|c| *c != '.').collect();
+    if digits.is_empty() || !digits.bytes().all(|c| c.is_ascii_digit()) {
+        return Err("invalid decimal coefficient".to_owned());
+    }
+    let digits = digits.trim_start_matches('0');
+    let digits = if digits.is_empty() { "0" } else { digits };
+    let exponent = exponent.checked_sub(i32::try_from(fractional).map_err(|_| "decimal scale overflow")?).ok_or("decimal scale overflow")?;
+    let adjusted = exponent + digits.len() as i32 - 1;
+    let sign = if negative { "-" } else { "" };
+    if exponent > 0 || adjusted < -6 {
+        let coefficient = if digits.len() == 1 { digits.to_owned() } else {
+            format!("{}.{}", &digits[..1], &digits[1..])
+        };
+        return Ok(format!("{sign}{coefficient}E{adjusted:+}"));
+    }
+    let point = digits.len() as i32 + exponent;
+    let body = if point <= 0 {
+        format!("0.{}{digits}", "0".repeat((-point) as usize))
+    } else if exponent < 0 {
+        let point = point as usize;
+        format!("{}.{}", &digits[..point], &digits[point..])
+    } else { digits.to_owned() };
+    Ok(format!("{sign}{body}"))
+}
+
 fn decimal_of(value: &Json) -> Option<Decimal> {
     match value {
         Json::String(text) => text.trim().parse().ok(),
@@ -520,17 +560,16 @@ pub fn public_lng_terms(terms: &Json) -> Result<Json, String> {
     let side = required_enum(object, "side", &["BID", "ASK"])?;
     validate_lng_terms(&side, Some(terms))?;
     if side == "BID" {
-        return Ok(terms.clone());
+        return normalized_bid_terms(object, LNG_PROFILE);
     }
     let mut public = Map::new();
     for key in LNG_ASK_FIELDS {
         if key == "scheme_certificate_number" || key == "physical_supplier_name" {
             continue;
         }
-        if let Some(value) = object.get(key) {
-            public.insert(key.to_owned(), value.clone());
-        }
+        public.insert(key.to_owned(), object.get(key).cloned().unwrap_or(Json::Null));
     }
+    normalize_public_values(&mut public, &["bio_share_pct", "wtt_ghg_gco2e_mj", "min_methane_number"])?;
     let physical = required_bool(object, "seller_is_physical_supplier")?;
     let registered = required_bool(object, "union_database_registered")?;
     public.insert("reseller".to_owned(), Json::Bool(!physical));
@@ -944,7 +983,7 @@ fn quality_evidence(value: Option<&Json>) -> Result<Option<QualitySummary>, Stri
         properties.push(property.clone());
         let mut public = Map::new();
         public.insert("property".to_owned(), Json::String(property));
-        public.insert("value".to_owned(), Json::String(decimal_text(value)));
+        public.insert("value".to_owned(), Json::String(decimal_wire_text(&result["value"])?));
         public.insert("method".to_owned(), method.map_or(Json::Null, Json::String));
         public_results.push(Json::Object(public));
     }
@@ -1031,7 +1070,7 @@ pub fn public_fame_terms(terms: &Json) -> Result<Json, String> {
     let side = required_enum(object, "side", &["BID", "ASK"])?;
     validate_fame_schema(&side, Some(terms))?;
     if side == "BID" {
-        return Ok(terms.clone());
+        return normalized_bid_terms(object, FAME_PROFILE);
     }
     let mut public = Map::new();
     for key in [
@@ -1057,10 +1096,11 @@ pub fn public_fame_terms(terms: &Json) -> Result<Json, String> {
         "certificate_valid_until",
         "evidence_status",
     ] {
-        if let Some(value) = object.get(key) {
-            public.insert(key.to_owned(), value.clone());
-        }
+        public.insert(key.to_owned(), object.get(key).cloned().unwrap_or(Json::Null));
     }
+    if !object.contains_key("schema_version") { public.insert("schema_version".to_owned(), serde_json::json!(1)); }
+    if !object.contains_key("nomination_status") { public.insert("nomination_status".to_owned(), serde_json::json!("PENDING")); }
+    normalize_public_values(&mut public, &["cfpp_c", "cloud_point_c", "ci_gco2e_mj", "lhv_mj_kg"])?;
     public.insert("side".to_owned(), Json::String(ASK.to_owned()));
     public.insert(
         "quality_evidence".to_owned(),
@@ -1104,6 +1144,43 @@ fn public_sustainability(sustainability: Option<SustainabilitySummary>) -> Json 
             Json::Object(object)
         }
     }
+}
+
+fn normalized_bid_terms(object: &Map<String, Json>, profile: &str) -> Result<Json, String> {
+    let (fields, decimal_fields): (&[&str], &[&str]) = if profile == LNG_PROFILE {
+        (&LNG_BID_FIELDS[..9], &["min_bio_share_pct", "max_wtt_ghg_gco2e_mj", "min_methane_number"])
+    } else {
+        (&FAME_BID_FIELDS, &["max_cfpp_c", "max_cloud_point_c", "max_ci_gco2e_mj"])
+    };
+    let mut normalized = object.clone();
+    // Defaults are schema-owned, not inferred from the values of other fields.
+    let defaults = if profile == LNG_PROFILE {
+        serde_json::json!({"accepted_custody": ["MASS_BALANCE", "PHYSICAL_SEGREGATION"],
+            "require_union_database": true, "accept_resellers": true,
+            "min_bio_share_pct": null, "max_wtt_ghg_gco2e_mj": null, "min_methane_number": null})
+    } else {
+        serde_json::json!({"schema_version": 1, "require_quality_evidence": false,
+            "require_sustainability_evidence": false, "evidence_due": "BEFORE_LOADING"})
+    };
+    for (key, value) in defaults.as_object().unwrap() {
+        normalized.entry(key.clone()).or_insert_with(|| value.clone());
+    }
+    if profile == FAME_PROFILE {
+        for field in fields { normalized.entry((*field).to_owned()).or_insert(Json::Null); }
+    }
+    normalize_public_values(&mut normalized, decimal_fields)?;
+    Ok(Json::Object(normalized))
+}
+
+fn normalize_public_values(object: &mut Map<String, Json>, decimals: &[&str]) -> Result<(), String> {
+    for (key, value) in object.iter_mut() {
+        if decimals.contains(&key.as_str()) && !value.is_null() {
+            *value = Json::String(decimal_wire_text(value)?);
+        } else if let Json::String(text) = value {
+            *text = text.trim().to_owned();
+        }
+    }
+    Ok(())
 }
 
 /// Redact private reviewed terms to their public form for one profile.

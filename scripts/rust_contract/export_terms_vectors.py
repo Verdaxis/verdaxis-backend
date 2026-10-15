@@ -267,6 +267,30 @@ def _decimal_validation_vectors() -> list[dict]:
     return cases
 
 
+def _public_terms_vectors() -> list[dict]:
+    from copy import deepcopy
+    from app.services.fame_order import public_fame_terms
+    from app.services.lng_order import public_lng_terms
+
+    cases = []
+    for value in ("120.00", "-0.00", "0.00000001"):
+        terms = _fame_private_terms()
+        terms["quality_evidence"]["results"][0]["value"] = value
+        cases.append({"name": f"quality-{value}", "profile": "fame_v1", "terms": terms,
+                      "public": public_fame_terms(terms)})
+    for profile, terms, project in (
+        ("lng_v1", {"side": "BID", "accepted_schemes": ["ISCC_EU"],
+                    "accepted_delivery_methods": ["SHIP_TO_SHIP"]}, public_lng_terms),
+        ("fame_v1", {"side": "BID", "neat_fame": True, "standard": "EN_14214",
+                     "standard_edition": "EN 14214:2019", "sustainability_scheme": "ISCC_EU"}, public_fame_terms),
+        ("lng_v1", _private_lng_ask_terms(), public_lng_terms),
+        ("fame_v1", _fame_private_terms(), public_fame_terms),
+    ):
+        cases.append({"name": f"{profile}-{terms['side']}", "profile": profile,
+                      "terms": deepcopy(terms), "public": project(terms)})
+    return cases
+
+
 def build_vectors() -> dict[str, str]:
     """Return vector file name -> exact committed text."""
     payloads = {
@@ -274,6 +298,7 @@ def build_vectors() -> dict[str, str]:
         "non_ascii.json": _non_ascii_vector(),
         "fame.json": _fame_vector(),
         "decimal_validation.json": _decimal_validation_vectors(),
+        "public_terms.json": _public_terms_vectors(),
     }
     return {
         name: json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
