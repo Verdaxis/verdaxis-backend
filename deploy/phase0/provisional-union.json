@@ -1,0 +1,172 @@
+{
+  "format_version": 1,
+  "status": "provisional-not-a-deployment-approval",
+  "source_sha": "c08266bd6969143812dec7c5033338428cd5f159",
+  "target_base_sha": "b218ab264b92f99007bacc05d4871413e024b72a",
+  "products": {
+    "BIO_LNG": {
+      "id": "8f6f34a5-2927-54a6-8564-cca40ae7cb8a",
+      "market_product": "BIO_LNG",
+      "name": "Bio-LNG",
+      "fuel_type": "LNG",
+      "fuel_grade": "Bio",
+      "unit": "MT",
+      "min_lot_size": "1",
+      "spec_description": "Liquefied biomethane (bio-LNG) for marine fuel use, delivered to ISO 23306:2020 with a certified Proof of Sustainability.",
+      "execution_mode": "ORDERBOOK",
+      "available_delivery_point_ids": [
+        "1379d36c-1ca9-55b7-9c0d-5235a0ba1f36"
+      ]
+    },
+    "UCOME_B100": {
+      "id": "e561e43f-d9b2-598e-981c-f1d28d515ddc",
+      "market_product": "UCOME_B100",
+      "name": "UCOME B100",
+      "fuel_type": "FAME",
+      "fuel_grade": "UCOME",
+      "unit": "MT",
+      "min_lot_size": "1",
+      "spec_description": "Neat B100 used cooking oil methyl ester for wholesale Singapore trading. 1 MT is the platform input minimum; orders require compatible quality and delivery terms.",
+      "execution_mode": "ORDERBOOK",
+      "available_delivery_point_ids": [
+        "73835e92-820e-584b-8280-bb61c63aa28e"
+      ]
+    },
+    "BIO_METHANOL": {
+      "id": "9510c713-6e39-5080-add3-0a7c29657b79",
+      "market_product": "BIO_METHANOL",
+      "name": "Bio Methanol",
+      "fuel_type": "Methanol",
+      "fuel_grade": "Bio",
+      "unit": "MT",
+      "min_lot_size": "200",
+      "spec_description": "Bio-methanol produced from biogenic feedstocks for marine fuel use",
+      "execution_mode": "ORDERBOOK",
+      "available_delivery_point_ids": null
+    },
+    "E_METHANOL": {
+      "id": "f9b20492-b445-59cd-b292-a386d913f488",
+      "market_product": "E_METHANOL",
+      "name": "e-Methanol",
+      "fuel_type": "Methanol",
+      "fuel_grade": "E",
+      "unit": "MT",
+      "min_lot_size": "200",
+      "spec_description": "Synthetic methanol produced from renewable hydrogen and captured CO2",
+      "execution_mode": "ORDERBOOK",
+      "available_delivery_point_ids": null
+    },
+    "BIO_ETHANOL": {
+      "id": "c4a688be-f7c2-5edc-8f93-6b34e387609c",
+      "market_product": "BIO_ETHANOL",
+      "name": "Bio Ethanol",
+      "fuel_type": "Ethanol",
+      "fuel_grade": "Bio",
+      "unit": "MT",
+      "min_lot_size": "200",
+      "spec_description": "Second-generation bioethanol from waste feedstocks",
+      "execution_mode": "ORDERBOOK",
+      "available_delivery_point_ids": null
+    },
+    "SYNTHETIC_ETHANOL": {
+      "id": "d186bffb-766d-5944-8825-989abbdcfc46",
+      "market_product": "SYNTHETIC_ETHANOL",
+      "name": "Synthetic Ethanol",
+      "fuel_type": "Ethanol",
+      "fuel_grade": "Synthetic",
+      "unit": "MT",
+      "min_lot_size": "200",
+      "spec_description": "Synthetic ethanol produced via power-to-liquids or equivalent synthetic pathways",
+      "execution_mode": "ORDERBOOK",
+      "available_delivery_point_ids": null
+    },
+    "B30": {
+      "id": "c4cecebc-3d2d-5840-8021-57a9a11bc673",
+      "market_product": "B30",
+      "name": "B30",
+      "fuel_type": "Biofuel",
+      "fuel_grade": "B30",
+      "unit": "MT",
+      "min_lot_size": "200",
+      "spec_description": "30% FAME by volume blended with 70% VLSFO; finished blend meets ISO 8217:2024 RF 380 with sulphur at most 0.50% by mass",
+      "available_delivery_point_ids": null
+    },
+    "B100": {
+      "id": "74eb9cb5-f0e3-55f1-b82c-fe29b7c45bf5",
+      "market_product": "B100",
+      "name": "B100",
+      "fuel_type": "Biofuel",
+      "fuel_grade": "B100",
+      "unit": "MT",
+      "min_lot_size": "200",
+      "spec_description": "100% FAME, excluding HVO; finished fuel meets ISO 8217:2024 DFA with sulphur at most 0.10% by mass",
+      "available_delivery_point_ids": null
+    }
+  },
+  "delivery_points": [
+    {
+      "id": "78281fb3-e726-5396-802e-34b01fda21e8",
+      "name": "Dalian",
+      "region": "Asia",
+      "timezone": "Asia/Shanghai"
+    },
+    {
+      "id": "262d36ae-6f35-5785-b9e8-9e221b0f1b78",
+      "name": "Busan",
+      "region": "Asia",
+      "timezone": "Asia/Seoul"
+    },
+    {
+      "id": "633c0593-f9b9-52ad-abe5-a0285f6888d3",
+      "name": "Shanghai",
+      "region": "Asia",
+      "timezone": "Asia/Shanghai"
+    },
+    {
+      "id": "73835e92-820e-584b-8280-bb61c63aa28e",
+      "name": "Singapore",
+      "region": "Asia",
+      "timezone": "Asia/Singapore"
+    },
+    {
+      "id": "1379d36c-1ca9-55b7-9c0d-5235a0ba1f36",
+      "name": "Rotterdam",
+      "region": "Europe",
+      "timezone": "Europe/Amsterdam"
+    },
+    {
+      "id": "a083db06-b050-56c2-a274-3897eac2fdae",
+      "name": "Houston",
+      "region": "Americas",
+      "timezone": "America/Chicago"
+    },
+    {
+      "id": "1be2a5cb-fc34-5e88-8b15-7f7d0fd6e534",
+      "name": "Los Angeles",
+      "region": "Americas",
+      "timezone": "America/Los_Angeles"
+    },
+    {
+      "id": "a4762444-4e0b-5bc1-b647-a185047adae5",
+      "name": "Santos",
+      "region": "Americas",
+      "timezone": "America/Sao_Paulo"
+    }
+  ],
+  "column_mapping": "deploy/phase0/copy-manifest.json",
+  "database_timezone": "UTC",
+  "certificate_date_timezone": "Asia/Singapore",
+  "kyc_execution_gate_enabled": false,
+  "kyc_advisory_blocks": [
+    "REJECTED",
+    "review bound to another organization"
+  ],
+  "kyc_documents": "empty on import; encrypted retention thereafter",
+  "grace_emails": "disabled",
+  "no_seed_prices": [
+    "BIO_LNG",
+    "UCOME_B100"
+  ],
+  "final_digest_owner": "Task 9; rerun affected goldens after any contract change",
+  "provisional_digest": "849ca8f45a3bacd908be4173d28024006213c1eb2f370b8ce7d30ee8980547e6"
+}

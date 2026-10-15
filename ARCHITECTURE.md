@@ -132,6 +132,12 @@ app/
     rbac.py                     # require_role() factory — FastAPI dependency for role-based access
     market_support_scope.py     # Fail-closed method/path gate for context-bearing mutations
 
+scripts/phase0/manifest.py       # Read-only catalog inspection and frozen source inventory comparison
+scripts/run_phase0_postgres_tests.sh # Owns pinned disposable PostgreSQL; no caller database URL
+deploy/phase0/                   # Explicit copy mapping and provisional eight-product union contract
+tests/phase0/                    # Independently migrated pinned schemas and synthetic source history
+outputs/phase0/task-01.md        # Task 1 acceptance evidence and fixture resume command
+
 tests/unit/                     # Unit coverage (auth, matching, runtime, compliance, events, pricing, schemas)
 tests/integration/              # Mutating API tests; skipped unless an attested disposable target is explicit
 tests/disposable_target.py      # Numeric-loopback ephemeral-port and exact identity-handshake guard
