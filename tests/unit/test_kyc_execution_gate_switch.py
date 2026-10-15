@@ -29,7 +29,10 @@ from app.routers import trades as trades_router
 from app.routers.auth_simple import read_users_me
 from app.schemas.orderbook import OrderCreate, OrderUpdate, TradeCreate
 from app.services import kyc_execution
-from app.services.execution_policy import customer_organization_is_execution_eligible
+from app.services.execution_policy import (
+    customer_organization_is_execution_eligible,
+    market_party_is_admitted,
+)
 from app.services.kyc_execution import kyc_execution_eligibility
 from app.services.market_data_eligibility import public_order_is_visible
 from app.services.matching_engine import match_order
@@ -474,6 +477,29 @@ async def test_assisted_customer_org_needs_one_eligible_member(db, kyc_gate):
     eligible = await customer_organization_is_execution_eligible(db, organization)
 
     assert eligible is (not kyc_gate)
+
+
+# ---------------------------------------------------------------------------
+# Indicative surfaces (the advisory rule, unchanged by the switch)
+# ---------------------------------------------------------------------------
+
+
+async def test_indicative_admission_refuses_rejection_and_foreign_binding(db, kyc_gate):
+    """The INDICATIVE rule blocks only a rejection or a foreign KYC binding."""
+    organization = await _make_org(db, "Buyer", OrgType.SHIPPING_LINE)
+    other = await _make_org(db, "Other", OrgType.SHIPPING_LINE)
+    user = await _make_user(db, organization, UserRole.BUYER)
+
+    assert await market_party_is_admitted(db, user=user, organization=organization)
+
+    user.kyc_status = "REJECTED"
+    await db.commit()
+    assert not await market_party_is_admitted(db, user=user, organization=organization)
+
+    user.kyc_status = "APPROVED"
+    user.kyc_organization_id = other.id
+    await db.commit()
+    assert not await market_party_is_admitted(db, user=user, organization=organization)
 
 
 # ---------------------------------------------------------------------------
