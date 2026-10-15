@@ -167,6 +167,18 @@ async def main():
                 ),
             },
         )
+        # Reopen a copy of Task 4b's labelled negative declaration, not its
+        # cancelled corpus row. Public projection must not validate private fields.
+        await copy("fame_ask_ok", "private-good", "2032-06", 600)
+        private_bad_id = await copy(
+            "typed_invalid_visible", "private-bad", "2032-06", 900
+        )
+        await copy("lng_ask_ok", "lng-private-good", "2032-07", 600)
+        lng_bad_id = await copy("lng_ask_ok", "lng-private-bad", "2032-07", 900)
+        await session.execute(
+            text("UPDATE orderbook_orders SET lng_terms = jsonb_set(jsonb_set(lng_terms::jsonb, '{scheme_certificate_number}', '\"\"'), '{physical_supplier_name}', '\"\"')::json WHERE id=:id"),
+            {"id": lng_bad_id},
+        )
         concurrent_id = await copy("ask_ok", "concurrent", "2032-04", 600)
         expiry_id = await copy("ask_ok", "expiry-boundary", "2032-05", 600)
         await session.execute(
@@ -236,6 +248,18 @@ async def main():
                 privacy(child)
 
     privacy(typed_body)
+    lng_product = next(p for p in policy["products"] if p["qualification_profile"] == "lng_v1")
+    for name, code, point, window, bad_id in [
+        ("negative-fame-holder", typed, typed_rows[1], "2032-06", private_bad_id),
+        ("negative-lng-private", lng_product["code"], lng_product["lanes"][0], "2032-07", lng_bad_id),
+    ]:
+        exchange = compare(case(name, code, point, window))
+        assert exchange["status"] == 200
+        asks = exchange["body"]["asks"]
+        assert len(asks) == 2 and bad_id in {row["id"] for row in asks}
+        assert {row["benchmark_price_per_mt_usd"] for row in asks} == {"600.00"}
+        assert all(len(row["terms_digest"]) == 64 for row in asks)
+        privacy(exchange["body"])
     for index, catalog_product in enumerate(policy["products"]):
         if catalog_product["execution_mode"] == "ORDERBOOK":
             for point_index, point in enumerate(catalog_product["lanes"]):

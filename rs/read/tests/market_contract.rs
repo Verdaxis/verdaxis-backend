@@ -7,15 +7,15 @@
 
 use chrono::NaiveDate;
 use rust_decimal::Decimal;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use uuid::Uuid;
 
 use verdaxis_read::{
-    Json, MarketPolicy, PointPolicy, ProductPolicy, QualificationInput, canonical_terms_from_row,
-    decimal_text, digest_terms, normalize_certification_scheme, normalize_window,
-    order_is_execution_qualified_at, public_order_sql, redact_terms, trade_evidence_sql,
-    validate_fame_terms, validate_lng_terms, window_display_label, window_sort_key,
-    window_start_date,
+    canonical_terms_from_row, decimal_text, digest_terms, normalize_certification_scheme,
+    normalize_window, order_is_execution_qualified_at, public_order_sql, redact_terms,
+    trade_evidence_sql, validate_fame_terms, validate_lng_terms, window_display_label,
+    window_sort_key, window_start_date, Json, MarketPolicy, PointPolicy, ProductPolicy,
+    QualificationInput,
 };
 
 const PRIVATE_VECTOR: &str = include_str!(concat!(
@@ -270,6 +270,44 @@ fn trailing_zero_declarations_match_python() {
             _ => validate_fame_terms("ASK", Some(terms), today()),
         };
         assert!(result.is_ok(), "Python accepts {case}: {result:?}");
+    }
+}
+
+#[test]
+fn public_asks_ignore_private_validation_but_execution_does_not() {
+    for (profile, mut terms, private_fields) in [
+        (
+            "fame_v1",
+            vector(FAME_VECTOR)["fame_terms"].clone(),
+            vec![
+                "certificate_holder",
+                "certificate_reference",
+                "batch_reference",
+                "producing_site",
+                "certificate_scope",
+                "document_references",
+            ],
+        ),
+        (
+            "lng_v1",
+            vector(PRIVATE_VECTOR)["lng_terms"].clone(),
+            vec!["scheme_certificate_number", "physical_supplier_name"],
+        ),
+    ] {
+        let expected = redact_terms(profile, &terms).unwrap();
+        for field in private_fields {
+            terms[field] = json!("");
+            assert_eq!(redact_terms(profile, &terms).unwrap(), expected, "{field}");
+            let qualified = if profile == "fame_v1" {
+                validate_fame_terms("ASK", Some(&terms), today())
+            } else {
+                validate_lng_terms("ASK", Some(&terms))
+            };
+            assert!(
+                qualified.is_err(),
+                "{field} must still fail execution validation"
+            );
+        }
     }
 }
 
