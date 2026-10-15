@@ -164,7 +164,10 @@ async fn catalog_and_protocol_bypass_saturated_database_admission() {
             "tools/call",
             json!({"name":"get_market_slice","arguments":{"market_product":"fixture","delivery_point":"fixture","availability_window":"SPOT"}}),
         ),
-        ("tools/call", json!({"name":"plan_voyage_fuel","arguments":{"request":{}}})),
+        (
+            "tools/call",
+            json!({"name":"plan_voyage_fuel","arguments":{"request":{}}}),
+        ),
     ] {
         let request = Request::builder()
             .method("POST")

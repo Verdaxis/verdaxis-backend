@@ -129,6 +129,41 @@ rmcp tool. Add full-engine oracle vectors before implementation. Finish the
 41 protocol/validation differences, three-tool privacy/error/cancellation
 coverage and lane-evidence replay. Do not claim Task 11 complete at this point.
 
+## Pure-engine checkpoint `0f481b27`
+
+Added full-engine oracle tests first; the test failed because `mcp::voyage`
+was absent (`task11-voyage-red.txt`). Ten full result/error cases now match
+Python exactly: golden blends, missing assumptions, conventional-only,
+green-only, missing intensity, no EU scope, old/future starts, duration and
+invalid Cape route. `export_voyage_vectors.py` regenerates these fixtures.
+
+All three rmcp tools now register. The voyage tool uses `run_admitted` for
+its complete lookup/calculation unit. Price candidates use the shared
+Orderbook relation and bind helpers, with one batched ASK read ordered by
+price/acceptance ordinal; Task 10b supplies benchmark reads/fallback data.
+Both database tools return busy while initialize/list-tools/catalog bypass
+all eight occupied slots. No existing shared SQL or Python app was changed.
+
+The engine has typed serde request structures and numeric/length bounds,
+but **validation parity is not complete**: port canonicalization, detailed
+Pydantic errors and some field semantics need work. The pure engine also
+needs broader rounding/annual-boundary vectors and an explicit catalog-lane
+check for caller-supplied price maps. Current vectors do not prove those.
+
+Latest checks: fmt (after correcting test formatting) and clippy pass;
+workspace **132 passed**; PostgreSQL **140 passed**, two matrix tests filtered;
+Python contracts **110 passed**; Python MCP/voyage **90 passed**. MCP corpus
+has **29 differences**, not zero. The first disposable attempt failed database
+startup; cleanup ran, and the retry completed. Logs are `task11-engine-*` and
+`task11-voyage-contract.txt` under `work/rust-phase1/`. No tests remain running.
+
+**Next resume:** fix remaining recorded protocol differences (tool-list byte
+order, malformed/unknown requests, GET stream, DELETE, notification headers,
+unsupported versions), Python repr and Pydantic validation errors. Add lane-
+evidence replay, three-tool recursive privacy/error/cancellation tests and
+expanded voyage fixtures, including green market-price lookup differential
+cases. Preserve the single committed golden directory. This is not acceptance.
+
 ## Remaining implementation and acceptance
 
 Task 11 is **not complete**. Implement the rmcp 3.5.1 adapter, all three tools,
