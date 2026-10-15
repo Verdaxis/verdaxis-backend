@@ -149,3 +149,20 @@ async def test_corrupt_document_returns_sanitized_error(state, caplog):
     assert error.value.detail == {"code": "KYC_DOCUMENT_DECRYPTION_FAILED"}
     assert "invalid-private-data" not in caplog.text
     assert "tttttttt" not in caplog.text
+
+
+@pytest.mark.parametrize("decision", ["approve", "reject"])
+async def test_review_audit_reports_retained_documents(state, monkeypatch, decision):
+    db, user, admin, request = state
+    await submit(state)
+    monkeypatch.setattr(kyc, "user_has_public_market_projection", AsyncMock(return_value=False))
+    monkeypatch.setattr(kyc, "enqueue_market_events", AsyncMock())
+    monkeypatch.setattr(kyc, "send_kyc_approved_email", AsyncMock())
+    monkeypatch.setattr(kyc, "send_kyc_rejected_email", AsyncMock())
+    if decision == "approve":
+        await kyc.admin_approve_kyc(user.id, request, kyc.AdminApproveBody(
+            external_evidence_reference="case-1", review_note="Reviewed retained documents"), admin, db)
+    else:
+        await kyc.admin_reject_kyc(user.id, request, kyc.AdminRejectBody(reason="Evidence rejected"), admin, db)
+    audit = (await db.scalars(select(AuditLog).where(AuditLog.action == f"kyc.{decision}ed"))).one() if decision == "reject" else (await db.scalars(select(AuditLog).where(AuditLog.action == "kyc.approved"))).one()
+    assert audit.changes["raw_documents_retained_in_platform"] is True

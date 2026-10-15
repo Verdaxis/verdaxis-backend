@@ -413,7 +413,7 @@ async def admin_approve_kyc(
             "kyc_status": {"from": previous, "to": "APPROVED"},
             "external_evidence_reference": body.external_evidence_reference,
             "review_note": body.review_note,
-            "raw_documents_retained_in_platform": False,
+            "raw_documents_retained_in_platform": await _has_retained_documents(db, target),
         },
         **request_audit_context(request),
     )
@@ -469,6 +469,7 @@ async def admin_reject_kyc(user_id: uuid.UUID, request: Request, body: AdminReje
         changes={
             "kyc_status": {"from": previous, "to": "REJECTED"},
             "reason": body.reason,
+            "raw_documents_retained_in_platform": await _has_retained_documents(db, target),
         },
         **request_audit_context(request),
     )
