@@ -79,6 +79,16 @@ def attest_bootstrap_connection(connection, identity):
             or (url.host, url.port, url.database, url.username) !=
             (identity.host, identity.port, identity.database, identity.role)):
         raise ValueError('Bootstrap connection endpoint differs')
+    # SQLAlchemy's logical transaction can exist while the driver autocommits.
+    # Start the driver's lazy transaction with a read, then require PostgreSQL's
+    # physical transaction state before attestation, lock acquisition or DDL.
+    # Only asyncpg is supported by this bootstrap; unknown drivers fail closed.
+    if connection.dialect.driver != 'asyncpg':
+        raise ValueError('Bootstrap requires an asyncpg physical transaction')
+    connection.execute(text('SELECT 1'))
+    driver = connection.connection.driver_connection
+    if not driver.is_in_transaction():
+        raise ValueError('Bootstrap requires a physical transaction; AUTOCOMMIT refused')
     row = connection.execute(text('''
         SELECT current_database() AS database, current_user AS role, session_user,
                d.oid, inet_server_addr()::text AS server_host,
