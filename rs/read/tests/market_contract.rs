@@ -273,6 +273,20 @@ fn large_decimal_digest_matches_python() {
     assert!(canonical_terms_from_row(&invalid).is_err());
 }
 
+#[test]
+fn window_edge_inputs_match_python() {
+    let cases = vector(include_str!(concat!(env!("CARGO_MANIFEST_DIR"),
+        "/../../tests/rust_contract/vectors/terms/windows.json")));
+    for case in cases.as_array().unwrap() {
+        let input = case["input"].as_str().unwrap();
+        assert_eq!(normalize_window(input, today()).unwrap(), case["normalized"]);
+        assert_eq!(window_display_label(input).unwrap(), case["label"]);
+        let start = window_start_date(input, today());
+        if case["start"].is_null() { assert!(start.is_err()); }
+        else { assert_eq!(start.unwrap().format("%Y-%m-%d").to_string(), case["start"]); }
+    }
+}
+
 fn id(n: u128) -> Uuid {
     Uuid::from_u128(n)
 }

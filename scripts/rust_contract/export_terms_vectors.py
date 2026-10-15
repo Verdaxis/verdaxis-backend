@@ -304,6 +304,21 @@ def _large_decimal_vectors() -> list[dict]:
     return cases
 
 
+def _window_vectors() -> list[dict]:
+    from app.services.availability_windows import (
+        normalize_availability_window, window_start_date, availability_window_display_label,
+    )
+    cases = []
+    for value in ("２０２６-Q1", "0000-Q1", "0026-Q1", "0026-CAL", "٢٠٢٦-01"):
+        try:
+            start = window_start_date(value).isoformat()
+        except ValueError:
+            start = None
+        cases.append({"input": value, "normalized": normalize_availability_window(value),
+                      "start": start, "label": availability_window_display_label(value)})
+    return cases
+
+
 def build_vectors() -> dict[str, str]:
     """Return vector file name -> exact committed text."""
     payloads = {
@@ -313,6 +328,7 @@ def build_vectors() -> dict[str, str]:
         "decimal_validation.json": _decimal_validation_vectors(),
         "public_terms.json": _public_terms_vectors(),
         "large_decimals.json": _large_decimal_vectors(),
+        "windows.json": _window_vectors(),
     }
     return {
         name: json.dumps(payload, ensure_ascii=False, indent=2) + "\n"

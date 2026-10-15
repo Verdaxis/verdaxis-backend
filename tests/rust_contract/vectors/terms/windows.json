@@ -1,0 +1,32 @@
+[
+  {
+    "input": "２０２６-Q1",
+    "normalized": "２０２６-Q1",
+    "start": "2026-01-01",
+    "label": "Q1 ２０２６"
+  },
+  {
+    "input": "0000-Q1",
+    "normalized": "0000-Q1",
+    "start": null,
+    "label": "Q1 0000"
+  },
+  {
+    "input": "0026-Q1",
+    "normalized": "0026-Q1",
+    "start": "0026-01-01",
+    "label": "Q1 0026"
+  },
+  {
+    "input": "0026-CAL",
+    "normalized": "0026-CAL",
+    "start": "0026-01-01",
+    "label": "CAL 0026"
+  },
+  {
+    "input": "٢٠٢٦-01",
+    "normalized": "٢٠٢٦-01",
+    "start": "2026-01-01",
+    "label": "Jan 2026"
+  }
+]
