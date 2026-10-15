@@ -257,7 +257,7 @@ async def test_cli_requires_apply_and_private_target_file(target, tmp_path, appl
         environment_file.write_text('MIGRATOR_DATABASE_URL=' + url(values['database']))
         environment_file.chmod(0o600)
     result = subprocess.run([sys.executable, '-m', 'scripts.phase0.bootstrap',
-        '--manifest', str(manifest), '--environment-file', str(environment_file),
+        '--manifest', str(manifest), '--target-environment-file', str(environment_file),
         *(['--apply'] if apply else [])], capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
     assert ('Bootstrap applied' if apply else 'no connection opened') in result.stdout

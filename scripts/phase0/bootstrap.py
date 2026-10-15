@@ -222,15 +222,15 @@ async def apply_manifest(identity, environment_file):
 
 
 def main():
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
     parser.add_argument('--manifest', type=Path, required=True)
-    parser.add_argument('--environment-file', type=Path, required=True)
+    parser.add_argument('--target-environment-file', type=Path, required=True)
     parser.add_argument('--apply', action='store_true')
     args = parser.parse_args()
     try:
         identity = validate_manifest(json.loads(read_private_file(args.manifest)))
         if args.apply:
-            asyncio.run(apply_manifest(identity, args.environment_file))
+            asyncio.run(apply_manifest(identity, args.target_environment_file))
         print('Bootstrap applied' if args.apply else 'Manifest checked; no connection opened or DDL approved')
     except Exception:
         parser.exit(1, 'Bootstrap refused; no credentials or SQL details are printed\n')

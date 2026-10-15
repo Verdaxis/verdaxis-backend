@@ -407,7 +407,7 @@ async def copy_database(manifest, source, target, *, fail_at=None) -> CopyReceip
 
 
 def main():
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
     parser.add_argument('--manifest', required=True)
     parser.add_argument('--source-environment-file', required=True)
     parser.add_argument('--target-environment-file', required=True)
@@ -419,8 +419,9 @@ def main():
         manifest_text = read_private_file(args.manifest, root_owned=os.geteuid() == 0)
         manifest = json.loads(manifest_text)
         validate_manifest(manifest)
-        from scripts.phase0.bootstrap import load_policy
         import subprocess
+
+        from scripts.phase0.bootstrap import load_policy
 
         load_policy()  # Attest the final union graph, not only its staging ancestor.
         git_environment = {key: value for key, value in os.environ.items() if not key.startswith('GIT_')}
