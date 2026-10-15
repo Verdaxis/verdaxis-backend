@@ -261,6 +261,67 @@ async def verify_independent(manifest, source, target):
                     source_identity=execution['source'], target_identity=execution['target'])
 
 
+def publish_report(path, value):
+    """Publish a complete private report exclusively; clean up caught failures.
+
+    A process/host crash at directory fsync remains an uncertain publication.
+    Never replay import: independently verify again to a new report path.
+    """
+    import json
+    import os
+    import stat
+    from pathlib import Path
+    from uuid import uuid4
+
+    path = Path(path).absolute()
+    if path.parent.is_symlink():
+        raise ValueError('Report parent symlink refused')
+    payload = (json.dumps(value, sort_keys=True, indent=2, allow_nan=False) + '\n').encode()
+    directory = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    temporary = '.phase0-report-' + uuid4().hex
+    descriptor = None
+    created = False
+    published = False
+    try:
+        parent = os.fstat(directory)
+        if parent.st_uid != os.geteuid() or parent.st_mode & 0o077:
+            raise ValueError('Report directory must be private and owned')
+        descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                             0o600, dir_fd=directory)
+        created = True
+        info = os.fstat(descriptor)
+        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+            raise ValueError('Invalid report temporary file')
+        remaining = memoryview(payload)
+        while remaining:
+            written = os.write(descriptor, remaining)
+            if written <= 0:
+                raise OSError('Incomplete report write')
+            remaining = remaining[written:]
+        os.fsync(descriptor)
+        # link is atomic and refuses an existing destination, unlike replace.
+        os.link(temporary, path.name, src_dir_fd=directory, dst_dir_fd=directory,
+                follow_symlinks=False)
+        published = True
+        os.unlink(temporary, dir_fd=directory)
+        created = False
+        os.fsync(directory)
+    except BaseException:
+        if published:
+            current = os.stat(path.name, dir_fd=directory, follow_symlinks=False)
+            if (current.st_dev, current.st_ino) == (info.st_dev, info.st_ino):
+                os.unlink(path.name, dir_fd=directory)
+        if created:
+            os.unlink(temporary, dir_fd=directory)
+        # Cleanup failure is still a failure. Never claim a successful report.
+        os.fsync(directory)
+        raise
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+        os.close(directory)
+
+
 def main():
     import argparse
     import asyncio
@@ -272,7 +333,6 @@ def main():
     from sqlalchemy.pool import NullPool
 
     from scripts.phase0.copy import (
-        private_json,
         read_private_file,
         validate_manifest,
         validate_url,
@@ -311,7 +371,7 @@ def main():
                     await engine.dispose()
 
         report = asyncio.run(run())
-        private_json(args.report, report)
+        publish_report(args.report, report)
     except Exception:
         parser.exit(1, 'Verification refused; no successful report published\n')
     print('Committed copy verified; private report published')
