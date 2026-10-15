@@ -5,6 +5,9 @@
 //! Execute the query inside `runtime::admission::run_admitted` on its connection.
 //! Private digest input is internal only and must never become a public DTO.
 
+#[path = "price_quarantine.rs"]
+pub mod price_quarantine;
+
 use chrono::{DateTime, NaiveDate, Utc};
 use uuid::Uuid;
 
@@ -18,7 +21,14 @@ pub fn public_order_sql() -> &'static str {
 
 /// The complete bound formal-trade-evidence SELECT.
 pub fn trade_evidence_sql() -> &'static str {
-    include_str!("../../sql/trade_evidence.sql")
+    static SQL: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+        format!(
+            "{} {}",
+            include_str!("../../sql/formal_trade_snapshots.sql"),
+            include_str!("../../sql/trade_evidence.sql")
+        )
+    });
+    &SQL
 }
 
 /// The instant a visibility decision is made at, plus the Singapore calendar
