@@ -60,6 +60,20 @@ rows by the exact identity tuple, and projects database rows to the public
 catalog response. Executable Rust holds no product name, code, or UUID; a test
 scans `rs/read/src` and `rs/read/sql` for them.
 
+Task 6 adds the shared market rules under `rs/read/src/market/`. `visibility.rs`
+binds — never concatenates — the two complete statements in `rs/read/sql/`:
+`public_orders.sql` selects publicly visible orders from the attested policy
+plus the captured instants, and `trade_evidence.sql` selects formal trade
+snapshots. `terms.rs` owns typed execution qualification, the reviewed-terms
+digest, and the public redaction of private declarations; `decimal.rs`,
+`windows.rs`, and `provenance.rs` own normalized decimal text, the canonical
+availability-window grammar and aliases, and the evidence policy constants.
+Qualification reads the catalog `qualification_profile`, so the LNG and B100
+rules stay data-driven. `rs/read/tests/market_contract.rs` replays the synthetic
+digest vectors from the Python oracle; `rs/read/tests/run_market_contract.sh`
+seeds a disposable database and compares the selected ids with the Python
+predicate under one fixed clock.
+
 ## File Map
 
 ```

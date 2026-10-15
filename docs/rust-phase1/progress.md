@@ -610,3 +610,161 @@ All Cargo commands used local Rust 1.95 with a fresh
 - Task 5 is complete. PostgreSQL authority and cancellation gates already pass
   from Task 3. No later task, push, live host, deployment, agent, or background
   job. `.claude/` and `work/` remain untracked.
+
+## Task 6 — Shared visibility, decimal, digest, and public projection rules
+
+- Date: 2026-10-15. Base: `239b452` on `feat/rust-phase-1-20261015`.
+- Implementation commit: the commit titled
+  `feat: preserve public market visibility and reviewed terms`. Resolve its full
+  SHA with `git log --format=%H --grep 'preserve public market visibility'`.
+  The disposable-runner fixes are the commit titled
+  `fix: run the market contract matrix on a migrated disposable database`.
+- Read the plan's Task 6 in full, decisions 11-12, the public-market rules
+  table, `app/services/{market_data_eligibility,public_order_scope,kyc_execution,
+  execution_policy,order_terms,lng_order,fame_order,market_provenance,
+  availability_windows}.py`, and `app/schemas/{orderbook,lng_order,fame_order,
+  fame,supplier_offer}.py`.
+
+### Files
+
+- `rs/read/src/market/{decimal,windows,provenance,terms,visibility}.rs`,
+  `rs/read/src/market/mod.rs`, `rs/read/src/lib.rs` re-exports
+- `rs/read/sql/{public_orders,trade_evidence}.sql`
+- `rs/read/tests/{market_contract.rs,market_contract_postgres.rs}`,
+  `rs/read/tests/market_contract_oracle.py`, `rs/read/tests/run_market_contract.sh`
+- `scripts/rust_contract/export_terms_vectors.py`,
+  `tests/rust_contract/test_terms_vectors.py`,
+  `tests/rust_contract/vectors/terms/{private,non_ascii,fame}.json`
+- `rs/read/Cargo.toml` (the `market_contract_postgres` target),
+  `rs/read/tests/run_postgres.sh`, `ARCHITECTURE.md`
+
+### Interfaces (the plan's declared names, as implemented)
+
+- `decimal_text(Decimal) -> String`; `digest_terms(&Json) -> Result<String,String>`;
+  `redact_terms(profile,&Json) -> Result<Json,String>`;
+  `canonical_terms_from_row(&Json) -> Result<Json,String>` (the reviewed-terms
+  builder, needed to make the digest testable from a projected row);
+  `normalize_window(value, today) -> Result<String,String>` plus
+  `window_start_date`, `window_sort_key`, `window_display_label`;
+  `public_order_sql()`, `trade_evidence_sql()`;
+  `select_public_order_ids`/`select_trade_evidence_ids` with
+  `PublicOrderFilters`, `TradeEvidenceFilters`, and `VisibilityClock`;
+  `order_is_execution_qualified(policy, &QualificationInput)`.
+- `QualificationInput` is exactly the plan's field list.
+- **Clock deviation, recorded:** the plan's `order_is_execution_qualified` takes
+  no clock, but the ported FAME rule compares `certificate_valid_until` and the
+  quality dates against the current Singapore date (`fame_order.py:44-54`).
+  `order_is_execution_qualified` therefore reads the process clock and
+  delegates to `order_is_execution_qualified_at(policy, order, today)`, which is
+  the deterministic entry point for tests and for Task 6a's `now` parameter.
+  No rule was dropped. Task 6a and 10b must call one of these two functions and
+  must not reimplement qualification.
+- **Digest input contract:** `canonical_terms_from_row` takes the order
+  projection as JSON text exactly as `executable_order_terms` reads it: UUID and
+  timestamp strings, decimal text at stored scale, JSON arrays, and absent
+  `lng_terms` left absent. Route code must project those fields before calling
+  it; `digest_terms` alone takes the already-canonical payload.
+
+### Committed vectors and digests
+
+`tests/rust_contract/vectors/terms/` (synthetic, so outside the golden layout):
+
+| Vector | SHA-256 digest |
+| --- | --- |
+| `private.json` (private ASK LNG declaration) | `9066e752d0f5f8d7a4e380467d51d2f646a68421c6665aa52074f71146a7dd41` |
+| `non_ascii.json` (non-ASCII and escaping) | `d00d8bc422c929f04d4251334c823ea18a6261530265e7abae92a577972ce29d` |
+| `fame.json` (private ASK B100 declaration) | `e43de0af597fd8ceebe05ac19356b384d97ad3db7728a8b94ec1199f877c987a` |
+
+- Rust reproduces `canonical_terms_from_row` byte for byte on all three, so the
+  digest matches Python's `order_terms_digest` (Review Focus 2).
+- sha2 0.11 returns a hybrid `Array` that is not `LowerHex`; the digest is
+  hex-encoded byte by byte. The plan's illustrative `format!("{:x}", …)` line
+  does not compile on the resolved versions.
+- Public redaction uses an allowlist per profile, not deletion of two known
+  secrets. A BID declaration carries no supplier identity, so
+  `redact_terms` returns it unchanged; Python returns the same validated BID
+  model, and stored BID declarations already carry every pydantic default
+  because they are written from `model_dump`. This equivalence is asserted for
+  both profiles but is an assumption about stored rows, not a new rule.
+
+### SQL shape
+
+- `public_orders.sql` binds the policy as `$1::jsonb` text and expands
+  `jsonb_to_recordset($1->'products')` / `('points')` as CTEs. Product, lane,
+  point, window, currency, owner/assisted admission, off-spec, declaration, and
+  provenance predicates are expressed through those CTEs, so the statement
+  names no product. `$2` is the captured instant, `$3` the Singapore date,
+  `$4` the off-spec toggle, then the route filters and the page window.
+- **KYC switch note (from the task brief):** production and staging now run
+  `KYC_EXECUTION_GATE_ENABLED=false` (Private Beta; staging PR #82, merged at
+  `b218ab2`). This branch is based on the older staging `2a7137b`, which has no
+  switch, so the ported owner-admission rule has the gate always on, matching
+  this branch's Python. **When this branch is rebased on current staging, the
+  Rust visibility rule must follow the switch.** Do not rebase now.
+- `trade_evidence.sql` admits immutable version-1 snapshots, exact REAL/REAL or
+  DEMO/DEMO provenance, formal statuses, and a confirmation instant; it never
+  joins mutable order metadata.
+
+### Evidence and checks
+
+All Cargo commands used local Rust 1.95 with a fresh
+`export RELEASE_SHA=$(git rev-parse HEAD)`, in the foreground.
+
+- RED: `tests/rust_contract/test_terms_vectors.py` and the two Rust targets were
+  written first. Evidence: `work/rust-phase1/market-red.txt`,
+  `work/rust-phase1/market-contract-red.txt`. The Rust targets were re-run with
+  the new modules temporarily removed to capture the failing state for this
+  record; the implementation order in this session was vectors, then modules,
+  then tests, so that run reproduces rather than precedes the failure.
+- `cargo test --workspace`: **pass**, 52 tests (http_contract 15, identity 1,
+  market_contract 16, policy 12, request_log 1, runtime 7), 0 failures.
+- `cargo fmt --all -- --check`: **pass**. `cargo clippy --workspace
+  --all-targets -- -D warnings`: **pass**, also with `--all-features`. Seven
+  `collapsible_if` findings were collapsed with let-chains (edition 2024).
+- `RUST_TEST_PYTHON=… bash rs/read/tests/run_market_contract.sh`: **pass**,
+  exit 0. The oracle selected 10 of 30 orders (13 with off-spec included) and
+  3 of 5 trades; Rust matched both sets exactly, 2 tests. Evidence:
+  `work/rust-phase1/market-contract-11.txt`.
+- `RUST_TEST_PYTHON=… bash rs/read/tests/run_postgres.sh`: **pass**, exit 0,
+  57 tests; the container was removed and none was left behind.
+- `venv/bin/python -m pytest tests/rust_contract -q`: **pass**, 42 tests.
+- `venv/bin/python -m pytest tests/unit -q`: 1921 passed, 19 failed. All 19 are
+  the pre-existing `tests/unit/test_deploy_health.py` failures recorded in
+  Task 4 (macOS `/bin/bash` 3.2 lacks `mapfile`). Task 6 changed no file those
+  tests read.
+- `git diff --check`: pass.
+
+### Deviations and rulings
+
+- **`run_postgres.sh` now names the two matrix tests in `--skip`.** That
+  workspace runner creates a hand-made `alembic_version` database with no
+  catalog, so the fixture-dependent matrix cannot run there. Naming the tests
+  keeps the skip explicit instead of silent; `run_market_contract.sh` runs them
+  against their own migrated database. This is a small edit to a Task 3 file.
+- **Some matrix rows are unrepresentable in a freshly migrated database.** The
+  database refuses them before any read can see them, so they are recorded here
+  rather than forced into the matrix: `CANARY` provenance is refused outright;
+  `TEST` and `DEMO` provenance are limited to the deterministic seed
+  identities; an order's provenance must equal its organization's; a new trade
+  requires snapshot version 1, which admits only REAL/REAL and DEMO/DEMO, and
+  its snapshot labels must match the referenced product and point. The matrix
+  therefore covers REAL, DEMO, UNKNOWN, and TEST orders and REAL/REAL and
+  DEMO/DEMO trades. A CANARY read case must be added only if the guard is ever
+  relaxed.
+- **Ownerless orders are the Python exception, not a Rust addition.** The
+  oracle confirmed that an ownerless order in an `APPROVED=None` organization is
+  still visible, because Python short-circuits `owner_user_id IS NULL` before
+  the organization check. The port keeps that behavior.
+- **The ISO 3166-1 alpha-2 list** is embedded in `terms.rs` as the 249 assigned
+  alpha-2 codes, generated from `app/reference/iso_countries.py`, because the
+  LNG declaration rule rejects unassigned codes.
+- No new crate features were added; `contract-tests` is unchanged.
+
+### Resume point
+
+- `order_is_execution_qualified(policy, &QualificationInput)` is frozen; Task 6a
+  and Task 10b consume it and must not fork it. Route workers consume
+  `market::visibility` and `market::terms` and must not fork the predicates.
+- Task 8 (R03/R04) and Task 11 (`list_markets`) still own their own loaders.
+- Task 6 is complete. No later task, push, live host, deployment, agent, or
+  background job. `.claude/` and `work/` remain untracked.

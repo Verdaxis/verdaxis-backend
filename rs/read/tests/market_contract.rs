@@ -544,6 +544,24 @@ fn typed_validators_reject_a_side_mismatch_and_an_unassigned_country() {
     let fame = valid_fame_ask();
     assert!(validate_fame_terms("ASK", Some(&fame), today()).is_ok());
     assert!(validate_fame_terms("BID", Some(&fame), today()).is_err());
+
+    // A BID declaration carries no supplier identity, so the public projection
+    // is the declaration itself. Python returns the same validated BID model.
+    let bid = json!({
+        "side": "BID",
+        "neat_fame": true,
+        "standard": "EN_14214",
+        "standard_edition": "EN 14214:2019",
+        "sustainability_scheme": "ISCC_EU"
+    });
+    assert!(validate_fame_terms("BID", Some(&bid), today()).is_ok());
+    assert_eq!(redact_terms("fame_v1", &bid).unwrap(), bid);
+    let lng_bid = json!({
+        "side": "BID",
+        "accepted_schemes": ["ISCC_EU"],
+        "accepted_delivery_methods": ["SHIP_TO_SHIP"]
+    });
+    assert_eq!(redact_terms("lng_v1", &lng_bid).unwrap(), lng_bid);
 }
 
 // ---------------------------------------------------------------------------
