@@ -30,7 +30,7 @@ async def check_ci_projection():
             WHERE status IN ('OPEN', 'PARTIALLY_FILLED')
         """))
         await session.commit()
-    rows = compare("/api/orderbook/with-ci", "limit=100")
+    rows = compare("/api/orderbook/with-ci", "side=ASK&limit=100")
     overlays = [row["ci_adjusted_price"] for row in rows if row["ci_adjusted_price"]]
     assert overlays, "must exercise non-null CI projection"
     assert all(item["financial_benefit_status"] == "UNPRICED" for item in overlays)
@@ -202,17 +202,19 @@ def main():
     for side in ("bids", "asks"):
         path = "/api/orderbook/" + side
         for sort in ("newest", "price_asc", "price_desc", "quantity_desc"):
-            full = compare(path, f"sort_by={sort}&limit=100")
+            full = compare(path, f"sort_by={sort}&availability_window=SPOT&limit=100")
+            assert full["total"] <= 100, "exhaustive SPOT fixture must fit the baseline page"
             count += 1
             seen = []
             for skip in range(0, full["total"] + 3, 2):
-                page = compare(path, f"sort_by={sort}&skip={skip}&limit=2")
+                page = compare(path, f"sort_by={sort}&availability_window=SPOT&skip={skip}&limit=2")
                 assert page["total"] == full["total"]
                 assert page["items"] == full["items"][skip:skip + 2]
                 seen.extend(row["id"] for row in page["items"])
                 count += 1
             assert len(seen) == len(set(seen)) == full["total"]
         for query in (
+            "skip=98&limit=5", "skip=100&limit=2", "skip=10000&limit=2",
             "skip=100000&limit=1", "region=Singapore", "region=Asia",
             "region=Rotterdam", "region=Europe", "region=", "region=missing",
             "include_off_spec=true", "limit=100", "limit=0", "limit=101",
@@ -223,12 +225,14 @@ def main():
         ):
             compare(path, query)
             count += 1
+    from app.market_catalog import PRODUCT_IDS
+    legacy_scope = "product_id=" + str(PRODUCT_IDS["BIO_LNG"])
     for path in ("/api/orderbook", "/api/orderbook/with-ci"):
-        full = compare(path, "limit=100")
+        full = compare(path, legacy_scope + "&limit=100")
         expected = sorted(full, key=lambda row: (row["created_at"], row["id"]), reverse=True)
         assert full == expected
         for skip in range(0, len(full) + 3, 2):
-            page = compare(path, f"skip={skip}&limit=2")
+            page = compare(path, legacy_scope + f"&skip={skip}&limit=2")
             assert page == full[skip:skip + 2]
             count += 1
         for query in ("side=BID", "side=ASK", "side=bad", "limit=0", "limit=101",

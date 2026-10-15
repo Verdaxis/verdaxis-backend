@@ -122,7 +122,7 @@ fn group_router(group: &str) -> Router<AppState> {
             .merge(r::news::routes()),
         "orderbook_snapshot" => r::orderbook_snapshot::routes(),
         "orderbook_lists" => r::orderbook_lists::routes().merge(r::listings::routes()),
-        "orderbook_map" => r::orderbook_map::routes(),
+        "orderbook_map" => r::orderbook_map::routes().merge(r::listings::routes()),
         "prices" => r::prices::routes().merge(r::trade_tape::routes()),
         "curves_legacy" => r::curves_legacy::routes(),
         "curves_canonical" => r::curves_canonical::routes(),

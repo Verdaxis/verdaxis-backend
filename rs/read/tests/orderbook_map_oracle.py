@@ -143,7 +143,7 @@ def main():
                 forbidden = {"organization_id", "user_id", "actor_user_id", "support_authorization_id", "private_digest_input"}
                 assert all(not forbidden.intersection(item) for item in response["body"])
             count += 1
-        cases = json.loads((ROOT / "tests/rust_contract/cases.json").read_text())["groups"]["orderbook_lists"]
+        cases = json.loads((ROOT / "tests/rust_contract/cases.json").read_text())["groups"]["orderbook_map"]
         compatibility = [case for case in cases if case["path"] == "/api/listings"]
         left = record(os.environ["PYTHON_CONTRACT_URL"], token, compatibility)
         right = record(listings_url, token, compatibility)
