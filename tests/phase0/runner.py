@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import os
+import xml.etree.ElementTree as ET
 import signal
 import subprocess
 import sys
@@ -16,6 +19,40 @@ PINS = {
     "prod": "c08266bd6969143812dec7c5033338428cd5f159",
     "staging": "b218ab264b92f99007bacc05d4871413e024b72a",
 }
+
+
+# The fifth Review Focus case runs in the frontend repository. Its immutable
+# two-bundle evidence and accepted exception are signed in acceptance.md.
+REQUIRED_TESTS = {
+    "test_historical_snapshot_import_restores_exact_guards",
+    "test_copy_cycles_and_next_sequence_values",
+    "test_interrupt_each_cutover_boundary_keeps_runtime_tuple_blocked",
+    "test_timezone_reconnect_and_role_override",
+    "test_bootstrap_uses_only_checked_connection",
+    "test_outbox_drain_before_final_snapshot",
+}
+
+
+def default_test_paths():
+    paths = list((ROOT / "tests/phase0").glob("test_*.py"))
+    paths.extend((ROOT / "tests/postgres").glob("test_phase0_*.py"))
+    return sorted(str(path.relative_to(ROOT)) for path in paths)
+
+
+def check_test_report(path, required_suites, required_tests):
+    cases = ET.parse(path).getroot().findall(".//testcase")
+    failed = sum(case.find("failure") is not None or case.find("error") is not None for case in cases)
+    skipped = sum(case.find("skipped") is not None for case in cases)
+    if not cases or failed or skipped:
+        raise ValueError("Required run has zero tests, failures or skips")
+    suites = {case.get("classname", "") for case in cases}
+    names = {case.get("name", "").split("[", 1)[0] for case in cases}
+    missing_suites = required_suites - suites
+    missing_tests = required_tests - names
+    if missing_suites or missing_tests:
+        raise ValueError(f"Missing required tests: {sorted(missing_suites | missing_tests)}")
+    return {"passed": len(cases), "failed": failed, "skipped": skipped,
+            "suites": sorted(suites), "required_tests": sorted(required_tests)}
 
 
 def command(*args, **kwargs):
@@ -111,7 +148,25 @@ def main():
                               'BACKUP_DATABASE_URL': roles['backup_role'], 'POSTGRES_ADMIN_TEST_DATABASE_URL': 'postgres'}.items():
                 environment[key] = f'postgresql+asyncpg://{role}:{password}@127.0.0.1:{port}/{database}'
         print(f"Fixture evidence: {directory}", flush=True)
-        result = subprocess.run([str(ROOT / "venv/bin/python"), "-m", "pytest", *(sys.argv[1:] or ["tests/phase0"]), "-q"], cwd=ROOT, env=environment)
+        full_run = not sys.argv[1:]
+        paths = default_test_paths() if full_run else sys.argv[1:]
+        report = directory / "pytest.xml"
+        invocation = [str(ROOT / "venv/bin/python"), "-m", "pytest", *paths,
+                      "-q", f"--junitxml={report}"]
+        result = subprocess.run(invocation, cwd=ROOT, env=environment)
+        evidence = {"command": invocation, "returncode": result.returncode,
+                    "backend_sha": command("git", "rev-parse", "HEAD", cwd=ROOT, capture_output=True).stdout.strip(),
+                    "complete_phase0_run": full_run, "image": IMAGE}
+        if result.returncode == 0:
+            required = {str(Path(path).with_suffix("")).replace("/", ".") for path in default_test_paths()} if full_run else set()
+            evidence["tests"] = check_test_report(report, required, REQUIRED_TESTS if full_run else set())
+        evidence["sha256"] = {
+            str(path.relative_to(ROOT)): hashlib.sha256(path.read_bytes()).hexdigest()
+            for path in [ROOT / "deploy/phase0/copy-manifest.json",
+                         ROOT / "deploy/phase0/bootstrap-policy.json",
+                         ROOT / "deploy/migration-checkpoints.tsv", report]
+        }
+        (directory / "runner-evidence.json").write_text(json.dumps(evidence, indent=2) + "\n")
         return result.returncode
     finally:
         command("docker", "rm", "-f", "-v", container, stdout=subprocess.DEVNULL)
