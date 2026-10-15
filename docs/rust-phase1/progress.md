@@ -368,3 +368,98 @@ All Cargo commands used local Rust 1.95 with a fresh
   output exits 0.
 - No container was left behind. No live host, database, push, agent, or
   background job. `.claude/` untouched.
+
+## Task 4 — Disposable oracle and golden comparator (harness built; recording partially deferred)
+
+- Date: 2026-10-15. Base: `b47e197`. Implementation commit:
+  `test: record public Python contracts on disposable PostgreSQL`.
+- Built the whole Task 4 harness: the strict comparator, the recorder, the
+  corpus, the clock manifest, the assertion ledger and checker, the seed
+  helper, the one disposable runner, the independent `verdaxis-contract`
+  package, and the test-only contract server.
+- No live host, database, deployment, push, agent, or background job was used.
+  Every database was a disposable Colima container on a Docker-assigned
+  loopback port, removed at exit. `.claude/` is untouched.
+
+### Files
+
+- `scripts/rust_contract/{compare,record,seed_corpus,run_disposable,check_assertions}.py`
+- `tests/rust_contract/{server,clock,test_compare,test_clock,test_inventory}.py`,
+  `tests/rust_contract/{cases,assertions,ordered-object-paths}.json`,
+  `tests/rust_contract/golden/`
+- `rs/contract/src/{lib,main}.rs`, `rs/contract/tests/{health,echo}.rs`,
+  `rs/read/examples/contract_server.rs`
+- Modified `rs/read/src/runtime/http.rs` (`router_with`) and both Cargo manifests.
+
+### What is proven
+
+- The comparator unit tests pass (11). Decimal scale, null versus absence,
+  object membership, array order, duplicate keys, header presence, exact body
+  bytes, and the bounded-read deadline all have a test; each was written before
+  its code (RED evidence in `work/rust-phase1/`).
+- The clock manifest tests pass (5) and `manifest_gaps() == []`, so every named
+  symbol still exists in the imported source.
+- The inventory tests pass (4): the corpus covers all 33 planned method/path
+  pairs, ids are unique, and the ledger accounts for all 334 discovered Python
+  assertions. `check_assertions.py` reports OK.
+- `run_disposable` runs end to end. `--group echo` passes (2 cases) and
+  `--group health` runs and reports its real differences. The echo run first
+  failed on real header differences (`/headers:keys`) and passed after the two
+  projections were aligned, which proves the comparator rejects a difference.
+- With a fixed clock (`RUST_CONTRACT_CLOCK`) every data group records
+  identically twice: `simple_reads` 12, `orderbook_snapshot` 3,
+  `orderbook_lists` 10, `orderbook_map` 6, `prices` 9, `curves_legacy` 4,
+  `curves_canonical` 6 — all `unstable=0`. Evidence:
+  `work/rust-phase1/stability-clock.txt`.
+- Golden corpus written for the two green groups under
+  `tests/rust_contract/golden/b47e197…/` (10 cases, 40 files).
+
+### Checks
+
+All Cargo commands used local Rust 1.95 with a fresh
+`export RELEASE_SHA=$(git rev-parse HEAD)`, in the foreground.
+
+- `cargo test --manifest-path rs/Cargo.toml --locked --workspace`: **pass**,
+  24 tests (http_contract 15, runtime 7, identity 1, request_log 1).
+- `cargo fmt --all -- --check`: **pass**. `cargo clippy --workspace
+  --all-targets -- -D warnings`: **pass**, also with `--features contract-tests`.
+- `RUST_TEST_PYTHON=… bash rs/read/tests/run_postgres.sh`: **pass**, exit 0,
+  29 tests; the container was removed and none was left behind.
+- `venv/bin/python -m pytest tests/rust_contract -q`: **pass**, 20 tests.
+- `venv/bin/python -m pytest tests/unit -q`: **19 failed, 1919 passed**. All 19
+  are in `tests/unit/test_deploy_health.py` and are pre-existing/ environmental:
+  they run `scripts/deploy.sh` under macOS `/bin/bash` 3.2, which lacks
+  `mapfile` and cannot infer the environment from a `/private/var` temp path.
+  Task 4 changed no deploy code and no file those tests read.
+
+### Rulings
+
+- **`scripts/seed.py` fails on the disposable database.** `python3 -m venv` is
+  unavailable (no `ensurepip`), so the harness venv cannot be a true `python3.12`
+  environment; the only working interpreter here is Python 3.14. On the
+  disposable database the ordinary seed raises
+  `CheckViolationError … ck_orderbook_orders_lifecycle` (a `PARTIALLY_FILLED`
+  row with `remaining_quantity_mt == quantity_mt`) in `app/seeds/market_seed.py`.
+  The failure is deterministic across runs. Ruling: do not patch the app seed
+  from Task 4. The recorder, comparator, and runner are done and proven against
+  the groups that need no seed; the seeded corpus families stay owned by their
+  route tasks. Cost if wrong: the corpus seed must run on an interpreter that
+  the app seed supports before Tasks 6–11 can record data cases.
+- **MCP transport recording is deferred to Task 11.** The `GET /mcp` streamable
+  case holds an SSE event stream open. The recorder now reads every body under
+  an absolute per-case deadline, so it cannot hang unbounded, but the MCP
+  transport's exact response is Task 11's surface. The MCP corpus cases exist,
+  so the inventory still covers all 33 pairs. Cost if wrong: Task 11 must
+  finish MCP recording before it can claim parity.
+
+### Findings for later tasks
+
+- Recorded `GET /health/live/` answers **200** in Python (Starlette serves the
+  route at the slash path, not a redirect), and Python answers **HEAD** on a GET
+  route with **405** and `Allow: GET`. The Rust health routes use axum's `get`,
+  which serves HEAD with 200 and redirects `/health/live/` with 307. Task 13's
+  exact-routing assembly must reconcile both. Evidence: `work/rust-phase1/health-run.txt`.
+- Recording normalizes only the redirect `Location` origin (to `{endpoint}`) so
+  the two endpoints stay comparable; every other header and byte is compared.
+- Only `/generated_at` fields were ever unstable; the fixed clock removes them.
+  Nothing was normalized away to reach stability.

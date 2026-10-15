@@ -20,9 +20,8 @@ source documentation. The shared-host marker is
 
 `rs/` is a Rust 1.95 workspace with two packages. `verdaxis-read` defines the
 shared types and build-time release identity; its binary only prints that
-identity. `verdaxis-contract` is an empty independent library and CLI scaffold,
-used only as a development dependency of `verdaxis-read`. No Rust routes,
-database connections, or deployment changes are implemented in Task 1.
+identity. `verdaxis-contract` is an independent library and CLI that drives the
+external HTTP contract comparison and never links `verdaxis-read`.
 
 Task 2 adds `rs/read/src/runtime/` for configuration, pool authority, and health
 checks. The pool has nine connections and read-only session defaults. Startup
@@ -40,6 +39,16 @@ fixed-window price limits. Empty route and MCP modules reserve later task
 ownership. The binary accepts explicit `RUST_CONFIG` JSON and serves health;
 data routes remain unmounted. See `docs/rust-phase1/progress.md` for the local
 checks, remaining Task 3 gates, and resume point.
+
+Task 4 adds the disposable contract harness. `scripts/rust_contract/compare.py`
+is the single authoritative comparator; `record.py` captures the Python oracle;
+`run_disposable.py` starts one disposable PostGIS container, both servers, and
+the comparator; `seed_corpus.py` and `check_assertions.py` own the fixture and
+assertion ledgers. `tests/rust_contract/` holds the corpus, the fixed clock
+manifest, the meta-tests, and the golden corpus; `rs/read/examples/contract_server.rs`
+serves one route group through the serving router. Health and echo are proven;
+the seeded and MCP groups are deferred as recorded in
+`docs/rust-phase1/progress.md`.
 
 ## File Map
 

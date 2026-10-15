@@ -254,13 +254,23 @@ async fn dispatch_boundary(
 }
 
 pub fn router(state: crate::AppState) -> Router {
-    // Starlette adds HEAD to every GET route, so axum's `get` (which serves
-    // HEAD by running the GET handler with an emptied body) matches Python.
-    // Keep these paths in step with MOUNTED_GET_PATHS.
+    router_with(Router::new(), state)
+}
+
+/// Compose the serving router with extra routes merged before the layers.
+///
+/// The contract test server uses this to serve one route group through exactly
+/// the same fallbacks, redirects, and middleware as the serving binary, so it
+/// can never mask a routing difference.
+pub fn router_with(extra: Router<crate::AppState>, state: crate::AppState) -> Router {
+    // These use axum's `get`, which also serves HEAD. The recorded Python
+    // corpus answers HEAD with 405 and `Allow: GET`, so the exact-routing task
+    // must override this; see docs/rust-phase1/progress.md.
     let routes = Router::new()
         .route("/health/live", axum::routing::get(crate::live))
         .route("/health/ready", axum::routing::get(crate::ready))
         .route("/health", axum::routing::get(crate::ready))
+        .merge(extra)
         .fallback(fallback)
         .method_not_allowed_fallback(method_not_allowed)
         .with_state(state.clone());

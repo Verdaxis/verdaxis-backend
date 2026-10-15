@@ -1,0 +1,407 @@
+{
+  "schema_revision": 1,
+  "groups": {
+    "health": [
+      {
+        "id": "H01-ready",
+        "method": "GET",
+        "path": "/health/ready"
+      },
+      {
+        "id": "H02-live",
+        "method": "GET",
+        "path": "/health/live"
+      },
+      {
+        "id": "H03-alias",
+        "method": "GET",
+        "path": "/health"
+      },
+      {
+        "id": "H04-live-head",
+        "method": "HEAD",
+        "path": "/health/live"
+      },
+      {
+        "id": "H05-live-post-405",
+        "method": "POST",
+        "path": "/health/live"
+      },
+      {
+        "id": "H06-live-options-405",
+        "method": "OPTIONS",
+        "path": "/health/live"
+      },
+      {
+        "id": "H07-live-slash",
+        "method": "GET",
+        "path": "/health/live/"
+      },
+      {
+        "id": "H08-unknown-path",
+        "method": "GET",
+        "path": "/nope"
+      }
+    ],
+    "echo": [
+      {
+        "id": "E01-echo",
+        "method": "GET",
+        "path": "/__contract__/echo",
+        "query": "value=alpha"
+      },
+      {
+        "id": "E02-echo-empty",
+        "method": "GET",
+        "path": "/__contract__/echo"
+      }
+    ],
+    "simple_reads": [
+      {
+        "id": "R01-ports",
+        "method": "GET",
+        "path": "/api/ports"
+      },
+      {
+        "id": "R02-port",
+        "method": "GET",
+        "path": "/api/ports/1379d36c-1ca9-55b7-9c0d-5235a0ba1f36"
+      },
+      {
+        "id": "R02b-port-missing",
+        "method": "GET",
+        "path": "/api/ports/ZZZZZ"
+      },
+      {
+        "id": "R03-products",
+        "method": "GET",
+        "path": "/api/catalog/products"
+      },
+      {
+        "id": "R04-delivery-points",
+        "method": "GET",
+        "path": "/api/catalog/delivery-points"
+      },
+      {
+        "id": "R05-news",
+        "method": "GET",
+        "path": "/api/news"
+      },
+      {
+        "id": "R05b-news-limit",
+        "method": "GET",
+        "path": "/api/news",
+        "query": "limit=1"
+      },
+      {
+        "id": "R05c-news-bad-limit",
+        "method": "GET",
+        "path": "/api/news",
+        "query": "limit=999"
+      },
+      {
+        "id": "R01b-ports-unknown-key",
+        "method": "GET",
+        "path": "/api/ports",
+        "query": "unknown=1"
+      },
+      {
+        "id": "R01c-ports-repeat-key",
+        "method": "GET",
+        "path": "/api/ports",
+        "query": "skip=1&skip=2"
+      },
+      {
+        "id": "R05d-news-percent",
+        "method": "GET",
+        "path": "/api/news",
+        "query": "category=a%20b"
+      },
+      {
+        "id": "R05e-news-unicode",
+        "method": "GET",
+        "path": "/api/news",
+        "query": "category=%E2%82%AC"
+      }
+    ],
+    "orderbook_snapshot": [
+      {
+        "id": "R15-snapshot",
+        "method": "GET",
+        "path": "/api/orderbook/snapshot",
+        "query": "market_product=BIO_LNG&delivery_point_id=1379d36c-1ca9-55b7-9c0d-5235a0ba1f36&availability_window=SPOT"
+      },
+      {
+        "id": "R15b-snapshot-bad-enum",
+        "method": "GET",
+        "path": "/api/orderbook/snapshot",
+        "query": "market_product=NOPE&delivery_point_id=1379d36c-1ca9-55b7-9c0d-5235a0ba1f36&availability_window=SPOT"
+      },
+      {
+        "id": "R15c-snapshot-missing",
+        "method": "GET",
+        "path": "/api/orderbook/snapshot"
+      }
+    ],
+    "orderbook_lists": [
+      {
+        "id": "R16-bids",
+        "method": "GET",
+        "path": "/api/orderbook/bids"
+      },
+      {
+        "id": "R16b-bids-page",
+        "method": "GET",
+        "path": "/api/orderbook/bids",
+        "query": "skip=0&limit=5&sort_by=price_asc"
+      },
+      {
+        "id": "R16c-bids-bad-uuid",
+        "method": "GET",
+        "path": "/api/orderbook/bids",
+        "query": "product_id=not-a-uuid"
+      },
+      {
+        "id": "R17-asks",
+        "method": "GET",
+        "path": "/api/orderbook/asks"
+      },
+      {
+        "id": "R17b-asks-past-end",
+        "method": "GET",
+        "path": "/api/orderbook/asks",
+        "query": "skip=100000&limit=1"
+      },
+      {
+        "id": "R18-with-ci",
+        "method": "GET",
+        "path": "/api/orderbook/with-ci"
+      },
+      {
+        "id": "R19-aggregated",
+        "method": "GET",
+        "path": "/api/orderbook/aggregated"
+      },
+      {
+        "id": "R26-orderbook",
+        "method": "GET",
+        "path": "/api/orderbook"
+      },
+      {
+        "id": "R26b-orderbook-page",
+        "method": "GET",
+        "path": "/api/orderbook",
+        "query": "page=1&page_size=2"
+      },
+      {
+        "id": "R27-listings",
+        "method": "GET",
+        "path": "/api/listings"
+      }
+    ],
+    "orderbook_map": [
+      {
+        "id": "R20-product-counts",
+        "method": "GET",
+        "path": "/api/orderbook/product-counts",
+        "query": "side=BID"
+      },
+      {
+        "id": "R21-map-summary",
+        "method": "GET",
+        "path": "/api/orderbook/map-summary"
+      },
+      {
+        "id": "R22-map-compact",
+        "method": "GET",
+        "path": "/api/orderbook/map-summary/compact"
+      },
+      {
+        "id": "R23-products",
+        "method": "GET",
+        "path": "/api/orderbook/products"
+      },
+      {
+        "id": "R24-regions",
+        "method": "GET",
+        "path": "/api/orderbook/regions"
+      },
+      {
+        "id": "R25-fuel-types",
+        "method": "GET",
+        "path": "/api/orderbook/fuel-types"
+      }
+    ],
+    "prices": [
+      {
+        "id": "R06-trade-tape",
+        "method": "GET",
+        "path": "/api/trade-tape"
+      },
+      {
+        "id": "R06b-trade-tape-page",
+        "method": "GET",
+        "path": "/api/trade-tape",
+        "query": "skip=0&limit=5&demo_only=true"
+      },
+      {
+        "id": "R12-prices",
+        "method": "GET",
+        "path": "/api/prices"
+      },
+      {
+        "id": "R12b-prices-hours",
+        "method": "GET",
+        "path": "/api/prices",
+        "query": "hours=168"
+      },
+      {
+        "id": "R13-reference",
+        "method": "GET",
+        "path": "/api/prices/reference"
+      },
+      {
+        "id": "R13b-reference-bad-date",
+        "method": "GET",
+        "path": "/api/prices/reference",
+        "query": "date_from=not-a-date"
+      },
+      {
+        "id": "R13c-reference-reversed",
+        "method": "GET",
+        "path": "/api/prices/reference",
+        "query": "date_from=2026-01-02&date_to=2026-01-01"
+      },
+      {
+        "id": "R14-export",
+        "method": "GET",
+        "path": "/api/prices/reference/export"
+      },
+      {
+        "id": "R14b-export-format",
+        "method": "GET",
+        "path": "/api/prices/reference/export",
+        "query": "format=csv"
+      }
+    ],
+    "curves_legacy": [
+      {
+        "id": "R07-forward",
+        "method": "GET",
+        "path": "/api/curves/forward",
+        "query": "product_id=8f6f34a5-2927-54a6-8564-cca40ae7cb8a"
+      },
+      {
+        "id": "R07b-forward-missing",
+        "method": "GET",
+        "path": "/api/curves/forward"
+      },
+      {
+        "id": "R08-forward-export",
+        "method": "GET",
+        "path": "/api/curves/forward/export",
+        "query": "product_id=8f6f34a5-2927-54a6-8564-cca40ae7cb8a"
+      },
+      {
+        "id": "R08b-forward-export-missing",
+        "method": "GET",
+        "path": "/api/curves/forward/export"
+      }
+    ],
+    "curves_canonical": [
+      {
+        "id": "R09-table",
+        "method": "GET",
+        "path": "/api/curves/forward/table"
+      },
+      {
+        "id": "R09b-table-filters",
+        "method": "GET",
+        "path": "/api/curves/forward/table",
+        "query": "market_products=BIO_LNG&delivery_point_ids=1379d36c-1ca9-55b7-9c0d-5235a0ba1f36"
+      },
+      {
+        "id": "R10-slice",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_LNG&delivery_point_id=1379d36c-1ca9-55b7-9c0d-5235a0ba1f36&availability_window=SPOT"
+      },
+      {
+        "id": "R10b-slice-missing",
+        "method": "GET",
+        "path": "/api/curves/forward/slice"
+      },
+      {
+        "id": "R11-board",
+        "method": "GET",
+        "path": "/api/curves/forward/board"
+      },
+      {
+        "id": "R11b-board-window",
+        "method": "GET",
+        "path": "/api/curves/forward/board",
+        "query": "availability_window=2026-11"
+      }
+    ],
+    "mcp": [
+      {
+        "id": "M01-initialize",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-06-18\",\"capabilities\":{},\"clientInfo\":{\"name\":\"contract\",\"version\":\"1\"}}}"
+      },
+      {
+        "id": "M01b-tools-list",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\",\"params\":{}}"
+      },
+      {
+        "id": "M01c-malformed",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{"
+      },
+      {
+        "id": "M01d-unknown-method",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"nope\",\"params\":{}}"
+      },
+      {
+        "id": "M02-mcp-get",
+        "method": "GET",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        }
+      },
+      {
+        "id": "M03-mcp-delete",
+        "method": "DELETE",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        }
+      }
+    ]
+  }
+}
