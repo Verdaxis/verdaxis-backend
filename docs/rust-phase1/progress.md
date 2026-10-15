@@ -201,3 +201,37 @@ All Cargo commands used local Rust 1.95 and a fresh
   generated summaries are not acceptance evidence.
 - Task 2 is not fully accepted until the PostgreSQL tests pass. Task 3 was not
   started. No routes, deployment wiring, pushes, agents, or background jobs.
+
+## Task 3 — Stopped at cancellation ownership gap
+
+- Date: 2026-10-15. Base: `1f155e2`.
+- Read the required plan sections, progress, project instructions, architecture,
+  Python admission/error/support middleware, and current Rust runtime source.
+- No implementation or tests were added. The source review found a gap in the
+  cancellation guarantee at plan lines 495 and 535, before the test-first step.
+- The plan gives REST a request/body-owned semaphore permit and gives MCP tools
+  an owned permit. It requires database work to stop before capacity returns.
+  The current `AppState` exposes a plain `PgPool`; neither it nor the proposed
+  permit interface binds connection cleanup to the permit.
+- In resolved SQLx 0.9.0, `sqlx-core/src/pool/connection.rs:199-209` implements
+  `PoolConnection::drop` by spawning `return_to_pool`. That cleanup awaits a
+  ping at lines 307-325. In `sqlx-postgres/src/connection/mod.rs:180-187`, ping
+  sends Sync and waits for ReadyForQuery; lines 94-107 drain pending responses.
+  Dropping the query future therefore does not prove server-side cancellation
+  or completed connection return. Dropping the separate admission permit can
+  restore capacity while that cleanup still runs.
+- A response-body wrapper covers streaming lifetime but does not cover this
+  earlier handler-cancellation case. The plan's pure semaphore test cannot
+  establish the required database guarantee.
+- Resume point: approve a shared query/connection ownership contract for REST
+  and MCP that retains admission through database completion and pool cleanup,
+  including caller cancellation. Define that interface before later route
+  tasks use the plain pool. Then start Task 3 with failing tests, including the
+  feature-gated `pg_sleep` regression. No ownership redesign was implemented.
+- Checks not run: cargo test, clippy, and rustfmt; no Rust files changed.
+  PostgreSQL cancellation and health corpus tests were not run because local
+  PostgreSQL execution is prohibited. Task 2 PostgreSQL acceptance remains
+  pending; the current user request authorizes Task 3 work, not those runs.
+- This is a stop report, not Task 3 completion. No empty route modules or MCP
+  router were added. No later task, database access, live access, push, agent,
+  or background job was started. The existing untracked `.claude/` is untouched.
