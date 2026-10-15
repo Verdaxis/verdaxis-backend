@@ -54,13 +54,19 @@ These five failures are not covered by the initial happy-path port tests. Each o
     - Two pools: `read` (max 8, equal to the AD-02 admission slots) and `health` (max 1, readiness only). The total stays 9, so the Task 2 budget is unchanged.
     - Every admitted unit of database work, REST and MCP tools alike, goes through one function in `runtime/admission.rs`: `pub async fn run_admitted<T: Send + 'static>(state: &AppState, work: impl for<'c> FnOnce(&'c mut sqlx::PgConnection) -> futures::future::BoxFuture<'c, Result<T, ApiError>> + Send + 'static) -> Result<T, ApiError>`. It takes the permit with the plan's existing admission rule, then spawns a Tokio task that owns the permit and the pooled connection. The request future only awaits the task, so a client cancellation never cancels a query in flight; `statement_timeout` (30 s) bounds it.
     - On success the task calls `ping()` on the connection (this drains every pending response), drops the connection, and then drops the permit. On any error it calls `close()` on the connection instead of returning it to the pool.
-    - A streamed body (CSV) is produced in full inside the task, so the permit covers all database work. If an export has no row bound in Python, stop and report.
+    - A CSV body is produced in full inside the task, so the permit covers all database work. Python's `/api/prices/reference/export` has no row bound and reads the full result before it writes (`app/routers/price_discovery.py:443-492,630-641`); Rust does the same (feature rule). The 30 s statement timeout and the AD-01 limit of 10 exports per minute bound it. A row cap is a separate Python change for later, listed under "Product issues found".
     - Route code never touches the plain pool. A test with 8 concurrent slow reads (`pg_sleep`), 8 client cancellations and 8 new requests proves: no acquire timeout, the 9th concurrent request gets the unchanged 503 + `Retry-After`, and `pg_stat_activity` never shows more than 9 connections for the app role.
 12. **Disposable PostgreSQL (PM, 15 Oct):** Docker runs locally through Colima. Contract tests start a disposable `postgis/postgis:17-3.6-alpine` container with the pinned digest from `scripts/run_product_analytics_postgres_tests.sh`, on a Docker-assigned loopback port, and remove it at exit. Never use staging or prod.
 
 ### Product issues found (not changed in Phase 1)
 
 The current same-side live-slice VWAP combines qualified REAL and DEMO orders under a key that omits provenance (`app/services/live_benchmarks.py:134-204`). Public order responses expose this benchmark and premium/discount (`app/routers/orderbook.py:429-466`). Rust copies this behavior, including additional typed qualification. The founder may review separation as a later product change. REAL-only confirmed-trade reference prices remain separate and unchanged.
+
+Founder (15 Oct): the benchmark should use REAL orders only in the end; keep the blend while there are no real orders.
+
+`/api/prices/reference/export` has optional dates and no row limit; Python reads the whole result into memory (`app/routers/price_discovery.py:443-492,630-641`). Rust copies this. A row cap or required date range is a later Python change.
+
+Staging and prod PostgreSQL servers use different default time zones (staging `Asia/Singapore`, prod `UTC`), so day grouping differs between the environments. Phase 0 picks one.
 
 ### Review disposition
 
