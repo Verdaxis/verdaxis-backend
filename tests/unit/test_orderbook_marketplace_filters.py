@@ -1,9 +1,9 @@
 """Tests for public marketplace filtering on approved green-fuels products."""
+import pytest
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from uuid import UUID, uuid4
 
-import pytest
 from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
@@ -11,7 +11,8 @@ from app.database import Base
 from app.market_catalog import DELIVERY_POINTS_BY_NAME, PRODUCTS_BY_NAME
 from app.models.catalog import DeliveryPoint, Product
 from app.models.orderbook import OrderBookOrder, OrderBookStatus, OrderSide
-from app.models.user import Organization, OrganizationProvenance, OrgType
+from app.models.user import OrganizationProvenance, OrgType, Organization
+from app.schemas.market_activity import MarketDemoStatus, MarketSourceKind
 from app.routers.orderbook import (
     get_map_summary,
     list_active_products,
@@ -23,7 +24,7 @@ from app.routers.orderbook import (
     list_product_counts,
     list_regions,
 )
-from app.schemas.market_activity import MarketDemoStatus, MarketSourceKind
+
 
 REQUIRED_TABLES = [
     'organizations',
@@ -538,7 +539,7 @@ class TestMarketplaceFuelFiltering:
             org_id=supplier.id, product_id=methanol.id,
             delivery_point_id=singapore.id, price='1100',
         )
-        order.carbon_intensity_gco2_mj = Decimal(0)
+        order.carbon_intensity_gco2_mj = Decimal('0')
         order.energy_density_mj_kg = Decimal('19.9')
         db.add(order)
         await db.commit()
@@ -551,10 +552,10 @@ class TestMarketplaceFuelFiltering:
         assert len(result) == 1
         comparison = result[0].ci_adjusted_price
         assert comparison is not None
-        assert comparison.carbon_intensity_gco2_mj == Decimal(0)
-        assert comparison.ghg_reduction_pct == Decimal(100)
-        assert comparison.effective_price_per_mt == Decimal(1100)
-        assert comparison.compliance_cost_per_mt == Decimal(0)
+        assert comparison.carbon_intensity_gco2_mj == Decimal('0')
+        assert comparison.ghg_reduction_pct == Decimal('100')
+        assert comparison.effective_price_per_mt == Decimal('1100')
+        assert comparison.compliance_cost_per_mt == Decimal('0')
 
     @pytest.mark.asyncio
     async def test_aggregated_excludes_off_spec_by_default(self, db: AsyncSession):
@@ -593,7 +594,7 @@ class TestMarketplaceFuelFiltering:
         )
 
         assert len(result) == 1
-        assert result[0].total_quantity == Decimal(1000)
+        assert result[0].total_quantity == Decimal('1000')
 
     @pytest.mark.asyncio
     async def test_aggregated_filters_by_market_slice(self, db: AsyncSession):
@@ -654,7 +655,7 @@ class TestMarketplaceFuelFiltering:
         assert result[0].product_id == bio_methanol.id
         assert result[0].delivery_point_id == singapore.id
         assert result[0].availability_window == 'SPOT'
-        assert result[0].total_quantity == Decimal(1000)
+        assert result[0].total_quantity == Decimal('1000')
 
     @pytest.mark.asyncio
     async def test_legacy_collection_is_hard_bounded_before_enrichment(self, db: AsyncSession):
@@ -778,7 +779,7 @@ class TestMarketplaceFuelFiltering:
         assert len(result) == 2
         assert {row.market_product for row in result} == {'BIO_METHANOL'}
         assert {row.demo_status.value for row in result} == {'REAL_ONLY', 'DEMO_ONLY'}
-        assert sorted(row.total_quantity for row in result) == [Decimal(100), Decimal(200)]
+        assert sorted(row.total_quantity for row in result) == [Decimal('100'), Decimal('200')]
         assert all(row.product_total_order_count == 1 for row in result)
 
     @pytest.mark.asyncio
@@ -880,7 +881,7 @@ class TestMarketplaceFuelFiltering:
             price='1000',
             quantity='1000',
         )
-        older.remaining_quantity_mt = Decimal(400)
+        older.remaining_quantity_mt = Decimal('400')
         older.created_at = now - timedelta(minutes=2)
         latest_demo = _make_order(
             org_id=demo_supplier.id,
@@ -918,13 +919,13 @@ class TestMarketplaceFuelFiltering:
             for row in summary.groups
             if row.delivery_point_id == singapore.id and row.side == OrderSide.ASK
         )
-        assert singapore_quantity == Decimal(700)
+        assert singapore_quantity == Decimal('700')
         assert len(summary.recent_asks) == 2
         singapore_latest = next(
             row for row in summary.recent_asks if row.delivery_point_id == singapore.id
         )
-        assert singapore_latest.price_per_mt_usd == Decimal(1100)
-        assert singapore_latest.remaining_quantity_mt == Decimal(300)
+        assert singapore_latest.price_per_mt_usd == Decimal('1100')
+        assert singapore_latest.remaining_quantity_mt == Decimal('300')
         assert singapore_latest.evidence_class == 'DEMO'
         assert singapore_latest.source_kind == MarketSourceKind.DEMO_SEED
         assert singapore_latest.demo_status == MarketDemoStatus.DEMO_ONLY
@@ -964,7 +965,7 @@ class TestMarketplaceFuelFiltering:
             quantity='400',
         )
         real_spot.created_at = observed_at - timedelta(minutes=2)
-        real_spot.remaining_quantity_mt = Decimal(350)
+        real_spot.remaining_quantity_mt = Decimal('350')
         demo_forward = _make_order(
             org_id=demo_supplier.id,
             product_id=bio_methanol.id,
@@ -1073,17 +1074,17 @@ class TestMarketplaceFuelFiltering:
             )
             for group in summary.groups
         ] == [
-            ('BIO_METHANOL', 'Rotterdam', 'SPOT', OrderSide.ASK, 'REAL', 1, Decimal(250), 4),
-            ('BIO_METHANOL', 'Singapore', '2027-CAL', OrderSide.ASK, 'REAL', 1, Decimal(200), 4),
-            ('BIO_METHANOL', 'Singapore', '2027-Q1', OrderSide.ASK, 'DEMO', 1, Decimal(300), 1),
-            ('BIO_METHANOL', 'Singapore', 'SPOT', OrderSide.ASK, 'REAL', 1, Decimal(350), 4),
-            ('BIO_METHANOL', 'Singapore', 'SPOT', OrderSide.BID, 'REAL', 1, Decimal(500), 4),
+            ('BIO_METHANOL', 'Rotterdam', 'SPOT', OrderSide.ASK, 'REAL', 1, Decimal('250'), 4),
+            ('BIO_METHANOL', 'Singapore', '2027-CAL', OrderSide.ASK, 'REAL', 1, Decimal('200'), 4),
+            ('BIO_METHANOL', 'Singapore', '2027-Q1', OrderSide.ASK, 'DEMO', 1, Decimal('300'), 1),
+            ('BIO_METHANOL', 'Singapore', 'SPOT', OrderSide.ASK, 'REAL', 1, Decimal('350'), 4),
+            ('BIO_METHANOL', 'Singapore', 'SPOT', OrderSide.BID, 'REAL', 1, Decimal('500'), 4),
         ]
         assert [row.delivery_point_name for row in summary.recent_asks] == [
             'Rotterdam',
             'Singapore',
         ]
         singapore_latest = summary.recent_asks[1]
-        assert singapore_latest.price_per_mt_usd == Decimal(1200)
+        assert singapore_latest.price_per_mt_usd == Decimal('1200')
         assert singapore_latest.created_at.replace(tzinfo=UTC) == observed_at
         assert singapore_latest.evidence_class == 'REAL'
