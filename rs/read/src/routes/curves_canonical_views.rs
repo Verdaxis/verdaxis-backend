@@ -2,6 +2,44 @@ use super::*;
 use curve_projection::{DISCLAIMER, no_band};
 use rust_decimal::Decimal;
 
+fn focus_point_matches(value: &Json, id: &str) -> bool {
+    value.as_str().and_then(|text| uuid::Uuid::parse_str(text).ok())
+        .is_some_and(|value| Some(value) == uuid::Uuid::parse_str(id).ok())
+}
+
+fn sort_latest_signals(latest: &mut [Json]) {
+    latest.sort_by_cached_key(|signal| {
+        std::cmp::Reverse(DateTime::parse_from_rfc3339(
+            signal["observed_at"].as_str().expect("observed signal timestamp"),
+        ).expect("serialized UTC timestamp"))
+    });
+}
+
+#[cfg(test)]
+mod regression_tests {
+    use super::*;
+
+    #[test]
+    fn board_focus_accepts_uuid_spellings() {
+        let id = "1379d36c-1ca9-55b7-9c0d-5235a0ba1f36";
+        for spelling in [id.to_owned(), id.to_uppercase(), id.replace('-', ""), format!("{{{id}}}"), format!("urn:uuid:{id}")] {
+            assert!(focus_point_matches(&json!(spelling), id), "{spelling}");
+        }
+        assert!(!focus_point_matches(&Json::Null, id));
+    }
+
+    #[test]
+    fn latest_signals_use_subsecond_instants_and_stable_ties() {
+        let mut signals = vec![
+            json!({"id": "older", "observed_at": "2026-10-15T12:00:00Z"}),
+            json!({"id": "newer", "observed_at": "2026-10-15T12:00:00.500000Z"}),
+            json!({"id": "tie", "observed_at": "2026-10-15T12:00:00.500000Z"}),
+        ];
+        sort_latest_signals(&mut signals);
+        assert_eq!(signals.iter().map(|v| v["id"].as_str().unwrap()).collect::<Vec<_>>(), ["newer", "tie", "older"]);
+    }
+}
+
 fn cell_values(
     product: &Product,
     key: &SliceKey,
@@ -59,7 +97,7 @@ pub(super) fn table_projection(
             "representative_product_id":product.id,"product_count":1,"delivery_point_id":point.id,"delivery_point_name":point.name,"region":point.region,"cells":cells}));
         }
     }
-    latest.sort_by(|a, b| b["observed_at"].as_str().cmp(&a["observed_at"].as_str()));
+    sort_latest_signals(&mut latest);
     latest.truncate(8);
     let columns:Result<Vec<_>,ApiError>=windows.iter().map(|w|Ok(json!({"availability_window":w,"display_label":window_display_label(w).map_err(invalid)?,"group":if w=="SPOT"{"Spot"}else if w.ends_with("-CAL"){"Calendar"}else if w.contains("-Q"){"Quarterly"}else{"Monthly"}}))).collect();
     let _ = keys;
@@ -335,7 +373,7 @@ pub(super) async fn load_board(
         })?;
     let point = points
         .iter()
-        .find(|p| query["focus_delivery_point_id"] == p.id)
+        .find(|p| focus_point_matches(&query["focus_delivery_point_id"], &p.id))
         .or_else(|| {
             points
                 .iter()
