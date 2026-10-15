@@ -36,7 +36,15 @@ async def main():
     spec.loader.exec_module(oracle)
     os.environ["RUST_MARKET_EXPECTED_DATABASE"] = os.environ["SEED_TARGET_DATABASE"]
     async with seed_session() as session:
-        await oracle.seed(session, datetime.fromisoformat(os.environ["RUST_CONTRACT_CLOCK"]))
+        present = await session.scalar(text("SELECT count(*) FROM orderbook_orders WHERE id=:id"),
+                                       {"id": oracle.fid("order:real_scalar_bid")})
+        if not present:
+            await oracle.seed(session, datetime.fromisoformat(os.environ["RUST_CONTRACT_CLOCK"]))
+        else:
+            # Corpus owns the shared matrix. Reuse it rather than inserting its users twice.
+            for name in ("real_scalar_bid", "ask_ok", "pending_no_grace", "assisted_advisory", "inactive_product_bid"):
+                assert await session.scalar(text("SELECT count(*) FROM orderbook_orders WHERE id=:id"),
+                                            {"id": oracle.fid("order:" + name)}) == 1
         # Separate ordinary and assisted advisory admissions so the HTTP result
         # proves each runtime switch branch rather than hiding it in a total.
         async def copy_order(name, window):
