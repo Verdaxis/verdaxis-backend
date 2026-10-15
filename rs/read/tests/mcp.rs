@@ -1,6 +1,49 @@
 use serde_json::json;
 
 #[tokio::test]
+async fn protocol_errors_precede_tool_validation() {
+    use axum::{
+        body::{Body, to_bytes},
+        http::Request,
+    };
+    use tower::ServiceExt;
+    let app = verdaxis_read::mcp::mcp_router().with_state(state());
+    let vectors: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../deploy/rust/mcp-protocol-vectors.json"
+    ))
+    .unwrap();
+    for vector in vectors.as_array().unwrap() {
+        let mut request = Request::builder()
+            .method("POST")
+            .uri("/mcp")
+            .header("host", "testserver")
+            .header("content-type", "application/json")
+            .header("accept", "application/json, text/event-stream");
+        for (name, value) in vector["headers"].as_object().unwrap() {
+            request = request.header(name, value.as_str().unwrap());
+        }
+        let response = app
+            .clone()
+            .oneshot(
+                request
+                    .body(Body::from(vector["body"].to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 400, "{}", vector["name"]);
+        let bytes = to_bytes(response.into_body(), 100000).await.unwrap();
+        let actual: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(
+            actual,
+            json!({"jsonrpc":"2.0","id":vector["id"],"error":vector["error"]}),
+            "{}",
+            vector["name"]
+        );
+    }
+}
+
+#[tokio::test]
 async fn stateless_transport_matches_python_terminal_responses() {
     use axum::{
         body::{Body, to_bytes},

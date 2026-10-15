@@ -1,5 +1,6 @@
 pub mod decimal;
 pub mod prices;
+mod protocol;
 mod server;
 pub mod transport;
 pub mod validation;
@@ -92,21 +93,12 @@ async fn dispatch(State(state): State<AppState>, request: Request) -> Response {
         }
     };
     let method = input["method"].as_str().unwrap_or_default().to_owned();
-    if parts
-        .headers
-        .get("mcp-protocol-version")
-        .and_then(|value| value.to_str().ok())
-        .is_some_and(|version| {
-            !["2024-11-05", "2025-03-26", "2025-06-18", "2025-11-25"].contains(&version)
-        })
-        && !input["params"]["_meta"].is_object()
-    {
-        return transport::rpc_error(
-            400,
-            input["id"].clone(),
-            -32602,
-            "params._meta must be an object carrying the required 'io.modelcontextprotocol/protocolVersion' and 'io.modelcontextprotocol/clientCapabilities' envelope keys",
-        );
+    if let Err(envelope) = protocol::validate(&input, &parts.headers) {
+        return Response::builder()
+            .status(400)
+            .header("content-type", "application/json")
+            .body(axum::body::Body::from(envelope.to_string()))
+            .expect("protocol rejection");
     }
     let mut body_bytes = bytes.to_vec();
     if method == "tools/call" {

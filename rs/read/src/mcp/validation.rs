@@ -36,7 +36,7 @@ fn type_name(value: &Json) -> &'static str {
         _ => "float",
     }
 }
-fn diagnostic(path: &str, message: &str, kind: &str, input: &Json) -> String {
+pub(super) fn diagnostic(path: &str, message: &str, kind: &str, input: &Json) -> String {
     let text = repr(input);
     let chars: Vec<_> = text.chars().collect();
     let text = if chars.len() > 50 {
