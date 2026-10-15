@@ -235,3 +235,32 @@ All Cargo commands used local Rust 1.95 and a fresh
 - This is a stop report, not Task 3 completion. No empty route modules or MCP
   router were added. No later task, database access, live access, push, agent,
   or background job was started. The existing untracked `.claude/` is untouched.
+
+## Task 3 — Ownership correction received; CSV stop condition reached
+
+- Date: 2026-10-15. Resumed after plan correction `d6352e6`, with rebased
+  Task 1 `132f57e`, Task 2 `2097fab`, and the prior stop note `4f716e3`.
+- Read decisions 11 and 12. These resolve the prior ownership design question
+  with two pools (read 8, health 1) and task-owned admitted work. Disposable
+  PostgreSQL through Colima is now authorized under decision 12; the earlier
+  prohibition recorded above is historical, not the current permission state.
+- Stopped before tests or implementation at decision 11's explicit condition:
+  "If an export has no row bound in Python, stop and report."
+- `GET /api/prices/reference/export` has no row bound:
+  `app/routers/price_discovery.py:613-614` makes both dates optional;
+  lines 630-641 pass them to `compute_reference_prices` and build the CSV from
+  the complete returned list. Date validation at lines 106-114 only rejects
+  reversed dates. The query at lines 443-492 applies optional filters, groups
+  and sorts, but has no LIMIT; `result.all()` collects all matching rows.
+  No maximum date span or output-row cap is enforced by this path.
+- No row cap, truncation, new date requirement, or streaming redesign was added.
+  Each would need an approved contract decision rather than an inferred fix.
+- Checks: `git diff --check` passed before the documentation commit. Cargo test,
+  clippy, and rustfmt were not run because no Rust files changed. Task 2
+  PostgreSQL tests and Task 3 cancellation tests were not run: the explicit
+  stop condition was reached before implementation or container startup.
+- Resume point: approve how the unbounded reference-price export fits the
+  task-owned CSV contract, or explicitly defer that export decision while
+  authorizing the remaining Task 3 work. Then begin with failing tests.
+- Task 3 remains unimplemented. No container, database connection, live access,
+  push, agent, or background job was started. `.claude/` remains untouched.
