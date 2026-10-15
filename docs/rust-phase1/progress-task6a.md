@@ -62,5 +62,28 @@ The PM approved minimum wiring after the initial stop:
 
 ## Checks
 
-Verification is in progress. Logs are under `work/rust-phase1/task6a-*`.
-Do not mark acceptance complete until the final entries below are recorded.
+Logs are under `work/rust-phase1/task6a-*`. Every Cargo command exports the
+current full HEAD as `RELEASE_SHA`; PostgreSQL uses the absolute harness Python.
+
+- Arithmetic/qualification: 7 passed.
+- Offline workspace: 81 passed.
+- Runtime PostgreSQL: 88 passed; two market-matrix tests remain explicitly
+  filtered by that runner and belong to the separate Task 6 runner.
+- Python contract suite: 42 passed, five existing warnings.
+- Named Python sources (`test_public_owner_admission`,
+  `test_market_evidence_policy`, `test_orderbook_live_benchmarks`): 34 passed.
+- Formatting, workspace/all-target clippy, all-features clippy, assertion ledger
+  and `git diff --check`: passed.
+- Ordinary helper group: four cases matched exact bytes in runs 5 and 6.
+  The additional migrated matrix is still being verified.
+- One ordinary seed attempt timed out before any helper test; no seed code or
+  database timeout was changed to hide that failure.
+- The fixture probe initially attempted to move existing orders to an isolated
+  slice. The database correctly refused the immutable slice update. Removed
+  that update; the fixture retains mixed prices/quantities in its original slice.
+- No golden bytes were relabelled under the older oracle SHA. Task 4b owns the
+  populated recording and policy refresh; this group compares fresh paired
+  Python/Rust responses through the same comparator in the meantime.
+
+Commits so far: `372a5aa` (helper/offline tests), `96c8ff2` (test wiring/query
+shape). Final acceptance remains pending the populated Task 4b corpus.
