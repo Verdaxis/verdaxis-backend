@@ -1,0 +1,8 @@
+{
+  "method": "GET",
+  "path": "/api/trade-tape",
+  "query": "delivery_point_id=bad&demo_only=x&skip=-1&limit=0&availability_window=x",
+  "headers": {
+    "x-request-id": "00000000-0000-4000-8000-000000000001"
+  }
+}

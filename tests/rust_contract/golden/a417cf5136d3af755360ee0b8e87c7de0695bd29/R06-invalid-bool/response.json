@@ -1,0 +1,21 @@
+{
+  "status": 422,
+  "headers": {
+    "content-type": "application/json",
+    "x-request-id": "00000000-0000-4000-8000-000000000001"
+  },
+  "body": {
+    "detail": [
+      {
+        "type": "bool_parsing",
+        "loc": [
+          "query",
+          "demo_only"
+        ],
+        "msg": "Input should be a valid boolean, unable to interpret input",
+        "input": "invalid"
+      }
+    ]
+  },
+  "body_sha256": "5f143cb6f7643f0cbc490fcf8bef1d5f422739a93db3fbf8af3b7f2717f6a25f"
+}

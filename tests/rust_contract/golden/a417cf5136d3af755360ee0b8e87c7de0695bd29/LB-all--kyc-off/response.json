@@ -1,0 +1,2602 @@
+{
+  "status": 200,
+  "headers": {
+    "content-type": "application/json",
+    "x-request-id": "00000000-0000-4000-8000-000000000001"
+  },
+  "body": [
+    {
+      "side": "ASK",
+      "product": "BIO_ETHANOL",
+      "point": "1379d36c-1ca9-55b7-9c0d-5235a0ba1f36",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "BIO_ETHANOL",
+      "point": "1379d36c-1ca9-55b7-9c0d-5235a0ba1f36",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "BIO_ETHANOL",
+      "point": "1379d36c-1ca9-55b7-9c0d-5235a0ba1f36",
+      "window": "SPOT",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "BIO_ETHANOL",
+      "point": "1be2a5cb-fc34-5e88-8b15-7f7d0fd6e534",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "BIO_ETHANOL",
+      "point": "1be2a5cb-fc34-5e88-8b15-7f7d0fd6e534",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "BIO_ETHANOL",
+      "point": "1be2a5cb-fc34-5e88-8b15-7f7d0fd6e534",
+      "window": "SPOT",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "BIO_ETHANOL",
+      "point": "262d36ae-6f35-5785-b9e8-9e221b0f1b78",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "BIO_ETHANOL",
+      "point": "262d36ae-6f35-5785-b9e8-9e221b0f1b78",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "BIO_ETHANOL",
+      "point": "262d36ae-6f35-5785-b9e8-9e221b0f1b78",
+      "window": "SPOT",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "BIO_ETHANOL",
+      "point": "633c0593-f9b9-52ad-abe5-a0285f6888d3",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "BIO_ETHANOL",
+      "point": "633c0593-f9b9-52ad-abe5-a0285f6888d3",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "BIO_ETHANOL",
+      "point": "633c0593-f9b9-52ad-abe5-a0285f6888d3",
+      "window": "SPOT",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "BIO_ETHANOL",
+      "point": "73835e92-820e-584b-8280-bb61c63aa28e",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "BIO_ETHANOL",
+      "point": "73835e92-820e-584b-8280-bb61c63aa28e",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "BIO_ETHANOL",
+      "point": "73835e92-820e-584b-8280-bb61c63aa28e",
+      "window": "SPOT",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "BIO_ETHANOL",
+      "point": "78281fb3-e726-5396-802e-34b01fda21e8",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "BIO_ETHANOL",
+      "point": "78281fb3-e726-5396-802e-34b01fda21e8",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "BIO_ETHANOL",
+      "point": "78281fb3-e726-5396-802e-34b01fda21e8",
+      "window": "SPOT",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "BIO_ETHANOL",
+      "point": "a083db06-b050-56c2-a274-3897eac2fdae",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "BIO_ETHANOL",
+      "point": "a083db06-b050-56c2-a274-3897eac2fdae",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "BIO_ETHANOL",
+      "point": "a083db06-b050-56c2-a274-3897eac2fdae",
+      "window": "SPOT",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "BIO_ETHANOL",
+      "point": "a4762444-4e0b-5bc1-b647-a185047adae5",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "BIO_ETHANOL",
+      "point": "a4762444-4e0b-5bc1-b647-a185047adae5",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "BIO_ETHANOL",
+      "point": "a4762444-4e0b-5bc1-b647-a185047adae5",
+      "window": "SPOT",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "BIO_LNG",
+      "point": "1379d36c-1ca9-55b7-9c0d-5235a0ba1f36",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "BIO_LNG",
+      "point": "1379d36c-1ca9-55b7-9c0d-5235a0ba1f36",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "BIO_LNG",
+      "point": "1379d36c-1ca9-55b7-9c0d-5235a0ba1f36",
+      "window": "SPOT",
+      "price": "600.00",
+      "quantity": "400.00",
+      "count": 4
+    },
+    {
+      "side": "ASK",
+      "product": "BIO_LNG",
+      "point": "1be2a5cb-fc34-5e88-8b15-7f7d0fd6e534",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "BIO_LNG",
+      "point": "1be2a5cb-fc34-5e88-8b15-7f7d0fd6e534",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "BIO_LNG",
+      "point": "1be2a5cb-fc34-5e88-8b15-7f7d0fd6e534",
+      "window": "SPOT",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "BIO_LNG",
+      "point": "262d36ae-6f35-5785-b9e8-9e221b0f1b78",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "BIO_LNG",
+      "point": "262d36ae-6f35-5785-b9e8-9e221b0f1b78",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "BIO_LNG",
+      "point": "262d36ae-6f35-5785-b9e8-9e221b0f1b78",
+      "window": "SPOT",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "BIO_LNG",
+      "point": "633c0593-f9b9-52ad-abe5-a0285f6888d3",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "BIO_LNG",
+      "point": "633c0593-f9b9-52ad-abe5-a0285f6888d3",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "BIO_LNG",
+      "point": "633c0593-f9b9-52ad-abe5-a0285f6888d3",
+      "window": "SPOT",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "BIO_LNG",
+      "point": "73835e92-820e-584b-8280-bb61c63aa28e",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "BIO_LNG",
+      "point": "73835e92-820e-584b-8280-bb61c63aa28e",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "BIO_LNG",
+      "point": "73835e92-820e-584b-8280-bb61c63aa28e",
+      "window": "SPOT",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "BIO_LNG",
+      "point": "78281fb3-e726-5396-802e-34b01fda21e8",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "BIO_LNG",
+      "point": "78281fb3-e726-5396-802e-34b01fda21e8",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "BIO_LNG",
+      "point": "78281fb3-e726-5396-802e-34b01fda21e8",
+      "window": "SPOT",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "BIO_LNG",
+      "point": "a083db06-b050-56c2-a274-3897eac2fdae",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "BIO_LNG",
+      "point": "a083db06-b050-56c2-a274-3897eac2fdae",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "BIO_LNG",
+      "point": "a083db06-b050-56c2-a274-3897eac2fdae",
+      "window": "SPOT",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "BIO_LNG",
+      "point": "a4762444-4e0b-5bc1-b647-a185047adae5",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "BIO_LNG",
+      "point": "a4762444-4e0b-5bc1-b647-a185047adae5",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "BIO_LNG",
+      "point": "a4762444-4e0b-5bc1-b647-a185047adae5",
+      "window": "SPOT",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "BIO_METHANOL",
+      "point": "1379d36c-1ca9-55b7-9c0d-5235a0ba1f36",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "BIO_METHANOL",
+      "point": "1379d36c-1ca9-55b7-9c0d-5235a0ba1f36",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "BIO_METHANOL",
+      "point": "1379d36c-1ca9-55b7-9c0d-5235a0ba1f36",
+      "window": "SPOT",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "BIO_METHANOL",
+      "point": "1be2a5cb-fc34-5e88-8b15-7f7d0fd6e534",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "BIO_METHANOL",
+      "point": "1be2a5cb-fc34-5e88-8b15-7f7d0fd6e534",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "BIO_METHANOL",
+      "point": "1be2a5cb-fc34-5e88-8b15-7f7d0fd6e534",
+      "window": "SPOT",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "BIO_METHANOL",
+      "point": "262d36ae-6f35-5785-b9e8-9e221b0f1b78",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "BIO_METHANOL",
+      "point": "262d36ae-6f35-5785-b9e8-9e221b0f1b78",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "BIO_METHANOL",
+      "point": "262d36ae-6f35-5785-b9e8-9e221b0f1b78",
+      "window": "SPOT",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "BIO_METHANOL",
+      "point": "633c0593-f9b9-52ad-abe5-a0285f6888d3",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "BIO_METHANOL",
+      "point": "633c0593-f9b9-52ad-abe5-a0285f6888d3",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "BIO_METHANOL",
+      "point": "633c0593-f9b9-52ad-abe5-a0285f6888d3",
+      "window": "SPOT",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "BIO_METHANOL",
+      "point": "73835e92-820e-584b-8280-bb61c63aa28e",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "BIO_METHANOL",
+      "point": "73835e92-820e-584b-8280-bb61c63aa28e",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "BIO_METHANOL",
+      "point": "73835e92-820e-584b-8280-bb61c63aa28e",
+      "window": "SPOT",
+      "price": "600.00",
+      "quantity": "100.00",
+      "count": 1
+    },
+    {
+      "side": "ASK",
+      "product": "BIO_METHANOL",
+      "point": "78281fb3-e726-5396-802e-34b01fda21e8",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "BIO_METHANOL",
+      "point": "78281fb3-e726-5396-802e-34b01fda21e8",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "BIO_METHANOL",
+      "point": "78281fb3-e726-5396-802e-34b01fda21e8",
+      "window": "SPOT",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "BIO_METHANOL",
+      "point": "a083db06-b050-56c2-a274-3897eac2fdae",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "BIO_METHANOL",
+      "point": "a083db06-b050-56c2-a274-3897eac2fdae",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "BIO_METHANOL",
+      "point": "a083db06-b050-56c2-a274-3897eac2fdae",
+      "window": "SPOT",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "BIO_METHANOL",
+      "point": "a4762444-4e0b-5bc1-b647-a185047adae5",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "BIO_METHANOL",
+      "point": "a4762444-4e0b-5bc1-b647-a185047adae5",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "BIO_METHANOL",
+      "point": "a4762444-4e0b-5bc1-b647-a185047adae5",
+      "window": "SPOT",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "E_METHANOL",
+      "point": "1379d36c-1ca9-55b7-9c0d-5235a0ba1f36",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "E_METHANOL",
+      "point": "1379d36c-1ca9-55b7-9c0d-5235a0ba1f36",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "E_METHANOL",
+      "point": "1379d36c-1ca9-55b7-9c0d-5235a0ba1f36",
+      "window": "SPOT",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "E_METHANOL",
+      "point": "1be2a5cb-fc34-5e88-8b15-7f7d0fd6e534",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "E_METHANOL",
+      "point": "1be2a5cb-fc34-5e88-8b15-7f7d0fd6e534",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "E_METHANOL",
+      "point": "1be2a5cb-fc34-5e88-8b15-7f7d0fd6e534",
+      "window": "SPOT",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "E_METHANOL",
+      "point": "262d36ae-6f35-5785-b9e8-9e221b0f1b78",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "E_METHANOL",
+      "point": "262d36ae-6f35-5785-b9e8-9e221b0f1b78",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "E_METHANOL",
+      "point": "262d36ae-6f35-5785-b9e8-9e221b0f1b78",
+      "window": "SPOT",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "E_METHANOL",
+      "point": "633c0593-f9b9-52ad-abe5-a0285f6888d3",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "E_METHANOL",
+      "point": "633c0593-f9b9-52ad-abe5-a0285f6888d3",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "E_METHANOL",
+      "point": "633c0593-f9b9-52ad-abe5-a0285f6888d3",
+      "window": "SPOT",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "E_METHANOL",
+      "point": "73835e92-820e-584b-8280-bb61c63aa28e",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "E_METHANOL",
+      "point": "73835e92-820e-584b-8280-bb61c63aa28e",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "E_METHANOL",
+      "point": "73835e92-820e-584b-8280-bb61c63aa28e",
+      "window": "SPOT",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "E_METHANOL",
+      "point": "78281fb3-e726-5396-802e-34b01fda21e8",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "E_METHANOL",
+      "point": "78281fb3-e726-5396-802e-34b01fda21e8",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "E_METHANOL",
+      "point": "78281fb3-e726-5396-802e-34b01fda21e8",
+      "window": "SPOT",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "E_METHANOL",
+      "point": "a083db06-b050-56c2-a274-3897eac2fdae",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "E_METHANOL",
+      "point": "a083db06-b050-56c2-a274-3897eac2fdae",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "E_METHANOL",
+      "point": "a083db06-b050-56c2-a274-3897eac2fdae",
+      "window": "SPOT",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "E_METHANOL",
+      "point": "a4762444-4e0b-5bc1-b647-a185047adae5",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "E_METHANOL",
+      "point": "a4762444-4e0b-5bc1-b647-a185047adae5",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "E_METHANOL",
+      "point": "a4762444-4e0b-5bc1-b647-a185047adae5",
+      "window": "SPOT",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "SYNTHETIC_ETHANOL",
+      "point": "1379d36c-1ca9-55b7-9c0d-5235a0ba1f36",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "SYNTHETIC_ETHANOL",
+      "point": "1379d36c-1ca9-55b7-9c0d-5235a0ba1f36",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "SYNTHETIC_ETHANOL",
+      "point": "1379d36c-1ca9-55b7-9c0d-5235a0ba1f36",
+      "window": "SPOT",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "SYNTHETIC_ETHANOL",
+      "point": "1be2a5cb-fc34-5e88-8b15-7f7d0fd6e534",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "SYNTHETIC_ETHANOL",
+      "point": "1be2a5cb-fc34-5e88-8b15-7f7d0fd6e534",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "SYNTHETIC_ETHANOL",
+      "point": "1be2a5cb-fc34-5e88-8b15-7f7d0fd6e534",
+      "window": "SPOT",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "SYNTHETIC_ETHANOL",
+      "point": "262d36ae-6f35-5785-b9e8-9e221b0f1b78",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "SYNTHETIC_ETHANOL",
+      "point": "262d36ae-6f35-5785-b9e8-9e221b0f1b78",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "SYNTHETIC_ETHANOL",
+      "point": "262d36ae-6f35-5785-b9e8-9e221b0f1b78",
+      "window": "SPOT",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "SYNTHETIC_ETHANOL",
+      "point": "633c0593-f9b9-52ad-abe5-a0285f6888d3",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "SYNTHETIC_ETHANOL",
+      "point": "633c0593-f9b9-52ad-abe5-a0285f6888d3",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "SYNTHETIC_ETHANOL",
+      "point": "633c0593-f9b9-52ad-abe5-a0285f6888d3",
+      "window": "SPOT",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "SYNTHETIC_ETHANOL",
+      "point": "73835e92-820e-584b-8280-bb61c63aa28e",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "SYNTHETIC_ETHANOL",
+      "point": "73835e92-820e-584b-8280-bb61c63aa28e",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "SYNTHETIC_ETHANOL",
+      "point": "73835e92-820e-584b-8280-bb61c63aa28e",
+      "window": "SPOT",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "SYNTHETIC_ETHANOL",
+      "point": "78281fb3-e726-5396-802e-34b01fda21e8",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "SYNTHETIC_ETHANOL",
+      "point": "78281fb3-e726-5396-802e-34b01fda21e8",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "SYNTHETIC_ETHANOL",
+      "point": "78281fb3-e726-5396-802e-34b01fda21e8",
+      "window": "SPOT",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "SYNTHETIC_ETHANOL",
+      "point": "a083db06-b050-56c2-a274-3897eac2fdae",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "SYNTHETIC_ETHANOL",
+      "point": "a083db06-b050-56c2-a274-3897eac2fdae",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "SYNTHETIC_ETHANOL",
+      "point": "a083db06-b050-56c2-a274-3897eac2fdae",
+      "window": "SPOT",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "SYNTHETIC_ETHANOL",
+      "point": "a4762444-4e0b-5bc1-b647-a185047adae5",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "SYNTHETIC_ETHANOL",
+      "point": "a4762444-4e0b-5bc1-b647-a185047adae5",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "SYNTHETIC_ETHANOL",
+      "point": "a4762444-4e0b-5bc1-b647-a185047adae5",
+      "window": "SPOT",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "UCOME_B100",
+      "point": "1379d36c-1ca9-55b7-9c0d-5235a0ba1f36",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "UCOME_B100",
+      "point": "1379d36c-1ca9-55b7-9c0d-5235a0ba1f36",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "UCOME_B100",
+      "point": "1379d36c-1ca9-55b7-9c0d-5235a0ba1f36",
+      "window": "SPOT",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "UCOME_B100",
+      "point": "1be2a5cb-fc34-5e88-8b15-7f7d0fd6e534",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "UCOME_B100",
+      "point": "1be2a5cb-fc34-5e88-8b15-7f7d0fd6e534",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "UCOME_B100",
+      "point": "1be2a5cb-fc34-5e88-8b15-7f7d0fd6e534",
+      "window": "SPOT",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "UCOME_B100",
+      "point": "262d36ae-6f35-5785-b9e8-9e221b0f1b78",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "UCOME_B100",
+      "point": "262d36ae-6f35-5785-b9e8-9e221b0f1b78",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "UCOME_B100",
+      "point": "262d36ae-6f35-5785-b9e8-9e221b0f1b78",
+      "window": "SPOT",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "UCOME_B100",
+      "point": "633c0593-f9b9-52ad-abe5-a0285f6888d3",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "UCOME_B100",
+      "point": "633c0593-f9b9-52ad-abe5-a0285f6888d3",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "UCOME_B100",
+      "point": "633c0593-f9b9-52ad-abe5-a0285f6888d3",
+      "window": "SPOT",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "UCOME_B100",
+      "point": "73835e92-820e-584b-8280-bb61c63aa28e",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "UCOME_B100",
+      "point": "73835e92-820e-584b-8280-bb61c63aa28e",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "UCOME_B100",
+      "point": "73835e92-820e-584b-8280-bb61c63aa28e",
+      "window": "SPOT",
+      "price": "600.00",
+      "quantity": "300.00",
+      "count": 3
+    },
+    {
+      "side": "ASK",
+      "product": "UCOME_B100",
+      "point": "78281fb3-e726-5396-802e-34b01fda21e8",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "UCOME_B100",
+      "point": "78281fb3-e726-5396-802e-34b01fda21e8",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "UCOME_B100",
+      "point": "78281fb3-e726-5396-802e-34b01fda21e8",
+      "window": "SPOT",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "UCOME_B100",
+      "point": "a083db06-b050-56c2-a274-3897eac2fdae",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "UCOME_B100",
+      "point": "a083db06-b050-56c2-a274-3897eac2fdae",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "UCOME_B100",
+      "point": "a083db06-b050-56c2-a274-3897eac2fdae",
+      "window": "SPOT",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "UCOME_B100",
+      "point": "a4762444-4e0b-5bc1-b647-a185047adae5",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "UCOME_B100",
+      "point": "a4762444-4e0b-5bc1-b647-a185047adae5",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "ASK",
+      "product": "UCOME_B100",
+      "point": "a4762444-4e0b-5bc1-b647-a185047adae5",
+      "window": "SPOT",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "BIO_ETHANOL",
+      "point": "1379d36c-1ca9-55b7-9c0d-5235a0ba1f36",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "BIO_ETHANOL",
+      "point": "1379d36c-1ca9-55b7-9c0d-5235a0ba1f36",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "BIO_ETHANOL",
+      "point": "1379d36c-1ca9-55b7-9c0d-5235a0ba1f36",
+      "window": "SPOT",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "BIO_ETHANOL",
+      "point": "1be2a5cb-fc34-5e88-8b15-7f7d0fd6e534",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "BIO_ETHANOL",
+      "point": "1be2a5cb-fc34-5e88-8b15-7f7d0fd6e534",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "BIO_ETHANOL",
+      "point": "1be2a5cb-fc34-5e88-8b15-7f7d0fd6e534",
+      "window": "SPOT",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "BIO_ETHANOL",
+      "point": "262d36ae-6f35-5785-b9e8-9e221b0f1b78",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "BIO_ETHANOL",
+      "point": "262d36ae-6f35-5785-b9e8-9e221b0f1b78",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "BIO_ETHANOL",
+      "point": "262d36ae-6f35-5785-b9e8-9e221b0f1b78",
+      "window": "SPOT",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "BIO_ETHANOL",
+      "point": "633c0593-f9b9-52ad-abe5-a0285f6888d3",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "BIO_ETHANOL",
+      "point": "633c0593-f9b9-52ad-abe5-a0285f6888d3",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "BIO_ETHANOL",
+      "point": "633c0593-f9b9-52ad-abe5-a0285f6888d3",
+      "window": "SPOT",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "BIO_ETHANOL",
+      "point": "73835e92-820e-584b-8280-bb61c63aa28e",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "BIO_ETHANOL",
+      "point": "73835e92-820e-584b-8280-bb61c63aa28e",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "BIO_ETHANOL",
+      "point": "73835e92-820e-584b-8280-bb61c63aa28e",
+      "window": "SPOT",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "BIO_ETHANOL",
+      "point": "78281fb3-e726-5396-802e-34b01fda21e8",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "BIO_ETHANOL",
+      "point": "78281fb3-e726-5396-802e-34b01fda21e8",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "BIO_ETHANOL",
+      "point": "78281fb3-e726-5396-802e-34b01fda21e8",
+      "window": "SPOT",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "BIO_ETHANOL",
+      "point": "a083db06-b050-56c2-a274-3897eac2fdae",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "BIO_ETHANOL",
+      "point": "a083db06-b050-56c2-a274-3897eac2fdae",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "BIO_ETHANOL",
+      "point": "a083db06-b050-56c2-a274-3897eac2fdae",
+      "window": "SPOT",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "BIO_ETHANOL",
+      "point": "a4762444-4e0b-5bc1-b647-a185047adae5",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "BIO_ETHANOL",
+      "point": "a4762444-4e0b-5bc1-b647-a185047adae5",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "BIO_ETHANOL",
+      "point": "a4762444-4e0b-5bc1-b647-a185047adae5",
+      "window": "SPOT",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "BIO_LNG",
+      "point": "1379d36c-1ca9-55b7-9c0d-5235a0ba1f36",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "BIO_LNG",
+      "point": "1379d36c-1ca9-55b7-9c0d-5235a0ba1f36",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "BIO_LNG",
+      "point": "1379d36c-1ca9-55b7-9c0d-5235a0ba1f36",
+      "window": "SPOT",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "BIO_LNG",
+      "point": "1be2a5cb-fc34-5e88-8b15-7f7d0fd6e534",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "BIO_LNG",
+      "point": "1be2a5cb-fc34-5e88-8b15-7f7d0fd6e534",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "BIO_LNG",
+      "point": "1be2a5cb-fc34-5e88-8b15-7f7d0fd6e534",
+      "window": "SPOT",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "BIO_LNG",
+      "point": "262d36ae-6f35-5785-b9e8-9e221b0f1b78",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "BIO_LNG",
+      "point": "262d36ae-6f35-5785-b9e8-9e221b0f1b78",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "BIO_LNG",
+      "point": "262d36ae-6f35-5785-b9e8-9e221b0f1b78",
+      "window": "SPOT",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "BIO_LNG",
+      "point": "633c0593-f9b9-52ad-abe5-a0285f6888d3",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "BIO_LNG",
+      "point": "633c0593-f9b9-52ad-abe5-a0285f6888d3",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "BIO_LNG",
+      "point": "633c0593-f9b9-52ad-abe5-a0285f6888d3",
+      "window": "SPOT",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "BIO_LNG",
+      "point": "73835e92-820e-584b-8280-bb61c63aa28e",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "BIO_LNG",
+      "point": "73835e92-820e-584b-8280-bb61c63aa28e",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "BIO_LNG",
+      "point": "73835e92-820e-584b-8280-bb61c63aa28e",
+      "window": "SPOT",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "BIO_LNG",
+      "point": "78281fb3-e726-5396-802e-34b01fda21e8",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "BIO_LNG",
+      "point": "78281fb3-e726-5396-802e-34b01fda21e8",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "BIO_LNG",
+      "point": "78281fb3-e726-5396-802e-34b01fda21e8",
+      "window": "SPOT",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "BIO_LNG",
+      "point": "a083db06-b050-56c2-a274-3897eac2fdae",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "BIO_LNG",
+      "point": "a083db06-b050-56c2-a274-3897eac2fdae",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "BIO_LNG",
+      "point": "a083db06-b050-56c2-a274-3897eac2fdae",
+      "window": "SPOT",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "BIO_LNG",
+      "point": "a4762444-4e0b-5bc1-b647-a185047adae5",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "BIO_LNG",
+      "point": "a4762444-4e0b-5bc1-b647-a185047adae5",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "BIO_LNG",
+      "point": "a4762444-4e0b-5bc1-b647-a185047adae5",
+      "window": "SPOT",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "BIO_METHANOL",
+      "point": "1379d36c-1ca9-55b7-9c0d-5235a0ba1f36",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "BIO_METHANOL",
+      "point": "1379d36c-1ca9-55b7-9c0d-5235a0ba1f36",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "BIO_METHANOL",
+      "point": "1379d36c-1ca9-55b7-9c0d-5235a0ba1f36",
+      "window": "SPOT",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "BIO_METHANOL",
+      "point": "1be2a5cb-fc34-5e88-8b15-7f7d0fd6e534",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "BIO_METHANOL",
+      "point": "1be2a5cb-fc34-5e88-8b15-7f7d0fd6e534",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "BIO_METHANOL",
+      "point": "1be2a5cb-fc34-5e88-8b15-7f7d0fd6e534",
+      "window": "SPOT",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "BIO_METHANOL",
+      "point": "262d36ae-6f35-5785-b9e8-9e221b0f1b78",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "BIO_METHANOL",
+      "point": "262d36ae-6f35-5785-b9e8-9e221b0f1b78",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "BIO_METHANOL",
+      "point": "262d36ae-6f35-5785-b9e8-9e221b0f1b78",
+      "window": "SPOT",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "BIO_METHANOL",
+      "point": "633c0593-f9b9-52ad-abe5-a0285f6888d3",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "BIO_METHANOL",
+      "point": "633c0593-f9b9-52ad-abe5-a0285f6888d3",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "BIO_METHANOL",
+      "point": "633c0593-f9b9-52ad-abe5-a0285f6888d3",
+      "window": "SPOT",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "BIO_METHANOL",
+      "point": "73835e92-820e-584b-8280-bb61c63aa28e",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "BIO_METHANOL",
+      "point": "73835e92-820e-584b-8280-bb61c63aa28e",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "BIO_METHANOL",
+      "point": "73835e92-820e-584b-8280-bb61c63aa28e",
+      "window": "SPOT",
+      "price": "600.00",
+      "quantity": "1240.00",
+      "count": 13
+    },
+    {
+      "side": "BID",
+      "product": "BIO_METHANOL",
+      "point": "78281fb3-e726-5396-802e-34b01fda21e8",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "BIO_METHANOL",
+      "point": "78281fb3-e726-5396-802e-34b01fda21e8",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "BIO_METHANOL",
+      "point": "78281fb3-e726-5396-802e-34b01fda21e8",
+      "window": "SPOT",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "BIO_METHANOL",
+      "point": "a083db06-b050-56c2-a274-3897eac2fdae",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "BIO_METHANOL",
+      "point": "a083db06-b050-56c2-a274-3897eac2fdae",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "BIO_METHANOL",
+      "point": "a083db06-b050-56c2-a274-3897eac2fdae",
+      "window": "SPOT",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "BIO_METHANOL",
+      "point": "a4762444-4e0b-5bc1-b647-a185047adae5",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "BIO_METHANOL",
+      "point": "a4762444-4e0b-5bc1-b647-a185047adae5",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "BIO_METHANOL",
+      "point": "a4762444-4e0b-5bc1-b647-a185047adae5",
+      "window": "SPOT",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "E_METHANOL",
+      "point": "1379d36c-1ca9-55b7-9c0d-5235a0ba1f36",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "E_METHANOL",
+      "point": "1379d36c-1ca9-55b7-9c0d-5235a0ba1f36",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "E_METHANOL",
+      "point": "1379d36c-1ca9-55b7-9c0d-5235a0ba1f36",
+      "window": "SPOT",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "E_METHANOL",
+      "point": "1be2a5cb-fc34-5e88-8b15-7f7d0fd6e534",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "E_METHANOL",
+      "point": "1be2a5cb-fc34-5e88-8b15-7f7d0fd6e534",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "E_METHANOL",
+      "point": "1be2a5cb-fc34-5e88-8b15-7f7d0fd6e534",
+      "window": "SPOT",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "E_METHANOL",
+      "point": "262d36ae-6f35-5785-b9e8-9e221b0f1b78",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "E_METHANOL",
+      "point": "262d36ae-6f35-5785-b9e8-9e221b0f1b78",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "E_METHANOL",
+      "point": "262d36ae-6f35-5785-b9e8-9e221b0f1b78",
+      "window": "SPOT",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "E_METHANOL",
+      "point": "633c0593-f9b9-52ad-abe5-a0285f6888d3",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "E_METHANOL",
+      "point": "633c0593-f9b9-52ad-abe5-a0285f6888d3",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "E_METHANOL",
+      "point": "633c0593-f9b9-52ad-abe5-a0285f6888d3",
+      "window": "SPOT",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "E_METHANOL",
+      "point": "73835e92-820e-584b-8280-bb61c63aa28e",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "E_METHANOL",
+      "point": "73835e92-820e-584b-8280-bb61c63aa28e",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "E_METHANOL",
+      "point": "73835e92-820e-584b-8280-bb61c63aa28e",
+      "window": "SPOT",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "E_METHANOL",
+      "point": "78281fb3-e726-5396-802e-34b01fda21e8",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "E_METHANOL",
+      "point": "78281fb3-e726-5396-802e-34b01fda21e8",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "E_METHANOL",
+      "point": "78281fb3-e726-5396-802e-34b01fda21e8",
+      "window": "SPOT",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "E_METHANOL",
+      "point": "a083db06-b050-56c2-a274-3897eac2fdae",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "E_METHANOL",
+      "point": "a083db06-b050-56c2-a274-3897eac2fdae",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "E_METHANOL",
+      "point": "a083db06-b050-56c2-a274-3897eac2fdae",
+      "window": "SPOT",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "E_METHANOL",
+      "point": "a4762444-4e0b-5bc1-b647-a185047adae5",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "E_METHANOL",
+      "point": "a4762444-4e0b-5bc1-b647-a185047adae5",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "E_METHANOL",
+      "point": "a4762444-4e0b-5bc1-b647-a185047adae5",
+      "window": "SPOT",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "SYNTHETIC_ETHANOL",
+      "point": "1379d36c-1ca9-55b7-9c0d-5235a0ba1f36",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "SYNTHETIC_ETHANOL",
+      "point": "1379d36c-1ca9-55b7-9c0d-5235a0ba1f36",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "SYNTHETIC_ETHANOL",
+      "point": "1379d36c-1ca9-55b7-9c0d-5235a0ba1f36",
+      "window": "SPOT",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "SYNTHETIC_ETHANOL",
+      "point": "1be2a5cb-fc34-5e88-8b15-7f7d0fd6e534",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "SYNTHETIC_ETHANOL",
+      "point": "1be2a5cb-fc34-5e88-8b15-7f7d0fd6e534",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "SYNTHETIC_ETHANOL",
+      "point": "1be2a5cb-fc34-5e88-8b15-7f7d0fd6e534",
+      "window": "SPOT",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "SYNTHETIC_ETHANOL",
+      "point": "262d36ae-6f35-5785-b9e8-9e221b0f1b78",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "SYNTHETIC_ETHANOL",
+      "point": "262d36ae-6f35-5785-b9e8-9e221b0f1b78",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "SYNTHETIC_ETHANOL",
+      "point": "262d36ae-6f35-5785-b9e8-9e221b0f1b78",
+      "window": "SPOT",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "SYNTHETIC_ETHANOL",
+      "point": "633c0593-f9b9-52ad-abe5-a0285f6888d3",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "SYNTHETIC_ETHANOL",
+      "point": "633c0593-f9b9-52ad-abe5-a0285f6888d3",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "SYNTHETIC_ETHANOL",
+      "point": "633c0593-f9b9-52ad-abe5-a0285f6888d3",
+      "window": "SPOT",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "SYNTHETIC_ETHANOL",
+      "point": "73835e92-820e-584b-8280-bb61c63aa28e",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "SYNTHETIC_ETHANOL",
+      "point": "73835e92-820e-584b-8280-bb61c63aa28e",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "SYNTHETIC_ETHANOL",
+      "point": "73835e92-820e-584b-8280-bb61c63aa28e",
+      "window": "SPOT",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "SYNTHETIC_ETHANOL",
+      "point": "78281fb3-e726-5396-802e-34b01fda21e8",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "SYNTHETIC_ETHANOL",
+      "point": "78281fb3-e726-5396-802e-34b01fda21e8",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "SYNTHETIC_ETHANOL",
+      "point": "78281fb3-e726-5396-802e-34b01fda21e8",
+      "window": "SPOT",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "SYNTHETIC_ETHANOL",
+      "point": "a083db06-b050-56c2-a274-3897eac2fdae",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "SYNTHETIC_ETHANOL",
+      "point": "a083db06-b050-56c2-a274-3897eac2fdae",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "SYNTHETIC_ETHANOL",
+      "point": "a083db06-b050-56c2-a274-3897eac2fdae",
+      "window": "SPOT",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "SYNTHETIC_ETHANOL",
+      "point": "a4762444-4e0b-5bc1-b647-a185047adae5",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "SYNTHETIC_ETHANOL",
+      "point": "a4762444-4e0b-5bc1-b647-a185047adae5",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "SYNTHETIC_ETHANOL",
+      "point": "a4762444-4e0b-5bc1-b647-a185047adae5",
+      "window": "SPOT",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "UCOME_B100",
+      "point": "1379d36c-1ca9-55b7-9c0d-5235a0ba1f36",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "UCOME_B100",
+      "point": "1379d36c-1ca9-55b7-9c0d-5235a0ba1f36",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "UCOME_B100",
+      "point": "1379d36c-1ca9-55b7-9c0d-5235a0ba1f36",
+      "window": "SPOT",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "UCOME_B100",
+      "point": "1be2a5cb-fc34-5e88-8b15-7f7d0fd6e534",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "UCOME_B100",
+      "point": "1be2a5cb-fc34-5e88-8b15-7f7d0fd6e534",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "UCOME_B100",
+      "point": "1be2a5cb-fc34-5e88-8b15-7f7d0fd6e534",
+      "window": "SPOT",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "UCOME_B100",
+      "point": "262d36ae-6f35-5785-b9e8-9e221b0f1b78",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "UCOME_B100",
+      "point": "262d36ae-6f35-5785-b9e8-9e221b0f1b78",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "UCOME_B100",
+      "point": "262d36ae-6f35-5785-b9e8-9e221b0f1b78",
+      "window": "SPOT",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "UCOME_B100",
+      "point": "633c0593-f9b9-52ad-abe5-a0285f6888d3",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "UCOME_B100",
+      "point": "633c0593-f9b9-52ad-abe5-a0285f6888d3",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "UCOME_B100",
+      "point": "633c0593-f9b9-52ad-abe5-a0285f6888d3",
+      "window": "SPOT",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "UCOME_B100",
+      "point": "73835e92-820e-584b-8280-bb61c63aa28e",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "UCOME_B100",
+      "point": "73835e92-820e-584b-8280-bb61c63aa28e",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "UCOME_B100",
+      "point": "73835e92-820e-584b-8280-bb61c63aa28e",
+      "window": "SPOT",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "UCOME_B100",
+      "point": "78281fb3-e726-5396-802e-34b01fda21e8",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "UCOME_B100",
+      "point": "78281fb3-e726-5396-802e-34b01fda21e8",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "UCOME_B100",
+      "point": "78281fb3-e726-5396-802e-34b01fda21e8",
+      "window": "SPOT",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "UCOME_B100",
+      "point": "a083db06-b050-56c2-a274-3897eac2fdae",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "UCOME_B100",
+      "point": "a083db06-b050-56c2-a274-3897eac2fdae",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "UCOME_B100",
+      "point": "a083db06-b050-56c2-a274-3897eac2fdae",
+      "window": "SPOT",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "UCOME_B100",
+      "point": "a4762444-4e0b-5bc1-b647-a185047adae5",
+      "window": "2026-11",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "UCOME_B100",
+      "point": "a4762444-4e0b-5bc1-b647-a185047adae5",
+      "window": "2099-01",
+      "price": null,
+      "quantity": null,
+      "count": null
+    },
+    {
+      "side": "BID",
+      "product": "UCOME_B100",
+      "point": "a4762444-4e0b-5bc1-b647-a185047adae5",
+      "window": "SPOT",
+      "price": null,
+      "quantity": null,
+      "count": null
+    }
+  ],
+  "body_sha256": "8f61a05215b18d16b9c422aeb31c826b7c6ec1c51048088c1324d630cb91a0e2"
+}

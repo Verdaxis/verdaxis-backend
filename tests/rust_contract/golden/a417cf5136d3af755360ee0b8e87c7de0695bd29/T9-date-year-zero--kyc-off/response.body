@@ -1,0 +1,1 @@
+{"detail":[{"type":"date_parsing","loc":["query","date_from"],"msg":"Input should be a valid date in the format YYYY-MM-DD, year 0 is out of range","input":"0000-01-01","ctx":{"error":"year 0 is out of range"}}]}
