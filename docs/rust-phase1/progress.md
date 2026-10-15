@@ -768,3 +768,52 @@ All Cargo commands used local Rust 1.95 with a fresh
 - Task 8 (R03/R04) and Task 11 (`list_markets`) still own their own loaders.
 - Task 6 is complete. No later task, push, live host, deployment, agent, or
   background job. `.claude/` and `work/` remain untracked.
+
+## Task 6 acceptance repairs — 2026-10-15
+
+Reference: `outputs/research/rust-task6-review-2026-10-15.md` in the parent Verdaxis workspace. PM assigned the repairs to this session; no agents, push or live access.
+
+### Findings and red/green evidence
+
+- M1: Python-generated `decimal_validation.json` proves trailing-zero declarations accepted by Pydantic. `work/rust-phase1/m1-red.txt` failed on `95.500`; normalized-scale validation then passed.
+- M2/N1: `public_terms.json` compares whole Python public projections, including `120.00`, signed zero, scientific notation, minimal BIDs, pending evidence and null. `m2-n1-red.txt` failed both tests; `n1-pending-red.txt` exposed missing default results. Rust now fills defaults and preserves wire spelling separately from digest spelling.
+- M3: `large_decimals.json` proves 10^29, 29 significant digits, half-even ties, very small values and negative zero. `m3-red.txt` failed before text-based canonicalization. Non-null parse errors now propagate instead of becoming null.
+- N2: `windows.json` proves Unicode years, leading-zero labels and year-zero date failure. `n2-red.txt` failed before repair. The Unicode decimal ranges match the pinned Python 3.12/Unicode 15 oracle.
+- M4: `m4-red.txt` failed the exact Python listings comparison. Shared relations now expose internal rows and private digest input without pagination. Listings, ordered pages, post-eligibility depth and projected digest comparisons pass.
+- N3: `n3-red.txt` failed the named coverage ledger before the missing fixtures were added. The expanded matrix compares 41 stored orders (12 visible) and 6 trades (4 evidence rows). It adds rejected-with-grace, wrong KYC/grace organization, +/- one-microsecond grace, revoked organization, rejected/mismatched admin, admin-KYC-only, expiry equality, typed-invalid-but-shallow-visible, mixed lane filters, DELIVERED and cutoff equality. Guard-refused cases remain explicit rather than disabling database guards. Singapore midnight and future quality dates have pure Python oracle vectors.
+
+### New frozen interface (supersedes the original Task 6 interface)
+
+Use `market::visibility::{OrderSurface, OrderQuery, TradeQuery, order_query_sql, trade_query_sql, bind_order_query, bind_trade_query}`. Constructors accept only a developer-owned `&'static str` tail and return sealed query types. Bind helpers return a SQLx `Query` with shared values bound. Execute on the connection owned by `run_admitted` (or its transaction). Do not call the pool from route code.
+
+- `order_query_sql(tail) -> OrderQuery`: tail reads `eligible_orders`. Bind policy/clock/filter values via `bind_order_query(&query, &policy, &clock, &filters)`; extra binds begin at `$13`.
+- `trade_query_sql(tail) -> TradeQuery`: tail reads `eligible_trades`. Use `bind_trade_query(&query, &policy, &filters)`; extra binds begin at `$7`.
+- `PublicOrderFilters.surface`: `Orderbook`, `Listings`, or `Candidates`. Candidates are a shared admission base, not final typed benchmark/curve qualification. Tail code owns surface-specific qualification, exact sparse keys, ranking, grouping and pagination.
+- Order rows include catalog labels and `private_digest_input`, with exact numeric text. This object is private; construct public DTOs explicitly. Trade rows contain immutable snapshots, not mutable order joins.
+- Existing ID helpers remain compatible adapters with deterministic ID ordering, not a substitute for route-specific ordering. Filter `skip`/`limit` apply only to these adapters.
+- `QualificationInput` and existing public function signatures remain; captured-clock consumers **must** call `order_is_execution_qualified_at` with `VisibilityClock::at(now).singapore_date`.
+- `canonical_decimal_text(&str) -> Result<String,String>` handles digest precision without narrowing. `decimal_text` remains digest-only, never a public wire formatter.
+
+Updated Task 6 Interfaces and Tasks 6a, 7a-7c, 9, 10b Interfaces in the approved plan. Architecture documents the relation composition. Python behavior was not changed. Its large-CI and Unicode/year-zero edge contracts are recorded under Product issues found.
+
+### Coverage limits and merge notes
+
+- Fresh migrations refuse OPEN zero-remaining, wrong typed lanes and some malformed assisted rows; the oracle records guard refusal. CANARY, unregistered TEST, mixed trade and new version-0 trade guards are tested. Registered TEST rows remain in the selection matrix.
+- Legacy version-0 history cannot be newly inserted through the current guard. This change proves its insert refusal and retains the explicit version-1 evidence predicate; it does not fabricate migrated legacy history by disabling guards. A historical upgrade fixture remains an integration follow-up.
+- Mutable catalog edits after confirmation are checked by the Python oracle inside a rolled-back savepoint. Rust's trade relation has no mutable joins. Public DTO privacy is still owned by the later route tasks; internal projected rows must not be serialized wholesale.
+- No Task 8 files or catalog policy were changed. Task 8 may consume `decimal_text` (same signature; now matches Python context rounding), `normalize_window`, `window_start_date`, `window_sort_key`, `window_display_label` (same signatures; corrected edge semantics). New visibility exports live under `market::visibility`; root module registration and Cargo manifests were not changed by these repairs.
+- Lesson for later ports: Decimal validation, digest canonicalization and Pydantic wire spelling are three separate contracts. Compare whole Python projections, not just digest bytes or selected fields. Keep surface eligibility separate from ordered pagination. Recorded here rather than editing lessons outside Task 6 ownership.
+
+### Final checks on code commit 7ee865b
+
+With a fresh `RELEASE_SHA=$(git rev-parse HEAD)`:
+
+- Offline workspace: **58 passed**, zero failures.
+- Migrated market runner: **2 passed**, 12/41 orders and 4/6 trades selected; listings, filters, projection, depth and cutoff assertions also pass.
+- Runtime PostgreSQL runner: **63 passed**, two matrix tests explicitly filtered because they run in the separate migrated runner.
+- Python `tests/rust_contract`: **42 passed**, five existing warnings.
+- `cargo fmt --all -- --check`: pass.
+- `cargo clippy --workspace --all-targets -- -D warnings`: pass. All-features clippy also passed before the final code commits.
+- Logs: `work/rust-phase1/repair-{workspace,market,postgres,python}.txt`.
+
+Resume: merge Task 6 repairs before consumer route work; use the new static relation interface. No push or live activation was performed.
