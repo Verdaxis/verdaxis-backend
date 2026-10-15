@@ -60,7 +60,7 @@ async fn request(
     state: AppState,
     raw: Option<String>,
     shape: &str,
-) -> Result<axum::Json<Json>, ApiError> {
+) -> Result<axum::response::Response, ApiError> {
     let mut query = json!({"shape":shape});
     for (name, value) in url::form_urlencoded::parse(raw.as_deref().unwrap_or("").as_bytes()) {
         if shape == "table"
@@ -91,8 +91,44 @@ async fn request(
     query["shape"] = json!(shape);
     let now = super::prices::captured_now(&state)?;
     validate(&state, &query)?;
-    Ok(axum::Json(load_curve(&state, &query, now).await?))
+    if shape == "board" {
+        if let Some(response) = board_window_error(&query, now) {
+            return Ok(response);
+        }
+    }
+    Ok(axum::Json(load_curve(&state, &query, now).await?).into_response())
 }
+fn board_window_error(query: &Json, now: DateTime<Utc>) -> Option<axum::response::Response> {
+    // Unlike table/slice, Python leaves the board's ValueError unhandled.
+    normalize_window(
+        query["availability_window"].as_str().unwrap_or("SPOT"),
+        now.date_naive(),
+    )
+    .err()
+    .map(|_| crate::runtime::http::unhandled_server_error())
+}
+
+#[cfg(test)]
+mod error_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn invalid_board_window_retains_python_unhandled_response() {
+        let now = "2026-10-15T12:00:00Z".parse().unwrap();
+        let response = board_window_error(&json!({"availability_window":"not-a-window"}), now)
+            .expect("Python board normalization failure");
+        assert_eq!(response.status(), 500);
+        assert_eq!(
+            response.headers()["content-type"],
+            "text/plain; charset=utf-8"
+        );
+        let body = axum::body::to_bytes(response.into_body(), 1024)
+            .await
+            .unwrap();
+        assert_eq!(&body[..], b"Internal Server Error");
+    }
+}
+
 fn invalid(message: impl Into<String>) -> ApiError {
     super::prices::invalid(message)
 }

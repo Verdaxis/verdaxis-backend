@@ -3,15 +3,22 @@ use curve_projection::{DISCLAIMER, no_band};
 use rust_decimal::Decimal;
 
 fn focus_point_matches(value: &Json, id: &str) -> bool {
-    value.as_str().and_then(|text| uuid::Uuid::parse_str(text).ok())
+    value
+        .as_str()
+        .and_then(|text| uuid::Uuid::parse_str(text).ok())
         .is_some_and(|value| Some(value) == uuid::Uuid::parse_str(id).ok())
 }
 
 fn sort_latest_signals(latest: &mut [Json]) {
     latest.sort_by_cached_key(|signal| {
-        std::cmp::Reverse(DateTime::parse_from_rfc3339(
-            signal["observed_at"].as_str().expect("observed signal timestamp"),
-        ).expect("serialized UTC timestamp"))
+        std::cmp::Reverse(
+            DateTime::parse_from_rfc3339(
+                signal["observed_at"]
+                    .as_str()
+                    .expect("observed signal timestamp"),
+            )
+            .expect("serialized UTC timestamp"),
+        )
     });
 }
 
@@ -22,7 +29,13 @@ mod regression_tests {
     #[test]
     fn board_focus_accepts_uuid_spellings() {
         let id = "1379d36c-1ca9-55b7-9c0d-5235a0ba1f36";
-        for spelling in [id.to_owned(), id.to_uppercase(), id.replace('-', ""), format!("{{{id}}}"), format!("urn:uuid:{id}")] {
+        for spelling in [
+            id.to_owned(),
+            id.to_uppercase(),
+            id.replace('-', ""),
+            format!("{{{id}}}"),
+            format!("urn:uuid:{id}"),
+        ] {
             assert!(focus_point_matches(&json!(spelling), id), "{spelling}");
         }
         assert!(!focus_point_matches(&Json::Null, id));
@@ -36,7 +49,13 @@ mod regression_tests {
             json!({"id": "tie", "observed_at": "2026-10-15T12:00:00.500000Z"}),
         ];
         sort_latest_signals(&mut signals);
-        assert_eq!(signals.iter().map(|v| v["id"].as_str().unwrap()).collect::<Vec<_>>(), ["newer", "tie", "older"]);
+        assert_eq!(
+            signals
+                .iter()
+                .map(|v| v["id"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            ["newer", "tie", "older"]
+        );
     }
 }
 
