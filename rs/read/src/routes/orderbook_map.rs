@@ -12,7 +12,7 @@ use chrono::{DateTime, NaiveDate, Utc};
 #[path = "../market/map_decimal.rs"]
 pub mod map_decimal;
 use serde_json::json;
-use sqlx::{Row, postgres::PgRow};
+use sqlx::{Connection, Row, postgres::PgRow};
 use uuid::Uuid;
 
 use super::{
@@ -289,14 +289,11 @@ async fn aggregate(State(state): State<AppState>, RawQuery(raw): RawQuery) -> Ap
     let owned = state.clone();
     let result = run_admitted(&state, move |connection| {
         Box::pin(async move {
-            aggregates(
-                connection,
-                &owned,
-                now,
-                &filters,
-                "/api/orderbook/aggregated",
-            )
-            .await
+            let path = "/api/orderbook/aggregated";
+            let mut tx = map_transaction(connection, path).await?;
+            let result = aggregates(&mut tx, &owned, now, &filters, path).await?;
+            tx.commit().await.map_err(|e| query_error(path, &e))?;
+            Ok(result)
         })
     })
     .await?;
@@ -309,6 +306,7 @@ async fn counts(State(state): State<AppState>, RawQuery(raw): RawQuery) -> ApiRe
     let result = run_admitted(&state, move |connection| {
         Box::pin(async move {
             let path = "/api/orderbook/product-counts";
+            let mut tx = map_transaction(connection, path).await?;
             let sql = order_query_sql(include_str!("../../sql/orderbook/counts.sql"));
             let rows = bind_order_query(
                 &sql,
@@ -318,9 +316,10 @@ async fn counts(State(state): State<AppState>, RawQuery(raw): RawQuery) -> ApiRe
                 &filters.shared(),
             )
             .map_err(|error| query_error(path, &error))?
-            .fetch_all(connection)
+            .fetch_all(&mut *tx)
             .await
             .map_err(|error| query_error(path, &error))?;
+            tx.commit().await.map_err(|e| query_error(path, &e))?;
             let values: Vec<_> = rows
                 .iter()
                 .map(|row| {
@@ -361,7 +360,8 @@ async fn map_response(state: AppState, compact: bool) -> ApiResult {
     let result = run_admitted(&state, move |connection| {
         Box::pin(async move {
             let path = "/api/orderbook/map-summary";
-            let groups = aggregates(connection, &owned, now, &Filters::default(), path).await?;
+            let mut tx = map_transaction(connection, path).await?;
+            let groups = aggregates(&mut tx, &owned, now, &Filters::default(), path).await?;
             let (markets, demo_groups) = if compact {
                 match compact_groups(&groups, now.date_naive()) {
                     Ok(groups) => groups,
@@ -370,7 +370,8 @@ async fn map_response(state: AppState, compact: bool) -> ApiResult {
             } else {
                 (Vec::new(), Vec::new())
             };
-            let asks = recent(connection, &owned, now, path).await?;
+            let asks = recent(&mut tx, &owned, now, path).await?;
+            tx.commit().await.map_err(|e| query_error(path, &e))?;
             Ok(axum::Json(if compact {
                 json!({"markets":markets,"demo_groups":demo_groups,"recent_asks":asks})
             } else {
@@ -542,6 +543,7 @@ async fn distinct(state: AppState, field: &'static str) -> ApiResult {
         Box::pin(async move {
             let sql = order_query_sql(include_str!("../../sql/orderbook/distinct.sql"));
             let path = format!("/api/orderbook/{field}");
+            let mut tx = map_transaction(connection, &path).await?;
             let rows = bind_order_query(
                 &sql,
                 &owned.policy,
@@ -551,9 +553,10 @@ async fn distinct(state: AppState, field: &'static str) -> ApiResult {
             )
             .map_err(|error| query_error(&path, &error))?
             .bind(field)
-            .fetch_all(connection)
+            .fetch_all(&mut *tx)
             .await
             .map_err(|error| query_error(&path, &error))?;
+            tx.commit().await.map_err(|e| query_error(&path, &e))?;
             let mut values: Vec<String> = rows
                 .iter()
                 .map(|row| text(row, "value"))
@@ -566,4 +569,21 @@ async fn distinct(state: AppState, field: &'static str) -> ApiResult {
     })
     .await?;
     Ok(axum::Json(result).into_response())
+}
+
+/// Keep expensive admission-expression JIT compilation out of bounded reads.
+/// The setting ends with this transaction and cannot leak through the pool.
+async fn map_transaction<'a>(
+    connection: &'a mut sqlx::PgConnection,
+    path: &str,
+) -> Result<sqlx::Transaction<'a, sqlx::Postgres>, ApiError> {
+    let mut tx = connection
+        .begin()
+        .await
+        .map_err(|e| query_error(path, &e))?;
+    sqlx::query("SET LOCAL jit = off")
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| query_error(path, &e))?;
+    Ok(tx)
 }

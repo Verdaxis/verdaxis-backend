@@ -72,6 +72,48 @@ Logs: ignored `work/rust-phase1/task13-*.log`.
   attested loader, mixed runner and checkpoint notes). No running child or
   container remains from these checks; `docker ps` was empty at final inspection.
 
+## Timeout investigation and first repair
+
+Sequential requests on the same pinned disposable amd64 PostgreSQL isolate the
+fault from Caddy and admission concurrency. Initial direct Rust/Caddy/Python
+seconds: list 18.144/17.169/4.506; bids 16.418/16.697/3.382;
+aggregate 32.859/31.631/0.861; regions 33.082/30.365/0.855.
+Rust map requests returned 503 + Retry-After after the 30-second database limit;
+list requests returned 200 after the integration client's ten-second deadline.
+This is not evidence of pool saturation: requests were sequential and direct
+Rust reproduced the proxied result. No limit was increased in application or
+integration tests. Diagnostic clients alone waited up to 65 seconds to observe
+completion. Logs: `task13-diagnostic.log`, `task13-explain-run.log`.
+
+`ANALYZE` did not repair the regression (`task13-analyzed.log`). Disposable-only
+`jit=off` reduced aggregate to 1.557 seconds, regions to 1.117, fuel types to
+1.223, and absent-region aggregate to 0.038. Lists still took 15–17 seconds
+(`task13-jit-off.log`). Thus emulation may amplify cost, but it is not a sufficient
+explanation: Python on the same database is much faster, and planner changes
+remove map timeouts without changing hardware or query semantics.
+
+Fresh, not-yet-analyzed corpus statistics can keep map plans below the JIT cost
+threshold. A fresh-corpus probe alone therefore passed before the repair.
+After ANALYZE, the same ten-second regression failed for all repeated map reads
+without auto_explain/logging enabled (`task13-latency-analyzed-red.log`).
+Transaction-local JIT-off in map/count/distinct handlers then passed the same
+analyzed-corpus reads in 0.035–1.543 seconds while both list reads still failed
+(`task13-map-green-list-red.log`). This also fixes the Busan map-probe timeout.
+No shared eligibility predicate or SQL was changed. The setting rolls back or
+commits with the admitted transaction; it cannot leak through the pool.
+
+The map contract target now runs the ten-second latency probe. Final populated
+map target: ten timing checks 0.495–1.370 seconds, nine corpus cases matched,
+97 edge comparisons passed (`task13-map-final.log`). Strict clippy passed.
+
+List diagnosis remains open. PostgreSQL duration logs attribute about 7 seconds
+to the list query and 7–9 seconds to the benchmark query. The actual list plan
+sorts 10,045 eligible rows before LIMIT 50; benchmark materialization retains
+10,047 candidates and returns 10,000 matching rows. JIT is already off in both.
+No list optimization has been claimed or committed. Full actual plans are in
+ignored `work/rust-phase1/task13-plans.json`. Resume with this query-cost issue,
+not fixture rot or OpenAPI. All diagnostic containers were removed.
+
 ## Remaining work / resume point
 
 1. Resume with the incomplete OpenAPI gate and method/slash differential cases.
