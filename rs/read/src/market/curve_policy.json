@@ -1,6 +1,13 @@
 {
-  "source_sha": "a127672ee4c82fafbb4c633eb84f66bbdc676e75",
-  "market_product_enum": ["UCOME_B100", "BIO_LNG", "BIO_METHANOL", "E_METHANOL", "BIO_ETHANOL", "SYNTHETIC_ETHANOL"],
+  "source_sha": "9880b7144a38d188b0ba8583d7479a6c5dd6eb67",
+  "market_product_enum": [
+    "UCOME_B100",
+    "BIO_LNG",
+    "BIO_METHANOL",
+    "E_METHANOL",
+    "BIO_ETHANOL",
+    "SYNTHETIC_ETHANOL"
+  ],
   "default_focus_product": "BIO_METHANOL",
   "default_focus_point": "73835e92-820e-584b-8280-bb61c63aa28e",
   "seed_quotes": [

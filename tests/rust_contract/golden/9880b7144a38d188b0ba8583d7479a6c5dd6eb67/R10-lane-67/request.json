@@ -1,0 +1,8 @@
+{
+  "method": "GET",
+  "path": "/api/curves/forward/slice",
+  "query": "market_product=BIO_ETHANOL&delivery_point_id=633c0593-f9b9-52ad-abe5-a0285f6888d3&availability_window=2026-11",
+  "headers": {
+    "x-request-id": "00000000-0000-4000-8000-000000000001"
+  }
+}
