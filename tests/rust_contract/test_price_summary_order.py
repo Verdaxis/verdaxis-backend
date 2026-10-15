@@ -1,3 +1,5 @@
+import json
+
 import pytest
 from scripts.rust_contract.compare import capture, recording_differences
 
@@ -44,4 +46,43 @@ def test_surrounding_bytes_stay_exact():
     assert recording_differences(
         [entry(A + b"," + B)],
         [entry(B + b"," + A, suffix=b', "generated_at":"fixed"}')],
+    )
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"request_path": "/api/prices/reference"},
+        {"json_path": "/body/prices"},
+        {"rule": "all-arrays"},
+    ],
+)
+def test_widened_rule_configuration_refused(tmp_path, change):
+    from scripts.rust_contract.compare import (
+        APPROVED_PRICE_SUMMARY_RULES,
+        ContractError,
+        compare_price_summary_multiset,
+    )
+
+    path = tmp_path / "rules.json"
+    path.write_text(json.dumps([{**APPROVED_PRICE_SUMMARY_RULES[0], **change}]))
+    with pytest.raises(ContractError):
+        compare_price_summary_multiset(
+            entry(A)["exchange"],
+            entry(A)["exchange"],
+            request_path="/api/prices",
+            rules_path=path,
+        )
+
+
+def test_recorder_uses_same_summary_rule():
+    from scripts.rust_contract.record import differences
+
+    assert not differences([entry(A + b"," + B)], [entry(B + b"," + A)])
+
+
+def test_another_array_in_price_body_is_not_relaxed():
+    assert recording_differences(
+        [entry(A, suffix=b',"other":[1,2]}')],
+        [entry(A, suffix=b',"other":[2,1]}')],
     )
