@@ -26,6 +26,10 @@ def vectors():
     ]:
         request = VoyagePlanRequest.model_validate({**base.model_dump(mode="json"), **changes})
         candidates.append((label, request, {}))
+    for exponent in (-1000027, -2147483648, -1999999999999999997):
+        raw = base.model_dump(mode="json")
+        raw["vessel"]["sea_consumption_mt_per_day"] = f"1e{exponent}"
+        candidates.append((f"underflow-{exponent}", VoyagePlanRequest.model_validate(raw), {}))
     results = []
     for label, request, prices in candidates:
         item = {"name": label, "today": "2026-10-14", "request": request.model_dump(mode="json"),

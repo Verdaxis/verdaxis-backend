@@ -426,6 +426,335 @@
     }
   },
   {
+    "name": "subnormal-decimal",
+    "tool": "plan_voyage_fuel",
+    "arguments": {
+      "request": {
+        "vessel": {
+          "speed_knots": "14",
+          "sea_consumption_mt_per_day": "1e-1000027",
+          "compatible_fuels": [
+            "VLSFO",
+            "BIO_METHANOL"
+          ]
+        },
+        "legs": [
+          {
+            "from_port": "Singapore",
+            "to_port": "Rotterdam"
+          }
+        ],
+        "start_date": "2026-10-15",
+        "assumptions": {
+          "vlsfo_price_usd_per_mt": {
+            "Singapore": "600"
+          },
+          "eua_price_eur_per_tco2": "80",
+          "fueleu_pool_price_eur_per_tco2e": "100",
+          "usd_per_eur": "1.1"
+        }
+      }
+    },
+    "normalized": {
+      "request": {
+        "vessel": {
+          "name": null,
+          "imo_number": null,
+          "speed_knots": "14",
+          "sea_consumption_mt_per_day": "1E-1000027",
+          "berth_consumption_mt_per_day": "0",
+          "compatible_fuels": [
+            "VLSFO",
+            "BIO_METHANOL"
+          ]
+        },
+        "legs": [
+          {
+            "from_port": "Singapore",
+            "to_port": "Rotterdam",
+            "route": "DEFAULT",
+            "distance_nm": null,
+            "berth_days_at_destination": "0"
+          }
+        ],
+        "start_date": "2026-10-15",
+        "assumptions": {
+          "vlsfo_price_usd_per_mt": {
+            "Singapore": "600"
+          },
+          "eua_price_eur_per_tco2": "80",
+          "fueleu_pool_price_eur_per_tco2e": "100",
+          "usd_per_eur": "1.1",
+          "ghg_intensity_gco2e_per_mj": {},
+          "reporting_year": null
+        }
+      }
+    }
+  },
+  {
+    "name": "wide-decimal-exponent",
+    "tool": "plan_voyage_fuel",
+    "arguments": {
+      "request": {
+        "vessel": {
+          "speed_knots": "14",
+          "sea_consumption_mt_per_day": "1e-2147483648",
+          "compatible_fuels": [
+            "VLSFO",
+            "BIO_METHANOL"
+          ]
+        },
+        "legs": [
+          {
+            "from_port": "Singapore",
+            "to_port": "Rotterdam"
+          }
+        ],
+        "start_date": "2026-10-15",
+        "assumptions": {
+          "vlsfo_price_usd_per_mt": {
+            "Singapore": "600"
+          },
+          "eua_price_eur_per_tco2": "80",
+          "fueleu_pool_price_eur_per_tco2e": "100",
+          "usd_per_eur": "1.1"
+        }
+      }
+    },
+    "normalized": {
+      "request": {
+        "vessel": {
+          "name": null,
+          "imo_number": null,
+          "speed_knots": "14",
+          "sea_consumption_mt_per_day": "1E-2147483648",
+          "berth_consumption_mt_per_day": "0",
+          "compatible_fuels": [
+            "VLSFO",
+            "BIO_METHANOL"
+          ]
+        },
+        "legs": [
+          {
+            "from_port": "Singapore",
+            "to_port": "Rotterdam",
+            "route": "DEFAULT",
+            "distance_nm": null,
+            "berth_days_at_destination": "0"
+          }
+        ],
+        "start_date": "2026-10-15",
+        "assumptions": {
+          "vlsfo_price_usd_per_mt": {
+            "Singapore": "600"
+          },
+          "eua_price_eur_per_tco2": "80",
+          "fueleu_pool_price_eur_per_tco2e": "100",
+          "usd_per_eur": "1.1",
+          "ghg_intensity_gco2e_per_mj": {},
+          "reporting_year": null
+        }
+      }
+    }
+  },
+  {
+    "name": "minimum-decimal-exponent",
+    "tool": "plan_voyage_fuel",
+    "arguments": {
+      "request": {
+        "vessel": {
+          "speed_knots": "14",
+          "sea_consumption_mt_per_day": "1e-1999999999999999997",
+          "compatible_fuels": [
+            "VLSFO",
+            "BIO_METHANOL"
+          ]
+        },
+        "legs": [
+          {
+            "from_port": "Singapore",
+            "to_port": "Rotterdam"
+          }
+        ],
+        "start_date": "2026-10-15",
+        "assumptions": {
+          "vlsfo_price_usd_per_mt": {
+            "Singapore": "600"
+          },
+          "eua_price_eur_per_tco2": "80",
+          "fueleu_pool_price_eur_per_tco2e": "100",
+          "usd_per_eur": "1.1"
+        }
+      }
+    },
+    "normalized": {
+      "request": {
+        "vessel": {
+          "name": null,
+          "imo_number": null,
+          "speed_knots": "14",
+          "sea_consumption_mt_per_day": "1E-1999999999999999997",
+          "berth_consumption_mt_per_day": "0",
+          "compatible_fuels": [
+            "VLSFO",
+            "BIO_METHANOL"
+          ]
+        },
+        "legs": [
+          {
+            "from_port": "Singapore",
+            "to_port": "Rotterdam",
+            "route": "DEFAULT",
+            "distance_nm": null,
+            "berth_days_at_destination": "0"
+          }
+        ],
+        "start_date": "2026-10-15",
+        "assumptions": {
+          "vlsfo_price_usd_per_mt": {
+            "Singapore": "600"
+          },
+          "eua_price_eur_per_tco2": "80",
+          "fueleu_pool_price_eur_per_tco2e": "100",
+          "usd_per_eur": "1.1",
+          "ghg_intensity_gco2e_per_mj": {},
+          "reporting_year": null
+        }
+      }
+    }
+  },
+  {
+    "name": "below-decimal-domain",
+    "tool": "plan_voyage_fuel",
+    "arguments": {
+      "request": {
+        "vessel": {
+          "speed_knots": "14",
+          "sea_consumption_mt_per_day": "1e-1999999999999999998",
+          "compatible_fuels": [
+            "VLSFO",
+            "BIO_METHANOL"
+          ]
+        },
+        "legs": [
+          {
+            "from_port": "Singapore",
+            "to_port": "Rotterdam"
+          }
+        ],
+        "start_date": "2026-10-15",
+        "assumptions": {
+          "vlsfo_price_usd_per_mt": {
+            "Singapore": "600"
+          },
+          "eua_price_eur_per_tco2": "80",
+          "fueleu_pool_price_eur_per_tco2e": "100",
+          "usd_per_eur": "1.1"
+        }
+      }
+    },
+    "error": "1 validation error for plan_voyage_fuelArguments\nrequest.vessel.sea_consumption_mt_per_day\n  Input should be a valid decimal [type=decimal_parsing, input_value='1e-1999999999999999998', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.13/v/decimal_parsing"
+  },
+  {
+    "name": "above-decimal-domain",
+    "tool": "plan_voyage_fuel",
+    "arguments": {
+      "request": {
+        "vessel": {
+          "speed_knots": "1e1000000000000000000",
+          "sea_consumption_mt_per_day": "20",
+          "compatible_fuels": [
+            "VLSFO",
+            "BIO_METHANOL"
+          ]
+        },
+        "legs": [
+          {
+            "from_port": "Singapore",
+            "to_port": "Rotterdam"
+          }
+        ],
+        "start_date": "2026-10-15",
+        "assumptions": {
+          "vlsfo_price_usd_per_mt": {
+            "Singapore": "600"
+          },
+          "eua_price_eur_per_tco2": "80",
+          "fueleu_pool_price_eur_per_tco2e": "100",
+          "usd_per_eur": "1.1"
+        }
+      }
+    },
+    "error": "1 validation error for plan_voyage_fuelArguments\nrequest.vessel.speed_knots\n  Input should be a valid decimal [type=decimal_parsing, input_value='1e1000000000000000000', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.13/v/decimal_parsing"
+  },
+  {
+    "name": "maximum-zero-exponent",
+    "tool": "plan_voyage_fuel",
+    "arguments": {
+      "request": {
+        "vessel": {
+          "speed_knots": "14",
+          "sea_consumption_mt_per_day": "20",
+          "compatible_fuels": [
+            "VLSFO",
+            "BIO_METHANOL"
+          ],
+          "berth_consumption_mt_per_day": "0e999999999999999999"
+        },
+        "legs": [
+          {
+            "from_port": "Singapore",
+            "to_port": "Rotterdam"
+          }
+        ],
+        "start_date": "2026-10-15",
+        "assumptions": {
+          "vlsfo_price_usd_per_mt": {
+            "Singapore": "600"
+          },
+          "eua_price_eur_per_tco2": "80",
+          "fueleu_pool_price_eur_per_tco2e": "100",
+          "usd_per_eur": "1.1"
+        }
+      }
+    },
+    "normalized": {
+      "request": {
+        "vessel": {
+          "name": null,
+          "imo_number": null,
+          "speed_knots": "14",
+          "sea_consumption_mt_per_day": "20",
+          "berth_consumption_mt_per_day": "0E+999999999999999999",
+          "compatible_fuels": [
+            "VLSFO",
+            "BIO_METHANOL"
+          ]
+        },
+        "legs": [
+          {
+            "from_port": "Singapore",
+            "to_port": "Rotterdam",
+            "route": "DEFAULT",
+            "distance_nm": null,
+            "berth_days_at_destination": "0"
+          }
+        ],
+        "start_date": "2026-10-15",
+        "assumptions": {
+          "vlsfo_price_usd_per_mt": {
+            "Singapore": "600"
+          },
+          "eua_price_eur_per_tco2": "80",
+          "fueleu_pool_price_eur_per_tco2e": "100",
+          "usd_per_eur": "1.1",
+          "ghg_intensity_gco2e_per_mj": {},
+          "reporting_year": null
+        }
+      }
+    }
+  },
+  {
     "name": "duplicate-fuel",
     "tool": "plan_voyage_fuel",
     "arguments": {

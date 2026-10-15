@@ -1,7 +1,13 @@
 """Deterministic Python Decimal operation vectors for Task 11's arithmetic gate."""
 import json
 import random
-from decimal import ROUND_HALF_UP, Decimal, InvalidOperation, localcontext
+from decimal import (
+    ROUND_HALF_UP,
+    Decimal,
+    DecimalException,
+    InvalidOperation,
+    localcontext,
+)
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -22,6 +28,15 @@ def vectors():
             ("-2.675", "1"), ("1.000", "2.0"), ("1E-29", "3"),
             ("9999999999999999999999999.995", "1"),
             ("0E-100", "2"), ("-0.00", "-0.0"),
+            ("1e-1000027", "41000"), ("1e-2147483648", "41000"),
+            ("1e-1999999999999999997", "41000"),
+            ("5e-1000027", "1"), ("15e-1000027", "1"),
+            ("-5e-1000027", "1"), ("0e999999999999999999", "1"),
+            ("0e-1999999999999999997", "1"),
+            ("1.000000000000000000000000001", "1e-2147483648"),
+            ("-1.000000000000000000000000001", "1e-2147483648"),
+            ("1.0000000000000000000000000000000000000001", "-1"),
+            ("1.0000000000000000000000000000000000000001", "-1.0000000000000000000000000000000000000000"),
         ])
         for left, right in pairs:
             operations = {
@@ -33,7 +48,10 @@ def vectors():
             for operation, calculate in operations.items():
                 if operation == "divide" and right == 0:
                     continue
-                result = calculate()
+                try:
+                    result = calculate()
+                except DecimalException:
+                    continue
                 try:
                     money = str(result.quantize(Decimal(".01"), rounding=ROUND_HALF_UP))
                 except InvalidOperation:
