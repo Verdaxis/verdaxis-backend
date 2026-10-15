@@ -1,5 +1,91 @@
 # Phase 0 host-tool sign-off fixes — partial checkpoint
 
+## Current checkpoint 2 — authority primitives, report writes and flags
+
+**B1 remains open. B2 production authority remains open. No host use approved.**
+The production contract validator is deliberately not wired to execution. It
+cannot turn a mode field into permission. Do not regard passing input tests as
+proof of continuous isolation or trusted bootstrap evidence.
+
+New commits:
+
+- `c348be6c` / `a2a4cd41`: 37 initially failing B1 input-contract tests, then
+  strict contract fields/types, exact source/revision and production names/roles,
+  numeric loopback endpoint/OID/cluster validation, root-controlled no-follow
+  private file traversal, duplicate/nonfinite JSON refusal, and source-tree
+  digest primitives. These are prerequisites, not the complete authority chain.
+- `42938cdd` / `eeb30e2c`: 8 initially failing report-publication tests, then
+  exclusive publication from a fully written/fsynced private temporary file.
+  Serialization, write and file/directory fsync failures leave no report;
+  pre-existing or racing destinations are not overwritten or removed. A crash
+  during directory fsync remains uncertain: verify again to a new path, never
+  replay import. Parent directory must be owned and private.
+- `99ba8056` / `e632a3bd`: exact common target flag and no abbreviated arguments.
+  Interface red: 2 failed, 4 passed. Combined focused final: **51 passed**.
+
+Current exact CLI interfaces (the flag spelling is final; production formats
+are NOT final and execution remains synthetic-only):
+
+```sh
+venv/bin/python -m scripts.phase0.bootstrap \
+  --manifest <bootstrap.json> --target-environment-file <bootstrap-target.env> --apply
+venv/bin/python -m scripts.phase0.copy \
+  --manifest <copy.json> --source-environment-file <copy-source.env> \
+  --target-environment-file <copy-target.env> \
+  --source-sha <production-source-40hex> --target-sha <current-release-40hex> --apply
+venv/bin/python -m scripts.phase0.verify \
+  --manifest <verify.json> --source-environment-file <verify-source.env> \
+  --target-environment-file <verify-target.env> --report <new-private-report.json>
+```
+
+Use separate manifest and secret files for all three tools. Existing synthetic
+formats remain as described below. Bootstrap's old `--environment-file` is
+removed, not an alias. No production-format promise is made yet.
+
+Completed full checks at code commit `e632a3bd`:
+
+- PostgreSQL: **166 passed**, 62 warnings, no failures/skips, 575.70 seconds.
+  The runner completed, including its container/volume cleanup.
+- Unit suite: **2209 passed, 19 failed**, 514 warnings, 108.31 seconds. All
+  failures are the known macOS `test_deploy_health.py` cases.
+- Logs: `work/hosttools-{authority,publication,interface}-red.log`,
+  `work/hosttools-postgres-checkpoint2.log`, `work/hosttools-unit-checkpoint2.log`.
+- No test remains running. No packages, push, agents, skills or host connections.
+
+### Exact resume point after checkpoint 2
+
+Continue with **production execution authority integration tests**, not more
+standalone validation tests. The Decision problems section has now been read.
+
+1. Build a local synthetic production-named scratch fixture with distinct exact
+   app/migrator/backup credentials and production Settings. Test the complete
+   CLI chain with root-owned authority inside a disposable Linux boundary; do
+   not monkeypatch ownership or identity checks in the acceptance path.
+2. Define and test independently observed cluster/endpoint/OID evidence and a
+   continuous writer/target isolation boundary through bootstrap, import and
+   ACL acceptance. A root manifest digest, one session count or a cooperative
+   advisory lock alone is insufficient. No source ACL/settings changes.
+3. Wire exact installed/release bytes and the frozen source revision/catalog/
+   fingerprint to that authority. Validate actual host and root-owned installed
+   inputs, not only `validate_contract`. The current tree digest primitive does
+   not yet prove a clean commit or package/interpreter provenance.
+4. Add bootstrap receipt generation within the verified migration transaction,
+   publish only after commit, and bind copy/verify to those exact reference and
+   sequence baseline bytes. Do not recapture an arbitrary existing target.
+   The provisional `bootstrap_receipt_sha256` field in `host_authority` must be
+   made tool-specific: bootstrap cannot depend on its own future receipt.
+5. Integrate bootstrap/copy/verify production entry points only after these gates
+   pass; preserve every synthetic/refusal test. Add fresh-source/late sequence
+   writer, missing-input-file and explicitly read-only verifier tests. Strengthen
+   report parent traversal for production using root-controlled descriptors.
+6. Replace this provisional contract with final separate per-tool manifests and
+   secrets, update architecture, run both full suites, and commit. B1/B2 cannot
+   be signed off until this chain is proved. No push or live operation.
+
+---
+
+The sections below describe checkpoint 1 and are historical where superseded.
+
 ## Status: NOT ready for host use
 
 This checkpoint addresses the false-success verifier in B2 only. **B1 is not
