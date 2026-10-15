@@ -141,6 +141,9 @@ async def bootstrap_connection(connection, identity, config, *, apply=False):
         raise ValueError('Explicit bootstrap approval required')
     identity.validate()
     policy = load_policy()
+    if (Path(config.get_main_option('script_location')).resolve() != ROOT / 'alembic'
+            or config.get_main_option('version_locations')):
+        raise ValueError('Bootstrap requires the reviewed migration directory')
     if connection.in_transaction():
         raise ValueError('Bootstrap caller already has a transaction')
     async with connection.begin():
@@ -209,4 +212,7 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    # env.py must see the same dataclass type when this module runs with -m.
+    from scripts.phase0.bootstrap import main as bootstrap_main
+
+    bootstrap_main()

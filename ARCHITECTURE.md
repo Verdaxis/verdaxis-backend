@@ -132,6 +132,7 @@ app/
     rbac.py                     # require_role() factory — FastAPI dependency for role-based access
     market_support_scope.py     # Fail-closed method/path gate for context-bearing mutations
 
+scripts/phase0/bootstrap.py      # Synthetic-only empty bootstrap; checked connection owns one DDL transaction
 scripts/phase0/manifest.py       # Read-only catalog inspection and frozen source inventory comparison
 scripts/run_phase0_postgres_tests.sh # Owns pinned disposable PostgreSQL; no caller database URL
 deploy/phase0/                   # Explicit copy mapping and provisional eight-product union contract

@@ -1,8 +1,11 @@
 """The checked connection, not Settings or Config URLs, owns bootstrap DDL."""
 from __future__ import annotations
 
+import json
 import os
-from dataclasses import replace
+import subprocess
+import sys
+from dataclasses import asdict, replace
 from pathlib import Path
 from uuid import uuid4
 
@@ -107,7 +110,14 @@ async def test_bootstrap_uses_only_checked_connection(target, monkeypatch):
     assert connects == [1]
     assert cfg.attributes == {}
     assert cfg.get_main_option('sqlalchemy.url') == url('phase0_prod_test')
-    assert before == [await fingerprint(name) for name in ('phase0_staging_test', 'phase0_prod_test')]
+    after = [await fingerprint(name) for name in ('phase0_staging_test', 'phase0_prod_test')]
+    assert before == after
+    evidence = dict(identity=asdict(identity), engine_connections=len(connects),
+                    unrelated_hashes_before=before, unrelated_hashes_after=after,
+                    transaction='committed after schema verification')
+    (Path(os.environ['PHASE0_WORK']) / 'bootstrap-evidence.json').write_text(
+        json.dumps(evidence, indent=2) + '\n'
+    )
 
 
 @pytest.mark.asyncio
@@ -168,11 +178,118 @@ async def test_failure_rolls_back_all_ddl(target, monkeypatch, failure):
 
 
 @pytest.mark.asyncio
-async def test_nonempty_target_refused(target):
+@pytest.mark.parametrize('ddl', [
+    'CREATE TABLE unexpected (id integer)',
+    'CREATE SEQUENCE unexpected',
+    'CREATE VIEW unexpected AS SELECT 1 AS id',
+])
+async def test_nonempty_target_refused(target, ddl):
     from scripts.phase0.bootstrap import BootstrapIdentity, bootstrap_connection
     engine, values = target
     async with engine.begin() as connection:
-        await connection.execute(text('CREATE TABLE unexpected (id integer)'))
+        await connection.execute(text(ddl))
     async with engine.connect() as connection:
         with pytest.raises(ValueError, match='empty'):
             await bootstrap_connection(connection, BootstrapIdentity(**values), config(), apply=True)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('revision,approved,offline,match', [
+    (REVISION, False, False, 'approval'),
+    ('head', True, False, 'literal'),
+    (REVISION, True, True, 'Invalid bootstrap connection'),
+])
+async def test_direct_supplied_path_rejects_missing_approval_and_aliases(
+    target, revision, approved, offline, match
+):
+    from scripts.phase0.bootstrap import BootstrapIdentity
+    engine, values = target
+    async with engine.connect() as connection, connection.begin():
+        def upgrade(sync):
+            cfg = config()
+            cfg.attributes.update(connection=sync,
+                phase0_bootstrap_identity=BootstrapIdentity(**values),
+                phase0_bootstrap_approved=approved)
+            with pytest.raises(ValueError, match=match):
+                command.upgrade(cfg, revision, sql=offline)
+        await connection.run_sync(upgrade)
+        assert (await connection.execute(text("SELECT to_regclass('users')"))).scalar_one() is None
+
+
+@pytest.mark.asyncio
+async def test_bootstrap_lock_blocks_second_connection(target):
+    from scripts.phase0.bootstrap import (
+        BOOTSTRAP_LOCK,
+        BootstrapIdentity,
+        bootstrap_connection,
+    )
+    engine, values = target
+    async with engine.begin() as first:
+        await first.execute(text('SELECT pg_advisory_xact_lock(:key)'), {'key': BOOTSTRAP_LOCK})
+        async with engine.connect() as second:
+            with pytest.raises(ValueError, match='lock is busy'):
+                await bootstrap_connection(second, BootstrapIdentity(**values), config(), apply=True)
+
+
+@pytest.mark.asyncio
+async def test_connected_cluster_checked_against_independent_binding(target, monkeypatch):
+    from scripts.phase0.bootstrap import BootstrapIdentity, bootstrap_connection
+    engine, values = target
+    monkeypatch.setenv('PHASE0_CLUSTER_ID', '1')
+    values['cluster_system_identifier'] = '1'
+    async with engine.connect() as connection:
+        with pytest.raises(ValueError, match='connected cluster'):
+            await bootstrap_connection(connection, BootstrapIdentity(**values), config(), apply=True)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('apply', [False, True])
+async def test_cli_requires_apply_and_private_target_file(target, tmp_path, apply):
+    from scripts.phase0.bootstrap import BootstrapIdentity
+    engine, values = target
+    manifest = tmp_path / 'manifest.json'
+    manifest.write_text(json.dumps(dict(mode='synthetic', approved=True,
+        target_revision=REVISION, identity=asdict(BootstrapIdentity(**values)))))
+    manifest.chmod(0o600)
+    environment_file = tmp_path / 'target.env'
+    if apply:
+        environment_file.write_text('MIGRATOR_DATABASE_URL=' + url(values['database']))
+        environment_file.chmod(0o600)
+    result = subprocess.run([sys.executable, '-m', 'scripts.phase0.bootstrap',
+        '--manifest', str(manifest), '--environment-file', str(environment_file),
+        *(['--apply'] if apply else [])], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    assert ('Bootstrap applied' if apply else 'no connection opened') in result.stdout
+    async with engine.connect() as connection:
+        exists = (await connection.execute(text("SELECT to_regclass('users')"))).scalar_one()
+        assert (exists is not None) == apply
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('attribute,reset', [('INHERIT', 'NOINHERIT'), ('CREATEDB', 'NOCREATEDB')])
+async def test_role_properties_checked_on_ddl_connection(target, attribute, reset):
+    from scripts.phase0.bootstrap import BootstrapIdentity, bootstrap_connection
+    engine, values = target
+    admin = create_async_engine(url('postgres', 'postgres'), isolation_level='AUTOCOMMIT')
+    try:
+        async with admin.connect() as connection:
+            await connection.execute(text(f'ALTER ROLE phase0_owner {attribute}'))
+        async with engine.connect() as connection:
+            with pytest.raises(ValueError, match='role authority'):
+                await bootstrap_connection(connection, BootstrapIdentity(**values), config(), apply=True)
+    finally:
+        async with admin.connect() as connection:
+            await connection.execute(text(f'ALTER ROLE phase0_owner {reset}'))
+        await admin.dispose()
+
+
+@pytest.mark.asyncio
+async def test_ordinary_path_still_uses_settings_url(target):
+    engine, values = target
+    environment = dict(os.environ, DATABASE_URL=url(values['database']),
+                       MIGRATOR_DATABASE_URL=url(values['database']))
+    result = subprocess.run([sys.executable, '-m', 'alembic', 'upgrade', REVISION],
+        env=environment, capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    async with engine.connect() as connection:
+        assert (await connection.execute(text('SELECT version_num FROM alembic_version'))).scalar_one() == REVISION

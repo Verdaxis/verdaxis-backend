@@ -68,7 +68,7 @@ def do_run_migrations(connection: Connection) -> None:
 
 def configure_migrations(connection: Connection, *, bootstrap=False) -> None:
     context.configure(
-        connection=connection, 
+        connection=connection,
         target_metadata=target_metadata,
         include_object=include_object,
         compare_type=compare_type,
@@ -77,8 +77,12 @@ def configure_migrations(connection: Connection, *, bootstrap=False) -> None:
     )
 
     if bootstrap:
-        from scripts.phase0.bootstrap import refuse_autocommit
-        context.get_context().autocommit_block = refuse_autocommit
+        from scripts.phase0.bootstrap import load_policy, refuse_autocommit
+
+        migration_context = context.get_context()
+        if migration_context.opts.get("destination_rev") != load_policy()["target_revision"]:
+            raise ValueError("Bootstrap requires the approved literal revision")
+        migration_context.autocommit_block = refuse_autocommit
     with context.begin_transaction():
         context.run_migrations()
 
@@ -120,12 +124,9 @@ if supplied is not None:
     attest_bootstrap_connection(
         supplied, config.attributes.get("phase0_bootstrap_identity")
     )
-    from scripts.phase0.bootstrap import load_policy
 
     if config.attributes.get("phase0_bootstrap_approved") is not True:
         raise ValueError("Explicit bootstrap approval required")
-    if context.get_revision_argument() != load_policy()["target_revision"]:
-        raise ValueError("Bootstrap requires the approved literal revision")
     configure_migrations(supplied, bootstrap=True)
 else:
     config.set_main_option(
