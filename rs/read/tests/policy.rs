@@ -268,7 +268,8 @@ fn project_catalog_matches_the_captured_product_vector() {
     let projected = project_catalog(&policy, &rows).unwrap();
     assert_eq!(projected, vector("products_expected.json"));
     // The three decoy rows (alias name, unknown UUID, inactive) stay excluded.
-    assert_eq!(projected.as_array().unwrap().len(), 6);
+    // The populated corpus also deactivates one canonical product.
+    assert_eq!(projected.as_array().unwrap().len(), 5);
 }
 
 #[test]
@@ -278,7 +279,8 @@ fn project_catalog_matches_the_captured_delivery_point_vector() {
     let rows: Vec<Json> = serde_json::from_value(vector("points_rows.json")).unwrap();
     let projected = project_catalog(&policy, &rows).unwrap();
     assert_eq!(projected, vector("points_expected.json"));
-    assert_eq!(projected.as_array().unwrap().len(), 8);
+    // Santos is inactive in the populated corpus.
+    assert_eq!(projected.as_array().unwrap().len(), 7);
 }
 
 #[test]
