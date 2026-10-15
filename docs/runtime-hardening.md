@@ -341,6 +341,28 @@ ALTER ROLE verdaxis_migrator SET lock_timeout = '30s';
 ALTER ROLE verdaxis_migrator SET idle_in_transaction_session_timeout = '300s';
 ```
 
+Each canonical database session also runs in UTC. The target database default
+and the per-role override for the app, migrator and backup roles are set from a
+connection to `postgres`:
+
+```sql
+ALTER DATABASE <database> SET timezone TO 'UTC';
+ALTER ROLE <app_role> IN DATABASE <database> SET timezone TO 'UTC';
+ALTER ROLE <migrator_role> IN DATABASE <database> SET timezone TO 'UTC';
+ALTER ROLE <backup_role> IN DATABASE <database> SET timezone TO 'UTC';
+```
+
+`deploy/phase0/set_timezone.sql` is the executable artifact. The
+role-in-database value is the highest server-side priority, so it overrides both
+the database default and any role-wide setting. A connection option such as
+`PGOPTIONS` or a startup `timezone` parameter outranks it and is invisible to
+the server, so the operator and the tooling must inspect and reject unexplained
+connection options before trusting `SHOW TimeZone`. A default applies only when
+a session connects; recycle the API pools and every CLI process after the
+change. Session-sensitive day buckets then move from the former 16:00 UTC
+boundary to 00:00 UTC. Explicit `timezone('UTC', …)` buckets, stored
+`timestamptz` instants and the Singapore certificate-date rules do not change.
+
 The idempotent executable artifacts are
 `deploy/postgres/bootstrap_roles.sql` and `deploy/postgres/validate_roles.sql`.
 They provision app, migrator, and read-only backup roles; transfer public
