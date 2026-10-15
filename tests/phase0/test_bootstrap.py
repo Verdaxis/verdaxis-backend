@@ -19,7 +19,7 @@ from alembic import command
 from scripts.phase0.manifest import digest, inspect_catalog
 
 ROOT = Path(__file__).resolve().parents[2]
-REVISION = 'kycd_20261015_staging'
+REVISION = 'p0_20261016_union'
 
 
 def url(database, role='phase0_owner'):
