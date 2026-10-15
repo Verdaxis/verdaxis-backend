@@ -83,4 +83,52 @@ and DEMO/REAL separation assertions beyond comparator equality. Review Decimal
 context limits before accepting historical numeric inputs. Do not mark the
 assertion transfer complete based on the Python suite alone.
 
+## Continuation — 16 October
+
+The sections above are historical checkpoint evidence, not the current result.
+
+- Authorized deviation: `runtime/http.rs` now has an internal response-extension
+  marker for the outer Python ServerErrorMiddleware response. Only marked
+  unhandled responses omit request-id and CORS decoration; handled 500/422/429
+  responses retain their prior headers. Tests cover both paths with an Origin.
+  The original 28/28 cases now match (`task9-header-green.log`).
+- `prices_query.rs` validates all declared typed parameters before handler filter
+  validation, collecting errors in Python declaration order. Strings retain
+  last-value semantics and unknown keys remain ignored. `prices_date.rs` handles
+  calendar/date-time, midnight, timezone and Unix-timestamp date forms, with
+  Python error envelopes. UUID short-form errors need Python's older wording.
+- Evidence assertions now check arithmetic mean (not VWAP), exact hour/week
+  cutoff inclusion, beyond-end totals, short IDs and party/point privacy,
+  REAL-only reference and DEMO-only tape. The 11 probes run again after product
+  and delivery-point deactivation; immutable results still match.
+- Numeric review: current trade guards require positive quantity <=100000 and
+  price <=1000000 with bounded scale. The fixture exercises unequal quantities,
+  differing scales and half-even rounding. Current guards refuse zero-volume,
+  mixed/UNKNOWN and version-0 history. Do not disable guards to test those.
+  Historical zero-volume/extreme numeric/quarantine acceptance waits for 4b.
+- Task 13 explicitly owns method, HEAD and trailing-slash cases; skipped here
+  under the continuation instruction, not an unreported coverage omission.
+- A shell edit of the expanded cases did not persist. Earlier claims of 52
+  cases were incorrect: those logs show 28. The retained expansion is 40 cases,
+  added with the file tool; its first run exposed UUID short-form message drift.
+
+### Final continuation checks
+
+- Commit `a261d76`: header path and parameter validation.
+- Ordinary price contract: **40/40 matched**, plus **22/22 populated probes**
+  before/after catalog deactivation. Shared core: 17 rows compared; current
+  quarantine count zero. `task9-40-green.log` is the final contract evidence.
+- fmt and clippy passed; offline workspace **79 passed**; disposable PostgreSQL
+  **86 passed**. Its two intentionally filtered market matrix tests passed in
+  the dedicated runner at the earlier shared-core checkpoint.
+- Python contract meta-tests **42 passed**; price/export/tape tests **77 passed**.
+- Every requested check ran. No live access or push. Runner cleanup completed.
+- Final acceptance still waits for Task 4b's historical corpus/golden/ledger
+  gate. Task 13 owns method/HEAD/slash behavior. No threshold-count parity is
+  asserted for AD-01.
+
+Resume with Task 4b's populated price group, retaining these 40 cases and the
+current guard checks. Historical numeric values outside current guard bounds
+need explicit comparison before claiming that historical domain is accepted.
+
 Temporary logs are under `work/rust-phase1/task9-*.log` and are not committed.

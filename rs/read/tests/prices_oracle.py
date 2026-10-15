@@ -69,6 +69,28 @@ def compare_populated():
     actual=record(os.environ["RUST_CONTRACT_URL"],os.environ["DISPOSABLE_TEST_TOKEN"],cases)
     problems=differences(expected,actual)
     assert not problems, problems
+    bodies = [entry['exchange']['body'] for entry in actual]
+    summaries = [s for s in bodies[0]['summaries'] if s['product_id'] == str(product.id) and s['source_kind'] == 'CONFIRMED_TRADE']
+    assert len(summaries) == 1
+    summary = summaries[0]
+    assert summary['trade_count_24h'] == 3
+    assert summary['avg_price_24h'] == '15.00'  # arithmetic mean, not volume weighted
+    assert summary['last_price'] == '12.50'
+    assert summary['real_trade_count_24h'] == 3 and summary['demo_trade_count_24h'] == 0
+    tape = bodies[5]['items']
+    ids = {item['id'] for item in tape}
+    assert uid('week-equality').hex[:8] in ids
+    assert uid('week-outside').hex[:8] not in ids
+    assert bodies[6]['total'] == bodies[5]['total'] and not bodies[6]['items']
+    for item in tape:
+        assert item['product_id'] is None and item['delivery_point_id'] is None
+        assert item['delivery_point_name'] is None
+        assert not ({'buyer_id', 'seller_id', 'organization_id', 'initiator_org_id'} & item.keys())
+    for item in bodies[7]['items']:
+        assert item['delivery_point_id'] == str(point.id)
+        assert item['region'] == point.name and item['scope'] == 'DELIVERY_POINT'
+    assert all(item['demo_status'] == 'DEMO_ONLY' for item in bodies[10]['items'])
+    assert all(item['demo_status'] == 'REAL_ONLY' for item in bodies[2]['prices'])
     print(f"Task 9 populated probes matched: {len(cases)}; current guards refused UNKNOWN/mixed/version-0")
 
 async def compare_shared_relations():
@@ -96,6 +118,18 @@ async def compare_shared_relations():
         assert actual == expected
         print(f"Shared formal core compared: {len(actual)} rows; quarantine metadata: {len(rows)}")
 
+async def mutate_catalog(active):
+    async with seed_session() as session:
+        await session.execute(text("UPDATE products SET is_active=:active WHERE id=:id"), dict(active=active,id=product.id))
+        await session.execute(text("UPDATE delivery_points SET is_active=:active WHERE id=:id"), dict(active=active,id=point.id))
+        await session.commit()
+
 asyncio.run(seed())
 asyncio.run(compare_shared_relations())
 compare_populated()
+# Immutable evidence must survive current catalog deactivation after confirmation.
+asyncio.run(mutate_catalog(False))
+try:
+    compare_populated()
+finally:
+    asyncio.run(mutate_catalog(True))

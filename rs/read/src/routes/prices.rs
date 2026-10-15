@@ -77,7 +77,28 @@ pub(crate) fn integer(
     }
 }
 pub(crate) fn uuid(raw: &str, name: &str) -> Result<Option<Uuid>, ApiError> {
-    match QueryFields::parse(raw).validate(name, QueryKind::Uuid, false)? {
+    let result = QueryFields::parse(raw)
+        .validate(name, QueryKind::Uuid, false)
+        .map_err(|mut error| {
+            if let Some(value) = fields(raw).get(name) {
+                let simple = value.strip_prefix("urn:uuid:").unwrap_or(value);
+                let simple = simple
+                    .strip_prefix('{')
+                    .and_then(|v| v.strip_suffix('}'))
+                    .unwrap_or(simple);
+                if !simple.contains('-') && simple.len() != 32 {
+                    let cause = format!(
+                        "invalid length: expected length 32 for simple format, found {}",
+                        simple.len()
+                    );
+                    error.detail[0]["msg"] =
+                        json!(format!("Input should be a valid UUID, {cause}"));
+                    error.detail[0]["ctx"]["error"] = json!(cause);
+                }
+            }
+            error
+        })?;
+    match result {
         Some(QueryValue::Uuid(v)) => Ok(Some(v)),
         None => Ok(None),
         _ => Err(ApiError::internal()),
