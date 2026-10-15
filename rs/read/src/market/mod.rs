@@ -10,4 +10,5 @@ pub mod policy;
 pub mod provenance;
 pub mod terms;
 pub mod visibility;
+pub mod whitespace;
 pub mod windows;

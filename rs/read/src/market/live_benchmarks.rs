@@ -14,6 +14,7 @@ use super::terms::{QualificationInput, order_is_execution_qualified_at};
 use super::visibility::{
     OrderSurface, PublicOrderFilters, VisibilityClock, bind_order_query, order_query_sql,
 };
+use super::whitespace::is_python_whitespace;
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub struct LiveBenchmarkKey {
@@ -99,7 +100,9 @@ pub fn candidate_is_benchmark_qualified(
             .is_some_and(|value| !value.is_null())
         && ["specification_standard", "feedstock", "origin"]
             .iter()
-            .all(|name| text(name).is_some_and(|value| !value.trim().is_empty()))
+            .all(|name| {
+                text(name).is_some_and(|value| !value.trim_matches(is_python_whitespace).is_empty())
+            })
 }
 
 /// One batched SELECT on the caller's admitted transaction and captured clock.

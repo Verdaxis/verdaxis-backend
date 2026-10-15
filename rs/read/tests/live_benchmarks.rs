@@ -129,3 +129,92 @@ fn midpoint_rounding_is_half_even_with_two_decimal_places() {
         assert_eq!(result.to_string(), expected);
     }
 }
+
+#[test]
+fn python_control_whitespace_does_not_qualify_scalar_asks() {
+    let policy = policy();
+    let product = policy
+        .products
+        .iter()
+        .find(|p| p.qualification_profile == "scalar")
+        .unwrap();
+    let mut row = typed_row("fame_v1");
+    row["product_id"] = json!(product.id);
+    row["carbon_intensity_gco2_mj"] = json!("0.00");
+    row["origin"] = json!("valid origin");
+    row["certification_scheme"] = json!("  custom scheme  ");
+    assert!(candidate_is_benchmark_qualified(&policy, &row, &clock()));
+    for character in ['\u{001c}', '\u{001d}', '\u{001e}', '\u{001f}'] {
+        for field in [
+            "origin",
+            "specification_standard",
+            "feedstock",
+            "certification_scheme",
+        ] {
+            let mut invalid = row.clone();
+            invalid[field] = json!(character.to_string());
+            assert!(
+                !candidate_is_benchmark_qualified(&policy, &invalid, &clock()),
+                "{field}: {character:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn legal_cent_prices_round_weighted_half_cents() {
+    for (left, right, expected) in [
+        ("100.00", "100.01", "100.00"),
+        ("100.01", "100.02", "100.02"),
+    ] {
+        assert_eq!(
+            qualified_vwap(&[
+                (D::TEN, D::from_str(left).unwrap()),
+                (D::TEN, D::from_str(right).unwrap())
+            ])
+            .unwrap()
+            .to_string(),
+            expected
+        );
+    }
+    let rows = vec![(D::from(100_000), D::from(1_000_000)); 1000];
+    assert_eq!(qualified_vwap(&rows).unwrap().to_string(), "1000000.00");
+}
+
+#[test]
+fn whitespace_matches_python_unicode_inventory() {
+    let expected = [
+        9, 10, 11, 12, 13, 28, 29, 30, 31, 32, 133, 160, 5760, 8192, 8193, 8194, 8195, 8196, 8197,
+        8198, 8199, 8200, 8201, 8202, 8232, 8233, 8239, 8287, 12288,
+    ];
+    let actual: Vec<_> = (0..=0x10ffff)
+        .filter_map(char::from_u32)
+        .filter(|c| verdaxis_read::market::whitespace::is_python_whitespace(*c))
+        .map(u32::from)
+        .collect();
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn excluded_origin_row_changes_price_quantity_and_count() {
+    let policy = policy();
+    let product = policy
+        .products
+        .iter()
+        .find(|p| p.qualification_profile == "scalar")
+        .unwrap();
+    let mut row = typed_row("fame_v1");
+    row["product_id"] = json!(product.id);
+    row["carbon_intensity_gco2_mj"] = json!("0.00");
+    row["origin"] = json!("valid");
+    let mut invalid = row.clone();
+    invalid["origin"] = json!("\u{001c}");
+    let rows: Vec<_> = [(row, D::from(100)), (invalid, D::from(200))]
+        .into_iter()
+        .filter(|(row, _)| candidate_is_benchmark_qualified(&policy, row, &clock()))
+        .map(|(_, price)| (D::TEN, price))
+        .collect();
+    assert_eq!(qualified_vwap(&rows).unwrap().to_string(), "100.00");
+    assert_eq!(rows.iter().map(|(q, _)| *q).sum::<D>(), D::TEN);
+    assert_eq!(rows.len(), 1);
+}

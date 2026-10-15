@@ -15,6 +15,7 @@ use uuid::Uuid;
 use crate::{Json, MarketPolicy, ProductPolicy};
 
 use super::decimal::{ExactDecimal, canonical_decimal_text};
+use super::whitespace::is_python_whitespace;
 
 const ASK: &str = "ASK";
 const ORDERBOOK_MODE: &str = "ORDERBOOK";
@@ -40,7 +41,7 @@ pub struct QualificationInput<'a> {
 /// Trim and upper-case a declared certification scheme; blank becomes absent.
 pub fn normalize_certification_scheme(value: Option<&str>) -> Option<String> {
     let value = value?;
-    let normalized = value.trim().to_uppercase();
+    let normalized = value.trim_matches(is_python_whitespace).to_uppercase();
     if normalized.is_empty() {
         None
     } else {
