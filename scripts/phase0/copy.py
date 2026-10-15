@@ -299,26 +299,32 @@ async def set_sequences(source, target, manifest):
 
 
 async def probe_trade_guard(target):
-    count = (await target.execute(text('SELECT count(*) FROM trades'))).scalar_one()
-    if not count:
-        raise CopyRefused('Guard proof requires reviewed trade probe fixture')
     savepoint = await target.begin_nested()
     try:
-        await target.execute(text("""
-            INSERT INTO trades (id,buyer_id,seller_id,buyer_provenance,seller_provenance,
-                                initiated_by,quantity_mt,price_per_mt_usd,status,market_snapshot_version)
-            SELECT gen_random_uuid(),t.buyer_id,t.seller_id,b.provenance,s.provenance,
-                   t.initiated_by,t.quantity_mt,t.price_per_mt_usd,t.status,NULL
-            FROM trades t JOIN organizations b ON b.id=t.buyer_id
-                          JOIN organizations s ON s.id=t.seller_id
-            ORDER BY t.id LIMIT 1
-        """))
-    except Exception as error:
-        # This exact trigger signal, not an unrelated NOT NULL/FK failure, is proof.
-        if 'market snapshot version 1' not in str(error).lower():
-            raise ValueError(f'Restored trade guard probe failed: {error}') from None
-    else:
-        raise CopyRefused('Restored trade guard did not reject probe')
+        # Temporary UNKNOWN parties need no customer history or approval. Both
+        # parties and any unexpectedly accepted trade disappear on rollback.
+        parties = []
+        for party_type in ('FUEL_BUYER', 'FUEL_SUPPLIER'):
+            identity = (await target.execute(text("""
+                INSERT INTO organizations (name,type,provenance)
+                VALUES ('Phase 0 rollback-only guard probe',:type,'UNKNOWN')
+                RETURNING id
+            """), {'type': party_type})).scalar_one()
+            parties.append(identity)
+        try:
+            await target.execute(text("""
+                INSERT INTO trades (buyer_id,seller_id,initiator_org_id,
+                                    buyer_provenance,seller_provenance,initiated_by,
+                                    quantity_mt,price_per_mt_usd,status,market_snapshot_version)
+                VALUES (:buyer,:seller,:buyer,'UNKNOWN','UNKNOWN','BUYER',
+                        1,1,'PENDING_CONFIRMATION',NULL)
+            """), {'buyer': parties[0], 'seller': parties[1]})
+        except Exception as error:
+            # Only the exact restored trigger signal proves this guard ran.
+            if 'new trades require immutable market snapshot version 1' not in str(error).lower():
+                raise ValueError(f'Restored trade guard probe failed: {error}') from None
+        else:
+            raise CopyRefused('Restored trade guard did not reject probe')
     finally:
         await savepoint.rollback()
 
