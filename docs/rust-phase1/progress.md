@@ -463,3 +463,43 @@ All Cargo commands used local Rust 1.95 with a fresh
   the two endpoints stay comparable; every other header and byte is compared.
 - Only `/generated_at` fields were ever unstable; the fixed clock removes them.
   Nothing was normalized away to reach stability.
+
+## Task 4 — App seed fix: partial-fill remaining quantity
+
+- Date: 2026-10-15. Base: `900ed61`.
+- Root cause, with evidence. `app/seeds/market_seed.py` chose a
+  `PARTIALLY_FILLED` order's remaining quantity as
+  `round(quantity * uniform(0.2, 0.8) / 500) * 500`, then replaced a value
+  `<= 0` with `Decimal("500")`. For a 500 MT lot the rounded value is always 0,
+  so the replacement made `remaining == quantity`, which
+  `ck_orderbook_orders_lifecycle` forbids for `PARTIALLY_FILLED`
+  (`remaining_quantity_mt > 0 AND remaining_quantity_mt < quantity_mt`). A
+  1000 MT lot can reach the same state. Per-lot range check: only 500 and 1000
+  can produce a value outside `(0, quantity)`.
+- It is the seed's own data, not the harness. The formula is wrong in pure
+  arithmetic, independent of the interpreter, the fixed test clock, and the
+  database. It reproduced on Python 3.12 and 3.14. The CI unit job runs
+  `tests/unit` with SQLite and only inspects the seed source; the CI Postgres
+  job runs `tests/postgres/test_demo_market_seed.py`, which narrows `PRICING`
+  and shifts the RNG stream away from the offending draw. No test seeded the
+  full book under a constraint-enforcing PostgreSQL, so the bug was latent.
+- Fix, TDD: two failing unit tests in `tests/unit/test_market_seed.py`
+  (`test_partial_remaining_stays_strictly_inside_the_lot`,
+  `test_partial_remaining_uses_the_lot_grid_or_the_half_lot`) fail with
+  `ImportError`. Added `_partial_remaining(quantity)`, which falls back to half
+  the lot when the grid draw is not strictly inside, and used it in both the
+  BID and ASK branches. The draw count is unchanged, so the RNG stream and all
+  other seeded values are unchanged.
+- Checks: `tests/unit/test_market_seed.py` 22 passed (20 + 2); full
+  `tests/unit` 1921 passed with the same 19 pre-existing `test_deploy_health.py`
+  failures; the ordinary seed now completes on a disposable database
+  ("Market data seeded successfully.", 267 orders). Evidence:
+  `work/rust-phase1/seed-trial2.txt`, `work/rust-phase1/seed-trial.txt`.
+
+## Task 4 — Oracle moved to Python 3.12
+
+- The oracle now runs on `work/rust-phase1/venv312` (CPython 3.12.2), the
+  version production and CI use. `venv` points at it; the 3.14 environment was
+  removed. `requirements.txt -c constraints.txt` installed cleanly, and the
+  former 3.14 deprecation noise is gone (harness tests: 5 warnings, not 30).
+- The harness reads `venv/bin/python`, so no code changed for the switch.
