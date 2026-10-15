@@ -207,6 +207,10 @@ fn empty_slice_retains_null_prices_and_zero_quantities() {
 
 use verdaxis_read::{AppState, Config, MarketPolicy};
 fn state() -> AppState {
+    state_with_pool().0
+}
+
+fn state_with_pool() -> (AppState, sqlx::PgPool) {
     let config = Config {
         kyc_execution_gate_enabled: true,
         db_session_time_zone: "Asia/Singapore".into(),
@@ -231,7 +235,8 @@ fn state() -> AppState {
     };
     let policy: MarketPolicy =
         serde_json::from_str(include_str!("../../../deploy/rust/market-policy.json")).unwrap();
-    AppState::new(config, pools, policy).unwrap()
+    let pool = pools.read.clone();
+    (AppState::new(config, pools, policy).unwrap(), pool)
 }
 
 #[tokio::test]
@@ -288,4 +293,54 @@ async fn catalog_and_protocol_bypass_saturated_database_admission() {
     }
     drop(permit);
     assert_eq!(state.reads.available_permits(), 8);
+}
+
+#[tokio::test]
+async fn database_unavailability_is_sanitized_and_catalog_stays_available() {
+    use axum::{
+        body::{Body, to_bytes},
+        http::Request,
+    };
+    use tower::ServiceExt;
+    let (state, pool) = state_with_pool();
+    pool.close().await;
+    let app = verdaxis_read::mcp::mcp_router().with_state(state.clone());
+    let cases: serde_json::Value =
+        serde_json::from_str(include_str!("../../../tests/rust_contract/cases.json")).unwrap();
+    for id in ["M04-list-markets", "M05-slice-mixed", "M12-voyage-methanol"] {
+        let case = cases["groups"]["mcp"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|case| case["id"] == id)
+            .unwrap();
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/mcp")
+                    .header("host", "testserver")
+                    .header("accept", "application/json, text/event-stream")
+                    .header("content-type", "application/json")
+                    .body(Body::from(case["body"].as_str().unwrap().to_owned()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 200);
+        let bytes = to_bytes(response.into_body(), 100000).await.unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        if id == "M04-list-markets" {
+            assert_eq!(value["result"]["isError"], false);
+        } else {
+            assert_eq!(value["result"]["isError"], true);
+            assert!(
+                String::from_utf8_lossy(&bytes).contains("Market data is temporarily unavailable.")
+            );
+            assert!(!String::from_utf8_lossy(&bytes).contains("fixture_pw"));
+            assert!(!String::from_utf8_lossy(&bytes).contains("postgres"));
+        }
+        assert_eq!(state.reads.available_permits(), 8);
+    }
 }

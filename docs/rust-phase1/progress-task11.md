@@ -198,6 +198,43 @@ missing-envelope branch. Add adversarial body/version cases before expanding
 it. Full pure-engine caller-price lane checks and annual/rounding boundaries
 also remain. Resume with these acceptance gaps, not another transport rewrite.
 
+## Real SQL cancellation and 44-case checkpoint
+
+Commit `7417d2c4` expands the corpus to 44 cases. New cases cover numeric bounds,
+extra vessel fields, null vessel, empty legs, inclusive start bounds, invalid
+Cape routes, overlong voyages, 2035 targets and lowercase port normalization.
+The initial expanded gate failed on six validation messages (12 paths); those
+recorded diagnostics now match. This is additional coverage, not proof of the
+complete Pydantic input domain.
+
+`mcp_acceptance.py` runs after differential comparison on the attested disposable
+server. It recursively scans both text and structured successful outputs for
+private field names across all three tools. For each database tool it holds a
+real ACCESS EXCLUSIVE order-table lock, waits for eight blocked SQL statements,
+cancels their HTTP clients, verifies all eight statements remain active, checks
+that a ninth MCP database request is busy while catalog succeeds, releases the
+lock and verifies recovery. The first attempt raced cleanup between batches;
+the final probe waits for prior SQL to drain before the next batch. Both tool
+proofs pass in both KYC states. Closed-pool offline tests separately verify
+sanitized database-unavailable errors for both tools and catalog availability.
+
+- Fresh differential and saved-wire replay: **44/44 matched in both KYC states**.
+- Oracle recordings: two stable passes per state, under untracked evidence SHA
+  `7417d2c4` (full SHA directory under `work/rust-phase1/mcp-evidence/golden/`).
+- fmt/clippy passed; workspace **135 passed**; PostgreSQL **143 passed** (two
+  matrix tests filtered); Python contract **110 passed**; Python MCP/voyage
+  **90 passed**. All test runs finished. Logs: `task11-accept-*.txt`.
+
+**Next resume:** finish the general Pydantic validation adapter (wrong scalar
+and container types, absent nested fields, decimal errors, date coercion,
+unknown/duplicate fuels, all extra-field locations, aggregate error ordering
+and truncation). Add unexpected-error classification tests rather than treating
+all internal errors as database unavailable. Strengthen privacy with actual
+fixture identifier sentinels, and expand pure caller-price lane and rounding
+boundaries. The current 44-case gate is green, but these untested domains remain
+acceptance gaps; Task 11 is still not declared complete. No nondeterminism or
+comparator relaxation occurred. Single committed golden remains untouched.
+
 ## Remaining implementation and acceptance
 
 Task 11 is **not complete**. Implement the rmcp 3.5.1 adapter, all three tools,
