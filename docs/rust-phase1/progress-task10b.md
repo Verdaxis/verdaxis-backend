@@ -20,7 +20,7 @@ Base: `439399c`, lane `feat/rust-phase-1-lane-10b`. Local disposable services on
 
 ## Resume point
 
-The implementation is not accepted yet. Final ranked-query corpus and PostgreSQL reruns are in progress. Finish query-count proof and golden publication before claiming full acceptance.
+The implementation is not accepted yet. All listed command reruns passed. Finish measured query-count proof and expanded golden publication before claiming full acceptance.
 
 ## Acceptance repairs
 
@@ -29,7 +29,24 @@ The implementation is not accepted yet. Final ranked-query corpus and PostgreSQL
 - Signed-zero regression failed (`task10b-signed-zero-red.txt`), then passed after preserving the negative sign when cent rounding reaches zero.
 - Signal queries now rank obsolete observations in PostgreSQL. Complete grids use compact axes; sparse keys use exact tuple existence. A pure test rejects sparse cross-product expansion.
 - Query parsing ignores unknown names, including a caller-supplied `shape`. The route owns its projection type.
-- Latest offline workspace: **108 passed**, clippy passed. Final PostgreSQL/Python reruns and ranked-query HTTP comparison remain pending.
+- Final offline workspace: **108 passed**, clippy and fmt passed. PostgreSQL runner: **116 passed**, two matrix tests filtered for their dedicated runner. Python contract tests: **95 passed**. Targeted Python curve tests: **115 passed**. Ranked-query HTTP gate: **6/6 corpus cases and 112/112 probes matched** (`task10b-ranked-final.txt`). The oracle validates source-derived benchmark values and enum order as well as response parity.
+- Checks were repeated after the code checkpoint with the required full HEAD release SHA. No live service was contacted. Disposable runners removed their own containers and volumes.
+
+## Remaining acceptance limits
+
+- The six accepted golden cases were not replaced. Extra route cases run in the task-local oracle (112 probes), not `cases.json` or a new golden recording.
+- No measured SQL query-count test was added. Source has eight data statements for a table and nine for a slice/board, independent of cell count; this is source inspection, not a measured query-count proof.
+- Focus projections are bounded before serialization. The trade tail now ranks REAL first and limits each slice to eight rows in SQL; its final corpus rerun passed six cases plus 112 probes (`task10b-bounded-trades.txt`). Signal histories rank in SQL; selected focus stems are bounded in Rust.
+- Advisory KYC mode also passed **6/6 corpus cases and 112/112 probes** (`task10b-kyc-off.txt`).
+- The source-derived curve policy has oracle-SHA equality and Python value comparisons in the oracle test, but no separate digest manifest. The task does not change the integration-owned catalog export.
+- These limits mean Task 10b is **implemented but not fully accepted against every plan gate**. Do not mark query-count or expanded-golden acceptance complete. Resume with those tests; retain the exact comparator and privacy checks. Final code checks: fmt/clippy passed, workspace 108, PostgreSQL 116, Python contract 95, Python curves 115. Logs use `task10b-last-*`.
+
+## Commits
+
+- `42334cb1`: test-first midpoint and red corpus checkpoint.
+- `19512eab`: canonical and older-board implementation.
+- `70bc7f0a`: boundary fixtures, trusted ranking, sparse keys and signed-zero repair.
+- Final checkpoint: SQL trade bound and these verification notes. No push.
 
 ## Architecture integration note
 
