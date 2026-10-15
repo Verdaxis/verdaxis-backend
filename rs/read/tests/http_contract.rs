@@ -122,6 +122,7 @@ async fn rate_bursts_share_one_client_route_bucket() {
 async fn router_health_methods_and_empty_routes() {
     let config = verdaxis_read::Config {
         kyc_execution_gate_enabled: true,
+        db_session_time_zone: "UTC".into(),
         environment: "test".into(),
         release_sha: verdaxis_read::compiled_sha().into(),
         migration_revision: "kycg_20261014_staging".into(),
@@ -579,6 +580,7 @@ async fn cors_wraps_saturated_admission() {
     use verdaxis_read::runtime::http::middleware_with_state;
     let config = verdaxis_read::Config {
         kyc_execution_gate_enabled: true,
+        db_session_time_zone: "UTC".into(),
         environment: "test".into(),
         release_sha: verdaxis_read::compiled_sha().into(),
         migration_revision: "kycg_20261014_staging".into(),

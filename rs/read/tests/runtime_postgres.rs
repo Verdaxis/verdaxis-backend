@@ -5,6 +5,7 @@ use verdaxis_read::{Config, compiled_sha, connect, validate_config};
 fn config(variable: &str) -> Config {
     let config = Config {
         kyc_execution_gate_enabled: true,
+        db_session_time_zone: "UTC".into(),
         environment: "test".into(),
         release_sha: compiled_sha().into(),
         migration_revision: "kycg_20261014_staging".into(),
@@ -16,6 +17,185 @@ fn config(variable: &str) -> Config {
     };
     validate_config(&config).expect("numeric-loopback _test database required");
     config
+}
+
+#[tokio::test]
+async fn explicit_timezone_applies_to_every_connection_and_checks_database_default() {
+    let mut config = config("RUST_TEST_DATABASE_URL");
+    let owner =
+        sqlx::PgConnection::connect(&std::env::var("RUST_TEST_MIGRATOR_DATABASE_URL").unwrap())
+            .await
+            .unwrap();
+    use sqlx::Connection;
+    let mut owner = owner;
+    for zone in ["Asia/Singapore", "UTC"] {
+        sqlx::query(if zone == "UTC" {
+            "ALTER DATABASE verdaxis_rust_test SET TimeZone TO 'UTC'"
+        } else {
+            "ALTER DATABASE verdaxis_rust_test SET TimeZone TO 'Asia/Singapore'"
+        })
+        .execute(&mut owner)
+        .await
+        .unwrap();
+        config.db_session_time_zone = zone.into();
+        let pools = connect(&config).await.unwrap();
+        reference_boundaries(&mut owner, &config, &pools, zone).await;
+        let mut held = Vec::new();
+        for _ in 0..8 {
+            let mut connection = pools.read.acquire().await.unwrap();
+            let actual: String = sqlx::query_scalar("SHOW TimeZone")
+                .fetch_one(&mut *connection)
+                .await
+                .unwrap();
+            assert_eq!(actual, zone);
+            held.push(connection);
+        }
+        let health_zone: String = sqlx::query_scalar("SHOW TimeZone")
+            .fetch_one(&pools.health)
+            .await
+            .unwrap();
+        assert_eq!(health_zone, zone);
+        // Force an admitted query onto the remaining connection. Its error
+        // closes that connection; the replacement must run after_connect too.
+        let mut old = held.pop().unwrap();
+        let old_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+            .fetch_one(&mut *old)
+            .await
+            .unwrap();
+        drop(old);
+        let policy =
+            serde_json::from_str(include_str!("../../../deploy/rust/market-policy.json")).unwrap();
+        let state = verdaxis_read::AppState::new(config.clone(), pools.clone(), policy).unwrap();
+        let result: Result<(), verdaxis_read::ApiError> =
+            verdaxis_read::run_admitted(&state, |connection| {
+                Box::pin(async move {
+                    sqlx::query("SELECT 1 / 0")
+                        .execute(connection)
+                        .await
+                        .map_err(|_| verdaxis_read::ApiError::internal())?;
+                    Ok(())
+                })
+            })
+            .await;
+        assert!(result.is_err());
+        let mut replacement = pools.read.acquire().await.unwrap();
+        let new_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+            .fetch_one(&mut *replacement)
+            .await
+            .unwrap();
+        assert_ne!(old_pid, new_pid);
+        let actual: String = sqlx::query_scalar("SHOW TimeZone")
+            .fetch_one(&mut *replacement)
+            .await
+            .unwrap();
+        assert_eq!(actual, zone);
+        replacement.close().await.unwrap();
+        drop(held);
+        reference_boundaries(&mut owner, &config, &pools, zone).await;
+        pools.read.close().await;
+        pools.health.close().await;
+        config.db_session_time_zone = if zone == "UTC" {
+            "Asia/Singapore"
+        } else {
+            "UTC"
+        }
+        .into();
+        assert!(connect(&config).await.is_err());
+    }
+    sqlx::query("ALTER DATABASE verdaxis_rust_test RESET TimeZone")
+        .execute(&mut owner)
+        .await
+        .unwrap();
+}
+
+// The runtime fixture has no application schema. These immutable rows exercise
+// the real reference SQL and HTTP serializers without bypassing deployed guards.
+async fn reference_boundaries(
+    owner: &mut sqlx::PgConnection,
+    config: &Config,
+    pools: &verdaxis_read::runtime::db::Pools,
+    zone: &str,
+) {
+    use axum::{
+        body::{Body, to_bytes},
+        http::Request,
+    };
+    use tower::ServiceExt;
+    let policy: verdaxis_read::MarketPolicy =
+        serde_json::from_str(include_str!("../../../deploy/rust/market-policy.json")).unwrap();
+    let product = &policy.products[0];
+    let point = &policy.points[0];
+    sqlx::query("CREATE TABLE IF NOT EXISTS trades (id uuid, product_id uuid, product_name text, fuel_type text, fuel_grade text, market_product text, delivery_point_id uuid, delivery_point_name text, delivery_point_region text, availability_window text, market_snapshot_version integer, status text, confirmed_at timestamptz, buyer_provenance text, seller_provenance text, quantity_mt numeric, price_per_mt_usd numeric)").execute(&mut *owner).await.unwrap();
+    sqlx::query("GRANT SELECT ON trades TO rust_app")
+        .execute(&mut *owner)
+        .await
+        .unwrap();
+    sqlx::query("TRUNCATE trades")
+        .execute(&mut *owner)
+        .await
+        .unwrap();
+    for time in [
+        "2026-10-15T15:59:59.999999Z",
+        "2026-10-15T16:00:00Z",
+        "2026-10-15T16:00:00.000001Z",
+        "2026-10-15T23:59:59.999999Z",
+        "2026-10-16T00:00:00Z",
+        "2026-10-16T00:00:00.000001Z",
+    ] {
+        let time: chrono::DateTime<chrono::Utc> = time.parse().unwrap();
+        sqlx::query("INSERT INTO trades VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'SPOT',1,'CONFIRMED',$10,'REAL','REAL',1.00,2.00)")
+            .bind(uuid::Uuid::new_v4()).bind(product.id).bind(&product.name).bind(&product.fuel_type).bind(&product.fuel_grade).bind(&product.code).bind(point.id).bind(&point.name).bind(&point.region).bind(time).execute(&mut *owner).await.unwrap();
+    }
+    let state = verdaxis_read::AppState::new(config.clone(), pools.clone(), policy).unwrap();
+    let app =
+        verdaxis_read::runtime::http::router_with(verdaxis_read::routes::prices::routes(), state);
+    for (date, count) in [
+        ("2026-10-15", if zone == "UTC" { 4 } else { 1 }),
+        ("2026-10-16", if zone == "UTC" { 2 } else { 5 }),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!(
+                        "/api/prices/reference?date_from={date}&date_to={date}"
+                    ))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 200);
+        let body: serde_json::Value =
+            serde_json::from_slice(&to_bytes(response.into_body(), 10000).await.unwrap()).unwrap();
+        assert_eq!(body["prices"].as_array().unwrap().len(), 1);
+        let row = &body["prices"][0];
+        assert_eq!(row["date"], date);
+        assert_eq!(row["trade_count"], count);
+        assert_eq!(row["vwap_usd"], "2.00");
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!(
+                        "/api/prices/reference/export?from_date={date}&to_date={date}"
+                    ))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 200);
+        let csv = to_bytes(response.into_body(), 10000).await.unwrap();
+        assert_eq!(
+            csv.as_ref(),
+            verdaxis_read::routes::prices::reference_csv(std::slice::from_ref(row)).unwrap()
+        );
+    }
+    sqlx::query("DROP TABLE trades")
+        .execute(owner)
+        .await
+        .unwrap();
 }
 
 #[tokio::test]

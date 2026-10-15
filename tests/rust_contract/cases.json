@@ -419,7 +419,133 @@
         "method": "GET",
         "path": "/api/prices/reference/export",
         "query": "format=csv"
-      }
+      },
+      {
+        "id": "R06-empty-fuel",
+        "method": "GET",
+        "path": "/api/trade-tape",
+        "query": "fuel_type="
+      },
+      {
+        "id": "R06-empty-market",
+        "method": "GET",
+        "path": "/api/trade-tape",
+        "query": "market_product="
+      },
+      {
+        "id": "R06-region-name",
+        "method": "GET",
+        "path": "/api/trade-tape",
+        "query": "region=Singapore"
+      },
+      {
+        "id": "R06-region",
+        "method": "GET",
+        "path": "/api/trade-tape",
+        "query": "region=Asia"
+      },
+      {
+        "id": "R06-past-end",
+        "method": "GET",
+        "path": "/api/trade-tape",
+        "query": "skip=1000000"
+      },
+      {
+        "id": "R06-invalid-window",
+        "method": "GET",
+        "path": "/api/trade-tape",
+        "query": "availability_window=invalid"
+      },
+      {
+        "id": "R06-invalid-bool",
+        "method": "GET",
+        "path": "/api/trade-tape",
+        "query": "demo_only=invalid"
+      },
+      {
+        "id": "R06-point",
+        "method": "GET",
+        "path": "/api/trade-tape",
+        "query": "delivery_point_id=1379d36c-1ca9-55b7-9c0d-5235a0ba1f36"
+      },
+      {
+        "id": "R12-substring",
+        "method": "GET",
+        "path": "/api/prices",
+        "query": "fuel_type=anol&region=ASI"
+      },
+      {
+        "id": "R12-bad-hours",
+        "method": "GET",
+        "path": "/api/prices",
+        "query": "hours=0"
+      },
+      {
+        "id": "R12-last-key",
+        "method": "GET",
+        "path": "/api/prices",
+        "query": "hours=0&hours=24&unknown=x"
+      },
+      {
+        "id": "R12-window",
+        "method": "GET",
+        "path": "/api/prices",
+        "query": "availability_window=invalid"
+      },
+      {
+        "id": "R12-market",
+        "method": "GET",
+        "path": "/api/prices",
+        "query": "market_product=invalid"
+      },
+      {
+        "id": "R13-alias-conflict",
+        "method": "GET",
+        "path": "/api/prices/reference",
+        "query": "date_from=2026-01-01&from=2026-01-02"
+      },
+      {
+        "id": "R13-alias-match",
+        "method": "GET",
+        "path": "/api/prices/reference",
+        "query": "date_from=2026-01-01&from=2026-01-01"
+      },
+      {
+        "id": "R13-internal",
+        "method": "GET",
+        "path": "/api/prices/reference",
+        "query": "visibility=internal"
+      },
+      {
+        "id": "R13-invalid-visibility",
+        "method": "GET",
+        "path": "/api/prices/reference",
+        "query": "visibility=private"
+      },
+      {
+        "id": "R14-unused-format",
+        "method": "GET",
+        "path": "/api/prices/reference/export",
+        "query": "format=other"
+      },
+      {
+        "id": "R14-reversed",
+        "method": "GET",
+        "path": "/api/prices/reference/export",
+        "query": "from_date=2026-01-02&to_date=2026-01-01"
+      },
+      {"id":"T9-multiple-summary","method":"GET","path":"/api/prices","query":"product_id=bad&delivery_point_id=bad&hours=0&market_product=bad"},
+      {"id":"T9-multiple-reference","method":"GET","path":"/api/prices/reference","query":"product_id=bad&delivery_point_id=bad&date_from=x&date_to=x&from=x&to=x&visibility=x"},
+      {"id":"T9-multiple-export","method":"GET","path":"/api/prices/reference/export","query":"product_id=bad&delivery_point_id=bad&from_date=x&to_date=x"},
+      {"id":"T9-multiple-tape","method":"GET","path":"/api/trade-tape","query":"delivery_point_id=bad&demo_only=x&skip=-1&limit=0&availability_window=x"},
+      {"id":"T9-date-month","method":"GET","path":"/api/prices/reference","query":"date_from=2026-13-01"},
+      {"id":"T9-date-day","method":"GET","path":"/api/prices/reference","query":"date_from=2026-02-30"},
+      {"id":"T9-date-midnight","method":"GET","path":"/api/prices/reference","query":"date_from=2026-01-01T00:00:00%2B08:00"},
+      {"id":"T9-date-inexact","method":"GET","path":"/api/prices/reference","query":"date_from=2026-01-01T01:00:00Z"},
+      {"id":"T9-date-epoch","method":"GET","path":"/api/prices/reference","query":"date_from=86400"},
+      {"id":"T9-date-year-zero","method":"GET","path":"/api/prices/reference","query":"date_from=0000-01-01"},
+      {"id":"T9-date-separator","method":"GET","path":"/api/prices/reference","query":"date_from=2026/01/01"},
+      {"id":"T9-date-short","method":"GET","path":"/api/prices/reference","query":"date_from=2026-1-1"}
     ],
     "curves_legacy": [
       {

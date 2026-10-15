@@ -304,6 +304,7 @@ CREATE EXTENSION IF NOT EXISTS postgis;
                 "release_sha": self.sha,
                 "migration_revision": MIGRATION_REVISION,
                 "database_url": base_env["RUST_DATABASE_URL"],
+                "db_session_time_zone": ORACLE_TIMEZONE,
                 "bind": f"127.0.0.1:{rust_port}",
                 "pool_max": 9,
                 "python_budget": 52,

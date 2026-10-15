@@ -61,6 +61,17 @@ fn compose(routes: Router, app_state: Option<crate::AppState>) -> Router {
         .layer(middleware::from_fn(log_request))
 }
 
+/// Marks Python's outer ServerErrorMiddleware response, which bypasses CORS
+/// and request-id response decoration. Handled API errors do not use this mark.
+#[derive(Clone, Copy)]
+pub struct UnhandledServerError;
+
+pub fn unhandled_server_error() -> Response {
+    let mut response = (StatusCode::INTERNAL_SERVER_ERROR, "Internal Server Error").into_response();
+    response.extensions_mut().insert(UnhandledServerError);
+    response
+}
+
 async fn log_request(mut request: Request, next: Next) -> Response {
     let id = request_id(
         request
@@ -91,9 +102,15 @@ async fn log_request(mut request: Request, next: Next) -> Response {
         sqlstate = "",
         "http_request"
     );
-    response
-        .headers_mut()
-        .insert("x-request-id", id.parse().expect("validated request ID"));
+    if response
+        .extensions()
+        .get::<UnhandledServerError>()
+        .is_none()
+    {
+        response
+            .headers_mut()
+            .insert("x-request-id", id.parse().expect("validated request ID"));
+    }
     response
 }
 
@@ -148,6 +165,13 @@ async fn cors(request: Request, next: Next) -> Response {
     } else {
         next.run(request).await
     };
+    if response
+        .extensions()
+        .get::<UnhandledServerError>()
+        .is_some()
+    {
+        return response;
+    }
     response
         .headers_mut()
         .insert("access-control-allow-credentials", "true".parse().unwrap());
@@ -217,6 +241,17 @@ async fn dispatch_boundary(
         _ => 0,
     };
     if limit != 0 {
+        // FastAPI validates typed parameters before SlowAPI invokes the endpoint.
+        // Handler-level filter checks still happen after this one shared bucket.
+        use crate::routes::prices::query::{Surface, validate};
+        let surface = match path {
+            "/api/prices" => Surface::Summary,
+            "/api/prices/reference" => Surface::Reference,
+            _ => Surface::Export,
+        };
+        if let Err(error) = validate(request.uri().query().unwrap_or_default(), surface) {
+            return error.into_response();
+        }
         let peer = request
             .extensions()
             .get::<ConnectInfo<SocketAddr>>()

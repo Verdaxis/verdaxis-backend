@@ -168,6 +168,15 @@ pub fn validate_config(config: &Config) -> Result<(), String> {
     ) {
         return Err("unsupported runtime environment".into());
     }
+    // Require an explicit named zone, not an ambiguous offset or empty policy.
+    // The connection hook also verifies PostgreSQL's effective zone.
+    if config
+        .db_session_time_zone
+        .parse::<chrono_tz::Tz>()
+        .is_err()
+    {
+        return Err("DB_SESSION_TIME_ZONE must be an IANA time zone".into());
+    }
     verify_release(&config.release_sha)?;
     if !config.bind.ip().is_loopback() {
         return Err("HTTP bind must be loopback".into());

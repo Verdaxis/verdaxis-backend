@@ -82,6 +82,9 @@ pub struct Config {
     pub release_sha: String,
     pub migration_revision: String,
     pub database_url: String,
+    /// Required database session policy; never inherit SQLx's implicit UTC.
+    #[serde(alias = "DB_SESSION_TIME_ZONE")]
+    pub db_session_time_zone: String,
     pub bind: std::net::SocketAddr,
     pub pool_max: u32,
     pub python_budget: u32,
