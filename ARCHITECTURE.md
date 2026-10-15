@@ -137,6 +137,20 @@ products without changing quantity or price scale. Typed price query validation
 precedes the shared rate bucket. An opt-in response extension preserves Python's
 missing CORS/request-ID headers only for unhandled tape window errors.
 
+Task 10b adds separate canonical table/slice and older-board projections in
+`routes/curves_canonical{,_views}.rs`. Task-local path registration exposes
+`market/curve_projection`, `curve_cells`, `curve_unknown_metadata`, `signals`,
+`curve_keys`, and `benchmarks`; `curve_policy.json` contains source-derived
+board defaults and seed quotes. UNKNOWN orders use the shared current-order
+fragment only for counts. Economic book and depth tails aggregate over
+`eligible_orders` in PostgreSQL; depth selects REAL before ten levels per side.
+Table requests retain no raw order rows. A read transaction scopes `jit=off`
+to these admission-heavy queries. Signal histories and trades rank in SQL,
+with separate exact sparse-key selection. The disposable contract server's
+SQLx counter records statement/returned-row counts without query text.
+`curve_fixtures.py` supplies the same depth, trusted-evidence, subsecond and
+10,000-order cases for differential checks and later golden publication.
+
 ## File Map
 
 ```

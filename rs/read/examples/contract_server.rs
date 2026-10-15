@@ -23,6 +23,9 @@ use verdaxis_read::{AppState, Config, MarketPolicy, connect};
 #[path = "../tests/support/live_benchmarks_http.rs"]
 mod live_benchmarks_http;
 
+#[path = "../tests/support/curve_query_metrics.rs"]
+mod curve_query_metrics;
+
 const IDENTITY_PATH: &str = "/.well-known/verdaxis-disposable-test";
 const ECHO_PATH: &str = "/__contract__/echo";
 const PURPOSE: &str = "verdaxis-integration-test";
@@ -162,6 +165,9 @@ async fn serve() -> Result<(), String> {
     }
     let group = std::env::var("CONTRACT_GROUP").map_err(|_| "CONTRACT_GROUP is required")?;
 
+    if group == "curves_canonical" {
+        curve_query_metrics::install();
+    }
     let pools = connect(&config).await.map_err(|_| "connect failed")?;
     let policy = committed_policy()?;
     let state = AppState::new(config.clone(), pools, policy)?;
