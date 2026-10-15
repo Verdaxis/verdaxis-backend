@@ -1,4 +1,22 @@
-# Task 4b — corpus construction and blocked recording
+# Task 4b — accepted non-MCP corpus
+
+## Current disposition (decisions 18–20)
+
+Accepted golden source: `a127672ee4c82fafbb4c633eb84f66bbdc676e75`. Nine groups, 82 cases per KYC state, 164 golden cases total. Both states completed two fixed-clock passes with `TOTAL_UNSTABLE=0; RECORD_FAILURES=0`. MCP is explicitly deferred to Task 11. The old golden was replaced; policy, MCP catalog artifact, manifest and catalog/terms vectors were regenerated from this source. The historical blocked-run notes below are retained as evidence, not current status.
+
+News compares only the reviewed `/api/news` root array tie groups as multisets of exact item tokens, with an identical published-time key sequence. Changed/missing items, byte differences within items and wrong key order fail. Other paths remain exact bytes. The Rust SQL still orders `published_at DESC`.
+
+Positive FAME/LNG declarations are Python-validated stored dumps. The malformed holder row is cancelled for positive collections and temporarily opened by the attested writer only for `T4B-negative-fame-holder`; its Python 500 is recorded separately, then the writer restores cancelled state in `finally`. All positive list cases now return 200 (invalid query cases retain 422). The Task 6 matrix still passes.
+
+Implementation commits: `42af364` tie rule and decisions; `41e60d7` stored fixtures/MCP exclusion; `c6ca90c`, `b93d9a0` writer-environment/driver repairs; `a127672` negative projection scope. Publication: `ff760b2`. Test-only count alignment: `27b91b2` (five active products/seven active points in the populated catalog). No route code changed.
+
+Health differences remain assigned to Task 13: HEAD `/health/live` status/headers and POST/OPTIONS 405 Allow values (four comparison paths). Corpus echo matches both cases; corpus simple_reads matches all 29 cases. These are the only implemented groups compared; the other six groups are Python goldens, not claimed Rust passes.
+
+Final checks after publication: fmt/clippy pass; workspace 74 pass; PostgreSQL 81 pass; market matrix 2 pass; Python contract suite 59 pass. Initial regenerated-vector tests failed only because old hard-coded active-catalog counts were 6/8; test assertions were corrected to the fixture's 5/7 and both Rust suites rerun successfully. The regenerated projection itself already matched Python. No route behavior was changed to make these tests pass.
+
+Logs: `work/rust-phase1/task4b-accepted-{enabled,disabled}.txt` and `task4b-final-*`. Each state's metadata records source SHA, KYC switch, fixed instant, schema and fixture counts. The rejected first attempts encountered missing writer environment/undeclared synchronous driver before the successful clean-source run; these were corrected using the existing async fixture writer.
+
+## Historical first attempt (superseded)
 
 ## Scope and commits
 

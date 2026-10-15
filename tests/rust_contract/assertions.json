@@ -3456,8 +3456,8 @@
     }
   ],
   "task4b_fixture_gate": {
-    "source_sha": "ac81bd87a157ef453b6ea1d21bccd87c1ebc0a8a",
-    "status": "blocked",
+    "source_sha": "a127672ee4c82fafbb4c633eb84f66bbdc676e75",
+    "status": "recorded",
     "families": [
       "ports_intelligence_news",
       "admitted_real_owners",
@@ -3472,6 +3472,6 @@
     ],
     "tests": "tests/rust_contract/test_seed_corpus.py",
     "case_prefix": "T4B-",
-    "recording_rule": "Both KYC states; two fixed-clock passes; no publication unless every group is stable and complete"
+    "recording_rule": "Nine groups excluding MCP under decision 19; both KYC states; two fixed-clock passes; zero unstable paths and failures; news tie rule decision 18"
   }
 }
