@@ -122,6 +122,24 @@
         "method": "GET",
         "path": "/api/news",
         "query": "category=%E2%82%AC"
+      },
+      {
+        "id": "R05f-news-min-relevance",
+        "method": "GET",
+        "path": "/api/news",
+        "query": "min_relevance=0"
+      },
+      {
+        "id": "R05g-news-relevance-four",
+        "method": "GET",
+        "path": "/api/news",
+        "query": "min_relevance=4"
+      },
+      {
+        "id": "R05h-news-empty-category",
+        "method": "GET",
+        "path": "/api/news",
+        "query": "category="
       }
     ],
     "orderbook_snapshot": [
