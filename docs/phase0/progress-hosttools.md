@@ -50,6 +50,7 @@ from `scripts/phase0/refusal.py`; CLIs print only the code on stderr:
 | `PHASE0_SOURCE_SESSIONS` | another source session exists |
 | `PHASE0_TARGET_FENCE` | target ACL, owner, CONNECT grantees or extra target session differs |
 | `PHASE0_SOURCE_STATE` | frozen source data, catalog or sequence state changed |
+| `PHASE0_LEGACY_VALUE` | a legacy source-only column the target does not have holds a value |
 | `PHASE0_REPORT` | publication failed |
 | `PHASE0_COPY` | unclassified copy failure (detail stays in the private report) |
 
@@ -172,8 +173,9 @@ Outputs, always new/private:
   rows and sequence baseline. Captured within successful DDL transaction;
   published only after commit and final source/fence checks.
 - Copy: existing copy receipt (manifest digest, source snapshot, target OID,
-  table/column/reference verification, numeric totals, sequence values), plus
-  durable `.attempt.json` and failure evidence when applicable. No replay.
+  table/column/reference verification, numeric totals, sequence values, legacy
+  source-column NULL checks), plus durable `.attempt.json` and failure evidence
+  when applicable. No replay.
 - Verify: manifest digest, frozen source fingerprint, verification results,
   sequences and both identities. Requires bootstrap receipt, not copy receipt.
   Receipt-loss recovery invokes verify with a new report, never copy again.

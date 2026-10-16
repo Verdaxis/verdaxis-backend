@@ -76,6 +76,7 @@ class CopyReceipt:
     target_oid: int
     verification: VerificationReport
     sequences: dict
+    legacy_columns: dict
 
 
 def read_private_file(path, *, root_owned=False):
@@ -209,6 +210,30 @@ async def attest(connection, identity, *, owner):
         """))).scalar_one()
         if writes:
             raise CopyRefused('Source role is not read-only')
+
+
+async def require_legacy_columns_null(connection, manifest):
+    """Refuse when a legacy source column the target does not have holds a value.
+
+    The live source keeps five legacy RFQ objects that the target schema has no
+    columns for. The copy carries only the columns named in the mapping, so a
+    non-NULL value in one of these source-only columns would be dropped without
+    an error. Refuse instead, before any target write. Every checked column is
+    returned so the receipt records the exact NULL proof.
+
+    The columns and their accepting tables are named in the committed contract,
+    so no caller argument can widen or narrow this gate.
+    """
+    checks = {}
+    for name, mapping in manifest['tables'].items():
+        for column in mapping.get('legacy_columns', ()):
+            count = (await connection.execute(text(
+                f'SELECT count(*) FROM {relation(name)} WHERE {quote(column)} IS NOT NULL'
+            ))).scalar_one()
+            if count:
+                raise Refusal('PHASE0_LEGACY_VALUE')
+            checks[f'{name}.{column}'] = count
+    return checks
 
 
 def import_order(catalog):
@@ -373,6 +398,9 @@ async def copy_database(manifest, source, target, *, fail_at=None) -> CopyReceip
             await attest(source, execution['source'], owner=False)
             source_catalog = await source.run_sync(inspect_catalog)
             require_complete_inventory(source_catalog, manifest['source_catalog'])
+            # Legacy source-only columns must be empty: the target has no
+            # matching columns, so this gate runs before any target write.
+            legacy_columns = await require_legacy_columns_null(source, manifest)
             await check_historical_invariants(source)
             await notice_receipts(source)
             snapshot = (await source.execute(text('SELECT pg_current_snapshot()::text'))).scalar_one()
@@ -415,7 +443,8 @@ async def copy_database(manifest, source, target, *, fail_at=None) -> CopyReceip
                 verification = await verify_database(manifest, source, target)
                 if authority is not None:
                     await check_boundaries(authority, source, target)
-                receipt = CopyReceipt(digest(manifest), snapshot, execution['target']['oid'], verification, sequences)
+                receipt = CopyReceipt(digest(manifest), snapshot, execution['target']['oid'], verification, sequences,
+                                      legacy_columns)
             boundary('after_commit')
         if authority is not None:
             from scripts.phase0.production import observe_boundaries

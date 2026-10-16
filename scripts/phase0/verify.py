@@ -223,7 +223,7 @@ async def verify_independent(manifest, source, target):
     """Verify committed storage without a copy receipt or any write transaction."""
     from dataclasses import asdict
 
-    from scripts.phase0.copy import attest, validate_manifest
+    from scripts.phase0.copy import attest, require_legacy_columns_null, validate_manifest
     from scripts.phase0.manifest import (
         digest,
         inspect_catalog,
@@ -249,6 +249,9 @@ async def verify_independent(manifest, source, target):
             if cluster != execution[side]['cluster_system_identifier']:
                 raise ValueError('Connected cluster differs')
             require_complete_inventory(await connection.run_sync(inspect_catalog), manifest[f'{side}_catalog'])
+        # The same legacy source-only columns must still be empty. The target has
+        # no matching columns, so this gate re-proves what copy refused on.
+        await require_legacy_columns_null(source, manifest)
         if execution['mode'] == 'production':
             from scripts.phase0.production import check_boundaries, load_authority
             authority = load_authority(execution['production_manifest'], 'verify')

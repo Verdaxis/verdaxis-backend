@@ -7409,6 +7409,15 @@
             "comment": null
           },
           {
+            "comment": null,
+            "default": "NULL::character varying",
+            "generated": "\u0000",
+            "identity": "\u0000",
+            "name": "last_counter_by",
+            "not_null": false,
+            "type": "character varying(10)"
+          },
+          {
             "name": "seller_user_id",
             "type": "uuid",
             "not_null": false,
@@ -7620,6 +7629,24 @@
             "comment": null
           },
           {
+            "comment": null,
+            "default": null,
+            "generated": "\u0000",
+            "identity": "\u0000",
+            "name": "reference_number",
+            "not_null": false,
+            "type": "character varying(20)"
+          },
+          {
+            "comment": null,
+            "default": null,
+            "generated": "\u0000",
+            "identity": "\u0000",
+            "name": "daily_seq",
+            "not_null": false,
+            "type": "integer"
+          },
+          {
             "name": "buyer_user_id",
             "type": "uuid",
             "not_null": false,
@@ -7707,6 +7734,12 @@
             "kind": "f",
             "validated": true,
             "definition": "FOREIGN KEY (product_id) REFERENCES products(id)"
+          },
+          {
+            "definition": "UNIQUE (reference_number)",
+            "kind": "u",
+            "name": "rfqs_reference_number_key",
+            "validated": true
           }
         ],
         "indexes": [
@@ -7723,6 +7756,12 @@
             "ready": true
           },
           {
+            "definition": "CREATE INDEX ix_rfqs_reference_number ON public.rfqs USING btree (reference_number)",
+            "name": "ix_rfqs_reference_number",
+            "ready": true,
+            "valid": true
+          },
+          {
             "name": "ix_rfqs_status",
             "definition": "CREATE INDEX ix_rfqs_status ON public.rfqs USING btree (status)",
             "valid": true,
@@ -7733,6 +7772,12 @@
             "definition": "CREATE UNIQUE INDEX rfqs_pkey ON public.rfqs USING btree (id)",
             "valid": true,
             "ready": true
+          },
+          {
+            "definition": "CREATE UNIQUE INDEX rfqs_reference_number_key ON public.rfqs USING btree (reference_number)",
+            "name": "rfqs_reference_number_key",
+            "ready": true,
+            "valid": true
           }
         ],
         "triggers": [
@@ -31475,6 +31520,10 @@
           "operation": "preserve_exact_value"
         }
       },
+      "legacy_columns": [
+        "reference_number",
+        "daily_seq"
+      ],
       "target_additions": {
         "contract_terms": {
           "source": null,
@@ -31542,6 +31591,9 @@
           "operation": "preserve_exact_value"
         }
       },
+      "legacy_columns": [
+        "last_counter_by"
+      ],
       "target_additions": {
         "offer_terms": {
           "source": null,
