@@ -145,11 +145,12 @@ class Fixture:
 
     def assert_refused(self) -> None:
         """Refusal must happen before extraction: no output, no execution."""
-        self.assertFalse(self.output.exists(), "refusal must not create the output directory")
-        self.assertFalse((self.root / MARKER).exists(), "nothing may execute the fixture binary")
+        assert not self.output.exists(), "refusal must not create the output directory"
+        assert not (self.root / MARKER).exists(), "nothing may execute the fixture binary"
 
 
 def member(name, content, *, mode=0o644, kind=tarfile.REGTYPE, linkname=""):
+    """A `(TarInfo, content-bytes-or-None)` pair for `build_tar`."""
     info = tarfile.TarInfo(name)
     info.mode = mode
     info.uid = 0
@@ -159,40 +160,48 @@ def member(name, content, *, mode=0o644, kind=tarfile.REGTYPE, linkname=""):
     info.mtime = 0
     info.type = kind
     info.linkname = linkname
-    if content is None:
-        info.size = 0
-        return info, None
-    info.size = len(content)
-    return info, io.BytesIO(content)
+    info.size = 0 if content is None else len(content)
+    return info, content
+
+
+def _read_members(archive: tarfile.TarFile):
+    """`(TarInfo, content-bytes-or-None)` for each member.
+
+    `extractfile` returns None for a non-regular member, so a directory, link or
+    device round-trips as `(entry, None)` instead of raising.
+    """
+    members = []
+    for entry in archive.getmembers():
+        handle = archive.extractfile(entry) if entry.isfile() else None
+        members.append((entry, None if handle is None else handle.read()))
+    return members
 
 
 def build_tar(members) -> bytes:
+    """Build an uncompressed tar from `(TarInfo, content-bytes-or-None)` pairs."""
     out = io.BytesIO()
     with tarfile.open(fileobj=out, mode="w", format=tarfile.USTAR_FORMAT) as bundle:
-        for info, stream in members:
-            bundle.addfile(info, stream)
+        for info, content in members:
+            bundle.addfile(info, None if content is None else io.BytesIO(content))
     return out.getvalue()
 
 
 def swap_members(archive_bytes: bytes, replacements) -> bytes:
     """Rebuild an archive, replacing or adding named members by hand."""
     with tarfile.open(fileobj=io.BytesIO(archive_bytes), mode="r:") as archive:
-        members = [(entry, archive.extractfile(entry).read()) for entry in archive.getmembers()]
+        members = _read_members(archive)
     rebuilt = []
     for entry, content in members:
         replacement = replacements.pop(entry.name, None)
-        if replacement is None:
-            rebuilt.append((entry, content))
-        else:
-            rebuilt.append(replacement)
+        rebuilt.append((entry, content) if replacement is None else replacement)
     rebuilt.extend(replacements.values())
     return build_tar(rebuilt)
 
 
-def append_member(archive_bytes: bytes, info, content: bytes) -> bytes:
+def append_member(archive_bytes: bytes, info, content) -> bytes:
     """Rebuild an archive with one extra member, preserving any duplicate name."""
     with tarfile.open(fileobj=io.BytesIO(archive_bytes), mode="r:") as archive:
-        members = [(entry, archive.extractfile(entry).read()) for entry in archive.getmembers()]
+        members = _read_members(archive)
     members.append((info, content))
     return build_tar(members)
 
@@ -363,11 +372,13 @@ class ArtifactVerificationTests(unittest.TestCase):
             artifact.inspect_archive(rebuilt, SOURCE_SHA, TARGET)
 
     def test_oversized_member_is_refused(self):
-        payload = b"0" * 64
+        # Pick a bound between the largest real member and the injected one, so
+        # only the injected member trips the per-member limit.
+        payload = b"0" * 8192
         rebuilt = swap_members(
             self.fixture.archive_bytes, {"data/big.json": member("data/big.json", payload)}
         )
-        with mock.patch.object(artifact, "MAX_MEMBER_BYTES", 16):
+        with mock.patch.object(artifact, "MAX_MEMBER_BYTES", 4096):
             with self.assertRaises(artifact.ArtifactError):
                 artifact.inspect_archive(rebuilt, SOURCE_SHA, TARGET)
 
@@ -379,7 +390,8 @@ class ArtifactVerificationTests(unittest.TestCase):
     def test_compressed_archive_is_refused(self):
         buffer = io.BytesIO()
         with tarfile.open(fileobj=buffer, mode="w:gz") as bundle:
-            bundle.addfile(*member(artifact.BINARY_NAME, b"x"))
+            info, content = member(artifact.BINARY_NAME, b"x")
+            bundle.addfile(info, io.BytesIO(content))
         with self.assertRaises(artifact.ArtifactError):
             artifact.inspect_archive(buffer.getvalue(), SOURCE_SHA, TARGET)
 
