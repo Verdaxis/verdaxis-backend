@@ -80,12 +80,38 @@ impl OrderSurface {
 pub struct OrderQuery(pub(super) String);
 pub struct TradeQuery(String);
 
+/// Rust decision 24: the one shared definition of the private digest input.
+/// Consumers expand it for the rows they keep, never for the whole relation.
+pub fn private_digest_input_sql(row_alias: &str) -> String {
+    include_str!("../../sql/private_digest_input.sql").replace("/*row_alias*/", row_alias)
+}
+
+/// Replace every `/* private_digest_input(alias) */` marker with the shared
+/// definition. One composition point keeps the digest bytes identical for
+/// every consumer.
+fn expand_private_digest(sql: &str) -> String {
+    const PREFIX: &str = "/* private_digest_input(";
+    let mut out = String::with_capacity(sql.len());
+    let mut rest = sql;
+    while let Some(start) = rest.find(PREFIX) {
+        out.push_str(&rest[..start]);
+        let after = &rest[start + PREFIX.len()..];
+        let end = after
+            .find(") */")
+            .expect("closed private digest placeholder");
+        out.push_str(&private_digest_input_sql(&after[..end]));
+        rest = &after[end + 4..];
+    }
+    out.push_str(rest);
+    out
+}
+
 pub fn order_query_sql(tail: &'static str) -> OrderQuery {
-    OrderQuery(format!(
+    OrderQuery(expand_private_digest(&format!(
         "WITH eligible_orders AS NOT MATERIALIZED ({}) {}",
         public_order_sql(),
         tail
-    ))
+    )))
 }
 
 /// Same composition boundary for immutable historical evidence.

@@ -46,15 +46,7 @@ policy_points AS (
 SELECT o.*, p.name AS product_name, p.fuel_type AS product_fuel_type,
        p.fuel_grade AS product_fuel_grade, p.is_active AS product_is_active,
        dp.name AS delivery_point_name, dp.region AS delivery_point_region,
-       (SELECT pp.code FROM policy_products pp WHERE pp.id = p.id) AS market_product,
-       -- Internal only. Never serialize this object as a public DTO.
-       to_jsonb(o) || jsonb_build_object(
-           'quantity_mt', o.quantity_mt::text,
-           'remaining_quantity_mt', o.remaining_quantity_mt::text,
-           'price_per_mt_usd', o.price_per_mt_usd::text,
-           'carbon_intensity_gco2_mj', o.carbon_intensity_gco2_mj::text,
-           'energy_density_mj_kg', o.energy_density_mj_kg::text
-       ) AS private_digest_input
+       (SELECT pp.code FROM policy_products pp WHERE pp.id = p.id) AS market_product
 FROM orderbook_orders AS o
 JOIN products AS p ON p.id = o.product_id
 JOIN delivery_points AS dp ON dp.id = o.delivery_point_id

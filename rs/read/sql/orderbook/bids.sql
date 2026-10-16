@@ -1,4 +1,6 @@
--- Rank narrow eligible keys before constructing private digest JSON.
+-- Rank narrow eligible keys, then build the private digest input for the page
+-- rows only (Rust decision 24). The base join is one primary-key lookup per
+-- returned row; the shared digest definition is expanded by the caller.
 , page_keys AS MATERIALIZED (
     SELECT o.id, o.price_per_mt_usd, o.acceptance_ordinal,
            o.remaining_quantity_mt, o.created_at
@@ -13,11 +15,12 @@ ORDER BY
     CASE WHEN $14 IN ('newest', 'quantity_desc') THEN o.id END DESC
 LIMIT $15 OFFSET $16
 )
-SELECT detail.*, COALESCE(org.supplier_tier, 'INDEPENDENT') AS tier_label
+SELECT detail.*, /* private_digest_input(base) */, COALESCE(org.supplier_tier, 'INDEPENDENT') AS tier_label
 FROM page_keys page
 CROSS JOIN LATERAL (
     SELECT o.* FROM eligible_orders o WHERE o.id = page.id OFFSET 0
 ) detail
+JOIN orderbook_orders base ON base.id = page.id
 LEFT JOIN organizations org ON org.id = detail.organization_id
 ORDER BY
     CASE WHEN $14 = 'price_asc' THEN page.price_per_mt_usd END ASC,

@@ -217,7 +217,11 @@ async fn public_visibility_matrix_matches_python() {
     .unwrap();
     let depth: Vec<Uuid> = depth.iter().map(|row| row.get("id")).collect();
     assert_eq!(as_strings(&depth), ids(&expected["depth"]));
-    let sql = order_query_sql("SELECT private_digest_input FROM eligible_orders ORDER BY id");
+    // Rust decision 24: the shared relation no longer carries the digest input.
+    // Expand the one shared definition for the rows this consumer keeps.
+    let sql = order_query_sql(
+        "SELECT o.id, /* private_digest_input(o) */ FROM eligible_orders o ORDER BY o.id",
+    );
     let rows = bind_order_query(
         &sql,
         &policy,
