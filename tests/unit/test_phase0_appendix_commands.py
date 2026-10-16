@@ -213,3 +213,60 @@ def test_current_runbook_does_not_reuse_historical_merge_state():
     assert '## Current state — 2026-10-16' in text
     assert 'It is not merged into this lane' not in text
     assert 'phase0-host-appendix.md' in text
+
+
+def test_post_cutover_amendments_are_recorded_and_applied():
+    """The 17 October window findings must stay folded into the runbook."""
+    text = APPENDIX.read_text()
+    assert 'Post-cutover amendments (17 October 2026)' in text
+    # B4 target default privileges: validate_roles.sql refuses without them.
+    block = next(block for block in re.findall(r'^```bash\n(.*?)^```', text, re.MULTILINE | re.DOTALL)
+                 if 'CREATE EXTENSION postgis;' in block)
+    for line in ('ALTER DEFAULT PRIVILEGES FOR ROLE verdaxis_migrator IN SCHEMA public '
+                 'GRANT SELECT ON TABLES TO verdaxis_backup;',
+                 'ALTER DEFAULT PRIVILEGES FOR ROLE verdaxis_migrator IN SCHEMA public '
+                 'GRANT SELECT ON SEQUENCES TO verdaxis_backup;'):
+        assert line in block
+    # B7 curve probe resolves a real product id; the bare path 422s.
+    assert '"/api/curves/forward?product_id=$CURVE_PRODUCT"' in text
+    assert '/api/curves/forward;' not in text
+    assert 'SELECT id FROM products ORDER BY id LIMIT 1' in text
+    # B2 proves the frozen dump restores with per-table counts before B3.
+    assert 'pg_restore --list` is not proof' in text
+    assert 'verdaxis_finalcheck' in text
+    assert text.index('verdaxis_finalcheck') < text.index('### B3.')
+    # B1 derives the rollback candidate list from the release unit manifest.
+    assert 'runtime-units.manifest' in text
+    assert 'candidate-only-files.txt' in text
+
+
+def test_b5_carries_demo_acl_and_requires_key_source_before_deploy():
+    text = APPENDIX.read_text()
+    b5 = text[text.index('### B5.'):text.index('### B6.')]
+    # Demo-user ACL carry, exactly .git and nothing wider.
+    assert 'setfacl --set-file=- -p "$root/.git"' in b5
+    assert 'setfacl --set-file=- -p "$root/.git/HEAD"' in b5
+    assert 'sudo -u verdaxis-demo-production test ! -r "$root/.env"' in b5
+    # The key source must exist before the installer preflight.
+    assert "test ! -e /etc/verdaxis/kyc-document-keys.json" in b5
+    assert "printf '' > /etc/verdaxis/kyc-document-keys.json" in b5
+    assert b5.index('kyc-document-keys.json') < b5.index('--dry-run')
+    # No root safe.directory anywhere: git runs as the checkout owner.
+    assert 'safe.directory' in text
+    assert 'sudo -n -u <owner>' in text
+
+
+def test_b10b_checks_demo_identity_as_demo_user_before_rearm():
+    text = APPENDIX.read_text()
+    b10b = text[text.index('### B10b.'):text.index('### B11.')]
+    assert 'verify_runtime_identity.py' in b10b
+    assert 'sudo -u verdaxis-demo-production' in b10b
+    assert b10b.index('verify_runtime_identity.py') < b10b.index("timers-restore.txt")
+    assert 'Verdaxis runtime identity: ok' in b10b
+
+
+def test_b11_names_the_placeholder_state():
+    text = APPENDIX.read_text()
+    b11 = text[text.index('### B11.'):text.index('## Acceptance limits')]
+    assert 'empty root:root 0400 placeholder' in b11
+    assert 'never be overwritten' in b11

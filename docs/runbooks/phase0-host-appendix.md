@@ -2,12 +2,39 @@
 
 ## Open items
 
-No remaining PM design decision. Final SHA/configuration evidence is an explicit
-window checklist, not a design gap. B1/B2 independent review is complete; R1–R3
-fixes and any PM-supplied CLI changes must land before execution approval.
-**M2 ready for review** — no remaining prerequisite. The A3 bounded scratch
-business smoke is implemented and tested; its exact command is cited below.
-Review is not authorization to execute.
+No remaining PM design decision. **The cutover has run** (17 October 2026,
+release `56d75770`, now live); this appendix is retained as the executed
+procedure with its post-cutover amendments folded in. Any future rerun must
+apply the amended blocks as written. Review is not authorization to execute.
+
+**Post-cutover amendments (17 October 2026).** The cutover ran at release
+`56d75770` (window 02:19–02:39 SGT). Five window findings are folded into the
+blocks below and must be applied by any future rerun of this appendix:
+
+1. **assert_host runs git as the checkout owner.** The committed helper refuses
+   root git in the service-user-owned checkout (dubious ownership) and runs
+   every git call through `/usr/bin/sudo -n -u <owner>` resolved from the ROOT
+   owner uid; it refuses a root owner or a failed lookup. Do not add a root
+   `safe.directory`, and do not hand-prefix git again — the committed tool is
+   now correct as shipped.
+2. **Target default privileges.** The B4 target block below now includes the
+   two `ALTER DEFAULT PRIVILEGES FOR ROLE verdaxis_migrator IN SCHEMA public
+   GRANT SELECT ON TABLES/SEQUENCES TO verdaxis_backup` statements. Live
+   `verdaxis` has them, and `deploy/postgres/validate_roles.sql` refuses
+   without them; without the grants the ACL acceptance in B4a fails.
+3. **B7 curve probe needs a product id.** `/api/curves/forward` returns 422
+   without `?product_id=<id>` on both old and new backends. The probe below
+   now resolves the first product id from the new database first.
+4. **B2 proves the frozen dump restores.** `pg_restore --list` is not proof:
+   B2 now restores `final.dump` into a new scratch database and compares
+   per-table counts with the frozen live source before B3.
+5. **B1 derives the rollback candidate list from the release unit manifest.**
+   Every production unit of `deploy/systemd/runtime-units.manifest` that the
+   host lacks would be added by the installer; B1 records that list and stops
+   if it is non-empty. The frontend promotion also requires the frontend
+   `.gitignore` to keep `__pycache__/` and `*.py[cod]`; the convergence had
+   dropped them and the first promotion run was refused for it (fixed in the
+   frontend repository before the successful second run).
 
 ## PM answers — final sequencing decisions
 
@@ -461,6 +488,8 @@ REVOKE TEMPORARY ON DATABASE verdaxis_prod FROM PUBLIC;
 ALTER SCHEMA public OWNER TO verdaxis_migrator;
 REVOKE ALL ON SCHEMA public FROM PUBLIC;
 GRANT USAGE ON SCHEMA public TO verdaxis_app, verdaxis_backup;
+ALTER DEFAULT PRIVILEGES FOR ROLE verdaxis_migrator IN SCHEMA public GRANT SELECT ON TABLES TO verdaxis_backup;
+ALTER DEFAULT PRIVILEGES FOR ROLE verdaxis_migrator IN SCHEMA public GRANT SELECT ON SEQUENCES TO verdaxis_backup;
 ALTER DATABASE verdaxis_prod SET timezone TO 'UTC';
 ALTER ROLE verdaxis_app IN DATABASE verdaxis_prod SET statement_timeout TO '30s';
 ALTER ROLE verdaxis_app IN DATABASE verdaxis_prod SET lock_timeout TO '3s';
@@ -487,8 +516,13 @@ retains TEMP or CONNECT.
 PostgreSQL 15+ hands a new database's `public` schema to `pg_database_owner`
 with PUBLIC USAGE, so the three `public` lines reset it to live's owner and ACL
 before bootstrap; `deploy/postgres/converge_runtime_object_acls.sql` refuses at
-its public-owner guard otherwise. Compare the new target's `public` owner and
-ACL with live `verdaxis`, which must both read
+its public-owner guard otherwise. The two `ALTER DEFAULT PRIVILEGES` lines are
+required by the same equality: live `verdaxis` carries the migrator's default
+SELECT grants on TABLES and SEQUENCES for `verdaxis_backup`, and
+`deploy/postgres/validate_roles.sql` refuses without them. The cutover window
+hit this and the PM applied the grants by hand; they are part of the block now.
+Compare the new target's `public` owner and ACL with live `verdaxis`, which must
+both read
 `verdaxis_migrator {verdaxis_migrator=UC/verdaxis_migrator,verdaxis_app=U/verdaxis_migrator,verdaxis_backup=U/verdaxis_migrator}`:
 
 ```bash
@@ -641,6 +675,24 @@ Expected root:root 644, successful read and all hashes OK. Missing SHA, unknown
 delta, changed file or unreadable Caddyfile stops the window. Repeat this input
 check at rehearsal start with its separate evidence set.
 
+Derive the rollback candidate-only file list from the release unit manifest,
+not from memory: every production unit in
+`deploy/systemd/runtime-units.manifest` that the host does not already have
+would be **added** by the installer, and copying cannot remove added files.
+
+```bash
+missing=$(awk -F'\t' '$1=="production"{print $2}' "${RELEASE_TREE}/deploy/systemd/runtime-units.manifest" \
+  | while read -r unit; do test -e "/etc/systemd/system/$unit" || echo "/etc/systemd/system/$unit"; done)
+printf '%s' "$missing" > "$RUN/candidate-only-files.txt"
+test -z "$missing" || { echo "UNITS MISSING ON HOST (would be added by the installer): $missing"; exit 1; }
+```
+
+`RELEASE_TREE` is the approved new checkout (at B1 still at its pre-switch
+path). Expected an empty list: the host already carries every production unit,
+so the installer only replaces existing bytes and the reviewed B8 delta is the
+changed-unit list. A non-empty list stops the window until the delta is
+reviewed and B8's removal list is extended to match.
+
 ### B2. Pause timers and close all public traffic (PM)
 
 On prod capture all verdaxis timer states, then stop the seven listed timers:
@@ -740,6 +792,27 @@ sha256sum /root/verdaxis-phase0/cutover/final.dump
 Root opens the private output; pg_dump receives no password argv. A nonzero exit
 leaves a partial dump: preserve it, do not accept or overwrite it. Restore into a
 new scratch verification database, not the rehearsal source already used.
+`pg_restore --list` is not proof. Prove the frozen snapshot restores and equals
+the frozen source before B3, on the scratch cluster (`17/p0rehearsal`, 5434):
+
+```bash
+test "$(sudo -u postgres psql -X -h /var/run/postgresql -p 5434 -d postgres -Atc "SELECT count(*) FROM pg_database WHERE datname='verdaxis_finalcheck'")" = 0
+p0run sudo -u postgres createdb -h /var/run/postgresql -p 5434 verdaxis_finalcheck
+p0run sudo -u postgres pg_restore --exit-on-error -h /var/run/postgresql -p 5434 -d verdaxis_finalcheck < "$RUN/final.dump"
+counts_sql="SELECT format('SELECT %L || '','' || count(*) FROM %I.%I;',c.relname,n.nspname,c.relname) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relkind IN ('r','p') AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.classid='pg_class'::regclass AND d.objid=c.oid AND d.deptype='e') ORDER BY c.relname"
+printf '%s\n\\gexec\n' "$counts_sql" | sudo -u postgres psql -X -h /var/run/postgresql -p 5434 -d verdaxis_finalcheck -qAt -v ON_ERROR_STOP=1 > "$RUN/finalcheck-restored.csv"
+printf '%s\n\\gexec\n' "$counts_sql" | sudo -u postgres psql -X -h /var/run/postgresql -p 5432 -d verdaxis -qAt -v ON_ERROR_STOP=1 > "$RUN/finalcheck-live.csv"
+test -s "$RUN/finalcheck-live.csv"
+diff "$RUN/finalcheck-live.csv" "$RUN/finalcheck-restored.csv"
+pg_ctlcluster 17 p0rehearsal stop
+```
+
+Expected the restore to exit 0 and the two per-table count CSVs (table name and
+count only, never row values) to be identical; every non-extension `public`
+table of the frozen live source appears with an equal count. Any restore error,
+a missing table or a differing count stops the window before the fence: the
+frozen snapshot is not proven restorable. Keep the scratch cluster stopped after
+the check.
 
 ### B3. External fence and final source authority (PM)
 
@@ -870,6 +943,46 @@ install -o verdaxis-prod -g verdaxis-prod -m 0600 "${root}.phase0-old/.env.analy
 sudo -u verdaxis-prod /usr/bin/python3.12 -m venv "$root/venv"
 ```
 
+Carry the old tree's demo-user access onto the new tree's Git metadata before
+any demo timer is rearmed. The demo job (`verdaxis-demo-activity.service`,
+user `verdaxis-demo-production`) reads `.git` through
+`verify_runtime_identity.py`; a fresh clone's `.git/HEAD` is mode 0600 and the
+old tree carried `user:verdaxis-demo-production:r-x` plus the same default ACL
+on `.git`. Copy exactly that ACL to the new `.git` only — `.env` and every
+other secret under the tree stay closed to the demo user:
+
+```bash
+getfacl -p "${root}.phase0-old/.git" | setfacl --set-file=- -p "$root/.git"
+getfacl -p "${root}.phase0-old/.git/HEAD" | setfacl --set-file=- -p "$root/.git/HEAD"
+sudo -u verdaxis-demo-production test -r "$root/.git/HEAD"
+sudo -u verdaxis-demo-production test ! -r "$root/.env"
+```
+
+Expected both `test` calls to succeed (demo user reads `.git/HEAD`, not `.env`).
+A failed ACL copy or a demo user able to read `.env` stops B5.
+
+Ensure the KYC key source exists **before** the installer preflight in B5, or
+the installed unit cannot start. The units no longer carry an empty
+`SetCredential=` fallback (invalid on systemd 255.4); a host without a real key
+ring publishes the approved empty placeholder (see the security runbook's KYC
+key operations; the cutover window created it by hand and the application
+treats the empty credential as missing — storage 503, readiness unaffected):
+
+```bash
+if test ! -e /etc/verdaxis/kyc-document-keys.json; then
+  umask 077
+  printf '' > /etc/verdaxis/kyc-document-keys.json
+  chown root:root /etc/verdaxis/kyc-document-keys.json
+  chmod 0400 /etc/verdaxis/kyc-document-keys.json
+fi
+stat -c '%U:%G %a %s %n' /etc/verdaxis/kyc-document-keys.json
+```
+
+Expected `root:root 400` with size 0 for the placeholder, or a non-empty real
+ring (inspect first; never overwrite a non-empty ring). An absent file, wrong
+owner or wrong mode stops B5: the installer preflight below refuses the same
+condition with the same command.
+
 The service user cannot traverse root's private wheelhouse. Copy its reviewed
 non-secret package files to a service-readable new cache under
 `/opt/verdaxis-phase0/wheels` before installation; keep root ownership:
@@ -919,7 +1032,9 @@ systemctl show verdaxis-backend.service -p LoadState -p NeedDaemonReload -p Drop
 ```
 
 Expected approved SHA, matching hashes, four workers, unchanged guards. No key
-is required during this window; storage 503 is expected. Stop on stale unit cache.
+is required during this window; storage 503 is expected. The tuple assertions
+run git as the checkout owner (committed behaviour; do not hand-prefix git or
+add a root `safe.directory`). Stop on stale unit cache.
 
 ### B6. Fsync permit (PM root shell)
 
@@ -987,7 +1102,9 @@ exec 9>&-
 curl --fail --silent http://127.0.0.1:8000/health/ready > /root/verdaxis-phase0/cutover/ready.json
 /opt/verdaxis-phase0/venv/bin/python -m scripts.validate_health_response \
   --environment production --release-sha "$RELEASE_SHA" < /root/verdaxis-phase0/cutover/ready.json
-for path in /health/live /api/prices /api/orderbook /api/orderbook/bids /api/orderbook/regions /api/curves/forward; do
+CURVE_PRODUCT=$(sudo -u postgres psql -X -h /var/run/postgresql -p 5432 -d verdaxis_prod -Atc "SELECT id FROM products ORDER BY id LIMIT 1")
+test -n "$CURVE_PRODUCT"
+for path in /health/live /api/prices /api/orderbook /api/orderbook/bids /api/orderbook/regions "/api/curves/forward?product_id=$CURVE_PRODUCT"; do
   curl --fail --silent --output /dev/null "http://127.0.0.1:8000$path"
 done
 ```
@@ -1209,7 +1326,26 @@ running test or release call; wait for its completion while access stays closed.
 
 After successful frontend smoke/refresh communication, on each host derive restore candidates from its private before-state; review
 that list, then start only recorded-active timers. Do not enable inactive/masked
-units or restore demo before its new identity is checked:
+units. **Check the demo job's identity as the demo user before rearming its
+timer.** The cutover window missed this: the timer was rearmed and
+`verdaxis-demo-activity.service` failed because the fresh clone's `.git/HEAD`
+was mode 0600, unreadable to `verdaxis-demo-production` (the PM then copied the
+old tree's ACL onto the new `.git` by hand; B5 now does this at switch time).
+Prove the identity check passes as the demo user first:
+
+```bash
+sudo -u verdaxis-demo-production test -r /home/verdaxis-prod/verdaxis/prod/be/.git/HEAD
+sudo -u verdaxis-demo-production /usr/bin/env ENVIRONMENT=production \
+  /usr/bin/python3 /usr/local/libexec/verdaxis-monitor/verify_runtime_identity.py \
+  --source-directory /home/verdaxis-prod/verdaxis/prod/be \
+  --expected-environment production --expected-release-sha "$RELEASE_SHA"
+```
+
+Expected `Verdaxis runtime identity: ok` and exit 0. A failed read or a
+`failure` line stops the rearm: fix the `.git` ACL (B5's copy), never the unit's
+identity expectations. Also confirm the demo binding file already names
+`verdaxis_prod` (B9's patch) before starting `verdaxis-demo-activity.timer`.
+Then restore:
 
 ```bash
 python3 -I - <<'PY'
@@ -1231,18 +1367,23 @@ done < /root/verdaxis-phase0/timers-restore.txt
 ```
 
 Expected exact original active/enabled/masked states (this procedure never changes
-enablement), no unknown jobs. Staging backup/monitor resume only after prod
-acceptance. Keep grace sender off and failed analytics relay untouched.
+enablement), no unknown jobs, and the demo timer's first run passing its identity
+check. Staging backup/monitor resume only after prod acceptance. Keep grace
+sender off and failed analytics relay untouched.
 
 ### B11. KYC key ring after reopening (PM and founder)
 
-Follow `docs/runbooks/security-v2-operator-review.md`, KYC key operations, adapting
-only to the approved production key path `/etc/verdaxis/kyc-document-keys.json`.
-Inspect first; never overwrite an existing ring. Founder creates/holds encrypted
-complete offline copy, uploads encrypted archive to Drive, keeps recovery secret
-separate and proves restore. Then PM runs unit-installer preflight and separately
-approved restart. No raw keys/documents in chat, CI or this report. Until then
-storage 503 is expected, readiness remains available.
+Follow `docs/runbooks/security-v2-operator-review.md`, KYC key operations — now
+including its **empty placeholder** and **B11 founder-ring replacement**
+procedures — at the approved production key path
+`/etc/verdaxis/kyc-document-keys.json`. Inspect first: the cutover window left
+an **empty root:root 0400 placeholder** there (meaning "no key ring"); a
+non-empty file is a live ring and must never be overwritten. Founder
+creates/holds the encrypted complete offline copy, uploads the encrypted archive
+to Drive, keeps the recovery secret separate and proves restore. Then PM runs
+the unit-installer preflight and the separately approved restart. No raw
+keys/documents in chat, CI or this report. Until the real ring replaces the
+placeholder, storage 503 is expected, readiness remains available.
 
 ## Acceptance limits
 

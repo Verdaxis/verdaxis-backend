@@ -10,6 +10,7 @@ import asyncio
 import hashlib
 import json
 import os
+import pwd
 import re
 import socket
 import stat
@@ -54,6 +55,27 @@ def private_bytes(path: Path) -> bytes:
 def command(arguments: list[str]) -> str:
     return subprocess.run(arguments, check=True, capture_output=True, text=True,
                           timeout=15, env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"}).stdout.strip()
+
+
+def checkout_owner(*, stat_path=os.stat, lookup_user=pwd.getpwuid) -> str:
+    """Git must run as the account that owns ROOT, never as root.
+
+    Root git in a service-user-writable repository is refused by git's dubious
+    ownership protection, and a root safe.directory would widen what root may
+    read. Refuse instead when the owner cannot be resolved or is root.
+    """
+    try:
+        uid = stat_path(ROOT).st_uid
+        name = lookup_user(uid).pw_name
+    except (OSError, KeyError):
+        raise ValueError("Checkout owner lookup failed")
+    if uid == 0:
+        raise ValueError("Checkout owner must not be root")
+    return name
+
+
+def git_command(arguments: list[str]) -> str:
+    return command(["/usr/bin/sudo", "-n", "-u", checkout_owner(), "/usr/bin/git", *arguments])
 
 
 def require_identity(expected: dict, actual: dict) -> None:
@@ -147,9 +169,9 @@ def verify_tuple(manifest: dict) -> None:
     sha = manifest["release_sha"]
     if re.fullmatch(r"[0-9a-f]{40}", sha) is None:
         raise ValueError("Full release SHA required")
-    if ROOT.is_symlink() or command(["/usr/bin/git", "-C", str(ROOT), "rev-parse", "HEAD"]) != sha:
+    if ROOT.is_symlink() or git_command(["-C", str(ROOT), "rev-parse", "HEAD"]) != sha:
         raise ValueError("Checkout identity differs")
-    if command(["/usr/bin/git", "-C", str(ROOT), "status", "--porcelain", "--untracked-files=no"]):
+    if git_command(["-C", str(ROOT), "status", "--porcelain", "--untracked-files=no"]):
         raise ValueError("Tracked source is dirty")
     artifacts = manifest["artifacts"]
     required = {str(ROOT / ".env"), str(ROOT / ".runtime-release.env"),

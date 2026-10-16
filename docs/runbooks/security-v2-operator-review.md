@@ -79,6 +79,20 @@ to `true`.
 Run only on the approved host as root. Use `/etc/verdaxis/kyc-document-keys-staging.json`
 for staging and `/etc/verdaxis/kyc-document-keys.json` for production. Never put key
 material in git, `.env`, a database, terminal output, logs or a support message.
+
+**Inspect first, every time.** Before creating or replacing anything, look at the
+current state of the exact key path:
+
+```bash
+stat -c '%U:%G %a %s %n' /etc/verdaxis/kyc-document-keys.json
+```
+
+Expected `root:root 400`. An existing **empty** file (size 0) is the approved
+**placeholder meaning "no key ring"**, not a ring: the application treats the
+empty credential as absent (KYC storage disabled, readiness unaffected), and the
+backend unit starts normally. The founder's real key ring replaces it. A
+**non-empty** file is a live ring: never overwrite it; use the rotation procedure.
+
 For a first key file, use a new path and do not overwrite an existing key ring:
 
 ```bash
@@ -103,16 +117,62 @@ credentials are snapshots. Old documents keep their original key IDs; new
 submissions use the new active key. Never remove an old key while its documents
 or backups remain. There is no operator document-delete command yet.
 
+### Empty placeholder when no key ring exists yet
+
+The backend unit's `LoadCredential=kyc-document-keys:/etc/verdaxis/...` makes an
+**absent** file a fatal start failure (243/CREDENTIALS) on both deployed systemd
+versions (249 staging, 255.4 production); the historical empty `SetCredential=`
+fallback is invalid syntax on systemd 255 and is removed from the units. A host
+without a real key ring therefore publishes the approved **empty placeholder**:
+
+```bash
+umask 077
+printf '' > /etc/verdaxis/kyc-document-keys.json
+chown root:root /etc/verdaxis/kyc-document-keys.json
+chmod 0400 /etc/verdaxis/kyc-document-keys.json
+stat -c '%U:%G %a %s %n' /etc/verdaxis/kyc-document-keys.json
+```
+
+Expected `root:root 400 0 ...`. `LoadCredential` then succeeds, the application
+treats the empty credential as missing (storage disabled, 503 on submission,
+readiness unaffected). This placeholder is the state the Phase 0 production
+cutover (17 October 2026) started with; the founder's real ring replaces it
+through the B11 replacement below. Never treat the placeholder as a ring, and
+never widen its mode or ownership.
+
+### B11 — replacing the placeholder with the founder's real ring (post-cutover)
+
+With the founder present, after public access has reopened:
+
+1. Inspect first: `stat -c '%U:%G %a %s %n' /etc/verdaxis/kyc-document-keys.json`.
+   Size must be 0. If it is not, a ring already exists — use rotation, not this
+   procedure.
+2. The founder creates the new complete ring offline, keeps the verified
+   encrypted offline copy and the separate recovery secret, and proves restore
+   before the host file changes. Follow the first-key-file block above, writing
+   to a new temporary root:root 0400 path.
+3. Atomically replace the placeholder: `mv` the new ring over
+   `/etc/verdaxis/kyc-document-keys.json`, keeping root:root 0400. Never print
+   its contents.
+4. Run the unit-installer preflight
+   (`scripts/install_systemd_units.sh --dry-run --environment production
+   --source-ref <approved-40-hex-sha>`); it must accept the new real file's
+   metadata (root:root 0400 regular file).
+5. Restart the backend through the separately approved deployment procedure so
+   workers load the ring; then verify storage works and readiness still reports
+   `status=ok`. No raw keys or documents in chat, CI or reports.
+
 Install units only through the exact-SHA manifest installer in runtime-hardening.md.
-The approved empty SetCredential fallback works on systemd 249 and 255 (source
-links in security-hardening-v2.md). Missing/invalid keys log one error per worker
+The units load the key file directly; missing/invalid keys log one error per worker
 and make submission return 503; readiness does not assert vault availability.
 The unit installer's dry-run and apply modes now check source metadata as root,
 using isolated system Python before any unit replacement. An existing source must
 be a regular file (not a symlink), owned by root:root, with exact mode 0400.
 `/`, `/etc`, and `/etc/verdaxis` must be root-owned directories without group or
-other write permission; symlink parents are refused. A missing key or missing
-`/etc/verdaxis` is allowed and leaves KYC storage disabled. The check never reads
+other write permission; symlink parents are refused. **An absent key source (or
+absent `/etc/verdaxis`) is refused**: the installer prints the exact empty-placeholder
+command above, because a missing file would fail the backend start. An empty
+root:root 0400 placeholder passes, as does a real ring; the check never reads
 key contents. It checks the host source, not the systemd credential copy, whose
 owner can be the service user. Run this installer preflight after restoring or
 rotating a key file; a prior check does not protect later metadata changes.
