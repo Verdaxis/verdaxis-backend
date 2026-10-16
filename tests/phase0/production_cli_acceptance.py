@@ -20,6 +20,7 @@ from tests.phase0.production_cli_case import (
     make_case,
     private_file,
     require_committed_chain,
+    settle_quiesced,
     start_tool,
     wait_for_advisory_lock,
     wait_for_second_source_transaction,
@@ -120,8 +121,14 @@ async def test_production_bootstrap_copy_verify_cli_chain():
     async with production_scratch() as scratch:
         directory = Path('/root') / ('authority-' + uuid4().hex)
         common, environment = await make_case(scratch, directory)
-        result = await invoke('bootstrap', directory, common, environment)
-        assert result.returncode == 0, result.stderr
+        # Same bounded PHASE0_SOURCE_SESSIONS retry as require_committed_chain.
+        for attempt in range(3):
+            await settle_quiesced(scratch)
+            result = await invoke('bootstrap', directory, common, environment)
+            if result.returncode == 0:
+                break
+            if 'PHASE0_SOURCE_SESSIONS' not in result.stderr or attempt == 2:
+                assert result.returncode == 0, result.stderr
         receipt = Path(common['bootstrap_receipt'])
         assert receipt.is_file()
         common['bootstrap_receipt_sha256'] = hashlib.sha256(receipt.read_bytes()).hexdigest()
@@ -156,21 +163,30 @@ async def test_production_bootstrap_copy_verify_cli_chain():
 async def test_production_copy_refuses_legacy_source_value():
     """A non-NULL legacy source-only column refuses with PHASE0_LEGACY_VALUE.
 
-    The synthetic scratch source carries live's legacy RFQ columns. Setting one
-    value must refuse the real copy CLI before any target write, publish no
-    receipt, and leave the target at its bootstrap state.
+    The synthetic scratch source carries live's legacy RFQ columns. The value
+    is set before the authority freeze, exactly as a real legacy value would be
+    part of the drained source: every frozen-source fence then passes and only
+    the legacy gate refuses, before any target write, with no receipt and the
+    target left at its bootstrap state.
     """
     async with production_scratch() as scratch:
-        directory = Path('/root') / ('authority-' + uuid4().hex)
-        common, environment = await make_case(scratch, directory)
-        assert (await invoke('bootstrap', directory, common, environment)).returncode == 0
-        common['bootstrap_receipt_sha256'] = hashlib.sha256(
-            Path(common['bootstrap_receipt']).read_bytes()).hexdigest()
         async with scratch.admin_connection('verdaxis') as admin:
             # min() has no uuid variant; address the seeded RFQ by its fixed id.
             await admin.execute(
                 'UPDATE rfqs SET reference_number=$1 WHERE id=$2',
                 'RFQ-0001', str(uid('rfq')))
+        directory = Path('/root') / ('authority-' + uuid4().hex)
+        common, environment = await make_case(scratch, directory)
+        # Same bounded PHASE0_SOURCE_SESSIONS retry as require_committed_chain.
+        for attempt in range(3):
+            await settle_quiesced(scratch)
+            bootstrapped = await invoke('bootstrap', directory, common, environment)
+            if bootstrapped.returncode == 0:
+                break
+            if 'PHASE0_SOURCE_SESSIONS' not in bootstrapped.stderr or attempt == 2:
+                assert bootstrapped.returncode == 0, bootstrapped.stderr
+        common['bootstrap_receipt_sha256'] = hashlib.sha256(
+            Path(common['bootstrap_receipt']).read_bytes()).hexdigest()
         result = await invoke('copy', directory, common, environment)
         assert result.returncode == 1, result.stdout
         assert 'PHASE0_LEGACY_VALUE' in result.stderr, result.stderr
@@ -270,10 +286,18 @@ async def test_late_target_acl_change_refuses(tool):
     async with production_scratch() as scratch:
         directory = Path('/root') / ('authority-' + uuid4().hex)
         common, environment = await make_case(scratch, directory)
-        if tool != 'bootstrap':
-            assert (await invoke('bootstrap', directory, common, environment)).returncode == 0
-            common['bootstrap_receipt_sha256'] = hashlib.sha256(
-                Path(common['bootstrap_receipt']).read_bytes()).hexdigest()
+        # A late autovacuum worker can reach the source between the fixture's
+        # settle and the tool's fence, so bootstrap uses the same bounded
+        # PHASE0_SOURCE_SESSIONS retry as require_committed_chain.
+        for attempt in range(3):
+            await settle_quiesced(scratch)
+            result = await invoke('bootstrap', directory, common, environment)
+            if result.returncode == 0:
+                break
+            if 'PHASE0_SOURCE_SESSIONS' not in result.stderr or attempt == 2:
+                assert result.returncode == 0, result.stderr
+        common['bootstrap_receipt_sha256'] = hashlib.sha256(
+            Path(common['bootstrap_receipt']).read_bytes()).hexdigest()
         if tool == 'verify':
             assert (await invoke('copy', directory, common, environment)).returncode == 0
         suffix = '' if tool == 'bootstrap' else '-acl'
