@@ -248,6 +248,10 @@ async def verify_independent(manifest, source, target):
             if cluster != execution[side]['cluster_system_identifier']:
                 raise ValueError('Connected cluster differs')
             require_complete_inventory(await connection.run_sync(inspect_catalog), manifest[f'{side}_catalog'])
+        if execution['mode'] == 'production':
+            from scripts.phase0.production import check_boundaries, load_authority
+            authority = load_authority(execution['production_manifest'], 'verify')
+            await check_boundaries(authority, source, target)
         source_fingerprint = await fingerprint_database(source, manifest['source_catalog'])
         if source_fingerprint != frozen:
             raise ValueError('Frozen source changed')
@@ -256,6 +260,8 @@ async def verify_independent(manifest, source, target):
         # Sequences are not MVCC snapshots: a late sequence writer must refuse.
         if await sequence_states(source, manifest['source_catalog']) != frozen['sequences']:
             raise ValueError('Frozen source sequence changed')
+        if execution['mode'] == 'production':
+            await check_boundaries(authority, source, target)
         return dict(manifest_digest=digest(manifest), source_fingerprint=source_fingerprint,
                     verification=asdict(verification), sequences=sequences,
                     source_identity=execution['source'], target_identity=execution['target'])
@@ -348,6 +354,15 @@ def main():
         if os.path.lexists(args.report):
             raise ValueError('Report destination already exists')
         manifest = json.loads(read_private_file(args.manifest))
+        if manifest.get('mode') == 'production':
+            from scripts.phase0.host_authority import parse_json, read_root_private
+            from scripts.phase0.production import run
+            manifest = parse_json(read_root_private(args.manifest))
+            if str(args.report) != manifest['report']:
+                raise ValueError('Approved report path differs')
+            asyncio.run(run(manifest, args.source_environment_file, args.target_environment_file))
+            print('Production copy independently verified')
+            return
         validate_manifest(manifest)
         # Require the freeze before opening a connection, including after receipt loss.
         if not manifest['execution']['frozen_source'] or not manifest['execution']['source_catalog_sha256']:

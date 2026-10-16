@@ -39,8 +39,16 @@ class BootstrapIdentity:
     server_port: int
     cluster_system_identifier: str
     source_sha: str
+    production_manifest: dict | None = None
 
     def validate(self):
+        if self.production_manifest is not None:
+            from scripts.phase0.production import load_authority
+            authority = load_authority(self.production_manifest, 'bootstrap')
+            if self.source_sha != authority['release_sha'] or any(
+                    getattr(self, key) != value for key, value in authority['target'].items()):
+                raise ValueError('Bootstrap production identity differs')
+            return
         environment = {key: value for key, value in os.environ.items() if not key.startswith('GIT_')}
         actual_sha = subprocess.check_output(
             ['git', '-C', str(ROOT), 'rev-parse', 'HEAD'], env=environment, text=True,
@@ -161,7 +169,7 @@ def verify_bootstrap_schema(connection, policy):
                 raise ValueError('Bootstrap business rows are not empty')
 
 
-async def bootstrap_connection(connection, identity, config, *, apply=False):
+async def bootstrap_connection(connection, identity, config, *, apply=False, boundary=None):
     if apply is not True:
         raise ValueError('Explicit bootstrap approval required')
     identity.validate()
@@ -186,6 +194,13 @@ async def bootstrap_connection(connection, identity, config, *, apply=False):
                 config.attributes.pop('phase0_bootstrap_identity', None)
                 config.attributes.pop('phase0_bootstrap_approved', None)
         await connection.run_sync(upgrade)
+        if boundary is not None:
+            await boundary()
+        from scripts.phase0.verify import sequence_states
+        catalog = await connection.run_sync(inspect_catalog)
+        baseline = dict(baseline_reference_rows=catalog['reference_rows'],
+                        baseline_sequences=await sequence_states(connection, catalog))
+    return baseline
 
 
 def validate_manifest(manifest):
@@ -225,10 +240,21 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
     parser.add_argument('--manifest', type=Path, required=True)
     parser.add_argument('--target-environment-file', type=Path, required=True)
+    parser.add_argument('--source-environment-file', type=Path)
     parser.add_argument('--apply', action='store_true')
     args = parser.parse_args()
     try:
-        identity = validate_manifest(json.loads(read_private_file(args.manifest)))
+        manifest = json.loads(read_private_file(args.manifest))
+        if manifest.get('mode') == 'production':
+            from scripts.phase0.host_authority import parse_json, read_root_private
+            from scripts.phase0.production import run
+            manifest = parse_json(read_root_private(args.manifest))
+            if args.source_environment_file is None:
+                raise ValueError('Production source environment file required')
+            asyncio.run(run(manifest, args.source_environment_file, args.target_environment_file, apply=args.apply))
+            print('Production bootstrap completed')
+            return
+        identity = validate_manifest(manifest)
         if args.apply:
             asyncio.run(apply_manifest(identity, args.target_environment_file))
         print('Bootstrap applied' if args.apply else 'Manifest checked; no connection opened or DDL approved')

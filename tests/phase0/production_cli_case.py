@@ -42,6 +42,10 @@ async def make_case(scratch, directory):
                   frozen_source=frozen, target_datacl=acl,
                   bootstrap_receipt=str(directory / 'bootstrap-report.json'),
                   bootstrap_receipt_sha256=None)
+    authority_directory = Path('/root/verdaxis-phase0')
+    authority_directory.mkdir(mode=0o700, exist_ok=True)
+    authority = {key: value for key, value in common.items() if key != 'bootstrap_receipt_sha256'}
+    private_file(authority_directory / 'authority.json', json.dumps(authority))
     environment = dict(os.environ, ENVIRONMENT='production', RELEASE_SHA=release['release_sha'],
                        DATABASE_NAME='verdaxis_prod', DATABASE_USER='verdaxis_app',
                        DATABASE_HOST='127.0.0.1', DATABASE_PORT=str(scratch.port),

@@ -54,7 +54,9 @@ async def test_production_bootstrap_wrong_authority_refuses_before_ddl(fault):
         else:
             common['frozen_source']['tables']['users']['count'] += 1
         result = await invoke('bootstrap', directory, common, environment)
-        assert result.returncode != 0
+        assert result.returncode == 1
+        assert 'Bootstrap refused' in result.stderr
+        assert 'unrecognized arguments' not in result.stderr
         assert not (directory / 'bootstrap-report.json').exists()
         async with scratch.admin_connection('verdaxis_prod') as target:
             assert await target.fetchval("SELECT to_regclass('public.users')") is None

@@ -131,6 +131,13 @@ def validate_manifest(manifest):
     if {k: v for k, v in manifest.items() if k != 'execution'} != committed:
         raise CopyRefused('Copy contract differs from committed review')
     execution = manifest['execution']
+    if execution['mode'] == 'production':
+        from scripts.phase0.production import copy_contract, load_authority
+        approved = execution['production_manifest']
+        authority = load_authority(approved, approved['tool'])
+        if manifest != copy_contract(authority, approved):
+            raise CopyRefused('Production copy execution differs')
+        return
     if execution['mode'] != 'synthetic':
         raise CopyRefused('Host apply awaits Task 4b union and ACL acceptance')
     if execution['host_id'] != os.uname().nodename:
@@ -343,6 +350,10 @@ async def copy_database(manifest, source, target, *, fail_at=None) -> CopyReceip
         if source.in_transaction() or target.in_transaction():
             raise CopyRefused('Copy owns both transactions')
         execution = manifest['execution']
+        authority = None
+        if execution['mode'] == 'production':
+            from scripts.phase0.production import load_authority
+            authority = load_authority(execution['production_manifest'], 'copy')
         receipt_path = Path(execution['receipt_path'])
         attempt_path = receipt_path.with_suffix('.attempt.json')
         if os.path.lexists(receipt_path) or os.path.lexists(attempt_path):
@@ -365,6 +376,8 @@ async def copy_database(manifest, source, target, *, fail_at=None) -> CopyReceip
                 if not locked:
                     raise CopyRefused('Import lock is busy')
                 await attest(target, execution['target'], owner=True)
+                if authority is not None:
+                    await check_boundaries(authority, source, target)
                 target_catalog = await target.run_sync(inspect_catalog)
                 require_complete_inventory(target_catalog, manifest['target_catalog'])
                 for name in sorted(target_catalog['tables']):
@@ -392,10 +405,23 @@ async def copy_database(manifest, source, target, *, fail_at=None) -> CopyReceip
                 sequences = await set_sequences(source, target, manifest)
                 boundary('after_sequences')
                 verification = await verify_database(manifest, source, target)
+                if authority is not None:
+                    await check_boundaries(authority, source, target)
                 receipt = CopyReceipt(digest(manifest), snapshot, execution['target']['oid'], verification, sequences)
             boundary('after_commit')
+        if authority is not None:
+            async with source.begin(), target.begin():
+                await source.execute(text('SET TRANSACTION READ ONLY'))
+                await target.execute(text('SET TRANSACTION READ ONLY'))
+                await configure_text_session(source)
+                await configure_text_session(target)
+                await check_boundaries(authority, source, target)
         boundary('before_receipt')
-        private_json(receipt_path, asdict(receipt))
+        if authority is not None:
+            from scripts.phase0.verify import publish_report
+            publish_report(receipt_path, asdict(receipt))
+        else:
+            private_json(receipt_path, asdict(receipt))
         return receipt
     except Exception as error:
         if started and receipt_path is not None:
@@ -418,6 +444,15 @@ def main():
     try:
         manifest_text = read_private_file(args.manifest, root_owned=os.geteuid() == 0)
         manifest = json.loads(manifest_text)
+        if manifest.get('mode') == 'production':
+            from scripts.phase0.host_authority import parse_json, read_root_private
+            from scripts.phase0.production import run
+            manifest = parse_json(read_root_private(args.manifest))
+            if args.source_sha != manifest['source_sha'] or args.target_sha != manifest['release_sha']:
+                raise CopyRefused('Approved release arguments differ')
+            asyncio.run(run(manifest, args.source_environment_file, args.target_environment_file, apply=args.apply))
+            print('Production copy completed')
+            return
         validate_manifest(manifest)
         import subprocess
 
