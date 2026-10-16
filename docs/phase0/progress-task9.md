@@ -28,12 +28,28 @@ passed. Runtime-ACL HTTP: **79 passed** after test-only port fix `d1d44c75`:
 Linux's automatic ephemeral range includes ports below the disposable guard's
 49152 minimum; the harness now selects within the unchanged allowed range.
 
-Monitor: **286 passed, 4 failed, 1 skipped**. Four external-recovery tests inspect
-fixed deployed-state paths rather than temporary fixtures and hit PermissionError
-under the isolated user. No live service action or privilege bypass occurred.
-The different-UID test skipped because passwordless nobody is unavailable; it
-remains Task 10. Exact failing test names, owners, commands and log hashes are
-in the current acceptance section. No application or host-tool source changed.
+Monitor: **286 passed, 4 failed, 1 skipped** on the initial run. Four
+external-recovery tests reached `deployment_active()`, which reads the module
+constant `DEPLOY_STATE_FILES` pointing at the fixed production checkout; the
+directory exists but is unreadable to the isolated user, so `Path.exists()`
+raised `PermissionError` before the mocked recovery step.
+
+Test-only fix: `tests/monitor/test_external_recovery.py` now redirects
+`DEPLOY_STATE_FILES` to a private temporary directory through the helper
+`isolate_deploy_state(recovery, tmp_path)`. Production paths, permissions and
+behavior are unchanged; only the in-process constant is replaced. A new test
+`test_present_deploy_state_refuses_recovery` keeps the guard verified: with an
+absent temp directory `deployment_active()` is False and recovery proceeds, and
+with a present temp state file recovery refuses (return 2, no command runs,
+`outcome=ineligible`, `deployment_guard=refused`). This strengthens, not
+weakens, the previously incidental coverage.
+
+After the fix, focused recovery tests: **7 passed**. Full monitor suite:
+**291 passed, 1 skipped, 0 failed**, exit 0 (`work/task9-linux-monitor2.log`).
+The single skip is the unchanged passwordless-`nobody` different-UID case at
+`tests/monitor/test_runtime_identity.py:212`; it remains a Task 10 item because
+the isolated test user cannot switch to another UID. No live service action or
+privilege bypass occurred, and no application or host-tool source changed.
 
 N1 structure commit: `0ad4b6fb`; Linux harness correction: `d1d44c75`.
 Unit ran at exact `e61400f3`; later calls used documentation-only descendants,

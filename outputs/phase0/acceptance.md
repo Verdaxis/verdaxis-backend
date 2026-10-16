@@ -65,7 +65,7 @@ Every call below has finished with a recorded `CALL_EXIT` marker.
 | Full Phase 0 runner | **177 passed, 0 failed/skipped**, 723.54 s, exit 0 | `work/task9-linux-phase0.log` |
 | Other PostgreSQL suites | **265 passed, 0 failed/skipped**, 1048.49 s, exit 0; includes four-worker durable SSE | `work/task9-linux-postgres.log` |
 | Runtime-ACL HTTP suite | Initial harness port assertion before collection; repaired run **79 passed**, 56.81 s, exit 0 | `work/task9-linux-http{,-retry}.log` |
-| Full monitor / different-UID case | **286 passed, 4 failed, 1 skipped**, 17.97 s, exit 1 | `work/task9-linux-monitor.log` |
+| Full monitor / different-UID case | **291 passed, 1 skipped, 0 failed**, 15.84 s, exit 0 | `work/task9-linux-monitor2.log` |
 | Ordinary and union migration drift | **3 checks passed**, no new upgrade operations | Phase 0 and PostgreSQL logs |
 
 ### Linux limits, failures and reproducibility
@@ -80,15 +80,24 @@ at `tests/monitor/test_runtime_identity.py:212`: passwordless `nobody` execution
 is unavailable. Task 10 must run it with authorized real UID switching. No sudo
 policy, root privilege or host setup was changed or simulated.
 
-Four new environment-sensitive failures in `tests/monitor/test_external_recovery.py`:
-`test_recovery_is_allowlisted_and_hourly`, `test_frontend_and_capacity_fail_closed`,
-`test_database_and_invalid_caddy_fail_closed`, and
-`test_healthy_loopback_uses_one_validated_caddy_reload`. Each reaches
-`deployment_active()` and calls `Path.exists()` on a fixed deployed state path
-under `/home/verdaxis-prod/verdaxis/prod/be`. The isolated user receives
-`PermissionError` before the mocked recovery operation. This is a test-isolation
-gap, not evidence that a real recovery ran. No permission bypass or direct host
-inspection was attempted. Owner: monitor-test lane/PM. Do not count these as green.
+The initial monitor run failed four tests in `tests/monitor/test_external_recovery.py`
+(`test_recovery_is_allowlisted_and_hourly`, `test_frontend_and_capacity_fail_closed`,
+`test_database_and_invalid_caddy_fail_closed`,
+`test_healthy_loopback_uses_one_validated_caddy_reload`). Each reached
+`deployment_active()`, which reads the module constant `DEPLOY_STATE_FILES`
+pointing at the fixed production checkout. That directory exists but is
+unreadable to the isolated user, so `Path.exists()` raised `PermissionError`
+before the mocked recovery step — a test-isolation gap, not a real recovery.
+
+Test-only fix: the file redirects `DEPLOY_STATE_FILES` to a private temporary
+directory via `isolate_deploy_state(recovery, tmp_path)`. Production paths,
+permissions and behavior are unchanged; only the in-process constant is replaced.
+A new `test_present_deploy_state_refuses_recovery` keeps the guard verified —
+absent temp state proceeds, present temp state refuses with return 2, no command
+runs and `deployment_guard=refused`. Focused recovery run: **7 passed**. Full
+monitor suite after the fix: **291 passed, 1 skipped, 0 failed**, exit 0
+(`work/task9-linux-monitor2.log`). The skip is the Task 10 `nobody` case above.
+No permission bypass or direct host inspection was attempted.
 
 The first HTTP call failed before collection because Linux port-0 allocation
 selected a port below the existing 49152 lower bound. Test-only fix `d1d44c75`
@@ -128,15 +137,14 @@ Local streamed log SHA-256 (all contain completion markers):
 | Timezone | UTC reconnect/role proofs retained | Linux Phase 0 passed; Task 10 fresh deployed processes |
 | Vault | M3 browser fault cases complete | Task 10 credentials, key-ring recovery and retention |
 | Frontend | M3 done, 109/111 with two explicit cached-old PM exceptions | Task 11 banner/entry HTML/refresh note; no promotion here |
-| Rollback | Linux tuple/outbox proofs pass; monitor 286 passed, 4 isolation failures, 1 UID skip | Monitor-test owner: isolate state paths; M2 appendix; Task 10 UID/systemd/proxy full switch-back |
+| Rollback | Linux tuple/outbox proofs pass; monitor 291 passed, 1 UID skip (Task 10) | M2 appendix; Task 10 UID/systemd/proxy full switch-back |
 
 ## Current resume point
 
-Linux calls are complete. First assign the four monitor isolation failures to
-the monitor-test owner: redirect fixed deploy-state paths into each temporary
-fixture, never grant access to deployed paths. Rerun the affected/full monitor
-suite through the tool after that separately scoped correction. The passwordless
-`nobody` proof remains Task 10 because the test user lacks that privilege.
+Linux calls are complete. The four monitor isolation failures are fixed by
+redirecting `DEPLOY_STATE_FILES` into each temporary fixture; the full monitor
+suite now passes **291/291** (1 Task 10 skip). The passwordless `nobody` proof
+remains Task 10 because the test user lacks that privilege.
 Then the PM merges M2 and any
 B1/B2 review fixes, reruns affected gates and names the final oracle. Any test that
 needs unavailable root/systemd stays an explicit Task 10 prerequisite; do not
