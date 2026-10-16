@@ -7,7 +7,7 @@
 //! role and compares the selected id sets. It never targets a deployed
 //! database.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use chrono::{DateTime, NaiveDate, Utc};
 use serde_json::Value;
@@ -248,6 +248,11 @@ async fn public_visibility_matrix_matches_python() {
             certification_declared: input["certification_declared"].as_bool().unwrap(),
             fame_terms: input.get("fame_terms").filter(|value| !value.is_null()),
             lng_terms: input.get("lng_terms").filter(|value| !value.is_null()),
+            specification_standard: input["specification_standard"].as_str(),
+            carbon_intensity_method: input["carbon_intensity_method"].as_str(),
+            carbon_intensity_gco2_mj: input["carbon_intensity_gco2_mj"].as_str(),
+            feedstock: input["feedstock"].as_str(),
+            origin: input["origin"].as_str(),
         };
         assert_eq!(
             verdaxis_read::order_is_execution_qualified_at(&policy, &order, clock.singapore_date),
@@ -582,5 +587,134 @@ async fn benchmark_key_first_matches_key_join_last() {
         project(&new),
         project(&fenced_rows),
         "unfenced benchmark differs from the decision-27 fence"
+    );
+}
+
+/// Phase 0 mirror proof: the fixed-biofuel supplier-metadata clause changed
+/// the shared rule. The frozen pre-Phase-0 rule (test fixture above) must
+/// disagree with the current rule exactly on the ASK rows that fail the
+/// clause, and agree everywhere else, so the mirror is proven on both sides:
+/// the negative rows (wrong standard, missing CI method, missing feedstock)
+/// must lose visibility under the new rule only, and B30/B100 BID rows and
+/// fully declared ASK rows must keep it.
+fn biofuel_rule_sql(with_clause: bool) -> String {
+    let sets = include_str!("../sql/eligibility_sets.sql").replace("/*gate*/", "$13");
+    let relation = include_str!("../sql/public_orders.sql")
+        .replace("/* eligibility_sets */", &sets)
+        .replace("/* base_orders */", "orderbook_orders");
+    let rule = if with_clause {
+        include_str!("../sql/current_order_rule.sql").to_string()
+    } else {
+        include_str!("support/current_order_rule_pre_biofuel.sql").to_string()
+    };
+    let relation = relation.replace("/* current_order_rule */", &rule);
+    format!(
+        "WITH eligible_orders AS NOT MATERIALIZED ({relation}) \
+         SELECT id FROM eligible_orders ORDER BY id"
+    )
+}
+
+#[tokio::test]
+async fn biofuel_supplier_metadata_clause_hides_only_failing_asks() {
+    let config = config("RUST_MARKET_TEST_DATABASE_URL");
+    let pools = connect(&config).await.unwrap();
+    let policy = policy();
+    let clock = clock(&expected());
+    let mut connection = pools.read.acquire().await.unwrap();
+    let filters = PublicOrderFilters::default();
+    let mut sets = Vec::new();
+    for with_clause in [true, false] {
+        let rows: Vec<(Uuid,)> = sqlx::query_as(sqlx::AssertSqlSafe(biofuel_rule_sql(with_clause)))
+            .bind(serde_json::to_string(&policy).unwrap())
+            .bind(clock.now)
+            .bind(clock.singapore_date.format("%Y-%m-%d").to_string())
+            .bind(filters.include_off_spec)
+            .bind(filters.product_id)
+            .bind(filters.delivery_point_id)
+            .bind(filters.side.map(str::to_owned))
+            .bind(filters.fuel_type.map(str::to_owned))
+            .bind(filters.market_product.map(str::to_owned))
+            .bind(filters.region.map(str::to_owned))
+            .bind(filters.availability_window.map(str::to_owned))
+            .bind("orderbook")
+            .bind(config.kyc_execution_gate_enabled)
+            .fetch_all(&mut *connection)
+            .await
+            .expect("the biofuel differential statement must run");
+        sets.push(
+            rows.into_iter()
+                .map(|(id,)| id.to_string())
+                .collect::<BTreeSet<_>>(),
+        );
+    }
+    let (with_clause, without_clause) = (&sets[0], &sets[1]);
+    let dropped: Vec<&String> = without_clause.difference(with_clause).collect();
+    let gained: Vec<&String> = with_clause.difference(without_clause).collect();
+    assert!(
+        gained.is_empty(),
+        "the clause must only remove rows: {gained:?}"
+    );
+    // Exactly the two clause-only negative fixtures lose visibility. The third
+    // negative fixture (missing feedstock) never reaches this differential
+    // because the shared generic ASK predicates already refuse an empty
+    // feedstock before the biofuel clause runs; its exclusion is proven by the
+    // Python matrix comparison instead.
+    assert_eq!(
+        dropped.len(),
+        2,
+        "expected exactly the two clause-only negative fixtures to drop, got {dropped:?}"
+    );
+    let rows: Vec<(String, String, Option<String>, Option<String>)> =
+        sqlx::query_as(sqlx::AssertSqlSafe(format!(
+            "SELECT id::text, side, specification_standard, carbon_intensity_method \
+             FROM orderbook_orders WHERE id IN ({})",
+            dropped
+                .iter()
+                .map(|id| format!("\'{id}\'"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        )))
+        .fetch_all(&mut *connection)
+        .await
+        .expect("the dropped rows must be readable");
+    let mut saw_wrong_standard = false;
+    let mut saw_missing_method = false;
+    for (id, side, standard, method) in rows {
+        assert_eq!(side, "ASK", "only ASK rows may drop: {id}");
+        saw_wrong_standard |= standard.as_deref() == Some("EN 14214");
+        saw_missing_method |= method.is_none();
+    }
+    assert!(
+        saw_wrong_standard && saw_missing_method,
+        "the dropped rows must exercise both clause-only arms: wrong standard and missing CI method"
+    );
+    // Positive rows keep visibility under the new rule: the two fully
+    // declared biofuel ASKs and the two biofuel BIDs remain selected. Count
+    // them through the same relation the clause lives in, filtered to
+    // biofuel-fuel-type products.
+    let mut kept = 0;
+    {
+        let rows: Vec<(Uuid,)> = sqlx::query_as(sqlx::AssertSqlSafe(biofuel_rule_sql(true)))
+            .bind(serde_json::to_string(&policy).unwrap())
+            .bind(clock.now)
+            .bind(clock.singapore_date.format("%Y-%m-%d").to_string())
+            .bind(false)
+            .bind(Option::<Uuid>::None)
+            .bind(Option::<Uuid>::None)
+            .bind(Option::<String>::None)
+            .bind(Some("Biofuel".to_owned()))
+            .bind(Option::<String>::None)
+            .bind(Option::<String>::None)
+            .bind(Option::<String>::None)
+            .bind("orderbook")
+            .bind(config.kyc_execution_gate_enabled)
+            .fetch_all(&mut *connection)
+            .await
+            .expect("the biofuel-filtered relation must run");
+        kept = rows.len();
+    }
+    assert_eq!(
+        kept, 4,
+        "visible biofuel rows: expected the two declared ASKs and two BIDs"
     );
 }

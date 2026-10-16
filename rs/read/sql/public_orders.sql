@@ -30,6 +30,7 @@ WITH policy_products AS (
         execution_mode text,
         lanes jsonb,
         qualification_profile text,
+        specification_standard text,
         display_order integer
     )
 ),
@@ -86,7 +87,7 @@ WHERE o.status IN ('OPEN', 'PARTIALLY_FILLED')
     -- Independently labelled public rows.
     AND o.provenance IN ('REAL', 'DEMO')
     -- Admitted fuel types.
-    AND p.fuel_type IN ('Methanol', 'Ethanol', 'FAME', 'LNG')
+    AND p.fuel_type IN ('Methanol', 'Ethanol', 'Biofuel', 'FAME', 'LNG')
     -- Scalar ASK quality declarations.
     AND ($12::text <> 'orderbook' OR (
         o.side <> 'ASK'

@@ -2,7 +2,7 @@
 -- Uses the same captured instant/date and KYC switch as the economic relation.
 WITH policy_products AS (
     SELECT * FROM jsonb_to_recordset(($1::jsonb)->'products') AS p(
-        id uuid, qualification_profile text, lanes jsonb
+        id uuid, qualification_profile text, specification_standard text, lanes jsonb
     )
 )
 /* eligibility_sets */

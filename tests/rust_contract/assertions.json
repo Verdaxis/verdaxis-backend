@@ -3463,6 +3463,16 @@
       "status": "pending",
       "exclusion_reason": "",
       "reviewed_by": ""
+    },
+    {
+      "source_id": "tests/unit/test_orderbook_marketplace_filters.py::test_biofuel_public_surfaces_and_live_benchmark_share_fixed_contract",
+      "source_file": "tests/unit/test_orderbook_marketplace_filters.py",
+      "behavior": "Phase 0: B30/B100 public ASK surfaces and the live benchmark share the fixed specification-standard and supplier-metadata contract (biofuel_supplier_metadata_clause).",
+      "owner_task": "13b",
+      "target_id": "orderbook_lists",
+      "status": "pending",
+      "exclusion_reason": "",
+      "reviewed_by": ""
     }
   ],
   "task4b_fixture_gate": {

@@ -41,8 +41,9 @@ async def seed(session, clock: datetime) -> dict:
     from app.market_catalog import CANONICAL_DELIVERY_POINTS, CANONICAL_PRODUCTS
     from sqlalchemy import text
 
-    product = {"Bio-LNG": None, "UCOME B100": None, "Bio Methanol": None,
-               "e-Methanol": None, "Bio Ethanol": None, "Synthetic Ethanol": None}
+    product = {"B30": None, "B100": None, "Bio-LNG": None, "UCOME B100": None,
+               "Bio Methanol": None, "e-Methanol": None, "Bio Ethanol": None,
+               "Synthetic Ethanol": None}
     # The catalog migrations already seed these rows; this only completes or
     # deactivates them so the matrix is independent of seed history.
     for spec in CANONICAL_PRODUCTS:
@@ -185,6 +186,8 @@ async def seed(session, clock: datetime) -> dict:
     methanol = product["Bio Methanol"]
     fame = product["UCOME B100"]
     lng = product["Bio-LNG"]
+    b30 = product["B30"]
+    b100 = product["B100"]
     singapore = point["Singapore"]
     rotterdam = point["Rotterdam"]
 
@@ -211,6 +214,7 @@ async def seed(session, clock: datetime) -> dict:
             "specification_standard": None,
             "msds_available": False,
             "carbon_intensity_gco2_mj": None,
+            "carbon_intensity_method": None,
             "feedstock": None,
             "origin": None,
             "certifications": "[]",
@@ -231,6 +235,20 @@ async def seed(session, clock: datetime) -> dict:
         "carbon_intensity_gco2_mj": "18.40",
         "feedstock": "Used cooking oil",
         "origin": "Singapore",
+    }
+    # Fixed-biofuel ASK declarations: the exact B30/B100 specification
+    # standards plus the whole-supplied-fuel metadata the Phase 0 clause
+    # requires. biofuel_ask_* rows below use these; the negative rows drop
+    # one field at a time to exercise every side of the clause.
+    biofuel_declarations = {
+        **scalar_declarations,
+        "specification_standard": "ISO 8217:2024 RF 380",
+        "carbon_intensity_method": "Whole-blend CI and LCV",
+    }
+    biofuel100_declarations = {
+        **scalar_declarations,
+        "specification_standard": "ISO 8217:2024 DFA",
+        "carbon_intensity_method": "Whole-fuel FAME CI and LCV",
     }
     fame_terms = {
         "schema_version": 1,
@@ -314,6 +332,19 @@ async def seed(session, clock: datetime) -> dict:
         order("lng_ask_reseller", side="ASK", product_id=lng, delivery_point_id=rotterdam,
               lng_terms={**lng_terms, "seller_is_physical_supplier": False},
               **{k: v for k, v in scalar_declarations.items() if k != "carbon_intensity_gco2_mj"}),
+        # Fixed-biofuel contract rows. The positive rows carry the exact
+        # policy standard and all supplier metadata; each negative row breaks
+        # one clause arm so the mirror is proven on both sides.
+        order("b30_ask_ok", side="ASK", product_id=b30, **biofuel_declarations),
+        order("b100_ask_ok", side="ASK", product_id=b100, **biofuel100_declarations),
+        order("b30_ask_wrong_standard", side="ASK", product_id=b30,
+              **{**biofuel_declarations, "specification_standard": "EN 14214"}),
+        order("b30_ask_missing_ci_method", side="ASK", product_id=b30,
+              **{k: v for k, v in biofuel_declarations.items() if k != "carbon_intensity_method"}),
+        order("b100_ask_missing_feedstock", side="ASK", product_id=b100,
+              **{k: v for k, v in biofuel100_declarations.items() if k != "feedstock"}),
+        order("b30_bid_ok", product_id=b30),
+        order("b100_bid_ok", product_id=b100),
         order("partial_bid", status="PARTIALLY_FILLED", remaining_quantity_mt="40.00"),
         order("filled_bid", status="FILLED", remaining_quantity_mt="0.00"),
         order("demo_expired_bid", provenance="DEMO", organization_id=org["demo_buyer"],
@@ -498,7 +529,12 @@ async def select(session) -> dict:
     from app.market_catalog import PRODUCT_IDS, CANONICAL_DELIVERY_POINTS
     points = {point.name: point.id for point in CANONICAL_DELIVERY_POINTS}
     lane_filters = []
-    for product_id in (PRODUCT_IDS["UCOME_B100"], PRODUCT_IDS["BIO_LNG"]):
+    for product_id in (
+        PRODUCT_IDS["UCOME_B100"],
+        PRODUCT_IDS["BIO_LNG"],
+        PRODUCT_IDS["B30"],
+        PRODUCT_IDS["B100"],
+    ):
         for point_id in (points["Singapore"], points["Rotterdam"]):
             filters, joins = public_order_scope()
             query = sql_select(OrderBookOrder.id)
@@ -600,12 +636,13 @@ INSERT_ORDER = (
     "delivery_point_id, quantity_mt, remaining_quantity_mt, price_per_mt_usd, "
     "availability_window, status, expires_at, off_spec, certification_declared, "
     "certification_scheme, specification_standard, msds_available, "
-    "carbon_intensity_gco2_mj, feedstock, origin, certifications, fame_terms, lng_terms) "
+    "carbon_intensity_gco2_mj, carbon_intensity_method, feedstock, origin, "
+    "certifications, fame_terms, lng_terms) "
     "VALUES (:id, :organization_id, :owner_user_id, :created_by_actor_user_id, "
     ":creation_method, :provenance, :side, :product_id, :delivery_point_id, :quantity_mt, "
     ":remaining_quantity_mt, :price_per_mt_usd, :availability_window, :status, :expires_at, "
     ":off_spec, :certification_declared, :certification_scheme, :specification_standard, "
-    ":msds_available, :carbon_intensity_gco2_mj, :feedstock, :origin, "
+    ":msds_available, :carbon_intensity_gco2_mj, :carbon_intensity_method, :feedstock, :origin, "
     "CAST(:certifications AS json), CAST(:fame_terms AS json), CAST(:lng_terms AS json))"
 )
 INSERT_TRADE = (

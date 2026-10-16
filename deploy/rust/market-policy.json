@@ -19,6 +19,7 @@
         "a4762444-4e0b-5bc1-b647-a185047adae5"
       ],
       "qualification_profile": "scalar",
+      "specification_standard": "ISO 8217:2024 RF 380",
       "display_order": 1
     },
     {
@@ -39,6 +40,7 @@
         "a4762444-4e0b-5bc1-b647-a185047adae5"
       ],
       "qualification_profile": "scalar",
+      "specification_standard": "ISO 8217:2024 DFA",
       "display_order": 2
     },
     {

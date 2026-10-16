@@ -74,6 +74,14 @@ pub fn validate_policy(policy: &MarketPolicy) -> Result<(), String> {
         if !KNOWN_EXECUTION_MODES.contains(&product.execution_mode.as_str()) {
             return Err(format!("unknown execution mode {}", product.execution_mode));
         }
+        if let Some(standard) = &product.specification_standard
+            && standard.trim().is_empty()
+        {
+            return Err(format!(
+                "product {} has an invalid specification standard",
+                product.code
+            ));
+        }
         if product.lanes.is_empty() {
             return Err(format!("product {} has no lanes", product.code));
         }

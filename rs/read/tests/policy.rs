@@ -30,6 +30,7 @@ fn fixture_product(id: u128, code: &str, name: &str, order: u32) -> ProductPolic
         execution_mode: "ORDERBOOK".into(),
         lanes: vec![uuid::Uuid::from_u128(0x1000)],
         qualification_profile: "scalar".into(),
+        specification_standard: None,
         display_order: order,
     }
 }
@@ -69,6 +70,7 @@ fn active_alias_is_not_a_canonical_product() {
         execution_mode: "ORDERBOOK".into(),
         lanes: vec![],
         qualification_profile: "scalar".into(),
+        specification_standard: None,
         display_order: 1,
     };
     assert!(product_matches(

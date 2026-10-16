@@ -68,6 +68,10 @@ CORPUS_FIXTURES: dict[str, tuple[tuple[str, ...], str]] = {
         ("R05-news",),
         "trusted and untrusted signal rows",
     ),
+    "fixed_biofuel_supplier_metadata": (
+        ("R17-asks", "R20-product-counts"),
+        "B30/B100 ASK rows with and without the fixed supplier metadata",
+    ),
 }
 
 
@@ -108,7 +112,7 @@ EXPECTED_COUNTS = {
     "ports": 3,
     "port_intelligence": 3,
     "news": 6,
-    "market_orders": 46,
+    "market_orders": 53,
     "market_trades": 6,
     "small_decimal_orders": 4,
     "signals": 2,
@@ -116,6 +120,16 @@ EXPECTED_COUNTS = {
     "legacy_trades": 2,
     "legacy_orders": 1,
 }
+# Phase 0 B30/B100 corpus rows: the fixed-biofuel supplier-metadata clause.
+FIXED_BIOFUEL_ORDER_NAMES = (
+    "b30_ask_ok",
+    "b100_ask_ok",
+    "b30_ask_wrong_standard",
+    "b30_ask_missing_ci_method",
+    "b100_ask_missing_feedstock",
+    "b30_bid_ok",
+    "b100_bid_ok",
+)
 FAMILY_CHECKS = {
     "ports_intelligence_news": ("ports", "port_intelligence", "news"),
     "admitted_real_owners": ("market_orders",),
@@ -127,6 +141,7 @@ FAMILY_CHECKS = {
     "real_demo_mixed_trades": ("market_trades", "legacy_trades"),
     "missing_benchmark": ("market_orders",),
     "trusted_untrusted_signals": ("signals", "ingestion_runs"),
+    "fixed_biofuel_supplier_metadata": ("market_orders",),
 }
 PRE_GUARD_REVISION = "miq_20260720_market_quarantine"
 
@@ -415,6 +430,7 @@ async def seed_corpus(session):
         "moved_owner_bid",
         "unverified_owner_bid",
         "grace_edge_bid",
+        *FIXED_BIOFUEL_ORDER_NAMES,
     ):
         if await session.get(OrderBookOrder, matrix.fid("order:" + name)) is None:
             raise CorpusSeedError(f"missing named fixture {name}")

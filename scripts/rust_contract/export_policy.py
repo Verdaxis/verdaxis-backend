@@ -56,6 +56,8 @@ REQUIRED_PRODUCT_FIELDS = (
     "qualification_profile",
     "display_order",
 )
+# Optional per-product data: only fixed-biofuel products carry it.
+OPTIONAL_PRODUCT_FIELDS = ("specification_standard",)
 REQUIRED_POINT_FIELDS = ("id", "name", "region", "timezone", "display_order")
 
 
@@ -74,7 +76,11 @@ def recorded_source_sha(root: Path = ROOT) -> str:
 
 def build_policy(source_sha: str) -> dict:
     """Build the product/point policy payload from the approved catalog."""
-    from app.market_catalog import CANONICAL_DELIVERY_POINTS, CANONICAL_PRODUCTS
+    from app.market_catalog import (
+        BIOFUEL_SPECIFICATION_STANDARDS,
+        CANONICAL_DELIVERY_POINTS,
+        CANONICAL_PRODUCTS,
+    )
 
     codes = {spec.market_product.value for spec in CANONICAL_PRODUCTS}
     if codes != set(PROFILES):
@@ -94,6 +100,15 @@ def build_policy(source_sha: str) -> dict:
                 for point in (spec.available_delivery_point_ids or point_ids)
             ],
             "qualification_profile": PROFILES[spec.market_product.value],
+            # Fixed-biofuel ASK contracts (BIOFUEL_SPECIFICATION_STANDARDS in
+            # app.market_catalog) travel as data so executable SQL and code
+            # never name a product. Products without a fixed standard omit the
+            # key, matching the Rust loader's skip_serializing_if shape.
+            **(
+                {"specification_standard": standard}
+                if (standard := BIOFUEL_SPECIFICATION_STANDARDS.get(spec.id))
+                else {}
+            ),
             "display_order": index,
         }
         for index, spec in enumerate(CANONICAL_PRODUCTS, start=1)
@@ -171,6 +186,13 @@ def validate_policy(payload: object) -> None:
             raise PolicyError(f"unknown qualification profile {product['qualification_profile']}")
         if product["execution_mode"] not in KNOWN_EXECUTION_MODES:
             raise PolicyError(f"unknown execution mode {product['execution_mode']}")
+        standard = product.get("specification_standard")
+        if standard is not None and (
+            not isinstance(standard, str) or not standard.strip()
+        ):
+            raise PolicyError(
+                f"product {product['code']} has an invalid specification standard"
+            )
         lanes = product["lanes"]
         if not isinstance(lanes, list) or not lanes:
             raise PolicyError(f"product {product['code']} has no lanes")

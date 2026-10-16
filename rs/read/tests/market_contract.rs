@@ -491,6 +491,7 @@ fn product(
         execution_mode: "ORDERBOOK".to_owned(),
         lanes,
         qualification_profile: profile.to_owned(),
+        specification_standard: None,
         display_order: n as u32,
     }
 }
@@ -556,6 +557,11 @@ fn scalar_input<'a>(point: &'a str) -> QualificationInput<'a> {
         certification_declared: false,
         fame_terms: None,
         lng_terms: None,
+        specification_standard: None,
+        carbon_intensity_method: None,
+        carbon_intensity_gco2_mj: None,
+        feedstock: None,
+        origin: None,
     }
 }
 
@@ -641,6 +647,11 @@ fn lng_input<'a>(side: &'a str, point: &'a str, terms: Option<&'a Json>) -> Qual
         certification_declared: false,
         fame_terms: None,
         lng_terms: terms,
+        specification_standard: None,
+        carbon_intensity_method: None,
+        carbon_intensity_gco2_mj: None,
+        feedstock: None,
+        origin: None,
     }
 }
 
@@ -657,6 +668,11 @@ fn fame_input<'a>(point: &'a str, terms: Option<&'a Json>) -> QualificationInput
         certification_declared: true,
         fame_terms: terms,
         lng_terms: None,
+        specification_standard: None,
+        carbon_intensity_method: None,
+        carbon_intensity_gco2_mj: None,
+        feedstock: None,
+        origin: None,
     }
 }
 

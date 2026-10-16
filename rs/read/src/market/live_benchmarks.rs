@@ -85,6 +85,11 @@ pub fn candidate_is_benchmark_qualified(
         certification_declared: flag("certification_declared"),
         fame_terms: row.get("fame_terms"),
         lng_terms: row.get("lng_terms"),
+        specification_standard: text("specification_standard"),
+        carbon_intensity_method: text("carbon_intensity_method"),
+        carbon_intensity_gco2_mj: row.get("carbon_intensity_gco2_mj").and_then(Json::as_str),
+        feedstock: text("feedstock"),
+        origin: text("origin"),
     };
     let typed = matches!(product.qualification_profile.as_str(), "fame_v1" | "lng_v1");
     if typed {

@@ -132,6 +132,11 @@ pub struct ProductPolicy {
     pub execution_mode: String,
     pub lanes: Vec<uuid::Uuid>,
     pub qualification_profile: String,
+    /// Fixed-biofuel ASK contract (`BIOFUEL_SPECIFICATION_STANDARDS` in the
+    /// Python oracle). Absent for every product without a fixed standard; it
+    /// is data, so no executable source names a product.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub specification_standard: Option<String>,
     pub display_order: u32,
 }
 

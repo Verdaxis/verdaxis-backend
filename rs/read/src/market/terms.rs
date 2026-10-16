@@ -36,6 +36,14 @@ pub struct QualificationInput<'a> {
     pub certification_declared: bool,
     pub fame_terms: Option<&'a Json>,
     pub lng_terms: Option<&'a Json>,
+    /// Fixed-biofuel ASK contract fields (`BIOFUEL_SPECIFICATION_STANDARDS`
+    /// and the whole-supplied-fuel metadata in the Python oracle). Read only
+    /// for products whose policy record carries a fixed standard.
+    pub specification_standard: Option<&'a str>,
+    pub carbon_intensity_method: Option<&'a str>,
+    pub carbon_intensity_gco2_mj: Option<&'a str>,
+    pub feedstock: Option<&'a str>,
+    pub origin: Option<&'a str>,
 }
 
 /// Trim and upper-case a declared certification scheme; blank becomes absent.
@@ -109,6 +117,65 @@ pub fn order_is_execution_qualified_at(
             return false;
         }
         if !order.certification_declared {
+            return false;
+        }
+        // Fixed-biofuel ASK contract: the policy's per-product standard and
+        // the whole-supplied-fuel metadata must all be present. Port of the
+        // BIOFUEL_SPECIFICATION_STANDARDS branch in
+        // app.services.execution_policy.order_is_execution_qualified.
+        if let Some(product) = profile_product
+            && product.specification_standard.is_some()
+        {
+            let required = product
+                .specification_standard
+                .as_deref()
+                .unwrap_or_default();
+            if !supplier_product_metadata_is_valid(order, required) {
+                return false;
+            }
+        }
+    }
+    true
+}
+
+/// The pure mirror of `supplier_product_metadata_error` plus the msds/CI/
+/// feedstock/origin presence checks the Python ASK branch applies for
+/// fixed-biofuel products. The standard comparison is case-insensitive after
+/// Python `str.strip` on both sides, exactly as the SQL mirror's
+/// `upper(trim(...))` is.
+fn supplier_product_metadata_is_valid(
+    order: &QualificationInput<'_>,
+    required_standard: &str,
+) -> bool {
+    let declared = order
+        .specification_standard
+        .unwrap_or_default()
+        .trim_matches(is_python_whitespace);
+    if !declared.eq_ignore_ascii_case(required_standard.trim_matches(is_python_whitespace)) {
+        return false;
+    }
+    if order
+        .carbon_intensity_method
+        .unwrap_or_default()
+        .trim_matches(is_python_whitespace)
+        .is_empty()
+    {
+        return false;
+    }
+    if !order.msds_available {
+        return false;
+    }
+    // Python tests presence only (`is None` -> unqualified; the SQL mirror is
+    // IS NOT NULL), so an empty decimal string still passes here.
+    if order.carbon_intensity_gco2_mj.is_none() {
+        return false;
+    }
+    for field in [order.feedstock, order.origin] {
+        if field
+            .unwrap_or_default()
+            .trim_matches(is_python_whitespace)
+            .is_empty()
+        {
             return false;
         }
     }

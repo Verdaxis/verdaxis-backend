@@ -7,7 +7,7 @@
 //! `rs/read/sql/`, and these constants keep the Rust side in step with them.
 
 /// Fuel types admitted to the public marketplace.
-pub const ADMITTED_FUEL_TYPES: [&str; 4] = ["Methanol", "Ethanol", "FAME", "LNG"];
+pub const ADMITTED_FUEL_TYPES: [&str; 5] = ["Methanol", "Ethanol", "Biofuel", "FAME", "LNG"];
 
 /// Provenance labels a public order collection admits.
 pub const PUBLIC_ORDER_EVIDENCE: [&str; 2] = ["REAL", "DEMO"];

@@ -10,6 +10,7 @@ WITH policy_products AS (
         execution_mode text,
         lanes jsonb,
         qualification_profile text,
+        specification_standard text,
         display_order integer
     )
 ),

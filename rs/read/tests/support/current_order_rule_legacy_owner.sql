@@ -2,6 +2,9 @@
 -- Used only by the eligibility-equivalence differential test; never in the
 -- serving path. Kept verbatim from the shared rule before decision 25.
 -- Shared expiry, owner admission and shallow declaration rule.
+-- The fixed-biofuel ASK clause below is the Phase 0 addition: the frozen
+-- decision-25 fixture keeps it so the sets equivalence test still isolates
+-- exactly one change.
 -- Requires policy_products and alias o. Binds $2, $3 and $13.
 TRUE
     -- Currency: an explicit future expiry, or a null expiry on REAL/UNKNOWN.
@@ -143,5 +146,39 @@ TRUE
             )
             AND o.lng_terms ->> 'side' = o.side
             AND o.off_spec = false
+        )
+    )
+    -- Fixed-biofuel supplier metadata on ASK rows, keyed by the policy's
+    -- per-product specification standard (the SQL mirror of
+    -- app.services.execution_policy.biofuel_supplier_metadata_clause, which
+    -- Python applies inside current_public_order_clause for ASK sides only).
+    -- The trim set E' \t\r\n\f\v' is Python str.strip's default set and the
+    -- standard comparison is case-insensitive after that trim, as in Python.
+    AND (
+        o.side <> 'ASK'
+        OR (
+            NOT EXISTS (
+                SELECT 1
+                FROM policy_products AS pb
+                WHERE pb.specification_standard IS NOT NULL
+                  AND pb.id = o.product_id
+            )
+            OR (
+                o.off_spec IS false
+                AND EXISTS (
+                    SELECT 1
+                    FROM policy_products AS pb
+                    WHERE pb.specification_standard IS NOT NULL
+                      AND pb.id = o.product_id
+                      AND upper(trim(o.specification_standard, E' \t\r\n\f\v')) = upper(pb.specification_standard)
+                )
+                AND length(trim(o.carbon_intensity_method, E' \t\r\n\f\v')) > 0
+                AND o.certification_declared IS true
+                AND length(trim(o.certification_scheme, E' \t\r\n\f\v')) > 0
+                AND o.msds_available IS true
+                AND o.carbon_intensity_gco2_mj IS NOT NULL
+                AND length(trim(o.feedstock, E' \t\r\n\f\v')) > 0
+                AND length(trim(o.origin, E' \t\r\n\f\v')) > 0
+            )
         )
     )

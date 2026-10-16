@@ -7,7 +7,7 @@ EXPECTED_COUNTS = {
     "ports": 3,
     "port_intelligence": 3,
     "news": 6,
-    "market_orders": 46,
+    "market_orders": 53,
     "market_trades": 6,
     "small_decimal_orders": 4,
     "signals": 2,

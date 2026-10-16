@@ -2,7 +2,7 @@
 -- Keep the common binder's parameter types, including unused surface filters.
 WITH policy_products AS (
     SELECT * FROM jsonb_to_recordset(($1::jsonb)->'products') AS product(
-        id uuid, qualification_profile text, lanes jsonb
+        id uuid, qualification_profile text, specification_standard text, lanes jsonb
     )
 )
 /* eligibility_sets */, bindings AS (

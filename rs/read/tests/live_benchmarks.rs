@@ -68,7 +68,9 @@ fn scalar_scheme_is_not_an_allowlist_and_all_fields_are_required() {
     let product = policy
         .products
         .iter()
-        .find(|product| product.qualification_profile == "scalar")
+        .find(|product| {
+            product.qualification_profile == "scalar" && product.specification_standard.is_none()
+        })
         .unwrap();
     let mut row = typed_row("fame_v1");
     row["product_id"] = json!(product.id);
@@ -136,7 +138,7 @@ fn python_control_whitespace_does_not_qualify_scalar_asks() {
     let product = policy
         .products
         .iter()
-        .find(|p| p.qualification_profile == "scalar")
+        .find(|p| p.qualification_profile == "scalar" && p.specification_standard.is_none())
         .unwrap();
     let mut row = typed_row("fame_v1");
     row["product_id"] = json!(product.id);
@@ -201,7 +203,7 @@ fn excluded_origin_row_changes_price_quantity_and_count() {
     let product = policy
         .products
         .iter()
-        .find(|p| p.qualification_profile == "scalar")
+        .find(|p| p.qualification_profile == "scalar" && p.specification_standard.is_none())
         .unwrap();
     let mut row = typed_row("fame_v1");
     row["product_id"] = json!(product.id);
@@ -235,4 +237,48 @@ fn wrong_lane_lng_is_not_a_benchmark() {
         .unwrap();
     row["delivery_point_id"] = json!(point.id);
     assert!(!candidate_is_benchmark_qualified(&policy, &row, &clock()));
+}
+
+#[test]
+fn fixed_biofuel_asks_need_the_policy_standard_and_full_metadata() {
+    let policy = policy();
+    let product = policy
+        .products
+        .iter()
+        .find(|p| p.specification_standard.is_some())
+        .unwrap();
+    let mut row = typed_row("fame_v1");
+    row["product_id"] = json!(product.id);
+    row["carbon_intensity_gco2_mj"] = json!("79.90");
+    row["origin"] = json!("Singapore");
+    row["carbon_intensity_method"] = json!("Whole-blend CI and LCV");
+    // The policy standard is required verbatim (after trim/case).
+    row["specification_standard"] = json!(product.specification_standard.clone());
+    assert!(candidate_is_benchmark_qualified(&policy, &row, &clock()));
+    let mut wrong = row.clone();
+    wrong["specification_standard"] = json!("EN 14214");
+    assert!(!candidate_is_benchmark_qualified(&policy, &wrong, &clock()));
+    // Trim and case fold match Python's upper(trim(...)) comparison.
+    let mut padded = row.clone();
+    padded["specification_standard"] =
+        json!(format!(" {} ", product.specification_standard.clone().unwrap()).to_lowercase());
+    assert!(candidate_is_benchmark_qualified(&policy, &padded, &clock()));
+    // Every metadata arm is required.
+    for field in ["carbon_intensity_method", "feedstock", "origin"] {
+        let mut invalid = row.clone();
+        invalid[field] = json!(" \t\n");
+        assert!(
+            !candidate_is_benchmark_qualified(&policy, &invalid, &clock()),
+            "{field}"
+        );
+    }
+    let mut no_ci = row.clone();
+    no_ci["carbon_intensity_gco2_mj"] = Value::Null;
+    assert!(!candidate_is_benchmark_qualified(&policy, &no_ci, &clock()));
+    // A BID never needs the supplier metadata.
+    let mut bid = row;
+    bid["side"] = json!("BID");
+    bid["certification_scheme"] = Value::Null;
+    bid["certification_declared"] = json!(false);
+    assert!(candidate_is_benchmark_qualified(&policy, &bid, &clock()));
 }
