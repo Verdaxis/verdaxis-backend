@@ -147,6 +147,20 @@ async def attest_endpoint(connection, identity):
         raise Refusal('PHASE0_DB_IDENTITY')
 
 
+async def observe_boundaries(authority, source, target, *, frozen=True):
+    """Observe every boundary in a self-contained read-only transaction.
+
+    The transaction is closed before returning, so callers keep their own
+    transaction ownership (the import path requires exactly that).
+    """
+    if source.in_transaction() or target.in_transaction():
+        raise Refusal('PHASE0_DB_IDENTITY')
+    async with source.begin(), target.begin():
+        await source.execute(text('SET TRANSACTION READ ONLY'))
+        await target.execute(text('SET TRANSACTION READ ONLY'))
+        await check_boundaries(authority, source, target, frozen=frozen)
+
+
 async def check_boundaries(authority, source, target, *, frozen=True):
     from scripts.phase0.verify import fingerprint_database
     await attest_endpoint(source, authority['source'])
@@ -205,7 +219,7 @@ async def run(manifest, source_file, target_file, *, expected_tool, apply=False)
             # Entry boundary for every tool: identity, source quiescence, target
             # ACL/sessions and frozen source state are observed before any work.
             if tool != 'bootstrap':
-                await check_boundaries(authority, source, target)
+                await observe_boundaries(authority, source, target)
             if tool == 'bootstrap':
                 from alembic.config import Config
 
@@ -239,12 +253,7 @@ async def run(manifest, source_file, target_file, *, expected_tool, apply=False)
                 report = await verify_independent(copy_contract(authority, manifest), source, target)
             # Fresh transactions ensure the final source observation is not the
             # original MVCC snapshot. Report publication is after this check.
-            async with source.begin(), target.begin():
-                await source.execute(text('SET TRANSACTION READ ONLY'))
-                await target.execute(text('SET TRANSACTION READ ONLY'))
-                await configure_text_session(source)
-                await configure_text_session(target)
-                await check_boundaries(authority, source, target)
+            await observe_boundaries(authority, source, target)
             publish_report(manifest['report'], report)
             return dict(validated_only=False)
     finally:

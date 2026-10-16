@@ -21,6 +21,24 @@ def private_file(path, content):
     path.chmod(0o600)
 
 
+async def settle_quiesced(scratch, *, attempts=40):
+    """Wait until the disposable source and target have no other sessions.
+
+    The fixture's own helper connections close asynchronously; the tools
+    require a genuinely quiesced source and an isolated target.
+    """
+    for _ in range(attempts):
+        async with scratch.admin_connection() as admin:
+            others = await admin.fetchval('''
+                SELECT count(*) FROM pg_stat_activity
+                WHERE datname IN ('verdaxis', 'verdaxis_prod') AND pid <> pg_backend_pid()
+            ''')
+        if others == 0:
+            return
+        await asyncio.sleep(0.25)
+    raise ValueError('Disposable databases did not settle to quiescence')
+
+
 def install_authority(common):
     """Write the operator authority from the current claims.
 
@@ -65,6 +83,7 @@ async def make_case(scratch, directory):
     for tool in ('bootstrap', 'copy', 'verify'):
         for side, url in (('source', scratch.source_url), ('target', scratch.target_url)):
             private_file(directory / f'{tool}-{side}.env', 'DATABASE_URL=' + url + '\n')
+    await settle_quiesced(scratch)
     return common, environment
 
 

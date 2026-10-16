@@ -411,12 +411,8 @@ async def copy_database(manifest, source, target, *, fail_at=None) -> CopyReceip
                 receipt = CopyReceipt(digest(manifest), snapshot, execution['target']['oid'], verification, sequences)
             boundary('after_commit')
         if authority is not None:
-            async with source.begin(), target.begin():
-                await source.execute(text('SET TRANSACTION READ ONLY'))
-                await target.execute(text('SET TRANSACTION READ ONLY'))
-                await configure_text_session(source)
-                await configure_text_session(target)
-                await check_boundaries(authority, source, target)
+            from scripts.phase0.production import observe_boundaries
+            await observe_boundaries(authority, source, target)
         boundary('before_receipt')
         if authority is not None:
             from scripts.phase0.verify import publish_report
