@@ -755,3 +755,21 @@ curves_legacy (23452, including `legacy price scale: 8 comparisons`),
 curves_canonical (26555, including CURVE_QUERY_COST/CURVE_MEMORY) and mcp
 (29538, 143 cases plus privacy and SQL-cancellation proofs). The
 corrected gate collapses this to eleven environments, one target each.
+
+### Remaining sequence once the test host unpauses (resume point)
+
+1. `verdaxis-prod-test "$PWD" 'venv/bin/python -m scripts.rust_contract.run_disposable
+   --group all --rust-target all --require-complete-ledger
+   --report docs/rust-phase1/ci-contract.json'` — the corrected combined
+   gate. The report JSON is printed to stdout by `write_report`; capture it
+   from the log into `docs/rust-phase1/ci-contract.json` (the remote writes
+   its own copy that does not sync back).
+2. `venv/bin/python work/rust-phase1/profile_lists.py` through the wrapper —
+   one list and one bids request per runtime, wall time, per-statement
+   pg_stat_statements, and outside-SQL time. Name where the ~0.5 s goes.
+3. `venv/bin/python work/rust-phase1/index_experiment.py` through the
+   wrapper — disposable-only partial index
+   `(side, created_at DESC, id DESC) WHERE status IN ('OPEN','PARTIALLY_FILLED')`,
+   warm p95 for both runtimes with/without, EXPLAIN plans for the walk and
+   the real route statements, then DROP INDEX. Report and stop: the real
+   index is a PM decision.
