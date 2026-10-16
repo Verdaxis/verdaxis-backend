@@ -844,3 +844,30 @@ the gap: the dominant costs from the breakdown above (the 523 ms key-first
 benchmark statement and ~1.0 s outside SQL) are untouched by a page-order
 index. **Stopped here as instructed — adding a real index is a PM
 decision.** No migration file was created or modified.
+
+### 5. Release-profile re-measurement (PM finding accepted)
+
+PM finding: every earlier p95/breakdown run built the contract server
+without `--release`, so the Rust numbers measured an unoptimized dev
+build. `Runner` now has an explicit `release` flag (commit `aecb2f4c`):
+`build_command()` appends `--release` and `server_path()` selects
+`rs/target/release/examples/contract_server` only when set. Correctness
+runs keep the dev profile (overflow panics); `measure_lists`,
+`profile_lists` and `index_experiment` always pass `release=True`.
+Unit test `test_build_profile_selection_keeps_correctness_on_dev` pins
+both profiles (8 tests pass).
+
+p95, release build, 240 requests / 30 per cell, interleaved
+(`task13-lane13-measure-release.log`, CALL_EXIT=0 — **the
+`require_latency_parity` gate passes: Rust p95 <= Python p95 in all
+eight cells**):
+
+| Cell | Python p50 / p95 s | Rust p50 / p95 s |
+| --- | --- | --- |
+| list cold process | 1.299 / 1.515 | **0.881 / 1.152** |
+| list warm | 1.265 / 1.775 | **0.841 / 1.066** |
+| bids cold process | 1.477 / 1.670 | **1.077 / 1.246** |
+| bids warm | 1.273 / 1.707 | **0.952 / 1.159** |
+
+The dev-profile deficit (Rust +24-32% over Python) inverted: the release
+Rust service is now 24-40% faster than Python per cell.
