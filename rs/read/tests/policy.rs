@@ -270,8 +270,10 @@ fn project_catalog_matches_the_captured_product_vector() {
     let projected = project_catalog(&policy, &rows).unwrap();
     assert_eq!(projected, vector("products_expected.json"));
     // The three decoy rows (alias name, unknown UUID, inactive) stay excluded.
-    // The populated corpus also deactivates one canonical product.
-    assert_eq!(projected.as_array().unwrap().len(), 5);
+    // The populated corpus also deactivates one canonical product, and the
+    // first decoy's target (products_expected[0]) is now B30, so the inactive
+    // decoy uses products_expected[2] (Bio-LNG).
+    assert_eq!(projected.as_array().unwrap().len(), 7);
 }
 
 #[test]
