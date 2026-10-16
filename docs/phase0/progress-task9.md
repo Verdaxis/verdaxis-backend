@@ -19,6 +19,28 @@ Linux test calls run one at a time through the approved test tool, not on this M
 Current results and the only resume point are in the acceptance report. Historical
 counts below do not describe this candidate. No direct SSH or live service access.
 
+## Linux completion — 2026-10-16
+
+All calls finished through the authorized tool, one at a time. Unit: **2232 passed**
+(the 19 macOS Bash failures are absent). Phase 0: **177 passed**. Other PostgreSQL:
+**265 passed**, including four-worker durable SSE. Three migration drift checks
+passed. Runtime-ACL HTTP: **79 passed** after test-only port fix `d1d44c75`:
+Linux's automatic ephemeral range includes ports below the disposable guard's
+49152 minimum; the harness now selects within the unchanged allowed range.
+
+Monitor: **286 passed, 4 failed, 1 skipped**. Four external-recovery tests inspect
+fixed deployed-state paths rather than temporary fixtures and hit PermissionError
+under the isolated user. No live service action or privilege bypass occurred.
+The different-UID test skipped because passwordless nobody is unavailable; it
+remains Task 10. Exact failing test names, owners, commands and log hashes are
+in the current acceptance section. No application or host-tool source changed.
+
+N1 structure commit: `0ad4b6fb`; Linux harness correction: `d1d44c75`.
+Unit ran at exact `e61400f3`; later calls used documentation-only descendants,
+plus that one HTTP harness fix. The report distinguishes these from candidate
+application/schema bytes. M2/runbook ownership was preserved. No local test,
+build, Docker use, SSH, host setup change or push was performed.
+
 ## Historical evidence — 2026-10-16 — superseded checkpoints
 
 All status and resume language below belongs to the named historical checkpoint.

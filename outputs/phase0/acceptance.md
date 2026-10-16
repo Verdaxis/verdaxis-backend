@@ -50,39 +50,94 @@ migrator-backed revision admission without app SELECT on `alembic_version`.
 ## Current Linux acceptance results
 
 All builds/tests run through `verdaxis-prod-test "$PWD" 'COMMAND'`, one call at a
-time, at candidate `e61400f3`. No local test environment was created. The tool
+time, against candidate `e61400f3` executable bytes. The unit call used that exact
+HEAD. Subsequent calls ship documentation-only commit `0ad4b6fb`; `git diff
+e61400f3..0ad4b6fb` changes only these two acceptance documents. No application, migration or deploy bytes differ. The HTTP retry alone adds the
+test-only port-selection fix later committed as `d1d44c75`; monitor ran at that
+commit with unchanged monitor/application bytes. No local test environment was created. The tool
 uses its isolated capped Linux amd64 test user and rootless disposable containers;
 no direct SSH, production/staging connection or test-host setup change is permitted.
-Counts below will be finalized after each completion marker, not inferred from silence.
+Every call below has finished with a recorded `CALL_EXIT` marker.
 
 | Check | Result | Evidence |
 |---|---|---|
-| Full unit | Running | `work/task9-linux-unit.log` |
-| Full Phase 0 runner | Pending | Pending |
-| Other PostgreSQL suites | Pending | Pending |
-| Runtime-ACL HTTP suite | Pending | Pending |
-| Full monitor / different-UID case | Pending | Pending |
-| Ordinary and union migration drift | Pending | Included in runners |
+| Full unit | **2232 passed, 0 failed/skipped**, 223.41 s, exit 0 | `work/task9-linux-unit.log` |
+| Full Phase 0 runner | **177 passed, 0 failed/skipped**, 723.54 s, exit 0 | `work/task9-linux-phase0.log` |
+| Other PostgreSQL suites | **265 passed, 0 failed/skipped**, 1048.49 s, exit 0; includes four-worker durable SSE | `work/task9-linux-postgres.log` |
+| Runtime-ACL HTTP suite | Initial harness port assertion before collection; repaired run **79 passed**, 56.81 s, exit 0 | `work/task9-linux-http{,-retry}.log` |
+| Full monitor / different-UID case | **286 passed, 4 failed, 1 skipped**, 17.97 s, exit 1 | `work/task9-linux-monitor.log` |
+| Ordinary and union migration drift | **3 checks passed**, no new upgrade operations | Phase 0 and PostgreSQL logs |
+
+### Linux limits, failures and reproducibility
+
+The 19 macOS-only Bash deploy failures do **not** occur on Linux: all 2232 unit
+tests passed, matching the PM's reported count. The `/proc` four-worker durable
+SSE test also passed within the 265-case PostgreSQL run. These close the measured
+Linux portions of sign-off section 6 item 9, not actual systemd installation.
+
+The different-UID monitor test was attempted by the full monitor run and skipped
+at `tests/monitor/test_runtime_identity.py:212`: passwordless `nobody` execution
+is unavailable. Task 10 must run it with authorized real UID switching. No sudo
+policy, root privilege or host setup was changed or simulated.
+
+Four new environment-sensitive failures in `tests/monitor/test_external_recovery.py`:
+`test_recovery_is_allowlisted_and_hourly`, `test_frontend_and_capacity_fail_closed`,
+`test_database_and_invalid_caddy_fail_closed`, and
+`test_healthy_loopback_uses_one_validated_caddy_reload`. Each reaches
+`deployment_active()` and calls `Path.exists()` on a fixed deployed state path
+under `/home/verdaxis-prod/verdaxis/prod/be`. The isolated user receives
+`PermissionError` before the mocked recovery operation. This is a test-isolation
+gap, not evidence that a real recovery ran. No permission bypass or direct host
+inspection was attempted. Owner: monitor-test lane/PM. Do not count these as green.
+
+The first HTTP call failed before collection because Linux port-0 allocation
+selected a port below the existing 49152 lower bound. Test-only fix `d1d44c75`
+selects a free numeric-loopback port in the existing allowed range, with a bounded
+retry. Guards, runtime ACLs and application behavior remain unchanged. The second
+call passed all 79 tests. This correction must accompany any reproduced Linux run.
+
+Commands, each inside the authorized test tool:
+- Unit: the documented explicit test environment, SQLite memory URL and
+  `venv/bin/python -m pytest tests/unit -q`.
+- Phase 0: `bash scripts/run_phase0_postgres_tests.sh`.
+- Other PostgreSQL: explicit test environment and
+  `bash scripts/run_product_analytics_postgres_tests.sh tests/postgres`.
+- HTTP: `ENVIRONMENT=test RELEASE_SHA=$(git rev-parse HEAD) venv/bin/python -m tests.phase0.http_runner`.
+- Monitor: the same unit environment and SQLite URL, then
+  `venv/bin/python -m pytest tests/monitor -q -rs`.
+
+Local streamed log SHA-256 (all contain completion markers):
+- Unit: `c3e6c968b44a4ce7450353d787a2ba66d9b79cc529a244339da71cf72802f64c`.
+- Phase 0: `b5cbb90e5d4d9a17610cf03deebf76b294a0d06edf2361960941988287ef4032`.
+- PostgreSQL: `8f25d99e97d98babf08245137839140a9b33976de6d3be3359872468cca7e2cc`.
+- HTTP first attempt: `56a8800cb23dcfb8b4c8825cc89fb99dfb49302fb5fe6f7e6d04754a7fc402cd`.
+- HTTP passing retry: `326045f8be27dc78377c5b7ddb2a29ebec4bb74d37822398adaa5e2fb2b8a385`.
+- Monitor: `de62b1b8fe315ef8ee78fb893e1c6abb67f84dd02c03c8ae5bc0f6028129bfa2`.
 
 ## Current eleven-category status
 
 | Category | Status and evidence | Remaining owner/gate |
 |---|---|---|
-| Inventory | Complete synthetic classification; current Linux rerun pending | Task 10 operator: real catalog attestation |
-| Schema | Union and unchanged digests; current drift rerun pending | B1/B2 reviewer; final approved source SHA |
+| Inventory | Complete synthetic classification; Linux Phase 0 177 passed | Task 10 operator: real catalog attestation |
+| Schema | Union and unchanged digests; three drift checks passed | B1/B2 reviewer; final approved source SHA |
 | Copy | Host tools implemented; prior synthetic CLI chain 15 passes | B1/B2 independent review; Task 10 restored real-data proof |
-| ACL | M1 fixed; no UPDATE on ports; runtime-role HTTP rerun pending | Task 10 exact deployed identity and grant proof |
-| Products | Eight IDs and scalar/typed contracts retained | Current PostgreSQL/HTTP reruns |
-| Auth | P0-2 input/output separation; M3 profile matrix complete | Current unit/HTTP reruns |
+| ACL | M1 fixed; no UPDATE on ports; 79 runtime-role HTTP tests passed | Task 10 exact deployed identity and grant proof |
+| Products | Eight IDs and scalar/typed contracts retained | 265 PostgreSQL and 79 HTTP cases passed; host promotion remains separate |
+| Auth | P0-2 input/output separation; M3 profile matrix complete | 2232 unit and 79 HTTP cases passed; no auth failure |
 | Privacy | Notification and typed snapshot cases complete | Task 10 egress/log isolation |
-| Timezone | UTC reconnect/role proofs retained | Current Phase 0 rerun; Task 10 fresh processes |
+| Timezone | UTC reconnect/role proofs retained | Linux Phase 0 passed; Task 10 fresh deployed processes |
 | Vault | M3 browser fault cases complete | Task 10 credentials, key-ring recovery and retention |
 | Frontend | M3 done, 109/111 with two explicit cached-old PM exceptions | Task 11 banner/entry HTML/refresh note; no promotion here |
-| Rollback | Synthetic tuple and outbox proofs retained | M2 appendix; Task 10 real systemd/proxy full switch-back |
+| Rollback | Linux tuple/outbox proofs pass; monitor 286 passed, 4 isolation failures, 1 UID skip | Monitor-test owner: isolate state paths; M2 appendix; Task 10 UID/systemd/proxy full switch-back |
 
 ## Current resume point
 
-Finish and record this candidate's Linux calls. Then the PM merges M2 and any
+Linux calls are complete. First assign the four monitor isolation failures to
+the monitor-test owner: redirect fixed deploy-state paths into each temporary
+fixture, never grant access to deployed paths. Rerun the affected/full monitor
+suite through the tool after that separately scoped correction. The passwordless
+`nobody` proof remains Task 10 because the test user lacks that privilege.
+Then the PM merges M2 and any
 B1/B2 review fixes, reruns affected gates and names the final oracle. Any test that
 needs unavailable root/systemd stays an explicit Task 10 prerequisite; do not
 simulate a passing host proof. Independent review and separate host authorization
