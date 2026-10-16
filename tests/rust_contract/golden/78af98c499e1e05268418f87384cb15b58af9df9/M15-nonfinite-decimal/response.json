@@ -1,0 +1,21 @@
+{
+  "status": 200,
+  "headers": {
+    "content-type": "application/json",
+    "x-request-id": "00000000-0000-4000-8000-000000000001"
+  },
+  "body": {
+    "jsonrpc": "2.0",
+    "id": 50,
+    "result": {
+      "content": [
+        {
+          "text": "Error executing tool plan_voyage_fuel: 1 validation error for plan_voyage_fuelArguments\nrequest.vessel.speed_knots\n  Input should be a finite number [type=finite_number, input_value='NaN', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.13/v/finite_number",
+          "type": "text"
+        }
+      ],
+      "isError": true
+    }
+  },
+  "body_sha256": "ee0ed229605a57532f1b6464787837e05d41e99d9268c1a9836ce01fd98e1297"
+}

@@ -1,0 +1,11 @@
+{
+  "method": "POST",
+  "path": "/mcp",
+  "query": "",
+  "headers": {
+    "x-request-id": "00000000-0000-4000-8000-000000000001",
+    "content-type": "application/json",
+    "accept": "application/json, text/event-stream"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":42,\"params\":{\"name\":\"get_market_slice\",\"arguments\":{}}}"
+}

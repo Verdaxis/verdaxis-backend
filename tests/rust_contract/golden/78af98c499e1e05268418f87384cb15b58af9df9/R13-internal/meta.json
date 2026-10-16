@@ -1,0 +1,22 @@
+{
+  "source_sha": "78af98c499e1e05268418f87384cb15b58af9df9",
+  "schema_revision": "kycd_20261015_staging",
+  "timezone": "Asia/Singapore",
+  "clock": "2026-10-15T12:00:00+00:00",
+  "group": "prices",
+  "KYC_EXECUTION_GATE_ENABLED": true,
+  "seed_mode": "corpus",
+  "fixture_counts": {
+    "ports": 3,
+    "port_intelligence": 3,
+    "news": 6,
+    "market_orders": 46,
+    "market_trades": 6,
+    "small_decimal_orders": 4,
+    "signals": 2,
+    "ingestion_runs": 1,
+    "legacy_trades": 2,
+    "legacy_orders": 1
+  },
+  "case_id": "R13-internal"
+}
