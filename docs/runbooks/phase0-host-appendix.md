@@ -93,8 +93,13 @@ systemctl --machine=verdaxis-test@ --user list-units 'verdaxis-prod-test-*'
 df -B1 --output=avail /
 ```
 
-Expected no test units and at least 10737418240 bytes available. PM waits for
-lanes to finish; do not interrupt tests. Read authority files on staging:
+Expected no test units and at least 10737418240 bytes available. Before any
+step, the PM pauses all test lanes from the PM workstation:
+`touch ~/.local/state/verdaxis-prod-test/pause` (the test tool then refuses
+with exit 75 before it contacts the host), waits for the active run to end, and
+only then proceeds. The test guard also blocks the test user from ports 5434
+and 8100, so a paused-or-finished lane cannot reach the scratch cluster or
+scratch backend. Read authority files on staging:
 `/home/jons-openclaw/VPS_MAP.md`,
 `/home/verdaxis-prod/verdaxis/PRODUCTION_HOST.md`, and
 `/home/jons-openclaw/artifacts/verdaxis-migration-20261001/OPERATIONS.md`.
@@ -118,15 +123,28 @@ tar -tf "/root/verdaxis-phase0/release-$RELEASE_SHA.tar"
 tar --no-same-owner -xf "/root/verdaxis-phase0/release-$RELEASE_SHA.tar" -C /opt/verdaxis-phase0
 chmod -R go-w /opt/verdaxis-phase0
 cd /opt/verdaxis-phase0
-/usr/bin/python3.12 -m pip download -r requirements.txt -c constraints.txt -d /root/verdaxis-phase0/wheels
-/usr/bin/python3.12 -m venv /opt/verdaxis-phase0/venv
+umask 022
+/usr/bin/python3.12 -m venv venv
+venv/bin/pip download -r requirements.txt -c constraints.txt -d /root/verdaxis-phase0/wheels
+venv/bin/pip download setuptools wheel -d /root/verdaxis-phase0/wheels
 venv/bin/pip install --no-index --find-links /root/verdaxis-phase0/wheels -r requirements.txt -c constraints.txt
 venv/bin/pip check
+umask 077
+chmod -R go-w /opt/verdaxis-phase0
 ```
+
+The host's system Python has no pip, so the venv must exist before any
+`pip download`. Create it first under `umask 022`: the backend runs as
+`verdaxis-prod` and must read the venv. `sgmllib3k` is a source package that
+needs `setuptools` and `wheel` to build, so those two are downloaded into the
+same wheelhouse before the `--no-index` install. Restore `umask 077` and
+re-apply `go-w` immediately after the install.
 
 Expected Python 3.12.3 and complete constrained packages. No mirror is required:
 rehearsal uses the archive; live deploy retains its normal GitHub origin. Keep
 wheel hashes and pip-check evidence. No candidate gets live credentials here.
+Stop if the venv or wheelhouse is not readable by `verdaxis-prod`, or if the
+`--no-index` install needs the network.
 
 ### Tool files and commands (FINAL host interface)
 
@@ -146,6 +164,26 @@ source/target files for each tool; passwords differ. Settings are a separate
 root-private EnvironmentFile (`rehearsal-settings.env` or `cutover-settings.env`)
 with `ENVIRONMENT=production`, exact SHA, both app/migrator URLs, consistent
 component settings, UTC, KYC gate false. Rehearsal contains **no provider keys**.
+
+The rehearsal Settings must also contain `PYTHONDONTWRITEBYTECODE=1`; nothing
+may leave `__pycache__` in the root-owned installation. Its exact key names,
+and no others, are:
+
+```text
+ENVIRONMENT, RELEASE_SHA, PYTHONPATH, PYTHONDONTWRITEBYTECODE, TZ,
+DATABASE_HOST, DATABASE_PORT, DATABASE_NAME, DATABASE_USER, DATABASE_PASSWORD,
+DATABASE_URL, MIGRATOR_DATABASE_URL, JWT_SECRET, JWT_ALGORITHM, JWT_ISSUER,
+JWT_AUDIENCE, ENABLE_AUTH_BYPASS, KYC_EXECUTION_GATE_ENABLED, FRONTEND_URL,
+BACKEND_CORS_ORIGINS,
+MARKET_SUPPORT_ENABLED, MARKET_SUPPORT_MAX_TTL_HOURS,
+MARKET_SUPPORT_CONTEXT_TTL_MINUTES, MARKET_SUPPORT_CONSENT_VERSION,
+MARKET_SUPPORT_CONSENT_REFERENCE
+```
+
+`PYTHONPATH` is `/opt/verdaxis-phase0`. The five MARKET_SUPPORT keys exclude
+`MARKET_SUPPORT_BOOTSTRAP_ADMIN_USER_IDS`; the scratch copy has no bootstrap
+admin identities. No GEMINI/RESEND/WEBZ/TELEGRAM key may appear. Stop if any
+other key or any provider key is present.
 
 PM writes authority by hand from independent observations, not a target
 recapture. Exact fields are in `docs/phase0/progress-hosttools.md:46–71`:
@@ -265,12 +303,19 @@ after review. A missing source relation or changed fingerprint stops execution.
 ```bash
 pg_lsclusters
 test ! -d /etc/postgresql/17/p0rehearsal
-pg_createcluster 17 p0rehearsal --port 5434 --start-conf manual
+pg_createcluster 17 p0rehearsal --port 5434 --locale en_US.UTF-8 --start-conf manual
 pg_ctlcluster 17 p0rehearsal start
 pg_lsclusters
+sudo -u postgres psql -X -h /var/run/postgresql -p 5434 -d postgres -Atc "SELECT datcollate,datctype FROM pg_database WHERE datname='postgres'"
+sudo -u postgres psql -X -h /var/run/postgresql -p 5432 -d postgres -Atc "SELECT datcollate,datctype FROM pg_database WHERE datname='verdaxis'"
 RUN=/root/verdaxis-phase0/rehearsal
 PORT=5434
 ```
+
+Create the scratch cluster with live's locale. Before the restore, compare the
+scratch template's `datcollate`/`datctype` with live `verdaxis`'s; both pairs
+must read `en_US.UTF-8`. Stop if either differs — a different collation changes
+text ordering, and the rehearsal must exercise the same collation as live.
 
 Before the scratch credentials exist, create `$RUN/settings.env` with only
 `ENVIRONMENT=production` and the approved `RELEASE_SHA`; the administrative
@@ -285,9 +330,11 @@ PM generates scratch-only random passwords privately and creates only scratch
 role objects. Use a root-owned scratch SQL file, never password argv. The SQL
 must create `verdaxis_app`, `verdaxis_backup`, `verdaxis_migrator` as LOGIN,
 NOINHERIT, NOSUPERUSER, NOCREATEDB, NOCREATEROLE, NOREPLICATION, NOBYPASSRLS;
-no memberships. Use PostgreSQL `\password` interactively inside the following
-bounded session (hidden input), with three distinct random password-manager
-values. Record them only in private Settings/tool/passfiles:
+no memberships. `--pipe` is noninteractive, so `\password` is not available. Use
+the accepted non-interactive alternative: generate each value in this root shell
+with `secrets.token_urlsafe(32)`, send `ALTER ROLE ... PASSWORD` through psql
+stdin (never argv), write the root-private files, then unset the variables —
+the same pattern A1 already uses for `postgres`:
 
 ```bash
 p0run sudo -u postgres psql -X -h /var/run/postgresql -p 5434 -d postgres -v ON_ERROR_STOP=1 <<'SQL'
@@ -296,14 +343,22 @@ CREATE ROLE verdaxis_backup LOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE 
 CREATE ROLE verdaxis_migrator LOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
 CREATE DATABASE verdaxis OWNER verdaxis_migrator;
 SQL
+export P0APP="$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')"
+export P0BACKUP="$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')"
+export P0MIG="$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')"
+p0run sudo -u postgres psql -X -h /var/run/postgresql -p 5434 -d postgres -v ON_ERROR_STOP=1 <<SQL
+ALTER ROLE verdaxis_app PASSWORD '$P0APP';
+ALTER ROLE verdaxis_backup PASSWORD '$P0BACKUP';
+ALTER ROLE verdaxis_migrator PASSWORD '$P0MIG';
+SQL
+unset P0APP P0BACKUP P0MIG
 ```
 
-`--pipe` is noninteractive: for hidden `\password` use the same properties with
-`systemd-run --pty --wait --collect`, run the same psql endpoint, enter
-`\password verdaxis_app`, `\password verdaxis_backup`, `\password verdaxis_migrator`,
-then `\q`. Do not paste passwords into a SQL file/terminal transcript.
-Populate root-private tool secrets and Settings from those values. Verify the
-Settings parser before restore; no source password is copied from live.
+Each `ALTER ROLE` reads its value from the here-document on stdin; no password
+reaches argv or a terminal transcript. Populate root-private tool secrets and
+Settings from those generated values only in the writing step itself, then
+unset the variables. Verify the Settings parser before restore; no source
+password is copied from live.
 
 A3's business smoke is an external client that authenticates over TCP as the
 scratch cluster administrator, so the scratch cluster's own `postgres` role also
@@ -354,9 +409,15 @@ scratch **only**:
 p0run sudo -u postgres psql -X -h /var/run/postgresql -p 5434 -d verdaxis -v ON_ERROR_STOP=1 <<'SQL'
 REVOKE CONNECT ON DATABASE verdaxis FROM PUBLIC;
 GRANT CONNECT ON DATABASE verdaxis TO verdaxis_app,verdaxis_backup;
+REVOKE TEMPORARY ON DATABASE verdaxis FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION pg_control_system() TO verdaxis_backup,verdaxis_migrator,verdaxis_app;
 SQL
 ```
+
+`REVOKE TEMPORARY ON DATABASE verdaxis FROM PUBLIC;` reproduces live's grant
+state in scratch: live `verdaxis` grants PUBLIC no TEMP, the app never uses
+temporary tables, and the ACL helper runs as the migrator, which keeps its own
+TEMP. This scratch-only revoke mirrors live; never run it on 5432.
 
 This reproduces checked Q5 authority on new scratch objects; do not run it on
 5432. If restored relation grants differ, stop rather than invent privileges.
@@ -372,6 +433,7 @@ p0run sudo -u postgres psql -X -h /var/run/postgresql -p "$PORT" -d verdaxis_pro
 CREATE EXTENSION postgis;
 REVOKE CONNECT ON DATABASE verdaxis_prod FROM PUBLIC, verdaxis_app, verdaxis_backup;
 GRANT CONNECT ON DATABASE verdaxis_prod TO verdaxis_migrator;
+REVOKE TEMPORARY ON DATABASE verdaxis_prod FROM PUBLIC;
 ALTER DATABASE verdaxis_prod SET timezone TO 'UTC';
 ALTER ROLE verdaxis_app IN DATABASE verdaxis_prod SET statement_timeout TO '30s';
 ALTER ROLE verdaxis_app IN DATABASE verdaxis_prod SET lock_timeout TO '3s';
@@ -387,9 +449,17 @@ SELECT oid,datacl::text FROM pg_database WHERE datname=current_database();
 SQL
 ```
 
-Expected installed PostGIS 3.6.4, plpgsql, migrator owner, only migrator CONNECT,
-no user tables. Tool policy may reject a changed extension/catalog; no bypass.
-No HBA edits. CONNECT does not evict sessions or restrict superusers.
+`REVOKE TEMPORARY ON DATABASE verdaxis_prod FROM PUBLIC;` runs in both A2 and
+B4 after the CONNECT changes: live grants PUBLIC no TEMP, the app never uses
+temporary tables, and the migrator keeps its own TEMP as database owner.
+Expected target `datacl` exactly
+`{verdaxis_migrator=CTc/verdaxis_migrator}` (the owner's implicit CTc entry
+plus the explicit migrator CONNECT grant). Stop if PUBLIC or any other role
+retains TEMP or CONNECT.
+
+Expected installed PostGIS 3.6.4, plpgsql, migrator owner, only migrator
+CONNECT, no user tables. Tool policy may reject a changed extension/catalog; no
+bypass. No HBA edits. CONNECT does not evict sessions or restrict superusers.
 
 Restored source must have zero undispatched and zero unsequenced outbox rows:
 
