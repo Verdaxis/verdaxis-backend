@@ -352,7 +352,7 @@ async def copy_database(manifest, source, target, *, fail_at=None) -> CopyReceip
         execution = manifest['execution']
         authority = None
         if execution['mode'] == 'production':
-            from scripts.phase0.production import load_authority
+            from scripts.phase0.production import check_boundaries, load_authority
             authority = load_authority(execution['production_manifest'], 'copy')
         receipt_path = Path(execution['receipt_path'])
         attempt_path = receipt_path.with_suffix('.attempt.json')

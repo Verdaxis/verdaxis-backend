@@ -30,7 +30,9 @@ async def test_production_bootstrap_copy_verify_cli_chain():
         assert receipt.is_file()
         common['bootstrap_receipt_sha256'] = hashlib.sha256(receipt.read_bytes()).hexdigest()
         result = await invoke('copy', directory, common, environment)
-        assert result.returncode == 0, result.stderr
+        failure_path = directory / 'copy-report.failure.json'
+        diagnostic = failure_path.read_text() if failure_path.exists() else result.stderr
+        assert result.returncode == 0, diagnostic
         result = await invoke('verify', directory, common, environment)
         assert result.returncode == 0, result.stderr
         report = json.loads((directory / 'verify-report.json').read_text())
