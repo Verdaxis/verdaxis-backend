@@ -646,3 +646,101 @@ not fixture rot or OpenAPI. All diagnostic containers were removed.
 New shared file: `rs/read/src/runtime/policy.rs` (startup policy loading only).
 No new shared market relation or SQL file. No architecture or global progress
 file was edited; the task-specific file ownership rule takes precedence here.
+
+## Lane 13 continuation — 16 October (regression fix and combined gate)
+
+### 1. orderbook_lists regression at 3bf216ac — cause and fix
+
+Bisect result: the regression is not a behaviour change between `fc63cf3a`
+and `3bf216ac`; it entered with `f7b6c7b8`'s new corpus cases and was revealed
+by the `3bf216ac` re-record. Exactly one case, `R26-orderbook-post-405`,
+differs (4 schema paths). Python registers a real POST write route on
+`/api/orderbook` (`app/routers/orderbook.py:1802`), so an unauthenticated POST
+fully matches that route and the OAuth2 dependency answers **401**
+`{"detail":"Not authenticated"}` with `WWW-Authenticate: Bearer`. The other 27
+ported paths have no non-GET route, so they answer 405 — the assumption the
+new cases were written under. The golden corpus is truthful (all other
+754 re-recorded cases byte-identical), so the fix belongs in Rust.
+
+Fix, commit `47d0da6f`: Rust registers a POST handler on `/api/orderbook`
+that answers Python's unauthenticated boundary (a present `Bearer` scheme
+answers Python's could-not-validate detail). A middleware-only answer kept
+axum's method-not-allowed fallback in the chain, which appended an
+`Allow: GET,HEAD` header Python never sends — the route-level handler avoids
+that. Python's support-scope middleware classifies POST `/api/orderbook` as an
+allowed market-support mutation (`app/services/request_party.py:273`), so the
+dispatch boundary exempts that one combination from the generic 403; every
+other context-bearing mutation still answers 403.
+
+Proof: `orderbook_lists` passes alone — 28 corpus cases byte for byte, 24
+integer boundaries, 15 non-null CI overlays, one benchmark statement,
+mixed-value sort pages, 136 exact edge comparisons. The offline suite gains
+`post_orderbook_answers_python_auth_boundary` (16 passed).
+Log: `work/rust-phase1/task13-lane13-lists-fixed2.log`.
+
+### 2. Combined gate failure — cause and fix
+
+Baseline re-run at `47d0da6f` with one shared database
+(`task13-lane13-combined-1.log`): health, echo, simple_reads,
+live_benchmarks, prices and mcp pass; snapshot, lists, map, curves_legacy and
+curves_canonical fail — every one from **persistent cross-group corpus
+mutations**:
+
+- `live_benchmarks`' probe sets `lng_terms.production_country='ZZ'` and
+  rewrites corpus quantities/prices; snapshot and lists then read those rows
+  and Python's `OrderResponse` validation raises 500 (`ZZ` is not an ISO
+  3166-1 alpha-2 code), so both endpoints' live comparison sees status/keys
+  differences.
+- `orderbook_snapshot`'s probe copies rows with empty certificate/supplier
+  strings and a PENDING quality sample into windows `2032-*`; the map
+  target's listings probe reads all current ASK listings, Python 500s on
+  `certificate_holder: string_too_short`.
+- `curves_legacy`'s scale probe asserts an exact `2030-01` CSV row
+  (`order_count` 2, volume 200.00); earlier mutations had changed that slice.
+- `curves_canonical`'s cost probe read zero metrics events for the combined
+  server (`"statements": 0`), failing the grouped-rows assertion.
+
+Fix (uncommitted at this point): `--rust-target all` now starts **one fresh
+disposable environment per group** (`start_environment`/`stop_environment` in
+`scripts/rust_contract/run_disposable.py`) — new container, migrate, corpus
+seed, fresh Python and Rust servers per group, then teardown. A `--mixed-caddy`
+combined run keeps its own fresh database for the integration suite for the
+same reason (its writes also mutate the corpus). Single-group invocations,
+`--record-all` and the measurement scripts (which subclass `run_mixed` on one
+shared database) keep their exact previous behaviour. No probe was weakened or
+skipped. New unit test `test_combined_gate_gives_each_target_a_fresh_environment`
+proves per-group start/stop ordering.
+
+### 2a. First isolation attempt had its own sequencing bug (recorded for honesty)
+
+The first per-group fix looped `start_environment(group)` outside
+`run_targets`, but `run_targets` still iterated every group internally, so
+all eleven targets ran against each per-group environment (121 target
+executions; every data group failed 404 against servers that mounted only
+one group's routes). Caught by reading the log's server-ready lines against
+the target-result lines. `run_targets` now takes an explicit `groups` list
+and the combined loop passes exactly the group its environment started
+(`93f50591`). The wasted full run was left to finish; no call was
+interrupted.
+
+### 2b. Corrected gate run blocked by the paused test host
+
+The corrected combined gate (`--group all --rust-target all
+--require-complete-ledger --report docs/rust-phase1/ci-contract.json`,
+commit `93f50591`) could not run: `verdaxis-prod-test` is paused by the PM
+for a Phase 0 rehearsal on the prod host (16 Oct, ~20:30 SGT, 1-2 hours;
+wrapper exit 75, "do not retry"). Strong indirect evidence the isolation
+works came out of the wasted 121-execution run: against its OWN
+environment, `curves_legacy: OK` (including `legacy price scale: 8
+comparisons`) and `curves_canonical: OK` (including CURVE_QUERY_COST and
+CURVE_MEMORY) — the two groups whose probes read cross-group state most
+directly. The same run shows the sequencing bug's signature clearly
+(every data group 404s against a foreign group's server), so the evidence
+separates the two defects.
+
+**Resume point:** rerun the corrected combined gate end to end when the
+test host unpauses, capture its report into
+`docs/rust-phase1/ci-contract.json`, then run the p95 profiling
+(`work/rust-phase1/profile_lists.py`) and the disposable index experiment
+(`work/rust-phase1/index_experiment.py`) with no other heavy run in
+parallel.
