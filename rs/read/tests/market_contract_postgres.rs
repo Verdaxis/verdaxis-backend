@@ -471,7 +471,8 @@ async fn eligibility_sets_match_legacy_for_the_curve_relation() {
 async fn benchmark_key_first_matches_key_join_last() {
     use sqlx::Row;
     use verdaxis_read::market::visibility::{
-        OrderQuery, OrderSurface, benchmark_candidate_sql, bind_order_query, order_query_sql,
+        OrderQuery, OrderSurface, benchmark_candidate_sql, benchmark_candidate_sql_fenced,
+        bind_order_query, order_query_sql,
     };
     let config = config("RUST_MARKET_TEST_DATABASE_URL");
     let pools = connect(&config).await.unwrap();
@@ -555,13 +556,31 @@ async fn benchmark_key_first_matches_key_join_last() {
 
     // The new statement: keys applied before the shared eligibility predicate.
     let new_query: OrderQuery = benchmark_candidate_sql(include_str!("../sql/live_benchmarks.sql"));
+    let keys_for_new = keys_json.clone();
     let new = bind_order_query(&new_query, &policy, &clock, &config, &candidates)
         .unwrap()
-        .bind(keys_json)
+        .bind(keys_for_new)
         .fetch_all(&mut *connection)
         .await
         .unwrap();
 
     assert!(!new.is_empty(), "the key-first statement must return rows");
     assert_eq!(project(&new), project(&old), "key-first benchmark differs");
+
+    // The decision-27 fenced shape (every stage MATERIALIZED) is the immediate
+    // predecessor; the unfenced rewrite must return its exact multiset too, so
+    // the planner-friendly form cannot change a single returned row.
+    let fenced_query: OrderQuery =
+        benchmark_candidate_sql_fenced(include_str!("../sql/live_benchmarks.sql"));
+    let fenced_rows = bind_order_query(&fenced_query, &policy, &clock, &config, &candidates)
+        .unwrap()
+        .bind(keys_json)
+        .fetch_all(&mut *connection)
+        .await
+        .unwrap();
+    assert_eq!(
+        project(&new),
+        project(&fenced_rows),
+        "unfenced benchmark differs from the decision-27 fence"
+    );
 }

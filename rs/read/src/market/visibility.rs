@@ -56,7 +56,34 @@ pub fn public_order_sql() -> &'static str {
 /// resolves the product code to its catalog id through the same attested
 /// policy), so each keyed order enters once. The eligibility definition and
 /// every predicate are the shared ones.
+///
+/// `requested_keys` stays MATERIALIZED because the tail and the slice
+/// resolution both read it. `requested_slices` and `keyed_orders` are each
+/// referenced once and are NOT MATERIALIZED, so the planner inlines them:
+/// the decision-27 fences forced a nested loop over the keyed rows that
+/// re-scanned `products`, `delivery_points` and the policy CTEs once per
+/// row (~265 ms for 10,000 rows on the corpus). Inlined, the planner sees
+/// the real `orderbook_orders` row counts and hash-joins the small
+/// dimension tables. The predicate set — and therefore the row multiset —
+/// is unchanged; `benchmark_key_first_matches_key_join_last` proves it.
 pub fn benchmark_candidate_sql(tail: &'static str) -> OrderQuery {
+    OrderQuery(expand_private_digest(&format!(
+        "WITH requested_keys AS MATERIALIZED ({}) , requested_slices AS NOT MATERIALIZED ({}) , \
+         keyed_orders AS NOT MATERIALIZED ({}) , eligible_orders AS NOT MATERIALIZED ({}) {}",
+        include_str!("../../sql/requested_keys.sql"),
+        include_str!("../../sql/requested_slices.sql"),
+        include_str!("../../sql/keyed_orders.sql"),
+        relation_sql("keyed_orders"),
+        tail
+    )))
+}
+
+/// The decision-27 fenced benchmark statement, byte for byte. Test-only: the
+/// unfenced rewrite's differential test executes this historical shape and
+/// requires the identical row multiset, so a planner-friendly change cannot
+/// alter one returned row.
+#[cfg(feature = "contract-tests")]
+pub fn benchmark_candidate_sql_fenced(tail: &'static str) -> OrderQuery {
     OrderQuery(expand_private_digest(&format!(
         "WITH requested_keys AS MATERIALIZED ({}) , requested_slices AS MATERIALIZED ({}) , \
          keyed_orders AS MATERIALIZED ({}) , eligible_orders AS NOT MATERIALIZED ({}) {}",

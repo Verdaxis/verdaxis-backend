@@ -43,10 +43,9 @@ async fn create_order_boundary(headers: axum::http::HeaderMap) -> Response {
         .get(axum::http::header::AUTHORIZATION)
         .and_then(|value| value.to_str().ok())
         .unwrap_or("");
-    let (scheme, _) = authorization
+    let scheme = authorization
         .split_once(' ')
-        .map(|(scheme, rest)| (scheme, rest))
-        .unwrap_or((authorization, ""));
+        .map_or(authorization, |(scheme, _)| scheme);
     let detail = if !authorization.is_empty() && scheme.eq_ignore_ascii_case("bearer") {
         "Could not validate credentials"
     } else {

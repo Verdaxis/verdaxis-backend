@@ -346,7 +346,10 @@ async fn post_orderbook_answers_python_auth_boundary() {
             Request::builder()
                 .method("POST")
                 .uri("/api/orderbook")
-                .header("x-verdaxis-market-support-context", "6f1c1dc0-1111-4222-8333-444455556666")
+                .header(
+                    "x-verdaxis-market-support-context",
+                    "6f1c1dc0-1111-4222-8333-444455556666",
+                )
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -359,7 +362,10 @@ async fn post_orderbook_answers_python_auth_boundary() {
             Request::builder()
                 .method("POST")
                 .uri("/api/orderbook/bids")
-                .header("x-verdaxis-market-support-context", "6f1c1dc0-1111-4222-8333-444455556666")
+                .header(
+                    "x-verdaxis-market-support-context",
+                    "6f1c1dc0-1111-4222-8333-444455556666",
+                )
                 .body(Body::empty())
                 .unwrap(),
         )
