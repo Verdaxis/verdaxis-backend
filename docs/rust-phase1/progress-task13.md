@@ -220,6 +220,85 @@ gate, then rerun all 240 paired requests and full differential targets. OpenAPI,
 method/slash corpus and publication remain lower priority and unfinished.
 All measurement and diagnostic runs finished and their containers were removed.
 
+## Decision 25 implemented — eligibility sets; p95 improved, gate still FAIL
+
+PM decision 25 approved replacing the per-row correlated `EXISTS` inside
+`CASE`/`OR` with sets computed once per statement. Implemented, code commit
+`07622f5b`.
+
+One definition: `rs/read/sql/eligibility_sets.sql` holds `eligible_owners`
+keyed `(user_id, organization_id)` and `eligible_assisted` keyed
+`(owner_user_id, actor_user_id, organization_id)`, both `MATERIALIZED` and both
+using the same captured `$2` for grace expiry.
+`market::visibility::eligibility_sets_sql(gate)` renders it for a consumer's gate
+bind, and `expand_shared_markers` substitutes `/* eligibility_sets */` in every
+relation that composes `current_order_rule.sql` — the public relation, the legacy
+curve relation (`$13`) and the curve-unknown metadata relation (`$5`). No
+consumer copies the sets. `current_order_rule.sql` now tests membership and
+keeps the `CASE` on `creation_method` and every NULL semantic.
+
+Two equivalence proofs run over the populated corpus and compare the **old** and
+**new** visible id sets:
+`eligibility_sets_match_legacy_predicate_for_every_order` (public relation, both
+gate states, both off-spec states) and
+`eligibility_sets_match_legacy_for_the_curve_relation` (legacy curve relation).
+The old rule is frozen verbatim in
+`rs/read/tests/support/current_order_rule_legacy_owner.sql`, test-only. Both pass.
+
+A real bug was found and fixed by these proofs: the first attempt inserted an
+extra comma before the sets fragment in the two curve relations, so
+`curves_legacy`/`curves_canonical` returned 500 (PostgreSQL `42601`, syntax error
+at position 1017). The equivalence test surfaced it; the corpus later confirmed
+the fix.
+
+Verification (native amd64 via `verdaxis-prod-test`):
+
+- All 11 corpus groups match: health 8, echo 2, simple_reads 29,
+  live_benchmarks 4, orderbook_snapshot 3, orderbook_lists 12, orderbook_map 9,
+  prices 40, curves_legacy 4, curves_canonical 125, mcp 143.
+- `run_market_contract.sh`: 4 passed (both new equivalence tests, the visibility
+  matrix and the trade matrix). `run_postgres.sh` and `tests/rust_contract`
+  (445) pass; fmt and clippy clean; offline workspace 34 targets green.
+
+### p95 table, Python and Rust interleaved (240 requests, 30 per cell)
+
+| Route | Mode | Python p95 s | Rust p95 s (baseline -> D24 -> D25) |
+| --- | --- | ---: | --- |
+| list | cold process | 1.602 | 2.825 -> 2.218 -> **1.982** |
+| list | warm | 1.473 | 2.491 -> 2.116 -> **1.843** |
+| bids | cold process | 1.641 | 2.946 -> 2.332 -> **2.164** |
+| bids | warm | 1.714 | 3.875 -> 2.193 -> **2.131** |
+
+Rust p95 is now +24% to +32% over Python, down from +38% to +45%. The gate still
+**FAILS**. Page queries are now level (Rust 199.9/186.3 ms against Python
+192.2/148.8 ms); the remaining gap is entirely the benchmark statement.
+
+### Next cause, named with plans
+
+Plans: `task13-d25-plans.log`, `task13-d25-plans.json`.
+
+| Statement | Python ms | Rust ms |
+| --- | ---: | ---: |
+| list page | 192.2 | 199.9 |
+| list benchmark | 88.5 | 399.7 |
+| bids page | 148.8 | 186.3 |
+| bids benchmark | 93.1 | 303.9 |
+
+Python's benchmark is an index scan over exactly the requested keys (10,000
+rows, ~30,280 shared hits) and qualifies them outside SQL. Rust's benchmark
+nests `eligible_orders` against the requested keys, so PostgreSQL evaluates the
+whole shared admissibility predicate for all ~10,047 candidate rows. Rust's
+buffer count is only 277 against Python's 30,280 — so the extra time is
+**row-by-row CPU in the SQL predicate** (policy JSON parsing per row, lane-array
+scans, window regexes, scalar declarations), not I/O.
+
+**This needs a PM decision.** The next step is a decision-25-style change for the
+product/lane identity and scalar-declaration checks (precompute approved
+`(product_id, delivery_point_id)` lane pairs and the product identity tuples once
+as `MATERIALIZED` sets and test membership), or accepting that Rust's benchmark
+legitimately costs more because eligibility runs in SQL by design (decision 16).
+No change, no index and no schema change was made. Stopped, as instructed.
+
 ## Remaining gates — status after this turn
 
 **`cargo sqlx prepare --check`: PASS.** sqlx-cli 0.9.0 is installed on the test
