@@ -1,0 +1,11 @@
+{
+  "status": 422,
+  "headers": {
+    "content-type": "application/json",
+    "x-request-id": "00000000-0000-4000-8000-000000000001"
+  },
+  "body": {
+    "detail": "delivery_point_id is not approved or active"
+  },
+  "body_sha256": "9a52fbd1f8708510ae04c1a04e716cc0b90d3b9c10da34126ae81c514d78e1cd"
+}

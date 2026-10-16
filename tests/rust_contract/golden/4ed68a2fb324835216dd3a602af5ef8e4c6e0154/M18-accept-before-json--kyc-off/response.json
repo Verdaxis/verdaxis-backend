@@ -1,0 +1,16 @@
+{
+  "status": 406,
+  "headers": {
+    "content-type": "application/json",
+    "x-request-id": "00000000-0000-4000-8000-000000000001"
+  },
+  "body": {
+    "jsonrpc": "2.0",
+    "id": null,
+    "error": {
+      "code": -32600,
+      "message": "Not Acceptable: Client must accept application/json"
+    }
+  },
+  "body_sha256": "4b053c1047aa6eea02b7489ffa97ff4f9a0b0359fb71aad52e58836304f1b85d"
+}

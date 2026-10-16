@@ -1,0 +1,1 @@
+{"jsonrpc":"2.0","id":50,"result":{"content":[{"text":"Error executing tool get_market_slice: 1 validation error for get_market_sliceArguments\nmarket_product\n  Input should be a valid string [type=string_type, input_value=None, input_type=NoneType]\n    For further information visit https://errors.pydantic.dev/2.13/v/string_type","type":"text"}],"isError":true}}

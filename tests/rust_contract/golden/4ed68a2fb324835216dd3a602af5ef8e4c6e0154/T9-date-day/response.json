@@ -1,0 +1,24 @@
+{
+  "status": 422,
+  "headers": {
+    "content-type": "application/json",
+    "x-request-id": "00000000-0000-4000-8000-000000000001"
+  },
+  "body": {
+    "detail": [
+      {
+        "type": "date_from_datetime_parsing",
+        "loc": [
+          "query",
+          "date_from"
+        ],
+        "msg": "Input should be a valid date or datetime, day value is outside expected range",
+        "input": "2026-02-30",
+        "ctx": {
+          "error": "day value is outside expected range"
+        }
+      }
+    ]
+  },
+  "body_sha256": "8adbf90da9e7f5fd09f943f900aa81d91eb219bab64d264f85c880cbad43b1cb"
+}

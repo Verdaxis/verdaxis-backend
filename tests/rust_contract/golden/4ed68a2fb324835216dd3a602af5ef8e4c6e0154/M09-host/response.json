@@ -1,0 +1,10 @@
+{
+  "status": 421,
+  "headers": {
+    "x-request-id": "00000000-0000-4000-8000-000000000001"
+  },
+  "body": {
+    "raw": "Invalid Host header"
+  },
+  "body_sha256": "f71d35d35fbb54825ec43549a2f81193823dc4b70616f942dbf4e5583a46a596"
+}

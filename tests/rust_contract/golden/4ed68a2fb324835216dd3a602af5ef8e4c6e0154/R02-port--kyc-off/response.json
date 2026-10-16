@@ -1,0 +1,11 @@
+{
+  "status": 404,
+  "headers": {
+    "content-type": "application/json",
+    "x-request-id": "00000000-0000-4000-8000-000000000001"
+  },
+  "body": {
+    "detail": "Port not found"
+  },
+  "body_sha256": "21e7ee8f921bcd764d0cf5ab9a5a7ad7231e1777b6291f5d4d7222c9360b752d"
+}

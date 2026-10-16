@@ -1,0 +1,34 @@
+{
+  "status": 200,
+  "headers": {
+    "content-type": "application/json",
+    "x-request-id": "00000000-0000-4000-8000-000000000001"
+  },
+  "body": {
+    "items": [
+      {
+        "id": "bf84470c",
+        "product_id": null,
+        "market_product": "BIO_METHANOL",
+        "fuel_type": "Methanol",
+        "fuel_grade": "Bio",
+        "delivery_point_id": null,
+        "delivery_point_name": null,
+        "region": "Asia",
+        "quantity_mt": "100.00",
+        "price_per_mt_usd": "600.00",
+        "total_usd": "60000.0000",
+        "confirmed_at": "2026-10-15T12:00:00Z",
+        "availability_window": "SPOT",
+        "is_demo_trade": true,
+        "scope": "REGION",
+        "provenance_kind": "DEMO_SEED",
+        "source_kind": "DEMO_SEED",
+        "demo_status": "DEMO_ONLY"
+      }
+    ],
+    "total": 1,
+    "market_hours": true
+  },
+  "body_sha256": "a1f004562d4416fcbcd824359b1fb37ab4fc31b6ae7854120a103f7363760165"
+}

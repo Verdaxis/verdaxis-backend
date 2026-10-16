@@ -28,9 +28,11 @@ def golden_body(case_id: str) -> object:
 def test_recorded_source_sha_identifies_the_oracle_corpus():
     sha = export_policy.recorded_source_sha(ROOT)
     assert len(sha) == 40
-    assert list((ROOT / "tests" / "rust_contract" / "golden").iterdir()) == [
-        ROOT / "tests" / "rust_contract" / "golden" / sha
-    ]
+    golden = ROOT / "tests" / "rust_contract" / "golden"
+    # Task 13b: golden/CURRENT names the active oracle while the superseded
+    # Phase 0 corpus is retained beside it until the PM approves its removal.
+    assert (golden / "CURRENT").read_text().strip() == sha
+    assert (golden / sha).is_dir()
     payload = json.loads(export_policy.POLICY_PATH.read_text())
     assert payload["source_sha"] == sha
 

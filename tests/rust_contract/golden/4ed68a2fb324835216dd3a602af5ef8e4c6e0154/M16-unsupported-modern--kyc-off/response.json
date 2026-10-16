@@ -1,0 +1,22 @@
+{
+  "status": 400,
+  "headers": {
+    "content-type": "application/json",
+    "x-request-id": "00000000-0000-4000-8000-000000000001"
+  },
+  "body": {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "error": {
+      "code": -32022,
+      "message": "Unsupported protocol version",
+      "data": {
+        "supported": [
+          "2026-07-28"
+        ],
+        "requested": "2099-01-01"
+      }
+    }
+  },
+  "body_sha256": "775cc4f6a8ae5f9850086a2c69c8ff08922a6e5c46a21653500e17212955a2d4"
+}

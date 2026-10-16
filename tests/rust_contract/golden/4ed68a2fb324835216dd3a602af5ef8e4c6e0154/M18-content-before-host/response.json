@@ -1,0 +1,10 @@
+{
+  "status": 400,
+  "headers": {
+    "x-request-id": "00000000-0000-4000-8000-000000000001"
+  },
+  "body": {
+    "raw": "Invalid Content-Type header"
+  },
+  "body_sha256": "a53249fbd6bbf8ada27b5c42b364b719dfa263b1610560eab5fe9d3ebd8eb670"
+}

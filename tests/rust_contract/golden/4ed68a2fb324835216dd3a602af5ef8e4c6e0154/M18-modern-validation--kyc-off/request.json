@@ -1,0 +1,14 @@
+{
+  "method": "POST",
+  "path": "/mcp",
+  "query": "",
+  "headers": {
+    "x-request-id": "00000000-0000-4000-8000-000000000001",
+    "content-type": "application/json",
+    "accept": "application/json",
+    "mcp-protocol-version": "2026-07-28",
+    "mcp-method": "tools/call",
+    "mcp-name": "plan_voyage_fuel"
+  },
+  "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"tools/call\", \"params\": {\"name\": \"plan_voyage_fuel\", \"arguments\": {}, \"_meta\": {\"io.modelcontextprotocol/protocolVersion\": \"2026-07-28\", \"io.modelcontextprotocol/clientCapabilities\": {}}}}"
+}

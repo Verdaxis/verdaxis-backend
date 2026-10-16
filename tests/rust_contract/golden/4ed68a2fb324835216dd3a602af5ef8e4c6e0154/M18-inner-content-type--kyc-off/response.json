@@ -1,0 +1,16 @@
+{
+  "status": 415,
+  "headers": {
+    "content-type": "application/json",
+    "x-request-id": "00000000-0000-4000-8000-000000000001"
+  },
+  "body": {
+    "jsonrpc": "2.0",
+    "id": null,
+    "error": {
+      "code": -32600,
+      "message": "Unsupported Media Type: Content-Type must be application/json"
+    }
+  },
+  "body_sha256": "dd345159589d4068d31a22cf5c26d25fe6943193a200c938bf54542c36834797"
+}

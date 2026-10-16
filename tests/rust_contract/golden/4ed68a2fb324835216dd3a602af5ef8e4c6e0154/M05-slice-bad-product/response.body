@@ -1,0 +1,1 @@
+{"jsonrpc":"2.0","id":12,"result":{"content":[{"text":"Error executing tool get_market_slice: Unsupported market product 'unknown'. Supported products: B100, B30, BIO_ETHANOL, BIO_LNG, BIO_METHANOL, E_METHANOL, SYNTHETIC_ETHANOL, UCOME_B100","type":"text"}],"isError":true}}

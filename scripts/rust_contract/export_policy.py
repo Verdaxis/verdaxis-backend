@@ -66,9 +66,25 @@ class PolicyError(RuntimeError):
 
 
 def recorded_source_sha(root: Path = ROOT) -> str:
-    """Return the single recorded oracle corpus SHA under ``golden/``."""
-    entries = sorted(path.name for path in (root / "tests" / "rust_contract" / "golden").iterdir())
-    entries = [name for name in entries if (root / "tests" / "rust_contract" / "golden" / name).is_dir()]
+    """Return the active recorded oracle corpus SHA under ``golden/``.
+
+    Task 13b keeps the superseded Phase 0 corpus beside the new one until the
+    PM approves its removal, so the active oracle is named explicitly by the
+    committed ``golden/CURRENT`` pointer. Without that file the directory must
+    still hold exactly one corpus, so the older single-corpus invariant is
+    preserved.
+    """
+    golden = root / "tests" / "rust_contract" / "golden"
+    pointer = golden / "CURRENT"
+    if pointer.is_file():
+        sha = pointer.read_text().strip()
+        if not _valid_source_sha(sha):
+            raise PolicyError("golden/CURRENT is not a full 40-hex commit")
+        if not (golden / sha).is_dir():
+            raise PolicyError(f"golden/CURRENT names a missing corpus {sha}")
+        return sha
+    entries = sorted(path.name for path in golden.iterdir())
+    entries = [name for name in entries if (golden / name).is_dir()]
     if len(entries) != 1:
         raise PolicyError(f"expected exactly one recorded corpus, found {entries}")
     return entries[0]

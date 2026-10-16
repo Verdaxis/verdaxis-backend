@@ -1,0 +1,25 @@
+{
+  "status": 200,
+  "headers": {
+    "content-type": "application/json",
+    "x-request-id": "00000000-0000-4000-8000-000000000001"
+  },
+  "body": [
+    {
+      "id": "b91fbcd5-03b5-5782-a6bc-f80100afeb5c",
+      "title": "Corpus markets",
+      "summary": null,
+      "source": "Corpus",
+      "source_url": "https://example.test",
+      "url": "https://example.test/markets",
+      "category": "markets",
+      "relevance": 5,
+      "published_at": "2026-10-15T12:00:00+00:00",
+      "fetched_at": "2026-10-15T12:00:00+00:00"
+    }
+  ],
+  "body_sha256": "2fc665ea66d5436084410e566e4d096c55e64d6212e6a932bb3161df416a6b0a",
+  "news_exact_items": [
+    "{\"id\":\"b91fbcd5-03b5-5782-a6bc-f80100afeb5c\",\"title\":\"Corpus markets\",\"summary\":null,\"source\":\"Corpus\",\"source_url\":\"https://example.test\",\"url\":\"https://example.test/markets\",\"category\":\"markets\",\"relevance\":5,\"published_at\":\"2026-10-15T12:00:00+00:00\",\"fetched_at\":\"2026-10-15T12:00:00+00:00\"}"
+  ]
+}

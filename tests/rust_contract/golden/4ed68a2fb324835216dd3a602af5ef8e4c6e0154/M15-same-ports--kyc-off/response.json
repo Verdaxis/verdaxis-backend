@@ -1,0 +1,21 @@
+{
+  "status": 200,
+  "headers": {
+    "content-type": "application/json",
+    "x-request-id": "00000000-0000-4000-8000-000000000001"
+  },
+  "body": {
+    "jsonrpc": "2.0",
+    "id": 50,
+    "result": {
+      "content": [
+        {
+          "text": "Error executing tool plan_voyage_fuel: 2 validation errors for plan_voyage_fuelArguments\nrequest.legs.0\n  Value error, A leg must connect two different ports [type=value_error, input_value={'from_port': 'Singapore', 'to_port': 'Singapore'}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.13/v/value_error\nrequest.legs\n  Tuple should have at least 1 item after validation, not 0 [type=too_short, input_value=[{'from_port': 'Singapore...'to_port': 'Singapore'}], input_type=list]\n    For further information visit https://errors.pydantic.dev/2.13/v/too_short",
+          "type": "text"
+        }
+      ],
+      "isError": true
+    }
+  },
+  "body_sha256": "cd24c97654e53720d6255239d7d5f820c40ba5f05792418d2872937c8ea21d3b"
+}
