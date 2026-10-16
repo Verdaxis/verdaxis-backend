@@ -119,13 +119,19 @@ async def test_observed_state_fault_refuses_with_reason_code(tool, fault):
         else:
             common[side] = dict(common[side])
             common[side][key] = value
+        if tool == 'bootstrap':
+            # Bootstrap's report path must equal its authority receipt path; the
+            # directory is fresh, so this still exercises the observed-state gate.
+            suffix = ''
+        else:
+            suffix = '-' + fault
         # Manifest and authority now agree; only observed state differs.
         install_authority(common)
         result = await invoke(tool, directory, common, environment,
-                              suffix='-' + fault, apply=True)
+                              suffix=suffix, apply=True)
         assert result.returncode == 1, (tool, fault, result.stdout, result.stderr)
         assert code in result.stderr, (tool, fault, result.stderr)
-        assert not (directory / f'{tool}-{fault}-report.json').exists()
+        assert not (directory / (f'{tool}{suffix}-report.json')).exists()
 
 
 @pytest.mark.asyncio

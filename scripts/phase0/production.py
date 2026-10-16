@@ -108,7 +108,12 @@ def load_authority(manifest, tool, *, validation_only=False):
         if manifest['bootstrap_receipt_sha256'] is not None or str(output) != authority['bootstrap_receipt']:
             raise Refusal('PHASE0_RECEIPT')
     else:
-        receipt_bytes = read_root_private(authority['bootstrap_receipt'])
+        # A missing, unreadable or altered receipt is a coded refusal, not an
+        # uncoded file error: the operator needs the gate name.
+        try:
+            receipt_bytes = read_root_private(authority['bootstrap_receipt'])
+        except ValueError:
+            raise Refusal('PHASE0_RECEIPT') from None
         if hashlib.sha256(receipt_bytes).hexdigest() != manifest['bootstrap_receipt_sha256']:
             raise Refusal('PHASE0_RECEIPT')
         receipt = parse_json(receipt_bytes)
@@ -197,6 +202,10 @@ async def run(manifest, source_file, target_file, *, expected_tool, apply=False)
                if index == 0 or tool == 'verify' else {}) for index, url in enumerate(urls)]
     try:
         async with engines[0].connect() as source, engines[1].connect() as target:
+            # Entry boundary for every tool: identity, source quiescence, target
+            # ACL/sessions and frozen source state are observed before any work.
+            if tool != 'bootstrap':
+                await check_boundaries(authority, source, target)
             if tool == 'bootstrap':
                 from alembic.config import Config
 
