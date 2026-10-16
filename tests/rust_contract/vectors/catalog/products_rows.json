@@ -1,5 +1,25 @@
 [
   {
+    "id": "c4cecebc-3d2d-5840-8021-57a9a11bc673",
+    "name": "B30",
+    "fuel_type": "Biofuel",
+    "fuel_grade": "B30",
+    "unit": "MT",
+    "min_lot_size": "200.00",
+    "spec_description": "30% FAME by volume blended with 70% VLSFO; finished blend meets ISO 8217:2024 RF 380 with sulphur at most 0.50% by mass",
+    "is_active": true
+  },
+  {
+    "id": "74eb9cb5-f0e3-55f1-b82c-fe29b7c45bf5",
+    "name": "B100",
+    "fuel_type": "Biofuel",
+    "fuel_grade": "B100",
+    "unit": "MT",
+    "min_lot_size": "200.00",
+    "spec_description": "100% FAME, excluding HVO; finished fuel meets ISO 8217:2024 DFA with sulphur at most 0.10% by mass",
+    "is_active": true
+  },
+  {
     "id": "8f6f34a5-2927-54a6-8564-cca40ae7cb8a",
     "name": "Bio-LNG",
     "fuel_type": "LNG",
@@ -50,33 +70,33 @@
     "is_active": true
   },
   {
-    "id": "8f6f34a5-2927-54a6-8564-cca40ae7cb8a",
+    "id": "c4cecebc-3d2d-5840-8021-57a9a11bc673",
     "name": "Legacy Alias",
-    "fuel_type": "LNG",
-    "fuel_grade": "Bio",
+    "fuel_type": "Biofuel",
+    "fuel_grade": "B30",
     "unit": "MT",
-    "min_lot_size": "1.00",
-    "spec_description": "Liquefied biomethane (bio-LNG) for marine fuel use, delivered to ISO 23306:2020 with a certified Proof of Sustainability.",
+    "min_lot_size": "200.00",
+    "spec_description": "30% FAME by volume blended with 70% VLSFO; finished blend meets ISO 8217:2024 RF 380 with sulphur at most 0.50% by mass",
     "is_active": true
   },
   {
     "id": "00000000-0000-4000-8000-00000000ffff",
+    "name": "B30",
+    "fuel_type": "Biofuel",
+    "fuel_grade": "B30",
+    "unit": "MT",
+    "min_lot_size": "200.00",
+    "spec_description": "30% FAME by volume blended with 70% VLSFO; finished blend meets ISO 8217:2024 RF 380 with sulphur at most 0.50% by mass",
+    "is_active": true
+  },
+  {
+    "id": "8f6f34a5-2927-54a6-8564-cca40ae7cb8a",
     "name": "Bio-LNG",
     "fuel_type": "LNG",
     "fuel_grade": "Bio",
     "unit": "MT",
     "min_lot_size": "1.00",
     "spec_description": "Liquefied biomethane (bio-LNG) for marine fuel use, delivered to ISO 23306:2020 with a certified Proof of Sustainability.",
-    "is_active": true
-  },
-  {
-    "id": "9510c713-6e39-5080-add3-0a7c29657b79",
-    "name": "Bio Methanol",
-    "fuel_type": "Methanol",
-    "fuel_grade": "Bio",
-    "unit": "MT",
-    "min_lot_size": "200.00",
-    "spec_description": "Bio-methanol produced from biogenic feedstocks for marine fuel use",
     "is_active": false
   }
 ]
