@@ -60,8 +60,13 @@ GLOBAL_SEQUENCES = {
 IMPORT_LOCK = 706016005
 
 
-class CopyRefused(Refusal):
-    """Safe public failure; SQL detail belongs only in the private report."""
+class CopyRefused(ValueError):
+    """Safe internal failure; SQL detail belongs only in the private report.
+
+    This is deliberately not a ``Refusal``: only a coded gate may name itself on
+    stderr. A ``CopyRefused`` keeps its detail in the private on-host report and
+    the CLI prints its generic message.
+    """
 
 
 @dataclass(frozen=True)
@@ -192,7 +197,9 @@ async def attest(connection, identity, *, owner):
             raise CopyRefused('Target objects are not owned by migrator')
         sessions = (await connection.execute(text('SELECT count(*) FROM pg_stat_activity WHERE datid=:oid AND pid<>pg_backend_pid()'), {'oid': identity['oid']})).scalar_one()
         if sessions:
-            raise CopyRefused('Other target sessions exist')
+            # An extra target session is exactly the target fence this tool must
+            # refuse. Keep the coded gate so the operator sees the named refusal.
+            raise Refusal('PHASE0_TARGET_FENCE')
     else:
         writes = (await connection.execute(text("""
             SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
