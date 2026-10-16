@@ -11,6 +11,29 @@ from tests.phase0.production_scratch import production_scratch
 
 
 @pytest.mark.asyncio
+async def test_cross_tool_manifests_refuse_before_secrets_or_connections():
+    async with production_scratch() as scratch:
+        directory = Path('/root') / ('authority-' + uuid4().hex)
+        common, environment = await make_case(scratch, directory)
+        for cli in ('bootstrap', 'copy', 'verify'):
+            for claimed in ('bootstrap', 'copy', 'verify'):
+                if cli == claimed:
+                    continue
+                # Deliberately absent secrets. A wrong tool must refuse before
+                # validation-only return, receipt lookup, or any connection.
+                for side in ('source', 'target'):
+                    (directory / f'{cli}-{side}.env').unlink(missing_ok=True)
+                result = await invoke(cli, directory, common, environment,
+                                      manifest_tool=claimed, apply=False,
+                                      suffix='-' + claimed)
+                assert result.returncode == 1, (cli, claimed, result.stdout, result.stderr)
+                assert 'PHASE0_TOOL_MISMATCH' in result.stderr
+                assert not (directory / f'{cli}-{claimed}-report.json').exists()
+        async with scratch.admin_connection('verdaxis_prod') as target:
+            assert await target.fetchval("SELECT to_regclass('public.users')") is None
+
+
+@pytest.mark.asyncio
 async def test_production_bootstrap_copy_verify_cli_chain():
     async with production_scratch() as scratch:
         directory = Path('/root') / ('authority-' + uuid4().hex)

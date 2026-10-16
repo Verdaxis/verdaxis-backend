@@ -59,18 +59,18 @@ async def make_case(scratch, directory):
     return common, environment
 
 
-async def invoke(tool, directory, common, environment, *, suffix=''):
-    manifest = dict(common, tool=tool, report=str(directory / f'{tool}{suffix}-report.json'))
+async def invoke(tool, directory, common, environment, *, suffix='', manifest_tool=None, apply=True):
+    manifest = dict(common, tool=manifest_tool or tool, report=str(directory / f'{tool}{suffix}-report.json'))
     path = directory / f'{tool}{suffix}.json'
     private_file(path, json.dumps(manifest))
     command = [sys.executable, '-m', f'scripts.phase0.{tool}', '--manifest', str(path),
                '--source-environment-file', str(directory / f'{tool}-source.env'),
                '--target-environment-file', str(directory / f'{tool}-target.env')]
-    if tool == 'bootstrap':
-        command += ['--apply']
-    elif tool == 'copy':
-        command += ['--source-sha', common['source_sha'], '--target-sha', common['release_sha'], '--apply']
-    else:
+    if tool == 'copy':
+        command += ['--source-sha', common['source_sha'], '--target-sha', common['release_sha']]
+    if tool == 'verify':
         command += ['--report', manifest['report']]
+    elif apply:
+        command += ['--apply']
     return await asyncio.to_thread(subprocess.run, command, cwd=ROOT, env=environment,
                                    capture_output=True, text=True)
