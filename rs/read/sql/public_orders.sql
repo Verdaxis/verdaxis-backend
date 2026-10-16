@@ -48,7 +48,7 @@ SELECT o.*, p.name AS product_name, p.fuel_type AS product_fuel_type,
        p.fuel_grade AS product_fuel_grade, p.is_active AS product_is_active,
        dp.name AS delivery_point_name, dp.region AS delivery_point_region,
        (SELECT pp.code FROM policy_products pp WHERE pp.id = p.id) AS market_product
-FROM orderbook_orders AS o
+FROM /* base_orders */ AS o
 JOIN products AS p ON p.id = o.product_id
 JOIN delivery_points AS dp ON dp.id = o.delivery_point_id
 WHERE o.status IN ('OPEN', 'PARTIALLY_FILLED')

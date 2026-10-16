@@ -334,6 +334,7 @@ async fn trade_evidence_matrix_matches_python() {
 fn legacy_relation_sql() -> String {
     let relation = include_str!("../sql/public_orders.sql")
         .replace("/* eligibility_sets */", "")
+        .replace("/* base_orders */", "orderbook_orders")
         .replace(
             "/* current_order_rule */",
             include_str!("support/current_order_rule_legacy_owner.sql"),
@@ -418,7 +419,9 @@ fn legacy_curve_ids_sql(with_sets: bool) -> String {
     } else {
         String::new()
     };
-    relation = relation.replace("/* eligibility_sets */", &sets).replace("/* current_order_rule */", &rule);
+    relation = relation
+        .replace("/* eligibility_sets */", &sets)
+        .replace("/* current_order_rule */", &rule);
     format!("WITH eligible_orders AS ({relation}) SELECT id FROM eligible_orders ORDER BY id")
 }
 
@@ -433,24 +436,132 @@ async fn eligibility_sets_match_legacy_for_the_curve_relation() {
     let product: Uuid = "8f6f34a5-2927-54a6-8564-cca40ae7cb8a".parse().unwrap();
     let mut results = Vec::new();
     for with_sets in [true, false] {
-        let rows: Vec<(Uuid,)> = sqlx::query_as(sqlx::AssertSqlSafe(legacy_curve_ids_sql(with_sets)))
-            .bind(serde_json::to_string(&policy).unwrap())
-            .bind(clock.now)
-            .bind(clock.singapore_date.format("%Y-%m-%d").to_string())
-            .bind(false)
-            .bind(Some(product))
-            .bind(Option::<Uuid>::None)
-            .bind(Option::<String>::None)
-            .bind(Option::<String>::None)
-            .bind(Option::<String>::None)
-            .bind(Option::<String>::None)
-            .bind(Option::<String>::None)
-            .bind("orderbook")
-            .bind(config.kyc_execution_gate_enabled)
-            .fetch_all(&mut *connection)
-            .await
-            .expect("the curve relation must run");
-        results.push(rows.into_iter().map(|(id,)| id.to_string()).collect::<BTreeSet<_>>());
+        let rows: Vec<(Uuid,)> =
+            sqlx::query_as(sqlx::AssertSqlSafe(legacy_curve_ids_sql(with_sets)))
+                .bind(serde_json::to_string(&policy).unwrap())
+                .bind(clock.now)
+                .bind(clock.singapore_date.format("%Y-%m-%d").to_string())
+                .bind(false)
+                .bind(Some(product))
+                .bind(Option::<Uuid>::None)
+                .bind(Option::<String>::None)
+                .bind(Option::<String>::None)
+                .bind(Option::<String>::None)
+                .bind(Option::<String>::None)
+                .bind(Option::<String>::None)
+                .bind("orderbook")
+                .bind(config.kyc_execution_gate_enabled)
+                .fetch_all(&mut *connection)
+                .await
+                .expect("the curve relation must run");
+        results.push(
+            rows.into_iter()
+                .map(|(id,)| id.to_string())
+                .collect::<BTreeSet<_>>(),
+        );
     }
     assert_eq!(results[0], results[1], "curve relation eligibility changed");
+}
+
+/// Rust decision 27 equivalence: the key-first benchmark statement returns the
+/// exact same rows (as a multiset) as the previous statement (eligibility over
+/// every row, then join the requested keys), for every key the corpus can
+/// request, including mismatched product/slice pairs.
+#[tokio::test]
+async fn benchmark_key_first_matches_key_join_last() {
+    use sqlx::Row;
+    use verdaxis_read::market::visibility::{
+        OrderQuery, OrderSurface, benchmark_candidate_sql, bind_order_query, order_query_sql,
+    };
+    let config = config("RUST_MARKET_TEST_DATABASE_URL");
+    let pools = connect(&config).await.unwrap();
+    let policy = policy();
+    let expected = expected();
+    let clock = clock(&expected);
+    let mut connection = pools.read.acquire().await.unwrap();
+    let candidates = PublicOrderFilters {
+        surface: OrderSurface::Candidates,
+        ..PublicOrderFilters::default()
+    };
+
+    // Every key the corpus can request: each visible (side, point, window)
+    // slice against every policy product code. The cross product includes
+    // mismatched product/slice pairs, so a key scan that ignores the product
+    // column would return extra (duplicated) rows and fail the multiset
+    // comparison below.
+    let slice_sql = order_query_sql(
+        "SELECT DISTINCT side, delivery_point_id, availability_window FROM eligible_orders",
+    );
+    let slice_rows = bind_order_query(&slice_sql, &policy, &clock, &config, &candidates)
+        .unwrap()
+        .fetch_all(&mut *connection)
+        .await
+        .unwrap();
+    let mut products: Vec<String> = policy.products.iter().map(|p| p.code.clone()).collect();
+    products.sort();
+    products.dedup();
+    let mut keys: Vec<serde_json::Value> = Vec::new();
+    for row in &slice_rows {
+        for product in &products {
+            keys.push(serde_json::json!({
+                "side": row.get::<String, _>("side"),
+                "product": product,
+                "point": row.get::<Uuid, _>("delivery_point_id").to_string(),
+                "window": row.get::<String, _>("availability_window"),
+            }));
+        }
+    }
+    assert!(!keys.is_empty(), "the corpus must supply benchmark keys");
+    let keys_json = serde_json::to_string(&keys).unwrap();
+
+    // A multiset, not a set: a key scan that returns a row twice must differ.
+    fn project(
+        rows: &[sqlx::postgres::PgRow],
+    ) -> std::collections::BTreeMap<(String, String, String, String, String, String), usize> {
+        use sqlx::Row;
+        let mut counts = std::collections::BTreeMap::new();
+        for row in rows {
+            let key = (
+                row.get::<String, _>("side"),
+                row.get::<String, _>("market_product"),
+                row.get::<Uuid, _>("delivery_point_id").to_string(),
+                row.get::<String, _>("availability_window"),
+                row.get::<rust_decimal::Decimal, _>("remaining_quantity_mt")
+                    .to_string(),
+                row.get::<rust_decimal::Decimal, _>("price_per_mt_usd")
+                    .to_string(),
+            );
+            *counts.entry(key).or_insert(0) += 1;
+        }
+        counts
+    }
+
+    // The previous statement: the full relation, then join the requested keys.
+    let old_tail: &'static str = Box::leak(
+        format!(
+            ", requested_keys AS MATERIALIZED ({}) {}",
+            include_str!("../sql/requested_keys.sql"),
+            include_str!("../sql/live_benchmarks.sql")
+        )
+        .into_boxed_str(),
+    );
+    let old_query: OrderQuery = order_query_sql(old_tail);
+    let old = bind_order_query(&old_query, &policy, &clock, &config, &candidates)
+        .unwrap()
+        .bind(keys_json.clone())
+        .fetch_all(&mut *connection)
+        .await
+        .unwrap();
+
+    // The new statement: keys applied before the shared eligibility predicate.
+    let new_query: OrderQuery = benchmark_candidate_sql(include_str!("../sql/live_benchmarks.sql"));
+    let new = bind_order_query(&new_query, &policy, &clock, &config, &candidates)
+        .unwrap()
+        .bind(keys_json)
+        .fetch_all(&mut *connection)
+        .await
+        .unwrap();
+
+    assert!(!new.is_empty(), "the key-first statement must return rows");
+    assert_eq!(project(&new), project(&old), "key-first benchmark differs");
 }

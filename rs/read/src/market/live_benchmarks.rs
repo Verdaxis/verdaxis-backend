@@ -12,7 +12,7 @@ use crate::{ApiError, Config, Json, MarketPolicy};
 
 use super::terms::{QualificationInput, order_is_execution_qualified_at};
 use super::visibility::{
-    OrderSurface, PublicOrderFilters, VisibilityClock, bind_order_query, order_query_sql,
+    OrderSurface, PublicOrderFilters, VisibilityClock, benchmark_candidate_sql, bind_order_query,
 };
 use super::whitespace::is_python_whitespace;
 
@@ -119,7 +119,7 @@ pub async fn live_benchmarks(
         return Ok(HashMap::new());
     }
     let clock = VisibilityClock::at(now);
-    let sql = order_query_sql(include_str!("../../sql/live_benchmarks.sql"));
+    let sql = benchmark_candidate_sql(include_str!("../../sql/live_benchmarks.sql"));
     let filters = PublicOrderFilters {
         surface: OrderSurface::Candidates,
         ..Default::default()

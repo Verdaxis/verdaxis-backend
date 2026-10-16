@@ -326,7 +326,7 @@ async def main():
 
     admin("SELECT pg_stat_statements_reset()")
     fetch(os.environ["RUST_CONTRACT_URL"], case("two-statements", product, source_rows[1]))
-    for marker in (", ranked_orders AS (", ", requested_keys AS MATERIALIZED ("):
+    for marker in (", ranked_orders AS (", "WITH requested_keys AS MATERIALIZED ("):
         count = int(admin(f"""
             SELECT coalesce(sum(calls), 0) FROM pg_stat_statements
             WHERE userid=(SELECT oid FROM pg_roles WHERE rolname='rust_owner')

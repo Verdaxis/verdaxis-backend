@@ -78,7 +78,7 @@ def check_query_count():
         SELECT coalesce(sum(calls), 0) FROM pg_stat_statements
         WHERE userid=(SELECT oid FROM pg_roles WHERE rolname='rust_owner')
           AND dbid=(SELECT oid FROM pg_database WHERE datname=current_database())
-          AND query LIKE '%, requested_keys AS MATERIALIZED (%'
+          AND query LIKE '%WITH requested_keys AS MATERIALIZED (%'
     """))
     assert count == 1, f"expected one benchmark statement, observed {count}"
     print("Task 7b: one benchmark statement for the full ASK page", flush=True)

@@ -27,18 +27,45 @@ pub fn expand_shared_markers(sql: &str, gate: &str) -> String {
     sql.replace("/* eligibility_sets */", &eligibility_sets_sql(gate))
 }
 
-/// The complete bound public-order SELECT.
-pub fn public_order_sql() -> &'static str {
-    static SQL: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
-        expand_shared_markers(
-            &include_str!("../../sql/public_orders.sql").replace(
+/// Render the shared relation over a chosen base order scan. The default base is
+/// the `orderbook_orders` table; the benchmark substitutes a key-filtered scan
+/// (decision 27). Every other predicate is identical in both cases.
+fn relation_sql(base_orders: &str) -> String {
+    expand_shared_markers(
+        &include_str!("../../sql/public_orders.sql")
+            .replace(
                 "/* current_order_rule */",
                 include_str!("../../sql/current_order_rule.sql"),
-            ),
-            "$13",
-        )
-    });
+            )
+            .replace("/* base_orders */", base_orders),
+        "$13",
+    )
+}
+
+/// The complete bound public-order SELECT.
+pub fn public_order_sql() -> &'static str {
+    static SQL: std::sync::LazyLock<String> =
+        std::sync::LazyLock::new(|| relation_sql("orderbook_orders"));
     &SQL
+}
+
+/// Rust decision 27: the benchmark's bound statement. The requested keys are
+/// materialised once, the base scan is restricted to keyed rows before the
+/// shared eligibility predicate, and the tail performs the final key join. The
+/// full four-column key set is applied to the base scan (`requested_slices`
+/// resolves the product code to its catalog id through the same attested
+/// policy), so each keyed order enters once. The eligibility definition and
+/// every predicate are the shared ones.
+pub fn benchmark_candidate_sql(tail: &'static str) -> OrderQuery {
+    OrderQuery(expand_private_digest(&format!(
+        "WITH requested_keys AS MATERIALIZED ({}) , requested_slices AS MATERIALIZED ({}) , \
+         keyed_orders AS MATERIALIZED ({}) , eligible_orders AS NOT MATERIALIZED ({}) {}",
+        include_str!("../../sql/requested_keys.sql"),
+        include_str!("../../sql/requested_slices.sql"),
+        include_str!("../../sql/keyed_orders.sql"),
+        relation_sql("keyed_orders"),
+        tail
+    )))
 }
 
 /// The complete bound formal-trade-evidence SELECT.
