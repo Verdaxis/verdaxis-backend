@@ -67,11 +67,15 @@ jobs:
 
       # The artifact tests import only the standard library and cryptography, but
       # the shared tests/conftest.py imports httpx and SQLAlchemy, so the offline
-      # job installs the same requirements the existing backend CI does.
-      - name: Install the Python test dependencies
+      # job installs the same requirements the existing backend CI does. The
+      # pure differential tests under rs/ (orderbook_map) exec the project
+      # interpreter at <repo>/venv/bin/python, so the dependencies live in a venv
+      # at exactly that path, as the contract job already builds.
+      - name: Install the Python test environment
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt -c constraints.txt
+          python -m venv venv
+          venv/bin/python -m pip install --upgrade pip
+          venv/bin/pip install -r requirements.txt -c constraints.txt
 
       - name: Run the artifact verifier unit tests
         env:
@@ -79,7 +83,7 @@ jobs:
           RELEASE_SHA: test
           JWT_SECRET: test-secret-key-for-testing-minimum-32-chars
           DATABASE_URL: "sqlite+aiosqlite:///:memory:"
-        run: python -m pytest tests/unit/test_rust_artifact.py -q
+        run: venv/bin/python -m pytest tests/unit/test_rust_artifact.py -q
 
       - name: Fetch dependencies
         run: cargo fetch --manifest-path rs/Cargo.toml --locked
