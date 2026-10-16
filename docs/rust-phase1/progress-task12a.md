@@ -2,43 +2,127 @@
 
 Date: 2026-10-17. Branch `feat/rust-phase-1-20261015`.
 
-## Gate status: the test host is PAUSED — no gate is checked
+## Execution log (17 Oct)
 
-`verdaxis-prod-test` refuses before it contacts the host: the PM pause file
-(`~/.local/state/verdaxis-prod-test/pause`) reads "Phase 0 rehearsal attempt 2 on
-the prod host (17 Oct, from about 00:15 SGT, 1-1.5 hours)". The wrapper's message
-is "do not retry". No test, build, Docker command or Cargo command was run for
-this task, locally or on the host.
+The PM lifted the first pause at 00:21 SGT and asked for the full brief. Three
+gates passed; the PM then paused the host again (a third rehearsal, "Phase 0
+final rehearsal at 56d75770 on the prod host, 17 Oct from about 01:15 SGT,
+about 45 minutes"), so the last three gates were not run.
 
-Consequently **no plan checkbox for Task 12a is checked** and every gate below is
-recorded as unrun. Nothing in this document claims a passing test.
+| # | Gate | Command | Result |
+| --- | --- | --- | --- |
+| 1 | Artifact fixture tests | `venv/bin/python -m pytest tests/unit/test_rust_artifact.py -q` | **34 passed** (first run 21 failed on a test-helper defect, fixed) |
+| 2 | Offline Rust workspace | `RELEASE_SHA=<HEAD> SQLX_OFFLINE=true cargo test --workspace` | **153 passed**, 0 failed, 0 warnings |
+| 3 | Release build | `cargo build --locked --release -p verdaxis-read` | **built** in 6m07s; 12,136,104 bytes; sha256 `9918660b9df992f8feabf945e209ca2cdea1972aac6dbbe9e7a5ee6d329cf34d` |
+| 4 | glibc smoke check | `objdump -T … \| verify_rust_artifact.py --glibc-check` | **not run — PAUSED** |
+| 5 | fmt / clippy | `cargo fmt --check`; `cargo clippy … -D warnings` | **not run — PAUSED** |
+| 6 | Full Python unit suite | documented `ENVIRONMENT=test … pytest tests/unit -q` | **not run — PAUSED** |
 
-### Resume: run these, in this order, when the host unpauses
+All six Rust artifact unit tests ran inside gate 2:
+`runtime::artifact::tests::{wrong_binary_refuses_new_release,
+matching_identity_is_accepted, malformed_identity_is_refused,
+version_document_reports_the_compiled_identity,
+enumerated_allowlist_matches_the_reviewed_file, compiled_identity_matches_this_build}`.
 
-One call at a time, each with its output redirected to `work/rust-phase1/` and a
-`CALL_EXIT=` marker, then wait in bounded steps for the marker.
+The plan's Step 2 "expected red" was not captured: the code existed before the
+brief, so capturing a red would have meant reverting working code. Said plainly:
+**no red was captured.**
 
-1. Artifact fixture tests — 34 cases, expected green:
-   `verdaxis-prod-test "$PWD" 'venv/bin/python -m pytest tests/unit/test_rust_artifact.py -q'`
-   The plan's Step 2 expected red (verifier absent) was not captured: the host was
-   already paused when the verifier was written, so the first run will be green or
-   will fail honestly. It is not recorded as a captured red.
-2. Pure Rust identity tests and the whole workspace, with the compiled identity
-   set:
-   `verdaxis-prod-test "$PWD" 'export RELEASE_SHA=$(git rev-parse HEAD) SQLX_OFFLINE=true; cargo test --manifest-path rs/Cargo.toml --locked --workspace'`
-3. Format and lints:
-   `verdaxis-prod-test "$PWD" 'cargo fmt --manifest-path rs/Cargo.toml --all -- --check'`
-   `verdaxis-prod-test "$PWD" 'export RELEASE_SHA=$(git rev-parse HEAD); cargo clippy --manifest-path rs/Cargo.toml --locked --workspace --all-targets -- -D warnings'`
-4. Release build and the glibc smoke test (the VPS runs glibc 2.39, so this is
-   only a smoke test — see "What only the first real CI run can prove"):
-   `verdaxis-prod-test "$PWD" 'export RELEASE_SHA=$(git rev-parse HEAD); cargo build --manifest-path rs/Cargo.toml --locked --release -p verdaxis-read'`
-   then `objdump -T rs/target/release/verdaxis-read | python3 scripts/verify_rust_artifact.py --glibc-check --max 2.35 --source-sha "$(git rev-parse HEAD)"`
-5. Whole Python unit suite with the documented environment (the 19 known macOS
-   `mapfile` failures in `tests/unit/test_deploy_health.py` do not reproduce here):
-   `verdaxis-prod-test "$PWD" 'ENVIRONMENT=test RELEASE_SHA=test JWT_SECRET=test-secret-key-for-testing-minimum-32-chars DATABASE_URL="sqlite+aiosqlite:///:memory:" venv/bin/python -m pytest tests/unit -q'`
-6. A real round trip on Linux: build the release binary (step 4), package it,
-   sign a record on the workstation, then verify on the host.
-   `python3 scripts/verify_rust_artifact.py --package --binary rs/target/release/verdaxis-read --data-dir deploy/rust --lockfile rs/Cargo.lock --toolchain "$(grep -oP 'channel = "\K[^"]+' rs/rust-toolchain.toml)" --source-sha <sha> --target x86_64-unknown-linux-gnu --output work/rust-phase1/release.tar --metadata-out work/rust-phase1/artifact-metadata.json`
+Logs: `work/rust-phase1/t12a-artifact-tests{,2}.log`, `t12a-workspace.log`,
+`t12a-release-build.log`, `t12a-glibc.log` (holds the pause refusal).
+
+### First failure and its fix
+
+Gate 1's first run failed 21 of 34 cases on two test-only defects: the fixture
+helpers passed raw `bytes` to `tarfile.addfile` (which wants a file-like object),
+and `Fixture.assert_refused` called `self.assertFalse` on a non-TestCase helper.
+Fixed in commit `3a6f5d18`; no verifier behavior changed. Re-run: 34 passed.
+
+### Resume: the three gates still owed, then the rest
+
+The host is paused. When it unpauses, run gates 4-6 above in that order, then the
+Linux round trip (step 6 below). One call at a time, each logged with a
+`CALL_EXIT=` marker:
+
+1. `verdaxis-prod-test "$PWD" 'cargo fmt --manifest-path rs/Cargo.toml --all -- --check'`
+2. `verdaxis-prod-test "$PWD" 'export RELEASE_SHA=$(git rev-parse HEAD); cargo clippy --manifest-path rs/Cargo.toml --locked --workspace --all-targets -- -D warnings'`
+3. `verdaxis-prod-test "$PWD" 'ldd --version | head -1; objdump -T rs/target/release/verdaxis-read > /tmp/objdump.txt; python3 scripts/verify_rust_artifact.py --glibc-check --objdump /tmp/objdump.txt --max 2.35 --source-sha "$(git rev-parse HEAD)"'`
+4. `verdaxis-prod-test "$PWD" 'ENVIRONMENT=test RELEASE_SHA=test JWT_SECRET=test-secret-key-for-testing-minimum-32-chars DATABASE_URL="sqlite+aiosqlite:///:memory:" venv/bin/python -m pytest tests/unit -q'`
+5. The Linux round trip: package the release binary, sign a record on the
+   workstation, verify on the host (the exact commands are in the "Attestation
+   split" section below).
+
+fmt and clippy were not run at all, so a formatting or lint repair may follow.
+The release build and the workspace compiled with zero warnings, which does not
+by itself prove `cargo fmt --check` or `-D warnings` clippy.
+
+## Signing-key lifecycle for the attestation split
+
+The verifier's `--attest` mode signs a provenance record with an Ed25519 key; the
+deploy host's default mode verifies that signature with the matching public key.
+**No real key exists yet.** The fixture tests generate an ephemeral keypair in a
+temporary directory with `cryptography` and never touch a real key, and this task
+created none.
+
+**Who creates it.** The PM (the release owner) generates the keypair once, on the
+PM workstation, with a tool that writes standard PEM:
+
+```
+openssl genpkey -algorithm ED25519 -out release-provenance.pem      # PKCS#8 PEM
+openssl pkey -in release-provenance.pem -pubout -out release-provenance.pub.pem  # SPKI PEM
+```
+
+`verify_rust_artifact.py` loads exactly those two encodings
+(`load_pem_private_key`, `load_pem_public_key`) and refuses a non-Ed25519 key.
+
+**Where the private key lives.** On the PM workstation only, outside the
+repository, owned by the PM's user, mode `0600`. Suggested path:
+`~/.config/verdaxis/artifact-provenance/release-provenance.pem`, with the public
+key beside it. The repository never carries private-key material. `--attest`
+runs only on the workstation; the private key never leaves it, and the deploy
+host never receives it.
+
+**How the host pins the public key.** The public key is not a secret, but which
+key is accepted must be pinned to exact bytes. Two supported channels, usable
+together:
+
+- **Repository bytes (preferred).** Commit the public key at a reviewed path,
+  `deploy/rust/artifact-provenance.pub.pem`. The deploy transaction already
+  attests the approved release tree, so the pinned key travels with the reviewed
+  commit and its digest is recorded in the artifact metadata (`revision_allowlist`
+  is the pattern; a sibling `provenance_key` block can hold `path` + `sha256`).
+- **Operator install.** The host may keep `/etc/verdaxis/artifact-provenance.pub.pem`
+  (root-owned, `0644`) provisioned out of band, for a key the operator rotates
+  without a release.
+
+Pinning both closes the substitution gap: the transaction should require the host
+file's SHA-256 to equal the reviewed digest from the approved tree, then pass
+that path to `--provenance-public-key`. Today the CLI verifies the signature with
+the path it is given; **the digest pin of that path is Task 12b's integration
+work**, not built here.
+
+**On key loss.** Existing records and their detached signatures stay verifiable
+with the public key, so already-published artifacts and already-carried records
+remain trustworthy. Loss only prevents signing a *new* release. Recovery:
+generate a new keypair, distribute and pin the new public key, and re-run
+`--attest` for the release that needs a record. Because each record binds the
+GitHub attestation and the archive/binary digests, a lost private key does not
+weaken past provenance.
+
+**Rotation.** Rotate on compromise, on staff change, or on a fixed schedule
+(suggested annually). Procedure:
+
+1. Generate the new keypair on the workstation (commands above).
+2. Add the new public key at the reviewed path and/or install it on the host,
+   keeping the previous public key(s) in a short allowlist so a release signed
+   before the switch still verifies during the window.
+3. Switch the pinned key at one reviewed commit; record the change in the plan's
+   resume point and the progress file.
+4. After the window, retire the old public key and destroy the old private key.
+
+On suspected compromise, skip the overlap: stop pinning the old public key,
+re-sign any pending release with the new key, and treat any record signed by the
+old key after the compromise time as untrusted.
 
 ## What was built
 
@@ -196,5 +280,7 @@ changed.
 
 ## Unrun gates
 
-Tests, builds, Cargo commands, Docker: **not run, host paused**. Nothing here is
-claimed as passed.
+Gates 1-3 (artifact fixture tests, offline workspace, release build) ran and
+passed. Gates 4-6 (glibc smoke check, fmt/clippy, full unit suite) and the Linux
+package/verify round trip were **not run, host paused**. Nothing there is claimed
+as passed.

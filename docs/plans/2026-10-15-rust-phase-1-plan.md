@@ -1497,12 +1497,24 @@ no `gh` CLI and nothing may be installed on it, so the provenance check is split
   manifest, allowlist, `SHA256SUMS` — is then bound to that archive digest, so no
   digest is ever taken from the same download as the sole evidence.
 
-**Resume point:** Artifact verification is independently accepted once its
-fixture tests pass on the test host. CI publication remains a final Task 13 gate;
-the publish job stays blocked (not green) until the assembled Task 13 tree passes
-the contract job. Task 12b consumes this verifier unchanged: it runs the host
-mode on staging, and the PM runs `--attest` on the workstation and carries the
-record, signature and public key to the host step.
+- **Key lifecycle:** the PM generates one Ed25519 keypair on the workstation
+  (`openssl genpkey -algorithm ED25519`), keeps the private key at mode `0600`
+  outside the repository, and publishes the public key at
+  `deploy/rust/artifact-provenance.pub.pem` (and may also install it on the host).
+  The transaction should pin the public key's SHA-256 to the reviewed tree before
+  passing `--provenance-public-key`; that digest pin is Task 12b's integration
+  work, not built here. Rotation and key-loss handling are in
+  `docs/rust-phase1/progress-task12a.md`.
+
+**Resume point:** Three gates passed on 17 Oct (artifact fixture tests 34; offline
+workspace 153; release build). Owed, because the PM paused the host again mid-brief:
+`cargo fmt --check`, strict `clippy`, the glibc smoke check, the full Python unit
+suite, and the Linux package/verify round trip — commands in
+`docs/rust-phase1/progress-task12a.md`. CI publication remains a final Task 13
+gate; the publish job stays blocked (not green) until the assembled Task 13 tree
+passes the contract job. Task 12b consumes this verifier unchanged: it runs the
+host mode on staging, and the PM runs `--attest` on the workstation and carries
+the record, signature and public key to the host step.
 
 ### Task 12b: Extend the canonical deploy transaction — Astra
 
