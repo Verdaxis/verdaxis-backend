@@ -1,6 +1,48 @@
 # Phase 0 host-tool sign-off fixes — partial checkpoint
 
-## Current checkpoint 6 — all 12 remote regressions classified
+## Current checkpoint 7 — database fence decision and passing primitive tests
+
+**B1/B2 remain incomplete; production CLIs are still closed.**
+
+PM decision: no HBA fence and no `pg_hba.conf` changes. The operator creates the
+new target with CONNECT revoked from PUBLIC, retaining only approved tool and
+migrator connections until ACL acceptance. Tools must check exact target
+`pg_database.datacl` and no other target sessions at entry, before commit and
+at exit. Source reads remain repeatable-read/read-only plus Task 7's post-stop
+writer gate (every other source session blocks). Tools never change source
+settings/grants or terminate sessions.
+
+Implemented only the observation primitives so far:
+
+- `a5cd5bdb`: seven failing database-fence tests (completed remote red run).
+- `189bde99`: read-only `database_fence.py` and synthetic target creation with
+  PUBLIC CONNECT revoked. Seven remote tests passed, 16.85 seconds. They prove
+  runtime connection denial, extra-target-session refusal, exact changed ACL
+  refusal, unsafe ACL refusal even when supplied as expected, wrong OID refusal,
+  and every-other-source-session refusal. `pg_stat_clear_snapshot()` prevents a
+  cached statistics snapshot from hiding a later session. No HBA change.
+- Logs on test host: `work/hosttools-db-fence-{red,green}.log`. Both test runs
+  finished; runner-owned containers/volumes were removed. No tests remain running.
+- These helpers are not yet integrated at CLI entry/precommit/exit, nor do they
+  replace the full identity/bootstrap evidence chain. No end-to-end pass claimed.
+
+### Decision needed before execution integration
+
+The current approved identity model uses `verdaxis_migrator` as the target
+owner/bootstrap/import role and `verdaxis_backup` as the read-only source role.
+The new PM wording names both a dedicated tool role and the migrator. Confirm
+whether the existing migrator is the dedicated target tool identity, or provide
+the exact additional role and privileges. Do not invent an import role or grant
+membership. The current primitive accepts only migrator CONNECT; if a separate
+role is intended, revise it with tests before connecting it to production CLIs.
+
+**Exact resume:** resolve that role identity, add complete production CLI chain
+and wrong-identity tests on the Linux fixture, then integrate entry/precommit/exit
+fence checks, frozen-source and trusted bootstrap receipts, and immutable release
+attestation. Final production interfaces remain pending. Full suites were not
+rerun at this decision stop; latest full results remain checkpoint 6.
+
+## Checkpoint 6 — all 12 remote regressions classified
 
 **Regression gate recovered; B1/B2 integrated production path still pending.**
 
