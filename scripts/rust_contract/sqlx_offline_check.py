@@ -19,32 +19,25 @@ from scripts.rust_contract.run_disposable import DB_NAME, Runner
 class Check(Runner):
     def run_mixed(self, env, python_port, rust_port):
         extra = {**env, "DATABASE_URL": env["RUST_DATABASE_URL"]}
-        failures = 0
-        for package in ("rs/read", "rs/contract"):
-            result = subprocess.run(
-                [
-                    "cargo",
-                    "sqlx",
-                    "prepare",
-                    "--check",
-                    "--manifest-path",
-                    f"{package}/Cargo.toml",
-                ],
-                cwd=ROOT,
-                env=extra,
-                capture_output=True,
-                text=True,
-            )
-            print(f"PREPARE {package} exit={result.returncode}", flush=True)
-            if result.returncode != 0:
-                failures += 1
-                print((result.stdout + result.stderr)[-1500:], flush=True)
-        if failures:
-            raise SystemExit(f"{failures} package(s) failed the offline check")
+        # `cargo sqlx` forwards unknown flags to its own parser, so change
+        # directory into the workspace root instead of passing --manifest-path.
+        result = subprocess.run(
+            ["cargo", "sqlx", "prepare", "--check", "--workspace"],
+            cwd=ROOT / "rs",
+            env=extra,
+            capture_output=True,
+            text=True,
+        )
+        print(f"PREPARE exit={result.returncode}", flush=True)
+        output = (result.stdout + result.stderr).strip()
+        print(output[-1500:], flush=True)
+        if result.returncode != 0:
+            raise SystemExit("offline query metadata check failed")
 
 
 def main():
-    runner = Check("health", seed=False, keep=False, seed_mode="corpus")
+    # mixed_caddy routes this through run_mixed below; no Caddy is started.
+    runner = Check("health", seed=False, keep=False, seed_mode="corpus", mixed_caddy=True)
     print(f"database={DB_NAME}", flush=True)
     try:
         runner.run()
