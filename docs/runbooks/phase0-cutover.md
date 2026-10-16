@@ -1,13 +1,24 @@
 # Phase 0: one-use fenced cutover checklist
 
-**Source preparation only. No host operation is authorized.** Task 4b's final
-union policy, Task 9 acceptance, founder approval and separate host-operation
-approval are required. Task 10 rehearses the complete switch-back in an isolated
-host-local cluster. Task 11 uses rollback only for a pre-write emergency.
+## Current state — 2026-10-16
+
+**Source preparation only. No host operation is authorized.** This checkout is
+based on `e61400f3`, with Task 4b's `p0_20261016_union` and the production host
+tools merged. Use the FINAL interface in `docs/phase0/progress-hosttools.md`,
+not its historical checkpoints. Task 9 acceptance, independent host-tool review,
+founder approval and separate host-operation approval remain gates.
+
+The single operator appendix is [phase0-host-appendix.md](phase0-host-appendix.md).
+Its PM questions are hard stops: the supplied inventory does not yet establish
+all executable host commands, so sign-off M2 remains open. Task 10 rehearses the
+complete switch-back in an isolated host-local cluster. Task 11 permits rollback
+only for a pre-write emergency. The appendix is the current host-specific record;
+the sections below retain the invariant and guard contracts.
 
 ## Hard stops and required private evidence
 
-Read both host authority files before filling this checklist. Confirm DNS,
+Read the three real staging-host authority files named in the appendix; the
+old production-host `PRODUCTION_HOST.md` path does not exist. Confirm DNS,
 hostname, service User/WorkingDirectory, mounted filesystems, proxy ownership and
 all active/enabled/masked timer states. The production root stays
 `/home/verdaxis-prod/verdaxis/prod/be`; its canonical branch becomes `staging`.
@@ -26,10 +37,11 @@ Do not proceed with placeholders. The operator must add the actual commands for:
   `verdaxis_prod` / `verdaxis-prod`, not the old `verdaxis` / `verdaxis` pair.
   Preserve old backups and old producer configuration for rollback. No producer
   exists in this repository; do not install a competing one.
-- The installed monitor identity consumer. The helper publishes the credential-free
-  `.runtime-monitor.env` beside `.runtime-release.env` under blocked deploy state.
-  Bind the installed reader to that file with reviewed directory traversal/read
-  permissions. Do not install the source-only dual-host local monitor unchanged.
+- Monitor identity: the inventory found no installed `.runtime-monitor.env`
+  reader on prod. The helper publishes that credential-free file beside the
+  runtime artifact; verify it, but do not claim a reader consumes it. Preserve
+  the existing demo/onboarding bindings and resolve appendix Q6 before rearming.
+  Do not install the source-only dual-host local monitor unchanged.
 - Separate scratch-cluster endpoint/socket, system identifier and exact database
   OIDs. The assertion uses `/var/run/postgresql` for the operator's cluster query;
   the scratch cluster must expose its approved port there. Do not substitute the
@@ -277,14 +289,35 @@ confirmation or add a compatibility release. The founder can override this
 choice before cutover; revisit it after public launch. Decision source: frontend
 `docs/phase0/cached-bundle-options.md`, 2026-10-16 03:22 SGT.
 
-## Re-check after the PM merges Task 4b
+## Current resume point
 
-Task 4b has landed on `feat/phase0-convergence-20261016` with union revision
-`p0_20261016_union`. It is not merged into this lane. After the PM merges, rerun
-bootstrap and copy proofs, exact production Settings/role/ACL assertions, the
-union-to-union checkpoint deploy, monitor identity publication and this fence
-suite. Recompute approved tuple/unit digests from the combined full SHA. Verify
-the loaded fence again after immutable unit installation and check the final
-installed tuple before issuing a permit. Before installation, use a separately
-approved transitional manifest for the currently installed units; never pretend
-that their digests are already the new unit digests.
+Resolve the appendix's PM questions, then obtain independent host-tool and
+appendix review before Task 10. Recheck bootstrap/copy/verify, exact production
+Settings/roles/ACLs, union-to-union deploy and monitor identity at the approved
+combined full SHA. Use `new-preinstall.json` for current installed-unit bytes and
+`new-final.json` after immutable installation; only the final tuple can authorize
+a permit. Do not edit acceptance/oracle documents from this runbook lane.
+
+## Historical note — 2026-10-16, before integration at e61400f3
+
+The original Task 7 lane deferred Task 4b merge and production host-tool authority.
+Those source changes are now merged. That earlier deferral is historical, not
+the current resume instruction; Linux host approval and rehearsal remain pending.
+
+## Current production tool interface
+
+The production bootstrap parser now uses `--source-environment-file` and
+`--target-environment-file`, as do copy and verify. Do not change bootstrap to
+`--environment-file` based on the earlier sign-off reproduction: that referred
+to the superseded synthetic interface. All six production tool secret files
+contain exactly one `DATABASE_URL` line. The historical synthetic bootstrap
+`MIGRATOR_DATABASE_URL` file is not valid for this host path. Runtime Settings
+still need their separate app and migrator URLs.
+
+Use distinct `bootstrap.json`, `copy.json`, `verify.json` and separate source/
+target secret files for each tool, under `/root/verdaxis-phase0`. Each manifest
+repeats the fixed approved `authority.json` plus its exact tool/output fields;
+copy/verify bind the successful bootstrap receipt digest. Assertion tuple
+manifests are a different format. The appendix contains the sole executable
+production command sequence and the parser regression test checks it against
+the current source. Never reuse one manifest or secret file across tools.
