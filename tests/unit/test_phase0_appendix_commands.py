@@ -146,6 +146,36 @@ def test_pm_p05_scope_and_remaining_conflicts_are_explicit():
     assert 'public `/health/ready`' in text
 
 
+def test_p0run_reopens_only_the_private_workspace_for_evidence():
+    """ProtectHome=read-only needs the exact evidence path writable."""
+    text = APPENDIX.read_text()
+    block = next(block for block in re.findall(r'^```bash\n(.*?)^```', text, re.MULTILINE | re.DOTALL)
+                 if 'p0run()' in block)
+    assert '-p ProtectHome=read-only \\\n' in block
+    assert '-p ReadWritePaths=/root/verdaxis-phase0 \\\n' in block
+    assert block.count('ReadWritePaths') == 1
+    # No other host path may be reopened by the transient unit.
+    assert '/home' not in block.split('p0run()', 1)[1].split('```', 1)[0]
+
+
+def test_target_creation_resets_the_public_schema_in_order():
+    """A new database's public schema must reach live's owner and ACL first."""
+    text = APPENDIX.read_text()
+    block = next(block for block in re.findall(r'^```bash\n(.*?)^```', text, re.MULTILINE | re.DOTALL)
+                 if 'CREATE EXTENSION postgis;' in block)
+    for line in ('ALTER SCHEMA public OWNER TO verdaxis_migrator;',
+                 'REVOKE ALL ON SCHEMA public FROM PUBLIC;',
+                 'GRANT USAGE ON SCHEMA public TO verdaxis_app, verdaxis_backup;'):
+        assert line in block
+    order = [block.index('REVOKE TEMPORARY ON DATABASE verdaxis_prod FROM PUBLIC;'),
+             block.index('ALTER SCHEMA public OWNER TO verdaxis_migrator;'),
+             block.index('REVOKE ALL ON SCHEMA public FROM PUBLIC;'),
+             block.index('GRANT USAGE ON SCHEMA public TO verdaxis_app, verdaxis_backup;')]
+    assert order == sorted(order)
+    assert ('verdaxis_migrator {verdaxis_migrator=UC/verdaxis_migrator,'
+            'verdaxis_app=U/verdaxis_migrator,verdaxis_backup=U/verdaxis_migrator}') in text
+
+
 def test_appendix_shell_blocks_are_syntactically_valid():
     import subprocess
 
