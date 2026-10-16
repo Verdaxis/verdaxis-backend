@@ -5,6 +5,7 @@ WITH policy_products AS (
         id uuid, qualification_profile text, lanes jsonb
     )
 )
+/* eligibility_sets */
 SELECT o.product_id, o.delivery_point_id, o.availability_window, count(*)::bigint AS unknown_order_count
 FROM orderbook_orders o
 WHERE o.status IN ('OPEN', 'PARTIALLY_FILLED')

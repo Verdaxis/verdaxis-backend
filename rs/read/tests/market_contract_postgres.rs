@@ -327,3 +327,130 @@ async fn trade_evidence_matrix_matches_python() {
     drop(connection);
     pools.read.close().await;
 }
+
+/// Rust decision 25 equivalence proof: the legacy correlated-`EXISTS` owner
+/// admission and the new membership sets must select exactly the same rows over
+/// the populated corpus. The legacy rule is a frozen test-only oracle.
+fn legacy_relation_sql() -> String {
+    let relation = include_str!("../sql/public_orders.sql")
+        .replace("/* eligibility_sets */", "")
+        .replace(
+            "/* current_order_rule */",
+            include_str!("support/current_order_rule_legacy_owner.sql"),
+        );
+    format!(
+        "WITH eligible_orders AS NOT MATERIALIZED ({relation}) \
+         SELECT id FROM eligible_orders ORDER BY id"
+    )
+}
+
+async fn legacy_ids(
+    connection: &mut sqlx::PgConnection,
+    policy: &MarketPolicy,
+    clock: &VisibilityClock,
+    config: &Config,
+    filters: &PublicOrderFilters<'_>,
+) -> BTreeSet<String> {
+    // Same bind order as `bind_order_query`; the default surface is "orderbook".
+    let rows: Vec<(Uuid,)> = sqlx::query_as(sqlx::AssertSqlSafe(legacy_relation_sql()))
+        .bind(serde_json::to_string(policy).unwrap())
+        .bind(clock.now)
+        .bind(clock.singapore_date.format("%Y-%m-%d").to_string())
+        .bind(filters.include_off_spec)
+        .bind(filters.product_id)
+        .bind(filters.delivery_point_id)
+        .bind(filters.side.map(str::to_owned))
+        .bind(filters.fuel_type.map(str::to_owned))
+        .bind(filters.market_product.map(str::to_owned))
+        .bind(filters.region.map(str::to_owned))
+        .bind(filters.availability_window.map(str::to_owned))
+        .bind("orderbook")
+        .bind(config.kyc_execution_gate_enabled)
+        .fetch_all(connection)
+        .await
+        .expect("the frozen legacy statement must run under the app role");
+    rows.into_iter().map(|(id,)| id.to_string()).collect()
+}
+
+#[tokio::test]
+async fn eligibility_sets_match_legacy_predicate_for_every_order() {
+    let config = config("RUST_MARKET_TEST_DATABASE_URL");
+    let pools = connect(&config)
+        .await
+        .expect("the read-only app role must connect");
+    let policy = policy();
+    let expected = expected();
+    let clock = clock(&expected);
+    let mut connection = pools.read.acquire().await.unwrap();
+    for gate in [true, false] {
+        for include_off_spec in [false, true] {
+            let mut config = config.clone();
+            config.kyc_execution_gate_enabled = gate;
+            let filters = PublicOrderFilters {
+                include_off_spec,
+                ..PublicOrderFilters::default()
+            };
+            let new = as_strings(
+                &select_public_order_ids(&mut connection, &policy, &clock, &config, &filters)
+                    .await
+                    .unwrap(),
+            );
+            let legacy = legacy_ids(&mut connection, &policy, &clock, &config, &filters).await;
+            assert_eq!(
+                new, legacy,
+                "eligibility sets differ from the legacy predicate (gate={gate}, off_spec={include_off_spec})"
+            );
+        }
+    }
+}
+
+/// The legacy curve relation composes the same rule through its own relation.
+/// Compare its old and new id sets for one requested product.
+fn legacy_curve_ids_sql(with_sets: bool) -> String {
+    let mut relation = include_str!("../sql/legacy_curve_orders.sql").to_string();
+    let rule = if with_sets {
+        include_str!("../sql/current_order_rule.sql").to_string()
+    } else {
+        include_str!("support/current_order_rule_legacy_owner.sql").to_string()
+    };
+    let sets = if with_sets {
+        include_str!("../sql/eligibility_sets.sql").replace("/*gate*/", "$13")
+    } else {
+        String::new()
+    };
+    relation = relation.replace("/* eligibility_sets */", &sets).replace("/* current_order_rule */", &rule);
+    format!("WITH eligible_orders AS ({relation}) SELECT id FROM eligible_orders ORDER BY id")
+}
+
+#[tokio::test]
+async fn eligibility_sets_match_legacy_for_the_curve_relation() {
+    let config = config("RUST_MARKET_TEST_DATABASE_URL");
+    let pools = connect(&config).await.unwrap();
+    let policy = policy();
+    let expected = expected();
+    let clock = clock(&expected);
+    let mut connection = pools.read.acquire().await.unwrap();
+    let product: Uuid = "8f6f34a5-2927-54a6-8564-cca40ae7cb8a".parse().unwrap();
+    let mut results = Vec::new();
+    for with_sets in [true, false] {
+        let rows: Vec<(Uuid,)> = sqlx::query_as(sqlx::AssertSqlSafe(legacy_curve_ids_sql(with_sets)))
+            .bind(serde_json::to_string(&policy).unwrap())
+            .bind(clock.now)
+            .bind(clock.singapore_date.format("%Y-%m-%d").to_string())
+            .bind(false)
+            .bind(Some(product))
+            .bind(Option::<Uuid>::None)
+            .bind(Option::<String>::None)
+            .bind(Option::<String>::None)
+            .bind(Option::<String>::None)
+            .bind(Option::<String>::None)
+            .bind(Option::<String>::None)
+            .bind("orderbook")
+            .bind(config.kyc_execution_gate_enabled)
+            .fetch_all(&mut *connection)
+            .await
+            .expect("the curve relation must run");
+        results.push(rows.into_iter().map(|(id,)| id.to_string()).collect::<BTreeSet<_>>());
+    }
+    assert_eq!(results[0], results[1], "curve relation eligibility changed");
+}

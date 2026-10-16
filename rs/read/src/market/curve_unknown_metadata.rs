@@ -9,9 +9,12 @@ pub async fn load(
     clock: &VisibilityClock,
     keys: &Json,
 ) -> Result<Vec<Json>, ApiError> {
-    let sql = include_str!("../../sql/curve_unknown_metadata.sql").replace(
-        "/* current_order_rule */",
-        &include_str!("../../sql/current_order_rule.sql").replace("$13", "$5"),
+    let sql = crate::market::visibility::expand_shared_markers(
+        &include_str!("../../sql/curve_unknown_metadata.sql").replace(
+            "/* current_order_rule */",
+            include_str!("../../sql/current_order_rule.sql"),
+        ),
+        "$5",
     );
     let policy = serde_json::to_string(state.policy.as_ref()).map_err(|_| ApiError::internal())?;
     let rows = sqlx::query(sqlx::AssertSqlSafe(sql))

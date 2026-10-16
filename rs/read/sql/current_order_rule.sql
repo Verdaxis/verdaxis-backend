@@ -1,5 +1,6 @@
 -- Shared expiry, owner admission and shallow declaration rule.
--- Requires policy_products and alias o. Binds $2, $3 and $13.
+-- Requires policy_products, eligible_owners, eligible_assisted and alias o.
+-- Binds $2, $3 and the gate placeholder substituted by the compositor.
 TRUE
     -- Currency: an explicit future expiry, or a null expiry on REAL/UNKNOWN.
     AND (
@@ -10,78 +11,18 @@ TRUE
         )
     )
     -- Owner admission. Assisted rows use the narrower administrator rule.
+    -- Membership tests against the shared eligibility sets (decision 25).
     AND (
         CASE
-            WHEN o.creation_method = 'MARKET_SUPPORT' THEN EXISTS (
-                SELECT 1
-                FROM users AS actor
-                WHERE actor.id = o.owner_user_id
-                  AND actor.id = o.created_by_actor_user_id
-                  AND actor.role = 'ADMIN'
-                  AND actor.status = 'APPROVED'
-                  AND EXISTS (
-                      SELECT 1
-                      FROM users AS member
-                      WHERE member.organization_id = o.organization_id
-                        AND member.role IN ('BUYER', 'SUPPLIER')
-                        AND member.status = 'APPROVED'
-                        AND member.email_verified
-                        AND NOT member.must_change_password
-                        AND member.kyc_status <> 'REJECTED'
-                        AND CASE WHEN $13::boolean THEN (
-                            (member.kyc_status = 'APPROVED'
-                             AND member.kyc_organization_id = member.organization_id)
-                            OR EXISTS (
-                                SELECT 1 FROM kyc_execution_grace AS grace
-                                WHERE grace.user_id = member.id
-                                  AND grace.organization_id = member.organization_id
-                                  AND grace.expires_at > $2::timestamptz
-                            )
-                        ) ELSE (
-                            member.kyc_organization_id IS NULL
-                            OR member.kyc_organization_id = member.organization_id
-                        ) END
-                  )
-                  AND EXISTS (
-                      SELECT 1
-                      FROM organizations AS assisted_org
-                      WHERE assisted_org.id = o.organization_id
-                        AND assisted_org.verification_status = 'APPROVED'
-                        AND assisted_org.provenance = 'REAL'
-                  )
+            WHEN o.creation_method = 'MARKET_SUPPORT' THEN (
+                (o.owner_user_id, o.created_by_actor_user_id, o.organization_id)
+                    IN (SELECT owner_user_id, actor_user_id, organization_id
+                        FROM eligible_assisted)
             )
             ELSE (
                 o.owner_user_id IS NULL
-                OR EXISTS (
-                    SELECT 1
-                    FROM users AS owner
-                    WHERE owner.id = o.owner_user_id
-                      AND owner.organization_id = o.organization_id
-                      AND owner.role IN ('BUYER', 'SUPPLIER')
-                      AND owner.status = 'APPROVED'
-                      AND owner.email_verified
-                      AND NOT owner.must_change_password
-                      AND owner.kyc_status <> 'REJECTED'
-                      AND CASE WHEN $13::boolean THEN (
-                          (owner.kyc_status = 'APPROVED'
-                           AND owner.kyc_organization_id = owner.organization_id)
-                          OR EXISTS (
-                              SELECT 1 FROM kyc_execution_grace AS grace
-                              WHERE grace.user_id = owner.id
-                                AND grace.organization_id = owner.organization_id
-                                AND grace.expires_at > $2::timestamptz
-                          )
-                      ) ELSE (
-                          owner.kyc_organization_id IS NULL
-                          OR owner.kyc_organization_id = owner.organization_id
-                      ) END
-                      AND EXISTS (
-                          SELECT 1
-                          FROM organizations AS org
-                          WHERE org.id = o.organization_id
-                            AND org.verification_status = 'APPROVED'
-                      )
-                )
+                OR (o.owner_user_id, o.organization_id)
+                    IN (SELECT user_id, organization_id FROM eligible_owners)
             )
         END
     )

@@ -14,12 +14,28 @@ use uuid::Uuid;
 use crate::{Config, MarketPolicy};
 use sqlx::{postgres::PgArguments, query::Query};
 
+/// Rust decision 25: the one shared eligibility-set definition, rendered for a
+/// consumer's gate bind (`$13` for the shared binder, `$5` for the curve
+/// metadata query). Every consumer of `current_order_rule.sql` composes it.
+pub fn eligibility_sets_sql(gate: &str) -> String {
+    include_str!("../../sql/eligibility_sets.sql").replace("/*gate*/", gate)
+}
+
+/// Expand the shared markers a tail or relation may carry. One composition
+/// point keeps every consumer's definition identical.
+pub fn expand_shared_markers(sql: &str, gate: &str) -> String {
+    sql.replace("/* eligibility_sets */", &eligibility_sets_sql(gate))
+}
+
 /// The complete bound public-order SELECT.
 pub fn public_order_sql() -> &'static str {
     static SQL: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
-        include_str!("../../sql/public_orders.sql").replace(
-            "/* current_order_rule */",
-            include_str!("../../sql/current_order_rule.sql"),
+        expand_shared_markers(
+            &include_str!("../../sql/public_orders.sql").replace(
+                "/* current_order_rule */",
+                include_str!("../../sql/current_order_rule.sql"),
+            ),
+            "$13",
         )
     });
     &SQL

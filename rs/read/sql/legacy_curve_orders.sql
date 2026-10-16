@@ -4,7 +4,8 @@ WITH policy_products AS (
     SELECT * FROM jsonb_to_recordset(($1::jsonb)->'products') AS product(
         id uuid, qualification_profile text, lanes jsonb
     )
-), bindings AS (
+)
+/* eligibility_sets */, bindings AS (
     SELECT $4::boolean, $7::text, $8::text, $9::text, $10::text,
            $11::text, $12::text
 )
