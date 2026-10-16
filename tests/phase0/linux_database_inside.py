@@ -39,6 +39,11 @@ def main():
     inputs = json.loads(Path('/inputs.json').read_text())
     if inputs['port'] != 55432:
         raise ValueError('Fixed container-local endpoint required')
+    # git archive inherits the test user's permissive umask in tree modes.
+    # Install the candidate as root-controlled bytes before testing authority.
+    for path in ROOT.rglob('*'):
+        if not path.is_symlink():
+            path.chmod(path.stat().st_mode & ~0o022)
     WORK.mkdir(mode=0o700)
     environment = dict(PATH=os.environ['PATH'], HOME='/root', ENVIRONMENT='test', RELEASE_SHA='test',
                        JWT_SECRET='test-secret-key-for-testing-minimum-32-chars',
