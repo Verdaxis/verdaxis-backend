@@ -55,7 +55,7 @@ def private_output(path):
     return path
 
 
-def load_authority(manifest, tool):
+def load_authority(manifest, tool, *, validation_only=False):
     if os.geteuid() != 0 or os.environ.get('ENVIRONMENT') != 'production':
         raise Refusal('PHASE0_ENVIRONMENT')
     if set(manifest) != MANIFEST_FIELDS or manifest['tool'] != tool:
@@ -98,6 +98,10 @@ def load_authority(manifest, tool):
     load_policy()
     private_output(authority['bootstrap_receipt'])
     output = private_output(manifest['report'])
+    if validation_only:
+        # Authority-only run: no receipt, no publication, no mutation. The
+        # receipt and destination gates apply only to an applying run.
+        return authority
     if os.path.lexists(output):
         raise Refusal('PHASE0_REPORT_PATH')
     if tool == 'bootstrap':
@@ -177,9 +181,12 @@ async def run(manifest, source_file, target_file, *, expected_tool, apply=False)
 
     require_tool(manifest, expected_tool)
     tool = expected_tool
-    authority = load_authority(manifest, tool)
-    if tool != 'verify' and not apply:
-        # Validation only: no connection, no secret read, no published evidence.
+    validation_only = tool != 'verify' and not apply
+    # Validation-only runs must not require a bootstrap receipt or a free report
+    # destination: they validate authority and manifest only.
+    authority = load_authority(manifest, tool, validation_only=validation_only)
+    if validation_only:
+        # No connection, no secret read, no published evidence, no mutation.
         return dict(validated_only=True)
     urls = [secret_url(path, authority[side]) for path, side in
             ((source_file, 'source'), (target_file, 'target'))]

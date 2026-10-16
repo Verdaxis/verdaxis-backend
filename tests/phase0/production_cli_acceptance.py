@@ -52,9 +52,13 @@ async def test_production_bootstrap_copy_verify_cli_chain():
         report = json.loads((directory / 'verify-report.json').read_text())
         assert report['source_fingerprint'] == common['frozen_source']
         assert len(report['verification']['tables']) == 57
+        # A second copy must not replay. Its own receipt still exists, so the
+        # publication gate refuses before any import; committed state is kept.
         replay = await invoke('copy', directory, common, environment)
         assert replay.returncode == 1
-        assert 'PHASE0_COPY' in replay.stderr
+        assert 'PHASE0_REPORT_PATH' in replay.stderr
+        async with scratch.admin_connection('verdaxis_prod') as target:
+            assert await target.fetchval('SELECT count(*) FROM trades') > 0
         # Independent recovery must not need the post-commit copy receipt.
         (directory / 'copy-report.json').unlink()
         recovered = await invoke('verify', directory, common, environment, suffix='-recovery')
