@@ -77,8 +77,10 @@ def main():
             release.chmod(0o600)
             checked(['docker', 'cp', str(release), runtime + ':/release.json'])
             inputs = directory / 'inputs.json'
+            # One optional -k expression, passed as a single argv value.
+            selection = os.environ.get('PHASE0_PYTEST_K', '').strip()
             inputs.write_text(json.dumps(dict(port=PORT, password=password, cluster=cluster,
-                                                pytest_args=os.environ.get("PHASE0_PYTEST_ARGS", "").split())))
+                                              pytest_args=['-k', selection] if selection else [])))
             inputs.chmod(0o600)
             checked(['docker', 'cp', str(inputs), runtime + ':/inputs.json'])
             result = subprocess.run(['docker', 'start', '-a', runtime])
