@@ -886,3 +886,33 @@ The PM's diagnosis is confirmed: the dev build's 1.15 s outside SQL is now
 0.14 s. Rust is faster than Python on wall time in both cells. The largest
 remaining single cost is the key-first benchmark statement: 493 ms (list)
 and 542 ms (bids), server-side. Step 3 of the PM instruction targets it.
+
+### 6. Benchmark statement repair — cause, fix, proof (commit `df5dd4a5`)
+
+Cause, from auto_explain on the disposable corpus
+(`task13-lane13-explain-bench.log`, `scripts/rust_contract/explain_benchmark.py`):
+the decision-27 fences (`requested_slices AS MATERIALIZED`,
+`keyed_orders AS MATERIALIZED`) hid the real `orderbook_orders` row counts
+from the planner, so it walked the 10,000 keyed rows in a nested loop that
+re-scanned `products` (loops=10000) and `delivery_points` (loops=10000)
+and the policy CTEs once per row — 265 ms of per-row work — plus 77 ms
+scanning the materialised wide `o.*` tuplestore: 417 ms total for 10,000
+rows. Python's equivalent work is a narrow key-driven scan that qualifies
+outside SQL.
+
+Fix: `requested_slices` and `keyed_orders` are each referenced exactly
+once, so they are now `NOT MATERIALIZED` and the planner inlines them and
+hash-joins the small dimension tables. `requested_keys` stays MATERIALIZED
+(two readers). No predicate, key column or eligibility rule changed.
+
+Byte-exactness proof: `benchmark_key_first_matches_key_join_last` now
+executes three shapes — the original key-join-last, the exact decision-27
+fenced statement (test-only `benchmark_candidate_sql_fenced`), and the
+unfenced statement — and requires the identical row multiset from all
+three. `run_market_contract.sh`: 5 passed. Affected corpus groups green
+alone (live_benchmarks 4, snapshot 7, lists 28 + all probes). fmt and
+strict clippy clean; offline workspace tests pass.
+
+Combined gate at `df5dd4a5`: all eleven targets OK, assertion ledger OK,
+exit 0; `docs/rust-phase1/ci-contract.json` updated (no failed groups).
+Log: `task13-lane13-fence-gate.log`.
