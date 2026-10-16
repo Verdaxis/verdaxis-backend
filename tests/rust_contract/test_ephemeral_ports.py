@@ -43,6 +43,28 @@ def test_unreadable_range_fails_closed(monkeypatch):
         runner.ephemeral_range()
 
 
+def test_producer_and_consumer_use_kernel_range(monkeypatch):
+    from tests.disposable_server import ServerConfigError, validate_config
+    from tests.disposable_target import DisposableTargetError, validate_target
+    monkeypatch.setattr(runner.sys, "platform", "linux")
+    monkeypatch.setattr(Path, "read_text", lambda _: "32768 60999")
+    token = "x" * 32
+    assert validate_config("test", token, "127.0.0.1", 38153, "a" * 40) == token
+    assert validate_target("http://127.0.0.1:38153", token).port == 38153
+    for port in [8000, 8001, 61000]:
+        with pytest.raises(ServerConfigError):
+            validate_config("test", token, "127.0.0.1", port, "a" * 40)
+        with pytest.raises(DisposableTargetError):
+            validate_target(f"http://127.0.0.1:{port}", token)
+    def fail(_):
+        raise OSError("unreadable range")
+    monkeypatch.setattr(Path, "read_text", fail)
+    with pytest.raises(ServerConfigError):
+        validate_config("test", token, "127.0.0.1", 38153, "a" * 40)
+    with pytest.raises(DisposableTargetError):
+        validate_target("http://127.0.0.1:38153", token)
+
+
 def test_ephemeral_port_uses_kernel_range(monkeypatch):
     class Socket:
         def __enter__(self): return self
