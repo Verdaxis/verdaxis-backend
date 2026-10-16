@@ -9,7 +9,7 @@ import time
 from pathlib import Path
 from uuid import uuid4
 
-from tests.phase0.linux_hosttools import IMAGE, ROOT
+from tests.phase0.linux_hosttools import IMAGE, PLATFORM, ROOT
 from tests.phase0.runner import IMAGE as POSTGRES_IMAGE
 
 ARCHIVES = {
