@@ -220,6 +220,42 @@ gate, then rerun all 240 paired requests and full differential targets. OpenAPI,
 method/slash corpus and publication remain lower priority and unfinished.
 All measurement and diagnostic runs finished and their containers were removed.
 
+## Remaining gates — status after this turn
+
+**`cargo sqlx prepare --check`: PASS.** sqlx-cli 0.9.0 is installed on the test
+host. `scripts/rust_contract/sqlx_offline_check.py` runs
+`cargo sqlx prepare --check --workspace` from `rs/` against its own disposable
+migrated container (the subcommand takes no `--manifest-path`; it must run at
+the workspace root). Exit 0 (`task13-sqlx5.log`). The project uses runtime
+`sqlx::query(...)` calls only — `grep` finds no `query!`/`query_as!`/
+`query_scalar!` macros — so there is no compile-time query metadata, and the
+check confirms none is missing.
+
+**OpenAPI subset comparison: not started; scope needs a PM steer.** Task 13
+step 3 assumes typed DTOs with `utoipa::ToSchema` derivations. This
+implementation builds responses as dynamic `json!` values: `grep` finds **no**
+`utoipa`/`ToSchema`/`OpenApi` use anywhere in `rs/read/src`, and the 26 ported
+routes contain about 148 `json!` construction sites across `prices` (42),
+`orderbook_map` (29), `curves_canonical{,_views}` (41) and the rest. Matching
+the plan's byte-exact semantic comparison therefore means hand-writing ToSchema
+mirror types for every response and query parameter (names, required/default/
+bounds, enum values, null-versus-omitted, content types, deprecated flags), then
+a Python comparator against the recorded ported subset of `/openapi.json`.
+
+That is a large new unit, and its method is a real choice: (a) hand-written
+ToSchema mirrors that must be kept in step with the JSON by tests, or (b) a
+different parity method that compares the recorded Python OpenAPI subset
+per-operation without generating a Rust schema. The plan fixes (a) but its
+"derive on each DTO" premise does not hold here. **Requesting a PM steer on the
+method before building it.**
+
+Still open after that: the expanded method/HEAD/trailing-slash differential
+corpus, and the combined `--rust-target all --require-complete-ledger --report`
+publication gate (the runner in this lane exposes `--group all` with
+`--mixed-caddy`, not those flags).
+
+**p95 go/no-go remains FAIL and awaits the eligibility-cost decision** (above).
+
 ## Decision 24 implemented — digest input built for kept rows only
 ### After decision 24 — p95 gate still FAIL, next cause named
 
