@@ -216,8 +216,10 @@ async def run(manifest, source_file, target_file, *, expected_tool, apply=False)
                 async with source.begin():
                     await source.execute(text('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY'))
                     await configure_text_session(source)
-                    await attest(source, authority['source'], owner=False)
+                    # Coded identity/boundary gate runs before the import-path
+                    # attestation so a wrong identity is always a named refusal.
                     await check_boundaries(authority, source, target)
+                    await attest(source, authority['source'], owner=False)
                     await target.rollback()
                     identity = BootstrapIdentity(**authority['target'], source_sha=authority['release_sha'],
                                                  production_manifest=manifest)

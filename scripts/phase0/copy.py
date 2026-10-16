@@ -60,7 +60,7 @@ GLOBAL_SEQUENCES = {
 IMPORT_LOCK = 706016005
 
 
-class CopyRefused(ValueError):
+class CopyRefused(Refusal):
     """Safe public failure; SQL detail belongs only in the private report."""
 
 
@@ -493,10 +493,13 @@ def main():
                     await engine.dispose()
         asyncio.run(run())
         print('Copy committed and private receipt published')
-    except Refusal as refusal:
-        parser.exit(1, refusal.code + '\n')
-    except Exception:
-        parser.exit(1, 'PHASE0_COPY\n')
+    except Exception as error:
+        from scripts.phase0.refusal import coded_gate
+
+        code = coded_gate(error)
+        if code is not None:
+            parser.exit(1, code + '\n')
+        parser.exit(1, 'Copy refused; inspect private host evidence\n')
 
 
 if __name__ == '__main__':

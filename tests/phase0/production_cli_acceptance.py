@@ -84,11 +84,15 @@ async def test_validation_only_reports_validate_only(tool):
 
 # Observed-state faults: manifest and installed authority agree, so the refusal
 # must come from the disposable database/cluster state or installed bytes.
-OBSERVED_FAULTS = {
-    'source_server_host': ('source', 'server_host', '127.0.0.2/32', 'PHASE0_DB_IDENTITY'),
-    'target_server_port': ('target', 'server_port', 55433, 'PHASE0_DB_IDENTITY'),
+# Claim faults: the manifest and the installed authority agree, and the state
+# they claim differs from what the disposable database reports. Only bootstrap
+# is used, because its report path is its authority receipt path and no prior
+# receipt exists to invalidate. Pair faults are refused before any connection.
+CLAIM_FAULTS = {
     'source_oid': ('source', 'oid', 1, 'PHASE0_DB_IDENTITY'),
-    'target_cluster': ('target', 'cluster_system_identifier', '1', 'PHASE0_DB_IDENTITY'),
+    'source_server_host': ('source', 'server_host', '127.0.0.2/32', 'PHASE0_DB_PAIR'),
+    'target_server_port': ('target', 'server_port', 55433, 'PHASE0_DB_PAIR'),
+    'target_cluster': ('target', 'cluster_system_identifier', '1', 'PHASE0_DB_PAIR'),
     'target_acl': (None, 'target_datacl', '{}', 'PHASE0_TARGET_FENCE'),
     'frozen_source': (None, 'frozen_source', None, 'PHASE0_SOURCE_STATE'),
     'installed_bytes': (None, 'tool_tree_sha256', '0' * 64, 'PHASE0_INSTALLED_BYTES'),
@@ -96,21 +100,13 @@ OBSERVED_FAULTS = {
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize('tool', ['bootstrap', 'copy', 'verify'])
-@pytest.mark.parametrize('fault', sorted(OBSERVED_FAULTS))
-async def test_observed_state_fault_refuses_with_reason_code(tool, fault):
-    """R2: authority matches the manifest; only observed state differs."""
-    side, key, value, code = OBSERVED_FAULTS[fault]
+@pytest.mark.parametrize('fault', sorted(CLAIM_FAULTS))
+async def test_bootstrap_claim_fault_refuses_before_ddl(fault):
+    """R2 entry boundary: a claim that disagrees with reality refuses."""
+    side, key, value, code = CLAIM_FAULTS[fault]
     async with production_scratch() as scratch:
         directory = Path('/root') / ('authority-' + uuid4().hex)
         common, environment = await make_case(scratch, directory)
-        if tool != 'bootstrap':
-            # Prerequisites run under the approved authority, before the fault.
-            assert (await invoke('bootstrap', directory, common, environment)).returncode == 0
-            common['bootstrap_receipt_sha256'] = hashlib.sha256(
-                Path(common['bootstrap_receipt']).read_bytes()).hexdigest()
-            if tool == 'verify':
-                assert (await invoke('copy', directory, common, environment)).returncode == 0
         if fault == 'frozen_source':
             common['frozen_source'] = dict(common['frozen_source'])
             common['frozen_source']['sequences'] = {}
@@ -119,25 +115,19 @@ async def test_observed_state_fault_refuses_with_reason_code(tool, fault):
         else:
             common[side] = dict(common[side])
             common[side][key] = value
-        if tool == 'bootstrap':
-            # Bootstrap's report path must equal its authority receipt path; the
-            # directory is fresh, so this still exercises the observed-state gate.
-            suffix = ''
-        else:
-            suffix = '-' + fault
-        # Manifest and authority now agree; only observed state differs.
         install_authority(common)
-        result = await invoke(tool, directory, common, environment,
-                              suffix=suffix, apply=True)
-        assert result.returncode == 1, (tool, fault, result.stdout, result.stderr)
-        assert code in result.stderr, (tool, fault, result.stderr)
-        assert not (directory / (f'{tool}{suffix}-report.json')).exists()
+        result = await invoke('bootstrap', directory, common, environment)
+        assert result.returncode == 1, (fault, result.stdout)
+        assert code in result.stderr, (fault, result.stderr)
+        assert not Path(common['bootstrap_receipt']).exists()
+        async with scratch.admin_connection('verdaxis_prod') as target:
+            assert await target.fetchval("SELECT to_regclass('public.users')") is None
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize('tool', ['bootstrap', 'copy', 'verify'])
 async def test_late_target_session_refuses(tool):
-    """R2: an extra target session refuses at the observed-state gate."""
+    """R2: an extra target session refuses with the authority unchanged."""
     import asyncpg
     async with production_scratch() as scratch:
         directory = Path('/root') / ('authority-' + uuid4().hex)
@@ -148,14 +138,60 @@ async def test_late_target_session_refuses(tool):
                 Path(common['bootstrap_receipt']).read_bytes()).hexdigest()
         if tool == 'verify':
             assert (await invoke('copy', directory, common, environment)).returncode == 0
+        suffix = '' if tool == 'bootstrap' else '-session'
         extra = await asyncpg.connect(scratch.target_url.replace('postgresql+asyncpg:', 'postgresql:'))
         try:
-            result = await invoke(tool, directory, common, environment, suffix='-session', apply=True)
-            assert result.returncode == 1
-            assert 'PHASE0_TARGET_FENCE' in result.stderr
-            assert not (directory / f'{tool}-session-report.json').exists()
+            result = await invoke(tool, directory, common, environment, suffix=suffix, apply=True)
         finally:
             await extra.close()
+        assert result.returncode == 1, (tool, result.stdout)
+        assert 'PHASE0_TARGET_FENCE' in result.stderr, (tool, result.stderr)
+        assert not (directory / (f'{tool}{suffix}-report.json')).exists()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('tool', ['bootstrap', 'copy', 'verify'])
+async def test_late_target_acl_change_refuses(tool):
+    """R2: a target CONNECT grant after approval refuses with the authority fixed."""
+    async with production_scratch() as scratch:
+        directory = Path('/root') / ('authority-' + uuid4().hex)
+        common, environment = await make_case(scratch, directory)
+        if tool != 'bootstrap':
+            assert (await invoke('bootstrap', directory, common, environment)).returncode == 0
+            common['bootstrap_receipt_sha256'] = hashlib.sha256(
+                Path(common['bootstrap_receipt']).read_bytes()).hexdigest()
+        if tool == 'verify':
+            assert (await invoke('copy', directory, common, environment)).returncode == 0
+        suffix = '' if tool == 'bootstrap' else '-acl'
+        async with scratch.admin_connection() as admin:
+            await admin.execute('GRANT CONNECT ON DATABASE verdaxis_prod TO verdaxis_app')
+        result = await invoke(tool, directory, common, environment, suffix=suffix, apply=True)
+        assert result.returncode == 1, (tool, result.stdout)
+        assert 'PHASE0_TARGET_FENCE' in result.stderr, (tool, result.stderr)
+        assert not (directory / (f'{tool}{suffix}-report.json')).exists()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('tool', ['copy', 'verify'])
+async def test_late_source_change_refuses(tool):
+    """R2: a source row changed after approval refuses, authority unchanged."""
+    async with production_scratch() as scratch:
+        directory = Path('/root') / ('authority-' + uuid4().hex)
+        common, environment = await make_case(scratch, directory)
+        assert (await invoke('bootstrap', directory, common, environment)).returncode == 0
+        common['bootstrap_receipt_sha256'] = hashlib.sha256(
+            Path(common['bootstrap_receipt']).read_bytes()).hexdigest()
+        if tool == 'verify':
+            assert (await invoke('copy', directory, common, environment)).returncode == 0
+        suffix = '-' + tool
+        # The approved source role is read-only, so the change is made by the
+        # owning administrator, exactly as a late external writer would.
+        async with scratch.admin_connection('verdaxis') as admin:
+            await admin.execute("UPDATE notifications SET title='late write' WHERE title IS NOT NULL")
+        result = await invoke(tool, directory, common, environment, suffix=suffix, apply=True)
+        assert result.returncode == 1, (tool, result.stdout)
+        assert 'PHASE0_SOURCE_STATE' in result.stderr, (tool, result.stderr)
+        assert not (directory / (f'{tool}{suffix}-report.json')).exists()
 
 
 @pytest.mark.asyncio
@@ -171,12 +207,13 @@ async def test_pre_existing_report_destination_refuses(tool):
                 Path(common['bootstrap_receipt']).read_bytes()).hexdigest()
         if tool == 'verify':
             assert (await invoke('copy', directory, common, environment)).returncode == 0
-        destination = directory / f'{tool}-occupied-report.json'
+        destination = Path(common['bootstrap_receipt']) if tool == 'bootstrap' else (
+            directory / f'{tool}-occupied-report.json')
         destination.write_text('existing evidence')
-        result = await invoke(tool, directory, common, environment,
-                              suffix='-occupied', apply=True)
-        assert result.returncode == 1
-        assert 'PHASE0_REPORT_PATH' in result.stderr
+        suffix = '' if tool == 'bootstrap' else '-occupied'
+        result = await invoke(tool, directory, common, environment, suffix=suffix, apply=True)
+        assert result.returncode == 1, (tool, result.stdout)
+        assert 'PHASE0_REPORT_PATH' in result.stderr, (tool, result.stderr)
         assert destination.read_text() == 'existing evidence'
 
 
@@ -202,7 +239,7 @@ async def test_manifest_tamper_refuses_against_fixed_authority(key, value, code)
         tampered = json.loads(json.dumps(common))
         tampered[key] = value
         result = await invoke('verify', directory, tampered, environment, suffix='-tamper')
-        assert result.returncode == 1
+        assert result.returncode == 1, (key, result.stdout)
         assert code in result.stderr, (key, result.stderr)
         assert not (directory / 'verify-tamper-report.json').exists()
 

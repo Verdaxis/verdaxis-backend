@@ -263,9 +263,11 @@ def main():
             asyncio.run(apply_manifest(identity, args.target_environment_file))
         print('Bootstrap applied' if args.apply else 'Manifest checked; no connection opened or DDL approved')
     except Exception as error:
-        from scripts.phase0.refusal import Refusal
-        if isinstance(error, Refusal):
-            parser.exit(1, error.code + '\n')
+        from scripts.phase0.refusal import coded_gate
+
+        code = coded_gate(error)
+        if code is not None:
+            parser.exit(1, code + '\n')
         parser.exit(1, 'Bootstrap refused; no credentials or SQL details are printed\n')
 
 

@@ -15,8 +15,27 @@ CODES = (
 
 
 class Refusal(ValueError):
-    def __init__(self, code):
-        if code not in CODES:
+    """A refusal that may name the gate which refused.
+
+    ``code`` is None for internal refusals whose detail stays in the private
+    on-host report; the CLI then prints only its generic message.
+    """
+
+    def __init__(self, code=None):
+        if code is not None and code not in CODES:
             raise ValueError('Unregistered refusal code')
         super().__init__(code)
         self.code = code
+
+
+def coded_gate(error):
+    """First registered code in an exception chain, else None."""
+    seen = set()
+    current = error
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        code = getattr(current, 'code', None)
+        if code in CODES:
+            return code
+        current = current.__cause__ or current.__context__
+    return None

@@ -394,8 +394,11 @@ def main():
         report = asyncio.run(run())
         publish_report(args.report, report)
     except Exception as error:
-        if isinstance(error, Refusal):
-            parser.exit(1, error.code + '\n')
+        from scripts.phase0.refusal import coded_gate
+
+        code = coded_gate(error)
+        if code is not None:
+            parser.exit(1, code + '\n')
         parser.exit(1, 'Verification refused; no successful report published\n')
     print('Committed copy verified; private report published')
 
