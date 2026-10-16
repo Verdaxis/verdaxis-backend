@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import secrets
 import shutil
 import socket
@@ -122,6 +123,9 @@ class Runner:
         record_all: bool = False,
         gate: bool = True,
         mixed_caddy: bool = False,
+        rust_target: str | None = None,
+        require_complete_ledger: bool = False,
+        report: Path | None = None,
     ) -> None:
         self.mixed_caddy = mixed_caddy
         self.record_all = record_all
@@ -130,6 +134,12 @@ class Runner:
         self.seed = seed
         self.keep = keep
         self.seed_mode = seed_mode
+        # Which Rust contract targets to run. A single group defaults to its own
+        # target; `--group all` alone runs none (integration only), while
+        # `--rust-target all` runs every target once in this shared database.
+        self.rust_target = rust_target or (group if group != "all" else None)
+        self.require_complete_ledger = require_complete_ledger
+        self.report = report
         self.container = ""
         self.children: list[subprocess.Popen] = []
         self.sha = subprocess.run(
@@ -343,41 +353,170 @@ CREATE EXTENSION IF NOT EXISTS postgis;
 
         if self.mixed_caddy:
             self.run_mixed(base_env, python_port, rust_port)
-            return
 
-        target = GROUPS[self.group]
-        if not (ROOT / "rs/contract/tests" / f"{target}.rs").exists():
-            # Unported groups still have a router (currently empty). Compare it
-            # honestly instead of failing before any HTTP request is sent.
-            subprocess.run(
-                [self.python_bin, "-m", "scripts.rust_contract.compare", "--group", self.group],
-                cwd=ROOT,
-                env={**base_env, "PYTHON_CONTRACT_URL": python_url, "RUST_CONTRACT_URL": rust_url},
-                check=True,
-            )
-            return
-        subprocess.run(
-            [
-                "cargo",
-                "test",
-                "--manifest-path",
-                "rs/Cargo.toml",
-                "--locked",
-                "-p",
-                "verdaxis-contract",
-                "--features",
-                "contract-http",
-                "--test",
-                target,
-            ],
-            cwd=ROOT,
-            env={
-                **base_env,
+        results: dict[str, bool] = {}
+        if self.rust_target:
+            results = self.run_targets(base_env, python_url, rust_url)
+        self.finalize(results)
+
+    def target_groups(self) -> list[str]:
+        """The groups whose Rust contract targets this run selects."""
+        if self.rust_target == "all":
+            return list(GROUPS)
+        return [self.rust_target]
+
+    def run_targets(
+        self, env: dict[str, str], python_url: str, rust_url: str
+    ) -> dict[str, bool]:
+        """Run each selected group's Rust contract target once.
+
+        Every target either runs its `cargo test --test TARGET` (which drives
+        the external comparator) or, for a group whose Rust target is not yet
+        written, the comparator directly. A green cargo run that executed zero
+        tests is refused, matching the shared scripts.
+        """
+        results: dict[str, bool] = {}
+        for group in self.target_groups():
+            target = GROUPS[group]
+            full_env = {
+                **env,
                 "PYTHON_CONTRACT_URL": python_url,
                 "RUST_CONTRACT_URL": rust_url,
-            },
-            check=True,
+            }
+            if not (ROOT / "rs/contract/tests" / f"{target}.rs").exists():
+                command = [
+                    self.python_bin,
+                    "-m",
+                    "scripts.rust_contract.compare",
+                    "--group",
+                    group,
+                ]
+            else:
+                command = [
+                    "cargo",
+                    "test",
+                    "--manifest-path",
+                    "rs/Cargo.toml",
+                    "--locked",
+                    "-p",
+                    "verdaxis-contract",
+                    "--features",
+                    "contract-http",
+                    "--test",
+                    target,
+                ]
+            completed = subprocess.run(
+                command, cwd=ROOT, env=full_env, check=False, capture_output=True, text=True
+            )
+            if completed.stdout:
+                print(completed.stdout, end="", flush=True)
+            if completed.stderr:
+                print(completed.stderr, end="", file=sys.stderr, flush=True)
+            passed = completed.returncode == 0
+            if passed and command[0] == "cargo" and not re.search(
+                r"test result: ok\. [1-9][0-9]* passed", completed.stdout
+            ):
+                print(
+                    f"contract target {group} ran no Rust test: refusing a green result",
+                    file=sys.stderr,
+                )
+                passed = False
+            results[group] = passed
+            print(f"contract target {group}: {'OK' if passed else 'FAILED'}", flush=True)
+        return results
+
+    def finalize(self, results: dict[str, bool]) -> None:
+        """Check the assertion ledger and write the run report, then fail.
+
+        The report is written even when the ledger or a target fails, so a
+        publication job always has the machine-readable outcome to attach.
+        """
+        passed = [group for group, ok in results.items() if ok]
+        failed = [group for group, ok in results.items() if not ok]
+        ledger = None
+        ledger_error = None
+        if self.require_complete_ledger:
+            try:
+                ledger = self.check_ledger(passed)
+            except RunnerError as error:
+                ledger_error = str(error)
+        if self.report is not None:
+            self.write_report(results, passed, failed, ledger, ledger_error)
+        if ledger_error:
+            raise RunnerError(ledger_error)
+        if failed:
+            raise RunnerError(f"contract targets failed: {', '.join(failed)}")
+
+    def check_ledger(self, passed_groups: list[str]) -> dict[str, int]:
+        """Prove the assertion ledger is mapped and has no unpassed rows.
+
+        The checker owns the rule: every discovered assertion has a ledger row
+        with a target or a reviewed exclusion, and every `complete` row's target
+        group appears in the passing set. A pending row is allowed before its
+        route task runs.
+        """
+        evidence = ROOT / "work" / "rust-phase1"
+        evidence.mkdir(parents=True, exist_ok=True)
+        passed_path = evidence / "ci-passed-groups.json"
+        passed_path.write_text(json.dumps(sorted(passed_groups)) + "\n")
+        completed = subprocess.run(
+            [
+                self.python_bin,
+                "-m",
+                "scripts.rust_contract.check_assertions",
+                "--passed-groups",
+                str(passed_path),
+            ],
+            cwd=ROOT,
+            env={**os.environ},
+            check=False,
+            capture_output=True,
+            text=True,
         )
+        if completed.stdout:
+            print(completed.stdout, end="", flush=True)
+        if completed.stderr:
+            print(completed.stderr, end="", file=sys.stderr, flush=True)
+        ledger = json.loads(
+            (ROOT / "tests/rust_contract/assertions.json").read_text()
+        )
+        counts = {"rows": len(ledger["rows"])}
+        for row in ledger["rows"]:
+            counts[row.get("status", "unknown")] = counts.get(row.get("status", "unknown"), 0) + 1
+        if completed.returncode != 0:
+            raise RunnerError("assertion ledger is incomplete or unpassed")
+        return counts
+
+    def write_report(
+        self,
+        results: dict[str, bool],
+        passed: list[str],
+        failed: list[str],
+        ledger: dict[str, int] | None,
+        ledger_error: str | None = None,
+    ) -> None:
+        """Write the machine-readable contract-gate report and echo it."""
+        report = {
+            "source_sha": self.sha,
+            "group": self.group,
+            "rust_target": self.rust_target,
+            "mixed_caddy": self.mixed_caddy,
+            "require_complete_ledger": self.require_complete_ledger,
+            "groups": {
+                group: ("passed" if ok else "failed")
+                for group, ok in sorted(results.items())
+            },
+            "passed_groups": sorted(passed),
+            "failed_groups": sorted(failed),
+            "assertion_ledger": ledger,
+            "assertion_ledger_error": ledger_error,
+        }
+        text = json.dumps(report, indent=2) + "\n"
+        path = self.report if self.report.is_absolute() else ROOT / self.report
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text)
+        print(f"report written to {path}", flush=True)
+        print(text, end="", flush=True)
 
     def run_mixed(self, env: dict[str, str], python_port: int, rust_port: int) -> None:
         caddy = os.environ.get("CADDY_BIN") or shutil.which("caddy")
@@ -523,8 +662,25 @@ CREATE EXTENSION IF NOT EXISTS postgis;
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--group", default="health", choices=sorted([*GROUPS, "all"]))
+    parser.add_argument(
+        "--rust-target",
+        choices=sorted([*GROUPS, "all"]),
+        default=None,
+        help="Rust contract target(s) to run; `all` runs every target",
+    )
     parser.add_argument("--mixed-caddy", action="store_true")
     parser.add_argument("--record-all", action="store_true")
+    parser.add_argument(
+        "--require-complete-ledger",
+        action="store_true",
+        help="fail unless every discovered assertion is mapped and no complete row is unpassed",
+    )
+    parser.add_argument(
+        "--report",
+        type=Path,
+        default=None,
+        help="write a machine-readable contract-gate report to this path",
+    )
     parser.add_argument(
         "--kyc-gate", choices=("enabled", "disabled"), default="enabled"
     )
@@ -543,8 +699,14 @@ def main(argv: list[str] | None = None) -> int:
         help="ordinary applies only scripts/seed.py; corpus also applies the fixture families",
     )
     args = parser.parse_args(argv)
-    if (args.group == "all") != args.mixed_caddy or (args.mixed_caddy and args.record_all):
-        parser.error("--mixed-caddy requires --group all and cannot record golden data")
+    if args.mixed_caddy and args.group != "all":
+        parser.error("--mixed-caddy requires --group all")
+    if args.mixed_caddy and args.record_all:
+        parser.error("--mixed-caddy cannot record golden data")
+    if args.group == "all" and not (args.mixed_caddy or args.rust_target or args.record_all):
+        parser.error("--group all requires --mixed-caddy, --rust-target or --record-all")
+    if args.rust_target and args.record_all:
+        parser.error("--rust-target cannot record golden data")
     if args.no_seed and args.group not in ("health", "echo"):
         print("--no-seed is only valid for the health and echo groups", file=sys.stderr)
         return 2
@@ -560,6 +722,9 @@ def main(argv: list[str] | None = None) -> int:
         record_all=args.record_all,
         gate=args.kyc_gate == "enabled",
         mixed_caddy=args.mixed_caddy,
+        rust_target=args.rust_target,
+        require_complete_ledger=args.require_complete_ledger,
+        report=args.report,
     )
     try:
         runner.run()

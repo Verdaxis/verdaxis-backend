@@ -32,16 +32,25 @@ const PURPOSE: &str = "verdaxis-integration-test";
 
 use verdaxis_read::runtime::policy::committed_policy;
 
+/// The test-only benchmark projection route, owned by no public group.
+///
+/// The disposable server mounts it for the `live_benchmarks` group and for the
+/// combined `all` gate, which must serve every group's corpus cases from one
+/// process. The serving binary never mounts it.
+fn live_benchmarks_helper() -> Router<AppState> {
+    Router::new().route(
+        "/__contract__/live-benchmarks",
+        get(live_benchmarks_http::project),
+    )
+}
+
 /// Merge the modules one group owns. Health and echo need no data route.
 fn group_router(group: &str) -> Router<AppState> {
     use verdaxis_read::routes as r;
     match group {
-        "all" => verdaxis_read::runtime::http::public_routes(),
+        "all" => verdaxis_read::runtime::http::public_routes().merge(live_benchmarks_helper()),
         "health" | "echo" => Router::new(),
-        "live_benchmarks" => Router::new().route(
-            "/__contract__/live-benchmarks",
-            get(live_benchmarks_http::project),
-        ),
+        "live_benchmarks" => live_benchmarks_helper(),
         "simple_reads" => r::ports::routes()
             .merge(r::catalog::routes())
             .merge(r::news::routes()),
@@ -90,7 +99,9 @@ async fn serve() -> Result<(), String> {
     }
     let group = std::env::var("CONTRACT_GROUP").map_err(|_| "CONTRACT_GROUP is required")?;
 
-    if group == "curves_canonical" {
+    // The combined `all` gate serves the canonical curve group too, so it needs
+    // the same disposable measurements the single-group run installs.
+    if group == "curves_canonical" || group == "all" {
         curve_query_metrics::install();
     }
     let pools = connect(&config).await.map_err(|_| "connect failed")?;
