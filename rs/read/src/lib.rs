@@ -17,6 +17,9 @@ pub use market::windows::{
     normalize_window, window_display_label, window_sort_key, window_start_date,
 };
 pub use runtime::admission::{ADMISSION_SLOTS, run_admitted, selected_read, try_read};
+pub use runtime::artifact::{
+    ARTIFACT_VERSION, LIBC_MIN, verify_artifact_identity, verify_compiled_identity, version_json,
+};
 pub use runtime::config::{check_revision, connection_budget, validate_budget, validate_config};
 pub use runtime::db::connect;
 pub use runtime::error::{busy, database_error};

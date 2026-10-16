@@ -3,6 +3,13 @@ use verdaxis_read::{AppState, Config, connect, router};
 
 #[tokio::main]
 async fn main() {
+    // The version document is printed before any database or policy work so an
+    // operator and the contract job can attest the exact binary without serving
+    // it. The release identity check itself lives in runtime::artifact.
+    if std::env::args().nth(1).as_deref() == Some("--version-json") {
+        println!("{}", verdaxis_read::version_json());
+        return;
+    }
     tracing_subscriber::fmt().json().init();
     if serve().await.is_err() {
         tracing::error!(error_class = "startup", "read service startup failed");

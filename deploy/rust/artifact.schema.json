@@ -1,0 +1,132 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://verdaxis.exchange/schemas/rust-artifact-metadata-v1.json",
+  "title": "Verdaxis Rust read artifact metadata",
+  "description": "Release metadata for the verdaxis-read build artifact. The CI offline job writes it; the operator CLI scripts/verify_rust_artifact.py validates it before and after extraction. Field set and value rules here are enforced by validate_metadata in that CLI, and tests/unit/test_rust_artifact.py asserts the two stay identical.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "release_sha",
+    "target",
+    "libc_min",
+    "toolchain",
+    "lockfile_sha256",
+    "workflow_path",
+    "binary",
+    "policy",
+    "revision_allowlist",
+    "files",
+    "runtime_hosts"
+  ],
+  "properties": {
+    "version": { "const": 1 },
+    "release_sha": {
+      "description": "The full lowercase source SHA the artifact was built from.",
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "target": {
+      "description": "The Rust target triple. Both live hosts are x86_64 Linux.",
+      "const": "x86_64-unknown-linux-gnu"
+    },
+    "libc_min": {
+      "description": "The glibc floor the binary must not exceed. Staging host glibc is 2.35.",
+      "const": "2.35"
+    },
+    "toolchain": {
+      "description": "The pinned Rust toolchain from rs/rust-toolchain.toml.",
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+    },
+    "lockfile_sha256": {
+      "description": "SHA-256 of rs/Cargo.lock, the resolved dependency set.",
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "workflow_path": {
+      "description": "The only workflow allowed to publish this artifact.",
+      "const": ".github/workflows/rust-read-ci.yml"
+    },
+    "binary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": { "const": "verdaxis-read" },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      }
+    },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_sha",
+        "policy_path",
+        "policy_sha256",
+        "manifest_path",
+        "manifest_sha256"
+      ],
+      "properties": {
+        "source_sha": {
+          "description": "The Python oracle SHA the policy data was exported from.",
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "policy_path": { "const": "data/market-policy.json" },
+        "policy_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "manifest_path": { "const": "data/market-policy.manifest.json" },
+        "manifest_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      }
+    },
+    "revision_allowlist": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "revisions"],
+      "properties": {
+        "path": { "const": "data/allowed-revisions.json" },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "revisions": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "pattern": "^[a-z0-9_]+$" }
+        }
+      }
+    },
+    "files": {
+      "description": "Every archive data member except the three fixed members. The archive member set must equal this list exactly.",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "sha256"],
+        "properties": {
+          "path": { "type": "string", "pattern": "^data/[A-Za-z0-9._-]+$" },
+          "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+        }
+      }
+    },
+    "runtime_hosts": {
+      "description": "Operator-checked host facts the target was chosen for.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["staging", "production"],
+      "properties": {
+        "staging": { "$ref": "#/$defs/host" },
+        "production": { "$ref": "#/$defs/host" }
+      }
+    }
+  },
+  "$defs": {
+    "host": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["arch", "glibc"],
+      "properties": {
+        "arch": { "const": "x86_64" },
+        "glibc": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+$" }
+      }
+    }
+  }
+}
