@@ -59,12 +59,19 @@ class RunnerError(RuntimeError):
 
 
 def ephemeral_port() -> int:
-    with socket.socket() as probe:
-        probe.bind(("127.0.0.1", 0))
-        port = probe.getsockname()[1]
-    if not 49152 <= port <= 65535:
-        raise RunnerError(f"kernel returned a non-disposable port {port}")
-    return port
+    # Linux's kernel-selected range can start below the disposable target guard.
+    # Probe the guard's range explicitly; never change the host's sysctl policy.
+    minimum, count = 49152, 16384
+    start = secrets.randbelow(count)
+    for offset in range(count):
+        port = minimum + (start + offset) % count
+        with socket.socket() as probe:
+            try:
+                probe.bind(("127.0.0.1", port))
+            except OSError:
+                continue
+            return port
+    raise RunnerError("no free numeric-loopback disposable port")
 
 
 def docker(*args: str, check: bool = True, input_text: str | None = None) -> str:
