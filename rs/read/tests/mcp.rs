@@ -1,6 +1,41 @@
 use serde_json::json;
 
 #[tokio::test]
+async fn root_arguments_match_python_method_validation() {
+    use axum::{
+        body::{Body, to_bytes},
+        http::Request,
+    };
+    use tower::ServiceExt;
+    let app = verdaxis_read::mcp::mcp_router().with_state(state());
+    for arguments in [json!([]), json!(42), json!("bad"), json!(true), json!(null)] {
+        let body = json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"plan_voyage_fuel","arguments":arguments}});
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/mcp")
+                    .header("host", "testserver")
+                    .header("content-type", "application/json")
+                    .header("accept", "application/json, text/event-stream")
+                    .body(Body::from(body.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 200);
+        let bytes = to_bytes(response.into_body(), 100000).await.unwrap();
+        if arguments.is_null() {
+            let text = "Error executing tool plan_voyage_fuel: 1 validation error for plan_voyage_fuelArguments\nrequest\n  Field required [type=missing, input_value={}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.13/v/missing";
+            assert_eq!(bytes.as_ref(), json!({"jsonrpc":"2.0","id":1,"result":{"content":[{"text":text,"type":"text"}],"isError":true}}).to_string().as_bytes());
+        } else {
+            assert_eq!(bytes.as_ref(), br#"{"jsonrpc":"2.0","id":1,"error":{"code":-32602,"message":"Invalid request parameters","data":""}}"#, "{arguments}");
+        }
+    }
+}
+
+#[tokio::test]
 async fn protocol_errors_precede_tool_validation() {
     use axum::{
         body::{Body, to_bytes},

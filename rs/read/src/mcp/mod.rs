@@ -110,6 +110,16 @@ async fn dispatch(State(state): State<AppState>, request: Request) -> Response {
             .get("arguments")
             .cloned()
             .unwrap_or_else(|| serde_json::json!({}));
+        if arguments.is_null() {
+            arguments = serde_json::json!({});
+        } else if !arguments.is_object() {
+            let envelope = serde_json::json!({"jsonrpc":"2.0","id":input["id"],"error":{"code":-32602,"message":"Invalid request parameters","data":""}});
+            return Response::builder()
+                .status(200)
+                .header("content-type", "application/json")
+                .body(axum::body::Body::from(envelope.to_string()))
+                .expect("method argument rejection");
+        }
         if let Err(message) = validation::tool_arguments(&tool, &mut arguments) {
             let result = serde_json::json!({"content":[{"text":format!("Error executing tool {tool}: {message}"),"type":"text"}],"isError":true});
             let envelope = transport::python_envelope(
