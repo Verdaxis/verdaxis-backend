@@ -3,6 +3,73 @@
 Status: **in progress, not accepted**. Base: `c37f8074`, lane
 `feat/rust-phase-1-lane-13`. No live access, push, agents or skills.
 
+## Build-branch merge — Task 11 and unified golden merged
+
+Merged `feat/rust-phase-1-20261015` (HEAD `4053303b`) into this lane. Task 11
+(`78af98c4`) and the unified golden (`bef75fca`, oracle `78af98c4`, 758 cases)
+are present; the old `9880b714` golden directory is gone. Only one conflict
+appeared, in `scripts/rust_contract/run_disposable.py`: two port allocators.
+Resolution keeps **one** shared helper. `ephemeral_port()` now reads the same
+kernel range authority as the disposable target guards through
+`ephemeral_range()` (Task 11's `5ed6326b` helper); the fixed 49152..65535
+allocator from `d4c6be3b` was removed. `tests/rust_contract/test_runner_ports.py`
+was rewritten to assert the shared authority rather than the removed range.
+
+A HARNESS bug surfaced at that point: `run_disposable.py` imported
+`tests.ephemeral_ports` at function scope, but the documented direct invocation
+`python scripts/rust_contract/run_disposable.py` does not put the repo root on
+`sys.path`, so every direct run failed with `ModuleNotFoundError: No module
+named 'tests'`. Fixed by adding the repo root to `sys.path` at import time.
+Commit `8988bf62`.
+
+Podman image normalization was its own commit (`0b711cc6`): the extended
+snapshot and lists oracles now call the shared
+`scripts/rust_contract/image_identity.py::matches_pinned_image`, which accepts
+only `IMAGE` or the same repository and digest under `docker.io/`. The digest
+must still match exactly; four wrong-name variants are rejected by test.
+Merge commit: `ed312543`.
+
+### Merged-tree results (native amd64 via `verdaxis-prod-test`)
+
+Every corpus group matched Python at full count:
+
+| Group | Case count | Result |
+| --- | ---: | --- |
+| health | 8 | pass (HEAD/`Allow` repair holds) |
+| echo | 2 | pass |
+| simple_reads | 29 | pass |
+| live_benchmarks | 4 | pass |
+| orderbook_snapshot | 3 | pass |
+| orderbook_lists | 12 | pass |
+| orderbook_map | 9 | pass |
+| prices | 40 | pass |
+| curves_legacy | 4 | pass |
+| curves_canonical | 125 | pass |
+| mcp | 143 | pass |
+
+The MCP "stall" was harness-only: this lane lacked the Task 11 merge, so its
+older harness opened a `GET /mcp` event stream that never closed. The PM stopped
+that orphan run. After the merge, MCP matches. `run_market_contract.sh`
+(2 passed) and `run_postgres.sh` both pass on the merged tree.
+
+### Paired p95 gate after the projection repair — **FAIL**
+
+240 requests, 30 per cell, Python and Rust interleaved in one run on the same
+ANALYZEd disposable database. `require_latency_parity` rejects the result.
+
+| Route | Mode | Python p50 / p95 s | Rust p50 / p95 s | Rust p95 vs Python |
+| --- | --- | --- | --- | --- |
+| list | cold process | 1.509 / 1.906 | 2.148 / 2.825 | +48% FAIL |
+| list | warm | 1.315 / 1.804 | 2.196 / 2.491 | +38% FAIL |
+| bids | cold process | 1.763 / 2.133 | 2.499 / 2.946 | +38% FAIL |
+| bids | warm | 1.725 / 2.676 | 2.668 / 3.875 | +45% FAIL |
+
+The repair cut the gap from ~4x to ~1.4x but does not reach the go/no-go bar.
+Rust is still slower in every cell. The remaining gap is database cost, not
+transport: the earlier plans showed Rust's page and benchmark statements running
+well above Python's on the same rows. No index or schema change was made; a
+possible index is a PM decision, not taken here.
+
 ## Projection-cost repair checkpoint — not accepted
 
 Exact emitted SQL and timed actual plans for both routes are recorded side by
