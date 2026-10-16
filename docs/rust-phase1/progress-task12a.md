@@ -1,22 +1,26 @@
 # Task 12a — verify artifacts and gate CI publication
 
-Date: 2026-10-17. Branch `feat/rust-phase-1-20261015`.
+Date: 2026-10-17. Branch `feat/rust-phase-1-20261015`. **All Task 12a gates pass.**
 
 ## Execution log (17 Oct)
 
-The PM lifted the first pause at 00:21 SGT and asked for the full brief. Three
-gates passed; the PM then paused the host again (a third rehearsal, "Phase 0
-final rehearsal at 56d75770 on the prod host, 17 Oct from about 01:15 SGT,
-about 45 minutes"), so the last three gates were not run.
+The host paused twice (Phase 0 rehearsals). The six gates below all ran once the
+host was free between 01:20 and 02:05 SGT, each a single `verdaxis-prod-test`
+call logged with a `CALL_EXIT=` marker.
 
 | # | Gate | Command | Result |
 | --- | --- | --- | --- |
 | 1 | Artifact fixture tests | `venv/bin/python -m pytest tests/unit/test_rust_artifact.py -q` | **34 passed** (first run 21 failed on a test-helper defect, fixed) |
 | 2 | Offline Rust workspace | `RELEASE_SHA=<HEAD> SQLX_OFFLINE=true cargo test --workspace` | **153 passed**, 0 failed, 0 warnings |
-| 3 | Release build | `cargo build --locked --release -p verdaxis-read` | **built** in 6m07s; 12,136,104 bytes; sha256 `9918660b9df992f8feabf945e209ca2cdea1972aac6dbbe9e7a5ee6d329cf34d` |
-| 4 | glibc smoke check | `objdump -T … \| verify_rust_artifact.py --glibc-check` | **not run — PAUSED** |
-| 5 | fmt / clippy | `cargo fmt --check`; `cargo clippy … -D warnings` | **not run — PAUSED** |
-| 6 | Full Python unit suite | documented `ENVIRONMENT=test … pytest tests/unit -q` | **not run — PAUSED** |
+| 3 | `cargo fmt --check` | `cargo fmt --manifest-path rs/Cargo.toml --all -- --check` | **pass** (one formatting fix in `artifact.rs`) |
+| 4 | Strict `clippy` | `cargo clippy … --all-targets -- -D warnings` | **pass**, finished clean |
+| 5 | Release build | `cargo build --locked --release -p verdaxis-read` | **built** in 3m25s; sha256 `3ae71e3e7649236d0f7bedaaad4c10ade4e5df79d1a5906e6fdf2e77b5cf32bb` |
+| 6 | glibc smoke check | `objdump -T … \| verify_rust_artifact.py --glibc-check --max 2.35` | **pass**: `glibc_max=2.34` ≤ 2.35 |
+| 7 | Full Python unit suite | documented `ENVIRONMENT=test … pytest tests/unit -q` | **2080 passed**, 0 failed, 504 warnings |
+| 8 | Linux package/verify round trip | see below | **pass** |
+
+Every binary digest printed above embeds the release SHA via `build.rs`, so it
+differs between gates that ran at different HEADs; that is expected, not drift.
 
 All six Rust artifact unit tests ran inside gate 2:
 `runtime::artifact::tests::{wrong_binary_refuses_new_release,
@@ -28,33 +32,34 @@ The plan's Step 2 "expected red" was not captured: the code existed before the
 brief, so capturing a red would have meant reverting working code. Said plainly:
 **no red was captured.**
 
-Logs: `work/rust-phase1/t12a-artifact-tests{,2}.log`, `t12a-workspace.log`,
-`t12a-release-build.log`, `t12a-glibc.log` (holds the pause refusal).
+Logs: `work/rust-phase1/t12a-{artifact-tests,artifact-tests2,workspace,fmt,fmt2,clippy,glibc2,unit,roundtrip}.log`.
 
-### First failure and its fix
+### The two failures and their fixes
 
-Gate 1's first run failed 21 of 34 cases on two test-only defects: the fixture
-helpers passed raw `bytes` to `tarfile.addfile` (which wants a file-like object),
-and `Fixture.assert_refused` called `self.assertFalse` on a non-TestCase helper.
-Fixed in commit `3a6f5d18`; no verifier behavior changed. Re-run: 34 passed.
+1. **Gate 1, first run: 21 of 34 failed on two test-only defects.** The fixture
+   helpers passed raw `bytes` to `tarfile.addfile` (which wants a file-like
+   object), and `Fixture.assert_refused` called `self.assertFalse` on a
+   non-TestCase helper. Fixed in `3a6f5d18`; no verifier behavior changed.
+2. **Gate 3, first run: one formatting diff** in `artifact.rs`'s drift test.
+   Fixed in the same commit as this document's update.
 
-### Resume: the three gates still owed, then the rest
+### Gate 8 — the Linux package/verify round trip
 
-The host is paused. When it unpauses, run gates 4-6 above in that order, then the
-Linux round trip (step 6 below). One call at a time, each logged with a
-`CALL_EXIT=` marker:
+A temporary untracked runner (`t12a_roundtrip.py`, deleted after the run and
+never committed) ran on the host against the real release binary:
 
-1. `verdaxis-prod-test "$PWD" 'cargo fmt --manifest-path rs/Cargo.toml --all -- --check'`
-2. `verdaxis-prod-test "$PWD" 'export RELEASE_SHA=$(git rev-parse HEAD); cargo clippy --manifest-path rs/Cargo.toml --locked --workspace --all-targets -- -D warnings'`
-3. `verdaxis-prod-test "$PWD" 'ldd --version | head -1; objdump -T rs/target/release/verdaxis-read > /tmp/objdump.txt; python3 scripts/verify_rust_artifact.py --glibc-check --objdump /tmp/objdump.txt --max 2.35 --source-sha "$(git rev-parse HEAD)"'`
-4. `verdaxis-prod-test "$PWD" 'ENVIRONMENT=test RELEASE_SHA=test JWT_SECRET=test-secret-key-for-testing-minimum-32-chars DATABASE_URL="sqlite+aiosqlite:///:memory:" venv/bin/python -m pytest tests/unit -q'`
-5. The Linux round trip: package the release binary, sign a record on the
-   workstation, verify on the host (the exact commands are in the "Attestation
-   split" section below).
+- `--package` built `release.tar`, sha256 `ab76dcadf1c58419bb49efcb192824e24b7a310e4563bc144684fd3a364694ac`.
+- Host-mode verify with a **throwaway** Ed25519 key (no real key exists)
+  returned 0 and extracted `SHA256SUMS`, `artifact-metadata.json`, `data/`
+  (14 files) and `verdaxis-read`.
+- The extracted binary digest matched the metadata, and its mode was `0755`.
+- A record with a tampered `archive_sha256` was refused (exit 1) and extracted
+  nothing.
 
-fmt and clippy were not run at all, so a formatting or lint repair may follow.
-The release build and the workspace compiled with zero warnings, which does not
-by itself prove `cargo fmt --check` or `-D warnings` clippy.
+This proves the packaging, provenance-verification and extraction paths on Linux.
+It is a **mechanics** test: the attestation step is simulated because a real
+GitHub attestation needs a real CI push, so the workstation split itself is not
+exercised here — only the host half is.
 
 ## Signing-key lifecycle for the attestation split
 
@@ -278,9 +283,9 @@ changed.
 - That `actions/cache` keys and `rustup default` produce a usable toolchain on
   `ubuntu-22.04`.
 
-## Unrun gates
+## Gates still owed
 
-Gates 1-3 (artifact fixture tests, offline workspace, release build) ran and
-passed. Gates 4-6 (glibc smoke check, fmt/clippy, full unit suite) and the Linux
-package/verify round trip were **not run, host paused**. Nothing there is claimed
-as passed.
+None of the brief's gates. Every gate listed in the execution log passed. What
+remains is outside this task: the real **CI** run (first push to `staging`/`prod`)
+and the **workstation** half of the attestation split, both of which need a real
+GitHub attestation. See "What only the first real CI run can prove".

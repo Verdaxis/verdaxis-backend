@@ -1506,15 +1506,17 @@ no `gh` CLI and nothing may be installed on it, so the provenance check is split
   work, not built here. Rotation and key-loss handling are in
   `docs/rust-phase1/progress-task12a.md`.
 
-**Resume point:** Three gates passed on 17 Oct (artifact fixture tests 34; offline
-workspace 153; release build). Owed, because the PM paused the host again mid-brief:
-`cargo fmt --check`, strict `clippy`, the glibc smoke check, the full Python unit
-suite, and the Linux package/verify round trip — commands in
-`docs/rust-phase1/progress-task12a.md`. CI publication remains a final Task 13
-gate; the publish job stays blocked (not green) until the assembled Task 13 tree
-passes the contract job. Task 12b consumes this verifier unchanged: it runs the
-host mode on staging, and the PM runs `--attest` on the workstation and carries
-the record, signature and public key to the host step.
+**Resume point:** All Task 12a local gates passed on 17 Oct — artifact fixture
+tests 34; offline workspace 153; `cargo fmt --check`; strict `clippy`; release
+build; glibc smoke check (`glibc_max=2.34` ≤ the 2.35 floor); full Python unit
+suite 2080; and a Linux package/verify round trip with a throwaway key. Details
+and logs are in `docs/rust-phase1/progress-task12a.md`. CI publication remains a
+final Task 13 gate; the publish job stays blocked (not green) until the assembled
+Task 13 tree passes the contract job, and the real GitHub attestation plus the
+workstation half of the split need the first push. Task 12b consumes this
+verifier unchanged: it runs the host mode on staging, and the PM runs `--attest`
+on the workstation and carries the record, signature and public key to the host
+step.
 
 ### Task 12b: Extend the canonical deploy transaction — Astra
 
