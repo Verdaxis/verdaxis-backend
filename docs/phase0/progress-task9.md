@@ -4,11 +4,14 @@
 
 N1 cleanup makes [the acceptance report](../../outputs/phase0/acceptance.md) the
 single source for the current release/oracle table, eleven-category status table,
-Linux counts and resume point. Candidate: `e61400f36ee528dfdb2476dd0dbaf2df457a2c54`.
-The final oracle follows M2 and independent-review fixes; it is not frozen yet.
-M1 and M3 are done. B1/B2 production host tools are implemented/merged and under
-independent review. M2's runbook appendix is in progress in another session;
-`docs/runbooks/phase0-cutover.md` is not edited here.
+Linux counts and resume point. Candidate: the merge commit that contains the
+independent re-review fixes (2026-10-16), head of
+`feat/phase0-convergence-20261016`. The final oracle follows that merge and its
+affected reruns; it is not frozen yet. M1 and M3 are done. B1/B2 production host
+tools are implemented and merged, and the independent re-review of 2026-10-16
+found no blocking code defect; its three minor findings are applied in this change
+set. M2's finite host appendix is complete; `docs/runbooks/phase0-cutover.md` is
+not edited here.
 
 The host-tool/CI/appendix changes are schema-stable operational changes. P0-2's
 stored-email output and M1's inventory semantics are application golden changes.
@@ -21,8 +24,11 @@ counts below do not describe this candidate. No direct SSH or live service acces
 
 ## Linux completion — 2026-10-16
 
-All calls finished through the authorized tool, one at a time. Unit: **2232 passed**
-(the 19 macOS Bash failures are absent). Phase 0: **177 passed**. Other PostgreSQL:
+All calls finished through the authorized tool, one at a time. Latest: unit
+**2272 passed** at merged head `b0d66251` and **2233 passed** at the last
+pre-merge split `a9e20adb` (the 19 macOS Bash failures are absent at both). The
+host-tools production CLI chain passes **47**, and the 18-case scratch business
+smoke exits 0, at `b0d66251`. Phase 0: **177 passed**. Other PostgreSQL:
 **265 passed**, including four-worker durable SSE. Three migration drift checks
 passed. Runtime-ACL HTTP: **79 passed** after test-only port fix `d1d44c75`:
 Linux's automatic ephemeral range includes ports below the disposable guard's
@@ -52,8 +58,9 @@ the isolated test user cannot switch to another UID. No live service action or
 privilege bypass occurred, and no application or host-tool source changed.
 
 N1 structure commit: `0ad4b6fb`; Linux harness correction: `d1d44c75`.
-Unit ran at exact `e61400f3`; later calls used documentation-only descendants,
-plus that one HTTP harness fix. The report distinguishes these from candidate
+The Task 9 PostgreSQL/HTTP/monitor runs belong to the checkpoints in the dated
+history; no application or migration byte differs from the M3 measured backend,
+so their counts stand. The report distinguishes run identities from candidate
 application/schema bytes. M2/runbook ownership was preserved. No local test,
 build, Docker use, SSH, host setup change or push was performed.
 

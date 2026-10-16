@@ -2,15 +2,16 @@
 
 ## Current release and oracle — 2026-10-16
 
-**Candidate only; final oracle follows M2 and independent-review fixes.**
-This section and the current eleven-category table are the only current status.
-Everything under the dated historical section is retained evidence, not an
-instruction or release selection. No live deployment is authorized here.
+**Candidate: the merge commit that contains this fix (2026-10-16); the final
+oracle follows that merge and its affected reruns.** This section and the current
+eleven-category table are the only current status. Everything under the dated
+historical section is retained evidence, not an instruction or release selection.
+No live deployment is authorized here.
 
 | Identity | Current value |
 |---|---|
-| Backend candidate | `e61400f36ee528dfdb2476dd0dbaf2df457a2c54` |
-| Final accepted Python oracle | Pending M2 merge, B1/B2 review fixes and affected reruns |
+| Backend candidate | The merge commit that contains this fix (2026-10-16), head of `feat/phase0-convergence-20261016` |
+| Final accepted Python oracle | Pending: freeze that merge commit after its affected Linux gates rerun and the Task 10 rehearsal passes |
 | Frontend M3 source | `513c2d77d2f85cf8c1d68a27528000a65ab1e365` |
 | M3 measured backend | `64c4a8653f9257f1b1519f9be75b5cbcd9e70f71` |
 | Union revision | `p0_20261016_union` |
@@ -30,10 +31,12 @@ unknown ETS shown as zero and KYC review receipt shown as approval. The PM's
 16 October 06:40 SGT extension explicitly accepts the second cached-tab window;
 retain the banner, new-entry-HTML check and founder refresh note. No blanket waiver.
 
-B1/B2 host tools are implemented and merged; independent review is in progress.
-Their owner records a separate production-mode synthetic Linux CLI proof of
-15 passes. That prior evidence is not a new result from this session. M2's finite
-host appendix is in progress in another session; this task does not edit it.
+B1/B2 host tools are implemented and merged, and the independent re-review of
+2026-10-16 found no blocking code defect. Its fresh production CLI chain passes
+**47** cases and the 18-case scratch smoke exits 0 at `b0d66251`. The earlier
+15-pass synthetic CLI proof is prior evidence, not a new result. M2's finite host
+appendix is complete; its two re-review gaps (the scratch smoke fixture password
+and this stale record) are fixed by the change set that contains this file.
 
 ### Change and golden boundaries
 
@@ -50,28 +53,37 @@ migrator-backed revision admission without app SELECT on `alembic_version`.
 ## Current Linux acceptance results
 
 All builds/tests run through `verdaxis-prod-test "$PWD" 'COMMAND'`, one call at a
-time, against candidate `e61400f3` executable bytes. The unit call used that exact
-HEAD. Subsequent calls ship documentation-only commit `0ad4b6fb`; `git diff
-e61400f3..0ad4b6fb` changes only these two acceptance documents. No application, migration or deploy bytes differ. The HTTP retry alone adds the
-test-only port-selection fix later committed as `d1d44c75`; monitor ran at that
-commit with unchanged monitor/application bytes. No local test environment was created. The tool
-uses its isolated capped Linux amd64 test user and rootless disposable containers;
-no direct SSH, production/staging connection or test-host setup change is permitted.
+time. The latest recorded counts are the merged-head unit run (**2272 passed** at
+`b0d66251`), the last pre-merge unit run (**2233 passed** at `a9e20adb`), the
+host-tools production CLI chain (**47 passed**, `tests.phase0.linux_database`) and
+the Phase 0 PostgreSQL runner (**177 passed**). The independent re-review of
+2026-10-16 reproduced the production CLI chain (47 passed,
+`work/rereview2-linux-database.log`) and the 18-case scratch business smoke
+(`work/rereview2-smoke.log`), both exit 0, at `b0d66251`. The change set that
+contains this file adds one acceptance case (a malformed secret file must refuse
+with `PHASE0_SECRET`), so the next full chain run reports **48**. No application,
+migration or deploy byte differs from the M3 measured backend, so the Task 9 rows
+below stay valid. No local test environment was created. The tool uses its
+isolated capped Linux amd64 test user and rootless disposable containers; no
+direct SSH, production/staging connection or test-host setup change is permitted.
 Every call below has finished with a recorded `CALL_EXIT` marker.
 
-| Check | Result | Evidence |
-|---|---|---|
-| Full unit | **2232 passed, 0 failed/skipped**, 223.41 s, exit 0 | `work/task9-linux-unit.log` |
-| Full Phase 0 runner | **177 passed, 0 failed/skipped**, 723.54 s, exit 0 | `work/task9-linux-phase0.log` |
-| Other PostgreSQL suites | **265 passed, 0 failed/skipped**, 1048.49 s, exit 0; includes four-worker durable SSE | `work/task9-linux-postgres.log` |
-| Runtime-ACL HTTP suite | Initial harness port assertion before collection; repaired run **79 passed**, 56.81 s, exit 0 | `work/task9-linux-http{,-retry}.log` |
-| Full monitor / different-UID case | **291 passed, 1 skipped, 0 failed**, 15.84 s, exit 0 | `work/task9-linux-monitor2.log` |
-| Ordinary and union migration drift | **3 checks passed**, no new upgrade operations | Phase 0 and PostgreSQL logs |
+| Check | Identity | Result | Evidence |
+|---|---|---|---|
+| Full unit at merged head | `b0d66251` | **2272 passed, 0 failed/skipped**, exit 0 | merged-head Linux unit call |
+| Full unit before merge | `a9e20adb` | **2233 passed, 0 failed/skipped**, exit 0 | pre-merge Linux unit call |
+| Host tools production CLI chain | `b0d66251` | **47 passed**, exit 0 | re-review `work/rereview2-linux-database.log` |
+| Scratch business smoke | `b0d66251` | **18 cases**, exit 0 | re-review `work/rereview2-smoke.log` |
+| Full Phase 0 runner | Task 9 run set | **177 passed, 0 failed/skipped**, 723.54 s, exit 0 | `work/task9-linux-phase0.log` |
+| Other PostgreSQL suites | Task 9 run set | **265 passed, 0 failed/skipped**, 1048.49 s, exit 0; includes four-worker durable SSE | `work/task9-linux-postgres.log` |
+| Runtime-ACL HTTP suite | Task 9 run set plus port fix | **79 passed**, 56.81 s, exit 0 | `work/task9-linux-http{,-retry}.log` |
+| Full monitor / different-UID case | Task 9 run set | **291 passed, 1 skipped, 0 failed**, 15.84 s, exit 0 | `work/task9-linux-monitor2.log` |
+| Ordinary and union migration drift | Task 9 run set | **3 checks passed**, no new upgrade operations | Phase 0 and PostgreSQL logs |
 
 ### Linux limits, failures and reproducibility
 
-The 19 macOS-only Bash deploy failures do **not** occur on Linux: all 2232 unit
-tests passed, matching the PM's reported count. The `/proc` four-worker durable
+The 19 macOS-only Bash deploy failures do **not** occur on Linux: all 2272
+merged-head unit tests passed, matching the PM's reported count. The `/proc` four-worker durable
 SSE test also passed within the 265-case PostgreSQL run. These close the measured
 Linux portions of sign-off section 6 item 9, not actual systemd installation.
 
@@ -128,11 +140,11 @@ Local streamed log SHA-256 (all contain completion markers):
 | Category | Status and evidence | Remaining owner/gate |
 |---|---|---|
 | Inventory | Complete synthetic classification; Linux Phase 0 177 passed | Task 10 operator: real catalog attestation |
-| Schema | Union and unchanged digests; three drift checks passed | B1/B2 reviewer; final approved source SHA |
-| Copy | Host tools implemented; prior synthetic CLI chain 15 passes | B1/B2 independent review; Task 10 restored real-data proof |
+| Schema | Union and unchanged digests; three drift checks passed | Final approved source SHA at the merge commit |
+| Copy | Host tools merged; production CLI chain **47 passed** at `b0d66251` (prior 15-pass synthetic chain is history) | Task 10 restored real-data proof and rehearsal |
 | ACL | M1 fixed; no UPDATE on ports; 79 runtime-role HTTP tests passed | Task 10 exact deployed identity and grant proof |
 | Products | Eight IDs and scalar/typed contracts retained | 265 PostgreSQL and 79 HTTP cases passed; host promotion remains separate |
-| Auth | P0-2 input/output separation; M3 profile matrix complete | 2232 unit and 79 HTTP cases passed; no auth failure |
+| Auth | P0-2 input/output separation; M3 profile matrix complete | 2272 unit and 79 HTTP cases passed; no auth failure |
 | Privacy | Notification and typed snapshot cases complete | Task 10 egress/log isolation |
 | Timezone | UTC reconnect/role proofs retained | Linux Phase 0 passed; Task 10 fresh deployed processes |
 | Vault | M3 browser fault cases complete | Task 10 credentials, key-ring recovery and retention |
@@ -144,13 +156,16 @@ Local streamed log SHA-256 (all contain completion markers):
 Linux calls are complete. The four monitor isolation failures are fixed by
 redirecting `DEPLOY_STATE_FILES` into each temporary fixture; the full monitor
 suite now passes **291/291** (1 Task 10 skip). The passwordless `nobody` proof
-remains Task 10 because the test user lacks that privilege.
-Then the PM merges M2 and any
-B1/B2 review fixes, reruns affected gates and names the final oracle. Any test that
-needs unavailable root/systemd stays an explicit Task 10 prerequisite; do not
-simulate a passing host proof. Independent review and separate host authorization
-precede the real rehearsal. Do not use historical candidate SHAs or old statements
-that host apply is absent. No source edits to the M2 runbook belong to this task.
+remains Task 10 because the test user lacks that privilege. The independent
+re-review of 2026-10-16 is complete and its three minor findings are applied by
+the change set that contains this file, so the merge commit that contains this
+fix is the rehearsal candidate. Remaining: rerun the affected gates at that merge
+commit, then run the Task 10 rehearsal under the appendix; the PM then names the
+final oracle. Any test that needs unavailable root/systemd stays an explicit
+Task 10 prerequisite; do not simulate a passing host proof. Independent review and
+separate host authorization precede the real rehearsal. Do not use historical
+candidate SHAs or old statements that host apply is absent. No source edits to the
+M2 runbook belong to this task.
 
 Integration evidence recorder: Task 9 integration owner (AI assistant),
 2026-10-16. This is not another person's signature or deployment approval.
