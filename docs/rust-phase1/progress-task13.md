@@ -221,6 +221,48 @@ method/slash corpus and publication remain lower priority and unfinished.
 All measurement and diagnostic runs finished and their containers were removed.
 
 ## Decision 24 implemented — digest input built for kept rows only
+### After decision 24 — p95 gate still FAIL, next cause named
+
+240 requests, 30 per cell, interleaved, same disposable database, code
+`8d5084a9` (`task13-d24-measurement.log`).
+
+| Route | Mode | Python p50 / p95 s | Rust p50 / p95 s | Rust p95 vs Python |
+| --- | --- | --- | --- | --- |
+| list | cold process | 1.340 / 1.574 | 1.928 / 2.218 | +41% FAIL |
+| list | warm | 1.195 / 1.487 | 1.810 / 2.116 | +42% FAIL |
+| bids | cold process | 1.451 / 1.612 | 2.059 / 2.332 | +45% FAIL |
+| bids | warm | 1.250 / 1.570 | 1.896 / 2.193 | +40% FAIL |
+
+Decision 24 improved Rust p95 by ~0.7 s (list cold 2.825 -> 2.218, bids warm
+3.875 -> 2.193) and the benchmark statement no longer carries the digest
+(`Plan Width` 3289 -> 100). The remaining gap is a uniform ~0.6 s (~+40%), so it
+is a fixed per-request database cost, not the digest projection.
+
+Next cause, from the plans on this code (`task13-d24-plans.log`,
+`task13-d24-plans.json`). Rust's shared eligibility predicate tree is evaluated
+for every candidate row inside SQL:
+
+| Statement | Python ms | Rust ms | Rust's dominant node |
+| --- | ---: | ---: | --- |
+| list page | 156.6 | 238.4 | `Subquery Scan rows=10045 t=218.8` (the eligible relation) |
+| list benchmark | 104.9 | 458.4 | join over `rows=10047 t=279.6`, inner `rows=10049 t=151.2` |
+| bids page | 139.5 | 226.7 | `Subquery Scan rows=10023 t=214.4` |
+| bids benchmark | 89.4 | 426.4 | join over `rows=10047 t=264.0` |
+
+Rust scans and strict-qualifies about 10,045 `orderbook_orders` rows to return a
+50-row page or a 20-row page, because the shared relation applies the policy
+identity/lane, owner/KYC and current-order rules as SQL predicates with no
+index-supported early termination. Python's equivalent statements are narrower
+and much cheaper. The digest is no longer involved: the Rust benchmark output
+width is now 100 against Python's 1775. This is the SQL-side eligibility design,
+not the projection.
+
+**This needs a PM decision.** Removing it means either an index on the
+eligibility columns (forbidden without a decision) or changing how the shared
+relation evaluates eligibility. No index, no schema change and no predicate
+change was made. Stopped here for the decision, as instructed.
+
+
 
 PM decision 24 approved moving `private_digest_input` out of the shared
 visibility relation. Implemented, code commit `8d5084a9`.
