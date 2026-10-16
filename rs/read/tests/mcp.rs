@@ -1,6 +1,49 @@
 use serde_json::json;
 
 #[tokio::test]
+async fn modern_success_and_header_precedence_match_python() {
+    use axum::{
+        body::{Body, to_bytes},
+        http::Request,
+    };
+    use tower::ServiceExt;
+    let app = verdaxis_read::mcp::mcp_router().with_state(state());
+    let vectors: serde_json::Value =
+        serde_json::from_str(include_str!("../../../deploy/rust/mcp-http-vectors.json")).unwrap();
+    let mut failures = Vec::new();
+    for vector in vectors.as_array().unwrap() {
+        let mut request = Request::builder().method("POST").uri("/mcp");
+        if vector["headers"].get("host").is_none() {
+            request = request.header("host", "testserver");
+        }
+        for (name, value) in vector["headers"].as_object().unwrap() {
+            request = request.header(name, value.as_str().unwrap());
+        }
+        let response = app
+            .clone()
+            .oneshot(
+                request
+                    .body(Body::from(vector["body"].as_str().unwrap().to_owned()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let status = response.status().as_u16();
+        let bytes = to_bytes(response.into_body(), 1000000).await.unwrap();
+        if status as u64 != vector["status"].as_u64().unwrap()
+            || bytes.as_ref() != vector["response"].as_str().unwrap().as_bytes()
+        {
+            failures.push(format!(
+                "{}: status {status}, {}",
+                vector["name"],
+                String::from_utf8_lossy(&bytes)
+            ));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+#[tokio::test]
 async fn root_arguments_match_python_method_validation() {
     use axum::{
         body::{Body, to_bytes},

@@ -2656,6 +2656,82 @@
           "accept": "application/json, text/event-stream"
         },
         "body": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"plan_voyage_fuel\",\"arguments\":null}}"
+      },
+      {
+        "id": "M18-origin-first",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "origin": "",
+          "host": "bad",
+          "content-type": "text/plain",
+          "accept": "text/plain"
+        },
+        "body": "{"
+      },
+      {
+        "id": "M18-content-before-host",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "host": "bad",
+          "content-type": "text/plain",
+          "accept": "text/plain"
+        },
+        "body": "{"
+      },
+      {
+        "id": "M18-accept-before-json",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "text/plain"
+        },
+        "body": "{"
+      },
+      {
+        "id": "M18-inner-content-type",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "APPLICATION/JSON",
+          "accept": "application/json"
+        },
+        "body": "{"
+      },
+      {
+        "id": "M18-json-only",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json"
+        },
+        "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"tools/call\", \"params\": {\"name\": \"list_markets\", \"arguments\": {}}}"
+      },
+      {
+        "id": "M18-wildcard",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "*/*"
+        },
+        "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"tools/call\", \"params\": {\"name\": \"list_markets\", \"arguments\": {}}}"
+      },
+      {
+        "id": "M18-modern-catalog",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json",
+          "mcp-protocol-version": "2026-07-28",
+          "mcp-method": "tools/call",
+          "mcp-name": "list_markets"
+        },
+        "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"tools/call\", \"params\": {\"name\": \"list_markets\", \"arguments\": {}, \"_meta\": {\"io.modelcontextprotocol/protocolVersion\": \"2026-07-28\", \"io.modelcontextprotocol/clientCapabilities\": {}}}}"
       }
     ]
   }

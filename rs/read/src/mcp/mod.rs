@@ -32,6 +32,18 @@ async fn dispatch(State(state): State<AppState>, request: Request) -> Response {
     if let Some(response) = transport::reject_origin(request.headers()) {
         return response;
     }
+    if request.method() == axum::http::Method::POST
+        && !request
+            .headers()
+            .get("content-type")
+            .and_then(|v| v.to_str().ok())
+            .is_some_and(|value| value.to_ascii_lowercase().starts_with("application/json"))
+    {
+        return Response::builder()
+            .status(400)
+            .body(axum::body::Body::from("Invalid Content-Type header"))
+            .expect("content type rejection");
+    }
     let host = request
         .headers()
         .get("host")
@@ -75,6 +87,51 @@ async fn dispatch(State(state): State<AppState>, request: Request) -> Response {
             -32600,
             "Method Not Allowed: Session termination not supported",
         );
+    }
+    if request.method() == axum::http::Method::POST {
+        let accept = request
+            .headers()
+            .get("accept")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
+        let accepts_json = accept.split(',').any(|part| {
+            matches!(
+                part.split(';')
+                    .next()
+                    .unwrap_or("")
+                    .trim()
+                    .to_ascii_lowercase()
+                    .as_str(),
+                "application/json" | "application/*" | "*/*"
+            )
+        });
+        if !accepts_json {
+            return transport::rpc_error(
+                406,
+                crate::Json::Null,
+                -32600,
+                "Not Acceptable: Client must accept application/json",
+            );
+        }
+        let content_type = request
+            .headers()
+            .get("content-type")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
+        if !content_type
+            .split(';')
+            .next()
+            .unwrap_or("")
+            .split(',')
+            .any(|part| part.trim() == "application/json")
+        {
+            return transport::rpc_error(
+                415,
+                crate::Json::Null,
+                -32600,
+                "Unsupported Media Type: Content-Type must be application/json",
+            );
+        }
     }
     let (parts, body) = request.into_parts();
     let bytes = match axum::body::to_bytes(body, 4 * 1024 * 1024).await {
@@ -135,8 +192,18 @@ async fn dispatch(State(state): State<AppState>, request: Request) -> Response {
         input["params"]["arguments"] = arguments;
         body_bytes = input.to_string().into_bytes();
     }
+    let modern = parts
+        .headers
+        .get("mcp-protocol-version")
+        .is_some_and(|v| v == "2026-07-28");
     let mut parts = parts;
     parts.headers.remove(axum::http::header::CONTENT_LENGTH);
+    // Python's JSON response mode accepts JSON alone (or wildcards). rmcp's
+    // transport requires both MIME types even when JSON responses are enabled.
+    parts.headers.insert(
+        axum::http::header::ACCEPT,
+        "application/json, text/event-stream".parse().unwrap(),
+    );
     let request = Request::from_parts(parts, axum::body::Body::from(body_bytes));
     let service = StreamableHttpService::new(
         move || {
@@ -163,9 +230,12 @@ async fn dispatch(State(state): State<AppState>, request: Request) -> Response {
                     if value["error"]["code"] == -32601 {
                         value["error"] = serde_json::json!({"code":-32601,"message":"Method not found","data":method});
                     }
-                    transport::python_envelope(value, &method)
-                        .to_string()
-                        .into_bytes()
+                    let mut envelope = transport::python_envelope(value, &method);
+                    if modern && let Some(result) = envelope["result"].as_object_mut() {
+                        // Python adds server identity after serializing the result.
+                        result.insert("_meta".into(), serde_json::json!({"io.modelcontextprotocol/serverInfo":{"name":"verdaxis-market","version":""}}));
+                    }
+                    envelope.to_string().into_bytes()
                 }
                 Err(_) => bytes.to_vec(),
             };
