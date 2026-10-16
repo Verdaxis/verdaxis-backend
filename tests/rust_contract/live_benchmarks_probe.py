@@ -23,10 +23,38 @@ async def fixtures():
     spec.loader.exec_module(oracle)
     os.environ["RUST_MARKET_EXPECTED_DATABASE"] = os.environ["SEED_TARGET_DATABASE"]
     async with seed_session() as session:
-        cases = await oracle.seed(
-            session, datetime.fromisoformat(os.environ["RUST_CONTRACT_CLOCK"])
+        existing = await session.scalar(
+            text("SELECT count(*) FROM orderbook_orders WHERE id=:id"),
+            {"id": oracle.fid("order:real_scalar_bid")},
         )
-        assert cases["zero_remaining"]["guard_refused"]
+        if existing:
+            # The populated corpus already owns these deterministic matrix rows.
+            # Verify every source used below instead of seeding the matrix twice.
+            for name in ("real_scalar_bid", "demo_ownerless_bid", "typed_invalid_visible", "lng_ask_ok"):
+                assert await session.scalar(
+                    text("SELECT count(*) FROM orderbook_orders WHERE id=:id"),
+                    {"id": oracle.fid(f"order:{name}")},
+                ) == 1, name
+        else:
+            cases = await oracle.seed(
+                session, datetime.fromisoformat(os.environ["RUST_CONTRACT_CLOCK"])
+            )
+            assert cases["zero_remaining"]["guard_refused"]
+        invalid_id = oracle.fid("order:typed_invalid_visible")
+        if existing:
+            # Corpus cancels this negative row to keep positive collections valid.
+            # Clone it into this probe's namespace; never reactivate corpus data.
+            source = (await session.execute(
+                text("SELECT * FROM orderbook_orders WHERE id=:id"), {"id": invalid_id}
+            )).mappings().one()
+            fields = set(re.findall(r"(?<!:):([a-z_][a-z_0-9]*)", oracle.INSERT_ORDER))
+            values = {key: source[key] for key in fields}
+            invalid_id = oracle.fid("task6a:typed-invalid-visible")
+            values.update(id=invalid_id, status="OPEN")
+            for key in ("certifications", "fame_terms", "lng_terms"):
+                if values[key] is not None:
+                    values[key] = json.dumps(values[key])
+            await session.execute(text(oracle.INSERT_ORDER), values)
         # Give the two provenance classes different weights and prices.
         for name, quantity, price in [
             ("real_scalar_bid", 10, 100),
@@ -70,7 +98,7 @@ async def fixtures():
             row = (
                 await session.execute(
                     statement.where(
-                        *filters, OrderBookOrder.id == oracle.fid(f"order:{name}")
+                        *filters, OrderBookOrder.id == (invalid_id if name == "typed_invalid_visible" else oracle.fid(f"order:{name}"))
                     )
                 )
             ).scalar_one()
