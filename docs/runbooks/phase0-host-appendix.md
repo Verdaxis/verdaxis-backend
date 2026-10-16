@@ -305,6 +305,30 @@ then `\q`. Do not paste passwords into a SQL file/terminal transcript.
 Populate root-private tool secrets and Settings from those values. Verify the
 Settings parser before restore; no source password is copied from live.
 
+A3's business smoke is an external client that authenticates over TCP as the
+scratch cluster administrator, so the scratch cluster's own `postgres` role also
+needs a password. Do this on `17/p0rehearsal` port 5434 **only**; never run it on
+`17/main`. Generate the value in this root shell, keep it out of argv and the
+transcript, and record it only in the root-private fixture file (never in a tool
+secret, Settings or the journal):
+
+```bash
+export P0PW="$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')"
+p0run sudo -u postgres psql -X -h /var/run/postgresql -p 5434 -d postgres -v ON_ERROR_STOP=1 <<SQL
+ALTER ROLE postgres PASSWORD '$P0PW';
+SQL
+umask 077
+python3 -c 'import os,urllib.parse; print("DATABASE_URL=postgresql+asyncpg://postgres:" + urllib.parse.quote(os.environ["P0PW"], safe="") + "@127.0.0.1:5434/verdaxis_prod")' > "$RUN/smoke-fixture.env"
+chmod 0600 "$RUN/smoke-fixture.env"
+unset P0PW
+```
+
+Expected exit 0 and one root-owned 0600 `$RUN/smoke-fixture.env` line, name
+`verdaxis_prod`, percent-encoded password, nothing printed. Stop if the target
+cluster is not `17/p0rehearsal` on 5434, if the file mode or line count differs,
+or if `postgres` on `17/main` gains a password; the fixture is scratch-only and
+is destroyed with the cluster.
+
 ### A2. Restore newest dump and prepare target (PM)
 
 Select newest local custom dump without deleting or renaming anything. Source
