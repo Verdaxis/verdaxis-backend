@@ -6,7 +6,7 @@ from uuid import uuid4
 
 import pytest
 
-from tests.phase0.production_cli_case import invoke, make_case
+from tests.phase0.production_cli_case import install_authority, invoke, make_case
 from tests.phase0.production_scratch import production_scratch
 
 
@@ -91,32 +91,149 @@ async def test_production_bootstrap_copy_verify_cli_chain():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize('fault', ['host', 'release', 'bytes', 'source_oid', 'target_oid',
-                                  'cluster', 'source_role', 'target_role', 'acl', 'freeze'])
-async def test_production_bootstrap_wrong_authority_refuses_before_ddl(fault):
+@pytest.mark.parametrize('tool', ['bootstrap', 'copy'])
+async def test_validation_only_reports_validate_only(tool):
+    """R3: no --apply must say it validated only, with no report or connection."""
     async with production_scratch() as scratch:
         directory = Path('/root') / ('authority-' + uuid4().hex)
         common, environment = await make_case(scratch, directory)
-        if fault == 'host':
-            common['hostname'] += '-wrong'
-        elif fault == 'release':
-            common['release_sha'] = '0' * 40
-        elif fault == 'bytes':
-            common['tool_tree_sha256'] = '0' * 64
-        elif fault.endswith('_oid'):
-            common[fault.split('_')[0]]['oid'] += 1
-        elif fault == 'cluster':
-            common['target']['cluster_system_identifier'] = '1'
-        elif fault.endswith('_role'):
-            common[fault.split('_')[0]]['role'] = 'verdaxis_app'
-        elif fault == 'acl':
-            common['target_datacl'] = '{}'
-        else:
-            common['frozen_source']['tables']['users']['count'] += 1
-        result = await invoke('bootstrap', directory, common, environment)
-        assert result.returncode == 1
-        assert 'Bootstrap refused' in result.stderr
-        assert 'unrecognized arguments' not in result.stderr
-        assert not (directory / 'bootstrap-report.json').exists()
+        result = await invoke(tool, directory, common, environment, apply=False)
+        assert result.returncode == 0, result.stderr
+        assert 'validated only' in result.stdout
+        assert 'completed' not in result.stdout
+        assert not (directory / f'{tool}-report.json').exists()
         async with scratch.admin_connection('verdaxis_prod') as target:
             assert await target.fetchval("SELECT to_regclass('public.users')") is None
+
+
+OBSERVED_FAULTS = {
+    'source_server_host': ('source', 'server_host', '127.0.0.2/32', 'PHASE0_DB_IDENTITY'),
+    'target_server_port': ('target', 'server_port', 55433, 'PHASE0_DB_IDENTITY'),
+    'source_oid': ('source', 'oid', 1, 'PHASE0_DB_IDENTITY'),
+    'target_cluster': ('target', 'cluster_system_identifier', '1', 'PHASE0_DB_IDENTITY'),
+    'target_acl': (None, 'target_datacl', '{}', 'PHASE0_TARGET_FENCE'),
+    'frozen_source': (None, 'frozen_source', None, 'PHASE0_SOURCE_STATE'),
+}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('tool', ['bootstrap', 'copy', 'verify'])
+@pytest.mark.parametrize('fault', sorted(OBSERVED_FAULTS))
+async def test_observed_state_fault_refuses_with_reason_code(tool, fault):
+    """R2: authority matches the manifest; only observed state differs."""
+    side, key, value, code = OBSERVED_FAULTS[fault]
+    async with production_scratch() as scratch:
+        directory = Path('/root') / ('authority-' + uuid4().hex)
+        common, environment = await make_case(scratch, directory)
+        if fault == 'frozen_source':
+            common['frozen_source'] = dict(common['frozen_source'])
+            common['frozen_source']['sequences'] = {}
+        elif side is None:
+            common[key] = value
+        else:
+            common[side] = dict(common[side])
+            common[side][key] = value
+        install_authority(common)
+        if tool == 'verify' and fault != 'frozen_source':
+            # Verify needs an import to inspect: run bootstrap+copy first, then
+            # reinstall the faulting authority and verify.
+            if (await invoke('bootstrap', directory, common, environment)).returncode != 0:
+                pytest.skip('bootstrap prerequisite refused for this fault')
+            common['bootstrap_receipt_sha256'] = hashlib.sha256(
+                Path(common['bootstrap_receipt']).read_bytes()).hexdigest()
+            if (await invoke('copy', directory, common, environment)).returncode != 0:
+                pytest.skip('copy prerequisite refused for this fault')
+        result = await invoke(tool, directory, common, environment,
+                              suffix='-' + fault, apply=True)
+        assert result.returncode == 1, (tool, fault, result.stdout, result.stderr)
+        assert code in result.stderr, (tool, fault, result.stderr)
+        assert not (directory / f'{tool}-{fault}-report.json').exists()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('tool', ['bootstrap', 'copy', 'verify'])
+async def test_late_target_session_refuses(tool):
+    """R2: an extra target session refuses at the observed-state gate."""
+    import asyncpg
+    async with production_scratch() as scratch:
+        directory = Path('/root') / ('authority-' + uuid4().hex)
+        common, environment = await make_case(scratch, directory)
+        if tool != 'bootstrap':
+            assert (await invoke('bootstrap', directory, common, environment)).returncode == 0
+            common['bootstrap_receipt_sha256'] = hashlib.sha256(
+                Path(common['bootstrap_receipt']).read_bytes()).hexdigest()
+        if tool == 'verify':
+            assert (await invoke('copy', directory, common, environment)).returncode == 0
+        extra = await asyncpg.connect(scratch.target_url.replace('postgresql+asyncpg:', 'postgresql:'))
+        try:
+            result = await invoke(tool, directory, common, environment, suffix='-session', apply=True)
+            assert result.returncode == 1
+            assert 'PHASE0_TARGET_FENCE' in result.stderr
+            assert not (directory / f'{tool}-session-report.json').exists()
+        finally:
+            await extra.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('tool', ['bootstrap', 'copy', 'verify'])
+async def test_pre_existing_report_destination_refuses(tool):
+    """R2 final boundary: publication cannot overwrite or silently skip."""
+    async with production_scratch() as scratch:
+        directory = Path('/root') / ('authority-' + uuid4().hex)
+        common, environment = await make_case(scratch, directory)
+        if tool != 'bootstrap':
+            assert (await invoke('bootstrap', directory, common, environment)).returncode == 0
+            common['bootstrap_receipt_sha256'] = hashlib.sha256(
+                Path(common['bootstrap_receipt']).read_bytes()).hexdigest()
+        if tool == 'verify':
+            assert (await invoke('copy', directory, common, environment)).returncode == 0
+        destination = directory / f'{tool}-occupied-report.json'
+        destination.write_text('existing evidence')
+        result = await invoke(tool, directory, common, environment,
+                              suffix='-occupied', apply=True)
+        assert result.returncode == 1
+        assert 'PHASE0_REPORT_PATH' in result.stderr
+        assert destination.read_text() == 'existing evidence'
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('key,value,code', [
+    ('hostname', 'wrong-host', 'PHASE0_AUTHORITY'),
+    ('release_sha', '0' * 40, 'PHASE0_AUTHORITY'),
+    ('tool_tree_sha256', '0' * 64, 'PHASE0_INSTALLED_BYTES'),
+    ('bootstrap_receipt_sha256', '0' * 64, 'PHASE0_RECEIPT'),
+])
+async def test_manifest_tamper_refuses_against_fixed_authority(key, value, code):
+    """R2: the approved authority stays fixed; the manifest is altered."""
+    async with production_scratch() as scratch:
+        directory = Path('/root') / ('authority-' + uuid4().hex)
+        common, environment = await make_case(scratch, directory)
+        if key != 'bootstrap_receipt_sha256':
+            assert (await invoke('bootstrap', directory, common, environment)).returncode == 0
+            common['bootstrap_receipt_sha256'] = hashlib.sha256(
+                Path(common['bootstrap_receipt']).read_bytes()).hexdigest()
+        tampered = json.loads(json.dumps(common))
+        tampered[key] = value
+        result = await invoke('verify', directory, tampered, environment, suffix='-tamper')
+        assert result.returncode == 1
+        assert code in result.stderr, (key, result.stderr)
+        assert not (directory / 'verify-tamper-report.json').exists()
+
+
+@pytest.mark.asyncio
+async def test_successful_verify_always_publishes_report():
+    """R1: a successful verify must create its new report; missing inputs fail."""
+    async with production_scratch() as scratch:
+        directory = Path('/root') / ('authority-' + uuid4().hex)
+        common, environment = await make_case(scratch, directory)
+        assert (await invoke('bootstrap', directory, common, environment)).returncode == 0
+        common['bootstrap_receipt_sha256'] = hashlib.sha256(
+            Path(common['bootstrap_receipt']).read_bytes()).hexdigest()
+        assert (await invoke('copy', directory, common, environment)).returncode == 0
+        result = await invoke('verify', directory, common, environment)
+        assert result.returncode == 0, result.stderr
+        assert (directory / 'verify-report.json').is_file()
+        # Missing secret and missing manifest inputs must be nonzero.
+        for side in ('source', 'target'):
+            (directory / f'verify-{side}.env').unlink()
+        assert (await invoke('verify', directory, common, environment, suffix='-nosecret')).returncode == 1

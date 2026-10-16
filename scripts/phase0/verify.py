@@ -360,8 +360,13 @@ def main():
             manifest = parse_json(read_root_private(args.manifest))
             if str(args.report) != manifest['report']:
                 raise ValueError('Approved report path differs')
-            asyncio.run(run(manifest, args.source_environment_file, args.target_environment_file))
-            print('Production copy independently verified')
+            outcome = asyncio.run(run(manifest, args.source_environment_file, args.target_environment_file,
+                                      expected_tool='verify'))
+            # The verifier never has a validation-only success: reaching this point
+            # without its new report is a false success.
+            if outcome['validated_only'] or not args.report.is_file():
+                raise ValueError('Verification report was not published')
+            print('Production copy independently verified; private report published')
             return
         validate_manifest(manifest)
         # Require the freeze before opening a connection, including after receipt loss.
@@ -387,7 +392,10 @@ def main():
 
         report = asyncio.run(run())
         publish_report(args.report, report)
-    except Exception:
+    except Exception as error:
+        from scripts.phase0.refusal import Refusal
+        if isinstance(error, Refusal):
+            parser.exit(1, error.code + '\n')
         parser.exit(1, 'Verification refused; no successful report published\n')
     print('Committed copy verified; private report published')
 

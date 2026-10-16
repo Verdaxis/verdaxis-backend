@@ -35,6 +35,7 @@ from scripts.phase0.manifest import (
     load_manifest,
     require_complete_inventory,
 )
+from scripts.phase0.refusal import Refusal
 from scripts.phase0.verify import (
     VerificationReport,
     check_historical_invariants,
@@ -423,6 +424,8 @@ async def copy_database(manifest, source, target, *, fail_at=None) -> CopyReceip
         else:
             private_json(receipt_path, asdict(receipt))
         return receipt
+    except Refusal:
+        raise
     except Exception as error:
         if started and receipt_path is not None:
             try:
@@ -450,8 +453,12 @@ def main():
             manifest = parse_json(read_root_private(args.manifest))
             if args.source_sha != manifest['source_sha'] or args.target_sha != manifest['release_sha']:
                 raise CopyRefused('Approved release arguments differ')
-            asyncio.run(run(manifest, args.source_environment_file, args.target_environment_file, apply=args.apply))
-            print('Production copy completed')
+            outcome = asyncio.run(run(manifest, args.source_environment_file, args.target_environment_file,
+                                      expected_tool='copy', apply=args.apply))
+            if outcome['validated_only']:
+                print('Production copy authority validated only; no connection opened and no import authorized')
+            else:
+                print('Production copy committed and private receipt published')
             return
         validate_manifest(manifest)
         import subprocess
@@ -486,8 +493,10 @@ def main():
                     await engine.dispose()
         asyncio.run(run())
         print('Copy committed and private receipt published')
+    except Refusal as refusal:
+        parser.exit(1, refusal.code + '\n')
     except Exception:
-        parser.exit(1, 'Copy refused; inspect private host evidence\n')
+        parser.exit(1, 'PHASE0_COPY\n')
 
 
 if __name__ == '__main__':

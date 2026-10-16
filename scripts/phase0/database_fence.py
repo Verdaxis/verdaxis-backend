@@ -5,12 +5,14 @@ boundary; source repeatable-read alone is not the post-stop writer gate.
 """
 from sqlalchemy import text
 
+from scripts.phase0.refusal import Refusal
+
 
 async def check_source_quiesced(connection, identity):
-    await _require_only_session(connection, identity)
+    await _require_only_session(connection, identity, 'PHASE0_SOURCE_SESSIONS')
 
 
-async def _require_only_session(connection, identity):
+async def _require_only_session(connection, identity, session_code):
     # Avoid a cached statistics snapshot hiding a newly connected writer.
     await connection.execute(text('SELECT pg_stat_clear_snapshot()'))
     row = (await connection.execute(text('''
@@ -20,22 +22,22 @@ async def _require_only_session(connection, identity):
         FROM pg_database d WHERE d.datname=current_database()
     '''))).mappings().one()
     if row['database'] != identity['database'] or row['oid'] != identity['oid']:
-        raise ValueError('Database fence identity differs')
+        raise Refusal('PHASE0_DB_IDENTITY')
     if row['others'] != 0:
-        raise ValueError('Database fence requires no other sessions')
+        raise Refusal(session_code)
 
 
 async def check_target_fence(connection, identity, expected_datacl):
     if identity['database'] != 'verdaxis_prod' or identity['role'] != 'verdaxis_migrator':
-        raise ValueError('Exact production target authority required')
+        raise Refusal('PHASE0_TARGET_FENCE')
     if not isinstance(expected_datacl, str) or not expected_datacl:
-        raise ValueError('Explicit target datacl required')
-    await _require_only_session(connection, identity)
+        raise Refusal('PHASE0_TARGET_FENCE')
+    await _require_only_session(connection, identity, 'PHASE0_TARGET_FENCE')
     actual = (await connection.execute(text('''
         SELECT datacl::text FROM pg_database WHERE datname=current_database()
     '''))).scalar_one()
     if actual != expected_datacl:
-        raise ValueError('Target database ACL changed')
+        raise Refusal('PHASE0_TARGET_FENCE')
     # Matching an operator-provided ACL is insufficient if it permits a runtime
     # role or PUBLIC. The migrator is the dedicated import connection role.
     grants = (await connection.execute(text('''
@@ -46,10 +48,10 @@ async def check_target_fence(connection, identity, expected_datacl):
     '''))).mappings().all()
     if not grants or any(row['rolname'] != 'verdaxis_migrator' or row['is_grantable']
                          for row in grants):
-        raise ValueError('Target CONNECT authority is not isolated')
+        raise Refusal('PHASE0_TARGET_FENCE')
     owner = (await connection.execute(text('''
         SELECT r.rolname FROM pg_database d JOIN pg_roles r ON r.oid=d.datdba
         WHERE d.datname=current_database()
     '''))).scalar_one()
     if owner != 'verdaxis_migrator':
-        raise ValueError('Target owner differs')
+        raise Refusal('PHASE0_TARGET_FENCE')
