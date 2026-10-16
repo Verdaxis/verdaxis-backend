@@ -58,11 +58,20 @@ class RunnerError(RuntimeError):
     """A disposable-run step failed."""
 
 
+def ephemeral_range() -> tuple[int, int]:
+    from tests.ephemeral_ports import EphemeralRangeError, ephemeral_range as kernel_range
+    try:
+        return kernel_range()
+    except EphemeralRangeError as error:
+        raise RunnerError(str(error)) from error
+
+
 def ephemeral_port() -> int:
+    first, last = ephemeral_range()
     with socket.socket() as probe:
         probe.bind(("127.0.0.1", 0))
         port = probe.getsockname()[1]
-    if not 49152 <= port <= 65535:
+    if not first <= port <= last:
         raise RunnerError(f"kernel returned a non-disposable port {port}")
     return port
 
@@ -358,7 +367,7 @@ CREATE EXTENSION IF NOT EXISTS postgis;
 
     def record_groups(self, python_url: str) -> None:
         sys.path.insert(0, str(ROOT))
-        from scripts.rust_contract.record import record, differences, write_golden
+        from scripts.rust_contract.record import differences, record, write_golden
 
         cases = json.loads((ROOT / "tests/rust_contract/cases.json").read_text())[
             "groups"

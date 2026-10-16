@@ -192,6 +192,7 @@ fn validate(state: &AppState, query: &Json) -> Result<(), ApiError> {
             status: axum::http::StatusCode::UNPROCESSABLE_ENTITY,
             detail: json!(errors),
             retry_after: None,
+            kind: crate::ApiErrorKind::Expected,
         })
     }
 }

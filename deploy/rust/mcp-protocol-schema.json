@@ -1,0 +1,191 @@
+{
+  "schema": {
+    "$defs": {
+      "ErrorData": {
+        "description": "Error information for JSON-RPC error responses.",
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "integer"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "data": {
+            "default": null,
+            "title": "Data"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "ErrorData",
+        "type": "object"
+      },
+      "JSONRPCError": {
+        "description": "A response to a request that indicates an error occurred.",
+        "properties": {
+          "jsonrpc": {
+            "const": "2.0",
+            "title": "Jsonrpc",
+            "type": "string"
+          },
+          "id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id"
+          },
+          "error": {
+            "$ref": "#/$defs/ErrorData"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "id",
+          "error"
+        ],
+        "title": "JSONRPCError",
+        "type": "object"
+      },
+      "JSONRPCNotification": {
+        "description": "A JSON-RPC notification which does not expect a response.",
+        "properties": {
+          "jsonrpc": {
+            "const": "2.0",
+            "title": "Jsonrpc",
+            "type": "string"
+          },
+          "method": {
+            "title": "Method",
+            "type": "string"
+          },
+          "params": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Params"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "method"
+        ],
+        "title": "JSONRPCNotification",
+        "type": "object"
+      },
+      "JSONRPCRequest": {
+        "description": "A JSON-RPC request that expects a response.",
+        "properties": {
+          "jsonrpc": {
+            "const": "2.0",
+            "title": "Jsonrpc",
+            "type": "string"
+          },
+          "id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "title": "Id"
+          },
+          "method": {
+            "title": "Method",
+            "type": "string"
+          },
+          "params": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Params"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "id",
+          "method"
+        ],
+        "title": "JSONRPCRequest",
+        "type": "object"
+      },
+      "JSONRPCResponse": {
+        "description": "A successful (non-error) response to a request.\n\nNamed `JSONRPCResultResponse` in the 2025-11-25+ schemas; the SDK keeps the original name.",
+        "properties": {
+          "jsonrpc": {
+            "const": "2.0",
+            "title": "Jsonrpc",
+            "type": "string"
+          },
+          "id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "title": "Id"
+          },
+          "result": {
+            "additionalProperties": true,
+            "title": "Result",
+            "type": "object"
+          }
+        },
+        "required": [
+          "jsonrpc",
+          "id",
+          "result"
+        ],
+        "title": "JSONRPCResponse",
+        "type": "object"
+      }
+    },
+    "anyOf": [
+      {
+        "$ref": "#/$defs/JSONRPCRequest"
+      },
+      {
+        "$ref": "#/$defs/JSONRPCNotification"
+      },
+      {
+        "$ref": "#/$defs/JSONRPCResponse"
+      },
+      {
+        "$ref": "#/$defs/JSONRPCError"
+      }
+    ]
+  },
+  "modern_versions": [
+    "2026-07-28"
+  ]
+}

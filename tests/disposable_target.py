@@ -12,12 +12,14 @@ from typing import Callable, Mapping
 from urllib.parse import urlsplit
 
 
+from tests.ephemeral_ports import EphemeralRangeError, is_ephemeral_port
+
+
 IDENTITY_PATH = "/.well-known/verdaxis-disposable-test"
 IDENTITY_KEYS = frozenset({"disposable", "purpose", "token"})
 PURPOSE = "verdaxis-integration-test"
 TOKEN_PATTERN = re.compile(r"[A-Za-z0-9._~-]{32,256}")
-MIN_DISPOSABLE_PORT = 49152
-MAX_DISPOSABLE_PORT = 65535
+
 
 
 def _reject_duplicate_keys(pairs: list[tuple[str, object]]) -> dict:
@@ -54,13 +56,17 @@ def validate_target(url: str | None, token: str | None) -> DisposableTarget:
         port = parsed.port
     except ValueError:
         raise DisposableTargetError("invalid disposable target URL") from None
+    try:
+        allowed_port = port is not None and is_ephemeral_port(port)
+    except EphemeralRangeError as error:
+        raise DisposableTargetError(str(error)) from error
     if (
         parsed.scheme != "http"
         or parsed.hostname != "127.0.0.1"
         or parsed.username is not None
         or parsed.password is not None
         or port is None
-        or not MIN_DISPOSABLE_PORT <= port <= MAX_DISPOSABLE_PORT
+        or not allowed_port
         or parsed.path not in {"", "/"}
         or parsed.query
         or parsed.fragment

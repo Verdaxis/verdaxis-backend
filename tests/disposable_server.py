@@ -9,11 +9,12 @@ import re
 from collections.abc import Awaitable, Callable
 
 from tests.disposable_target import (
-    MAX_DISPOSABLE_PORT,
-    MIN_DISPOSABLE_PORT,
     PURPOSE,
     TOKEN_PATTERN,
 )
+
+
+from tests.ephemeral_ports import EphemeralRangeError, is_ephemeral_port
 
 
 IDENTITY_PATH = "/.well-known/verdaxis-disposable-test"
@@ -36,7 +37,11 @@ def validate_config(
         raise ServerConfigError("disposable server requires ENVIRONMENT=test")
     if TOKEN_PATTERN.fullmatch(token or "") is None:
         raise ServerConfigError("disposable server requires a bounded token")
-    if host != "127.0.0.1" or not MIN_DISPOSABLE_PORT <= port <= MAX_DISPOSABLE_PORT:
+    try:
+        allowed_port = is_ephemeral_port(port)
+    except EphemeralRangeError as error:
+        raise ServerConfigError(str(error)) from error
+    if host != "127.0.0.1" or not allowed_port:
         raise ServerConfigError("disposable server requires numeric loopback ephemeral bind")
     if RELEASE_SHA_PATTERN.fullmatch(release_sha or "") is None:
         raise ServerConfigError(

@@ -41,6 +41,7 @@ async fn tape(
                 status: StatusCode::UNPROCESSABLE_ENTITY,
                 detail: json!([{"type":"bool_parsing","loc":["query","demo_only"],"msg":"Input should be a valid boolean, unable to interpret input","input":values["demo_only"]}]),
                 retry_after: None,
+                kind: crate::ApiErrorKind::Expected,
             });
         }
     };
