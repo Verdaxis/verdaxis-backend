@@ -1,5 +1,19 @@
 """Executable synthetic tuple proof; Linux systemd remains a rehearsal gate."""
+
 import pytest
+
+
+@pytest.fixture(autouse=True)
+def group_writable_default_umask():
+    # The test host uses 0002. Private guard files must not inherit that mode.
+    import os
+
+    previous = os.umask(0o002)
+    try:
+        yield
+    finally:
+        os.umask(previous)
+
 
 BOUNDARIES = [
     'old-renamed', 'new-renamed', 'environment', 'runtime-identity',

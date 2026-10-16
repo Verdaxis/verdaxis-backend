@@ -33,6 +33,7 @@ permit.write_text(json.dumps(dict(environment='production', release_sha=sha,
 permit.chmod(0o600)
 (root / '.runtime-deploy/production.state').write_text(
     'DEPLOYMENT_STATE=restart-authorized\\nENVIRONMENT=production\\nRELEASE_SHA=' + sha + '\\n')
+(root / '.runtime-deploy/production.state').chmod(0o600)
 print('locked', flush=True)
 sys.stdin.read()
 """

@@ -152,6 +152,7 @@ def test_external_fence_does_not_replace_two_lock_guard(tmp_path):
     state.mkdir(mode=0o700)
     (state / "production.state").write_text(
         "DEPLOYMENT_STATE=restart-authorized\nENVIRONMENT=production\nRELEASE_SHA=" + SHA + "\n")
+    (state / "production.state").chmod(0o600)
     control = tmp_path / "control"
     control.mkdir(mode=0o700)
     (control / "fence").write_text("phase0\n")
@@ -160,6 +161,8 @@ def test_external_fence_does_not_replace_two_lock_guard(tmp_path):
          (state / "production.lock").open("w+") as main, \
          (state / "production.restart.lock").open("w+") as restart:
         os.chmod(operator.name, 0o600)
+        os.chmod(main.name, 0o600)
+        os.chmod(restart.name, 0o600)
         fcntl.flock(operator, fcntl.LOCK_EX)
         info = os.fstat(operator.fileno())
         permit = control / "permit.json"
