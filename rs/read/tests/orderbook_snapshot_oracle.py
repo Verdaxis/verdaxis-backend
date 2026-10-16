@@ -311,48 +311,28 @@ async def main():
             and binding["HostPort"] == str(database_port)
             for binding in bindings
         ):
-            assert info["Config"]["Image"] == IMAGE
+            assert info["Config"]["Image"] in (IMAGE, "docker.io/postgis/postgis@" + IMAGE.rsplit("@", 1)[1])
             matching.append(container)
     assert len(matching) == 1, "expected one pinned disposable container"
     container = matching[0]
 
     def admin(sql):
-        subprocess.run(
-            [
-                "docker",
-                "exec",
-                container,
-                "psql",
-                "-U",
-                "postgres",
-                "-v",
-                "ON_ERROR_STOP=1",
-                "-c",
-                sql,
-            ],
-            check=True,
-            capture_output=True,
-        )
+        return subprocess.check_output(
+            ["docker", "exec", container, "psql", "-XAt", "-U", "postgres",
+             "-d", "verdaxis_rust_test", "-v", "ON_ERROR_STOP=1", "-c", sql],
+            text=True,
+        ).strip()
 
-    def logs():
-        result = subprocess.run(
-            ["docker", "logs", container], check=True, capture_output=True, text=True
-        )
-        return result.stdout + result.stderr
-
-    admin("ALTER SYSTEM SET log_statement = 'all'")
-    admin("SELECT pg_reload_conf()")
-    await asyncio.sleep(0.2)
-    before_logs = logs()
-    fetch(
-        os.environ["RUST_CONTRACT_URL"], case("two-statements", product, source_rows[1])
-    )
-    await asyncio.sleep(0.2)
-    after_logs = logs()
-    for marker in (", ranked_orders AS (", ", benchmark_candidates AS MATERIALIZED ("):
-        assert after_logs.count(marker) - before_logs.count(marker) == 1, marker
-    admin("ALTER SYSTEM RESET log_statement")
-    admin("SELECT pg_reload_conf()")
+    admin("SELECT pg_stat_statements_reset()")
+    fetch(os.environ["RUST_CONTRACT_URL"], case("two-statements", product, source_rows[1]))
+    for marker in (", ranked_orders AS (", ", requested_keys AS MATERIALIZED ("):
+        count = int(admin(f"""
+            SELECT coalesce(sum(calls), 0) FROM pg_stat_statements
+            WHERE userid=(SELECT oid FROM pg_roles WHERE rolname='rust_owner')
+              AND dbid=(SELECT oid FROM pg_database WHERE datname=current_database())
+              AND query LIKE '%{marker}%'
+        """))
+        assert count == 1, (marker, count)
 
     # Launch a second test-only server with a barrier after depth. The normal
     # server has no barrier and remains available for the exact HTTP comparisons.

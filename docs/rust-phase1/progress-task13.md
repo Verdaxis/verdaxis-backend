@@ -3,6 +3,44 @@
 Status: **in progress, not accepted**. Base: `c37f8074`, lane
 `feat/rust-phase-1-lane-13`. No live access, push, agents or skills.
 
+## Projection-cost repair checkpoint — not accepted
+
+Exact emitted SQL and timed actual plans for both routes are recorded side by
+side in `task13-query-plans.md`. Native diagnostic page query times:
+list Rust 1578 -> 388 ms, bids Rust 1773 -> 338 ms; benchmark Rust
+3465 -> 729 ms (list) and 2629 -> 838 ms (bids). Python after times remain
+212/256 ms for pages and 182/181 ms for benchmarks. These are individual plan
+runs, **not** after p50/p95 measurements. No no-regression claim.
+
+Changes: narrow materialized page keys, then lateral eligible detail lookup;
+`eligible_orders AS NOT MATERIALIZED` prevents full private JSON materialization
+when the relation is referenced twice. Benchmark projects only qualification
+fields instead of the whole private row. All eligibility stays in shared SQL;
+no index, schema or policy change. Existing red 240-request p95 gate remains.
+
+Consumer runs after this structural change: health 8, echo 2, simple 29,
+benchmarks 4, lists 12, map 9, prices 40, legacy curves 4, canonical curves 125
+all matched and their full group targets passed. Snapshot's three corpus cases
+matched, but its old Docker-image/log-count probe failed. Updated that probe to
+exact pinned Podman identity and approved pg_stat_statements counts; rerun pending.
+Offline fmt/clippy passed and workspace 128 passed.
+
+**Remote execution blocker:** MCP is still an empty seam in this lane. Its group
+run stalled after the other groups completed; the queued matrix/runtime commands
+never ran. TaskStop ended the local batch but did not produce the wrapper's
+remote-unit-stop confirmation. Two subsequent wrapper calls waited on the lane
+lock; both were interrupted through their own wrapper TERM traps and confirmed
+remote-unit stop (exit 130). No direct SSH or host setup change was attempted.
+The original remote run/container cleanup cannot be confirmed from this session.
+Operator must release/inspect that test-lane run before further database tests.
+Do not treat MCP, matrix, runtime or snapshot rerun as passed.
+
+**Resume:** first restore the approved test lane and clean only this run's
+resources; then rerun snapshot, matrix and runtime gates. Next remove remaining
+policy-subplan cost if needed, rerunning all consumers after each structural
+change. Finally run the 240-request paired gate and fill the after-p95 table.
+The required after table is not available yet. Colima remained off.
+
 ## Paired latency baseline — 30 samples per cell
 
 The new `scripts/rust_contract/measure_lists.py` uses the existing Runner and

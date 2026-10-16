@@ -31,20 +31,23 @@ class Explain(runner.Runner):
             ALTER ROLE rust_owner SET auto_explain.log_min_duration=100;
             ALTER ROLE rust_owner SET auto_explain.log_analyze=on;
             ALTER ROLE rust_owner SET auto_explain.log_buffers=on;
-            ALTER ROLE rust_owner SET auto_explain.log_timing=off;
+            ALTER ROLE rust_owner SET auto_explain.log_timing=on;
             ALTER ROLE rust_owner SET auto_explain.log_format='json';""")
         # Replace only idle connections in this owned disposable database.
         sql("SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE usename='rust_owner' AND pid<>pg_backend_pid()")
         with httpx.Client(timeout=65, trust_env=False) as client:
-            for name, port in (("python", python_port), ("rust", rust_port)):
-                response = client.get(f"http://127.0.0.1:{port}/api/orderbook")
-                response.raise_for_status()
-                print("PLAN_REQUEST", name, response.status_code, flush=True)
-        logs = runner.docker("exec", self.container, "cat", "/tmp/plans/queries.log")
-        decoder = json.JSONDecoder()
-        for section in logs.split("plan:\n")[1:]:
-            plan, _ = decoder.raw_decode(section.lstrip())
-            print("ACTUAL_PLAN " + json.dumps(plan), flush=True)
+            consumed = 0
+            for path in ("/api/orderbook", "/api/orderbook/bids"):
+                for name, port in (("python", python_port), ("rust", rust_port)):
+                    response = client.get(f"http://127.0.0.1:{port}{path}")
+                    response.raise_for_status()
+                    print("PLAN_REQUEST", name, path, response.status_code, flush=True)
+                    logs = runner.docker("exec", self.container, "cat", "/tmp/plans/queries.log")
+                    sections = logs.split("plan:\n")[1:]
+                    for section in sections[consumed:]:
+                        plan, _ = json.JSONDecoder().raw_decode(section.lstrip())
+                        print("ACTUAL_PLAN " + json.dumps(dict(target=name, path=path, plan=plan)), flush=True)
+                    consumed = len(sections)
 
 
 def main():
