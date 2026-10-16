@@ -85,9 +85,49 @@
         "path": "/api/ports"
       },
       {
+        "id": "R01-ports-head",
+        "method": "HEAD",
+        "path": "/api/ports"
+      },
+      {
+        "id": "R01-ports-post-405",
+        "method": "POST",
+        "path": "/api/ports"
+      },
+      {
+        "id": "R01-ports-options-405",
+        "method": "OPTIONS",
+        "path": "/api/ports"
+      },
+      {
+        "id": "R01-ports-slash-307",
+        "method": "GET",
+        "path": "/api/ports/"
+      },
+      {
         "id": "R02-port",
         "method": "GET",
         "path": "/api/ports/1379d36c-1ca9-55b7-9c0d-5235a0ba1f36"
+      },
+      {
+        "id": "R02-port-head",
+        "method": "HEAD",
+        "path": "/api/ports/1379d36c-1ca9-55b7-9c0d-5235a0ba1f36"
+      },
+      {
+        "id": "R02-port-post-405",
+        "method": "POST",
+        "path": "/api/ports/1379d36c-1ca9-55b7-9c0d-5235a0ba1f36"
+      },
+      {
+        "id": "R02-port-options-405",
+        "method": "OPTIONS",
+        "path": "/api/ports/1379d36c-1ca9-55b7-9c0d-5235a0ba1f36"
+      },
+      {
+        "id": "R02-port-slash-307",
+        "method": "GET",
+        "path": "/api/ports/1379d36c-1ca9-55b7-9c0d-5235a0ba1f36/"
       },
       {
         "id": "R02b-port-missing",
@@ -100,14 +140,74 @@
         "path": "/api/catalog/products"
       },
       {
+        "id": "R03-products-head",
+        "method": "HEAD",
+        "path": "/api/catalog/products"
+      },
+      {
+        "id": "R03-products-post-405",
+        "method": "POST",
+        "path": "/api/catalog/products"
+      },
+      {
+        "id": "R03-products-options-405",
+        "method": "OPTIONS",
+        "path": "/api/catalog/products"
+      },
+      {
+        "id": "R03-products-slash-307",
+        "method": "GET",
+        "path": "/api/catalog/products/"
+      },
+      {
         "id": "R04-delivery-points",
         "method": "GET",
         "path": "/api/catalog/delivery-points"
       },
       {
+        "id": "R04-delivery-points-head",
+        "method": "HEAD",
+        "path": "/api/catalog/delivery-points"
+      },
+      {
+        "id": "R04-delivery-points-post-405",
+        "method": "POST",
+        "path": "/api/catalog/delivery-points"
+      },
+      {
+        "id": "R04-delivery-points-options-405",
+        "method": "OPTIONS",
+        "path": "/api/catalog/delivery-points"
+      },
+      {
+        "id": "R04-delivery-points-slash-307",
+        "method": "GET",
+        "path": "/api/catalog/delivery-points/"
+      },
+      {
         "id": "R05-news",
         "method": "GET",
         "path": "/api/news"
+      },
+      {
+        "id": "R05-news-head",
+        "method": "HEAD",
+        "path": "/api/news"
+      },
+      {
+        "id": "R05-news-post-405",
+        "method": "POST",
+        "path": "/api/news"
+      },
+      {
+        "id": "R05-news-options-405",
+        "method": "OPTIONS",
+        "path": "/api/news"
+      },
+      {
+        "id": "R05-news-slash-307",
+        "method": "GET",
+        "path": "/api/news/"
       },
       {
         "id": "R05b-news-limit",
@@ -253,6 +353,26 @@
         "query": "market_product=BIO_LNG&delivery_point_id=1379d36c-1ca9-55b7-9c0d-5235a0ba1f36&availability_window=SPOT"
       },
       {
+        "id": "R15-snapshot-head",
+        "method": "HEAD",
+        "path": "/api/orderbook/snapshot"
+      },
+      {
+        "id": "R15-snapshot-post-405",
+        "method": "POST",
+        "path": "/api/orderbook/snapshot"
+      },
+      {
+        "id": "R15-snapshot-options-405",
+        "method": "OPTIONS",
+        "path": "/api/orderbook/snapshot"
+      },
+      {
+        "id": "R15-snapshot-slash-307",
+        "method": "GET",
+        "path": "/api/orderbook/snapshot/"
+      },
+      {
         "id": "R15b-snapshot-bad-enum",
         "method": "GET",
         "path": "/api/orderbook/snapshot",
@@ -269,6 +389,26 @@
         "id": "R16-bids",
         "method": "GET",
         "path": "/api/orderbook/bids"
+      },
+      {
+        "id": "R16-bids-head",
+        "method": "HEAD",
+        "path": "/api/orderbook/bids"
+      },
+      {
+        "id": "R16-bids-post-405",
+        "method": "POST",
+        "path": "/api/orderbook/bids"
+      },
+      {
+        "id": "R16-bids-options-405",
+        "method": "OPTIONS",
+        "path": "/api/orderbook/bids"
+      },
+      {
+        "id": "R16-bids-slash-307",
+        "method": "GET",
+        "path": "/api/orderbook/bids/"
       },
       {
         "id": "R16b-bids-page",
@@ -288,6 +428,26 @@
         "path": "/api/orderbook/asks"
       },
       {
+        "id": "R17-asks-head",
+        "method": "HEAD",
+        "path": "/api/orderbook/asks"
+      },
+      {
+        "id": "R17-asks-post-405",
+        "method": "POST",
+        "path": "/api/orderbook/asks"
+      },
+      {
+        "id": "R17-asks-options-405",
+        "method": "OPTIONS",
+        "path": "/api/orderbook/asks"
+      },
+      {
+        "id": "R17-asks-slash-307",
+        "method": "GET",
+        "path": "/api/orderbook/asks/"
+      },
+      {
         "id": "R17b-asks-past-end",
         "method": "GET",
         "path": "/api/orderbook/asks",
@@ -299,9 +459,49 @@
         "path": "/api/orderbook/with-ci"
       },
       {
+        "id": "R18-with-ci-head",
+        "method": "HEAD",
+        "path": "/api/orderbook/with-ci"
+      },
+      {
+        "id": "R18-with-ci-post-405",
+        "method": "POST",
+        "path": "/api/orderbook/with-ci"
+      },
+      {
+        "id": "R18-with-ci-options-405",
+        "method": "OPTIONS",
+        "path": "/api/orderbook/with-ci"
+      },
+      {
+        "id": "R18-with-ci-slash-307",
+        "method": "GET",
+        "path": "/api/orderbook/with-ci/"
+      },
+      {
         "id": "R26-orderbook",
         "method": "GET",
         "path": "/api/orderbook"
+      },
+      {
+        "id": "R26-orderbook-head",
+        "method": "HEAD",
+        "path": "/api/orderbook"
+      },
+      {
+        "id": "R26-orderbook-post-405",
+        "method": "POST",
+        "path": "/api/orderbook"
+      },
+      {
+        "id": "R26-orderbook-options-405",
+        "method": "OPTIONS",
+        "path": "/api/orderbook"
+      },
+      {
+        "id": "R26-orderbook-slash-307",
+        "method": "GET",
+        "path": "/api/orderbook/"
       },
       {
         "id": "R26b-orderbook-page",
@@ -349,9 +549,49 @@
         "path": "/api/listings"
       },
       {
+        "id": "R27-listings-head",
+        "method": "HEAD",
+        "path": "/api/listings"
+      },
+      {
+        "id": "R27-listings-post-405",
+        "method": "POST",
+        "path": "/api/listings"
+      },
+      {
+        "id": "R27-listings-options-405",
+        "method": "OPTIONS",
+        "path": "/api/listings"
+      },
+      {
+        "id": "R27-listings-slash-307",
+        "method": "GET",
+        "path": "/api/listings/"
+      },
+      {
         "id": "R19-aggregated",
         "method": "GET",
         "path": "/api/orderbook/aggregated"
+      },
+      {
+        "id": "R19-aggregated-head",
+        "method": "HEAD",
+        "path": "/api/orderbook/aggregated"
+      },
+      {
+        "id": "R19-aggregated-post-405",
+        "method": "POST",
+        "path": "/api/orderbook/aggregated"
+      },
+      {
+        "id": "R19-aggregated-options-405",
+        "method": "OPTIONS",
+        "path": "/api/orderbook/aggregated"
+      },
+      {
+        "id": "R19-aggregated-slash-307",
+        "method": "GET",
+        "path": "/api/orderbook/aggregated/"
       },
       {
         "id": "R20-product-counts",
@@ -360,9 +600,49 @@
         "query": "side=BID"
       },
       {
+        "id": "R20-product-counts-head",
+        "method": "HEAD",
+        "path": "/api/orderbook/product-counts"
+      },
+      {
+        "id": "R20-product-counts-post-405",
+        "method": "POST",
+        "path": "/api/orderbook/product-counts"
+      },
+      {
+        "id": "R20-product-counts-options-405",
+        "method": "OPTIONS",
+        "path": "/api/orderbook/product-counts"
+      },
+      {
+        "id": "R20-product-counts-slash-307",
+        "method": "GET",
+        "path": "/api/orderbook/product-counts/"
+      },
+      {
         "id": "R21-map-summary",
         "method": "GET",
         "path": "/api/orderbook/map-summary"
+      },
+      {
+        "id": "R21-map-summary-head",
+        "method": "HEAD",
+        "path": "/api/orderbook/map-summary"
+      },
+      {
+        "id": "R21-map-summary-post-405",
+        "method": "POST",
+        "path": "/api/orderbook/map-summary"
+      },
+      {
+        "id": "R21-map-summary-options-405",
+        "method": "OPTIONS",
+        "path": "/api/orderbook/map-summary"
+      },
+      {
+        "id": "R21-map-summary-slash-307",
+        "method": "GET",
+        "path": "/api/orderbook/map-summary/"
       },
       {
         "id": "R22-map-compact",
@@ -370,9 +650,49 @@
         "path": "/api/orderbook/map-summary/compact"
       },
       {
+        "id": "R22-map-compact-head",
+        "method": "HEAD",
+        "path": "/api/orderbook/map-summary/compact"
+      },
+      {
+        "id": "R22-map-compact-post-405",
+        "method": "POST",
+        "path": "/api/orderbook/map-summary/compact"
+      },
+      {
+        "id": "R22-map-compact-options-405",
+        "method": "OPTIONS",
+        "path": "/api/orderbook/map-summary/compact"
+      },
+      {
+        "id": "R22-map-compact-slash-307",
+        "method": "GET",
+        "path": "/api/orderbook/map-summary/compact/"
+      },
+      {
         "id": "R23-products",
         "method": "GET",
         "path": "/api/orderbook/products"
+      },
+      {
+        "id": "R23-products-head",
+        "method": "HEAD",
+        "path": "/api/orderbook/products"
+      },
+      {
+        "id": "R23-products-post-405",
+        "method": "POST",
+        "path": "/api/orderbook/products"
+      },
+      {
+        "id": "R23-products-options-405",
+        "method": "OPTIONS",
+        "path": "/api/orderbook/products"
+      },
+      {
+        "id": "R23-products-slash-307",
+        "method": "GET",
+        "path": "/api/orderbook/products/"
       },
       {
         "id": "R24-regions",
@@ -380,9 +700,49 @@
         "path": "/api/orderbook/regions"
       },
       {
+        "id": "R24-regions-head",
+        "method": "HEAD",
+        "path": "/api/orderbook/regions"
+      },
+      {
+        "id": "R24-regions-post-405",
+        "method": "POST",
+        "path": "/api/orderbook/regions"
+      },
+      {
+        "id": "R24-regions-options-405",
+        "method": "OPTIONS",
+        "path": "/api/orderbook/regions"
+      },
+      {
+        "id": "R24-regions-slash-307",
+        "method": "GET",
+        "path": "/api/orderbook/regions/"
+      },
+      {
         "id": "R25-fuel-types",
         "method": "GET",
         "path": "/api/orderbook/fuel-types"
+      },
+      {
+        "id": "R25-fuel-types-head",
+        "method": "HEAD",
+        "path": "/api/orderbook/fuel-types"
+      },
+      {
+        "id": "R25-fuel-types-post-405",
+        "method": "POST",
+        "path": "/api/orderbook/fuel-types"
+      },
+      {
+        "id": "R25-fuel-types-options-405",
+        "method": "OPTIONS",
+        "path": "/api/orderbook/fuel-types"
+      },
+      {
+        "id": "R25-fuel-types-slash-307",
+        "method": "GET",
+        "path": "/api/orderbook/fuel-types/"
       }
     ],
     "prices": [
@@ -390,6 +750,26 @@
         "id": "R06-trade-tape",
         "method": "GET",
         "path": "/api/trade-tape"
+      },
+      {
+        "id": "R06-trade-tape-head",
+        "method": "HEAD",
+        "path": "/api/trade-tape"
+      },
+      {
+        "id": "R06-trade-tape-post-405",
+        "method": "POST",
+        "path": "/api/trade-tape"
+      },
+      {
+        "id": "R06-trade-tape-options-405",
+        "method": "OPTIONS",
+        "path": "/api/trade-tape"
+      },
+      {
+        "id": "R06-trade-tape-slash-307",
+        "method": "GET",
+        "path": "/api/trade-tape/"
       },
       {
         "id": "R06b-trade-tape-page",
@@ -403,6 +783,26 @@
         "path": "/api/prices"
       },
       {
+        "id": "R12-prices-head",
+        "method": "HEAD",
+        "path": "/api/prices"
+      },
+      {
+        "id": "R12-prices-post-405",
+        "method": "POST",
+        "path": "/api/prices"
+      },
+      {
+        "id": "R12-prices-options-405",
+        "method": "OPTIONS",
+        "path": "/api/prices"
+      },
+      {
+        "id": "R12-prices-slash-307",
+        "method": "GET",
+        "path": "/api/prices/"
+      },
+      {
         "id": "R12b-prices-hours",
         "method": "GET",
         "path": "/api/prices",
@@ -412,6 +812,26 @@
         "id": "R13-reference",
         "method": "GET",
         "path": "/api/prices/reference"
+      },
+      {
+        "id": "R13-reference-head",
+        "method": "HEAD",
+        "path": "/api/prices/reference"
+      },
+      {
+        "id": "R13-reference-post-405",
+        "method": "POST",
+        "path": "/api/prices/reference"
+      },
+      {
+        "id": "R13-reference-options-405",
+        "method": "OPTIONS",
+        "path": "/api/prices/reference"
+      },
+      {
+        "id": "R13-reference-slash-307",
+        "method": "GET",
+        "path": "/api/prices/reference/"
       },
       {
         "id": "R13b-reference-bad-date",
@@ -429,6 +849,26 @@
         "id": "R14-export",
         "method": "GET",
         "path": "/api/prices/reference/export"
+      },
+      {
+        "id": "R14-export-head",
+        "method": "HEAD",
+        "path": "/api/prices/reference/export"
+      },
+      {
+        "id": "R14-export-post-405",
+        "method": "POST",
+        "path": "/api/prices/reference/export"
+      },
+      {
+        "id": "R14-export-options-405",
+        "method": "OPTIONS",
+        "path": "/api/prices/reference/export"
+      },
+      {
+        "id": "R14-export-slash-307",
+        "method": "GET",
+        "path": "/api/prices/reference/export/"
       },
       {
         "id": "R14b-export-format",
@@ -631,6 +1071,26 @@
         "query": "product_id=8f6f34a5-2927-54a6-8564-cca40ae7cb8a"
       },
       {
+        "id": "R07-forward-head",
+        "method": "HEAD",
+        "path": "/api/curves/forward"
+      },
+      {
+        "id": "R07-forward-post-405",
+        "method": "POST",
+        "path": "/api/curves/forward"
+      },
+      {
+        "id": "R07-forward-options-405",
+        "method": "OPTIONS",
+        "path": "/api/curves/forward"
+      },
+      {
+        "id": "R07-forward-slash-307",
+        "method": "GET",
+        "path": "/api/curves/forward/"
+      },
+      {
         "id": "R07b-forward-missing",
         "method": "GET",
         "path": "/api/curves/forward"
@@ -640,6 +1100,26 @@
         "method": "GET",
         "path": "/api/curves/forward/export",
         "query": "product_id=8f6f34a5-2927-54a6-8564-cca40ae7cb8a"
+      },
+      {
+        "id": "R08-forward-export-head",
+        "method": "HEAD",
+        "path": "/api/curves/forward/export"
+      },
+      {
+        "id": "R08-forward-export-post-405",
+        "method": "POST",
+        "path": "/api/curves/forward/export"
+      },
+      {
+        "id": "R08-forward-export-options-405",
+        "method": "OPTIONS",
+        "path": "/api/curves/forward/export"
+      },
+      {
+        "id": "R08-forward-export-slash-307",
+        "method": "GET",
+        "path": "/api/curves/forward/export/"
       },
       {
         "id": "R08b-forward-export-missing",
@@ -654,6 +1134,26 @@
         "path": "/api/curves/forward/table"
       },
       {
+        "id": "R09-table-head",
+        "method": "HEAD",
+        "path": "/api/curves/forward/table"
+      },
+      {
+        "id": "R09-table-post-405",
+        "method": "POST",
+        "path": "/api/curves/forward/table"
+      },
+      {
+        "id": "R09-table-options-405",
+        "method": "OPTIONS",
+        "path": "/api/curves/forward/table"
+      },
+      {
+        "id": "R09-table-slash-307",
+        "method": "GET",
+        "path": "/api/curves/forward/table/"
+      },
+      {
         "id": "R09b-table-filters",
         "method": "GET",
         "path": "/api/curves/forward/table",
@@ -666,6 +1166,26 @@
         "query": "market_product=BIO_LNG&delivery_point_id=1379d36c-1ca9-55b7-9c0d-5235a0ba1f36&availability_window=SPOT"
       },
       {
+        "id": "R10-slice-head",
+        "method": "HEAD",
+        "path": "/api/curves/forward/slice"
+      },
+      {
+        "id": "R10-slice-post-405",
+        "method": "POST",
+        "path": "/api/curves/forward/slice"
+      },
+      {
+        "id": "R10-slice-options-405",
+        "method": "OPTIONS",
+        "path": "/api/curves/forward/slice"
+      },
+      {
+        "id": "R10-slice-slash-307",
+        "method": "GET",
+        "path": "/api/curves/forward/slice/"
+      },
+      {
         "id": "R10b-slice-missing",
         "method": "GET",
         "path": "/api/curves/forward/slice"
@@ -674,6 +1194,26 @@
         "id": "R11-board",
         "method": "GET",
         "path": "/api/curves/forward/board"
+      },
+      {
+        "id": "R11-board-head",
+        "method": "HEAD",
+        "path": "/api/curves/forward/board"
+      },
+      {
+        "id": "R11-board-post-405",
+        "method": "POST",
+        "path": "/api/curves/forward/board"
+      },
+      {
+        "id": "R11-board-options-405",
+        "method": "OPTIONS",
+        "path": "/api/curves/forward/board"
+      },
+      {
+        "id": "R11-board-slash-307",
+        "method": "GET",
+        "path": "/api/curves/forward/board/"
       },
       {
         "id": "R11b-board-window",
