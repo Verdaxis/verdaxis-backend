@@ -744,3 +744,14 @@ test host unpauses, capture its report into
 (`work/rust-phase1/profile_lists.py`) and the disposable index experiment
 (`work/rust-phase1/index_experiment.py`) with no other heavy run in
 parallel.
+
+### 2c. Isolation correctness proven per group by the 121-execution run
+
+The wasted run doubles as per-group proof: every group that reached its
+own environment passed its own target there — health 11x, echo,
+simple_reads (line 5469), live_benchmarks (8122), orderbook_snapshot
+(11454), orderbook_lists (14345), orderbook_map (17777), prices (20707),
+curves_legacy (23452, including `legacy price scale: 8 comparisons`),
+curves_canonical (26555, including CURVE_QUERY_COST/CURVE_MEMORY) and mcp
+(29538, 143 cases plus privacy and SQL-cancellation proofs). The
+corrected gate collapses this to eleven environments, one target each.
