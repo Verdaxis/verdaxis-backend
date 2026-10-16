@@ -24,6 +24,9 @@ import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+# Support both `python -m` and the documented direct script invocation.
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 IMAGE = (
     "postgis/postgis:17-3.6-alpine@sha256:"
     "49b4d46c9fb8b158ddecd14d1894871a21ed4acb7ef376e2050f43f79c7b7272"
@@ -59,7 +62,8 @@ class RunnerError(RuntimeError):
 
 
 def ephemeral_range() -> tuple[int, int]:
-    from tests.ephemeral_ports import EphemeralRangeError, ephemeral_range as kernel_range
+    from tests.ephemeral_ports import EphemeralRangeError
+    from tests.ephemeral_ports import ephemeral_range as kernel_range
     try:
         return kernel_range()
     except EphemeralRangeError as error:
