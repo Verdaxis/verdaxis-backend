@@ -25,7 +25,6 @@ from scripts.rust_contract.compare import (
     ContractError,
     attest,
     capture,
-    compare,
     load_cases,
 )
 
@@ -34,9 +33,8 @@ from scripts.rust_contract.compare import (
 # server's own bound.
 DEFAULT_REQUEST_ID = "00000000-0000-4000-8000-000000000001"
 
-# A case must finish inside this bound. The MCP streamable transport holds an
-# event stream open, so a plain read would never return; the recorder refuses
-# it instead of hanging the whole run.
+# A finite HTTP body must finish inside this bound. MCP uses its protocol-aware
+# reader below because a standalone GET stream has no terminal response.
 CASE_DEADLINE_SECONDS = 30.0
 CHUNK_BYTES = 65536
 
@@ -108,18 +106,30 @@ def perform(base_url: str, case: Mapping[str, Any]) -> dict[str, Any]:
     request = urllib.request.Request(
         _url(base_url, case), data=data, headers=headers, method=str(case["method"])
     )
+
+    def read_response(response):
+        if case["path"] == "/mcp":
+            from scripts.rust_contract.mcp_record import read_mcp_response
+
+            return read_mcp_response(response, case)
+        return _read_bounded(response)
+
     try:
         with _OPENER.open(request, timeout=CASE_DEADLINE_SECONDS) as response:
-            raw = _read_bounded(response)
+            raw = read_response(response)
             status = response.status
             response_headers = dict(response.headers.items())
     except urllib.error.HTTPError as error:
         # An error status, including a redirect the recorder does not follow,
         # is part of the contract, not a transport failure.
-        try:
-            raw = _read_bounded(error)
-        except ContractError:
-            raw = b""
+        if case["path"] == "/mcp":
+            # A truncated MCP error is a recording failure, not an empty body.
+            raw = read_response(error)
+        else:
+            try:
+                raw = _read_bounded(error)
+            except ContractError:
+                raw = b""
         status = error.code
         response_headers = dict(error.headers.items())
     except (urllib.error.URLError, OSError) as error:
@@ -138,6 +148,7 @@ def perform(base_url: str, case: Mapping[str, Any]) -> dict[str, Any]:
             "path": str(case["path"]),
             "query": case.get("query") or "",
             "headers": headers,
+            **({"body": body} if case["path"] == "/mcp" and body is not None else {}),
         },
         "exchange": exchange,
         "raw_body": raw,
@@ -155,9 +166,11 @@ def record(
     for case in cases:
         if case.get("fixture") == "T4B-negative-fame":
             import asyncio
-            from scripts.rust_contract.seed_corpus import matrix_module, attest_session
-            from app.seeds.safety import seed_session
+
             from sqlalchemy import text
+
+            from app.seeds.safety import seed_session
+            from scripts.rust_contract.seed_corpus import attest_session, matrix_module
 
             async def set_negative_status(status):
                 async with seed_session() as session:

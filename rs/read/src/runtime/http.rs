@@ -267,6 +267,7 @@ async fn dispatch_boundary(
                 "message": "This operation is not available in Market Support mode"
             }),
             retry_after: None,
+            kind: crate::ApiErrorKind::Expected,
         }
         .into_response();
     }
@@ -317,6 +318,7 @@ async fn dispatch_boundary(
                 status: StatusCode::TOO_MANY_REQUESTS,
                 detail: serde_json::json!(format!("Rate limit exceeded: {limit} per 1 minute")),
                 retry_after: None,
+                kind: crate::ApiErrorKind::Expected,
             }
             .into_response();
         }
@@ -482,6 +484,7 @@ impl QueryFields {
                 status: StatusCode::UNPROCESSABLE_ENTITY,
                 detail: serde_json::json!([entry]),
                 retry_after: None,
+                kind: crate::ApiErrorKind::Expected,
             }
         };
         let Some(value) = value else {

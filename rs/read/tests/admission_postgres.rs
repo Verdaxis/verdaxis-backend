@@ -6,6 +6,47 @@ use verdaxis_read::{AppState, Config, MarketPolicy, compiled_sha, connect, run_a
 
 const SLOW: &str = "SELECT pg_sleep(5)";
 
+#[tokio::test]
+async fn admitted_unexpected_and_database_failures_keep_distinct_types() {
+    if std::env::var("RUST_TEST_DATABASE_URL").is_err() {
+        return;
+    }
+    let (state, observer, pool) = state().await;
+    let error = run_admitted::<()>(&state, |_| {
+        Box::pin(async { Err(verdaxis_read::ApiError::internal()) })
+    })
+    .await
+    .unwrap_err();
+    assert_eq!(error.kind, verdaxis_read::ApiErrorKind::Unexpected);
+    assert_eq!(state.reads.available_permits(), 8);
+    let error = run_admitted::<()>(&state, |connection| {
+        Box::pin(async move {
+            sqlx::query("SELECT 1 / 0")
+                .execute(connection)
+                .await
+                .map_err(|_| verdaxis_read::ApiError::database())?;
+            Ok(())
+        })
+    })
+    .await
+    .unwrap_err();
+    assert_eq!(error.kind, verdaxis_read::ApiErrorKind::Database);
+    assert_eq!(state.reads.available_permits(), 8);
+    let value = run_admitted(&state, |connection| {
+        Box::pin(async move {
+            sqlx::query_scalar::<_, i32>("SELECT 1")
+                .fetch_one(connection)
+                .await
+                .map_err(|_| verdaxis_read::ApiError::database())
+        })
+    })
+    .await
+    .unwrap();
+    assert_eq!(value, 1);
+    pool.close().await;
+    observer.close().await;
+}
+
 /// Build the admitted state and keep the readiness pool as an out-of-band
 /// observer that never consumes an admission slot.
 async fn state() -> (Arc<AppState>, sqlx::PgPool, sqlx::PgPool) {

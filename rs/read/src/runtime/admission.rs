@@ -64,7 +64,7 @@ pub async fn run_admitted<T: Send + 'static>(
     tokio::spawn(async move {
         let mut connection = pool.acquire().await.map_err(|error| {
             log_sql_error("acquire", &error);
-            ApiError::internal()
+            ApiError::database()
         })?;
         let result = work(&mut connection).await;
         let reusable = if result.is_ok() {
@@ -100,7 +100,7 @@ pub async fn run_admitted<T: Send + 'static>(
             match result {
                 Err(error) => Err(error),
                 // The work succeeded but the connection is unusable.
-                Ok(_) => Err(ApiError::internal()),
+                Ok(_) => Err(ApiError::database()),
             }
         }
     })

@@ -1,0 +1,11 @@
+{
+  "method": "POST",
+  "path": "/mcp",
+  "query": "",
+  "headers": {
+    "x-request-id": "00000000-0000-4000-8000-000000000001",
+    "content-type": "application/json",
+    "accept": "text/plain"
+  },
+  "body": "{"
+}

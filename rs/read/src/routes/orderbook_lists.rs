@@ -84,6 +84,7 @@ fn validation(errors: Vec<Json>) -> ApiError {
         status: StatusCode::UNPROCESSABLE_ENTITY,
         detail: Json::Array(errors),
         retry_after: None,
+        kind: crate::ApiErrorKind::Expected,
     }
 }
 fn parse(raw: &str, surface: Surface, now: DateTime<Utc>) -> Result<ListQuery, ApiError> {
@@ -205,6 +206,7 @@ fn parse(raw: &str, surface: Surface, now: DateTime<Utc>) -> Result<ListQuery, A
                 status: StatusCode::BAD_REQUEST,
                 detail: json!(message),
                 retry_after: None,
+                kind: crate::ApiErrorKind::Expected,
             })?
     };
     Ok(ListQuery {

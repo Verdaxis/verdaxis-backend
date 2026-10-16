@@ -26,6 +26,7 @@ pub fn busy() -> ApiError {
         status: StatusCode::SERVICE_UNAVAILABLE,
         detail: Json::String("Public market data is temporarily busy; retry shortly.".into()),
         retry_after: Some(1),
+        kind: crate::ApiErrorKind::Expected,
     }
 }
 
@@ -52,8 +53,9 @@ pub fn database_error(path: &str, method: &str, sqlstate: Option<&str>) -> ApiEr
             status: StatusCode::SERVICE_UNAVAILABLE,
             detail: Json::String("Market is temporarily busy; retry shortly.".into()),
             retry_after: Some(1),
+            kind: crate::ApiErrorKind::Database,
         }
     } else {
-        ApiError::internal()
+        ApiError::database()
     }
 }

@@ -1,0 +1,21 @@
+{
+  "status": 200,
+  "headers": {
+    "content-type": "application/json",
+    "x-request-id": "00000000-0000-4000-8000-000000000001"
+  },
+  "body": {
+    "jsonrpc": "2.0",
+    "id": 36,
+    "result": {
+      "content": [
+        {
+          "text": "Error executing tool plan_voyage_fuel: 1 validation error for plan_voyage_fuelArguments\nrequest.vessel.secret\n  Extra inputs are not permitted [type=extra_forbidden, input_value='not-accepted', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.13/v/extra_forbidden",
+          "type": "text"
+        }
+      ],
+      "isError": true
+    }
+  },
+  "body_sha256": "ac2ab3850f9d4544993fc47adccf6a5e54a3206b50c7de1f9ec779c45804ad9d"
+}

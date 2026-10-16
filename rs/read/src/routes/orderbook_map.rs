@@ -64,6 +64,7 @@ fn validation(errors: Vec<Json>) -> ApiError {
         status: StatusCode::UNPROCESSABLE_ENTITY,
         detail: Json::Array(errors),
         retry_after: None,
+        kind: crate::ApiErrorKind::Expected,
     }
 }
 
@@ -159,6 +160,7 @@ impl Filters {
                 status: StatusCode::BAD_REQUEST,
                 detail: json!(message),
                 retry_after: None,
+                kind: crate::ApiErrorKind::Expected,
             })?;
         Ok(result)
     }

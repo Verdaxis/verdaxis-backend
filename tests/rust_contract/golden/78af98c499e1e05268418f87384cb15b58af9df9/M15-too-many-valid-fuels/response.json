@@ -1,0 +1,21 @@
+{
+  "status": 200,
+  "headers": {
+    "content-type": "application/json",
+    "x-request-id": "00000000-0000-4000-8000-000000000001"
+  },
+  "body": {
+    "jsonrpc": "2.0",
+    "id": 50,
+    "result": {
+      "content": [
+        {
+          "text": "Error executing tool plan_voyage_fuel: 1 validation error for plan_voyage_fuelArguments\nrequest.vessel.compatible_fuels\n  Tuple should have at most 6 items after validation, not 7 [type=too_long, input_value=['VLSFO', 'VLSFO', 'VLSFO...LSFO', 'VLSFO', 'VLSFO'], input_type=list]\n    For further information visit https://errors.pydantic.dev/2.13/v/too_long",
+          "type": "text"
+        }
+      ],
+      "isError": true
+    }
+  },
+  "body_sha256": "f62dd02a38d984e250296e84621433d65fe03bd94c7b9021eae7211791c8c109"
+}

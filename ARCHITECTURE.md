@@ -158,6 +158,25 @@ SQLx counter records statement/returned-row counts without query text.
 `curve_fixtures.py` supplies the same depth, trusted-evidence, subsecond and
 10,000-order cases for differential checks and later golden publication.
 
+Task 11 adds `rs/read/src/mcp/` for the stateless rmcp adapter, anonymous market
+prices and pure voyage calculations. Database tools use shared `run_admitted`;
+catalog and protocol discovery bypass admission. `validation.rs` reads exported
+Python tool schemas and normalizes arguments before admission; the pure engine
+uses that same boundary. `protocol.rs` validates exported Python JSON-RPC envelope
+schemas and modern metadata rejection order before tool adaptation; rmcp retains
+dispatch. Internal `ApiErrorKind` distinguishes expected, database and unexpected
+failures through admission without changing REST status/detail serialization.
+Date parsing reuses the existing price-query parser.
+`export_mcp_validation.py` and `mcp-validation-vectors.json` retain reproducible
+Python diagnostics and normalized inputs. This remains a partial acceptance
+checkpoint; `docs/rust-phase1/progress-task11.md` lists unresolved input-domain,
+protocol and error-class gaps. MCP wire recordings stay in untracked lane evidence
+until integration publishes them into the single golden corpus.
+`tests/ephemeral_ports.py` is the shared kernel-range authority for the disposable
+allocator, server producer and target consumer. It reads Linux procfs or macOS
+sysctl and fails closed without changing host settings. Database/Linux gates run
+through the approved `verdaxis-prod-test` isolated harness; local Colima stays off.
+
 ## File Map
 
 ```

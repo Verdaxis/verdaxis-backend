@@ -175,6 +175,7 @@ pub fn curve_query(raw: &str) -> Result<(Uuid, Option<Uuid>), ApiError> {
             status: axum::http::StatusCode::UNPROCESSABLE_ENTITY,
             detail: Json::Array(errors),
             retry_after: None,
+            kind: crate::ApiErrorKind::Expected,
         });
     }
     let Some(QueryValue::Uuid(product)) = product? else {

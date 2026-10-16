@@ -1,0 +1,21 @@
+{
+  "status": 200,
+  "headers": {
+    "content-type": "application/json",
+    "x-request-id": "00000000-0000-4000-8000-000000000001"
+  },
+  "body": {
+    "jsonrpc": "2.0",
+    "id": 50,
+    "result": {
+      "content": [
+        {
+          "text": "Error executing tool plan_voyage_fuel: 1 validation error for plan_voyage_fuelArguments\nrequest\n  Input should be a valid dictionary or instance of VoyagePlanRequest [type=model_type, input_value='{bad', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.13/v/model_type",
+          "type": "text"
+        }
+      ],
+      "isError": true
+    }
+  },
+  "body_sha256": "3fb2a7fdd45227741888051246e1eeddc5ee1841b7dbc37d4c704caeaf5a9dc8"
+}

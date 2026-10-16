@@ -39,6 +39,7 @@ pub fn validate(raw: &str, surface: Surface) -> Result<(), ApiError> {
                     status: StatusCode::UNPROCESSABLE_ENTITY,
                     detail: json!([{"type":"literal_error","loc":["query","visibility"],"msg":"Input should be 'internal' or 'external'","input":value,"ctx":{"expected":"'internal' or 'external'"}}]),
                     retry_after: None,
+                    kind: crate::ApiErrorKind::Expected,
                 }));
             }
         }
@@ -58,6 +59,7 @@ pub fn validate(raw: &str, surface: Surface) -> Result<(), ApiError> {
                     status: StatusCode::UNPROCESSABLE_ENTITY,
                     detail: json!([{"type":"bool_parsing","loc":["query","demo_only"],"msg":"Input should be a valid boolean, unable to interpret input","input":value}]),
                     retry_after: None,
+                    kind: crate::ApiErrorKind::Expected,
                 }));
             }
             collect(integer(raw, "skip", 0, i64::MAX, 0).map(|_| ()));
@@ -71,6 +73,7 @@ pub fn validate(raw: &str, surface: Surface) -> Result<(), ApiError> {
             status: StatusCode::UNPROCESSABLE_ENTITY,
             detail: Json::Array(errors),
             retry_after: None,
+            kind: crate::ApiErrorKind::Expected,
         })
     }
 }
