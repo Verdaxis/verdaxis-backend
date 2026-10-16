@@ -34,6 +34,8 @@ GOLDEN_DIR = ROOT / "tests" / "rust_contract" / "golden"
 # are profile names (rule versions), not product identities. A catalog change
 # that adds or renames a product fails here until a reviewer updates the map.
 PROFILES: dict[str, str] = {
+    "B30": "scalar",
+    "B100": "scalar",
     "UCOME_B100": "fame_v1",
     "BIO_LNG": "lng_v1",
     "BIO_METHANOL": "scalar",

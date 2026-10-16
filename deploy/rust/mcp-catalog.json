@@ -2,6 +2,40 @@
   "source_sha": "f7b6c7b805defff2f1fed08cc34215d16c10fe51",
   "products": [
     {
+      "code": "B30",
+      "name": "B30",
+      "fuel_type": "Biofuel",
+      "unit": "MT",
+      "min_lot_size": "200",
+      "delivery_points": [
+        "Dalian",
+        "Busan",
+        "Shanghai",
+        "Singapore",
+        "Rotterdam",
+        "Houston",
+        "Los Angeles",
+        "Santos"
+      ]
+    },
+    {
+      "code": "B100",
+      "name": "B100",
+      "fuel_type": "Biofuel",
+      "unit": "MT",
+      "min_lot_size": "200",
+      "delivery_points": [
+        "Dalian",
+        "Busan",
+        "Shanghai",
+        "Singapore",
+        "Rotterdam",
+        "Houston",
+        "Los Angeles",
+        "Santos"
+      ]
+    },
+    {
       "code": "BIO_LNG",
       "name": "Bio-LNG",
       "fuel_type": "LNG",

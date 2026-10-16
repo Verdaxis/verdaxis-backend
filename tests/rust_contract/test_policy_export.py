@@ -77,7 +77,9 @@ def test_policy_covers_every_canonical_identity_exactly():
     assert [p["id"] for p in payload["products"]] == [
         str(spec.id) for spec in CANONICAL_PRODUCTS
     ]
-    assert [p["display_order"] for p in payload["products"]] == [1, 2, 3, 4, 5, 6]
+    assert [p["display_order"] for p in payload["products"]] == list(
+        range(1, len(payload["products"]) + 1)
+    )
     assert [p["id"] for p in payload["points"]] == [
         str(spec.id) for spec in CANONICAL_DELIVERY_POINTS
     ]

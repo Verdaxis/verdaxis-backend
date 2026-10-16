@@ -168,7 +168,7 @@ fn policy_artifact_loads_with_its_recorded_source_sha() {
     let sha = raw["source_sha"].as_str().unwrap().to_owned();
     let policy = load_policy(POLICY_BYTES, &sha).unwrap();
     assert_eq!(policy.source_sha, sha);
-    assert_eq!(policy.products.len(), 6);
+    assert_eq!(policy.products.len(), 8);
     assert_eq!(policy.points.len(), 8);
     let profiles: std::collections::BTreeSet<&str> = policy
         .products

@@ -1,6 +1,8 @@
 {
   "source_sha": "f7b6c7b805defff2f1fed08cc34215d16c10fe51",
   "market_product_enum": [
+    "B30",
+    "B100",
     "UCOME_B100",
     "BIO_LNG",
     "BIO_METHANOL",
@@ -170,6 +172,86 @@
       "market_product": "SYNTHETIC_ETHANOL",
       "delivery_point_id": "a4762444-4e0b-5bc1-b647-a185047adae5",
       "base_price": "1177.50"
+    },
+    {
+      "market_product": "B30",
+      "delivery_point_id": "78281fb3-e726-5396-802e-34b01fda21e8",
+      "base_price": "1105.00"
+    },
+    {
+      "market_product": "B30",
+      "delivery_point_id": "262d36ae-6f35-5785-b9e8-9e221b0f1b78",
+      "base_price": "1105.00"
+    },
+    {
+      "market_product": "B30",
+      "delivery_point_id": "633c0593-f9b9-52ad-abe5-a0285f6888d3",
+      "base_price": "1105.00"
+    },
+    {
+      "market_product": "B30",
+      "delivery_point_id": "73835e92-820e-584b-8280-bb61c63aa28e",
+      "base_price": "1105.00"
+    },
+    {
+      "market_product": "B30",
+      "delivery_point_id": "1379d36c-1ca9-55b7-9c0d-5235a0ba1f36",
+      "base_price": "869.00"
+    },
+    {
+      "market_product": "B30",
+      "delivery_point_id": "a083db06-b050-56c2-a274-3897eac2fdae",
+      "base_price": "1105.00"
+    },
+    {
+      "market_product": "B30",
+      "delivery_point_id": "1be2a5cb-fc34-5e88-8b15-7f7d0fd6e534",
+      "base_price": "1105.00"
+    },
+    {
+      "market_product": "B30",
+      "delivery_point_id": "a4762444-4e0b-5bc1-b647-a185047adae5",
+      "base_price": "1105.00"
+    },
+    {
+      "market_product": "B100",
+      "delivery_point_id": "78281fb3-e726-5396-802e-34b01fda21e8",
+      "base_price": "1362.00"
+    },
+    {
+      "market_product": "B100",
+      "delivery_point_id": "262d36ae-6f35-5785-b9e8-9e221b0f1b78",
+      "base_price": "1362.00"
+    },
+    {
+      "market_product": "B100",
+      "delivery_point_id": "633c0593-f9b9-52ad-abe5-a0285f6888d3",
+      "base_price": "1362.00"
+    },
+    {
+      "market_product": "B100",
+      "delivery_point_id": "73835e92-820e-584b-8280-bb61c63aa28e",
+      "base_price": "1362.00"
+    },
+    {
+      "market_product": "B100",
+      "delivery_point_id": "1379d36c-1ca9-55b7-9c0d-5235a0ba1f36",
+      "base_price": "1362.00"
+    },
+    {
+      "market_product": "B100",
+      "delivery_point_id": "a083db06-b050-56c2-a274-3897eac2fdae",
+      "base_price": "1362.00"
+    },
+    {
+      "market_product": "B100",
+      "delivery_point_id": "1be2a5cb-fc34-5e88-8b15-7f7d0fd6e534",
+      "base_price": "1362.00"
+    },
+    {
+      "market_product": "B100",
+      "delivery_point_id": "a4762444-4e0b-5bc1-b647-a185047adae5",
+      "base_price": "1362.00"
     }
   ],
   "reference_profiles": {

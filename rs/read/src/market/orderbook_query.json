@@ -1,6 +1,8 @@
 {
   "source_sha": "f7b6c7b805defff2f1fed08cc34215d16c10fe51",
   "market_product_enum": [
+    "B30",
+    "B100",
     "UCOME_B100",
     "BIO_LNG",
     "BIO_METHANOL",

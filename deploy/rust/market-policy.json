@@ -2,6 +2,46 @@
   "source_sha": "f7b6c7b805defff2f1fed08cc34215d16c10fe51",
   "products": [
     {
+      "id": "c4cecebc-3d2d-5840-8021-57a9a11bc673",
+      "code": "B30",
+      "name": "B30",
+      "fuel_type": "Biofuel",
+      "fuel_grade": "B30",
+      "execution_mode": "ORDERBOOK",
+      "lanes": [
+        "78281fb3-e726-5396-802e-34b01fda21e8",
+        "262d36ae-6f35-5785-b9e8-9e221b0f1b78",
+        "633c0593-f9b9-52ad-abe5-a0285f6888d3",
+        "73835e92-820e-584b-8280-bb61c63aa28e",
+        "1379d36c-1ca9-55b7-9c0d-5235a0ba1f36",
+        "a083db06-b050-56c2-a274-3897eac2fdae",
+        "1be2a5cb-fc34-5e88-8b15-7f7d0fd6e534",
+        "a4762444-4e0b-5bc1-b647-a185047adae5"
+      ],
+      "qualification_profile": "scalar",
+      "display_order": 1
+    },
+    {
+      "id": "74eb9cb5-f0e3-55f1-b82c-fe29b7c45bf5",
+      "code": "B100",
+      "name": "B100",
+      "fuel_type": "Biofuel",
+      "fuel_grade": "B100",
+      "execution_mode": "ORDERBOOK",
+      "lanes": [
+        "78281fb3-e726-5396-802e-34b01fda21e8",
+        "262d36ae-6f35-5785-b9e8-9e221b0f1b78",
+        "633c0593-f9b9-52ad-abe5-a0285f6888d3",
+        "73835e92-820e-584b-8280-bb61c63aa28e",
+        "1379d36c-1ca9-55b7-9c0d-5235a0ba1f36",
+        "a083db06-b050-56c2-a274-3897eac2fdae",
+        "1be2a5cb-fc34-5e88-8b15-7f7d0fd6e534",
+        "a4762444-4e0b-5bc1-b647-a185047adae5"
+      ],
+      "qualification_profile": "scalar",
+      "display_order": 2
+    },
+    {
       "id": "8f6f34a5-2927-54a6-8564-cca40ae7cb8a",
       "code": "BIO_LNG",
       "name": "Bio-LNG",
@@ -12,7 +52,7 @@
         "1379d36c-1ca9-55b7-9c0d-5235a0ba1f36"
       ],
       "qualification_profile": "lng_v1",
-      "display_order": 1
+      "display_order": 3
     },
     {
       "id": "e561e43f-d9b2-598e-981c-f1d28d515ddc",
@@ -25,7 +65,7 @@
         "73835e92-820e-584b-8280-bb61c63aa28e"
       ],
       "qualification_profile": "fame_v1",
-      "display_order": 2
+      "display_order": 4
     },
     {
       "id": "9510c713-6e39-5080-add3-0a7c29657b79",
@@ -45,7 +85,7 @@
         "a4762444-4e0b-5bc1-b647-a185047adae5"
       ],
       "qualification_profile": "scalar",
-      "display_order": 3
+      "display_order": 5
     },
     {
       "id": "f9b20492-b445-59cd-b292-a386d913f488",
@@ -65,7 +105,7 @@
         "a4762444-4e0b-5bc1-b647-a185047adae5"
       ],
       "qualification_profile": "scalar",
-      "display_order": 4
+      "display_order": 6
     },
     {
       "id": "c4a688be-f7c2-5edc-8f93-6b34e387609c",
@@ -85,7 +125,7 @@
         "a4762444-4e0b-5bc1-b647-a185047adae5"
       ],
       "qualification_profile": "scalar",
-      "display_order": 5
+      "display_order": 7
     },
     {
       "id": "d186bffb-766d-5944-8825-989abbdcfc46",
@@ -105,7 +145,7 @@
         "a4762444-4e0b-5bc1-b647-a185047adae5"
       ],
       "qualification_profile": "scalar",
-      "display_order": 6
+      "display_order": 8
     }
   ],
   "points": [

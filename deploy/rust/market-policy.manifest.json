@@ -1,7 +1,7 @@
 {
   "source_sha": "f7b6c7b805defff2f1fed08cc34215d16c10fe51",
   "policy": "market-policy.json",
-  "policy_sha256": "09371e2377459208be36071d83759bddd3efb0cf17dbf74478df707aac3f9167",
+  "policy_sha256": "c5578afe211ba0c0b9635c1a858094aae4043f27b8c28b6011b5a5ab4beaa2b1",
   "mcp_catalog": "mcp-catalog.json",
-  "mcp_catalog_sha256": "584662d4f44714fb6a873b96b977ec97d879204d6e5048ed9f5d036a67eb6a2c"
+  "mcp_catalog_sha256": "26392d30454f5dc29e766a6fb432498894ee80d7d88508b25699e119d03b761d"
 }
