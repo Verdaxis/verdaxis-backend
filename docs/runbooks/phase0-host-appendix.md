@@ -200,11 +200,17 @@ p0run() {
   systemd-run --wait --pipe --collect \
     -p IPAddressDeny=any -p IPAddressAllow=localhost \
     -p PrivateTmp=yes -p ProtectHome=read-only \
+    -p ReadWritePaths=/root/verdaxis-phase0 \
     -p WorkingDirectory=/opt/verdaxis-phase0 \
     -p "EnvironmentFile=$RUN/settings.env" \
     "$@"
 }
 ```
+
+`ProtectHome=read-only` makes the whole of `/root` and `/home` read-only inside
+the transient unit, so `ReadWritePaths=/root/verdaxis-phase0` re-opens exactly
+the private workspace for evidence, and every tool report under it can be
+written; nothing else under `/root` or `/home` gains write access.
 
 Copy the approved per-run Settings to `$RUN/settings.env` (0600). Under the
 same function, validate no provider keys and outbound denial before real data:
