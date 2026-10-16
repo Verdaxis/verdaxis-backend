@@ -24,7 +24,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 import httpx
-from sqlalchemy import text
+from sqlalchemy import func, select, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
@@ -34,7 +34,9 @@ from app.market_catalog import (
     CANONICAL_DELIVERY_POINT_IDS,
     CANONICAL_PRODUCTS,
 )
+from app.models.orderbook import OrderBookOrder, OrderSide
 from app.models.user import Organization, OrgType, User, UserRole, UserStatus
+from app.services.public_order_scope import public_order_scope
 from scripts.phase0.copy import private_json, read_private_file
 
 # The live prod cluster listens on 5432; P0-5 gives the rehearsal its own cluster.
@@ -48,6 +50,18 @@ DISPOSABLE_TEST_DATABASE = re.compile(r"^[a-z][a-z0-9_]*_test$")
 # B30 has no restricted delivery-point lane, so it is safe on any copied catalog.
 PRODUCT_CODE = "B30"
 PASSWORD_BYTES = 24
+# The public order-book sides and their paths, in the order the smoke reports them.
+PUBLIC_SIDES = (("BID", "/api/orderbook/bids"), ("ASK", "/api/orderbook/asks"))
+# The smoke itself places one BID and one ASK; the public path also serves those.
+SMOKE_OWN_ORDERS = {"BID": 1, "ASK": 1}
+# The smoke proves that copied rows the public rules make visible are served, so
+# it samples only orders the application's own public predicate admits and needs
+# at least this many, or an empty (or fully hidden) copy is visible as a failure.
+COPIED_ORDER_SAMPLE = 3
+# Bounded page walk for the sampled orders; newest-first sampling finds them on
+# the first page, so the cap only bounds a pathological copy.
+SAMPLE_PAGE_SIZE = 100
+SAMPLE_MAX_PAGES = 6
 
 
 def require_scratch_base_url(value: str) -> str:
@@ -163,6 +177,39 @@ async def discover_lane(session) -> tuple[str, str, str]:
     raise SmokeFailed("scratch target lacks the canonical smoke delivery point")
 
 
+def side_name(value: OrderSide | str) -> str:
+    """Return the two-letter side name for an enum member or a raw string."""
+    return value.value if isinstance(value, OrderSide) else str(value)
+
+
+async def visible_copied_orders(session) -> tuple[list[dict], dict[str, int]]:
+    """Sample copied orders with the application's own public visibility rules.
+
+    The predicate is ``public_order_scope``, the same one the public order-book
+    routes use, so the smoke never restates the rules. It returns the newest
+    visible copies in the routes' own newest order plus the per-side visible
+    counts, so the caller can check each sampled order and the served totals.
+    """
+    filters, joins = public_order_scope()
+    counts = {side: 0 for side, _ in PUBLIC_SIDES}
+    count_query = select(OrderBookOrder.side, func.count(OrderBookOrder.id))
+    sample_query = select(OrderBookOrder.id, OrderBookOrder.side)
+    for target, condition in joins:
+        count_query = count_query.join(target, condition)
+        sample_query = sample_query.join(target, condition)
+    for side, total in (await session.execute(
+            count_query.where(*filters).group_by(OrderBookOrder.side))).all():
+        counts[side_name(side)] = int(total)
+    sample = [
+        dict(id=str(identifier), side=side_name(side))
+        for identifier, side in (await session.execute(
+            sample_query.where(*filters)
+            .order_by(OrderBookOrder.created_at.desc(), OrderBookOrder.id.desc())
+            .limit(COPIED_ORDER_SAMPLE))).all()
+    ]
+    return sample, counts
+
+
 async def create_scratch_identities(url) -> dict:
     """Create two scratch organizations: one supplier and one buyer, plus admin.
 
@@ -216,8 +263,7 @@ async def create_scratch_identities(url) -> dict:
                 user.kyc_organization_id = organization.id
                 identities[kind] = dict(email=email, password=password, id=str(user.id),
                                         organization_id=str(organization.id))
-            copied_orders = [str(value) for value in (await session.execute(text(
-                "SELECT id FROM orderbook_orders ORDER BY created_at LIMIT 3"))).scalars()]
+            copied_orders, copied_visible_counts = await visible_copied_orders(session)
             # Mark both organizations REAL as the disposable helper does, bounded
             # to this scratch target rather than a *_test database.
             await session.execute(text("SET LOCAL session_replication_role = 'replica'"))
@@ -230,7 +276,8 @@ async def create_scratch_identities(url) -> dict:
         await engine.dispose()
     return dict(identities=identities, port=port, product_id=product_id,
                 delivery_point_id=delivery_point_id, fuel_type=fuel_type,
-                copied_orders=copied_orders)
+                copied_orders=copied_orders,
+                copied_visible_counts=copied_visible_counts)
 
 
 def run_cases(base_url: str, fixture: dict, report: Report) -> None:
@@ -240,6 +287,30 @@ def run_cases(base_url: str, fixture: dict, report: Report) -> None:
 
         def request(case: str, method: str, path: str, expected: int, **kwargs) -> dict:
             return report.require(case, client.request(method, path, **kwargs), expected)
+
+        def public_total(path: str) -> int:
+            """Read one public side's total with a bounded request."""
+            response = client.get(path, params={"limit": 1})
+            if response.status_code != 200:
+                raise SmokeFailed(f"public read {path} returned {response.status_code}")
+            total = response.json().get("total")
+            if not isinstance(total, int):
+                raise SmokeFailed(f"public read {path} has no integer total")
+            return total
+
+        def served_ids(path: str, wanted: set[str]) -> set[str]:
+            """Walk bounded public pages and return the ids that were served."""
+            listed: set[str] = set()
+            for index in range(SAMPLE_MAX_PAGES):
+                response = client.get(path, params={"limit": SAMPLE_PAGE_SIZE,
+                                                    "skip": index * SAMPLE_PAGE_SIZE})
+                if response.status_code != 200:
+                    raise SmokeFailed(f"public read {path} returned {response.status_code}")
+                rows = response.json().get("items", [])
+                listed.update(str(row.get("id")) for row in rows)
+                if wanted <= listed or len(rows) < SAMPLE_PAGE_SIZE:
+                    break
+            return listed
 
         for kind, identity in fixture["identities"].items():
             body = request(f"login:{kind}", "POST", "/api/auth/login", 200,
@@ -318,15 +389,33 @@ def run_cases(base_url: str, fixture: dict, report: Report) -> None:
             raise SmokeFailed("public orderbook shape differs")
         if not any(str(row.get("id")) == ask["id"] for row in rows):
             raise SmokeFailed("public orderbook does not serve the new ASK")
-        # Copied rows must already be served by the public read path. The count is
-        # recorded, so an empty copy is visible rather than silently skipped.
-        listed = {str(row.get("id")) for row in rows}
+        # Copied rows must be served exactly as the public rules make them
+        # visible. The expected set and counts come from the application's own
+        # public predicate, so a hidden copied row can never be sampled and an
+        # empty or fully hidden copy is still visible as a failure. The per-side
+        # totals also catch a copied order that is served on no page at all.
         copied = fixture.get("copied_orders") or []
-        served = all(identifier in listed for identifier in copied)
-        report.record("public:copied-orders", len(copied), served,
-                      f"served={sum(1 for i in copied if i in listed)}")
-        if not served:
-            raise SmokeFailed("public orderbook does not serve copied orders")
+        if len(copied) < COPIED_ORDER_SAMPLE:
+            report.record("public:copied-orders", len(copied), False,
+                          f"visible_copied={len(copied)}")
+            raise SmokeFailed(
+                f"fewer than {COPIED_ORDER_SAMPLE} copied orders are publicly visible")
+        expected = {side: fixture["copied_visible_counts"].get(side, 0) + own
+                    for side, own in SMOKE_OWN_ORDERS.items()}
+        observed: dict[str, int] = {}
+        served: set[str] = set()
+        for side, path in PUBLIC_SIDES:
+            observed[side] = public_total(path)
+            wanted = {row["id"] for row in copied if row["side"] == side}
+            if wanted:
+                served |= served_ids(path, wanted)
+        missing = [row["id"] for row in copied if row["id"] not in served]
+        detail = (f"visible_copied={len(copied)} served={len(copied) - len(missing)} "
+                  f"bids={observed['BID']}/{expected['BID']} asks={observed['ASK']}/{expected['ASK']}")
+        passed = not missing and observed == expected
+        report.record("public:copied-orders", len(copied), passed, detail)
+        if not passed:
+            raise SmokeFailed("public orderbook does not serve the visible copied orders")
 
 
 def main() -> int:

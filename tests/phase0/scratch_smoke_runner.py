@@ -92,8 +92,8 @@ def main() -> int:
     base_url = f"http://127.0.0.1:{http_port}"
     wait_ready(base_url, server)
 
-    # One pre-existing order, so the smoke asserts that the read path serves it.
-    create_pre_existing_order(base_url)
+    # Copied orders for the smoke's public-read assertion, oldest ones hidden.
+    create_copied_order_fixture(base_url)
 
     fixture = run / "scratch-fixture.env"
     fixture.write_text(
@@ -139,29 +139,67 @@ def wait_ready(base_url, process) -> None:
     raise RuntimeError(f"server not ready; last={last}")
 
 
-def create_pre_existing_order(base_url: str) -> None:
-    """Leave one order behind so the copied-order read assertion has data."""
+def login(client, email: str) -> dict:
+    response = client.post("/api/auth/login",
+                           data={"username": email, "password": ITEST_PASSWORD})
+    assert response.status_code == 200, response.text
+    return {"Authorization": f"Bearer {response.json()['access_token']}"}
+
+
+def create_order(client, headers: dict, payload: dict) -> str:
+    response = client.post("/api/orderbook", headers=headers, json=payload)
+    assert response.status_code == 201, response.text
+    return str(response.json()["id"])
+
+
+def hide_as_filled(*order_ids: str) -> None:
+    """Hide the oldest fixture orders with the lifecycle-legal FILLED shape."""
+    joined = "', '".join(order_ids)
+    cmd("docker", "exec", name, "psql", "-U", "postgres", "-d", DATABASE,
+        "-v", "ON_ERROR_STOP=1", "-c",
+        "UPDATE orderbook_orders SET status = 'FILLED', remaining_quantity_mt = 0 "
+        f"WHERE id IN ('{joined}')")
+
+
+def create_copied_order_fixture(base_url: str) -> None:
+    """Leave copied orders behind for the smoke's public-read assertion.
+
+    Real copied data has FILLED orders among the oldest rows, and the public
+    rules hide them. The fixture reproduces that: the oldest ASK and the oldest
+    BID are marked FILLED with zero remaining quantity (the lifecycle check
+    requires it), while newer BIDs and ASKs stay visible. A sampling rule that
+    ignores visibility fails here; the public-rule sampling still finds three.
+    """
     from app.market_catalog import (
         B30_SPECIFICATION_STANDARD,
         CANONICAL_DELIVERY_POINT_IDS,
         CANONICAL_PRODUCTS,
     )
     product = next(item for item in CANONICAL_PRODUCTS if item.market_product.value == "B30")
-    with httpx.Client(base_url=base_url, timeout=20) as client:
-        login = client.post("/api/auth/login", data={
-            "username": "runner-supplier@example.invalid", "password": ITEST_PASSWORD})
-        assert login.status_code == 200, login.text
-        headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
-        created = client.post("/api/orderbook", headers=headers, json={
-            "side": "ASK", "product_id": str(product.id),
+    lane = {"product_id": str(product.id),
             "delivery_point_id": str(CANONICAL_DELIVERY_POINT_IDS[0]),
-            "availability_window": "Spot", "quantity_mt": 300, "price_per_mt_usd": 1300,
-            "certification_declared": True, "certification_scheme": "ISCC EU",
-            "specification_standard": B30_SPECIFICATION_STANDARD, "msds_available": True,
-            "carbon_intensity_gco2_mj": "20.5",
-            "carbon_intensity_method": "ISCC EU default pathway",
-            "feedstock": "Waste-based", "origin": "Singapore"})
-        assert created.status_code == 201, created.text
+            "availability_window": "Spot"}
+    with httpx.Client(base_url=base_url, timeout=20) as client:
+        ask_headers = login(client, "runner-supplier@example.invalid")
+        bid_headers = login(client, "runner-buyer@example.invalid")
+        asks = [
+            create_order(client, ask_headers, {
+                **lane, "side": "ASK", "quantity_mt": quantity,
+                "price_per_mt_usd": price, "certification_declared": True,
+                "certification_scheme": "ISCC EU",
+                "specification_standard": B30_SPECIFICATION_STANDARD, "msds_available": True,
+                "carbon_intensity_gco2_mj": "20.5",
+                "carbon_intensity_method": "ISCC EU default pathway",
+                "feedstock": "Waste-based", "origin": "Singapore"})
+            for quantity, price in ((300, 1300), (310, 1310), (320, 1320))
+        ]
+        bids = [
+            create_order(client, bid_headers, {
+                **lane, "side": "BID", "quantity_mt": quantity, "price_per_mt_usd": price})
+            for quantity, price in ((200, 1100), (210, 1110))
+        ]
+    # The oldest order on each side is filled, exactly as the real copy is.
+    hide_as_filled(asks[0], bids[0])
 
 
 if __name__ == "__main__":
