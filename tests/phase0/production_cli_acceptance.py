@@ -133,6 +133,10 @@ async def test_production_bootstrap_copy_verify_cli_chain():
         report = json.loads((directory / 'verify-report.json').read_text())
         assert report['source_fingerprint'] == common['frozen_source']
         assert len(report['verification']['tables']) == 57
+        # The copy receipt records the legacy source-column NULL proof.
+        copy_receipt = json.loads((directory / 'copy-report.json').read_text())
+        assert copy_receipt['legacy_columns'] == {'rfqs.reference_number': 0, 'rfqs.daily_seq': 0,
+                                                  'rfq_quotes.last_counter_by': 0}
         # A second copy must not replay. Its own receipt still exists, so the
         # publication gate refuses before any import; committed state is kept.
         replay = await invoke('copy', directory, common, environment)
@@ -145,6 +149,32 @@ async def test_production_bootstrap_copy_verify_cli_chain():
         recovered = await invoke('verify', directory, common, environment, suffix='-recovery')
         assert recovered.returncode == 0, recovered.stderr
         assert (directory / 'verify-recovery-report.json').is_file()
+
+
+@pytest.mark.asyncio
+async def test_production_copy_refuses_legacy_source_value():
+    """A non-NULL legacy source-only column refuses with PHASE0_LEGACY_VALUE.
+
+    The synthetic scratch source carries live's legacy RFQ columns. Setting one
+    value must refuse the real copy CLI before any target write, publish no
+    receipt, and leave the target at its bootstrap state.
+    """
+    async with production_scratch() as scratch:
+        directory = Path('/root') / ('authority-' + uuid4().hex)
+        common, environment = await make_case(scratch, directory)
+        assert (await invoke('bootstrap', directory, common, environment)).returncode == 0
+        common['bootstrap_receipt_sha256'] = hashlib.sha256(
+            Path(common['bootstrap_receipt']).read_bytes()).hexdigest()
+        async with scratch.admin_connection('verdaxis') as admin:
+            await admin.execute("UPDATE rfqs SET reference_number='RFQ-0001' WHERE id=(SELECT min(id) FROM rfqs)")
+        result = await invoke('copy', directory, common, environment)
+        assert result.returncode == 1, result.stdout
+        assert 'PHASE0_LEGACY_VALUE' in result.stderr, result.stderr
+        assert not (directory / 'copy-report.json').exists()
+        assert not (directory / 'copy-report.attempt.json').exists()
+        async with scratch.admin_connection('verdaxis_prod') as target:
+            assert await target.fetchval('SELECT count(*) FROM trades') == 0
+            assert await target.fetchval('SELECT count(*) FROM rfqs') == 0
 
 
 @pytest.mark.asyncio

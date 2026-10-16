@@ -27,7 +27,12 @@ def test_target_catalog_and_mapping():
     assert len(actual['tables']) == 62
     assert sum(len(item['target_additions']) for item in manifest['tables'].values()) == 15
     for name, item in manifest['tables'].items():
-        assert set(item['columns']) == {column['name'] for column in manifest['source_catalog']['tables'][name]['columns']}
+        # The mapping names every copied source column; legacy_columns names the
+        # live-only source columns the target has no column for.
+        assert set(item['columns']) == (
+            {column['name'] for column in manifest['source_catalog']['tables'][name]['columns']}
+            - set(item.get('legacy_columns', ()))
+        )
         if name in actual['tables']:
             assert set(item['columns']) | set(item['target_additions']) == {column['name'] for column in actual['tables'][name]['columns']}
 

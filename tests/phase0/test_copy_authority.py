@@ -67,6 +67,71 @@ async def test_orphan_notice_evidence_blocks_copy(copy_case):
         await engine.dispose()
 
 
+@pytest.mark.asyncio
+async def test_legacy_source_value_refuses_before_any_target_write(copy_case):
+    """A non-NULL legacy source-only column refuses with its named code.
+
+    The target has no columns for `rfqs.reference_number`, `rfqs.daily_seq` or
+    `rfq_quotes.last_counter_by`. A value in one of them would be dropped
+    silently by a column-mapped copy, so the gate must refuse before the target
+    transaction writes anything and must publish no receipt.
+    """
+    from pathlib import Path
+
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    from scripts.phase0.copy import copy_database
+    from scripts.phase0.refusal import Refusal
+    manifest, source, target, _ = copy_case
+    engine = create_async_engine(source.engine.url.set(username='phase0_owner'))
+    try:
+        async with engine.begin() as owner:
+            await owner.execute(text("UPDATE rfqs SET reference_number='RFQ-0001' WHERE id=(SELECT min(id) FROM rfqs)"))
+        with pytest.raises(Refusal) as failure:
+            await copy_database(manifest, source, target)
+        assert failure.value.code == 'PHASE0_LEGACY_VALUE'
+        receipt = Path(manifest['execution']['receipt_path'])
+        assert not receipt.exists()
+        assert not receipt.with_suffix('.attempt.json').exists()
+        assert not receipt.with_suffix('.failure.json').exists()
+        # The refusal happens inside the source transaction, before the target
+        # writes: the target keeps its pristine bootstrap state.
+        assert (await target.execute(text('SELECT count(*) FROM users'))).scalar_one() == 0
+        assert (await target.execute(text('SELECT count(*) FROM rfqs'))).scalar_one() == 0
+        await target.rollback()
+        # The source value itself is preserved: the tool never corrects data.
+        await source.rollback()
+        async with engine.connect() as owner:
+            kept = (await owner.execute(text("SELECT count(*) FROM rfqs WHERE reference_number IS NOT NULL"))).scalar_one()
+        assert kept == 1
+        await owner.rollback()
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_null_legacy_columns_copy_and_record_the_null_proof(copy_case):
+    from pathlib import Path
+
+    from scripts.phase0.copy import copy_database
+    manifest, source, target, _ = copy_case
+    # The fixture builds every legacy column NULL, exactly like live today.
+    for table, column in (('rfqs', 'reference_number'), ('rfqs', 'daily_seq'), ('rfq_quotes', 'last_counter_by')):
+        owner_check = (await source.execute(text(
+            f'SELECT count(*) FROM {table} WHERE {column} IS NOT NULL'))).scalar_one()
+        assert owner_check == 0
+    await source.rollback()
+    receipt = await copy_database(manifest, source, target)
+    assert receipt.legacy_columns == {'rfqs.reference_number': 0, 'rfqs.daily_seq': 0,
+                                      'rfq_quotes.last_counter_by': 0}
+    published = Path(manifest['execution']['receipt_path'])
+    assert published.is_file()
+    import json
+    recorded = json.loads(published.read_text())['legacy_columns']
+    assert recorded == receipt.legacy_columns
+    await target.rollback()
+
+
 def test_secret_file_and_url_boundaries(tmp_path):
     from scripts.phase0.copy import CopyRefused, read_private_file, validate_url
     path = tmp_path / 'secret'

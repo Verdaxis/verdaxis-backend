@@ -34,6 +34,16 @@ async def historical(connection):
                 CASE WHEN CAST(:status AS varchar) IN ('DELIVERED','PAID') THEN 700 END,
                 CASE WHEN CAST(:status AS varchar) IN ('DELIVERED','PAID') THEN 7000 END)
         """), {"status": status, "id": uid('historical-' + status), "created_at": TIME})
+    # Live production keeps five legacy RFQ objects the target schema has no
+    # columns for. Recreate exactly those objects with live's column positions
+    # and NULL values, so the synthetic source matches the declared catalog.
+    await connection.execute(text("""
+        ALTER TABLE rfqs ADD COLUMN reference_number varchar(20),
+                            ADD COLUMN daily_seq integer;
+        ALTER TABLE rfqs ADD CONSTRAINT rfqs_reference_number_key UNIQUE (reference_number);
+        CREATE INDEX ix_rfqs_reference_number ON rfqs (reference_number);
+        ALTER TABLE rfq_quotes ADD COLUMN last_counter_by varchar(10) DEFAULT NULL;
+    """))
 
 
 async def inspect(name):
