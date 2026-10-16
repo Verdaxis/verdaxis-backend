@@ -69,6 +69,12 @@ def main():
                 with archive.open('wb') as stream:
                     checked(['git', '-C', str(ROOT), 'archive', revision], stdout=stream)
                 checked(['docker', 'cp', str(archive), runtime + ':/' + archive.name])
+            release = directory / 'release.json'
+            release.write_text(json.dumps(dict(release_sha=checked(
+                ['git', '-C', str(ROOT), 'rev-parse', 'HEAD'], capture_output=True, text=True,
+            ).stdout.strip())))
+            release.chmod(0o600)
+            checked(['docker', 'cp', str(release), runtime + ':/release.json'])
             inputs = directory / 'inputs.json'
             inputs.write_text(json.dumps(dict(port=PORT, password=password, cluster=cluster)))
             inputs.chmod(0o600)
