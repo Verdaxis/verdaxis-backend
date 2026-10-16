@@ -16,15 +16,6 @@ async def test_production_bootstrap_copy_verify_cli_chain():
         directory = Path('/root') / ('authority-' + uuid4().hex)
         common, environment = await make_case(scratch, directory)
         result = await invoke('bootstrap', directory, common, environment)
-        if result.returncode != 0:
-            # Synthetic-only diagnostic, not a production CLI logging bypass.
-            import os
-            from unittest.mock import patch
-
-            from scripts.phase0.production import run
-            manifest = json.loads((directory / 'bootstrap.json').read_text())
-            with patch.dict(os.environ, environment, clear=True):
-                await run(manifest, directory / 'bootstrap-source.env', directory / 'bootstrap-target.env', apply=True)
         assert result.returncode == 0, result.stderr
         receipt = Path(common['bootstrap_receipt'])
         assert receipt.is_file()
@@ -39,6 +30,41 @@ async def test_production_bootstrap_copy_verify_cli_chain():
         assert report['source_fingerprint'] == common['frozen_source']
         assert len(report['verification']['tables']) == 57
         assert (await invoke('copy', directory, common, environment)).returncode != 0
+        # Independent recovery must not need the post-commit copy receipt.
+        (directory / 'copy-report.json').unlink()
+        recovered = await invoke('verify', directory, common, environment, suffix='-recovery')
+        assert recovered.returncode == 0, recovered.stderr
+        import copy
+
+        import asyncpg
+        for tool in ('copy', 'verify'):
+            for key, value in [('hostname', 'wrong-host'), ('release_sha', '0' * 40),
+                               ('tool_tree_sha256', '0' * 64),
+                               ('bootstrap_receipt_sha256', '0' * 64)]:
+                changed = copy.deepcopy(common)
+                changed[key] = value
+                refused = await invoke(tool, directory, changed, environment, suffix='-' + key)
+                assert refused.returncode == 1
+                assert 'unrecognized arguments' not in refused.stderr
+            for side in ('source', 'target'):
+                for key, value in [('oid', 1), ('role', 'verdaxis_app'), ('database', 'wrong'),
+                                   ('host', '127.0.0.2'), ('port', 1),
+                                   ('cluster_system_identifier', '1')]:
+                    changed = copy.deepcopy(common)
+                    changed[side][key] = value
+                    refused = await invoke(tool, directory, changed, environment, suffix=f'-{side}-{key}')
+                    assert refused.returncode == 1
+                    assert 'unrecognized arguments' not in refused.stderr
+        extra = await asyncpg.connect(scratch.target_url.replace('postgresql+asyncpg:', 'postgresql:'))
+        try:
+            refused = await invoke('verify', directory, common, environment, suffix='-session')
+            assert refused.returncode == 1
+        finally:
+            await extra.close()
+        async with scratch.admin_connection() as admin:
+            await admin.execute('GRANT CONNECT ON DATABASE verdaxis_prod TO verdaxis_app')
+        refused = await invoke('verify', directory, common, environment, suffix='-acl')
+        assert refused.returncode == 1
 
 
 @pytest.mark.asyncio
