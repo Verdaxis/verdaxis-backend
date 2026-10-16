@@ -3,6 +3,63 @@
 Status: **in progress, not accepted**. Base: `c37f8074`, lane
 `feat/rust-phase-1-lane-13`. No live access, push, agents or skills.
 
+## Paired latency baseline — 30 samples per cell
+
+The new `scripts/rust_contract/measure_lists.py` uses the existing Runner and
+one populated, ANALYZEd disposable database. It alternates runtime order and
+measures identical default list/bid requests. Cold means fresh service process,
+connections and prepared statements, **not cold OS/database buffers**; host
+cache manipulation is prohibited. Warm has one warmup request. All 240 requests
+completed with HTTP 200. Native amd64 via `verdaxis-prod-test`, no local Docker.
+
+| Route | Mode | Python p50 / p95 seconds | Rust p50 / p95 seconds |
+| --- | --- | --- | --- |
+| list | cold process | 1.323 / 1.784 | 5.554 / 6.541 |
+| list | warm | 1.511 / 1.862 | 7.245 / 8.512 |
+| bids | cold process | 1.690 / 3.502 | 6.759 / 10.810 |
+| bids | warm | 1.487 / 2.730 | 6.432 / 11.632 |
+
+**FAIL: Rust p95 exceeds Python in every cell.** The earlier ten-second spot
+checks were not sufficient acceptance. The new `require_latency_parity` gate
+rejects this measured baseline and requires all eight cells with >=30 samples.
+Its two offline tests passed after an initial missing-function collection failure.
+No latency fix or no-regression claim is made at this checkpoint.
+
+`pg_stat_statements` runs only in the disposable container, with its extension
+created by the test administrator. Per-request reset captures calls, rows,
+execution time, buffer hits/reads and JIT counters. Background Python outbox
+polls also appear and are distinguishable by query text; they are not counted
+as route queries. Representative warm list: Python list/benchmark 135.8/187.7 ms;
+Rust 2112.2/2391.4 ms. Each issues one list and one benchmark query; both return
+50 list rows and 10,000 benchmark rows. JIT functions=0. Sequential requests
+have no admission competition; unaccounted wall time is not claimed to be
+admission wait without further instrumentation.
+
+`explain_lists.py` records actual executed plans using auto_explain ANALYZE,
+BUFFERS and JSON inside the disposable container (no host logging changes).
+Native plans show similar shared buffer hits (Python list 30,529, benchmark
+30,280; Rust list 30,526, benchmark 30,473). Python benchmark uses a selective
+index scan returning 10,000 rows; Rust walks 10,047 eligible candidates and
+repeats policy recordset/point/lane subplans. Rust list also projects private
+JSON for 10,045 rows beneath its sort/limit. Next investigation: defer that
+projection and use a narrow benchmark qualification input without copying
+eligibility or changing typed qualification. Capture explicit EXPLAIN command
+and admission timings if needed; auto_explain captures the actual bound plans.
+
+Evidence (ignored, retained locally): `task13-list-measurement-run.log`,
+`task13-list-baseline.json`, `task13-native-plans.log`, `task13-native-plans.json`.
+The full measurement JSON includes all samples and statement statistics.
+
+Query-count blocker resolved: the ASK-page probe now resets and reads scoped
+`pg_stat_statements`, and observes **exactly one benchmark statement**
+(`task13-stat-count.log`). This replaces unavailable Podman log reads without
+relaxing the count. Full list target still needs rerun after the latency repair.
+
+**Resume here:** implement and verify the query-cost repair against the red p95
+gate, then rerun all 240 paired requests and full differential targets. OpenAPI,
+method/slash corpus and publication remain lower priority and unfinished.
+All measurement and diagnostic runs finished and their containers were removed.
+
 ## Native test-host checkpoint — 16 October
 
 All database/Linux commands now use `verdaxis-prod-test "$PWD" 'COMMAND'`.
