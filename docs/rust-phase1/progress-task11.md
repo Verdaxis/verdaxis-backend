@@ -262,7 +262,14 @@ comparator relaxation occurred. Single committed golden remains untouched.
 
 ### Exact repair resume point
 
-**M2, M3 and N1 are not fixed. Task 11 is not accepted.** No test remains running.
+**Current status supersedes the historical checkpoints below.** M3's reviewed
+invalid-envelope and modern rejection cases are implemented in `34404585`;
+N1 typed failure classification is implemented in `485a5d1b`. Both had failing
+regressions first. `2007fd60` repairs M2 tuple error ordering and adjusted-exponent
+constructor overflow; the numeric scientific-year case already matched and is
+now retained. `a56b669f` attests protocol fixtures against the Python SDK.
+The corpus is 120 MCP cases. Task 11 is not yet accepted: remaining cases and
+remote acceptance status are recorded in the latest section below.
 `c384156b` adds a failing-first 35-vector Python validation matrix and a
 schema-driven validator. It covers unknown intensity keys, midnight dates,
 padded Decimals, absent/wrong nested fields, superscript IMO rejection, the
@@ -355,6 +362,81 @@ export MCP_LANE_EVIDENCE=$PWD/work/rust-phase1/mcp-evidence/golden/$RELEASE_SHA
 venv/bin/python -m scripts.rust_contract.run_disposable --group mcp --seed-mode corpus --kyc-gate enabled
 venv/bin/python -m scripts.rust_contract.run_disposable --group mcp --seed-mode corpus --kyc-gate disabled
 ```
+
+## Latest repair status and PM decision inputs — 2026-10-16
+
+**STOP / resume:** the authorized Linux runner passed **150 PostgreSQL tests**
+(including typed-error recovery), but MCP recording stopped before server startup:
+`RunnerError: kernel returned a non-disposable port 38153` at
+`scripts/rust_contract/run_disposable.py:66`. The helper assumes OS ephemeral
+ports are 49152–65535; this Linux kernel assigned 38153. Per the founder's rule,
+do not change host setup or relax target attestation. PM must authorize a
+repository-side bounded high-port allocator or provide a compatible test runtime.
+No new 120-case recording, fresh differential or replay completed. The last
+complete wire checkpoint remains 105/105. No nondeterminism was observed.
+All launched tests ended; Colima was not started and no direct SSH was used.
+
+Local checks: fmt/clippy pass; workspace **141 passed**; Python contracts
+**121 passed**; combined Python oracle/contracts **222 passed**. Remote final
+source was `a56b669fbccce786e1d4791575e5e376c7e1c284`. Evidence:
+`work/rust-phase1/task11-remote-final.log`, `task11-final-offline.log`,
+`task11-final-python.log`, and `task11-final-oracle.log`. The earlier remote run
+also passed, but predates the additional typed admission test; use the final
+150-test result. The single committed golden remains untouched.
+
+After the environment decision, run recording and both KYC differential/replay
+passes through `verdaxis-prod-test` only, at a fixed HEAD. Then resolve the
+supported-modern success branch and root-argument PM decisions below. Do not
+claim full Task 11 acceptance from the offline protocol rejection matrix.
+
+The founder moved PostgreSQL/Docker/Linux tests to
+`verdaxis-prod-test "$PWD" 'COMMAND'`. Colima remains off. Never run the old
+local Docker commands from earlier checkpoints. No direct SSH or host setup
+change is authorized.
+
+M3: JSON-RPC envelope validation now precedes tool argument adaptation. Eleven
+Python SDK oracle rejection cases cover wrong/missing version, array envelope,
+wrong method/params, absent/empty/partial modern metadata, header mismatch and
+unsupported modern version. rmcp still dispatches accepted requests. Full modern
+success negotiation and all HTTP header precedence are not newly proven by this
+rejection matrix; do not claim full protocol-domain acceptance from it.
+A local Python probe confirms `MCP-Protocol-Version:2026-07-28`,
+`Mcp-Method:tools/list`, and `_meta` containing that version plus empty client
+capabilities returns HTTP 200 tools. rmcp's accepted-version dispatch still needs
+an explicit compatibility test/adapter for this success branch; M3 is therefore
+repaired for reviewed rejections, not closed for every modern request.
+
+N1: `ApiErrorKind::{Expected,Database,Unexpected}` is internal-only classification.
+The broad constructor edits add this field without changing REST status/detail.
+Pool acquire/cleanup, SQL reads and shared database classifiers mark Database;
+projection failures and task joins mark Unexpected. Both tools use the same
+mapping. The failing-first message test, closed-pool tests and a disposable
+admitted-work test distinguish internal failure from real SQL division-by-zero
+and check recovery. A worker-panic cleanup proof is not added by this checkpoint.
+
+M2 PM decision: root arguments require matching SDK method-parameter validation,
+not more Pydantic request-field patches. Exact Python wire probes (no database)
+are in `work/rust-phase1/task11-pm-root-arguments.txt`:
+
+```json
+{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"plan_voyage_fuel","arguments":[]}}
+```
+
+Python HTTP 200, exact body (also for `arguments:42`):
+
+```json
+{"jsonrpc":"2.0","id":1,"error":{"code":-32602,"message":"Invalid request parameters","data":""}}
+```
+
+For the same request with `arguments:null`, Python HTTP 200, exact body:
+
+```json
+{"jsonrpc":"2.0","id":1,"result":{"content":[{"text":"Error executing tool plan_voyage_fuel: 1 validation error for plan_voyage_fuelArguments\\nrequest\\n  Field required [type=missing, input_value={}, input_type=dict]\\n    For further information visit https://errors.pydantic.dev/2.13/v/missing","type":"text"}],"isError":true}}
+```
+
+Rust currently validates these as root tool models instead. This remains an
+unapproved difference for PM disposition, not source nondeterminism. Do not
+expand into a second general SDK implementation without an explicit decision.
 
 ## Remaining implementation and acceptance
 

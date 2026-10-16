@@ -155,7 +155,11 @@ Task 11 adds `rs/read/src/mcp/` for the stateless rmcp adapter, anonymous market
 prices and pure voyage calculations. Database tools use shared `run_admitted`;
 catalog and protocol discovery bypass admission. `validation.rs` reads exported
 Python tool schemas and normalizes arguments before admission; the pure engine
-uses that same boundary. Date parsing reuses the existing price-query parser.
+uses that same boundary. `protocol.rs` validates exported Python JSON-RPC envelope
+schemas and modern metadata rejection order before tool adaptation; rmcp retains
+dispatch. Internal `ApiErrorKind` distinguishes expected, database and unexpected
+failures through admission without changing REST status/detail serialization.
+Date parsing reuses the existing price-query parser.
 `export_mcp_validation.py` and `mcp-validation-vectors.json` retain reproducible
 Python diagnostics and normalized inputs. This remains a partial acceptance
 checkpoint; `docs/rust-phase1/progress-task11.md` lists unresolved input-domain,
