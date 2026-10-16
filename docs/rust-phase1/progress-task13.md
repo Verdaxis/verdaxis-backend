@@ -220,6 +220,39 @@ gate, then rerun all 240 paired requests and full differential targets. OpenAPI,
 method/slash corpus and publication remain lower priority and unfinished.
 All measurement and diagnostic runs finished and their containers were removed.
 
+## Decision 24 implemented — digest input built for kept rows only
+
+PM decision 24 approved moving `private_digest_input` out of the shared
+visibility relation. Implemented, code commit `8d5084a9`.
+
+One definition: `rs/read/sql/private_digest_input.sql` holds
+`to_jsonb(alias) || jsonb_build_object(...)` with a `/*row_alias*/` placeholder.
+`market::visibility::private_digest_input_sql(alias)` expands it, and
+`order_query_sql` replaces every `/* private_digest_input(alias) */` marker in a
+tail. No consumer copies the expression; `live_benchmarks.sql` keeps its own
+narrower qualification object. The relation no longer projects the digest.
+
+Shape per consumer (all build the digest after their own filter/sort/limit):
+snapshot ranks `eligible_orders` first, then joins `orderbook_orders` for the
+`depth_rank <= 15` rows; lists/bids/with-ci/asks select narrow page keys with
+LIMIT/OFFSET, then join the base row by primary key for the returned page; asks
+keeps its `count(*) OVER ()` total; listings keeps `created_at DESC, id`.
+`market_contract_postgres.rs` now selects the digest through the shared marker
+for the rows it keeps, matching the new contract.
+
+Verification (native amd64 via `verdaxis-prod-test`), all on the decision-24
+code:
+
+- All 11 corpus groups match Python at full count: health 8, echo 2,
+  simple_reads 29, live_benchmarks 4, orderbook_snapshot 3, orderbook_lists 12,
+  orderbook_map 9, prices 40, curves_legacy 4, curves_canonical 125, mcp 143.
+  Digest bytes are unchanged, so the golden still matches byte for byte.
+- `run_market_contract.sh`: 2 passed (14/46 orders, 4/6 trades).
+- `run_postgres.sh`: 155 passed.
+- `cargo fmt --all -- --check`: pass. `cargo clippy --workspace --all-targets
+  -- -D warnings`: pass. `cargo test --workspace`: 146 passed.
+- `venv/bin/python -m pytest tests/rust_contract -q`: 445 passed, 5 warnings.
+
 ## Status summary — after the merge
 
 Done and green on the merged tree: Task 11 merge with one shared port helper;
