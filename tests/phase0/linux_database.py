@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import secrets
 import subprocess
 import tempfile
@@ -76,7 +77,8 @@ def main():
             release.chmod(0o600)
             checked(['docker', 'cp', str(release), runtime + ':/release.json'])
             inputs = directory / 'inputs.json'
-            inputs.write_text(json.dumps(dict(port=PORT, password=password, cluster=cluster)))
+            inputs.write_text(json.dumps(dict(port=PORT, password=password, cluster=cluster,
+                                                pytest_args=os.environ.get("PHASE0_PYTEST_ARGS", "").split())))
             inputs.chmod(0o600)
             checked(['docker', 'cp', str(inputs), runtime + ':/inputs.json'])
             result = subprocess.run(['docker', 'start', '-a', runtime])
