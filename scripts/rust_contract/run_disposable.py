@@ -58,11 +58,35 @@ class RunnerError(RuntimeError):
     """A disposable-run step failed."""
 
 
+def ephemeral_range() -> tuple[int, int]:
+    """Read the kernel allocator's configured range without changing it."""
+    try:
+        if sys.platform.startswith("linux"):
+            raw = Path("/proc/sys/net/ipv4/ip_local_port_range").read_text()
+        elif sys.platform == "darwin":
+            raw = subprocess.run(
+                ["sysctl", "-n", "net.inet.ip.portrange.first", "net.inet.ip.portrange.last"],
+                capture_output=True, text=True, check=True,
+            ).stdout
+        else:
+            raise RunnerError("unsupported kernel ephemeral range interface")
+        fields = raw.split()
+        if len(fields) != 2 or not all(field.isascii() and field.isdecimal() for field in fields):
+            raise ValueError("invalid range")
+        first, last = map(int, fields)
+        if not 1 <= first <= last <= 65535:
+            raise ValueError("invalid range bounds")
+        return first, last
+    except (OSError, ValueError, subprocess.SubprocessError) as error:
+        raise RunnerError("cannot read kernel ephemeral port range") from error
+
+
 def ephemeral_port() -> int:
+    first, last = ephemeral_range()
     with socket.socket() as probe:
         probe.bind(("127.0.0.1", 0))
         port = probe.getsockname()[1]
-    if not 49152 <= port <= 65535:
+    if not first <= port <= last:
         raise RunnerError(f"kernel returned a non-disposable port {port}")
     return port
 
@@ -358,7 +382,7 @@ CREATE EXTENSION IF NOT EXISTS postgis;
 
     def record_groups(self, python_url: str) -> None:
         sys.path.insert(0, str(ROOT))
-        from scripts.rust_contract.record import record, differences, write_golden
+        from scripts.rust_contract.record import differences, record, write_golden
 
         cases = json.loads((ROOT / "tests/rust_contract/cases.json").read_text())[
             "groups"
