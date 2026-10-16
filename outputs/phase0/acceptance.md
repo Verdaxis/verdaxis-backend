@@ -38,6 +38,54 @@ B1/B2 host tools are implemented and merged, and the independent re-review of
 appendix is complete; its two re-review gaps (the scratch smoke fixture password
 and this stale record) are fixed by the change set that contains this file.
 
+### Task 10 rehearsal attempt 2 — 2026-10-17 (prod host, PM-run)
+
+The PM ran P0-5 rehearsal attempt 2 on the prod host at release
+`3ef69848b30a78a2ad6bf17652bab857906936f3` (17 Oct 00:08–00:21 SGT), against dump
+`verdaxis-20261015-200015.dump`. Evidence is in `work/rehearsal2/` (step scripts
+and logs; no secrets). A1/A2 passed with live's locale `en_US.UTF-8`; restore
+took 4 s; the restored source outbox was `0|0` of 1778 rows, and the source
+database ACL equalled live. The source inventory gate passed on real data.
+Bootstrap 36 s, copy 64 s and verify 34 s all exited 0 with equal counts:
+26,242 orders, 127 trades, 44 users, 50 organizations; the three legacy NULL
+checks were 0/0/0. A3: runtime ACL convergence passed; readiness was exact
+(`status=ok`, `db=ok`, `production`, the release SHA); 4 Uvicorn workers; the app
+role reconnects as UTC and is denied `UPDATE ports` and `SELECT
+alembic_version`; KYC storage is off (no key) with the gate off.
+
+Business smoke: 17 of 18 cases passed; `public:copied-orders` reported
+`served=0`. The PM compared the scratch backend with live by hand and confirmed
+the application is right and the test was wrong: bids 11,521 vs live 11,520 and
+asks 11,522 vs live 11,521 (the +1 on each side is the smoke's own order), and
+the first page was 48 of 50 identical.
+
+Three findings and their fixes:
+
+1. Smoke sampling defect — `create_scratch_identities` sampled the three oldest
+   orders of any status and expected them on the first page, but real copied
+   data has FILLED orders among the oldest rows, which the public path correctly
+   hides. The smoke now samples the newest copied orders that the application's
+   own public predicate makes visible (`public_order_scope`, not a second copy of
+   the rules) and checks the public per-side totals against the visible copied
+   count plus the smoke's own orders. A bounded page walk finds each sampled
+   order without depending on page position, and fewer than 3 visible copies
+   still fails. Boundaries unchanged: scratch-only base URL and fixture, no
+   secret or response body in the report.
+2. `p0run` could not write evidence — `ProtectHome=read-only` made `/root`
+   read-only inside the transient unit, so the source observation and every tool
+   report under `/root/verdaxis-phase0` failed with "Read-only file system". The
+   appendix `p0run` definition now adds
+   `-p ReadWritePaths=/root/verdaxis-phase0`; nothing else under `/root` or
+   `/home` gains write access.
+3. Target `public` schema not reset — PostgreSQL 15+ gives a new database's
+   `public` schema to `pg_database_owner` with PUBLIC USAGE, so
+   `deploy/postgres/converge_runtime_object_acls.sql` refused at its
+   public-owner guard. The shared A2/B4 target block now resets the schema, after
+   the CONNECT and TEMP lines, to live's owner and ACL
+   (`verdaxis_migrator`, `{verdaxis_migrator=UC/verdaxis_migrator,verdaxis_app=U/verdaxis_migrator,verdaxis_backup=U/verdaxis_migrator}`),
+   with that text as the stop condition. Findings 2 and 3 are pinned in
+   `tests/unit/test_phase0_appendix_commands.py`.
+
 ### Change and golden boundaries
 
 P0-2 stored-email output and M1 inventory error/authority changes are application
