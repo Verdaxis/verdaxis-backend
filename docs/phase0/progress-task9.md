@@ -1,6 +1,30 @@
 # Phase 0 Task 9 — integrated acceptance
 
-## CI PostgreSQL partition correction
+## Current status — 2026-10-16
+
+N1 cleanup makes [the acceptance report](../../outputs/phase0/acceptance.md) the
+single source for the current release/oracle table, eleven-category status table,
+Linux counts and resume point. Candidate: `e61400f36ee528dfdb2476dd0dbaf2df457a2c54`.
+The final oracle follows M2 and independent-review fixes; it is not frozen yet.
+M1 and M3 are done. B1/B2 production host tools are implemented/merged and under
+independent review. M2's runbook appendix is in progress in another session;
+`docs/runbooks/phase0-cutover.md` is not edited here.
+
+The host-tool/CI/appendix changes are schema-stable operational changes. P0-2's
+stored-email output and M1's inventory semantics are application golden changes.
+Rust must rerun the affected goldens at the final identity; unchanged schema alone
+is not an application compatibility proof.
+
+Linux test calls run one at a time through the approved test tool, not on this Mac.
+Current results and the only resume point are in the acceptance report. Historical
+counts below do not describe this candidate. No direct SSH or live service access.
+
+## Historical evidence — 2026-10-16 — superseded checkpoints
+
+All status and resume language below belongs to the named historical checkpoint.
+It is retained for audit only; use the linked current acceptance tables above.
+
+### Historical — 2026-10-16 — CI PostgreSQL partition correction
 
 Read failed run `38813274619` with `gh run view --log-failed`: analytics collected
 Phase 0 suites without `PHASE0_PORT`. The runner now explicitly excludes the
@@ -21,7 +45,7 @@ Logs: `work/task9-ci-{failed,analytics,phase0}.log`. Owned containers and volume
 were removed. No push; PM owns publication. Linux CI is not claimed verified
 until the PM pushes and the new run finishes.
 
-## Sign-off M1 correction — current inventory authority
+### Historical — 2026-10-16 — Sign-off M1 correction — current inventory authority
 
 Commit `48c2cc305dd5c6085ae18352b9e16f8f4e1c915e` supersedes P0-2's
 key-share read. PostgreSQL requires UPDATE for that read; the runtime correctly
@@ -50,7 +74,7 @@ M1 closure is not whole-branch sign-off. Rust inventory goldens need this new
 application identity; the schema digest is unchanged. Full unit/monitor/Phase 0
 suites were not repeated for this narrow fix; their previous counts are historical.
 
-## P0-2 — approved user-facing fixes and completed local rerun (historical)
+### Historical — 2026-10-16 — P0-2 — approved user-facing fixes and completed local rerun (historical)
 
 PM decision **P0-2** permits two user-facing Python bug fixes during the freeze.
 Commit `a73703ba` fixes both; their tests failed first (**2 failed**) and then
@@ -95,7 +119,7 @@ remain explicit gates, not passes. The exact baseline comparison is HTTP plus
 five migration cases; this is not a claim that every suite was rerun on staging.
 See the current section of acceptance for the remaining frontend/host limits.
 
-## PM-authorized follow-up checkpoint (historical; superseded above)
+### Historical — 2026-10-16 — PM-authorized follow-up checkpoint (historical; superseded above)
 
 Baseline on exact staging `b218ab2`: HTTP **24 passed, 49 failed, 6 errors**,
 with all 55 failing/error node IDs identical to Phase 0. The five migration tests
@@ -126,7 +150,7 @@ fixtures and union expectations, then rerun all six acceptance groups and drift
 checks. Every started run finished; owned containers and volumes were removed.
 No push, package install, host operation or application change occurred.
 
-## Status
+### Historical — 2026-10-16 — Status
 
 **Blocked, not complete.** The signed evidence review is
 `outputs/phase0/acceptance.md`. It records eleven categories, all review finding
@@ -140,7 +164,7 @@ Union: `p0_20261016_union`; structural digest:
 Rust may investigate this candidate but must not call it a final accepted oracle.
 Decision 23's legacy-list tie-break difference does not affect Phase 0 acceptance.
 
-## Test-first implementation
+### Historical — 2026-10-16 — Test-first implementation
 
 No standalone runner test file existed. Added `tests/unit/test_phase0_runner.py`
 for the existing `tests/phase0/runner.py`, not a new acceptance engine. Initial
@@ -154,7 +178,7 @@ case is the frontend two-bundle run, reviewed through immutable prior evidence.
 Commands, counts and hashes are written beside synthetic fixture evidence.
 Existing subprocess failure and missing-table checks remain in force.
 
-## Completed runs
+### Historical — 2026-10-16 — Completed runs
 
 - Phase 0 runner: **153 passed**, no failures/skips; 306.75 seconds.
 - Required full unit suite: **2155 passed, 19 failed**, no skips; 81.28 seconds.
@@ -175,7 +199,7 @@ its volumes. The unrelated existing container was not touched. Raw synthetic
 logs/reproduction scripts remain under `work/task9-*`; exact hashes and commands
 are recorded in acceptance. No shared venv install, push, host access or real data.
 
-## Deviations and conflict
+### Historical — 2026-10-16 — Deviations and conflict
 
 - Runner tests were created because no dedicated runner self-tests existed;
   existing no-skip conftest behavior is preserved.
@@ -192,7 +216,7 @@ are recorded in acceptance. No shared venv install, push, host access or real da
   are closed or explicitly deferred with an owner in acceptance. Host-mode apply
   remains closed; the Task 10 command examples cannot run as currently implemented.
 
-## Resume
+### Historical — 2026-10-16 — Resume
 
 Resolve the fixture ownership conflict, fix historical tests with independent
 predecessor databases, modernize HTTP fixtures without security bypass, then

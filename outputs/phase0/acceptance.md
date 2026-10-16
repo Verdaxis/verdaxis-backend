@@ -1,12 +1,110 @@
 # Phase 0 integrated acceptance and Rust handoff — 2026-10-16
 
+## Current release and oracle — 2026-10-16
+
+**Candidate only; final oracle follows M2 and independent-review fixes.**
+This section and the current eleven-category table are the only current status.
+Everything under the dated historical section is retained evidence, not an
+instruction or release selection. No live deployment is authorized here.
+
+| Identity | Current value |
+|---|---|
+| Backend candidate | `e61400f36ee528dfdb2476dd0dbaf2df457a2c54` |
+| Final accepted Python oracle | Pending M2 merge, B1/B2 review fixes and affected reruns |
+| Frontend M3 source | `513c2d77d2f85cf8c1d68a27528000a65ab1e365` |
+| M3 measured backend | `64c4a8653f9257f1b1519f9be75b5cbcd9e70f71` |
+| Union revision | `p0_20261016_union` |
+| Structural schema SHA-256 | `54a40050c8af02f0132fe3c8516089212cf0e7494c9b1e24eee6b42885d85ffa` |
+| Migration graph SHA-256 | `748dbcdfba75e5b9b2b563c814a5d42808c05a7c4139218fee23402cc7742df9` |
+| Copy-manifest file SHA-256 | `a5e27570803d5d00c43f83ebbee734acf97bea9891cf51ce8347b596ba958b1c` |
+| Bootstrap-policy file SHA-256 | `e794312c20819ad342a4bbd083a1bbe073b29ec96aefe804e154899c035472c5` |
+| Revision allowlist SHA-256 | `b840a03ce47add08fe3e89e40aeb7fd92ceb17985a15aa43c7eb16984d0b4713` |
+| Pilot configuration | UTC; KYC execution gate off; eight distinct product IDs; new DB `verdaxis_prod` |
+
+M1 is done: runtime SELECT-only port lookup and exact FK-race rollback/404,
+with constrained-role tests. M3 is done: measured profile matrix, copied nullable
+RFQ history, typed snapshots and KYC 503/500/post-commit 504 cases. Frontend evidence
+is in its `docs/phase0/progress-task8.md` and `cached-bundle-options.md`.
+The gate is **109/111**, new 56/56, old 53/55. Both old failures remain visible:
+unknown ETS shown as zero and KYC review receipt shown as approval. The PM's
+16 October 06:40 SGT extension explicitly accepts the second cached-tab window;
+retain the banner, new-entry-HTML check and founder refresh note. No blanket waiver.
+
+B1/B2 host tools are implemented and merged; independent review is in progress.
+Their owner records a separate production-mode synthetic Linux CLI proof of
+15 passes. That prior evidence is not a new result from this session. M2's finite
+host appendix is in progress in another session; this task does not edit it.
+
+### Change and golden boundaries
+
+P0-2 stored-email output and M1 inventory error/authority changes are application
+changes: Rust must rerun affected profile/inventory goldens. Host-tool B1/B2,
+CI partitioning and M2 operations are schema-stable operational changes. They
+need authority/recovery/command proofs, not a claim of changed customer economics.
+There is no `app` or `alembic` diff from the M3 measured backend to this candidate.
+Schema digests are unchanged. Future review fixes can invalidate that conclusion;
+freeze the final full SHA only after their affected gates finish. Keep Rust's
+legacy `created_at DESC, id DESC` delta explicit, UTC and KYC-off fixtures, and
+migrator-backed revision admission without app SELECT on `alembic_version`.
+
+## Current Linux acceptance results
+
+All builds/tests run through `verdaxis-prod-test "$PWD" 'COMMAND'`, one call at a
+time, at candidate `e61400f3`. No local test environment was created. The tool
+uses its isolated capped Linux amd64 test user and rootless disposable containers;
+no direct SSH, production/staging connection or test-host setup change is permitted.
+Counts below will be finalized after each completion marker, not inferred from silence.
+
+| Check | Result | Evidence |
+|---|---|---|
+| Full unit | Running | `work/task9-linux-unit.log` |
+| Full Phase 0 runner | Pending | Pending |
+| Other PostgreSQL suites | Pending | Pending |
+| Runtime-ACL HTTP suite | Pending | Pending |
+| Full monitor / different-UID case | Pending | Pending |
+| Ordinary and union migration drift | Pending | Included in runners |
+
+## Current eleven-category status
+
+| Category | Status and evidence | Remaining owner/gate |
+|---|---|---|
+| Inventory | Complete synthetic classification; current Linux rerun pending | Task 10 operator: real catalog attestation |
+| Schema | Union and unchanged digests; current drift rerun pending | B1/B2 reviewer; final approved source SHA |
+| Copy | Host tools implemented; prior synthetic CLI chain 15 passes | B1/B2 independent review; Task 10 restored real-data proof |
+| ACL | M1 fixed; no UPDATE on ports; runtime-role HTTP rerun pending | Task 10 exact deployed identity and grant proof |
+| Products | Eight IDs and scalar/typed contracts retained | Current PostgreSQL/HTTP reruns |
+| Auth | P0-2 input/output separation; M3 profile matrix complete | Current unit/HTTP reruns |
+| Privacy | Notification and typed snapshot cases complete | Task 10 egress/log isolation |
+| Timezone | UTC reconnect/role proofs retained | Current Phase 0 rerun; Task 10 fresh processes |
+| Vault | M3 browser fault cases complete | Task 10 credentials, key-ring recovery and retention |
+| Frontend | M3 done, 109/111 with two explicit cached-old PM exceptions | Task 11 banner/entry HTML/refresh note; no promotion here |
+| Rollback | Synthetic tuple and outbox proofs retained | M2 appendix; Task 10 real systemd/proxy full switch-back |
+
+## Current resume point
+
+Finish and record this candidate's Linux calls. Then the PM merges M2 and any
+B1/B2 review fixes, reruns affected gates and names the final oracle. Any test that
+needs unavailable root/systemd stays an explicit Task 10 prerequisite; do not
+simulate a passing host proof. Independent review and separate host authorization
+precede the real rehearsal. Do not use historical candidate SHAs or old statements
+that host apply is absent. No source edits to the M2 runbook belong to this task.
+
+Integration evidence recorder: Task 9 integration owner (AI assistant),
+2026-10-16. This is not another person's signature or deployment approval.
+
+## Historical evidence — 2026-10-16 — superseded checkpoints
+
+The following is the preserved record before `e61400f3`. Status, candidates and
+resume instructions inside it applied only at those checkpoints. Use the current
+tables and single resume point above instead.
+
 **Current decision: local fixture blockers closed; independent sign-off and Linux
 proofs pending. No host operation or deployment approval.**
 P0-2 and the final rerun below supersede the earlier blocked counts and candidate
 identity. Earlier evidence is retained as history, not current failure status.
 All runs finished; owned containers were removed with their volumes.
 
-## Sign-off M1 correction — current application candidate
+### Historical — 2026-10-16 — Sign-off M1 correction — current application candidate
 
 **Candidate: `48c2cc305dd5c6085ae18352b9e16f8f4e1c915e`.** Independent sign-off
 found that P0-2's key-share read needs UPDATE on ports. That regression is now
@@ -28,7 +126,7 @@ counts below are historical; only the affected unit, real-role PostgreSQL and
 complete HTTP suites were rerun for M1. Rust inventory goldens need the candidate
 above; schema/revision digests remain unchanged. No host or Rust run was authorized.
 
-## P0-2 acceptance — historical local rerun (superseded for M1)
+### Historical — 2026-10-16 — P0-2 acceptance — historical local rerun (superseded for M1)
 
 Candidate backend/Python oracle: **`82f414847c2c8c2203a7ca42edd6be87a9830ba4`**.
 Frontend identity and schema/policy hashes below are unchanged. This candidate
@@ -100,7 +198,7 @@ Integration evidence reviewer: **Task 9 integration owner (AI assistant)**.
 Current disposition: **local regressions resolved; independent PM/reviewer
 acceptance pending**. No signature from another person is implied.
 
-## PM-authorized fixture follow-up — stopped on product error path
+### Historical — 2026-10-16 — PM-authorized fixture follow-up — stopped on product error path
 
 Baseline worktree at `b218ab264b92f99007bacc05d4871413e024b72a` was created
 under `work/`, tested with the same synthetic setup and pinned container, then
@@ -140,7 +238,7 @@ Other exposed failures still need test repairs: five auth setup errors expect a
 refresh token in JSON rather than the current cookie contract; 27 trade failures
 use stale product/delivery IDs. These are not yet fixed or accepted.
 
-### Reserved-email 500 facts
+#### Historical — 2026-10-16 — Reserved-email 500 facts
 
 - Pinned staging reproduced the same two profile/login HTTP 500s as Phase 0.
   Its log identifies `UserResponse.email` validation of
@@ -172,7 +270,7 @@ partial repair because the explicit product-defect stop rule took precedence.
 Prior counts below are historical, not validation of `4ee95ef1`. All started runs
 finished and their owned containers/volumes were removed; no background run remains.
 
-## Frozen candidate identities
+### Historical — 2026-10-16 — Frozen candidate identities
 
 - Backend / candidate Python oracle: `4be3fbb5ac39558fbacba6d3b6ae1f5057a2525c`.
   Application bytes equal integrated base `4105a15a2d417d74abafc01297df21beda103cdf`;
@@ -193,7 +291,7 @@ finished and their owned containers/volumes were removed; no background run rema
 - Founder decisions 2–6 are confirmed by the task instruction on 16 October.
   This confirmation does not authorize a host connection or operation.
 
-## Completed local runs
+### Historical — 2026-10-16 — Completed local runs
 
 | Command / evidence | Passed | Failed | Errors | Skipped |
 |---|---:|---:|---:|---:|
@@ -226,7 +324,7 @@ Raw evidence: `work/task9-{unit,monitor,postgres,http}.{log,xml}` and
 Temporary evidence is deliberately not committed. HTTP reproduction scripts:
 `work/task9-http.py` and `work/task9-http-seed.py`; synthetic rows only.
 
-## Eleven-category checklist
+### Historical — 2026-10-16 — Eleven-category checklist
 
 Signed below as an integration evidence review, **not** independent approval.
 
@@ -248,7 +346,7 @@ Integration evidence reviewer: **Task 9 integration owner (AI assistant), 2026-1
 Disposition signed: **BLOCKED**. Independent reviewer / PM acceptance: **pending**.
 No signature or approval from another person is implied.
 
-## Failed checks and explicit owners
+### Historical — 2026-10-16 — Failed checks and explicit owners
 
 1. **Integration owner, before Task 9 acceptance:** five PostgreSQL expectations
    predate union. Three `test_cutoff_downgrade_fails_fast_behind_concurrent_user_write`
@@ -276,7 +374,7 @@ No signature or approval from another person is implied.
    blocked and external Mapbox/CORS are untested. Backend unit proofs are not
    substitutes for browser proofs. The PM exception covers only old ETS display.
 
-## Review finding ledger
+### Historical — 2026-10-16 — Review finding ledger
 
 Read every backend `progress-task*.md`, frontend Task 8 progress, and all six
 `phase0-task*-review-2026-10-16.md` reports in workspace `outputs/research/`.
@@ -300,7 +398,7 @@ No review files for Tasks 4b or 6 were present; no independent review is invente
 | Task 8 N2 | Correct fixture/type closed by `a20b48af`/`2c62a24b`; full browser auth-state matrix deferred to frontend owner |
 | Task 8 release-test suggestions | Deferred to frontend owner: broader stubbed release execution and CI wiring verification; no release run authorized |
 
-## Frozen digests and Rust instructions
+### Historical — 2026-10-16 — Frozen digests and Rust instructions
 
 SHA-256 values (file hashes unless labelled semantic):
 
@@ -338,7 +436,7 @@ change Phase 0's schema, copy or economic contracts and does not explain these
 acceptance failures. Rust must record that intentional tie-order delta when
 comparing goldens; do not quietly treat its branch as this canonical oracle.
 
-## Task 10 requirements and resume point
+### Historical — 2026-10-16 — Task 10 requirements and resume point
 
 First close the local failures above and obtain independent acceptance. Then
 obtain separate host approval and complete reviewed host commands. Host apply is
