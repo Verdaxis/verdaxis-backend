@@ -52,42 +52,14 @@ async def test_production_bootstrap_copy_verify_cli_chain():
         report = json.loads((directory / 'verify-report.json').read_text())
         assert report['source_fingerprint'] == common['frozen_source']
         assert len(report['verification']['tables']) == 57
-        assert (await invoke('copy', directory, common, environment)).returncode != 0
+        replay = await invoke('copy', directory, common, environment)
+        assert replay.returncode == 1
+        assert 'PHASE0_COPY' in replay.stderr
         # Independent recovery must not need the post-commit copy receipt.
         (directory / 'copy-report.json').unlink()
         recovered = await invoke('verify', directory, common, environment, suffix='-recovery')
         assert recovered.returncode == 0, recovered.stderr
-        import copy
-
-        import asyncpg
-        for tool in ('copy', 'verify'):
-            for key, value in [('hostname', 'wrong-host'), ('release_sha', '0' * 40),
-                               ('tool_tree_sha256', '0' * 64),
-                               ('bootstrap_receipt_sha256', '0' * 64)]:
-                changed = copy.deepcopy(common)
-                changed[key] = value
-                refused = await invoke(tool, directory, changed, environment, suffix='-' + key)
-                assert refused.returncode == 1
-                assert 'unrecognized arguments' not in refused.stderr
-            for side in ('source', 'target'):
-                for key, value in [('oid', 1), ('role', 'verdaxis_app'), ('database', 'wrong'),
-                                   ('host', '127.0.0.2'), ('port', 1),
-                                   ('cluster_system_identifier', '1')]:
-                    changed = copy.deepcopy(common)
-                    changed[side][key] = value
-                    refused = await invoke(tool, directory, changed, environment, suffix=f'-{side}-{key}')
-                    assert refused.returncode == 1
-                    assert 'unrecognized arguments' not in refused.stderr
-        extra = await asyncpg.connect(scratch.target_url.replace('postgresql+asyncpg:', 'postgresql:'))
-        try:
-            refused = await invoke('verify', directory, common, environment, suffix='-session')
-            assert refused.returncode == 1
-        finally:
-            await extra.close()
-        async with scratch.admin_connection() as admin:
-            await admin.execute('GRANT CONNECT ON DATABASE verdaxis_prod TO verdaxis_app')
-        refused = await invoke('verify', directory, common, environment, suffix='-acl')
-        assert refused.returncode == 1
+        assert (directory / 'verify-recovery-report.json').is_file()
 
 
 @pytest.mark.asyncio
@@ -106,6 +78,8 @@ async def test_validation_only_reports_validate_only(tool):
             assert await target.fetchval("SELECT to_regclass('public.users')") is None
 
 
+# Observed-state faults: manifest and installed authority agree, so the refusal
+# must come from the disposable database/cluster state or installed bytes.
 OBSERVED_FAULTS = {
     'source_server_host': ('source', 'server_host', '127.0.0.2/32', 'PHASE0_DB_IDENTITY'),
     'target_server_port': ('target', 'server_port', 55433, 'PHASE0_DB_IDENTITY'),
@@ -113,6 +87,7 @@ OBSERVED_FAULTS = {
     'target_cluster': ('target', 'cluster_system_identifier', '1', 'PHASE0_DB_IDENTITY'),
     'target_acl': (None, 'target_datacl', '{}', 'PHASE0_TARGET_FENCE'),
     'frozen_source': (None, 'frozen_source', None, 'PHASE0_SOURCE_STATE'),
+    'installed_bytes': (None, 'tool_tree_sha256', '0' * 64, 'PHASE0_INSTALLED_BYTES'),
 }
 
 
@@ -125,6 +100,13 @@ async def test_observed_state_fault_refuses_with_reason_code(tool, fault):
     async with production_scratch() as scratch:
         directory = Path('/root') / ('authority-' + uuid4().hex)
         common, environment = await make_case(scratch, directory)
+        if tool != 'bootstrap':
+            # Prerequisites run under the approved authority, before the fault.
+            assert (await invoke('bootstrap', directory, common, environment)).returncode == 0
+            common['bootstrap_receipt_sha256'] = hashlib.sha256(
+                Path(common['bootstrap_receipt']).read_bytes()).hexdigest()
+            if tool == 'verify':
+                assert (await invoke('copy', directory, common, environment)).returncode == 0
         if fault == 'frozen_source':
             common['frozen_source'] = dict(common['frozen_source'])
             common['frozen_source']['sequences'] = {}
@@ -133,16 +115,8 @@ async def test_observed_state_fault_refuses_with_reason_code(tool, fault):
         else:
             common[side] = dict(common[side])
             common[side][key] = value
+        # Manifest and authority now agree; only observed state differs.
         install_authority(common)
-        if tool == 'verify' and fault != 'frozen_source':
-            # Verify needs an import to inspect: run bootstrap+copy first, then
-            # reinstall the faulting authority and verify.
-            if (await invoke('bootstrap', directory, common, environment)).returncode != 0:
-                pytest.skip('bootstrap prerequisite refused for this fault')
-            common['bootstrap_receipt_sha256'] = hashlib.sha256(
-                Path(common['bootstrap_receipt']).read_bytes()).hexdigest()
-            if (await invoke('copy', directory, common, environment)).returncode != 0:
-                pytest.skip('copy prerequisite refused for this fault')
         result = await invoke(tool, directory, common, environment,
                               suffix='-' + fault, apply=True)
         assert result.returncode == 1, (tool, fault, result.stdout, result.stderr)
@@ -200,7 +174,10 @@ async def test_pre_existing_report_destination_refuses(tool):
 @pytest.mark.parametrize('key,value,code', [
     ('hostname', 'wrong-host', 'PHASE0_AUTHORITY'),
     ('release_sha', '0' * 40, 'PHASE0_AUTHORITY'),
-    ('tool_tree_sha256', '0' * 64, 'PHASE0_INSTALLED_BYTES'),
+    ('source_sha', '1' * 40, 'PHASE0_AUTHORITY'),
+    ('source_catalog_sha256', '0' * 64, 'PHASE0_AUTHORITY'),
+    ('approved', False, 'PHASE0_AUTHORITY'),
+    ('target_datacl', '{}', 'PHASE0_AUTHORITY'),
     ('bootstrap_receipt_sha256', '0' * 64, 'PHASE0_RECEIPT'),
 ])
 async def test_manifest_tamper_refuses_against_fixed_authority(key, value, code):

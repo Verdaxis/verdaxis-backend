@@ -7,6 +7,7 @@ from uuid import UUID
 
 from sqlalchemy import text
 
+from scripts.phase0.refusal import Refusal
 from scripts.phase0.codecs import (
     RowHash,
     configure_text_session,
@@ -352,7 +353,7 @@ def main():
     args = parser.parse_args()
     try:
         if os.path.lexists(args.report):
-            raise ValueError('Report destination already exists')
+            raise Refusal('PHASE0_REPORT_PATH')
         manifest = json.loads(read_private_file(args.manifest))
         if manifest.get('mode') == 'production':
             from scripts.phase0.host_authority import parse_json, read_root_private
@@ -393,7 +394,6 @@ def main():
         report = asyncio.run(run())
         publish_report(args.report, report)
     except Exception as error:
-        from scripts.phase0.refusal import Refusal
         if isinstance(error, Refusal):
             parser.exit(1, error.code + '\n')
         parser.exit(1, 'Verification refused; no successful report published\n')
