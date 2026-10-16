@@ -18,6 +18,7 @@ from tests.phase0.production_cli_case import (
     invoke,
     late_source_write,
     make_case,
+    private_file,
     require_committed_chain,
     start_tool,
     wait_for_advisory_lock,
@@ -340,6 +341,27 @@ async def test_successful_verify_always_publishes_report():
         for side in ('source', 'target'):
             (directory / f'verify-{side}.env').unlink()
         assert (await invoke('verify', directory, common, environment, suffix='-nosecret')).returncode == 1
+
+
+@pytest.mark.asyncio
+async def test_malformed_secret_file_names_phase0_secret():
+    """MINOR 3: a malformed secret file is a named refusal and leaks nothing."""
+    async with production_scratch() as scratch:
+        directory = Path('/root') / ('authority-' + uuid4().hex)
+        common, environment = await make_case(scratch, directory)
+        marker = 'phase0-secret-marker-6f1d'
+        # Two DATABASE_URL lines: readable as a root-private file, malformed as
+        # a secret. The marker proves neither stream echoes the file contents.
+        private_file(directory / 'bootstrap-source.env',
+                     f'DATABASE_URL=postgresql+asyncpg://postgres:{marker}@127.0.0.1:5432/x\n'
+                     f'DATABASE_URL=postgresql+asyncpg://postgres:{marker}@127.0.0.1:5432/x\n')
+        result = await invoke('bootstrap', directory, common, environment)
+        assert result.returncode == 1, (result.stdout, result.stderr)
+        assert 'PHASE0_SECRET' in result.stderr, result.stderr
+        assert marker not in result.stderr and marker not in result.stdout
+        assert not Path(common['bootstrap_receipt']).exists()
+        async with scratch.admin_connection('verdaxis_prod') as target:
+            assert await target.fetchval("SELECT to_regclass('public.users')") is None
 
 
 # Boundary faults: a source/target change arrives after the approved authority is

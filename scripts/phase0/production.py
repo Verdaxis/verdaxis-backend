@@ -13,6 +13,7 @@ from pathlib import Path
 
 from sqlalchemy import text
 from sqlalchemy.engine import make_url
+from sqlalchemy.exc import ArgumentError
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.pool import NullPool
 
@@ -123,15 +124,28 @@ def load_authority(manifest, tool, *, validation_only=False):
 
 
 def secret_url(path, identity):
-    contents = read_root_private(path).decode()
+    """Read the one approved endpoint from a root-private secret file.
+
+    Every defect on this one operator gate - absent, unreadable or non-UTF-8
+    file, wrong line count, unparsable URL and a mismatched endpoint - names
+    ``PHASE0_SECRET``, so the window can tell a secret problem from a copy
+    defect. No message carries the file contents, the URL or the password.
+    """
+    try:
+        contents = read_root_private(path).decode()
+    except ValueError:
+        raise Refusal('PHASE0_SECRET') from None
     lines = contents.splitlines()
     if len(lines) != 1 or not lines[0].startswith('DATABASE_URL='):
-        raise ValueError('One explicit DATABASE_URL required')
-    url = make_url(lines[0][len('DATABASE_URL='):])
+        raise Refusal('PHASE0_SECRET')
+    try:
+        url = make_url(lines[0][len('DATABASE_URL='):])
+    except (ArgumentError, ValueError):
+        raise Refusal('PHASE0_SECRET') from None
     if (url.drivername != 'postgresql+asyncpg' or url.query or not url.password
             or (url.host, url.port, url.database, url.username) != tuple(
                 identity[key] for key in ('host', 'port', 'database', 'role'))):
-        raise ValueError('Secret endpoint differs')
+        raise Refusal('PHASE0_SECRET')
     return url
 
 
