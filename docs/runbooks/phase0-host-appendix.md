@@ -15,8 +15,11 @@
 3. **Rehearsal evidence inputs:** identify the approved scratch business-smoke
    script and private scratch-user fixture, and verify the restored source's
    catalog matches the frozen tool contract (inventory says 66 relations/sequences;
-   do not equate that count with the manifest's table count). No customer commands
-   run live. B1/B2 independent review remains pending; do not bypass refusals.
+   do not equate that count with the manifest's table count). If a restored dump
+   has pending outbox events, approve a bounded scratch-only old sequencer drain.
+   Verify target schema/default ACL preparation against runtime preflight, not
+   merely object grants. No customer commands run live. B1/B2 independent review
+   remains pending; do not bypass refusals.
 4. **Backup comparison boundary:** live writes after reopening can change counts
    while the restored-backup comparison runs. Compare a dump's exported snapshot
    or complete the comparison before customer writes; PM must choose before B9.

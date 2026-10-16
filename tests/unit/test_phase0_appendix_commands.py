@@ -36,7 +36,7 @@ def parser_for(module):
     for node in tree.body:
         if isinstance(node, ast.Assign):
             for target in node.targets:
-                if isinstance(target, ast.Name) and target.id in {'CHECKS', 'DATABASES'}:
+                if isinstance(target, ast.Name) and target.id in {'CHECKS', 'DATABASES', '_IDENTITIES'}:
                     namespace[target.id] = ast.literal_eval(node.value)
     exec(compile(ast.Module(body=statements, type_ignores=[]), str(path), 'exec'), namespace)
     return namespace['parser']
@@ -77,7 +77,7 @@ def test_every_appendix_tool_command_matches_real_parser():
         parser_for(module).parse_args(arguments)
     # Do not let a later edit evade the extractor by changing invocation style.
     text = APPENDIX.read_text()
-    assert not re.search(r'python\S*\s+(?:/\S+/)?scripts/\S+\.py', text)
+    assert not re.search(r'^\s*(?:p0run\s+)?\S*python\S*\s+(?:/\S+/)?scripts/\S+\.py', text, re.MULTILINE)
 
 
 def test_production_tools_have_separate_manifests_and_secrets():
@@ -130,6 +130,38 @@ def test_appendix_shell_tools_use_real_argument_parsers_only():
         result = subprocess.run(['bash', '-c', 'set -eu\n' + parser, name, *arguments],
                                 capture_output=True, text=True, timeout=5)
         assert result.returncode == 0, (name, result.stderr)
+
+
+def test_pm_p05_scope_and_remaining_conflicts_are_explicit():
+    text = APPENDIX.read_text()
+    assert '## Open items' in text
+    assert '## PM questions' not in text
+    assert 'pg_createcluster 17 p0rehearsal --port 5434 --start-conf manual' in text
+    assert 'IPAddressDeny=any' in text and 'IPAddressAllow=localhost' in text
+    assert '127.0.0.1:8100' in text
+    assert 'not rehearsed' in text
+    assert '30-minute target' in text and '60-minute hard limit' in text
+    assert 'after reopening' in text
+    assert 'public `/health/ready`' in text
+
+
+def test_appendix_shell_blocks_are_syntactically_valid():
+    import subprocess
+
+    text = APPENDIX.read_text()
+    blocks = re.findall(r'^```(?:bash|sh)\n(.*?)^```', text, re.MULTILINE | re.DOTALL)
+    for index, block in enumerate(blocks):
+        result = subprocess.run(['bash', '-n'], input=block, capture_output=True,
+                                text=True, timeout=5)
+        assert result.returncode == 0, (index, result.stderr)
+
+
+def test_inline_operator_python_compiles_without_execution():
+    text = APPENDIX.read_text()
+    snippets = re.findall(r"<<'PY'\n(.*?)^PY$", text, re.MULTILINE | re.DOTALL)
+    assert snippets
+    for index, snippet in enumerate(snippets):
+        compile(snippet, f'appendix-inline-{index}', 'exec')
 
 
 def test_current_runbook_does_not_reuse_historical_merge_state():
