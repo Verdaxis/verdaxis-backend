@@ -1,6 +1,45 @@
 # Phase 0 host-tool sign-off fixes — partial checkpoint
 
-## Current checkpoint 4 — Linux runtime available; execution integration pending
+## Current environment stop — remote-only testing, 16 October
+
+The founder has stopped local Colima. Do not start Colima or Docker locally.
+All PostgreSQL/Docker/Linux checks now run only through
+`verdaxis-prod-test "$PWD" 'COMMAND'`. Do not SSH or change test-host setup.
+This supersedes the local execution authorization below.
+
+Tracked files were clean at resume; untracked `.claude/` and `work/` were left
+untouched. Current implementation is `3919071d` (offline Linux database runner),
+following `972ce799` (two runner isolation tests). Those two unit tests passed.
+The database runner has not yet been executed successfully.
+
+The authorized wrapper preflight completed with exit 125:
+
+- Remote architecture: `x86_64`; harness Python: `3.12.3`.
+- Docker wrapper exists at `/home/verdaxis-test/bin/docker`.
+- Required image `sha256:5165bc002d5ec7a9fe44d6e560c0a9aea36e5bbcea7aa48f8cd3a072f59fcf02`
+  returned **image not known**. That image was built locally for arm64; the
+  current `linux_database.runtime_command` explicitly selects `linux/arm64`.
+
+No image was pulled, built, transferred or substituted. No host configuration
+was changed. No test run was started or left running. Per the founder's explicit
+instruction to stop if the environment lacks something, execution stopped here.
+**B1/B2 remain open; no new acceptance counts are claimed.**
+
+### Exact resume point after remote environment stop
+
+Obtain an operator-provided approved amd64 runtime image containing the pinned
+repository dependencies, or explicit approval to adapt these test runners to
+use the provided Linux harness without weakening root-owned authority checks.
+Do not implicitly reuse the old local image-build permission to change this host.
+Then pin the approved runtime identity/platform in test tooling, execute the
+new loopback-only database runner through `verdaxis-prod-test`, and continue
+checkpoint 4 steps 2–4: complete execution-authority tests, integrated production
+bootstrap → copy → verify, wrong-identity refusals, and final interfaces.
+The existing runner uses committed archives: commit implementation/test changes
+before running that path; the outer wrapper's edit transfer alone does not put
+uncommitted files into its inner `git archive HEAD`.
+
+## Checkpoint 4 — Linux runtime available; execution integration pending
 
 **The runtime limitation is resolved. B1/B2 production execution remains open.**
 No further permission is needed to continue the authorized local synthetic work.
