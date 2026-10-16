@@ -56,7 +56,10 @@ def check_query_count():
         info = json.loads(subprocess.check_output(["docker", "inspect", candidate]))[0]
         bindings = info["NetworkSettings"]["Ports"].get("5432/tcp") or []
         if any(b["HostIp"] == "127.0.0.1" and b["HostPort"] == port for b in bindings):
-            assert info["Config"]["Image"] == IMAGE
+            # Podman canonicalizes away the tag and adds docker.io; retain
+            # the exact repository and immutable digest check on both runtimes.
+            expected = "docker.io/postgis/postgis@" + IMAGE.rsplit("@", 1)[1]
+            assert info["Config"]["Image"] in (IMAGE, expected)
             matching.append(candidate)
     assert len(matching) == 1
     container = matching[0]
@@ -80,8 +83,9 @@ def check_query_count():
                  "query": "limit=100"}])
         time.sleep(0.2)
         after = logs()
-        marker = ", benchmark_candidates AS MATERIALIZED ("
-        assert after.count(marker) - before.count(marker) == 1
+        marker = ", requested_keys AS MATERIALIZED ("
+        count = after.count(marker) - before.count(marker)
+        assert count == 1, f"expected one benchmark statement, observed {count}; new log bytes={len(after) - len(before)}"
         print("Task 7b: one benchmark statement for the full ASK page", flush=True)
     finally:
         admin("ALTER SYSTEM RESET log_statement")

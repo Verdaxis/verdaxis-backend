@@ -3,6 +3,51 @@
 Status: **in progress, not accepted**. Base: `c37f8074`, lane
 `feat/rust-phase-1-lane-13`. No live access, push, agents or skills.
 
+## Native test-host checkpoint — 16 October
+
+All database/Linux commands now use `verdaxis-prod-test "$PWD" 'COMMAND'`.
+Colima stayed off. No direct SSH or test-host setup change was made.
+
+- `d4c6be3b`: test-first Linux port allocation repair. Kernel port 38653 failed
+  the existing 49152–65535 guard; the runner now probes within the guarded range.
+  Offline regression: one passed. No collection guard was weakened.
+- Native analyzed-corpus regression reproduced list and bid ten-second timeouts
+  (`task13-native-latency.log`). This rules out emulation as the sole cause.
+- `4cb01a1a`: paginate before the supplier-tier display join, keep explicit outer
+  ordering, and remove the benchmark's full-candidate materialization barrier.
+  Eligibility and typed qualification are unchanged. The existing shared
+  `sql/live_benchmarks.sql` changed because its optimization fence forced full
+  private-row projection before the requested-key join; no predicate was copied.
+  Native list/bid timings improved to 6.274/6.226 seconds; all map timing checks
+  were 0.023–0.414 seconds (`task13-native-sparse.log`).
+- Unchanged mixed suite: **24 passed, 49 failed, six errors**, zero timeouts
+  (`task13-native-mixed.log`). All six formerly failing public reads pass.
+  Every remaining failure is classified in `task13-integration-failures.md`.
+  These are observed fixture/auth failures, not proof that unreachable write
+  assertions will pass after Phase 0. No Phase 0 fixes were copied.
+- `77f30129`: benchmark corpus collision reproduced, then fixed by reusing the
+  matrix and cloning its cancelled negative declaration into a probe namespace.
+  Populated benchmark target passes: four corpus cases, three base comparisons,
+  seven acceptance probes (`task13-native-benchmark-green.log`).
+- Native list corpus: 12 cases match; 24 integer boundaries and 15 non-null CI
+  projections pass. Full target remains blocked at query-count evidence:
+  Podman normalizes Config.Image to docker.io/repository@digest (adapted without
+  weakening repository/digest verification), but `docker logs` returns no new
+  bytes after enabling PostgreSQL statement logs. Isolated failure reports
+  `expected one benchmark statement, observed 0; new log bytes=0`.
+  Logs: `task13-native-count.log`, `task13-native-log-config.log`.
+  PostgreSQL reports logging_collector=off and log_destination=stderr. Do not
+  change host logging setup or claim the statement-count assertion passed.
+- Offline workspace 128 passed; fmt and strict clippy passed. Native runtime
+  PostgreSQL runner 136 passed, two dedicated matrix tests filtered.
+
+**Resume:** resolve the missing disposable container log evidence with the test
+host owner, or approve a test-local SQLx statement counter. The current host
+logging surface does not supply the query-count test's required evidence; no
+host setup was changed. Then rerun the complete list target, finish OpenAPI,
+method/slash differential cases and combined ledger/publication gates. All test
+runs launched in this checkpoint finished. No acceptance claim for Task 13.
+
 ## Implementation checkpoint
 
 - Added the route ownership test first. Its first run had six expected setup
