@@ -11,6 +11,7 @@ SELECT o.side, o.market_product, o.delivery_point_id, o.availability_window,
            'certification_declared', o.certification_declared,
            'fame_terms', o.fame_terms, 'lng_terms', o.lng_terms,
            'carbon_intensity_gco2_mj', o.carbon_intensity_gco2_mj::text,
+           'carbon_intensity_method', o.carbon_intensity_method,
            'specification_standard', o.specification_standard,
            'feedstock', o.feedstock, 'origin', o.origin
        ) AS private_digest_input
