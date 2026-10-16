@@ -8,7 +8,7 @@ from pathlib import Path
 import asyncpg
 
 ROOT = Path('/app')
-WORK = Path('/phase0-work')
+WORK = Path('/root/phase0-work')
 
 
 async def provision(inputs):
