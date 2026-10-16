@@ -44,28 +44,41 @@ class Profile(runner.Runner):
         self.sql("ANALYZE")
         targets = [("python", python_port), ("rust", rust_port)]
         report = []
+        samples = 5
         for path in ("/api/orderbook", "/api/orderbook/bids"):
             for name, port in targets:
                 # One warmup so process/pool/statement caches match the p95
-                # measurement's warm cell; then one measured request.
+                # measurement's warm cell, then several measured requests.
+                walls = []
+                per_statement: dict[str, float] = {}
                 with httpx.Client(timeout=65, trust_env=False) as client:
                     client.get(f"http://127.0.0.1:{port}{path}").raise_for_status()
-                    self.sql("SELECT pg_stat_statements_reset()")
-                    started = time.perf_counter()
-                    response = client.get(f"http://127.0.0.1:{port}{path}")
-                    wall = time.perf_counter() - started
-                response.raise_for_status()
-                stats = self.statements()
-                sql_total = sum(row["total_exec_time"] for row in stats) / 1000.0
+                    for _ in range(samples):
+                        self.sql("SELECT pg_stat_statements_reset()")
+                        started = time.perf_counter()
+                        response = client.get(f"http://127.0.0.1:{port}{path}")
+                        wall = time.perf_counter() - started
+                        response.raise_for_status()
+                        walls.append(wall)
+                        for row in self.statements():
+                            key = row["query"].strip()
+                            per_statement[key] = per_statement.get(key, 0.0) + round(
+                                row["total_exec_time"] / samples, 1
+                            )
+                sql_total = sum(per_statement.values()) / 1000.0
+                median = sorted(walls)[len(walls) // 2]
                 report.append(dict(
-                    path=path, target=name, wall_s=round(wall, 3),
+                    path=path, target=name, samples=samples,
+                    wall_median_s=round(median, 3), wall_all=walls,
                     status=response.status_code, bytes=len(response.content),
                     sql_total_s=round(sql_total, 3),
-                    outside_sql_s=round(wall - sql_total, 3),
-                    statements=stats,
+                    outside_sql_s=round(median - sql_total, 3),
+                    statements=per_statement,
                 ))
                 summary = {k: v for k, v in report[-1].items() if k != "statements"}
                 print("PROFILE " + json.dumps(summary), flush=True)
+                for key, ms in sorted(per_statement.items(), key=lambda kv: -kv[1]):
+                    print(f"PROFILE_STMT {name} {path} {round(ms,1)}ms {key[:90]}", flush=True)
         out = runner.ROOT / "work/rust-phase1/task13-lane13-profile.json"
         out.write_text(json.dumps(report, indent=2) + "\n")
         print("PROFILE_JSON_PATH " + str(out), flush=True)

@@ -805,3 +805,42 @@ projection, `serde_json` serialization and HTTP framing. The page
 statements are not the cause: Rust 196/293 ms against Python 120/148 ms.
 Naming it plainly: the single Rust-only 0.5 s is the batched live-benchmark
 statement, and a smaller part is Rust's per-row projection and JSON build.
+
+### 4. Index experiment (disposable database only) — numbers and plans
+
+`scripts/rust_contract/index_experiment.py` created the candidate partial
+index **inside its own disposable container only** (never a migration file):
+
+```sql
+CREATE INDEX ix_lane13_open_page_experiment
+  ON orderbook_orders (side, created_at DESC, id DESC)
+  WHERE status IN ('OPEN', 'PARTIALLY_FILLED')
+```
+
+Warm p95, 30 alternating samples per cell, fresh service processes after
+the index change (`task13-lane13-index.log`, CALL_EXIT=0; the index is
+dropped before cleanup):
+
+| Cell | p50 without | p50 with | p95 without | p95 with |
+| --- | ---: | ---: | ---: | ---: |
+| list Python | 1.115 s | 1.098 s | 1.397 s | **1.288 s** |
+| list Rust | 1.753 s | 1.686 s | 2.025 s | **1.872 s** |
+| bids Python | 1.260 s | 1.228 s | 1.593 s | 1.652 s |
+| bids Rust | 1.888 s | 1.853 s | 2.292 s | **2.059 s** |
+
+Plans: the page-walk shape (side + open status, `created_at DESC, id
+DESC`, LIMIT 20) changes from a Seq Scan + top-N sort over all 10,052 open
+orders (9.1 ms, 274 buffers, BID) or the existing slice-lookup index scan
+(0.43 ms, ASK) into an **Index Only Scan reading 20 rows from 3-4 buffers
+(0.19-0.33 ms)** on both sides. The real route statements' plans confirm
+the effect where it applies: Python's bids page plan's top node becomes a
+`Limit` (early termination in page order) with the index present.
+
+Interpretation: the index removes the sort-and-scan of the open set for
+page-ordered reads, worth about 0.11-0.23 s of p95 on the default page in
+this corpus, and it slightly narrows the Rust-Python gap (list p95
+2.025 -> 1.872 s against Python 1.397 -> 1.288 s). It does **not** close
+the gap: the dominant costs from the breakdown above (the 523 ms key-first
+benchmark statement and ~1.0 s outside SQL) are untouched by a page-order
+index. **Stopped here as instructed — adding a real index is a PM
+decision.** No migration file was created or modified.
