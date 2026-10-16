@@ -59,6 +59,19 @@ class DisposableIdentityApp:
         ).encode()
 
     async def __call__(self, scope, receive, send) -> None:
+        if scope.get("type") == "http" and scope.get("path") == IDENTITY_PATH + "/reset-limits":
+            from secrets import compare_digest
+            from app.rate_limit import limiter
+
+            supplied = dict(scope.get("headers", [])).get(b"x-disposable-token", b"")
+            expected = json.loads(self.body)["token"].encode()
+            allowed = scope.get("method") == "POST" and compare_digest(supplied, expected)
+            if allowed:
+                limiter.reset()
+            await send({"type": "http.response.start", "status": 204 if allowed else 403,
+                        "headers": [(b"cache-control", b"no-store")]})
+            await send({"type": "http.response.body", "body": b""})
+            return
         if scope.get("type") != "http" or scope.get("path") != IDENTITY_PATH:
             await self.application(scope, receive, send)
             return

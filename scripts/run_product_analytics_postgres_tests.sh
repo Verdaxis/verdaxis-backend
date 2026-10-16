@@ -41,6 +41,14 @@ PYTEST_PATHS=("$@")
 if [ ${#PYTEST_PATHS[@]} -eq 0 ]; then
   PYTEST_PATHS=("tests/postgres")
 fi
+# These suites require the independent pinned-history Phase 0 cluster.
+# Keep this explicit partition aligned with tests.phase0.runner.default_test_paths.
+PYTEST_PATHS+=(
+  --ignore=tests/postgres/test_phase0_market_contract.py
+  --ignore=tests/postgres/test_phase0_timezone.py
+  --ignore=tests/postgres/test_phase0_union_migration.py
+  --ignore=tests/phase0
+)
 
 validate_url() {
   local url="$1"
@@ -94,7 +102,6 @@ else
   CONTAINER="verdaxis-analytics-test-$$-$(date +%s)"
 
   cleanup() {
-    # -v removes the anonymous data volume of the PostGIS image.
     docker rm -f -v "$CONTAINER" >/dev/null 2>&1 || true
   }
   trap cleanup EXIT INT TERM

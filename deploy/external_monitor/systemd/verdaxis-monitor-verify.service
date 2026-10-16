@@ -1,0 +1,10 @@
+[Unit]
+Description=Verification-only Verdaxis route and uptime monitor
+Wants=network-online.target
+After=network-online.target caddy.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/verdaxis-monitor.env
+Environment=TELEGRAM_DISABLED=1
+ExecStart=/usr/local/sbin/verdaxis-monitor

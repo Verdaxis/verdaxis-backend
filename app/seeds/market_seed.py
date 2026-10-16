@@ -32,7 +32,12 @@ from app.demo_identities import (
     DEMO_SEED_SUPPLIERS,
 )
 from app.seeds.catalog_seed import PRODUCT_IDS, DELIVERY_POINT_IDS
-from app.market_catalog import PRODUCTS_BY_ID, DELIVERY_POINTS_BY_ID
+from app.market_catalog import (
+    B30_SPECIFICATION_STANDARD,
+    B100_SPECIFICATION_STANDARD,
+    PRODUCTS_BY_ID,
+    DELIVERY_POINTS_BY_ID,
+)
 from app.services.availability_windows import (
     FORWARD_QUARTER_COUNT,
     SPOT_WINDOW,
@@ -163,7 +168,7 @@ SUPPLIER_ORGS = [
 ]
 
 # ---------------------------------------------------------------------------
-# Indicative demo bands as at 2026-07-28, in USD/MT. These are not Verdaxis
+# Alcohol demo bands as at 2026-07-28, in USD/MT. These are not Verdaxis
 # assessments. Public anchors: S&P low-carbon methanol reporting, USGBC
 # ethanol FOB/C&F data, and IRENA renewable-methanol production-cost ranges.
 # Synthetic ethanol is modelled at a premium because no liquid public marine
@@ -211,6 +216,37 @@ PRICING: dict[str, dict[str, tuple[float, float, float, float]]] = {
         "Los Angeles": (1130, 1200, 1235, 1305),
         "Santos": (1090, 1160, 1195, 1265),
     },
+    # Biofuel reference: ENGINE Biofuel Bunker Snapshot, observed 2026-09-25.
+    # https://www.engine.online/news/biofuel-bunker-snapshot-rotterdams-b30-vlsfo-at-steep-discount-to-antwerps-blend-81dc
+    # Singapore B30-VLSFO (UCOME): $1,105/MT; Rotterdam B30-VLSFO (POMEME):
+    # $869/MT, shown in the source's delivered-price chart. Exact RF380 grade
+    # is not stated by the source: these are adjacent-market proxies.
+    # Other ports use Singapore's reference; Rotterdam's Dutch-credit price
+    # stays local. Bands, spreads and forward premiums remain synthetic demo
+    # scenarios, not observed port quotes or assessments for our exact grade.
+    "B30": {
+        "Dalian": (1085, 1105, 1105, 1125),
+        "Busan": (1085, 1105, 1105, 1125),
+        "Shanghai": (1085, 1105, 1105, 1125),
+        "Singapore": (1085, 1105, 1105, 1125),
+        "Rotterdam": (849, 869, 869, 889),
+        "Houston": (1085, 1105, 1105, 1125),
+        "Los Angeles": (1085, 1105, 1105, 1125),
+        "Santos": (1085, 1105, 1105, 1125),
+    },
+    # Same ENGINE snapshot: Rotterdam B100 $1,362/MT. Feedstock and exact DFA
+    # grade are not stated. All ports use this adjacent-market demo proxy;
+    # none of these synthetic bands is a local observed or HVO quotation.
+    "B100": {
+        "Dalian": (1342, 1362, 1362, 1382),
+        "Busan": (1342, 1362, 1362, 1382),
+        "Shanghai": (1342, 1362, 1362, 1382),
+        "Singapore": (1342, 1362, 1362, 1382),
+        "Rotterdam": (1342, 1362, 1362, 1382),
+        "Houston": (1342, 1362, 1362, 1382),
+        "Los Angeles": (1342, 1362, 1362, 1382),
+        "Santos": (1342, 1362, 1362, 1382),
+    },
 }
 
 # CI data ranges per product: (ci_lo, ci_hi, energy_density)
@@ -219,14 +255,17 @@ CI_DATA: dict[str, tuple[float, float, float]] = {
     "Bio Methanol":       (25, 55, 19.9),
     "e-Methanol":         (5, 20, 19.9),
     "Synthetic Ethanol":  (15, 35, 26.8),
+    # Synthetic whole-blend CI (gCO2e/MJ) and LCV (MJ/kg), including VLSFO.
+    # These are demo inputs, not a neat-FAME CI or certified batch defaults.
+    "B30":                (70, 80, 39.5),
+    # Synthetic whole-fuel FAME scenario; not certified batch values.
+    "B100":               (15, 30, 37.2),
 }
 
 CERTIFICATION_SCHEMES = ("ISCC EU", "ISCC PLUS", "REDcert EU")
 
 DEMO_BUYER_ORG_ID = DEMO_ACCOUNT_BUYER_ORG_ID
 DEMO_SELLER_ORG_ID = DEMO_ACCOUNT_SELLER_ORG_ID
-
-
 
 DEMO_ACCOUNT_TRADE_CONFIGS = [
     ("Bio Methanol", "Singapore", SPOT_WINDOW, Decimal("500"), Decimal("1056.00"), TradeStatus.PENDING_CONFIRMATION, Initiator.BUYER, 1),
@@ -395,8 +434,32 @@ def bid_seed_metadata(certification_scheme: str | None = None) -> dict[str, str]
     }
 
 
-def ask_seed_metadata(certification_scheme: str | None = None) -> dict[str, object]:
+def ask_seed_metadata(
+    certification_scheme: str | None = None,
+    *,
+    product_name: str | None = None,
+) -> dict[str, object]:
     certification_scheme = certification_scheme or _RNG.choice(CERTIFICATION_SCHEMES)
+    if product_name in {"B30", "B100"}:
+        return {
+            "certification_declared": True,
+            "certification_scheme": certification_scheme,
+            "certifications": [certification_scheme],
+            "specification_standard": (
+                B30_SPECIFICATION_STANDARD if product_name == "B30"
+                else B100_SPECIFICATION_STANDARD
+            ),
+            "msds_available": True,
+            "feedstock": (
+                "Indicative demo: waste-derived FAME (30% by volume) + VLSFO (70% by volume)"
+                if product_name == "B30" else "Indicative demo: 100% waste-derived FAME; excludes HVO"
+            ),
+            "carbon_intensity_method": (
+                "Indicative demo whole-blend CI and LCV; includes fossil VLSFO; not certified batch values"
+                if product_name == "B30"
+                else "Indicative demo whole-fuel FAME CI and LCV; not certified batch values"
+            ),
+        }
     return {
         "certification_declared": True,
         "certification_scheme": certification_scheme,
@@ -584,7 +647,7 @@ async def seed_market_data(
                 window = _window(reference_now.date())
                 certification_scheme = _slice_certification_scheme(product_name, port_name, window)
                 ci_value = Decimal(str(round(_RNG.uniform(ci_lo, ci_hi), 2)))
-                ask_metadata = ask_seed_metadata(certification_scheme)
+                ask_metadata = ask_seed_metadata(certification_scheme, product_name=product_name)
 
                 created = _recent_seed_timestamp(window, reference_now)
 
@@ -607,7 +670,7 @@ async def seed_market_data(
                     carbon_intensity_method=ask_metadata["carbon_intensity_method"],
                     feedstock=ask_metadata["feedstock"],
                     origin=f"{port_name} hub",
-                    is_verdaxis_verified=_RNG.random() < 0.3,
+                    is_verdaxis_verified=product_name not in {"B30", "B100"} and _RNG.random() < 0.3,
                     carbon_intensity_gco2_mj=ci_value,
                     energy_density_mj_kg=Decimal(str(energy_density)),
                     created_at=created,
@@ -862,7 +925,7 @@ async def seed_market_data(
         )
         order_created_at = bid_created_at - timedelta(hours=2)
 
-        ask_metadata = ask_seed_metadata(certification_scheme)
+        ask_metadata = ask_seed_metadata(certification_scheme, product_name=fuel_name)
         bid_order = _seed_order(
             id=uuid.uuid4(),
             organization_id=DEMO_BUYER_ORG_ID,
@@ -897,7 +960,7 @@ async def seed_market_data(
             carbon_intensity_method=ask_metadata["carbon_intensity_method"],
             feedstock=ask_metadata["feedstock"],
             origin=f"{port_name} hub",
-            is_verdaxis_verified=True,
+            is_verdaxis_verified=fuel_name not in {"B30", "B100"},
             carbon_intensity_gco2_mj=Decimal(str(round(_RNG.uniform(ci_lo, ci_hi), 2))),
             energy_density_mj_kg=Decimal(str(energy_density)),
             created_at=order_created_at,

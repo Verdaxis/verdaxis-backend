@@ -54,7 +54,8 @@ async def test_duplicate_orders_compile_as_one_slice_predicate():
 
     assert str(repeated) == str(single)
     assert repeated.params == single.params
-    assert len(str(repeated).encode()) < 10_000
+    # Eight-product catalog and scalar biofuel qualification add fixed SQL.
+    assert len(str(repeated).encode()) < 12_000
 
 
 @pytest.mark.asyncio

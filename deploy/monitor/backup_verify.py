@@ -15,12 +15,11 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-
 MODULE_DIRECTORY = str(Path(__file__).resolve().parent)
 if MODULE_DIRECTORY not in sys.path:
     sys.path.insert(0, MODULE_DIRECTORY)
 
-from status_state import (  # noqa: E402 - installed sibling module
+from status_state import (
     atomic_write_status,
     build_status,
     failure_status,
@@ -29,14 +28,13 @@ from status_state import (  # noqa: E402 - installed sibling module
     reject_duplicate_keys,
 )
 
-
 DATABASE_PREFIXES = {
-    "verdaxis": "verdaxis",
+    "verdaxis_prod": "verdaxis-prod",
     "verdaxis_staging": "verdaxis-staging",
     "umami": "umami",
 }
 EXPECTED_DATABASES = frozenset(DATABASE_PREFIXES)
-ARTIFACT_PATTERN = re.compile(r"(verdaxis|verdaxis-staging|umami)-(\d{8}-\d{6})\.sql\.gz")
+ARTIFACT_PATTERN = re.compile(r"(verdaxis-prod|verdaxis-staging|umami)-(\d{8}-\d{6})\.sql\.gz")
 METADATA_KEYS = frozenset({"ok", "completed_at", "backup_id", "databases"})
 ATTEMPT_KEYS = frozenset(
     {"schema_version", "attempt_id", "state", "started_at", "finished_at", "backup_id"}

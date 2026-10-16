@@ -9,7 +9,7 @@ from sqlalchemy.engine import make_url
 
 _DEPLOYED_DATABASE_IDENTITIES = {
     "production": {
-        "database": "verdaxis",
+        "database": "verdaxis_prod",
         "app_role": "verdaxis_app",
         "migrator_role": "verdaxis_migrator",
     },
@@ -46,6 +46,7 @@ _CREDENTIALED_ORIGINS: dict[str, tuple[str, ...]] = {
     "production": (
         "https://app.verdaxis.exchange",
         "https://verdaxis.exchange",
+        "https://canary.verdaxis.exchange",
     ),
     "staging": ("https://staging.verdaxis.exchange",),
     "development": (

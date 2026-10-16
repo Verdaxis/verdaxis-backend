@@ -26,7 +26,7 @@ def _load_convergence_module():
     [
         (
             "production",
-            "verdaxis",
+            "verdaxis_prod",
             "verdaxis_app",
             "verdaxis_migrator",
             "verdaxis_backup",
@@ -66,7 +66,7 @@ def test_acl_target_is_bound_to_exact_deployed_identity(
 def test_acl_target_never_falls_back_to_app_url(migrator_url):
     module = _load_convergence_module()
     values = {
-        "DATABASE_URL": "postgresql+asyncpg://verdaxis_app:app@db/verdaxis",
+        "DATABASE_URL": "postgresql+asyncpg://verdaxis_app:app@db/verdaxis_prod",
         "MIGRATOR_DATABASE_URL": migrator_url,
     }
 
@@ -77,9 +77,9 @@ def test_acl_target_never_falls_back_to_app_url(migrator_url):
 def test_acl_target_rejects_shared_app_and_migrator_role():
     module = _load_convergence_module()
     values = {
-        "DATABASE_URL": "postgresql+asyncpg://verdaxis_app:app@db/verdaxis",
+        "DATABASE_URL": "postgresql+asyncpg://verdaxis_app:app@db/verdaxis_prod",
         "MIGRATOR_DATABASE_URL": (
-            "postgresql+asyncpg://verdaxis_app:different@other-db/verdaxis"
+            "postgresql+asyncpg://verdaxis_app:different@other-db/verdaxis_prod"
         ),
     }
 
@@ -90,9 +90,9 @@ def test_acl_target_rejects_shared_app_and_migrator_role():
 def test_acl_target_rejects_different_app_and_migrator_endpoint():
     module = _load_convergence_module()
     values = {
-        "DATABASE_URL": "postgresql+asyncpg://verdaxis_app:app@db-a/verdaxis",
+        "DATABASE_URL": "postgresql+asyncpg://verdaxis_app:app@db-a/verdaxis_prod",
         "MIGRATOR_DATABASE_URL": (
-            "postgresql+asyncpg://verdaxis_migrator:migrator@db-b/verdaxis"
+            "postgresql+asyncpg://verdaxis_migrator:migrator@db-b/verdaxis_prod"
         ),
     }
 
@@ -106,9 +106,9 @@ def test_acl_target_rejects_different_app_and_migrator_endpoint():
 def test_psql_invocation_uses_single_transaction_without_password_in_argv(tmp_path):
     module = _load_convergence_module()
     values = {
-        "DATABASE_URL": "postgresql+asyncpg://verdaxis_app:app@db/verdaxis",
+        "DATABASE_URL": "postgresql+asyncpg://verdaxis_app:app@db/verdaxis_prod",
         "MIGRATOR_DATABASE_URL": (
-            "postgresql+asyncpg://verdaxis_migrator:migration-secret@db/verdaxis"
+            "postgresql+asyncpg://verdaxis_migrator:migration-secret@db/verdaxis_prod"
         ),
     }
     target = module.resolve_acl_target("production", values)
@@ -130,9 +130,9 @@ def test_environment_file_loader_refuses_symlink_without_reading_target(tmp_path
     module = _load_convergence_module()
     target = tmp_path / "operator-secrets"
     target.write_text(
-        "DATABASE_URL=postgresql://verdaxis_app:secret@db/verdaxis\n"
+        "DATABASE_URL=postgresql://verdaxis_app:secret@db/verdaxis_prod\n"
         "MIGRATOR_DATABASE_URL="
-        "postgresql://verdaxis_migrator:secret@db/verdaxis\n"
+        "postgresql://verdaxis_migrator:secret@db/verdaxis_prod\n"
     )
     environment_file = tmp_path / ".env"
     environment_file.symlink_to(target)
@@ -150,17 +150,17 @@ def test_environment_file_loader_reads_regular_file(tmp_path, monkeypatch):
     monkeypatch.delenv("MIGRATOR_DATABASE_URL", raising=False)
     environment_file = tmp_path / ".env"
     environment_file.write_text(
-        "DATABASE_URL=postgresql://verdaxis_app:app@db/verdaxis\n"
+        "DATABASE_URL=postgresql://verdaxis_app:app@db/verdaxis_prod\n"
         "MIGRATOR_DATABASE_URL="
-        "postgresql://verdaxis_migrator:migrator@db/verdaxis\n"
+        "postgresql://verdaxis_migrator:migrator@db/verdaxis_prod\n"
     )
 
     values = module._load_database_values(environment_file)
 
     assert values == {
-        "DATABASE_URL": "postgresql://verdaxis_app:app@db/verdaxis",
+        "DATABASE_URL": "postgresql://verdaxis_app:app@db/verdaxis_prod",
         "MIGRATOR_DATABASE_URL": (
-            "postgresql://verdaxis_migrator:migrator@db/verdaxis"
+            "postgresql://verdaxis_migrator:migrator@db/verdaxis_prod"
         ),
     }
 
@@ -171,24 +171,24 @@ def test_environment_file_loader_ignores_ambient_database_url_overrides(
     module = _load_convergence_module()
     environment_file = tmp_path / ".env"
     environment_file.write_text(
-        "DATABASE_URL=postgresql://verdaxis_app:file-app@db/verdaxis\n"
+        "DATABASE_URL=postgresql://verdaxis_app:file-app@db/verdaxis_prod\n"
         "MIGRATOR_DATABASE_URL="
-        "postgresql://verdaxis_migrator:file-migrator@db/verdaxis\n"
+        "postgresql://verdaxis_migrator:file-migrator@db/verdaxis_prod\n"
     )
     monkeypatch.setenv(
         "DATABASE_URL",
-        "postgresql://verdaxis_app:ambient-app@decoy/verdaxis",
+        "postgresql://verdaxis_app:ambient-app@decoy/verdaxis_prod",
     )
     monkeypatch.setenv(
         "MIGRATOR_DATABASE_URL",
-        "postgresql://verdaxis_migrator:ambient-migrator@decoy/verdaxis",
+        "postgresql://verdaxis_migrator:ambient-migrator@decoy/verdaxis_prod",
     )
 
     values = module._load_database_values(environment_file)
 
     assert values["DATABASE_URL"] == (
-        "postgresql://verdaxis_app:file-app@db/verdaxis"
+        "postgresql://verdaxis_app:file-app@db/verdaxis_prod"
     )
     assert values["MIGRATOR_DATABASE_URL"] == (
-        "postgresql://verdaxis_migrator:file-migrator@db/verdaxis"
+        "postgresql://verdaxis_migrator:file-migrator@db/verdaxis_prod"
     )

@@ -32,6 +32,7 @@ from app.seeds.market_seed import (
     PRICING,
     _seed_price_for_slice,
     _slice_certification_scheme,
+    ask_seed_metadata,
 )
 from app.services.availability_windows import (
     availability_window_expiry,
@@ -183,6 +184,9 @@ def build_demo_market_coverage(now: datetime) -> list[OrderBookOrder]:
                                     "off_spec": False,
                                 }
                             )
+                            if product_name in {"B30", "B100"}:
+                                values.update(ask_seed_metadata(scheme, product_name=product_name))
+                                values["is_verdaxis_verified"] = False
                         orders.append(OrderBookOrder(**values))
 
     return orders
@@ -428,6 +432,9 @@ def _ask_metadata(product_name: str, port_name: str, window: str) -> dict[str, o
         "origin": f"{port_name} demo terminal",
         "off_spec": False,
     }
+    if product_name in {"B30", "B100"}:
+        metadata.update(ask_seed_metadata(scheme, product_name=product_name))
+        metadata["is_verdaxis_verified"] = False
     return metadata
 
 

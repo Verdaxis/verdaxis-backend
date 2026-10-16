@@ -26,6 +26,7 @@ MANIFEST
 .env
 .env.analytics
 .runtime-release.env
+.runtime-monitor.env
 .runtime-deploying
 .runtime-deploy/
 .venv

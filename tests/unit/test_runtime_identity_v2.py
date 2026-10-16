@@ -15,7 +15,7 @@ from app.database import (
 def _deployed_settings(environment: str, **overrides) -> Settings:
     identities = {
         "production": (
-            "verdaxis",
+            "verdaxis_prod",
             "verdaxis_app",
             "verdaxis_migrator",
         ),
@@ -62,7 +62,7 @@ def _safe_role(database: str, user: str) -> dict:
 @pytest.mark.parametrize(
     "environment,database,app_role,migrator_role",
     [
-        ("production", "verdaxis", "verdaxis_app", "verdaxis_migrator"),
+        ("production", "verdaxis_prod", "verdaxis_app", "verdaxis_migrator"),
         (
             "staging",
             "verdaxis_staging",
@@ -199,7 +199,7 @@ def test_migration_urls_reject_all_connection_routing_query_parameters(query):
         _deployed_settings(
             "production",
             MIGRATOR_DATABASE_URL=(
-                "postgresql+asyncpg://verdaxis_migrator:x@localhost/verdaxis?" + query
+                "postgresql+asyncpg://verdaxis_migrator:x@localhost/verdaxis_prod?" + query
             ),
         )
 
@@ -209,11 +209,11 @@ def test_runtime_and_migrator_attest_database_user_role_properties_and_membershi
     assert_database_runtime_is_safe(
         settings,
         observed_max_connections=100,
-        **_safe_role("verdaxis", "verdaxis_app"),
+        **_safe_role("verdaxis_prod", "verdaxis_app"),
     )
     assert_migrator_connection_is_safe(
         settings,
-        **_safe_role("verdaxis", "verdaxis_migrator"),
+        **_safe_role("verdaxis_prod", "verdaxis_migrator"),
     )
 
     for mutation, error in (
@@ -225,7 +225,7 @@ def test_runtime_and_migrator_attest_database_user_role_properties_and_membershi
         ({"role_inherits_privileges": True}, "least-privilege"),
         ({"role_has_memberships": True}, "membership"),
     ):
-        role = _safe_role("verdaxis", "verdaxis_app")
+        role = _safe_role("verdaxis_prod", "verdaxis_app")
         role.update(mutation)
         with pytest.raises(RuntimeError, match=error):
             assert_database_runtime_is_safe(

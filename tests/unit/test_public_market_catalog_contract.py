@@ -5,7 +5,6 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from app.routers.availability import get_fuel_availability
 from app.market_catalog import (
     CANONICAL_DELIVERY_POINTS,
     CANONICAL_PRODUCTS,
@@ -13,13 +12,16 @@ from app.market_catalog import (
     PRODUCT_IDS,
 )
 from app.models.catalog import Product
+from app.routers.availability import get_fuel_availability
 from app.seeds.catalog_seed import seed_catalog
 
 
 def test_market_catalog_preserves_alcohol_products_and_ucome_singapore_lane():
-    assert len(CANONICAL_PRODUCTS) == 6
+    assert len(CANONICAL_PRODUCTS) == 8
     assert len(CANONICAL_DELIVERY_POINTS) == 8
     assert set(PRODUCT_IDS) == {
+        "B30",
+        "B100",
         "UCOME_B100",
         "BIO_LNG",
         "BIO_METHANOL",
@@ -104,7 +106,7 @@ async def test_availability_drops_noncanonical_active_product_instead_of_fallbac
             fuel_grade="",
             market_product=None,
             real_stock=Decimal("1200.00"),
-            demo_stock=Decimal("0"),
+            demo_stock=Decimal(0),
             real_supplier_count=2,
             demo_supplier_count=0,
             unknown_count=0,

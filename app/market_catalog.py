@@ -14,6 +14,8 @@ from uuid import UUID
 
 
 class MarketProduct(str, Enum):
+    B30 = "B30"
+    B100 = "B100"
     UCOME_B100 = "UCOME_B100"
     BIO_LNG = "BIO_LNG"
     BIO_METHANOL = "BIO_METHANOL"
@@ -44,7 +46,33 @@ class DeliveryPointSpec:
     timezone: str
 
 
+B30_SPECIFICATION_STANDARD = "ISO 8217:2024 RF 380"
+B100_SPECIFICATION_STANDARD = "ISO 8217:2024 DFA"
+
+
 CANONICAL_PRODUCTS: tuple[ProductSpec, ...] = (
+    ProductSpec(
+        UUID("c4cecebc-3d2d-5840-8021-57a9a11bc673"),
+        MarketProduct.B30,
+        "B30",
+        "Biofuel",
+        "B30",
+        "MT",
+        Decimal("200"),
+        "30% FAME by volume blended with 70% VLSFO; finished blend meets "
+        "ISO 8217:2024 RF 380 with sulphur at most 0.50% by mass",
+    ),
+    ProductSpec(
+        UUID("74eb9cb5-f0e3-55f1-b82c-fe29b7c45bf5"),
+        MarketProduct.B100,
+        "B100",
+        "Biofuel",
+        "B100",
+        "MT",
+        Decimal("200"),
+        "100% FAME, excluding HVO; finished fuel meets ISO 8217:2024 DFA "
+        "with sulphur at most 0.10% by mass",
+    ),
     ProductSpec(
         UUID("8f6f34a5-2927-54a6-8564-cca40ae7cb8a"),
         MarketProduct.BIO_LNG,
@@ -173,6 +201,10 @@ PRODUCTS_BY_NAME = MappingProxyType({spec.name: spec for spec in CANONICAL_PRODU
 PRODUCT_IDS = MappingProxyType(
     {spec.market_product.value: spec.id for spec in CANONICAL_PRODUCTS}
 )
+BIOFUEL_SPECIFICATION_STANDARDS = MappingProxyType({
+    PRODUCT_IDS["B30"]: B30_SPECIFICATION_STANDARD,
+    PRODUCT_IDS["B100"]: B100_SPECIFICATION_STANDARD,
+})
 DELIVERY_POINTS_BY_ID = MappingProxyType(
     {spec.id: spec for spec in CANONICAL_DELIVERY_POINTS}
 )
