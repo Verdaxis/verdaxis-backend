@@ -18,7 +18,14 @@ async def vectors():
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://testserver") as client:
             body = {"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list_markets","arguments":{}}}
             modern = {**body,"params":{**body["params"],"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}}
+            modern_headers = {"content-type":"application/json","accept":"application/json","mcp-protocol-version":"2026-07-28","mcp-method":"tools/call","mcp-name":"plan_voyage_fuel"}
+            invalid = {**modern, "params":{**modern["params"],"name":"plan_voyage_fuel"}}
+            initialize = {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2026-07-28","capabilities":{},"clientInfo":{"name":"test","version":"1"}}}
             for name, headers, raw in [
+                ("modern-validation", modern_headers, json.dumps(invalid)),
+                ("modern-initialize", {"content-type":"application/json","accept":"application/json"}, json.dumps(initialize)),
+                ("future-initialize", {"content-type":"application/json","accept":"application/json"}, json.dumps({**initialize,"params":{**initialize["params"],"protocolVersion":"2099-01-01"}})),
+                ("modern-tools-list", {**modern_headers,"mcp-method":"tools/list"}, json.dumps({**modern,"method":"tools/list"})),
                 ("origin-first", {"origin":"","host":"bad","content-type":"text/plain","accept":"text/plain"}, "{"),
                 ("content-before-host", {"host":"bad","content-type":"text/plain","accept":"text/plain"}, "{"),
                 ("accept-before-json", {"content-type":"application/json","accept":"text/plain"}, "{"),

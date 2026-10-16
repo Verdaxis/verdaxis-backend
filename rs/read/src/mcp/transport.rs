@@ -49,7 +49,18 @@ pub fn python_envelope(mut value: crate::Json, method: &str) -> crate::Json {
         }
         crate::Json::Object(output)
     }
+    fn modern_input(value: &crate::Json) -> crate::Json {
+        let mut fields = serde_json::Map::new();
+        fields.insert("type".into(), value["type"].clone());
+        for (key, value) in value.as_object().expect("input schema") {
+            if key != "type" {
+                fields.insert(key.clone(), value.clone());
+            }
+        }
+        crate::Json::Object(fields)
+    }
     if method == "tools/list" && value.get("result").is_some() {
+        let modern = value["result"].get("resultType").is_some();
         let schemas: crate::Json =
             serde_json::from_str(include_str!("../../../../deploy/rust/mcp-tools.json"))
                 .expect("committed Python tool schemas");
@@ -63,7 +74,7 @@ pub fn python_envelope(mut value: crate::Json, method: &str) -> crate::Json {
                 .expect("tool schemas")
                 .iter()
                 .filter(|schema| registered.iter().any(|tool| tool["name"] == schema["name"]))
-                .map(|schema| serde_json::json!({"annotations":sorted(&schema["annotations"]),"description":schema["description"],"inputSchema":schema_order(&schema["inputSchema"]),"name":schema["name"],"outputSchema":schema_order(&schema["outputSchema"])}))
+                .map(|schema| serde_json::json!({"annotations":sorted(&schema["annotations"]),"description":schema["description"],"inputSchema":if modern { modern_input(&schema["inputSchema"]) } else { schema_order(&schema["inputSchema"]) },"name":schema["name"],"outputSchema":if modern { schema["outputSchema"].clone() } else { schema_order(&schema["outputSchema"]) }}))
                 .collect(),
         );
     }
@@ -76,7 +87,18 @@ pub fn python_envelope(mut value: crate::Json, method: &str) -> crate::Json {
     }
     if let Some(body) = value.get("result") {
         result["result"] = if method == "tools/list" {
-            body.clone()
+            if body.get("resultType").is_some() {
+                let mut ordered = serde_json::Map::new();
+                for key in ["cacheScope", "resultType", "tools", "ttlMs"] {
+                    if let Some(value) = body.get(key) {
+                        ordered.insert(key.into(), value.clone());
+                    }
+                }
+                ordered.insert("cacheScope".into(), serde_json::json!("private"));
+                crate::Json::Object(ordered)
+            } else {
+                body.clone()
+            }
         } else {
             sorted(body)
         };

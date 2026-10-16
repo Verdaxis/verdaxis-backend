@@ -157,6 +157,10 @@ async fn dispatch(State(state): State<AppState>, request: Request) -> Response {
             .body(axum::body::Body::from(envelope.to_string()))
             .expect("protocol rejection");
     }
+    let modern = parts
+        .headers
+        .get("mcp-protocol-version")
+        .is_some_and(|v| v == "2026-07-28");
     let mut body_bytes = bytes.to_vec();
     if method == "tools/call" {
         let tool = input["params"]["name"]
@@ -178,11 +182,17 @@ async fn dispatch(State(state): State<AppState>, request: Request) -> Response {
                 .expect("method argument rejection");
         }
         if let Err(message) = validation::tool_arguments(&tool, &mut arguments) {
-            let result = serde_json::json!({"content":[{"text":format!("Error executing tool {tool}: {message}"),"type":"text"}],"isError":true});
-            let envelope = transport::python_envelope(
+            let mut result = serde_json::json!({"content":[{"text":format!("Error executing tool {tool}: {message}"),"type":"text"}],"isError":true});
+            if modern {
+                result["resultType"] = serde_json::json!("complete");
+            }
+            let mut envelope = transport::python_envelope(
                 serde_json::json!({"id":input["id"],"result":result}),
                 &method,
             );
+            if modern {
+                append_server_info(&mut envelope);
+            }
             return Response::builder()
                 .status(200)
                 .header("content-type", "application/json")
@@ -192,10 +202,6 @@ async fn dispatch(State(state): State<AppState>, request: Request) -> Response {
         input["params"]["arguments"] = arguments;
         body_bytes = input.to_string().into_bytes();
     }
-    let modern = parts
-        .headers
-        .get("mcp-protocol-version")
-        .is_some_and(|v| v == "2026-07-28");
     let mut parts = parts;
     parts.headers.remove(axum::http::header::CONTENT_LENGTH);
     // Python's JSON response mode accepts JSON alone (or wildcards). rmcp's
@@ -231,9 +237,8 @@ async fn dispatch(State(state): State<AppState>, request: Request) -> Response {
                         value["error"] = serde_json::json!({"code":-32601,"message":"Method not found","data":method});
                     }
                     let mut envelope = transport::python_envelope(value, &method);
-                    if modern && let Some(result) = envelope["result"].as_object_mut() {
-                        // Python adds server identity after serializing the result.
-                        result.insert("_meta".into(), serde_json::json!({"io.modelcontextprotocol/serverInfo":{"name":"verdaxis-market","version":""}}));
+                    if modern {
+                        append_server_info(&mut envelope);
                     }
                     envelope.to_string().into_bytes()
                 }
@@ -249,5 +254,12 @@ async fn dispatch(State(state): State<AppState>, request: Request) -> Response {
             Response::from_parts(parts, axum::body::Body::from(body))
         }
         Err(_) => axum::http::StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    }
+}
+
+fn append_server_info(envelope: &mut crate::Json) {
+    if let Some(result) = envelope["result"].as_object_mut() {
+        // Python appends metadata after serializing the result's normal fields.
+        result.insert("_meta".into(), serde_json::json!({"io.modelcontextprotocol/serverInfo":{"name":"verdaxis-market","version":""}}));
     }
 }

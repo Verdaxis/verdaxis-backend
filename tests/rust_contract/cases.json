@@ -2732,6 +2732,52 @@
           "mcp-name": "list_markets"
         },
         "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"tools/call\", \"params\": {\"name\": \"list_markets\", \"arguments\": {}, \"_meta\": {\"io.modelcontextprotocol/protocolVersion\": \"2026-07-28\", \"io.modelcontextprotocol/clientCapabilities\": {}}}}"
+      },
+      {
+        "id": "M18-modern-validation",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json",
+          "mcp-protocol-version": "2026-07-28",
+          "mcp-method": "tools/call",
+          "mcp-name": "plan_voyage_fuel"
+        },
+        "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"tools/call\", \"params\": {\"name\": \"plan_voyage_fuel\", \"arguments\": {}, \"_meta\": {\"io.modelcontextprotocol/protocolVersion\": \"2026-07-28\", \"io.modelcontextprotocol/clientCapabilities\": {}}}}"
+      },
+      {
+        "id": "M18-modern-initialize",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json"
+        },
+        "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"initialize\", \"params\": {\"protocolVersion\": \"2026-07-28\", \"capabilities\": {}, \"clientInfo\": {\"name\": \"test\", \"version\": \"1\"}}}"
+      },
+      {
+        "id": "M18-future-initialize",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json"
+        },
+        "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"initialize\", \"params\": {\"protocolVersion\": \"2099-01-01\", \"capabilities\": {}, \"clientInfo\": {\"name\": \"test\", \"version\": \"1\"}}}"
+      },
+      {
+        "id": "M18-modern-tools-list",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json",
+          "mcp-protocol-version": "2026-07-28",
+          "mcp-method": "tools/list",
+          "mcp-name": "plan_voyage_fuel"
+        },
+        "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"tools/list\", \"params\": {\"name\": \"list_markets\", \"arguments\": {}, \"_meta\": {\"io.modelcontextprotocol/protocolVersion\": \"2026-07-28\", \"io.modelcontextprotocol/clientCapabilities\": {}}}}"
       }
     ]
   }
