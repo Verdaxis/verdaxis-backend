@@ -16,6 +16,15 @@ async def test_production_bootstrap_copy_verify_cli_chain():
         directory = Path('/root') / ('authority-' + uuid4().hex)
         common, environment = await make_case(scratch, directory)
         result = await invoke('bootstrap', directory, common, environment)
+        if result.returncode != 0:
+            # Synthetic-only diagnostic, not a production CLI logging bypass.
+            import os
+            from unittest.mock import patch
+
+            from scripts.phase0.production import run
+            manifest = json.loads((directory / 'bootstrap.json').read_text())
+            with patch.dict(os.environ, environment, clear=True):
+                await run(manifest, directory / 'bootstrap-source.env', directory / 'bootstrap-target.env', apply=True)
         assert result.returncode == 0, result.stderr
         receipt = Path(common['bootstrap_receipt'])
         assert receipt.is_file()
