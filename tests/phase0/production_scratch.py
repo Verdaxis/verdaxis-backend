@@ -87,6 +87,7 @@ async def production_scratch():
             created_databases.append('verdaxis')
             await admin.execute('CREATE DATABASE verdaxis_prod OWNER verdaxis_migrator TEMPLATE template1')
             created_databases.append('verdaxis_prod')
+            await admin.execute('REVOKE CONNECT ON DATABASE verdaxis_prod FROM PUBLIC')
             async with scratch.admin_connection('verdaxis') as source:
                 # Only the new clone changes ownership; never alter the template
                 # or use REASSIGN OWNED, which can include shared database objects.
