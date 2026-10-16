@@ -45,6 +45,7 @@ def check_query_count():
     from urllib.parse import urlsplit
 
     from scripts.rust_contract.run_disposable import IMAGE
+    from scripts.rust_contract.image_identity import matches_pinned_image
 
     port = str(urlsplit(os.environ["RUST_DATABASE_URL"]).port)
     candidates = subprocess.check_output(
@@ -57,8 +58,7 @@ def check_query_count():
         if any(b["HostIp"] == "127.0.0.1" and b["HostPort"] == port for b in bindings):
             # Podman canonicalizes away the tag and adds docker.io; retain
             # the exact repository and immutable digest check on both runtimes.
-            expected = "docker.io/postgis/postgis@" + IMAGE.rsplit("@", 1)[1]
-            assert info["Config"]["Image"] in (IMAGE, expected)
+            assert matches_pinned_image(info["Config"]["Image"], IMAGE)
             matching.append(candidate)
     assert len(matching) == 1
     container = matching[0]

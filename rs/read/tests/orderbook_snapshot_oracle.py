@@ -295,6 +295,7 @@ async def main():
     from urllib.parse import urlsplit
 
     from scripts.rust_contract.run_disposable import IMAGE
+    from scripts.rust_contract.image_identity import matches_pinned_image
 
     database_port = urlsplit(os.environ["RUST_DATABASE_URL"]).port
     containers = subprocess.check_output(
@@ -311,7 +312,7 @@ async def main():
             and binding["HostPort"] == str(database_port)
             for binding in bindings
         ):
-            assert info["Config"]["Image"] in (IMAGE, "docker.io/postgis/postgis@" + IMAGE.rsplit("@", 1)[1])
+            assert matches_pinned_image(info["Config"]["Image"], IMAGE)
             matching.append(container)
     assert len(matching) == 1, "expected one pinned disposable container"
     container = matching[0]
