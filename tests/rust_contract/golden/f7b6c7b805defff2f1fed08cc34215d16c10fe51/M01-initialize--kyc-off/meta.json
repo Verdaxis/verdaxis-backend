@@ -1,0 +1,11 @@
+{
+  "source_sha": "f7b6c7b805defff2f1fed08cc34215d16c10fe51",
+  "schema_revision": "kycd_20261015_staging",
+  "timezone": "Asia/Singapore",
+  "clock": "2026-10-15T12:00:00+00:00",
+  "group": "mcp",
+  "KYC_EXECUTION_GATE_ENABLED": false,
+  "seed_mode": "corpus",
+  "seed_manifest_sha256": "3d57ce9bbc89c8c1d29562fff05d8cbc81c60649bd65052a7c6281d14ca20879",
+  "case_id": "M01-initialize--kyc-off"
+}
