@@ -1,6 +1,97 @@
 # Phase 0 host-tool sign-off fixes — partial checkpoint
 
-## Current environment stop — remote-only testing, 16 October
+## Current checkpoint 5 — amd64 runtime and Linux database fixture passed
+
+**B1/B2 production execution remains incomplete. No runtime blocker remains.**
+The production bootstrap → copy → verify integration is not implemented. Do not
+interpret the fixture results as acceptance of that chain.
+
+PM authorized image pull/build through `verdaxis-prod-test` without changing host
+setup. Local Colima remains off; all Docker/Linux/PostgreSQL commands below ran
+through that wrapper. No SSH, image push or production service access occurred.
+
+### Recorded amd64 runtime
+
+- Base child manifest (verified as linux/amd64 by manifest inspection):
+  `docker.io/library/python@sha256:2b4f19dae3a777dfc3b76730bda1e82e1f66ab2a2686fa93ca78edbfb4f04ffe`.
+- Built image ID:
+  `sha256:e0605c4e3b06d7bb3ac182d9d6dbb184647625c5e21b88f3eaca5230d64f1efb`.
+- Recipe: `tests/phase0/Dockerfile.hosttools`, repository-Dockerfile-derived;
+  unchanged requirements plus repository constraints, including existing test
+  requirements. No new Python dependency. Package record: `/phase0-packages.txt`.
+- `tests/phase0/runtime_images.py` records immutable IDs for amd64 and historical
+  arm64. Runners explicitly select amd64; never use the build tag for execution.
+  Historical arm64 image/base records below are not test-host execution authority.
+
+Rebuild only through the approved wrapper:
+
+```sh
+verdaxis-prod-test "$PWD" 'set -eu
+mkdir -p work/hosttools-amd64-build
+cp requirements.txt constraints.txt work/hosttools-amd64-build/
+cp tests/phase0/Dockerfile.hosttools work/hosttools-amd64-build/Dockerfile
+docker build --platform linux/amd64 \
+  --iidfile work/hosttools-amd64-build/image.id \
+  -t localhost/verdaxis-phase0-hosttools:amd64 work/hosttools-amd64-build
+docker image inspect localhost/verdaxis-phase0-hosttools:amd64 --format "{{.Id}} {{.Architecture}}"'
+```
+
+A rebuild can produce another ID due to apt/build metadata. Inspect and record
+it before changing the explicit image table. No floating-tag fallback.
+
+### Verified runner progress
+
+- `9f12556d`: amd64 image/base and architecture records.
+- `753158da`: fix missing PLATFORM import in the database runner.
+- `6fd857ad`: use `/root/phase0-work` for private writable fixture evidence.
+  Rootless image `/` is mode 0555; no permissions/capabilities were widened.
+- Offline Linux authority/report/CLI primitives: **51 passed** (17.30 seconds).
+- Linux production-named database fixture: **4 passed** (8.47 seconds), following
+  two disclosed setup failures above. All pinned historical/union migrations
+  built in Linux; drift check passed. Real production Settings, separate scratch
+  credentials, collision and wrong-cluster refusal passed.
+- Database container has `--network none`, no published ports; runtime shares
+  only its network namespace. Database listens on `127.0.0.1:55432`. Exact source
+  archives are copied, no bind mounts or host secrets. Containers removed with
+  `docker rm -f -v` on both failed and successful attempts.
+- Full remote PostgreSQL regression: **158 passed, 12 failed**, 62 warnings,
+  782.41 seconds. Eleven failures are cutover/two-lock/tuple rollback assertions;
+  the union comparison failed because its generated `union-catalog.json` was
+  absent. These are unresolved, not accepted platform exceptions. A second
+  wrapper invocation was used to inspect progress while the suite ran; because
+  the wrapper re-ships the tree, that may have removed generated work evidence.
+  Do not invoke this wrapper concurrently for the same worktree. Repeat the full
+  suite without a concurrent wrapper call before diagnosing the missing file.
+  The guard failures also need investigation; do not weaken runtime guards.
+  Remote process inspection after the summary found no test/runner processes and
+  no owned Phase 0 containers. The original local wrapper remained stuck after
+  remote completion and was stopped; its local wait task then exited. No tests
+  remain running. The pytest result above is from the completed remote log, not
+  a successful wrapper exit.
+- Unit suite: **2211 passed, 19 known macOS deploy failures**, 514 warnings.
+- Remote log: `work/hosttools-linux-database-amd64.log`; local unit log:
+  `work/hosttools-unit-amd64-runner.log`.
+
+### Exact resume point after checkpoint 5
+
+The remote image and database fixture are working. Do not repeat environment
+preparation or request more runtime permission. Run through the wrapper:
+`venv/bin/python -m tests.phase0.linux_database`.
+
+Next add failing **complete execution-authority** tests in that Linux fixture:
+root-owned exact tool/release manifests, independently observed cluster/OIDs,
+frozen source catalog/data/sequences, continuous source/target isolation, and
+bootstrap-generated baseline receipts. Then implement and invoke the actual
+production bootstrap → copy → verify CLIs, testing every wrong-identity refusal.
+Current tools remain synthetic-only. The test runtime has no Git binary/repo;
+release-byte attestation must be designed for the approved immutable archive,
+not silently bypassed or patched. Do not grant new dependencies without approval.
+
+Keep the common target flag and separate per-tool manifests/secrets. Publish
+final host formats only after the integrated chain passes, update architecture,
+then rerun both required suites. No host setup changes, push or live operation.
+
+## Historical environment stop — remote-only testing, 16 October
 
 The founder has stopped local Colima. Do not start Colima or Docker locally.
 All PostgreSQL/Docker/Linux checks now run only through
