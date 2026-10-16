@@ -25,6 +25,7 @@ from tests.phase0.production_cli_case import (
     wait_for_second_source_transaction,
 )
 from tests.phase0.production_scratch import production_scratch
+from tests.phase0.synthetic import uid
 
 
 async def run_tool_with_lock_fault(scratch, tool, directory, common, environment, lock, inject):
@@ -166,7 +167,10 @@ async def test_production_copy_refuses_legacy_source_value():
         common['bootstrap_receipt_sha256'] = hashlib.sha256(
             Path(common['bootstrap_receipt']).read_bytes()).hexdigest()
         async with scratch.admin_connection('verdaxis') as admin:
-            await admin.execute("UPDATE rfqs SET reference_number='RFQ-0001' WHERE id=(SELECT min(id) FROM rfqs)")
+            # min() has no uuid variant; address the seeded RFQ by its fixed id.
+            await admin.execute(
+                'UPDATE rfqs SET reference_number=$1 WHERE id=$2',
+                'RFQ-0001', str(uid('rfq')))
         result = await invoke('copy', directory, common, environment)
         assert result.returncode == 1, result.stdout
         assert 'PHASE0_LEGACY_VALUE' in result.stderr, result.stderr

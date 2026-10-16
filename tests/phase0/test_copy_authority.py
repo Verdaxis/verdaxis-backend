@@ -2,6 +2,7 @@
 import pytest
 from sqlalchemy import text
 
+from tests.phase0.synthetic import uid
 from tests.phase0.test_copy import copy_case as copy_case
 
 
@@ -86,7 +87,9 @@ async def test_legacy_source_value_refuses_before_any_target_write(copy_case):
     engine = create_async_engine(source.engine.url.set(username='phase0_owner'))
     try:
         async with engine.begin() as owner:
-            await owner.execute(text("UPDATE rfqs SET reference_number='RFQ-0001' WHERE id=(SELECT min(id) FROM rfqs)"))
+            # min() has no uuid variant; address the seeded RFQ by its fixed id.
+            await owner.execute(text("UPDATE rfqs SET reference_number='RFQ-0001' WHERE id=:rfq"),
+                                {'rfq': uid('rfq')})
         with pytest.raises(Refusal) as failure:
             await copy_database(manifest, source, target)
         assert failure.value.code == 'PHASE0_LEGACY_VALUE'
