@@ -184,6 +184,30 @@ append-only. Forward reverts must preserve the authentication cutoff,
 acceptance priority, and durable command receipts. Never perform an
 identity-only or database downgrade rollback.
 
+## API contract (`openapi.json`)
+
+`openapi.json` at the repository root is the committed API contract. The
+frontend vendors this exact file by SHA and generates its API types from it, and
+the Rust read service must serve the same public contract. The backend owns the
+file, so a contract change is reviewed and versioned here.
+
+`tests/unit/test_openapi_snapshot.py` fails when the committed file differs from
+a fresh export, so drift fails the CI unit job. Regenerate the file in the same
+commit as any route or schema change:
+
+```bash
+ENVIRONMENT=test RELEASE_SHA=test \
+  JWT_SECRET=test-secret-key-for-testing-minimum-32-chars \
+  DATABASE_URL=sqlite+aiosqlite:///:memory: \
+  venv/bin/python scripts/export_openapi.py
+```
+
+The export pins that test environment, drops the deployment-specific `servers`
+field, and writes sorted keys with a two-space indent and a trailing newline, so
+the bytes never depend on the machine that generates them. Add `--stdout` to
+print the document instead of writing the file; the path and schema counts go to
+stderr.
+
 ## API Endpoints
 
 ### Authentication

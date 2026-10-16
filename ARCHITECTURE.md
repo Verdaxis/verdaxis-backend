@@ -181,6 +181,7 @@ scripts/validate_health_response.py # Strict readiness JSON environment/SHA vali
 scripts/verify_deploy_start_guard.py # Isolated exact-state and two-lock backend start guard
 scripts/install_systemd_units.sh # Dry-run-default install from pinned immutable unit staging
 scripts/verify_systemd_source.py # Exact clean release-ref/commit archive + digest gate
+scripts/export_openapi.py       # Deterministic export of the committed openapi.json contract; unit test fails on drift
 alembic/versions/               # Migrations incl. canonical availability-window rewrite + runtime metadata alignment
 ```
 
