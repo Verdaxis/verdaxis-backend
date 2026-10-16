@@ -1,5 +1,5 @@
 {
-  "source_sha": "dccf1011d3645c695664b398fec7c9fc87bd2130",
+  "source_sha": "65ec9e41f9cba9c628100ea64a03f1f960b3b2d3",
   "group": "all",
   "rust_target": "all",
   "mixed_caddy": false,
@@ -32,8 +32,8 @@
   ],
   "failed_groups": [],
   "assertion_ledger": {
-    "rows": 335,
-    "pending": 335
+    "rows": 336,
+    "pending": 336
   },
   "assertion_ledger_error": null
 }
