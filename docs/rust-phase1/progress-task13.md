@@ -299,6 +299,47 @@ as `MATERIALIZED` sets and test membership), or accepting that Rust's benchmark
 legitimately costs more because eligibility runs in SQL by design (decision 16).
 No change, no index and no schema change was made. Stopped, as instructed.
 
+## Remaining items — both need a PM decision before I build them
+
+### 1. Method / HEAD / trailing-slash differential corpus
+
+The ported **data** groups carry only `GET` cases today: `simple_reads` 29 GET,
+`orderbook_lists` 12 GET, `orderbook_map` 9 GET, `prices` 40 GET,
+`curves_canonical` 125 GET, `orderbook_snapshot` 3 GET. Only `health` has the
+method matrix (GET/HEAD/POST/OPTIONS + one slash case). `mcp` has one `GET` and
+one `DELETE` case. So there is no differential coverage of HEAD, OPTIONS or
+trailing-slash behaviour for the 27 ported data routes.
+
+Adding those cases is **not** a local edit. The comparator compares a live
+recording against the pinned golden, so new cases must be recorded, and the
+golden oracle SHA is pinned in `deploy/rust/market-policy.manifest.json`
+(`source_sha = 78af98c4…`). Re-recording the golden changes that SHA and forces
+regeneration of the Task 5 policy and MCP-catalog artifacts. Corpus recording is
+Task 4b/PM-owned and is shared with the build branch. **Requesting a PM decision
+on when and where to record the expanded corpus.**
+
+Note that Rust's current method behaviour is already asserted by offline tests —
+`http_contract.rs` checks HEAD→405 with `Allow: GET` and the 307 slash redirect
+for every `MOUNTED_GET_PATHS` entry, and `test_routing.py` checks the Caddy method
+matrix (306 cases). What is missing is the corpus-level byte comparison.
+
+### 2. Combined publication gate
+
+The plan's step-4 command is
+`run_disposable --group all --rust-target all --mixed-caddy --require-complete-ledger --report docs/rust-phase1/ci-contract.json`.
+This lane's runner implements `--group all --mixed-caddy` (which runs the
+unchanged integration suite) but has **no** `--rust-target`,
+`--require-complete-ledger` or `--report`. `--group all` without `--mixed-caddy`
+is refused by a guard.
+
+`venv/bin/python -m scripts.rust_contract.check_assertions` reports
+**`assertion ledger OK`**, and every group already matches its Rust target
+individually (11/11 above), so the substance is proven piecewise. Building the
+single combined command means adding the three flags and a JSON report writer to
+`run_disposable.py`. The plan couples that job to artifact publication, which is
+Task 12a's scope. **Requesting a PM decision on whether I extend the runner here
+or defer to the Task 12a publication job.**
+
 ## Remaining gates — status after this turn
 
 **`cargo sqlx prepare --check`: PASS.** sqlx-cli 0.9.0 is installed on the test
