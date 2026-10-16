@@ -82,7 +82,7 @@ pub struct TradeQuery(String);
 
 pub fn order_query_sql(tail: &'static str) -> OrderQuery {
     OrderQuery(format!(
-        "WITH eligible_orders AS ({}) {}",
+        "WITH eligible_orders AS NOT MATERIALIZED ({}) {}",
         public_order_sql(),
         tail
     ))

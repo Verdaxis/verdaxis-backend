@@ -1,7 +1,8 @@
-SELECT page.*, COALESCE(org.supplier_tier, 'INDEPENDENT') AS tier_label
-FROM (
-SELECT o.*
-FROM eligible_orders o
+-- Rank narrow eligible keys before constructing private digest JSON.
+, page_keys AS MATERIALIZED (
+    SELECT o.id, o.price_per_mt_usd, o.acceptance_ordinal,
+           o.remaining_quantity_mt, o.created_at
+    FROM eligible_orders o
 ORDER BY
     CASE WHEN $14 = 'price_asc' THEN o.price_per_mt_usd END ASC,
     CASE WHEN $14 = 'price_desc' THEN o.price_per_mt_usd END DESC,
@@ -11,9 +12,13 @@ ORDER BY
     CASE WHEN $14 IN ('newest', 'quantity_desc') THEN o.created_at END DESC,
     CASE WHEN $14 IN ('newest', 'quantity_desc') THEN o.id END DESC
 LIMIT $15 OFFSET $16
-) AS page
-LEFT JOIN organizations org ON org.id = page.organization_id
-
+)
+SELECT detail.*, COALESCE(org.supplier_tier, 'INDEPENDENT') AS tier_label
+FROM page_keys page
+CROSS JOIN LATERAL (
+    SELECT o.* FROM eligible_orders o WHERE o.id = page.id OFFSET 0
+) detail
+LEFT JOIN organizations org ON org.id = detail.organization_id
 ORDER BY
     CASE WHEN $14 = 'price_asc' THEN page.price_per_mt_usd END ASC,
     CASE WHEN $14 = 'price_desc' THEN page.price_per_mt_usd END DESC,
