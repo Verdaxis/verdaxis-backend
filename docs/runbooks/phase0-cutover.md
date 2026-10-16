@@ -13,7 +13,10 @@ It applies PM decision P0-5 (16 October; founder may override): Task 10 rehearse
 the data path and new release on the prod host, scratch cluster `17/p0rehearsal`
 on 5434 and transient egress-filtered units, not a separate OS. Actual fixed-path
 old→new→old restoration is accepted pilot risk and is checked only by syntax and
-dry-run. The appendix lists remaining open conflicts, so M2 is not yet closed.
+dry-run. The appendix applies the final PM decisions: health-only maintenance
+exceptions, static pre-start backup verification, then backend acceptance/API
+reopening before one frontend promotion workflow. M2 sequence is ready for review;
+R1–R3 fixes and scratch smoke execution evidence remain prerequisites.
 Task 11 rollback is pre-write only. Its newer PM answers override earlier
 full-rehearsal/key-before-window requirements below where explicitly noted.
 

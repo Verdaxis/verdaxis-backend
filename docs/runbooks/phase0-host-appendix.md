@@ -2,30 +2,33 @@
 
 ## Open items
 
-1. **Maintenance versus deploy/promotion:** all-path Caddy 503 conflicts with
-   normal deploy's fixed public `/health/ready` gate. Frontend candidate/promotion
-   also checks that URL and renders public API pages. PM must approve an exact
-   readiness/public-read exception or a reviewed alternate gate. Do not override
-   the helper or reopen mutations to make it pass. This blocks B7.
-2. **Installed bytes/permissions:** PM authors and reviews the exact maintenance
-   Caddyfile from the captured original; no full original is supplied here.
-   Confirm caddy's permission to read the installed file, the backend drop-in
-   restoration list and the selected old/new full SHAs. These are window inputs,
-   not permission to infer bytes from the dated inventory.
-3. **Rehearsal evidence inputs:** identify the approved scratch business-smoke
-   script and private scratch-user fixture, and verify the restored source's
-   catalog matches the frozen tool contract (inventory says 66 relations/sequences;
-   do not equate that count with the manifest's table count). If a restored dump
-   has pending outbox events, approve a bounded scratch-only old sequencer drain.
-   Verify target schema/default ACL preparation against runtime preflight, not
-   merely object grants. No customer commands run live. B1/B2 independent review
-   remains pending; do not bypass refusals.
-4. **Backup comparison boundary:** live writes after reopening can change counts
-   while the restored-backup comparison runs. Compare a dump's exported snapshot
-   or complete the comparison before customer writes; PM must choose before B9.
-   Do not report unequal-time counts as a lossless restore proof.
+No remaining PM design decision. Final SHA/configuration evidence is an explicit
+window checklist, not a design gap. B1/B2 independent review is complete; R1–R3
+fixes and any PM-supplied CLI changes must land before execution approval.
+The copied-database Task 9 smoke adapter described in A3 must be selected and
+reviewed before rehearsal; never point the disposable runner directly at 8100.
+**M2 command sequence ready for review**, not authorization to execute.
 
-**Status:** P0-5 applied; the above gates still prevent unconditional M2 sign-off.
+## PM answers — final sequencing decisions
+
+1. Maintenance permits exactly GET `/health/ready` and GET `/health/live` to
+   localhost:8000; all other requests receive 503. Normal public `/health/ready`
+   deploy checks remain unchanged. No HEALTH_URL override.
+2. Capture full SHAs, before-file digests, exact restore/removal delta and
+   root:root 0644 Caddy readability at rehearsal/window start; stop on mismatch.
+3. Task 9 business cases run only on scratch 8100 with scratch identities;
+   owner fixture SQL is scratch-target-only. Bootstrap defines schema/catalog
+   preparation. Pending dump events mean STOP and a fresh dump, never a scratch
+   drain. Live drain checks both dispatched_at and stream_seq before/after stop.
+4. Static backup order: independent verify → target ACL acceptance → local
+   backup with backend stopped → scratch restore → every table count checked
+   against verification evidence → only then deploy/start.
+5. Backend acceptance under maintenance → API reopening → ONE frontend workflow
+   with candidate_only=false → frontend smoke → founder refresh note. No earlier
+   candidate-only run. The accepted cached-bundle interval starts at API reopen.
+   Include the workflow's 10–15 minutes in the 60-minute hard limit;
+   after API reopening, never automatically return to the old database.
+
 Everything below is for the PM to run, not an agent. No live operation is
 performed by editing or testing this appendix.
 
@@ -50,7 +53,10 @@ The PM logs into prod as `verdaxis-admin`, uses sudo, and logs into staging as
 `jons-openclaw@194.233.68.86` with `sudo -n`. Rehearsal changes no staging/live
 services. Cutover pauses staging monitor and backup pull. Schedule outside
 02:30–04:30 SGT. **30-minute target; 60-minute hard limit.** At 60 minutes without
-signed acceptance, use pre-write rollback, not extended improvisation.
+signed acceptance **while API access is still closed**, use pre-write rollback.
+Reserve 15 minutes for frontend validation/promotion: do not reopen after minute
+45 without a new PM decision. After reopening, an overrun means re-close access
+and preserve/reconcile new writes, not silent rollback.
 
 Founder announces the window, receives the PM's start notice, gives an explicit
 OK before reopening and sends "please refresh" at reopening. KYC key creation,
@@ -361,11 +367,20 @@ Expected installed PostGIS 3.6.4, plpgsql, migrator owner, only migrator CONNECT
 no user tables. Tool policy may reject a changed extension/catalog; no bypass.
 No HBA edits. CONNECT does not evict sessions or restrict superusers.
 
-Restored source can contain pending outbox events. Do not run copy until zero.
-P0-5 does not supply an old-release sequencer run: a pending source is a STOP for
-PM-directed scratch drain, not ad hoc UPDATE. Use newest drained snapshot if
-available; final production drain is mandatory regardless. Capture frozen
-observations/authority, run the three tool commands above, retain reports/timings.
+Restored source must have zero undispatched and zero unsequenced outbox rows:
+
+```bash
+p0run sudo -u postgres psql -X -h /var/run/postgresql -p 5434 -d verdaxis -Atc "SELECT count(*) FILTER (WHERE dispatched_at IS NULL),count(*) FILTER (WHERE stream_seq IS NULL) FROM market_event_outbox;"
+```
+
+Expected `0|0`. Otherwise STOP and take a fresh production dump; no scratch drain
+or ad hoc UPDATE. The PM observed 1823 rows and both zero at 03:20 UTC; that is
+history, not permission to skip the current check. Capture frozen observations/
+authority, run the three tool commands above and retain reports/timings.
+Schema/catalog preparation is A2's PostGIS-only target followed by
+`scripts.phase0.bootstrap.bootstrap_connection`: its exact committed policy
+checks the empty checked connection, runs Alembic, verifies schema and captures
+the baseline receipt. Never manually recreate application tables or stamp head.
 
 ### A3. New backend, read smoke and business evidence (PM)
 
@@ -406,8 +421,23 @@ systemctl show verdaxis-phase0-rehearsal.service -p ActiveState -p IPAddressDeny
 
 Expected exact SHA readiness on 127.0.0.1:8100, four workers, KYC gate false,
 missing vault key/503 storage. No Caddy route, no provider credentials. Log only
-bounded facts. Run the approved scratch business fixture/smoke (open item 3),
-including app-role ACL denials, UTC reconnects and missing-key submission 503.
+bounded facts. Use the Task 9 HTTP business cases from `tests/integration`
+with the fixture identity construction in `tests/phase0/http_seed.py`: unique
+scratch organizations/users, approved organization-bound KYC, hashed scratch
+passwords and fixture provenance. Owner fixture SQL is allowed only in scratch
+`verdaxis_prod` on 5434, after copy verification; never in old scratch source or
+live. Do not run the entire seed file on copied data: its catalog seed, fixed
+Singapore port and fixed user IDs can collide.
+
+The existing `tests/phase0/http_runner.py` starts its own disposable container
+and `tests.disposable_server`; its integration gate requires ENVIRONMENT=test
+and an ephemeral port, not production-mode 8100. Thus select/review a bounded
+adapter of the business cases before A3; do not disable that gate or pretend the
+runner accepts `--target-url`. Record its exact SHA, scratch-only identities and
+case list with the rehearsal inputs. This is the remaining executable test
+artifact, not an unresolved PM policy. Run it through `p0run` with
+`http://127.0.0.1:8100`, assert app-role business success/denial, UTC reconnects
+and missing-key storage 503. No customer account or provider call is permitted.
 Do not claim readiness proves KYC submission. Finish and retain the cluster:
 
 ```bash
@@ -452,6 +482,20 @@ find /root/verdaxis-phase0/before -type f -exec sha256sum {} + > /root/verdaxis-
 
 Root-private parent protects captured units. Preserve existing monitor/runtime
 file if present, else record absence. Keep old dumps outside recursive retention.
+PM checklist before any mutation: journal approved OLD_SHA/RELEASE_SHA/FRONTEND_SHA,
+archive digest, every before-file hash, exact candidate-only file removal list and
+old restore list. Compare installed drop-ins to that list; copying cannot delete
+added files. Install Caddy bytes root:root 0644 and prove readability:
+
+```bash
+stat -c '%U:%G %a' /etc/caddy/Caddyfile
+sudo -u caddy test -r /etc/caddy/Caddyfile
+sha256sum -c /root/verdaxis-phase0/before.sha256
+```
+
+Expected root:root 644, successful read and all hashes OK. Missing SHA, unknown
+delta, changed file or unreadable Caddyfile stops the window. Repeat this input
+check at rehearsal start with its separate evidence set.
 
 ### B2. Pause timers and close all public traffic (PM)
 
@@ -481,24 +525,39 @@ PM prepares `/root/verdaxis-phase0/Caddyfile.maintenance`: original file, replac
 only the whole site's route block with the following exact PM-approved content:
 
 ```caddyfile
-header Retry-After "600"
-header Content-Type "application/json"
-respond `{"detail":"Verdaxis is under maintenance. Please retry in a few minutes."}` 503
+@phase0_health {
+    method GET
+    path /health/ready /health/live
+}
+route {
+    handle @phase0_health {
+        reverse_proxy localhost:8000
+    }
+    handle {
+        header Retry-After "600"
+        header Content-Type "application/json"
+        respond `{"detail":"Verdaxis is under maintenance. Please retry in a few minutes."}` 503
+    }
+}
 ```
 
-Every path, including readiness, `/api/send`, SQLAdmin, authenticated GET and SSE,
-returns 503. No stale staging-host Caddy edits; DNS is direct to prod.
+The named matcher belongs inside the existing site block, beside this replacement
+route. Retain original TLS/global/trusted-proxy bytes. Only exact GET health paths
+pass; every other method/path, including `/api/send`, SQLAdmin, authenticated GET,
+HEAD health, `/health` alias and SSE receives 503. No stale staging Caddy edits.
 
 ```bash
 caddy validate --config /root/verdaxis-phase0/Caddyfile.maintenance --adapter caddyfile
 install -m 0644 /root/verdaxis-phase0/Caddyfile.maintenance /etc/caddy/Caddyfile
 systemctl reload caddy
-for path in /health/ready /api/auth/me /api/send /admin /api/orderbook /api/stream; do
+for path in /health /api/auth/me /api/send /admin /api/orderbook /api/stream; do
   test "$(curl --silent --output /dev/null --write-out '%{http_code}' "https://api.verdaxis.exchange$path")" = 503
 done
 ```
 
-Expected all 503. Reload need not terminate established SSE; stop backend below
+Expected all listed probes 503; GET `/health/ready` and `/health/live` still
+reach the running old backend. Check POST/HEAD health refuse too. Reload need
+not terminate established SSE; stop backend below
 closes it. Wait up to 120 seconds for in-flight requests/provider oneshots and
 check all seven service peers inactive/no job:
 
@@ -515,15 +574,16 @@ its existing sequencer. Check pending outbox as postgres without changing rows:
 
 ```bash
 DRAIN_START=$SECONDS
-while test "$(sudo -u postgres psql -X -d verdaxis -Atc 'SELECT count(*) FROM market_event_outbox WHERE stream_seq IS NULL')" != 0; do
+while test "$(sudo -u postgres psql -X -d verdaxis -Atc 'SELECT count(*) FROM market_event_outbox WHERE dispatched_at IS NULL OR stream_seq IS NULL')" != 0; do
   test "$((SECONDS-DRAIN_START))" -lt 120
   sleep 2
 done
 systemctl stop verdaxis-backend.service
-sudo -u postgres psql -X -d verdaxis -Atc "SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND pid<>pg_backend_pid(); SELECT count(*) FROM market_event_outbox WHERE stream_seq IS NULL;"
+sudo -u postgres psql -X -d verdaxis -Atc "SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND pid<>pg_backend_pid(); SELECT count(*) FILTER (WHERE dispatched_at IS NULL),count(*) FILTER (WHERE stream_seq IS NULL) FROM market_event_outbox;"
 ```
 
-Expected both zero after ALL producers drain; late commit means STOP/drain again,
+Expected zero other sessions and `0|0` outbox counts after ALL producers drain;
+late commit means STOP/drain again,
 not a snapshot. No session termination/source grants/settings. Preserve frozen
 source; take a new custom backup with the existing read-only role/passfile:
 
@@ -583,6 +643,64 @@ HBA and credentials remain unchanged. Recheck UTC and target ownership/datacl.
 Install approved live authority, separate tool secrets and Settings, then run
 bootstrap→copy→verify commands in Common setup. Each new report must match the
 approved authority and frozen source. Stop on any refusal; never replay copy.
+
+### B4a. Static backup and restored-count acceptance (PM)
+
+**Do this before B5–B7, with new backend stopped and every writer paused.**
+Order: independent verify report → target schema/default/object ACL acceptance
+(A3, including app/backup CONNECT) → B9 backup configuration switch → manual
+backup → scratch restore → count comparison → only then runtime deploy.
+B9 is a callable configuration block, not a later post-start step. Do not run
+demo or business smoke against the live target. Any other target session stops
+the boundary. The object ACL helper is
+`scripts.converge_runtime_acls` with the reviewed target Settings/bundle; database
+and schema/default privileges must pass `deploy/postgres/validate_roles.sql`
+against this target. Never run global role bootstrap against live roles.
+
+Execute B9 through restore into scratch `verdaxis_restorecheck`. Then compare
+**every target table** to the independent verification evidence, including extra
+reference rows, derived grace notices, empty new tables and Alembic's one row.
+Keep the table-name/count-only CSV private:
+
+```bash
+p0run sudo -u postgres psql -X -h /var/run/postgresql -p 5434 -d verdaxis_restorecheck -v ON_ERROR_STOP=1 -qAt <<'SQL' > /root/verdaxis-phase0/cutover/restored-counts.csv
+SELECT format('SELECT %L || '','' || count(*) FROM %I.%I;',n.nspname||'.'||c.relname,n.nspname,c.relname)
+FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+WHERE n.nspname='public' AND c.relkind IN ('r','p')
+AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.classid='pg_class'::regclass AND d.objid=c.oid AND d.deptype='e')
+ORDER BY c.relname
+\gexec
+SQL
+p0run /opt/verdaxis-phase0/venv/bin/python - <<'PY'
+import csv,json
+from pathlib import Path
+from scripts.phase0.manifest import load_manifest
+from scripts.phase0.verify import publish_report
+root=Path('/root/verdaxis-phase0/cutover')
+report=json.loads((root/'verified.json').read_text())['verification']
+expected={name:int(value['count']) for name,value in report['tables'].items()}
+for name,value in report['new_reference_rows'].items():
+    expected[name]+=int(value['count'])
+expected.update(refresh_sessions=0,supplier_offers=0,kyc_documents=0,
+                kyc_grace_notices=int(report['notice_count']),alembic_version=1)
+observed={}
+for name,count in csv.reader((root/'restored-counts.csv').open()):
+    assert name.startswith('public.')
+    name=name.removeprefix('public.')
+    assert name not in observed
+    observed[name]=int(count)
+# Any unclassified table fails closed, including later schema additions.
+assert set(observed)==set(expected), 'Restore table inventory differs'
+assert observed==expected, 'Restored counts differ from independent verify'
+publish_report(root/'restored-counts-accepted.json',dict(counts=observed,verified=True))
+PY
+```
+
+Expected exit 0 and new private accepted report. An unclassified relation or
+count mismatch is STOP, never an ignored table. No concurrent writes or new
+runtime before this finishes. The verified report is the fixed comparison, not
+a fresh query of changing live data. Preserve backup/report evidence; scratch
+cleanup remains after this successful check and PM acceptance.
 
 ### B5. Prepare new runtime, preserve old complete tuple (PM)
 
@@ -696,14 +814,11 @@ PY
 
 Expected guard passes only while root lock held. Failure leaves fence intact.
 
-### B7. Normal deploy, live read-only smoke and promotion (PM)
+### B7. Normal deploy and live read-only smoke under maintenance (PM)
 
-**STOP until open item 1 is resolved.** The normal helper overwrites HEALTH_URL
-with public `/health/ready`; setting an ambient loopback URL does not solve it.
-All-path maintenance makes it fail and stop the candidate. Do not run knowingly
-into that failure or patch the guard during the window.
-
-After approved resolution, use normal four-variable same-revision deploy:
+B4a static backup/count acceptance must already be signed. The approved exact
+GET health exceptions let the helper's public gate work; all other traffic is
+still closed. Use normal four-variable same-revision deploy, no URL bypass:
 
 ```bash
 sudo -n -u verdaxis-prod -H env APPROVED_RELEASE_SHA="$RELEASE_SHA" \
@@ -740,27 +855,9 @@ fence; it refuses after app CONNECT. For a post-start comparison stop new backen
 restore target-only approved datacl, verify with a new report/manifest, then
 reapply target ACLs via normal helper. Never alter source grants.
 
-PM runs frontend workflow from the Mac: first candidate-only **before** window,
-then one approved promotion run after backend acceptance (P0-5/Q7 supersedes the
-older build-once-only preference). Capture IDs/reports, wait for each run:
-
-```bash
-gh workflow run release-vercel.yml --repo Verdaxis/verdaxis-frontend --ref staging \
-  -f source_sha="$FRONTEND_SHA" -f backend_release_sha="$RELEASE_SHA" \
-  -f candidate_only=true -f notify_release=true
-gh run watch "$CANDIDATE_RUN_ID" --repo Verdaxis/verdaxis-frontend --exit-status
-gh workflow run release-vercel.yml --repo Verdaxis/verdaxis-frontend --ref staging \
-  -f source_sha="$FRONTEND_SHA" -f backend_release_sha="$RELEASE_SHA" \
-  -f candidate_only=false -f notify_release=true
-gh run watch "$PROMOTION_RUN_ID" --repo Verdaxis/verdaxis-frontend --exit-status
-```
-
-Candidate-only still requires the named backend SHA already ready; before-window
-new-SHA availability is part of open item 1. Do not substitute old SHA and claim
-canonical readiness. On critical repeated frontend failure workflow restores
-captured prior deployment. Manual restoration uses founder's Vercel login,
-selects the recorded exact prior deployment, clicks Rollback, and verifies prior
-asset on all production aliases; record IDs. Never put Vercel tokens on argv.
+Do not dispatch a frontend workflow here or before the window. Continue through
+signed backend acceptance and B10 API reopening, then run exactly B10a. Until
+then all non-health public traffic remains 503.
 
 ### B8. Exact pre-write rollback block (PM; syntax/dry-run only in A)
 
@@ -787,7 +884,7 @@ install -m 0644 /root/verdaxis-phase0/before/etc/caddy/Caddyfile /root/verdaxis-
 ```
 
 Do not reopen Caddy yet. Remove candidate-only drop-ins from the reviewed delta
-list before restoring (open item 2); copying cannot remove added files. Restore
+list captured and signed at B1 before restoring; copying cannot remove added files. Restore
 backup config/script/demo files if B9 ran; preserve ownership and modes from
 before-state. Change only external fence `--database verdaxis_prod` to
 `--database verdaxis`, reload and check all guards. Publish a fresh B6 permit
@@ -819,9 +916,10 @@ on old DB. Root revokes/fsyncs permit before releasing root lock. Restore prior
 frontend if promoted. Only after PM accepts recovered tuple may Caddy reopen
 and recorded timers restart. Full old→new→old execution is not claimed in A.
 
-### B9. Backup and demo switch after acceptance (PM)
+### B9. Backup configuration subroutine for B4a; demo binding before rearm (PM)
 
-Still pause both backup timers. Old dumps already reside outside retention.
+Execute backup edits/manual dump/restore from B4a **before any new backend start**.
+Execute the demo name patch before timer rearm. Still pause both backup timers. Old dumps already reside outside retention.
 Change config, password entry and local artifact names with exact checks:
 
 ```bash
@@ -903,12 +1001,13 @@ p0run sudo -u postgres createdb -h /var/run/postgresql -p 5434 --owner=verdaxis_
 p0run sudo -u postgres pg_restore --exit-on-error -h /var/run/postgresql -p 5434 -d verdaxis_restorecheck < "$RESTORE_DUMP"
 ```
 
-Compare counts for every application table with live new DB under the approved
-same-snapshot/no-new-writes boundary (open item 4). `pg_restore --list` is not
-proof. Record table-name/count-only private evidence, no row values. After full
-acceptance and approved cleanup: `pg_dropcluster 17 p0rehearsal --stop` (PM only).
+Return to B4a's exact per-table comparison against the verify report, while the
+new backend is still stopped. `pg_restore --list` is not proof. A mismatched or
+unclassified table stops deployment. Preserve table-name/count-only evidence,
+no row values. After full acceptance and approved cleanup:
+`pg_dropcluster 17 p0rehearsal --stop` (PM only).
 
-### B10. Sign, reopen, restore recorded timers (PM/founder)
+### B10. Sign and reopen the API (PM/founder)
 
 PM journal acceptance plus founder OK required. Confirm no writes on old DB,
 new read-only smoke, backup result, runtime tuple and 60-minute limit. KYC
@@ -930,10 +1029,41 @@ systemctl reload caddy
 
 Expected original guards retained, no pending reload, original Caddy routing.
 Fsync modified directories and append actual write-open UTC to private journal.
-No rollback after this without reconciliation. PM verifies new frontend entry
-HTML/hashed asset; founder sends refresh note; existing banner handles old tabs.
+No rollback after this without reconciliation. Old bundles now use the accepted
+new backend; this is the PM-accepted cached-bundle interval. Record exact UTC
+reopen time before continuing; all frontend workflow time counts toward 60 minutes.
 
-On each host derive restore candidates from its private before-state; review
+### B10a. ONE frontend workflow, smoke, then refresh note (PM/founder)
+
+From the PM workstation, dispatch exactly one approved promotion workflow. It
+validates the candidate against the now-live new backend, then promotes the same
+candidate. No candidate-only pre-run and no old-SHA substitution:
+
+```bash
+gh workflow run release-vercel.yml --repo Verdaxis/verdaxis-frontend --ref staging \
+  -f source_sha="$FRONTEND_SHA" -f backend_release_sha="$RELEASE_SHA" \
+  -f candidate_only=false -f notify_release=true
+gh run watch "$PROMOTION_RUN_ID" --repo Verdaxis/verdaxis-frontend --exit-status
+```
+
+Bind PROMOTION_RUN_ID to this dispatch's SHA/time in GitHub; do not select another
+operator's run. Expected successful candidate/canary checks, promotion and bounded
+report containing current/prior deployment IDs. PM verifies production entry
+HTML, hashed asset and the workflow's frontend smoke; only then founder sends
+"please refresh". Existing banner remains, no forced reload. On repeated critical
+failure, workflow uses captured prior frontend deployment. Manual frontend
+rollback uses founder's Vercel login and exact recorded prior deployment, then
+checks its aliases/asset. It does **not** roll back the backend or discard writes.
+
+If promotion/smoke fails or the 60-minute limit is reached after API reopening,
+re-close non-health API traffic with the same maintenance file, preserve new
+data and reports, and request PM forward-repair/reconciliation. Do not run B8
+against a database that may contain accepted customer writes. Never interrupt a
+running test or release call; wait for its completion while access stays closed.
+
+### B10b. Restore only recorded-active timers (PM)
+
+After successful frontend smoke/refresh communication, on each host derive restore candidates from its private before-state; review
 that list, then start only recorded-active timers. Do not enable inactive/masked
 units or restore demo before its new identity is checked:
 
@@ -974,5 +1104,7 @@ storage 503 is expected, readiness remains available.
 
 Parser/syntax tests do not execute host commands, validate secrets, prove BPF,
 or establish systemd/Caddy/backup correctness. P0-5 deliberately narrows Task 10;
-no fixed-path rollback proof is claimed. Resolve the four open items and B1/B2
-review before approving the live sequence. A failed step remains closed.
+no fixed-path rollback proof is claimed. The PM sequencing decisions above resolve
+the four design items. R1–R3 host-tool fixes, final input attestation and the
+scratch business-smoke adapter still require evidence before execution approval.
+A failed pre-write step remains closed; after reopening preserve all new writes.
