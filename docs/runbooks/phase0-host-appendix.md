@@ -5,9 +5,10 @@
 No remaining PM design decision. Final SHA/configuration evidence is an explicit
 window checklist, not a design gap. B1/B2 independent review is complete; R1–R3
 fixes and any PM-supplied CLI changes must land before execution approval.
-The copied-database Task 9 smoke adapter described in A3 must be selected and
-reviewed before rehearsal; never point the disposable runner directly at 8100.
-**M2 command sequence ready for review**, not authorization to execute.
+One execution prerequisite remains: the bounded scratch business-smoke adapter in
+A3 must be built and reviewed. Never point the disposable runner directly at 8100
+or weaken its target gate. **M2 ready for review**; review is not authorization
+to execute.
 
 ## PM answers — final sequencing decisions
 
