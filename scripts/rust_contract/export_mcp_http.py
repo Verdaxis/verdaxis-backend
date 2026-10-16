@@ -21,6 +21,13 @@ async def vectors():
             modern_headers = {"content-type":"application/json","accept":"application/json","mcp-protocol-version":"2026-07-28","mcp-method":"tools/call","mcp-name":"plan_voyage_fuel"}
             invalid = {**modern, "params":{**modern["params"],"name":"plan_voyage_fuel"}}
             initialize = {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2026-07-28","capabilities":{},"clientInfo":{"name":"test","version":"1"}}}
+            exact_initialize = {**initialize, "params":{**initialize["params"], "clientInfo":{"name":"t","version":"1"}}}
+            for method in ["initialize", "tools/list", "tools/call", "ping", "resources/list", "prompts/list", "nope"]:
+                request = exact_initialize if method == "initialize" else {"jsonrpc":"2.0","id":1,"method":method,"params":{}}
+                headers = {"content-type":"application/json","accept":"application/json","mcp-protocol-version":"2026-07-28"}
+                raw = json.dumps(request, separators=(",", ":"))
+                response = await client.post("/mcp", content=raw, headers=headers)
+                yield {"name":"modern-missing-envelope-"+method.replace("/", "-"),"headers":headers,"body":raw,"status":response.status_code,"response":response.text}
             for name, headers, raw in [
                 ("modern-validation", modern_headers, json.dumps(invalid)),
                 ("modern-initialize", {"content-type":"application/json","accept":"application/json"}, json.dumps(initialize)),

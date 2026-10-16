@@ -2778,6 +2778,83 @@
           "mcp-name": "plan_voyage_fuel"
         },
         "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"tools/list\", \"params\": {\"name\": \"list_markets\", \"arguments\": {}, \"_meta\": {\"io.modelcontextprotocol/protocolVersion\": \"2026-07-28\", \"io.modelcontextprotocol/clientCapabilities\": {}}}}"
+      },
+      {
+        "id": "M18-modern-missing-envelope-initialize",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json",
+          "mcp-protocol-version": "2026-07-28"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2026-07-28\",\"capabilities\":{},\"clientInfo\":{\"name\":\"t\",\"version\":\"1\"}}}"
+      },
+      {
+        "id": "M18-modern-missing-envelope-tools-list",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json",
+          "mcp-protocol-version": "2026-07-28"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\",\"params\":{}}"
+      },
+      {
+        "id": "M18-modern-missing-envelope-tools-call",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json",
+          "mcp-protocol-version": "2026-07-28"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{}}"
+      },
+      {
+        "id": "M18-modern-missing-envelope-ping",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json",
+          "mcp-protocol-version": "2026-07-28"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\",\"params\":{}}"
+      },
+      {
+        "id": "M18-modern-missing-envelope-resources-list",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json",
+          "mcp-protocol-version": "2026-07-28"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"resources/list\",\"params\":{}}"
+      },
+      {
+        "id": "M18-modern-missing-envelope-prompts-list",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json",
+          "mcp-protocol-version": "2026-07-28"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"prompts/list\",\"params\":{}}"
+      },
+      {
+        "id": "M18-modern-missing-envelope-nope",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json",
+          "mcp-protocol-version": "2026-07-28"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"nope\",\"params\":{}}"
       }
     ]
   }

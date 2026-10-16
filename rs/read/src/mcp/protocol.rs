@@ -156,9 +156,7 @@ pub fn validate(input: &Json, headers: &HeaderMap) -> Result<(), Json> {
     let version = headers
         .get("mcp-protocol-version")
         .and_then(|v| v.to_str().ok());
-    if input["method"] == "initialize"
-        || version
-            .is_none_or(|v| ["2024-11-05", "2025-03-26", "2025-06-18", "2025-11-25"].contains(&v))
+    if version.is_none_or(|v| ["2024-11-05", "2025-03-26", "2025-06-18", "2025-11-25"].contains(&v))
     {
         return Ok(());
     }

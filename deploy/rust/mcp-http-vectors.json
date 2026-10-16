@@ -1,5 +1,82 @@
 [
   {
+    "name": "modern-missing-envelope-initialize",
+    "headers": {
+      "content-type": "application/json",
+      "accept": "application/json",
+      "mcp-protocol-version": "2026-07-28"
+    },
+    "body": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2026-07-28\",\"capabilities\":{},\"clientInfo\":{\"name\":\"t\",\"version\":\"1\"}}}",
+    "status": 400,
+    "response": "{\"jsonrpc\":\"2.0\",\"id\":1,\"error\":{\"code\":-32602,\"message\":\"params._meta must be an object carrying the required 'io.modelcontextprotocol/protocolVersion' and 'io.modelcontextprotocol/clientCapabilities' envelope keys\"}}"
+  },
+  {
+    "name": "modern-missing-envelope-tools-list",
+    "headers": {
+      "content-type": "application/json",
+      "accept": "application/json",
+      "mcp-protocol-version": "2026-07-28"
+    },
+    "body": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\",\"params\":{}}",
+    "status": 400,
+    "response": "{\"jsonrpc\":\"2.0\",\"id\":1,\"error\":{\"code\":-32602,\"message\":\"params._meta must be an object carrying the required 'io.modelcontextprotocol/protocolVersion' and 'io.modelcontextprotocol/clientCapabilities' envelope keys\"}}"
+  },
+  {
+    "name": "modern-missing-envelope-tools-call",
+    "headers": {
+      "content-type": "application/json",
+      "accept": "application/json",
+      "mcp-protocol-version": "2026-07-28"
+    },
+    "body": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{}}",
+    "status": 400,
+    "response": "{\"jsonrpc\":\"2.0\",\"id\":1,\"error\":{\"code\":-32602,\"message\":\"params._meta must be an object carrying the required 'io.modelcontextprotocol/protocolVersion' and 'io.modelcontextprotocol/clientCapabilities' envelope keys\"}}"
+  },
+  {
+    "name": "modern-missing-envelope-ping",
+    "headers": {
+      "content-type": "application/json",
+      "accept": "application/json",
+      "mcp-protocol-version": "2026-07-28"
+    },
+    "body": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\",\"params\":{}}",
+    "status": 400,
+    "response": "{\"jsonrpc\":\"2.0\",\"id\":1,\"error\":{\"code\":-32602,\"message\":\"params._meta must be an object carrying the required 'io.modelcontextprotocol/protocolVersion' and 'io.modelcontextprotocol/clientCapabilities' envelope keys\"}}"
+  },
+  {
+    "name": "modern-missing-envelope-resources-list",
+    "headers": {
+      "content-type": "application/json",
+      "accept": "application/json",
+      "mcp-protocol-version": "2026-07-28"
+    },
+    "body": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"resources/list\",\"params\":{}}",
+    "status": 400,
+    "response": "{\"jsonrpc\":\"2.0\",\"id\":1,\"error\":{\"code\":-32602,\"message\":\"params._meta must be an object carrying the required 'io.modelcontextprotocol/protocolVersion' and 'io.modelcontextprotocol/clientCapabilities' envelope keys\"}}"
+  },
+  {
+    "name": "modern-missing-envelope-prompts-list",
+    "headers": {
+      "content-type": "application/json",
+      "accept": "application/json",
+      "mcp-protocol-version": "2026-07-28"
+    },
+    "body": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"prompts/list\",\"params\":{}}",
+    "status": 400,
+    "response": "{\"jsonrpc\":\"2.0\",\"id\":1,\"error\":{\"code\":-32602,\"message\":\"params._meta must be an object carrying the required 'io.modelcontextprotocol/protocolVersion' and 'io.modelcontextprotocol/clientCapabilities' envelope keys\"}}"
+  },
+  {
+    "name": "modern-missing-envelope-nope",
+    "headers": {
+      "content-type": "application/json",
+      "accept": "application/json",
+      "mcp-protocol-version": "2026-07-28"
+    },
+    "body": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"nope\",\"params\":{}}",
+    "status": 400,
+    "response": "{\"jsonrpc\":\"2.0\",\"id\":1,\"error\":{\"code\":-32602,\"message\":\"params._meta must be an object carrying the required 'io.modelcontextprotocol/protocolVersion' and 'io.modelcontextprotocol/clientCapabilities' envelope keys\"}}"
+  },
+  {
     "name": "modern-validation",
     "headers": {
       "content-type": "application/json",
