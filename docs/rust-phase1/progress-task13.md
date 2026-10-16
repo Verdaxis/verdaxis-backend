@@ -916,3 +916,39 @@ strict clippy clean; offline workspace tests pass.
 Combined gate at `df5dd4a5`: all eleven targets OK, assertion ledger OK,
 exit 0; `docs/rust-phase1/ci-contract.json` updated (no failed groups).
 Log: `task13-lane13-fence-gate.log`.
+
+### 7. Final measurement after the benchmark repair (step 4) — gate PASSES
+
+p95, release build, 240 requests / 30 per cell, interleaved
+(`task13-lane13-measure-final.log`, CALL_EXIT=0 — `require_latency_parity`
+passes: **Rust p95 <= Python p95 in all eight cells**):
+
+| Cell | Python p50 / p95 s | Rust p50 / p95 s | Rust vs Python p95 |
+| --- | --- | --- | --- |
+| list cold process | 1.269 / 1.489 | 0.750 / 0.861 | −42% |
+| list warm | 1.207 / 1.545 | 0.733 / 0.842 | −45% |
+| bids cold process | 1.507 / 1.789 | 0.983 / 1.372 | −23% |
+| bids warm | 1.303 / 1.626 | 0.822 / 1.020 | −37% |
+
+Warm breakdown, release build, after the fence fix
+(`task13-lane13-profile-final.log`, CALL_EXIT=0):
+
+| Cell | wall median | SQL total | outside SQL |
+| --- | ---: | ---: | ---: |
+| list Python | 1.056 s | 0.256 s | 0.800 s |
+| list Rust | **0.673 s** | 0.528 s | 0.144 s |
+| bids Python | 1.200 s | 0.348 s | 0.852 s |
+| bids Rust | **0.936 s** | 0.759 s | 0.177 s |
+
+The benchmark statement fell from 493/542 ms to **366/432 ms** and the
+list page wall from 0.807 to 0.673 s. Remaining named cost: the unfenced
+benchmark statement is still ~366-432 ms of server-side SQL (eligibility
+evaluation over the 10,000-row keyed set, mostly the per-row policy
+JSON probes) against Python's ~0.12-0.14 s narrow statements; Rust's
+outside-SQL is now 0.14-0.18 s. Rust is faster than Python in wall time
+on both routes; no further repair is pending on this lane.
+
+Ordering note for reproducibility: the final measurement ran at commit
+`df5dd4a5`'s code state (measurement commands were launched after the
+fence-fix commit; the release build inside each run compiles the shipped
+tree, and both runs above reflect the unfenced statement).
