@@ -286,18 +286,20 @@ async def test_late_target_acl_change_refuses(tool):
     async with production_scratch() as scratch:
         directory = Path('/root') / ('authority-' + uuid4().hex)
         common, environment = await make_case(scratch, directory)
-        # A late autovacuum worker can reach the source between the fixture's
-        # settle and the tool's fence, so bootstrap uses the same bounded
-        # PHASE0_SOURCE_SESSIONS retry as require_committed_chain.
-        for attempt in range(3):
-            await settle_quiesced(scratch)
-            result = await invoke('bootstrap', directory, common, environment)
-            if result.returncode == 0:
-                break
-            if 'PHASE0_SOURCE_SESSIONS' not in result.stderr or attempt == 2:
-                assert result.returncode == 0, result.stderr
-        common['bootstrap_receipt_sha256'] = hashlib.sha256(
-            Path(common['bootstrap_receipt']).read_bytes()).hexdigest()
+        if tool != 'bootstrap':
+            # A late autovacuum worker can reach the source between the
+            # fixture's settle and the tool's fence, so bootstrap uses the
+            # same bounded PHASE0_SOURCE_SESSIONS retry as
+            # require_committed_chain.
+            for attempt in range(3):
+                await settle_quiesced(scratch)
+                result = await invoke('bootstrap', directory, common, environment)
+                if result.returncode == 0:
+                    break
+                if 'PHASE0_SOURCE_SESSIONS' not in result.stderr or attempt == 2:
+                    assert result.returncode == 0, result.stderr
+            common['bootstrap_receipt_sha256'] = hashlib.sha256(
+                Path(common['bootstrap_receipt']).read_bytes()).hexdigest()
         if tool == 'verify':
             assert (await invoke('copy', directory, common, environment)).returncode == 0
         suffix = '' if tool == 'bootstrap' else '-acl'
