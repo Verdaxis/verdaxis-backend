@@ -77,6 +77,16 @@ def vectors():
         inputs.append((label, "plan_voyage_fuel", arguments))
     for label, value in [("object", json.dumps(base["request"])), ("null", "null"), ("array", "[]"), ("scalar", "42"), ("invalid", "{bad")]:
         inputs.append(("json-request-" + label, "plan_voyage_fuel", {"request": value}))
+    for label, fuels in [("too-many-valid-fuels", ["VLSFO"] * 7), ("too-many-invalid-fuels", ["BOGUS"] * 7)]:
+        arguments = copy.deepcopy(base)
+        arguments["request"]["vessel"]["compatible_fuels"] = fuels
+        inputs.append((label, "plan_voyage_fuel", arguments))
+    arguments = copy.deepcopy(base)
+    arguments["request"]["vessel"]["speed_knots"] = "10e999999999999999999"
+    inputs.append(("adjusted-exponent-overflow", "plan_voyage_fuel", arguments))
+    arguments = copy.deepcopy(base)
+    arguments["request"]["assumptions"]["reporting_year"] = 2.035e3
+    inputs.append(("numeric-scientific-year", "plan_voyage_fuel", arguments))
     for name, tool, arguments in inputs:
         metadata = server._tool_manager.get_tool(tool).fn_metadata
         vector = {"name": name, "tool": tool, "arguments": arguments}

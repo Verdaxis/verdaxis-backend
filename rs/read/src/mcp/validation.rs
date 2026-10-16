@@ -358,7 +358,7 @@ impl Validator<'_> {
         }
         if schema["maxItems"]
             .as_u64()
-            .is_some_and(|max| values.len() > max as usize)
+            .is_some_and(|max| valid > max as usize)
         {
             self.error(
                 path,
@@ -371,7 +371,12 @@ impl Validator<'_> {
                 input,
             );
         }
-        if valid == values.len() && path.ends_with(".compatible_fuels") {
+        if valid == values.len()
+            && schema["maxItems"]
+                .as_u64()
+                .is_none_or(|max| valid <= max as usize)
+            && path.ends_with(".compatible_fuels")
+        {
             for (index, value) in values.iter().enumerate() {
                 if values[..index].contains(value) {
                     self.error(

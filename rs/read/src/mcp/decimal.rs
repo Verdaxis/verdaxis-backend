@@ -140,7 +140,10 @@ impl Decimal {
         let exponent = exponent
             .checked_sub(fraction.len().try_into().map_err(|_| "decimal scale")?)
             .ok_or("decimal scale")?;
-        if !(MIN_CONSTRUCTOR_EXPONENT..=MAX_CONSTRUCTOR_EXPONENT).contains(&exponent) {
+        let significant = digits.trim_start_matches('0').len().max(1) as i64;
+        if !(MIN_CONSTRUCTOR_EXPONENT..=MAX_CONSTRUCTOR_EXPONENT).contains(&exponent)
+            || exponent + significant - 1 > MAX_CONSTRUCTOR_EXPONENT
+        {
             return Err("decimal exceeds arithmetic bounds".into());
         }
         let mut coefficient =
