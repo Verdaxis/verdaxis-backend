@@ -137,7 +137,9 @@ app/
 scripts/phase0/assert_host.py    # Read-only named boundary assertions; no orchestration or journal mutation
 scripts/phase0/start_fence.py     # External root-owned operator-lock condition; composes with deploy guard
 docs/runbooks/phase0-cutover.md  # One-use manual fence, journal, outbox drain and complete-tuple rollback
-scripts/phase0/bootstrap.py      # Synthetic-only empty bootstrap; checked connection owns one DDL transaction
+scripts/phase0/bootstrap.py      # Empty bootstrap; checked connection owns one DDL transaction
+scripts/phase0/production.py     # Root-private operator authority, release-byte binding and production CLI integration
+scripts/phase0/database_fence.py # Exact target datacl and source/target session observations; never changes grants
 scripts/phase0/manifest.py       # Read-only catalog inspection and frozen source inventory comparison
 scripts/run_phase0_postgres_tests.sh # Owns pinned disposable PostgreSQL; no caller database URL
 deploy/phase0/                   # Explicit copy mapping and provisional eight-product union contract
@@ -191,7 +193,10 @@ proofs remain pending. Local tests do not authorize host rehearsal. The existing
 Phase 0 runner now checks every Phase 0 suite and local Review Focus case and
 records JUnit counts and artifact hashes under its disposable fixture directory.
 The frontend two-bundle evidence is reviewed separately, with its explicit PM
-exception. Host bootstrap/copy remain synthetic-only.
+exception. Host tools now have a root-private production authority path, proved
+on synthetic production-named Linux storage; live activation still requires
+independent review and operator approval. See docs/phase0/progress-hosttools.md
+for exact interfaces and the evidence boundaries.
 
 ## Key Patterns
 

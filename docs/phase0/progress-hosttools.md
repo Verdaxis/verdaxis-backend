@@ -1,6 +1,141 @@
 # Phase 0 host-tool sign-off fixes — partial checkpoint
 
-## Current checkpoint 8 — role decision resolved; production CLI red test committed
+## Current production interface — end-to-end synthetic Linux proof
+
+**The production bootstrap → copy → verify CLI chain passes. Independent security
+review and operator approval remain required before any host activation.**
+
+Implementation: `f1ee45c2` (shared production authority and fences), `52b16f71`
+(temporary synthetic diagnostic), `78f8343b` (root-controlled test installation),
+`16a0555c` (copy boundary import), `35e19f6d` (expanded refusals/recovery; removes
+bootstrap diagnostic retry). Real CLI chain: **15 passed**, 198.59 seconds,
+including four fixture tests and ten bootstrap refusal cases. The success case
+also checks copy/verify wrong host/release/bytes/receipt, both sides' wrong
+OID/role/name/host/port/cluster, extra target session, changed ACL, copy replay,
+and independent verification after deletion of the copy receipt. Refusals are
+exit 1, not argparse exit 2. No authority check is mocked. Root-owned evidence
+and distinct production-mode credentials are real inside the disposable runtime.
+
+Completed regression gates at `35e19f6d`:
+
+- Explicit production Linux acceptance: **15 passed**, 1 warning, 198.59 seconds.
+- Full remote Phase 0 PostgreSQL suite: **177 passed**, 62 warnings, 713.31
+  seconds; no failed/skipped cases. This standard suite includes synthetic
+  bootstrap/copy/verify and the seven database-fence cases; the production CLI
+  acceptance is the separate explicit Linux invocation above.
+- Full unit suite: **2211 passed, 19 failed**, 514 warnings, 124.64 seconds;
+  all failures are the known macOS `test_deploy_health.py` cases.
+- Remote logs: `work/hosttools-production-chain-final.log`,
+  `work/hosttools-production-postgres.log`; local log:
+  `work/hosttools-production-unit.log`. Both remote runners completed and
+  released the lane lock; no pytest/runner processes remained. Their stuck local
+  return wrappers were stopped only after completed results were retrieved.
+  All test runs finished; owned containers were removed with volumes.
+
+### Operator authority and installation
+
+The operator must install `/root/verdaxis-phase0/authority.json`, root-owned 0600
+inside a root-owned 0700 directory with root-controlled ancestors. This is the
+independent approval anchor; commands cannot select or replace its path.
+It must come from reviewed release archive bytes and trusted operator database
+observations, **not a blind recapture from arbitrary target data**. The tools
+compare the installed source tree digest with this authority, not ambient Git.
+Install source directories/files root-owned and not group/world-writable.
+Interpreter/package installation remains an operator-attested prerequisite.
+
+The exact authority JSON fields are:
+
+- `mode`: `production`; `approved`: JSON `true`; `hostname`: exact OS nodename.
+- `release_sha`: approved full 40-lowercase-hex release SHA, also required as
+  `RELEASE_SHA`; `tool_tree_sha256`: `host_authority.tree_digest` of that reviewed
+  installed archive (scripts/app/alembic/deploy plus enumerated root inputs).
+- `source_sha`: `c08266bd6969143812dec7c5033338428cd5f159`.
+- `source`, `target`: each has exactly `host`, `port`, `database`, `oid`, `role`,
+  `server_host`, `server_port`, `cluster_system_identifier`. Client host is
+  `127.0.0.1`; server host is the exact loopback address/CIDR reported by PostgreSQL.
+  Source is `verdaxis` / `verdaxis_backup`; target is `verdaxis_prod` /
+  `verdaxis_migrator`. Distinct positive OIDs, same independently attested cluster
+  and endpoint; cluster identifier is a positive decimal string. No new roles.
+- `source_catalog_sha256`: `manifest.digest(load_manifest()['source_catalog'])`.
+- `frozen_source`: complete `fingerprint_database` result from the frozen source
+  (table/column hashes and sequence states), obtained under the post-stop gate.
+- `target_datacl`: exact non-null `pg_database.datacl::text`, independently
+  recorded after PUBLIC CONNECT is revoked. CONNECT may name only the migrator;
+  no grant option. Target owner must be the migrator. No HBA changes.
+- `bootstrap_receipt`: absolute new private report path for this target build.
+
+Each per-tool manifest repeats all authority fields exactly and adds exactly:
+`tool` (`bootstrap`, `copy`, or `verify`), `report` (absolute new output path),
+and `bootstrap_receipt_sha256` (JSON null for bootstrap; exact SHA-256 of the
+successful bootstrap report bytes for copy/verify). Bootstrap `report` must equal
+`bootstrap_receipt`. Do not reuse one manifest for different tools.
+
+### Exact production commands and secret formats
+
+Run from the approved root-controlled installation, with production Settings
+and the approved full release SHA. Distinct app/migrator production URLs must
+validate; source routing is always its separate backup secret, not Settings.
+Each tool gets its own separate source and target root-owned 0600 secret files
+inside private root-owned directories. Each contains exactly one line:
+
+```text
+DATABASE_URL=postgresql+asyncpg://<exact-role>:<password>@127.0.0.1:<port>/<exact-database>
+```
+
+No URL query parameters; explicit nonempty passwords; source and target passwords
+must differ. URLs never go in argv or public error output. All three tools use
+the same `--source-environment-file` / `--target-environment-file` spelling.
+Bootstrap's historical synthetic path retains its old one-line
+`MIGRATOR_DATABASE_URL` format; do not use that format for production.
+
+```sh
+/opt/verdaxis-phase0/venv/bin/python -m scripts.phase0.bootstrap \
+  --manifest /root/verdaxis-phase0/bootstrap.json \
+  --source-environment-file /root/verdaxis-phase0/bootstrap-source.env \
+  --target-environment-file /root/verdaxis-phase0/bootstrap-target.env --apply
+/opt/verdaxis-phase0/venv/bin/python -m scripts.phase0.copy \
+  --manifest /root/verdaxis-phase0/copy.json \
+  --source-environment-file /root/verdaxis-phase0/copy-source.env \
+  --target-environment-file /root/verdaxis-phase0/copy-target.env \
+  --source-sha "$OLD_SHA" --target-sha "$RELEASE_SHA" --apply
+/opt/verdaxis-phase0/venv/bin/python -m scripts.phase0.verify \
+  --manifest /root/verdaxis-phase0/verify.json \
+  --source-environment-file /root/verdaxis-phase0/verify-source.env \
+  --target-environment-file /root/verdaxis-phase0/verify-target.env \
+  --report /root/verdaxis-phase0/verified.json
+```
+
+`OLD_SHA` is the exact pinned source SHA above. Verify's `--report` must equal
+its manifest's report path. Bootstrap/copy without `--apply` validate authority
+only; they do not open database connections or authorize changes. Verify is
+always read-only. Unknown/abbreviated arguments refuse.
+
+Outputs, always new/private:
+
+- Bootstrap: authority digest, target identity, exact migration-created reference
+  rows and sequence baseline. Captured within successful DDL transaction;
+  published only after commit and final source/fence checks.
+- Copy: existing copy receipt (manifest digest, source snapshot, target OID,
+  table/column/reference verification, numeric totals, sequence values), plus
+  durable `.attempt.json` and failure evidence when applicable. No replay.
+- Verify: manifest digest, frozen source fingerprint, verification results,
+  sequences and both identities. Requires bootstrap receipt, not copy receipt.
+  Receipt-loss recovery invokes verify with a new report, never copy again.
+
+Entry/precommit/end observations check target ACL and every other session;
+source remains read-only repeatable-read, with fresh post-operation transaction
+checks before publishing. PostgreSQL CONNECT ACLs do not evict prior sessions
+or constrain superusers: the operator post-stop gate remains mandatory. Tools
+never change grants/settings or kill sessions. After runtime CONNECT is granted,
+these pre-acceptance tools deliberately refuse; stop and restore the approved
+fenced operating boundary before any later independent verification.
+
+Remaining review scope: the production test currently exercises pre-operation
+ACL/session changes and receipt loss; exhaustive in-flight boundary fault
+injection and operator installation/provenance review are still needed before
+calling B1/B2 independently signed off. Do not infer live permission from tests.
+
+## Historical checkpoint 8 — role decision resolved; production CLI red test committed
 
 **B1/B2 remain incomplete. The integrated production chain is not implemented.**
 
