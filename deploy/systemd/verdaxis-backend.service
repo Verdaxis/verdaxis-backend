@@ -16,8 +16,10 @@ WorkingDirectory=/home/verdaxis-prod/verdaxis/prod/be
 EnvironmentFile=/home/verdaxis-prod/verdaxis/prod/be/.env
 EnvironmentFile=/home/verdaxis-prod/verdaxis/prod/be/.runtime-release.env
 Environment=UVICORN_WORKERS=4
-# An absent key disables KYC storage, not the backend (systemd 249 and 255).
-SetCredential=kyc-document-keys:
+# A missing key file fails the unit start (243/CREDENTIALS): the approved
+# no-key-ring state is an EMPTY root:root 0400 file at this path. The
+# application treats that empty credential as absent (KYC storage disabled,
+# readiness unaffected). See the security runbook's KYC key operations.
 LoadCredential=kyc-document-keys:/etc/verdaxis/kyc-document-keys.json
 ExecStartPre=/usr/bin/test -r /home/verdaxis-prod/verdaxis/prod/be/.env
 ExecStartPre=/usr/bin/test -r /home/verdaxis-prod/verdaxis/prod/be/.runtime-release.env

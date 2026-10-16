@@ -31,7 +31,11 @@ def test_credentials_are_optional_at_systemd_boundary():
     for suffix, key_suffix in (("", ""), ("-staging", "-staging")):
         unit = Path(f"deploy/systemd/verdaxis-backend{suffix}.service").read_text()
         assert f"LoadCredential=kyc-document-keys:/etc/verdaxis/kyc-document-keys{key_suffix}.json" in unit
-        assert "SetCredential=kyc-document-keys:\n" in unit
+        # The empty SetCredential fallback is invalid syntax on systemd 255 and
+        # was removed: an absent key file must fail the start (243/CREDENTIALS),
+        # so a host without a key ring publishes an empty placeholder file.
+        assert "SetCredential=" not in unit
+        assert "EMPTY root:root 0400" in unit
 
 
 def test_downgrade_locks_fk_targets_nowait_before_read_or_drop(monkeypatch):

@@ -1,6 +1,19 @@
 # Phase 0 Task 9 — integrated acceptance
 
-## Current status — 2026-10-16
+## Current status — 2026-10-17
+
+**The cutover is complete.** Release `56d75770` is live in production since
+17 Oct 02:39 SGT (window 02:19–02:39 SGT, API closed about 8 minutes) and is the
+final accepted Python oracle; frontend `5f3cd698` is promoted (run `38948394269`).
+The full window record — counts 26,242 orders / 127 trades / 44 users /
+50 organizations equal, restored backup 62/62, the three in-window deviations
+and the demo-identity fix, and the open B11/cleanup items — is in the acceptance
+report's Task 11 section. The post-cutover branch folds the window findings into
+source (assert_host owner-git, KYC empty-placeholder key source) and the host
+appendix. The status text below this paragraph is the pre-cutover record kept
+for audit.
+
+## Pre-cutover status — 2026-10-16
 
 N1 cleanup makes [the acceptance report](../../outputs/phase0/acceptance.md) the
 single source for the current release/oracle table, eleven-category status table,

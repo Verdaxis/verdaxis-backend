@@ -1,5 +1,16 @@
 # Phase 0 progress
 
+## Phase 0 outcome — 2026-10-17
+
+Phase 0 is deployed. Release `56d75770` has been live in production since
+17 Oct 02:39 SGT (cutover window 02:19–02:39 SGT; API closed about 8 minutes)
+on the new `verdaxis_prod` database at revision `p0_20261016_union`, with
+frontend `5f3cd698` promoted by workflow run `38948394269`. The final accepted
+Python oracle is **`56d7577085af99411a6f9c3e34e64ad929d09954`**. The window
+record, deviations and open items (B11 key ring; quiet-period cleanup) are in
+`outputs/phase0/acceptance.md`; the host appendix carries the post-cutover
+amendments. Task-level history follows unchanged below.
+
 ## Task 1 — source fixtures and frozen mapping
 
 Task 1 is complete. No later task was implemented. Acceptance evidence and the
