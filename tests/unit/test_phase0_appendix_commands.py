@@ -137,7 +137,7 @@ def test_pm_p05_scope_and_remaining_conflicts_are_explicit():
     text = APPENDIX.read_text()
     assert '## Open items' in text
     assert '## PM questions' not in text
-    assert 'pg_createcluster 17 p0rehearsal --port 5434 --start-conf manual' in text
+    assert 'pg_createcluster 17 p0rehearsal --port 5434 --locale en_US.UTF-8 --start-conf manual' in text
     assert 'IPAddressDeny=any' in text and 'IPAddressAllow=localhost' in text
     assert '127.0.0.1:8100' in text
     assert 'not rehearsed' in text
