@@ -156,6 +156,19 @@ def test_appendix_shell_blocks_are_syntactically_valid():
         assert result.returncode == 0, (index, result.stderr)
 
 
+def test_final_pm_order_and_static_backup_boundary():
+    text = APPENDIX.read_text()
+    assert '## PM answers — final sequencing decisions' in text
+    assert 'candidate_only=true' not in text
+    assert text.count('-f candidate_only=false') == 1
+    assert 'path /health/ready /health/live' in text
+    assert 'method GET' in text
+    assert 'dispatched_at IS NULL' in text and 'stream_seq IS NULL' in text
+    assert text.index('### B4a. Static backup') < text.index('### B5.')
+    assert text.index('### B10. Sign and reopen') < text.index('### B10a. ONE frontend')
+    assert 'after API reopening, never automatically return to the old database' in text
+
+
 def test_inline_operator_python_compiles_without_execution():
     text = APPENDIX.read_text()
     snippets = re.findall(r"<<'PY'\n(.*?)^PY$", text, re.MULTILINE | re.DOTALL)
