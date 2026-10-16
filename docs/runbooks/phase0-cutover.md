@@ -46,7 +46,10 @@ Do not proceed with placeholders. The operator must add the actual commands for:
   reader on prod. The helper publishes that credential-free file beside the
   runtime artifact; verify it, but do not claim a reader consumes it. Preserve
   the existing demo/onboarding bindings with the appendix's exact Q6-approved
-  database-name changes before rearming.
+  database-name changes before rearming, and re-check the demo job's runtime
+  identity as `verdaxis-demo-production` before rearming its timer (appendix
+  B10b; the 17 October window rearmed first and the job failed on `.git/HEAD`
+  permissions).
   Do not install the source-only dual-host local monitor unchanged.
 - Separate scratch-cluster endpoint/socket, system identifier and exact database
   OIDs. The assertion uses `/var/run/postgresql` for the operator's cluster query;
@@ -182,10 +185,19 @@ fence and stale permit then deny starts. Do not start recovery/timers.
    rollback directory, then rename the new clean tree into `prod/be`. Build its
    venv at this final path from approved cached packages. Check all shebangs.
    The old venv is usable only after restoring its original directory path.
+   Carry the old tree's demo-user ACL onto the new `.git` (see appendix B5) so
+   `verdaxis-demo-production` can read `.git/HEAD` for its runtime identity
+   check; `.env` and other secrets stay closed to that user.
 4. Publish matching runtime and monitor identity before any new code receives
    credentials. Verify `.env` targets `verdaxis_prod`, exact role split, UTC,
-   KYC gate off and the approved vault credential source. Compare complete tuple
-   digests with `--check tuple`. Repeat exact identity and copy verification.
+   KYC gate off and the approved vault credential source. The key source must
+   exist before the unit installer preflight: a host without a real key ring
+   publishes the approved empty root:root 0400 placeholder (appendix B5; the
+   application treats the empty credential as missing). Compare complete tuple
+   digests with `--check tuple`; the assertion helper runs git as the checkout
+   owner (`sudo -n -u <owner>`) and refuses a root-owned checkout — never add a
+   root `safe.directory` to work around it. Repeat exact identity and copy
+   verification.
 5. Run the existing deploy helper dry-run, then exact-SHA unit installer dry-run
    and approved installation. Do not remove checkpoint, clean-tree, digest,
    migration, ACL, two-lock, four-worker or readiness gates. Recheck effective
