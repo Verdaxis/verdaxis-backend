@@ -165,6 +165,10 @@ Python diagnostics and normalized inputs. This remains a partial acceptance
 checkpoint; `docs/rust-phase1/progress-task11.md` lists unresolved input-domain,
 protocol and error-class gaps. MCP wire recordings stay in untracked lane evidence
 until integration publishes them into the single golden corpus.
+`tests/ephemeral_ports.py` is the shared kernel-range authority for the disposable
+allocator, server producer and target consumer. It reads Linux procfs or macOS
+sysctl and fails closed without changing host settings. Database/Linux gates run
+through the approved `verdaxis-prod-test` isolated harness; local Colima stays off.
 
 ## File Map
 

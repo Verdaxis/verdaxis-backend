@@ -268,8 +268,11 @@ N1 typed failure classification is implemented in `485a5d1b`. Both had failing
 regressions first. `2007fd60` repairs M2 tuple error ordering and adjusted-exponent
 constructor overflow; the numeric scientific-year case already matched and is
 now retained. `a56b669f` attests protocol fixtures against the Python SDK.
-The corpus is 120 MCP cases. Task 11 is not yet accepted: remaining cases and
-remote acceptance status are recorded in the latest section below.
+The current corpus is 136 MCP cases. Shared port authority and the requested
+modern negotiation cases are complete with both KYC wire gates green; see
+**Shared port authority and modern negotiation** below for current evidence and
+integration handoff. Historical blockers in this file are superseded there.
+Final Task 11 acceptance remains the PM/independent review decision.
 `c384156b` adds a failing-first 35-vector Python validation matrix and a
 schema-driven validator. It covers unknown intensity keys, midnight dates,
 padded Decimals, absent/wrong nested fields, superscript IMO rejection, the
@@ -364,6 +367,57 @@ venv/bin/python -m scripts.rust_contract.run_disposable --group mcp --seed-mode 
 ```
 
 ## Latest repair status and PM decision inputs — 2026-10-16
+
+### Shared port authority and modern negotiation (supersedes blockers below)
+
+`5ed6326b` moves kernel range discovery into `tests/ephemeral_ports.py` and uses
+it from the allocator, Python producer and target consumer. All fixed-range
+producer/consumer guards found in the repository now share that helper. Discovery
+fails closed; no cache or host configuration change is used. Numeric loopback,
+token, environment, release identity, database `_test` authority and all other
+checks are unchanged. **Shared-harness merge:** the build owner and Phase 0
+owner must reconcile this helper and imports at merge. Twelve port tests include
+Linux/macOS parsing, read failures, valid Linux port 38153, and invalid ports.
+The existing target-attestation suite still passes. One initial test invocation
+used nonexistent `tests/unit/` paths and ran no tests; the corrected actual suite
+`tests/test_disposable_target.py` passed with the contracts (167 at that point).
+
+The shared rule removed both Linux blockers. At fixed source `5ed6326b`, remote
+recording was stable twice in each state and fresh differential plus saved-wire
+replay passed **132/132 in both KYC states**, including privacy and both SQL
+cancellation proofs. Evidence: `work/rust-phase1/task11-shared-port-wire.log`.
+
+`4e2f81da` adds four modern negotiation cases to the HTTP oracle matrix:
+modern/future initialize both retain Python's `2025-11-25` fallback; modern
+validation errors include `resultType` and server identity; modern tools/list
+uses private cache scope, Python field order and modern schema order. Failing
+oracle tests preceded the response fixes. Native rmcp still owns dispatch.
+The corpus now has **136 cases**. HTTP fixture regeneration is tested directly
+against the local Python ASGI oracle without SQL. New full remote gates run only
+through `verdaxis-prod-test`; the single committed golden is unchanged.
+Local final checks: fmt/clippy pass; Rust workspace **143 passed**; Python
+contracts **134 passed**; contracts plus disposable-target checks **168 passed**;
+combined Python oracle/contracts/target checks **269 passed**. The final isolated
+Linux PostgreSQL suite passed **152 tests**, including typed failure recovery.
+Logs: `work/rust-phase1/task11-modern-final-{offline,python,oracle,remote}.log`.
+The final remote source is `4e2f81da0a719b508dbc556dad7d91a0f6c4c0a7`.
+Both KYC states recorded **136 stable cases across two passes**; fresh differential
+and saved-wire replay each passed **136/136 in both states**, with recursive
+hidden-value privacy and both SQL cancellation proofs. All runs finished and the
+wrapper exited zero. No source nondeterminism or comparator change occurred.
+Remote lane evidence remains under that source's untracked
+`work/rust-phase1/mcp-evidence/golden/` directory; logs are streamed locally.
+
+**Current resume / integration handoff:** shared range and the requested modern
+initialize/tool-list/typed-error negotiation cases are complete for this corpus.
+PM reconciles shared harness changes with the build and Phase 0 branches, then
+publishes MCP into the single merged golden. Do not treat the historical STOP
+sections below as current blockers. Broader unrecorded protocol states (for
+example GET wildcard/resumption and modern notification combinations) are not
+claimed as exhaustively accepted by this 136-case gate. An independent acceptance
+review can now use these exact commits and evidence without another environment
+repair. No test process remains running.
+
 
 ### PM-approved allocator/root-argument checkpoint (supersedes stops below)
 
