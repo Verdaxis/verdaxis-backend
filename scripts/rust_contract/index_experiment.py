@@ -5,6 +5,8 @@ Creates one candidate partial index INSIDE the disposable test database
 /api/orderbook/bids on Python and Rust with and without it, captures
 EXPLAIN (ANALYZE, BUFFERS) plans for the page-walk shape, and reports the
 numbers. The index is dropped before cleanup. No acceptance is claimed.
+The Rust server runs cargo's release profile so the p95 cells measure
+optimized code (PM decision).
 """
 import json
 import math
@@ -27,7 +29,14 @@ PATHS = ("/api/orderbook", "/api/orderbook/bids")
 
 class IndexExperiment(runner.Runner):
     def __init__(self):
-        super().__init__("all", seed=True, keep=False, seed_mode="corpus", mixed_caddy=True)
+        super().__init__(
+            "all",
+            seed=True,
+            keep=False,
+            seed_mode="corpus",
+            mixed_caddy=True,
+            release=True,
+        )
         self.launches = []
         self.plans = {}
         self.route_plans: list[dict] = []

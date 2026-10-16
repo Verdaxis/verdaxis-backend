@@ -149,3 +149,24 @@ def test_combined_gate_gives_each_target_a_fresh_environment(monkeypatch):
     assert started == ["health", "echo"]
     assert target_groups == [["health"], ["echo"]]
     assert stopped == 2
+
+
+def test_build_profile_selection_keeps_correctness_on_dev():
+    """Correctness runs build dev; only an explicit release asks for --release.
+
+    The dev profile panics on integer overflow and so catches more defects,
+    which is why every correctness invocation must keep it (PM decision).
+    Latency measurement runners construct the Runner with release=True and
+    then must build and start the release binary instead.
+    """
+    dev = run_disposable.Runner(
+        "orderbook_lists", seed=False, keep=False, seed_mode="corpus"
+    )
+    assert "--release" not in dev.build_command()
+    assert dev.server_path().parts[-3] == "debug"
+    release = run_disposable.Runner(
+        "orderbook_lists", seed=False, keep=False, seed_mode="corpus",
+        release=True,
+    )
+    assert release.build_command()[-1] == "--release"
+    assert release.server_path().parts[-3] == "release"

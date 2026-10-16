@@ -4,7 +4,8 @@ For one list request and one bids request, per runtime (Python, Rust):
 wall time, per-statement pg_stat_statements rows (calls, execution time),
 and the Rust request log's own duration_ms. Sequential requests, one
 ANALYZEd disposable corpus database, no other load. This is lane-13
-diagnostic evidence, not an acceptance gate.
+diagnostic evidence, not an acceptance gate. The Rust server runs cargo's
+release profile, matching what production will serve (PM decision).
 """
 import json
 import time
@@ -16,7 +17,14 @@ from scripts.rust_contract import run_disposable as runner
 
 class Profile(runner.Runner):
     def __init__(self):
-        super().__init__("all", seed=True, keep=False, seed_mode="corpus", mixed_caddy=True)
+        super().__init__(
+            "all",
+            seed=True,
+            keep=False,
+            seed_mode="corpus",
+            mixed_caddy=True,
+            release=True,
+        )
 
     def sql(self, statement):
         return runner.docker(

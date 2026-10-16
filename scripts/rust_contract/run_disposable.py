@@ -126,6 +126,7 @@ class Runner:
         rust_target: str | None = None,
         require_complete_ledger: bool = False,
         report: Path | None = None,
+        release: bool = False,
     ) -> None:
         self.mixed_caddy = mixed_caddy
         self.record_all = record_all
@@ -134,6 +135,10 @@ class Runner:
         self.seed = seed
         self.keep = keep
         self.seed_mode = seed_mode
+        # Correctness runs stay on the dev profile (it panics on integer
+        # overflow and so catches more defects). Latency measurements must use
+        # the release profile, or they time unoptimized code. PM decision.
+        self.release = release
         # Which Rust contract targets to run. A single group defaults to its own
         # target; `--group all` alone runs none (integration only), while
         # `--rust-target all` runs every target once in this shared database.
@@ -275,19 +280,33 @@ CREATE EXTENSION IF NOT EXISTS postgis;
             )
         )
 
+    def build_command(self) -> list[str]:
+        """The cargo build for this run's Rust contract server.
+
+        Dev profile for correctness runs (overflow panics catch defects);
+        `--release` only when a measurement run asked for it explicitly.
+        """
+        return [
+            "cargo",
+            "build",
+            "--manifest-path",
+            "rs/Cargo.toml",
+            "--locked",
+            "--features",
+            "contract-tests",
+            "--example",
+            "contract_server",
+            *(["--release"] if self.release else []),
+        ]
+
+    def server_path(self) -> Path:
+        """The contract-server binary this run's build produced."""
+        flavour = "release" if self.release else "debug"
+        return ROOT / "rs" / "target" / flavour / "examples" / "contract_server"
+
     def run(self) -> None:
         subprocess.run(
-            [
-                "cargo",
-                "build",
-                "--manifest-path",
-                "rs/Cargo.toml",
-                "--locked",
-                "--features",
-                "contract-tests",
-                "--example",
-                "contract_server",
-            ],
+            self.build_command(),
             cwd=ROOT,
             env={**os.environ, "RELEASE_SHA": self.sha},
             check=True,
@@ -397,7 +416,7 @@ CREATE EXTENSION IF NOT EXISTS postgis;
             }
         )
         self.spawn(
-            [str(ROOT / "rs" / "target" / "debug" / "examples" / "contract_server")],
+            [str(self.server_path())],
             {**base_env, "RUST_CONFIG": rust_config, "CONTRACT_GROUP": group},
         )
         wait_for_port(python_port)
@@ -765,6 +784,12 @@ def main(argv: list[str] | None = None) -> int:
         "--kyc-gate", choices=("enabled", "disabled"), default="enabled"
     )
     parser.add_argument(
+        "--release",
+        action="store_true",
+        help="build and run the Rust contract server with cargo's release profile "
+        "(for latency measurement; correctness runs stay on the dev profile)",
+    )
+    parser.add_argument(
         "--no-seed",
         action="store_true",
         help="skip the ordinary seed; only valid for groups with no data cases",
@@ -805,6 +830,7 @@ def main(argv: list[str] | None = None) -> int:
         rust_target=args.rust_target,
         require_complete_ledger=args.require_complete_ledger,
         report=args.report,
+        release=args.release,
     )
     try:
         runner.run()

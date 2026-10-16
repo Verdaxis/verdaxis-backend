@@ -2,7 +2,9 @@
 
 Cold means a fresh service process and fresh connection/statement caches, not
 an OS page-cache flush. Warm means one service process after one warmup request.
-The experiment never changes host caches or configuration.
+The experiment never changes host caches or configuration. The Rust server is
+always built and run with cargo's release profile: latency must be measured on
+optimized code, while correctness gates keep the dev profile (PM decision).
 """
 import json
 import math
@@ -29,7 +31,14 @@ def require_latency_parity(summary):
 
 class Measurement(runner.Runner):
     def __init__(self):
-        super().__init__("all", seed=True, keep=False, seed_mode="corpus", mixed_caddy=True)
+        super().__init__(
+            "all",
+            seed=True,
+            keep=False,
+            seed_mode="corpus",
+            mixed_caddy=True,
+            release=True,
+        )
         self.launches = []
 
     def spawn(self, args, env):
