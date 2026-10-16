@@ -122,10 +122,21 @@ async def invoke(tool, directory, common, environment, *, suffix='', manifest_to
                                    capture_output=True, text=True)
 
 
-async def require_committed_chain(directory, common, environment, *, copy=True):
-    """Run the real bootstrap (and copy) CLI so a later tool sees committed state."""
-    result = await invoke('bootstrap', directory, common, environment)
-    assert result.returncode == 0, result.stderr
+async def require_committed_chain(scratch, directory, common, environment, *, copy=True):
+    """Run the real bootstrap (and copy) CLI so a later tool sees committed state.
+
+    A late autovacuum worker can connect to the disposable source between the
+    fixture's own settle and the tool's fence, so the tool refuses with
+    ``PHASE0_SOURCE_SESSIONS``. That refusal is coded and rolls the DDL back, so
+    the harness settles again and retries that one case before failing.
+    """
+    for attempt in range(3):
+        await settle_quiesced(scratch)
+        result = await invoke('bootstrap', directory, common, environment)
+        if result.returncode == 0:
+            break
+        if 'PHASE0_SOURCE_SESSIONS' not in result.stderr or attempt == 2:
+            assert result.returncode == 0, result.stderr
     common['bootstrap_receipt_sha256'] = hashlib.sha256(
         Path(common['bootstrap_receipt']).read_bytes()).hexdigest()
     if copy:
@@ -151,9 +162,15 @@ async def finish_tool(process):
 async def wait_for_advisory_lock(scratch, process, key, *, timeout=120):
     """Wait until the running tool holds its transaction-scoped advisory lock.
 
-    Bootstrap and copy take that lock after their entry boundary and hold it
-    until the mutation ends. A fault injected once the lock is held can only be
-    refused by a later boundary, never by the entry observation.
+    Bootstrap and copy take that lock on the disposable target after their entry
+    boundary and hold it until the mutation ends. A fault injected once the lock
+    is held can only be refused by a later boundary, never by the entry
+    observation.
+
+    Advisory locks are scoped to one database, so the lock is observed through
+    the cluster-wide ``pg_locks`` view from the independent administrator session
+    on ``postgres``. Polling from a connection on the target itself would open
+    the very extra session the tool's own target fence refuses.
     """
     deadline = time.monotonic() + timeout
     async with scratch.admin_connection() as admin:
@@ -162,8 +179,13 @@ async def wait_for_advisory_lock(scratch, process, key, *, timeout=120):
                 result = await finish_tool(process)
                 raise AssertionError(
                     f'Tool exited {result.returncode} before taking lock {key}: {result.stderr}')
-            free = await admin.fetchval('SELECT pg_try_advisory_xact_lock($1::bigint)', key)
-            if not free:
+            held = await admin.fetchval('''
+                SELECT count(*) FROM pg_locks l
+                JOIN pg_database d ON d.oid = l.database
+                WHERE l.locktype = 'advisory' AND l.granted
+                  AND d.datname = 'verdaxis_prod'
+            ''')
+            if held:
                 return
             await asyncio.sleep(0.1)
     raise AssertionError(f'Tool never took advisory lock {key}')

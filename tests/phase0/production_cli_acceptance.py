@@ -450,7 +450,7 @@ async def test_copy_in_flight_source_sequence_change_refuses_before_commit():
     async with production_scratch() as scratch:
         directory = Path('/root') / ('authority-' + uuid4().hex)
         common, environment = await make_case(scratch, directory)
-        await require_committed_chain(directory, common, environment, copy=False)
+        await require_committed_chain(scratch, directory, common, environment, copy=False)
         result = await run_tool_with_lock_fault(
             scratch, 'copy', directory, common, environment,
             IMPORT_LOCK, lambda: bump_source_sequence(scratch))
@@ -467,7 +467,7 @@ async def test_copy_in_flight_target_acl_change_refuses_before_commit():
     async with production_scratch() as scratch:
         directory = Path('/root') / ('authority-' + uuid4().hex)
         common, environment = await make_case(scratch, directory)
-        await require_committed_chain(directory, common, environment, copy=False)
+        await require_committed_chain(scratch, directory, common, environment, copy=False)
         result = await run_tool_with_lock_fault(
             scratch, 'copy', directory, common, environment,
             IMPORT_LOCK, lambda: grant_target_connect(scratch))
@@ -484,7 +484,7 @@ async def test_copy_in_flight_target_session_refuses_before_commit():
     async with production_scratch() as scratch:
         directory = Path('/root') / ('authority-' + uuid4().hex)
         common, environment = await make_case(scratch, directory)
-        await require_committed_chain(directory, common, environment, copy=False)
+        await require_committed_chain(scratch, directory, common, environment, copy=False)
         result = await run_tool_with_target_session(
             scratch, 'copy', directory, common, environment, IMPORT_LOCK)
         assert result.returncode == 1, result.stdout
@@ -500,7 +500,7 @@ async def test_copy_late_source_row_change_refuses_at_final_boundary():
     async with production_scratch() as scratch:
         directory = Path('/root') / ('authority-' + uuid4().hex)
         common, environment = await make_case(scratch, directory)
-        await require_committed_chain(directory, common, environment, copy=False)
+        await require_committed_chain(scratch, directory, common, environment, copy=False)
         result = await run_tool_with_lock_fault(
             scratch, 'copy', directory, common, environment,
             IMPORT_LOCK, lambda: late_source_write(scratch))
@@ -518,7 +518,7 @@ async def test_verify_in_flight_target_session_refuses():
     async with production_scratch() as scratch:
         directory = Path('/root') / ('authority-' + uuid4().hex)
         common, environment = await make_case(scratch, directory)
-        await require_committed_chain(directory, common, environment)
+        await require_committed_chain(scratch, directory, common, environment)
         process = await start_tool('verify', directory, common, environment)
         extra = None
         try:
@@ -545,7 +545,7 @@ async def test_verify_late_target_acl_change_refuses_at_final_boundary():
     async with production_scratch() as scratch:
         directory = Path('/root') / ('authority-' + uuid4().hex)
         common, environment = await make_case(scratch, directory)
-        await require_committed_chain(directory, common, environment)
+        await require_committed_chain(scratch, directory, common, environment)
         result = await run_verify_with_late_fault(
             scratch, directory, common, environment, lambda: grant_target_connect(scratch))
         assert result.returncode == 1, result.stdout
@@ -559,7 +559,7 @@ async def test_verify_late_source_row_change_refuses_at_final_boundary():
     async with production_scratch() as scratch:
         directory = Path('/root') / ('authority-' + uuid4().hex)
         common, environment = await make_case(scratch, directory)
-        await require_committed_chain(directory, common, environment)
+        await require_committed_chain(scratch, directory, common, environment)
         result = await run_verify_with_late_fault(
             scratch, directory, common, environment, lambda: late_source_write(scratch))
         assert result.returncode == 1, result.stdout
