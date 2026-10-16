@@ -55,6 +55,13 @@ def test_fixture_url_refuses_live_or_ambiguous_targets(tmp_path, contents):
         read_fixture_url(write_private(tmp_path, contents))
 
 
+def test_fixture_url_refuses_a_missing_port(tmp_path):
+    path = write_private(tmp_path, 'DATABASE_URL='
+                         'postgresql+asyncpg://verdaxis_migrator:secret@127.0.0.1/verdaxis_prod\n')
+    with pytest.raises(ValueError, match='fixture URL must name its port explicitly'):
+        read_fixture_url(path)
+
+
 def test_fixture_url_accepts_only_the_scratch_target(tmp_path):
     path = write_private(tmp_path, 'DATABASE_URL='
                          'postgresql+asyncpg://verdaxis_migrator:secret@127.0.0.1:5434/verdaxis_prod\n')

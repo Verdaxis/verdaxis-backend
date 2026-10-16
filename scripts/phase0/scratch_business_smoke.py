@@ -84,6 +84,10 @@ def read_fixture_url(path: Path):
         raise ValueError("fixture URL must be a credentialled asyncpg URL")
     if not url.host or not ipaddress.ip_address(url.host).is_loopback:
         raise ValueError("fixture URL must use a loopback host")
+    # A missing port defaults to 5432, which is the live cluster, so an
+    # explicit port is required before the live-port refusal can apply.
+    if url.port is None:
+        raise ValueError("fixture URL must name its port explicitly")
     if url.port in LIVE_DATABASE_PORTS:
         raise ValueError("fixture URL points at the live cluster port")
     if url.database != TARGET_DATABASE and not DISPOSABLE_TEST_DATABASE.fullmatch(url.database or ""):
