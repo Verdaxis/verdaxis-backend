@@ -108,9 +108,22 @@ Two causes are visible in the actual plans:
 
 A trial forcing `MATERIALIZED` on `policy_products`/`policy_points` measured
 219/406 ms against 230/389 ms — inside noise, so it was **reverted** and not
-kept. Narrowing `eligible_orders` to the columns each consumer needs is the
-next credible fix, but it changes the shared relation for every consumer and
-needs a full consumer rerun; it is not attempted at this checkpoint.
+kept.
+
+The width comes from one construct: `private_digest_input` is built inside the
+shared relation as `to_jsonb(o) || jsonb_build_object(...)`. PostgreSQL must
+therefore materialise the whole order row plus a JSON object for every one of
+the ~10,047 candidate rows, and only 100 bytes leave the query. Python builds
+its digest input only for rows that survive, which is why its benchmark
+statement is ~4x faster on the same data.
+
+**This fix needs a PM decision.** `private_digest_input` is part of the frozen
+Task 6 shared interface ("order rows include catalog labels and
+`private_digest_input`"). Removing it from the shared relation and constructing
+the digest in only the consumers that keep rows — after the page limit for
+lists, after key/qualification selection for benchmarks — would change that
+interface for Tasks 6a/7a/7b/7c consumers and their tests. The digest contents
+themselves must not change. No change was made here.
 
 ## Projection-cost repair checkpoint — not accepted
 
@@ -206,6 +219,23 @@ relaxing the count. Full list target still needs rerun after the latency repair.
 gate, then rerun all 240 paired requests and full differential targets. OpenAPI,
 method/slash corpus and publication remain lower priority and unfinished.
 All measurement and diagnostic runs finished and their containers were removed.
+
+## Status summary — after the merge
+
+Done and green on the merged tree: Task 11 merge with one shared port helper;
+Podman image normalization as its own commit; all 11 corpus groups matching at
+full count (758-case unified golden); `run_market_contract.sh` and
+`run_postgres.sh`; fmt, clippy, workspace tests (146) and the Python contract
+suite (445); health HEAD/`Allow` fix; Caddy route-ownership corpus (306 cases).
+
+Open and unaccepted: the paired p95 go/no-go gate (FAIL, table above); OpenAPI
+subset comparison; expanded method/HEAD/trailing-slash differential corpus;
+combined `--rust-target all --require-complete-ledger --report` publication
+gate; `cargo sqlx prepare --check` (Cargo SQLx subcommand absent on the test
+host — unrun, not passed).
+
+Next: PM decision on moving `private_digest_input` out of the shared relation
+(the concrete remaining latency fix), then the OpenAPI and publication gates.
 
 ## Native test-host checkpoint — 16 October
 
