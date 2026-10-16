@@ -72,6 +72,7 @@ def test_every_appendix_tool_command_matches_real_parser():
     modules = {module for module, _ in commands}
     assert {'scripts.phase0.bootstrap', 'scripts.phase0.copy', 'scripts.phase0.verify',
             'scripts.phase0.assert_host', 'scripts.phase0.start_fence',
+            'scripts.phase0.scratch_business_smoke',
             'scripts.validate_health_response'} <= modules
     for module, arguments in commands:
         parser_for(module).parse_args(arguments)

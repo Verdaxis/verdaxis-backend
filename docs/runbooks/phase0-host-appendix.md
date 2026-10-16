@@ -5,10 +5,9 @@
 No remaining PM design decision. Final SHA/configuration evidence is an explicit
 window checklist, not a design gap. B1/B2 independent review is complete; R1–R3
 fixes and any PM-supplied CLI changes must land before execution approval.
-One execution prerequisite remains: the bounded scratch business-smoke adapter in
-A3 must be built and reviewed. Never point the disposable runner directly at 8100
-or weaken its target gate. **M2 ready for review**; review is not authorization
-to execute.
+**M2 ready for review** — no remaining prerequisite. The A3 bounded scratch
+business smoke is implemented and tested; its exact command is cited below.
+Review is not authorization to execute.
 
 ## PM answers — final sequencing decisions
 
@@ -422,24 +421,35 @@ systemctl show verdaxis-phase0-rehearsal.service -p ActiveState -p IPAddressDeny
 
 Expected exact SHA readiness on 127.0.0.1:8100, four workers, KYC gate false,
 missing vault key/503 storage. No Caddy route, no provider credentials. Log only
-bounded facts. Use the Task 9 HTTP business cases from `tests/integration`
-with the fixture identity construction in `tests/phase0/http_seed.py`: unique
-scratch organizations/users, approved organization-bound KYC, hashed scratch
-passwords and fixture provenance. Owner fixture SQL is allowed only in scratch
-`verdaxis_prod` on 5434, after copy verification; never in old scratch source or
-live. Do not run the entire seed file on copied data: its catalog seed, fixed
-Singapore port and fixed user IDs can collide.
+bounded facts. Run the reviewed bounded business smoke as an external client
+against the scratch backend. It creates its own scratch-only identities (two
+marker organizations with random in-memory passwords), so it does not run the
+Task 9 seed file whose catalog seed, fixed port and fixed user IDs can collide:
 
-The existing `tests/phase0/http_runner.py` starts its own disposable container
-and `tests.disposable_server`; its integration gate requires ENVIRONMENT=test
-and an ephemeral port, not production-mode 8100. Thus select/review a bounded
-adapter of the business cases before A3; do not disable that gate or pretend the
-runner accepts `--target-url`. Record its exact SHA, scratch-only identities and
-case list with the rehearsal inputs. This is the remaining executable test
-artifact, not an unresolved PM policy. Run it through `p0run` with
-`http://127.0.0.1:8100`, assert app-role business success/denial, UTC reconnects
-and missing-key storage 503. No customer account or provider call is permitted.
-Do not claim readiness proves KYC submission. Finish and retain the cluster:
+```bash
+p0run /opt/verdaxis-phase0/venv/bin/python -m scripts.phase0.scratch_business_smoke \
+  --base-url http://127.0.0.1:8100 \
+  --fixture-environment-file /root/verdaxis-phase0/rehearsal/smoke-fixture.env \
+  --report /root/verdaxis-phase0/rehearsal/smoke-report.json
+```
+
+`smoke-fixture.env` is a root-private 0600 one-line `DATABASE_URL=` file for the
+scratch cluster administrator on 5434; the adapter refuses the live port, the old
+database name, a non-loopback host and anything but the scratch target. The report
+is a new root-private JSON with one case line each (case, status, pass/fail).
+Expected exit 0 and every case passing: logins and `/api/auth/me`, inventory
+create, BID and ASK, trade hit/confirm/deliver/pay, notifications list/read and
+`/api/orderbook/my`, plus copied public orderbook and prices reads. A non-scratch
+base URL, a missing fixture, a mismatched count or any failing case exits nonzero
+and stops A3. No customer account, secret or response body enters the report.
+
+The Task 9 harness itself (`tests/phase0/http_runner.py` plus
+`tests.disposable_server`) keeps its disposable-target gate unchanged: it requires
+ENVIRONMENT=test and an ephemeral port, so it is used only for the adapter's own
+regression run, never pointed at production-mode 8100. Do not weaken that gate or
+add a production target flag. Also assert app-role ACL denials, UTC reconnects and
+missing-key storage 503. Do not claim readiness proves KYC submission. Finish and
+retain the cluster:
 
 ```bash
 systemctl stop verdaxis-phase0-rehearsal.service
@@ -1107,5 +1117,6 @@ Parser/syntax tests do not execute host commands, validate secrets, prove BPF,
 or establish systemd/Caddy/backup correctness. P0-5 deliberately narrows Task 10;
 no fixed-path rollback proof is claimed. The PM sequencing decisions above resolve
 the four design items. R1–R3 host-tool fixes, final input attestation and the
-scratch business-smoke adapter still require evidence before execution approval.
+scratch business-smoke evidence from A3 still require the rehearsal run before
+execution approval.
 A failed pre-write step remains closed; after reopening preserve all new writes.
