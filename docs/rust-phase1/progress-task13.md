@@ -52,7 +52,18 @@ older harness opened a `GET /mcp` event stream that never closed. The PM stopped
 that orphan run. After the merge, MCP matches. `run_market_contract.sh`
 (2 passed) and `run_postgres.sh` both pass on the merged tree.
 
-### Paired p95 gate after the projection repair — **FAIL**
+### Merged-tree quality gates
+
+Run on the host through `verdaxis-prod-test`:
+
+- `cargo fmt --all -- --check`: **pass**.
+- `cargo clippy --workspace --all-targets -- -D warnings`: **pass**.
+- `cargo test --workspace`: **146 passed**, 0 failed.
+- `venv/bin/python -m pytest tests/rust_contract -q`: **445 passed**, 5 warnings.
+- `cargo sqlx --version`: the Cargo SQLx subcommand is not installed on the test
+  host, so `cargo sqlx prepare --check` is **unrun**, not passed.
+
+## Paired p95 gate after the projection repair — **FAIL**
 
 240 requests, 30 per cell, Python and Rust interleaved in one run on the same
 ANALYZEd disposable database. `require_latency_parity` rejects the result.
@@ -69,6 +80,37 @@ Rust is still slower in every cell. The remaining gap is database cost, not
 transport: the earlier plans showed Rust's page and benchmark statements running
 well above Python's on the same rows. No index or schema change was made; a
 possible index is a PM decision, not taken here.
+
+### Remaining gap — named cause with merged-tree plans
+
+Plans captured on the merged tree (`task13-merged-plans.log`, JSON in
+`task13-merged-plans.json`). Database time per statement (node total):
+
+| Route | Statement | Python ms | Rust ms |
+| --- | --- | ---: | ---: |
+| list | page (50 rows) | 133.8 | 229.6 |
+| list | benchmark (10000 rows) | 86.7 | 388.9 |
+| bids | count (1 row) | 107.3 | 211.4 |
+| bids | page (20 rows) | 146.5 | 222.2 |
+| bids | benchmark (10000 rows) | 85.8 | 506.6 |
+
+Two causes are visible in the actual plans:
+
+1. **Wide internal projection.** The Rust benchmark join node reports
+   `Plan Width = 3289` over 10,047 rows, although only 100 bytes leave the
+   query. `eligible_orders` projects `o.*` plus the digest JSON object; Python's
+   equivalent selects a narrow column set. Rust materializes roughly 3.3 KB per
+   candidate row that the consumer discards.
+2. **Per-row admission tree.** Rust evaluates the shared policy/lane/KYC
+   `EXISTS` predicates and the current-order rule for every scanned row, so the
+   planner chooses a sequential scan of `orderbook_orders` (10051 rows, ~114 ms
+   in the list benchmark) where Python uses an index scan.
+
+A trial forcing `MATERIALIZED` on `policy_products`/`policy_points` measured
+219/406 ms against 230/389 ms — inside noise, so it was **reverted** and not
+kept. Narrowing `eligible_orders` to the columns each consumer needs is the
+next credible fix, but it changes the shared relation for every consumer and
+needs a full consumer rerun; it is not attempted at this checkpoint.
 
 ## Projection-cost repair checkpoint — not accepted
 
