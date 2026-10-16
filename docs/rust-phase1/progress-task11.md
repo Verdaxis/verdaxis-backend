@@ -365,6 +365,45 @@ venv/bin/python -m scripts.rust_contract.run_disposable --group mcp --seed-mode 
 
 ## Latest repair status and PM decision inputs — 2026-10-16
 
+### PM-approved allocator/root-argument checkpoint (supersedes stops below)
+
+- `bf8f7776`: **build-owner merge required**. Minimal PM-approved change to
+  `scripts/rust_contract/run_disposable.py`: Linux procfs/macOS sysctl range
+  discovery, fail-closed parsing, then kernel-assigned port containment. Eleven
+  failing-first tests cover both platforms, malformed/unreadable ranges and port
+  38153. No host setting changes.
+- `145afb1b`: root arguments list/number/string/bool now return exact HTTP-200
+  `-32602` method errors; null becomes `{}` before existing typed validation.
+  Five exact wire regressions failed first, then passed.
+- `e11931fc`: seven failing-first Python HTTP vectors cover Origin first,
+  Content-Type before Host, Accept before JSON parsing, exact inner content-type,
+  JSON-only/wildcard Accept and modern catalog success. rmcp natively supports
+  modern dispatch; do not rewrite its version header. The adapter appends Python's
+  modern serverInfo metadata after result serialization. This proves modern
+  catalog success, not every initialize/notification/validation-error variant.
+- Local fmt/clippy pass; workspace **143 passed**, Python contracts **132 passed**.
+  The corpus now contains **132 MCP cases**. The single golden is untouched.
+
+**New STOP / exact resume:** remote recording through `verdaxis-prod-test` now
+passes kernel range discovery but Python server startup refuses port **46487**:
+`tests.disposable_server.ServerConfigError: disposable server requires numeric
+loopback ephemeral bind`. `tests/disposable_server.py:39` and
+`tests/disposable_target.py:19,63` still hard-code the 49152 minimum. These are
+integration safety guards, outside the PM's specifically approved allocator
+change. No host setting or guard was changed. The run ended with cleanup; no
+new recording/differential/replay completed. Evidence:
+`work/rust-phase1/task11-pm-gates.log` (remote source `145afb1b`). Last full wire
+pass is still **105/105**. No source nondeterminism was found.
+
+PM must decide how to align producer and consumer ephemeral-range guards while
+retaining numeric-loopback, token, environment and SHA attestation. After that,
+record the 132 cases and run both KYC differential/replay gates through the
+wrapper at a fixed HEAD. Continue modern initialize negotiation and modern tool
+validation-error metadata with failing oracle vectors, then GET wildcard/header
+precedence; do not claim broad transport acceptance from the seven new vectors.
+All launched runs finished. Colima remained off; no direct SSH was used.
+
+
 **STOP / resume:** the authorized Linux runner passed **150 PostgreSQL tests**
 (including typed-error recovery), but MCP recording stopped before server startup:
 `RunnerError: kernel returned a non-disposable port 38153` at
