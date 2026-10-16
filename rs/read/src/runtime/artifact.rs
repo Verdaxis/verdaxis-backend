@@ -129,7 +129,10 @@ mod tests {
         let reviewed: Vec<String> = serde_json::from_str(ALLOWED_REVISIONS_FILE).unwrap();
         assert_eq!(
             reviewed,
-            ALLOWED_REVISIONS.iter().map(|r| r.to_string()).collect::<Vec<_>>(),
+            ALLOWED_REVISIONS
+                .iter()
+                .map(|r| r.to_string())
+                .collect::<Vec<_>>(),
             "artifact.rs must not drift from deploy/rust/allowed-revisions.json"
         );
     }
