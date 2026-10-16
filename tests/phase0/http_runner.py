@@ -39,9 +39,20 @@ try:
         cmd('docker','exec',name,'psql','-X','-U','postgres','-d',database,*variables,'-f',f'{policy}/{filename}')
     cmd('docker','exec',name,'psql','-U','postgres','-c',f"ALTER ROLE phase0_app_test PASSWORD '{password}'")
     env['DATABASE_URL']=url.replace('phase0_owner:','phase0_app_test:')
-    with socket.socket() as sock:
-        sock.bind(('127.0.0.1',0)); http_port=sock.getsockname()[1]
-    assert http_port>=49152
+    # Linux's port-0 allocation can fall below the disposable target allowlist.
+    # Select within that allowlist; never relax the server/client guard.
+    from tests.disposable_target import MIN_DISPOSABLE_PORT, MAX_DISPOSABLE_PORT
+    import secrets
+    for attempt in range(128):
+        http_port = MIN_DISPOSABLE_PORT + secrets.randbelow(MAX_DISPOSABLE_PORT - MIN_DISPOSABLE_PORT + 1)
+        with socket.socket() as sock:
+            try:
+                sock.bind(('127.0.0.1', http_port))
+            except OSError:
+                continue
+        break
+    else:
+        raise RuntimeError('No free disposable HTTP port in the approved range')
     log=(run/'server.log').open('w')
     server=subprocess.Popen([python,'-m','tests.disposable_server','--port',str(http_port)],env=env,cwd=run,stdout=log,stderr=log)
     base=f'http://127.0.0.1:{http_port}'
