@@ -368,6 +368,32 @@ venv/bin/python -m scripts.rust_contract.run_disposable --group mcp --seed-mode 
 
 ## Latest repair status and PM decision inputs — 2026-10-16
 
+### Independent re-check F1 repair
+
+`da6250d2` removes the initialize-specific exemption in `mcp/protocol.rs`.
+Modern envelope admission is header-driven for every request method. The exact
+re-check input (modern version header, initialize with client name `t`, no
+`_meta`) first failed with Rust HTTP 200; it now matches Python HTTP 400 and the
+exact `-32602` missing-envelope body. The Python ASGI exporter also probes
+`tools/list`, `tools/call`, `ping`, `resources/list`, `prompts/list` and an unknown
+method with the same missing modern envelope. All seven reject identically;
+no other request-method exemption was found. Existing no-header initialize and
+future-version fallback cases remain green. GET/DELETE are separate HTTP
+transport methods, not exemptions inside JSON-RPC request validation.
+
+Seven new cases bring the MCP corpus to **143**. Failing log:
+`work/rust-phase1/task11-f1-red.log`. Local fmt/clippy pass; offline Rust **143**
+and Python contracts **134** passed. Remote recording and both KYC differential/
+replay gates run through `verdaxis-prod-test` at fixed source `da6250d2`; evidence
+is streamed to `work/rust-phase1/task11-f1-remote.log`. Single golden untouched.
+Both states recorded 143 cases stable across two passes at full source
+`da6250d204e55da72a03ceb3de97afe49060dc4f`. Fresh differential and saved-wire
+replay each passed **143/143 in both KYC states**, with privacy and both SQL
+cancellation proofs. The remote wrapper exited zero; all tests finished. No
+source nondeterminism or comparator relaxation occurred. F1 is repaired and ready
+for independent sign-off; this latest evidence supersedes the 136-case checkpoint.
+
+
 ### Shared port authority and modern negotiation (supersedes blockers below)
 
 `5ed6326b` moves kernel range discovery into `tests/ephemeral_ports.py` and uses
