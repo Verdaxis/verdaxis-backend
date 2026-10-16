@@ -168,25 +168,21 @@ Decryption errors return `KYC_DOCUMENT_DECRYPTION_FAILED` and log only the docum
 ID. Missing/invalid keys disable submission with `KYC_DOCUMENT_STORAGE_UNAVAILABLE`
 (503), with one sanitized startup error per worker; readiness is unchanged.
 
-The initial blocker was that an absolute-path LoadCredential source alone makes
-a missing file fatal before Python starts. The approved solution is an empty,
-invalid fallback: `SetCredential=kyc-document-keys:` plus the requested
-`LoadCredential=kyc-document-keys:/etc/verdaxis/kyc-document-keys[-staging].json`.
-Both host versions support it:
-- [v249 execute.c:2545-2559](https://github.com/systemd/systemd/blob/v249/src/core/execute.c#L2545-L2559)
-  writes literal credentials first; [2598-2610](https://github.com/systemd/systemd/blob/v249/src/core/execute.c#L2598-L2610)
-  accepts ENOENT when the credential already exists. The loaded file overrides it.
-- [v255 exec-credential.c:479-491](https://github.com/systemd/systemd/blob/v255/src/core/exec-credential.c#L479-L491)
-  accepts ENOENT when SetCredential is configured; [684-716](https://github.com/systemd/systemd/blob/v255/src/core/exec-credential.c#L684-L716)
-  writes defaults only when no loaded credential exists.
-
-An empty credential fails strict application JSON validation. Other systemd
-errors, such as unreadable sources, remain service-start failures. This is source
-verification for both tags, not live-host execution. The immutable manifest still
-lists the same units; the installer derives digests from committed unit bytes,
-not a separate checked-in digest list. The installer now checks key-source owner,
-mode and parent-directory permissions before dry-run acceptance or replacement;
-missing sources remain allowed. Code-deploy logic is unchanged. See the runbook.
+The initial design used an empty, invalid fallback (`SetCredential=kyc-document-keys:`
+plus the requested `LoadCredential=`). The 17 October 2026 production cutover
+disproved it on the live hosts: systemd 255.4 (Ubuntu 24.04, production) logs
+`SetCredential=` with an empty value as "Invalid syntax, ignoring", and a missing
+`LoadCredential` source then fails the start with 243/CREDENTIALS. Staging's
+systemd 249 never hit the missing case because its real 93-byte key ring exists.
+The approved state since that window is: **no `SetCredential=` line at all**, and
+a host without a real key ring publishes an **empty root:root 0400 placeholder
+file** at the unit's exact key path. `LoadCredential` succeeds on an empty file,
+and the application's strict JSON validation treats the empty credential as
+absent: KYC storage is disabled (503 on submission), readiness is unaffected.
+The installer's preflight refuses an absent source and prints the exact
+placeholder command; an empty placeholder and a real ring both pass its
+metadata-only check. See the security runbook's KYC key operations for the
+placeholder and the B11 founder-ring replacement.
 
 Deletion review: monitor cleanup deletes users and empty organizations; both now
 check retention before deletion. SQLAdmin User/Organization delete overrides lock
