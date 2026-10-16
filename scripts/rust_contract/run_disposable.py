@@ -292,6 +292,61 @@ CREATE EXTENSION IF NOT EXISTS postgis;
             env={**os.environ, "RELEASE_SHA": self.sha},
             check=True,
         )
+        if self.rust_target == "all":
+            # Every group's extended target probes mutate the shared corpus
+            # (fixture rows with deliberately invalid terms, quantity and
+            # window rewrites), and the mixed integration suite writes too.
+            # Those mutations make later groups' Python oracle answers change,
+            # so one fresh database per group reproduces exactly what each
+            # target sees when it runs alone. The mixed suite keeps its own
+            # fresh database for the same reason.
+            if self.mixed_caddy:
+                env = self.start_environment(self.group)
+                try:
+                    self.run_mixed(
+                        env["base_env"], env["python_port"], env["rust_port"]
+                    )
+                finally:
+                    self.stop_environment()
+            results: dict[str, bool] = {}
+            for group in self.target_groups():
+                env = self.start_environment(group)
+                try:
+                    results.update(
+                        self.run_targets(
+                            env["base_env"],
+                            env["python_url"],
+                            env["rust_url"],
+                            groups=[group],
+                        )
+                    )
+                finally:
+                    self.stop_environment()
+            self.finalize(results)
+            return
+        env = self.start_environment(self.group)
+        try:
+            if self.record_all:
+                from unittest.mock import patch
+
+                with patch.dict(os.environ, env["base_env"]):
+                    self.record_groups(env["python_url"])
+                return
+            if self.mixed_caddy:
+                self.run_mixed(
+                    env["base_env"], env["python_port"], env["rust_port"]
+                )
+            results = {}
+            if self.rust_target:
+                results = self.run_targets(
+                    env["base_env"], env["python_url"], env["rust_url"]
+                )
+            self.finalize(results)
+        finally:
+            self.stop_environment()
+
+    def start_environment(self, group: str) -> dict[str, object]:
+        """Start one disposable database plus attested Python and Rust servers."""
         port = self.start_database()
         base_env = {
             **os.environ,
@@ -320,12 +375,13 @@ CREATE EXTENSION IF NOT EXISTS postgis;
         )
         if self.record_all:
             wait_for_port(python_port)
-            python_url = f"http://127.0.0.1:{python_port}"
-            from unittest.mock import patch
-
-            with patch.dict(os.environ, base_env):
-                self.record_groups(python_url)
-            return
+            return {
+                "base_env": base_env,
+                "python_port": python_port,
+                "python_url": f"http://127.0.0.1:{python_port}",
+                "rust_port": rust_port,
+                "rust_url": "",
+            }
         rust_config = json.dumps(
             {
                 "environment": "test",
@@ -342,7 +398,7 @@ CREATE EXTENSION IF NOT EXISTS postgis;
         )
         self.spawn(
             [str(ROOT / "rs" / "target" / "debug" / "examples" / "contract_server")],
-            {**base_env, "RUST_CONFIG": rust_config, "CONTRACT_GROUP": self.group},
+            {**base_env, "RUST_CONFIG": rust_config, "CONTRACT_GROUP": group},
         )
         wait_for_port(python_port)
         wait_for_port(rust_port)
@@ -350,14 +406,29 @@ CREATE EXTENSION IF NOT EXISTS postgis;
         rust_url = f"http://127.0.0.1:{rust_port}"
         attest(python_url, self.token)
         attest(rust_url, self.token)
+        return {
+            "base_env": base_env,
+            "python_port": python_port,
+            "python_url": python_url,
+            "rust_port": rust_port,
+            "rust_url": rust_url,
+        }
 
-        if self.mixed_caddy:
-            self.run_mixed(base_env, python_port, rust_port)
-
-        results: dict[str, bool] = {}
-        if self.rust_target:
-            results = self.run_targets(base_env, python_url, rust_url)
-        self.finalize(results)
+    def stop_environment(self) -> None:
+        """Stop the servers and remove this runner's disposable container."""
+        for child in self.children:
+            child.terminate()
+        for child in self.children:
+            try:
+                child.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                child.kill()
+                child.wait()
+        self.children = []
+        if self.container and not self.keep:
+            # -v removes the anonymous data volume; a forced remove skips --rm.
+            docker("rm", "-f", "-v", self.container, check=False)
+        self.container = ""
 
     def target_groups(self) -> list[str]:
         """The groups whose Rust contract targets this run selects."""
@@ -366,17 +437,23 @@ CREATE EXTENSION IF NOT EXISTS postgis;
         return [self.rust_target]
 
     def run_targets(
-        self, env: dict[str, str], python_url: str, rust_url: str
+        self,
+        env: dict[str, str],
+        python_url: str,
+        rust_url: str,
+        groups: list[str] | None = None,
     ) -> dict[str, bool]:
         """Run each selected group's Rust contract target once.
 
         Every target either runs its `cargo test --test TARGET` (which drives
         the external comparator) or, for a group whose Rust target is not yet
         written, the comparator directly. A green cargo run that executed zero
-        tests is refused, matching the shared scripts.
+        tests is refused, matching the shared scripts. `groups` overrides the
+        default selection so the combined gate can run exactly the one group
+        its fresh environment was started for.
         """
         results: dict[str, bool] = {}
-        for group in self.target_groups():
+        for group in groups if groups is not None else self.target_groups():
             target = GROUPS[group]
             full_env = {
                 **env,
@@ -654,9 +731,12 @@ CREATE EXTENSION IF NOT EXISTS postgis;
                 child.wait(timeout=10)
             except subprocess.TimeoutExpired:
                 child.kill()
+                child.wait()
+        self.children = []
         if self.container and not self.keep:
             # -v removes the anonymous data volume; a forced remove skips the --rm cleanup.
             docker("rm", "-f", "-v", self.container, check=False)
+        self.container = ""
 
 
 def main(argv: list[str] | None = None) -> int:

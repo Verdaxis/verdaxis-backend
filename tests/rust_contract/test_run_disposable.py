@@ -90,3 +90,62 @@ def test_legacy_seed_is_staged_before_migrations_run(monkeypatch):
     monkeypatch.setattr(run_disposable.subprocess, "run", fake_run)
     runner.migrate_and_seed(_env())
     assert captured["env"]["RUST_CORPUS_STAGE"] == "legacy"
+
+
+def test_combined_gate_gives_each_target_a_fresh_environment(monkeypatch):
+    """The `--rust-target all` publication gate isolates every group.
+
+    Extended-target probes mutate the corpus (invalid-terms fixtures, price and
+    window rewrites), so a shared database changes later groups' oracle
+    answers. The combined gate must start one fresh database and server pair
+    per group, in group order, and stop each before the next starts.
+    """
+    started: list[str] = []
+    stopped = 0
+
+    class _FakeProc:
+        def terminate(self):
+            pass
+
+        def wait(self, timeout=None):
+            return 0
+
+    runner, _ = _runner(monkeypatch, seed=False)
+    runner.rust_target = "all"
+    runner.group = "all"
+    runner.container = "container-id"
+    monkeypatch.setattr(runner, "target_groups", lambda: ["health", "echo"])
+    monkeypatch.setattr(
+        runner,
+        "start_environment",
+        lambda group: started.append(group)
+        or {
+            "base_env": {},
+            "python_port": 1,
+            "rust_port": 2,
+            "python_url": "http://python",
+            "rust_url": "http://rust",
+        },
+    )
+
+    def fake_stop():
+        nonlocal stopped
+        stopped += 1
+        runner.container = ""
+
+    monkeypatch.setattr(runner, "stop_environment", fake_stop)
+    target_groups: list[list[str]] = []
+
+    def fake_targets(env, python_url, rust_url, groups=None):
+        target_groups.append(list(groups or []))
+        return {groups[0]: True}
+
+    monkeypatch.setattr(runner, "run_targets", fake_targets)
+    monkeypatch.setattr(runner, "finalize", lambda results: None)
+    monkeypatch.setattr(
+        run_disposable.subprocess, "run", lambda *a, **k: _Result()
+    )
+    runner.run()
+    assert started == ["health", "echo"]
+    assert target_groups == [["health"], ["echo"]]
+    assert stopped == 2
