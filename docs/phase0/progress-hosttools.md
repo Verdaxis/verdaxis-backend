@@ -1,6 +1,50 @@
 # Phase 0 host-tool sign-off fixes — partial checkpoint
 
-## Current checkpoint 5 — amd64 runtime and Linux database fixture passed
+## Current checkpoint 6 — all 12 remote regressions classified
+
+**Regression gate recovered; B1/B2 integrated production path still pending.**
+
+- Eleven failures: **test assumptions about umask**, not product defects. Remote
+  umask is `0002`; fixture-created deployment state and some lock files inherited
+  group-write permission. The unchanged deploy guard correctly refused them.
+  `ed69e9cd` explicitly chmods the fixture state and locks to 0600. Initial remote
+  reproduction: **11 failed, 4 passed**; corrected focused run: **15 passed**.
+- `dd360b43` forces umask 0002 in the tuple suite and restores it afterward, so
+  future tests retain the remote regression on other platforms. **14 passed**
+  through the remote wrapper after adding this coverage.
+- Twelfth failure: missing generated `union-catalog.json`. **Test-evidence/run
+  assumption, not a demonstrated product defect**. It did not recur in the
+  clean serialized full run. The earlier overlapping wrapper invocation was a
+  possible cause, not conclusively proved. The wrapper now isolates incoming
+  files and locks the lane. No application/migration change was made for it.
+- None of these twelve failures involved a disposable-port check. No port guard
+  or target attestation was weakened. If port work becomes necessary, use the
+  PM rule: one shared kernel-range helper, Linux procfs/macOS sysctl, fail closed
+  on unreadable/invalid bounds; never assume the IANA range is the kernel range.
+- Clean complete remote PostgreSQL run at `ed69e9cd`: **170 passed**, 62 warnings,
+  719.83 seconds. Log: remote `work/hosttools-regression-clean.log`.
+- Full local unit run: **2211 passed, 19 known macOS deploy failures**, 514
+  warnings, 50.53 seconds. Log: `work/hosttools-regression-classified-unit.log`.
+- The original local return wrapper remained waiting after remote completion.
+  A subsequent serialized call retrieved the complete result and confirmed no
+  pytest/runner processes remained. Only then was the stuck local wrapper stopped;
+  its two local wait tasks were also stopped. The final focused run returned
+  normally. No tests remain running; this is not an interrupted pytest result.
+
+### Exact resume point after checkpoint 6
+
+Continue checkpoint 5's execution-authority integration; do not repeat image
+preparation or regression classification. Use the pinned amd64 Linux runner via
+`verdaxis-prod-test`. First write failing end-to-end authority tests using the
+production-named fixture, then implement the narrow production bootstrap → copy
+→ independent verify path and all wrong-identity refusals. Root-owned manifests,
+exact archive/release bytes, independently observed cluster/OIDs, frozen source,
+continuous isolation and trusted bootstrap baseline receipts remain required.
+The tools are still synthetic-only; final production manifest/secret formats
+are not ready for the runbook author. No real product defect was found in the
+classified failures. No new host setup or dependency permission is needed.
+
+## Checkpoint 5 — amd64 runtime and Linux database fixture passed
 
 **B1/B2 production execution remains incomplete. No runtime blocker remains.**
 The production bootstrap → copy → verify integration is not implemented. Do not
