@@ -1,6 +1,62 @@
 # Phase 0 host-tool sign-off fixes — partial checkpoint
 
-## Current production interface — end-to-end synthetic Linux proof
+## Interface changes from review fixes
+
+Flags, file names, manifest fields and secret formats are **unchanged** by the
+R1–R3 fixes. The M2 appendix commands already listed below remain exactly valid.
+Three behavior details changed:
+
+1. Tool selection: passing another tool's manifest now exits 1 with
+   `PHASE0_TOOL_MISMATCH` before any validation-only return or connection.
+2. Validation-only output: bootstrap/copy without `--apply` now print
+   `authority validated only; no connection opened`, never "completed".
+3. Failure output: registered `PHASE0_*` reason codes on stderr replace the
+   former generic one-line message. Detail stays in the private on-host report.
+4. Verify never reports validation-only success: it publishes its report or
+   exits nonzero.
+
+## Current production interface — review fixes R1–R3
+
+**Interface changes for the M2 host appendix are listed under "Interface changes
+from review fixes" below. Do not use the older wording for tool selection or
+validation-only output.**
+
+R1 (blocker, fixed): each CLI passes its own literal tool name into the shared
+runner; a manifest with a different `tool` value is refused before any
+validation-only return, receipt lookup or connection. Cross-tool manifests now
+exit 1 with `PHASE0_TOOL_MISMATCH`. Validation-only success remains allowed only
+for the matching bootstrap or copy CLI. Verify has no validation-only success:
+it either publishes its new report or returns nonzero.
+
+R3 (minor, fixed): validation-only runs now print `... authority validated only;
+no connection opened ...` instead of "completed". `--apply` success prints the
+completed/published message.
+
+R2 (major): refusal reason codes. Every production gate raises a registered code
+from `scripts/phase0/refusal.py`; CLIs print only the code on stderr:
+
+| Code | Gate |
+|---|---|
+| `PHASE0_TOOL_MISMATCH` | CLI tool does not match the manifest `tool` |
+| `PHASE0_ENVIRONMENT` | not root, or `ENVIRONMENT` is not `production` |
+| `PHASE0_MANIFEST` | manifest field set or per-tool field is wrong |
+| `PHASE0_AUTHORITY` | manifest differs from authority; host, release, revision, approval, or frozen source catalog |
+| `PHASE0_INSTALLED_BYTES` | release tree ownership/digest differs |
+| `PHASE0_DB_PAIR` | approved source/target pair differs |
+| `PHASE0_RECEIPT` | bootstrap receipt path, digest or authority binding differs |
+| `PHASE0_REPORT_PATH` | evidence path is not private, or already exists |
+| `PHASE0_SECRET` | secret file format or endpoint differs |
+| `PHASE0_DB_IDENTITY` | connected database/role/OID/endpoint/cluster differs |
+| `PHASE0_SOURCE_SESSIONS` | another source session exists |
+| `PHASE0_TARGET_FENCE` | target ACL, owner, CONNECT grantees or extra target session differs |
+| `PHASE0_SOURCE_STATE` | frozen source data, catalog or sequence state changed |
+| `PHASE0_REPORT` | publication failed |
+| `PHASE0_COPY` | unclassified copy failure (detail stays in the private report) |
+
+Codes carry no credentials, SQL values, paths or host names. Copy writes its
+detailed private failure evidence separately; that file must stay on-host.
+
+## Earlier end-to-end synthetic Linux proof (superseded counts)
 
 **The production bootstrap → copy → verify CLI chain passes. Independent security
 review and operator approval remain required before any host activation.**
