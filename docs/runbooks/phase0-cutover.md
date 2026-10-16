@@ -9,11 +9,13 @@ not its historical checkpoints. Task 9 acceptance, independent host-tool review,
 founder approval and separate host-operation approval remain gates.
 
 The single operator appendix is [phase0-host-appendix.md](phase0-host-appendix.md).
-Its PM questions are hard stops: the supplied inventory does not yet establish
-all executable host commands, so sign-off M2 remains open. Task 10 rehearses the
-complete switch-back in an isolated host-local cluster. Task 11 permits rollback
-only for a pre-write emergency. The appendix is the current host-specific record;
-the sections below retain the invariant and guard contracts.
+It applies PM decision P0-5 (16 October; founder may override): Task 10 rehearses
+the data path and new release on the prod host, scratch cluster `17/p0rehearsal`
+on 5434 and transient egress-filtered units, not a separate OS. Actual fixed-path
+old→new→old restoration is accepted pilot risk and is checked only by syntax and
+dry-run. The appendix lists remaining open conflicts, so M2 is not yet closed.
+Task 11 rollback is pre-write only. Its newer PM answers override earlier
+full-rehearsal/key-before-window requirements below where explicitly noted.
 
 ## Hard stops and required private evidence
 
@@ -40,7 +42,8 @@ Do not proceed with placeholders. The operator must add the actual commands for:
 - Monitor identity: the inventory found no installed `.runtime-monitor.env`
   reader on prod. The helper publishes that credential-free file beside the
   runtime artifact; verify it, but do not claim a reader consumes it. Preserve
-  the existing demo/onboarding bindings and resolve appendix Q6 before rearming.
+  the existing demo/onboarding bindings with the appendix's exact Q6-approved
+  database-name changes before rearming.
   Do not install the source-only dual-host local monitor unchanged.
 - Separate scratch-cluster endpoint/socket, system identifier and exact database
   OIDs. The assertion uses `/var/run/postgresql` for the operator's cluster query;
@@ -190,13 +193,15 @@ fence and stale permit then deny starts. Do not start recovery/timers.
    `MIGRATION_EXPECTED_CURRENT_REVISION=p0_20261016_union`, and
    `MIGRATION_TARGET_REVISION=p0_20261016_union`. Remove the permit after exit.
 7. Verify exact four-key readiness, UTC fresh connections, source/data hashes,
-   vault recovery and backup restore. Keep public mutations and all unapproved
+   backup restore. Q7 moves key creation/recovery after reopening with the founder;
+   missing-key storage 503 is expected during this window. Keep public mutations and all unapproved
    jobs closed. Any failure leaves the fence in place; inspect actual state before
    retry. Never treat a journal line as permission to resume automatically.
 
 ## Emergency pre-write rollback block
 
-This block is manual and must be rehearsed in Task 10. After any customer write,
+This block is manual. Under P0-5, Task 10 checks syntax and dry-run only;
+actual fixed-path execution is explicitly not rehearsed. After any customer write,
 stop: preserve both databases and obtain a reconciliation decision. No automatic
 post-write return is allowed.
 

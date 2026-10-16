@@ -1,533 +1,708 @@
-# Phase 0 host appendix — 16 October 2026
+# Phase 0 host appendix — PM answers applied, 16 October 2026
 
-**Status: command-contract preparation; M2 is NOT closed for execution.**
-This is the single host appendix to [phase0-cutover.md](phase0-cutover.md).
-The PM must resolve the questions below, review the resulting exact bytes and
-rehearse them before authorizing Task 11. An unanswered question is a STOP, not
-permission to choose a convenient path, role, port or bypass during the window.
-No command in this document was run on a live service by its author.
+## Open items
 
-## PM questions — blocking facts, not implementation choices
+1. **Maintenance versus deploy/promotion:** all-path Caddy 503 conflicts with
+   normal deploy's fixed public `/health/ready` gate. Frontend candidate/promotion
+   also checks that URL and renders public API pages. PM must approve an exact
+   readiness/public-read exception or a reviewed alternate gate. Do not override
+   the helper or reopen mutations to make it pass. This blocks B7.
+2. **Installed bytes/permissions:** PM authors and reviews the exact maintenance
+   Caddyfile from the captured original; no full original is supplied here.
+   Confirm caddy's permission to read the installed file, the backend drop-in
+   restoration list and the selected old/new full SHAs. These are window inputs,
+   not permission to infer bytes from the dated inventory.
+3. **Rehearsal evidence inputs:** identify the approved scratch business-smoke
+   script and private scratch-user fixture, and verify the restored source's
+   catalog matches the frozen tool contract (inventory says 66 relations/sequences;
+   do not equate that count with the manifest's table count). No customer commands
+   run live. B1/B2 independent review remains pending; do not bypass refusals.
+4. **Backup comparison boundary:** live writes after reopening can change counts
+   while the restored-backup comparison runs. Compare a dump's exported snapshot
+   or complete the comparison before customer writes; PM must choose before B9.
+   Do not report unequal-time counts as a lossless restore proof.
 
-1. **Scratch boundary:** which installed facility supplies a separate Linux
-   systemd instance, private mounts, hostname and network namespace? Supply its
-   exact create/enter/stop commands, image/rootfs digest, scratch cluster name,
-   unused port, data path and socket `/var/run/postgresql`. Neither `17/main`
-   (5432) nor PM-owned `17/test` (5499) may be used. The inventory does not
-   establish that nspawn, a suitable container image or a VM exists. Supply the
-   exact egress deny and verification commands, including live DB/API, DNS and
-   provider denial. This blocks Part A at A1.
-2. **Staging authority:** confirm the PM's authorized staging SSH login and sudo
-   route. The inventory names staging files and services, not a `verdaxis-admin`
-   login there. Do not assume that account exists. Supply the full effective
-   `verdaxis-backup.service`, monitor and verify units, their pending-job state,
-   and any service dependencies. We choose to pause BOTH staging timers during
-   rehearsal/cutover; the 03:00 SGT pull may not overlap either window.
-3. **Configuration bytes:** supply root-private copies and digests of prod's
-   complete Caddyfile, effective backend unit and every drop-in (including the
-   `.env.analytics` loader), backup producer scripts, staging `backup-db.sh` and
-   `verify-backup-restore.sh`. The inventory gives locations, not replacement
-   anchors or restore CLI flags. Supply reviewed maintenance and smoke-only
-   Caddyfiles, and exact backup patches/restore invocation before B1. Do not use
-   global search/replace on scripts or print their secret-bearing contents.
-4. **Release/install inputs:** approve full backend/frontend SHAs, archive and
-   package hashes, Linux Python executable/version, local Git mirror/wheel-cache
-   locations and permissions, and the exact empty-target PostGIS preparation.
-   All paths introduced below under `/root/verdaxis-phase0` and
-   `/opt/verdaxis-phase0` are proposed new work products, not claimed existing
-   host facts. Approve them after inspecting destinations. Supply the private
-   manifest builder/observations and Settings launcher described below; no
-   generic manifest-generation CLI exists in the release.
-5. **Source read authority:** production tools call `pg_control_system()` as
-   `verdaxis_backup` and `verdaxis_migrator`. The inventory lists role attributes,
-   not function EXECUTE ACLs. Prove both existing roles can execute that read,
-   and prove backup SELECT on every source object, without modifying old DB
-   grants. If absent, stop for a separate authority decision, not a grant here.
-6. **Backups and monitor:** approve exact script patches for both artifact
-   producers and the staging restore/status inventory. Choose new prefix
-   `verdaxis-prod`, preserve all `verdaxis-` artifacts and disable retention
-   deletion during the window. Supply the exact manual restored-backup command
-   and isolated restore destination. There is **no installed reader** of
-   `.runtime-monitor.env`; accept no new reader in Phase 0, or identify and
-   separately approve one. Supply the demo identity file's exact keys and safe
-   binding change before rearming demo. Do not assume it reads the new file.
-7. **Frontend/key recovery:** supply the protected Vercel rollback execution
-   context (CLI 50.37.2, existing private auth directory, scope, prior deployment
-   URL/ID and asset), approved smoke route allowlist, key creation/recovery tool
-   and exact encrypted-archive commands. The founder must hold the recovery
-   secret separately. A raw key or real customer capture may never enter this
-   repository, the Mac, GitHub Actions or a release report.
-8. **Window inputs:** approve deadline, drain timeout, disk reserve, source
-   revision/identity evidence, signed pre-write rollback acceptance, and pause
-   all PM test lanes. The inventory's free disk and idle sessions are dated
-   observations, not current acceptance. Supply actual timer active/enabled/
-   masked states; do not infer them from schedules.
+**Status:** P0-5 applied; the above gates still prevent unconditional M2 sign-off.
+Everything below is for the PM to run, not an agent. No live operation is
+performed by editing or testing this appendix.
 
-The missing items above prevent a truthful start-to-end host execution today.
-Resolve them in this file before sign-off. Sections below fix the known command
-interfaces and prescribe the order and exact commands where facts are known.
-A `STOP` row has no substitute command; never improvise one.
+## Accepted answers and scope
 
-## Roles, fixed inputs and failure rule
+P0-5 (founder may override) rehearses the data path and new release **on the prod
+host**, with scratch cluster `17/p0rehearsal`, port 5434 and socket
+`/var/run/postgresql`. There is no second OS/systemd instance. Transient units
+use `IPAddressDeny=any`, `IPAddressAllow=localhost`, `PrivateTmp=yes` and
+`ProtectHome=read-only`. This denies external providers, **not live loopback
+ports**; exact endpoint/cluster/OID authority and scratch-only credentials are
+therefore essential. Do not describe this as network isolation from 5432/8000.
+No provider keys enter rehearsal Settings. Caddy never routes to 127.0.0.1:8100.
 
-- **PM:** runs every host command, prod SSH login `verdaxis-admin`, sudo for root
-  actions, service account `verdaxis-prod` only where stated. The AI never SSHs.
-- **Founder:** announces the window; owns the encrypted key-ring recovery secret;
-  approves recovery evidence; sends the refresh note at reopening.
-- **Every failure:** leave Caddy maintenance, target CONNECT fence and external
-  start fence closed. Preserve both databases, reports, code and journal. Do not
-  trap EXIT to reopen, retry copy, clear state, kill unknown sessions or revert
-  only a SHA. After customer writes, no return to the old database without a new
-  reconciliation decision. No `pg_hba.conf` changes and no new live roles.
+**Explicitly not rehearsed:** fixed production path unit/drop-in swaps and actual
+old→new→old restoration under systemd. P0-5 accepts that pilot risk. The exact
+rollback block below gets syntax and dry-run review only, not an execution claim.
+The old database and complete old tuple remain intact. No HBA edit; target-only
+CONNECT fence; existing live `verdaxis_migrator` and `verdaxis_backup` roles.
 
-All root steps run in a clean root shell after the PM logs in, with `set +x`,
-`set -euo pipefail`, `umask 077`. Commands below are not a single script: stop at
-each expected-result check. A second operator reviews the private evidence.
-All new paths must be absent or already reviewed; no silent overwrite.
+The PM logs into prod as `verdaxis-admin`, uses sudo, and logs into staging as
+`jons-openclaw@194.233.68.86` with `sudo -n`. Rehearsal changes no staging/live
+services. Cutover pauses staging monitor and backup pull. Schedule outside
+02:30–04:30 SGT. **30-minute target; 60-minute hard limit.** At 60 minutes without
+signed acceptance, use pre-write rollback, not extended improvisation.
 
-| Fixed item | Value / authority |
-|---|---|
-| Prod host | `vmi3623757`, `169.58.37.164` |
-| Prod database | `17/main`, 5432, system ID `7691585279836774230` |
-| Old source | `verdaxis`, OID 21404 at inventory; recheck, never recapture silently |
-| Old source SHA | `c08266bd6969143812dec7c5033338428cd5f159` |
-| New target | `verdaxis_prod`, new observed OID; `p0_20261016_union` |
-| Roles | source `verdaxis_backup`; target owner/tool `verdaxis_migrator`; app `verdaxis_app` |
-| Runtime root | `/home/verdaxis-prod/verdaxis/prod/be` |
-| Tool install | `/opt/verdaxis-phase0` only; venv below it |
-| Private inputs | `/root/verdaxis-phase0`, root 0700, files 0600 |
-| Durable start fence/journal | `/var/lib/verdaxis/phase0`, root 0700 |
-| Real authority files | staging `/home/jons-openclaw/VPS_MAP.md`, `/home/verdaxis-prod/verdaxis/PRODUCTION_HOST.md`, `/home/jons-openclaw/artifacts/verdaxis-migration-20261001/OPERATIONS.md` |
+Founder announces the window, receives the PM's start notice, gives an explicit
+OK before reopening and sends "please refresh" at reopening. KYC key creation,
+encrypted Drive archive and separate founder-held recovery secret occur **after
+reopening**, with founder present; absence disables storage (503), not readiness.
+No forced refresh or compatibility release. No live business-command smoke.
 
-There is no production-host `PRODUCTION_HOST.md` at the old documented path.
-The PM reads the three staging files through the approved staging login; keep a
-private approved copy with the window record. Never treat a missing prod file
-as authorization to ignore host identity.
+All secrets, real data, reports and logs remain host-local. Only the founder's
+encrypted key archive leaves through its approved channel. Never print secrets,
+source rows or raw SQL errors. Any failure stays closed for manual inspection;
+no EXIT trap reopens traffic, clears deploy state or retries copy.
 
-## Input contract and installation (used by A and B)
+## Common setup and input contract
 
-**PM / expected:** one reviewed immutable archive installed root-owned, not
-writable by group/other; packages attested independently; exact tool tree digest
-matches the authority. **STOP:** unresolved Q4, missing packages, dirty archive,
-unknown digest or destination collision. Prepare before maintenance, with no
-real data in the package/cache boundary.
+Commands below run in a PM root shell (`sudo -n -i`), with `set +x`,
+`set -euo pipefail`, `umask 077`. No raw URLs/passwords on argv. Expected exit 0
+unless explicitly testing denial; otherwise STOP. Inspect destinations first.
+Do not overwrite an existing authority/report or reuse a failed populated target.
 
-Use `git archive` of the approved full SHA, not a working directory copy. The
-PM-signed input list must name the archive, local bare mirror and wheelhouse.
-Mirror the exact `staging` ref and retain the old SHA; check both full SHAs with
-`git --git-dir=... rev-parse`. The offline runtime's `origin` must be the approved
-read-only local mirror. Copy complete cached dependency bytes before isolation.
-Install packages with `--no-index --find-links` from that wheelhouse and run
-`pip check` inside the rehearsal. Do not rely on exported PIP variables: the
-normal deploy helper clears its environment. Its later install must find every
-pinned requirement already installed in the final-path venv. An offline fetch
-or pip failure is a STOP, never permission to enable outbound networking.
-
-The exact mirror/cache paths and preparation commands remain Q4. Do not publish
-a guessed SSH remote or silently change the normal deploy helper.
-
-### Separate files: no shared manifest and no synthetic secrets
-
-These are **production-mode** inputs, also in the isolated scratch instance:
-
-| Tool | Manifest | Source secret | Target secret | New output |
-|---|---|---|---|---|
-| bootstrap | `bootstrap.json` | `bootstrap-source.env` | `bootstrap-target.env` | `bootstrap-receipt.json` |
-| copy | `copy.json` | `copy-source.env` | `copy-target.env` | `copy-receipt.json` plus attempt/failure evidence |
-| verify | `verify.json` | `verify-source.env` | `verify-target.env` | `verified.json` |
-
-Every filename in the table is below `/root/verdaxis-phase0`. Each secret is
-exactly one line `DATABASE_URL=postgresql+asyncpg://...`, with the exact role,
-percent-encoded nonempty password, numeric loopback endpoint and exact database.
-No URL query. Different source/target passwords; private distinct files per tool.
-**Do not use `MIGRATOR_DATABASE_URL` in these six tool secret files.** That is the
-historical synthetic bootstrap format, not the production interface. The runtime
-Settings file separately needs BOTH distinct app `DATABASE_URL` and
-`MIGRATOR_DATABASE_URL`, plus consistent `DATABASE_NAME`, user and endpoint parts.
-
-The fixed `/root/verdaxis-phase0/authority.json` has exactly the COMMON_FIELDS
-listed in `docs/phase0/progress-hosttools.md:46–65`: approved production mode,
-host nodename, release/tree/source identity, exact source/target endpoints/OIDs/
-roles/system identifier, frozen source catalog/fingerprint, target datacl and
-bootstrap receipt path. Derive the tree digest from reviewed archive bytes and
-freeze the source only after drain. Do not self-approve arbitrary target data.
-
-Each tool manifest repeats the authority exactly and adds `tool`, `report`,
-`bootstrap_receipt_sha256`. Bootstrap uses JSON null and its report equals the
-authority's bootstrap receipt. After bootstrap, hash its actual report bytes and
-prepare copy/verify manifests with that hash. Each report destination is new.
-Verify does not require the copy receipt; lost copy receipt means verify with a
-new approved verify manifest/report, never replay copy.
-
-Assertion manifests are a **different format** (see main runbook). Use:
-`old.json`, `new-preinstall.json`, `new-final.json`, `rollback.json`. They contain
-raw backup `password_file` paths, not the tool URLs. Pre-install hashes include
-currently installed units/drop-ins; final hashes include the newly installed
-units/drop-ins. Only final tuple approval can issue a new start permit. Do not
-reuse bootstrap/copy manifests for `assert_host`.
-
-The PM must prepare a root-private Settings launcher with the exact production
-Settings and release, using file input rather than passwords in argv. From the
-tool installation working directory its environment is `ENVIRONMENT=production`,
-`RELEASE_SHA=<approved full SHA>`, with matching target app/migrator Settings,
-UTC and `KYC_EXECUTION_GATE_ENABLED=false`. The interpreter is always
-`/opt/verdaxis-phase0/venv/bin/python`. Q4 blocks execution until that launcher,
-authority-builder and private input set have exact reviewed commands. The tools
-must not be run from the live checkout with ambient `.env` routing.
-
-### Parser-checked production tool sequence
-
-**PM / expected:** bootstrap then copy then independent verify exit 0, publish
-new root-private reports and leave frozen source unchanged. **STOP:** any refusal,
-missing report, changed source, extra session, receipt mismatch or existing output.
-Do not interpret a dry run as connection proof. Run these only after A/B fence
-steps and authority approval; create copy/verify manifests after bootstrap.
+One tool installation: `/opt/verdaxis-phase0`; Python
+`/opt/verdaxis-phase0/venv/bin/python`. One private workspace:
+`/root/verdaxis-phase0` (0700), files 0600. Rehearsal uses a private subdirectory
+`rehearsal`; cutover uses `cutover`. The authority anchor is always
+`/root/verdaxis-phase0/authority.json`, root-owned 0600. Preserve the rehearsal
+anchor before explicitly installing the separately approved live anchor.
 
 ```bash
-/opt/verdaxis-phase0/venv/bin/python -m scripts.phase0.bootstrap \
-  --manifest /root/verdaxis-phase0/bootstrap.json \
-  --source-environment-file /root/verdaxis-phase0/bootstrap-source.env \
-  --target-environment-file /root/verdaxis-phase0/bootstrap-target.env --apply
-/opt/verdaxis-phase0/venv/bin/python -m scripts.phase0.copy \
-  --manifest /root/verdaxis-phase0/copy.json \
-  --source-environment-file /root/verdaxis-phase0/copy-source.env \
-  --target-environment-file /root/verdaxis-phase0/copy-target.env \
-  --source-sha "$OLD_SHA" --target-sha "$RELEASE_SHA" --apply
-/opt/verdaxis-phase0/venv/bin/python -m scripts.phase0.verify \
-  --manifest /root/verdaxis-phase0/verify.json \
-  --source-environment-file /root/verdaxis-phase0/verify-source.env \
-  --target-environment-file /root/verdaxis-phase0/verify-target.env \
-  --report /root/verdaxis-phase0/verified.json
-```
-
-## A. Task 10 — isolated host-local rehearsal
-
-### A1. Establish isolation before real data (PM; Q1 STOP)
-
-Pause every test lane first. Do not change the PM test host setup or use its
-`17/test` cluster. Q1 must supply a complete separately approved Linux boundary
-with systemd, private fixed paths and a separate PostgreSQL 17/PostGIS cluster.
-Its private socket is `/var/run/postgresql`; choose no port from guesswork.
-Inside it use `verdaxis` and `verdaxis_prod`, existing production role *names*
-but distinct scratch role objects/passwords. No live credentials in scratch.
-
-**Expected:** separate cluster ID and OIDs, no route/mount to `17/main`, live API,
-Caddy admin, public DNS or providers (Resend, Gemini, Webz, Telegram, Umami).
-Git mirror/cache are read-only local inputs. No SSH agent, home-secret mounts,
-remote logging or public listener. **STOP:** any reachable provider/live endpoint,
-unknown namespace or public DNS fallback. Default-deny all non-loopback egress
-inside the isolated boundary is required; a list of provider IPs is insufficient.
-The inventory supplies no safe command to create this facility. Do not replace
-this gate with `unshare` alone or claim the capped test user is the rehearsal.
-
-### A2. Prepare and restore (PM)
-
-Read the real authority files, check prod identity without stopping live workers,
-and obtain an existing backup-role dump through the approved private backup
-mechanism. Restore only into scratch old `verdaxis`, with old pinned schema,
-ownership and grants. Preserve real dump/logs only on the host. Q3/Q4/Q6 must
-supply the exact dump/restore command, service/passfile and owner preparation.
-`pg_restore --list` alone is not acceptance. Expected complete restore and
-independent counts/hashes; any missing relation, ACL or extension is a STOP.
-
-Use the old pinned tuple at the private fixed runtime path. Block all producers
-and let only the existing sequencer drain. Apply B2–B4 inside scratch, with the
-scratch host/endpoint assertions, never live authority. Freeze after the post-stop
-zero. Create and fence scratch target as B5 with scratch observations. Install
-scratch-only authority and run the parser-checked sequence above.
-
-### A3. Run the actual switch and rollback (PM)
-
-Execute B6–B8 in the isolated boundary with scratch Caddy and local-only DNS
-for `api.verdaxis.exchange`. Never let scratch DNS fall through publicly. Execute
-the main runbook's complete old-tuple restart block, holding both deploy locks
-and the separate fresh operator lock. Restore final paths so venv shebangs work.
-Do not actually dispatch a Vercel promotion from this boundary; use the captured
-previous-deployment procedure in a separately authorized frontend test context.
-
-**Expected:** real cached systemd unit initially lacks the new fence; after
-reload it contains it. No-permit and stale-permit starts deny. Released locks
-and reboot deny. Kill at each directory/identity/unit/restart/readiness boundary;
-no old code executes on new data or vice versa, and public writes remain closed.
-Restore old directory, venv, units/drop-ins, environment, backup settings and
-runtime/monitor files; exact old readiness and frozen source hashes must match.
-**STOP:** any unexplained internal write, mismatched tuple, surviving provider
-route or failure that reopens automatically. Do not perform these fault
-injections against live production.
-
-### A4. Required Linux evidence (PM and founder)
-
-Run the separately approved Linux acceptance commands through the isolated test
-facility, not on the production app database. Record completed counts for the
-19 Bash deploy cases, `/proc` four-worker/SSE case, nobody monitor case, app-role
-business commands and ACL denials. Prove UTC on fresh app/migrator/backup/CLI
-connections and preserve stored epochs/Singapore FAME dates. Prove four-worker
-KYC credentials, gate off, unavailable 503, decrypt 500, proxy-504 uncertainty,
-two-row retention, audited no-store download and RESTRICT. No real customer
-screenshots leave the host. Founder proves encrypted complete-ring recovery
-with secret held separately; Q7 supplies exact commands. A missing item blocks
-Task 11. Keep all scratch data until separately approved cleanup.
-
-## B. Task 11 — one production window
-
-### B1. Approval, real host checks and capture (PM; founder announces)
-
-Founder announces the bounded maintenance window before closure. PM pauses test
-lanes and resolves all questions. From the authorized prod login:
-
-```bash
-sudo -n true
+set +x
+set -euo pipefail
+umask 077
 test "$(hostname -s)" = vmi3623757
-getent ahostsv4 api.verdaxis.exchange
-sudo systemctl show verdaxis-backend.service -p User -p WorkingDirectory -p ExecStart
-sudo -u postgres psql -X -d postgres -v ON_ERROR_STOP=1 -Atc "SELECT system_identifier FROM pg_control_system(); SELECT datname,oid FROM pg_database WHERE datname IN ('verdaxis','verdaxis_prod');"
+sudo -n true
+systemctl --machine=verdaxis-test@ --user list-units 'verdaxis-prod-test-*'
+df -B1 --output=avail /
 ```
 
-Expected DNS `169.58.37.164`, user `verdaxis-prod`, fixed `prod/be`, source OID
-21404/system ID as recorded, no `verdaxis_prod`. STOP on drift or collision; do
-not drop/reuse target. Preserve old complete checkout/venv/env/drop-ins, backup
-config/scripts/.pgpass and previous frontend deployment before modifying them.
-Q3 supplies exact reviewed private capture commands; never print `.env` diffs.
+Expected no test units and at least 10737418240 bytes available. PM waits for
+lanes to finish; do not interrupt tests. Read authority files on staging:
+`/home/jons-openclaw/VPS_MAP.md`,
+`/home/verdaxis-prod/verdaxis/PRODUCTION_HOST.md`, and
+`/home/jons-openclaw/artifacts/verdaxis-migration-20261001/OPERATIONS.md`.
+There is no prod-host file at that old authority path.
 
-### B2. Record and pause timers (PM on both hosts)
+### Archive and packages (before isolation/window; PM)
 
-On prod, root shell, with private evidence directory already approved/created:
+PM records approved full `RELEASE_SHA`, pinned `OLD_SHA=c08266bd6969143812dec7c5033338428cd5f159`
+and frontend PR #82 head `FRONTEND_SHA` in the journal. On the PM workstation,
+`git archive --format=tar "$RELEASE_SHA" > "release-$RELEASE_SHA.tar"`; transfer
+by the PM's scp route to the private host workspace and compare SHA-256 locally
+and on host. This is source packaging, not a local build/test. Inspect archive
+paths before extraction; refuse absolute paths, `..`, links or a digest mismatch.
 
 ```bash
-timers=(verdaxis-auth-maintenance.timer verdaxis-demo-activity.timer verdaxis-onboarding-attention.timer verdaxis-order-expiry-reminders.timer verdaxis-news-refresh.timer verdaxis-product-analytics-prune.timer verdaxis-local-db-backup.timer)
-test ! -e /root/verdaxis-phase0/prod-timers.before
-for unit in "${timers[@]}"; do
-  printf '%s\n' "$unit"
-  systemctl show "$unit" -p ActiveState -p UnitFileState -p LoadState
-done > /root/verdaxis-phase0/prod-timers.before
-systemctl stop "${timers[@]}"
-systemctl list-jobs --no-pager
+test ! -e /opt/verdaxis-phase0
+install -d -o root -g root -m 0755 /opt/verdaxis-phase0
+install -d -o root -g root -m 0700 /root/verdaxis-phase0/rehearsal /root/verdaxis-phase0/cutover
+sha256sum "/root/verdaxis-phase0/release-$RELEASE_SHA.tar"
+tar -tf "/root/verdaxis-phase0/release-$RELEASE_SHA.tar"
+tar --no-same-owner -xf "/root/verdaxis-phase0/release-$RELEASE_SHA.tar" -C /opt/verdaxis-phase0
+chmod -R go-w /opt/verdaxis-phase0
+cd /opt/verdaxis-phase0
+/usr/bin/python3.12 -m pip download -r requirements.txt -c constraints.txt -d /root/verdaxis-phase0/wheels
+/usr/bin/python3.12 -m venv /opt/verdaxis-phase0/venv
+venv/bin/pip install --no-index --find-links /root/verdaxis-phase0/wheels -r requirements.txt -c constraints.txt
+venv/bin/pip check
 ```
 
-Expected every listed timer stopped; record active/enabled/masked states first.
-Onboarding attention and local backup ignore deploy state: stopping those timers
-is mandatory. This list plus the backend covers all eight recorded writers/jobs.
-The failed analytics relay is not repaired or restarted by this procedure.
+Expected Python 3.12.3 and complete constrained packages. No mirror is required:
+rehearsal uses the archive; live deploy retains its normal GitHub origin. Keep
+wheel hashes and pip-check evidence. No candidate gets live credentials here.
 
-On staging, **only through Q2's approved PM login**, record/pause:
+### Tool files and commands (FINAL host interface)
+
+Set `RUN=/root/verdaxis-phase0/rehearsal` for A; use
+`RUN=/root/verdaxis-phase0/cutover` for B. These are different evidence sets.
+
+| Tool | Manifest | Source secret | Target secret | New report |
+|---|---|---|---|---|
+| bootstrap | bootstrap.json | bootstrap-source.env | bootstrap-target.env | bootstrap-receipt.json |
+| copy | copy.json | copy-source.env | copy-target.env | copy-receipt.json |
+| verify | verify.json | verify-source.env | verify-target.env | verified.json |
+
+Every tool secret contains exactly one `DATABASE_URL=postgresql+asyncpg://...`
+line, exact role/endpoint/name, percent-encoded password, no query parameters.
+Do not use the historical synthetic `MIGRATOR_DATABASE_URL` format. Separate
+source/target files for each tool; passwords differ. Settings are a separate
+root-private EnvironmentFile (`rehearsal-settings.env` or `cutover-settings.env`)
+with `ENVIRONMENT=production`, exact SHA, both app/migrator URLs, consistent
+component settings, UTC, KYC gate false. Rehearsal contains **no provider keys**.
+
+PM writes authority by hand from independent observations, not a target
+recapture. Exact fields are in `docs/phase0/progress-hosttools.md:46–71`:
+COMMON_FIELDS plus each tool's `tool`, `report`, `bootstrap_receipt_sha256`.
+The bootstrap digest is null; later manifests hash its actual successful receipt.
+All report paths are new. Copy receipt loss means verify, never repeat copy.
+
+The following reusable transient-unit shell function applies the P0-5 boundary.
+Run it in the root shell; do not enable persistent units. `RUN` and `RELEASE_SHA`
+must already be approved. `--wait --pipe` returns only after completion.
 
 ```bash
-timers=(verdaxis-monitor.timer verdaxis-backup.timer)
-for unit in "${timers[@]}"; do
-  printf '%s\n' "$unit"
-  sudo systemctl show "$unit" -p ActiveState -p UnitFileState -p LoadState
-done
-sudo systemctl stop "${timers[@]}"
-sudo systemctl list-jobs --no-pager
-sudo systemctl show verdaxis-recover.service -p LoadState -p UnitFileState -p ActiveState
+p0run() {
+  systemd-run --wait --pipe --collect \
+    -p IPAddressDeny=any -p IPAddressAllow=localhost \
+    -p PrivateTmp=yes -p ProtectHome=read-only \
+    -p WorkingDirectory=/opt/verdaxis-phase0 \
+    -p "EnvironmentFile=$RUN/settings.env" \
+    "$@"
+}
 ```
 
-Keep that output in the approved staging private evidence destination (Q2).
-Expected recovery remains masked, monitor and 03:00 SGT backup pull paused. Wait
-for existing pulls/backups/provider calls to finish naturally; do not kill them.
-No manual monitor-verify while maintenance is closed. STOP on unknown job or
-active writer beyond the approved drain deadline. Never change global role
-properties, terminate sessions or disable an unrecorded schedule.
-
-### B3. Close production Caddy, load start fence, then drain (PM)
-
-**Maintenance point is prod `/etc/caddy/Caddyfile` only.** Staging's stale prod
-blocks do not control direct DNS. Q3 must provide a reviewed full replacement
-that returns 503 for **every route/method** except exact GET `/health/ready`.
-This includes old cached tabs, authenticated GETs, SSE, SQLAdmin, `/script.js`
-and `/api/send`; analytics must not bypass maintenance. Preserve TLS and trusted
-proxy configuration. No wildcard `/api/*` allow, and no customer-authenticated
-smoke. Existing SSE sockets need explicit closure: reload alone is not proof.
-
-Once Q3's private `Caddyfile.maintenance` and original backup are approved:
+Copy the approved per-run Settings to `$RUN/settings.env` (0600). Under the
+same function, validate no provider keys and outbound denial before real data:
 
 ```bash
-sudo caddy validate --config /root/verdaxis-phase0/Caddyfile.maintenance --adapter caddyfile
-sudo install -o root -g root -m 0644 /root/verdaxis-phase0/Caddyfile.maintenance /etc/caddy/Caddyfile
-sudo systemctl restart caddy
+p0run /usr/bin/python3.12 -c 'import os; assert not any(os.environ.get(k) for k in ("RESEND_API_KEY","GEMINI_API_KEY","WEBZ_API_TOKEN","TELEGRAM_BOT_TOKEN","TELEGRAM_CHAT_ID"))'
+if p0run timeout 3 bash -c '</dev/tcp/1.1.1.1/443'; then exit 1; fi
+p0run getent hosts api.resend.com || true
 ```
 
-Restart deliberately closes old proxy/SSE connections. Expected maintenance is
-active after the brief TLS interruption. Q3 must verify the effective Caddy unit
-loads this file. Check anonymous status codes only, without credentials:
+Expected connection failure; DNS may resolve. Record the transient unit's loaded
+IPAddress properties and lack of BPF warnings. Missing filtering is a STOP.
+All data-bearing rehearsal Python, psql, restore, smoke and backend commands use
+this boundary. Administrative scratch creation/start commands below do not carry
+customer rows. Live tools may use the same wrapper but live Settings can contain
+provider keys; never use live Settings for rehearsal.
 
 ```bash
-for path in /api/orderbook /api/auth/me /api/stream /admin /script.js /api/send; do
-  test "$(curl --silent --output /dev/null --write-out '%{http_code}' "https://api.verdaxis.exchange$path")" = 503
-done
-test "$(curl --silent --output /dev/null --write-out '%{http_code}' -X POST https://api.verdaxis.exchange/api/send)" = 503
+p0run /opt/verdaxis-phase0/venv/bin/python -m scripts.phase0.bootstrap \
+  --manifest "$RUN/bootstrap.json" \
+  --source-environment-file "$RUN/bootstrap-source.env" \
+  --target-environment-file "$RUN/bootstrap-target.env" --apply
+p0run /opt/verdaxis-phase0/venv/bin/python -m scripts.phase0.copy \
+  --manifest "$RUN/copy.json" \
+  --source-environment-file "$RUN/copy-source.env" \
+  --target-environment-file "$RUN/copy-target.env" \
+  --source-sha "$OLD_SHA" --target-sha "$RELEASE_SHA" --apply
+p0run /opt/verdaxis-phase0/venv/bin/python -m scripts.phase0.verify \
+  --manifest "$RUN/verify.json" \
+  --source-environment-file "$RUN/verify-source.env" \
+  --target-environment-file "$RUN/verify-target.env" \
+  --report "$RUN/verified.json"
 ```
 
-These are probes, not a complete route proof; inspect the deny-all config and
-prove old SSE closure in rehearsal. STOP if any forbidden request reaches a
-runtime/relay. Keep Caddy closed on every subsequent failure.
+Expected all three exit 0, private reports, exact source preservation. Run each
+separately; prepare copy/verify manifests only after bootstrap report exists.
+No stdout containing data; private errors remain on host. Record elapsed times.
 
-Install the main runbook's exact root-owned external guard/drop-in, before any
-source replacement. Use its reload/show checks. No permit exists yet. The root
-operator publishes the durable fence with exclusive create and fsync:
+### Independent observations and source fingerprint
+
+For `PORT=5434` (A) or `PORT=5432` (B), query as postgres without passwords:
 
 ```bash
-python3 -I - <<'PY'
-import os
+p0run sudo -u postgres psql -X -h /var/run/postgresql -p "$PORT" -d postgres -v ON_ERROR_STOP=1 -Atc "SELECT system_identifier FROM pg_control_system(); SELECT oid,datname,datacl FROM pg_database WHERE datname IN ('verdaxis','verdaxis_prod'); SHOW port;"
+p0run sudo -u postgres psql -X -h /var/run/postgresql -p "$PORT" -d verdaxis -v ON_ERROR_STOP=1 -Atc "SELECT version_num FROM alembic_version; SHOW timezone; SELECT has_function_privilege('verdaxis_backup','pg_control_system()','EXECUTE'),has_function_privilege('verdaxis_migrator','pg_control_system()','EXECUTE');"
+```
+
+Expected old revision `kycg_20261014_prod`, UTC, both privileges true. Q5 verified
+live grants already: **no grant changes on old `verdaxis`**. Scratch privileges
+may be prepared independently. Record exact server-host text (including CIDR)
+and system ID through the connected endpoint in the authority, as the tools do.
+
+This read-only command writes only a new private observation file. Run after
+source drain; it is evidence for PM review, not self-approval:
+
+```bash
+p0run /opt/verdaxis-phase0/venv/bin/python - "$RUN" <<'PY'
+import asyncio, json, os, sys
 from pathlib import Path
-root = Path('/var/lib/verdaxis/phase0')
-assert root.is_dir() and not root.is_symlink()
-assert root.stat().st_uid == 0 and root.stat().st_mode & 0o777 == 0o700
-fd = os.open(root / 'fence', os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
-with os.fdopen(fd, 'wb') as output:
-    output.write(b'phase0\n'); output.flush(); os.fsync(output.fileno())
-fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY)
-os.fsync(fd); os.close(fd)
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import create_async_engine
+from scripts.phase0.host_authority import tree_digest
+from scripts.phase0.manifest import load_manifest, digest, inspect_catalog, require_complete_inventory
+from scripts.phase0.verify import fingerprint_database, publish_report
+root = Path(sys.argv[1])
+async def observe():
+    line = (root / 'bootstrap-source.env').read_text().strip()
+    assert line.startswith('DATABASE_URL=') and '\n' not in line
+    engine = create_async_engine(line.split('=', 1)[1], hide_parameters=True)
+    try:
+        async with engine.connect() as connection:
+            async with connection.begin():
+                await connection.execute(text('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY'))
+                assert (await connection.execute(text('SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND pid<>pg_backend_pid()'))).scalar_one() == 0
+                catalog = load_manifest()['source_catalog']
+                require_complete_inventory(await connection.run_sync(inspect_catalog), catalog)
+                fingerprint = await fingerprint_database(connection, catalog)
+                identity = dict((await connection.execute(text('SELECT current_database() AS database,current_user AS role,d.oid,inet_server_addr()::text AS server_host,inet_server_port() AS server_port,(SELECT system_identifier::text FROM pg_control_system()) AS cluster_system_identifier FROM pg_database d WHERE datname=current_database()'))).mappings().one())
+        publish_report(root / 'source-observation.json', dict(source=identity,
+            source_catalog_sha256=digest(catalog), frozen_source=fingerprint,
+            tool_tree_sha256=tree_digest(Path('/opt/verdaxis-phase0'))))
+    finally:
+        await engine.dispose()
+asyncio.run(observe())
 PY
-sudo systemctl daemon-reload
-sudo systemctl show verdaxis-backend.service -p LoadState -p NeedDaemonReload -p DropInPaths -p ExecStartPre
 ```
 
-Expected loaded fence plus original two pre-start guards; no pending reload.
-Allow in-flight requests/oneshots to finish. Observe these service units until
-inactive/dead and Job empty/0; no new timer firing can start them:
+Expected new root-private report and complete inventory equality. PM compares
+independent cluster/OID observations and installs approved `authority.json` only
+after review. A missing source relation or changed fingerprint stops execution.
+
+## A. Task 10 — P0-5 data-path rehearsal
+
+### A1. Scratch cluster and private credentials (PM)
 
 ```bash
-for unit in verdaxis-auth-maintenance.service verdaxis-demo-activity.service verdaxis-onboarding-attention.service verdaxis-order-expiry-reminders.service verdaxis-news-refresh.service verdaxis-product-analytics-prune.service verdaxis-local-db-backup.service; do
-  sudo systemctl show "$unit" -p ActiveState -p SubState -p Job
-done
+pg_lsclusters
+test ! -d /etc/postgresql/17/p0rehearsal
+pg_createcluster 17 p0rehearsal --port 5434 --start-conf manual
+pg_ctlcluster 17 p0rehearsal start
+pg_lsclusters
+RUN=/root/verdaxis-phase0/rehearsal
+PORT=5434
 ```
 
-Expected drained providers/jobs. Keep API only for its existing sequencer. Q4's
-backup connection reads pending NULL `stream_seq` to zero after producer drain;
-then stop backend and recheck all sessions and zero with the assertion:
+Before the scratch credentials exist, create `$RUN/settings.env` with only
+`ENVIRONMENT=production` and the approved `RELEASE_SHA`; the administrative
+psql commands do not import Settings. After password setup, replace it with the
+complete reviewed scratch Settings before any Python tool/application command.
+
+Expected new `17 p0rehearsal 5434`, socket `/var/run/postgresql`, system ID different
+from `7691585279836774230`. Stop on existing cluster/port/name collision; never
+operate on `17/main` or `17/test`. No staging timer changes in A.
+
+PM generates scratch-only random passwords privately and creates only scratch
+role objects. Use a root-owned scratch SQL file, never password argv. The SQL
+must create `verdaxis_app`, `verdaxis_backup`, `verdaxis_migrator` as LOGIN,
+NOINHERIT, NOSUPERUSER, NOCREATEDB, NOCREATEROLE, NOREPLICATION, NOBYPASSRLS;
+no memberships. Use PostgreSQL `\password` interactively inside the following
+bounded session (hidden input), with three distinct random password-manager
+values. Record them only in private Settings/tool/passfiles:
 
 ```bash
-sudo systemctl stop verdaxis-backend.service
-/opt/verdaxis-phase0/venv/bin/python -m scripts.phase0.assert_host \
-  --manifest /root/verdaxis-phase0/old.json --check outbox-empty
-```
-
-Expected no other source session, pending job or pending outbox. Backup/psql
-sessions count too. STOP on a late commit; drain again under the same closure,
-never sequence by ad hoc SQL. Snapshot only after this final zero.
-
-### B4. Final source snapshot and frozen authority (PM)
-
-Take the final dump with the read-only backup credentials, then perform the
-Q6-approved isolated restore and full comparison. Keep old dumps and original
-backup files; do not rely on archive-list success. Record source catalog,
-table/column hashes, sequence state and frozen authority while no writer can
-reconnect. Q4 must supply the exact signed observation/builder commands. Source
-`verdaxis` rows, schema, ACLs, settings and name remain untouched thereafter.
-
-### B5. Create and fence only the new database (PM)
-
-After rechecking absence, use the existing migrator, no new live roles:
-
-```bash
-sudo -u postgres createdb --owner=verdaxis_migrator verdaxis_prod
-sudo -u postgres psql -X -d postgres -v ON_ERROR_STOP=1 <<'SQL'
-REVOKE CONNECT ON DATABASE verdaxis_prod FROM PUBLIC;
-REVOKE CONNECT ON DATABASE verdaxis_prod FROM verdaxis_app, verdaxis_backup;
-GRANT CONNECT ON DATABASE verdaxis_prod TO verdaxis_migrator;
-ALTER DATABASE verdaxis_prod SET timezone TO 'UTC';
-SELECT datname,oid,datacl::text FROM pg_database WHERE datname='verdaxis_prod';
+p0run sudo -u postgres psql -X -h /var/run/postgresql -p 5434 -d postgres -v ON_ERROR_STOP=1 <<'SQL'
+CREATE ROLE verdaxis_app LOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+CREATE ROLE verdaxis_backup LOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+CREATE ROLE verdaxis_migrator LOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+CREATE DATABASE verdaxis OWNER verdaxis_migrator;
 SQL
 ```
 
-Expected fresh target OID, exact non-null ACL with only migrator CONNECT and no
-grant option. Existing sessions/superusers bypass CONNECT: mandatory session
-checks still apply. Q4 must provide target-only PostGIS setup and prove no role
-per-database override defeats UTC. No global ALTER ROLE and no old DB settings.
-Record exact target ACL and OID independently; install approved authority.
-Run bootstrap/copy/verify sequence above. Verify bootstrap receipt before making
-the later two manifests. All reports must exist privately and match authority.
+`--pipe` is noninteractive: for hidden `\password` use the same properties with
+`systemd-run --pty --wait --collect`, run the same psql endpoint, enter
+`\password verdaxis_app`, `\password verdaxis_backup`, `\password verdaxis_migrator`,
+then `\q`. Do not paste passwords into a SQL file/terminal transcript.
+Populate root-private tool secrets and Settings from those values. Verify the
+Settings parser before restore; no source password is copied from live.
 
-### B6. Install new tuple and backup bindings (PM)
+### A2. Restore newest dump and prepare target (PM)
 
-Preserve old complete tuple, then use the reviewed rename procedure at the fixed
-path. Build venv there offline. Change **all three** production names:
-`DATABASE_NAME`, app `DATABASE_URL`, `MIGRATOR_DATABASE_URL`. Keep exact roles,
-secrets, `.env.analytics`, gate off and approved vault credential source. Publish
-matching release/monitor identity before credentials reach new code.
+Select newest local custom dump without deleting or renaming anything. Source
+has 65 MB on disk; dumps about 4 MB are a sanity check, not proof:
+
+```bash
+find /var/backups/verdaxis -maxdepth 1 -type f -name 'verdaxis-*.dump' -printf '%T@ %p\n' | sort -nr
+```
+
+PM records the exact newest `DUMP` path and digest. Then:
+
+```bash
+p0run /usr/bin/pg_restore --list "$DUMP"
+p0run sudo -u postgres /usr/bin/pg_restore --exit-on-error -h /var/run/postgresql -p 5434 -d verdaxis < "$DUMP"
+```
+
+Expected old ownership/grants restored, no errors. Do not use `--no-owner` or
+`--no-acl`. Database-level owner/CONNECT settings are not necessarily in a dump
+without CREATE DATABASE. Set the independently recorded old database ACL on
+scratch **only**:
+
+```bash
+p0run sudo -u postgres psql -X -h /var/run/postgresql -p 5434 -d verdaxis -v ON_ERROR_STOP=1 <<'SQL'
+REVOKE CONNECT ON DATABASE verdaxis FROM PUBLIC;
+GRANT CONNECT ON DATABASE verdaxis TO verdaxis_app,verdaxis_backup;
+GRANT EXECUTE ON FUNCTION pg_control_system() TO verdaxis_backup,verdaxis_migrator,verdaxis_app;
+SQL
+```
+
+This reproduces checked Q5 authority on new scratch objects; do not run it on
+5432. If restored relation grants differ, stop rather than invent privileges.
+Inspect old revision, catalog, source backup SELECT and function EXECUTE in
+scratch. Set scratch-only role/database settings with the SQL below, replacing
+`verdaxis_prod` with `verdaxis` only in scratch. Source live settings never change.
+
+Create target and provision extension as postgres **on selected PORT**:
+
+```bash
+p0run sudo -u postgres createdb -h /var/run/postgresql -p "$PORT" --owner=verdaxis_migrator verdaxis_prod
+p0run sudo -u postgres psql -X -h /var/run/postgresql -p "$PORT" -d verdaxis_prod -v ON_ERROR_STOP=1 <<'SQL'
+CREATE EXTENSION postgis;
+REVOKE CONNECT ON DATABASE verdaxis_prod FROM PUBLIC, verdaxis_app, verdaxis_backup;
+GRANT CONNECT ON DATABASE verdaxis_prod TO verdaxis_migrator;
+ALTER DATABASE verdaxis_prod SET timezone TO 'UTC';
+ALTER ROLE verdaxis_app IN DATABASE verdaxis_prod SET statement_timeout TO '30s';
+ALTER ROLE verdaxis_app IN DATABASE verdaxis_prod SET lock_timeout TO '3s';
+ALTER ROLE verdaxis_app IN DATABASE verdaxis_prod SET idle_in_transaction_session_timeout TO '60s';
+ALTER ROLE verdaxis_migrator IN DATABASE verdaxis_prod SET statement_timeout TO '300s';
+ALTER ROLE verdaxis_migrator IN DATABASE verdaxis_prod SET lock_timeout TO '30s';
+ALTER ROLE verdaxis_migrator IN DATABASE verdaxis_prod SET idle_in_transaction_session_timeout TO '300s';
+ALTER ROLE verdaxis_backup IN DATABASE verdaxis_prod SET statement_timeout TO '120s';
+ALTER ROLE verdaxis_backup IN DATABASE verdaxis_prod SET lock_timeout TO '5s';
+ALTER ROLE verdaxis_backup IN DATABASE verdaxis_prod SET idle_in_transaction_session_timeout TO '60s';
+SELECT extname,extversion FROM pg_extension;
+SELECT oid,datacl::text FROM pg_database WHERE datname=current_database();
+SQL
+```
+
+Expected installed PostGIS 3.6.4, plpgsql, migrator owner, only migrator CONNECT,
+no user tables. Tool policy may reject a changed extension/catalog; no bypass.
+No HBA edits. CONNECT does not evict sessions or restrict superusers.
+
+Restored source can contain pending outbox events. Do not run copy until zero.
+P0-5 does not supply an old-release sequencer run: a pending source is a STOP for
+PM-directed scratch drain, not ad hoc UPDATE. Use newest drained snapshot if
+available; final production drain is mandatory regardless. Capture frozen
+observations/authority, run the three tool commands above, retain reports/timings.
+
+### A3. New backend, read smoke and business evidence (PM)
+
+After tool verification, use the reviewed target ACL convergence with target-only
+runtime EnvironmentFile, then grant runtime/backup CONNECT as the reviewed ACL
+policy requires. Do not apply new ACLs to old source:
+
+```bash
+p0run /opt/verdaxis-phase0/venv/bin/python -m scripts.converge_runtime_acls \
+  --environment production --environment-file "$RUN/settings.env" --bundle-root /opt/verdaxis-phase0
+```
+
+The object ACL helper does not grant database CONNECT. After independent verify,
+open only the new target to the two exact runtime/backup roles:
+
+```bash
+p0run sudo -u postgres psql -X -h /var/run/postgresql -p "$PORT" -d verdaxis_prod -v ON_ERROR_STOP=1 <<'SQL'
+GRANT CONNECT ON DATABASE verdaxis_prod TO verdaxis_app,verdaxis_backup;
+SQL
+```
+
+Verify schema USAGE/default privileges against the approved policy before runtime
+preflight. Do not grant app reference-table UPDATE or metadata SELECT. The same
+explicit target CONNECT transition is required after B4 verification, before B7
+preflight; the tool chain intentionally refuses after this transition.
+
+Run backend as a transient unit, not installed prod units:
+
+```bash
+systemd-run --unit=verdaxis-phase0-rehearsal --collect \
+  -p User=verdaxis-prod -p WorkingDirectory=/opt/verdaxis-phase0 \
+  -p EnvironmentFile=/root/verdaxis-phase0/rehearsal/settings.env \
+  -p IPAddressDeny=any -p IPAddressAllow=localhost -p PrivateTmp=yes -p ProtectHome=read-only \
+  /opt/verdaxis-phase0/venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8100 --workers 4 --no-access-log
+p0run curl --fail --silent http://127.0.0.1:8100/health/ready
+systemctl show verdaxis-phase0-rehearsal.service -p ActiveState -p IPAddressDeny -p IPAddressAllow
+```
+
+Expected exact SHA readiness on 127.0.0.1:8100, four workers, KYC gate false,
+missing vault key/503 storage. No Caddy route, no provider credentials. Log only
+bounded facts. Run the approved scratch business fixture/smoke (open item 3),
+including app-role ACL denials, UTC reconnects and missing-key submission 503.
+Do not claim readiness proves KYC submission. Finish and retain the cluster:
+
+```bash
+systemctl stop verdaxis-phase0-rehearsal.service
+systemctl show verdaxis-phase0-rehearsal.service -p ActiveState -p Job
+```
+
+Expected inactive/no job. Record restore/bootstrap/copy/verify timings and smoke
+results. Old→new→old fixed-path/systemd restoration is not rehearsed under P0-5.
+Review B8 with `bash -n` and deploy/installer dry-run only; do not execute live
+rollback as a drill. Keep scratch until post-cutover restored-backup acceptance.
+
+## B. Task 11 — production cutover
+
+### B1. Window approval and capture (PM; founder announces)
+
+Outside 02:30–04:30 SGT, start monotonic 60-minute deadline and journal. Pause test
+lanes, check at least 10 GB free, founder start notice, clean old SHA and DNS:
+
+```bash
+WINDOW_START=$SECONDS
+getent ahostsv4 api.verdaxis.exchange
+sudo -u verdaxis-prod git -C /home/verdaxis-prod/verdaxis/prod/be status --porcelain
+sudo -u verdaxis-prod git -C /home/verdaxis-prod/verdaxis/prod/be rev-parse HEAD
+sudo -u postgres psql -X -d postgres -Atc "SELECT system_identifier FROM pg_control_system(); SELECT oid,datname FROM pg_database WHERE datname IN ('verdaxis','verdaxis_prod');"
+```
+
+Expected `169.58.37.164`, old pinned SHA, clean tree, old OID 21404/system ID
+`7691585279836774230`, target absent. Stop on drift; no drop/reuse.
+Capture files privately without printing contents:
+
+```bash
+test ! -e /root/verdaxis-phase0/before
+install -d -m 0700 /root/verdaxis-phase0/before /root/verdaxis-phase0/backups-before
+cp -a /var/backups/verdaxis/. /root/verdaxis-phase0/backups-before/
+for path in /etc/caddy/Caddyfile /etc/verdaxis-backup-export.conf /home/verdaxis-backup-export/.pgpass /usr/local/sbin/verdaxis-local-db-backup /etc/verdaxis-monitor/demo/production.env /home/verdaxis-prod/verdaxis/prod/be/.env /home/verdaxis-prod/verdaxis/prod/be/.env.analytics /home/verdaxis-prod/verdaxis/prod/be/.runtime-release.env; do
+  install -D -m 0600 "$path" "/root/verdaxis-phase0/before$path"
+done
+cp -a /etc/systemd/system/verdaxis-* /root/verdaxis-phase0/before/
+find /root/verdaxis-phase0/before -type f -exec sha256sum {} + > /root/verdaxis-phase0/before.sha256
+```
+
+Root-private parent protects captured units. Preserve existing monitor/runtime
+file if present, else record absence. Keep old dumps outside recursive retention.
+
+### B2. Pause timers and close all public traffic (PM)
+
+On prod capture all verdaxis timer states, then stop the seven listed timers:
+
+```bash
+systemctl show 'verdaxis-*.timer' -p Id -p ActiveState -p UnitFileState > /root/verdaxis-phase0/timers-before.txt
+systemctl stop verdaxis-auth-maintenance.timer verdaxis-demo-activity.timer verdaxis-onboarding-attention.timer verdaxis-order-expiry-reminders.timer verdaxis-news-refresh.timer verdaxis-product-analytics-prune.timer verdaxis-local-db-backup.timer
+```
+
+On staging, PM as `jons-openclaw`, sudo root shell, create a private same-named
+state file on that host and run:
+
+```bash
+install -d -m 0700 /root/verdaxis-phase0
+systemctl show 'verdaxis-*.timer' -p Id -p ActiveState -p UnitFileState > /root/verdaxis-phase0/timers-before.txt
+systemctl stop verdaxis-monitor.timer verdaxis-backup.timer
+systemctl show verdaxis-monitor.service verdaxis-backup.service -p ActiveState -p SubState -p Job
+systemctl list-jobs --no-pager
+```
+
+Expected no active/pending pull or monitor; wait naturally, no kill. Recovery
+remains masked. No staging changes during A. Onboarding/local backup explicitly
+stop despite ignoring deploy state. Do not repair failed analytics relay.
+
+PM prepares `/root/verdaxis-phase0/Caddyfile.maintenance`: original file, replacing
+only the whole site's route block with the following exact PM-approved content:
+
+```caddyfile
+header Retry-After "600"
+header Content-Type "application/json"
+respond `{"detail":"Verdaxis is under maintenance. Please retry in a few minutes."}` 503
+```
+
+Every path, including readiness, `/api/send`, SQLAdmin, authenticated GET and SSE,
+returns 503. No stale staging-host Caddy edits; DNS is direct to prod.
+
+```bash
+caddy validate --config /root/verdaxis-phase0/Caddyfile.maintenance --adapter caddyfile
+install -m 0644 /root/verdaxis-phase0/Caddyfile.maintenance /etc/caddy/Caddyfile
+systemctl reload caddy
+for path in /health/ready /api/auth/me /api/send /admin /api/orderbook /api/stream; do
+  test "$(curl --silent --output /dev/null --write-out '%{http_code}' "https://api.verdaxis.exchange$path")" = 503
+done
+```
+
+Expected all 503. Reload need not terminate established SSE; stop backend below
+closes it. Wait up to 120 seconds for in-flight requests/provider oneshots and
+check all seven service peers inactive/no job:
+
+```bash
+for unit in verdaxis-auth-maintenance.service verdaxis-demo-activity.service verdaxis-onboarding-attention.service verdaxis-order-expiry-reminders.service verdaxis-news-refresh.service verdaxis-product-analytics-prune.service verdaxis-local-db-backup.service; do
+  systemctl show "$unit" -p ActiveState -p SubState -p Job
+done
+systemctl list-jobs --no-pager
+```
+
+Expected inactive/dead (or recorded failed with no running process), empty/0 Job.
+Any running/pending writer after 120 seconds stops the cutover. Keep old backend solely to drain
+its existing sequencer. Check pending outbox as postgres without changing rows:
+
+```bash
+DRAIN_START=$SECONDS
+while test "$(sudo -u postgres psql -X -d verdaxis -Atc 'SELECT count(*) FROM market_event_outbox WHERE stream_seq IS NULL')" != 0; do
+  test "$((SECONDS-DRAIN_START))" -lt 120
+  sleep 2
+done
+systemctl stop verdaxis-backend.service
+sudo -u postgres psql -X -d verdaxis -Atc "SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND pid<>pg_backend_pid(); SELECT count(*) FROM market_event_outbox WHERE stream_seq IS NULL;"
+```
+
+Expected both zero after ALL producers drain; late commit means STOP/drain again,
+not a snapshot. No session termination/source grants/settings. Preserve frozen
+source; take a new custom backup with the existing read-only role/passfile:
+
+```bash
+test ! -e /root/verdaxis-phase0/cutover/final.dump
+sudo -u verdaxis-backup-export env PGPASSFILE=/home/verdaxis-backup-export/.pgpass pg_dump -h 127.0.0.1 -p 5432 -U verdaxis_backup -d verdaxis --format=custom > /root/verdaxis-phase0/cutover/final.dump
+sha256sum /root/verdaxis-phase0/cutover/final.dump
+```
+
+Root opens the private output; pg_dump receives no password argv. A nonzero exit
+leaves a partial dump: preserve it, do not accept or overwrite it. Restore into a
+new scratch verification database, not the rehearsal source already used.
+
+### B3. External fence and final source authority (PM)
+
+Install the exact guard/drop-in from the main runbook, outside checkout, root
+owned. Inspect parent ownership first. Publish fence durably:
+
+```bash
+install -d -o root -g root -m 0700 /var/lib/verdaxis/phase0
+install -o root -g root -m 0755 /opt/verdaxis-phase0/scripts/phase0/start_fence.py /opt/verdaxis-phase0/start_fence.py
+python3 -I - <<'PY'
+import os
+root='/var/lib/verdaxis/phase0'
+fd=os.open(root+'/fence',os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
+with os.fdopen(fd,'wb') as f:
+    f.write(b'phase0\n'); f.flush(); os.fsync(f.fileno())
+fd=os.open(root,os.O_RDONLY|os.O_DIRECTORY); os.fsync(fd); os.close(fd)
+PY
+install -d -m 0755 /etc/systemd/system/verdaxis-backend.service.d
+test ! -e /etc/systemd/system/verdaxis-backend.service.d/90-phase0-fence.conf
+printf '%s\n' '[Service]' 'ExecStartPre=+/usr/bin/python3 -I /opt/verdaxis-phase0/start_fence.py --environment production --expected-release-sha ${RELEASE_SHA} --database verdaxis_prod' > /etc/systemd/system/verdaxis-backend.service.d/90-phase0-fence.conf
+chmod 0644 /etc/systemd/system/verdaxis-backend.service.d/90-phase0-fence.conf
+systemctl daemon-reload
+systemctl show verdaxis-backend.service -p LoadState -p NeedDaemonReload -p DropInPaths -p ExecStartPre
+```
+
+Expected exact external guard plus existing two guards, loaded/no pending reload.
+No source replacement until this check. Precondition: main runbook drop-in bytes
+are installed, not just guard script. Missing/mismatched drop-in is a STOP.
 
 ```bash
 /opt/verdaxis-phase0/venv/bin/python -m scripts.phase0.assert_host \
-  --manifest /root/verdaxis-phase0/new-preinstall.json --check tuple
+  --manifest /root/verdaxis-phase0/cutover/old.json --check outbox-empty
+```
+
+Expected zero jobs/sessions/pending events. Assertion manifests use raw backup
+password files and are **not** production tool manifests. PM signs frozen source
+observation, new target identity and authority; no blind baseline recapture.
+
+### B4. New live target and tool chain (PM)
+
+Set `PORT=5432`, `RUN=/root/verdaxis-phase0/cutover`. Recheck target absence, then
+execute A2's exact target creation/PostGIS/CONNECT/settings block against this
+port. It changes only `verdaxis_prod`; existing live role attributes, old DB,
+HBA and credentials remain unchanged. Recheck UTC and target ownership/datacl.
+Install approved live authority, separate tool secrets and Settings, then run
+bootstrap→copy→verify commands in Common setup. Each new report must match the
+approved authority and frozen source. Stop on any refusal; never replay copy.
+
+### B5. Prepare new runtime, preserve old complete tuple (PM)
+
+Prepare a clean canonical staging checkout before the window with its normal
+origin and approved SHA. PM supplies it at the new work-product path
+`/home/verdaxis-prod/verdaxis/prod/be.phase0-new`; this is not claimed preexisting.
+Verify clean SHA and no symlink. Preserve old entire directory, not just Git:
+
+```bash
+root=/home/verdaxis-prod/verdaxis/prod/be
+test ! -e "${root}.phase0-old"
+test ! -L "$root"
+test ! -L "${root}.phase0-new"
+test "$(sudo -u verdaxis-prod git -C "${root}.phase0-new" rev-parse HEAD)" = "$RELEASE_SHA"
+test -z "$(sudo -u verdaxis-prod git -C "${root}.phase0-new" status --porcelain)"
+mv "$root" "${root}.phase0-old"
+mv "${root}.phase0-new" "$root"
+```
+
+```bash
+install -o verdaxis-prod -g verdaxis-prod -m 0600 "${root}.phase0-old/.env" "$root/.env"
+install -o verdaxis-prod -g verdaxis-prod -m 0600 "${root}.phase0-old/.env.analytics" "$root/.env.analytics"
+sudo -u verdaxis-prod /usr/bin/python3.12 -m venv "$root/venv"
+```
+
+The service user cannot traverse root's private wheelhouse. Copy its reviewed
+non-secret package files to a service-readable new cache under
+`/opt/verdaxis-phase0/wheels` before installation; keep root ownership:
+
+```bash
+install -d -m 0755 /opt/verdaxis-phase0/wheels
+cp /root/verdaxis-phase0/wheels/* /opt/verdaxis-phase0/wheels/
+chmod 0644 /opt/verdaxis-phase0/wheels/*
+sudo -u verdaxis-prod "$root/venv/bin/pip" install --no-index --find-links /opt/verdaxis-phase0/wheels -r "$root/requirements.txt" -c "$root/constraints.txt"
+sudo -u verdaxis-prod "$root/venv/bin/pip" check
+```
+
+Then change only the three
+name sources `DATABASE_NAME`, `DATABASE_URL`, `MIGRATOR_DATABASE_URL` to new DB
+using the exact script in B9 (on runtime .env). Preserve other secrets, gate off,
+user split and URLs. Build final-path venv from cached constrained packages;
+never reuse relocated shebangs. Publish `.runtime-release.env` with exact
+ENVIRONMENT/SHA/union revision and credential-free `.runtime-monitor.env` before
+new code gets credentials:
+
+```bash
+printf 'ENVIRONMENT=production\nRELEASE_SHA=%s\nMIGRATION_REVISION=p0_20261016_union\n' "$RELEASE_SHA" > "$root/.runtime-release.env"
+printf 'ENVIRONMENT=production\nRELEASE_SHA=%s\n' "$RELEASE_SHA" > "$root/.runtime-monitor.env"
+chown verdaxis-prod:verdaxis-prod "$root/.runtime-release.env" "$root/.runtime-monitor.env"
+chmod 0600 "$root/.runtime-release.env"
+chmod 0644 "$root/.runtime-monitor.env"
+```
+
+The external fence remains closed during both writes. Fsync files/directory
+before approving final tuple. Do not issue a permit yet.
+
+Use `new-preinstall.json` with current installed-unit hashes, then immutable
+installer and `new-final.json` with actual final unit/drop-in/venv/env hashes:
+
+```bash
+/opt/verdaxis-phase0/venv/bin/python -m scripts.phase0.assert_host \
+  --manifest /root/verdaxis-phase0/cutover/new-preinstall.json --check tuple
 sudo -n -u verdaxis-prod -H /home/verdaxis-prod/verdaxis/prod/be/scripts/deploy.sh --dry-run
 sudo /home/verdaxis-prod/verdaxis/prod/be/scripts/install_systemd_units.sh \
   --dry-run --environment production --source-ref "$RELEASE_SHA"
 sudo /home/verdaxis-prod/verdaxis/prod/be/scripts/install_systemd_units.sh \
   --apply --environment production --source-ref "$RELEASE_SHA"
-sudo systemctl daemon-reload
-sudo systemctl show verdaxis-backend.service -p LoadState -p NeedDaemonReload -p DropInPaths -p ExecStartPre
+systemctl daemon-reload
+systemctl show verdaxis-backend.service -p LoadState -p NeedDaemonReload -p DropInPaths -p ExecStartPre
 /opt/verdaxis-phase0/venv/bin/python -m scripts.phase0.assert_host \
-  --manifest /root/verdaxis-phase0/new-final.json --check tuple
+  --manifest /root/verdaxis-phase0/cutover/new-final.json --check tuple
 ```
 
-Expected exact approved SHA printed by dry-run, final installed unit hashes,
-four workers and independent fence composition. STOP on drift. Pre-install
-manifest is not authority for a final start.
+Expected approved SHA, matching hashes, four workers, unchanged guards. No key
+is required during this window; storage 503 is expected. Stop on stale unit cache.
 
-**Backup switch before acceptance:** with both local and staging backup timers
-still stopped, preserve `/etc/verdaxis-backup-export.conf` and
-`/home/verdaxis-backup-export/.pgpass` privately. Q3/Q6 exact patch changes
-`PGDATABASE=verdaxis_prod` and duplicates the old database-specific .pgpass entry
-for the new database, retaining old credentials for rollback. Keep file owner
-and 0600 mode. Never print password lines. Both live producers read that config:
-`/usr/local/sbin/verdaxis-local-db-backup` and
-`/usr/local/libexec/verdaxis-backup-export`. Q6 must patch local custom dump prefix
-to `verdaxis-prod-<UTC>.dump` and staging's plain/gzip artifact/status/restore
-inventory to `verdaxis-prod`, database `verdaxis_prod`. Preserve old `verdaxis-`
-dumps, B2 objects, scripts and config; suspend deletion, do not rename old dumps.
+### B6. Fsync permit (PM root shell)
 
-Run both approved producer/restore checks manually only after target backup
-CONNECT/SELECT is accepted. Never pretend `pg_restore --list` is a full restore.
-A restored backup goes only into the approved isolated scratch destination.
-Q6 blocks rearming until full restore evidence and expected inventories pass.
-Do not install the uninstalled monitor backup timer as a competing producer.
-
-**Monitor binding:** no `.runtime-monitor.env` reader is installed on prod.
-Verify the generated file against full runtime SHA via `assert_host`; do not
-claim monitoring consumes it. Preserve/update only the Q6-reviewed existing demo
-identity binding at `/etc/verdaxis-monitor/demo/production.env`; keep onboarding
-`/etc/verdaxis-monitor.env`. Staging's monitor continues its existing public
-checks after reopening. New reader activation is separate work, not implicit.
-
-### B7. Publish one-use permit and normal deploy (PM)
-
-As root, only after tuple approval; inspect stale entries and confirm no previous
-operator owns the lock. No normal deploy lock is held by this root shell. Remove
-a stale permit only after that inspection. The following refuses if it exists:
+No stale permit or previous lock owner may remain. Inspect stale files before
+removal. Never reuse old lock inode/permit. This script creates a fresh lock;
+root holds fd 9 until deploy finishes. It does not hold the normal deploy locks.
 
 ```bash
 test ! -e /var/lib/verdaxis/phase0/permit.json
 test ! -L /var/lib/verdaxis/phase0/permit.json
 python3 -I - <<'PY'
-import os, tempfile
-root = '/var/lib/verdaxis/phase0'
-fd, name = tempfile.mkstemp(prefix='.operator.', dir=root)
-os.fsync(fd); os.close(fd)
-os.replace(name, root + '/operator.lock')
-fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY)
-os.fsync(fd); os.close(fd)
+import os,tempfile
+root='/var/lib/verdaxis/phase0'
+fd,path=tempfile.mkstemp(dir=root,prefix='.operator.')
+os.fsync(fd); os.close(fd); os.replace(path,root+'/operator.lock')
+fd=os.open(root,os.O_RDONLY|os.O_DIRECTORY); os.fsync(fd); os.close(fd)
 PY
 exec 9<>/var/lib/verdaxis/phase0/operator.lock
 flock -n 9
 export RELEASE_SHA
 python3 -I - <<'PY'
-import json, os, re, tempfile
-root = '/var/lib/verdaxis/phase0'
-sha = os.environ['RELEASE_SHA']
-assert re.fullmatch('[0-9a-f]{40}', sha)
-info = os.stat(root + '/operator.lock')
-permit = dict(environment='production', release_sha=sha, database='verdaxis_prod',
-              lock_device=info.st_dev, lock_inode=info.st_ino)
-fd, name = tempfile.mkstemp(prefix='.permit.', dir=root)
-with os.fdopen(fd, 'w') as output:
-    json.dump(permit, output); output.flush(); os.fsync(output.fileno())
-os.replace(name, root + '/permit.json')
-fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY)
-os.fsync(fd); os.close(fd)
+import os,json,re,tempfile
+root='/var/lib/verdaxis/phase0'; sha=os.environ['RELEASE_SHA']
+assert re.fullmatch('[0-9a-f]{40}',sha)
+s=os.stat(root+'/operator.lock')
+fd,path=tempfile.mkstemp(dir=root,prefix='.permit.')
+with os.fdopen(fd,'w') as f:
+    json.dump(dict(environment='production',release_sha=sha,database='verdaxis_prod',lock_device=s.st_dev,lock_inode=s.st_ino),f)
+    f.flush(); os.fsync(f.fileno())
+os.replace(path,root+'/permit.json')
+fd=os.open(root,os.O_RDONLY|os.O_DIRECTORY); os.fsync(fd); os.close(fd)
 PY
 /opt/verdaxis-phase0/venv/bin/python -m scripts.phase0.start_fence \
   --environment production --expected-release-sha "$RELEASE_SHA" --database verdaxis_prod
+```
+
+Expected guard passes only while root lock held. Failure leaves fence intact.
+
+### B7. Normal deploy, live read-only smoke and promotion (PM)
+
+**STOP until open item 1 is resolved.** The normal helper overwrites HEALTH_URL
+with public `/health/ready`; setting an ambient loopback URL does not solve it.
+All-path maintenance makes it fail and stop the candidate. Do not run knowingly
+into that failure or patch the guard during the window.
+
+After approved resolution, use normal four-variable same-revision deploy:
+
+```bash
 sudo -n -u verdaxis-prod -H env APPROVED_RELEASE_SHA="$RELEASE_SHA" \
   MIGRATION_APPROVED_SOURCE_SHA="$RELEASE_SHA" \
   MIGRATION_EXPECTED_CURRENT_REVISION=p0_20261016_union \
@@ -535,105 +710,206 @@ sudo -n -u verdaxis-prod -H env APPROVED_RELEASE_SHA="$RELEASE_SHA" \
   /home/verdaxis-prod/verdaxis/prod/be/scripts/deploy.sh
 ```
 
-For a separately captured readiness response saved privately as `ready.json`,
-validate its exact environment/full SHA with the current parser:
-
-```bash
-/opt/verdaxis-phase0/venv/bin/python -m scripts.validate_health_response \
-  --environment production --release-sha "$RELEASE_SHA" < /root/verdaxis-phase0/ready.json
-```
-
-The captured file supplies stdin; a missing file or empty response refuses.
-Do not type a fabricated response. The assertion below also fetches readiness
-itself and verifies the full tuple.
-
-Expected helper acquires both normal locks, converges target ACLs and reaches exact
-readiness before clearing state. No checkpoint/installer override. Keep fd 9 open
-through helper exit. On success revoke permit durably then close fd 9. On failure
-keep maintenance and fence, revoke permit manually and inspect actual state.
+Expected helper owns both locks, exact readiness, state absent. Revoke permit
+with unlink+directory fsync before releasing fd 9. On failure revoke manually,
+leave state/fence/maintenance and inspect. Never open customer traffic in a trap.
 
 ```bash
 python3 -I - <<'PY'
 import os
-root = '/var/lib/verdaxis/phase0'
-os.unlink(root + '/permit.json')
-fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY)
-os.fsync(fd); os.close(fd)
+root='/var/lib/verdaxis/phase0'
+os.unlink(root+'/permit.json')
+fd=os.open(root,os.O_RDONLY|os.O_DIRECTORY); os.fsync(fd); os.close(fd)
 PY
 exec 9>&-
-/opt/verdaxis-phase0/venv/bin/python -m scripts.phase0.assert_host \
-  --manifest /root/verdaxis-phase0/new-final.json --check readiness
+curl --fail --silent http://127.0.0.1:8000/health/ready > /root/verdaxis-phase0/cutover/ready.json
+/opt/verdaxis-phase0/venv/bin/python -m scripts.validate_health_response \
+  --environment production --release-sha "$RELEASE_SHA" < /root/verdaxis-phase0/cutover/ready.json
+for path in /health/live /api/prices /api/orderbook /api/orderbook/bids /api/orderbook/regions /api/curves/forward; do
+  curl --fail --silent --output /dev/null "http://127.0.0.1:8000$path"
+done
 ```
 
-**Verification transition:** after runtime CONNECT is granted, the independent
-production verify tool deliberately refuses its earlier datacl boundary. For
-post-start comparison, stop new workers, close all target sessions and restore
-only the previously approved target CONNECT ACL, then use a newly approved verify
-report/manifest. Do not rewrite old source authority or blindly recapture baseline.
-Q4 must supply these exact target refence/regrant commands before execution.
-Repeat copy/source hashes around starts; unexplained internal writes STOP.
+Expected exact SHA and successful public reads. No login, customer writes,
+authenticated GETs or private exports. Account for internal outbox writes before
+signed pre-write acceptance. Production verify requires original target CONNECT
+fence; it refuses after app CONNECT. For a post-start comparison stop new backend,
+restore target-only approved datacl, verify with a new report/manifest, then
+reapply target ACLs via normal helper. Never alter source grants.
 
-### B8. Pre-write emergency rollback (PM; never routine live drill)
-
-Only before reopening and after signed internal-write reconciliation. Stop new
-workers; revoke permit; retain failed target and tuple. Use `rollback-safe` with
-the approved target identity/evidence and then restore complete old tuple:
-
-```bash
-/opt/verdaxis-phase0/venv/bin/python -m scripts.phase0.assert_host \
-  --manifest /root/verdaxis-phase0/rollback.json --check rollback-safe
-```
-
-Q3/Q4 supply exact preserved directory and unit restore commands. Restore original
-backup scripts/config/.pgpass and runtime/monitor environment, not metadata only.
-Change fence literal to `verdaxis`, reload, inspect loaded commands, then use the
-main runbook's old two-lock restart block with a fresh root permit bound to old
-SHA/database. No Alembic downgrade or new ACL helper on old DB. Validate old local
-and public readiness against the pinned SHA; keep maintenance until acceptance.
-
-### B9. Frontend promotion and previous deployment restoration (PM)
-
-Read frontend `.github/workflows/release-vercel.yml` and
-`docs/vercel-production-release.md` from the approved frontend SHA. Workflow
-requires source equal to canonical staging tip and exact backend readiness.
-Before dispatch, Q3/Q7 must provide a **smoke-only** Caddy config: allow only the
-reviewed anonymous GET routes needed by rendered smoke, keep every authenticated
-GET, mutation, SSE, SQLAdmin and analytics route denied. No general reopen for
-CI. If the smoke requires customer data or writes, STOP, do not weaken the fence.
+PM runs frontend workflow from the Mac: first candidate-only **before** window,
+then one approved promotion run after backend acceptance (P0-5/Q7 supersedes the
+older build-once-only preference). Capture IDs/reports, wait for each run:
 
 ```bash
 gh workflow run release-vercel.yml --repo Verdaxis/verdaxis-frontend --ref staging \
   -f source_sha="$FRONTEND_SHA" -f backend_release_sha="$RELEASE_SHA" \
+  -f candidate_only=true -f notify_release=true
+gh run watch "$CANDIDATE_RUN_ID" --repo Verdaxis/verdaxis-frontend --exit-status
+gh workflow run release-vercel.yml --repo Verdaxis/verdaxis-frontend --ref staging \
+  -f source_sha="$FRONTEND_SHA" -f backend_release_sha="$RELEASE_SHA" \
   -f candidate_only=false -f notify_release=true
-gh run watch "$FRONTEND_RUN_ID" --repo Verdaxis/verdaxis-frontend --exit-status
+gh run watch "$PROMOTION_RUN_ID" --repo Verdaxis/verdaxis-frontend --exit-status
 ```
 
-Q7 binds the exact run ID to this dispatch. Expected one immutable build, canary,
-exact backend SHA, captured prior deployment URL/ID/asset, same-candidate promotion
-and all production aliases verified. Preserve bounded report. No rebuild or
-manual production deploy. Failure leaves API fenced; no automatic backend rollback.
+Candidate-only still requires the named backend SHA already ready; before-window
+new-SHA availability is part of open item 1. Do not substitute old SHA and claim
+canonical readiness. On critical repeated frontend failure workflow restores
+captured prior deployment. Manual restoration uses founder's Vercel login,
+selects the recorded exact prior deployment, clicks Rollback, and verifies prior
+asset on all production aliases; record IDs. Never put Vercel tokens on argv.
 
-If pre-write emergency rollback needs frontend restoration, PM uses the existing
-protected Vercel auth context (never token argv), CLI 50.37.2:
+### B8. Exact pre-write rollback block (PM; syntax/dry-run only in A)
+
+If 60 minutes expires without acceptance, or acceptance fails, stay closed.
+First stop new workers, revoke permit, preserve failed evidence. Signed
+reconciliation must show no customer writes; otherwise preserve both DBs and
+request reconciliation, not rollback. No `git reset` or downgrade.
 
 ```bash
-vercel --scope "$VERCEL_ORG_ID" rollback "$PRIOR_URL" --yes --timeout=3m
+set -euo pipefail
+umask 077
+root=/home/verdaxis-prod/verdaxis/prod/be
+systemctl stop verdaxis-backend.service
+rm -f /var/lib/verdaxis/phase0/permit.json
+test -d "${root}.phase0-old"
+test ! -e "${root}.phase0-failed"
+mv "$root" "${root}.phase0-failed"
+mv "${root}.phase0-old" "$root"
+test "$(sudo -u verdaxis-prod git -C "$root" rev-parse HEAD)" = "$OLD_SHA"
+# Restore only the exact before/ unit list reviewed at B1, including old drop-ins.
+cp -a /root/verdaxis-phase0/before/verdaxis-* /etc/systemd/system/
+# The old directory already includes the old .env, analytics file and original venv.
+install -m 0644 /root/verdaxis-phase0/before/etc/caddy/Caddyfile /root/verdaxis-phase0/Caddyfile.reopen
 ```
 
-Expected aliases at the exact captured prior deployment and prior asset, then
-rendered smoke. Q7 must supply actual auth-directory/inspection/smoke commands;
-this line alone is not restore acceptance. Do not infer prior identity from a
-human-friendly deployment name. Keep full maintenance during backend restoration.
+Do not reopen Caddy yet. Remove candidate-only drop-ins from the reviewed delta
+list before restoring (open item 2); copying cannot remove added files. Restore
+backup config/script/demo files if B9 ran; preserve ownership and modes from
+before-state. Change only external fence `--database verdaxis_prod` to
+`--database verdaxis`, reload and check all guards. Publish a fresh B6 permit
+using `OLD_SHA` and literal `verdaxis`; do not recycle the new permit. Then, as
+service owner, hold both normal locks throughout restart/readiness:
 
-### B10. Signed acceptance, fence cleanup and reopening (PM and founder)
+```bash
+sudo -n -u verdaxis-prod -H bash -s -- "$OLD_SHA" <<'SH'
+set -euo pipefail
+umask 077
+root=/home/verdaxis-prod/verdaxis/prod/be
+guard="$root/.runtime-deploy"
+exec 7>>"$guard/production.lock"
+flock -n 7
+exec 8>>"$guard/production.restart.lock"
+flock -n 8
+state=$(mktemp "$guard/.production.state.XXXXXXXX")
+printf 'DEPLOYMENT_STATE=restart-authorized\nENVIRONMENT=production\nRELEASE_SHA=%s\n' "$1" > "$state"
+chmod 600 "$state"
+mv "$state" "$guard/production.state"
+sudo systemctl restart verdaxis-backend.service
+curl --fail --silent http://127.0.0.1:8000/health/ready | "$root/venv/bin/python" -m scripts.validate_health_response --environment production --release-sha "$1"
+rm "$guard/production.state"
+SH
+```
 
-PM checks source preservation, backup restore, exact readiness, UTC fresh
-connections, vault recovery, no sessions/jobs on old DB and no unexplained writes.
-Founder confirms encrypted complete key ring is in Drive and recovery secret is
-held separately. No customer document archive. No key contents in logs.
+Expected exact old local readiness; no migration, ACL mutation or writer restart
+on old DB. Root revokes/fsyncs permit before releasing root lock. Restore prior
+frontend if promoted. Only after PM accepts recovered tuple may Caddy reopen
+and recorded timers restart. Full old→new→old execution is not claimed in A.
 
-Under still-closed Caddy, after successful signed rollback gate, inspect and remove
-only the one-use permit/fence/drop-in; retain the control directory and evidence:
+### B9. Backup and demo switch after acceptance (PM)
+
+Still pause both backup timers. Old dumps already reside outside retention.
+Change config, password entry and local artifact names with exact checks:
+
+```bash
+python3 -I - <<'PY'
+import os
+from pathlib import Path
+config=Path('/etc/verdaxis-backup-export.conf')
+lines=config.read_text().splitlines()
+assert sum(line.startswith('PGDATABASE=') for line in lines)==1
+config.write_text('\n'.join("PGDATABASE='verdaxis_prod'" if line.startswith('PGDATABASE=') else line for line in lines)+'\n')
+password=Path('/home/verdaxis-backup-export/.pgpass')
+lines=password.read_text().splitlines()
+old=[line for line in lines if line.startswith('127.0.0.1:5432:verdaxis:verdaxis_backup:')]
+assert len(old)==1 and not any(line.startswith('127.0.0.1:5432:verdaxis_prod:') for line in lines)
+lines.append(old[0].replace(':verdaxis:',':verdaxis_prod:',1))
+password.write_text('\n'.join(lines)+'\n'); password.chmod(0o600)
+script=Path('/usr/local/sbin/verdaxis-local-db-backup')
+value=script.read_text()
+for old,new in [('.verdaxis-${TIMESTAMP}.dump.partial','.verdaxis-prod-${TIMESTAMP}.dump.partial'),('verdaxis-${TIMESTAMP}.dump','verdaxis-prod-${TIMESTAMP}.dump')]:
+    assert value.count(old)==1
+    value=value.replace(old,new)
+script.write_text(value)
+for path in (config,password,script):
+    fd=os.open(path,os.O_RDONLY); os.fsync(fd); os.close(fd)
+PY
+```
+
+Expected exactly named edits, existing file ownership/mode retained, no printed
+password. On any assert failure restore before copies, inspect bytes; no global
+substitution. Both exporters use the shared config. Staging `backup-db.sh` stays
+unchanged per Q6; do not claim its historical prefix changed. No new monitor
+reader or backup timer installed. Preserve old configs and artifacts.
+
+For both runtime .env (B5) and demo file, use this no-output URL-aware patch,
+with `ENV_PATH` set to only the reviewed destination:
+
+```bash
+/opt/verdaxis-phase0/venv/bin/python - "$ENV_PATH" <<'PY'
+import os,sys
+from pathlib import Path
+from sqlalchemy.engine import make_url
+path=Path(sys.argv[1]); lines=path.read_text().splitlines(); seen=set(); result=[]
+for line in lines:
+    key,sep,value=line.partition('=')
+    if key in {'DATABASE_NAME','DATABASE_URL','MIGRATOR_DATABASE_URL'}:
+        assert key not in seen and sep
+        seen.add(key)
+        quote=value[0] if value[:1] in {"'",'"'} else ''
+        if quote:
+            assert value.endswith(quote); value=value[1:-1]
+        if key=='DATABASE_NAME':
+            assert value=='verdaxis'; value='verdaxis_prod'
+        else:
+            url=make_url(value); assert url.database=='verdaxis'
+            value=url.set(database='verdaxis_prod').render_as_string(hide_password=False)
+        line=key+'='+quote+value+quote
+    result.append(line)
+assert seen=={'DATABASE_NAME','DATABASE_URL','MIGRATOR_DATABASE_URL'}
+path.write_text('\n'.join(result)+'\n')
+fd=os.open(path,os.O_RDONLY); os.fsync(fd); os.close(fd)
+PY
+```
+
+Only allowed destinations: new runtime `.env` and
+`/etc/verdaxis-monitor/demo/production.env`. Onboarding reads new runtime .env.
+No reader consumes `.runtime-monitor.env` in Phase 0; validate file identity only.
+
+```bash
+systemctl start verdaxis-local-db-backup.service
+systemctl show verdaxis-local-db-backup.service -p Result -p ExecMainStatus
+find /var/backups/verdaxis -maxdepth 1 -name 'verdaxis-prod-*.dump' -type f -printf '%T@ %p\n' | sort -nr
+```
+
+Expected successful new custom dump. Select exact new `RESTORE_DUMP`, record
+digest. Restore into scratch only, never live:
+
+```bash
+p0run sudo -u postgres createdb -h /var/run/postgresql -p 5434 --owner=verdaxis_migrator verdaxis_restorecheck
+p0run sudo -u postgres pg_restore --exit-on-error -h /var/run/postgresql -p 5434 -d verdaxis_restorecheck < "$RESTORE_DUMP"
+```
+
+Compare counts for every application table with live new DB under the approved
+same-snapshot/no-new-writes boundary (open item 4). `pg_restore --list` is not
+proof. Record table-name/count-only private evidence, no row values. After full
+acceptance and approved cleanup: `pg_dropcluster 17 p0rehearsal --stop` (PM only).
+
+### B10. Sign, reopen, restore recorded timers (PM/founder)
+
+PM journal acceptance plus founder OK required. Confirm no writes on old DB,
+new read-only smoke, backup result, runtime tuple and 60-minute limit. KYC
+key-ring recovery is **not** a pre-reopen gate under Q7.
 
 ```bash
 test ! -e /home/verdaxis-prod/verdaxis/prod/be/.runtime-deploy/production.state
@@ -642,36 +918,58 @@ test ! -e /var/lib/verdaxis/phase0/permit.json
 test ! -L /var/lib/verdaxis/phase0/permit.json
 rm /var/lib/verdaxis/phase0/fence
 rm /etc/systemd/system/verdaxis-backend.service.d/90-phase0-fence.conf
-python3 -I - <<'PY'
-import os
-for path in ('/var/lib/verdaxis/phase0', '/etc/systemd/system/verdaxis-backend.service.d'):
-    fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
-    os.fsync(fd); os.close(fd)
-PY
 systemctl daemon-reload
 systemctl show verdaxis-backend.service -p NeedDaemonReload -p DropInPaths -p ExecStartPre
+caddy validate --config /root/verdaxis-phase0/before/etc/caddy/Caddyfile --adapter caddyfile
+install -m 0644 /root/verdaxis-phase0/before/etc/caddy/Caddyfile /etc/caddy/Caddyfile
+systemctl reload caddy
 ```
 
-Expected fence gone, both normal guards retained, no pending reload. Restore
-Q3's approved production Caddyfile and validate before reload. Append/fsync the
-signed `customer-writes-open` journal entry at the actual reopening. After this
-point preserve new writes; rollback needs a separate reconciliation decision.
+Expected original guards retained, no pending reload, original Caddy routing.
+Fsync modified directories and append actual write-open UTC to private journal.
+No rollback after this without reconciliation. PM verifies new frontend entry
+HTML/hashed asset; founder sends refresh note; existing banner handles old tabs.
 
-At reopening PM verifies the **new frontend entry HTML** and hashed asset at
-`app.verdaxis.exchange`; existing update banner handles old tabs. Founder sends
-**"please refresh"** to active pilot users. No forced reload or per-user gate.
+On each host derive restore candidates from its private before-state; review
+that list, then start only recorded-active timers. Do not enable inactive/masked
+units or restore demo before its new identity is checked:
 
-Restore **only timers recorded active**, without enabling inactive/masked units,
-on both hosts. Q2/Q8 must bind the reviewed before-state to exact restore list;
-inspect each state first, then `systemctl start` only those named timers. Do not
-restore a timer whose new database/backup/demo identity has not passed acceptance.
-Keep grace sender off; do not repair failed analytics relay. Observe first jobs
-and verify single scheduling. Preserve old dumps/config/databases for approved
-retention; no cleanup is authorized by this appendix.
+```bash
+python3 -I - <<'PY'
+from pathlib import Path
+text=Path('/root/verdaxis-phase0/timers-before.txt').read_text()
+names=[]
+for block in text.strip().split('\n\n'):
+    fields=dict(line.split('=',1) for line in block.splitlines())
+    if fields.get('ActiveState')=='active':
+        name=fields['Id']; assert name.startswith('verdaxis-') and name.endswith('.timer')
+        assert fields.get('UnitFileState') not in {'masked','masked-runtime'}
+        names.append(name)
+Path('/root/verdaxis-phase0/timers-restore.txt').write_text('\n'.join(names)+'\n')
+PY
+while IFS= read -r unit; do
+  test -n "$unit" || continue
+  systemctl start "$unit"
+done < /root/verdaxis-phase0/timers-restore.txt
+```
 
-## Sign-off boundary
+Expected exact original active/enabled/masked states (this procedure never changes
+enablement), no unknown jobs. Staging backup/monitor resume only after prod
+acceptance. Keep grace sender off and failed analytics relay untouched.
 
-Parser tests prove option spelling and required arguments only. They do not
-prove private manifests, loaded units, egress, backup scripts, frontend smoke or
-host permission. Until Q1–Q8 have exact reviewed answers and Part A passes without
-improvisation, M2 remains open and Part B must not begin.
+### B11. KYC key ring after reopening (PM and founder)
+
+Follow `docs/runbooks/security-v2-operator-review.md`, KYC key operations, adapting
+only to the approved production key path `/etc/verdaxis/kyc-document-keys.json`.
+Inspect first; never overwrite an existing ring. Founder creates/holds encrypted
+complete offline copy, uploads encrypted archive to Drive, keeps recovery secret
+separate and proves restore. Then PM runs unit-installer preflight and separately
+approved restart. No raw keys/documents in chat, CI or this report. Until then
+storage 503 is expected, readiness remains available.
+
+## Acceptance limits
+
+Parser/syntax tests do not execute host commands, validate secrets, prove BPF,
+or establish systemd/Caddy/backup correctness. P0-5 deliberately narrows Task 10;
+no fixed-path rollback proof is claimed. Resolve the four open items and B1/B2
+review before approving the live sequence. A failed step remains closed.
