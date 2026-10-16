@@ -23,6 +23,7 @@ from scripts.phase0.host_authority import (
     tree_digest,
     validate_identity,
 )
+from scripts.phase0.refusal import Refusal
 from scripts.phase0.manifest import (
     PROD_SHA,
     digest,
@@ -54,61 +55,70 @@ def private_output(path):
     return path
 
 
-def load_authority(manifest, tool):
+def load_authority(manifest, tool, *, validation_only=False):
     if os.geteuid() != 0 or os.environ.get('ENVIRONMENT') != 'production':
-        raise ValueError('Production operator execution required')
+        raise Refusal('PHASE0_ENVIRONMENT')
     if set(manifest) != MANIFEST_FIELDS or manifest['tool'] != tool:
-        raise ValueError('Exact tool-specific manifest required')
+        raise Refusal('PHASE0_MANIFEST')
     authority = parse_json(read_root_private(AUTHORITY_PATH))
     if set(authority) != COMMON_FIELDS or any(manifest[key] != authority[key] for key in COMMON_FIELDS):
-        raise ValueError('Manifest differs from independent operator authority')
+        raise Refusal('PHASE0_AUTHORITY')
     if authority['mode'] != 'production' or authority['approved'] is not True:
-        raise ValueError('Explicit production approval required')
+        raise Refusal('PHASE0_AUTHORITY')
     if authority['hostname'] != os.uname().nodename or authority['source_sha'] != PROD_SHA:
-        raise ValueError('Host or frozen source release differs')
+        raise Refusal('PHASE0_AUTHORITY')
     if (not isinstance(authority['release_sha'], str)
             or not re.fullmatch('[0-9a-f]{40}', authority['release_sha'])
             or authority['release_sha'] != os.environ.get('RELEASE_SHA')):
-        raise ValueError('Release identity differs')
+        raise Refusal('PHASE0_AUTHORITY')
     for side in ('source', 'target'):
         validate_identity(authority[side], side=side)
     source, target = authority['source'], authority['target']
     if source['oid'] == target['oid'] or any(source[key] != target[key] for key in
             ('host', 'port', 'server_host', 'server_port', 'cluster_system_identifier')):
-        raise ValueError('Approved database pair differs')
+        raise Refusal('PHASE0_DB_PAIR')
     if authority['source_catalog_sha256'] != digest(load_manifest()['source_catalog']):
-        raise ValueError('Frozen source catalog differs')
+        raise Refusal('PHASE0_AUTHORITY')
     # The operator attests the archived release bytes, not mutable Git metadata.
     # Every source directory/file must also be root-controlled at execution.
     for path in [ROOT, *ROOT.parents]:
         info = path.lstat()
         if path.is_symlink() or info.st_uid != 0 or info.st_mode & 0o022:
-            raise ValueError('Installation path is not root controlled')
+            raise Refusal('PHASE0_INSTALLED_BYTES')
     for name in ('scripts', 'app', 'alembic', 'deploy'):
         for path in (ROOT / name).rglob('*'):
             if '__pycache__' in path.parts:
                 continue
             info = path.lstat()
             if path.is_symlink() or info.st_uid != 0 or info.st_mode & 0o022:
-                raise ValueError('Installation bytes are not root controlled')
+                raise Refusal('PHASE0_INSTALLED_BYTES')
     if authority['tool_tree_sha256'] != tree_digest(ROOT):
-        raise ValueError('Installed release bytes differ')
+        raise Refusal('PHASE0_INSTALLED_BYTES')
     from scripts.phase0.bootstrap import load_policy
     load_policy()
     private_output(authority['bootstrap_receipt'])
     output = private_output(manifest['report'])
+    if validation_only:
+        # Authority-only run: no receipt, no publication, no mutation. The
+        # receipt and destination gates apply only to an applying run.
+        return authority
     if os.path.lexists(output):
-        raise ValueError('Evidence destination already exists')
+        raise Refusal('PHASE0_REPORT_PATH')
     if tool == 'bootstrap':
         if manifest['bootstrap_receipt_sha256'] is not None or str(output) != authority['bootstrap_receipt']:
-            raise ValueError('Bootstrap receipt destination differs')
+            raise Refusal('PHASE0_RECEIPT')
     else:
-        receipt_bytes = read_root_private(authority['bootstrap_receipt'])
+        # A missing, unreadable or altered receipt is a coded refusal, not an
+        # uncoded file error: the operator needs the gate name.
+        try:
+            receipt_bytes = read_root_private(authority['bootstrap_receipt'])
+        except ValueError:
+            raise Refusal('PHASE0_RECEIPT') from None
         if hashlib.sha256(receipt_bytes).hexdigest() != manifest['bootstrap_receipt_sha256']:
-            raise ValueError('Bootstrap receipt digest differs')
+            raise Refusal('PHASE0_RECEIPT')
         receipt = parse_json(receipt_bytes)
         if receipt['authority_digest'] != digest(authority) or receipt['target_identity'] != target:
-            raise ValueError('Bootstrap receipt authority differs')
+            raise Refusal('PHASE0_RECEIPT')
     return authority
 
 
@@ -134,7 +144,21 @@ async def attest_endpoint(connection, identity):
     '''))).mappings().one()
     if row['session_user'] != identity['role'] or any(row[key] != identity[key] for key in
             ('database', 'role', 'oid', 'server_host', 'server_port', 'cluster_system_identifier')):
-        raise ValueError('Connected database authority differs')
+        raise Refusal('PHASE0_DB_IDENTITY')
+
+
+async def observe_boundaries(authority, source, target, *, frozen=True):
+    """Observe every boundary in a self-contained read-only transaction.
+
+    The transaction is closed before returning, so callers keep their own
+    transaction ownership (the import path requires exactly that).
+    """
+    if source.in_transaction() or target.in_transaction():
+        raise Refusal('PHASE0_DB_IDENTITY')
+    async with source.begin(), target.begin():
+        await source.execute(text('SET TRANSACTION READ ONLY'))
+        await target.execute(text('SET TRANSACTION READ ONLY'))
+        await check_boundaries(authority, source, target, frozen=frozen)
 
 
 async def check_boundaries(authority, source, target, *, frozen=True):
@@ -146,7 +170,7 @@ async def check_boundaries(authority, source, target, *, frozen=True):
     if frozen:
         require_complete_inventory(await source.run_sync(inspect_catalog), load_manifest()['source_catalog'])
         if await fingerprint_database(source, load_manifest()['source_catalog']) != authority['frozen_source']:
-            raise ValueError('Frozen source changed')
+            raise Refusal('PHASE0_SOURCE_STATE')
 
 
 def copy_contract(authority, manifest):
@@ -161,7 +185,12 @@ def copy_contract(authority, manifest):
     return contract
 
 
-async def run(manifest, source_file, target_file, *, apply=False):
+def require_tool(manifest, expected_tool):
+    if expected_tool not in ('bootstrap', 'copy', 'verify') or manifest.get('tool') != expected_tool:
+        raise Refusal('PHASE0_TOOL_MISMATCH')
+
+
+async def run(manifest, source_file, target_file, *, expected_tool, apply=False):
     from scripts.phase0.codecs import configure_text_session
     from scripts.phase0.copy import attest, copy_database
     from scripts.phase0.verify import (
@@ -169,10 +198,15 @@ async def run(manifest, source_file, target_file, *, apply=False):
         verify_independent,
     )
 
-    tool = manifest['tool']
-    authority = load_authority(manifest, tool)
-    if tool != 'verify' and not apply:
-        return
+    require_tool(manifest, expected_tool)
+    tool = expected_tool
+    validation_only = tool != 'verify' and not apply
+    # Validation-only runs must not require a bootstrap receipt or a free report
+    # destination: they validate authority and manifest only.
+    authority = load_authority(manifest, tool, validation_only=validation_only)
+    if validation_only:
+        # No connection, no secret read, no published evidence, no mutation.
+        return dict(validated_only=True)
     urls = [secret_url(path, authority[side]) for path, side in
             ((source_file, 'source'), (target_file, 'target'))]
     if urls[0].password == urls[1].password:
@@ -182,6 +216,10 @@ async def run(manifest, source_file, target_file, *, apply=False):
                if index == 0 or tool == 'verify' else {}) for index, url in enumerate(urls)]
     try:
         async with engines[0].connect() as source, engines[1].connect() as target:
+            # Entry boundary for every tool: identity, source quiescence, target
+            # ACL/sessions and frozen source state are observed before any work.
+            if tool != 'bootstrap':
+                await observe_boundaries(authority, source, target)
             if tool == 'bootstrap':
                 from alembic.config import Config
 
@@ -192,8 +230,10 @@ async def run(manifest, source_file, target_file, *, apply=False):
                 async with source.begin():
                     await source.execute(text('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY'))
                     await configure_text_session(source)
-                    await attest(source, authority['source'], owner=False)
+                    # Coded identity/boundary gate runs before the import-path
+                    # attestation so a wrong identity is always a named refusal.
                     await check_boundaries(authority, source, target)
+                    await attest(source, authority['source'], owner=False)
                     await target.rollback()
                     identity = BootstrapIdentity(**authority['target'], source_sha=authority['release_sha'],
                                                  production_manifest=manifest)
@@ -205,19 +245,17 @@ async def run(manifest, source_file, target_file, *, apply=False):
                     await target.rollback()
                 report = dict(authority_digest=digest(authority), target_identity=authority['target'], **baseline)
             elif tool == 'copy':
-                receipt = await copy_database(copy_contract(authority, manifest), source, target)
-                return receipt
+                # copy_database performs its own boundary checks and publishes the
+                # private receipt only after commit.
+                await copy_database(copy_contract(authority, manifest), source, target)
+                return dict(validated_only=False)
             else:
                 report = await verify_independent(copy_contract(authority, manifest), source, target)
             # Fresh transactions ensure the final source observation is not the
             # original MVCC snapshot. Report publication is after this check.
-            async with source.begin(), target.begin():
-                await source.execute(text('SET TRANSACTION READ ONLY'))
-                await target.execute(text('SET TRANSACTION READ ONLY'))
-                await configure_text_session(source)
-                await configure_text_session(target)
-                await check_boundaries(authority, source, target)
+            await observe_boundaries(authority, source, target)
             publish_report(manifest['report'], report)
+            return dict(validated_only=False)
     finally:
         for engine in engines:
             await engine.dispose()

@@ -35,6 +35,7 @@ from scripts.phase0.manifest import (
     load_manifest,
     require_complete_inventory,
 )
+from scripts.phase0.refusal import Refusal
 from scripts.phase0.verify import (
     VerificationReport,
     check_historical_invariants,
@@ -60,7 +61,12 @@ IMPORT_LOCK = 706016005
 
 
 class CopyRefused(ValueError):
-    """Safe public failure; SQL detail belongs only in the private report."""
+    """Safe internal failure; SQL detail belongs only in the private report.
+
+    This is deliberately not a ``Refusal``: only a coded gate may name itself on
+    stderr. A ``CopyRefused`` keeps its detail in the private on-host report and
+    the CLI prints its generic message.
+    """
 
 
 @dataclass(frozen=True)
@@ -191,7 +197,9 @@ async def attest(connection, identity, *, owner):
             raise CopyRefused('Target objects are not owned by migrator')
         sessions = (await connection.execute(text('SELECT count(*) FROM pg_stat_activity WHERE datid=:oid AND pid<>pg_backend_pid()'), {'oid': identity['oid']})).scalar_one()
         if sessions:
-            raise CopyRefused('Other target sessions exist')
+            # An extra target session is exactly the target fence this tool must
+            # refuse. Keep the coded gate so the operator sees the named refusal.
+            raise Refusal('PHASE0_TARGET_FENCE')
     else:
         writes = (await connection.execute(text("""
             SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
@@ -410,12 +418,8 @@ async def copy_database(manifest, source, target, *, fail_at=None) -> CopyReceip
                 receipt = CopyReceipt(digest(manifest), snapshot, execution['target']['oid'], verification, sequences)
             boundary('after_commit')
         if authority is not None:
-            async with source.begin(), target.begin():
-                await source.execute(text('SET TRANSACTION READ ONLY'))
-                await target.execute(text('SET TRANSACTION READ ONLY'))
-                await configure_text_session(source)
-                await configure_text_session(target)
-                await check_boundaries(authority, source, target)
+            from scripts.phase0.production import observe_boundaries
+            await observe_boundaries(authority, source, target)
         boundary('before_receipt')
         if authority is not None:
             from scripts.phase0.verify import publish_report
@@ -423,6 +427,8 @@ async def copy_database(manifest, source, target, *, fail_at=None) -> CopyReceip
         else:
             private_json(receipt_path, asdict(receipt))
         return receipt
+    except Refusal:
+        raise
     except Exception as error:
         if started and receipt_path is not None:
             try:
@@ -450,8 +456,12 @@ def main():
             manifest = parse_json(read_root_private(args.manifest))
             if args.source_sha != manifest['source_sha'] or args.target_sha != manifest['release_sha']:
                 raise CopyRefused('Approved release arguments differ')
-            asyncio.run(run(manifest, args.source_environment_file, args.target_environment_file, apply=args.apply))
-            print('Production copy completed')
+            outcome = asyncio.run(run(manifest, args.source_environment_file, args.target_environment_file,
+                                      expected_tool='copy', apply=args.apply))
+            if outcome['validated_only']:
+                print('Production copy authority validated only; no connection opened and no import authorized')
+            else:
+                print('Production copy committed and private receipt published')
             return
         validate_manifest(manifest)
         import subprocess
@@ -486,7 +496,12 @@ def main():
                     await engine.dispose()
         asyncio.run(run())
         print('Copy committed and private receipt published')
-    except Exception:
+    except Exception as error:
+        from scripts.phase0.refusal import coded_gate
+
+        code = coded_gate(error)
+        if code is not None:
+            parser.exit(1, code + '\n')
         parser.exit(1, 'Copy refused; inspect private host evidence\n')
 
 

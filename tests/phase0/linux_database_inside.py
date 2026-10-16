@@ -64,9 +64,11 @@ def main():
         subprocess.run(['/usr/local/bin/python', '-m', 'alembic', 'upgrade', revision],
                        cwd=tree, env=dict(environment, DATABASE_URL=url, MIGRATOR_DATABASE_URL=url), check=True)
     subprocess.run(['/usr/local/bin/python', '-m', 'tests.phase0.build_fixtures'], cwd=ROOT, check=True)
-    return subprocess.run(['/usr/local/bin/python', '-m', 'pytest', '-q',
+    # Unbuffered so the initiating call streams progress; optional -k filter.
+    arguments = inputs.get('pytest_args', [])
+    return subprocess.run(['/usr/local/bin/python', '-u', '-m', 'pytest', '-q',
                            'tests/phase0/test_production_scratch.py',
-                           'tests/phase0/production_cli_acceptance.py'], cwd=ROOT).returncode
+                           'tests/phase0/production_cli_acceptance.py', *arguments], cwd=ROOT).returncode
 
 
 if __name__ == '__main__':

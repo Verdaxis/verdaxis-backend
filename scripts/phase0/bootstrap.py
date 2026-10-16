@@ -251,14 +251,23 @@ def main():
             manifest = parse_json(read_root_private(args.manifest))
             if args.source_environment_file is None:
                 raise ValueError('Production source environment file required')
-            asyncio.run(run(manifest, args.source_environment_file, args.target_environment_file, apply=args.apply))
-            print('Production bootstrap completed')
+            outcome = asyncio.run(run(manifest, args.source_environment_file, args.target_environment_file,
+                                      expected_tool='bootstrap', apply=args.apply))
+            if outcome['validated_only']:
+                print('Production bootstrap authority validated only; no connection opened and no DDL approved')
+            else:
+                print('Production bootstrap completed; private report published')
             return
         identity = validate_manifest(manifest)
         if args.apply:
             asyncio.run(apply_manifest(identity, args.target_environment_file))
         print('Bootstrap applied' if args.apply else 'Manifest checked; no connection opened or DDL approved')
-    except Exception:
+    except Exception as error:
+        from scripts.phase0.refusal import coded_gate
+
+        code = coded_gate(error)
+        if code is not None:
+            parser.exit(1, code + '\n')
         parser.exit(1, 'Bootstrap refused; no credentials or SQL details are printed\n')
 
 

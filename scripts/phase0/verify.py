@@ -7,6 +7,7 @@ from uuid import UUID
 
 from sqlalchemy import text
 
+from scripts.phase0.refusal import Refusal
 from scripts.phase0.codecs import (
     RowHash,
     configure_text_session,
@@ -352,7 +353,7 @@ def main():
     args = parser.parse_args()
     try:
         if os.path.lexists(args.report):
-            raise ValueError('Report destination already exists')
+            raise Refusal('PHASE0_REPORT_PATH')
         manifest = json.loads(read_private_file(args.manifest))
         if manifest.get('mode') == 'production':
             from scripts.phase0.host_authority import parse_json, read_root_private
@@ -360,8 +361,13 @@ def main():
             manifest = parse_json(read_root_private(args.manifest))
             if str(args.report) != manifest['report']:
                 raise ValueError('Approved report path differs')
-            asyncio.run(run(manifest, args.source_environment_file, args.target_environment_file))
-            print('Production copy independently verified')
+            outcome = asyncio.run(run(manifest, args.source_environment_file, args.target_environment_file,
+                                      expected_tool='verify'))
+            # The verifier never has a validation-only success: reaching this point
+            # without its new report is a false success.
+            if outcome['validated_only'] or not args.report.is_file():
+                raise ValueError('Verification report was not published')
+            print('Production copy independently verified; private report published')
             return
         validate_manifest(manifest)
         # Require the freeze before opening a connection, including after receipt loss.
@@ -387,7 +393,12 @@ def main():
 
         report = asyncio.run(run())
         publish_report(args.report, report)
-    except Exception:
+    except Exception as error:
+        from scripts.phase0.refusal import coded_gate
+
+        code = coded_gate(error)
+        if code is not None:
+            parser.exit(1, code + '\n')
         parser.exit(1, 'Verification refused; no successful report published\n')
     print('Committed copy verified; private report published')
 
