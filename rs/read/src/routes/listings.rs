@@ -44,6 +44,7 @@ async fn listings(State(state): State<AppState>, RawQuery(raw): RawQuery) -> Api
             status: axum::http::StatusCode::UNPROCESSABLE_ENTITY,
             detail: Json::Array(errors),
             retry_after: None,
+            kind: crate::ApiErrorKind::Expected,
         });
     }
     let (skip, limit) = (skip?, limit?);

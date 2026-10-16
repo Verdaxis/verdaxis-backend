@@ -189,5 +189,6 @@ fn failure(value: &str, name: &str, kind: &str, message: &str, reason: Option<&s
         status: StatusCode::UNPROCESSABLE_ENTITY,
         detail: json!([entry]),
         retry_after: None,
+        kind: crate::ApiErrorKind::Expected,
     }
 }

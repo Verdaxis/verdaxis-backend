@@ -40,14 +40,7 @@ impl MarketServer {
         };
         match super::prices::voyage(&self.state, arguments.request, now).await {
             Ok(value) => structured(value),
-            Err(error) => tool_error(
-                "plan_voyage_fuel",
-                match error.status.as_u16() {
-                    503 => "Verdaxis market tools are busy; retry shortly.",
-                    422 => error.detail.as_str().unwrap_or("Internal error"),
-                    _ => "Market data is temporarily unavailable.",
-                },
-            ),
+            Err(error) => tool_error("plan_voyage_fuel", failure_message(&error)),
         }
     }
 
@@ -86,14 +79,22 @@ impl MarketServer {
         {
             Ok(value) => structured(value),
             Err(error) => {
-                let message = match error.status.as_u16() {
-                    503 => "Verdaxis market tools are busy; retry shortly.",
-                    422 => error.detail.as_str().unwrap_or("Internal error"),
-                    _ => "Market data is temporarily unavailable.",
-                };
+                let message = failure_message(&error);
                 tool_error("get_market_slice", message)
             }
         }
+    }
+}
+
+fn failure_message(error: &crate::ApiError) -> &str {
+    match error.kind {
+        crate::ApiErrorKind::Database => "Market data is temporarily unavailable.",
+        crate::ApiErrorKind::Unexpected => "Internal error",
+        crate::ApiErrorKind::Expected => match error.status.as_u16() {
+            503 => "Verdaxis market tools are busy; retry shortly.",
+            422 => error.detail.as_str().unwrap_or("Internal error"),
+            _ => "Internal error",
+        },
     }
 }
 
@@ -128,5 +129,30 @@ impl ServerHandler for MarketServer {
                 .expect("Python server identity");
         info.instructions = Some("These tools are read-only. Prices come from Verdaxis market data and caller assumptions. State the provenance of each price. Never present a demo or benchmark price as executable. Results are indicative planning estimates, not quotes or offers.".into());
         info
+    }
+}
+
+#[cfg(test)]
+mod failure_tests {
+    use super::*;
+
+    #[test]
+    fn unexpected_failures_are_not_database_unavailability() {
+        assert_eq!(
+            failure_message(&crate::ApiError::internal()),
+            "Internal error"
+        );
+        assert_eq!(
+            failure_message(&crate::ApiError::database()),
+            "Market data is temporarily unavailable."
+        );
+        for tool in ["get_market_slice", "plan_voyage_fuel"] {
+            let result = tool_error(tool, failure_message(&crate::ApiError::internal()));
+            let value = serde_json::to_value(result).unwrap();
+            assert_eq!(
+                value["content"][0]["text"],
+                format!("Error executing tool {tool}: Internal error")
+            );
+        }
     }
 }

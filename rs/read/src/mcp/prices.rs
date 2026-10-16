@@ -156,7 +156,7 @@ async fn resolve_prices(
     .bind(json!(keys).to_string())
     .fetch_all(&mut *connection)
     .await
-    .map_err(|_| ApiError::internal())?;
+    .map_err(|_| ApiError::database())?;
     let benchmark_keys: Vec<_> = targets.iter().map(|(lookup,_,point,month,_)|json!({"market_product":lookup["fuel"],"delivery_point_id":point,"availability_window":month})).collect();
     let quotes = benchmarks::load(connection, &json!(benchmark_keys)).await?;
     let mut output = Vec::new();
@@ -196,6 +196,7 @@ fn invalid(message: String) -> ApiError {
         status: axum::http::StatusCode::UNPROCESSABLE_ENTITY,
         detail: json!(message),
         retry_after: None,
+        kind: crate::ApiErrorKind::Expected,
     }
 }
 
@@ -222,7 +223,7 @@ pub async fn market_slice(
         let query = order_query_sql("SELECT side::text AS side, price_per_mt_usd::text AS price, remaining_quantity_mt::text AS quantity, provenance::text AS provenance FROM eligible_orders");
         let filters = PublicOrderFilters { product_id: Some(product_id), delivery_point_id: Some(point_id), availability_window: Some(&window), ..Default::default() };
         let rows = bind_order_query(&query, &owned.policy, &VisibilityClock::at(now), &owned.config, &filters)
-            .map_err(|_| ApiError::internal())?.fetch_all(&mut *connection).await.map_err(|_| ApiError::internal())?;
+            .map_err(|_| ApiError::internal())?.fetch_all(&mut *connection).await.map_err(|_| ApiError::database())?;
         let rows: Vec<_> = rows.iter().map(|row| json!({"side":row.get::<String,_>("side"),"price":row.get::<String,_>("price"),"quantity":row.get::<String,_>("quantity"),"provenance":row.get::<String,_>("provenance")})).collect();
         let key = (product.clone(), point_id.to_string(), window.clone());
         let quotes = benchmarks::load(connection, &json!([{"market_product":product,"delivery_point_id":point_id,"availability_window":window}])).await?;

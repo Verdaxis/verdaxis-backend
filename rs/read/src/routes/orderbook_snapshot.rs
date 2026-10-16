@@ -83,6 +83,7 @@ pub fn snapshot_query(raw: &str, now: DateTime<Utc>) -> Result<SnapshotQuery, Ap
             status: StatusCode::UNPROCESSABLE_ENTITY,
             detail: Json::Array(errors),
             retry_after: None,
+            kind: crate::ApiErrorKind::Expected,
         });
     }
     let availability_window = normalize_window(&values["availability_window"], now.date_naive())
@@ -90,6 +91,7 @@ pub fn snapshot_query(raw: &str, now: DateTime<Utc>) -> Result<SnapshotQuery, Ap
             status: StatusCode::BAD_REQUEST,
             detail: json!(message),
             retry_after: None,
+            kind: crate::ApiErrorKind::Expected,
         })?;
     Ok(SnapshotQuery {
         market_product: values["market_product"].clone(),

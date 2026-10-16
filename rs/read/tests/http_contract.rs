@@ -423,6 +423,7 @@ async fn cors_covers_every_status_and_denied_origin() {
                 detail: serde_json::json!([{"type":"missing","loc":["query","limit"],
                             "msg":"Field required","input":null}]),
                 retry_after: None,
+                kind: verdaxis_read::ApiErrorKind::Expected,
             }
         }),
     ));

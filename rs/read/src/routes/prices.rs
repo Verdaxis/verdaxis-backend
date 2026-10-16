@@ -49,6 +49,7 @@ pub(crate) fn invalid(message: impl Into<String>) -> ApiError {
         status: StatusCode::UNPROCESSABLE_ENTITY,
         detail: Json::String(message.into()),
         retry_after: None,
+        kind: crate::ApiErrorKind::Expected,
     }
 }
 pub(crate) fn fields(raw: &str) -> HashMap<String, String> {
@@ -391,6 +392,7 @@ async fn reference_response(
             status: StatusCode::UNPROCESSABLE_ENTITY,
             detail: json!([{"type":"literal_error","loc":["query","visibility"],"msg":"Input should be 'internal' or 'external'","input":visibility,"ctx":{"expected":"'internal' or 'external'"}}]),
             retry_after: None,
+            kind: crate::ApiErrorKind::Expected,
         });
     }
     let policy = state.policy.clone();

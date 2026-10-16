@@ -25,11 +25,20 @@ pub use runtime::http::router;
 pub use runtime::logging::request_id;
 
 impl ApiError {
+    /// Internal classification only; REST status/body remain unchanged.
+    pub fn database() -> Self {
+        Self {
+            kind: ApiErrorKind::Database,
+            ..Self::internal()
+        }
+    }
+
     pub fn internal() -> Self {
         Self {
             status: axum::http::StatusCode::INTERNAL_SERVER_ERROR,
             detail: serde_json::json!("Database operation failed."),
             retry_after: None,
+            kind: ApiErrorKind::Unexpected,
         }
     }
 }
@@ -66,8 +75,16 @@ impl AppState {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ApiErrorKind {
+    Expected,
+    Database,
+    Unexpected,
+}
+
 #[derive(Debug)]
 pub struct ApiError {
+    pub kind: ApiErrorKind,
     pub status: axum::http::StatusCode,
     pub detail: Json,
     pub retry_after: Option<u32>,

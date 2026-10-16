@@ -74,6 +74,7 @@ pub fn news_query(raw_query: &str) -> Result<NewsQuery, ApiError> {
             status: axum::http::StatusCode::UNPROCESSABLE_ENTITY,
             detail: Json::Array(errors),
             retry_after: None,
+            kind: crate::ApiErrorKind::Expected,
         });
     }
     let limit = limit?;

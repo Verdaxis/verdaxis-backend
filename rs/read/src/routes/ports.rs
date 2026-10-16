@@ -73,6 +73,7 @@ async fn get_port(
             status: StatusCode::NOT_FOUND,
             detail: json!("Port not found"),
             retry_after: None,
+            kind: crate::ApiErrorKind::Expected,
         }),
     }
 }
