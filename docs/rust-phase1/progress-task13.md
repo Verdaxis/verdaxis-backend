@@ -871,3 +871,18 @@ eight cells**):
 
 The dev-profile deficit (Rust +24-32% over Python) inverted: the release
 Rust service is now 24-40% faster than Python per cell.
+
+Warm breakdown, release build, same method (`task13-lane13-profile-release.log`,
+CALL_EXIT=0):
+
+| Cell | wall median | SQL total | outside SQL |
+| --- | ---: | ---: | ---: |
+| list Python | 1.107 s | 0.245 s | 0.862 s |
+| list Rust | **0.807 s** | 0.667 s | **0.140 s** |
+| bids Python | 1.171 s | 0.415 s | 0.756 s |
+| bids Rust | **0.975 s** | 0.864 s | **0.111 s** |
+
+The PM's diagnosis is confirmed: the dev build's 1.15 s outside SQL is now
+0.14 s. Rust is faster than Python on wall time in both cells. The largest
+remaining single cost is the key-first benchmark statement: 493 ms (list)
+and 542 ms (bids), server-side. Step 3 of the PM instruction targets it.
