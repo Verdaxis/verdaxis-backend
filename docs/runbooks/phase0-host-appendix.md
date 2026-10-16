@@ -458,6 +458,9 @@ CREATE EXTENSION postgis;
 REVOKE CONNECT ON DATABASE verdaxis_prod FROM PUBLIC, verdaxis_app, verdaxis_backup;
 GRANT CONNECT ON DATABASE verdaxis_prod TO verdaxis_migrator;
 REVOKE TEMPORARY ON DATABASE verdaxis_prod FROM PUBLIC;
+ALTER SCHEMA public OWNER TO verdaxis_migrator;
+REVOKE ALL ON SCHEMA public FROM PUBLIC;
+GRANT USAGE ON SCHEMA public TO verdaxis_app, verdaxis_backup;
 ALTER DATABASE verdaxis_prod SET timezone TO 'UTC';
 ALTER ROLE verdaxis_app IN DATABASE verdaxis_prod SET statement_timeout TO '30s';
 ALTER ROLE verdaxis_app IN DATABASE verdaxis_prod SET lock_timeout TO '3s';
@@ -480,6 +483,18 @@ Expected target `datacl` exactly
 `{verdaxis_migrator=CTc/verdaxis_migrator}` (the owner's implicit CTc entry
 plus the explicit migrator CONNECT grant). Stop if PUBLIC or any other role
 retains TEMP or CONNECT.
+
+PostgreSQL 15+ hands a new database's `public` schema to `pg_database_owner`
+with PUBLIC USAGE, so the three `public` lines reset it to live's owner and ACL
+before bootstrap; `deploy/postgres/converge_runtime_object_acls.sql` refuses at
+its public-owner guard otherwise. Compare the new target's `public` owner and
+ACL with live `verdaxis`, which must both read
+`verdaxis_migrator {verdaxis_migrator=UC/verdaxis_migrator,verdaxis_app=U/verdaxis_migrator,verdaxis_backup=U/verdaxis_migrator}`:
+
+```bash
+p0run sudo -u postgres psql -X -h /var/run/postgresql -p "$PORT" -d verdaxis_prod -Atc "SELECT pg_get_userbyid(nspowner)||' '||nspacl::text FROM pg_namespace WHERE nspname='public';"
+p0run sudo -u postgres psql -X -h /var/run/postgresql -p "$PORT" -d verdaxis -Atc "SELECT pg_get_userbyid(nspowner)||' '||nspacl::text FROM pg_namespace WHERE nspname='public';"
+```
 
 Expected installed PostGIS 3.6.4, plpgsql, migrator owner, only migrator
 CONNECT, no user tables. Tool policy may reject a changed extension/catalog; no
