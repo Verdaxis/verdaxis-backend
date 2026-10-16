@@ -27,7 +27,7 @@ def database_command(name, password):
 
 
 def runtime_command(name, database):
-    return ['docker', 'create', '--name', name, '--platform', 'linux/arm64',
+    return ['docker', 'create', '--name', name, '--platform', PLATFORM,
             '--network', 'container:' + database, '--cap-drop', 'ALL',
             '--security-opt', 'no-new-privileges',
             IMAGE, '/bin/sh', '-ec',

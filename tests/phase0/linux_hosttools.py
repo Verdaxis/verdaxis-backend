@@ -11,7 +11,9 @@ from pathlib import Path
 from uuid import uuid4
 
 ROOT = Path(__file__).resolve().parents[2]
-IMAGE = 'sha256:5165bc002d5ec7a9fe44d6e560c0a9aea36e5bbcea7aa48f8cd3a072f59fcf02'
+from tests.phase0.runtime_images import runtime_image
+
+IMAGE, PLATFORM = runtime_image('amd64')
 TESTS = (
     'tests/unit/test_phase0_host_authority.py',
     'tests/unit/test_phase0_report_publication.py',
@@ -30,7 +32,7 @@ def main():
         created = False
         try:
             subprocess.run([
-                'docker', 'create', '--name', name, '--platform', 'linux/arm64',
+                'docker', 'create', '--name', name, '--platform', PLATFORM,
                 '--network', 'none', '--cap-drop', 'ALL',
                 '--security-opt', 'no-new-privileges',
                 '-e', 'ENVIRONMENT=test', '-e', 'RELEASE_SHA=test',
