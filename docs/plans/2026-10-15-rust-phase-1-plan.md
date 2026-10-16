@@ -1474,7 +1474,35 @@ The runner owns lifecycle, allocates ephemeral ports, exports `DATABASE_URL`, `M
 - [ ] **Step 4: Run** artifact safety tests and the offline job locally. Run the contract job on the assembled Task 13 tree before publication; while assembly is absent, publication is blocked, not green. Artifact-verifier acceptance itself uses fixture archives and needs no future route code.
 - [ ] **Step 5: Commit** listed files: `git commit -m 'build: verify Rust artifacts and require contract CI'` with trailer.
 
-**Resume point:** Artifact verification is independently accepted. CI publication remains a final Task 13 gate. Task 12b consumes this verifier.
+**Attestation split (PM decision 3, implemented 17 Oct).** The deploy host has
+no `gh` CLI and nothing may be installed on it, so the provenance check is split:
+
+- **PM workstation** (`python scripts/verify_rust_artifact.py --attest`): needs
+  `gh`. It checks GitHub artifact attestation for both subjects the publish job
+  attested (`verdaxis-read` and its archive) with
+  `--repo Verdaxis/verdaxis-backend --signer-workflow Verdaxis/verdaxis-backend/.github/workflows/rust-read-ci.yml --source-ref <ref> --source-digest <sha>`,
+  reads `artifact-metadata.json` from the archive **in bounded memory, never by
+  extracting**, and writes a provenance record plus an Ed25519 detached
+  signature (`--signing-key`, `--record-out`, `--signature-out`). The private key
+  stays on the workstation.
+- **Deploy host** (default mode, `--archive ... --source-sha ... --target ... --output-dir ...`
+  plus `--provenance-record --provenance-signature --provenance-public-key`):
+  needs no `gh` and no network. It verifies the workstation's signature over the
+  exact record bytes, requires the record to name this repository, this workflow
+  path, this ref, this source SHA, this target, this archive digest and this
+  binary digest, and only then extracts.
+- **Why the digest can be trusted:** the archive digest is bound by the GitHub
+  attestation the workstation verified (transparency-log signed, bound to repo,
+  workflow, ref and source SHA). Every inner digest — metadata, binary, policy,
+  manifest, allowlist, `SHA256SUMS` — is then bound to that archive digest, so no
+  digest is ever taken from the same download as the sole evidence.
+
+**Resume point:** Artifact verification is independently accepted once its
+fixture tests pass on the test host. CI publication remains a final Task 13 gate;
+the publish job stays blocked (not green) until the assembled Task 13 tree passes
+the contract job. Task 12b consumes this verifier unchanged: it runs the host
+mode on staging, and the PM runs `--attest` on the workstation and carries the
+record, signature and public key to the host step.
 
 ### Task 12b: Extend the canonical deploy transaction — Astra
 
