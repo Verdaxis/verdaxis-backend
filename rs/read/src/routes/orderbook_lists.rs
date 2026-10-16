@@ -16,7 +16,7 @@ use axum::{
     Router,
     extract::{RawQuery, State},
     http::StatusCode,
-    response::IntoResponse,
+    response::{IntoResponse, Response},
     routing::get,
 };
 use chrono::{DateTime, Utc};
@@ -29,8 +29,35 @@ pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/api/orderbook/bids", get(bids))
         .route("/api/orderbook/asks", get(asks))
-        .route("/api/orderbook", get(list))
+        .route("/api/orderbook", get(list).post(create_order_boundary))
         .route("/api/orderbook/with-ci", get(with_ci))
+}
+
+/// Python registers a real POST write route on `/api/orderbook`, so an
+/// unauthenticated POST reaches the route's OAuth2 dependency and answers 401
+/// instead of the generic 405 the other ported GET paths produce. The read
+/// service never executes the write; deployment routing keeps writes on
+/// Python, and this boundary reproduces only its authentication answer.
+async fn create_order_boundary(headers: axum::http::HeaderMap) -> Response {
+    let authorization = headers
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("");
+    let (scheme, _) = authorization
+        .split_once(' ')
+        .map(|(scheme, rest)| (scheme, rest))
+        .unwrap_or((authorization, ""));
+    let detail = if !authorization.is_empty() && scheme.eq_ignore_ascii_case("bearer") {
+        "Could not validate credentials"
+    } else {
+        "Not authenticated"
+    };
+    (
+        StatusCode::UNAUTHORIZED,
+        [(axum::http::header::WWW_AUTHENTICATE, "Bearer")],
+        axum::Json(serde_json::json!({"detail": detail})),
+    )
+        .into_response()
 }
 
 pub fn page_offset(

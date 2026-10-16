@@ -253,7 +253,12 @@ async fn dispatch_boundary(
     next: Next,
 ) -> Response {
     let path = request.uri().path();
+    // Python's support-scope middleware classifies POST /api/orderbook as an
+    // allowed market-support mutation, so that one combination falls through
+    // to the route instead of the generic 403 other unclassified mutations get.
+    let orderbook_create = request.method() == "POST" && path == "/api/orderbook";
     if !matches!(request.method().as_str(), "GET" | "HEAD" | "OPTIONS")
+        && !orderbook_create
         && request
             .headers()
             .get("x-verdaxis-market-support-context")

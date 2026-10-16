@@ -274,6 +274,100 @@ async fn router_health_methods_and_empty_routes() {
     );
 }
 
+#[tokio::test]
+async fn post_orderbook_answers_python_auth_boundary() {
+    // Python registers POST /api/orderbook as a real write route, so an
+    // unauthenticated POST reaches the OAuth2 dependency and answers 401 —
+    // not the generic 405 the other ported paths produce. The support-context
+    // rule stays ahead of it, exactly as Python's middleware stack orders it.
+    let config = verdaxis_read::Config {
+        kyc_execution_gate_enabled: true,
+        db_session_time_zone: "UTC".into(),
+        environment: "test".into(),
+        release_sha: verdaxis_read::compiled_sha().into(),
+        migration_revision: "kycg_20261014_staging".into(),
+        database_url: "postgres://fixture:fixture_pw@127.0.0.1:1/fixture_test".into(),
+        bind: "127.0.0.1:0".parse().unwrap(),
+        pool_max: 9,
+        python_budget: 52,
+        configured_max_connections: 100,
+    };
+    let pools = verdaxis_read::runtime::db::Pools {
+        read: sqlx::postgres::PgPoolOptions::new()
+            .max_connections(8)
+            .connect_lazy(&config.database_url)
+            .unwrap(),
+        health: sqlx::postgres::PgPoolOptions::new()
+            .max_connections(1)
+            .connect_lazy(&config.database_url)
+            .unwrap(),
+    };
+    let state = verdaxis_read::AppState::new(
+        config,
+        pools,
+        verdaxis_read::MarketPolicy {
+            source_sha: verdaxis_read::compiled_sha().into(),
+            products: vec![],
+            points: vec![],
+        },
+    )
+    .unwrap();
+    let assembled = verdaxis_read::router(state);
+    let response = assembled
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/orderbook")
+                .header("x-request-id", "00000000-0000-4000-8000-000000000001")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 401);
+    assert!(!response.headers().contains_key("allow"));
+    assert_eq!(response.headers()["www-authenticate"], "Bearer");
+    assert_eq!(response.headers()["content-type"], "application/json");
+    assert_eq!(
+        response.headers()["x-request-id"],
+        "00000000-0000-4000-8000-000000000001"
+    );
+    assert_eq!(
+        to_bytes(response.into_body(), 1024).await.unwrap().as_ref(),
+        br#"{"detail":"Not authenticated"}"#
+    );
+    // A support context still claims the request first for every other ported
+    // path, but Python classifies POST /api/orderbook as an allowed support
+    // mutation, so that one combination falls through to the same 401.
+    let contextual = assembled
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/orderbook")
+                .header("x-verdaxis-market-support-context", "6f1c1dc0-1111-4222-8333-444455556666")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(contextual.status(), 401);
+    let forbidden = assembled
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/orderbook/bids")
+                .header("x-verdaxis-market-support-context", "6f1c1dc0-1111-4222-8333-444455556666")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(forbidden.status(), 403);
+}
+
 #[test]
 fn query_validation_is_python_shaped() {
     use verdaxis_read::runtime::http::{QueryFields, QueryKind};
