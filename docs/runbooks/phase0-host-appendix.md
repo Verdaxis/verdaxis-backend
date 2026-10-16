@@ -243,6 +243,15 @@ Expected all three exit 0, private reports, exact source preservation. Run each
 separately; prepare copy/verify manifests only after bootstrap report exists.
 No stdout containing data; private errors remain on host. Record elapsed times.
 
+`PHASE0_SOURCE_SESSIONS` means another session was connected to the source. List
+it as postgres: `SELECT pid,backend_type,usename,application_name FROM
+pg_stat_activity WHERE datname='verdaxis'`. Any session other than an
+`autovacuum worker` is a STOP. For autovacuum only, wait until it ends, then run
+the same command again only if the target is unchanged (bootstrap: still no user
+tables in `verdaxis_prod`; copy: no copy receipt and target rows still at the
+bootstrap baseline). Otherwise the existing rules apply: never reuse a failed
+populated target, and after a lost copy receipt run verify, never a second copy.
+
 ### Independent observations and source fingerprint
 
 For `PORT=5434` (A) or `PORT=5432` (B), query as postgres without passwords:
@@ -351,14 +360,23 @@ ALTER ROLE verdaxis_app PASSWORD '$P0APP';
 ALTER ROLE verdaxis_backup PASSWORD '$P0BACKUP';
 ALTER ROLE verdaxis_migrator PASSWORD '$P0MIG';
 SQL
+url() { printf 'DATABASE_URL=postgresql+asyncpg://%s:%s@127.0.0.1:5434/%s\n' "$1" "$2" "$3"; }
+for tool in bootstrap copy verify; do
+  url verdaxis_backup "$P0BACKUP" verdaxis > "$RUN/$tool-source.env"
+  url verdaxis_migrator "$P0MIG" verdaxis_prod > "$RUN/$tool-target.env"
+done
+# Write the complete scratch $RUN/settings.env here, from P0APP and P0MIG
+# (key list above), before the variables are unset.
+chmod 0600 "$RUN"/*.env
 unset P0APP P0BACKUP P0MIG
 ```
 
 Each `ALTER ROLE` reads its value from the here-document on stdin; no password
-reaches argv or a terminal transcript. Populate root-private tool secrets and
-Settings from those generated values only in the writing step itself, then
-unset the variables. Verify the Settings parser before restore; no source
-password is copied from live.
+reaches argv or a terminal transcript. Write every root-private tool secret and
+the Settings file in this same step, before `unset`: after it, the values exist
+only in those files. `token_urlsafe` values need no percent-encoding. Expected six
+one-line 0600 tool secrets and one 0600 Settings file. Verify the Settings parser
+before restore; no source password is copied from live.
 
 A3's business smoke is an external client that authenticates over TCP as the
 scratch cluster administrator, so the scratch cluster's own `postgres` role also
