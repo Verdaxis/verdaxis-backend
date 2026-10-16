@@ -147,6 +147,8 @@ class Runner:
             "-p",
             "127.0.0.1::5432",
             IMAGE,
+            "-c",
+            "shared_preload_libraries=pg_stat_statements",
         ).strip()
         # pg_isready prints its status to stdout even when it fails, so the
         # exit status, not the output, decides readiness.
@@ -186,6 +188,7 @@ CREATE ROLE {APP_ROLE} LOGIN NOINHERIT NOSUPERUSER PASSWORD '{APP_PASSWORD}';
 CREATE DATABASE {DB_NAME} OWNER {APP_ROLE};
 \\connect {DB_NAME}
 CREATE EXTENSION IF NOT EXISTS postgis;
+CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
 ALTER DATABASE {DB_NAME} SET TimeZone TO '{ORACLE_TIMEZONE}';
 \\connect template1
 CREATE EXTENSION IF NOT EXISTS postgis;

@@ -42,7 +42,6 @@ async def check_ci_projection():
 def check_query_count():
     import json
     import subprocess
-    import time
     from urllib.parse import urlsplit
 
     from scripts.rust_contract.run_disposable import IMAGE
@@ -65,31 +64,24 @@ def check_query_count():
     container = matching[0]
 
     def admin(sql):
-        subprocess.run(["docker", "exec", container, "psql", "-U", "postgres",
-                        "-v", "ON_ERROR_STOP=1", "-c", sql], check=True, capture_output=True)
+        return subprocess.check_output(
+            ["docker", "exec", container, "psql", "-XAt", "-U", "postgres",
+             "-d", "verdaxis_rust_test", "-v", "ON_ERROR_STOP=1", "-c", sql],
+            text=True,
+        ).strip()
 
-    def logs():
-        result = subprocess.run(["docker", "logs", container], check=True,
-                                capture_output=True, text=True)
-        return result.stdout + result.stderr
-
-    admin("ALTER SYSTEM SET log_statement = 'all'")
-    admin("SELECT pg_reload_conf()")
-    try:
-        time.sleep(0.2)
-        before = logs()
-        record(os.environ["RUST_CONTRACT_URL"], os.environ["DISPOSABLE_TEST_TOKEN"],
-               [{"id": "batch-count", "method": "GET", "path": "/api/orderbook/asks",
-                 "query": "limit=100"}])
-        time.sleep(0.2)
-        after = logs()
-        marker = ", requested_keys AS MATERIALIZED ("
-        count = after.count(marker) - before.count(marker)
-        assert count == 1, f"expected one benchmark statement, observed {count}; new log bytes={len(after) - len(before)}"
-        print("Task 7b: one benchmark statement for the full ASK page", flush=True)
-    finally:
-        admin("ALTER SYSTEM RESET log_statement")
-        admin("SELECT pg_reload_conf()")
+    admin("SELECT pg_stat_statements_reset()")
+    record(os.environ["RUST_CONTRACT_URL"], os.environ["DISPOSABLE_TEST_TOKEN"],
+           [{"id": "batch-count", "method": "GET", "path": "/api/orderbook/asks",
+             "query": "limit=100"}])
+    count = int(admin("""
+        SELECT coalesce(sum(calls), 0) FROM pg_stat_statements
+        WHERE userid=(SELECT oid FROM pg_roles WHERE rolname='rust_owner')
+          AND dbid=(SELECT oid FROM pg_database WHERE datname=current_database())
+          AND query LIKE '%, requested_keys AS MATERIALIZED (%'
+    """))
+    assert count == 1, f"expected one benchmark statement, observed {count}"
+    print("Task 7b: one benchmark statement for the full ASK page", flush=True)
 
 
 async def seed_mixed_sort_pages():
