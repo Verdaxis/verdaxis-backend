@@ -1,17 +1,21 @@
 # Phase 0 integrated acceptance and Rust handoff — 2026-10-16
 
-## Current release and oracle — 2026-10-16
+## Current release and oracle — 2026-10-17
 
-**Candidate: the merge commit that contains this fix (2026-10-16); the final
-oracle follows that merge and its affected reruns.** This section and the current
-eleven-category table are the only current status. Everything under the dated
-historical section is retained evidence, not an instruction or release selection.
-No live deployment is authorized here.
+**Release `56d75770` is LIVE in production since 17 October 02:39 SGT and is the
+final accepted Python oracle.** This section and the current eleven-category
+table are the only current status. Everything under the dated historical section
+is retained evidence, not an instruction or release selection. The post-cutover
+branch (`fix/phase0-post-cutover`, cut from `56d75770`) carries the window's
+source and runbook corrections on top of the accepted oracle; it is tooling and
+documentation hygiene, not a new release selection, and no live deployment is
+authorized here. See the Task 11 cutover record below for the window evidence.
 
 | Identity | Current value |
 |---|---|
-| Backend candidate | The merge commit that contains this fix (2026-10-16), head of `feat/phase0-convergence-20261016` |
-| Final accepted Python oracle | Pending: freeze that merge commit after its affected Linux gates rerun and the Task 10 rehearsal passes |
+| Backend candidate | `56d7577085af99411a6f9c3e34e64ad929d09954` (`56d75770`), merged head of `feat/phase0-convergence-20261016`, deployed as `origin/staging` |
+| Final accepted Python oracle | **`56d7577085af99411a6f9c3e34e64ad929d09954`** — live in production since 17 Oct 02:39 SGT (window 02:19–02:39 SGT) |
+| Live frontend release | `5f3cd698272cba0026bb2eaa527463e3e2b0e68b` (`5f3cd698`), promoted by workflow run `38948394269` |
 | Frontend M3 source | `513c2d77d2f85cf8c1d68a27528000a65ab1e365` |
 | M3 measured backend | `64c4a8653f9257f1b1519f9be75b5cbcd9e70f71` |
 | Union revision | `p0_20261016_union` |
@@ -20,7 +24,7 @@ No live deployment is authorized here.
 | Copy-manifest file SHA-256 | `a5e27570803d5d00c43f83ebbee734acf97bea9891cf51ce8347b596ba958b1c` |
 | Bootstrap-policy file SHA-256 | `e794312c20819ad342a4bbd083a1bbe073b29ec96aefe804e154899c035472c5` |
 | Revision allowlist SHA-256 | `b840a03ce47add08fe3e89e40aeb7fd92ceb17985a15aa43c7eb16984d0b4713` |
-| Pilot configuration | UTC; KYC execution gate off; eight distinct product IDs; new DB `verdaxis_prod` |
+| Pilot configuration | UTC; KYC execution gate off; eight distinct product IDs; live DB `verdaxis_prod` |
 
 M1 is done: runtime SELECT-only port lookup and exact FK-race rollback/404,
 with constrained-role tests. M3 is done: measured profile matrix, copied nullable
@@ -85,6 +89,73 @@ Three findings and their fixes:
    (`verdaxis_migrator`, `{verdaxis_migrator=UC/verdaxis_migrator,verdaxis_app=U/verdaxis_migrator,verdaxis_backup=U/verdaxis_migrator}`),
    with that text as the stop condition. Findings 2 and 3 are pinned in
    `tests/unit/test_phase0_appendix_commands.py`.
+
+### Task 11 production cutover — 2026-10-17 — `56d75770` LIVE
+
+The PM ran the production cutover under the appendix's fenced procedure. Window
+**02:19–02:39 SGT (17 October 2026), 19.5 minutes total**; the API was closed to
+public traffic about **8 minutes** (maintenance Caddyfile in place from B2 until
+the B10 reopen). Release `56d7577085af99411a6f9c3e34e64ad929d09954` is live on
+`verdaxis_prod` at revision `p0_20261016_union`, and frontend
+`5f3cd698272cba0026bb2eaa527463e3e2b0e68b` is promoted. The PM's step scripts
+and logs are host-private; only bounded facts are recorded here.
+
+**Lossless evidence.** The frozen source and the copied target agree:
+**26,242 orders, 127 trades, 44 users, 50 organizations** on both sides
+(bootstrap → copy → verify all exit 0). The pre-deploy `final.dump` restored
+into a scratch database with **62 of 62** per-table counts equal to the frozen
+live source, and the post-copy B9 backup restored with every target table count
+equal to the independent verify report (`restored-counts-accepted.json`).
+Public orderbook per-side totals equal on old and new. Readiness reported exact
+`status=ok`, `db=ok`, `production`, `56d75770…`; four Uvicorn workers; old
+`verdaxis` ended with zero sessions and a fully drained outbox. The one frontend
+promotion workflow (run `38948394269`, dispatched 18:34:32Z, report 18:38:12Z)
+promoted `5f3cd698` with successful production and canary smokes.
+
+**In-window deviations (all resolved by the PM inside the window, then fixed in
+source by the post-cutover branch):**
+
+1. `assert_host --check tuple/readiness` refused on git's dubious-ownership
+   protection: the committed helper ran git as root in the service-user-owned
+   checkout. The PM prefixed only the git calls with
+   `sudo -n -u verdaxis-prod` (no root `safe.directory`) and every other
+   assertion passed. Fixed in source: the helper now resolves the ROOT owner
+   and runs every git call as that owner, refusing root or failed lookups.
+2. The new backend unit could not start without a key file: systemd 255.4 logs
+   the empty `SetCredential=kyc-document-keys:` as "Invalid syntax, ignoring",
+   and `LoadCredential` with a missing file fails 243/CREDENTIALS (proved with
+   a throwaway unit). The PM created an **empty root:root 0400**
+   `/etc/verdaxis/kyc-document-keys.json`; `LoadCredential` then succeeds and
+   the vault treats the empty credential as missing (storage 503, readiness
+   unaffected). Fixed in source: both units drop the invalid line, and the
+   installer preflight refuses an absent source with the exact placeholder
+   command. Staging (systemd 249, real 93-byte ring) never hit the case.
+3. The B4 target block lacked live's two `ALTER DEFAULT PRIVILEGES FOR ROLE
+   verdaxis_migrator IN SCHEMA public GRANT SELECT ON TABLES/SEQUENCES TO
+   verdaxis_backup` statements, which `validate_roles.sql` requires; the PM
+   applied them by hand before B4a acceptance. The B7 curve probe also needed
+   `?product_id=<first product id>` (422 without it, on old and new). Both are
+   folded into the appendix by the post-cutover branch.
+
+**Demo activity fix after the window.** The rearmed
+`verdaxis-demo-activity.service` failed its runtime identity check: the fresh
+clone's `.git/HEAD` is mode 0600 and the old tree carried
+`user:verdaxis-demo-production:r-x` plus a default ACL on `.git`. The PM copied
+that ACL to the new `.git` only (`.env` and other secrets stay closed) and the
+job then passed. The appendix now carries that ACL copy in B5 and re-checks the
+demo identity as the demo user in B10b before any rearm.
+
+**Open items after the cutover:**
+
+- **B11 key ring with the founder**: `/etc/verdaxis/kyc-document-keys.json` is
+  still the empty placeholder; KYC storage is 503 and readiness unaffected
+  until the founder's real ring replaces it (security runbook B11 procedure).
+- **Cleanup only after a quiet period and founder approval**: remove
+  `prod/be.phase0-old`, drop the old `verdaxis` database and the
+  `17/p0rehearsal` scratch cluster. Nothing is deleted yet.
+
+Name `56d75770` as the final accepted oracle. The Task 10 rehearsal record
+below remains the data-path evidence; the window above is the live proof.
 
 ### Change and golden boundaries
 
@@ -187,36 +258,40 @@ Local streamed log SHA-256 (all contain completion markers):
 
 | Category | Status and evidence | Remaining owner/gate |
 |---|---|---|
-| Inventory | Complete synthetic classification; Linux Phase 0 177 passed | Task 10 operator: real catalog attestation |
-| Schema | Union and unchanged digests; three drift checks passed | Final approved source SHA at the merge commit |
-| Copy | Host tools merged; production CLI chain **47 passed** at `b0d66251` (prior 15-pass synthetic chain is history) | Task 10 restored real-data proof and rehearsal |
-| ACL | M1 fixed; no UPDATE on ports; 79 runtime-role HTTP tests passed | Task 10 exact deployed identity and grant proof |
-| Products | Eight IDs and scalar/typed contracts retained | 265 PostgreSQL and 79 HTTP cases passed; host promotion remains separate |
-| Auth | P0-2 input/output separation; M3 profile matrix complete | 2272 unit and 79 HTTP cases passed; no auth failure |
-| Privacy | Notification and typed snapshot cases complete | Task 10 egress/log isolation |
-| Timezone | UTC reconnect/role proofs retained | Linux Phase 0 passed; Task 10 fresh deployed processes |
-| Vault | M3 browser fault cases complete | Task 10 credentials, key-ring recovery and retention |
-| Frontend | M3 done, 109/111 with two explicit cached-old PM exceptions | Task 11 banner/entry HTML/refresh note; no promotion here |
-| Rollback | Linux tuple/outbox proofs pass; monitor 291 passed, 1 UID skip (Task 10) | M2 appendix; Task 10 UID/systemd/proxy full switch-back |
+| Inventory | Real host catalog attested through the cutover tool chain (62/62 tables) | None for Phase 0; Rust uses `56d75770` |
+| Schema | Union live at `p0_20261016_union`; drift checks passed | None; promotion complete |
+| Copy | Live cutover copy: 26,242 orders / 127 trades / 44 users / 50 orgs equal | None; frozen source preserved until cleanup |
+| ACL | Live `verdaxis_prod` accepted by `validate_roles.sql` after the window's default-privilege grants | Appendix amendment keeps the grants in the block |
+| Products | Eight IDs and scalar/typed contracts retained | 265 PostgreSQL and 79 HTTP cases passed |
+| Auth | P0-2 input/output separation; M3 profile matrix complete | Live logins verified by the reopen probes |
+| Privacy | Notification and typed snapshot cases complete | Live egress isolation was the fence; retained evidence host-private |
+| Timezone | UTC reconnect/role proofs retained | Live backend runs UTC (window readiness evidence) |
+| Vault | M3 browser fault cases complete; live host runs the empty placeholder (storage 503) | Founder/PM: B11 real key ring and restart |
+| Frontend | `5f3cd698` promoted (run `38948394269`); smokes passed; banner/refresh note sent | Owner watches the accepted cached-tab window |
+| Rollback | Pre-write rollback was not needed; old tuple/DB preserved | PM: quiet-period cleanup with founder approval |
 
 ## Current resume point
 
-Linux calls are complete. The four monitor isolation failures are fixed by
-redirecting `DEPLOY_STATE_FILES` into each temporary fixture; the full monitor
-suite now passes **291/291** (1 Task 10 skip). The passwordless `nobody` proof
-remains Task 10 because the test user lacks that privilege. The independent
-re-review of 2026-10-16 is complete and its three minor findings are applied by
-the change set that contains this file, so the merge commit that contains this
-fix is the rehearsal candidate. Remaining: rerun the affected gates at that merge
-commit, then run the Task 10 rehearsal under the appendix; the PM then names the
-final oracle. Any test that needs unavailable root/systemd stays an explicit
-Task 10 prerequisite; do not simulate a passing host proof. Independent review and
-separate host authorization precede the real rehearsal. Do not use historical
-candidate SHAs or old statements that host apply is absent. No source edits to the
-M2 runbook belong to this task.
+The cutover is complete: `56d75770` is the live, final accepted oracle (record
+above). The post-cutover branch folds the window's three deviations and the demo
+fix into source and the runbook; its commits are tooling/documentation only and
+add no application change. Remaining owners:
 
-Integration evidence recorder: Task 9 integration owner (AI assistant),
-2026-10-16. This is not another person's signature or deployment approval.
+- Founder/PM: B11 key ring replacement (empty placeholder is live now), then KYC
+  storage verification through the approved restart.
+- PM: quiet-period cleanup of `prod/be.phase0-old`, old `verdaxis` database and
+  the `17/p0rehearsal` scratch cluster, only with founder approval.
+- Rust/Phase 1: regenerate catalog policy, affected goldens and SQLx metadata
+  from `56d75770` per the boundaries below; keep the explicit legacy
+  `created_at DESC, id DESC` delta.
+
+Do not treat the post-cutover commits as a release; promote them through the
+normal staging→prod review if they are to reach the live host. No host operation
+is authorized from this document.
+
+Integration evidence recorder: Task 9 integration owner (AI assistant), with the
+2026-10-17 cutover record above taken from the PM's window evidence. This is not
+another person's signature or deployment approval.
 
 ## Historical evidence — 2026-10-16 — superseded checkpoints
 

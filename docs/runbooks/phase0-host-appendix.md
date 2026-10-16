@@ -2,12 +2,10 @@
 
 ## Open items
 
-No remaining PM design decision. Final SHA/configuration evidence is an explicit
-window checklist, not a design gap. B1/B2 independent review is complete; R1–R3
-fixes and any PM-supplied CLI changes must land before execution approval.
-**M2 ready for review** — no remaining prerequisite. The A3 bounded scratch
-business smoke is implemented and tested; its exact command is cited below.
-Review is not authorization to execute.
+No remaining PM design decision. **The cutover has run** (17 October 2026,
+release `56d75770`, now live); this appendix is retained as the executed
+procedure with its post-cutover amendments folded in. Any future rerun must
+apply the amended blocks as written. Review is not authorization to execute.
 
 **Post-cutover amendments (17 October 2026).** The cutover ran at release
 `56d75770` (window 02:19–02:39 SGT). Five window findings are folded into the
