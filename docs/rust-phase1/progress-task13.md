@@ -773,3 +773,35 @@ corrected gate collapses this to eleven environments, one target each.
    warm p95 for both runtimes with/without, EXPLAIN plans for the walk and
    the real route statements, then DROP INDEX. Report and stop: the real
    index is a PM decision.
+
+### 3. p95 breakdown — where the ~0.8 s goes
+
+`scripts/rust_contract/profile_lists.py` (module form) on one ANALYZEd
+disposable corpus, warm process and pool, five samples per cell, resetting
+`pg_stat_statements` per request and excluding the Python outbox poll
+(`task13-lane13-profile2.log`). Admission wait is ~0 here: sequential
+requests, eight free slots, so `try_acquire_owned` succeeds on the first
+try and no request queues.
+
+| Cell | wall median | SQL total | outside SQL |
+| --- | ---: | ---: | ---: |
+| list Python | 1.022 s | 0.247 s | 0.776 s |
+| list Rust | 1.865 s | 0.719 s | 1.146 s |
+| bids Python | 1.214 s | 0.363 s | 0.851 s |
+| bids Rust | 1.832 s | 0.815 s | 1.017 s |
+
+Per statement (Rust list): the live-benchmark statement
+`WITH requested_keys AS MATERIALIZED (...)` is **523 ms**; the page
+statement `WITH eligible_orders AS NOT MATERIALIZED (...)` is 196 ms.
+Rust bids: benchmark 523 ms, page 293 ms. Python list: product catalog
+127 ms, its one benchmark/order statement 120 ms (Python batches the page
+and benchmark work into fewer, narrower statements); bids adds a count
+statement 88 ms.
+
+So the ~0.84 s list gap splits into **+0.47 s of SQL, dominated by the
+523 ms key-first benchmark statement**, and **+0.37 s outside SQL** —
+Rust's pool acquire is ~0 after warmup, so that remainder is row → public
+projection, `serde_json` serialization and HTTP framing. The page
+statements are not the cause: Rust 196/293 ms against Python 120/148 ms.
+Naming it plainly: the single Rust-only 0.5 s is the batched live-benchmark
+statement, and a smaller part is Rust's per-row projection and JSON build.
