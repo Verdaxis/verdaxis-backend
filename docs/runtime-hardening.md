@@ -1,5 +1,16 @@
 # Runtime and test hardening
 
+## Phase 0 acceptance status
+
+The integrated candidate and eleven-category checklist are in
+[`outputs/phase0/acceptance.md`](../outputs/phase0/acceptance.md). Task 9's local
+fixture blockers are closed; independent sign-off remains pending. This is not
+deployment approval. Linux must repeat the Bash deploy, `/proc` four-worker
+SSE and unprivileged-monitor checks. Task 10 must prove the loaded systemd fence,
+exact runtime tuple, provider isolation, restored backup and full switch-back.
+Do not enable host bootstrap/copy by changing policy JSON. Keep UTC and pilot KYC
+off on the canonical targets; do not change the preserved old database.
+
 ## Database connection budget
 
 Production and staging run on separate hosts and separate PostgreSQL
@@ -297,11 +308,21 @@ forward-compatible corrective migration.
 
 ## Database roles and session timeouts
 
-Deployed identities are exact:
+Canonical Phase 0 release identities are exact. The old production release
+continues to require `verdaxis` for complete-tuple rollback; do not point either
+release at the other's database. This source change is not a live cutover.
+See [the fenced one-use checklist](runbooks/phase0-cutover.md).
+
+Both fixed checkout paths select canonical `staging`. Normal deploy publishes
+`.runtime-release.env` and credential-free `.runtime-monitor.env` while durable
+state blocks starts. The external Phase 0 guard adds a root-owned operator-lock
+condition; it never replaces the existing two-lock guard or migration gates.
+
+Canonical identities:
 
 | Environment | Database | Runtime app role | Migrator role |
 |---|---|---|---|
-| production | `verdaxis` | `verdaxis_app` | `verdaxis_migrator` |
+| production | `verdaxis_prod` | `verdaxis_app` | `verdaxis_migrator` |
 | staging | `verdaxis_staging` | `verdaxis_app_staging` | `verdaxis_migrator_staging` |
 
 Both environments require PostgreSQL URLs, explicit non-default passwords in
@@ -340,6 +361,28 @@ ALTER ROLE verdaxis_migrator SET statement_timeout = '300s';
 ALTER ROLE verdaxis_migrator SET lock_timeout = '30s';
 ALTER ROLE verdaxis_migrator SET idle_in_transaction_session_timeout = '300s';
 ```
+
+Each canonical database session also runs in UTC. The target database default
+and the per-role override for the app, migrator and backup roles are set from a
+connection to `postgres`:
+
+```sql
+ALTER DATABASE <database> SET timezone TO 'UTC';
+ALTER ROLE <app_role> IN DATABASE <database> SET timezone TO 'UTC';
+ALTER ROLE <migrator_role> IN DATABASE <database> SET timezone TO 'UTC';
+ALTER ROLE <backup_role> IN DATABASE <database> SET timezone TO 'UTC';
+```
+
+`deploy/phase0/set_timezone.sql` is the executable artifact. The
+role-in-database value is the highest server-side priority, so it overrides both
+the database default and any role-wide setting. A connection option such as
+`PGOPTIONS` or a startup `timezone` parameter outranks it and is invisible to
+the server, so the operator and the tooling must inspect and reject unexplained
+connection options before trusting `SHOW TimeZone`. A default applies only when
+a session connects; recycle the API pools and every CLI process after the
+change. Session-sensitive day buckets then move from the former 16:00 UTC
+boundary to 00:00 UTC. Explicit `timezone('UTC', …)` buckets, stored
+`timestamptz` instants and the Singapore certificate-date rules do not change.
 
 The idempotent executable artifacts are
 `deploy/postgres/bootstrap_roles.sql` and `deploy/postgres/validate_roles.sql`.

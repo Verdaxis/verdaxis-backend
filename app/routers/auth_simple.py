@@ -1963,7 +1963,11 @@ async def _user_profile(db: AsyncSession, user: User) -> UserResponse:
     from app.services.kyc_execution import kyc_execution_eligibility
 
     profile = UserResponse.model_validate(user)
-    if user.role == UserRole.ADMIN or user.organization_id is None:
+    # Match production: any role outside the executing pair (including an
+    # incomplete onboarding profile with role=None), or a profile with no
+    # organization, is NOT_APPLICABLE before the gate is read. Only a
+    # BUYER/SUPPLIER bound to an organization is evaluated.
+    if user.role not in (UserRole.BUYER, UserRole.SUPPLIER) or user.organization_id is None:
         eligibility = {"eligible": False, "reason": "NOT_APPLICABLE", "grace_expires_at": None}
     else:
         eligibility = asdict(await kyc_execution_eligibility(db, user))
@@ -2028,7 +2032,7 @@ async def update_users_me(
 
     await db.commit()
     await db.refresh(current_user)
-    return current_user
+    return await _user_profile(db, current_user)
 
 
 @router.put("/me/password")

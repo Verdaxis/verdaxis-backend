@@ -7,8 +7,8 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.market_catalog import PRODUCTS_BY_CODE, PRODUCTS_BY_ID
 from app.models.catalog import DeliveryPoint, Product
-from app.market_catalog import PRODUCTS_BY_ID, PRODUCTS_BY_CODE
 from app.services.market_data_eligibility import (
     canonical_delivery_point_clause,
     canonical_product_clause,
@@ -49,7 +49,12 @@ async def require_canonical_market_slice(
         and spec.available_delivery_point_ids is not None
         and delivery_point_id not in spec.available_delivery_point_ids
     ):
-        raise HTTPException(status_code=400, detail="This product is available for Singapore only")
+        detail = (
+            "Bio-LNG is available for Rotterdam only"
+            if spec.market_product == "BIO_LNG"
+            else "This product is available for Singapore only"
+        )
+        raise HTTPException(status_code=400, detail=detail)
     return product, point
 
 

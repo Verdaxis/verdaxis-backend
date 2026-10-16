@@ -1,0 +1,28 @@
+[Unit]
+Description=Verdaxis external public-route monitor
+Wants=network-online.target
+After=network-online.target
+OnFailure=verdaxis-external-recover.service
+OnFailureJobMode=replace
+
+[Service]
+Type=oneshot
+User=verdaxis-monitor
+Group=verdaxis-monitor
+EnvironmentFile=/etc/verdaxis-external-monitor.env
+ExecStart=/usr/local/libexec/verdaxis-external-monitor
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+PrivateDevices=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictRealtime=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ReadWritePaths=/var/lib/verdaxis-external-monitor
+MemoryMax=128M
+TasksMax=32

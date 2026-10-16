@@ -1,0 +1,17 @@
+{
+  "mode": "synthetic",
+  "host_apply": false,
+  "target_revision": "p0_20261016_union",
+  "migration_graph_sha256": "748dbcdfba75e5b9b2b563c814a5d42808c05a7c4139218fee23402cc7742df9",
+  "schema_sha256": "54a40050c8af02f0132fe3c8516089212cf0e7494c9b1e24eee6b42885d85ffa",
+  "production_contract": {
+    "from": "EMPTY",
+    "target_database": "verdaxis_prod",
+    "app_role": "verdaxis_app",
+    "migrator_role": "verdaxis_migrator",
+    "backup_role": "verdaxis_backup",
+    "host_apply": false,
+    "requires": "Separate host approval and Task 7 exact production identity integration"
+  },
+  "reference_values_sha256": "5b522ebaed9732c8576f00bebf9100d7c36c7f67079add01f0234e3445bf1c58"
+}

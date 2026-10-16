@@ -42,7 +42,11 @@ class ExecutionEligibilityResponse(BaseModel):
     grace_expires_at: datetime | None = None
 
 
-class UserResponse(UserBase):
+class UserResponse(BaseModel):
+    # Stored history is output, not a new email admission decision.
+    email: str
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
     role: Optional[UserRole] = None
     id: UUID
     status: UserStatus

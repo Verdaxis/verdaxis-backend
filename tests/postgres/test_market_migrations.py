@@ -19,7 +19,8 @@ _BACKEND_ROOT = Path(__file__).resolve().parents[2]
 _PARENT = "miq_20260720_market_quarantine"
 # Later product migrations extend the linearized market chain. The mi-specific
 # refusal/quarantine semantics exercised below are unchanged.
-_HEAD = "kycd_20261015_staging"
+_HEAD = "p0_20261016_union"
+_HISTORICAL_HEAD = "kycd_20261015_staging"
 _SENTINEL = UUID("00000000-dead-beef-0000-aaa0e15eed01")
 _DEMO_ORG = UUID("4da7b285-34ee-5443-9406-f96b4ed1a251")
 _DEMO_SELLER_ORG = UUID("0dbce576-2026-5925-ab66-674d505e98ad")
@@ -347,7 +348,7 @@ async def test_command_receipt_refuses_downgrade_and_preserves_record(
     migration_database,
 ):
     database_url, _database_name = migration_database
-    upgraded = await asyncio.to_thread(_alembic, database_url, "upgrade", _HEAD)
+    upgraded = await asyncio.to_thread(_alembic, database_url, "upgrade", _HISTORICAL_HEAD)
     assert upgraded.returncode == 0, upgraded.stderr
 
     organization_id = uuid4()
@@ -405,7 +406,7 @@ async def test_command_receipt_refuses_downgrade_and_preserves_record(
         {"id": receipt_id},
     )
     receipt = preserved.one()
-    assert revision.scalar_one() == _HEAD
+    assert revision.scalar_one() == _HISTORICAL_HEAD
     assert receipt.response_status == 200
     assert receipt.response_body == response_body
     assert receipt.request_hash == request_hash
@@ -508,7 +509,7 @@ async def test_fee_migration_downgrades_when_no_fee_data_would_be_lost(
     migration_database,
 ):
     database_url, _database_name = migration_database
-    upgraded = await asyncio.to_thread(_alembic, database_url, "upgrade", _HEAD)
+    upgraded = await asyncio.to_thread(_alembic, database_url, "upgrade", _HISTORICAL_HEAD)
     assert upgraded.returncode == 0, upgraded.stderr
 
     downgraded = await asyncio.to_thread(
@@ -528,7 +529,7 @@ async def test_fee_migration_downgrades_when_no_fee_data_would_be_lost(
     )
     assert missing_columns.scalar_one() == 0
 
-    reupgraded = await asyncio.to_thread(_alembic, database_url, "upgrade", _HEAD)
+    reupgraded = await asyncio.to_thread(_alembic, database_url, "upgrade", _HISTORICAL_HEAD)
     assert reupgraded.returncode == 0, reupgraded.stderr
 
 
@@ -537,7 +538,7 @@ async def test_fee_migration_refuses_downgrade_that_would_lose_fee_data(
     migration_database,
 ):
     database_url, _database_name = migration_database
-    upgraded = await asyncio.to_thread(_alembic, database_url, "upgrade", _HEAD)
+    upgraded = await asyncio.to_thread(_alembic, database_url, "upgrade", _HISTORICAL_HEAD)
     assert upgraded.returncode == 0, upgraded.stderr
 
     subscription_org_id = uuid4()
@@ -585,7 +586,7 @@ async def test_fee_migration_refuses_downgrade_that_would_lose_fee_data(
     )
     current = await asyncio.to_thread(_alembic, database_url, "current")
     assert current.returncode == 0, current.stderr
-    assert _HEAD in current.stdout
+    assert _HISTORICAL_HEAD in current.stdout
     preserved = await _database_execute(
         database_url,
         "SELECT count(*) FROM trades WHERE commission_fee_per_mt_usd = 2.00 "
@@ -599,7 +600,7 @@ async def test_fee_downgrade_fails_fast_during_idempotent_trade_read(
     migration_database,
 ):
     database_url, _database_name = migration_database
-    upgraded = await asyncio.to_thread(_alembic, database_url, "upgrade", _HEAD)
+    upgraded = await asyncio.to_thread(_alembic, database_url, "upgrade", _HISTORICAL_HEAD)
     assert upgraded.returncode == 0, upgraded.stderr
 
     engine = create_async_engine(database_url)
@@ -636,7 +637,7 @@ async def test_fee_downgrade_fails_fast_during_idempotent_trade_read(
     assert downgrade_task is not None
     current = await asyncio.to_thread(_alembic, database_url, "current")
     assert current.returncode == 0, current.stderr
-    assert _HEAD in current.stdout
+    assert _HISTORICAL_HEAD in current.stdout
 
 
 @pytest.mark.asyncio
@@ -752,7 +753,7 @@ async def test_parent_shape_sentinel_requires_explicit_cli_quarantine_then_upgra
 
     downgrade = await asyncio.to_thread(_alembic, database_url, "downgrade", _PARENT)
     assert downgrade.returncode != 0
-    assert "downgrade is unsupported" in f"{downgrade.stdout}\n{downgrade.stderr}"
+    assert "Phase 0 union requires a forward correction; downgrade is refused" in f"{downgrade.stdout}\n{downgrade.stderr}"
     current = await asyncio.to_thread(_alembic, database_url, "current")
     assert current.returncode == 0, current.stderr
     assert _HEAD in current.stdout
@@ -1253,7 +1254,7 @@ async def test_automatic_org_classification_downgrade_restores_prior_guard(migra
     definition_sql = "SELECT pg_get_functiondef('verdaxis_immutable_org_provenance()'::regprocedure)"
     original = (await _database_execute(database_url, definition_sql)).scalar_one()
 
-    upgraded = await asyncio.to_thread(_alembic, database_url, "upgrade", _HEAD)
+    upgraded = await asyncio.to_thread(_alembic, database_url, "upgrade", _HISTORICAL_HEAD)
     assert upgraded.returncode == 0, upgraded.stderr
     organization_id = uuid4()
     await _database_execute(

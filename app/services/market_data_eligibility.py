@@ -20,6 +20,7 @@ from app.market_catalog import (
     PRODUCT_IDS,
     PRODUCTS_BY_CODE,
 )
+from app.services.execution_policy import biofuel_supplier_metadata_clause
 from app.services.kyc_execution import kyc_execution_clause
 from app.models.catalog import DeliveryPoint, Product
 from app.models.marketplace import InventoryItem
@@ -263,6 +264,7 @@ def current_public_order_clause(order, *, now_expression=None):
         # Every public collection also refuses inert owner-rejected liquidity.
         public_order_owner_admission_clause(order),
         b100_declaration_is_current,
+        or_(order.side != OrderSide.ASK, biofuel_supplier_metadata_clause(order, order.product_id)),
         or_(
             order.product_id != PRODUCT_IDS["BIO_LNG"],
             and_(
@@ -298,7 +300,7 @@ def _public_order_projection_statement(*, as_of: datetime | None = None):
             canonical_availability_window_clause(OrderBookOrder.availability_window),
             current_public_order_clause(OrderBookOrder, now_expression=as_of),
             public_order_collection_provenance_clause(OrderBookOrder),
-            Product.fuel_type.in_(("Methanol", "Ethanol", "FAME", "LNG")),
+            Product.fuel_type.in_(("Methanol", "Ethanol", "Biofuel", "FAME", "LNG")),
             or_(
                 OrderBookOrder.side != OrderSide.ASK,
                 and_(
@@ -356,6 +358,7 @@ def _public_inventory_projection_statement():
             Port.is_active.is_(True),
             *active_market_catalog_clauses(Product, DeliveryPoint),
             or_(real_evidence, demo_evidence),
+            biofuel_supplier_metadata_clause(InventoryItem, Product.id),
         )
     )
 

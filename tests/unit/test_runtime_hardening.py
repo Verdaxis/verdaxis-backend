@@ -49,7 +49,7 @@ def _settings(**overrides):
 
 def _deployed_values(environment: str) -> dict:
     identities = {
-        "production": ("verdaxis", "verdaxis_app", "verdaxis_migrator"),
+        "production": ("verdaxis_prod", "verdaxis_app", "verdaxis_migrator"),
         "staging": (
             "verdaxis_staging",
             "verdaxis_app_staging",
@@ -274,7 +274,7 @@ def test_production_validates_the_effective_database_url_username(monkeypatch):
         Settings(
             **{
                 **_deployed_values("production"),
-                "DATABASE_URL": "postgresql+asyncpg://postgres:not-a-default@localhost/verdaxis",
+                "DATABASE_URL": "postgresql+asyncpg://postgres:not-a-default@localhost/verdaxis_prod",
             }
         )
 
@@ -286,7 +286,7 @@ def test_production_requires_app_and_migrator_on_same_database_endpoint(
     values = _deployed_values("production")
     values["MIGRATOR_DATABASE_URL"] = (
         "postgresql+asyncpg://verdaxis_migrator:not-a-default@"
-        "migration-db/verdaxis"
+        "migration-db/verdaxis_prod"
     )
 
     with pytest.raises(ValidationError, match="same database endpoint"):
@@ -295,7 +295,7 @@ def test_production_requires_app_and_migrator_on_same_database_endpoint(
         Settings(
             **{
                 **_deployed_values("production"),
-                "MIGRATOR_DATABASE_URL": "postgresql+asyncpg://postgres:not-a-default@localhost/verdaxis",
+                "MIGRATOR_DATABASE_URL": "postgresql+asyncpg://postgres:not-a-default@localhost/verdaxis_prod",
             }
         )
 
@@ -395,7 +395,7 @@ def test_non_deployed_environments_allow_only_their_explicit_placeholder(
 @pytest.mark.parametrize(
     "environment, expected",
     [
-        ("production", {"https://verdaxis.exchange", "https://app.verdaxis.exchange"}),
+        ("production", {"https://verdaxis.exchange", "https://app.verdaxis.exchange", "https://canary.verdaxis.exchange"}),
         ("staging", {"https://staging.verdaxis.exchange"}),
         (
             "development",
@@ -550,7 +550,7 @@ def test_mutating_target_accepts_only_known_staging_or_disposable_targets():
     ) == "http://127.0.0.1:18765"
 
 
-@pytest.mark.parametrize("database_name", ["verdaxis", "verdaxis_staging", "runtime", ""])
+@pytest.mark.parametrize("database_name", ["verdaxis_prod", "verdaxis_staging", "runtime", ""])
 def test_disposable_mutation_requires_a_proven_disposable_database(database_name):
     env = {
         "TEST_API_URL": "http://127.0.0.1:18765",

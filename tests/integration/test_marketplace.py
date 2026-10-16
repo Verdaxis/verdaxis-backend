@@ -16,6 +16,9 @@ def create_test_token(user_id: str, email: str, role: str) -> str:
         "sub": user_id,
         "email": email,
         "role": role,
+        "iss": settings.JWT_ISSUER,
+        "aud": settings.JWT_AUDIENCE,
+        "type": "access",
         "exp": datetime.utcnow() + timedelta(hours=1)
     }
     return jwt.encode(payload, JWT_SECRET, algorithm="HS256")
@@ -30,7 +33,7 @@ async def test_inventory_publish_flow():
         # Using a seeded supplier from seed.py
         # Supplier 1 ID from seed.py
         supplier_id = "9e63f7a1-0000-4000-8000-000000000011"
-        supplier_email = "itest-seller@disposable.invalid"
+        supplier_email = "itest-seller@example.com"
         token = create_test_token(supplier_id, supplier_email, "SUPPLIER")
         headers = {"Authorization": f"Bearer {token}"}
 
@@ -41,7 +44,14 @@ async def test_inventory_publish_flow():
             "product_name": "Bio Ethanol",  # exact live catalog name so publish can map it
             "current_stock_mt": 1000.0,
             "price_per_mt_usd": 850.0,
-            "is_certified": True
+            "is_certified": True,
+            "certification_declared": True,
+            "certification_scheme": "ISCC EU",
+            "specification_standard": "EN 15376",
+            "msds_available": True,
+            "carbon_intensity_gco2_mj": "20.5",
+            "feedstock": "Waste",
+            "origin": "Singapore"
         }
         resp = await client.post("/api/inventory", json=inventory_data, headers=headers)
         assert resp.status_code == 200, f"Failed to add inventory: {resp.text}"
@@ -76,7 +86,7 @@ async def test_unauthorized_publish():
     """Ensure buyers cannot publish inventory."""
     async with AsyncClient(base_url=TEST_API_URL, timeout=10.0) as client:
         buyer_id = "9e63f7a1-0000-4000-8000-000000000012"
-        buyer_email = "itest-buyer@disposable.invalid"
+        buyer_email = "itest-buyer@example.com"
         token = create_test_token(buyer_id, buyer_email, "BUYER")
         headers = {"Authorization": f"Bearer {token}"}
         

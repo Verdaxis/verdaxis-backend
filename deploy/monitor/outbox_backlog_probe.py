@@ -109,7 +109,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--dsn",
         required=True,
-        help="read-only libpq DSN/URI, e.g. 'dbname=verdaxis user=verdaxis_backup'",
+        help="read-only libpq DSN/URI, e.g. 'dbname=verdaxis_prod user=verdaxis_backup'",
     )
     parser.add_argument("--max-pending", type=int, default=1000)
     parser.add_argument(

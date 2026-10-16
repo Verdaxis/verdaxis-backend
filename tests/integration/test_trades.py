@@ -21,23 +21,24 @@ JWT_SECRET = settings.JWT_SECRET
 # orgs — demo-org listings cannot be traded, which silently breaks the whole
 # lifecycle suite if reused here).
 SUPPLIER_1_ID = "9e63f7a1-0000-4000-8000-000000000011"
-SUPPLIER_1_EMAIL = "itest-seller@disposable.invalid"
+SUPPLIER_1_EMAIL = "itest-seller@example.com"
 SUPPLIER_2_ID = "9e63f7a1-0000-4000-8000-000000000013"
-SUPPLIER_2_EMAIL = "itest-seller2@disposable.invalid"
+SUPPLIER_2_EMAIL = "itest-seller2@example.com"
 BUYER_1_ID = "9e63f7a1-0000-4000-8000-000000000012"
-BUYER_1_EMAIL = "itest-buyer@disposable.invalid"
+BUYER_1_EMAIL = "itest-buyer@example.com"
 BUYER_2_ID = "9e63f7a1-0000-4000-8000-000000000012"
-BUYER_2_EMAIL = "itest-buyer@disposable.invalid"
+BUYER_2_EMAIL = "itest-buyer@example.com"
 
 # Deterministic product/delivery point IDs from catalog_seed.py
-PRODUCT_METHANOL_GREEN = "b0f9b249-1ae4-5e02-adf5-e4964788ad8e"
+from app.market_catalog import PRODUCT_IDS, DELIVERY_POINT_IDS
+PRODUCT_METHANOL_GREEN = str(PRODUCT_IDS["BIO_METHANOL"])
 PRODUCT_E_METHANOL = "f9b20492-b445-59cd-b292-a386d913f488"
 PRODUCT_BIO_ETHANOL = "c4a688be-f7c2-5edc-8f93-6b34e387609c"
 PRODUCT_SYN_ETHANOL = "d186bffb-766d-5944-8825-989abbdcfc46"
 DP_SINGAPORE = "73835e92-820e-584b-8280-bb61c63aa28e"
-DP_ARA = "0f6b6006-61ef-5ef9-b096-71bf87d1d3d7"
+DP_ARA = str(DELIVERY_POINT_IDS["Rotterdam"])
 DP_HOUSTON = "a083db06-b050-56c2-a274-3897eac2fdae"
-DP_FUJAIRAH = "f4877150-d88e-5825-b154-3410dfc9f1f1"
+DP_FUJAIRAH = str(DELIVERY_POINT_IDS["Busan"])
 
 
 def create_test_token(user_id: str, email: str, role: str) -> str:
@@ -45,6 +46,9 @@ def create_test_token(user_id: str, email: str, role: str) -> str:
         "sub": user_id,
         "email": email,
         "role": role,
+        "iss": settings.JWT_ISSUER,
+        "aud": settings.JWT_AUDIENCE,
+        "type": "access",
         "exp": datetime.utcnow() + timedelta(hours=1),
         "iat": datetime.utcnow(),
     }
@@ -134,7 +138,7 @@ class TestCreateTrade:
             assert trade["buyer_name"] != ""
             assert trade["seller_name"] != ""
             assert trade["fuel_type"] == "Methanol"
-            assert trade["product_name"] == "Methanol Green"
+            assert trade["product_name"] == "Bio Methanol"
             assert trade["commission_payer"] == "SELLER"
             assert trade["commission_plan"] is None
             assert trade["commission_fee_per_mt_usd"] is None

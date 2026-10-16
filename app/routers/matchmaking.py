@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 
 from app.database import get_db
-from app.middleware.execution import require_execution_eligible_user
+from app.services.security_market_admission import require_security_market_admission
 from app.models.matchmaking import MatchStatus, MatchSuggestion
 from app.models.orderbook import OrderBookOrder, OrderBookStatus, OrderSide
 from app.models.user import User, UserRole
@@ -174,7 +174,7 @@ async def list_suggestions(
 async def dismiss_suggestion(
     order_id: UUID,
     db: Annotated[AsyncSession, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_execution_eligible_user)],
+    current_user: Annotated[User, Depends(require_security_market_admission)],
 ):
     """Dismiss a recommendation by order ID."""
     order = (await db.execute(select(OrderBookOrder).where(OrderBookOrder.id == order_id))).scalar_one_or_none()

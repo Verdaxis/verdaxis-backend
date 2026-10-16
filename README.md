@@ -15,6 +15,21 @@ ENVIRONMENT=development \
   uvicorn app.main:app --host 127.0.0.1 --port <unused-ephemeral-port>
 ```
 
+## Phase 0 canonical release preparation
+
+The canonical source selects `staging` in both fixed backend paths. Production
+requires `verdaxis_prod` with the existing exact roles; the preserved old release
+still requires `verdaxis`. Neither a database-name override nor an old-database
+rename is supported. Seed paths deny both production names.
+
+Use [the one-use fenced checklist](docs/runbooks/phase0-cutover.md), not an ordinary
+deploy, for the initial complete-tuple transition. It requires final union policy,
+separate host approval, outbox drain, backup-owner changes and pre-write rollback
+proof. This repository change performs no live switch or monitor activation.
+Runtime and monitor identity publish together under blocked deploy state.
+Production credentialed CORS includes the exact canary origin
+`https://canary.verdaxis.exchange`; staging does not.
+
 ## Live Deployment
 
 The deployed backends run on separate hosts through systemd, not Docker

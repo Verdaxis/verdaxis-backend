@@ -4,6 +4,17 @@ This release is deliberately fail closed. Applying migrations or running the
 preflight does not deploy or mutate admission/ownership decisions. Production
 promotion still requires the product decisions listed below.
 
+## Phase 0 vault and admission acceptance
+
+See the blocked [integrated checklist](../outputs/phase0/acceptance.md). Preserve
+`KYC_EXECUTION_GATE_ENABLED=false` for both pilot environments without weakening
+rejection or organization binding. Copy review/audit/grace evidence; start the
+new production encrypted document table empty. Previously discarded files cannot
+be recovered by import. Missing storage keys return 503; failed download
+decryption returns 500. A proxy 504 is uncertain and is not proof of rollback.
+Task 10 still owns four-worker credentials and encrypted key-ring recovery;
+frontend fault coverage is not established by the reused two-bundle gate.
+
 ## JWT configuration, rotation, and refresh contract
 
 Every environment must explicitly configure its own `JWT_SECRET`,

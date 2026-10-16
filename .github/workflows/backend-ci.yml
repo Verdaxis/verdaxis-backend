@@ -35,7 +35,7 @@ jobs:
           ENVIRONMENT: test
           RELEASE_SHA: test
           JWT_SECRET: "test-secret-key-that-is-at-least-32-characters-long"
-        run: DATABASE_URL="sqlite+aiosqlite:///:memory:" pytest tests/unit tests/monitor/test_source_ownership.py -q
+        run: DATABASE_URL="sqlite+aiosqlite:///:memory:" pytest tests/unit tests/monitor -q
 
       - name: Dependency audit
         run: |
@@ -72,3 +72,35 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq postgresql-client
           ./scripts/run_product_analytics_postgres_tests.sh tests/postgres
+
+  postgres-phase0:
+    # Owns tests/phase0 and the three test_phase0_* PostgreSQL suites.
+    # The runner owns its pinned PostGIS container and refuses missing coverage.
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Fixture schemas are built from immutable production/staging commits.
+          fetch-depth: 0
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m venv venv
+          venv/bin/python -m pip install --upgrade pip
+          venv/bin/pip install -r requirements.txt -c constraints.txt
+
+      - name: Run Phase 0 PostgreSQL correctness tests
+        env:
+          ENVIRONMENT: test
+          RELEASE_SHA: test
+          JWT_SECRET: "test-secret-key-that-is-at-least-32-characters-long"
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client
+          bash scripts/run_phase0_postgres_tests.sh
