@@ -1,6 +1,71 @@
 # Phase 0 host-tool sign-off fixes — partial checkpoint
 
-## Current checkpoint 7 — database fence decision and passing primitive tests
+## Current checkpoint 8 — role decision resolved; production CLI red test committed
+
+**B1/B2 remain incomplete. The integrated production chain is not implemented.**
+
+PM confirmed: `verdaxis_migrator` is the target tool role. Create no additional
+production roles. Before ACL acceptance only that role has target CONNECT;
+source reads use existing read-only `verdaxis_backup` authority, never a writer.
+This resolves checkpoint 7's question. No further role decision is required.
+No HBA changes, source grant/settings changes or session termination are allowed.
+
+`434f34ac` adds the first actual production CLI chain acceptance test and shared
+private-input builder. It runs only inside the pinned root-owned Linux runtime,
+against the production-named synthetic fixture. Commands invoke the real
+`python -m scripts.phase0.bootstrap`, `copy`, and `verify` subprocesses. The
+runtime receives the archived candidate's full SHA in `/release.json`; that file
+is test input, not yet an implemented production release attestation mechanism.
+
+Completed remote red command:
+
+```sh
+verdaxis-prod-test "$PWD" 'venv/bin/python -m tests.phase0.linux_database'
+```
+
+Result: **1 failed, 14 passed**, 61.75 seconds. Bootstrap rejected the proposed
+`--source-environment-file` argument; it must read and bind the frozen source
+before target DDL, not rely on an unobserved manifest claim. Ten wrong-authority
+cases currently pass through this same parser refusal. **They do not yet prove
+specific authority enforcement.** Four existing scratch tests remain green.
+Remote log: `work/hosttools-production-chain-red.log`. Both owned containers
+were removed with `-v`; no test remains running. No full-suite rerun was made
+at this red-test checkpoint; previous green counts are historical, not a claim
+that the new explicit Linux acceptance path passes.
+
+### Exact resume point after checkpoint 8
+
+Implement against `tests/phase0/production_cli_acceptance.py` and
+`production_cli_case.py` (explicitly selected by `linux_database_inside.py`).
+The input fields and `DATABASE_URL` secret format there are proposed test
+contracts, **not final operator interfaces**. No production bypass is enabled.
+
+1. Add the production authority loader: root-private manifest/secret reads,
+   exact per-tool fields, approved installed archive/release bytes, host and
+   independently trusted cluster/endpoint/OIDs, literal revisions, frozen source
+   catalog/fingerprint, exact target ACL. Preserve synthetic behavior. Do not
+   treat `/release.json` or a caller digest as self-authenticating authority.
+2. Extend bootstrap's strict parser with source secret input for production;
+   retain existing synthetic command compatibility. Bind its supplied Alembic
+   connection to validated production identity, run source read-only checks,
+   and verify source quiescence/target ACL at entry, precommit and exit. Capture
+   baseline references/sequences inside successful bootstrap, publish only after
+   commit to a new root-private report. No arbitrary baseline recapture.
+3. Bind copy to the exact trusted bootstrap receipt; retain all import gates,
+   source read-only snapshot, role split and durable attempt/no-replay behavior.
+   Integrate the fence observations at all required boundaries. Bind verify to
+   the same source/bootstrap authority, independently read-only, including
+   post-commit receipt-loss recovery.
+4. Make the successful chain pass first, then require wrong-identity tests to
+   reach the intended authority gate (not argument parsing). Extend wrong
+   identities to all three tools, ACL/session changes at boundaries, altered
+   bootstrap evidence, secret mismatch, source/catalog drift and report failures.
+5. Run the explicit Linux acceptance and both required full suites through the
+   approved environment rules. Record final interfaces only after the chain
+   passes; update architecture. No further environment build or permission ask
+   is needed; no pushes or host setup changes.
+
+## Checkpoint 7 — database fence decision and passing primitive tests
 
 **B1/B2 remain incomplete; production CLIs are still closed.**
 
