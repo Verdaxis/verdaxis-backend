@@ -8,6 +8,7 @@ production	verdaxis-auth-maintenance.timer
 production	verdaxis-product-analytics-prune.service
 production	verdaxis-product-analytics-prune.timer
 staging	verdaxis-backend-staging.service
+staging	verdaxis-rust-staging.service
 staging	verdaxis-news-refresh-staging.service
 staging	verdaxis-news-refresh-staging.timer
 staging	verdaxis-auth-maintenance-staging.service

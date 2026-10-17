@@ -1573,7 +1573,7 @@ The subsequent health loop validates both services before state removal. The fai
 
 **Interfaces:** Consumes Task 12b preparation CLI and Task 2 startup checks. Produces the manifest-selected staging unit; Rust's `connect(config: &Config) -> Result<sqlx::PgPool, ApiError>` remains unchanged.
 
-- [ ] **Step 1: Add the unit contract test.**
+- [x] **Step 1: Add the unit contract test.**
 
 ```python
 def test_rust_unit_keeps_runtime_credentials_separate():
@@ -1587,8 +1587,8 @@ def test_rust_unit_keeps_runtime_credentials_separate():
 ```
 
 Add immutable installer and two-release bootstrap tests: bootstrap requires no Rust unit or artifact; activation requires the installed compatible unit and verified artifact; installer HEAD must equal source-ref.
-- [ ] **Step 2: Run** `venv/bin/python -m pytest tests/unit/test_rust_units.py -q`. Expected failure: unit absent.
-- [ ] **Step 3: Add the unit bytes:**
+- [x] **Step 2: Run** `venv/bin/python -m pytest tests/unit/test_rust_units.py -q`. Expected failure: unit absent.
+- [x] **Step 3: Add the unit bytes:**
 
 ```ini
 [Unit]
@@ -1643,10 +1643,48 @@ Add only `staging\tverdaxis-rust-staging.service` to the manifest. The existing 
 
 **Bootstrap:** Use two releases. First deploy the guarded helper/artifact support with Rust inactive and Caddy unchanged. Install the reviewed unit bundle at that exact clean SHA. Then run a same-checkpoint canonical deploy with the Rust-active release policy to exercise both units and both readiness gates. The first release must not require a not-yet-installed unit. Record activation in committed staging policy, not an ambient flag that bypasses readiness. Keep relevant timers quiesced through this transition and restore only their previously active set.
 
-- [ ] **Step 4: Run** release failure-injection tests, existing deploy/start-guard/installer tests, unit syntax verification on Linux, and artifact startup on a disposable Linux host/container with the same target ABI. Expected pass. Check `git diff -- deploy/postgres/app_acl_policy.sql` is empty.
-- [ ] **Step 5: Commit** release files and documentation: `git commit -m 'feat: add attested staging Rust release integration'` with trailer.
+- [x] **Step 4: Run** release failure-injection tests, existing deploy/start-guard/installer tests, unit syntax verification on Linux, and artifact startup on a disposable Linux host/container with the same target ABI. Expected pass. Check `git diff -- deploy/postgres/app_acl_policy.sql` is empty.
+- [x] **Step 5: Commit** release files and documentation: `git commit -m 'feat: add attested staging Rust release integration'` with trailer.
 
-**Resume point:** Record bootstrap SHA, activation SHA, unit digest, artifact digest, and test evidence. No live command is authorized by completion of this task. Operator checklists below require separate approval.
+**Resume point (17 Oct):** Task 12c is done on `feat/rust-phase-1-20261015`, from
+`d06e8248` (the handoff HEAD; the branch is still based on `b2971573`). Two Task
+12b failures in the draft PR #86 `test` job landed first as their own commits —
+the runtime-owned `scripts/deploy.sh` blob pin, and the release fixture's
+hard-coded interpreter/checkout layout, which now uses `sys.executable` and the
+documented non-canonical-path override, proven in a copy of the tree with no
+`venv/`. The reviewed unit is `deploy/systemd/verdaxis-rust-staging.service`
+(SHA-256 `6662a389e04a67ddc7d291a93ae0814b05047ff8f8bb07a55642fdb882de9453`) with
+one manifest entry `staging	verdaxis-rust-staging.service`; the committed
+`deploy/rust/staging-policy.json` still ships `rust_enabled: false`, so this tree
+is the inactive first bootstrap release and no deploy can select Rust yet. That
+commit — the one that lands these unit bytes and the manifest entry — is the
+bootstrap SHA the operator installs; read it with `git rev-parse` on the
+reviewed push, because the PM's rebase changes it. The
+release artifact built from this tree's source on the test host (`--release -p
+verdaxis-read`, glibc floor 2.34) was
+`a42c5e395d713cf2d80e6c634c38e65b3c093ee8af0323d926fac54a28ac01b4` at handoff
+HEAD `53e959d1` (`7fe3a9e2…` at `b2971573`); the digest embeds the compiled
+`RELEASE_SHA`, so it moves with the built commit and the landing commit's will
+differ again. That artifact started on the staging ABI (ubuntu:22.04, glibc 2.35)
+against a disposable PostgreSQL, answering the exact four-key readiness document
+that the unmodified validator accepts. `systemd-analyze verify` returns exit 0 with no
+diagnostics for this unit and for the full staging unit set on the test host's
+own systemd 255 (via a private fake root, since the staging paths do not exist
+for the test user) and in `ubuntu:22.04` (systemd 249, the staging version) and
+`ubuntu:24.04` (systemd 255) containers; a private user namespace is unavailable
+to the test user (`unshare: write failed /proc/self/uid_map: Operation not
+permitted`). Task 12c also adds the deployed-environment startup seam the unit
+needs (`config_from_deployed_environment`, `deployed_arguments`,
+`Config.prepared_budget`) and projects `KYC_EXECUTION_GATE_ENABLED` into
+`runtime.env`; `connect(config)` is unchanged. Unit digest, artifact digest,
+test evidence, gate results and deviations are in
+`docs/rust-phase1/progress-task12c.md`.
+
+No live command is authorized by completion of this task, not even a dry run.
+Task 13 assembles the routes; activation waits for that complete contract job
+and for the operator's separately approved two-release bootstrap (install the
+reviewed unit bundle at this exact clean SHA, then deploy a reviewed Rust-active
+release). Operator checklists below require separate approval.
 
 ### Task 13: Assemble exact routing and run unchanged integration tests — Astra
 

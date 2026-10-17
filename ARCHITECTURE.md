@@ -33,9 +33,12 @@ health connection, including replacements. Startup refuses a conflicting
 hard-coded UTC startup field cannot be overridden through `.options()`.
 Staging uses `Asia/Singapore` until Phase 0 convergence, then `UTC`. It does not open a
 migrator connection. `scripts/prepare_rust_budget.py` creates private budget
-metadata and verifies environment-file drift. Staging pool startup consumes
-that metadata through `RUST_PREPARED_BUDGET` (JSON); deployment wiring remains
-owned by Task 12.
+metadata and verifies environment-file drift. The deploy transaction writes
+that artifact to `.runtime-rust/budget.json`, and the reviewed staging unit
+passes it to the binary with `--budget-file`; the contract harness may instead
+carry the document in `RUST_CONFIG`. `runtime::config::config_from_deployed_environment`
+builds the same validated `Config` from the flat deployed environment, so a
+staging start needs no JSON document from an operator.
 Task 3 splits the nine connections into an eight-connection read pool and a
 one-connection readiness pool. `runtime/admission.rs` transfers admission to a
 query-owning Tokio task so caller cancellation does not release database
@@ -177,6 +180,21 @@ allocator, server producer and target consumer. It reads Linux procfs or macOS
 sysctl and fails closed without changing host settings. Database/Linux gates run
 through the approved `verdaxis-prod-test` isolated harness; local Colima stays off.
 
+Task 12c adds the reviewed staging unit
+`deploy/systemd/verdaxis-rust-staging.service` and its manifest entry, so the
+staging manifest now selects the backend, the Rust reads and the singleton
+maintenance units. The unit loads `.runtime-release.env` and the deploy-written
+`.runtime-rust/runtime.env` (never the secret-rich `.env`) and runs the deploy
+start guard, the migrator-backed revision check and the budget drift check
+before `ExecStart`; it serves `127.0.0.1:8011` with a 256 MiB cap on the same
+sandbox directives as the running backend unit. Activation stays off in the
+committed `deploy/rust/staging-policy.json` until the two-release bootstrap
+installs this unit; a Rust-enabled staging deploy then restarts both units in
+one call and requires both readiness documents before state clears. Production
+carries neither record and reads no Rust path.
+`docs/rust-phase1/progress-task12c.md` holds the unit digest, the artifact
+digest and the systemd 249/255 and staging-ABI start evidence.
+
 ## File Map
 
 ```
@@ -316,7 +334,7 @@ tests/disposable_target.py      # Numeric-loopback ephemeral-port and exact iden
 tests/disposable_server.py      # Test-only ASGI wrapper producing the disposable identity endpoint
 tests/monitor/                  # Monitor artifact contract, ownership, and no-activation proof suites
 tests/runtime_config.py          # Explicit/validated API target policy (staging tooling; suites gate via disposable_target)
-deploy/systemd/                  # Backend plus singleton news/prune service-timer pairs per environment
+deploy/systemd/                  # Backend, staging Rust reads, and singleton news/prune service-timer pairs per environment
 deploy/external_monitor/         # Public/recovery monitoring plus production onboarding-attention timer
 deploy/postgres/                 # Declarative app ACL policy, owner-only convergence, role bootstrap, and validation SQL
 deploy/migration-checkpoints.tsv # Exact expected-current/allowed-target cutover pairs
