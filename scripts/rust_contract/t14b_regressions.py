@@ -6,7 +6,8 @@ One disposable environment at the small workload, then for each of R20
 time, `pg_stat_statements` statement count and total time per request, and the
 actual `EXPLAIN (ANALYZE, BUFFERS)` plan of each statement each stack sends.
 
-Throwaway; removed after the diagnosis. It changes no route code.
+A kept diagnostic in the family of `explain_lists.py` and `profile_lists.py`:
+it changes no route code and writes its evidence under `work/rust-phase1/`.
 """
 
 from __future__ import annotations

@@ -21,16 +21,24 @@ run).
   golden corpus; Rust serves the same bytes in the simulation).
 - Schema revision: `kycd_20261015_staging` (recorded corpus metadata).
 - Workload manifest digest:
-  `3f7653e132ed925750eef6b12c8d449205a0c904dced58c800eccc9d6d6e5e14`.
+  `3f7653e132ed925750eef6b12c8d449205a0c904dced58c800eccc9d6d6e5e14`
+  (the 14a runs); after the R02 measured-path correction (`251d50c6`) it is
+  `85d6617ffc7361c05446e4e485c5b00112fc88b6f76671e6c8ca552880aca215`,
+  which the 18 Oct runs used.
 - Raw-evidence digests (SHA-256 of the JSON documents under `work/rust-phase1/`):
-  - `measure-small-v2.json`:
+  - `measure-small-v2.json` (14a small run):
     `b1e129af8c56344ed78d2169743f1458242622c3e88a2b28f13626ebe8a571a3`
-  - `measure-large-v2.json`:
+  - `measure-large-v2.json` (14a saturated run, kept as capacity evidence):
     `27efbd9796c98dbcf29d40b0b1cc2413d687ec958e8b6717c285571512da2ab5`
-  - `simulation-small.json`:
-    `8dd7c4371ac32d2e58ace9f9662c1b9a2dc8bdfc816e6a418de778fedfc56b2c`
-  - `simulation-large.json`:
+  - `measure-large-adaptive.json` (18 Oct, the load both stacks serve):
+    `31fb9fc9211c99eea322f282918e325127bb8b7095b5fc68004320d545770cb8`
+  - `simulation-small.json` / `simulation-large.json` (14a, before the tie rule):
+    `8dd7c4371ac32d2e58ace9f9662c1b9a2dc8bdfc816e6a418de778fedfc56b2c` /
     `5d0498eae27c8fb3125e23a061bac54692083e4cfca0fd282d2aae350cf4a7f7`
+  - `simulation-small-tie.json` (18 Oct, prices group with the tie rule applied):
+    `4e6b22baee366b665c32fb93be734ea247fe29418023bd9ce555efe3f7a844cf`
+  - `t14b-r20-r24-r27.json` (18 Oct quiet-host diagnostic):
+    `73d689487a3410f1d886a38379d37e7fccdfb380c0f2f0cebd8521a772e7c034`
 - Topology: four-worker Python (`uvicorn --workers 4`) in one systemd user
   unit versus one Rust release process in another; each runtime's cgroup
   `memory.current`/`memory.peak`/`memory.stat` and `cpu.stat` were sampled once
@@ -85,7 +93,7 @@ The alternative — a `confirmed_at DESC, id DESC` tie-breaker in both
 implementations (the decision-23 precedent) — remains available and would make
 the ordering itself deterministic; it needs a golden re-record.
 
-## Gate outcome per condition (founder decision 68, 17 Oct)
+## Gate outcome per condition (founder decision 68, 17 Oct; updated 18 Oct)
 
 The verdict rule changed after the first report: **hard gates** are zero
 unexplained contract differences, no rise in 5xx/503 responses from Rust
@@ -94,22 +102,78 @@ blocks** only when the overall weighted mix p95 of Rust is worse than Python's,
 or a single route's Rust p95 is slower than Python's by more than 100 ms or by
 more than 50 %, whichever threshold the route crosses first; smaller per-route
 regressions are fix items. **Memory** is measured and reported (target: Rust at
-most 50 % of Python) but does not block. The earlier verdict table is kept
-below unchanged as evidence; only the verdict logic changed.
+most 50 % of Python) but does not block.
 
-| Condition (decision 68) | Outcome | Measured basis |
+### Follow-up evidence (18 Oct, commit `086d4dda` tree)
+
+- The trade-tape tie rule (below) is applied: the `prices` group re-simulation
+  at the small size reports **0 differences over 56 pairs**; the earlier
+  9/33-difference class is resolved.
+- The R27 JIT fix (`41849176`) is in: quiet-host rerun R27 Rust p95
+  **0.231 s vs Python 0.150 s** (was 0.946 vs 0.167).
+- The large size was re-measured adaptively (start 1 RPS, raise while neither
+  stack returns 5xx): **both stacks serve 1 RPS**; Python already returned
+  13 busy (503) at 1 RPS while Rust returned none, so the ramp stopped there.
+- The unchanged integration suite passes on this tree: **79 passed, exit 0**.
+
+| Condition (decision 68) | Small size | Large size (adaptive, 1 RPS) |
 | --- | --- | --- |
-| Zero unexplained contract differences | **no-go** | 9 (small) / 33 (large) `/api/trade-tape` tie-order differences; every other group byte-identical |
-| No rise in 5xx/503 from Rust against Python | **pass at the small size; unmeasured at the large size** | small: Rust 2 busy/0 other 5xx vs Python 106 busy (Rust returned fewer); large: both saturated, so no comparable unsaturated count exists yet |
-| The integration suite passes | **pass** (recorded at this tree's Task 13/13b gates) | the unchanged disposable integration suite passed in the Task 13b combined gate |
-| Speed: mix p95 | **pass** | small mix: Rust 0.499 s vs Python 0.984 s |
-| Speed: per-route thresholds | **no-go — R27 (`/api/listings`)** | R27 0.946 vs 0.167 s (+779 ms, +467 %) is beyond both caps. R20 (+0.041 s), R24 (+0.022 s) and `plan_voyage_fuel` (+0.004 s) are inside both caps: fix items, not blocks |
-| Memory target (non-blocking) | **pass** | small: 43.0 MiB vs 802.3 MiB (5.4%); large: 206.3 MiB vs 1059.6 MiB (19.5%) |
+| Zero unexplained differences | **pass** — 0 differences (prices re-simulation, tie rule); every other group byte-identical in the 14a run | same comparator; no unexplained class |
+| No rise in 5xx/503 from Rust | **pass** — Rust 2 vs Python 106 | **pass** — Rust 0 vs Python 13 |
+| Integration suite passes | **pass** — 79 passed, exit 0 | (same suite) |
+| Speed: mix p95 | **pass** — Rust 0.499 s vs Python 0.984 s | **pass** — Rust 2.771 s vs Python 4.031 s |
+| Speed: per-route thresholds | **no-go — R27** (+80.5 ms and +53.6 %, past the 50 % cap) | **no-go — R09, R10, R11, R14, R19, R20, R21, R24, R25, `get_market_slice`** |
+| Memory (non-blocking) | **pass** — 43.0 MiB vs 802.3 MiB (5.4%) | **pass** — 192.1 MiB vs 979.9 MiB (19.6%) |
 
-**Overall gate under decision 68: NO-GO**, on the `/api/trade-tape` tie-order
-difference class and R27's per-route regression. R20, R24 and `plan_voyage_fuel`
-are fix items. The tie class is removed separately by the PM's tie-group rule
-below; R27's cause and fix are under investigation.
+**Overall gate under decision 68: NO-GO**, on the per-route speed thresholds
+alone. All three hard gates pass at both sizes, the mix p95 passes at both
+sizes, and memory is far inside its target. Fix items (non-blocking) at the
+small size: R20, R24, `plan_voyage_fuel`, R27-at-p50.
+
+### Cause of the per-route regressions (evidence in the quiet-host rerun)
+
+**R27 `/api/listings` — fixed (`41849176`).** `listings.rs` was the only paged
+orderbook handler that did not begin a transaction and `SET LOCAL jit = off`
+before its shared-relation query; the expanded corpus pushes the eligibility
+subplans past PostgreSQL's JIT threshold, producing a bimodal ~0.9 s tail.
+auto_explain before the fix: the route statement's top node was a Sort at
+643.6 ms; after the fix, 25.5 ms. The fix is transaction-local, changes no
+response byte (orderbook_map corpus, 41 cases including listings, still
+matches), and Rust p95 is now 0.231 s against Python's 0.150 s. The remaining
++80 ms is the 100-row lateral detail join (the `Nested Loop` at 23.9 ms in the
+plan plus per-row base-table lookups) — a design cost of building the digest
+for the kept page (decision 24). It crosses the 50 % relative cap at the small
+size, so it still blocks; a narrower projection or a decision-67-style
+same-meaning cleanup is the fix size (a shared-tail change, not a one-liner).
+
+**R20 `/api/orderbook/product-counts` and R24 `/api/orderbook/regions` —
+reported, not fixed.** Both stacks run one aggregate over the same ~10.5k
+candidate rows; Python's route statement costs 121–163 ms and Rust's 201–253 ms
+(quiet-host rerun, `pg_stat_statements` per request). The actual plans show the
+difference: Rust's aggregation sits on a `Subquery Scan` over the
+`eligible_orders` CTE (the decision-24/25 shared-relation shape) and pays
+170–214 ms in that scan plus its sort, where Python's plan nests the same
+predicate inline and the planner chooses the cheaper shape for a 4-row result.
+Round trips are not the cause (Rust issues 4–9 statements per request against
+Python's 6–10; the SQL time dominates). This is the known design cost of doing
+eligibility in SQL (decision 16, and the Task 13 stop that decisions 24/25/27
+already paid down). **Fix size:** a decision-25-style precomputation of the
+distinct/aggregate keys, or a reviewed partial index — both are PM decisions
+touching the shared relation; neither is a small safe byte-exact change. Both
+regressions are inside the decision-68 caps at the small size (R20 +41 ms,
+R24 +22 ms), so they are fix items there, but they block at the large size.
+
+### Large size: which load both stacks serve
+
+| Offered load | Python 5xx/503 | Rust 5xx/503 | Served by both |
+| --- | ---: | ---: | --- |
+| 1 RPS (probe) | 2 busy in the probe; 13 busy in the window | 0 | yes (Python's per-worker admission is the binding limit) |
+| 2 RPS and above | not reached — the ramp stops at the first 5xx | not reached | not measured |
+
+Python's AD-02 behaviour (2 admission slots per worker, 4 workers) is the
+binding constraint at the large size: its p50 for the heaviest routes is 3–8 s,
+so even 1 RPS occasionally exhausts a worker's slots. Rust's single 8-slot gate
+returned zero 5xx at 1 RPS and its mix p95 is 31 % lower.
 
 ### Earlier verdict (superseded by decision 68; kept as evidence)
 
@@ -176,53 +240,53 @@ Weighted mix: Python 0.403/0.984/1.499 s; Rust 0.266/0.499/0.917 s.
 
 Routes with Rust p95 above Python p95: R20, R24, R27, plan_voyage_fuel.
 
-### Large size (100,000 orders / 100,000 trades / 10,000 news)
+### Large size (100,000 orders / 100,000 trades / 10,000 news) — adaptive, 1 RPS
 
-Same schedule. At this size 5 RPS exceeds both services' capacity: 2,580 Python and 3,211 Rust busy (503) responses and 46 Rust 500s; per-route success counts are small, so the p95 cells below are capacity-bound, not a workload-shaped latency measurement. Memory and CPU are steady-state and comparable.
+Offered load 1 RPS (600 s), equal-weight baseline, end-to-end through Caddy; one service per runtime kept up across the probe and the window. The ramp stopped at 1 RPS because Python returned busy (503) responses there, so no higher clean rate exists at this size on this host. 587 Python and 600 Rust successful responses; **Python 13 busy (503) and Rust 0**.
 
 | Runtime | steady median | p95 | peak | anon median | PSS median | CPU cores | usec/completed request |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| python | 1059.6 MiB | 1136.3 MiB | 1200.4 MiB | 1054.5 MiB | 1070.8 MiB | 1.301 | 618,174 |
-| rust | 206.3 MiB | 220.2 MiB | 225.1 MiB | 195.8 MiB | 203.5 MiB | 0.090 | 66,155 |
+| python | 979.9 MiB | 1042.2 MiB | 1079.0 MiB | 962.2 MiB | 978.4 MiB | 0.782 | 808,894 |
+| rust | 192.1 MiB | 196.6 MiB | 204.5 MiB | 189.3 MiB | 197.0 MiB | 0.137 | 140,352 |
 
-Rust median is **19.5%** of Python's.
+Rust median is **19.6%** of Python's.
 
 | Route | Python p50/p95/p99 s | Rust p50/p95/p99 s | py n | rs n | py busy | rs busy |
 | --- | --- | --- | ---: | ---: | ---: | ---: |
-| R01 | 0.162/0.499/1.103 | 0.051/0.232/0.232 | 49 | 19 | 101 | 131 |
-| R02 | 0.118/1.271/5.127 | 0.075/0.275/0.953 | 54 | 59 | 97 | 92 |
-| R03 | 0.075/2.129/3.161 | 0.021/0.106/0.771 | 50 | 39 | 101 | 112 |
-| R04 | 0.072/2.189/5.723 | 0.027/0.206/0.206 | 50 | 15 | 100 | 135 |
-| R05 | 0.099/5.797/9.931 | 0.023/0.072/0.072 | 151 | 17 | 0 | 134 |
-| R06 | 2.396/5.910/17.141 | 2.797/4.509/4.634 | 41 | 21 | 109 | 129 |
-| R07 **REG** | 0.122/0.375/0.562 | 0.045/0.532/0.544 | 46 | 38 | 105 | 113 |
-| R08 | 0.165/2.506/11.600 | 0.044/0.419/0.419 | 44 | 19 | 107 | 132 |
-| R09 **REG** | 7.779/20.401/30.167 | 29.879/33.946/33.946 | 55 | 14 | 95 | 136 |
-| R10 **REG** | 0.643/2.139/15.911 | 1.360/2.225/3.215 | 58 | 67 | 93 | 84 |
-| R11 | 2.476/11.326/12.996 | 3.288/4.844/4.967 | 59 | 39 | 91 | 111 |
-| R12 | 4.579/13.755/19.695 | 0.131/1.100/3.335 | 52 | 26 | 99 | 125 |
-| R13 | 1.564/8.255/9.951 | 2.835/4.957/7.468 | 48 | 22 | 103 | 129 |
-| R14 | 1.844/4.154/8.003 | 3.103/4.128/5.190 | 61 | 48 | 90 | 103 |
-| R15 **REG** | 0.413/2.578/4.385 | 2.437/5.777/5.777 | 49 | 16 | 101 | 134 |
-| R16 | 14.361/24.970/27.049 | 16.973/22.326/27.133 | 38 | 23 | 112 | 127 |
-| R17 **REG** | 4.594/9.495/17.546 | 8.830/12.470/12.470 | 39 | 19 | 111 | 131 |
-| R18 | 19.029/33.096/36.667 | 19.304/25.811/27.263 | 45 | 33 | 105 | 117 |
-| R19 **REG** | 2.605/11.180/22.918 | 7.827/11.929/12.766 | 52 | 37 | 99 | 114 |
-| R20 | 1.964/8.825/12.464 | 4.111/7.666/9.746 | 49 | 38 | 101 | 112 |
-| R21 **REG** | 4.863/9.677/13.410 | 11.158/14.371/14.371 | 57 | 19 | 94 | 132 |
-| R22 **REG** | 4.812/14.410/14.796 | 11.256/15.919/17.179 | 54 | 25 | 96 | 125 |
-| R23 **REG** | 2.807/6.707/16.824 | 5.427/10.410/10.410 | 31 | 18 | 119 | 132 |
-| R24 | 2.517/11.416/15.323 | 6.602/10.123/10.546 | 79 | 78 | 71 | 72 |
-| R25 **REG** | 2.812/7.381/14.560 | 5.855/9.350/9.408 | 76 | 38 | 75 | 113 |
-| R26 | 19.320/28.839/38.740 | 19.218/26.264/26.264 | 46 | 14 | 104 | 136 |
-| R27 **REG** | 0.798/6.188/10.328 | 26.750/29.322/29.322 | 49 | 4 | 101 | 100 |
-| get_market_slice | 0.103/5.964/9.964 | 0.009/1.808/3.842 | 151 | 151 | 0 | 0 |
-| list_markets | 0.060/1.299/4.908 | 0.008/0.053/0.641 | 151 | 151 | 0 | 0 |
-| plan_voyage_fuel | 0.063/7.059/10.911 | 0.013/0.129/0.944 | 151 | 151 | 0 | 0 |
+| R01 | 0.078/1.988/1.988 | 0.014/0.052/0.058 | 18 | 20 | 2 | 0 |
+| R02 | 0.078/0.113/0.125 | 0.013/0.044/0.071 | 20 | 20 | 0 | 0 |
+| R03 | 0.027/0.045/0.060 | 0.012/0.032/0.035 | 20 | 20 | 0 | 0 |
+| R04 | 0.047/0.294/0.294 | 0.013/0.027/0.040 | 19 | 20 | 1 | 0 |
+| R05 | 0.036/0.132/0.728 | 0.013/0.040/0.045 | 20 | 20 | 0 | 0 |
+| R06 | 1.041/3.861/3.861 | 1.058/1.431/2.312 | 19 | 20 | 1 | 0 |
+| R07 | 0.048/0.093/0.112 | 0.020/0.042/0.054 | 20 | 20 | 0 | 0 |
+| R08 | 0.078/0.186/0.281 | 0.027/0.080/0.163 | 20 | 20 | 0 | 0 |
+| R09 **REG** | 3.757/4.248/5.618 | 12.503/14.639/15.551 | 20 | 20 | 0 | 0 |
+| R10 **REG** | 0.235/0.384/0.805 | 0.570/0.790/0.940 | 20 | 20 | 0 | 0 |
+| R11 **REG** | 0.869/1.060/1.170 | 1.197/1.399/2.167 | 20 | 20 | 0 | 0 |
+| R12 | 1.346/2.036/2.114 | 0.051/0.076/0.088 | 20 | 20 | 0 | 0 |
+| R13 | 0.638/1.828/2.723 | 0.928/1.336/2.130 | 20 | 20 | 0 | 0 |
+| R14 **REG** | 0.450/0.829/0.856 | 0.842/1.093/1.195 | 20 | 20 | 0 | 0 |
+| R15 | 0.155/1.947/1.947 | 0.654/0.960/0.987 | 19 | 20 | 1 | 0 |
+| R16 | 6.351/10.348/10.348 | 6.189/7.218/7.849 | 18 | 20 | 2 | 0 |
+| R17 | 1.747/7.328/7.764 | 2.801/3.228/3.358 | 20 | 20 | 0 | 0 |
+| R18 | 8.189/8.844/8.903 | 6.800/7.741/7.746 | 20 | 20 | 0 | 0 |
+| R19 **REG** | 1.177/1.483/1.527 | 2.513/3.092/3.230 | 20 | 20 | 0 | 0 |
+| R20 **REG** | 0.685/0.799/0.817 | 1.188/1.376/1.535 | 20 | 20 | 0 | 0 |
+| R21 **REG** | 1.420/1.669/1.675 | 3.581/4.062/4.344 | 20 | 20 | 0 | 0 |
+| R22 | 1.583/4.404/4.404 | 2.801/3.731/3.824 | 18 | 20 | 2 | 0 |
+| R23 | 0.918/6.088/6.088 | 1.645/2.147/2.334 | 16 | 20 | 4 | 0 |
+| R24 **REG** | 0.899/1.023/1.038 | 1.645/1.942/2.007 | 20 | 20 | 0 | 0 |
+| R25 **REG** | 0.978/1.311/2.695 | 1.767/2.626/2.637 | 20 | 20 | 0 | 0 |
+| R26 | 8.316/13.243/15.110 | 6.616/7.450/7.808 | 20 | 20 | 0 | 0 |
+| R27 **REG** | 0.259/0.349/0.382 | 0.306/0.382/0.441 | 20 | 20 | 0 | 0 |
+| get_market_slice **REG** | 0.084/0.276/2.773 | 0.601/0.788/0.953 | 20 | 20 | 0 | 0 |
+| list_markets | 0.014/0.051/0.052 | 0.007/0.012/0.013 | 20 | 20 | 0 | 0 |
+| plan_voyage_fuel | 0.019/0.035/0.037 | 0.017/0.027/0.033 | 20 | 20 | 0 | 0 |
 
-Weighted mix: Python 5.261/11.576/16.768 s; Rust 7.667/10.721/11.697 s.
+Weighted mix: Python 2.156/4.031/4.463 s; Rust 2.340/2.771/2.993 s.
 
-Routes with Rust p95 above Python p95: R07, R09, R10, R15, R17, R19, R21, R22, R23, R25, R27.
+The per-route regressions here (R09 the worst, 14.6 s vs 4.2 s) are the same shared-relation SQL cost named in the gate section, amplified by the 100k-row dataset; see the causes there.
 
 ## Coverage and what is inconclusive
 
@@ -264,12 +328,17 @@ stayed inside the four-hour budget. Tasks 1–13 are recorded in
 
 ## Three largest unresolved risks
 
-1. The `/api/trade-tape` tie order needs a reviewed decision and a golden
-   re-record before any zero-difference claim.
-2. R27 (`/api/listings`) shows a bimodal Rust tail at the small size; the cause
-   is unknown and it is the one route whose p95 exceeded Python's by 5.7x.
-3. The large size exceeds both runtimes' capacity at 5 RPS, so no
-   workload-shaped large-size latency comparison exists yet.
+1. The per-route speed thresholds fail at both sizes (R27 at the small size;
+   ten routes at the large size). The shared-relation SQL cost is the one
+   design cause; a decision-25-style key precomputation or a reviewed partial
+   index is the fix, and both are PM decisions touching the shared relation.
+2. Coverage remains below the 1,000-observation floor on every route at both
+   sizes (about 20 per route in the adaptive window); the per-route p95 values
+   are directionally consistent across two independent runs but not
+   floor-strength.
+3. Python's admission topology (AD-02) is the binding capacity limit at the
+   large size — it returns busy at 1 RPS — so no higher offered load can be
+   judged there without saturating Python first.
 
 ## Founder decision and date
 
