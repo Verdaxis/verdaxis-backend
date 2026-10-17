@@ -232,7 +232,6 @@ verify_archived_blob() {
 # when both name it. Production reads neither file.
 load_rust_staging_policy() {
     local source_sha="$1" staged="$2"
-    local enabled
 
     RUST_POLICY_PRESENT=0
     if [[ "$DEPLOY_ENVIRONMENT" != "staging" ]] \
