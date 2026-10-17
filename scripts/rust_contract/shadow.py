@@ -38,7 +38,6 @@ from scripts.rust_contract import workload
 
 ROOT = Path(__file__).resolve().parents[2]
 IDENTITY_PATH = "/.well-known/verdaxis-disposable-test"
-AGENT_HOST = "127.0.0.1"
 
 # Hosts and addresses that must never receive a shadow request.
 PRODUCTION_HOSTS = frozenset(
@@ -325,12 +324,15 @@ def _one_call(config: ShadowConfig, base_url: str, case: dict[str, Any]) -> dict
     A timeout, an over-large body, or a busy status is returned as an
     inconclusive marker, never as a successful comparison.
     """
-    headers = {"x-request-id": _shadow_request_id(case["id"]), "host": AGENT_HOST}
+    headers = {"x-request-id": _shadow_request_id(case["id"])}
     assert_safe_headers(headers)
     body = None
     if case["method"] == "POST":
         body = json.dumps(case["body"]).encode()
+        # The streamable-HTTP transport requires exactly this Accept set; a
+        # plain application/json Accept is refused 406 before any tool runs.
         headers["content-type"] = "application/json"
+        headers["accept"] = "application/json, text/event-stream"
     url = base_url.rstrip("/") + case["path"]
     if case.get("query"):
         url += "?" + case["query"]

@@ -244,12 +244,15 @@ class Measurement(runner.Runner):
                 "method": "GET",
             }
         for tool in workload.tools(self.manifest):
+            # The streamable-HTTP transport requires exactly this Accept set;
+            # without it every call is refused 406 before any tool runs.
             table[tool["id"]] = {
                 "path": "/mcp",
                 "query": "",
                 "method": "POST",
                 "body": json.dumps(tool["body"]).encode(),
                 "content_type": "application/json",
+                "accept": "application/json, text/event-stream",
             }
         return table
 
@@ -385,6 +388,7 @@ class Measurement(runner.Runner):
         if case["method"] == "POST":
             data = case["body"]
             headers["content-type"] = case["content_type"]
+            headers["accept"] = case["accept"]
         request = urllib.request.Request(url, data=data, headers=headers, method=case["method"])
         started = time.perf_counter()
         try:
