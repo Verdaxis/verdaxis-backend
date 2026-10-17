@@ -30,7 +30,9 @@ ROOT = runner.ROOT
 class Simulation(runner.Runner):
     """Run every group's corpus case list under the Python-Rust-Python sandwich."""
 
-    def __init__(self, size: str, *, output_dir: Path, keep: bool = False) -> None:
+    def __init__(
+        self, size: str, *, output_dir: Path, keep: bool = False, groups: list[str] | None = None
+    ) -> None:
         super().__init__(
             "all", seed=True, keep=keep, seed_mode="corpus", mixed_caddy=False, rust_target="all"
         )
@@ -38,6 +40,10 @@ class Simulation(runner.Runner):
         self.output_dir = output_dir
         self.manifest = workload.load()
         self.counts = workload.sizes(self.manifest)[size]
+        self.groups = groups or list(runner.GROUPS)
+        unknown = [group for group in self.groups if group not in runner.GROUPS]
+        if unknown:
+            raise runner.RunnerError(f"unknown contract group(s): {', '.join(unknown)}")
 
     def _seed_workload(self, env: dict[str, str]) -> None:
         subprocess.run(
@@ -97,7 +103,7 @@ class Simulation(runner.Runner):
             "differences": 0,
             "inconclusive_groups": [],
         }
-        for group in runner.GROUPS:
+        for group in self.groups:
             cases = load_cases(cases_path, group)
             outcome = self._run_group(group, cases)
             report["groups"][group] = outcome
@@ -125,8 +131,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--size", required=True, choices=sorted(workload.DECLARED_SIZES))
     parser.add_argument("--output", type=Path, default=ROOT / "work/rust-phase1")
     parser.add_argument("--keep", action="store_true")
+    parser.add_argument(
+        "--groups",
+        default="",
+        help="comma-separated contract groups to run (default: every group)",
+    )
     args = parser.parse_args(argv)
-    simulation = Simulation(args.size, output_dir=args.output, keep=args.keep)
+    groups = [group for group in args.groups.split(",") if group] or None
+    simulation = Simulation(args.size, output_dir=args.output, keep=args.keep, groups=groups)
     try:
         simulation.run()
     except (runner.RunnerError, subprocess.CalledProcessError) as error:

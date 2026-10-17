@@ -22,7 +22,8 @@ import asyncio
 import json
 import os
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
+from uuid import UUID
 
 from scripts.rust_contract import workload
 from scripts.rust_contract.seed_corpus import attest_session, matrix_module
@@ -34,11 +35,14 @@ TYPED_PROFILES = frozenset({"fame_v1", "lng_v1"})
 SEED_NAMESPACE = "rust-workload-14a"
 
 
-def _policy_scalar_products() -> list[str]:
+def _policy_scalar_products() -> list[UUID]:
     from pathlib import Path
 
     policy = json.loads(Path("deploy/rust/market-policy.json").read_text())
-    products = [p["id"] for p in policy["products"] if p["qualification_profile"] not in TYPED_PROFILES]
+    products = [
+        UUID(p["id"]) for p in policy["products"]
+        if p["qualification_profile"] not in TYPED_PROFILES
+    ]
     if not products:
         raise RuntimeError("the policy carries no scalar product")
     return products
@@ -71,17 +75,13 @@ async def seed_workload(session, size: str, counts: dict[str, int], seed: int) -
             )
         )
     ).one()
-    point_ids = [str(p) for p in (await session.execute(
-        text("SELECT id FROM delivery_points WHERE is_active ORDER BY name"))).scalars()]
-
-    products_array = "{" + ",".join(products) + "}"
-    points_array = "{" + ",".join(point_ids) + "}"
+    point_ids = list((await session.execute(
+        text("SELECT id FROM delivery_points WHERE is_active ORDER BY name"))).scalars())
     windows = ["SPOT", "2026-11", "2026-Q4", "2027-01", "2027-Q1", "2027-06"]
-    windows_array = "{" + ",".join(windows) + "}"
-    categories_array = "{bunkers,carbon,commodities,markets,regulation,shipping}"
+    categories = ["bunkers", "carbon", "commodities", "markets", "regulation", "shipping"]
 
-    bid_template = str(matrix.fid("order:real_scalar_bid"))
-    ask_template = str(matrix.fid("order:ask_ok"))
+    bid_template = matrix.fid("order:real_scalar_bid")
+    ask_template = matrix.fid("order:ask_ok")
 
     # Orders: copy a scalar template row so every guard-required column is
     # present, then override identity, provenance, product, point, window.
@@ -95,11 +95,12 @@ async def seed_workload(session, size: str, counts: dict[str, int], seed: int) -
               availability_window, status, expires_at, off_spec,
               certification_declared, certification_scheme, specification_standard,
               msds_available, carbon_intensity_gco2_mj, carbon_intensity_method,
-              feedstock, origin, certifications, fame_terms, lng_terms)
+              feedstock, origin, certifications, fame_terms, lng_terms,
+              created_at, updated_at)
             SELECT
               md5(:label || ':o:' || n::text)::uuid,
-              CASE WHEN n % 10 = 0 THEN :demo_org::uuid ELSE :real_org::uuid END,
-              CASE WHEN n % 10 = 0 THEN NULL ELSE :owner::uuid END,
+              CASE WHEN n % 10 = 0 THEN CAST(:demo_org AS uuid) ELSE CAST(:real_org AS uuid) END,
+              CASE WHEN n % 10 = 0 THEN NULL ELSE CAST(:owner AS uuid) END,
               NULL, 'SELF_SERVICE',
               CASE WHEN n % 10 = 0 THEN 'DEMO' ELSE 'REAL' END,
               CASE WHEN n % 2 = 0 THEN 'BID' ELSE 'ASK' END,
@@ -109,12 +110,16 @@ async def seed_workload(session, size: str, counts: dict[str, int], seed: int) -
               (100 + (n % 9900))::numeric(18,2),
               (500 + (n % 1500))::numeric(18,2),
               (CAST(:windows AS text[]))[1 + (n % array_length(CAST(:windows AS text[]), 1))],
-              'OPEN', NULL, false,
+              'OPEN',
+              -- A DEMO OPEN row must carry an expiry (ck_orderbook_orders_domain).
+              CASE WHEN n % 10 = 0 THEN CAST(:future AS timestamptz) ELSE NULL END,
+              false,
               t.certification_declared, t.certification_scheme,
               t.specification_standard, t.msds_available,
               t.carbon_intensity_gco2_mj, t.carbon_intensity_method,
               t.feedstock, t.origin, t.certifications,
-              t.fame_terms, t.lng_terms
+              t.fame_terms, t.lng_terms,
+              CAST(:clock AS timestamptz), CAST(:clock AS timestamptz)
             FROM generate_series(1, :count) AS n
             LEFT JOIN orderbook_orders t ON t.id = CASE WHEN n % 2 = 0
               THEN CAST(:bid_template AS uuid) ELSE CAST(:ask_template AS uuid) END
@@ -127,11 +132,14 @@ async def seed_workload(session, size: str, counts: dict[str, int], seed: int) -
             "real_org": str(real[0]),
             "demo_org": str(demo[0]),
             "owner": str(real[1]),
-            "products": products_array,
-            "points": points_array,
-            "windows": windows_array,
+            "products": products,
+            "points": point_ids,
+            "windows": windows,
             "bid_template": bid_template,
             "ask_template": ask_template,
+            "clock": clock,
+            # A future expiry for the DEMO rows, relative to the frozen clock.
+            "future": clock + timedelta(days=30),
         },
     )
 
@@ -147,7 +155,7 @@ async def seed_workload(session, size: str, counts: dict[str, int], seed: int) -
               seller_provenance, initiated_by, initiator_org_id, quantity_mt,
               price_per_mt_usd, status, confirmed_at, market_snapshot_version,
               delivered_at, paid_at, final_quantity_mt, final_price_per_mt,
-              final_total_usd)
+              final_total_usd, created_at)
             SELECT
               md5(:label || ':t:' || n::text)::uuid,
               t.product_id, t.product_name, t.fuel_type, t.fuel_grade, t.market_product,
@@ -158,7 +166,7 @@ async def seed_workload(session, size: str, counts: dict[str, int], seed: int) -
               (50 + (n % 500))::numeric(18,2), (400 + (n % 1200))::numeric(18,2),
               'CONFIRMED',
               CAST(:clock AS timestamptz) - make_interval(secs => (n % 604000)),
-              1, NULL, NULL, NULL, NULL, NULL
+              1, NULL, NULL, NULL, NULL, NULL, CAST(:clock AS timestamptz)
             FROM generate_series(1, :count) AS n
             JOIN trades t ON t.id = CASE WHEN n % 8 = 0
               THEN CAST(:demo_template AS uuid) ELSE CAST(:real_template AS uuid) END
@@ -169,9 +177,9 @@ async def seed_workload(session, size: str, counts: dict[str, int], seed: int) -
             "label": label,
             "count": counts["trades"],
             "clock": clock,
-            "windows": windows_array,
-            "real_template": str(matrix.fid("trade:real_real")),
-            "demo_template": str(matrix.fid("trade:demo_demo")),
+            "windows": windows,
+            "real_template": matrix.fid("trade:real_real"),
+            "demo_template": matrix.fid("trade:demo_demo"),
         },
     )
 
@@ -199,7 +207,7 @@ async def seed_workload(session, size: str, counts: dict[str, int], seed: int) -
             "label": label,
             "count": counts["news"],
             "clock": clock,
-            "categories": categories_array,
+            "categories": categories,
         },
     )
     await session.commit()
@@ -233,7 +241,10 @@ def main(argv: list[str] | None = None) -> int:
     try:
         asyncio.run(_main())
     except Exception as error:  # noqa: BLE001 - a seeding failure must exit non-zero
+        import traceback
+
         print(f"workload seed failed: {error}", file=sys.stderr)
+        traceback.print_exc()
         return 1
     return 0
 
