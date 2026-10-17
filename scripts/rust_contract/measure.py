@@ -194,6 +194,16 @@ def _cgroup_root() -> str:
     return f"/sys/fs/cgroup{own}"
 
 
+def _ensure_user_session() -> None:
+    """Make `systemd-run --user` reachable from this process.
+
+    The per-service accounting needs one cgroup per runtime, which only a
+    systemd user unit provides here. The runtime directory is the caller's own
+    user slice; it is not a secret and is not shared across users.
+    """
+    os.environ.setdefault("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
+
+
 class Measurement(runner.Runner):
     """Run both runtimes on one seeded workload and collect the evidence."""
 
@@ -205,6 +215,7 @@ class Measurement(runner.Runner):
         warmup_seconds: int,
         windows: list[tuple[float, int]],
         repetitions: int,
+        weight_key: str = "weight_baseline",
         keep: bool = False,
     ) -> None:
         super().__init__(
@@ -215,9 +226,10 @@ class Measurement(runner.Runner):
         self.warmup_seconds = warmup_seconds
         self.windows = windows
         self.repetitions = repetitions
+        self.weight_key = weight_key
         self.manifest = workload.load()
         self.counts = workload.sizes(self.manifest)[size]
-        self.schedule = workload.weighted_schedule(self.manifest, "weight_baseline")
+        self.schedule = workload.weighted_schedule(self.manifest, weight_key)
         self.cases = self._case_table()
         self.services: list[ServiceHandle] = []
 
@@ -359,11 +371,16 @@ class Measurement(runner.Runner):
     # -- traffic
 
     def _request(self, port: int, case: dict[str, Any]) -> tuple[float, int]:
-        """One end-to-end request through Caddy; returns (seconds, status)."""
+        """One end-to-end request through Caddy; returns (seconds, status).
+
+        No Host header is set explicitly: urllib writes `127.0.0.1:<port>`,
+        which is what the corpus recorder sends and what the MCP transport's
+        host allowlist accepts. An explicit portless Host would be refused 421.
+        """
         url = f"http://127.0.0.1:{port}{case['path']}"
         if case["query"]:
             url += "?" + case["query"]
-        headers = {"x-request-id": "t14a-measure", "host": "127.0.0.1"}
+        headers = {"x-request-id": "t14a-measure"}
         data = None
         if case["method"] == "POST":
             data = case["body"]
@@ -381,7 +398,11 @@ class Measurement(runner.Runner):
         return time.perf_counter() - started, status
 
     def load_series(self, port: int, seconds: int, rps: float) -> list[dict[str, Any]]:
-        """A fixed-rate offered-load window; queuing is included in the latency."""
+        """A fixed-rate offered-load window; queuing is included in the latency.
+
+        The offered rate is recorded with every sample, so the unsaturated
+        windows and the 10 RPS saturation behaviour can be reported apart.
+        """
         total = max(1, int(seconds * rps))
         interval = 1.0 / rps
         records: list[dict[str, Any]] = []
@@ -393,7 +414,13 @@ class Measurement(runner.Runner):
             elapsed, status = self._request(port, self.cases[identifier])
             with lock:
                 records.append(
-                    {"route_id": identifier, "kind": kind, "seconds": elapsed, "status": status}
+                    {
+                        "route_id": identifier,
+                        "kind": kind,
+                        "seconds": elapsed,
+                        "status": status,
+                        "rps": rps,
+                    }
                 )
 
         with ThreadPoolExecutor(max_workers=concurrency) as pool:
@@ -569,12 +596,14 @@ def main(argv: list[str] | None = None) -> int:
     import tomllib
 
     document = tomllib.loads(args.config.read_text())
+    _ensure_user_session()
     measurement = Measurement(
         str(document["size"]),
         output_dir=args.output,
         warmup_seconds=int(document.get("warmup_seconds", 30)),
         windows=[(float(w["seconds"]), float(w["rps"])) for w in document["windows"]],
         repetitions=int(document.get("repetitions", 2)),
+        weight_key=str(document.get("weight_key", "weight_baseline")),
     )
     try:
         measurement.run()

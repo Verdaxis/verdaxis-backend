@@ -40,14 +40,15 @@
     {
       "id": "R02",
       "method": "GET",
-      "path": "/api/ports/1379d36c-1ca9-55b7-9c0d-5235a0ba1f36",
+      "path": "/api/ports/T4B_ONE",
       "measure_query": "",
       "band_bytes": [
-        0,
-        31
+        27,
+        27
       ],
       "weight_baseline": 1,
-      "weight_representative": 2
+      "weight_representative": 2,
+      "note": "the corpus's only port-not-found case has no found-port golden; T4B_ONE is a seeded port, so this measures the found path"
     },
     {
       "id": "R03",

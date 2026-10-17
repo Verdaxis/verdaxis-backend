@@ -3,28 +3,35 @@
 # manifest's rows, then runs four-worker Python and one Rust process over the
 # identical offered load. No staging or production host is involved.
 #
-# Time budget: the whole task must fit inside four hours of test-host run
-# time. With warmup 30 s and windows 30 s @ 1 RPS + 60 s @ 5 RPS +
-# 1,800 s @ 10 RPS, one cell is 32 minutes and the four cells (two sizes,
-# two runtimes) are about 2 h 8 m, leaving room for the two seeds, the
-# migrations and the release build. A route whose declared weight is 1
-# receives about 611 observations, below the 1,000 floor; it is reported
-# inconclusive with the number still needed rather than claimed as a pass.
-# Every route with weight 2 or more reaches the floor.
+# Schedule: the equal-weight route baseline, so every measured unit receives
+# equal traffic and each has the best chance of reaching the observation floor.
+# The declared representative mix is reported as a weighted aggregate of the
+# same per-route measurements, not a second run.
+#
+# Time budget: the whole task must fit inside four hours of test-host run time.
+# With warmup 20 s and windows 15 s @ 1 RPS + 30 s @ 5 RPS + 1,500 s @ 10 RPS,
+# one cell is about 26 minutes and the four cells (two sizes, two runtimes) are
+# about 1 h 45 m, leaving room for the two seeds, the migrations and the
+# release build. The 10 RPS window is at the four-worker Python service's
+# capacity, so a busy 503 is recorded for both runtimes and reported separately
+# from the successful-response latency. A route receives about 505 successful
+# observations, below the 1,000 floor; it is reported inconclusive with the
+# number still needed rather than claimed as a pass.
 
 size = "small"
+weight_key = "weight_baseline"
 
-warmup_seconds = 30
+warmup_seconds = 20
 repetitions = 1
 
 [[windows]]
-seconds = 30
+seconds = 15
 rps = 1
 
 [[windows]]
-seconds = 60
+seconds = 30
 rps = 5
 
 [[windows]]
-seconds = 1800
+seconds = 1500
 rps = 10

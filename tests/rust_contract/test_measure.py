@@ -165,19 +165,29 @@ def test_cpu_table_reports_core_equivalents_and_usec_per_request():
     assert table["rust"]["completed_requests"] == 1
 
 
-def test_latency_table_counts_errors_separately():
+def test_latency_table_counts_every_class_separately():
     samples = [
         {"route_id": "R16", "seconds": 1.0, "status": 200},
         {"route_id": "R16", "seconds": 2.0, "status": 200},
         {"route_id": "R16", "seconds": 5.0, "status": 503},
+        {"route_id": "R16", "seconds": 0.1, "status": 429},
+        {"route_id": "R16", "seconds": 0.0, "status": 0},
     ]
     evidence = _evidence(
         python_current=1000, rust_current=400, samples_python=samples, samples_rust=_samples([0.5])
     )
     table = report.latency_table(evidence)
-    assert table["R16"]["python"]["errors"] == 1
-    assert table["R16"]["python"]["n"] == 2
-    assert table["R16"]["python"]["statuses"] == {"200": 2, "503": 1}
+    row = table["R16"]["python"]
+    # The latency series is the successful responses only.
+    assert row["n"] == 2
+    # Every non-success class is reported, and a transport failure still counts
+    # as completed traffic for coverage but is named separately.
+    assert row["busy"] == 1
+    assert row["rate_limited"] == 1
+    assert row["transport_errors"] == 1
+    assert row["completed"] == 4
+    assert row["success"] == 2
+    assert row["statuses"] == {"200": 2, "503": 1, "429": 1, "0": 1}
 
 
 def test_gate_input_is_inconclusive_when_memory_is_unmeasured():

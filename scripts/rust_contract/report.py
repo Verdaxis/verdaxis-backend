@@ -88,30 +88,47 @@ def cpu_table(evidence: dict[str, Any]) -> dict[str, dict[str, Any]]:
 
 
 def latency_table(evidence: dict[str, Any]) -> dict[str, dict[str, dict[str, Any]]]:
-    """Per route and per runtime, the measured quantiles and error counts."""
+    """Per route and per runtime, the successful-response quantiles and every
+    non-success class reported separately.
+
+    A response the contract specifies (2xx) is the latency series. A 4xx the
+    contract specifies (404, 405, 421) and a busy 503 or a 429 are completed
+    observations reported as their own counts, never folded into the latency and
+    never silently dropped. A transport failure is its own count.
+    """
     table: dict[str, dict[str, dict[str, Any]]] = {}
     for row in _cells(evidence):
         for sample in row["samples"]:
             route = table.setdefault(sample["route_id"], {}).setdefault(
-                row["target"], {"latencies": [], "errors": 0, "statuses": {}}
+                row["target"], {"latencies": [], "completed": 0, "classes": {}}
             )
-            route["statuses"][str(sample["status"])] = route["statuses"].get(str(sample["status"]), 0) + 1
-            if 200 <= sample["status"] < 300:
+            status = sample["status"]
+            route["classes"][str(status)] = route["classes"].get(str(status), 0) + 1
+            if status != 0:
+                route["completed"] += 1
+            if 200 <= status < 300:
                 route["latencies"].append(sample["seconds"])
-            else:
-                route["errors"] += 1
     summary: dict[str, dict[str, dict[str, Any]]] = {}
     for route_id, targets in table.items():
         summary[route_id] = {}
         for target, data in targets.items():
-            if not data["latencies"]:
-                summary[route_id][target] = {"outcome": "inconclusive", "errors": data["errors"]}
-                continue
-            summary[route_id][target] = {
-                **measure_mod.summarize(data["latencies"]),
-                "errors": data["errors"],
-                "statuses": data["statuses"],
+            classes = data["classes"]
+            base = {
+                "completed": data["completed"],
+                "success": classes.get("200", 0),
+                "busy": classes.get("503", 0),
+                "rate_limited": classes.get("429", 0),
+                "transport_errors": classes.get("0", 0),
+                "server_errors": sum(
+                    count for status, count in classes.items()
+                    if status != "0" and 500 <= int(status) < 600 and status != "503"
+                ),
+                "statuses": classes,
             }
+            if not data["latencies"]:
+                summary[route_id][target] = {"outcome": "inconclusive", **base}
+                continue
+            summary[route_id][target] = {**measure_mod.summarize(data["latencies"]), **base}
     return summary
 
 
@@ -185,8 +202,10 @@ def build_bundle(
     coverage_counts: dict[str, int] = {}
     for row in _cells(measurement) if measurement else []:
         for sample in row["samples"]:
-            coverage_counts[sample["route_id"]] = coverage_counts.get(sample["route_id"], 0) + 1
-    # Coverage is the per-route sample count; the floor is the manifest's.
+            if sample["status"] != 0:
+                coverage_counts[sample["route_id"]] = coverage_counts.get(sample["route_id"], 0) + 1
+    # Coverage counts completed observations (a busy 503 still completed); the
+    # floor is the manifest's. The successful subset is reported separately.
     covered = measure_mod.coverage(coverage_counts, manifest["required_observations_per_route"]) if coverage_counts else {}
     if covered:
         ok = sum(1 for row in covered["routes"].values() if row["outcome"] == "ok")
@@ -408,8 +427,12 @@ def render_markdown(bundle: dict[str, Any]) -> str:
     lines.append("")
     lines.append("## Latency (end-to-end through Caddy)")
     lines.append("")
-    lines.append("| Route | Python p50/p95/p99 | Rust p50/p95/p99 | Python n | Rust n | errors py/rs |")
-    lines.append("| --- | --- | --- | ---: | ---: | --- |")
+    lines.append("The latency series is successful (2xx) responses only. Busy (503), "
+                 "rate-limited (429), contract 4xx and transport failures are completed "
+                 "observations reported as their own counts.")
+    lines.append("")
+    lines.append("| Route | Python p50/p95/p99 | Rust p50/p95/p99 | py n | rs n | py busy | rs busy | py 429 | rs 429 |")
+    lines.append("| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |")
     for route_id in sorted(latency):
         py = latency[route_id].get("python", {})
         rs = latency[route_id].get("rust", {})
@@ -417,7 +440,8 @@ def render_markdown(bundle: dict[str, Any]) -> str:
             f"| {route_id} | {_seconds(py.get('p50'))}/{_seconds(py.get('p95'))}/{_seconds(py.get('p99'))} | "
             f"{_seconds(rs.get('p50'))}/{_seconds(rs.get('p95'))}/{_seconds(rs.get('p99'))} | "
             f"{py.get('n', NOT_MEASURED)} | {rs.get('n', NOT_MEASURED)} | "
-            f"{py.get('errors', NOT_MEASURED)}/{rs.get('errors', NOT_MEASURED)} |"
+            f"{py.get('busy', NOT_MEASURED)} | {rs.get('busy', NOT_MEASURED)} | "
+            f"{py.get('rate_limited', NOT_MEASURED)} | {rs.get('rate_limited', NOT_MEASURED)} |"
         )
     lines.append("")
     lines.append(f"- Weighted representative mix: Python "
