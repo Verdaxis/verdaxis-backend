@@ -266,12 +266,14 @@ def test_manifest_digest_is_recorded_for_the_report():
 
 def _latency(pairs):
     """A latency table from (route, python p95, rust p95) triples."""
+    complete = {row["id"]: (1.0, 0.5) for row in [*workload.routes(workload.load()), *workload.tools(workload.load())]}
+    complete.update({route: (py, rs) for route, py, rs in pairs})
     return {
         route: {
             "python": {"p50": 0.1, "p95": py, "p99": py, "n": 10},
             "rust": {"p50": 0.1, "p95": rs, "p99": rs, "n": 10},
         }
-        for route, py, rs in pairs
+        for route, (py, rs) in complete.items()
     }
 
 
@@ -350,8 +352,8 @@ def test_memory_below_target_no_longer_blocks():
     evidence = _evidence(
         python_current=1000,
         rust_current=900,
-        samples_python=_samples([1.0]),
-        samples_rust=_samples([0.5]),
+        samples_python=[{"route_id": rid, "seconds": 1.0, "status": 200} for rid in _latency([])],
+        samples_rust=[{"route_id": rid, "seconds": 0.5, "status": 200} for rid in _latency([])],
     )
     bundle = report.build_bundle(
         identities={}, contract={}, simulation={"differences": 0}, measurement=evidence,
@@ -405,3 +407,25 @@ def test_adaptive_never_measures_above_a_busy_rate():
     chosen = _adaptive_choose(probe, 4)
     assert chosen == 1.0
     assert probe[int(chosen) + 1]["python"] > 0
+
+
+@pytest.mark.parametrize("missing", ["python", "rust", "both"])
+def test_missing_manifest_route_is_inconclusive(missing):
+    latency = _latency([])
+    if missing == "both":
+        del latency["R27"]
+    else:
+        del latency["R27"][missing]
+    assert report.speed_verdict(latency, {"python": {"p95": 1.0}, "rust": {"p95": 0.5}})["outcome"] == "inconclusive"
+
+
+@pytest.mark.parametrize("invalid", [-0.1, 0.0, float("nan"), float("inf"), None])
+@pytest.mark.parametrize("target", ["python", "rust"])
+def test_invalid_route_p95_is_inconclusive(target, invalid):
+    latency = _latency([])
+    latency["R27"][target]["p95"] = invalid
+    assert report.speed_verdict(latency, {"python": {"p95": 1.0}, "rust": {"p95": 0.5}})["outcome"] == "inconclusive"
+
+
+def test_empty_route_set_is_inconclusive():
+    assert report.speed_verdict({}, {"python": {"p95": 1.0}, "rust": {"p95": 0.5}})["outcome"] == "inconclusive"

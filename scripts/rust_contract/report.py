@@ -170,13 +170,17 @@ def route_regression_blocks(python_p95: float, rust_p95: float) -> bool:
 
 
 def _route_pairs(latency: dict[str, Any]) -> list[tuple[str, float, float]]:
-    """(route id, python p95, rust p95) for every route with both measured."""
+    """Require both positive, finite p95s for the complete committed workload."""
+    manifest = workload.load()
+    expected = {row["id"] for row in [*workload.routes(manifest), *workload.tools(manifest)]}
+    if set(latency) != expected:
+        return []
     pairs = []
-    for route_id, targets in latency.items():
-        python = targets.get("python", {})
-        rust = targets.get("rust", {})
-        if "p95" in python and "p95" in rust:
-            pairs.append((route_id, float(python["p95"]), float(rust["p95"])))
+    for route_id in sorted(expected):
+        values = [latency[route_id].get(target, {}).get("p95") for target in ("python", "rust")]
+        if any(not isinstance(value, (int, float)) or not math.isfinite(value) or value <= 0 for value in values):
+            return []
+        pairs.append((route_id, *values))
     return pairs
 
 
@@ -212,7 +216,7 @@ def speed_verdict(
     )
     mix_blocks = bool(mix_measured and rust_mix > python_mix)
     return {
-        "outcome": "inconclusive" if not mix_measured else ("no-go" if mix_blocks or blocking else "pass"),
+        "outcome": "inconclusive" if not mix_measured or not pairs else ("no-go" if mix_blocks or blocking else "pass"),
         "mix_blocks": mix_blocks,
         "mix_measured": mix_measured,
         "blocking_regressions": sorted(blocking),

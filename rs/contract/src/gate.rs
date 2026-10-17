@@ -64,6 +64,15 @@ pub fn fix_item_regressions(routes: &[RouteP95]) -> Vec<&'static str> {
         .collect()
 }
 
+/// Expected measured routes and MCP tools, from the committed workload manifest.
+pub fn expected_route_ids() -> Vec<String> {
+    let manifest: serde_json::Value = serde_json::from_str(include_str!("../../../tests/rust_contract/workload.json"))
+        .expect("committed workload manifest must be valid JSON");
+    ["routes", "tools"].iter().flat_map(|key| {
+        manifest[key].as_array().expect("committed workload route list")
+    }).map(|row| row["id"].as_str().expect("committed workload route id").to_owned()).collect()
+}
+
 /// The decision-68 gate over the measured evidence.
 ///
 /// `unapproved_differences` is the count the comparator still reports after the
@@ -88,9 +97,11 @@ pub fn passes_gate(
         && rust_mix_p95.is_finite()
         && python_mix_p95 > 0.0
         && rust_mix_p95 > 0.0;
-    let routes_measured = routes
-        .iter()
-        .all(|route| route.python.is_finite() && route.rust.is_finite() && route.python > 0.0);
+    let expected = expected_route_ids();
+    let routes_measured = routes.len() == expected.len()
+        && expected.iter().all(|id| routes.iter().filter(|route| route.route_id == id).count() == 1)
+        && routes.iter().all(|route| route.python.is_finite() && route.rust.is_finite()
+            && route.python > 0.0 && route.rust > 0.0);
     let hard_gates = unapproved_differences == 0 && rust_5xx <= python_5xx && integration_passed;
     let speed = mix_measured
         && routes_measured
