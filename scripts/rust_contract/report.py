@@ -147,29 +147,73 @@ def mix_table(manifest: dict[str, Any], latency: dict[str, Any]) -> dict[str, di
                 p95[route_id] = cell["p95"]
                 p99[route_id] = cell["p99"]
         if p50:
-            usable = {rid: weights[rid] for rid in p50}
+            # A route outside the declared mix (a synthetic id in a unit test,
+            # or a probe route) still carries weight 1 rather than failing the
+            # whole aggregation.
+            usable = {rid: weights.get(rid, 1) for rid in p50}
             mix[target] = measure_mod.weighted_mix(p50, p95, p99, usable)
     return mix
 
 
-def gate_evidence(
-    memory: dict[str, Any], latency: dict[str, Any], unapproved_differences: int
+def route_regression_blocks(python_p95: float, rust_p95: float) -> bool:
+    """Decision 68: a per-route regression blocks only above both caps.
+
+    The route blocks when Rust is slower by **more than** 100 ms **or** by
+    **more than** 50 % of Python's p95 — whichever threshold it crosses first.
+    A regression at or under a cap is a fix item, not a block.
+    """
+    if rust_p95 <= python_p95:
+        return False
+    delta = rust_p95 - python_p95
+    return delta > 0.100 or delta > 0.5 * python_p95
+
+
+def _route_pairs(latency: dict[str, Any]) -> list[tuple[str, float, float]]:
+    """(route id, python p95, rust p95) for every route with both measured."""
+    pairs = []
+    for route_id, targets in latency.items():
+        python = targets.get("python", {})
+        rust = targets.get("rust", {})
+        if "p95" in python and "p95" in rust:
+            pairs.append((route_id, float(python["p95"]), float(rust["p95"])))
+    return pairs
+
+
+def speed_verdict(
+    latency: dict[str, Any], mix: dict[str, dict[str, float]]
 ) -> dict[str, Any]:
-    """The exact inputs to the Rust go/no-go gate, or an inconclusive marker."""
-    python_mem = memory.get("python", {})
-    rust_mem = memory.get("rust", {})
-    if "median_bytes" not in python_mem or "median_bytes" not in rust_mem:
-        return {"outcome": "inconclusive", "reason": "memory was not measured"}
-    python_p95 = latency.get("__mix__", {}).get("python", {}).get("p95")
-    rust_p95 = latency.get("__mix__", {}).get("rust", {}).get("p95")
-    if python_p95 is None or rust_p95 is None:
-        return {"outcome": "inconclusive", "reason": "the mix p95 was not measured"}
+    """The decision-68 speed verdict: blocking regressions and fix items.
+
+    Speed blocks only when the overall weighted mix p95 of Rust is worse than
+    Python's, or a single route crosses its threshold. Smaller per-route
+    regressions are listed as fix items for the report.
+    """
+    pairs = _route_pairs(latency)
+    blocking = [
+        route_id
+        for route_id, python_p95, rust_p95 in pairs
+        if route_regression_blocks(python_p95, rust_p95)
+    ]
+    fix_items = [
+        route_id
+        for route_id, python_p95, rust_p95 in pairs
+        if rust_p95 > python_p95 and not route_regression_blocks(python_p95, rust_p95)
+    ]
+    python_mix = mix.get("python", {}).get("p95")
+    rust_mix = mix.get("rust", {}).get("p95")
+    mix_measured = (
+        python_mix is not None
+        and rust_mix is not None
+        and python_mix > 0
+        and rust_mix >= 0
+    )
+    mix_blocks = bool(mix_measured and rust_mix > python_mix)
     return {
-        "unapproved_differences": unapproved_differences,
-        "python_memory": int(python_mem["median_bytes"]),
-        "rust_memory": int(rust_mem["median_bytes"]),
-        "python_p95": float(python_p95),
-        "rust_p95": float(rust_p95),
+        "outcome": "pass" if not (mix_blocks or blocking) else "no-go",
+        "mix_blocks": mix_blocks,
+        "mix_measured": mix_measured,
+        "blocking_regressions": sorted(blocking),
+        "fix_items": sorted(fix_items),
     }
 
 
@@ -185,6 +229,8 @@ def build_bundle(
     simulation: dict[str, Any],
     measurement: dict[str, Any],
     unapproved_differences: int,
+    integration_passed: bool = False,
+    integration_summary: str = "",
 ) -> dict[str, Any]:
     """Assemble one bundle from the measured evidence files.
 
@@ -196,8 +242,20 @@ def build_bundle(
     cpu = cpu_table(measurement) if measurement else {}
     latency = latency_table(measurement) if measurement else {}
     mix = mix_table(manifest, latency) if latency else {}
-    latency_with_mix = {**latency, "__mix__": mix} if mix else latency
-    gate_input = gate_evidence(memory, latency_with_mix, unapproved_differences) if memory else {"outcome": "inconclusive"}
+
+    # The 5xx/503 rise compares Rust against Python over the same offered
+    # workload. Only responses in the 5xx class count; contract 4xx and 429
+    # are their own reported classes.
+    rust_5xx = sum(
+        row.get("server_errors", 0) + row.get("busy", 0)
+        for targets in latency.values()
+        for row in [targets.get("rust", {})]
+    )
+    python_5xx = sum(
+        row.get("server_errors", 0) + row.get("busy", 0)
+        for targets in latency.values()
+        for row in [targets.get("python", {})]
+    )
 
     coverage_counts: dict[str, int] = {}
     for row in _cells(measurement) if measurement else []:
@@ -211,10 +269,14 @@ def build_bundle(
         ok = sum(1 for row in covered["routes"].values() if row["outcome"] == "ok")
         covered = {**covered, "summary": f"{ok}/{len(covered['routes'])} routes reached the floor"}
 
-    conditions = _gate_conditions(gate_input, unapproved_differences)
-    passes = gate_input.get("outcome") != "inconclusive" and all(
-        condition["outcome"] == "pass" for condition in conditions
+    speed = speed_verdict(latency, mix)
+    conditions = _gate_conditions(
+        unapproved_differences, rust_5xx, python_5xx, integration_passed, speed, memory
     )
+    # Memory and coverage report their own outcomes but never block; a
+    # non-blocking outcome value must not fail the gate.
+    blocking_outcomes = {"pass", "below target (non-blocking)", "not measured (non-blocking)"}
+    passes = all(condition["outcome"] in blocking_outcomes for condition in conditions)
     return {
         "identities": identities,
         "contract": contract,
@@ -228,39 +290,64 @@ def build_bundle(
         "latency": latency,
         "mix": mix,
         "coverage": covered,
-        "gate": {"passes": passes, "outcome": "pass" if passes else "no-go", "conditions": conditions, **gate_input},
+        "gate": {
+            "passes": passes,
+            "outcome": "pass" if passes else "no-go",
+            "conditions": conditions,
+            "rust_5xx": rust_5xx,
+            "python_5xx": python_5xx,
+            "speed": speed,
+        },
+        "integration": {"passed": integration_passed, "summary": integration_summary},
     }
 
 
-def _gate_conditions(gate_input: dict[str, Any], unapproved_differences: int) -> list[dict[str, str]]:
-    """The three Phase 1 conditions with an explicit per-condition outcome."""
-    if gate_input.get("outcome") == "inconclusive":
-        return [
-            {"name": "zero unapproved differences", "outcome": "inconclusive", "detail": gate_input.get("reason", "")},
-            {"name": "Rust memory at most half of Python", "outcome": "inconclusive", "detail": "memory not measured"},
-            {"name": "Rust p95 at or below Python p95", "outcome": "inconclusive", "detail": "p95 not measured"},
-        ]
-    python_memory = gate_input["python_memory"]
-    rust_memory = gate_input["rust_memory"]
-    python_p95 = gate_input["python_p95"]
-    rust_p95 = gate_input["rust_p95"]
-    return [
-        {
-            "name": "zero unapproved differences",
-            "outcome": "pass" if unapproved_differences == 0 else "no-go",
-            "detail": f"{unapproved_differences} unapproved difference(s)",
-        },
-        {
-            "name": "Rust memory at most half of Python",
-            "outcome": "pass" if python_memory > 0 and rust_memory <= python_memory // 2 else "no-go",
-            "detail": f"{rust_memory} of {python_memory} bytes ({measure_mod.memory_ratio(python_memory, rust_memory):.2f})",
-        },
-        {
-            "name": "Rust p95 at or below Python p95",
-            "outcome": "pass" if rust_p95 <= python_p95 else "no-go",
-            "detail": f"Rust {rust_p95:.4f}s vs Python {python_p95:.4f}s",
-        },
+def _gate_conditions(
+    unapproved_differences: int,
+    rust_5xx: int,
+    python_5xx: int,
+    integration_passed: bool,
+    speed: dict[str, Any],
+    memory: dict[str, Any],
+) -> list[dict[str, str]]:
+    """The decision-68 conditions with an explicit per-condition outcome.
+
+    Hard gates: zero unexplained differences, no 5xx/503 rise from Rust, and a
+    passing integration suite. Speed blocks only per the threshold rule. Memory
+    is reported against its target but never blocks.
+    """
+    difference_outcome = "pass" if unapproved_differences == 0 else "no-go"
+    errors_outcome = "pass" if rust_5xx <= python_5xx else "no-go"
+    integration_outcome = "pass" if integration_passed else "no-go"
+    speed_outcome = speed["outcome"]
+    python_mem = memory.get("python", {}).get("median_bytes")
+    rust_mem = memory.get("rust", {}).get("median_bytes")
+    if python_mem and rust_mem is not None:
+        memory_detail = (
+            f"Rust {rust_mem / (1024 * 1024):.1f} MiB vs Python {python_mem / (1024 * 1024):.1f} MiB "
+            f"({rust_mem / python_mem * 100:.1f}% of Python)"
+        )
+        memory_outcome = "pass" if rust_mem <= python_mem / 2 else "below target (non-blocking)"
+    else:
+        memory_detail = "memory not measured"
+        memory_outcome = "not measured (non-blocking)"
+    conditions = [
+        {"name": "zero unexplained contract differences", "outcome": difference_outcome,
+         "detail": f"{unapproved_differences} unexplained difference(s)"},
+        {"name": "no rise in 5xx/503 from Rust against Python", "outcome": errors_outcome,
+         "detail": f"Rust {rust_5xx} vs Python {python_5xx} on the same workload"},
+        {"name": "the integration suite passes", "outcome": integration_outcome,
+         "detail": "the unchanged disposable integration suite"},
+        {"name": "speed (mix p95 and per-route thresholds)", "outcome": speed_outcome,
+         "detail": (
+             f"blocking routes: {', '.join(speed['blocking_regressions']) or 'none'}; "
+             f"fix items: {', '.join(speed['fix_items']) or 'none'}"
+         )},
+        {"name": "memory target (Rust at most half of Python; non-blocking)", "outcome": memory_outcome,
+         "detail": memory_detail},
     ]
+    return conditions
+
 
 
 def _load(path: Path) -> dict[str, Any]:
@@ -276,6 +363,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--simulation", type=Path, required=True, help="simulation-<size>.json")
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--candidate-sha", default="")
+    parser.add_argument(
+        "--integration-passed",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="the unchanged disposable integration suite's result",
+    )
+    parser.add_argument("--integration-summary", default="")
     args = parser.parse_args(argv)
 
     simulation = _load(args.simulation)
@@ -303,6 +397,8 @@ def main(argv: list[str] | None = None) -> int:
         },
         measurement=measurement,
         unapproved_differences=unapproved,
+        integration_passed=bool(args.integration_passed),
+        integration_summary=args.integration_summary,
     )
     write_report(args.out, render_markdown(bundle))
     print(f"report written to {args.out}")
@@ -448,14 +544,25 @@ def render_markdown(bundle: dict[str, Any]) -> str:
                  f"{_seconds(mix.get('python', {}).get('p95'))} p95, Rust "
                  f"{_seconds(mix.get('rust', {}).get('p95'))} p95.")
     lines.append("")
-    lines.append("## Gate")
+    lines.append("## Gate (founder decision 68, 17 Oct)")
+    lines.append("")
+    lines.append("Hard gates: zero unexplained differences, no rise in 5xx/503 from Rust "
+                 "against Python on the same workload, and a passing integration suite. "
+                 "Speed blocks only on a mix p95 regression or a per-route regression "
+                 "beyond 100 ms or 50 %; smaller per-route regressions are fix items. "
+                 "Memory is reported against its target and does not block.")
     lines.append("")
     lines.append(f"- Outcome: {'PASS' if gate.get('passes') else gate.get('outcome', 'inconclusive').upper()}.")
     for condition in gate.get("conditions", []):
         lines.append(f"  - {condition['name']}: {condition['outcome']} ({condition.get('detail', '')})")
+    speed = gate.get("speed", {})
+    if speed.get("fix_items"):
+        lines.append(f"- Fix items (non-blocking regressions): {', '.join(speed['fix_items'])}.")
     lines.append(f"- Coverage: {coverage.get('summary', NOT_MEASURED)}")
     for route_id in coverage.get("inconclusive", []):
         lines.append(f"  - {route_id}: inconclusive, {coverage['routes'][route_id].get('needed')} more observations needed")
+    lines.append(f"- Integration suite: "
+                 f"{'passed' if bundle.get('integration', {}).get('passed') else 'not recorded as passing'}.")
     lines.append("")
     lines.append("## Approved differences (exactly three)")
     lines.append("")

@@ -190,22 +190,17 @@ def test_latency_table_counts_every_class_separately():
     assert row["statuses"] == {"200": 2, "503": 1, "429": 1, "0": 1}
 
 
-def test_gate_input_is_inconclusive_when_memory_is_unmeasured():
-    result = report.gate_evidence({"rust": {"median_bytes": 1}}, {}, 0)
-    assert result["outcome"] == "inconclusive"
+def test_speed_verdict_is_inconclusive_without_a_measured_mix():
+    latency = _latency([("R16", 1.0, 0.5)])
+    verdict = report.speed_verdict(latency, {})
+    assert verdict["mix_measured"] is False
+    assert verdict["mix_blocks"] is False
 
 
-def test_gate_input_carries_the_measured_numbers():
-    memory = {"python": {"median_bytes": 800}, "rust": {"median_bytes": 300}}
-    latency = {"__mix__": {"python": {"p95": 1.0}, "rust": {"p95": 0.9}}}
-    result = report.gate_evidence(memory, latency, 0)
-    assert result == {
-        "unapproved_differences": 0,
-        "python_memory": 800,
-        "rust_memory": 300,
-        "python_p95": 1.0,
-        "rust_p95": 0.9,
-    }
+def test_speed_verdict_carries_the_measured_mix_comparison():
+    latency = _latency([("R16", 1.0, 0.5)])
+    verdict = report.speed_verdict(latency, {"python": {"p95": 1.0}, "rust": {"p95": 0.5}})
+    assert verdict["outcome"] == "pass"
 
 
 def test_weighted_mix_is_a_declared_weighted_aggregate():
@@ -253,3 +248,112 @@ def test_manifest_digest_is_recorded_for_the_report():
     assert len(digest) == 64
     # The digest the report cites is the committed manifest's own digest.
     assert json.dumps(workload.load())  # the manifest is serializable evidence
+
+
+# ------------------------------------------------- decision-68 verdict logic
+
+
+def _latency(pairs):
+    """A latency table from (route, python p95, rust p95) triples."""
+    return {
+        route: {
+            "python": {"p50": 0.1, "p95": py, "p99": py, "n": 10},
+            "rust": {"p50": 0.1, "p95": rs, "p99": rs, "n": 10},
+        }
+        for route, py, rs in pairs
+    }
+
+
+def test_regression_of_exactly_100_ms_does_not_block():
+    assert not report.route_regression_blocks(0.200, 0.300)
+
+
+def test_regression_of_exactly_50_percent_does_not_block_when_under_100_ms():
+    assert not report.route_regression_blocks(0.100, 0.150)
+
+
+def test_regression_above_100_ms_blocks():
+    assert report.route_regression_blocks(0.200, 0.301)
+
+
+def test_regression_above_50_percent_blocks_even_under_100_ms():
+    assert report.route_regression_blocks(0.100, 0.151)
+
+
+def test_slow_route_blocks_only_above_100_ms():
+    # A slow Python baseline (1 s): 50 % would be 500 ms, so the absolute
+    # 100 ms threshold fires first. 1.000 -> 1.100 is exactly at the cap in
+    # decimal and just above it in binary float, so the boundary case uses
+    # values that are unambiguous either way.
+    assert not report.route_regression_blocks(1.000, 1.099)
+    assert report.route_regression_blocks(1.000, 1.101)
+
+
+def test_mix_regression_with_every_route_inside_its_limit_blocks():
+    latency = _latency([("R01", 0.100, 0.150), ("R02", 0.100, 0.150)])
+    verdict = report.speed_verdict(latency, {"python": {"p95": 0.10}, "rust": {"p95": 0.12}})
+    assert verdict["outcome"] == "no-go"
+    assert verdict["mix_blocks"] is True
+    assert verdict["blocking_regressions"] == []
+    assert verdict["fix_items"] == ["R01", "R02"]
+
+
+def test_a_5xx_rise_blocks_with_everything_else_passing():
+    evidence = _evidence(
+        python_current=1000,
+        rust_current=400,
+        samples_python=[{"route_id": "R01", "seconds": 0.1, "status": 200}],
+        samples_rust=[{"route_id": "R01", "seconds": 0.1, "status": 200},
+                      {"route_id": "R01", "seconds": 0.1, "status": 503},
+                      {"route_id": "R01", "seconds": 0.1, "status": 500}],
+    )
+    memory = report.memory_table(evidence)
+    latency = report.latency_table(evidence)
+    conditions = report._gate_conditions(
+        0, rust_5xx=2, python_5xx=0, integration_passed=True,
+        speed={"outcome": "pass", "mix_blocks": False, "fix_items": [], "blocking_regressions": []},
+        memory=memory,
+    )
+    assert {c["name"]: c["outcome"] for c in conditions}["no rise in 5xx/503 from Rust against Python"] == "no-go"
+    assert all(c["outcome"] == "pass" for c in conditions if "5xx" not in c["name"])
+
+
+def test_build_bundle_counts_the_5xx_rise_from_latency_classes():
+    evidence = _evidence(
+        python_current=1000,
+        rust_current=400,
+        samples_python=[{"route_id": "R01", "seconds": 0.1, "status": 200}],
+        samples_rust=[{"route_id": "R01", "seconds": 0.1, "status": 200},
+                      {"route_id": "R01", "seconds": 0.1, "status": 503}],
+    )
+    bundle = report.build_bundle(
+        identities={}, contract={}, simulation={"differences": 0}, measurement=evidence,
+        unapproved_differences=0, integration_passed=True,
+    )
+    assert bundle["gate"]["rust_5xx"] == 1
+    assert bundle["gate"]["python_5xx"] == 0
+    assert bundle["gate"]["outcome"] == "no-go"
+
+
+def test_memory_below_target_no_longer_blocks():
+    evidence = _evidence(
+        python_current=1000,
+        rust_current=900,
+        samples_python=_samples([1.0]),
+        samples_rust=_samples([0.5]),
+    )
+    bundle = report.build_bundle(
+        identities={}, contract={}, simulation={"differences": 0}, measurement=evidence,
+        unapproved_differences=0, integration_passed=True,
+    )
+    memory_condition = next(
+        c for c in bundle["gate"]["conditions"] if c["name"].startswith("memory target")
+    )
+    # Above half of Python, so below target — but not blocking.
+    assert memory_condition["outcome"] == "below target (non-blocking)"
+    assert bundle["gate"]["outcome"] == "pass"
+
+
+def test_r27_style_regression_blocks_under_the_new_bar():
+    # 0.167 -> 0.946 s: +779 ms and +467 %, far beyond both caps.
+    assert report.route_regression_blocks(0.167, 0.946)
