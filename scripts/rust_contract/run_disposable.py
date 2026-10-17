@@ -40,6 +40,9 @@ MIGRATION_REVISION = "kycg_20261014_staging"
 ORACLE_TIMEZONE = "Asia/Singapore"
 # One explicit instant for the fixed-clock corpus. Every server sees it.
 CORPUS_CLOCK = "2026-10-15T12:00:00+00:00"
+# Password for the integration suite's deterministic itest identities. The
+# seeder and pytest must use the same value, or every login returns 401.
+ITEST_PASSWORD = "Disposable-integration-13!"
 
 # group -> (rust test target, route module set). An unavailable route set fails.
 GROUPS = {
@@ -614,6 +617,22 @@ CREATE EXTENSION IF NOT EXISTS postgis;
         print(f"report written to {path}", flush=True)
         print(text, end="", flush=True)
 
+    def seed_integration_identities(self, env: dict[str, str]) -> None:
+        """Provision the accounts the unchanged integration suite logs in as.
+
+        The corpus seed builds market fixtures but not the `itest-*` users, so
+        without this every authenticated integration test fails with 401. The
+        fixtures are seeded with REAL provenance, the trusted route an
+        administrator-invited organization takes, so market writes pass the
+        provenance guard. This changes no application code.
+        """
+        subprocess.run(
+            [self.python_bin, "-m", "scripts.rust_contract.seed_integration"],
+            cwd=ROOT,
+            env={**env, "DISPOSABLE_ITEST_PASSWORD": ITEST_PASSWORD},
+            check=True,
+        )
+
     def run_mixed(self, env: dict[str, str], python_port: int, rust_port: int) -> None:
         caddy = os.environ.get("CADDY_BIN") or shutil.which("caddy")
         if not caddy:
@@ -636,12 +655,13 @@ CREATE EXTENSION IF NOT EXISTS postgis;
         wait_for_port(port)
         url = f"http://127.0.0.1:{port}"
         attest(url, self.token)
+        self.seed_integration_identities(env)
         subprocess.run(
             [self.python_bin, "-m", "pytest", "tests/integration", "-q",
              "--run-disposable-integration", "--disposable-target-url", url,
              "--disposable-target-token", self.token],
             cwd=ROOT,
-            env={**env, "DISPOSABLE_ITEST_PASSWORD": "Disposable-integration-13!"},
+            env={**env, "DISPOSABLE_ITEST_PASSWORD": ITEST_PASSWORD},
             check=True,
         )
 

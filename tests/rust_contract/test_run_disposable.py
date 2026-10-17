@@ -151,6 +151,46 @@ def test_combined_gate_gives_each_target_a_fresh_environment(monkeypatch):
     assert stopped == 2
 
 
+def test_mixed_run_seeds_identities_before_the_suite(monkeypatch, tmp_path):
+    """The mixed run must provision the accounts the suite logs in as.
+
+    The corpus seed does not create the itest-* users, so the integration suite
+    failed every authenticated test (GitHub run 38993964840). The mixed run
+    seeds them with the same password it passes to pytest.
+    """
+    import sys
+
+    calls: list[dict] = []
+
+    def fake_run(args, **kwargs):
+        calls.append({"args": list(args), "env": kwargs.get("env", {})})
+        return _Result()
+
+    runner, _ = _runner(monkeypatch, seed=False)
+    monkeypatch.setenv("CADDY_BIN", sys.executable)
+    monkeypatch.setattr(run_disposable, "ephemeral_port", lambda: 41000)
+    monkeypatch.setattr(run_disposable, "wait_for_port", lambda port: None)
+    monkeypatch.setattr(run_disposable, "attest", lambda url, token: None)
+    monkeypatch.setattr(runner, "spawn", lambda args, env: None)
+    monkeypatch.setattr(run_disposable.subprocess, "run", fake_run)
+
+    runner.run_mixed(_env(), python_port=1, rust_port=2)
+
+    commands = [call["args"] for call in calls]
+    seed = [c for c in commands if c[:3] == [
+        runner.python_bin, "-m", "scripts.rust_contract.seed_integration"]]
+    assert len(seed) == 1
+    pytest_call = next(c for c in commands if c[1:3] == ["-m", "pytest"])
+    # Seed first, then the suite; both use the one shared password.
+    assert commands.index(seed[0]) < commands.index(pytest_call)
+    for call in calls:
+        if call["args"] in (seed[0], pytest_call):
+            assert (
+                call["env"]["DISPOSABLE_ITEST_PASSWORD"]
+                == run_disposable.ITEST_PASSWORD
+            )
+
+
 def test_build_profile_selection_keeps_correctness_on_dev():
     """Correctness runs build dev; only an explicit release asks for --release.
 

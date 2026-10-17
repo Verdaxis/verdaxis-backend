@@ -1,5 +1,18 @@
 # Task 13 native mixed integration failure classification
 
+> **Correction (2026-10-17, branch `fix/rust-ci-mixed-caddy`).** The "locally
+> minted JWT lacks issuer/audience" and "shared login rate counter (HTTP 429)"
+> categories below are wrong. The suite's JWT factories already set `iss`/`aud`,
+> and no login returned HTTP 429. All 48 failures and 6 errors had one cause: the
+> mixed Caddy run never provisioned the `itest-*` identities the suite
+> authenticates as. Corpus seeding left no such `users` or `organizations` rows
+> (verified against the disposable database: 0 rows, 0 `sg-sin` ports), so logins
+> returned 401 `Incorrect username or password` and every minted token named a
+> non-existent user (`Could not validate credentials`). Fixed in the runner by
+> seeding the identities before the suite runs
+> (`scripts/rust_contract/seed_integration.py`); the table below is kept as the
+> dated observation it was.
+
 Native amd64, unchanged integration suite: 24 passed, 49 failed, 6 setup errors.
 Zero timeout failures; no unclassified failure. This classifies the observed first
 failure in each test, not assertions unreachable behind that failure. No Phase 0
