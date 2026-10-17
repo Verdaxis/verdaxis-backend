@@ -59,7 +59,7 @@ fn relation_sql_with_projection(base_orders: &str, projection: &str) -> String {
                 "/* current_order_rule */",
                 include_str!("../../sql/current_order_rule.sql"),
             )
-            .replace("/* shared_projection */", projection)
+            .replace("/* shared_projection */o.*,", projection)
             .replace("/* base_orders */", base_orders),
         "$13",
     )

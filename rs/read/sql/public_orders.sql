@@ -61,7 +61,7 @@ policy_lanes AS MATERIALIZED (
     WHERE pp.execution_mode = 'ORDERBOOK'
 )
 /* eligibility_sets */
-SELECT /* shared_projection */
+SELECT /* shared_projection */o.*,
        p.name AS product_name, p.fuel_type AS product_fuel_type,
        p.fuel_grade AS product_fuel_grade, p.is_active AS product_is_active,
        dp.name AS delivery_point_name, dp.region AS delivery_point_region,
