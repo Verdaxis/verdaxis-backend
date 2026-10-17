@@ -33,7 +33,10 @@ env:
   LIBC_MIN: "2.35"
   # Caddy is used only by the contract job. Pin the release and its checksum.
   CADDY_VERSION: "2.11.7"
-  CADDY_SHA256: "a7a433a1b133efc3c8d10eb0b99d52a24b5ef5c322dc77f5282182b1c0402139ab83f3a99f0c52409df77d20123fb0b523edad8a66d8f5e49136197bf61ef0e7"
+  # SHA-256 of caddy_2.11.7_linux_amd64.tar.gz as GitHub records it for the release
+  # asset (`gh api repos/caddyserver/caddy/releases/tags/v2.11.7`, field `digest`).
+  # The release checksums file lists SHA-512 values, which `sha256sum` cannot check.
+  CADDY_SHA256: "727b91701a392de6ebc5027509f548bf39979e5216340d0faed8fa5e69c84f8b"
   SQLX_CLI_VERSION: "0.9.0"
 
 jobs:

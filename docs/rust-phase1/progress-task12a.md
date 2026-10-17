@@ -241,9 +241,11 @@ authenticated as `jonathanjie`), dereferencing annotated tags to commits.
 
 Toolchain and Caddy are pinned without a third-party Action: the Rust channel is
 read from `rs/rust-toolchain.toml` and installed with the runner's `rustup`;
-Caddy 2.11.7 `linux_amd64` is downloaded and checked against
-`a7a433a1b133efc3c8d10eb0b99d52a24b5ef5c322dc77f5282182b1c0402139ab83f3a99f0c52409df77d20123fb0b523edad8a66d8f5e49136197bf61ef0e7`
-from the release's own `caddy_2.11.7_checksums.txt`.
+Caddy 2.11.7 `linux_amd64` is downloaded and checked with `sha256sum` against
+`727b91701a392de6ebc5027509f548bf39979e5216340d0faed8fa5e69c84f8b`, the SHA-256 GitHub
+records for that release asset. (The first pin was the SHA-512 from the release's
+`caddy_2.11.7_checksums.txt`, which `sha256sum -c` cannot check; the first GitHub run
+of the contract job, 17 Oct, failed on it.)
 
 ## Attestation split
 
