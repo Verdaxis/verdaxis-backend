@@ -216,6 +216,9 @@ class Measurement(runner.Runner):
         windows: list[tuple[float, int]],
         repetitions: int,
         weight_key: str = "weight_baseline",
+        probe_seconds: int = 30,
+        probe_max_rps: int = 5,
+        measure_seconds: int = 600,
         keep: bool = False,
     ) -> None:
         super().__init__(
@@ -227,6 +230,9 @@ class Measurement(runner.Runner):
         self.windows = windows
         self.repetitions = repetitions
         self.weight_key = weight_key
+        self.probe_seconds = probe_seconds
+        self.probe_max_rps = probe_max_rps
+        self.measure_seconds = measure_seconds
         self.manifest = workload.load()
         self.counts = workload.sizes(self.manifest)[size]
         self.schedule = workload.weighted_schedule(self.manifest, weight_key)
@@ -541,6 +547,93 @@ class Measurement(runner.Runner):
         out.write_text(json.dumps(evidence, indent=2) + "\n")
         print(f"MEASUREMENT_JSON {out}")
 
+    def run_adaptive(self) -> None:
+        """Ramp the offered rate while neither stack returns busy/503.
+
+        Item 5: the fixed 5 RPS large run saturated both services, so its p95
+        and 5xx counts could not judge the gate. This starts at 1 RPS and
+        raises the rate only while neither stack returns a busy (503) or other
+        5xx response, then measures the full window at the highest clean rate.
+        """
+        subprocess.run(self.build_command(), cwd=ROOT, env={**os.environ, "RELEASE_SHA": self.sha}, check=True)
+        subprocess.run(
+            ["cargo", "build", "--manifest-path", "rs/Cargo.toml", "--locked", "--release", "-p", "verdaxis-read"],
+            cwd=ROOT, env={**os.environ, "RELEASE_SHA": self.sha}, check=True,
+        )
+        port = self.start_database()
+        base_env = {
+            **os.environ, "ENVIRONMENT": "test", "RELEASE_SHA": self.sha,
+            "JWT_SECRET": "test-secret-key-for-testing-minimum-32-chars",
+            "DISPOSABLE_TEST_TOKEN": self.token, "RUST_CONTRACT_CLOCK": runner.CORPUS_CLOCK,
+            "KYC_EXECUTION_GATE_ENABLED": "true",
+            "RUST_CORPUS_MANIFEST": str(ROOT / "work/rust-phase1/task4b-fixtures.json"),
+            **self.urls(port),
+        }
+        self.migrate_and_seed(base_env)
+        self._seed_workload(base_env)
+        runner.docker("exec", self.container, "psql", "-XAt", "-U", "postgres", "-d", runner.DB_NAME,
+                      "-v", "ON_ERROR_STOP=1", "-c", "ANALYZE")
+        python_port = runner.ephemeral_port()
+        rust_port = runner.ephemeral_port()
+        rust_config = json.dumps({
+            "environment": "test", "kyc_execution_gate_enabled": True, "release_sha": self.sha,
+            "migration_revision": runner.MIGRATION_REVISION, "database_url": base_env["RUST_DATABASE_URL"],
+            "db_session_time_zone": runner.ORACLE_TIMEZONE, "bind": f"127.0.0.1:{rust_port}",
+            "pool_max": 9, "python_budget": 52, "configured_max_connections": 100,
+        })
+        evidence: dict[str, Any] = {
+            "size": self.size, "counts": self.counts, "source_sha": self.sha,
+            "python_workers": 4, "rust_processes": 1, "mode": "adaptive",
+            "probe_seconds": self.probe_seconds, "probe_max_rps": self.probe_max_rps,
+            "measure_seconds": self.measure_seconds,
+            "probe": [], "repetitions": [],
+        }
+        order = [("python", python_port), ("rust", rust_port)]
+        handles: dict[str, Any] = {}
+        caddies: dict[str, tuple[Any, int]] = {}
+        try:
+            # One service per runtime, kept up across the probe and the window.
+            for target, port in order:
+                handles[target] = self._start_service_unit(target, python_port, rust_port, rust_config, base_env)
+                self._await_ready(port)
+                caddies[target] = self._start_caddy(f"127.0.0.1:{port}")
+            # Probe: raise the rate while neither stack shows a busy/5xx.
+            clean_rps = 1.0
+            for rps in range(1, self.probe_max_rps + 1):
+                busy = {}
+                for target, _ in order:
+                    samples = self.load_series(caddies[target][1], self.probe_seconds, float(rps))
+                    busy[target] = sum(1 for s in samples if s["status"] >= 500)
+                evidence["probe"].append({"rps": rps, "busy": busy})
+                print(f"PROBE rps={rps} busy={busy}", flush=True)
+                if any(count > 0 for count in busy.values()):
+                    break
+                clean_rps = float(rps)
+            evidence["chosen_rps"] = clean_rps
+            # Measure the full window at the highest clean rate the probe found.
+            self.windows = [(float(self.measure_seconds), clean_rps)]
+            cells: dict[str, Any] = {}
+            for target, port in order:
+                cells[target] = self._measure_cell(
+                    handles[target], port, caddy_port=caddies[target][1]
+                )
+            evidence["repetitions"].append(
+                {"index": 0, "order": [n for n, _ in order], "cells": cells}
+            )
+        finally:
+            for caddy, _ in caddies.values():
+                caddy.terminate()
+                try:
+                    caddy.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    caddy.kill()
+            for handle in handles.values():
+                self.stop_service(handle)
+        out = self.output_dir / f"measure-{self.size}-adaptive.json"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(evidence, indent=2) + "\n")
+        print(f"MEASUREMENT_JSON {out}")
+
     def _start_service_unit(
         self, target: str, python_port: int, rust_port: int, rust_config: str, base_env: dict[str, str]
     ) -> ServiceHandle:
@@ -561,34 +654,46 @@ class Measurement(runner.Runner):
             {**base_env, "RUST_CONFIG": rust_config},
         )
 
-    def _measure_cell(self, handle: ServiceHandle, port: int) -> dict[str, Any]:
-        """Warm up, then offer the declared rates and record every sample."""
-        ready_port = port
-        deadline = time.monotonic() + 120
+    def _await_ready(self, port: int, timeout: float = 120) -> None:
+        deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             try:
-                urllib.request.urlopen(f"http://127.0.0.1:{ready_port}/health/live", timeout=2).read()
-                break
+                urllib.request.urlopen(f"http://127.0.0.1:{port}/health/live", timeout=2).read()
+                return
             except (urllib.error.URLError, OSError):
                 time.sleep(0.5)
-        else:
-            raise runner.RunnerError(f"{handle.name} never became ready")
+        raise runner.RunnerError(f"the service on {port} never became ready")
 
+    def _measure_cell(
+        self, handle: ServiceHandle, port: int | None, *, caddy_port: int | None = None
+    ) -> dict[str, Any]:
+        """Warm up, then offer the declared rates and record every sample.
+
+        `caddy_port` reuses an already-started Caddy (the adaptive run keeps one
+        per runtime); otherwise a fresh Caddy is started for `port`.
+        """
+        ready_port = port or 0
+        if port is not None:
+            self._await_ready(port)
         self.load_series(ready_port, self.warmup_seconds, 5.0)
         samples: list[dict[str, Any]] = []
         counters: list[dict[str, Any]] = []
         stop = threading.Event()
         scraper = threading.Thread(target=self._scrape_loop, args=(handle, stop, counters), daemon=True)
         scraper.start()
-        caddy, caddy_port = self._start_caddy(f"127.0.0.1:{port}")
+        owned = caddy_port is None
+        caddy = None
+        if owned:
+            caddy, caddy_port = self._start_caddy(f"127.0.0.1:{port}")
         try:
             for seconds, rate in self.windows:
                 samples += self.load_series(caddy_port, seconds, rate)
         finally:
             stop.set()
             scraper.join(timeout=5)
-            caddy.terminate()
-            caddy.wait(timeout=10)
+            if owned and caddy is not None:
+                caddy.terminate()
+                caddy.wait(timeout=10)
         return {"samples": samples, "counters": counters}
 
 
@@ -596,6 +701,11 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument(
+        "--adaptive",
+        action="store_true",
+        help="ramp the offered rate while neither stack returns busy/503, then measure",
+    )
     args = parser.parse_args(argv)
     import tomllib
 
@@ -608,9 +718,15 @@ def main(argv: list[str] | None = None) -> int:
         windows=[(float(w["seconds"]), float(w["rps"])) for w in document["windows"]],
         repetitions=int(document.get("repetitions", 2)),
         weight_key=str(document.get("weight_key", "weight_baseline")),
+        probe_seconds=int(document.get("probe_seconds", 30)),
+        probe_max_rps=int(document.get("probe_max_rps", 5)),
+        measure_seconds=int(document.get("measure_seconds", 600)),
     )
     try:
-        measurement.run()
+        if args.adaptive:
+            measurement.run_adaptive()
+        else:
+            measurement.run()
     finally:
         measurement.cleanup()
     return 0

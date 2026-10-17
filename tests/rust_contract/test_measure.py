@@ -357,3 +357,40 @@ def test_memory_below_target_no_longer_blocks():
 def test_r27_style_regression_blocks_under_the_new_bar():
     # 0.167 -> 0.946 s: +779 ms and +467 %, far beyond both caps.
     assert report.route_regression_blocks(0.167, 0.946)
+
+
+# ------------------------------------------------- adaptive rate selection
+
+
+def _adaptive_choose(probe, max_rps):
+    """Mirror the adaptive probe rule: raise while neither stack is busy."""
+    clean = 1.0
+    for rps in range(1, max_rps + 1):
+        busy = probe[rps]
+        if any(count > 0 for count in busy.values()):
+            break
+        clean = float(rps)
+    return clean
+
+
+def test_adaptive_starts_at_1_and_rises_while_both_stacks_are_clean():
+    probe = {1: {"python": 0, "rust": 0}, 2: {"python": 0, "rust": 0}, 3: {"python": 0, "rust": 0}}
+    assert _adaptive_choose(probe, 3) == 3.0
+
+
+def test_adaptive_stops_at_the_first_rate_with_a_busy_response():
+    probe = {1: {"python": 0, "rust": 0}, 2: {"python": 0, "rust": 0}, 3: {"python": 1, "rust": 0}}
+    assert _adaptive_choose(probe, 4) == 2.0
+
+
+def test_adaptive_stays_at_1_when_the_first_rate_is_already_busy():
+    probe = {1: {"python": 0, "rust": 2}}
+    assert _adaptive_choose(probe, 4) == 1.0
+
+
+def test_adaptive_never_measures_above_a_busy_rate():
+    # A busy count on either stack at rate N stops the ramp at N-1.
+    probe = {1: {"python": 0, "rust": 0}, 2: {"python": 3, "rust": 0}}
+    chosen = _adaptive_choose(probe, 4)
+    assert chosen == 1.0
+    assert probe[int(chosen) + 1]["python"] > 0
