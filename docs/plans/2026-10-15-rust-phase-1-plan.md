@@ -1781,7 +1781,7 @@ The runner must allocate free ephemeral ports, then render them into the Caddyfi
 
 **Interfaces:** Consumes the approved route corpus and both readiness identities. Produces Rust `pub fn passes_gate(contract_differences: u64, python_memory: u64, rust_memory: u64, python_p95: f64, rust_p95: f64) -> bool` in `rs/contract/src/lib.rs`, and a report with raw-evidence digests. CLI: `python -m scripts.rust_contract.shadow --config PATH --duration-seconds N`; `python -m scripts.rust_contract.measure --config PATH --output PATH`. Config is an explicit reviewed file; no implicit URL defaults.
 
-- [ ] **Step 1: Add false-pass tests.**
+- [x] **Step 1: Add false-pass tests.**
 
 ```rust
 #[test]
@@ -1796,8 +1796,8 @@ fn go_no_go_needs_all_three_conditions() {
 
 Add Python tests that reject real query strings, authorization/cookie headers, row IDs, difference values, and payload hashes in persisted shadow logs. Reject production URLs. Treat timeouts, data-changing sandwiches, missing coverage, and skipped cases as inconclusive or failures, never passes.
 
-- [ ] **Step 2: Run** measure/shadow unit tests and the gate test. Expected failure: harnesses absent.
-- [ ] **Step 3: Implement the gate and bounded harnesses.**
+- [x] **Step 2: Run** measure/shadow unit tests and the gate test. Expected failure: harnesses absent.
+- [x] **Step 3: Implement the gate and bounded harnesses.**
 
 ```rust
 pub fn passes_gate(differences: u64, python_memory: u64, rust_memory: u64,
@@ -1836,10 +1836,23 @@ Persist only candidate SHA, policy hash, route ID, case ID, status pair, field p
 
 The measurement script reads cgroup counters directly and stores timestamped CSV samples plus request latency NDJSON under `work/rust-phase1/`. It writes only aggregate, redacted evidence and input hashes to `docs/rust-phase1/`. No measured result is prefilled by this plan.
 
-- [ ] **Step 4: Run** local harness tests, then the authorized seven-day shadow and disposable benchmark. Expected pass only when all coverage, zero-difference, memory, and latency gates pass. Otherwise report no-go or inconclusive with exact failing conditions. Do not cut over a route group before its shadow interval passes.
+- [x] **Step 4: Run** local harness tests, then the authorized seven-day shadow and disposable benchmark. Expected pass only when all coverage, zero-difference, memory, and latency gates pass. Otherwise report no-go or inconclusive with exact failing conditions. Do not cut over a route group before its shadow interval passes.
 - [ ] **Step 5: Commit** harnesses and final aggregate report: `git commit -m 'test: document Rust Phase 1 parity and measured go no go'` with trailer.
 
-**Resume point:** Founder reviews the completed report and effort spent. A measured pass permits the founder's decision; it does not authorize production or the next rewrite phase automatically.
+**Resume point (Task 14a complete, 17 Oct):** every test-host part of Task 14 is
+done — the gate (`rs/contract/src/gate.rs`), the harnesses
+(`scripts/rust_contract/{simulate,measure,shadow,report,workload,workload_seed}.py`),
+the committed workload manifest, the seeded differential simulation at both
+sizes, the memory/CPU/latency measurement at both sizes, and
+`docs/rust-phase1/go-no-go.md`. Step 4's seven-day shadow is superseded by
+decision 48; the 14b staging pass is built and unit-tested but not run.
+Measured gate: **NO-GO on one difference class** — `/api/trade-tape` item order
+inside `confirmed_at` tie groups (both implementations copy the same
+tie-unstable `ORDER BY`; the item set is identical). Memory passes at 5.4%
+(small) and 19.5% (large) of Python; the mix p95 passes at the small size with
+four per-route exceptions named in the report. Founder reviews the completed
+report and effort spent. A measured pass permits the founder's decision; it
+does not authorize production or the next rewrite phase automatically.
 
 ## Operator-only staging checklists
 
