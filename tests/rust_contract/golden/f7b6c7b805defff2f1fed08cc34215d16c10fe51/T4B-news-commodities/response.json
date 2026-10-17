@@ -1,0 +1,25 @@
+{
+  "status": 200,
+  "headers": {
+    "content-type": "application/json",
+    "x-request-id": "00000000-0000-4000-8000-000000000001"
+  },
+  "body": [
+    {
+      "id": "f4d79d28-620a-54fa-84e3-76026e82ec2f",
+      "title": "Corpus commodities",
+      "summary": null,
+      "source": "Corpus",
+      "source_url": "https://example.test",
+      "url": "https://example.test/commodities",
+      "category": "commodities",
+      "relevance": 5,
+      "published_at": "2026-10-15T12:00:00+00:00",
+      "fetched_at": "2026-10-15T12:00:00+00:00"
+    }
+  ],
+  "body_sha256": "0b171f859c0a2930f55ca6754216d367c0c2a4b8d9ecd67ecae5df7e33934fe1",
+  "news_exact_items": [
+    "{\"id\":\"f4d79d28-620a-54fa-84e3-76026e82ec2f\",\"title\":\"Corpus commodities\",\"summary\":null,\"source\":\"Corpus\",\"source_url\":\"https://example.test\",\"url\":\"https://example.test/commodities\",\"category\":\"commodities\",\"relevance\":5,\"published_at\":\"2026-10-15T12:00:00+00:00\",\"fetched_at\":\"2026-10-15T12:00:00+00:00\"}"
+  ]
+}

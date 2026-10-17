@@ -1,0 +1,21 @@
+{
+  "status": 200,
+  "headers": {
+    "content-type": "application/json",
+    "x-request-id": "00000000-0000-4000-8000-000000000001"
+  },
+  "body": {
+    "jsonrpc": "2.0",
+    "id": 50,
+    "result": {
+      "content": [
+        {
+          "text": "Error executing tool plan_voyage_fuel: 1 validation error for plan_voyage_fuelArguments\nrequest.assumptions.vlsfo_price_usd_per_mt\n  Input should be a valid dictionary [type=dict_type, input_value=[], input_type=list]\n    For further information visit https://errors.pydantic.dev/2.13/v/dict_type",
+          "type": "text"
+        }
+      ],
+      "isError": true
+    }
+  },
+  "body_sha256": "5f1c8b25561a8b5276c192f35c8b13d62391d12bde2644ff3253f46c2b597d92"
+}

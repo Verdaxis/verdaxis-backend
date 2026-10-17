@@ -1,0 +1,57 @@
+{
+  "status": 422,
+  "headers": {
+    "content-type": "application/json",
+    "x-request-id": "00000000-0000-4000-8000-000000000001"
+  },
+  "body": {
+    "detail": [
+      {
+        "type": "uuid_parsing",
+        "loc": [
+          "query",
+          "delivery_point_id"
+        ],
+        "msg": "Input should be a valid UUID, invalid length: expected length 32 for simple format, found 3",
+        "input": "bad",
+        "ctx": {
+          "error": "invalid length: expected length 32 for simple format, found 3"
+        }
+      },
+      {
+        "type": "bool_parsing",
+        "loc": [
+          "query",
+          "demo_only"
+        ],
+        "msg": "Input should be a valid boolean, unable to interpret input",
+        "input": "x"
+      },
+      {
+        "type": "greater_than_equal",
+        "loc": [
+          "query",
+          "skip"
+        ],
+        "msg": "Input should be greater than or equal to 0",
+        "input": "-1",
+        "ctx": {
+          "ge": 0
+        }
+      },
+      {
+        "type": "greater_than_equal",
+        "loc": [
+          "query",
+          "limit"
+        ],
+        "msg": "Input should be greater than or equal to 1",
+        "input": "0",
+        "ctx": {
+          "ge": 1
+        }
+      }
+    ]
+  },
+  "body_sha256": "bff8ef4489b1a5dc134943ea9f08938bace319672e0cf9021023c5f1f0d0cd48"
+}

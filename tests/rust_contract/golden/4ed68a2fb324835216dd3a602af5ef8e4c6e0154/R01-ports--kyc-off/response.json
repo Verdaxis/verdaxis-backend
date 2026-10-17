@@ -1,0 +1,53 @@
+{
+  "status": 200,
+  "headers": {
+    "content-type": "application/json",
+    "x-request-id": "00000000-0000-4000-8000-000000000001"
+  },
+  "body": [
+    {
+      "id": "T4B_BARE",
+      "name": "Corpus BARE",
+      "country": "Singapore",
+      "location": null,
+      "timezone": "Asia/Singapore",
+      "is_active": true,
+      "lat": "1.234567891234",
+      "lng": "103.123456789123",
+      "intelligence": null
+    },
+    {
+      "id": "T4B_ONE",
+      "name": "Corpus ONE",
+      "country": "Singapore",
+      "location": null,
+      "timezone": "Asia/Singapore",
+      "is_active": true,
+      "lat": "1.234567891234",
+      "lng": "103.123456789123",
+      "intelligence": {
+        "congestion_level": "Low",
+        "methanol_price_avg": "600.0",
+        "biofuel_price_avg": null,
+        "captured_at": "2026-10-15T12:00:00Z"
+      }
+    },
+    {
+      "id": "T4B_TWO",
+      "name": "Corpus TWO",
+      "country": "Singapore",
+      "location": null,
+      "timezone": "Asia/Singapore",
+      "is_active": true,
+      "lat": "1.234567891234",
+      "lng": "103.123456789123",
+      "intelligence": {
+        "congestion_level": "Low",
+        "methanol_price_avg": "601.0",
+        "biofuel_price_avg": null,
+        "captured_at": "2026-10-15T12:00:00Z"
+      }
+    }
+  ],
+  "body_sha256": "4abc57055a9e818f4817b2d12bc8b21e7d9f133bbe3c14b359bbd36313fec246"
+}

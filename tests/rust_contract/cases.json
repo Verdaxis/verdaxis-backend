@@ -1,0 +1,3401 @@
+{
+  "schema_revision": 1,
+  "groups": {
+    "live_benchmarks": [
+      {
+        "id": "LB-empty",
+        "method": "GET",
+        "path": "/__contract__/live-benchmarks?selection=empty"
+      },
+      {
+        "id": "LB-all",
+        "method": "GET",
+        "path": "/__contract__/live-benchmarks"
+      },
+      {
+        "id": "LB-sparse",
+        "method": "GET",
+        "path": "/__contract__/live-benchmarks?selection=sparse"
+      },
+      {
+        "id": "LB-expired",
+        "method": "GET",
+        "path": "/__contract__/live-benchmarks?as_of=2036-10-15T12:00:00Z"
+      }
+    ],
+    "health": [
+      {
+        "id": "H01-ready",
+        "method": "GET",
+        "path": "/health/ready"
+      },
+      {
+        "id": "H02-live",
+        "method": "GET",
+        "path": "/health/live"
+      },
+      {
+        "id": "H03-alias",
+        "method": "GET",
+        "path": "/health"
+      },
+      {
+        "id": "H04-live-head",
+        "method": "HEAD",
+        "path": "/health/live"
+      },
+      {
+        "id": "H05-live-post-405",
+        "method": "POST",
+        "path": "/health/live"
+      },
+      {
+        "id": "H06-live-options-405",
+        "method": "OPTIONS",
+        "path": "/health/live"
+      },
+      {
+        "id": "H07-live-slash",
+        "method": "GET",
+        "path": "/health/live/"
+      },
+      {
+        "id": "H08-unknown-path",
+        "method": "GET",
+        "path": "/nope"
+      }
+    ],
+    "echo": [
+      {
+        "id": "E01-echo",
+        "method": "GET",
+        "path": "/__contract__/echo",
+        "query": "value=alpha"
+      },
+      {
+        "id": "E02-echo-empty",
+        "method": "GET",
+        "path": "/__contract__/echo"
+      }
+    ],
+    "simple_reads": [
+      {
+        "id": "R01-ports",
+        "method": "GET",
+        "path": "/api/ports"
+      },
+      {
+        "id": "R01-ports-head",
+        "method": "HEAD",
+        "path": "/api/ports"
+      },
+      {
+        "id": "R01-ports-post-405",
+        "method": "POST",
+        "path": "/api/ports"
+      },
+      {
+        "id": "R01-ports-options-405",
+        "method": "OPTIONS",
+        "path": "/api/ports"
+      },
+      {
+        "id": "R01-ports-slash-307",
+        "method": "GET",
+        "path": "/api/ports/"
+      },
+      {
+        "id": "R02-port",
+        "method": "GET",
+        "path": "/api/ports/1379d36c-1ca9-55b7-9c0d-5235a0ba1f36"
+      },
+      {
+        "id": "R02-port-head",
+        "method": "HEAD",
+        "path": "/api/ports/1379d36c-1ca9-55b7-9c0d-5235a0ba1f36"
+      },
+      {
+        "id": "R02-port-post-405",
+        "method": "POST",
+        "path": "/api/ports/1379d36c-1ca9-55b7-9c0d-5235a0ba1f36"
+      },
+      {
+        "id": "R02-port-options-405",
+        "method": "OPTIONS",
+        "path": "/api/ports/1379d36c-1ca9-55b7-9c0d-5235a0ba1f36"
+      },
+      {
+        "id": "R02-port-slash-307",
+        "method": "GET",
+        "path": "/api/ports/1379d36c-1ca9-55b7-9c0d-5235a0ba1f36/"
+      },
+      {
+        "id": "R02b-port-missing",
+        "method": "GET",
+        "path": "/api/ports/ZZZZZ"
+      },
+      {
+        "id": "R03-products",
+        "method": "GET",
+        "path": "/api/catalog/products"
+      },
+      {
+        "id": "R03-products-head",
+        "method": "HEAD",
+        "path": "/api/catalog/products"
+      },
+      {
+        "id": "R03-products-post-405",
+        "method": "POST",
+        "path": "/api/catalog/products"
+      },
+      {
+        "id": "R03-products-options-405",
+        "method": "OPTIONS",
+        "path": "/api/catalog/products"
+      },
+      {
+        "id": "R03-products-slash-307",
+        "method": "GET",
+        "path": "/api/catalog/products/"
+      },
+      {
+        "id": "R04-delivery-points",
+        "method": "GET",
+        "path": "/api/catalog/delivery-points"
+      },
+      {
+        "id": "R04-delivery-points-head",
+        "method": "HEAD",
+        "path": "/api/catalog/delivery-points"
+      },
+      {
+        "id": "R04-delivery-points-post-405",
+        "method": "POST",
+        "path": "/api/catalog/delivery-points"
+      },
+      {
+        "id": "R04-delivery-points-options-405",
+        "method": "OPTIONS",
+        "path": "/api/catalog/delivery-points"
+      },
+      {
+        "id": "R04-delivery-points-slash-307",
+        "method": "GET",
+        "path": "/api/catalog/delivery-points/"
+      },
+      {
+        "id": "R05-news",
+        "method": "GET",
+        "path": "/api/news"
+      },
+      {
+        "id": "R05-news-head",
+        "method": "HEAD",
+        "path": "/api/news"
+      },
+      {
+        "id": "R05-news-post-405",
+        "method": "POST",
+        "path": "/api/news"
+      },
+      {
+        "id": "R05-news-options-405",
+        "method": "OPTIONS",
+        "path": "/api/news"
+      },
+      {
+        "id": "R05-news-slash-307",
+        "method": "GET",
+        "path": "/api/news/"
+      },
+      {
+        "id": "R05b-news-limit",
+        "method": "GET",
+        "path": "/api/news",
+        "query": "limit=1"
+      },
+      {
+        "id": "R05c-news-bad-limit",
+        "method": "GET",
+        "path": "/api/news",
+        "query": "limit=999"
+      },
+      {
+        "id": "R01b-ports-unknown-key",
+        "method": "GET",
+        "path": "/api/ports",
+        "query": "unknown=1"
+      },
+      {
+        "id": "R01c-ports-repeat-key",
+        "method": "GET",
+        "path": "/api/ports",
+        "query": "skip=1&skip=2"
+      },
+      {
+        "id": "R05d-news-percent",
+        "method": "GET",
+        "path": "/api/news",
+        "query": "category=a%20b"
+      },
+      {
+        "id": "R05e-news-unicode",
+        "method": "GET",
+        "path": "/api/news",
+        "query": "category=%E2%82%AC"
+      },
+      {
+        "id": "R05f-news-min-relevance",
+        "method": "GET",
+        "path": "/api/news",
+        "query": "min_relevance=0"
+      },
+      {
+        "id": "R05g-news-relevance-four",
+        "method": "GET",
+        "path": "/api/news",
+        "query": "min_relevance=4"
+      },
+      {
+        "id": "R05h-news-empty-category",
+        "method": "GET",
+        "path": "/api/news",
+        "query": "category="
+      },
+      {
+        "id": "R05-padded-int",
+        "method": "GET",
+        "path": "/api/news",
+        "query": "limit=%2020%20"
+      },
+      {
+        "id": "R05-decimal-int",
+        "method": "GET",
+        "path": "/api/news",
+        "query": "limit=20.0"
+      },
+      {
+        "id": "R05-separator-int",
+        "method": "GET",
+        "path": "/api/news",
+        "query": "limit=1_0"
+      },
+      {
+        "id": "R05-both-invalid",
+        "method": "GET",
+        "path": "/api/news",
+        "query": "limit=0&min_relevance=0"
+      },
+      {
+        "id": "R05-large-int",
+        "method": "GET",
+        "path": "/api/news",
+        "query": "limit=9223372036854775808"
+      },
+      {
+        "id": "T4B-port-bare",
+        "method": "GET",
+        "path": "/api/ports/T4B_BARE"
+      },
+      {
+        "id": "T4B-port-one",
+        "method": "GET",
+        "path": "/api/ports/T4B_ONE"
+      },
+      {
+        "id": "T4B-port-two",
+        "method": "GET",
+        "path": "/api/ports/T4B_TWO"
+      },
+      {
+        "id": "T4B-news-bunkers",
+        "method": "GET",
+        "path": "/api/news",
+        "query": "category=bunkers"
+      },
+      {
+        "id": "T4B-news-carbon",
+        "method": "GET",
+        "path": "/api/news",
+        "query": "category=carbon"
+      },
+      {
+        "id": "T4B-news-commodities",
+        "method": "GET",
+        "path": "/api/news",
+        "query": "category=commodities"
+      },
+      {
+        "id": "T4B-news-markets",
+        "method": "GET",
+        "path": "/api/news",
+        "query": "category=markets"
+      },
+      {
+        "id": "T4B-news-regulation",
+        "method": "GET",
+        "path": "/api/news",
+        "query": "category=regulation"
+      },
+      {
+        "id": "T4B-news-shipping",
+        "method": "GET",
+        "path": "/api/news",
+        "query": "category=shipping"
+      }
+    ],
+    "orderbook_snapshot": [
+      {
+        "id": "R15-snapshot",
+        "method": "GET",
+        "path": "/api/orderbook/snapshot",
+        "query": "market_product=BIO_LNG&delivery_point_id=1379d36c-1ca9-55b7-9c0d-5235a0ba1f36&availability_window=SPOT"
+      },
+      {
+        "id": "R15-snapshot-head",
+        "method": "HEAD",
+        "path": "/api/orderbook/snapshot"
+      },
+      {
+        "id": "R15-snapshot-post-405",
+        "method": "POST",
+        "path": "/api/orderbook/snapshot"
+      },
+      {
+        "id": "R15-snapshot-options-405",
+        "method": "OPTIONS",
+        "path": "/api/orderbook/snapshot"
+      },
+      {
+        "id": "R15-snapshot-slash-307",
+        "method": "GET",
+        "path": "/api/orderbook/snapshot/"
+      },
+      {
+        "id": "R15b-snapshot-bad-enum",
+        "method": "GET",
+        "path": "/api/orderbook/snapshot",
+        "query": "market_product=NOPE&delivery_point_id=1379d36c-1ca9-55b7-9c0d-5235a0ba1f36&availability_window=SPOT"
+      },
+      {
+        "id": "R15c-snapshot-missing",
+        "method": "GET",
+        "path": "/api/orderbook/snapshot"
+      }
+    ],
+    "orderbook_lists": [
+      {
+        "id": "R16-bids",
+        "method": "GET",
+        "path": "/api/orderbook/bids"
+      },
+      {
+        "id": "R16-bids-head",
+        "method": "HEAD",
+        "path": "/api/orderbook/bids"
+      },
+      {
+        "id": "R16-bids-post-405",
+        "method": "POST",
+        "path": "/api/orderbook/bids"
+      },
+      {
+        "id": "R16-bids-options-405",
+        "method": "OPTIONS",
+        "path": "/api/orderbook/bids"
+      },
+      {
+        "id": "R16-bids-slash-307",
+        "method": "GET",
+        "path": "/api/orderbook/bids/"
+      },
+      {
+        "id": "R16b-bids-page",
+        "method": "GET",
+        "path": "/api/orderbook/bids",
+        "query": "skip=0&limit=5&sort_by=price_asc"
+      },
+      {
+        "id": "R16c-bids-bad-uuid",
+        "method": "GET",
+        "path": "/api/orderbook/bids",
+        "query": "product_id=not-a-uuid"
+      },
+      {
+        "id": "R17-asks",
+        "method": "GET",
+        "path": "/api/orderbook/asks"
+      },
+      {
+        "id": "R17-asks-head",
+        "method": "HEAD",
+        "path": "/api/orderbook/asks"
+      },
+      {
+        "id": "R17-asks-post-405",
+        "method": "POST",
+        "path": "/api/orderbook/asks"
+      },
+      {
+        "id": "R17-asks-options-405",
+        "method": "OPTIONS",
+        "path": "/api/orderbook/asks"
+      },
+      {
+        "id": "R17-asks-slash-307",
+        "method": "GET",
+        "path": "/api/orderbook/asks/"
+      },
+      {
+        "id": "R17b-asks-past-end",
+        "method": "GET",
+        "path": "/api/orderbook/asks",
+        "query": "skip=100000&limit=1"
+      },
+      {
+        "id": "R18-with-ci",
+        "method": "GET",
+        "path": "/api/orderbook/with-ci"
+      },
+      {
+        "id": "R18-with-ci-head",
+        "method": "HEAD",
+        "path": "/api/orderbook/with-ci"
+      },
+      {
+        "id": "R18-with-ci-post-405",
+        "method": "POST",
+        "path": "/api/orderbook/with-ci"
+      },
+      {
+        "id": "R18-with-ci-options-405",
+        "method": "OPTIONS",
+        "path": "/api/orderbook/with-ci"
+      },
+      {
+        "id": "R18-with-ci-slash-307",
+        "method": "GET",
+        "path": "/api/orderbook/with-ci/"
+      },
+      {
+        "id": "R26-orderbook",
+        "method": "GET",
+        "path": "/api/orderbook"
+      },
+      {
+        "id": "R26-orderbook-head",
+        "method": "HEAD",
+        "path": "/api/orderbook"
+      },
+      {
+        "id": "R26-orderbook-post-405",
+        "method": "POST",
+        "path": "/api/orderbook"
+      },
+      {
+        "id": "R26-orderbook-options-405",
+        "method": "OPTIONS",
+        "path": "/api/orderbook"
+      },
+      {
+        "id": "R26-orderbook-slash-307",
+        "method": "GET",
+        "path": "/api/orderbook/"
+      },
+      {
+        "id": "R26b-orderbook-page",
+        "method": "GET",
+        "path": "/api/orderbook",
+        "query": "page=1&page_size=2"
+      },
+      {
+        "id": "T4B-region-Singapore",
+        "method": "GET",
+        "path": "/api/orderbook/asks",
+        "query": "region=Singapore"
+      },
+      {
+        "id": "T4B-region-Asia",
+        "method": "GET",
+        "path": "/api/orderbook/asks",
+        "query": "region=Asia"
+      },
+      {
+        "id": "T4B-region-Rotterdam",
+        "method": "GET",
+        "path": "/api/orderbook/asks",
+        "query": "region=Rotterdam"
+      },
+      {
+        "id": "T4B-region-Europe",
+        "method": "GET",
+        "path": "/api/orderbook/asks",
+        "query": "region=Europe"
+      }
+    ],
+    "orderbook_map": [
+      {
+        "id": "T4B-negative-fame-holder",
+        "method": "GET",
+        "path": "/api/listings",
+        "fixture": "T4B-negative-fame",
+        "expectation": "Python response for deliberately blank certificate_holder; isolated from positive reads",
+        "query": "limit=100"
+      },
+      {
+        "id": "R27-listings",
+        "method": "GET",
+        "path": "/api/listings"
+      },
+      {
+        "id": "R27-listings-head",
+        "method": "HEAD",
+        "path": "/api/listings"
+      },
+      {
+        "id": "R27-listings-post-405",
+        "method": "POST",
+        "path": "/api/listings"
+      },
+      {
+        "id": "R27-listings-options-405",
+        "method": "OPTIONS",
+        "path": "/api/listings"
+      },
+      {
+        "id": "R27-listings-slash-307",
+        "method": "GET",
+        "path": "/api/listings/"
+      },
+      {
+        "id": "R19-aggregated",
+        "method": "GET",
+        "path": "/api/orderbook/aggregated"
+      },
+      {
+        "id": "R19-aggregated-head",
+        "method": "HEAD",
+        "path": "/api/orderbook/aggregated"
+      },
+      {
+        "id": "R19-aggregated-post-405",
+        "method": "POST",
+        "path": "/api/orderbook/aggregated"
+      },
+      {
+        "id": "R19-aggregated-options-405",
+        "method": "OPTIONS",
+        "path": "/api/orderbook/aggregated"
+      },
+      {
+        "id": "R19-aggregated-slash-307",
+        "method": "GET",
+        "path": "/api/orderbook/aggregated/"
+      },
+      {
+        "id": "R20-product-counts",
+        "method": "GET",
+        "path": "/api/orderbook/product-counts",
+        "query": "side=BID"
+      },
+      {
+        "id": "R20-product-counts-head",
+        "method": "HEAD",
+        "path": "/api/orderbook/product-counts"
+      },
+      {
+        "id": "R20-product-counts-post-405",
+        "method": "POST",
+        "path": "/api/orderbook/product-counts"
+      },
+      {
+        "id": "R20-product-counts-options-405",
+        "method": "OPTIONS",
+        "path": "/api/orderbook/product-counts"
+      },
+      {
+        "id": "R20-product-counts-slash-307",
+        "method": "GET",
+        "path": "/api/orderbook/product-counts/"
+      },
+      {
+        "id": "R21-map-summary",
+        "method": "GET",
+        "path": "/api/orderbook/map-summary"
+      },
+      {
+        "id": "R21-map-summary-head",
+        "method": "HEAD",
+        "path": "/api/orderbook/map-summary"
+      },
+      {
+        "id": "R21-map-summary-post-405",
+        "method": "POST",
+        "path": "/api/orderbook/map-summary"
+      },
+      {
+        "id": "R21-map-summary-options-405",
+        "method": "OPTIONS",
+        "path": "/api/orderbook/map-summary"
+      },
+      {
+        "id": "R21-map-summary-slash-307",
+        "method": "GET",
+        "path": "/api/orderbook/map-summary/"
+      },
+      {
+        "id": "R22-map-compact",
+        "method": "GET",
+        "path": "/api/orderbook/map-summary/compact"
+      },
+      {
+        "id": "R22-map-compact-head",
+        "method": "HEAD",
+        "path": "/api/orderbook/map-summary/compact"
+      },
+      {
+        "id": "R22-map-compact-post-405",
+        "method": "POST",
+        "path": "/api/orderbook/map-summary/compact"
+      },
+      {
+        "id": "R22-map-compact-options-405",
+        "method": "OPTIONS",
+        "path": "/api/orderbook/map-summary/compact"
+      },
+      {
+        "id": "R22-map-compact-slash-307",
+        "method": "GET",
+        "path": "/api/orderbook/map-summary/compact/"
+      },
+      {
+        "id": "R23-products",
+        "method": "GET",
+        "path": "/api/orderbook/products"
+      },
+      {
+        "id": "R23-products-head",
+        "method": "HEAD",
+        "path": "/api/orderbook/products"
+      },
+      {
+        "id": "R23-products-post-405",
+        "method": "POST",
+        "path": "/api/orderbook/products"
+      },
+      {
+        "id": "R23-products-options-405",
+        "method": "OPTIONS",
+        "path": "/api/orderbook/products"
+      },
+      {
+        "id": "R23-products-slash-307",
+        "method": "GET",
+        "path": "/api/orderbook/products/"
+      },
+      {
+        "id": "R24-regions",
+        "method": "GET",
+        "path": "/api/orderbook/regions"
+      },
+      {
+        "id": "R24-regions-head",
+        "method": "HEAD",
+        "path": "/api/orderbook/regions"
+      },
+      {
+        "id": "R24-regions-post-405",
+        "method": "POST",
+        "path": "/api/orderbook/regions"
+      },
+      {
+        "id": "R24-regions-options-405",
+        "method": "OPTIONS",
+        "path": "/api/orderbook/regions"
+      },
+      {
+        "id": "R24-regions-slash-307",
+        "method": "GET",
+        "path": "/api/orderbook/regions/"
+      },
+      {
+        "id": "R25-fuel-types",
+        "method": "GET",
+        "path": "/api/orderbook/fuel-types"
+      },
+      {
+        "id": "R25-fuel-types-head",
+        "method": "HEAD",
+        "path": "/api/orderbook/fuel-types"
+      },
+      {
+        "id": "R25-fuel-types-post-405",
+        "method": "POST",
+        "path": "/api/orderbook/fuel-types"
+      },
+      {
+        "id": "R25-fuel-types-options-405",
+        "method": "OPTIONS",
+        "path": "/api/orderbook/fuel-types"
+      },
+      {
+        "id": "R25-fuel-types-slash-307",
+        "method": "GET",
+        "path": "/api/orderbook/fuel-types/"
+      }
+    ],
+    "prices": [
+      {
+        "id": "R06-trade-tape",
+        "method": "GET",
+        "path": "/api/trade-tape"
+      },
+      {
+        "id": "R06-trade-tape-head",
+        "method": "HEAD",
+        "path": "/api/trade-tape"
+      },
+      {
+        "id": "R06-trade-tape-post-405",
+        "method": "POST",
+        "path": "/api/trade-tape"
+      },
+      {
+        "id": "R06-trade-tape-options-405",
+        "method": "OPTIONS",
+        "path": "/api/trade-tape"
+      },
+      {
+        "id": "R06-trade-tape-slash-307",
+        "method": "GET",
+        "path": "/api/trade-tape/"
+      },
+      {
+        "id": "R06b-trade-tape-page",
+        "method": "GET",
+        "path": "/api/trade-tape",
+        "query": "skip=0&limit=5&demo_only=true"
+      },
+      {
+        "id": "R12-prices",
+        "method": "GET",
+        "path": "/api/prices"
+      },
+      {
+        "id": "R12-prices-head",
+        "method": "HEAD",
+        "path": "/api/prices"
+      },
+      {
+        "id": "R12-prices-post-405",
+        "method": "POST",
+        "path": "/api/prices"
+      },
+      {
+        "id": "R12-prices-options-405",
+        "method": "OPTIONS",
+        "path": "/api/prices"
+      },
+      {
+        "id": "R12-prices-slash-307",
+        "method": "GET",
+        "path": "/api/prices/"
+      },
+      {
+        "id": "R12b-prices-hours",
+        "method": "GET",
+        "path": "/api/prices",
+        "query": "hours=168"
+      },
+      {
+        "id": "R13-reference",
+        "method": "GET",
+        "path": "/api/prices/reference"
+      },
+      {
+        "id": "R13-reference-head",
+        "method": "HEAD",
+        "path": "/api/prices/reference"
+      },
+      {
+        "id": "R13-reference-post-405",
+        "method": "POST",
+        "path": "/api/prices/reference"
+      },
+      {
+        "id": "R13-reference-options-405",
+        "method": "OPTIONS",
+        "path": "/api/prices/reference"
+      },
+      {
+        "id": "R13-reference-slash-307",
+        "method": "GET",
+        "path": "/api/prices/reference/"
+      },
+      {
+        "id": "R13b-reference-bad-date",
+        "method": "GET",
+        "path": "/api/prices/reference",
+        "query": "date_from=not-a-date"
+      },
+      {
+        "id": "R13c-reference-reversed",
+        "method": "GET",
+        "path": "/api/prices/reference",
+        "query": "date_from=2026-01-02&date_to=2026-01-01"
+      },
+      {
+        "id": "R14-export",
+        "method": "GET",
+        "path": "/api/prices/reference/export"
+      },
+      {
+        "id": "R14-export-head",
+        "method": "HEAD",
+        "path": "/api/prices/reference/export"
+      },
+      {
+        "id": "R14-export-post-405",
+        "method": "POST",
+        "path": "/api/prices/reference/export"
+      },
+      {
+        "id": "R14-export-options-405",
+        "method": "OPTIONS",
+        "path": "/api/prices/reference/export"
+      },
+      {
+        "id": "R14-export-slash-307",
+        "method": "GET",
+        "path": "/api/prices/reference/export/"
+      },
+      {
+        "id": "R14b-export-format",
+        "method": "GET",
+        "path": "/api/prices/reference/export",
+        "query": "format=csv"
+      },
+      {
+        "id": "R06-empty-fuel",
+        "method": "GET",
+        "path": "/api/trade-tape",
+        "query": "fuel_type="
+      },
+      {
+        "id": "R06-empty-market",
+        "method": "GET",
+        "path": "/api/trade-tape",
+        "query": "market_product="
+      },
+      {
+        "id": "R06-region-name",
+        "method": "GET",
+        "path": "/api/trade-tape",
+        "query": "region=Singapore"
+      },
+      {
+        "id": "R06-region",
+        "method": "GET",
+        "path": "/api/trade-tape",
+        "query": "region=Asia"
+      },
+      {
+        "id": "R06-past-end",
+        "method": "GET",
+        "path": "/api/trade-tape",
+        "query": "skip=1000000"
+      },
+      {
+        "id": "R06-invalid-window",
+        "method": "GET",
+        "path": "/api/trade-tape",
+        "query": "availability_window=invalid"
+      },
+      {
+        "id": "R06-invalid-bool",
+        "method": "GET",
+        "path": "/api/trade-tape",
+        "query": "demo_only=invalid"
+      },
+      {
+        "id": "R06-point",
+        "method": "GET",
+        "path": "/api/trade-tape",
+        "query": "delivery_point_id=1379d36c-1ca9-55b7-9c0d-5235a0ba1f36"
+      },
+      {
+        "id": "R12-substring",
+        "method": "GET",
+        "path": "/api/prices",
+        "query": "fuel_type=anol&region=ASI"
+      },
+      {
+        "id": "R12-bad-hours",
+        "method": "GET",
+        "path": "/api/prices",
+        "query": "hours=0"
+      },
+      {
+        "id": "R12-last-key",
+        "method": "GET",
+        "path": "/api/prices",
+        "query": "hours=0&hours=24&unknown=x"
+      },
+      {
+        "id": "R12-window",
+        "method": "GET",
+        "path": "/api/prices",
+        "query": "availability_window=invalid"
+      },
+      {
+        "id": "R12-market",
+        "method": "GET",
+        "path": "/api/prices",
+        "query": "market_product=invalid"
+      },
+      {
+        "id": "R13-alias-conflict",
+        "method": "GET",
+        "path": "/api/prices/reference",
+        "query": "date_from=2026-01-01&from=2026-01-02"
+      },
+      {
+        "id": "R13-alias-match",
+        "method": "GET",
+        "path": "/api/prices/reference",
+        "query": "date_from=2026-01-01&from=2026-01-01"
+      },
+      {
+        "id": "R13-internal",
+        "method": "GET",
+        "path": "/api/prices/reference",
+        "query": "visibility=internal"
+      },
+      {
+        "id": "R13-invalid-visibility",
+        "method": "GET",
+        "path": "/api/prices/reference",
+        "query": "visibility=private"
+      },
+      {
+        "id": "R14-unused-format",
+        "method": "GET",
+        "path": "/api/prices/reference/export",
+        "query": "format=other"
+      },
+      {
+        "id": "R14-reversed",
+        "method": "GET",
+        "path": "/api/prices/reference/export",
+        "query": "from_date=2026-01-02&to_date=2026-01-01"
+      },
+      {
+        "id": "T9-multiple-summary",
+        "method": "GET",
+        "path": "/api/prices",
+        "query": "product_id=bad&delivery_point_id=bad&hours=0&market_product=bad"
+      },
+      {
+        "id": "T9-multiple-reference",
+        "method": "GET",
+        "path": "/api/prices/reference",
+        "query": "product_id=bad&delivery_point_id=bad&date_from=x&date_to=x&from=x&to=x&visibility=x"
+      },
+      {
+        "id": "T9-multiple-export",
+        "method": "GET",
+        "path": "/api/prices/reference/export",
+        "query": "product_id=bad&delivery_point_id=bad&from_date=x&to_date=x"
+      },
+      {
+        "id": "T9-multiple-tape",
+        "method": "GET",
+        "path": "/api/trade-tape",
+        "query": "delivery_point_id=bad&demo_only=x&skip=-1&limit=0&availability_window=x"
+      },
+      {
+        "id": "T9-date-month",
+        "method": "GET",
+        "path": "/api/prices/reference",
+        "query": "date_from=2026-13-01"
+      },
+      {
+        "id": "T9-date-day",
+        "method": "GET",
+        "path": "/api/prices/reference",
+        "query": "date_from=2026-02-30"
+      },
+      {
+        "id": "T9-date-midnight",
+        "method": "GET",
+        "path": "/api/prices/reference",
+        "query": "date_from=2026-01-01T00:00:00%2B08:00"
+      },
+      {
+        "id": "T9-date-inexact",
+        "method": "GET",
+        "path": "/api/prices/reference",
+        "query": "date_from=2026-01-01T01:00:00Z"
+      },
+      {
+        "id": "T9-date-epoch",
+        "method": "GET",
+        "path": "/api/prices/reference",
+        "query": "date_from=86400"
+      },
+      {
+        "id": "T9-date-year-zero",
+        "method": "GET",
+        "path": "/api/prices/reference",
+        "query": "date_from=0000-01-01"
+      },
+      {
+        "id": "T9-date-separator",
+        "method": "GET",
+        "path": "/api/prices/reference",
+        "query": "date_from=2026/01/01"
+      },
+      {
+        "id": "T9-date-short",
+        "method": "GET",
+        "path": "/api/prices/reference",
+        "query": "date_from=2026-1-1"
+      }
+    ],
+    "curves_legacy": [
+      {
+        "id": "R07-forward",
+        "method": "GET",
+        "path": "/api/curves/forward",
+        "query": "product_id=8f6f34a5-2927-54a6-8564-cca40ae7cb8a"
+      },
+      {
+        "id": "R07-forward-head",
+        "method": "HEAD",
+        "path": "/api/curves/forward"
+      },
+      {
+        "id": "R07-forward-post-405",
+        "method": "POST",
+        "path": "/api/curves/forward"
+      },
+      {
+        "id": "R07-forward-options-405",
+        "method": "OPTIONS",
+        "path": "/api/curves/forward"
+      },
+      {
+        "id": "R07-forward-slash-307",
+        "method": "GET",
+        "path": "/api/curves/forward/"
+      },
+      {
+        "id": "R07b-forward-missing",
+        "method": "GET",
+        "path": "/api/curves/forward"
+      },
+      {
+        "id": "R08-forward-export",
+        "method": "GET",
+        "path": "/api/curves/forward/export",
+        "query": "product_id=8f6f34a5-2927-54a6-8564-cca40ae7cb8a"
+      },
+      {
+        "id": "R08-forward-export-head",
+        "method": "HEAD",
+        "path": "/api/curves/forward/export"
+      },
+      {
+        "id": "R08-forward-export-post-405",
+        "method": "POST",
+        "path": "/api/curves/forward/export"
+      },
+      {
+        "id": "R08-forward-export-options-405",
+        "method": "OPTIONS",
+        "path": "/api/curves/forward/export"
+      },
+      {
+        "id": "R08-forward-export-slash-307",
+        "method": "GET",
+        "path": "/api/curves/forward/export/"
+      },
+      {
+        "id": "R08b-forward-export-missing",
+        "method": "GET",
+        "path": "/api/curves/forward/export"
+      }
+    ],
+    "curves_canonical": [
+      {
+        "id": "R09-table",
+        "method": "GET",
+        "path": "/api/curves/forward/table"
+      },
+      {
+        "id": "R09-table-head",
+        "method": "HEAD",
+        "path": "/api/curves/forward/table"
+      },
+      {
+        "id": "R09-table-post-405",
+        "method": "POST",
+        "path": "/api/curves/forward/table"
+      },
+      {
+        "id": "R09-table-options-405",
+        "method": "OPTIONS",
+        "path": "/api/curves/forward/table"
+      },
+      {
+        "id": "R09-table-slash-307",
+        "method": "GET",
+        "path": "/api/curves/forward/table/"
+      },
+      {
+        "id": "R09b-table-filters",
+        "method": "GET",
+        "path": "/api/curves/forward/table",
+        "query": "market_products=BIO_LNG&delivery_point_ids=1379d36c-1ca9-55b7-9c0d-5235a0ba1f36"
+      },
+      {
+        "id": "R10-slice",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_LNG&delivery_point_id=1379d36c-1ca9-55b7-9c0d-5235a0ba1f36&availability_window=SPOT"
+      },
+      {
+        "id": "R10-slice-head",
+        "method": "HEAD",
+        "path": "/api/curves/forward/slice"
+      },
+      {
+        "id": "R10-slice-post-405",
+        "method": "POST",
+        "path": "/api/curves/forward/slice"
+      },
+      {
+        "id": "R10-slice-options-405",
+        "method": "OPTIONS",
+        "path": "/api/curves/forward/slice"
+      },
+      {
+        "id": "R10-slice-slash-307",
+        "method": "GET",
+        "path": "/api/curves/forward/slice/"
+      },
+      {
+        "id": "R10b-slice-missing",
+        "method": "GET",
+        "path": "/api/curves/forward/slice"
+      },
+      {
+        "id": "R11-board",
+        "method": "GET",
+        "path": "/api/curves/forward/board"
+      },
+      {
+        "id": "R11-board-head",
+        "method": "HEAD",
+        "path": "/api/curves/forward/board"
+      },
+      {
+        "id": "R11-board-post-405",
+        "method": "POST",
+        "path": "/api/curves/forward/board"
+      },
+      {
+        "id": "R11-board-options-405",
+        "method": "OPTIONS",
+        "path": "/api/curves/forward/board"
+      },
+      {
+        "id": "R11-board-slash-307",
+        "method": "GET",
+        "path": "/api/curves/forward/board/"
+      },
+      {
+        "id": "R11b-board-window",
+        "method": "GET",
+        "path": "/api/curves/forward/board",
+        "query": "availability_window=2026-11"
+      },
+      {
+        "id": "R10-lane-6",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_LNG&delivery_point_id=1379d36c-1ca9-55b7-9c0d-5235a0ba1f36&availability_window=SPOT"
+      },
+      {
+        "id": "R10-lane-7",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_LNG&delivery_point_id=1379d36c-1ca9-55b7-9c0d-5235a0ba1f36&availability_window=2026-11"
+      },
+      {
+        "id": "R10-lane-8",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_LNG&delivery_point_id=1379d36c-1ca9-55b7-9c0d-5235a0ba1f36&availability_window=2030-Q1"
+      },
+      {
+        "id": "R10-lane-9",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=UCOME_B100&delivery_point_id=73835e92-820e-584b-8280-bb61c63aa28e&availability_window=SPOT"
+      },
+      {
+        "id": "R10-lane-10",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=UCOME_B100&delivery_point_id=73835e92-820e-584b-8280-bb61c63aa28e&availability_window=2026-11"
+      },
+      {
+        "id": "R10-lane-11",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=UCOME_B100&delivery_point_id=73835e92-820e-584b-8280-bb61c63aa28e&availability_window=2030-Q1"
+      },
+      {
+        "id": "R10-lane-12",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_METHANOL&delivery_point_id=78281fb3-e726-5396-802e-34b01fda21e8&availability_window=SPOT"
+      },
+      {
+        "id": "R10-lane-13",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_METHANOL&delivery_point_id=78281fb3-e726-5396-802e-34b01fda21e8&availability_window=2026-11"
+      },
+      {
+        "id": "R10-lane-14",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_METHANOL&delivery_point_id=78281fb3-e726-5396-802e-34b01fda21e8&availability_window=2030-Q1"
+      },
+      {
+        "id": "R10-lane-15",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_METHANOL&delivery_point_id=262d36ae-6f35-5785-b9e8-9e221b0f1b78&availability_window=SPOT"
+      },
+      {
+        "id": "R10-lane-16",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_METHANOL&delivery_point_id=262d36ae-6f35-5785-b9e8-9e221b0f1b78&availability_window=2026-11"
+      },
+      {
+        "id": "R10-lane-17",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_METHANOL&delivery_point_id=262d36ae-6f35-5785-b9e8-9e221b0f1b78&availability_window=2030-Q1"
+      },
+      {
+        "id": "R10-lane-18",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_METHANOL&delivery_point_id=633c0593-f9b9-52ad-abe5-a0285f6888d3&availability_window=SPOT"
+      },
+      {
+        "id": "R10-lane-19",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_METHANOL&delivery_point_id=633c0593-f9b9-52ad-abe5-a0285f6888d3&availability_window=2026-11"
+      },
+      {
+        "id": "R10-lane-20",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_METHANOL&delivery_point_id=633c0593-f9b9-52ad-abe5-a0285f6888d3&availability_window=2030-Q1"
+      },
+      {
+        "id": "R10-lane-21",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_METHANOL&delivery_point_id=73835e92-820e-584b-8280-bb61c63aa28e&availability_window=SPOT"
+      },
+      {
+        "id": "R10-lane-22",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_METHANOL&delivery_point_id=73835e92-820e-584b-8280-bb61c63aa28e&availability_window=2026-11"
+      },
+      {
+        "id": "R10-lane-23",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_METHANOL&delivery_point_id=73835e92-820e-584b-8280-bb61c63aa28e&availability_window=2030-Q1"
+      },
+      {
+        "id": "R10-lane-24",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_METHANOL&delivery_point_id=1379d36c-1ca9-55b7-9c0d-5235a0ba1f36&availability_window=SPOT"
+      },
+      {
+        "id": "R10-lane-25",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_METHANOL&delivery_point_id=1379d36c-1ca9-55b7-9c0d-5235a0ba1f36&availability_window=2026-11"
+      },
+      {
+        "id": "R10-lane-26",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_METHANOL&delivery_point_id=1379d36c-1ca9-55b7-9c0d-5235a0ba1f36&availability_window=2030-Q1"
+      },
+      {
+        "id": "R10-lane-27",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_METHANOL&delivery_point_id=a083db06-b050-56c2-a274-3897eac2fdae&availability_window=SPOT"
+      },
+      {
+        "id": "R10-lane-28",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_METHANOL&delivery_point_id=a083db06-b050-56c2-a274-3897eac2fdae&availability_window=2026-11"
+      },
+      {
+        "id": "R10-lane-29",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_METHANOL&delivery_point_id=a083db06-b050-56c2-a274-3897eac2fdae&availability_window=2030-Q1"
+      },
+      {
+        "id": "R10-lane-30",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_METHANOL&delivery_point_id=1be2a5cb-fc34-5e88-8b15-7f7d0fd6e534&availability_window=SPOT"
+      },
+      {
+        "id": "R10-lane-31",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_METHANOL&delivery_point_id=1be2a5cb-fc34-5e88-8b15-7f7d0fd6e534&availability_window=2026-11"
+      },
+      {
+        "id": "R10-lane-32",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_METHANOL&delivery_point_id=1be2a5cb-fc34-5e88-8b15-7f7d0fd6e534&availability_window=2030-Q1"
+      },
+      {
+        "id": "R10-lane-33",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_METHANOL&delivery_point_id=a4762444-4e0b-5bc1-b647-a185047adae5&availability_window=SPOT"
+      },
+      {
+        "id": "R10-lane-34",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_METHANOL&delivery_point_id=a4762444-4e0b-5bc1-b647-a185047adae5&availability_window=2026-11"
+      },
+      {
+        "id": "R10-lane-35",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_METHANOL&delivery_point_id=a4762444-4e0b-5bc1-b647-a185047adae5&availability_window=2030-Q1"
+      },
+      {
+        "id": "R10-lane-36",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=E_METHANOL&delivery_point_id=78281fb3-e726-5396-802e-34b01fda21e8&availability_window=SPOT"
+      },
+      {
+        "id": "R10-lane-37",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=E_METHANOL&delivery_point_id=78281fb3-e726-5396-802e-34b01fda21e8&availability_window=2026-11"
+      },
+      {
+        "id": "R10-lane-38",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=E_METHANOL&delivery_point_id=78281fb3-e726-5396-802e-34b01fda21e8&availability_window=2030-Q1"
+      },
+      {
+        "id": "R10-lane-39",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=E_METHANOL&delivery_point_id=262d36ae-6f35-5785-b9e8-9e221b0f1b78&availability_window=SPOT"
+      },
+      {
+        "id": "R10-lane-40",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=E_METHANOL&delivery_point_id=262d36ae-6f35-5785-b9e8-9e221b0f1b78&availability_window=2026-11"
+      },
+      {
+        "id": "R10-lane-41",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=E_METHANOL&delivery_point_id=262d36ae-6f35-5785-b9e8-9e221b0f1b78&availability_window=2030-Q1"
+      },
+      {
+        "id": "R10-lane-42",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=E_METHANOL&delivery_point_id=633c0593-f9b9-52ad-abe5-a0285f6888d3&availability_window=SPOT"
+      },
+      {
+        "id": "R10-lane-43",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=E_METHANOL&delivery_point_id=633c0593-f9b9-52ad-abe5-a0285f6888d3&availability_window=2026-11"
+      },
+      {
+        "id": "R10-lane-44",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=E_METHANOL&delivery_point_id=633c0593-f9b9-52ad-abe5-a0285f6888d3&availability_window=2030-Q1"
+      },
+      {
+        "id": "R10-lane-45",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=E_METHANOL&delivery_point_id=73835e92-820e-584b-8280-bb61c63aa28e&availability_window=SPOT"
+      },
+      {
+        "id": "R10-lane-46",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=E_METHANOL&delivery_point_id=73835e92-820e-584b-8280-bb61c63aa28e&availability_window=2026-11"
+      },
+      {
+        "id": "R10-lane-47",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=E_METHANOL&delivery_point_id=73835e92-820e-584b-8280-bb61c63aa28e&availability_window=2030-Q1"
+      },
+      {
+        "id": "R10-lane-48",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=E_METHANOL&delivery_point_id=1379d36c-1ca9-55b7-9c0d-5235a0ba1f36&availability_window=SPOT"
+      },
+      {
+        "id": "R10-lane-49",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=E_METHANOL&delivery_point_id=1379d36c-1ca9-55b7-9c0d-5235a0ba1f36&availability_window=2026-11"
+      },
+      {
+        "id": "R10-lane-50",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=E_METHANOL&delivery_point_id=1379d36c-1ca9-55b7-9c0d-5235a0ba1f36&availability_window=2030-Q1"
+      },
+      {
+        "id": "R10-lane-51",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=E_METHANOL&delivery_point_id=a083db06-b050-56c2-a274-3897eac2fdae&availability_window=SPOT"
+      },
+      {
+        "id": "R10-lane-52",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=E_METHANOL&delivery_point_id=a083db06-b050-56c2-a274-3897eac2fdae&availability_window=2026-11"
+      },
+      {
+        "id": "R10-lane-53",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=E_METHANOL&delivery_point_id=a083db06-b050-56c2-a274-3897eac2fdae&availability_window=2030-Q1"
+      },
+      {
+        "id": "R10-lane-54",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=E_METHANOL&delivery_point_id=1be2a5cb-fc34-5e88-8b15-7f7d0fd6e534&availability_window=SPOT"
+      },
+      {
+        "id": "R10-lane-55",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=E_METHANOL&delivery_point_id=1be2a5cb-fc34-5e88-8b15-7f7d0fd6e534&availability_window=2026-11"
+      },
+      {
+        "id": "R10-lane-56",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=E_METHANOL&delivery_point_id=1be2a5cb-fc34-5e88-8b15-7f7d0fd6e534&availability_window=2030-Q1"
+      },
+      {
+        "id": "R10-lane-57",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=E_METHANOL&delivery_point_id=a4762444-4e0b-5bc1-b647-a185047adae5&availability_window=SPOT"
+      },
+      {
+        "id": "R10-lane-58",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=E_METHANOL&delivery_point_id=a4762444-4e0b-5bc1-b647-a185047adae5&availability_window=2026-11"
+      },
+      {
+        "id": "R10-lane-59",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=E_METHANOL&delivery_point_id=a4762444-4e0b-5bc1-b647-a185047adae5&availability_window=2030-Q1"
+      },
+      {
+        "id": "R10-lane-60",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_ETHANOL&delivery_point_id=78281fb3-e726-5396-802e-34b01fda21e8&availability_window=SPOT"
+      },
+      {
+        "id": "R10-lane-61",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_ETHANOL&delivery_point_id=78281fb3-e726-5396-802e-34b01fda21e8&availability_window=2026-11"
+      },
+      {
+        "id": "R10-lane-62",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_ETHANOL&delivery_point_id=78281fb3-e726-5396-802e-34b01fda21e8&availability_window=2030-Q1"
+      },
+      {
+        "id": "R10-lane-63",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_ETHANOL&delivery_point_id=262d36ae-6f35-5785-b9e8-9e221b0f1b78&availability_window=SPOT"
+      },
+      {
+        "id": "R10-lane-64",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_ETHANOL&delivery_point_id=262d36ae-6f35-5785-b9e8-9e221b0f1b78&availability_window=2026-11"
+      },
+      {
+        "id": "R10-lane-65",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_ETHANOL&delivery_point_id=262d36ae-6f35-5785-b9e8-9e221b0f1b78&availability_window=2030-Q1"
+      },
+      {
+        "id": "R10-lane-66",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_ETHANOL&delivery_point_id=633c0593-f9b9-52ad-abe5-a0285f6888d3&availability_window=SPOT"
+      },
+      {
+        "id": "R10-lane-67",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_ETHANOL&delivery_point_id=633c0593-f9b9-52ad-abe5-a0285f6888d3&availability_window=2026-11"
+      },
+      {
+        "id": "R10-lane-68",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_ETHANOL&delivery_point_id=633c0593-f9b9-52ad-abe5-a0285f6888d3&availability_window=2030-Q1"
+      },
+      {
+        "id": "R10-lane-69",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_ETHANOL&delivery_point_id=73835e92-820e-584b-8280-bb61c63aa28e&availability_window=SPOT"
+      },
+      {
+        "id": "R10-lane-70",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_ETHANOL&delivery_point_id=73835e92-820e-584b-8280-bb61c63aa28e&availability_window=2026-11"
+      },
+      {
+        "id": "R10-lane-71",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_ETHANOL&delivery_point_id=73835e92-820e-584b-8280-bb61c63aa28e&availability_window=2030-Q1"
+      },
+      {
+        "id": "R10-lane-72",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_ETHANOL&delivery_point_id=1379d36c-1ca9-55b7-9c0d-5235a0ba1f36&availability_window=SPOT"
+      },
+      {
+        "id": "R10-lane-73",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_ETHANOL&delivery_point_id=1379d36c-1ca9-55b7-9c0d-5235a0ba1f36&availability_window=2026-11"
+      },
+      {
+        "id": "R10-lane-74",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_ETHANOL&delivery_point_id=1379d36c-1ca9-55b7-9c0d-5235a0ba1f36&availability_window=2030-Q1"
+      },
+      {
+        "id": "R10-lane-75",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_ETHANOL&delivery_point_id=a083db06-b050-56c2-a274-3897eac2fdae&availability_window=SPOT"
+      },
+      {
+        "id": "R10-lane-76",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_ETHANOL&delivery_point_id=a083db06-b050-56c2-a274-3897eac2fdae&availability_window=2026-11"
+      },
+      {
+        "id": "R10-lane-77",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_ETHANOL&delivery_point_id=a083db06-b050-56c2-a274-3897eac2fdae&availability_window=2030-Q1"
+      },
+      {
+        "id": "R10-lane-78",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_ETHANOL&delivery_point_id=1be2a5cb-fc34-5e88-8b15-7f7d0fd6e534&availability_window=SPOT"
+      },
+      {
+        "id": "R10-lane-79",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_ETHANOL&delivery_point_id=1be2a5cb-fc34-5e88-8b15-7f7d0fd6e534&availability_window=2026-11"
+      },
+      {
+        "id": "R10-lane-80",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_ETHANOL&delivery_point_id=1be2a5cb-fc34-5e88-8b15-7f7d0fd6e534&availability_window=2030-Q1"
+      },
+      {
+        "id": "R10-lane-81",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_ETHANOL&delivery_point_id=a4762444-4e0b-5bc1-b647-a185047adae5&availability_window=SPOT"
+      },
+      {
+        "id": "R10-lane-82",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_ETHANOL&delivery_point_id=a4762444-4e0b-5bc1-b647-a185047adae5&availability_window=2026-11"
+      },
+      {
+        "id": "R10-lane-83",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_ETHANOL&delivery_point_id=a4762444-4e0b-5bc1-b647-a185047adae5&availability_window=2030-Q1"
+      },
+      {
+        "id": "R10-lane-84",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=SYNTHETIC_ETHANOL&delivery_point_id=78281fb3-e726-5396-802e-34b01fda21e8&availability_window=SPOT"
+      },
+      {
+        "id": "R10-lane-85",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=SYNTHETIC_ETHANOL&delivery_point_id=78281fb3-e726-5396-802e-34b01fda21e8&availability_window=2026-11"
+      },
+      {
+        "id": "R10-lane-86",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=SYNTHETIC_ETHANOL&delivery_point_id=78281fb3-e726-5396-802e-34b01fda21e8&availability_window=2030-Q1"
+      },
+      {
+        "id": "R10-lane-87",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=SYNTHETIC_ETHANOL&delivery_point_id=262d36ae-6f35-5785-b9e8-9e221b0f1b78&availability_window=SPOT"
+      },
+      {
+        "id": "R10-lane-88",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=SYNTHETIC_ETHANOL&delivery_point_id=262d36ae-6f35-5785-b9e8-9e221b0f1b78&availability_window=2026-11"
+      },
+      {
+        "id": "R10-lane-89",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=SYNTHETIC_ETHANOL&delivery_point_id=262d36ae-6f35-5785-b9e8-9e221b0f1b78&availability_window=2030-Q1"
+      },
+      {
+        "id": "R10-lane-90",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=SYNTHETIC_ETHANOL&delivery_point_id=633c0593-f9b9-52ad-abe5-a0285f6888d3&availability_window=SPOT"
+      },
+      {
+        "id": "R10-lane-91",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=SYNTHETIC_ETHANOL&delivery_point_id=633c0593-f9b9-52ad-abe5-a0285f6888d3&availability_window=2026-11"
+      },
+      {
+        "id": "R10-lane-92",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=SYNTHETIC_ETHANOL&delivery_point_id=633c0593-f9b9-52ad-abe5-a0285f6888d3&availability_window=2030-Q1"
+      },
+      {
+        "id": "R10-lane-93",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=SYNTHETIC_ETHANOL&delivery_point_id=73835e92-820e-584b-8280-bb61c63aa28e&availability_window=SPOT"
+      },
+      {
+        "id": "R10-lane-94",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=SYNTHETIC_ETHANOL&delivery_point_id=73835e92-820e-584b-8280-bb61c63aa28e&availability_window=2026-11"
+      },
+      {
+        "id": "R10-lane-95",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=SYNTHETIC_ETHANOL&delivery_point_id=73835e92-820e-584b-8280-bb61c63aa28e&availability_window=2030-Q1"
+      },
+      {
+        "id": "R10-lane-96",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=SYNTHETIC_ETHANOL&delivery_point_id=1379d36c-1ca9-55b7-9c0d-5235a0ba1f36&availability_window=SPOT"
+      },
+      {
+        "id": "R10-lane-97",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=SYNTHETIC_ETHANOL&delivery_point_id=1379d36c-1ca9-55b7-9c0d-5235a0ba1f36&availability_window=2026-11"
+      },
+      {
+        "id": "R10-lane-98",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=SYNTHETIC_ETHANOL&delivery_point_id=1379d36c-1ca9-55b7-9c0d-5235a0ba1f36&availability_window=2030-Q1"
+      },
+      {
+        "id": "R10-lane-99",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=SYNTHETIC_ETHANOL&delivery_point_id=a083db06-b050-56c2-a274-3897eac2fdae&availability_window=SPOT"
+      },
+      {
+        "id": "R10-lane-100",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=SYNTHETIC_ETHANOL&delivery_point_id=a083db06-b050-56c2-a274-3897eac2fdae&availability_window=2026-11"
+      },
+      {
+        "id": "R10-lane-101",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=SYNTHETIC_ETHANOL&delivery_point_id=a083db06-b050-56c2-a274-3897eac2fdae&availability_window=2030-Q1"
+      },
+      {
+        "id": "R10-lane-102",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=SYNTHETIC_ETHANOL&delivery_point_id=1be2a5cb-fc34-5e88-8b15-7f7d0fd6e534&availability_window=SPOT"
+      },
+      {
+        "id": "R10-lane-103",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=SYNTHETIC_ETHANOL&delivery_point_id=1be2a5cb-fc34-5e88-8b15-7f7d0fd6e534&availability_window=2026-11"
+      },
+      {
+        "id": "R10-lane-104",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=SYNTHETIC_ETHANOL&delivery_point_id=1be2a5cb-fc34-5e88-8b15-7f7d0fd6e534&availability_window=2030-Q1"
+      },
+      {
+        "id": "R10-lane-105",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=SYNTHETIC_ETHANOL&delivery_point_id=a4762444-4e0b-5bc1-b647-a185047adae5&availability_window=SPOT"
+      },
+      {
+        "id": "R10-lane-106",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=SYNTHETIC_ETHANOL&delivery_point_id=a4762444-4e0b-5bc1-b647-a185047adae5&availability_window=2026-11"
+      },
+      {
+        "id": "R10-lane-107",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=SYNTHETIC_ETHANOL&delivery_point_id=a4762444-4e0b-5bc1-b647-a185047adae5&availability_window=2030-Q1"
+      },
+      {
+        "id": "R11-uuid-upper",
+        "method": "GET",
+        "path": "/api/curves/forward/board",
+        "query": "focus_market_product=BIO_LNG&focus_delivery_point_id=1379D36C-1CA9-55B7-9C0D-5235A0BA1F36"
+      },
+      {
+        "id": "R11-uuid-compact",
+        "method": "GET",
+        "path": "/api/curves/forward/board",
+        "query": "focus_market_product=BIO_LNG&focus_delivery_point_id=1379d36c1ca955b79c0d5235a0ba1f36"
+      },
+      {
+        "id": "R11-uuid-braces",
+        "method": "GET",
+        "path": "/api/curves/forward/board",
+        "query": "focus_market_product=BIO_LNG&focus_delivery_point_id=%7B1379d36c-1ca9-55b7-9c0d-5235a0ba1f36%7D"
+      },
+      {
+        "id": "R11-uuid-urn",
+        "method": "GET",
+        "path": "/api/curves/forward/board",
+        "query": "focus_market_product=BIO_LNG&focus_delivery_point_id=urn%3Auuid%3A1379d36c-1ca9-55b7-9c0d-5235a0ba1f36"
+      },
+      {
+        "id": "R10b-invalid-board",
+        "method": "GET",
+        "path": "/api/curves/forward/board",
+        "query": "availability_window=not-a-window"
+      },
+      {
+        "id": "R10b-duplicates",
+        "method": "GET",
+        "path": "/api/curves/forward/table",
+        "query": "windows=2026-11&windows=SPOT&windows=2026-11"
+      },
+      {
+        "id": "R10b-unknown-query",
+        "method": "GET",
+        "path": "/api/curves/forward/table",
+        "query": "shape=board&availability_window=bad&windows=SPOT"
+      },
+      {
+        "id": "R10b-too-many-windows",
+        "method": "GET",
+        "path": "/api/curves/forward/table",
+        "query": "windows=2026-Q1&windows=2027-Q1&windows=2028-Q1&windows=2029-Q1&windows=2030-Q1&windows=2031-Q1&windows=2032-Q1&windows=2033-Q1&windows=2034-Q1&windows=2035-Q1&windows=2036-Q1&windows=2037-Q1&windows=2038-Q1&windows=2039-Q1&windows=2040-Q1&windows=2041-Q1&windows=2042-Q1&windows=2043-Q1&windows=2044-Q1&windows=2045-Q1&windows=2046-Q1&windows=2047-Q1&windows=2048-Q1&windows=2049-Q1&windows=2050-Q1"
+      },
+      {
+        "id": "R10b-bad-window",
+        "method": "GET",
+        "path": "/api/curves/forward/table",
+        "query": "windows=Q1_2026"
+      },
+      {
+        "id": "R10b-bad-product",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=INVALID&delivery_point_id=00000000-0000-0000-0000-000000000000&availability_window=SPOT"
+      },
+      {
+        "id": "R10b-unknown-point",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_LNG&delivery_point_id=00000000-0000-0000-0000-000000000000&availability_window=SPOT"
+      },
+      {
+        "id": "R10b-fallback-point",
+        "method": "GET",
+        "path": "/api/curves/forward/board",
+        "query": "focus_delivery_point_id=00000000-0000-0000-0000-000000000000"
+      },
+      {
+        "id": "R10-depth",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_METHANOL&delivery_point_id=73835e92-820e-584b-8280-bb61c63aa28e&availability_window=2031-02"
+      },
+      {
+        "id": "R10-trusted-signals",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_METHANOL&delivery_point_id=73835e92-820e-584b-8280-bb61c63aa28e&availability_window=2031-03"
+      },
+      {
+        "id": "R10-bulk",
+        "method": "GET",
+        "path": "/api/curves/forward/slice",
+        "query": "market_product=BIO_METHANOL&delivery_point_id=73835e92-820e-584b-8280-bb61c63aa28e&availability_window=2031-04"
+      },
+      {
+        "id": "R09-bulk",
+        "method": "GET",
+        "path": "/api/curves/forward/table",
+        "query": "market_products=BIO_METHANOL&delivery_point_ids=73835e92-820e-584b-8280-bb61c63aa28e&windows=2031-04"
+      },
+      {
+        "id": "R09-subsecond",
+        "method": "GET",
+        "path": "/api/curves/forward/table",
+        "query": "market_products=BIO_METHANOL&delivery_point_ids=73835e92-820e-584b-8280-bb61c63aa28e&windows=2031-05&windows=2031-06"
+      }
+    ],
+    "mcp": [
+      {
+        "id": "M01-initialize",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-06-18\",\"capabilities\":{},\"clientInfo\":{\"name\":\"contract\",\"version\":\"1\"}}}"
+      },
+      {
+        "id": "M01b-tools-list",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\",\"params\":{}}"
+      },
+      {
+        "id": "M01c-malformed",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{"
+      },
+      {
+        "id": "M01d-unknown-method",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"nope\",\"params\":{}}"
+      },
+      {
+        "id": "M02-mcp-get",
+        "method": "GET",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        }
+      },
+      {
+        "id": "M03-mcp-delete",
+        "method": "DELETE",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        }
+      },
+      {
+        "id": "M04-list-markets",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":7,\"method\":\"tools/call\",\"params\":{\"name\":\"list_markets\",\"arguments\":{}}}"
+      },
+      {
+        "id": "M05-slice-mixed",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":8,\"method\":\"tools/call\",\"params\":{\"name\":\"get_market_slice\",\"arguments\":{\"market_product\":\"BIO_METHANOL\",\"delivery_point\":\"Singapore\",\"availability_window\":\"SPOT\"}}}"
+      },
+      {
+        "id": "M05-slice-lng",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":9,\"method\":\"tools/call\",\"params\":{\"name\":\"get_market_slice\",\"arguments\":{\"market_product\":\"BIO_LNG\",\"delivery_point\":\"Rotterdam\",\"availability_window\":\"SPOT\"}}}"
+      },
+      {
+        "id": "M05-slice-fame",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":10,\"method\":\"tools/call\",\"params\":{\"name\":\"get_market_slice\",\"arguments\":{\"market_product\":\"UCOME_B100\",\"delivery_point\":\"Singapore\",\"availability_window\":\"SPOT\"}}}"
+      },
+      {
+        "id": "M05-slice-empty",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":11,\"method\":\"tools/call\",\"params\":{\"name\":\"get_market_slice\",\"arguments\":{\"market_product\":\"BIO_METHANOL\",\"delivery_point\":\"Singapore\",\"availability_window\":\"2031-12\"}}}"
+      },
+      {
+        "id": "M05-slice-bad-product",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":12,\"method\":\"tools/call\",\"params\":{\"name\":\"get_market_slice\",\"arguments\":{\"market_product\":\"unknown\",\"delivery_point\":\"Singapore\",\"availability_window\":\"SPOT\"}}}"
+      },
+      {
+        "id": "M05-slice-bad-port",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":13,\"method\":\"tools/call\",\"params\":{\"name\":\"get_market_slice\",\"arguments\":{\"market_product\":\"BIO_METHANOL\",\"delivery_point\":\"unknown\",\"availability_window\":\"SPOT\"}}}"
+      },
+      {
+        "id": "M05-slice-bad-window",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":14,\"method\":\"tools/call\",\"params\":{\"name\":\"get_market_slice\",\"arguments\":{\"market_product\":\"BIO_METHANOL\",\"delivery_point\":\"Singapore\",\"availability_window\":\"bad\"}}}"
+      },
+      {
+        "id": "M06-voyage-missing-prices",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":15,\"method\":\"tools/call\",\"params\":{\"name\":\"plan_voyage_fuel\",\"arguments\":{\"request\":{\"vessel\":{\"speed_knots\":\"14\",\"sea_consumption_mt_per_day\":\"20\",\"compatible_fuels\":[\"VLSFO\"]},\"legs\":[{\"from_port\":\"Singapore\",\"to_port\":\"Rotterdam\"}],\"start_date\":\"2026-10-15\"}}}}"
+      },
+      {
+        "id": "M06-voyage-complete",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":16,\"method\":\"tools/call\",\"params\":{\"name\":\"plan_voyage_fuel\",\"arguments\":{\"request\":{\"vessel\":{\"speed_knots\":\"14\",\"sea_consumption_mt_per_day\":\"20\",\"compatible_fuels\":[\"VLSFO\"]},\"legs\":[{\"from_port\":\"Singapore\",\"to_port\":\"Rotterdam\"}],\"start_date\":\"2026-10-15\",\"assumptions\":{\"vlsfo_price_usd_per_mt\":{\"Singapore\":\"600\"},\"eua_price_eur_per_tco2\":\"80\",\"fueleu_pool_price_eur_per_tco2e\":\"100\",\"usd_per_eur\":\"1.1\"}}}}}"
+      },
+      {
+        "id": "M06-voyage-start-too-old",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":17,\"method\":\"tools/call\",\"params\":{\"name\":\"plan_voyage_fuel\",\"arguments\":{\"request\":{\"vessel\":{\"speed_knots\":\"14\",\"sea_consumption_mt_per_day\":\"20\",\"compatible_fuels\":[\"VLSFO\"]},\"legs\":[{\"from_port\":\"Singapore\",\"to_port\":\"Rotterdam\"}],\"start_date\":\"2026-09-14\"}}}}"
+      },
+      {
+        "id": "M06-voyage-start-too-far",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":18,\"method\":\"tools/call\",\"params\":{\"name\":\"plan_voyage_fuel\",\"arguments\":{\"request\":{\"vessel\":{\"speed_knots\":\"14\",\"sea_consumption_mt_per_day\":\"20\",\"compatible_fuels\":[\"VLSFO\"]},\"legs\":[{\"from_port\":\"Singapore\",\"to_port\":\"Rotterdam\"}],\"start_date\":\"2028-10-15\"}}}}"
+      },
+      {
+        "id": "M06-voyage-bad-port",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":19,\"method\":\"tools/call\",\"params\":{\"name\":\"plan_voyage_fuel\",\"arguments\":{\"request\":{\"vessel\":{\"speed_knots\":\"14\",\"sea_consumption_mt_per_day\":\"20\",\"compatible_fuels\":[\"VLSFO\"]},\"legs\":[{\"from_port\":\"unknown\",\"to_port\":\"Rotterdam\"}],\"start_date\":\"2026-10-15\"}}}}"
+      },
+      {
+        "id": "M06-voyage-no-eu",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":20,\"method\":\"tools/call\",\"params\":{\"name\":\"plan_voyage_fuel\",\"arguments\":{\"request\":{\"vessel\":{\"speed_knots\":\"14\",\"sea_consumption_mt_per_day\":\"20\",\"compatible_fuels\":[\"VLSFO\"]},\"legs\":[{\"from_port\":\"Singapore\",\"to_port\":\"Shanghai\"}],\"start_date\":\"2026-10-15\"}}}}"
+      },
+      {
+        "id": "M07-catalog-missing-arguments",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":21,\"method\":\"tools/call\",\"params\":{\"name\":\"list_markets\",\"arguments\":{}}}"
+      },
+      {
+        "id": "M07-slice-missing-arguments",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":22,\"method\":\"tools/call\",\"params\":{\"name\":\"get_market_slice\",\"arguments\":{}}}"
+      },
+      {
+        "id": "M07-voyage-missing-arguments",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":23,\"method\":\"tools/call\",\"params\":{\"name\":\"plan_voyage_fuel\",\"arguments\":{}}}"
+      },
+      {
+        "id": "M08-origin-empty",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream",
+          "origin": ""
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":24,\"method\":\"tools/list\",\"params\":{}}"
+      },
+      {
+        "id": "M08-origin-null",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream",
+          "origin": "null"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":25,\"method\":\"tools/list\",\"params\":{}}"
+      },
+      {
+        "id": "M08-origin-browser",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream",
+          "origin": "https://evil.example"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":26,\"method\":\"tools/list\",\"params\":{}}"
+      },
+      {
+        "id": "M09-host",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream",
+          "host": "evil.example"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":27,\"method\":\"tools/list\",\"params\":{}}"
+      },
+      {
+        "id": "M10-notification",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\",\"params\":{}}"
+      },
+      {
+        "id": "M11-unsupported-version",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream",
+          "mcp-protocol-version": "1900-01-01"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":29,\"method\":\"tools/list\",\"params\":{}}"
+      },
+      {
+        "id": "M12-voyage-methanol",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":30,\"method\":\"tools/call\",\"params\":{\"name\":\"plan_voyage_fuel\",\"arguments\":{\"request\":{\"vessel\":{\"speed_knots\":\"14\",\"sea_consumption_mt_per_day\":\"20\",\"compatible_fuels\":[\"VLSFO\",\"BIO_METHANOL\"]},\"legs\":[{\"from_port\":\"Singapore\",\"to_port\":\"Rotterdam\"}],\"start_date\":\"2026-10-15\",\"assumptions\":{\"vlsfo_price_usd_per_mt\":{\"Singapore\":\"600\"},\"eua_price_eur_per_tco2\":\"80\",\"fueleu_pool_price_eur_per_tco2e\":\"100\",\"usd_per_eur\":\"1.1\"}}}}}"
+      },
+      {
+        "id": "M12-voyage-fame",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":31,\"method\":\"tools/call\",\"params\":{\"name\":\"plan_voyage_fuel\",\"arguments\":{\"request\":{\"vessel\":{\"speed_knots\":\"14\",\"sea_consumption_mt_per_day\":\"20\",\"compatible_fuels\":[\"VLSFO\",\"UCOME_B100\"]},\"legs\":[{\"from_port\":\"Singapore\",\"to_port\":\"Rotterdam\"}],\"start_date\":\"2026-10-15\",\"assumptions\":{\"vlsfo_price_usd_per_mt\":{\"Singapore\":\"600\"},\"eua_price_eur_per_tco2\":\"80\",\"fueleu_pool_price_eur_per_tco2e\":\"100\",\"usd_per_eur\":\"1.1\"}}}}}"
+      },
+      {
+        "id": "M12-voyage-ethanol",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":32,\"method\":\"tools/call\",\"params\":{\"name\":\"plan_voyage_fuel\",\"arguments\":{\"request\":{\"vessel\":{\"speed_knots\":\"14\",\"sea_consumption_mt_per_day\":\"20\",\"compatible_fuels\":[\"VLSFO\",\"BIO_ETHANOL\"]},\"legs\":[{\"from_port\":\"Singapore\",\"to_port\":\"Rotterdam\"}],\"start_date\":\"2026-10-15\",\"assumptions\":{\"vlsfo_price_usd_per_mt\":{\"Singapore\":\"600\"},\"eua_price_eur_per_tco2\":\"80\",\"fueleu_pool_price_eur_per_tco2e\":\"100\",\"usd_per_eur\":\"1.1\"}}}}}"
+      },
+      {
+        "id": "M13-speed-zero",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":33,\"method\":\"tools/call\",\"params\":{\"name\":\"plan_voyage_fuel\",\"arguments\":{\"request\":{\"vessel\":{\"speed_knots\":\"0\",\"sea_consumption_mt_per_day\":\"20\",\"compatible_fuels\":[\"VLSFO\"]},\"legs\":[{\"from_port\":\"Singapore\",\"to_port\":\"Rotterdam\"}],\"start_date\":\"2026-10-15\",\"assumptions\":{\"vlsfo_price_usd_per_mt\":{\"Singapore\":\"600\"},\"eua_price_eur_per_tco2\":\"80\",\"fueleu_pool_price_eur_per_tco2e\":\"100\",\"usd_per_eur\":\"1.1\"}}}}}"
+      },
+      {
+        "id": "M13-speed-high",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":34,\"method\":\"tools/call\",\"params\":{\"name\":\"plan_voyage_fuel\",\"arguments\":{\"request\":{\"vessel\":{\"speed_knots\":\"31\",\"sea_consumption_mt_per_day\":\"20\",\"compatible_fuels\":[\"VLSFO\"]},\"legs\":[{\"from_port\":\"Singapore\",\"to_port\":\"Rotterdam\"}],\"start_date\":\"2026-10-15\",\"assumptions\":{\"vlsfo_price_usd_per_mt\":{\"Singapore\":\"600\"},\"eua_price_eur_per_tco2\":\"80\",\"fueleu_pool_price_eur_per_tco2e\":\"100\",\"usd_per_eur\":\"1.1\"}}}}}"
+      },
+      {
+        "id": "M13-consumption-zero",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":35,\"method\":\"tools/call\",\"params\":{\"name\":\"plan_voyage_fuel\",\"arguments\":{\"request\":{\"vessel\":{\"speed_knots\":\"14\",\"sea_consumption_mt_per_day\":\"0\",\"compatible_fuels\":[\"VLSFO\"]},\"legs\":[{\"from_port\":\"Singapore\",\"to_port\":\"Rotterdam\"}],\"start_date\":\"2026-10-15\",\"assumptions\":{\"vlsfo_price_usd_per_mt\":{\"Singapore\":\"600\"},\"eua_price_eur_per_tco2\":\"80\",\"fueleu_pool_price_eur_per_tco2e\":\"100\",\"usd_per_eur\":\"1.1\"}}}}}"
+      },
+      {
+        "id": "M13-extra-vessel",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":36,\"method\":\"tools/call\",\"params\":{\"name\":\"plan_voyage_fuel\",\"arguments\":{\"request\":{\"vessel\":{\"speed_knots\":\"14\",\"sea_consumption_mt_per_day\":\"20\",\"compatible_fuels\":[\"VLSFO\"],\"secret\":\"not-accepted\"},\"legs\":[{\"from_port\":\"Singapore\",\"to_port\":\"Rotterdam\"}],\"start_date\":\"2026-10-15\",\"assumptions\":{\"vlsfo_price_usd_per_mt\":{\"Singapore\":\"600\"},\"eua_price_eur_per_tco2\":\"80\",\"fueleu_pool_price_eur_per_tco2e\":\"100\",\"usd_per_eur\":\"1.1\"}}}}}"
+      },
+      {
+        "id": "M13-empty-legs",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":37,\"method\":\"tools/call\",\"params\":{\"name\":\"plan_voyage_fuel\",\"arguments\":{\"request\":{\"vessel\":{\"speed_knots\":\"14\",\"sea_consumption_mt_per_day\":\"20\",\"compatible_fuels\":[\"VLSFO\"]},\"legs\":[],\"start_date\":\"2026-10-15\",\"assumptions\":{\"vlsfo_price_usd_per_mt\":{\"Singapore\":\"600\"},\"eua_price_eur_per_tco2\":\"80\",\"fueleu_pool_price_eur_per_tco2e\":\"100\",\"usd_per_eur\":\"1.1\"}}}}}"
+      },
+      {
+        "id": "M13-null-request-field",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":38,\"method\":\"tools/call\",\"params\":{\"name\":\"plan_voyage_fuel\",\"arguments\":{\"request\":{\"vessel\":null,\"legs\":[{\"from_port\":\"Singapore\",\"to_port\":\"Rotterdam\"}],\"start_date\":\"2026-10-15\",\"assumptions\":{\"vlsfo_price_usd_per_mt\":{\"Singapore\":\"600\"},\"eua_price_eur_per_tco2\":\"80\",\"fueleu_pool_price_eur_per_tco2e\":\"100\",\"usd_per_eur\":\"1.1\"}}}}}"
+      },
+      {
+        "id": "M13-start-lower-bound",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":39,\"method\":\"tools/call\",\"params\":{\"name\":\"plan_voyage_fuel\",\"arguments\":{\"request\":{\"vessel\":{\"speed_knots\":\"14\",\"sea_consumption_mt_per_day\":\"20\",\"compatible_fuels\":[\"VLSFO\"]},\"legs\":[{\"from_port\":\"Singapore\",\"to_port\":\"Rotterdam\"}],\"start_date\":\"2026-09-15\",\"assumptions\":{\"vlsfo_price_usd_per_mt\":{\"Singapore\":\"600\"},\"eua_price_eur_per_tco2\":\"80\",\"fueleu_pool_price_eur_per_tco2e\":\"100\",\"usd_per_eur\":\"1.1\"}}}}}"
+      },
+      {
+        "id": "M13-start-upper-bound",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":40,\"method\":\"tools/call\",\"params\":{\"name\":\"plan_voyage_fuel\",\"arguments\":{\"request\":{\"vessel\":{\"speed_knots\":\"14\",\"sea_consumption_mt_per_day\":\"20\",\"compatible_fuels\":[\"VLSFO\"]},\"legs\":[{\"from_port\":\"Singapore\",\"to_port\":\"Rotterdam\"}],\"start_date\":\"2028-10-14\",\"assumptions\":{\"vlsfo_price_usd_per_mt\":{\"Singapore\":\"600\"},\"eua_price_eur_per_tco2\":\"80\",\"fueleu_pool_price_eur_per_tco2e\":\"100\",\"usd_per_eur\":\"1.1\"}}}}}"
+      },
+      {
+        "id": "M13-invalid-cape",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":41,\"method\":\"tools/call\",\"params\":{\"name\":\"plan_voyage_fuel\",\"arguments\":{\"request\":{\"vessel\":{\"speed_knots\":\"14\",\"sea_consumption_mt_per_day\":\"20\",\"compatible_fuels\":[\"VLSFO\"]},\"legs\":[{\"from_port\":\"Shanghai\",\"to_port\":\"Singapore\",\"route\":\"CAPE_OF_GOOD_HOPE\"}],\"start_date\":\"2026-10-15\",\"assumptions\":{\"vlsfo_price_usd_per_mt\":{\"Singapore\":\"600\"},\"eua_price_eur_per_tco2\":\"80\",\"fueleu_pool_price_eur_per_tco2e\":\"100\",\"usd_per_eur\":\"1.1\"}}}}}"
+      },
+      {
+        "id": "M13-too-long",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":42,\"method\":\"tools/call\",\"params\":{\"name\":\"plan_voyage_fuel\",\"arguments\":{\"request\":{\"vessel\":{\"speed_knots\":\"1\",\"sea_consumption_mt_per_day\":\"20\",\"compatible_fuels\":[\"VLSFO\"]},\"legs\":[{\"from_port\":\"Singapore\",\"to_port\":\"Rotterdam\",\"distance_nm\":\"30000\"}],\"start_date\":\"2026-10-15\",\"assumptions\":{\"vlsfo_price_usd_per_mt\":{\"Singapore\":\"600\"},\"eua_price_eur_per_tco2\":\"80\",\"fueleu_pool_price_eur_per_tco2e\":\"100\",\"usd_per_eur\":\"1.1\"}}}}}"
+      },
+      {
+        "id": "M13-year-2035",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":43,\"method\":\"tools/call\",\"params\":{\"name\":\"plan_voyage_fuel\",\"arguments\":{\"request\":{\"vessel\":{\"speed_knots\":\"14\",\"sea_consumption_mt_per_day\":\"20\",\"compatible_fuels\":[\"VLSFO\"]},\"legs\":[{\"from_port\":\"Singapore\",\"to_port\":\"Rotterdam\"}],\"start_date\":\"2026-10-15\",\"assumptions\":{\"vlsfo_price_usd_per_mt\":{\"Singapore\":\"600\"},\"eua_price_eur_per_tco2\":\"80\",\"fueleu_pool_price_eur_per_tco2e\":\"100\",\"usd_per_eur\":\"1.1\",\"reporting_year\":2035}}}}}"
+      },
+      {
+        "id": "M13-lowercase-port",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":44,\"method\":\"tools/call\",\"params\":{\"name\":\"plan_voyage_fuel\",\"arguments\":{\"request\":{\"vessel\":{\"speed_knots\":\"14\",\"sea_consumption_mt_per_day\":\"20\",\"compatible_fuels\":[\"VLSFO\"]},\"legs\":[{\"from_port\":\" singapore \",\"to_port\":\"rotterdam\"}],\"start_date\":\"2026-10-15\",\"assumptions\":{\"vlsfo_price_usd_per_mt\":{\"Singapore\":\"600\"},\"eua_price_eur_per_tco2\":\"80\",\"fueleu_pool_price_eur_per_tco2e\":\"100\",\"usd_per_eur\":\"1.1\"}}}}}"
+      },
+      {
+        "id": "M14-price-key-case",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":30,\"method\":\"tools/call\",\"params\":{\"name\":\"plan_voyage_fuel\",\"arguments\":{\"request\":{\"vessel\":{\"speed_knots\":\"14\",\"sea_consumption_mt_per_day\":\"20\",\"compatible_fuels\":[\"VLSFO\",\"BIO_METHANOL\"]},\"legs\":[{\"from_port\":\"Singapore\",\"to_port\":\"Rotterdam\"}],\"start_date\":\"2026-10-15\",\"assumptions\":{\"vlsfo_price_usd_per_mt\":{\" singapore \":\"600\",\"Rotterdam\":\"620\",\"Shanghai\":\"610\"},\"eua_price_eur_per_tco2\":\"80\",\"fueleu_pool_price_eur_per_tco2e\":\"100\",\"usd_per_eur\":\"1.1\"}}}}}"
+      },
+      {
+        "id": "M14-price-key-collision",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":30,\"method\":\"tools/call\",\"params\":{\"name\":\"plan_voyage_fuel\",\"arguments\":{\"request\":{\"vessel\":{\"speed_knots\":\"14\",\"sea_consumption_mt_per_day\":\"20\",\"compatible_fuels\":[\"VLSFO\",\"BIO_METHANOL\"]},\"legs\":[{\"from_port\":\"Singapore\",\"to_port\":\"Rotterdam\"}],\"start_date\":\"2026-10-15\",\"assumptions\":{\"vlsfo_price_usd_per_mt\":{\"Singapore\":\"1\",\" singapore \":\"600\"},\"eua_price_eur_per_tco2\":\"80\",\"fueleu_pool_price_eur_per_tco2e\":\"100\",\"usd_per_eur\":\"1.1\"}}}}}"
+      },
+      {
+        "id": "M14-forbidden-departure-lane",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":31,\"method\":\"tools/call\",\"params\":{\"name\":\"plan_voyage_fuel\",\"arguments\":{\"request\":{\"vessel\":{\"speed_knots\":\"14\",\"sea_consumption_mt_per_day\":\"20\",\"compatible_fuels\":[\"VLSFO\",\"UCOME_B100\"]},\"legs\":[{\"from_port\":\"Rotterdam\",\"to_port\":\"Singapore\"}],\"start_date\":\"2026-10-15\",\"assumptions\":{\"vlsfo_price_usd_per_mt\":{\"Singapore\":\"600\"},\"eua_price_eur_per_tco2\":\"80\",\"fueleu_pool_price_eur_per_tco2e\":\"100\",\"usd_per_eur\":\"1.1\"}}}}}"
+      },
+      {
+        "id": "M15-unknown-intensity",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":50,\"method\":\"tools/call\",\"params\":{\"name\":\"plan_voyage_fuel\",\"arguments\":{\"request\":{\"vessel\":{\"speed_knots\":\"14\",\"sea_consumption_mt_per_day\":\"20\",\"compatible_fuels\":[\"VLSFO\",\"BIO_METHANOL\"]},\"legs\":[{\"from_port\":\"Singapore\",\"to_port\":\"Rotterdam\"}],\"start_date\":\"2026-10-15\",\"assumptions\":{\"vlsfo_price_usd_per_mt\":{\"Singapore\":\"600\"},\"eua_price_eur_per_tco2\":\"80\",\"fueleu_pool_price_eur_per_tco2e\":\"100\",\"usd_per_eur\":\"1.1\",\"ghg_intensity_gco2e_per_mj\":{\"BOGUS\":\"35\"}}}}}}"
+      },
+      {
+        "id": "M15-midnight-date",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":50,\"method\":\"tools/call\",\"params\":{\"name\":\"plan_voyage_fuel\",\"arguments\":{\"request\":{\"vessel\":{\"speed_knots\":\"14\",\"sea_consumption_mt_per_day\":\"20\",\"compatible_fuels\":[\"VLSFO\",\"BIO_METHANOL\"]},\"legs\":[{\"from_port\":\"Singapore\",\"to_port\":\"Rotterdam\"}],\"start_date\":\"2026-10-15T00:00:00Z\",\"assumptions\":{\"vlsfo_price_usd_per_mt\":{\"Singapore\":\"600\"},\"eua_price_eur_per_tco2\":\"80\",\"fueleu_pool_price_eur_per_tco2e\":\"100\",\"usd_per_eur\":\"1.1\"}}}}}"
+      },
+      {
+        "id": "M15-padded-decimal",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":50,\"method\":\"tools/call\",\"params\":{\"name\":\"plan_voyage_fuel\",\"arguments\":{\"request\":{\"vessel\":{\"speed_knots\":\" 14 \",\"sea_consumption_mt_per_day\":\"20\",\"compatible_fuels\":[\"VLSFO\",\"BIO_METHANOL\"]},\"legs\":[{\"from_port\":\"Singapore\",\"to_port\":\"Rotterdam\"}],\"start_date\":\"2026-10-15\",\"assumptions\":{\"vlsfo_price_usd_per_mt\":{\"Singapore\":\"600\"},\"eua_price_eur_per_tco2\":\"80\",\"fueleu_pool_price_eur_per_tco2e\":\"100\",\"usd_per_eur\":\"1.1\"}}}}}"
+      },
+      {
+        "id": "M15-wrong-speed",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":50,\"method\":\"tools/call\",\"params\":{\"name\":\"plan_voyage_fuel\",\"arguments\":{\"request\":{\"vessel\":{\"speed_knots\":[],\"sea_consumption_mt_per_day\":\"20\",\"compatible_fuels\":[\"VLSFO\",\"BIO_METHANOL\"]},\"legs\":[{\"from_port\":\"Singapore\",\"to_port\":\"Rotterdam\"}],\"start_date\":\"2026-10-15\",\"assumptions\":{\"vlsfo_price_usd_per_mt\":{\"Singapore\":\"600\"},\"eua_price_eur_per_tco2\":\"80\",\"fueleu_pool_price_eur_per_tco2e\":\"100\",\"usd_per_eur\":\"1.1\"}}}}}"
+      },
+      {
+        "id": "M15-null-speed",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":50,\"method\":\"tools/call\",\"params\":{\"name\":\"plan_voyage_fuel\",\"arguments\":{\"request\":{\"vessel\":{\"speed_knots\":null,\"sea_consumption_mt_per_day\":\"20\",\"compatible_fuels\":[\"VLSFO\",\"BIO_METHANOL\"]},\"legs\":[{\"from_port\":\"Singapore\",\"to_port\":\"Rotterdam\"}],\"start_date\":\"2026-10-15\",\"assumptions\":{\"vlsfo_price_usd_per_mt\":{\"Singapore\":\"600\"},\"eua_price_eur_per_tco2\":\"80\",\"fueleu_pool_price_eur_per_tco2e\":\"100\",\"usd_per_eur\":\"1.1\"}}}}}"
+      },
+      {
+        "id": "M15-boolean-speed",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":50,\"method\":\"tools/call\",\"params\":{\"name\":\"plan_voyage_fuel\",\"arguments\":{\"request\":{\"vessel\":{\"speed_knots\":true,\"sea_consumption_mt_per_day\":\"20\",\"compatible_fuels\":[\"VLSFO\",\"BIO_METHANOL\"]},\"legs\":[{\"from_port\":\"Singapore\",\"to_port\":\"Rotterdam\"}],\"start_date\":\"2026-10-15\",\"assumptions\":{\"vlsfo_price_usd_per_mt\":{\"Singapore\":\"600\"},\"eua_price_eur_per_tco2\":\"80\",\"fueleu_pool_price_eur_per_tco2e\":\"100\",\"usd_per_eur\":\"1.1\"}}}}}"
+      },
+      {
+        "id": "M15-bad-decimal",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":50,\"method\":\"tools/call\",\"params\":{\"name\":\"plan_voyage_fuel\",\"arguments\":{\"request\":{\"vessel\":{\"speed_knots\":\"fast\",\"sea_consumption_mt_per_day\":\"20\",\"compatible_fuels\":[\"VLSFO\",\"BIO_METHANOL\"]},\"legs\":[{\"from_port\":\"Singapore\",\"to_port\":\"Rotterdam\"}],\"start_date\":\"2026-10-15\",\"assumptions\":{\"vlsfo_price_usd_per_mt\":{\"Singapore\":\"600\"},\"eua_price_eur_per_tco2\":\"80\",\"fueleu_pool_price_eur_per_tco2e\":\"100\",\"usd_per_eur\":\"1.1\"}}}}}"
+      },
+      {
+        "id": "M15-nonfinite-decimal",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":50,\"method\":\"tools/call\",\"params\":{\"name\":\"plan_voyage_fuel\",\"arguments\":{\"request\":{\"vessel\":{\"speed_knots\":\"NaN\",\"sea_consumption_mt_per_day\":\"20\",\"compatible_fuels\":[\"VLSFO\",\"BIO_METHANOL\"]},\"legs\":[{\"from_port\":\"Singapore\",\"to_port\":\"Rotterdam\"}],\"start_date\":\"2026-10-15\",\"assumptions\":{\"vlsfo_price_usd_per_mt\":{\"Singapore\":\"600\"},\"eua_price_eur_per_tco2\":\"80\",\"fueleu_pool_price_eur_per_tco2e\":\"100\",\"usd_per_eur\":\"1.1\"}}}}}"
+      },
+      {
+        "id": "M15-superscript-imo",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":50,\"method\":\"tools/call\",\"params\":{\"name\":\"plan_voyage_fuel\",\"arguments\":{\"request\":{\"vessel\":{\"speed_knots\":\"14\",\"sea_consumption_mt_per_day\":\"20\",\"compatible_fuels\":[\"VLSFO\",\"BIO_METHANOL\"],\"imo_number\":\"\u00b2\u00b2\u00b2\u00b2\u00b2\u00b2\u00b2\"},\"legs\":[{\"from_port\":\"Singapore\",\"to_port\":\"Rotterdam\"}],\"start_date\":\"2026-10-15\",\"assumptions\":{\"vlsfo_price_usd_per_mt\":{\"Singapore\":\"600\"},\"eua_price_eur_per_tco2\":\"80\",\"fueleu_pool_price_eur_per_tco2e\":\"100\",\"usd_per_eur\":\"1.1\"}}}}}"
+      },
+      {
+        "id": "M15-tiny-decimal",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":50,\"method\":\"tools/call\",\"params\":{\"name\":\"plan_voyage_fuel\",\"arguments\":{\"request\":{\"vessel\":{\"speed_knots\":\"14\",\"sea_consumption_mt_per_day\":\"1e-10001\",\"compatible_fuels\":[\"VLSFO\",\"BIO_METHANOL\"]},\"legs\":[{\"from_port\":\"Singapore\",\"to_port\":\"Rotterdam\"}],\"start_date\":\"2026-10-15\",\"assumptions\":{\"vlsfo_price_usd_per_mt\":{\"Singapore\":\"600\"},\"eua_price_eur_per_tco2\":\"80\",\"fueleu_pool_price_eur_per_tco2e\":\"100\",\"usd_per_eur\":\"1.1\"}}}}}"
+      },
+      {
+        "id": "M15-duplicate-fuel",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":50,\"method\":\"tools/call\",\"params\":{\"name\":\"plan_voyage_fuel\",\"arguments\":{\"request\":{\"vessel\":{\"speed_knots\":\"14\",\"sea_consumption_mt_per_day\":\"20\",\"compatible_fuels\":[\"VLSFO\",\"VLSFO\"]},\"legs\":[{\"from_port\":\"Singapore\",\"to_port\":\"Rotterdam\"}],\"start_date\":\"2026-10-15\",\"assumptions\":{\"vlsfo_price_usd_per_mt\":{\"Singapore\":\"600\"},\"eua_price_eur_per_tco2\":\"80\",\"fueleu_pool_price_eur_per_tco2e\":\"100\",\"usd_per_eur\":\"1.1\"}}}}}"
+      },
+      {
+        "id": "M15-unknown-fuel",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":50,\"method\":\"tools/call\",\"params\":{\"name\":\"plan_voyage_fuel\",\"arguments\":{\"request\":{\"vessel\":{\"speed_knots\":\"14\",\"sea_consumption_mt_per_day\":\"20\",\"compatible_fuels\":[\"BOGUS\"]},\"legs\":[{\"from_port\":\"Singapore\",\"to_port\":\"Rotterdam\"}],\"start_date\":\"2026-10-15\",\"assumptions\":{\"vlsfo_price_usd_per_mt\":{\"Singapore\":\"600\"},\"eua_price_eur_per_tco2\":\"80\",\"fueleu_pool_price_eur_per_tco2e\":\"100\",\"usd_per_eur\":\"1.1\"}}}}}"
+      },
+      {
+        "id": "M15-wrong-fuels",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":50,\"method\":\"tools/call\",\"params\":{\"name\":\"plan_voyage_fuel\",\"arguments\":{\"request\":{\"vessel\":{\"speed_knots\":\"14\",\"sea_consumption_mt_per_day\":\"20\",\"compatible_fuels\":\"VLSFO\"},\"legs\":[{\"from_port\":\"Singapore\",\"to_port\":\"Rotterdam\"}],\"start_date\":\"2026-10-15\",\"assumptions\":{\"vlsfo_price_usd_per_mt\":{\"Singapore\":\"600\"},\"eua_price_eur_per_tco2\":\"80\",\"fueleu_pool_price_eur_per_tco2e\":\"100\",\"usd_per_eur\":\"1.1\"}}}}}"
+      },
+      {
+        "id": "M15-extra-vessel",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":50,\"method\":\"tools/call\",\"params\":{\"name\":\"plan_voyage_fuel\",\"arguments\":{\"request\":{\"vessel\":{\"speed_knots\":\"14\",\"sea_consumption_mt_per_day\":\"20\",\"compatible_fuels\":[\"VLSFO\",\"BIO_METHANOL\"],\"extra\":\"private\"},\"legs\":[{\"from_port\":\"Singapore\",\"to_port\":\"Rotterdam\"}],\"start_date\":\"2026-10-15\",\"assumptions\":{\"vlsfo_price_usd_per_mt\":{\"Singapore\":\"600\"},\"eua_price_eur_per_tco2\":\"80\",\"fueleu_pool_price_eur_per_tco2e\":\"100\",\"usd_per_eur\":\"1.1\"}}}}}"
+      },
+      {
+        "id": "M15-extra-request",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":50,\"method\":\"tools/call\",\"params\":{\"name\":\"plan_voyage_fuel\",\"arguments\":{\"request\":{\"vessel\":{\"speed_knots\":\"14\",\"sea_consumption_mt_per_day\":\"20\",\"compatible_fuels\":[\"VLSFO\",\"BIO_METHANOL\"]},\"legs\":[{\"from_port\":\"Singapore\",\"to_port\":\"Rotterdam\"}],\"start_date\":\"2026-10-15\",\"assumptions\":{\"vlsfo_price_usd_per_mt\":{\"Singapore\":\"600\"},\"eua_price_eur_per_tco2\":\"80\",\"fueleu_pool_price_eur_per_tco2e\":\"100\",\"usd_per_eur\":\"1.1\"},\"extra\":1}}}}"
+      },
+      {
+        "id": "M15-extra-assumptions",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":50,\"method\":\"tools/call\",\"params\":{\"name\":\"plan_voyage_fuel\",\"arguments\":{\"request\":{\"vessel\":{\"speed_knots\":\"14\",\"sea_consumption_mt_per_day\":\"20\",\"compatible_fuels\":[\"VLSFO\",\"BIO_METHANOL\"]},\"legs\":[{\"from_port\":\"Singapore\",\"to_port\":\"Rotterdam\"}],\"start_date\":\"2026-10-15\",\"assumptions\":{\"vlsfo_price_usd_per_mt\":{\"Singapore\":\"600\"},\"eua_price_eur_per_tco2\":\"80\",\"fueleu_pool_price_eur_per_tco2e\":\"100\",\"usd_per_eur\":\"1.1\",\"extra\":1}}}}}"
+      },
+      {
+        "id": "M15-year-coercion",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":50,\"method\":\"tools/call\",\"params\":{\"name\":\"plan_voyage_fuel\",\"arguments\":{\"request\":{\"vessel\":{\"speed_knots\":\"14\",\"sea_consumption_mt_per_day\":\"20\",\"compatible_fuels\":[\"VLSFO\",\"BIO_METHANOL\"]},\"legs\":[{\"from_port\":\"Singapore\",\"to_port\":\"Rotterdam\"}],\"start_date\":\"2026-10-15\",\"assumptions\":{\"vlsfo_price_usd_per_mt\":{\"Singapore\":\"600\"},\"eua_price_eur_per_tco2\":\"80\",\"fueleu_pool_price_eur_per_tco2e\":\"100\",\"usd_per_eur\":\"1.1\",\"reporting_year\":\"2035\"}}}}}"
+      },
+      {
+        "id": "M15-unknown-price-port",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":50,\"method\":\"tools/call\",\"params\":{\"name\":\"plan_voyage_fuel\",\"arguments\":{\"request\":{\"vessel\":{\"speed_knots\":\"14\",\"sea_consumption_mt_per_day\":\"20\",\"compatible_fuels\":[\"VLSFO\",\"BIO_METHANOL\"]},\"legs\":[{\"from_port\":\"Singapore\",\"to_port\":\"Rotterdam\"}],\"start_date\":\"2026-10-15\",\"assumptions\":{\"vlsfo_price_usd_per_mt\":{\"Hamburg\":\"600\"},\"eua_price_eur_per_tco2\":\"80\",\"fueleu_pool_price_eur_per_tco2e\":\"100\",\"usd_per_eur\":\"1.1\"}}}}}"
+      },
+      {
+        "id": "M15-missing-speed",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":50,\"method\":\"tools/call\",\"params\":{\"name\":\"plan_voyage_fuel\",\"arguments\":{\"request\":{\"vessel\":{\"sea_consumption_mt_per_day\":\"20\",\"compatible_fuels\":[\"VLSFO\",\"BIO_METHANOL\"]},\"legs\":[{\"from_port\":\"Singapore\",\"to_port\":\"Rotterdam\"}],\"start_date\":\"2026-10-15\",\"assumptions\":{\"vlsfo_price_usd_per_mt\":{\"Singapore\":\"600\"},\"eua_price_eur_per_tco2\":\"80\",\"fueleu_pool_price_eur_per_tco2e\":\"100\",\"usd_per_eur\":\"1.1\"}}}}}"
+      },
+      {
+        "id": "M15-slice-market_product-null",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":50,\"method\":\"tools/call\",\"params\":{\"name\":\"get_market_slice\",\"arguments\":{\"market_product\":null,\"delivery_point\":\"Singapore\",\"availability_window\":\"SPOT\"}}}"
+      },
+      {
+        "id": "M15-slice-market_product-number",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":50,\"method\":\"tools/call\",\"params\":{\"name\":\"get_market_slice\",\"arguments\":{\"market_product\":42,\"delivery_point\":\"Singapore\",\"availability_window\":\"SPOT\"}}}"
+      },
+      {
+        "id": "M15-slice-market_product-array",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":50,\"method\":\"tools/call\",\"params\":{\"name\":\"get_market_slice\",\"arguments\":{\"market_product\":[],\"delivery_point\":\"Singapore\",\"availability_window\":\"SPOT\"}}}"
+      },
+      {
+        "id": "M15-slice-delivery_point-null",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":50,\"method\":\"tools/call\",\"params\":{\"name\":\"get_market_slice\",\"arguments\":{\"market_product\":\"BIO_METHANOL\",\"delivery_point\":null,\"availability_window\":\"SPOT\"}}}"
+      },
+      {
+        "id": "M15-slice-delivery_point-number",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":50,\"method\":\"tools/call\",\"params\":{\"name\":\"get_market_slice\",\"arguments\":{\"market_product\":\"BIO_METHANOL\",\"delivery_point\":42,\"availability_window\":\"SPOT\"}}}"
+      },
+      {
+        "id": "M15-slice-delivery_point-array",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":50,\"method\":\"tools/call\",\"params\":{\"name\":\"get_market_slice\",\"arguments\":{\"market_product\":\"BIO_METHANOL\",\"delivery_point\":[],\"availability_window\":\"SPOT\"}}}"
+      },
+      {
+        "id": "M15-slice-availability_window-null",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":50,\"method\":\"tools/call\",\"params\":{\"name\":\"get_market_slice\",\"arguments\":{\"market_product\":\"BIO_METHANOL\",\"delivery_point\":\"Singapore\",\"availability_window\":null}}}"
+      },
+      {
+        "id": "M15-slice-availability_window-number",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":50,\"method\":\"tools/call\",\"params\":{\"name\":\"get_market_slice\",\"arguments\":{\"market_product\":\"BIO_METHANOL\",\"delivery_point\":\"Singapore\",\"availability_window\":42}}}"
+      },
+      {
+        "id": "M15-slice-availability_window-array",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":50,\"method\":\"tools/call\",\"params\":{\"name\":\"get_market_slice\",\"arguments\":{\"market_product\":\"BIO_METHANOL\",\"delivery_point\":\"Singapore\",\"availability_window\":[]}}}"
+      },
+      {
+        "id": "M15-same-ports",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":50,\"method\":\"tools/call\",\"params\":{\"name\":\"plan_voyage_fuel\",\"arguments\":{\"request\":{\"vessel\":{\"speed_knots\":\"14\",\"sea_consumption_mt_per_day\":\"20\",\"compatible_fuels\":[\"VLSFO\",\"BIO_METHANOL\"]},\"legs\":[{\"from_port\":\"Singapore\",\"to_port\":\"Singapore\"}],\"start_date\":\"2026-10-15\",\"assumptions\":{\"vlsfo_price_usd_per_mt\":{\"Singapore\":\"600\"},\"eua_price_eur_per_tco2\":\"80\",\"fueleu_pool_price_eur_per_tco2e\":\"100\",\"usd_per_eur\":\"1.1\"}}}}}"
+      },
+      {
+        "id": "M15-disconnected",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":50,\"method\":\"tools/call\",\"params\":{\"name\":\"plan_voyage_fuel\",\"arguments\":{\"request\":{\"vessel\":{\"speed_knots\":\"14\",\"sea_consumption_mt_per_day\":\"20\",\"compatible_fuels\":[\"VLSFO\",\"BIO_METHANOL\"]},\"legs\":[{\"from_port\":\"Singapore\",\"to_port\":\"Rotterdam\"},{\"from_port\":\"Shanghai\",\"to_port\":\"Busan\"}],\"start_date\":\"2026-10-15\",\"assumptions\":{\"vlsfo_price_usd_per_mt\":{\"Singapore\":\"600\"},\"eua_price_eur_per_tco2\":\"80\",\"fueleu_pool_price_eur_per_tco2e\":\"100\",\"usd_per_eur\":\"1.1\"}}}}}"
+      },
+      {
+        "id": "M15-extra-leg",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":50,\"method\":\"tools/call\",\"params\":{\"name\":\"plan_voyage_fuel\",\"arguments\":{\"request\":{\"vessel\":{\"speed_knots\":\"14\",\"sea_consumption_mt_per_day\":\"20\",\"compatible_fuels\":[\"VLSFO\",\"BIO_METHANOL\"]},\"legs\":[{\"from_port\":\"Singapore\",\"to_port\":\"Rotterdam\",\"extra\":\"private\"}],\"start_date\":\"2026-10-15\",\"assumptions\":{\"vlsfo_price_usd_per_mt\":{\"Singapore\":\"600\"},\"eua_price_eur_per_tco2\":\"80\",\"fueleu_pool_price_eur_per_tco2e\":\"100\",\"usd_per_eur\":\"1.1\"}}}}}"
+      },
+      {
+        "id": "M15-bad-price-bound",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":50,\"method\":\"tools/call\",\"params\":{\"name\":\"plan_voyage_fuel\",\"arguments\":{\"request\":{\"vessel\":{\"speed_knots\":\"14\",\"sea_consumption_mt_per_day\":\"20\",\"compatible_fuels\":[\"VLSFO\",\"BIO_METHANOL\"]},\"legs\":[{\"from_port\":\"Singapore\",\"to_port\":\"Rotterdam\"}],\"start_date\":\"2026-10-15\",\"assumptions\":{\"vlsfo_price_usd_per_mt\":{\"Singapore\":\"0\"},\"eua_price_eur_per_tco2\":\"80\",\"fueleu_pool_price_eur_per_tco2e\":\"100\",\"usd_per_eur\":\"1.1\"}}}}}"
+      },
+      {
+        "id": "M15-bad-intensity-bound",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":50,\"method\":\"tools/call\",\"params\":{\"name\":\"plan_voyage_fuel\",\"arguments\":{\"request\":{\"vessel\":{\"speed_knots\":\"14\",\"sea_consumption_mt_per_day\":\"20\",\"compatible_fuels\":[\"VLSFO\",\"BIO_METHANOL\"]},\"legs\":[{\"from_port\":\"Singapore\",\"to_port\":\"Rotterdam\"}],\"start_date\":\"2026-10-15\",\"assumptions\":{\"vlsfo_price_usd_per_mt\":{\"Singapore\":\"600\"},\"eua_price_eur_per_tco2\":\"80\",\"fueleu_pool_price_eur_per_tco2e\":\"100\",\"usd_per_eur\":\"1.1\",\"ghg_intensity_gco2e_per_mj\":{\"VLSFO\":\"201\"}}}}}}"
+      },
+      {
+        "id": "M15-wrong-price-map",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":50,\"method\":\"tools/call\",\"params\":{\"name\":\"plan_voyage_fuel\",\"arguments\":{\"request\":{\"vessel\":{\"speed_knots\":\"14\",\"sea_consumption_mt_per_day\":\"20\",\"compatible_fuels\":[\"VLSFO\",\"BIO_METHANOL\"]},\"legs\":[{\"from_port\":\"Singapore\",\"to_port\":\"Rotterdam\"}],\"start_date\":\"2026-10-15\",\"assumptions\":{\"vlsfo_price_usd_per_mt\":[],\"eua_price_eur_per_tco2\":\"80\",\"fueleu_pool_price_eur_per_tco2e\":\"100\",\"usd_per_eur\":\"1.1\"}}}}}"
+      },
+      {
+        "id": "M15-aggregate-errors",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":50,\"method\":\"tools/call\",\"params\":{\"name\":\"plan_voyage_fuel\",\"arguments\":{\"request\":{\"vessel\":{\"speed_knots\":[],\"sea_consumption_mt_per_day\":\"20\",\"compatible_fuels\":[\"VLSFO\",\"BIO_METHANOL\"],\"extra\":1},\"legs\":[{\"from_port\":42,\"to_port\":\"Rotterdam\",\"extra\":2}],\"start_date\":\"bad\",\"assumptions\":{\"vlsfo_price_usd_per_mt\":{\"Singapore\":\"600\"},\"eua_price_eur_per_tco2\":\"80\",\"fueleu_pool_price_eur_per_tco2e\":\"100\",\"usd_per_eur\":\"1.1\"},\"extra\":3}}}}"
+      },
+      {
+        "id": "M15-year-float",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":50,\"method\":\"tools/call\",\"params\":{\"name\":\"plan_voyage_fuel\",\"arguments\":{\"request\":{\"vessel\":{\"speed_knots\":\"14\",\"sea_consumption_mt_per_day\":\"20\",\"compatible_fuels\":[\"VLSFO\",\"BIO_METHANOL\"]},\"legs\":[{\"from_port\":\"Singapore\",\"to_port\":\"Rotterdam\"}],\"start_date\":\"2026-10-15\",\"assumptions\":{\"vlsfo_price_usd_per_mt\":{\"Singapore\":\"600\"},\"eua_price_eur_per_tco2\":\"80\",\"fueleu_pool_price_eur_per_tco2e\":\"100\",\"usd_per_eur\":\"1.1\",\"reporting_year\":2035.0}}}}}"
+      },
+      {
+        "id": "M15-year-fraction",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":50,\"method\":\"tools/call\",\"params\":{\"name\":\"plan_voyage_fuel\",\"arguments\":{\"request\":{\"vessel\":{\"speed_knots\":\"14\",\"sea_consumption_mt_per_day\":\"20\",\"compatible_fuels\":[\"VLSFO\",\"BIO_METHANOL\"]},\"legs\":[{\"from_port\":\"Singapore\",\"to_port\":\"Rotterdam\"}],\"start_date\":\"2026-10-15\",\"assumptions\":{\"vlsfo_price_usd_per_mt\":{\"Singapore\":\"600\"},\"eua_price_eur_per_tco2\":\"80\",\"fueleu_pool_price_eur_per_tco2e\":\"100\",\"usd_per_eur\":\"1.1\",\"reporting_year\":2035.5}}}}}"
+      },
+      {
+        "id": "M15-year-decimal-string",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":50,\"method\":\"tools/call\",\"params\":{\"name\":\"plan_voyage_fuel\",\"arguments\":{\"request\":{\"vessel\":{\"speed_knots\":\"14\",\"sea_consumption_mt_per_day\":\"20\",\"compatible_fuels\":[\"VLSFO\",\"BIO_METHANOL\"]},\"legs\":[{\"from_port\":\"Singapore\",\"to_port\":\"Rotterdam\"}],\"start_date\":\"2026-10-15\",\"assumptions\":{\"vlsfo_price_usd_per_mt\":{\"Singapore\":\"600\"},\"eua_price_eur_per_tco2\":\"80\",\"fueleu_pool_price_eur_per_tco2e\":\"100\",\"usd_per_eur\":\"1.1\",\"reporting_year\":\"2035.0\"}}}}}"
+      },
+      {
+        "id": "M15-year-bool",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":50,\"method\":\"tools/call\",\"params\":{\"name\":\"plan_voyage_fuel\",\"arguments\":{\"request\":{\"vessel\":{\"speed_knots\":\"14\",\"sea_consumption_mt_per_day\":\"20\",\"compatible_fuels\":[\"VLSFO\",\"BIO_METHANOL\"]},\"legs\":[{\"from_port\":\"Singapore\",\"to_port\":\"Rotterdam\"}],\"start_date\":\"2026-10-15\",\"assumptions\":{\"vlsfo_price_usd_per_mt\":{\"Singapore\":\"600\"},\"eua_price_eur_per_tco2\":\"80\",\"fueleu_pool_price_eur_per_tco2e\":\"100\",\"usd_per_eur\":\"1.1\",\"reporting_year\":true}}}}}"
+      },
+      {
+        "id": "M15-year-bad",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":50,\"method\":\"tools/call\",\"params\":{\"name\":\"plan_voyage_fuel\",\"arguments\":{\"request\":{\"vessel\":{\"speed_knots\":\"14\",\"sea_consumption_mt_per_day\":\"20\",\"compatible_fuels\":[\"VLSFO\",\"BIO_METHANOL\"]},\"legs\":[{\"from_port\":\"Singapore\",\"to_port\":\"Rotterdam\"}],\"start_date\":\"2026-10-15\",\"assumptions\":{\"vlsfo_price_usd_per_mt\":{\"Singapore\":\"600\"},\"eua_price_eur_per_tco2\":\"80\",\"fueleu_pool_price_eur_per_tco2e\":\"100\",\"usd_per_eur\":\"1.1\",\"reporting_year\":\"bad\"}}}}}"
+      },
+      {
+        "id": "M15-year-underscores",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":50,\"method\":\"tools/call\",\"params\":{\"name\":\"plan_voyage_fuel\",\"arguments\":{\"request\":{\"vessel\":{\"speed_knots\":\"14\",\"sea_consumption_mt_per_day\":\"20\",\"compatible_fuels\":[\"VLSFO\",\"BIO_METHANOL\"]},\"legs\":[{\"from_port\":\"Singapore\",\"to_port\":\"Rotterdam\"}],\"start_date\":\"2026-10-15\",\"assumptions\":{\"vlsfo_price_usd_per_mt\":{\"Singapore\":\"600\"},\"eua_price_eur_per_tco2\":\"80\",\"fueleu_pool_price_eur_per_tco2e\":\"100\",\"usd_per_eur\":\"1.1\",\"reporting_year\":\"2_035\"}}}}}"
+      },
+      {
+        "id": "M15-year-unicode",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":50,\"method\":\"tools/call\",\"params\":{\"name\":\"plan_voyage_fuel\",\"arguments\":{\"request\":{\"vessel\":{\"speed_knots\":\"14\",\"sea_consumption_mt_per_day\":\"20\",\"compatible_fuels\":[\"VLSFO\",\"BIO_METHANOL\"]},\"legs\":[{\"from_port\":\"Singapore\",\"to_port\":\"Rotterdam\"}],\"start_date\":\"2026-10-15\",\"assumptions\":{\"vlsfo_price_usd_per_mt\":{\"Singapore\":\"600\"},\"eua_price_eur_per_tco2\":\"80\",\"fueleu_pool_price_eur_per_tco2e\":\"100\",\"usd_per_eur\":\"1.1\",\"reporting_year\":\"\uff12\uff10\uff13\uff15\"}}}}}"
+      },
+      {
+        "id": "M15-arabic-imo",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":50,\"method\":\"tools/call\",\"params\":{\"name\":\"plan_voyage_fuel\",\"arguments\":{\"request\":{\"vessel\":{\"speed_knots\":\"14\",\"sea_consumption_mt_per_day\":\"20\",\"compatible_fuels\":[\"VLSFO\",\"BIO_METHANOL\"],\"imo_number\":\"\u0661\u0662\u0663\u0664\u0665\u0666\u0667\"},\"legs\":[{\"from_port\":\"Singapore\",\"to_port\":\"Rotterdam\"}],\"start_date\":\"2026-10-15\",\"assumptions\":{\"vlsfo_price_usd_per_mt\":{\"Singapore\":\"600\"},\"eua_price_eur_per_tco2\":\"80\",\"fueleu_pool_price_eur_per_tco2e\":\"100\",\"usd_per_eur\":\"1.1\"}}}}}"
+      },
+      {
+        "id": "M15-wide-imo",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":50,\"method\":\"tools/call\",\"params\":{\"name\":\"plan_voyage_fuel\",\"arguments\":{\"request\":{\"vessel\":{\"speed_knots\":\"14\",\"sea_consumption_mt_per_day\":\"20\",\"compatible_fuels\":[\"VLSFO\",\"BIO_METHANOL\"],\"imo_number\":\"\uff11\uff12\uff13\uff14\uff15\uff16\uff17\"},\"legs\":[{\"from_port\":\"Singapore\",\"to_port\":\"Rotterdam\"}],\"start_date\":\"2026-10-15\",\"assumptions\":{\"vlsfo_price_usd_per_mt\":{\"Singapore\":\"600\"},\"eua_price_eur_per_tco2\":\"80\",\"fueleu_pool_price_eur_per_tco2e\":\"100\",\"usd_per_eur\":\"1.1\"}}}}}"
+      },
+      {
+        "id": "M15-arabic-decimal",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":50,\"method\":\"tools/call\",\"params\":{\"name\":\"plan_voyage_fuel\",\"arguments\":{\"request\":{\"vessel\":{\"speed_knots\":\"\u0661\u0664.\u0660\",\"sea_consumption_mt_per_day\":\"20\",\"compatible_fuels\":[\"VLSFO\",\"BIO_METHANOL\"]},\"legs\":[{\"from_port\":\"Singapore\",\"to_port\":\"Rotterdam\"}],\"start_date\":\"2026-10-15\",\"assumptions\":{\"vlsfo_price_usd_per_mt\":{\"Singapore\":\"600\"},\"eua_price_eur_per_tco2\":\"80\",\"fueleu_pool_price_eur_per_tco2e\":\"100\",\"usd_per_eur\":\"1.1\"}}}}}"
+      },
+      {
+        "id": "M15-wide-decimal",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":50,\"method\":\"tools/call\",\"params\":{\"name\":\"plan_voyage_fuel\",\"arguments\":{\"request\":{\"vessel\":{\"speed_knots\":\"\uff11\uff14\",\"sea_consumption_mt_per_day\":\"20\",\"compatible_fuels\":[\"VLSFO\",\"BIO_METHANOL\"]},\"legs\":[{\"from_port\":\"Singapore\",\"to_port\":\"Rotterdam\"}],\"start_date\":\"2026-10-15\",\"assumptions\":{\"vlsfo_price_usd_per_mt\":{\"Singapore\":\"600\"},\"eua_price_eur_per_tco2\":\"80\",\"fueleu_pool_price_eur_per_tco2e\":\"100\",\"usd_per_eur\":\"1.1\"}}}}}"
+      },
+      {
+        "id": "M15-unicode-exponent",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":50,\"method\":\"tools/call\",\"params\":{\"name\":\"plan_voyage_fuel\",\"arguments\":{\"request\":{\"vessel\":{\"speed_knots\":\"\u0661.\u0664e\u0661\",\"sea_consumption_mt_per_day\":\"20\",\"compatible_fuels\":[\"VLSFO\",\"BIO_METHANOL\"]},\"legs\":[{\"from_port\":\"Singapore\",\"to_port\":\"Rotterdam\"}],\"start_date\":\"2026-10-15\",\"assumptions\":{\"vlsfo_price_usd_per_mt\":{\"Singapore\":\"600\"},\"eua_price_eur_per_tco2\":\"80\",\"fueleu_pool_price_eur_per_tco2e\":\"100\",\"usd_per_eur\":\"1.1\"}}}}}"
+      },
+      {
+        "id": "M15-json-request-object",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":50,\"method\":\"tools/call\",\"params\":{\"name\":\"plan_voyage_fuel\",\"arguments\":{\"request\":\"{\\\"vessel\\\": {\\\"speed_knots\\\": \\\"14\\\", \\\"sea_consumption_mt_per_day\\\": \\\"20\\\", \\\"compatible_fuels\\\": [\\\"VLSFO\\\", \\\"BIO_METHANOL\\\"]}, \\\"legs\\\": [{\\\"from_port\\\": \\\"Singapore\\\", \\\"to_port\\\": \\\"Rotterdam\\\"}], \\\"start_date\\\": \\\"2026-10-15\\\", \\\"assumptions\\\": {\\\"vlsfo_price_usd_per_mt\\\": {\\\"Singapore\\\": \\\"600\\\"}, \\\"eua_price_eur_per_tco2\\\": \\\"80\\\", \\\"fueleu_pool_price_eur_per_tco2e\\\": \\\"100\\\", \\\"usd_per_eur\\\": \\\"1.1\\\"}}\"}}}"
+      },
+      {
+        "id": "M15-json-request-null",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":50,\"method\":\"tools/call\",\"params\":{\"name\":\"plan_voyage_fuel\",\"arguments\":{\"request\":\"null\"}}}"
+      },
+      {
+        "id": "M15-json-request-array",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":50,\"method\":\"tools/call\",\"params\":{\"name\":\"plan_voyage_fuel\",\"arguments\":{\"request\":\"[]\"}}}"
+      },
+      {
+        "id": "M15-json-request-scalar",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":50,\"method\":\"tools/call\",\"params\":{\"name\":\"plan_voyage_fuel\",\"arguments\":{\"request\":\"42\"}}}"
+      },
+      {
+        "id": "M15-json-request-invalid",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":50,\"method\":\"tools/call\",\"params\":{\"name\":\"plan_voyage_fuel\",\"arguments\":{\"request\":\"{bad\"}}}"
+      },
+      {
+        "id": "M15-subnormal-decimal",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":50,\"method\":\"tools/call\",\"params\":{\"name\":\"plan_voyage_fuel\",\"arguments\":{\"request\":{\"vessel\":{\"speed_knots\":\"14\",\"sea_consumption_mt_per_day\":\"1e-1000027\",\"compatible_fuels\":[\"VLSFO\",\"BIO_METHANOL\"]},\"legs\":[{\"from_port\":\"Singapore\",\"to_port\":\"Rotterdam\"}],\"start_date\":\"2026-10-15\",\"assumptions\":{\"vlsfo_price_usd_per_mt\":{\"Singapore\":\"600\"},\"eua_price_eur_per_tco2\":\"80\",\"fueleu_pool_price_eur_per_tco2e\":\"100\",\"usd_per_eur\":\"1.1\"}}}}}"
+      },
+      {
+        "id": "M15-wide-decimal-exponent",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":50,\"method\":\"tools/call\",\"params\":{\"name\":\"plan_voyage_fuel\",\"arguments\":{\"request\":{\"vessel\":{\"speed_knots\":\"14\",\"sea_consumption_mt_per_day\":\"1e-2147483648\",\"compatible_fuels\":[\"VLSFO\",\"BIO_METHANOL\"]},\"legs\":[{\"from_port\":\"Singapore\",\"to_port\":\"Rotterdam\"}],\"start_date\":\"2026-10-15\",\"assumptions\":{\"vlsfo_price_usd_per_mt\":{\"Singapore\":\"600\"},\"eua_price_eur_per_tco2\":\"80\",\"fueleu_pool_price_eur_per_tco2e\":\"100\",\"usd_per_eur\":\"1.1\"}}}}}"
+      },
+      {
+        "id": "M15-minimum-decimal-exponent",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":50,\"method\":\"tools/call\",\"params\":{\"name\":\"plan_voyage_fuel\",\"arguments\":{\"request\":{\"vessel\":{\"speed_knots\":\"14\",\"sea_consumption_mt_per_day\":\"1e-1999999999999999997\",\"compatible_fuels\":[\"VLSFO\",\"BIO_METHANOL\"]},\"legs\":[{\"from_port\":\"Singapore\",\"to_port\":\"Rotterdam\"}],\"start_date\":\"2026-10-15\",\"assumptions\":{\"vlsfo_price_usd_per_mt\":{\"Singapore\":\"600\"},\"eua_price_eur_per_tco2\":\"80\",\"fueleu_pool_price_eur_per_tco2e\":\"100\",\"usd_per_eur\":\"1.1\"}}}}}"
+      },
+      {
+        "id": "M15-below-decimal-domain",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":50,\"method\":\"tools/call\",\"params\":{\"name\":\"plan_voyage_fuel\",\"arguments\":{\"request\":{\"vessel\":{\"speed_knots\":\"14\",\"sea_consumption_mt_per_day\":\"1e-1999999999999999998\",\"compatible_fuels\":[\"VLSFO\",\"BIO_METHANOL\"]},\"legs\":[{\"from_port\":\"Singapore\",\"to_port\":\"Rotterdam\"}],\"start_date\":\"2026-10-15\",\"assumptions\":{\"vlsfo_price_usd_per_mt\":{\"Singapore\":\"600\"},\"eua_price_eur_per_tco2\":\"80\",\"fueleu_pool_price_eur_per_tco2e\":\"100\",\"usd_per_eur\":\"1.1\"}}}}}"
+      },
+      {
+        "id": "M15-above-decimal-domain",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":50,\"method\":\"tools/call\",\"params\":{\"name\":\"plan_voyage_fuel\",\"arguments\":{\"request\":{\"vessel\":{\"speed_knots\":\"1e1000000000000000000\",\"sea_consumption_mt_per_day\":\"20\",\"compatible_fuels\":[\"VLSFO\",\"BIO_METHANOL\"]},\"legs\":[{\"from_port\":\"Singapore\",\"to_port\":\"Rotterdam\"}],\"start_date\":\"2026-10-15\",\"assumptions\":{\"vlsfo_price_usd_per_mt\":{\"Singapore\":\"600\"},\"eua_price_eur_per_tco2\":\"80\",\"fueleu_pool_price_eur_per_tco2e\":\"100\",\"usd_per_eur\":\"1.1\"}}}}}"
+      },
+      {
+        "id": "M15-maximum-zero-exponent",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":50,\"method\":\"tools/call\",\"params\":{\"name\":\"plan_voyage_fuel\",\"arguments\":{\"request\":{\"vessel\":{\"speed_knots\":\"14\",\"sea_consumption_mt_per_day\":\"20\",\"compatible_fuels\":[\"VLSFO\",\"BIO_METHANOL\"],\"berth_consumption_mt_per_day\":\"0e999999999999999999\"},\"legs\":[{\"from_port\":\"Singapore\",\"to_port\":\"Rotterdam\"}],\"start_date\":\"2026-10-15\",\"assumptions\":{\"vlsfo_price_usd_per_mt\":{\"Singapore\":\"600\"},\"eua_price_eur_per_tco2\":\"80\",\"fueleu_pool_price_eur_per_tco2e\":\"100\",\"usd_per_eur\":\"1.1\"}}}}}"
+      },
+      {
+        "id": "M16-wrong-version",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"1.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"get_market_slice\",\"arguments\":{}}}"
+      },
+      {
+        "id": "M16-missing-version",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"get_market_slice\",\"arguments\":{}}}"
+      },
+      {
+        "id": "M16-array-envelope",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "[]"
+      },
+      {
+        "id": "M16-wrong-method",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":42,\"params\":{\"name\":\"get_market_slice\",\"arguments\":{}}}"
+      },
+      {
+        "id": "M16-wrong-params",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":[]}"
+      },
+      {
+        "id": "M16-absent-meta",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream",
+          "mcp-protocol-version": "2099-01-01"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\",\"params\":{}}"
+      },
+      {
+        "id": "M16-empty-meta",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream",
+          "mcp-protocol-version": "2099-01-01"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\",\"params\":{\"_meta\":{}}}"
+      },
+      {
+        "id": "M16-partial-meta",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream",
+          "mcp-protocol-version": "2099-01-01"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\",\"params\":{\"_meta\":{\"io.modelcontextprotocol/protocolVersion\":\"2099-01-01\"}}}"
+      },
+      {
+        "id": "M16-version-mismatch",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream",
+          "mcp-protocol-version": "2099-01-01"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\",\"params\":{\"_meta\":{\"io.modelcontextprotocol/protocolVersion\":\"2026-07-28\",\"io.modelcontextprotocol/clientCapabilities\":{}}}}"
+      },
+      {
+        "id": "M16-method-mismatch",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream",
+          "mcp-protocol-version": "2099-01-01"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\",\"params\":{\"_meta\":{\"io.modelcontextprotocol/protocolVersion\":\"2099-01-01\",\"io.modelcontextprotocol/clientCapabilities\":{}}}}"
+      },
+      {
+        "id": "M16-unsupported-modern",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream",
+          "mcp-protocol-version": "2099-01-01",
+          "mcp-method": "tools/list"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\",\"params\":{\"_meta\":{\"io.modelcontextprotocol/protocolVersion\":\"2099-01-01\",\"io.modelcontextprotocol/clientCapabilities\":{}}}}"
+      },
+      {
+        "id": "M15-too-many-valid-fuels",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":50,\"method\":\"tools/call\",\"params\":{\"name\":\"plan_voyage_fuel\",\"arguments\":{\"request\":{\"vessel\":{\"speed_knots\":\"14\",\"sea_consumption_mt_per_day\":\"20\",\"compatible_fuels\":[\"VLSFO\",\"VLSFO\",\"VLSFO\",\"VLSFO\",\"VLSFO\",\"VLSFO\",\"VLSFO\"]},\"legs\":[{\"from_port\":\"Singapore\",\"to_port\":\"Rotterdam\"}],\"start_date\":\"2026-10-15\",\"assumptions\":{\"vlsfo_price_usd_per_mt\":{\"Singapore\":\"600\"},\"eua_price_eur_per_tco2\":\"80\",\"fueleu_pool_price_eur_per_tco2e\":\"100\",\"usd_per_eur\":\"1.1\"}}}}}"
+      },
+      {
+        "id": "M15-too-many-invalid-fuels",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":50,\"method\":\"tools/call\",\"params\":{\"name\":\"plan_voyage_fuel\",\"arguments\":{\"request\":{\"vessel\":{\"speed_knots\":\"14\",\"sea_consumption_mt_per_day\":\"20\",\"compatible_fuels\":[\"BOGUS\",\"BOGUS\",\"BOGUS\",\"BOGUS\",\"BOGUS\",\"BOGUS\",\"BOGUS\"]},\"legs\":[{\"from_port\":\"Singapore\",\"to_port\":\"Rotterdam\"}],\"start_date\":\"2026-10-15\",\"assumptions\":{\"vlsfo_price_usd_per_mt\":{\"Singapore\":\"600\"},\"eua_price_eur_per_tco2\":\"80\",\"fueleu_pool_price_eur_per_tco2e\":\"100\",\"usd_per_eur\":\"1.1\"}}}}}"
+      },
+      {
+        "id": "M15-adjusted-exponent-overflow",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":50,\"method\":\"tools/call\",\"params\":{\"name\":\"plan_voyage_fuel\",\"arguments\":{\"request\":{\"vessel\":{\"speed_knots\":\"10e999999999999999999\",\"sea_consumption_mt_per_day\":\"20\",\"compatible_fuels\":[\"VLSFO\",\"BIO_METHANOL\"]},\"legs\":[{\"from_port\":\"Singapore\",\"to_port\":\"Rotterdam\"}],\"start_date\":\"2026-10-15\",\"assumptions\":{\"vlsfo_price_usd_per_mt\":{\"Singapore\":\"600\"},\"eua_price_eur_per_tco2\":\"80\",\"fueleu_pool_price_eur_per_tco2e\":\"100\",\"usd_per_eur\":\"1.1\"}}}}}"
+      },
+      {
+        "id": "M15-numeric-scientific-year",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":50,\"method\":\"tools/call\",\"params\":{\"name\":\"plan_voyage_fuel\",\"arguments\":{\"request\":{\"vessel\":{\"speed_knots\":\"14\",\"sea_consumption_mt_per_day\":\"20\",\"compatible_fuels\":[\"VLSFO\",\"BIO_METHANOL\"]},\"legs\":[{\"from_port\":\"Singapore\",\"to_port\":\"Rotterdam\"}],\"start_date\":\"2026-10-15\",\"assumptions\":{\"vlsfo_price_usd_per_mt\":{\"Singapore\":\"600\"},\"eua_price_eur_per_tco2\":\"80\",\"fueleu_pool_price_eur_per_tco2e\":\"100\",\"usd_per_eur\":\"1.1\",\"reporting_year\":2035.0}}}}}"
+      },
+      {
+        "id": "M17-root-array",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"plan_voyage_fuel\",\"arguments\":[]}}"
+      },
+      {
+        "id": "M17-root-number",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"plan_voyage_fuel\",\"arguments\":42}}"
+      },
+      {
+        "id": "M17-root-string",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"plan_voyage_fuel\",\"arguments\":\"bad\"}}"
+      },
+      {
+        "id": "M17-root-boolean",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"plan_voyage_fuel\",\"arguments\":true}}"
+      },
+      {
+        "id": "M17-root-null",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json, text/event-stream"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"plan_voyage_fuel\",\"arguments\":null}}"
+      },
+      {
+        "id": "M18-origin-first",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "origin": "",
+          "host": "bad",
+          "content-type": "text/plain",
+          "accept": "text/plain"
+        },
+        "body": "{"
+      },
+      {
+        "id": "M18-content-before-host",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "host": "bad",
+          "content-type": "text/plain",
+          "accept": "text/plain"
+        },
+        "body": "{"
+      },
+      {
+        "id": "M18-accept-before-json",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "text/plain"
+        },
+        "body": "{"
+      },
+      {
+        "id": "M18-inner-content-type",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "APPLICATION/JSON",
+          "accept": "application/json"
+        },
+        "body": "{"
+      },
+      {
+        "id": "M18-json-only",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json"
+        },
+        "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"tools/call\", \"params\": {\"name\": \"list_markets\", \"arguments\": {}}}"
+      },
+      {
+        "id": "M18-wildcard",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "*/*"
+        },
+        "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"tools/call\", \"params\": {\"name\": \"list_markets\", \"arguments\": {}}}"
+      },
+      {
+        "id": "M18-modern-catalog",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json",
+          "mcp-protocol-version": "2026-07-28",
+          "mcp-method": "tools/call",
+          "mcp-name": "list_markets"
+        },
+        "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"tools/call\", \"params\": {\"name\": \"list_markets\", \"arguments\": {}, \"_meta\": {\"io.modelcontextprotocol/protocolVersion\": \"2026-07-28\", \"io.modelcontextprotocol/clientCapabilities\": {}}}}"
+      },
+      {
+        "id": "M18-modern-validation",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json",
+          "mcp-protocol-version": "2026-07-28",
+          "mcp-method": "tools/call",
+          "mcp-name": "plan_voyage_fuel"
+        },
+        "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"tools/call\", \"params\": {\"name\": \"plan_voyage_fuel\", \"arguments\": {}, \"_meta\": {\"io.modelcontextprotocol/protocolVersion\": \"2026-07-28\", \"io.modelcontextprotocol/clientCapabilities\": {}}}}"
+      },
+      {
+        "id": "M18-modern-initialize",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json"
+        },
+        "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"initialize\", \"params\": {\"protocolVersion\": \"2026-07-28\", \"capabilities\": {}, \"clientInfo\": {\"name\": \"test\", \"version\": \"1\"}}}"
+      },
+      {
+        "id": "M18-future-initialize",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json"
+        },
+        "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"initialize\", \"params\": {\"protocolVersion\": \"2099-01-01\", \"capabilities\": {}, \"clientInfo\": {\"name\": \"test\", \"version\": \"1\"}}}"
+      },
+      {
+        "id": "M18-modern-tools-list",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json",
+          "mcp-protocol-version": "2026-07-28",
+          "mcp-method": "tools/list",
+          "mcp-name": "plan_voyage_fuel"
+        },
+        "body": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"tools/list\", \"params\": {\"name\": \"list_markets\", \"arguments\": {}, \"_meta\": {\"io.modelcontextprotocol/protocolVersion\": \"2026-07-28\", \"io.modelcontextprotocol/clientCapabilities\": {}}}}"
+      },
+      {
+        "id": "M18-modern-missing-envelope-initialize",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json",
+          "mcp-protocol-version": "2026-07-28"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2026-07-28\",\"capabilities\":{},\"clientInfo\":{\"name\":\"t\",\"version\":\"1\"}}}"
+      },
+      {
+        "id": "M18-modern-missing-envelope-tools-list",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json",
+          "mcp-protocol-version": "2026-07-28"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\",\"params\":{}}"
+      },
+      {
+        "id": "M18-modern-missing-envelope-tools-call",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json",
+          "mcp-protocol-version": "2026-07-28"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{}}"
+      },
+      {
+        "id": "M18-modern-missing-envelope-ping",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json",
+          "mcp-protocol-version": "2026-07-28"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\",\"params\":{}}"
+      },
+      {
+        "id": "M18-modern-missing-envelope-resources-list",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json",
+          "mcp-protocol-version": "2026-07-28"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"resources/list\",\"params\":{}}"
+      },
+      {
+        "id": "M18-modern-missing-envelope-prompts-list",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json",
+          "mcp-protocol-version": "2026-07-28"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"prompts/list\",\"params\":{}}"
+      },
+      {
+        "id": "M18-modern-missing-envelope-nope",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": {
+          "content-type": "application/json",
+          "accept": "application/json",
+          "mcp-protocol-version": "2026-07-28"
+        },
+        "body": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"nope\",\"params\":{}}"
+      }
+    ]
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "status": 200,
+  "headers": {
+    "content-type": "application/json",
+    "x-request-id": "00000000-0000-4000-8000-000000000001"
+  },
+  "body": {
+    "id": "T4B_ONE",
+    "name": "Corpus ONE",
+    "country": "Singapore",
+    "location": null,
+    "timezone": "Asia/Singapore",
+    "is_active": true,
+    "lat": "1.234567891234",
+    "lng": "103.123456789123",
+    "intelligence": {
+      "congestion_level": "Low",
+      "methanol_price_avg": "600.0",
+      "biofuel_price_avg": null,
+      "captured_at": "2026-10-15T12:00:00Z"
+    }
+  },
+  "body_sha256": "8fc618a64c07ce0a976e92dea9f4806d472ff70706be17302d8c7a40c4366547"
+}

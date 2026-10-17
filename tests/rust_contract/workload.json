@@ -1,0 +1,431 @@
+{
+  "manifest_version": 1,
+  "created": "2026-10-17",
+  "purpose": "Task 14a seeded differential simulation and latency/ memory measurement workload",
+  "distribution_seed": 20261017,
+  "corpus_clock": "2026-10-15T12:00:00+00:00",
+  "sizes": {
+    "small": {
+      "orders": 1000,
+      "trades": 1000,
+      "news": 100
+    },
+    "large": {
+      "orders": 100000,
+      "trades": 100000,
+      "news": 10000
+    }
+  },
+  "rates_rps": [
+    1,
+    5,
+    10
+  ],
+  "required_observations_per_route": 1000,
+  "route_baseline": "equal weight: every data route carries weight 1",
+  "representative_mix": "declared integer weights over the same routes; the mix p50/p95/p99 is the weighted aggregate",
+  "routes": [
+    {
+      "id": "R01",
+      "method": "GET",
+      "path": "/api/ports",
+      "measure_query": "",
+      "band_bytes": [
+        0,
+        777
+      ],
+      "weight_baseline": 1,
+      "weight_representative": 2
+    },
+    {
+      "id": "R02",
+      "method": "GET",
+      "path": "/api/ports/T4B_ONE",
+      "measure_query": "",
+      "band_bytes": [
+        27,
+        27
+      ],
+      "weight_baseline": 1,
+      "weight_representative": 2,
+      "note": "the corpus's only port-not-found case has no found-port golden; T4B_ONE is a seeded port, so this measures the found path"
+    },
+    {
+      "id": "R03",
+      "method": "GET",
+      "path": "/api/catalog/products",
+      "measure_query": "",
+      "band_bytes": [
+        0,
+        4207
+      ],
+      "weight_baseline": 1,
+      "weight_representative": 2
+    },
+    {
+      "id": "R04",
+      "method": "GET",
+      "path": "/api/catalog/delivery-points",
+      "measure_query": "",
+      "band_bytes": [
+        0,
+        887
+      ],
+      "weight_baseline": 1,
+      "weight_representative": 2
+    },
+    {
+      "id": "R05",
+      "method": "GET",
+      "path": "/api/news",
+      "measure_query": "",
+      "band_bytes": [
+        0,
+        1798
+      ],
+      "weight_baseline": 1,
+      "weight_representative": 4
+    },
+    {
+      "id": "R06",
+      "method": "GET",
+      "path": "/api/trade-tape",
+      "measure_query": "",
+      "band_bytes": [
+        0,
+        1844
+      ],
+      "weight_baseline": 1,
+      "weight_representative": 4
+    },
+    {
+      "id": "R07",
+      "method": "GET",
+      "path": "/api/curves/forward",
+      "measure_query": "product_id=8f6f34a5-2927-54a6-8564-cca40ae7cb8a",
+      "band_bytes": [
+        0,
+        261
+      ],
+      "weight_baseline": 1,
+      "weight_representative": 2
+    },
+    {
+      "id": "R08",
+      "method": "GET",
+      "path": "/api/curves/forward/export",
+      "measure_query": "product_id=8f6f34a5-2927-54a6-8564-cca40ae7cb8a",
+      "band_bytes": [
+        0,
+        101
+      ],
+      "weight_baseline": 1,
+      "weight_representative": 1
+    },
+    {
+      "id": "R09",
+      "method": "GET",
+      "path": "/api/curves/forward/table",
+      "measure_query": "",
+      "band_bytes": [
+        0,
+        365890
+      ],
+      "weight_baseline": 1,
+      "weight_representative": 1
+    },
+    {
+      "id": "R10",
+      "method": "GET",
+      "path": "/api/curves/forward/slice",
+      "measure_query": "market_product=BIO_LNG&delivery_point_id=1379d36c-1ca9-55b7-9c0d-5235a0ba1f36&availability_window=SPOT",
+      "band_bytes": [
+        0,
+        12082
+      ],
+      "weight_baseline": 1,
+      "weight_representative": 1
+    },
+    {
+      "id": "R11",
+      "method": "GET",
+      "path": "/api/curves/forward/board",
+      "measure_query": "",
+      "band_bytes": [
+        0,
+        105040
+      ],
+      "weight_baseline": 1,
+      "weight_representative": 1
+    },
+    {
+      "id": "R12",
+      "method": "GET",
+      "path": "/api/prices",
+      "measure_query": "",
+      "band_bytes": [
+        0,
+        1421
+      ],
+      "weight_baseline": 1,
+      "weight_representative": 6
+    },
+    {
+      "id": "R13",
+      "method": "GET",
+      "path": "/api/prices/reference",
+      "measure_query": "",
+      "band_bytes": [
+        0,
+        537
+      ],
+      "weight_baseline": 1,
+      "weight_representative": 4
+    },
+    {
+      "id": "R14",
+      "method": "GET",
+      "path": "/api/prices/reference/export",
+      "measure_query": "",
+      "band_bytes": [
+        0,
+        205
+      ],
+      "weight_baseline": 1,
+      "weight_representative": 1
+    },
+    {
+      "id": "R15",
+      "method": "GET",
+      "path": "/api/orderbook/snapshot",
+      "measure_query": "market_product=BIO_LNG&delivery_point_id=1379d36c-1ca9-55b7-9c0d-5235a0ba1f36&availability_window=SPOT",
+      "band_bytes": [
+        0,
+        7046
+      ],
+      "weight_baseline": 1,
+      "weight_representative": 6
+    },
+    {
+      "id": "R16",
+      "method": "GET",
+      "path": "/api/orderbook/bids",
+      "measure_query": "",
+      "band_bytes": [
+        0,
+        25245
+      ],
+      "weight_baseline": 1,
+      "weight_representative": 8
+    },
+    {
+      "id": "R17",
+      "method": "GET",
+      "path": "/api/orderbook/asks",
+      "measure_query": "",
+      "band_bytes": [
+        0,
+        28349
+      ],
+      "weight_baseline": 1,
+      "weight_representative": 8
+    },
+    {
+      "id": "R18",
+      "method": "GET",
+      "path": "/api/orderbook/with-ci",
+      "measure_query": "",
+      "band_bytes": [
+        0,
+        64251
+      ],
+      "weight_baseline": 1,
+      "weight_representative": 3
+    },
+    {
+      "id": "R19",
+      "method": "GET",
+      "path": "/api/orderbook/aggregated",
+      "measure_query": "",
+      "band_bytes": [
+        0,
+        8714
+      ],
+      "weight_baseline": 1,
+      "weight_representative": 4
+    },
+    {
+      "id": "R20",
+      "method": "GET",
+      "path": "/api/orderbook/product-counts",
+      "measure_query": "side=BID",
+      "band_bytes": [
+        0,
+        144
+      ],
+      "weight_baseline": 1,
+      "weight_representative": 3
+    },
+    {
+      "id": "R21",
+      "method": "GET",
+      "path": "/api/orderbook/map-summary",
+      "measure_query": "",
+      "band_bytes": [
+        0,
+        9620
+      ],
+      "weight_baseline": 1,
+      "weight_representative": 4
+    },
+    {
+      "id": "R22",
+      "method": "GET",
+      "path": "/api/orderbook/map-summary/compact",
+      "measure_query": "",
+      "band_bytes": [
+        0,
+        5185
+      ],
+      "weight_baseline": 1,
+      "weight_representative": 4
+    },
+    {
+      "id": "R23",
+      "method": "GET",
+      "path": "/api/orderbook/products",
+      "measure_query": "",
+      "band_bytes": [
+        0,
+        52
+      ],
+      "weight_baseline": 1,
+      "weight_representative": 2
+    },
+    {
+      "id": "R24",
+      "method": "GET",
+      "path": "/api/orderbook/regions",
+      "measure_query": "",
+      "band_bytes": [
+        0,
+        31
+      ],
+      "weight_baseline": 1,
+      "weight_representative": 2
+    },
+    {
+      "id": "R25",
+      "method": "GET",
+      "path": "/api/orderbook/fuel-types",
+      "measure_query": "",
+      "band_bytes": [
+        0,
+        35
+      ],
+      "weight_baseline": 1,
+      "weight_representative": 2
+    },
+    {
+      "id": "R26",
+      "method": "GET",
+      "path": "/api/orderbook",
+      "measure_query": "",
+      "band_bytes": [
+        0,
+        63001
+      ],
+      "weight_baseline": 1,
+      "weight_representative": 10
+    },
+    {
+      "id": "R27",
+      "method": "GET",
+      "path": "/api/listings",
+      "measure_query": "limit=100",
+      "band_bytes": [
+        0,
+        24759
+      ],
+      "weight_baseline": 1,
+      "weight_representative": 3
+    }
+  ],
+  "tools": [
+    {
+      "id": "list_markets",
+      "weight_baseline": 1,
+      "weight_representative": 3,
+      "body": {
+        "jsonrpc": "2.0",
+        "id": 7,
+        "method": "tools/call",
+        "params": {
+          "name": "list_markets",
+          "arguments": {}
+        }
+      },
+      "band_bytes": [
+        5680,
+        5681
+      ]
+    },
+    {
+      "id": "get_market_slice",
+      "weight_baseline": 1,
+      "weight_representative": 4,
+      "body": {
+        "jsonrpc": "2.0",
+        "id": 8,
+        "method": "tools/call",
+        "params": {
+          "name": "get_market_slice",
+          "arguments": {
+            "market_product": "BIO_METHANOL",
+            "delivery_point": "Singapore",
+            "availability_window": "SPOT"
+          }
+        }
+      },
+      "band_bytes": [
+        167,
+        7067
+      ]
+    },
+    {
+      "id": "plan_voyage_fuel",
+      "weight_baseline": 1,
+      "weight_representative": 3,
+      "body": {
+        "jsonrpc": "2.0",
+        "id": 15,
+        "method": "tools/call",
+        "params": {
+          "name": "plan_voyage_fuel",
+          "arguments": {
+            "request": {
+              "vessel": {
+                "speed_knots": "14",
+                "sea_consumption_mt_per_day": "20",
+                "compatible_fuels": [
+                  "VLSFO"
+                ]
+              },
+              "legs": [
+                {
+                  "from_port": "Singapore",
+                  "to_port": "Rotterdam"
+                }
+              ],
+              "start_date": "2026-10-15"
+            }
+          }
+        }
+      },
+      "band_bytes": [
+        191,
+        1237
+      ]
+    }
+  ]
+}

@@ -263,3 +263,35 @@ def test_demo_reset_rejects_production_database_under_staging_label_and_inverse(
                 ),
                 current_database=database_name,
             )
+
+
+def test_partial_remaining_stays_strictly_inside_the_lot():
+    """A PARTIALLY_FILLED order must satisfy 0 < remaining < quantity.
+
+    `ck_orderbook_orders_lifecycle` rejects any partial fill whose remaining
+    quantity equals the full quantity. The smallest lots used to round to a
+    remaining of zero and then fall back to the full lot, which the database
+    refuses.
+    """
+    from app.seeds.market_seed import QUANTITIES, _partial_remaining
+
+    for quantity in QUANTITIES:
+        for _ in range(200):
+            remaining = _partial_remaining(Decimal(quantity))
+            assert Decimal(0) < remaining < Decimal(quantity), (quantity, remaining)
+
+
+def test_partial_remaining_uses_the_lot_grid_or_the_half_lot():
+    """The partial fill stays on the 500 MT grid, or is exactly half the lot.
+
+    Half the lot is the only strictly-inside value for a lot too small to hold
+    a 500 MT multiple.
+    """
+    from app.seeds.market_seed import QUANTITIES, _partial_remaining
+
+    for quantity in QUANTITIES:
+        lot = Decimal(quantity)
+        for _ in range(200):
+            remaining = _partial_remaining(lot)
+            on_grid = remaining % 500 == 0
+            assert on_grid or remaining == lot / 2, (quantity, remaining)

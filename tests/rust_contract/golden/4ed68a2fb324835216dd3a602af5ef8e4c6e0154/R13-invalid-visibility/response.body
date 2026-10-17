@@ -1,0 +1,1 @@
+{"detail":[{"type":"literal_error","loc":["query","visibility"],"msg":"Input should be 'internal' or 'external'","input":"private","ctx":{"expected":"'internal' or 'external'"}}]}

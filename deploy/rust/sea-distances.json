@@ -1,0 +1,236 @@
+{
+  "method": "Open-source searoute 1.6.0 shortest sea paths on the default network, measured on 2026-10-14 and rounded to the nearest 10 nautical miles. Planning estimates only: not navigational distances, and not for passage planning.",
+  "routes": [
+    {
+      "from_port": "Busan",
+      "to_port": "Dalian",
+      "route": "DEFAULT",
+      "distance_nm": "540",
+      "via": "Direct"
+    },
+    {
+      "from_port": "Busan",
+      "to_port": "Houston",
+      "route": "DEFAULT",
+      "distance_nm": "9740",
+      "via": "Panama Canal"
+    },
+    {
+      "from_port": "Busan",
+      "to_port": "Los Angeles",
+      "route": "DEFAULT",
+      "distance_nm": "5290",
+      "via": "Direct"
+    },
+    {
+      "from_port": "Busan",
+      "to_port": "Rotterdam",
+      "route": "CAPE_OF_GOOD_HOPE",
+      "distance_nm": "14230",
+      "via": "Cape of Good Hope"
+    },
+    {
+      "from_port": "Busan",
+      "to_port": "Rotterdam",
+      "route": "DEFAULT",
+      "distance_nm": "10910",
+      "via": "Suez Canal"
+    },
+    {
+      "from_port": "Busan",
+      "to_port": "Santos",
+      "route": "DEFAULT",
+      "distance_nm": "11420",
+      "via": "Cape of Good Hope"
+    },
+    {
+      "from_port": "Busan",
+      "to_port": "Shanghai",
+      "route": "DEFAULT",
+      "distance_nm": "470",
+      "via": "Direct"
+    },
+    {
+      "from_port": "Busan",
+      "to_port": "Singapore",
+      "route": "DEFAULT",
+      "distance_nm": "2540",
+      "via": "Direct"
+    },
+    {
+      "from_port": "Dalian",
+      "to_port": "Houston",
+      "route": "DEFAULT",
+      "distance_nm": "10280",
+      "via": "Panama Canal"
+    },
+    {
+      "from_port": "Dalian",
+      "to_port": "Los Angeles",
+      "route": "DEFAULT",
+      "distance_nm": "5840",
+      "via": "Direct"
+    },
+    {
+      "from_port": "Dalian",
+      "to_port": "Rotterdam",
+      "route": "CAPE_OF_GOOD_HOPE",
+      "distance_nm": "14320",
+      "via": "Cape of Good Hope"
+    },
+    {
+      "from_port": "Dalian",
+      "to_port": "Rotterdam",
+      "route": "DEFAULT",
+      "distance_nm": "11000",
+      "via": "Suez Canal"
+    },
+    {
+      "from_port": "Dalian",
+      "to_port": "Santos",
+      "route": "DEFAULT",
+      "distance_nm": "11510",
+      "via": "Cape of Good Hope"
+    },
+    {
+      "from_port": "Dalian",
+      "to_port": "Shanghai",
+      "route": "DEFAULT",
+      "distance_nm": "550",
+      "via": "Direct"
+    },
+    {
+      "from_port": "Dalian",
+      "to_port": "Singapore",
+      "route": "DEFAULT",
+      "distance_nm": "2620",
+      "via": "Direct"
+    },
+    {
+      "from_port": "Houston",
+      "to_port": "Los Angeles",
+      "route": "DEFAULT",
+      "distance_nm": "4520",
+      "via": "Panama Canal"
+    },
+    {
+      "from_port": "Houston",
+      "to_port": "Rotterdam",
+      "route": "DEFAULT",
+      "distance_nm": "5060",
+      "via": "Direct"
+    },
+    {
+      "from_port": "Houston",
+      "to_port": "Santos",
+      "route": "DEFAULT",
+      "distance_nm": "5620",
+      "via": "Direct"
+    },
+    {
+      "from_port": "Houston",
+      "to_port": "Shanghai",
+      "route": "DEFAULT",
+      "distance_nm": "10210",
+      "via": "Panama Canal"
+    },
+    {
+      "from_port": "Houston",
+      "to_port": "Singapore",
+      "route": "CAPE_OF_GOOD_HOPE",
+      "distance_nm": "13160",
+      "via": "Cape of Good Hope"
+    },
+    {
+      "from_port": "Houston",
+      "to_port": "Singapore",
+      "route": "DEFAULT",
+      "distance_nm": "11770",
+      "via": "Suez Canal"
+    },
+    {
+      "from_port": "Los Angeles",
+      "to_port": "Rotterdam",
+      "route": "DEFAULT",
+      "distance_nm": "7830",
+      "via": "Panama Canal"
+    },
+    {
+      "from_port": "Los Angeles",
+      "to_port": "Santos",
+      "route": "DEFAULT",
+      "distance_nm": "7570",
+      "via": "Panama Canal"
+    },
+    {
+      "from_port": "Los Angeles",
+      "to_port": "Shanghai",
+      "route": "DEFAULT",
+      "distance_nm": "5760",
+      "via": "Direct"
+    },
+    {
+      "from_port": "Los Angeles",
+      "to_port": "Singapore",
+      "route": "DEFAULT",
+      "distance_nm": "7790",
+      "via": "Direct"
+    },
+    {
+      "from_port": "Rotterdam",
+      "to_port": "Santos",
+      "route": "DEFAULT",
+      "distance_nm": "5500",
+      "via": "Direct"
+    },
+    {
+      "from_port": "Rotterdam",
+      "to_port": "Shanghai",
+      "route": "CAPE_OF_GOOD_HOPE",
+      "distance_nm": "13910",
+      "via": "Cape of Good Hope"
+    },
+    {
+      "from_port": "Rotterdam",
+      "to_port": "Shanghai",
+      "route": "DEFAULT",
+      "distance_nm": "10590",
+      "via": "Suez Canal"
+    },
+    {
+      "from_port": "Rotterdam",
+      "to_port": "Singapore",
+      "route": "CAPE_OF_GOOD_HOPE",
+      "distance_nm": "11870",
+      "via": "Cape of Good Hope"
+    },
+    {
+      "from_port": "Rotterdam",
+      "to_port": "Singapore",
+      "route": "DEFAULT",
+      "distance_nm": "8380",
+      "via": "Suez Canal"
+    },
+    {
+      "from_port": "Santos",
+      "to_port": "Shanghai",
+      "route": "DEFAULT",
+      "distance_nm": "11100",
+      "via": "Cape of Good Hope"
+    },
+    {
+      "from_port": "Santos",
+      "to_port": "Singapore",
+      "route": "DEFAULT",
+      "distance_nm": "9060",
+      "via": "Cape of Good Hope"
+    },
+    {
+      "from_port": "Shanghai",
+      "to_port": "Singapore",
+      "route": "DEFAULT",
+      "distance_nm": "2210",
+      "via": "Direct"
+    }
+  ]
+}

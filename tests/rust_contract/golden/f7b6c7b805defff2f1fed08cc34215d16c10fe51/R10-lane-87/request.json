@@ -1,0 +1,8 @@
+{
+  "method": "GET",
+  "path": "/api/curves/forward/slice",
+  "query": "market_product=SYNTHETIC_ETHANOL&delivery_point_id=262d36ae-6f35-5785-b9e8-9e221b0f1b78&availability_window=SPOT",
+  "headers": {
+    "x-request-id": "00000000-0000-4000-8000-000000000001"
+  }
+}

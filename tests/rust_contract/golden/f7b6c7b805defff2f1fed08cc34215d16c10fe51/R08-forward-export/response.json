@@ -1,0 +1,12 @@
+{
+  "status": 200,
+  "headers": {
+    "content-disposition": "attachment; filename=\"forward_curve_8f6f34a5-2927-54a6-8564-cca40ae7cb8a.csv\"",
+    "content-type": "text/csv; charset=utf-8",
+    "x-request-id": "00000000-0000-4000-8000-000000000001"
+  },
+  "body": {
+    "raw": "availability_window,best_bid,best_ask,mid_price,spread,volume_mt,order_count\nSPOT,,600.00,,,400.00,4\n"
+  },
+  "body_sha256": "5f63217128ab4716df1ffb5c4b1431dce941d38bada91ea850e46f55c34b17ef"
+}

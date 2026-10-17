@@ -1,0 +1,19 @@
+# Task 14a item 5: the large workload at a load both stacks can serve.
+# The fixed 5 RPS large run saturated four-worker Python and one Rust process
+# (thousands of busy 503s), so its per-route p95 and its 5xx counts could not
+# judge the decision-68 gate. This run starts at 1 RPS and raises the rate only
+# while neither stack returns a busy (503) or other 5xx response, then measures
+# the full window at the highest clean rate. It reports both stacks' busy and
+# 5xx counts.
+size = "large"
+weight_key = "weight_baseline"
+
+warmup_seconds = 15
+repetitions = 1
+probe_seconds = 30
+probe_max_rps = 4
+measure_seconds = 600
+
+[[windows]]
+seconds = 600
+rps = 3

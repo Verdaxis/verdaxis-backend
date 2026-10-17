@@ -1,0 +1,48 @@
+{
+  "status": 422,
+  "headers": {
+    "content-type": "application/json",
+    "x-request-id": "00000000-0000-4000-8000-000000000001"
+  },
+  "body": {
+    "detail": [
+      {
+        "type": "uuid_parsing",
+        "loc": [
+          "query",
+          "product_id"
+        ],
+        "msg": "Input should be a valid UUID, invalid length: expected length 32 for simple format, found 3",
+        "input": "bad",
+        "ctx": {
+          "error": "invalid length: expected length 32 for simple format, found 3"
+        }
+      },
+      {
+        "type": "uuid_parsing",
+        "loc": [
+          "query",
+          "delivery_point_id"
+        ],
+        "msg": "Input should be a valid UUID, invalid length: expected length 32 for simple format, found 3",
+        "input": "bad",
+        "ctx": {
+          "error": "invalid length: expected length 32 for simple format, found 3"
+        }
+      },
+      {
+        "type": "greater_than_equal",
+        "loc": [
+          "query",
+          "hours"
+        ],
+        "msg": "Input should be greater than or equal to 1",
+        "input": "0",
+        "ctx": {
+          "ge": 1
+        }
+      }
+    ]
+  },
+  "body_sha256": "905a1c5427e8cf97f94eea73a3cfc78e77265f71e80ac1efce4e0227d8dadb92"
+}

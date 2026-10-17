@@ -1,0 +1,60 @@
+{
+  "status": 422,
+  "headers": {
+    "content-type": "application/json",
+    "x-request-id": "00000000-0000-4000-8000-000000000001"
+  },
+  "body": {
+    "detail": [
+      {
+        "type": "uuid_parsing",
+        "loc": [
+          "query",
+          "product_id"
+        ],
+        "msg": "Input should be a valid UUID, invalid length: expected length 32 for simple format, found 3",
+        "input": "bad",
+        "ctx": {
+          "error": "invalid length: expected length 32 for simple format, found 3"
+        }
+      },
+      {
+        "type": "uuid_parsing",
+        "loc": [
+          "query",
+          "delivery_point_id"
+        ],
+        "msg": "Input should be a valid UUID, invalid length: expected length 32 for simple format, found 3",
+        "input": "bad",
+        "ctx": {
+          "error": "invalid length: expected length 32 for simple format, found 3"
+        }
+      },
+      {
+        "type": "date_from_datetime_parsing",
+        "loc": [
+          "query",
+          "from_date"
+        ],
+        "msg": "Input should be a valid date or datetime, input is too short",
+        "input": "x",
+        "ctx": {
+          "error": "input is too short"
+        }
+      },
+      {
+        "type": "date_from_datetime_parsing",
+        "loc": [
+          "query",
+          "to_date"
+        ],
+        "msg": "Input should be a valid date or datetime, input is too short",
+        "input": "x",
+        "ctx": {
+          "error": "input is too short"
+        }
+      }
+    ]
+  },
+  "body_sha256": "6a9ca2e75ae5e3282fb1b6ad4fe7fc9f85399f464be8f79f1106b67074abf8ca"
+}

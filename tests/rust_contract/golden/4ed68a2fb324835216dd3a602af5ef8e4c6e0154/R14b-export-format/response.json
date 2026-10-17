@@ -1,0 +1,12 @@
+{
+  "status": 200,
+  "headers": {
+    "content-disposition": "attachment; filename=\"verdaxis_reference_prices.csv\"",
+    "content-type": "text/csv; charset=utf-8",
+    "x-request-id": "00000000-0000-4000-8000-000000000001"
+  },
+  "body": {
+    "raw": "date,product_name,market_product,availability_window,fuel_type,delivery_point_name,region,vwap_usd,volume_mt,trade_count\r\n2026-10-15,Bio Methanol,BIO_METHANOL,SPOT,Methanol,Singapore,Asia,600.00,300.00,3\r\n"
+  },
+  "body_sha256": "11b5b69e4e746c990ec77d465a9b90028652f01ba9372bb2968c91234423661f"
+}

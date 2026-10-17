@@ -1,0 +1,13 @@
+{
+  "status": 200,
+  "headers": {
+    "content-type": "application/json",
+    "x-request-id": "00000000-0000-4000-8000-000000000001"
+  },
+  "body": {
+    "items": [],
+    "total": 0,
+    "market_hours": true
+  },
+  "body_sha256": "c7eac6b66dc77e7aa68bced7da9ea6422f3b22ea0036258a347b2f136d12af3e"
+}

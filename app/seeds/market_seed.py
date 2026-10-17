@@ -326,6 +326,20 @@ def _qty() -> Decimal:
     return Decimal(str(_RNG.choice(QUANTITIES)))
 
 
+def _partial_remaining(quantity: Decimal) -> Decimal:
+    """A remaining quantity strictly inside ``(0, quantity)`` for a partial fill.
+
+    ``ck_orderbook_orders_lifecycle`` requires a ``PARTIALLY_FILLED`` order to
+    keep some but not all of its lot. The draw rounds to the 500 MT lot grid,
+    which collapses to the whole lot for the smallest sizes, so those fall back
+    to half the lot.
+    """
+    remaining = Decimal(str(round(float(quantity) * _RNG.uniform(0.2, 0.8) / 500) * 500))
+    if not 0 < remaining < quantity:
+        remaining = (quantity / 2).quantize(Decimal("0.01"))
+    return remaining
+
+
 def _window(reference_date: date | None = None) -> str:
     return _RNG.choice(build_seed_windows(reference_date))
 
@@ -592,11 +606,9 @@ async def seed_market_data(
                     [OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED],
                     weights=[85, 15],
                 )[0]
-                remaining = qty if status == OrderBookStatus.OPEN else Decimal(str(
-                    round(float(qty) * _RNG.uniform(0.2, 0.8) / 500) * 500
-                ))
-                if remaining <= 0:
-                    remaining = Decimal("500")
+                remaining = (
+                    qty if status == OrderBookStatus.OPEN else _partial_remaining(qty)
+                )
 
                 created = _recent_seed_timestamp(window, reference_now)
 
@@ -628,11 +640,9 @@ async def seed_market_data(
                     [OrderBookStatus.OPEN, OrderBookStatus.PARTIALLY_FILLED],
                     weights=[85, 15],
                 )[0]
-                remaining = qty if status == OrderBookStatus.OPEN else Decimal(str(
-                    round(float(qty) * _RNG.uniform(0.2, 0.8) / 500) * 500
-                ))
-                if remaining <= 0:
-                    remaining = Decimal("500")
+                remaining = (
+                    qty if status == OrderBookStatus.OPEN else _partial_remaining(qty)
+                )
 
                 window = _window(reference_now.date())
                 certification_scheme = _slice_certification_scheme(product_name, port_name, window)

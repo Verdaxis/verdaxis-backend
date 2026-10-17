@@ -1,0 +1,21 @@
+{
+  "status": 422,
+  "headers": {
+    "content-type": "application/json",
+    "x-request-id": "00000000-0000-4000-8000-000000000001"
+  },
+  "body": {
+    "detail": [
+      {
+        "type": "missing",
+        "loc": [
+          "query",
+          "product_id"
+        ],
+        "msg": "Field required",
+        "input": null
+      }
+    ]
+  },
+  "body_sha256": "e8df0ad75c4b9b8b86b7f21b90282d087c1799e01a07016b0e65f7b2a78f43f0"
+}

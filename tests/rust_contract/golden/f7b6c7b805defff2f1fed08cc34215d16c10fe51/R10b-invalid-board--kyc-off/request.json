@@ -1,0 +1,8 @@
+{
+  "method": "GET",
+  "path": "/api/curves/forward/board",
+  "query": "availability_window=not-a-window",
+  "headers": {
+    "x-request-id": "00000000-0000-4000-8000-000000000001"
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "status": 422,
+  "headers": {
+    "content-type": "application/json",
+    "x-request-id": "00000000-0000-4000-8000-000000000001"
+  },
+  "body": {
+    "detail": [
+      {
+        "type": "enum",
+        "loc": [
+          "query",
+          "market_product"
+        ],
+        "msg": "Input should be 'B30', 'B100', 'UCOME_B100', 'BIO_LNG', 'BIO_METHANOL', 'E_METHANOL', 'BIO_ETHANOL' or 'SYNTHETIC_ETHANOL'",
+        "input": "NOPE",
+        "ctx": {
+          "expected": "'B30', 'B100', 'UCOME_B100', 'BIO_LNG', 'BIO_METHANOL', 'E_METHANOL', 'BIO_ETHANOL' or 'SYNTHETIC_ETHANOL'"
+        }
+      }
+    ]
+  },
+  "body_sha256": "ff2eb94d6c139d59a46fba4fc88442b83076842631cf7a6967c321ab0e7d0cf4"
+}

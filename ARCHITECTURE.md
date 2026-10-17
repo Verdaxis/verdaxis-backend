@@ -16,6 +16,185 @@ comes from each environment's `/health/ready` response, not a dated SHA in
 source documentation. The shared-host marker is
 `/home/verdaxis-prod/verdaxis/PRODUCTION_HOST.md`.
 
+## Rust Phase 1 bootstrap
+
+`rs/` is a Rust 1.95 workspace with two packages. `verdaxis-read` defines the
+shared types and build-time release identity; its binary only prints that
+identity. `verdaxis-contract` is an independent library and CLI that drives the
+external HTTP contract comparison and never links `verdaxis-read`.
+
+Task 2 adds `rs/read/src/runtime/` for configuration, pool authority, and health
+checks. The pool has nine connections and read-only session defaults. Startup
+checks the compiled revision allowlist, exact database role, memberships, and
+connection budget. Required `DB_SESSION_TIME_ZONE` (`db_session_time_zone` in
+`RUST_CONFIG`) is applied and verified by `after_connect` on every new read and
+health connection, including replacements. Startup refuses a conflicting
+`pg_db_role_setting` database default and logs the effective zone. SQLx 0.9's
+hard-coded UTC startup field cannot be overridden through `.options()`.
+Staging uses `Asia/Singapore` until Phase 0 convergence, then `UTC`. It does not open a
+migrator connection. `scripts/prepare_rust_budget.py` creates private budget
+metadata and verifies environment-file drift. The deploy transaction writes
+that artifact to `.runtime-rust/budget.json`, and the reviewed staging unit
+passes it to the binary with `--budget-file`; the contract harness may instead
+carry the document in `RUST_CONFIG`. `runtime::config::config_from_deployed_environment`
+builds the same validated `Config` from the flat deployed environment, so a
+staging start needs no JSON document from an operator.
+Task 3 splits the nine connections into an eight-connection read pool and a
+one-connection readiness pool. `runtime/admission.rs` transfers admission to a
+query-owning Tokio task so caller cancellation does not release database
+capacity. HTTP composition provides correlation, CORS, support boundaries and
+fixed-window price limits. Empty route and MCP modules reserve later task
+ownership. The binary accepts explicit `RUST_CONFIG` JSON and serves health;
+data routes remain unmounted. See `docs/rust-phase1/progress.md` for the local
+checks, remaining Task 3 gates, and resume point.
+
+Task 4 adds the disposable contract harness. `scripts/rust_contract/compare.py`
+is the single authoritative comparator; `record.py` captures the Python oracle;
+`run_disposable.py` starts one disposable PostGIS container, both servers, and
+the comparator; `seed_corpus.py` and `check_assertions.py` own the fixture and
+assertion ledgers. `tests/rust_contract/` holds the corpus, the fixed clock
+manifest, the meta-tests, and the golden corpus; `rs/read/examples/contract_server.rs`
+serves one route group through the serving router. Health and echo are proven;
+the seeded and MCP groups are deferred as recorded in
+`docs/rust-phase1/progress.md`.
+Task 4b adds attested corpus construction: legal pre-guard history is inserted at
+`miq_20260720_market_quarantine`, then upgraded by the normal migration chain.
+Current fixtures reuse the Task 6 matrix and add ports, news, exact terms and
+trusted/untrusted signals. The runner pins the runtime KYC switch and records
+all groups twice; incomplete or unstable recordings cannot replace golden data.
+
+Task 5 exports the catalog policy as data. `scripts/rust_contract/export_policy.py`
+turns the approved `app.market_catalog` constants and the reviewed
+qualification-profile map into `deploy/rust/market-policy.json` (identity, lanes,
+execution mode, display order) and `deploy/rust/mcp-catalog.json` (the
+`list_markets` payload); `deploy/rust/market-policy.manifest.json` holds their
+digests. `rs/read/src/market/policy.rs` loads and validates that policy, matches
+rows by the exact identity tuple, and projects database rows to the public
+catalog response. Executable Rust holds no product name, code, or UUID; a test
+scans `rs/read/src` and `rs/read/sql` for them.
+
+Task 6 adds the shared market rules under `rs/read/src/market/`. `visibility.rs`
+binds values into the two shared relations in `rs/read/sql/`:
+`public_orders.sql` projects internal order rows and private digest input from the attested policy
+plus the captured instants, and `trade_evidence.sql` selects formal trade
+snapshots. `terms.rs` owns typed execution qualification, the reviewed-terms
+digest, and the public redaction of private declarations; `decimal.rs`,
+`windows.rs`, and `provenance.rs` own normalized decimal text, the canonical
+availability-window grammar and aliases, and the evidence policy constants.
+Qualification reads the catalog `qualification_profile`, so the LNG and B100
+rules stay data-driven. `rs/read/tests/market_contract.rs` replays the synthetic
+digest vectors from the Python oracle; `rs/read/tests/run_market_contract.sh`
+seeds a disposable database and compares the selected ids with the Python
+predicate under one fixed clock. Sealed `OrderQuery`/`TradeQuery` wrappers compose
+only developer-owned static tails around `eligible_orders`/`eligible_trades`.
+`OrderSurface` separates main orderbook, compatibility listings and candidate
+reads; ranking, aggregation and pagination occur after the shared relation.
+Digest decimals use text-based Python context normalization, while public terms
+retain Pydantic scale, signed zero and schema defaults. Typed decimal validation
+uses exact coefficient/exponent comparisons, not `rust_decimal` narrowing.
+The runtime `Config.kyc_execution_gate_enabled` defaults true and supplies order
+bind `$13`; extra consumer binds begin at `$14`. Both owner and assisted-member
+admission use the same strict/advisory switch as Python. Request filters cannot
+set that switch. Region filters match a region or delivery-point name; empty
+means no filter. Curve and quarantine metadata policies remain later-task work.
+
+Task 7a serves the public snapshot through one admitted, read-only REPEATABLE
+READ transaction, with ranked depth and one benchmark batch sharing a captured
+instant. `market/terms.rs::public_response_terms` mirrors the public FAME/LNG
+response schemas separately from full execution validation: ignored private
+fields cannot fail public projection, but still affect the digest and benchmark
+qualification. `market/orderbook_query.json` records public schema field order.
+
+Tasks 7b/7c add paginated lists, CI lists, map/count/distinct reads and compatibility
+listings. `market/order_projection.rs` is the shared snapshot/list DTO; private
+digest input remains separate. `market/map_decimal.rs` preserves exact aggregate
+arithmetic, and `market/listing_terms.rs` retains compatibility schema ordering.
+R18/R26 use decision 23's created-time/UUID descending pagination in both languages.
+All projections apply shared eligibility before sorting, grouping and pagination.
+
+Task 6a adds `market/live_benchmarks.rs` and `sql/live_benchmarks.sql` for
+read-only, request-cached same-side benchmarks. It applies full typed/scalar
+qualification after Candidates selection and retains the current REAL/DEMO
+blend. `market/whitespace.rs` owns Python-compatible whitespace for scalar text
+presence and certification normalization; SQL trimming is unchanged.
+
+Task 8 ports the simple public reads. `rs/read/src/routes/ports.rs` serves
+`/api/ports` and `/api/ports/{port_id}` from `rs/read/sql/{ports,port}.sql`,
+casting each geography column to geometry before `ST_X`/`ST_Y` and returning
+`location: null`; the port route applies no active filter and no ordering.
+Intelligence is loaded separately in 500-port batches, preserving SQLAlchemy's
+first-returned scalar relationship selection without duplicating port rows.
+`routes/catalog.rs` serves `/api/catalog/products` and
+`/api/catalog/delivery-points` by joining `products` and `delivery_points` to
+the attested policy in `rs/read/sql/catalog_{products,points}.sql` and projecting
+the rows through `market::policy::project_catalog`, so no identity or display
+order is written in Rust. `routes/news.rs` serves `/api/news` from
+`rs/read/sql/news.sql` and writes the ten-key dict contract, using Python
+`isoformat()` semantics for its dates. All three modules run their database work
+through `runtime::admission::run_admitted` and share the Python-compatible query
+validator in `runtime/http.rs`. The route modules are merged into the serving
+router by `rs/contract/tests/simple_reads.rs` (feature-gated group target) and
+`rs/read/tests/simple_reads.rs` (offline vectors for both date formats, the port
+and news field order, and the 422 envelopes). Task 8's local evidence, the
+simple-read corpus limits, and the fixture-family decision are recorded in
+`docs/rust-phase1/progress-task8.md`.
+
+Task 9 adds immutable price summaries, REAL-only daily VWAP/CSV, and anonymous
+seven-day trade tape in `routes/prices.rs` and `routes/trade_tape.rs`. Shared
+`formal_trade_snapshots.sql` feeds separate economic and quarantine-only metadata
+relations. Tape totals apply Python's 28-digit Decimal context to exact SQL
+products without changing quantity or price scale. Typed price query validation
+precedes the shared rate bucket. An opt-in response extension preserves Python's
+missing CORS/request-ID headers only for unhandled tape window errors.
+
+Task 10b adds separate canonical table/slice and older-board projections in
+`routes/curves_canonical{,_views}.rs`. Task-local path registration exposes
+`market/curve_projection`, `curve_cells`, `curve_unknown_metadata`, `signals`,
+`curve_keys`, and `benchmarks`; `curve_policy.json` contains source-derived
+board defaults and seed quotes. UNKNOWN orders use the shared current-order
+fragment only for counts. Economic book and depth tails aggregate over
+`eligible_orders` in PostgreSQL; depth selects REAL before ten levels per side.
+Table requests retain no raw order rows. A read transaction scopes `jit=off`
+to these admission-heavy queries. Signal histories and trades rank in SQL,
+with separate exact sparse-key selection. The disposable contract server's
+SQLx counter records statement/returned-row counts without query text.
+`curve_fixtures.py` supplies the same depth, trusted-evidence, subsecond and
+10,000-order cases for differential checks and later golden publication.
+
+Task 11 adds `rs/read/src/mcp/` for the stateless rmcp adapter, anonymous market
+prices and pure voyage calculations. Database tools use shared `run_admitted`;
+catalog and protocol discovery bypass admission. `validation.rs` reads exported
+Python tool schemas and normalizes arguments before admission; the pure engine
+uses that same boundary. `protocol.rs` validates exported Python JSON-RPC envelope
+schemas and modern metadata rejection order before tool adaptation; rmcp retains
+dispatch. Internal `ApiErrorKind` distinguishes expected, database and unexpected
+failures through admission without changing REST status/detail serialization.
+Date parsing reuses the existing price-query parser.
+`export_mcp_validation.py` and `mcp-validation-vectors.json` retain reproducible
+Python diagnostics and normalized inputs. This remains a partial acceptance
+checkpoint; `docs/rust-phase1/progress-task11.md` lists unresolved input-domain,
+protocol and error-class gaps. MCP wire recordings stay in untracked lane evidence
+until integration publishes them into the single golden corpus.
+`tests/ephemeral_ports.py` is the shared kernel-range authority for the disposable
+allocator, server producer and target consumer. It reads Linux procfs or macOS
+sysctl and fails closed without changing host settings. Database/Linux gates run
+through the approved `verdaxis-prod-test` isolated harness; local Colima stays off.
+
+Task 12c adds the reviewed staging unit
+`deploy/systemd/verdaxis-rust-staging.service` and its manifest entry, so the
+staging manifest now selects the backend, the Rust reads and the singleton
+maintenance units. The unit loads `.runtime-release.env` and the deploy-written
+`.runtime-rust/runtime.env` (never the secret-rich `.env`) and runs the deploy
+start guard, the migrator-backed revision check and the budget drift check
+before `ExecStart`; it serves `127.0.0.1:8011` with a 256 MiB cap on the same
+sandbox directives as the running backend unit. Activation stays off in the
+committed `deploy/rust/staging-policy.json` until the two-release bootstrap
+installs this unit; a Rust-enabled staging deploy then restarts both units in
+one call and requires both readiness documents before state clears. Production
+carries neither record and reads no Rust path.
+`docs/rust-phase1/progress-task12c.md` holds the unit digest, the artifact
+digest and the systemd 249/255 and staging-ABI start evidence.
+
 ## File Map
 
 ```
@@ -155,7 +334,7 @@ tests/disposable_target.py      # Numeric-loopback ephemeral-port and exact iden
 tests/disposable_server.py      # Test-only ASGI wrapper producing the disposable identity endpoint
 tests/monitor/                  # Monitor artifact contract, ownership, and no-activation proof suites
 tests/runtime_config.py          # Explicit/validated API target policy (staging tooling; suites gate via disposable_target)
-deploy/systemd/                  # Backend plus singleton news/prune service-timer pairs per environment
+deploy/systemd/                  # Backend, staging Rust reads, and singleton news/prune service-timer pairs per environment
 deploy/external_monitor/         # Public/recovery monitoring plus production onboarding-attention timer
 deploy/postgres/                 # Declarative app ACL policy, owner-only convergence, role bootstrap, and validation SQL
 deploy/migration-checkpoints.tsv # Exact expected-current/allowed-target cutover pairs

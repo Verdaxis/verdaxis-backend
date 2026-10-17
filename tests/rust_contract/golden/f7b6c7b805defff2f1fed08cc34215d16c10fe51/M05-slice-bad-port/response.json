@@ -1,0 +1,21 @@
+{
+  "status": 200,
+  "headers": {
+    "content-type": "application/json",
+    "x-request-id": "00000000-0000-4000-8000-000000000001"
+  },
+  "body": {
+    "jsonrpc": "2.0",
+    "id": 13,
+    "result": {
+      "content": [
+        {
+          "text": "Error executing tool get_market_slice: Unsupported delivery point 'unknown'. Supported delivery points: Dalian, Busan, Shanghai, Singapore, Rotterdam, Houston, Los Angeles, Santos",
+          "type": "text"
+        }
+      ],
+      "isError": true
+    }
+  },
+  "body_sha256": "45ac87244672842f306daba832bfa6799d4d5e0b8a0177e704db3e9c21691ce9"
+}
