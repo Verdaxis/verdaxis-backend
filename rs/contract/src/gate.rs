@@ -91,8 +91,7 @@ pub fn passes_gate(
     let routes_measured = routes
         .iter()
         .all(|route| route.python.is_finite() && route.rust.is_finite() && route.python > 0.0);
-    let hard_gates =
-        unapproved_differences == 0 && rust_5xx <= python_5xx && integration_passed;
+    let hard_gates = unapproved_differences == 0 && rust_5xx <= python_5xx && integration_passed;
     let speed = mix_measured
         && routes_measured
         && rust_mix_p95 <= python_mix_p95

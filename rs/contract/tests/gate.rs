@@ -7,7 +7,11 @@ use verdaxis_contract::RouteP95;
 use verdaxis_contract::{blocking_regressions, fix_item_regressions, passes_gate};
 
 fn route(id: &'static str, python: f64, rust: f64) -> RouteP95 {
-    RouteP95 { route_id: id, python, rust }
+    RouteP95 {
+        route_id: id,
+        python,
+        rust,
+    }
 }
 
 #[test]
@@ -53,13 +57,15 @@ fn a_regression_of_exactly_100_ms_does_not_block() {
     // than" either threshold, so the gate still passes and the route is a fix
     // item, not a block.
     assert!(passes_gate(
-        0, 0, 5, true, 0.5, 0.6,
+        0,
+        0,
+        5,
+        true,
+        0.5,
+        0.6,
         &[route("R20", 0.200, 0.300)]
     ));
-    assert_eq!(
-        fix_item_regressions(&[route("R20", 0.200, 0.300)]),
-        ["R20"]
-    );
+    assert_eq!(fix_item_regressions(&[route("R20", 0.200, 0.300)]), ["R20"]);
     assert!(blocking_regressions(&[route("R20", 0.200, 0.300)]).is_empty());
 }
 
@@ -68,7 +74,12 @@ fn one_millisecond_above_the_boundary_blocks() {
     // 0.200 s -> 0.301 s crosses the 100 ms absolute threshold, so the route
     // blocks even with every hard gate passing.
     assert!(!passes_gate(
-        0, 0, 5, true, 0.5, 0.6,
+        0,
+        0,
+        5,
+        true,
+        0.5,
+        0.6,
         &[route("R20", 0.200, 0.301)]
     ));
 }
@@ -78,7 +89,12 @@ fn a_regression_of_exactly_50_percent_does_not_block_when_under_100_ms() {
     // 0.100 s -> 0.150 s is exactly 50 % and 50 ms: under the absolute bar and
     // not "more than" 50 %, so it is a fix item.
     assert!(passes_gate(
-        0, 0, 5, true, 0.5, 0.6,
+        0,
+        0,
+        5,
+        true,
+        0.5,
+        0.6,
         &[route("Rcheap", 0.100, 0.150)]
     ));
     assert_eq!(
@@ -118,10 +134,7 @@ fn smaller_regressions_do_not_block_and_become_fix_items() {
 fn a_mix_regression_with_every_route_inside_its_limit_still_blocks() {
     // Every route is inside its own threshold, but the weighted mix is worse,
     // so the mix condition blocks.
-    let routes = [
-        route("R01", 0.100, 0.150),
-        route("R02", 0.100, 0.150),
-    ];
+    let routes = [route("R01", 0.100, 0.150), route("R02", 0.100, 0.150)];
     assert!(blocking_regressions(&routes).is_empty());
     assert!(!passes_gate(0, 0, 5, true, 0.55, 0.50, &routes));
 }
@@ -137,13 +150,31 @@ fn an_improvement_never_blocks() {
 fn unmeasured_or_nonfinite_latency_never_passes() {
     // A placeholder p95 of zero on the Python side is not a measurement: the
     // mix comparison requires a positive, finite Python mix p95.
-    assert!(!passes_gate(0, 0, 0, true, 0.0, 0.0, &[route("R01", 0.0, 0.0)]));
     assert!(!passes_gate(
-        0, 0, 0, true, f64::NAN, 0.5,
+        0,
+        0,
+        0,
+        true,
+        0.0,
+        0.0,
+        &[route("R01", 0.0, 0.0)]
+    ));
+    assert!(!passes_gate(
+        0,
+        0,
+        0,
+        true,
+        f64::NAN,
+        0.5,
         &[route("R01", 0.2, 0.1)]
     ));
     assert!(!passes_gate(
-        0, 0, 0, true, 0.5, f64::INFINITY,
+        0,
+        0,
+        0,
+        true,
+        0.5,
+        f64::INFINITY,
         &[route("R01", 0.2, 0.1)]
     ));
 }
@@ -161,8 +192,5 @@ fn route_inputs_must_be_finite_before_the_gate() {
     // refuses non-finite route input instead of trusting the comparison.
     let nan_route = route("R01", f64::NAN, f64::NAN);
     assert!(!(nan_route.python.is_finite() && nan_route.rust.is_finite()));
-    assert!(!passes_gate(
-        0, 0, 0, true, 0.5, 0.6,
-        &[nan_route]
-    ));
+    assert!(!passes_gate(0, 0, 0, true, 0.5, 0.6, &[nan_route]));
 }
