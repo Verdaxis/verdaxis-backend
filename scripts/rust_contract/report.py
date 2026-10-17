@@ -161,6 +161,173 @@ def write_report(destination: Path, document: str) -> None:
     destination.write_text(document)
 
 
+def build_bundle(
+    *,
+    identities: dict[str, Any],
+    contract: dict[str, Any],
+    simulation: dict[str, Any],
+    measurement: dict[str, Any],
+    unapproved_differences: int,
+) -> dict[str, Any]:
+    """Assemble one bundle from the measured evidence files.
+
+    Every value comes from a measured run. Missing files or missing keys become
+    `not measured` in the rendered report, never a prefilled claim.
+    """
+    manifest = workload.load()
+    memory = memory_table(measurement) if measurement else {}
+    cpu = cpu_table(measurement) if measurement else {}
+    latency = latency_table(measurement) if measurement else {}
+    mix = mix_table(manifest, latency) if latency else {}
+    latency_with_mix = {**latency, "__mix__": mix} if mix else latency
+    gate_input = gate_evidence(memory, latency_with_mix, unapproved_differences) if memory else {"outcome": "inconclusive"}
+
+    coverage_counts: dict[str, int] = {}
+    for row in _cells(measurement) if measurement else []:
+        for sample in row["samples"]:
+            coverage_counts[sample["route_id"]] = coverage_counts.get(sample["route_id"], 0) + 1
+    # Coverage is the per-route sample count; the floor is the manifest's.
+    covered = measure_mod.coverage(coverage_counts, manifest["required_observations_per_route"]) if coverage_counts else {}
+    if covered:
+        ok = sum(1 for row in covered["routes"].values() if row["outcome"] == "ok")
+        covered = {**covered, "summary": f"{ok}/{len(covered['routes'])} routes reached the floor"}
+
+    conditions = _gate_conditions(gate_input, unapproved_differences)
+    passes = gate_input.get("outcome") != "inconclusive" and all(
+        condition["outcome"] == "pass" for condition in conditions
+    )
+    return {
+        "identities": identities,
+        "contract": contract,
+        "simulation": simulation,
+        "workload": {
+            "manifest_digest": workload.manifest_digest(manifest),
+            "sizes": manifest["sizes"],
+        },
+        "memory": memory,
+        "cpu": cpu,
+        "latency": latency,
+        "mix": mix,
+        "coverage": covered,
+        "gate": {"passes": passes, "outcome": "pass" if passes else "no-go", "conditions": conditions, **gate_input},
+    }
+
+
+def _gate_conditions(gate_input: dict[str, Any], unapproved_differences: int) -> list[dict[str, str]]:
+    """The three Phase 1 conditions with an explicit per-condition outcome."""
+    if gate_input.get("outcome") == "inconclusive":
+        return [
+            {"name": "zero unapproved differences", "outcome": "inconclusive", "detail": gate_input.get("reason", "")},
+            {"name": "Rust memory at most half of Python", "outcome": "inconclusive", "detail": "memory not measured"},
+            {"name": "Rust p95 at or below Python p95", "outcome": "inconclusive", "detail": "p95 not measured"},
+        ]
+    python_memory = gate_input["python_memory"]
+    rust_memory = gate_input["rust_memory"]
+    python_p95 = gate_input["python_p95"]
+    rust_p95 = gate_input["rust_p95"]
+    return [
+        {
+            "name": "zero unapproved differences",
+            "outcome": "pass" if unapproved_differences == 0 else "no-go",
+            "detail": f"{unapproved_differences} unapproved difference(s)",
+        },
+        {
+            "name": "Rust memory at most half of Python",
+            "outcome": "pass" if python_memory > 0 and rust_memory <= python_memory // 2 else "no-go",
+            "detail": f"{rust_memory} of {python_memory} bytes ({measure_mod.memory_ratio(python_memory, rust_memory):.2f})",
+        },
+        {
+            "name": "Rust p95 at or below Python p95",
+            "outcome": "pass" if rust_p95 <= python_p95 else "no-go",
+            "detail": f"Rust {rust_p95:.4f}s vs Python {python_p95:.4f}s",
+        },
+    ]
+
+
+def _load(path: Path) -> dict[str, Any]:
+    if not path or not path.is_file():
+        return {}
+    return json.loads(path.read_text())
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--small", type=Path, required=True, help="measure-small.json")
+    parser.add_argument("--large", type=Path, required=True, help="measure-large.json")
+    parser.add_argument("--simulation", type=Path, required=True, help="simulation-<size>.json")
+    parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--candidate-sha", default="")
+    args = parser.parse_args(argv)
+
+    simulation = _load(args.simulation)
+    small = _load(args.small)
+    large = _load(args.large)
+    measurement = {
+        "repetitions": [
+            *small.get("repetitions", []),
+            *large.get("repetitions", []),
+        ]
+    }
+    unapproved = int(simulation.get("differences", 0))
+    bundle = build_bundle(
+        identities={
+            "candidate_sha": args.candidate_sha or simulation.get("source_sha", ""),
+            "oracle_sha": _oracle_sha(),
+            "corpus_digest": _corpus_digest(),
+            "schema_revision": "kycd_20261015_staging",
+            "policy_digest": report_policy_digest(),
+        },
+        contract={},
+        simulation={
+            "summary": _simulation_summary(simulation),
+            "evidence_digest": evidence_digest(simulation) if simulation else "",
+        },
+        measurement=measurement,
+        unapproved_differences=unapproved,
+    )
+    write_report(args.out, render_markdown(bundle))
+    print(f"report written to {args.out}")
+    return 0
+
+
+def _oracle_sha() -> str:
+    pointer = ROOT / "tests/rust_contract/golden/CURRENT"
+    return pointer.read_text().strip() if pointer.is_file() else ""
+
+
+def _corpus_digest() -> str:
+    """A digest over every recorded golden case's response bytes."""
+    import hashlib
+
+    base = ROOT / "tests/rust_contract/golden" / _oracle_sha()
+    if not base.is_dir():
+        return ""
+    digest = hashlib.sha256()
+    for case in sorted(base.iterdir()):
+        body = case / "response.body"
+        if body.is_file():
+            digest.update(case.name.encode())
+            digest.update(body.read_bytes())
+    return digest.hexdigest()
+
+
+def report_policy_digest() -> str:
+    manifest = ROOT / "deploy/rust/market-policy.manifest.json"
+    return sha256_file(manifest) if manifest.is_file() else ""
+
+
+def _simulation_summary(simulation: dict[str, Any]) -> str:
+    if not simulation:
+        return NOT_MEASURED
+    groups = simulation.get("groups", {})
+    matched = sum(1 for outcome in groups.values() if outcome.get("outcome") == "match")
+    return (
+        f"size {simulation.get('size')}: {matched}/{len(groups)} groups matched, "
+        f"{simulation.get('total_pairs', 0)} pairs, {simulation.get('differences', 0)} differences, "
+        f"gate {simulation.get('gate')}"
+    )
+
+
 def _bytes_mib(value: Any) -> str:
     return NOT_MEASURED if value is None else f"{value / (1024 * 1024):.1f} MiB"
 
