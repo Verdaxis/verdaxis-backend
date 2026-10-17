@@ -195,6 +195,17 @@ def test_speed_verdict_is_inconclusive_without_a_measured_mix():
     verdict = report.speed_verdict(latency, {})
     assert verdict["mix_measured"] is False
     assert verdict["mix_blocks"] is False
+    assert verdict["outcome"] == "inconclusive"
+
+
+@pytest.mark.parametrize("invalid", [0.0, -0.1, float("nan"), float("inf"), None])
+@pytest.mark.parametrize("target", ["python", "rust"])
+def test_invalid_mix_p95_is_inconclusive(target, invalid):
+    mix = {"python": {"p95": 1.0}, "rust": {"p95": 0.5}}
+    mix[target]["p95"] = invalid
+    verdict = report.speed_verdict(_latency([("R16", 1.0, 0.5)]), mix)
+    assert verdict["outcome"] == "inconclusive"
+    assert verdict["mix_measured"] is False
 
 
 def test_speed_verdict_carries_the_measured_mix_comparison():

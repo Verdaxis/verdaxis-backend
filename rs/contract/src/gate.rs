@@ -87,7 +87,7 @@ pub fn passes_gate(
     let mix_measured = python_mix_p95.is_finite()
         && rust_mix_p95.is_finite()
         && python_mix_p95 > 0.0
-        && rust_mix_p95 >= 0.0;
+        && rust_mix_p95 > 0.0;
     let routes_measured = routes
         .iter()
         .all(|route| route.python.is_finite() && route.rust.is_finite() && route.python > 0.0);

@@ -13,12 +13,13 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import statistics
 from pathlib import Path
 from typing import Any
 
-from scripts.rust_contract import workload
 from scripts.rust_contract import measure as measure_mod
+from scripts.rust_contract import workload
 
 ROOT = Path(__file__).resolve().parents[2]
 NOT_MEASURED = "not measured"
@@ -204,12 +205,14 @@ def speed_verdict(
     mix_measured = (
         python_mix is not None
         and rust_mix is not None
+        and math.isfinite(python_mix)
+        and math.isfinite(rust_mix)
         and python_mix > 0
-        and rust_mix >= 0
+        and rust_mix > 0
     )
     mix_blocks = bool(mix_measured and rust_mix > python_mix)
     return {
-        "outcome": "pass" if not (mix_blocks or blocking) else "no-go",
+        "outcome": "inconclusive" if not mix_measured else ("no-go" if mix_blocks or blocking else "pass"),
         "mix_blocks": mix_blocks,
         "mix_measured": mix_measured,
         "blocking_regressions": sorted(blocking),

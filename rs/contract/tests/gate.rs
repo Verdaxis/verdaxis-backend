@@ -180,6 +180,15 @@ fn unmeasured_or_nonfinite_latency_never_passes() {
 }
 
 #[test]
+fn either_mix_p95_must_be_finite_and_positive() {
+    for invalid in [0.0, -0.1, f64::NAN, f64::INFINITY] {
+        let routes = [route("R01", 0.2, 0.1)];
+        assert!(!passes_gate(0, 0, 0, true, invalid, 0.6, &routes));
+        assert!(!passes_gate(0, 0, 0, true, 0.5, invalid, &routes));
+    }
+}
+
+#[test]
 fn a_zero_python_mix_p95_is_not_a_measurement() {
     // Rust 0.0 against Python 0.0: without a positive Python baseline the mix
     // comparison is vacuous, so the gate must refuse it.
