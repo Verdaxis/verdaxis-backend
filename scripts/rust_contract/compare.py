@@ -213,8 +213,13 @@ APPROVED_PRICE_SUMMARY_RULES = [
 ]
 
 
-def _summary_tokens(raw: bytes):
-    """Keep exact summary tokens and all bytes outside their positions."""
+def _object_array_tokens(raw: bytes, wanted_key: str):
+    """Keep exact item tokens of one top-level array and the bytes around them.
+
+    The full JSON is already validated, so this only slices the raw text: each
+    item keeps its exact spelling and key order, and the frame keeps every byte
+    outside the item positions.
+    """
     text = raw.decode("utf-8")
     decoder = json.JSONDecoder()
 
@@ -230,7 +235,7 @@ def _summary_tokens(raw: bytes):
         index = skip(index) + 1  # colon (the full JSON was already validated)
         start = skip(index)
         _, end = decoder.raw_decode(text, start)
-        if key == "summaries":
+        if key == wanted_key:
             spans = []
             cursor = skip(start + 1)
             while cursor < end - 1:
@@ -251,7 +256,12 @@ def _summary_tokens(raw: bytes):
         index = skip(end)
         if text[index] == ",":
             index += 1
-    raise ContractError("summary array was not found")
+    raise ContractError(f"the {wanted_key!r} array was not found")
+
+
+def _summary_tokens(raw: bytes):
+    """Keep exact summary tokens and all bytes outside their positions."""
+    return _object_array_tokens(raw, "summaries")
 
 
 def compare_price_summary_multiset(expected, actual, *, request_path, rules_path=None):
@@ -267,7 +277,7 @@ def compare_price_summary_multiset(expected, actual, *, request_path, rules_path
         item.get("status") == 200 and "price_summary_tokens" in item
         for item in (expected, actual)
     ):
-        return compare_news_tie_groups(expected, actual, request_path=request_path)
+        return compare_trade_tape_tie_groups(expected, actual, request_path=request_path)
     left_items, left_frame = expected["price_summary_tokens"]
     right_items, right_frame = actual["price_summary_tokens"]
     if Counter(left_items) != Counter(right_items):
@@ -275,6 +285,72 @@ def compare_price_summary_multiset(expected, actual, *, request_path, rules_path
     if left_frame != right_frame:
         return ["/body:surrounding-bytes"]
     ignored = {"body", "body_sha256", "price_summary_tokens"}
+    return compare(
+        {k: v for k, v in expected.items() if k not in ignored},
+        {k: v for k, v in actual.items() if k not in ignored},
+    )
+
+
+TRADE_TAPE_TIE_RULES_PATH = ROOT / "tests" / "rust_contract" / "trade-tape-tie-paths.json"
+APPROVED_TRADE_TAPE_TIE_RULES = [
+    {
+        "rule": "trade-tape-confirmed-at-tie-multiset",
+        "request_path": "/api/trade-tape",
+        "json_path": "/body/items",
+        "sort_key": "confirmed_at",
+    }
+]
+
+
+def compare_trade_tape_tie_groups(expected, actual, *, request_path, rules_path=None):
+    """PM decision (17 Oct): `/api/trade-tape` ties compare as a multiset.
+
+    The two implementations copy the same tie-unstable `ORDER BY confirmed_at
+    DESC`, so the order of items inside one `confirmed_at` tie group is source
+    nondeterminism. Only the item bytes within a tie group may permute: the
+    sequence of `confirmed_at` keys must match exactly, the keys must stay
+    descending, the item **sets** must be identical, and every other byte
+    (the frame, `total`, `market_hours`, headers) stays exact. A real ordering
+    difference across tie groups still fails.
+    """
+    from collections import Counter
+    from itertools import groupby
+
+    try:
+        rules = json.loads((rules_path or TRADE_TAPE_TIE_RULES_PATH).read_text())
+    except (OSError, ValueError) as error:
+        raise ContractError("trade-tape tie rule configuration is unreadable") from error
+    if rules != APPROVED_TRADE_TAPE_TIE_RULES:
+        raise ContractError("unreviewed trade-tape tie rule configuration")
+    if request_path != "/api/trade-tape" or not all(
+        item.get("status") == 200
+        and isinstance(item.get("body"), dict)
+        and "trade_tape_tokens" in item
+        for item in (expected, actual)
+    ):
+        return compare_news_tie_groups(expected, actual, request_path=request_path)
+    left_items, left_frame = expected["trade_tape_tokens"]
+    right_items, right_frame = actual["trade_tape_tokens"]
+    left_keys = [item["confirmed_at"] for item in expected["body"]["items"]]
+    right_keys = [item["confirmed_at"] for item in actual["body"]["items"]]
+    # The sequence of tie keys and their descending order are strict: only the
+    # order *inside* a tie group may differ.
+    if left_keys != right_keys:
+        return ["/body/items/confirmed_at:sequence"]
+    if left_keys != sorted(left_keys, reverse=True):
+        return ["/body/items/confirmed_at:order"]
+
+    def groups(tokens, keys):
+        return [
+            (key, Counter(token for _, token in values))
+            for key, values in groupby(zip(keys, tokens), key=lambda pair: pair[0])
+        ]
+
+    if groups(left_items, left_keys) != groups(right_items, right_keys):
+        return ["/body/items:tie-item-bytes"]
+    if left_frame != right_frame:
+        return ["/body/items:surrounding-bytes"]
+    ignored = {"body", "body_sha256", "trade_tape_tokens"}
     return compare(
         {k: v for k, v in expected.items() if k not in ignored},
         {k: v for k, v in actual.items() if k not in ignored},
@@ -358,6 +434,13 @@ def capture(
         envelope["news_exact_items"] = _news_item_bytes(raw)
     if isinstance(body, dict) and isinstance(body.get("summaries"), list):
         envelope["price_summary_tokens"] = _summary_tokens(raw)
+    if (
+        isinstance(body, dict)
+        and isinstance(body.get("items"), list)
+        and body["items"]
+        and all(isinstance(item, dict) and "confirmed_at" in item for item in body["items"])
+    ):
+        envelope["trade_tape_tokens"] = _object_array_tokens(raw, "items")
     return envelope
 
 

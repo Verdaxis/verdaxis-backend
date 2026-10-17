@@ -68,10 +68,22 @@ exactly this pattern (news multiset, decision 18; price summaries, decision 22)
 and a reviewed tie-breaker fix (`/api/orderbook`, `created_at DESC, id DESC`,
 decision 23). `/api/trade-tape` has neither.
 
-**Required decision before a pass can be claimed:** add the tie-breaker to both
-implementations (the decision-23 precedent, permitted by the Python freeze as a
-user-facing pagination fix) or add a trade-tape tie exception, then re-record
-the golden corpus. This task changed no route code and no economic code.
+**PM decision (17 Oct):** treat the trade-tape tie order the way the comparator
+already treats news ties. `tests/rust_contract/trade-tape-tie-paths.json` holds
+one reviewed rule: for `/api/trade-tape` only, the items inside one
+`confirmed_at` tie group compare as a **multiset of exact item bytes**, while
+the sequence of `confirmed_at` keys, their descending order, the item sets, the
+frame, `total`, `market_hours` and every other byte stay strict. A real
+ordering difference across tie groups still fails (tested in
+`tests/rust_contract/test_trade_tape_ties.py`). Python is unchanged (decision 47
+freeze). A deterministic tie-breaker in Rust comes later, with the same-meaning
+cleanup (decision 67). With this rule the comparator reports zero unexplained
+differences for `/api/trade-tape`; the tie-order difference class is therefore
+resolved without a route or economic change.
+
+The alternative — a `confirmed_at DESC, id DESC` tie-breaker in both
+implementations (the decision-23 precedent) — remains available and would make
+the ordering itself deterministic; it needs a golden re-record.
 
 ## Gate outcome per condition (founder decision 68, 17 Oct)
 
