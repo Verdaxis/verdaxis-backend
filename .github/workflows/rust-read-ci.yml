@@ -195,7 +195,7 @@ jobs:
             "https://github.com/caddyserver/caddy/releases/download/v${CADDY_VERSION}/caddy_${CADDY_VERSION}_linux_amd64.tar.gz"
           echo "${CADDY_SHA256}  caddy_${CADDY_VERSION}_linux_amd64.tar.gz" | sha256sum -c -
           tar -xzf "caddy_${CADDY_VERSION}_linux_amd64.tar.gz" caddy
-          install -m 0755 caddy "$RUNNER_TEMP/bin/caddy"
+          install -D -m 0755 caddy "$RUNNER_TEMP/bin/caddy"
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
 
       - name: Download the release artifact
