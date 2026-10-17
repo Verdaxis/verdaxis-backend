@@ -14,6 +14,7 @@ import os
 import shutil
 import signal
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -118,6 +119,12 @@ class RustReleaseFixture:
         self.verifier = _load_verifier()
         self.origin = tmp_path / "origin.git"
         self.source = tmp_path / "approved-source"
+        # The checkout deliberately sits OUTSIDE the canonical `<env>/be`
+        # layouts: deploy.sh resets PATH for those paths, which would replace
+        # the fixture's fake `sudo`, `curl` and `systemctl` with the host's
+        # real commands. A non-canonical checkout is deployable through the
+        # documented override (TARGET_BRANCH, SERVICE_NAME, HEALTH_URL,
+        # DEPLOY_ENVIRONMENT) that `deploy_environment` supplies.
         self.checkout = tmp_path / "deploy-checkout"
         for directory in (self.origin, self.source):
             directory.mkdir()
@@ -275,7 +282,13 @@ case "${{1:-}}" in
 esac
 if [[ "${{DEPLOY_BLOCK_PHASE:-}}" == "${{1:-}}" ]]; then sleep 30; fi
 """
-        real_python = str(ROOT / "venv/bin/python") if (ROOT / "venv/bin/python").exists() else "/usr/bin/python3"
+        # The fixture's `venv/bin/python` wrapper must work in a clean checkout.
+        # GitHub CI installs the dependencies into the interpreter that runs
+        # pytest and carries no repository `venv/`, so the real interpreter
+        # behind the wrapper is the test process's own (`sys.executable`).
+        # A hard-coded `/usr/bin/python3` would fail the real helpers' `dotenv`
+        # import, exactly as the draft PR #86 `test` job showed.
+        real_python = sys.executable
         fake_python = fake_python.replace("__REAL_PYTHON__", real_python)
         _write_executable(self.checkout / "venv/bin/python", fake_python)
         _write_executable(
@@ -541,6 +554,21 @@ exit 0
 @pytest.fixture()
 def release_fixture(tmp_path):
     return RustReleaseFixture(tmp_path)
+
+
+def test_fixture_checkout_relies_on_the_documented_layout_override(release_fixture):
+    """The fixture checkout is not `<canonical>/be`, so the override applies.
+
+    `scripts/deploy.sh` cannot infer the environment from this path and then
+    demands all four explicit values; the fixture supplies them, which is what
+    keeps a non-canonical (fake-tool-preserving) checkout deployable.
+    """
+    deploy = (ROOT / "scripts" / "deploy.sh").read_text()
+    environment = release_fixture.deploy_environment(release_fixture.old_sha)
+    for name in ("TARGET_BRANCH", "SERVICE_NAME", "HEALTH_URL", "DEPLOY_ENVIRONMENT"):
+        assert f"${{{name}:?" in deploy, name
+        assert environment.get(name), name
+    assert not str(release_fixture.checkout).endswith(("/prod/be", "/staging/be"))
 
 
 def test_python_only_deploy_matches_the_pre_rust_command_ledger(release_fixture):
