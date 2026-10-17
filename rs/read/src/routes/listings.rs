@@ -7,7 +7,7 @@ use axum::{
 };
 use chrono::{DateTime, Utc};
 use serde_json::json;
-use sqlx::{Row, postgres::PgRow};
+use sqlx::{Connection, Row, postgres::PgRow};
 
 use super::{
     ports::{query_error, utc_rfc3339},
@@ -52,6 +52,20 @@ async fn listings(State(state): State<AppState>, RawQuery(raw): RawQuery) -> Api
     let owned = state.clone();
     let result = run_admitted(&state, move |connection| {
         Box::pin(async move {
+            // The expanded corpus makes the shared eligibility subplans cross
+            // PostgreSQL's JIT cost threshold, so a page that returns a few
+            // rows can still pay hundreds of milliseconds of JIT compilation.
+            // The other shared-relation handlers set the same policy; keep it
+            // transaction-local so it cannot leak through the pool. This
+            // changes no response byte.
+            let mut tx = connection
+                .begin()
+                .await
+                .map_err(|error| query_error(PATH, &error))?;
+            sqlx::query("SET LOCAL jit = off")
+                .execute(&mut *tx)
+                .await
+                .map_err(|error| query_error(PATH, &error))?;
             let sql = order_query_sql(include_str!("../../sql/orderbook/listings.sql"));
             let filters = PublicOrderFilters {
                 surface: OrderSurface::Listings,
@@ -67,9 +81,12 @@ async fn listings(State(state): State<AppState>, RawQuery(raw): RawQuery) -> Api
             .map_err(|error| query_error(PATH, &error))?
             .bind(skip)
             .bind(limit)
-            .fetch_all(connection)
+            .fetch_all(&mut *tx)
             .await
             .map_err(|error| query_error(PATH, &error))?;
+            tx.commit()
+                .await
+                .map_err(|error| query_error(PATH, &error))?;
             Ok(rows
                 .iter()
                 .map(listing_payload)
