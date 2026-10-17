@@ -127,6 +127,9 @@ jobs:
         run: |
           mkdir -p release
           cp "rs/target/$RUST_TARGET/release/verdaxis-read" release/verdaxis-read
+          # Keep every uploaded file under release/, so the artifact root is release/
+          # and both download steps (path: release) find release/<file>.
+          cp glibc-report.txt release/glibc-report.txt
           python3 scripts/verify_rust_artifact.py --package \
             --binary release/verdaxis-read \
             --data-dir deploy/rust \
@@ -147,7 +150,7 @@ jobs:
             release/verdaxis-read
             release/verdaxis-read-*.tar
             release/artifact-metadata.json
-            glibc-report.txt
+            release/glibc-report.txt
 
   # The full differential contract gate and the unchanged integration suite,
   # each against this job's own disposable database. It also runs the release
