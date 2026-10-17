@@ -55,15 +55,20 @@ class Simulation(runner.Runner):
 
     def _run_group(self, group: str, cases: list[dict[str, Any]]) -> dict[str, Any]:
         """One group, one fresh workload-seeded environment, one sandwich."""
+        from unittest.mock import patch
+
         from scripts.rust_contract.compare import ContractError, recording_differences
         from scripts.rust_contract.record import record, stable
 
         env = self.start_environment(group)
         try:
             self._seed_workload(env["base_env"])
-            first = record(env["python_url"], self.token, cases)
-            middle = record(env["rust_url"], self.token, cases)
-            third = record(env["python_url"], self.token, cases)
+            # A corpus case rewrites a fixture row through the attested seed
+            # session, which reads SEED_DATABASE_URL from the environment.
+            with patch.dict(os.environ, env["base_env"]):
+                first = record(env["python_url"], self.token, cases)
+                middle = record(env["rust_url"], self.token, cases)
+                third = record(env["python_url"], self.token, cases)
         except ContractError as error:
             return {"outcome": "error", "error": str(error), "cases": len(cases)}
         finally:
