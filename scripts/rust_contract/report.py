@@ -157,7 +157,7 @@ def mix_table(manifest: dict[str, Any], latency: dict[str, Any]) -> dict[str, di
 
 
 def route_regression_blocks(python_p95: float, rust_p95: float) -> bool:
-    """Decision 68: a per-route regression blocks only above both caps.
+    """Decision 68: a per-route regression blocks above either cap.
 
     The route blocks when Rust is slower by **more than** 100 ms **or** by
     **more than** 50 % of Python's p95 — whichever threshold it crosses first.
@@ -165,8 +165,11 @@ def route_regression_blocks(python_p95: float, rust_p95: float) -> bool:
     """
     if rust_p95 <= python_p95:
         return False
-    delta = rust_p95 - python_p95
-    return delta > 0.100 or delta > 0.5 * python_p95
+    # Round each measurement once to integer microseconds (half up).
+    python_us = math.floor(python_p95 * 1_000_000 + 0.5)
+    rust_us = math.floor(rust_p95 * 1_000_000 + 0.5)
+    delta = rust_us - python_us
+    return delta > 100_000 or 2 * delta > python_us
 
 
 def _route_pairs(latency: dict[str, Any]) -> list[tuple[str, float, float]]:

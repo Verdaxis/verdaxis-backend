@@ -29,8 +29,7 @@ pub struct RouteP95 {
 /// The per-route regression threshold: a route blocks only when Rust is slower
 /// by **more than** 100 ms **or** by **more than** 50 %, whichever it crosses
 /// first. A regression exactly at a threshold does not block.
-pub const REGRESSION_ABSOLUTE_MS: f64 = 100.0;
-pub const REGRESSION_RELATIVE: f64 = 0.5;
+const REGRESSION_ABSOLUTE_US: u128 = 100_000;
 
 /// True when one route's regression is small enough not to block.
 ///
@@ -41,9 +40,11 @@ pub fn route_regression_blocks(route: RouteP95) -> bool {
     if route.rust <= route.python {
         return false;
     }
-    let delta = route.rust - route.python;
-    let absolute = REGRESSION_ABSOLUTE_MS / 1000.0;
-    delta > absolute || delta > REGRESSION_RELATIVE * route.python
+    // Round each measurement once to integer microseconds (half up).
+    let python_us = (route.python * 1_000_000.0).round() as u128;
+    let rust_us = (route.rust * 1_000_000.0).round() as u128;
+    let delta = rust_us.saturating_sub(python_us);
+    delta > REGRESSION_ABSOLUTE_US || delta.saturating_mul(2) > python_us
 }
 
 /// The blocking speed regressions among the per-route pairs.

@@ -243,3 +243,13 @@ fn both_route_measurements_must_be_positive_and_finite() {
         }
     }
 }
+
+#[test]
+fn decimal_threshold_boundaries_are_exact() {
+    for (python, rust) in [(0.300, 0.400), (0.180, 0.270)] {
+        let pair = route("R01", python, rust);
+        assert!(blocking_regressions(&[pair]).is_empty());
+        assert_eq!(fix_item_regressions(&[pair]), ["R01"]);
+        assert!(!blocking_regressions(&[route("R01", python, rust + 0.000001)]).is_empty());
+    }
+}

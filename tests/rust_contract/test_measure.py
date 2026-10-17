@@ -279,10 +279,14 @@ def _latency(pairs):
 
 def test_regression_of_exactly_100_ms_does_not_block():
     assert not report.route_regression_blocks(0.200, 0.300)
+    assert not report.route_regression_blocks(0.300, 0.400)
+    assert report.route_regression_blocks(0.300, 0.400001)
 
 
 def test_regression_of_exactly_50_percent_does_not_block_when_under_100_ms():
     assert not report.route_regression_blocks(0.100, 0.150)
+    assert not report.route_regression_blocks(0.180, 0.270)
+    assert report.route_regression_blocks(0.180, 0.270001)
 
 
 def test_regression_above_100_ms_blocks():
