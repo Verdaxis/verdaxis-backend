@@ -132,5 +132,39 @@ def main(argv: list[str] | None = None) -> int:
     return 0
 
 
+def factory():
+    """ASGI factory for uvicorn's multi-worker mode.
+
+    `uvicorn tests.rust_contract.server:factory --factory --workers 4` runs the
+    four-worker Python service the measurement compares against. The workers
+    share one socket through uvicorn's own multiprocess parent, exactly like the
+    deployed `--workers 4` unit. The fixed clock is applied per worker process.
+    """
+    from app.main import app
+
+    token = validate_config(
+        os.environ.get("ENVIRONMENT", ""),
+        os.environ.get("DISPOSABLE_TEST_TOKEN", ""),
+        "127.0.0.1",
+        int(os.environ.get("UVICORN_PORT", "0") or 0) or _factory_port(),
+        os.environ.get("RELEASE_SHA", ""),
+    )
+    apply_fixed_clock()
+    return ContractOracleApp(app, token)
+
+
+def _factory_port() -> int:
+    """The port a factory-started worker listens on.
+
+    The disposable guard requires a numeric-loopback ephemeral port. Under
+    `--workers`, uvicorn's parent owns the socket, so the port is the value the
+    caller assigned; there is no implicit default.
+    """
+    value = os.environ.get("UVICORN_BIND_PORT", "")
+    if not value:
+        raise SystemExit("UVICORN_BIND_PORT is required for the factory service")
+    return int(value)
+
+
 if __name__ == "__main__":
     raise SystemExit(main())
