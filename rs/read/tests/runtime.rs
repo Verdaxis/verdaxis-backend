@@ -16,6 +16,7 @@ fn staging() -> Config {
         pool_max: 9,
         python_budget: 52,
         configured_max_connections: 100,
+        prepared_budget: None,
     }
 }
 
@@ -224,6 +225,161 @@ fn prepared_budget_is_bound_to_runtime() {
             .is_err()
         );
         artifact[key] = original;
+    }
+}
+
+fn budget_document(release_sha: &str) -> String {
+    serde_json::json!({
+        "version": 1, "release_sha": release_sha, "environment_digest": "a".repeat(64),
+        "services": 2, "workers": 4, "pool": 2, "overflow": 1, "reserve": 20,
+        "rust_pool": 9, "python_budget": 52, "total": 61, "configured_max_connections": 100
+    })
+    .to_string()
+}
+
+fn deployed_environment() -> std::collections::HashMap<String, String> {
+    [
+        ("ENVIRONMENT", "staging"),
+        ("RELEASE_SHA", compiled_sha()),
+        ("MIGRATION_REVISION", "kycg_20261014_staging"),
+        (
+            "DATABASE_URL",
+            "postgresql://verdaxis_app_staging:local-secret@127.0.0.1:5432/verdaxis_staging",
+        ),
+        ("DB_SESSION_TIME_ZONE", "UTC"),
+        ("KYC_EXECUTION_GATE_ENABLED", "false"),
+    ]
+    .into_iter()
+    .map(|(key, value)| (key.to_owned(), value.to_owned()))
+    .collect()
+}
+
+#[test]
+fn deployed_environment_builds_the_runtime_configuration() {
+    use verdaxis_read::runtime::config::config_from_deployed_environment;
+    let bind: std::net::SocketAddr = "127.0.0.1:8011".parse().unwrap();
+    let config = config_from_deployed_environment(
+        &deployed_environment(),
+        bind,
+        &budget_document(compiled_sha()),
+    )
+    .unwrap();
+
+    assert_eq!(config.environment, "staging");
+    assert_eq!(config.bind, bind);
+    assert_eq!(config.pool_max, 9);
+    assert_eq!(config.python_budget, 52);
+    assert_eq!(config.configured_max_connections, 100);
+    assert!(!config.kyc_execution_gate_enabled);
+    assert!(config.prepared_budget.is_some());
+    assert!(validate_config(&config).is_ok());
+
+    // An absent switch keeps Python's default; a spelled-out value still maps.
+    let mut environment = deployed_environment();
+    environment.remove("KYC_EXECUTION_GATE_ENABLED");
+    let default =
+        config_from_deployed_environment(&environment, bind, &budget_document(compiled_sha()))
+            .unwrap();
+    assert!(default.kyc_execution_gate_enabled);
+    environment.insert("KYC_EXECUTION_GATE_ENABLED".into(), "OFF".into());
+    let spelled =
+        config_from_deployed_environment(&environment, bind, &budget_document(compiled_sha()))
+            .unwrap();
+    assert!(!spelled.kyc_execution_gate_enabled);
+}
+
+#[test]
+fn deployed_environment_refuses_an_incomplete_or_foreign_contract() {
+    use verdaxis_read::runtime::config::config_from_deployed_environment;
+    let bind: std::net::SocketAddr = "127.0.0.1:8011".parse().unwrap();
+    for missing in [
+        "ENVIRONMENT",
+        "RELEASE_SHA",
+        "MIGRATION_REVISION",
+        "DATABASE_URL",
+        "DB_SESSION_TIME_ZONE",
+    ] {
+        let mut environment = deployed_environment();
+        environment.remove(missing);
+        assert!(
+            config_from_deployed_environment(&environment, bind, &budget_document(compiled_sha()))
+                .is_err(),
+            "accepted a missing {missing}"
+        );
+        environment.insert(missing.into(), "   ".into());
+        assert!(
+            config_from_deployed_environment(&environment, bind, &budget_document(compiled_sha()))
+                .is_err(),
+            "accepted a blank {missing}"
+        );
+    }
+    let environment = deployed_environment();
+    let mut foreign: serde_json::Value =
+        serde_json::from_str(&budget_document(&"b".repeat(40))).unwrap();
+    assert!(config_from_deployed_environment(&environment, bind, &foreign.to_string()).is_err());
+    foreign["release_sha"] = serde_json::json!(compiled_sha());
+    foreign["total"] = serde_json::json!(55);
+    assert!(config_from_deployed_environment(&environment, bind, &foreign.to_string()).is_err());
+    foreign["total"] = serde_json::json!(60);
+    foreign["rust_pool"] = serde_json::json!(8);
+    assert!(config_from_deployed_environment(&environment, bind, &foreign.to_string()).is_err());
+    let mut ambiguous = deployed_environment();
+    ambiguous.insert("KYC_EXECUTION_GATE_ENABLED".into(), "maybe".into());
+    assert!(
+        config_from_deployed_environment(&ambiguous, bind, &budget_document(compiled_sha()))
+            .is_err()
+    );
+}
+
+#[test]
+fn deployed_arguments_require_both_flags_and_absolute_paths() {
+    use verdaxis_read::runtime::config::deployed_arguments;
+    let budget_path = "/home/verdaxis-prod/verdaxis/staging/be/.runtime-rust/budget.json";
+    let good: Vec<String> = ["--bind", "127.0.0.1:8011", "--budget-file", budget_path]
+        .iter()
+        .map(|value| value.to_string())
+        .collect();
+    let (bind, budget) = deployed_arguments(&good).unwrap();
+    assert_eq!(bind, "127.0.0.1:8011".parse().unwrap());
+    assert_eq!(budget, std::path::PathBuf::from(budget_path));
+
+    let cases: Vec<Vec<&str>> = vec![
+        vec!["--bind", "127.0.0.1:8011"],
+        vec!["--budget-file", "/tmp/budget.json"],
+        vec![
+            "--bind",
+            "127.0.0.1:8011",
+            "--budget-file",
+            "relative/budget.json",
+        ],
+        vec![
+            "--bind",
+            "not-a-socket",
+            "--budget-file",
+            "/tmp/budget.json",
+        ],
+        vec![
+            "--bind",
+            "127.0.0.1:8011",
+            "--bind",
+            "127.0.0.1:8012",
+            "--budget-file",
+            "/tmp/budget.json",
+        ],
+        vec![
+            "--bind",
+            "127.0.0.1:8011",
+            "--budget-file",
+            "/tmp/budget.json",
+            "--unknown",
+            "1",
+        ],
+        vec!["--bind"],
+        vec![],
+    ];
+    for case in cases {
+        let arguments: Vec<String> = case.iter().map(|value| value.to_string()).collect();
+        assert!(deployed_arguments(&arguments).is_err(), "accepted {case:?}");
     }
 }
 

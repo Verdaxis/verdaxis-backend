@@ -1,4 +1,4 @@
-use crate::{Config, verify_release};
+use crate::{ADMISSION_SLOTS, Config, verify_release};
 use percent_encoding::percent_decode_str;
 use std::net::IpAddr;
 
@@ -87,6 +87,106 @@ pub fn validate_prepared_budget(config: &Config, json: &str) -> Result<(), Strin
         return Err("prepared budget does not match runtime configuration".into());
     }
     validate_config(config)
+}
+
+/// Build the runtime configuration from the flat deployed environment.
+///
+/// The reviewed staging unit loads `.runtime-release.env` and
+/// `.runtime-rust/runtime.env` and passes the prepared budget artifact with
+/// `--budget-file`; the contract harness passes one `RUST_CONFIG` document
+/// instead. Both routes end at the same validated `Config`, so a deployed
+/// start cannot skip a check the tests hold.
+pub fn config_from_deployed_environment(
+    environment: &std::collections::HashMap<String, String>,
+    bind: std::net::SocketAddr,
+    budget_json: &str,
+) -> Result<Config, String> {
+    let required = |key: &str| {
+        environment
+            .get(key)
+            .map(|value| value.trim())
+            .filter(|value| !value.is_empty())
+            .map(str::to_owned)
+            .ok_or_else(|| format!("{key} must be set in the deployed environment"))
+    };
+    let release_sha = required("RELEASE_SHA")?;
+    let budget: PreparedBudget = serde_json::from_str(budget_json)
+        .map_err(|_| "the prepared budget artifact is not valid JSON")?;
+    let rust_pool = ADMISSION_SLOTS + 1;
+    if budget.version != 1 || budget.release_sha != release_sha {
+        return Err("the prepared budget artifact does not belong to this release".into());
+    }
+    if budget.rust_pool != rust_pool
+        || budget.python_budget.checked_add(budget.rust_pool) != Some(budget.total)
+    {
+        return Err("the prepared budget artifact is internally inconsistent".into());
+    }
+    Ok(Config {
+        kyc_execution_gate_enabled: deployed_bool(environment, "KYC_EXECUTION_GATE_ENABLED", true)?,
+        environment: required("ENVIRONMENT")?,
+        release_sha,
+        migration_revision: required("MIGRATION_REVISION")?,
+        database_url: required("DATABASE_URL")?,
+        db_session_time_zone: required("DB_SESSION_TIME_ZONE")?,
+        prepared_budget: Some(budget_json.to_owned()),
+        bind,
+        pool_max: rust_pool,
+        python_budget: budget.python_budget,
+        configured_max_connections: budget.configured_max_connections,
+    })
+}
+
+/// Resolve a deployed boolean switch. The environment file decides, so Rust
+/// cannot answer differently from Python; an absent key takes the caller's
+/// default, which mirrors the Python setting it stands for.
+fn deployed_bool(
+    environment: &std::collections::HashMap<String, String>,
+    key: &str,
+    default: bool,
+) -> Result<bool, String> {
+    match environment.get(key) {
+        None => Ok(default),
+        Some(value) => match value.trim().to_ascii_lowercase().as_str() {
+            "true" | "t" | "y" | "yes" | "1" | "on" => Ok(true),
+            "false" | "f" | "n" | "no" | "0" | "off" => Ok(false),
+            _ => Err(format!("{key} must be true or false")),
+        },
+    }
+}
+
+/// The two arguments the reviewed staging unit passes: the loopback bind and
+/// the path of the prepared budget artifact. Absolute paths only, so a start
+/// from an unexpected working directory cannot redirect the read.
+pub fn deployed_arguments(
+    arguments: &[String],
+) -> Result<(std::net::SocketAddr, std::path::PathBuf), String> {
+    let (mut bind, mut budget) = (None, None);
+    let mut index = 0;
+    while index < arguments.len() {
+        let flag = arguments[index].as_str();
+        let value = arguments
+            .get(index + 1)
+            .ok_or_else(|| format!("{flag} requires a value"))?;
+        let slot = match flag {
+            "--bind" => &mut bind,
+            "--budget-file" => &mut budget,
+            other => return Err(format!("unsupported argument: {other}")),
+        };
+        if slot.is_some() {
+            return Err(format!("{flag} was given more than once"));
+        }
+        *slot = Some(value.clone());
+        index += 2;
+    }
+    let bind = bind
+        .ok_or("--bind is required")?
+        .parse()
+        .map_err(|_| "--bind is not a socket address".to_owned())?;
+    let budget = std::path::PathBuf::from(budget.ok_or("--budget-file is required")?);
+    if !budget.is_absolute() {
+        return Err("--budget-file must be an absolute path".into());
+    }
+    Ok((bind, budget))
 }
 
 pub(crate) struct DatabaseTarget {

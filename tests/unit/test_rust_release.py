@@ -62,6 +62,23 @@ def _load_verifier():
     return module
 
 
+_PREPARER = None
+
+
+def _load_preparer():
+    """The one loaded instance: two loads would define two distinct error classes."""
+    global _PREPARER
+    if _PREPARER is None:
+        spec = importlib.util.spec_from_file_location(
+            "prepare_rust_runtime", ROOT / "scripts" / "prepare_rust_runtime.py"
+        )
+        module = importlib.util.module_from_spec(spec)
+        assert spec.loader is not None
+        spec.loader.exec_module(module)
+        _PREPARER = module
+    return _PREPARER
+
+
 def _sha256(content: bytes) -> str:
     return hashlib.sha256(content).hexdigest()
 
@@ -227,6 +244,7 @@ class RustReleaseFixture:
             ":fixture-password@127.0.0.1:5432/verdaxis_staging\n"
             "MIGRATOR_DATABASE_URL=postgresql+asyncpg://verdaxis_migrator_staging"
             ":fixture-password@127.0.0.1:5432/verdaxis_staging\n"
+            "KYC_EXECUTION_GATE_ENABLED=false\n"
         )
 
     def _write_fake_tools(self) -> None:
@@ -449,8 +467,11 @@ exit 0
 
     def _write_deployed_env(self, release_sha: str) -> None:
         """The deployed .env names the release being deployed, as on the host."""
-        environment_file = self.checkout / ".env"
-        environment_file.write_text(
+        (self.checkout / ".env").write_text(self.deployed_env_text(release_sha))
+
+    def deployed_env_text(self, release_sha: str, *, kyc_gate: str | None = "false") -> str:
+        """The deployed `.env` body, with the Private Beta KYC switch state."""
+        body = (
             "ENVIRONMENT=staging\n"
             f"RELEASE_SHA={release_sha}\n"
             "JWT_SECRET=" + "k" * 40 + "\n"
@@ -466,6 +487,25 @@ exit 0
             "MIGRATOR_DATABASE_URL=postgresql+asyncpg://verdaxis_migrator_staging"
             ":fixture-password@127.0.0.1:5432/verdaxis_staging\n"
         )
+        return body if kyc_gate is None else body + f"KYC_EXECUTION_GATE_ENABLED={kyc_gate}\n"
+
+    def prepare_runtime_environment(
+        self, release_sha: str, *, kyc_gate: str | None = "false"
+    ) -> Path:
+        """Run the real Rust runtime preparation over the deployed `.env`."""
+        environment_file = self.checkout / ".env"
+        environment_file.write_text(
+            self.deployed_env_text(release_sha, kyc_gate=kyc_gate)
+        )
+        module = _load_preparer()
+        result = module.prepare(
+            environment_file,
+            release_sha,
+            self.checkout / ".runtime-rust",
+            ROOT,
+            MIGRATION_TARGET,
+        )
+        return result["runtime_env"]
 
     def dry_run(self, **overrides) -> subprocess.CompletedProcess[str]:
         environment = self.dry_run_environment()
@@ -876,7 +916,7 @@ def test_concurrent_deploy_refuses_while_lock_held(release_fixture):
         running.wait(timeout=10)
 
 
-def test_runtime_environment_carries_only_app_database_settings(release_fixture):
+def test_runtime_environment_carries_only_the_projected_settings(release_fixture):
     new_sha = release_fixture.push_rust_release(enabled=True)
     release_fixture.build_artifact(new_sha)
     result = release_fixture.deploy(new_sha)
@@ -886,13 +926,51 @@ def test_runtime_environment_carries_only_app_database_settings(release_fixture)
         for line in (release_fixture.checkout / ".runtime-rust/runtime.env").read_text().splitlines()
         if "=" in line
     }
-    assert keys <= {
+    assert keys == {
         "ENVIRONMENT",
         "RELEASE_SHA",
         "MIGRATION_REVISION",
         "DATABASE_URL",
         "DB_SESSION_TIME_ZONE",
+        "KYC_EXECUTION_GATE_ENABLED",
     }
+    # The shipped fixture `.env` carries the Private Beta switch state, so the
+    # projection is proven to follow the deployed file rather than a default.
+    assert (
+        (release_fixture.checkout / ".runtime-rust/runtime.env").read_text()
+        .splitlines()
+    ) == sorted(
+        [
+            'DATABASE_URL="postgresql://verdaxis_app_staging:fixture-password'
+            '@127.0.0.1:5432/verdaxis_staging"',
+            "DB_SESSION_TIME_ZONE=UTC",
+            "ENVIRONMENT=staging",
+            "KYC_EXECUTION_GATE_ENABLED=false",
+            f"MIGRATION_REVISION={MIGRATION_TARGET}",
+            f"RELEASE_SHA={new_sha}",
+        ]
+    )
+
+
+@pytest.mark.parametrize(
+    ("declared", "expected"),
+    [(None, "true"), ("false", "false"), ("TRUE", "true"), ("off", "false")],
+)
+def test_runtime_environment_resolves_the_kyc_switch_like_python(
+    release_fixture, declared, expected
+):
+    """The Rust reads bind Python's switch, so the deploy must project it."""
+    runtime_env = release_fixture.prepare_runtime_environment(
+        release_fixture.old_sha, kyc_gate=declared
+    )
+    assert f"KYC_EXECUTION_GATE_ENABLED={expected}\n" in runtime_env.read_text()
+
+
+def test_runtime_environment_refuses_an_ambiguous_kyc_switch(release_fixture):
+    with pytest.raises(_load_preparer().RustRuntimeError, match="KYC_EXECUTION_GATE_ENABLED"):
+        release_fixture.prepare_runtime_environment(
+            release_fixture.old_sha, kyc_gate="maybe"
+        )
 
 
 def test_no_rust_unit_manifest_entry_disables_rust_even_if_policy_enabled(release_fixture):

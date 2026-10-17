@@ -1,5 +1,12 @@
+use std::collections::HashMap;
+use std::path::Path;
+use verdaxis_read::runtime::config::{config_from_deployed_environment, deployed_arguments};
 use verdaxis_read::runtime::policy::committed_policy;
 use verdaxis_read::{AppState, Config, connect, router};
+
+/// The largest prepared budget artifact the binary will read. The real document
+/// is a few hundred bytes; a bigger file is not the deploy's artifact.
+const MAX_BUDGET_BYTES: u64 = 64 * 1024;
 
 #[tokio::main]
 async fn main() {
@@ -18,9 +25,7 @@ async fn main() {
 }
 
 async fn serve() -> Result<(), ()> {
-    // Explicit JSON avoids reading the Python service's secret-rich .env file.
-    let config: Config =
-        serde_json::from_str(&std::env::var("RUST_CONFIG").map_err(|_| ())?).map_err(|_| ())?;
+    let config = load_config().map_err(|_| ())?;
     let pools = connect(&config).await.map_err(|_| ())?;
     let bind = config.bind;
     let policy = committed_policy().map_err(|_| ())?;
@@ -32,4 +37,37 @@ async fn serve() -> Result<(), ()> {
     )
     .await
     .map_err(|_| ())
+}
+
+/// The contract harness supplies one `RUST_CONFIG` document; the reviewed
+/// staging unit supplies the flat deployed environment plus `--bind` and the
+/// `--budget-file` path the deploy transaction wrote. Both routes are built by
+/// the same validated `Config` constructor.
+fn load_config() -> Result<Config, String> {
+    if let Ok(document) = std::env::var("RUST_CONFIG") {
+        return serde_json::from_str(&document).map_err(|_| "invalid RUST_CONFIG".to_owned());
+    }
+    let arguments: Vec<String> = std::env::args().skip(1).collect();
+    let (bind, budget_file) = deployed_arguments(&arguments)?;
+    let budget = read_prepared_budget(&budget_file)?;
+    // A non-UTF-8 value cannot name any required key; dropping it makes the
+    // missing-key error report it instead of aborting the process.
+    let environment: HashMap<String, String> = std::env::vars_os()
+        .filter_map(|(key, value)| Some((key.into_string().ok()?, value.into_string().ok()?)))
+        .collect();
+    config_from_deployed_environment(&environment, bind, &budget)
+}
+
+/// Read the deploy-written budget artifact: a small regular file, never a
+/// symlink that could redirect the read elsewhere.
+fn read_prepared_budget(path: &Path) -> Result<String, String> {
+    let metadata = std::fs::symlink_metadata(path)
+        .map_err(|_| "the prepared budget artifact is missing".to_owned())?;
+    if !metadata.file_type().is_file() {
+        return Err("the prepared budget artifact must be a regular file".into());
+    }
+    if metadata.len() > MAX_BUDGET_BYTES {
+        return Err("the prepared budget artifact is too large".into());
+    }
+    std::fs::read_to_string(path).map_err(|_| "the prepared budget artifact is unreadable".into())
 }

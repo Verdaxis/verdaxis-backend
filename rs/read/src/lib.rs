@@ -105,6 +105,11 @@ pub struct Config {
     /// Required database session policy; never inherit SQLx's implicit UTC.
     #[serde(alias = "DB_SESSION_TIME_ZONE")]
     pub db_session_time_zone: String,
+    /// The prepared budget artifact text (`budget.json`). The staging unit
+    /// passes its path with `--budget-file`; the contract harness may carry the
+    /// document itself in `RUST_CONFIG`. Required for a staging start.
+    #[serde(default)]
+    pub prepared_budget: Option<String>,
     pub bind: std::net::SocketAddr,
     pub pool_max: u32,
     pub python_budget: u32,

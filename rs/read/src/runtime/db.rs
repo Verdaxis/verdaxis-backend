@@ -22,10 +22,15 @@ pub struct Pools {
 pub async fn connect(config: &Config) -> Result<Pools, ApiError> {
     validate_config(config).map_err(|_| ApiError::internal())?;
     if config.environment == "staging" {
-        // Trusted runtime preparation supplies this non-secret artifact content.
-        // The prestart control plane, not this process, checks the .env digest.
-        let budget = std::env::var("RUST_PREPARED_BUDGET").map_err(|_| ApiError::internal())?;
-        super::config::validate_prepared_budget(config, &budget)
+        // Trusted runtime preparation supplies this non-secret artifact text:
+        // the deploy transaction writes `budget.json` and the unit passes its
+        // path, or the harness carries the document in `RUST_CONFIG`. The
+        // prestart control plane, not this process, checks the `.env` digest.
+        let budget = config
+            .prepared_budget
+            .as_deref()
+            .ok_or_else(ApiError::internal)?;
+        super::config::validate_prepared_budget(config, budget)
             .map_err(|_| ApiError::internal())?;
     }
     let target = database_target(config).map_err(|_| ApiError::internal())?;

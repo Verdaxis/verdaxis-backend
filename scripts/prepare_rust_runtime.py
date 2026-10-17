@@ -3,8 +3,9 @@
 
 Called by the canonical deploy transaction after the verified artifact is
 staged. It reads the deployed `.env` with no-follow regular-file semantics,
-projects ONLY the app database settings and runtime identity the Rust HTTP
-process needs, and writes `.runtime-rust/runtime.env` at mode 0600.
+projects ONLY the app database settings, the KYC execution switch and the
+runtime identity the Rust HTTP process needs, and writes
+`.runtime-rust/runtime.env` at mode 0600.
 
 The Rust process must never receive mail, JWT, provider, or migrator
 credentials: its read pool is the shared app role, and the migrator-backed
@@ -29,6 +30,12 @@ RUST_POLICY_PATH = Path("deploy/rust/staging-policy.json")
 BUDGET_SCRIPT = "scripts/prepare_rust_budget.py"
 RUNTIME_KEYS = ("ENVIRONMENT", "RELEASE_SHA")
 APP_DATABASE_KEYS = ("DATABASE_URL",)
+KYC_GATE_KEY = "KYC_EXECUTION_GATE_ENABLED"
+# Pydantic accepts these spellings for a boolean setting; the deployed file
+# decides the value, exactly as the Python service reads it. A missing key is
+# Python's default (enabled), never Rust's own choice.
+_BOOL_TRUE = frozenset({"true", "t", "y", "yes", "1", "on"})
+_BOOL_FALSE = frozenset({"false", "f", "n", "no", "0", "off"})
 
 _IDENTITIES = {
     "staging": {
@@ -109,6 +116,26 @@ def app_database_url(values: dict, environment: str) -> str:
     return urllib.parse.urlunsplit(url)
 
 
+def kyc_execution_gate(values: dict) -> str:
+    """Return the KYC execution switch as the Python service resolves it.
+
+    The Rust public reads bind the same switch, so a Rust side that guessed the
+    value would answer differently from Python. The deployed ``.env`` is the
+    authority and an absent key keeps Python's default (enabled).
+    """
+    raw = values.get(KYC_GATE_KEY)
+    if raw is None:
+        return "true"
+    if not isinstance(raw, str):
+        raise RustRuntimeError(f"{KYC_GATE_KEY} must be true or false")
+    normalized = raw.strip().lower()
+    if normalized in _BOOL_TRUE:
+        return "true"
+    if normalized in _BOOL_FALSE:
+        return "false"
+    raise RustRuntimeError(f"{KYC_GATE_KEY} must be true or false")
+
+
 def project_runtime_environment(
     environment_file: Path, release_sha: str, migration_revision: str, policy: dict
 ) -> dict:
@@ -128,6 +155,7 @@ def project_runtime_environment(
         "MIGRATION_REVISION": migration_revision,
         "DATABASE_URL": app_database_url(values, "staging"),
         "DB_SESSION_TIME_ZONE": policy["db_session_time_zone"],
+        KYC_GATE_KEY: kyc_execution_gate(values),
     }
 
 
