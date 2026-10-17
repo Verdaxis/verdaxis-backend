@@ -1649,23 +1649,23 @@ Add only `staging\tverdaxis-rust-staging.service` to the manifest. The existing 
 **Resume point (17 Oct):** Task 12c is done on `feat/rust-phase-1-20261015`, from
 `d06e8248` (the handoff HEAD; the branch is still based on `b2971573`). Two Task
 12b failures in the draft PR #86 `test` job landed first as their own commits —
-the runtime-owned `scripts/deploy.sh` blob pin, and the release fixture's
-hard-coded interpreter/checkout layout, which now uses `sys.executable` and the
-documented non-canonical-path override, proven in a copy of the tree with no
-`venv/`. The reviewed unit is `deploy/systemd/verdaxis-rust-staging.service`
+`09642af5` (the release fixture's interpreter/checkout layout, which now uses
+`sys.executable` and the documented non-canonical-path override, proven in a copy
+of the tree with no `venv/`) then `53e959d1` (the runtime-owned
+`scripts/deploy.sh` blob pin). The reviewed unit is
+`deploy/systemd/verdaxis-rust-staging.service`
 (SHA-256 `6662a389e04a67ddc7d291a93ae0814b05047ff8f8bb07a55642fdb882de9453`) with
 one manifest entry `staging	verdaxis-rust-staging.service`; the committed
 `deploy/rust/staging-policy.json` still ships `rust_enabled: false`, so this tree
 is the inactive first bootstrap release and no deploy can select Rust yet. That
 commit — the one that lands these unit bytes and the manifest entry — is the
-bootstrap SHA the operator installs; read it with `git rev-parse` on the
-reviewed push, because the PM's rebase changes it. The
-release artifact built from this tree's source on the test host (`--release -p
-verdaxis-read`, glibc floor 2.34) was
-`a42c5e395d713cf2d80e6c634c38e65b3c093ee8af0323d926fac54a28ac01b4` at handoff
-HEAD `53e959d1` (`7fe3a9e2…` at `b2971573`); the digest embeds the compiled
-`RELEASE_SHA`, so it moves with the built commit and the landing commit's will
-differ again. That artifact started on the staging ABI (ubuntu:22.04, glibc 2.35)
+bootstrap SHA the operator installs; it landed locally as `20c9d7dd`, but read it
+with `git rev-parse` on the reviewed push, because the PM's rebase changes it.
+The release artifact built from this tree's source on the test host (`--release
+-p verdaxis-read`, glibc floor 2.34) is
+`f0538798ebb014c3efe0e42e761ec45f248b470e681e3f28ec212bd6e6cddfe3` for commit
+`20c9d7dd`; the digest embeds the compiled `RELEASE_SHA`, so it moves with the
+built commit. That artifact started on the staging ABI (ubuntu:22.04, glibc 2.35)
 against a disposable PostgreSQL, answering the exact four-key readiness document
 that the unmodified validator accepts. `systemd-analyze verify` returns exit 0 with no
 diagnostics for this unit and for the full staging unit set on the test host's

@@ -14,8 +14,10 @@ The handoff resumed from `d06e8248` ("feat: start the Rust reads from the
 deployed environment"), the commit that carries the deployed-environment seam
 this unit starts the released artifact with. Two Task 12b failures in the draft
 PR #86 `test` job (run 38998196777, GitHub CI) came first, each in its own
-commit and each proven on the test host; the unit, the manifest entry, the
-tests and these documents then landed as one commit. See *CI follow-ups* below.
+commit and each proven on the test host — `09642af5` (B, the release fixture's
+interpreter) then `53e959d1` (A, the runtime-owned `scripts/deploy.sh` blob pin).
+The unit, the manifest entry, the tests and these documents then landed as one
+commit, `20c9d7dd`, the bootstrap SHA. See *CI follow-ups* below.
 
 ## What was built
 
@@ -50,7 +52,7 @@ tests and these documents then landed as one commit. See *CI follow-ups* below.
 
 | Item | Value |
 | --- | --- |
-| Bootstrap SHA plan | The inactive first release is the commit that lands these unit bytes and the manifest entry, subject **`feat: add the staged Rust unit and its manifest entry`**. Read its exact SHA with `git rev-parse` on the reviewed push: the PM rebases this branch onto the remote, so any SHA written here would change. Baseline before this task: `d06e8248`. |
+| Bootstrap SHA plan | The inactive first release is the commit that lands these unit bytes and the manifest entry, subject **`feat: add the staged Rust unit and its manifest entry`**. It landed locally as `20c9d7dd`, but read its exact SHA with `git rev-parse` on the reviewed push: the PM rebases this branch onto the remote, so any SHA written here would change. Baseline before this task: `d06e8248`. |
 | Unit bytes | `deploy/systemd/verdaxis-rust-staging.service` |
 | Unit SHA-256 | `6662a389e04a67ddc7d291a93ae0814b05047ff8f8bb07a55642fdb882de9453` |
 | Manifest SHA-256 | `fb25de27f6d0366a0a896a4d12e18a8e86336655a860d6747e0849e2875cd64d` |
@@ -58,14 +60,14 @@ tests and these documents then landed as one commit. See *CI follow-ups* below.
 | `deploy/rust/staging-policy.json` `rust_enabled` | `false` (Rust stays inactive in this tree) |
 | Compiled revision allowlist SHA-256 | `4aec86c395518a4bda6d1a5c41773fbd222d983cdb0ebee7c2f960175b8d18fd` |
 | Migration revision | `kycg_20261014_staging` (the only compiled entry) |
-| Release artifact SHA-256 | `a42c5e395d713cf2d80e6c634c38e65b3c093ee8af0323d926fac54a28ac01b4` (handoff build; the pre-handoff build was `7fe3a9e287daaf5b94bd1b5fddd98cb7f0bee666fb87670ca12fb3e641bf601f`) |
+| Release artifact SHA-256 | `f0538798ebb014c3efe0e42e761ec45f248b470e681e3f28ec212bd6e6cddfe3` (a `--release -p verdaxis-read` build of this landing commit, `20c9d7dd…`) |
 
 The artifact digest belongs to a `--release -p verdaxis-read` build of this
 tree's Rust source on the test host (`x86_64-unknown-linux-gnu`, glibc floor
 `GLIBC_2.34`) with `RELEASE_SHA` set to the commit the artifact was built for
-(`53e959d1…` for the handoff build, `b2971573…` for the pre-handoff one), so the
-digest moves with that commit: the release SHA is compiled into the binary. It is
-evidence for the staging-ABI check, not the deploy artifact: a real deploy
+(`20c9d7dd…`), so the digest moves with that commit: the release SHA is compiled
+into the binary. It is evidence for the staging-ABI check, not the deploy
+artifact: a real deploy
 consumes the CI-published archive, whose digest the transaction verifies against
 the PM's provenance record (Task 12a/12b).
 
@@ -102,7 +104,7 @@ active binary is a mode `0755` regular file (not a symlink) that the owner can
 execute. `test_rust_release.py::test_runtime_environment_carries_only_the_projected_settings`
 reads the file the real transaction wrote in the Task 12b fixture.
 
-Live cross-check on the test host (disposable containers, `work/rust-phase1/t12c-abi.log`):
+Live cross-check on the test host (disposable containers, `work/verify/abi.log`):
 
 ```
 runtime       mode=775 owner=verdaxis-test
@@ -129,11 +131,11 @@ systemd 249. Unit SHA-256 as verified: `6662a389…9453`.
 | `ubuntu:22.04` container, `systemd 249 (249.11-0ubuntu3.23)`, same fake root | Rust unit and both units **exit 0, no diagnostics** |
 | `ubuntu:24.04` container, `systemd 255 (255.4-1ubuntu8.18)`, same fake root | Rust unit and both units **exit 0, no diagnostics** |
 
-Re-run during the handoff against the same unit bytes (SHA-256 `6662a389…9453`,
-digest recomputed before the run) at commit `53e959d1`: identical results —
+Re-run against the committed bytes (SHA-256 `6662a389…9453`, digest recomputed
+before the run) at the landing commit `20c9d7dd`: identical results —
 host as-is exit 1 (absent staging path only), host 255 fake root exit 0 and 0,
 `ubuntu:22.04` systemd 249 exit 0 (Rust unit and both units), `ubuntu:24.04`
-systemd 255 exit 0 (`work/t12c-systemd-call.log`, script exit 0). Every
+systemd 255 exit 0 (`work/verify/systemd.log`, script exit 0). Every
 directive in this unit therefore verifies on systemd 249, the staging version,
 so the man-page fallback was not needed.
 
@@ -160,14 +162,14 @@ instance loads it.
 
 ## Artifact startup on the staging ABI (PM requirement 4)
 
-`work/rust-phase1/t12c-container-check.sh` (log `t12c-abi.log`), all on the test
-host. Re-run during the handoff at commit `53e959d1` with the same script and
-results (`work/t12c-abi-call.log`, script exit 0); the values below are that
-re-run's, and the artifact digest moved because `RELEASE_SHA` is compiled in.
+`work/rust-phase1/t12c-container-check.sh`, all on the test host. Re-run at the
+landing commit `20c9d7dd` with the same script (`work/verify/abi.log`, script
+exit 0); the values below are that run's, and the container id and the digests
+differ from the earlier base-commit run because `RELEASE_SHA` is compiled in.
 
 1. `SQLX_OFFLINE=true cargo build --locked --release -p verdaxis-read` from this
    tree; `--version-json` reports
-   `release_sha=53e959d1…`, `migration_revision_allowlist=["kycg_20261014_staging"]`,
+   `release_sha=20c9d7dd…`, `migration_revision_allowlist=["kycg_20261014_staging"]`,
    `libc_min=2.35`, `arch=x86_64`, `os=linux`; the highest required glibc symbol
    version is `GLIBC_2.34` (≤ the staging host's 2.35).
 2. The binary starts in `ubuntu:22.04` (glibc 2.35) and prints its version
@@ -185,9 +187,9 @@ re-run's, and the artifact digest moved because `RELEASE_SHA` is compiled in.
    the revision is the compiled allowlist entry).
 5. `--bind 127.0.0.1:8011 --budget-file …`, with only the six projected
    environment variables, answers
-   `{"status":"ok","db":"ok","environment":"staging","release_sha":"53e959d1…"}`
+   `{"status":"ok","db":"ok","environment":"staging","release_sha":"20c9d7dd…"}`
    on the first attempt, and the **unmodified** `scripts/validate_health_response.py`
-   accepts it (`READINESS_OK staging/53e959d1…`). The startup proves the whole
+   accepts it (`READINESS_OK staging/20c9d7dd…`). The startup proves the whole
    deployed path: flat env → `Config` validation → budget cross-check → pool
    role/timezone attestation → readiness.
 
@@ -257,7 +259,9 @@ and left the pre-Rust pin in place. The pin now names the committed bytes:
 `3e75a493b502cfd065dbbf99c0b9e3da8e4c5622`. The other four pins are unchanged
 and recomputed. Evidence: with the pre-fix pin the monitor ownership test fails
 on the test host (`AssertionError: scripts/deploy.sh`), and with this pin
-`tests/monitor/test_source_ownership.py` passes 6/6.
+`tests/monitor/test_source_ownership.py` passes 6/6 inside the full monitor run
+below; the pinned value, `git hash-object scripts/deploy.sh` and
+`git rev-parse HEAD:scripts/deploy.sh` all agree.
 
 **B. The release fixture in a clean checkout (`fix: run the release fixture from
 the test interpreter`).** The fixture's `venv/bin/python` wrapper exec'd the
@@ -280,46 +284,47 @@ host's real commands. The fixture therefore uses the documented override
 test pins both halves of that contract: the script demands all four variables
 for a non-canonical path, and the fixture supplies all four.
 
-Evidence, on the test host, in a copy of this tree with **no `venv/`
-directory** (`CLEAN_NO_VENV=1`, `ROOT/venv/bin/python` absent), run with the
-shared interpreter outside the copy:
+Evidence, on the test host, in a copy of this tree made by excluding `venv/`
+(so `ROOT/venv/bin/python` is absent, exactly as in CI), run with the shared
+interpreter outside the copy (`work/verify/clean-b.log`):
 
 | Run | Result |
 | --- | --- |
-| Before the fix, `tests/unit/test_rust_release.py` | **8 failed**, 25 passed — the same eight tests as CI, same `dotenv` cause |
-| After the fix, `tests/unit/test_rust_release.py tests/unit/test_rust_units.py` | **48 passed** |
-| The `test` job's exact command (`ENVIRONMENT=test RELEASE_SHA=test JWT_SECRET=… DATABASE_URL=sqlite… pytest tests/unit tests/monitor -q`) | see *Gate results* |
+| Before the fix, `tests/unit/test_rust_release.py` (the `d06e8248` fixture) | **8 failed**, 25 passed — the same eight tests as CI, same `dotenv` cause |
+| After the fix, `tests/unit/test_rust_release.py` | **34 passed**, exit 0 |
+| After the fix, `tests/unit/test_rust_release.py tests/unit/test_rust_units.py` | **48 passed**, exit 0 |
+| The `test` job's exact command (`ENVIRONMENT=test RELEASE_SHA=test JWT_SECRET=… DATABASE_URL=sqlite… pytest tests/unit tests/monitor -q`) | 2702 passed, 1 skipped, exit 0 — see *Gate results* |
 
 ## Gate results
 
-All on the test host through `verdaxis-prod-test`; logs in
-`work/rust-phase1/t12c-*.log` (not committed). Every command's own exit code is
-captured; each is 0 unless the table says otherwise.
+All on the test host through `verdaxis-prod-test`, against the landing commit
+`20c9d7dd`; logs in `work/verify/*.log` (not committed). Every command's own
+exit code is captured; each is 0 unless the table says otherwise.
 
 | Gate | Result |
 | --- | --- |
-| `pytest tests/unit/test_rust_units.py tests/unit/test_rust_release.py -q` | **48 passed** (14 unit-contract + 34 release-fixture) |
-| existing deploy / start-guard / installer / budget / artifact / identity / migration-checkpoint / ACL-convergence / monitor-systemd suites | **213 passed** |
-| `pytest tests/monitor -q` | **291 passed**, 1 skipped |
-| the draft PR #86 `test` job's exact command (`ENVIRONMENT=test RELEASE_SHA=test JWT_SECRET=… DATABASE_URL="sqlite+aiosqlite:///:memory:" pytest tests/unit tests/monitor -q`) | **2702 passed**, 1 skipped |
-| `SQLX_OFFLINE=true cargo test --manifest-path rs/Cargo.toml --locked --workspace` | all 34 targets ok, 0 failed |
-| `cargo fmt --manifest-path rs/Cargo.toml --all -- --check` | pass |
-| strict `cargo clippy --manifest-path rs/Cargo.toml --locked --workspace --all-targets -- -D warnings` | pass |
+| `pytest tests/unit/test_rust_units.py tests/unit/test_rust_release.py -q` | **48 passed** (14 unit-contract + 34 release-fixture), exit 0 |
+| existing deploy / start-guard / installer / budget / artifact / identity / KYC-key-preflight / migration-checkpoint / ACL-convergence / monitor-systemd suites | **213 passed**, exit 0 |
+| `pytest tests/monitor -q` | **291 passed**, 1 skipped, exit 0 |
+| the draft PR #86 `test` job's exact command (`ENVIRONMENT=test RELEASE_SHA=test JWT_SECRET=… DATABASE_URL="sqlite+aiosqlite:///:memory:" pytest tests/unit tests/monitor -q`) | **2702 passed**, 1 skipped, exit 0 |
+| `SQLX_OFFLINE=true cargo test --manifest-path rs/Cargo.toml --locked --workspace` | all 34 targets ok, 0 failed, exit 0 |
+| `cargo fmt --manifest-path rs/Cargo.toml --all -- --check` | pass, exit 0 |
+| strict `cargo clippy --manifest-path rs/Cargo.toml --locked --workspace --all-targets -- -D warnings` | pass, exit 0 |
 | ShellCheck on changed shell files | none changed — no repository shell file is in this diff (`git status --porcelain -- '*.sh'` empty) — so there is no new-warning delta |
-| `git diff -- deploy/postgres/app_acl_policy.sql` | empty |
-| `systemd-analyze verify` (test host 255, ubuntu:22.04 249, ubuntu:24.04 255) | exit 0, no diagnostics — see *systemd syntax verification* |
-| release artifact start on the staging ABI (ubuntu:22.04, glibc 2.35) | readiness accepted by the unmodified validator — see *Artifact startup* |
+| `git diff -- deploy/postgres/app_acl_policy.sql` | empty (0 lines) |
+| `systemd-analyze verify` (test host 255 with a private fake root, ubuntu:22.04 249, ubuntu:24.04 255) | exit 0, no diagnostics; the test host run on the bare staging paths exits 1 with only the absent-path notice — see *systemd syntax verification* |
+| release artifact start on the staging ABI (ubuntu:22.04, glibc 2.35) | readiness accepted by the unmodified validator, exit 0 — see *Artifact startup* |
 
-Red-to-green evidence: `t12c-units-red.log` (the new suite failed with
-`FileNotFoundError` for the absent unit before Step 3), `t12c-py1.log` and
-`t12c-py2.log` (two fixture/projection defects found and fixed: the rustfmt and
-deployed-`.env` shape), `t12c-cargo1.log` (formatting), then the green runs
-`t12c-py3.log`, `t12c-gates1.log`, `t12c-gates3.log`, `t12c-final2.log`,
-`t12c-flake2.log`. This handoff adds `t12c-ci-red.log` (a copy of this tree with
-no `venv/`: 8 failed) and `t12c-ci-green-check.log` (the same copy after the
-fixture fix: 48 passed), `t12c-pin-check.log` (the monitor pin red then green),
-`t12c-gates-a.log`, `t12c-ci-command-call.log`, `t12c-cargo-call.log`,
-`t12c-systemd-call.log` and `t12c-abi-call.log`.
+Red-to-green evidence (earlier stages, `work/rust-phase1/`): `t12c-units-red.log`
+(the new suite failed with `FileNotFoundError` for the absent unit before Step
+3), `t12c-py1.log` and `t12c-py2.log` (two fixture/projection defects found and
+fixed: the rustfmt and deployed-`.env` shape), `t12c-cargo1.log` (formatting),
+then the green runs `t12c-py3.log`, `t12c-gates1.log`, `t12c-gates3.log`,
+`t12c-flake2.log`. The checks in the table above were re-run against the landing
+commit `20c9d7dd` and are in `work/verify/`: `ci-command.log`, `focused.log`,
+`changed-suites.log`, `monitor.log`, `rust-gates.log`, `systemd.log`, `abi.log`
+and `clean-b.log` (the clean-copy, no-`venv/` proof of fix B: 8 failed before,
+34 then 48 passed after).
 
 **One intermittent failure observed, reported as-is.**
 `test_rust_release.py::test_host_key_matching_the_pinned_digest_is_preferred`
@@ -333,11 +338,14 @@ transaction, the fixture harness, or the health path, so this reads as a
 timing-sensitive fixture flake on the 2-CPU test slice, not a Task 12c defect.
 It is left for the PM to weigh; no retry wrapper or weakened assertion was added.
 
-**Handoff update:** it did not recur in this handoff's runs of the same tests —
-the two changed suites twice (48 passed each), the focused suites (213 passed),
-`tests/monitor` (291 passed, 1 skipped) and the `test` job's exact command
-(2702 passed, 1 skipped) — so the observed rate is now 1 in 8 runs of the two
-changed suites, still unreproduced in isolation.
+**Re-run against the landing commit:** it did not recur. `20c9d7dd` passed the
+two changed suites twice (48 each: `work/t12c-commit-suites.log`,
+`work/verify/changed-suites.log`), the focused suites (213,
+`work/verify/focused.log`), `tests/monitor` (291 passed, 1 skipped,
+`work/verify/monitor.log`), the `test` job's exact command (2702 passed,
+1 skipped, `work/verify/ci-command.log`) and the clean-copy, no-`venv/` runs of
+the two changed suites (48 passed, `work/verify/clean-b.log`). The observed rate
+stays 1 in the Task 12b runs, still unreproduced in isolation.
 
 ## What remains outside this task
 
