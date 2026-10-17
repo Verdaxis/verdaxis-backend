@@ -398,6 +398,18 @@ async fn reference_response(
     let policy = state.policy.clone();
     run_admitted(&state, move |connection| {
         Box::pin(async move {
+            // The reference aggregate over the full trade set crosses the JIT
+            // cost threshold on the expanded corpus; the paged orderbook and
+            // curve handlers set the same transaction-local policy.
+            use sqlx::Connection;
+            let mut tx = connection
+                .begin()
+                .await
+                .map_err(|e| query_error("/api/prices/reference", &e))?;
+            sqlx::query("SET LOCAL jit = off")
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| query_error("/api/prices/reference", &e))?;
             let sql = trade_query_sql(include_str!("../../sql/prices/reference.sql"));
             let rows = bind_trade_query(&sql, &policy, &filters.evidence(None))
                 .map_err(|_| ApiError::internal())?
@@ -406,7 +418,10 @@ async fn reference_response(
                 .bind(&filters.market)
                 .bind(filters.from)
                 .bind(filters.to)
-                .fetch_all(connection)
+                .fetch_all(&mut *tx)
+                .await
+                .map_err(|e| query_error("/api/prices/reference", &e))?;
+            tx.commit()
                 .await
                 .map_err(|e| query_error("/api/prices/reference", &e))?;
             let mut items = Vec::new();

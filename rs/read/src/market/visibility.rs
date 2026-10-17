@@ -221,7 +221,13 @@ pub fn order_query_sql_projected(tail: &'static str, projection: &'static str) -
 /// Same composition boundary for immutable historical evidence.
 pub fn trade_query_sql(tail: &'static str) -> TradeQuery {
     TradeQuery(format!(
-        "WITH eligible_trades AS ({}) {}",
+        // NOT MATERIALIZED lets the planner inline the relation and push a
+        // tail's aggregation into the parallel workers. Materialised, the
+        // reference aggregate pulled all 87.5k rows through a Subquery Scan
+        // into one serial sort (measured 671 ms against Python's 289 ms on the
+        // large fixture, where the same aggregation runs inside the workers).
+        // The predicate set is unchanged.
+        "WITH eligible_trades AS NOT MATERIALIZED ({}) {}",
         trade_evidence_sql(),
         tail
     ))

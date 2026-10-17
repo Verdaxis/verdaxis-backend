@@ -26,9 +26,11 @@ from scripts.rust_contract import run_disposable as runner
 ROTTERDAM = "1379d36c-1ca9-55b7-9c0d-5235a0ba1f36"
 
 PATHS = {
+    "R06": "/api/trade-tape",
     "R09": "/api/curves/forward/table",
     "R10": f"/api/curves/forward/slice?market_product=BIO_LNG&delivery_point_id={ROTTERDAM}&availability_window=SPOT",
     "R11": "/api/curves/forward/board",
+    "R13": "/api/prices/reference",
     "R14": "/api/prices/reference/export",
     "R19": "/api/orderbook/aggregated",
     "R20": "/api/orderbook/product-counts?side=BID",
