@@ -29,6 +29,7 @@ MANIFEST
 .runtime-monitor.env
 .runtime-deploying
 .runtime-deploy/
+.runtime-rust/
 .venv
 venv/
 venv

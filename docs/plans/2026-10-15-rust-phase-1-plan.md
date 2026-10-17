@@ -1524,7 +1524,7 @@ step.
 
 **Interfaces:** Consumes artifact verifier CLI, effective budget gate, and existing main/restart locks. Produces `prepare_rust_runtime.py --environment-file PATH --release-sha SHA --output-dir PATH`. Rust consumes the Task 2 `Config` and Task 12a `verify_artifact_identity(compiled: &str, runtime: &str) -> Result<(), String>` unchanged.
 
-- [ ] **Step 1: Add failure-injection tests.**
+- [x] **Step 1: Add failure-injection tests.**
 
 ```python
 def test_both_health_results_are_required(release_fixture):
@@ -1541,8 +1541,8 @@ def test_dry_run_never_executes_build_code(release_fixture):
 ```
 
 Implement `release_fixture` as a temporary real subprocess/filesystem harness with command ledger. Use real child-process flocks. Test moved SHA, missing unit, wrong revision, stale authorization, opposite partial-health result, changed budget, and interruption at each publication/restart boundary. Unit commands use fixture units here; no future Task 12c file is needed.
-- [ ] **Step 2: Run** `venv/bin/python -m pytest tests/unit/test_rust_release.py -q`. Expected failure: dual-service transaction absent.
-- [ ] **Step 3: Extend** `scripts/deploy.sh`, not a new competing deploy owner:
+- [x] **Step 2: Run** `venv/bin/python -m pytest tests/unit/test_rust_release.py -q`. Expected failure: dual-service transaction absent.
+- [x] **Step 3: Extend** `scripts/deploy.sh`, not a new competing deploy owner:
 
 1. Dry-run still archives and validates immutable source bytes only. Add the Rust unit and artifact-policy data to attestation. It must not execute Cargo, the binary, or candidate Python. Report that artifact runtime compatibility remains untested.
 2. Real deploy validates all four existing approval variables and exact checkpoint pair before source mutation. Verify the separately approved artifact against SHA, workflow identity, and digest before stopping services.
@@ -1562,10 +1562,10 @@ write_deploy_state readiness-pending "$CURRENT_SHA"
 ```
 
 The subsequent health loop validates both services before state removal. The failure trap stops both attempted units. Trusted preparation computes the effective Task 2 budget and config digest; no fixed default total is accepted.
-- [ ] **Step 4: Re-run** release failure-injection and existing deploy/start-guard tests. Expected pass; ACL policy diff empty, state retained on failure, both identities aligned.
-- [ ] **Step 5: Commit** listed files: `git commit -m 'feat: extend guarded staging deploy to Rust'` with trailer.
+- [x] **Step 4: Re-run** release failure-injection and existing deploy/start-guard tests. Expected pass; ACL policy diff empty, state retained on failure, both identities aligned.
+- [x] **Step 5: Commit** listed files: `git commit -m 'feat: extend guarded staging deploy to Rust'` with trailer.
 
-**Resume point:** Record transaction interruption matrix and fixture-unit tests. Task 12c adds actual audited unit bytes without changing transaction ownership.
+**Resume point (17 Oct):** All Task 12b steps are done on `feat/rust-phase-1-20261015`. `tests/unit/test_rust_release.py` (28 tests) passes on the test host, together with the existing deploy/start-guard (`test_deploy_health.py`), budget, artifact, and identity suites (165 combined). The Python-only command ledger is pinned by `GOLDEN_PYTHON_LEDGER` and proven unchanged; production reads no Rust path and old trees without `deploy/rust/staging-policy.json` deploy exactly as before. The interruption matrix is recorded in `docs/rust-phase1/progress-task12b.md`. Task 12c adds the audited Rust unit bytes and the manifest entry without changing transaction ownership.
 
 ### Task 12c: Integrate unit manifest and bootstrap sequence — Astra
 

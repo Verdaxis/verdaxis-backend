@@ -1,0 +1,199 @@
+#!/usr/bin/env python3
+"""Prepare the minimal long-running Rust runtime environment.
+
+Called by the canonical deploy transaction after the verified artifact is
+staged. It reads the deployed `.env` with no-follow regular-file semantics,
+projects ONLY the app database settings and runtime identity the Rust HTTP
+process needs, and writes `.runtime-rust/runtime.env` at mode 0600.
+
+The Rust process must never receive mail, JWT, provider, or migrator
+credentials: its read pool is the shared app role, and the migrator-backed
+checks stay in the short-lived prestart control plane. The file also names the
+staged release directory and the prepared budget artifact so systemd's
+`EnvironmentFile=` lines resolve to one reviewed selection.
+"""
+from __future__ import annotations
+
+import argparse
+import io
+import json
+import os
+from pathlib import Path
+import stat
+import sys
+import urllib.parse
+
+from dotenv import dotenv_values
+
+RUST_POLICY_PATH = Path("deploy/rust/staging-policy.json")
+BUDGET_SCRIPT = "scripts/prepare_rust_budget.py"
+RUNTIME_KEYS = ("ENVIRONMENT", "RELEASE_SHA")
+APP_DATABASE_KEYS = ("DATABASE_URL",)
+
+_IDENTITIES = {
+    "staging": {
+        "database_name": "verdaxis_staging",
+        "app_role": "verdaxis_app_staging",
+    },
+}
+
+
+class RustRuntimeError(RuntimeError):
+    """The Rust runtime environment cannot be prepared safely."""
+
+
+def read_regular(path: Path) -> bytes:
+    try:
+        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except OSError as exc:
+        raise RustRuntimeError(f"{path} must be a readable regular file") from exc
+    with os.fdopen(descriptor, "rb") as stream:
+        if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
+            raise RustRuntimeError(f"{path} must be a regular file")
+        return stream.read()
+
+
+def load_policy(source_root: Path) -> dict:
+    try:
+        policy = json.loads(read_regular(source_root / RUST_POLICY_PATH))
+    except (ValueError, RustRuntimeError) as exc:
+        raise RustRuntimeError("staging Rust policy is not readable JSON") from exc
+    staged = policy.get("staged_releases_dir")
+    if (
+        not isinstance(policy, dict)
+        or policy.get("version") != 1
+        or policy.get("environment") != "staging"
+        or not isinstance(policy.get("service_name"), str)
+        or not policy["service_name"].endswith("-staging.service")
+        or not isinstance(policy.get("bind"), str)
+        or not policy.get("bind", "").startswith("127.0.0.1:")
+        or not isinstance(policy.get("health_url"), str)
+        or not policy.get("health_url", "").startswith("http://127.0.0.1:")
+        or not isinstance(policy.get("db_session_time_zone"), str)
+        or not isinstance(staged, str)
+        or staged.startswith("/")
+        or ".." in staged.split("/")
+        or policy["db_session_time_zone"] not in {"UTC", "Asia/Singapore"}
+    ):
+        raise RustRuntimeError("staging Rust policy has unexpected shape")
+    return policy
+
+
+def app_database_url(values: dict, environment: str) -> str:
+    """Return the exact deployed app DATABASE_URL, identity-checked.
+
+    The deployed `.env` carries SQLAlchemy's ``postgresql+asyncpg://`` form; the
+    Rust process needs libpq's ``postgres://`` form, so the driver suffix is
+    rewritten after the identity check, preserving the percent-encoded
+    components exactly.
+    """
+    identity = _IDENTITIES[environment]
+    raw = values.get("DATABASE_URL")
+    if not isinstance(raw, str) or not raw.strip():
+        raise RustRuntimeError("the deployed .env must carry an explicit DATABASE_URL")
+    url = urllib.parse.urlsplit(raw.strip())
+    if (
+        url.scheme not in {"postgres", "postgresql", "postgresql+asyncpg", "postgresql+psycopg2"}
+        or url.query
+        or url.fragment
+        or url.username != identity["app_role"]
+        or (url.path.lstrip("/") or None) != identity["database_name"]
+        or url.password is None
+        or not url.password.strip()
+    ):
+        raise RustRuntimeError(
+            "DATABASE_URL does not match the selected application identity"
+        )
+    if url.scheme == "postgresql+asyncpg":
+        url = url._replace(scheme="postgresql")
+    return urllib.parse.urlunsplit(url)
+
+
+def project_runtime_environment(
+    environment_file: Path, release_sha: str, migration_revision: str, policy: dict
+) -> dict:
+    raw = read_regular(environment_file)
+    values = dotenv_values(
+        stream=io.StringIO(raw.decode("utf-8")), interpolate=False
+    )
+    if any(values.get(key) is None for key in RUNTIME_KEYS):
+        raise RustRuntimeError("the deployed .env must define ENVIRONMENT and RELEASE_SHA")
+    if values["ENVIRONMENT"] != "staging" or values["RELEASE_SHA"] != release_sha:
+        raise RustRuntimeError(
+            "the deployed environment identity does not match this release"
+        )
+    return {
+        "ENVIRONMENT": "staging",
+        "RELEASE_SHA": release_sha,
+        "MIGRATION_REVISION": migration_revision,
+        "DATABASE_URL": app_database_url(values, "staging"),
+        "DB_SESSION_TIME_ZONE": policy["db_session_time_zone"],
+    }
+
+
+def write_env_file(output_dir: Path, projected: dict) -> Path:
+    output_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if output_dir.is_symlink() or not output_dir.is_dir():
+        raise RustRuntimeError("the Rust runtime directory must be a real directory")
+    target = output_dir / "runtime.env"
+    if target.exists() and target.is_symlink():
+        raise RustRuntimeError("runtime.env must never be a symlink")
+    # A value with whitespace or shell metacharacters is double-quoted so
+    # systemd's EnvironmentFile parser keeps it as one value.
+    def render(key: str, value: str) -> str:
+        plain = value != "" and urllib.parse.quote(value, safe="") == value
+        return f"{key}={value}\n" if plain else f'{key}="{value}"\n'
+
+    body = "".join(render(key, value) for key, value in sorted(projected.items()))
+    # Atomic publication: one create, one rename, never an in-place rewrite.
+    temporary = output_dir / f".runtime.env.tmp.{os.getpid()}"
+    descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(descriptor, "w") as stream:
+        stream.write(body)
+        stream.flush()
+        os.fsync(stream.fileno())
+    os.replace(temporary, target)
+    os.chmod(target, 0o600)
+    return target
+
+
+def prepare(
+    environment_file: Path,
+    release_sha: str,
+    output_dir: Path,
+    source_root: Path,
+    migration_revision: str,
+) -> dict:
+    policy = load_policy(source_root)
+    projected = project_runtime_environment(
+        environment_file, release_sha, migration_revision, policy
+    )
+    written = write_env_file(output_dir, projected)
+    return {"policy": policy, "runtime_env": written}
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--environment-file", required=True, type=Path)
+    parser.add_argument("--release-sha", required=True)
+    parser.add_argument("--output-dir", required=True, type=Path)
+    parser.add_argument("--source-root", default=".", type=Path)
+    parser.add_argument("--migration-revision", required=True)
+    args = parser.parse_args()
+    try:
+        result = prepare(
+            args.environment_file,
+            args.release_sha,
+            args.output_dir,
+            args.source_root,
+            args.migration_revision,
+        )
+    except (OSError, RustRuntimeError, UnicodeDecodeError) as exc:
+        print(f"Rust runtime preparation refused: {exc}", file=sys.stderr)
+        return 1
+    print(f"prepared {result['runtime_env']}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
