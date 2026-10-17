@@ -473,6 +473,8 @@ async def seed_corpus(session):
     manifest["curve_fixtures"] = {"bulk_orders": 10000, "depth_orders": 24, "subsecond_orders": 4, "signals": 42}
     output = os.environ.get("RUST_CORPUS_MANIFEST")
     if output:
+        # work/ is git-ignored, so a fresh checkout (CI) has no parent folder yet.
+        Path(output).parent.mkdir(parents=True, exist_ok=True)
         Path(output).write_text(json.dumps(manifest, indent=2) + "\n")
     return manifest
 
