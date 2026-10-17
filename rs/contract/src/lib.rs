@@ -4,6 +4,10 @@
 //! authoritative Python comparator. It never links the read package and holds
 //! no second comparator or normalization implementation.
 
+mod gate;
+
+pub use gate::passes_gate;
+
 /// Run the external comparator for one contract group.
 ///
 /// The comparator is started with the explicit `PYTHON_CONTRACT_URL`,
