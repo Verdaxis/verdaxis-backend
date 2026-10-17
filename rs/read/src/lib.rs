@@ -10,7 +10,8 @@ pub use market::terms::{
     validate_fame_terms, validate_lng_terms,
 };
 pub use market::visibility::{
-    PublicOrderFilters, TradeEvidenceFilters, VisibilityClock, public_order_sql,
+    PublicOrderFilters, TradeEvidenceFilters, VisibilityClock, order_query_sql_projected,
+    public_order_sql,
     select_public_order_ids, select_trade_evidence_ids, trade_evidence_sql,
 };
 pub use market::windows::{

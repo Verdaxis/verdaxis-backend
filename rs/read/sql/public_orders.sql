@@ -19,7 +19,12 @@
 --
 -- Product identity comes only from the policy. The statement never names a
 -- product, a product code, or a product UUID.
-WITH policy_products AS (
+-- The policy relations are MATERIALIZED: inlined, the planner re-executes
+-- the `jsonb_to_recordset` function scan per candidate row wherever the
+-- predicate is not index-seekable (measured on the large fixture as the
+-- dominant per-row CPU of the map/count/distinct statements). Materialised,
+-- each policy array is read once. The predicate set is unchanged.
+WITH policy_products AS MATERIALIZED (
     SELECT *
     FROM jsonb_to_recordset(($1::jsonb) -> 'products') AS policy_product(
         id uuid,
@@ -34,7 +39,7 @@ WITH policy_products AS (
         display_order integer
     )
 ),
-policy_points AS (
+policy_points AS MATERIALIZED (
     SELECT *
     FROM jsonb_to_recordset(($1::jsonb) -> 'points') AS policy_point(
         id uuid,
@@ -43,9 +48,21 @@ policy_points AS (
         timezone text,
         display_order integer
     )
+),
+-- Approved (product, delivery point) lanes, exploded once. Testing membership
+-- against this relation lets the planner hash the lane predicate instead of
+-- re-running `jsonb_array_elements_text` per candidate row (measured at 60k
+-- re-executions on the large fixture). The lanes come from the same attested
+-- policy; no product identity is duplicated here.
+policy_lanes AS MATERIALIZED (
+    SELECT pp.id AS product_id, lane.value::uuid AS delivery_point_id
+    FROM policy_products AS pp
+    CROSS JOIN LATERAL jsonb_array_elements_text(pp.lanes) AS lane(value)
+    WHERE pp.execution_mode = 'ORDERBOOK'
 )
 /* eligibility_sets */
-SELECT o.*, p.name AS product_name, p.fuel_type AS product_fuel_type,
+SELECT /* shared_projection */
+       p.name AS product_name, p.fuel_type AS product_fuel_type,
        p.fuel_grade AS product_fuel_grade, p.is_active AS product_is_active,
        dp.name AS delivery_point_name, dp.region AS delivery_point_region,
        (SELECT pp.code FROM policy_products pp WHERE pp.id = p.id) AS market_product
@@ -63,11 +80,11 @@ WHERE o.status IN ('OPEN', 'PARTIALLY_FILLED')
           AND pp.name = p.name
           AND pp.fuel_type = p.fuel_type
           AND pp.fuel_grade = p.fuel_grade
-          AND EXISTS (
-              SELECT 1
-              FROM jsonb_array_elements_text(pp.lanes) AS lane(value)
-              WHERE lane.value = o.delivery_point_id::text
-          )
+    )
+    AND EXISTS (
+        SELECT 1
+        FROM policy_lanes AS pl
+        WHERE pl.product_id = p.id AND pl.delivery_point_id = o.delivery_point_id
     )
     -- Strict canonical delivery-point identity and active row.
     AND dp.is_active
