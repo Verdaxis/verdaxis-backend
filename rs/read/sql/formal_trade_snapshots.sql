@@ -1,5 +1,11 @@
 -- Shared immutable snapshot core. Parameters $1..$6 match TradeEvidenceFilters.
-WITH policy_products AS (
+-- The policy relations are MATERIALIZED: inlined, the planner treats the
+-- `jsonb_to_recordset` function scan as a per-row nested-loop inner and
+-- re-executes it for every candidate trade (measured at ~100k re-executions
+-- on the large fixture). Materialised, each policy array is read once and
+-- the EXISTS predicates evaluate as hash semi-joins. The predicate set is
+-- unchanged; the row multiset is unchanged.
+WITH policy_products AS MATERIALIZED (
     SELECT *
     FROM jsonb_to_recordset(($1::jsonb) -> 'products') AS policy_product(
         id uuid,
@@ -14,7 +20,7 @@ WITH policy_products AS (
         display_order integer
     )
 ),
-policy_points AS (
+policy_points AS MATERIALIZED (
     SELECT *
     FROM jsonb_to_recordset(($1::jsonb) -> 'points') AS policy_point(
         id uuid,
