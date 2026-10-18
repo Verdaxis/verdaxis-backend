@@ -245,6 +245,17 @@ jobs:
           RELEASE_SHA: ${{ github.sha }}
         run: venv/bin/python scripts/rust_contract/sqlx_offline_check.py
 
+      # upload-artifact keeps paths relative to the common parent of all listed
+      # files, so the report would land under docs/rust-phase1/ in the artifact.
+      # Stage both files flat: publish reads evidence/ci-contract.json and
+      # evidence/tested-binary.json.
+      - name: Stage the contract evidence
+        if: always()
+        run: |
+          mkdir -p contract-evidence
+          for file in docs/rust-phase1/ci-contract.json tested-binary.json; do
+            if [ -f "$file" ]; then cp "$file" contract-evidence/; fi
+          done
       - name: Upload the contract evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -252,9 +263,7 @@ jobs:
           name: rust-contract-evidence
           if-no-files-found: warn
           retention-days: 7
-          path: |
-            docs/rust-phase1/ci-contract.json
-            tested-binary.json
+          path: contract-evidence/
 
   # Publish runs only for a push to a live branch and only when both other jobs
   # returned exactly `success`. It attests the exact binary digest the contract
