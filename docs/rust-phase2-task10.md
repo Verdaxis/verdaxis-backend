@@ -52,36 +52,53 @@ chain; this does not substitute for the twin-database contract gate. Offline
 workspace runs do not execute database-backed bodies without their explicit URLs.
 The source-text coverage claims from the incomplete handoff were removed.
 
-## Pending runner lane: not passing gates
+## Runner qualification (19 October follow-up)
 
-`tests/rust_contract/phase2/feedback.json` contains synthetic schema vectors and
-scenario definitions as data. It is not registered with the old runner, whose
-default Phase 2 path can fall back to harness smoke. No feedback comparison pass
-is claimed from that path.
+Merged runner PR #100 as `be398b2c`; real feedback registration and adapters are
+in `21c1cdf5`. Group `feedback` selects `feedback-routes`, never harness smoke.
+The final run executes 31 actions through the real Python and Rust handlers.
+Both cells use real migrations and runtime ACLs. Every action compares HTTP
+through the pinned same-meaning comparator and all committed business rows,
+including complete users rows, on fresh connections. Lane assertions require
+exact inserted IDs, stripped messages, pages, timestamps, unchanged unrelated
+tables and an empty captured-mail ledger. Admin fixtures include organization
+and name nulls plus created-time ties.
 
-Pending the runner lane:
+Rollback is a fixture CHECK failure after admission. The retained-commit action
+replaces the response after a successful handler return, requires exactly one
+committed row, and is sent once without replay. It is a postcommit error envelope,
+not a TCP disconnect or commit-acknowledgement fault. Task 10 has no plan-required
+race, database lock-order schedule, mixed-writer dispatcher, or invite delivery.
+Those gates are not claimed by this scenario. Shared auth and HTTP boundary
+matrices remain owned by Tasks 6 and 7; this is route qualification, not a full
+release-manifest GO or cutover authorization.
 
-1. Register feedback group/scenarios with explicit dispatch, no smoke fallback.
-2. Supply identical action clocks and generated UUIDs to both stacks. The route
-   currently offers a fixed clock for focused tests, but production UUIDs remain
-   random; use the runner's test-only ID facility when it lands.
-3. Run `run_disposable --phase2 --phase2-group feedback` on the staging host
-   through `heavy run`, with real migrations and runtime ACLs.
-4. Compare complete HTTP responses and committed state in twin databases after
-   each action, including users and all unrelated business tables, captured email
-   attempts, no analytics, notifications, and outbox changes.
-5. Complete the full manifest auth/support/CORS/method, pagination/tie-boundary,
-   failure, repeat, and state matrix; the list of required cases is not evidence
-   that these differential cases have run.
+| Follow-up gate | Own exit | Evidence |
+| --- | ---: | --- |
+| Group attempts 1–4 | 1 each | Adapter build, cell-name validation and pool-budget setup failures |
+| Group attempt 5 | 1 | Request-ID round-trip correctly rejected test loss envelope |
+| Group attempt 6 | 0 | 31 actions before extra null-author fixtures |
+| Combined final attempt group | 1 | Seed timestamp was string, not datetime |
+| Combined focused Rust | 0 | 14 passed |
+| Combined feature-enabled Clippy | 0 | Includes contract adapter, warnings denied |
+| Combined formatting | 0 | Workspace formatting check |
+| Typed-seed retry | 1 | Missing datetime import |
+| Final seeded feedback group | 0 | `work/rust-phase2/feedback-runner-seeded.log` |
+| Final seeded wrapper | 0 | `CALL_EXIT=0` |
 
-## Resume point
+Machine evidence: `work/rust-phase2/feedback-routes.json` (not committed).
+No measurements, deployed settings, Python app changes or schema migrations.
+The test adapter connects only to the assigned disposable application-role URL;
+its state uses development validation because runner cell names lack `_test`.
+Production configuration and validation are unchanged. UUID overrides compile
+only with `contract-tests`, and clocks/IDs are controlled by lane test adapters.
 
-The integration owner merges the marked Task 10 blocks in `lib.rs`, `crud/mod.rs`,
-and `routes/mod.rs`. Supply one shared limits authority to route composition and
-HTTP middleware. Do not activate feedback until Task 22 passes. Resume this lane
-when the runner merges into `feat/rust-phase-2`; adapt only this lane's scenario
-registration and test seams, then run its pending gates. No schema change is
-needed by the implementation.
+## Integration handoff
 
-GitHub CI and the draft PR are recorded in the task's final chat report. CI-only
-PRs target `staging`; the PM merges through `feat/rust-phase-2`, not that PR.
+The integration owner merges the marked Task 10 module and registry blocks.
+Supply one shared limits authority to route composition and HTTP middleware.
+Feedback stays on Python at cutover until Task 22 provides the shared cross-process
+Python–Rust quota counter. No schema change is needed.
+
+Draft CI-only PR: https://github.com/Verdaxis/verdaxis-backend/pull/103.
+The PM integrates through `feat/rust-phase-2`; do not merge that PR.
