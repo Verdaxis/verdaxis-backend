@@ -250,7 +250,7 @@ def test_deploy_stages_rust_bytes_under_umask_077_and_installs_by_rename():
     assert "ln -s" not in region
 
 
-def test_rust_unit_manifest_entry_is_staging_only():
+def test_rust_unit_manifest_entries_are_environment_specific():
     entries = [
         tuple(line.split("\t"))
         for line in _text(MANIFEST).splitlines()
@@ -258,7 +258,8 @@ def test_rust_unit_manifest_entry_is_staging_only():
     ]
     assert ("staging", RUST_UNIT_NAME) in entries
     assert [entry for entry in entries if "rust" in entry[1]] == [
-        ("staging", RUST_UNIT_NAME)
+        ("production", "verdaxis-rust.service"),
+        ("staging", RUST_UNIT_NAME),
     ]
     # The installer's manifest rules: unique filenames, staging suffix.
     assert len({name for _environment, name in entries}) == len(entries)
@@ -315,7 +316,7 @@ def test_activation_requires_the_manifest_unit_and_a_verified_artifact(tmp_path)
 
 
 @pytest.mark.parametrize("environment, enabled", [("staging", "0"), ("production", "0")])
-def test_committed_policy_allows_only_staging(environment, enabled):
+def test_committed_policies_keep_both_bootstraps_disabled(environment, enabled):
     """Policy approval does not enable production or publish a public route."""
     deploy = _text(DEPLOY)
     functions = deploy[
@@ -327,14 +328,12 @@ def test_committed_policy_allows_only_staging(environment, enabled):
     assert policy["environment"] == "staging"
     assert policy["bind"] == "127.0.0.1:8011"
     assert policy["health_url"] == "http://127.0.0.1:8011/health/ready"
-    assert not any(
-        line.startswith("production\tverdaxis-rust")
-        for line in _text(MANIFEST).splitlines()
-    )
+    assert json.loads(_text("deploy/rust/production-policy.json"))["rust_enabled"] is False
     script = (
         "set -euo pipefail\n"
         f'DEPLOY_ENVIRONMENT="{environment}"\n'
         f'RUST_STAGING_POLICY_PATH="{POLICY}"\n'
+        f'RUST_POLICY_PATH="deploy/rust/{environment}-policy.json"\n'
         f'UNIT_MANIFEST_PATH="{MANIFEST}"\n'
         f'RUST_UNIT_NAME="{RUST_UNIT_NAME}"\n'
         + functions
