@@ -480,3 +480,19 @@ def test_exact_rust_prestarts_need_no_app_environment(tmp_path):
     refused = subprocess.run(shlex.split(command), cwd=backend,
                              env={"RELEASE_SHA": RELEASE_SHA}, capture_output=True, text=True)
     assert refused.returncode == 1
+
+
+@pytest.mark.parametrize("environment", ["staging", "production"])
+def test_reviewed_sudoers_has_exact_environment_authority(environment):
+    visudo = shutil.which("visudo") or "/usr/sbin/visudo"
+    source = ROOT / "deploy/sudoers" / f"verdaxis-deploy-{environment}"
+    result = subprocess.run([visudo, "-cf", str(source)], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    text = source.read_text()
+    assert "*" not in text
+    suffix = "-staging" if environment == "staging" else ""
+    commands = {f"/usr/bin/systemctl {action} verdaxis-backend{suffix}.service" for action in ("restart", "stop")}
+    if environment == "staging":
+        commands |= {f"/usr/bin/systemctl {action} verdaxis-rust-staging.service" for action in ("restart", "stop", "disable")}
+    actual = text.split("NOPASSWD: ", 1)[1].strip().split(", ")
+    assert set(actual) == commands
