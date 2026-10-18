@@ -27,9 +27,13 @@ product codes derive from the attested exact label tuple, including inactive
 products. Python retains price triggering and participant-event production.
 `tests/postgres/test_phase2_alert_interop.py` drives Rust storage and HTTP
 component checks against the existing disposable PostgreSQL fixture, then runs
-Python's trigger helper on the committed Rust row. Paired HTTP/state, race,
-and dispatcher gates remain pending the shared runner lane. Coverage requirements
-are data in `tests/rust_contract/phase2/alerts-scenarios.json`.
+Python's trigger helper on the committed Rust row. The registered `alerts-crud`
+and `alerts-crud-reverse` scenarios use the shared runner for paired HTTP/state,
+rollback, retained-commit/no-replay and mixed dispatcher checks. Disposable-only
+adapters control IDs/clocks and hold both SQL counts before inserts. They confirm
+the source organization-cap race (six active rows from four); PM disposition is
+required before full acceptance. Evidence is in `docs/rust-phase2/task16-handoff.md`.
+Coverage requirements are data in `tests/rust_contract/phase2/alerts-scenarios.json`.
 
 ## Rust Phase 1 bootstrap
 

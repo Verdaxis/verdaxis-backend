@@ -268,4 +268,10 @@ class HTTPCell:
 from scripts.rust_contract.phase2_example import example_scenario
 
 register(example_scenario())
+# Phase 2 Task 16: organization price-alert CRUD
+from scripts.rust_contract.phase2_alerts import alerts_scenario
+
+register(alerts_scenario())
+register(alerts_scenario(reverse=True))
+# Phase 2 Task 16: end organization price-alert CRUD
 # END LANE REGISTRATIONS

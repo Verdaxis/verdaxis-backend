@@ -2,7 +2,7 @@
 
 ## Status and scope
 
-Component implementation is complete at this checkpoint. Full route acceptance is **pending the runner lane**, not GO. The PM's 19 October ownership update permits the marked additive module and route-export blocks. No runtime configuration, manifests, dependencies, comparator, CI workflow, Python application, or migration was changed.
+Component implementation and shared-runner differential checks are complete. Full acceptance is **pending PM disposition of the confirmed organization-cap race**, not GO. The SQL-barrier schedule reproduces six active rows in both stacks from four; equality is evidence of the source defect, not proof that the cap holds. The PM's 19 October ownership update permits the marked additive module and route-export blocks. No runtime configuration, manifests, dependencies, comparator, CI workflow, Python application, or migration was changed.
 
 The component router is `routes::alerts_router(app, verification, limits)`. The integration lane must supply its existing verification settings and shared quota authority. Runtime secret/environment projection and activation are not implemented here.
 
@@ -33,7 +33,7 @@ All builds, formatting, lints and tests ran through `verdaxis-staging-test` and 
 
 The PostgreSQL driver proves no-org refusal on all three routes, foreign delete refusal, same-org member list access, path validation, cap/inactive behavior, rounding, FK/overflow failures, repeated create/delete, and Python trigger compatibility. The trigger event payload, participant organization and deactivation state are checked. The only pytest warning was an existing Pydantic class-config deprecation.
 
-## Pending runner lane
+## Historical pending runner lane (superseded by the record below)
 
 `tests/rust_contract/phase2/alerts-scenarios.json` is declarative coverage data, not a runnable or passing contract. Register it only after the shared runner interface lands. Required pending gates:
 
@@ -44,7 +44,29 @@ The PostgreSQL driver proves no-org refusal on all three routes, foreign delete 
 
 The source cap race has not been proven by a paired deterministic schedule. Do not silently repair it or claim equivalence. Section 0 of the plan overrides later Python-first repair instructions; a new approved Rust difference requires PM review.
 
-## Resume point
+## Runner integration record — 19 October
+
+Merged the approved runner branch with merge commit `5b45319c`. Registered `alerts-crud` and `alerts-crud-reverse` in one marked Task 16 block. Both are real route scenarios, with no smoke fallback. `task16-runner-evidence.json` records 22 paired actions, two fixed-seed SQL-count barrier schedules, and two mixed dispatcher cells. Each action compares HTTP and full fresh-connection committed state, asserts users/unrelated tables unchanged, and checks zero mail sends. IDs and created_at values are controlled in disposable-only adapters; no timestamp or business ID is dropped.
+
+The before-commit fault runs after insertion and leaves all business state unchanged. The after-commit response fault retains exactly one row and returns 503; the runner sends it only once and the assertion rejects replay. This tests response unavailability after a committed unit, not a simulated network disconnect during COMMIT acknowledgement.
+
+The mixed schedule exercises Python create/delete and Rust create on the third database. The real Python helper deactivates all five rows and writes its normal outbox events. The real Python dispatcher publishes five distinct stream sequences; event direction, price, Rust-row threshold, and deactivation are checked. No mail delivery applies to alerts; the send ledger remains empty.
+
+| Continuation gate | Own exit | Evidence |
+| --- | ---: | --- |
+| Adapter attempts 1–4 | 1 each | `alerts-runner1`–`4.log`: adapter imports, clone-name runtime refusal, incorrect GET expectation |
+| Attempt 5 | 1 | Postcommit fault response omitted request-id; corrected in test adapter |
+| Attempt 6 | 1 | Real DELETE 204 lacked Python's application/json content type; corrected in Rust route |
+| Attempt 7 | 0 | One scenario: paired HTTP/state, rollback, retained commit, race and mixed dispatcher |
+| Final focused Rust | 0 | `alerts-runner8.log`, four offline checks plus conditional DB driver entry |
+| Final feature-enabled Clippy | 0 | `alerts-runner8.log`, lib and test adapter, warnings denied |
+| Final group with both actor directions | 0 | `alerts-runner8.log`; seeds 20261018/20261019; full evidence JSON |
+
+The cap-race **safety result is FAIL**: both SQL counts complete at four before either insert, then both return 201 and leave six active alerts. Two fresh cloned scenarios reverse actor submission order. No Rust-only lock or Python fix was added. PM approval is needed for a corrected Rust contract under plan section 0. The runner's zero exit means all declared differential/source-race assertions passed; it must not be described as a passing five-active cap invariant.
+
+The disposable Rust adapter uses the assigned nonowner app-role pools because runner clone names do not satisfy the runtime connector's `_test` suffix rule. Runtime Config, its validation and release projection remain unchanged. Test seams are feature-gated; release builds have neither header-controlled IDs/clocks nor faults/barriers.
+
+## Historical resume point
 
 When `feat/rust-p2-runner` lands on the integration branch, read `docs/rust-phase2-runner.md`, add only the marked Task 16 scenario registration, and run the alerts differential/race and mixed-writer gates. Preserve the current implementation and vectors. Do not qualify a harness-smoke run as alert coverage.
 

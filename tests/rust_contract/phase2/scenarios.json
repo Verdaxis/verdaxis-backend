@@ -1,6 +1,8 @@
 {
   "version": 1,
   "scenarios": [
+    {"id": "alerts-crud-reverse", "group": "alerts", "kind": "registered-route", "registration": "scripts.rust_contract.phase2_alerts", "actions": ["reverse-cap-schedule"], "route_qualification": true, "task": 16},
+    {"id": "alerts-crud", "group": "alerts", "kind": "registered-route", "registration": "scripts.rust_contract.phase2_alerts", "actions": ["list-all", "foreign-delete", "missing-delete", "no-org-get", "no-org-delete", "no-org-create", "rollback", "lost-response", "cap-reached", "same-org-delete", "repeat-delete"], "route_qualification": true, "task": 16},
     {"id": "runner-example", "group": "all", "kind": "registered-route-example", "registration": "scripts.rust_contract.phase2_example", "actions": ["committed", "rollback", "response-loss"], "route_qualification": false},
     {"id": "harness-smoke", "group": "all", "kind": "harness-only", "actions": ["read-state", "insert-feedback", "between-writes", "after-commit"]},
     {"id": "auth-state-matrix", "group": "all", "kind": "postgres-auth", "actions": ["shared-locks", "revocation", "cancellation"]},

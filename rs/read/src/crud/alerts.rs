@@ -1,4 +1,7 @@
 //! Organization-owned price-alert CRUD. Triggering remains Python-owned.
+#[cfg(feature = "contract-tests")]
+#[path = "alerts_contract.rs"]
+pub mod contract;
 use axum::{
     Router,
     body::Bytes,
@@ -307,10 +310,17 @@ pub async fn create(
             "Free tier limit of 5 active alerts reached. Delete an existing alert to create a new one.",
         ));
     }
+    #[cfg(feature = "contract-tests")]
+    contract::after_count().await;
+    #[cfg(feature = "contract-tests")]
+    let id = contract::id().unwrap_or_else(Uuid::new_v4);
+    #[cfg(not(feature = "contract-tests"))]
     let id = Uuid::new_v4();
     sqlx::query("INSERT INTO price_alerts (id,org_id,product_id,delivery_point_id,direction,threshold_usd,is_active) VALUES ($1,$2,$3,$4,$5,$6::text::numeric,true)")
         .bind(id).bind(organization).bind(input.product_id).bind(input.delivery_point_id).bind(input.direction).bind(input.threshold_usd)
         .execute(&mut *connection).await.map_err(|_| ApiError::database())?;
+    #[cfg(feature = "contract-tests")]
+    contract::after_insert(connection, id).await?;
     let row = sqlx::query("SELECT a.id,a.org_id,a.product_id,p.name AS product_name,p.fuel_type,p.fuel_grade,a.delivery_point_id,a.direction,a.threshold_usd::text AS threshold_usd,a.is_active,a.triggered_at,a.created_at FROM price_alerts a LEFT JOIN products p ON p.id=a.product_id WHERE a.id=$1").bind(id).fetch_one(&mut *connection).await.map_err(|_| ApiError::database())?;
     Ok(project(row, policy))
 }
@@ -405,59 +415,90 @@ async fn dispatch(
         limits: state.limits,
     };
     let policy = state.app.policy.clone();
+    #[cfg(feature = "contract-tests")]
+    let controls = contract::capture();
     completed(
         run_authenticated(&state.app, access, request, move |tx| {
             Box::pin(async move {
-                let input = if method == "POST" {
-                    Some(validate_and_admit(
-                        body.unwrap_or(Value::Null),
-                        &admission,
-                        AlertCreate::validate,
-                    )?)
-                } else {
-                    None
-                };
-                let id = if let Some(text) = id {
-                    Some(uuid_value("alert_id", &json!(text)).map_err(|mut error| {
-                        error["loc"] = json!(["path", "alert_id"]);
-                        validation(vec![error])
-                    })?)
-                } else {
-                    None
-                };
-                let organization = organization_id(tx.actor().organization_id)?;
-                match method {
-                    "POST" => Ok((
-                        StatusCode::CREATED,
-                        axum::Json(
-                            create(
-                                tx.connection(),
-                                organization,
-                                input.expect("POST input"),
-                                &policy,
-                            )
-                            .await?,
-                        ),
-                    )
-                        .into_response()),
-                    "DELETE" => {
-                        delete(tx.connection(), organization, id.expect("DELETE id")).await?;
-                        Ok(StatusCode::NO_CONTENT.into_response())
-                    }
-                    _ => Ok(
-                        axum::Json(list(tx.connection(), organization, &policy).await?)
-                            .into_response(),
-                    ),
-                }
+                #[cfg(feature = "contract-tests")]
+                return contract::CONTROLS
+                    .scope(controls, async move {
+                        execute_request(tx, method, body, id, admission, policy).await
+                    })
+                    .await;
+                #[cfg(not(feature = "contract-tests"))]
+                execute_request(tx, method, body, id, admission, policy).await
             })
         })
         .await,
     )
 }
 
+async fn execute_request(
+    tx: &mut crate::auth::AuthenticatedTransaction<'_>,
+    method: &str,
+    body: Option<Value>,
+    id: Option<String>,
+    admission: RequestAdmission,
+    policy: std::sync::Arc<crate::MarketPolicy>,
+) -> Result<Response, ApiError> {
+    let input = if method == "POST" {
+        Some(validate_and_admit(
+            body.unwrap_or(Value::Null),
+            &admission,
+            AlertCreate::validate,
+        )?)
+    } else {
+        None
+    };
+    let id = if let Some(text) = id {
+        Some(uuid_value("alert_id", &json!(text)).map_err(|mut error| {
+            error["loc"] = json!(["path", "alert_id"]);
+            validation(vec![error])
+        })?)
+    } else {
+        None
+    };
+    let organization = organization_id(tx.actor().organization_id)?;
+    match method {
+        "POST" => Ok((
+            StatusCode::CREATED,
+            axum::Json(
+                create(
+                    tx.connection(),
+                    organization,
+                    input.expect("POST input"),
+                    &policy,
+                )
+                .await?,
+            ),
+        )
+            .into_response()),
+        "DELETE" => {
+            delete(tx.connection(), organization, id.expect("DELETE id")).await?;
+            Ok((
+                StatusCode::NO_CONTENT,
+                [("content-type", "application/json")],
+            )
+                .into_response())
+        }
+        _ => Ok(axum::Json(list(tx.connection(), organization, &policy).await?).into_response()),
+    }
+}
+
 async fn post_alert(State(state): State<RouteState>, headers: HeaderMap, raw: Bytes) -> Response {
     match parse_json_body(&raw) {
-        Ok(body) => dispatch(state, headers, "POST", Some(body), None).await,
+        Ok(body) => {
+            #[cfg(feature = "contract-tests")]
+            if contract::enabled(&headers) {
+                return contract::scope(
+                    headers.clone(),
+                    dispatch(state, headers, "POST", Some(body), None),
+                )
+                .await;
+            }
+            dispatch(state, headers, "POST", Some(body), None).await
+        }
         Err(error) => error.into_response(),
     }
 }
