@@ -43,6 +43,26 @@ from scripts.rust_contract import workload  # noqa: E402
 # ---------------------------------------------------------------- pure helpers
 
 
+def adaptive_choice(probes: list[dict[str, Any]], max_rps: int) -> dict[str, Any]:
+    """Select only a rate proved clean by both stacks; never assume 1 RPS."""
+    chosen = None
+    reason = "no complete probe"
+    for expected, probe in enumerate(probes, 1):
+        busy = probe.get("busy", {})
+        if probe.get("rps") != expected or set(busy) != {"python", "rust"}:
+            reason = "incomplete probe evidence"
+            break
+        if any(not isinstance(count, int) or count < 0 for count in busy.values()):
+            reason = "invalid probe evidence"
+            break
+        if any(busy.values()):
+            reason = f"5xx/503 at {expected} RPS"
+            break
+        chosen = float(expected)
+        reason = "maximum probe rate reached" if expected == max_rps else "probe ended"
+    return {"chosen_rps": chosen, "stop_reason": reason, "probe": probes}
+
+
 def percentile(sorted_values: list[float], q: float) -> float:
     """The nearest-rank percentile of an ascending list.
 
@@ -598,7 +618,7 @@ class Measurement(runner.Runner):
                 self._await_ready(port)
                 caddies[target] = self._start_caddy(f"127.0.0.1:{port}")
             # Probe: raise the rate while neither stack shows a busy/5xx.
-            clean_rps = 1.0
+            clean_rps = None
             for rps in range(1, self.probe_max_rps + 1):
                 busy = {}
                 for target, _ in order:
@@ -609,17 +629,20 @@ class Measurement(runner.Runner):
                 if any(count > 0 for count in busy.values()):
                     break
                 clean_rps = float(rps)
-            evidence["chosen_rps"] = clean_rps
-            # Measure the full window at the highest clean rate the probe found.
-            self.windows = [(float(self.measure_seconds), clean_rps)]
-            cells: dict[str, Any] = {}
-            for target, port in order:
-                cells[target] = self._measure_cell(
-                    handles[target], port, caddy_port=caddies[target][1]
+            choice = adaptive_choice(evidence["probe"], self.probe_max_rps)
+            evidence.update(choice)
+            clean_rps = choice["chosen_rps"]
+            if clean_rps is not None:
+                # Measure the full window at the highest clean rate the probe found.
+                self.windows = [(float(self.measure_seconds), clean_rps)]
+                cells: dict[str, Any] = {}
+                for target, port in order:
+                    cells[target] = self._measure_cell(
+                        handles[target], port, caddy_port=caddies[target][1]
+                    )
+                evidence["repetitions"].append(
+                    {"index": 0, "order": [n for n, _ in order], "cells": cells}
                 )
-            evidence["repetitions"].append(
-                {"index": 0, "order": [n for n, _ in order], "cells": cells}
-            )
         finally:
             for caddy, _ in caddies.values():
                 caddy.terminate()

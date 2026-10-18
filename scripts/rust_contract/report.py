@@ -304,6 +304,8 @@ def build_bundle(
     blocking_outcomes = {"pass", "below target (non-blocking)", "not measured (non-blocking)"}
     passes = all(condition["outcome"] in blocking_outcomes for condition in conditions)
     return {
+        "adaptive": measure_mod.adaptive_choice(measurement.get("probe", []), measurement.get("probe_max_rps", 0))
+        if measurement.get("mode") == "adaptive" else {},
         "identities": identities,
         "contract": contract,
         "simulation": simulation,
@@ -524,6 +526,16 @@ def render_markdown(bundle: dict[str, Any]) -> str:
     lines.append(f"- Workload manifest digest: {workload_info.get('manifest_digest') or NOT_MEASURED}")
     lines.append(f"- Workload sizes: {workload_info.get('sizes', NOT_MEASURED)}")
     lines.append("")
+    adaptive = bundle.get("adaptive", {})
+    if adaptive:
+        lines.append("## Adaptive probe")
+        lines.append("")
+        chosen = adaptive.get("chosen_rps")
+        lines.append(f"- Clean rate: {str(chosen) + ' RPS' if chosen is not None else 'no clean rate found'}.")
+        lines.append(f"- Stop reason: {adaptive['stop_reason']}.")
+        for probe in adaptive.get("probe", []):
+            lines.append(f"- Probe {probe.get('rps')} RPS, 5xx/503: {probe.get('busy')}.")
+        lines.append("")
     lines.append("## Memory")
     lines.append("")
     lines.append("| Runtime | steady median | p95 | peak | anon median | file median | PSS median | ratio |")

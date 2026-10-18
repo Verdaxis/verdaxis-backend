@@ -380,14 +380,8 @@ def test_r27_style_regression_blocks_under_the_new_bar():
 
 
 def _adaptive_choose(probe, max_rps):
-    """Mirror the adaptive probe rule: raise while neither stack is busy."""
-    clean = 1.0
-    for rps in range(1, max_rps + 1):
-        busy = probe[rps]
-        if any(count > 0 for count in busy.values()):
-            break
-        clean = float(rps)
-    return clean
+    rows = [{"rps": rps, "busy": busy} for rps, busy in probe.items()]
+    return measure.adaptive_choice(rows, max_rps)["chosen_rps"]
 
 
 def test_adaptive_starts_at_1_and_rises_while_both_stacks_are_clean():
@@ -400,9 +394,9 @@ def test_adaptive_stops_at_the_first_rate_with_a_busy_response():
     assert _adaptive_choose(probe, 4) == 2.0
 
 
-def test_adaptive_stays_at_1_when_the_first_rate_is_already_busy():
+def test_adaptive_has_no_clean_rate_when_the_first_probe_is_busy():
     probe = {1: {"python": 0, "rust": 2}}
-    assert _adaptive_choose(probe, 4) == 1.0
+    assert _adaptive_choose(probe, 4) is None
 
 
 def test_adaptive_never_measures_above_a_busy_rate():
@@ -460,3 +454,15 @@ def test_equal_overall_request_totals_do_not_hide_a_missing_route_workload():
         measurement=_evidence(python_current=1000, rust_current=400, samples_python=py, samples_rust=rs),
         unapproved_differences=0, integration_passed=True)
     assert next(c for c in bundle["gate"]["conditions"] if "5xx" in c["name"])["outcome"] == "inconclusive"
+
+
+def test_adaptive_report_does_not_trust_legacy_chosen_rate_after_failed_first_probe():
+    evidence = {"mode": "adaptive", "size": "large", "probe_max_rps": 4,
+        "chosen_rps": 1.0, "probe": [{"rps": 1, "busy": {"python": 2, "rust": 0}}], "repetitions": []}
+    bundle = report.build_bundle(identities={}, contract={}, simulation={}, measurement=evidence,
+        unapproved_differences=0, integration_passed=True)
+    text = report.render_markdown(bundle)
+    assert "no clean rate found" in text
+    assert "python" in text and "2" in text
+    assert bundle["adaptive"]["chosen_rps"] is None
+    assert bundle["adaptive"]["stop_reason"] == "5xx/503 at 1 RPS"

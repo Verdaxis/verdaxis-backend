@@ -30,7 +30,7 @@ run).
     `b1e129af8c56344ed78d2169743f1458242622c3e88a2b28f13626ebe8a571a3`
   - `measure-large-v2.json` (14a saturated run, kept as capacity evidence):
     `27efbd9796c98dbcf29d40b0b1cc2413d687ec958e8b6717c285571512da2ab5`
-  - `measure-large-adaptive.json` (18 Oct, the load both stacks serve):
+  - `measure-large-adaptive.json` (18 Oct, first probe failed):
     `31fb9fc9211c99eea322f282918e325127bb8b7095b5fc68004320d545770cb8`
   - `simulation-small.json` / `simulation-large.json` (14a, before the tie rule):
     `8dd7c4371ac32d2e58ace9f9662c1b9a2dc8bdfc816e6a418de778fedfc56b2c` /
@@ -112,7 +112,7 @@ most 50 % of Python) but does not block.
 - The R27 JIT fix (`41849176`) is in: quiet-host rerun R27 Rust p95
   **0.231 s vs Python 0.150 s** (was 0.946 vs 0.167).
 - The large size was re-measured adaptively (start 1 RPS, raise while neither
-  stack returns 5xx): **both stacks serve 1 RPS**; Python already returned
+  stack returns 5xx): **no clean rate found**; Python already returned
   13 busy (503) at 1 RPS while Rust returned none, so the ramp stopped there.
 - The unchanged integration suite passes on this tree: **79 passed, exit 0**.
 
@@ -163,11 +163,11 @@ touching the shared relation; neither is a small safe byte-exact change. Both
 regressions are inside the decision-68 caps at the small size (R20 +41 ms,
 R24 +22 ms), so they are fix items there, but they block at the large size.
 
-### Large size: which load both stacks serve
+### Large size: no clean rate found
 
 | Offered load | Python 5xx/503 | Rust 5xx/503 | Served by both |
 | --- | ---: | ---: | --- |
-| 1 RPS (probe) | 2 busy in the probe; 13 busy in the window | 0 | yes (Python's per-worker admission is the binding limit) |
+| 1 RPS (probe) | 2 busy in the probe; 13 busy in the window | 0 | no clean rate found |
 | 2 RPS and above | not reached — the ramp stops at the first 5xx | not reached | not measured |
 
 Python's AD-02 behaviour (2 admission slots per worker, 4 workers) is the
@@ -242,7 +242,7 @@ Routes with Rust p95 above Python p95: R20, R24, R27, plan_voyage_fuel.
 
 ### Large size (100,000 orders / 100,000 trades / 10,000 news) — adaptive, 1 RPS
 
-Offered load 1 RPS (600 s), equal-weight baseline, end-to-end through Caddy; one service per runtime kept up across the probe and the window. The ramp stopped at 1 RPS because Python returned busy (503) responses there, so no higher clean rate exists at this size on this host. 587 Python and 600 Rust successful responses; **Python 13 busy (503) and Rust 0**.
+Offered load 1 RPS (600 s), equal-weight baseline, end-to-end through Caddy; one service per runtime kept up across the probe and the window. The ramp stopped at 1 RPS because Python returned busy (503) responses there, so no clean rate was found; higher rates were not tested. 587 Python and 600 Rust successful responses; **Python 13 busy (503) and Rust 0**.
 
 | Runtime | steady median | p95 | peak | anon median | PSS median | CPU cores | usec/completed request |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
