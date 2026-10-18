@@ -67,6 +67,18 @@ Current fixtures reuse the Task 6 matrix and add ports, news, exact terms and
 trusted/untrusted signals. The runner pins the runtime KYC switch and records
 all groups twice; incomplete or unstable recordings cannot replace golden data.
 
+Task 14b adds the staging-only shadow content path. `shadow.py` reads private
+reviewed cases, enforces serial rolling call/minute budgets, direct loopback
+transport with an absolute deadline/body cap, separate Python/Rust readiness
+identities, memory-pressure backoff and deploy-state stops. It delegates both
+legs of each Python–Rust–Python sandwich to `compare.compare_responses` with
+the byte profile. Only schema-specific validated request-clock tokens and the
+existing reviewed exact-item tie exceptions may differ. Payloads and internal
+capture hashes stay in memory; evidence is bounded metadata in a private path
+outside the checkout. Missing coverage, empty-only results or an unapproved
+short floor cannot return PASS. Candidate activation remains a separate gate;
+see `docs/rust-phase1/readiness-task14b.md`.
+
 Task 5 exports the catalog policy as data. `scripts/rust_contract/export_policy.py`
 turns the approved `app.market_catalog` constants and the reviewed
 qualification-profile map into `deploy/rust/market-policy.json` (identity, lanes,

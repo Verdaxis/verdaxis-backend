@@ -30,7 +30,7 @@ previous checkpoint and adds the exact union checkpoint. It grants no production
 activation: runtime configuration still refuses production.
 
 Disposable contracts **do cover the union schema**: `run_disposable.py` calls
-`verify_schema_drift.py`, whose disposable upgrade reaches Alembic head, including
+`scripts/verify_migrations.sh`, whose disposable upgrade reaches Alembic head, including
 this migration. Its historical runtime fixture label is not the migration target.
 That is populated disposable correctness evidence, not proof of current live
 staging data or permission to migrate staging.
@@ -56,6 +56,80 @@ execute the existing policy loader for both staging and production.
   `test_host_key_matching_the_pinned_digest_is_preferred`.
 - Separate rerun: unit policy suite exit 0 (15 passed); release suite exit 0
   (34 passed). No source change was needed for the fixture readiness rerun.
+
+## Staging comparator interface
+
+After separate operator authorization, candidate installation and private case/floor
+approval, the interface is:
+
+```bash
+umask 077
+/path/to/reviewed/python -m scripts.rust_contract.shadow \
+  --config /private/approved-14b.toml --duration-seconds 1800
+```
+
+This is an interface, not a live command approval. Pin the comparator's full
+source SHA and supply separate `python_sha` and `candidate_sha`. The template
+`staging.example.toml` intentionally has empty identities, no approved floor and
+no usable case path. A 35-minute maximum is enforced; no measurements run.
+
+The private JSON case file is an array with all R01–R27 IDs and each of
+`list_markets`, `get_market_slice`, `plan_voyage_fuel`. Each entry supplies a
+synthetic `case_id` (`R05-public`), `method`, `path`, `query` for GET or `body` for
+POST, and `kind`. Groups are derived from route IDs, then scheduled round-robin.
+Use only approved public catalog/port selections. R02 requires a real five-letter
+port code, never `T4B_ONE`. Route paths and MCP tool names are allowlisted. No
+credentials, extra headers, fixture endpoints or disposable token are accepted.
+Keep the query mapping private; never commit this populated file.
+
+One in-memory response retains status, relevant headers and raw bytes. The one
+authority is `compare.compare_responses(profile="byte", live=True)`, first
+Python-to-Python, then Python-to-Rust. Decision 85 permits only exact trade-tape
+item permutations within equal `confirmed_at` groups. CSV, decimal spelling,
+null/absent, other order and headers remain exact. Request-clock normalization
+requires UTC and each call's own start/end interval; stored timestamps are not
+removed. SDK slice clocks are checked in both text and structured content.
+
+The loop has concurrency one, rolling 3 calls/10 seconds including health,
+endpoint minute limits counting both Python calls, direct HTTP (no proxies or
+redirects), a 2-second absolute alarm, 1 MiB body bound, 60-second busy/pressure
+backoff and deploy-state checks before every call. All three health contracts
+are checked; readiness identities are separate and exact. An identity mismatch
+stops. A readiness transport failure pauses, then stops conservatively.
+
+Exit 0 is PASS, 1 is difference/safety refusal, 2 is INCONCLUSIVE. A forced
+same-length content difference is tested through the CLI and returns 1. A pass
+requires the explicit approved floor on every route/tool, nonempty observations,
+99% stable successful sandwiches with all attempts retained in the denominator,
+and completed final readiness. Tool errors cannot supply economic coverage.
+A difference stops at once. Diagnostics use the root `/body` schema path rather
+than risk persisting data-dependent JSON keys. Files are exclusive-create 0600
+in a private directory outside the source checkout, capped at 10 MiB. No body,
+query, auth header, row ID, value or payload hash is persisted.
+
+### Comparator test history
+
+- Content red: exit 1, 11 failures for missing byte entry point/sandwich API.
+- Content first green attempt: exit 1 (import and CSV test header corrected).
+- Content green: exit 0, 61 passed.
+- Staging safety red: exit 1, 30 missing-behavior failures.
+- Staging initial implementation checks: exit 1 (imports, test duration corrected).
+- Final-readiness red: exit 1, 91 passed / 1 failed; elapsed cap could falsely pass.
+- Health/round-robin red: exit 1, 94 passed / 2 failed; then exit 0, 96 passed.
+- MCP clock red: exit 1, 99 passed / 1 failed; then exit 0, 100 passed.
+- Tool/evidence admission red: exit 1, 38 passed / 2 failed; corrected.
+- Busy/oversize red: exit 1, 105 passed / 1 failed; corrected to pause for status
+  independently of the body outcome.
+- Full contract harness suite: exit 0, 684 passed, five existing warnings.
+- Final full contract harness suite: exit 0, 685 passed, five existing Pydantic
+  deprecation warnings. Includes transport deadline/body bounds and CLI failure.
+- Initial Rust formatting check: exit 1; local editor hook had applied a different
+  rustfmt style to existing test code. Restored the pinned-toolchain formatting.
+- Final Rust formatting: exit 0. Final runtime suite: exit 0, 15 passed.
+
+Push/PR/CI is pending clarification: the brief requests a push and draft PR but
+also explicitly says not to push because the PM owns it. No origin push or PR
+creation was performed. CI for these local commits has therefore not run.
 
 ## Remaining operator gates
 
