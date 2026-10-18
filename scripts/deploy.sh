@@ -120,6 +120,7 @@ DEPLOY_LOCK_FD=""
 RESTART_WINDOW_LOCK_FD=""
 DEPLOY_STARTED=0
 SERVICE_RESTART_ATTEMPTED=0
+RUST_PHASE_STARTED=0
 DEPLOY_PHASE="preflight"
 DRY_RUN_TEMP=""
 ACL_CONVERGENCE_TEMP=""
@@ -608,14 +609,27 @@ preserve_failed_release() {
     cleanup_rust_policy_bundle
     cleanup_rust_extract
     if [[ "$status" != "0" && "$DRY_RUN" == "0" && "$DEPLOY_STARTED" == "1" ]]; then
+        if [[ "$RUST_PHASE_STARTED" == "1" ]] \
+            && systemctl is-active --quiet "$SERVICE_NAME" \
+            && HEALTH_PAYLOAD="$(curl --fail --silent --show-error --max-time 15 "$HEALTH_URL")" \
+            && printf '%s' "$HEALTH_PAYLOAD" | "${PYTHON_ENV[@]}" ./venv/bin/python \
+                scripts/validate_health_response.py --environment "$DEPLOY_ENVIRONMENT" \
+                --release-sha "$CURRENT_SHA"; then
+            write_deploy_state "rust-failed" "$CURRENT_SHA" || \
+                echo "WARNING: could not record Rust failure state." >&2
+            sudo -n systemctl stop "$RUST_UNIT_NAME" || echo "WARNING: Rust stop failed." >&2
+            sudo -n systemctl disable "$RUST_UNIT_NAME" || echo "WARNING: Rust disable failed." >&2
+            echo "Rust activation failed; exact-ready Python remains serving. Canonical retry required." >&2
+            exit "$status"
+        fi
         if ! write_deploy_state "blocked" "${CURRENT_SHA:-$APPROVED_RELEASE_SHA}"; then
             echo "WARNING: could not restore durable deployment state." >&2
         fi
         if [[ "$SERVICE_RESTART_ATTEMPTED" == "1" ]]; then
-            if ! sudo systemctl stop "$SERVICE_NAME"; then
+            if ! sudo -n systemctl stop "$SERVICE_NAME"; then
                 echo "WARNING: could not stop the failed backend service." >&2
             fi
-            if [[ "$RUST_SELECTED" == "1" ]] && ! sudo systemctl stop "$RUST_UNIT_NAME"; then
+            if [[ "$RUST_SELECTED" == "1" ]] && ! sudo -n systemctl stop "$RUST_UNIT_NAME"; then
                 echo "WARNING: could not stop the failed Rust service." >&2
             fi
         fi
@@ -826,6 +840,21 @@ if [[ "$RUST_ENABLED" == "1" ]]; then
     fi
 fi
 
+# Prove every exact privileged service command before state/source mutation.
+# Noninteractive execution must never discover missing authority at restart.
+for action in restart stop; do
+    sudo -n -l systemctl "$action" "$SERVICE_NAME" >/dev/null || {
+        echo "Required backend service authority is unavailable." >&2; exit 1;
+    }
+done
+if [[ "$RUST_ENABLED" == "1" ]]; then
+    for action in restart stop disable; do
+        sudo -n -l systemctl "$action" "$RUST_UNIT_NAME" >/dev/null || {
+            echo "Required Rust service authority is unavailable." >&2; exit 1;
+        }
+    done
+fi
+
 acquire_deploy_lock
 # The artifact is verified and extracted under the main lock, before any state
 # write or service stop. A stale staging for the same SHA (a retried deploy)
@@ -945,6 +974,17 @@ fi
     --bundle-root "$ACL_CONVERGENCE_TEMP"
 cleanup_acl_convergence_bundle
 
+# Freeze the migrator-verified checkpoint for the app-only Rust startup.
+if [[ "$RUST_SELECTED" == "1" ]]; then
+    if [[ -L "$RUST_RUNTIME_DIR/revision.json" ]]; then
+        echo "Revision record must not be a symlink." >&2; exit 1
+    fi
+    REVISION_TEMP="$(mktemp "$RUST_RUNTIME_DIR/.revision.XXXXXXXX")"
+    printf '{"release_sha":"%s","revision":"%s"}\n' "$CURRENT_SHA" "$MIGRATION_TARGET_REVISION" > "$REVISION_TEMP"
+    chmod 0600 "$REVISION_TEMP"
+    mv -- "$REVISION_TEMP" "$RUST_RUNTIME_DIR/revision.json"
+fi
+
 assert_clean_tree "Deploy steps"
 
 # The minimal Rust runtime environment is prepared after the exact migration
@@ -986,15 +1026,18 @@ if [[ "$RUST_SELECTED" == "1" ]]; then
     fi
 fi
 
+# Recheck drift under the same deploy lock without giving the Rust unit .env.
+if [[ "$RUST_SELECTED" == "1" ]]; then
+    "${PYTHON_ENV[@]}" ./venv/bin/python scripts/prepare_rust_budget.py --verify \
+        --environment-file "$BACKEND_DIR/.env" --release-sha "$CURRENT_SHA" \
+        --output "$RUST_RUNTIME_DIR/budget.json"
+fi
+
 acquire_restart_window_lock
 DEPLOY_PHASE="restart-authorized"
 write_deploy_state "$DEPLOY_PHASE" "$CURRENT_SHA"
 SERVICE_RESTART_ATTEMPTED=1
-if [[ "$RUST_SELECTED" == "1" ]]; then
-    sudo systemctl restart "$SERVICE_NAME" "$RUST_UNIT_NAME"
-else
-    sudo systemctl restart "$SERVICE_NAME"
-fi
+sudo -n systemctl restart "$SERVICE_NAME"
 DEPLOY_PHASE="readiness-pending"
 write_deploy_state "$DEPLOY_PHASE" "$CURRENT_SHA"
 
@@ -1017,6 +1060,9 @@ done
 
 echo "Backend is healthy: $HEALTH_URL"
 if [[ "$RUST_SELECTED" == "1" ]]; then
+    RUST_PHASE_STARTED=1
+    write_deploy_state "restart-authorized" "$CURRENT_SHA"
+    sudo -n systemctl restart "$RUST_UNIT_NAME"
     RUST_HEALTH_URL="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["health_url"])' \
         "$RUST_RUNTIME_DIR/staging-policy.json")" \
         || { echo "The staged Rust policy does not name a health URL." >&2; exit 1; }

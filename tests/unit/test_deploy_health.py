@@ -220,6 +220,7 @@ fi
         fake_bin / "sudo",
         """#!/usr/bin/env bash
 set -euo pipefail
+if [[ "${1:-}" == "-n" && "${2:-}" != "-l" ]]; then shift; fi
 printf 'sudo:%s\\n' "$*" >> "${DEPLOY_TEST_LOG:?}"
 if [[ "${DEPLOY_BLOCK_PHASE:-}" == "systemctl-restart" ]]; then
     case "$*" in
@@ -843,7 +844,7 @@ def test_restart_authorization_is_written_after_second_lock_before_restart():
     blocked = source.index('write_deploy_state "blocked"', deployment)
     restart_lock = source.index("acquire_restart_window_lock", blocked)
     authorized = source.index('write_deploy_state "$DEPLOY_PHASE"', restart_lock)
-    restart = source.index('sudo systemctl restart "$SERVICE_NAME"', authorized)
+    restart = source.index('sudo -n systemctl restart "$SERVICE_NAME"', authorized)
     pending = source.index('DEPLOY_PHASE="readiness-pending"', restart)
 
     assert blocked < restart_lock < authorized < restart < pending

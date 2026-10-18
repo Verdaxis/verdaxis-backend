@@ -148,7 +148,7 @@ def test_rust_unit_keeps_runtime_credentials_separate():
     assert "MemoryMax=256M" in unit
     assert f"EnvironmentFile={STAGING_BACKEND}/.env\n" not in unit
     assert "verify_deploy_start_guard.py" in unit
-    assert "verify_migration_revision.py" in unit
+    assert "verify_rust_start.py" in unit
 
 
 def test_rust_unit_paths_are_the_files_the_deploy_transaction_writes():
@@ -180,17 +180,13 @@ def test_rust_unit_budget_check_uses_the_prepared_artifact_and_real_flags():
     unit = _text(UNIT)
     budget_help = _text(PREPARE_BUDGET)
 
-    assert (
-        f"ExecStartPre={STAGING_BACKEND}/venv/bin/python "
-        "scripts/prepare_rust_budget.py --verify "
-        f"--environment-file {STAGING_BACKEND}/.env "
-        "--release-sha ${RELEASE_SHA} "
-        f"--output {RUNTIME_DIR}/budget.json\n"
-    ) in unit
+    assert "verify_rust_start.py --expected-release-sha ${RELEASE_SHA}" in unit
+    assert f"--budget-file {RUNTIME_DIR}/budget.json" in unit
+    assert "--environment-file" not in unit
     for flag in ("--environment-file", "--release-sha", "--output", "--verify"):
         assert flag in budget_help
-    # The drift check runs before the binary starts, in declaration order.
-    assert unit.index("prepare_rust_budget.py --verify") < unit.index("ExecStart=")
+    assert unit.index("verify_rust_start.py") < unit.index("ExecStart=")
+
 
 
 def test_rust_unit_bind_and_service_name_match_the_committed_policy():
@@ -221,8 +217,11 @@ def test_rust_unit_runs_the_start_guard_and_the_revision_check():
         "--environment staging --expected-release-sha ${RELEASE_SHA}\n"
     ) in unit
     assert (
-        f"ExecStartPre={STAGING_BACKEND}/venv/bin/python "
-        "scripts/verify_migration_revision.py --expected ${MIGRATION_REVISION}\n"
+        "ExecStartPre=/usr/bin/env -i /usr/bin/python3 -I -S -B "
+        f"{STAGING_BACKEND}/scripts/verify_rust_start.py "
+        "--expected-release-sha ${RELEASE_SHA} "
+        f"--budget-file {RUNTIME_DIR}/budget.json --expected-revision ${{MIGRATION_REVISION}} "
+        f"--revision-file {RUNTIME_DIR}/revision.json\n"
     ) in unit
     assert f"User={STAGING_USER}\n" in unit
     assert f"Group={STAGING_USER}\n" in unit
@@ -387,8 +386,8 @@ def test_activation_requires_the_manifest_unit_and_a_verified_artifact(tmp_path)
     assert [
         e for e in fixture.ledger if e.startswith("sudo:systemctl restart")
     ] == [
-        "sudo:systemctl restart verdaxis-backend-staging-test.service "
-        f"{RUST_UNIT_NAME}"
+        "sudo:systemctl restart verdaxis-backend-staging-test.service",
+        f"sudo:systemctl restart {RUST_UNIT_NAME}"
     ]
     assert (fixture.checkout / ".runtime-rust/verdaxis-read").is_file()
     assert fixture.state_text() == ""
@@ -451,3 +450,49 @@ def test_rust_unit_names_no_production_path_or_migrator_credential():
     assert "MIGRATOR_DATABASE_URL" not in unit
     assert "LoadCredential" not in unit
     assert Path(UNIT).name.endswith("-staging.service")
+
+
+def test_exact_rust_prestarts_need_no_app_environment(tmp_path):
+    import shlex
+    import sys
+    backend = tmp_path / "be"
+    (backend / "scripts").mkdir(parents=True)
+    for name in ("verify_deploy_start_guard.py", "verify_rust_start.py"):
+        shutil.copy2(ROOT / "scripts" / name, backend / "scripts" / name)
+    runtime = backend / ".runtime-rust"
+    runtime.mkdir()
+    budget = runtime / "budget.json"
+    budget.write_text(json.dumps({"version": 1, "release_sha": RELEASE_SHA}))
+    budget.chmod(0o600)
+    revision = runtime / "revision.json"
+    revision.write_text(json.dumps({"release_sha": RELEASE_SHA, "revision": MIGRATION_REVISION}))
+    revision.chmod(0o600)
+    # Exactly the unit prestarts, relocating only the fixed checkout path and
+    # substituting systemd's release variable. -I -S excludes site packages.
+    for line in _text(UNIT).splitlines():
+        if not line.startswith("ExecStartPre="): continue
+        command = line.removeprefix("ExecStartPre=").replace(STAGING_BACKEND, str(backend)).replace("${RELEASE_SHA}", RELEASE_SHA).replace("${MIGRATION_REVISION}", MIGRATION_REVISION)
+        result = subprocess.run(shlex.split(command), cwd=backend, env={"ENVIRONMENT": "staging", "RELEASE_SHA": RELEASE_SHA}, capture_output=True, text=True)
+        assert result.returncode == 0, result.stderr
+    assert not (backend / ".env").exists()
+    # Tampered checkpoint evidence is a hard refusal with the same unit command.
+    revision.write_text(json.dumps({"release_sha": RELEASE_SHA, "revision": "wrong"}))
+    refused = subprocess.run(shlex.split(command), cwd=backend,
+                             env={"RELEASE_SHA": RELEASE_SHA}, capture_output=True, text=True)
+    assert refused.returncode == 1
+
+
+@pytest.mark.parametrize("environment", ["staging", "production"])
+def test_reviewed_sudoers_has_exact_environment_authority(environment):
+    visudo = shutil.which("visudo") or "/usr/sbin/visudo"
+    source = ROOT / "deploy/sudoers" / f"verdaxis-deploy-{environment}"
+    result = subprocess.run([visudo, "-cf", str(source)], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    text = source.read_text()
+    assert "*" not in text
+    suffix = "-staging" if environment == "staging" else ""
+    commands = {f"/usr/bin/systemctl {action} verdaxis-backend{suffix}.service" for action in ("restart", "stop")}
+    if environment == "staging":
+        commands |= {f"/usr/bin/systemctl {action} verdaxis-rust-staging.service" for action in ("restart", "stop", "disable")}
+    actual = text.split("NOPASSWD: ", 1)[1].strip().split(", ")
+    assert set(actual) == commands

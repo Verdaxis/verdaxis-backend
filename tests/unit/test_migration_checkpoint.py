@@ -372,7 +372,7 @@ def test_deploy_converges_acl_policy_after_migration_before_restart():
     convergence = source.index(
         '"$ACL_CONVERGENCE_TEMP/$ACL_CONVERGENCE_HELPER_PATH"'
     )
-    restart = source.index('sudo systemctl restart "$SERVICE_NAME"')
+    restart = source.index('sudo -n systemctl restart "$SERVICE_NAME"')
 
     assert migration < convergence < restart
     assert "deploy/postgres/converge_runtime_object_acls.sql" in source
