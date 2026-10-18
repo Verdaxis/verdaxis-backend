@@ -49,6 +49,18 @@ def test_cors_wraps_early_refusals_and_untrusted_origin_has_no_allow_origin(clie
         assert response.headers.get("access-control-allow-origin") == (origin if origin == allowed else None)
 
 
+def test_approved_json_wording_vectors_preserve_type_and_location(client):
+    import json
+    from pathlib import Path
+    ledger = json.loads((Path(__file__).parent / "phase2/json-syntax-differences.json").read_text())
+    assert ledger["allowed_differences"] == ["detail/*/msg", "detail/*/ctx/error"]
+    for vector in ledger["vectors"]:
+        response = client.post("/api/feedback", content=vector["raw"].encode(), headers={"content-type":"application/json"})
+        error = response.json()["detail"][0]
+        assert {"status":response.status_code,"type":error["type"],"loc":error["loc"]} == vector["python"], vector["id"]
+        assert vector["python"] == vector["rust_expected"]
+
+
 def test_preauth_admin_bucket_is_one_prefix_not_per_path(client):
     from app.middleware import preauth_rate_limit
     preauth_rate_limit._buckets.clear()
