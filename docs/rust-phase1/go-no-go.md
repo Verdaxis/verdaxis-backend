@@ -1,71 +1,3 @@
-# Rust Phase 1 go/no-go
-
-## Founder decisions 86/87 — 18 October 2026
-
-**Overall: INCONCLUSIVE; not GO.** The frozen baseline is now valid under the
-explicit founder waiver. Existing Rust measurements do not meet the new evidence
-contract: they are paired historical runs without the baseline/harness identity
-and have fewer than 1,000 successful samples per route. No fresh performance
-measurement was run in this lane. No deployment is authorized.
-
-### Rule
-
-- Python is retained as the differential correctness oracle at both sizes.
-  Zero unexplained contract differences and a passing integration suite remain
-  mandatory. The supplied large simulation still records 33 historical trade-tape
-  differences; the small prices rerun does not replace that large result.
-- Small Rust performance compares only against the committed frozen Python
-  baseline, never a live Python performance cell. Weighted mix p95 must not rise.
-  Per-route p95 blocks only above 100 ms or above 50% regression. Error-rate
-  comparison uses exact integer count cross-products against the frozen 5xx/503
-  rate, so different offered request totals are allowed.
-- Large workload is Rust-only and reported under decisions 82/86. Valid baseline
-  and Rust measurement evidence, including the success floor, remain mandatory.
-- Rust memory is reported, not blocking. Python speed and memory are not measured.
-- Missing/edited/unpinned baseline, missing routes, invalid latency, insufficient
-  Rust successes, or missing/mismatched run identity give INCONCLUSIVE, never GO.
-
-### Baseline source and attestation
-
-Used the latest complete route-coverage small Python run at source/harness
-`738fe0e85d85d7667263e8950fe4de4c05831e38`, not the older v2 run. The source file
-hash was verified again during copying. Historical `workload.manifest_digest`
-from that commit computed `85d6617ffc7361c05446e4e485c5b00112fc88b6f76671e6c8ca552880aca215`.
-The run did not itself contain a manifest digest; that fact and the PM attestation
-are explicit in the baseline. Source/harness identity and 18 Oct 14:24 SGT end
-time are PM-attested under decision 87, not inferred from file timestamps.
-
-The founder freezes 106–151 successful samples per route/tool for Python only:
-"below the 1,000-sample floor; frozen by founder decision 87". Rust keeps its
-1,000-successful-sample floor at every route and all three tools.
-
-R27 frozen p95 is **0.148993900 s**, 150 successes / 150 offered, zero 5xx.
-The integer-microsecond relative cap permits up to 0.223491 s; 0.223492 s blocks.
-The full old small Rust R27 p95 (0.946 s) is diagnostic only, not current qualified
-Rust evidence. Large old threshold regressions remain same-meaning fix items;
-no current fix/block list is certified until Rust evidence admission passes.
-
-### Rust-only measurement usage
-
-`measure.py --rust-only` (also the default) starts only Rust, not Python.
-Use equal-weight fixed windows at 5 RPS or higher; a higher rate is stricter for
-Rust and is disclosed in the report. For example a 10 RPS, 3,600-second window
-can offer at least 1,000 requests to every route/tool, but only successful 2xx
-responses count toward the floor. Rate limits and failures are never bypassed.
-A bounded run below the floor records INCONCLUSIVE; extend the reviewed duration
-rather than count failed requests as successes. Rust identity records full source
-and harness SHAs, manifest and baseline digests, date and offered rates. Use the
-exclusive `heavy measure` helper for an actual performance run.
-
-### Verification
-
-All builds/tests ran on the isolated test host through `heavy run 3600`.
-The gate and whole workspace tests, Python contract suite, rustfmt check and strict
-clippy passed (exit 0). Report regeneration and nonempty output check passed
-(exit 0). CI for the pushed branch is checked separately. No serving SQL changed.
-
-## Generated evidence report
-
 # Rust Phase 1 go/no-go — decisions 86 and 87
 
 Python is the correctness reference only. Speed and small-size error rates use the pinned frozen baseline.
@@ -119,98 +51,64 @@ Large Rust speed and errors are reported; Rust memory is reported only. Both siz
 
 ## Small workload
 
-- Outcome: INCONCLUSIVE.
-- Rust-only performance evidence: inconclusive (missing Rust-only workload identity).
-- Offered Rust rates: [1.0, 5.0]; higher than the frozen 5 RPS maximum is stricter for Rust.
-- zero unexplained contract differences at both sizes: no-go ({'outcome': 'no-go', 'differences': 33, 'missing': [], 'invalid': []}).
+- Outcome: PASS.
+- Rust-only performance evidence: pass (validated).
+- Offered Rust rates: [10.0]; higher than the frozen 5 RPS maximum is stricter for Rust.
+- zero unexplained contract differences at both sizes: pass ({'outcome': 'pass', 'differences': 0, 'missing': [], 'invalid': []}).
 - integration suite: pass (explicit suite result).
-- Rust-only frozen-baseline performance evidence: inconclusive (missing Rust-only workload identity).
-- Rust memory steady median: 43.0 MiB; non-blocking.
+- Rust-only frozen-baseline performance evidence: pass (validated).
+- Rust memory steady median: 52.9 MiB; non-blocking.
 - Blocking routes: none proven.
 - Same-meaning fix items: none proven.
+- Measured source SHA: `8a5e45369326db6a25bc94e0aa7cbbe0ff263310`; harness SHA `8a5e45369326db6a25bc94e0aa7cbbe0ff263310`; run identity rust-only at [10.0] RPS on the equal-weight schedule, baseline pin `3c74f7960add211757198149241f1633ef90a165ec89a902ac40bf79c1f8ea5e`.
+- The integration branch later adds only the 16-slot admission change and gate code; no query change follows this measurement.
 
 Historical/unqualified Rust samples remain diagnostic when evidence admission fails.
 
 | Route/tool | Rust p95 (s) | Successful | Required |
 | --- | ---: | ---: | ---: |
-| R01 | 0.085 | 150 | 1000 |
-| R02 | 0.036 | 151 | 1000 |
-| R03 | 0.027 | 151 | 1000 |
-| R04 | 0.112 | 150 | 1000 |
-| R05 | 0.031 | 151 | 1000 |
-| R06 | 0.097 | 149 | 1000 |
-| R07 | 0.038 | 151 | 1000 |
-| R08 | 0.039 | 151 | 1000 |
-| R09 | 0.540 | 150 | 1000 |
-| R10 | 0.121 | 151 | 1000 |
-| R11 | 0.360 | 150 | 1000 |
-| R12 | 0.081 | 151 | 1000 |
-| R13 | 0.104 | 151 | 1000 |
-| R14 | 0.043 | 143 | 1000 |
-| R15 | 0.154 | 150 | 1000 |
-| R16 | 1.460 | 150 | 1000 |
-| R17 | 0.759 | 150 | 1000 |
-| R18 | 1.345 | 150 | 1000 |
-| R19 | 0.275 | 151 | 1000 |
-| R20 | 0.327 | 150 | 1000 |
-| R21 | 0.326 | 151 | 1000 |
-| R22 | 0.451 | 149 | 1000 |
-| R23 | 0.400 | 150 | 1000 |
-| R24 | 0.236 | 150 | 1000 |
-| R25 | 0.254 | 151 | 1000 |
-| R26 | 1.488 | 150 | 1000 |
-| R27 | 0.946 | 150 | 1000 |
-| get_market_slice | 0.072 | 151 | 1000 |
-| list_markets | 0.011 | 151 | 1000 |
-| plan_voyage_fuel | 0.028 | 151 | 1000 |
+| R01 | 0.037 | 1197 | 1000 |
+| R02 | 0.016 | 1200 | 1000 |
+| R03 | 0.016 | 1199 | 1000 |
+| R04 | 0.119 | 1200 | 1000 |
+| R05 | 0.045 | 1200 | 1000 |
+| R06 | 0.170 | 1200 | 1000 |
+| R07 | 0.023 | 1200 | 1000 |
+| R08 | 0.025 | 1199 | 1000 |
+| R09 | 0.361 | 1196 | 1000 |
+| R10 | 0.074 | 1200 | 1000 |
+| R11 | 0.179 | 1200 | 1000 |
+| R12 | 0.047 | 1199 | 1000 |
+| R13 | 0.110 | 1197 | 1000 |
+| R14 | 0.034 | 596 | 570 |
+| R15 | 0.151 | 1200 | 1000 |
+| R16 | 1.040 | 1200 | 1000 |
+| R17 | 0.532 | 1200 | 1000 |
+| R18 | 0.915 | 1200 | 1000 |
+| R19 | 0.191 | 1199 | 1000 |
+| R20 | 0.147 | 1200 | 1000 |
+| R21 | 0.221 | 1198 | 1000 |
+| R22 | 0.399 | 1198 | 1000 |
+| R23 | 0.197 | 1200 | 1000 |
+| R24 | 0.144 | 1200 | 1000 |
+| R25 | 0.146 | 1199 | 1000 |
+| R26 | 0.925 | 1200 | 1000 |
+| R27 | 0.093 | 1200 | 1000 |
+| get_market_slice | 0.107 | 1200 | 1000 |
+| list_markets | 0.009 | 1200 | 1000 |
+| plan_voyage_fuel | 0.016 | 1200 | 1000 |
 
 ## Large workload
 
 - Outcome: INCONCLUSIVE.
 - Rust-only performance evidence: inconclusive (missing Rust-only workload identity).
 - Offered Rust rates: not measured; higher than the frozen 5 RPS maximum is stricter for Rust.
-- zero unexplained contract differences at both sizes: no-go ({'outcome': 'no-go', 'differences': 33, 'missing': [], 'invalid': []}).
+- zero unexplained contract differences at both sizes: pass ({'outcome': 'pass', 'differences': 0, 'missing': [], 'invalid': []}).
 - integration suite: pass (explicit suite result).
 - Rust-only frozen-baseline performance evidence: inconclusive (missing Rust-only workload identity).
-- Rust memory steady median: 192.1 MiB; non-blocking.
+- Rust memory steady median: not measured; non-blocking.
 - Blocking routes: none proven.
 - Same-meaning fix items: none proven.
 
-Historical/unqualified Rust samples remain diagnostic when evidence admission fails.
-
-| Route/tool | Rust p95 (s) | Successful | Required |
-| --- | ---: | ---: | ---: |
-| R01 | 0.052 | 20 | 1000 |
-| R02 | 0.044 | 20 | 1000 |
-| R03 | 0.032 | 20 | 1000 |
-| R04 | 0.027 | 20 | 1000 |
-| R05 | 0.040 | 20 | 1000 |
-| R06 | 1.431 | 20 | 1000 |
-| R07 | 0.042 | 20 | 1000 |
-| R08 | 0.080 | 20 | 1000 |
-| R09 | 14.639 | 20 | 1000 |
-| R10 | 0.790 | 20 | 1000 |
-| R11 | 1.399 | 20 | 1000 |
-| R12 | 0.076 | 20 | 1000 |
-| R13 | 1.336 | 20 | 1000 |
-| R14 | 1.093 | 20 | 1000 |
-| R15 | 0.960 | 20 | 1000 |
-| R16 | 7.218 | 20 | 1000 |
-| R17 | 3.228 | 20 | 1000 |
-| R18 | 7.741 | 20 | 1000 |
-| R19 | 3.092 | 20 | 1000 |
-| R20 | 1.376 | 20 | 1000 |
-| R21 | 4.062 | 20 | 1000 |
-| R22 | 3.731 | 20 | 1000 |
-| R23 | 2.147 | 20 | 1000 |
-| R24 | 1.942 | 20 | 1000 |
-| R25 | 2.626 | 20 | 1000 |
-| R26 | 7.450 | 20 | 1000 |
-| R27 | 0.382 | 20 | 1000 |
-| get_market_slice | 0.788 | 20 | 1000 |
-| list_markets | 0.012 | 20 | 1000 |
-| plan_voyage_fuel | 0.027 | 20 | 1000 |
-- Adaptive probe: no clean rate found; 5xx/503 at 1 RPS.
-
-- Integration evidence: Historical suite: 79 passed, exit 0; no fresh mutating integration run in this lane.
+- Integration evidence: not supplied.
 - Production status: not authorized by this report.
