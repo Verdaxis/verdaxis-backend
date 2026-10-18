@@ -789,6 +789,17 @@ CREATE EXTENSION IF NOT EXISTS postgis;
             raise RunnerError("Phase 2 measurement, benchmark and race routes are not implemented")
         if args.phase2_group != "all" and any(known[name]["group"] not in {args.phase2_group, "all"} for name in selected):
             raise RunnerError("scenario does not belong to selected group")
+        if selected == ["http-boundaries"]:
+            environment = {**os.environ, "ENVIRONMENT": "test", "RELEASE_SHA": self.sha,
+                           "JWT_SECRET": "test-secret-key-for-testing-minimum-32-chars", "DATABASE_URL": "sqlite+aiosqlite:///:memory:"}
+            subprocess.run([self.python_bin,"-m","pytest","tests/rust_contract/test_phase2_http.py","-q"],cwd=ROOT,env=environment,check=True)
+            subprocess.run(["cargo","test","--manifest-path","rs/Cargo.toml","--locked","-p","verdaxis-read","--test","phase2_http","--test","http_contract"],cwd=ROOT,
+                env={**environment,"SQLX_OFFLINE":"true"},check=True)
+            if args.report:
+                args.report.parent.mkdir(parents=True,exist_ok=True)
+                args.report.write_text(json.dumps({"source_sha":self.sha,"scenario":"http-boundaries","scope":"component-contract",
+                    "python_exit":0,"rust_exit":0,"cross_process_ingress_qualified":False},indent=2)+"\n")
+            return
         if selected == ["auth-token-matrix"]:
             subprocess.run([self.python_bin, "-m", "scripts.rust_contract.phase2_auth_vectors", "--check"],
                 cwd=ROOT, env={**os.environ, "ENVIRONMENT": "test", "RELEASE_SHA": self.sha,
