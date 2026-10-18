@@ -1,0 +1,199 @@
+{
+  "profile": "phase1-meaning-v1",
+  "rules_sha256": "f68125dd74d59f0af49f120b839d8e3cdadef1deca8027f9d0f08fc8a0b99e0e",
+  "source_sha": "56567679662daa76c9b7171015f57a7e76a3609a",
+  "clock": "2026-10-15T12:00:00+00:00",
+  "group": "health",
+  "kyc_gate": false,
+  "entries": [
+    {
+      "id": "H01-ready--kyc-off",
+      "request": {
+        "method": "GET",
+        "path": "/health/ready",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "status": "ok",
+          "db": "ok",
+          "environment": "test",
+          "release_sha": "56567679662daa76c9b7171015f57a7e76a3609a"
+        },
+        "body_sha256": "79f18b39a214b66df1a6d7c096dfeaefa503cbf71fea2e90ff21426fb8b5d8cf"
+      },
+      "raw_body_base64": "eyJzdGF0dXMiOiJvayIsImRiIjoib2siLCJlbnZpcm9ubWVudCI6InRlc3QiLCJyZWxlYXNlX3NoYSI6IjU2NTY3Njc5NjYyZGFhNzZjOWI3MTcxMDE1ZjU3YTdlNzZhMzYwOWEifQ=="
+    },
+    {
+      "id": "H02-live--kyc-off",
+      "request": {
+        "method": "GET",
+        "path": "/health/live",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "status": "ok"
+        },
+        "body_sha256": "a29ee2b15c494311c52521766e44af56a3ad2248e7a8ab465e5206463c13d288"
+      },
+      "raw_body_base64": "eyJzdGF0dXMiOiJvayJ9"
+    },
+    {
+      "id": "H03-alias--kyc-off",
+      "request": {
+        "method": "GET",
+        "path": "/health",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "status": "ok",
+          "db": "ok",
+          "environment": "test",
+          "release_sha": "56567679662daa76c9b7171015f57a7e76a3609a"
+        },
+        "body_sha256": "79f18b39a214b66df1a6d7c096dfeaefa503cbf71fea2e90ff21426fb8b5d8cf"
+      },
+      "raw_body_base64": "eyJzdGF0dXMiOiJvayIsImRiIjoib2siLCJlbnZpcm9ubWVudCI6InRlc3QiLCJyZWxlYXNlX3NoYSI6IjU2NTY3Njc5NjYyZGFhNzZjOWI3MTcxMDE1ZjU3YTdlNzZhMzYwOWEifQ=="
+    },
+    {
+      "id": "H04-live-head--kyc-off",
+      "request": {
+        "method": "HEAD",
+        "path": "/health/live",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 405,
+        "headers": {
+          "allow": "GET",
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": null,
+        "body_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "raw_body_base64": ""
+    },
+    {
+      "id": "H05-live-post-405--kyc-off",
+      "request": {
+        "method": "POST",
+        "path": "/health/live",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 405,
+        "headers": {
+          "allow": "GET",
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "detail": "Method Not Allowed"
+        },
+        "body_sha256": "83c09ba9a8daedb136f90b17a294caa90ad471a016e430df6e229acb5a81e100"
+      },
+      "raw_body_base64": "eyJkZXRhaWwiOiJNZXRob2QgTm90IEFsbG93ZWQifQ=="
+    },
+    {
+      "id": "H06-live-options-405--kyc-off",
+      "request": {
+        "method": "OPTIONS",
+        "path": "/health/live",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 405,
+        "headers": {
+          "allow": "GET",
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "detail": "Method Not Allowed"
+        },
+        "body_sha256": "83c09ba9a8daedb136f90b17a294caa90ad471a016e430df6e229acb5a81e100"
+      },
+      "raw_body_base64": "eyJkZXRhaWwiOiJNZXRob2QgTm90IEFsbG93ZWQifQ=="
+    },
+    {
+      "id": "H07-live-slash--kyc-off",
+      "request": {
+        "method": "GET",
+        "path": "/health/live/",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 307,
+        "headers": {
+          "location": "{endpoint}/health/live",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": null,
+        "body_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "raw_body_base64": ""
+    },
+    {
+      "id": "H08-unknown-path--kyc-off",
+      "request": {
+        "method": "GET",
+        "path": "/nope",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 404,
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "detail": "Not Found"
+        },
+        "body_sha256": "37ec4665a8102d115ffd1ac20dae94c98b4dac64b0c1a68228aa2a531caeb35d"
+      },
+      "raw_body_base64": "eyJkZXRhaWwiOiJOb3QgRm91bmQifQ=="
+    }
+  ]
+}

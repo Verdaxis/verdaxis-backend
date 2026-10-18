@@ -22,3 +22,21 @@ def test_successor_does_not_fall_back_to_bytes():
     right = recording(b'{ "market_hours":true,"total":0.0,"items":[] }')
     assert compare.recording_differences(left, right, profile="phase1-meaning-v1", rules_sha256=PHASE1_RULES_SHA256) == []
     assert compare.recording_differences(left, right)
+
+
+def test_successor_corpus_keeps_every_request_in_both_kyc_states():
+    import json
+    from pathlib import Path
+    root = Path(__file__).parent
+    groups = json.loads((root / "cases.json").read_text())["groups"]
+    for mode in ("enabled", "disabled"):
+        paths = list((root / "phase1_meaning/corpus" / mode).glob("*.json"))
+        assert {path.stem for path in paths} == set(groups)
+        for path in paths:
+            document = json.loads(path.read_text())
+            assert document["profile"] == "phase1-meaning-v1"
+            assert document["rules_sha256"] == PHASE1_RULES_SHA256
+            ids = [entry["id"].removesuffix("--kyc-off") for entry in document["entries"]]
+            assert ids == [case["id"] for case in groups[path.stem]]
+            for entry in document["entries"]:
+                assert entry["raw_body_base64"] is not None

@@ -212,6 +212,19 @@ carries neither record and reads no Rust path.
 `docs/rust-phase1/progress-task12c.md` holds the unit digest, the artifact
 digest and the systemd 249/255 and staging-ABI start evidence.
 
+## Phase 1 same-meaning successor
+
+The explicit `phase1-meaning-v1` profile reuses `phase2_meaning.py` and its single
+raw-response comparator. The default byte path remains historical and unchanged.
+The successor CI runner supplies the reviewed ledger digest explicitly.
+`phase1_meaning/corpus/{enabled,disabled}` retains all 487 requests per KYC state,
+recorded twice on disposable data. Canonical tape pages come from the complete
+Python-filtered relation before full-UUID pagination, not a sorted Python page.
+`runtime/cache.rs` stores only bounded public reference payloads for 60 seconds;
+request headers are rebuilt. Trading caches remain unimplemented and disabled.
+Exact `market/amount.rs` operations retain intermediate economic rounding while
+removing wire-spelling emulation. See `docs/rust-phase1/same-meaning-contract.md`.
+
 ## Rust Phase 2 contract preparation
 
 `tests/rust_contract/phase2/routes.json` pins the 27 CRUD method/path pairs,

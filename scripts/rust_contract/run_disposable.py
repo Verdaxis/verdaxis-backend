@@ -696,7 +696,7 @@ CREATE EXTENSION IF NOT EXISTS postgis;
             raise TimeoutError("recording deadline exceeded (stream did not close)")
 
         for group, requests in cases.items():
-            if group == "mcp":
+            if group == "mcp" and os.environ.get("RUST_CONTRACT_PROFILE") != "phase1-meaning-v1":
                 print("RECORD_EXCLUDED mcp: decision 19; Task 11", flush=True)
                 continue
             previous = signal.signal(signal.SIGALRM, deadline)
@@ -711,6 +711,20 @@ CREATE EXTENSION IF NOT EXISTS postgis;
             finally:
                 signal.alarm(0)
                 signal.signal(signal.SIGALRM, previous)
+            if os.environ.get("RUST_CONTRACT_PROFILE") == "phase1-meaning-v1":
+                import asyncio
+
+                from scripts.rust_contract.meaning_runner import (
+                    canonical_response,
+                    raw_response,
+                    route_id,
+                )
+                for entries in (first, second):
+                    for entry in entries:
+                        if route_id(entry["request"]) == "P1-R06" and entry["exchange"]["status"] == 200:
+                            response, proof = asyncio.run(canonical_response(entry["request"], raw_response(entry)))
+                            entry["raw_body"] = response["body"]
+                            entry["canonical_tape_proof"] = proof
             problems = differences(first, second)
             unstable.extend(problems)
             print(
@@ -749,6 +763,15 @@ CREATE EXTENSION IF NOT EXISTS postgis;
                 entries = [
                     {**entry, "id": entry["id"] + "--kyc-off"} for entry in entries
                 ]
+            if os.environ.get("RUST_CONTRACT_PROFILE") == "phase1-meaning-v1":
+                from scripts.rust_contract.record import stable
+                document = {"profile": "phase1-meaning-v1", "rules_sha256": os.environ["MEANING_RULES_SHA256"],
+                            "source_sha": self.sha, "clock": CORPUS_CLOCK, "group": group,
+                            "kyc_gate": self.gate, "entries": stable(entries)}
+                destination = ROOT / "tests/rust_contract/phase1_meaning/corpus" / ("enabled" if self.gate else "disabled")
+                destination.mkdir(parents=True, exist_ok=True)
+                (destination / (group + ".json")).write_text(json.dumps(document, indent=2, default=str) + "\n")
+                continue
             write_golden(
                 ROOT / "tests/rust_contract",
                 self.sha,
