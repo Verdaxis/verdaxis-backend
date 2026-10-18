@@ -1,5 +1,51 @@
 # Phase 2 Task 8 — notifications
 
+## Final acceptance update — runner fix 1
+
+This section supersedes the historical blockers and pending gates below.
+
+Runner fix `808f4fa8` was merged as `4f60edd4`. The actual notifications group
+with `--phase2-races` passed: 16 sequential HTTP/full-state actions and six
+four-client race repetitions, seeds 20261019–20261024. Each race compares replies
+by actor and checks complete committed state. Schedules cover same-user
+single/read-all, same-org different user, and cross-org rollback. These are
+commuting-write invariants; no deterministic SQL lock order is claimed.
+
+The sequential actions include two trigger-induced rollback failures, repeated
+hidden-row marks, and one postcommit response-loss classification. The test-only
+adapter returns 503 after the route committed, retaining exactly the intended
+read-state unit. The executor sends that action once, with no automatic replay.
+This is an injected response failure, not proof of TCP disconnect behavior.
+Full notification data, other users and unrelated tables remain unchanged;
+mail ledgers are empty. Task 8 produces no events and needs no mixed dispatcher
+or invite-delivery gate.
+
+Current own exits (all calls finished):
+
+| Gate | Own exit | Evidence |
+| --- | ---: | --- |
+| First fixed-runner route attempt | 1 | Python fault adapter dropped request-ID headers; corrected task-owned hook |
+| Corrected real notification group with races | 0 | 16 actions, six race repetitions; `ROUTE_GATE_EXIT=0`, `CALL_EXIT=0` |
+| Required PostgreSQL component | 0 | Seven tests passed, including approved offset vectors; no skips |
+| Clippy | 0 | Component test and contract adapter, warnings denied |
+| Registry suite | 0 | Ten tests passed with isolated registries |
+| Workspace formatting check | 0 | Passed |
+| Final enclosing quality call | 0 | `CALL_EXIT=0` |
+
+`skip > i64::MAX` is an **approved difference**, PM 19 October under decision 94,
+not unresolved drift. `notifications.json` records maximum/overflow vectors and
+the component test executes the Rust cases. Python accepts the large integer
+then fails in the driver; Rust returns 422 before database work. No comparator
+exception was added. The ordinary route scenarios remain strict comparisons.
+
+Temporary logs and the runner JSON are in `work/rust-phase2/`; no tokens or raw
+responses are committed. The successful route report identifies base HEAD
+`4f60edd4` with the tested uncommitted adapter header correction; the subsequent
+commit preserves that correction and the approved vectors. CI is run on the
+pushed final commit through draft PR #99. No measurements or deployments ran.
+
+## Historical record
+
 ## Status and resume point
 
 The Rust component is implemented and passes its focused PostgreSQL tests. The runner branch was merged as `2507d442`; real scenario registration and task-local adapters are added. **Route acceptance is blocked by two shared-runner compatibility defects. Task 8 is not yet complete.** No cutover qualification is claimed.

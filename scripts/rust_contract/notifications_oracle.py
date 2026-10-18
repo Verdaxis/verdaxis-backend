@@ -16,7 +16,10 @@ async def with_response_loss(self, scope, receive, send):
     await original(self, scope, receive, capture)
     start = next(message for message in messages if message["type"] == "http.response.start")
     if start["status"] == 200:
-        await send({"type": "http.response.start", "status": 503, "headers": [(b"content-type", b"application/json")]})
+        headers = [(name, value) for name, value in start["headers"]
+                   if name.lower() not in (b"content-type", b"content-length")]
+        headers.append((b"content-type", b"application/json"))
+        await send({"type": "http.response.start", "status": 503, "headers": headers})
         await send({"type": "http.response.body", "body": b'{"detail":"Injected response loss"}'})
     else:
         for message in messages:

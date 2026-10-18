@@ -97,6 +97,27 @@ fn notification_query_matches_the_fastapi_declarations() {
 }
 
 #[test]
+fn notification_offset_overflow_matches_approved_vectors() {
+    let fixture: Value = serde_json::from_str(FIXTURE).unwrap();
+    for vector in fixture["approved_differences"][0]["vectors"]
+        .as_array()
+        .unwrap()
+    {
+        let result = notifications::notification_query(vector["query"].as_str().unwrap());
+        if vector.get("rust_status").is_some() {
+            let error = result.expect_err("overflow rejected before database");
+            assert_eq!(
+                error.status.as_u16(),
+                vector["rust_status"].as_u64().unwrap() as u16
+            );
+            assert_eq!(error.detail[0]["type"], vector["rust_type"]);
+        } else {
+            assert!(result.is_ok());
+        }
+    }
+}
+
+#[test]
 fn notification_path_parameter_uses_the_path_location() {
     let parsed = notifications::parse_notification_id(USER_A).expect("valid uuid");
     assert_eq!(parsed, Uuid::parse_str(USER_A).unwrap());

@@ -98,7 +98,7 @@
       "id": "skip-above-i64",
       "observed": "Rust refuses skip above i64::MAX with 422 `less_than_equal`",
       "python": "int is unbounded, so FastAPI accepts it and PostgreSQL fails to encode the offset",
-      "disposition": "recorded, not repaired: the refusal is deterministic and never reaches the driver"
+      "disposition": "Approved by PM on 2026-10-19 under decision 94: reject offsets above PostgreSQL i64 capacity with 422; do not copy Python driver failure."
     },
     {
       "id": "json-number-text",
@@ -117,6 +117,31 @@
       "observed": "runtime::http owns the trailing-slash redirect and the `405 Allow` list",
       "python": "Starlette redirects `GET /api/notifications/` with 307 and answers other methods with 405",
       "disposition": "integration-lane change: the four private paths are absent from MOUNTED_GET_PATHS"
+    }
+  ],
+  "approved_differences": [
+    {
+      "id": "N01-skip-above-i64",
+      "approval": "PM 2026-10-19; decision 94",
+      "vectors": [
+        {
+          "query": "skip=9223372036854775807",
+          "rust": "accepted offset",
+          "python": "accepted offset"
+        },
+        {
+          "query": "skip=9223372036854775808",
+          "rust_status": 422,
+          "rust_type": "less_than_equal",
+          "python": "validation accepts; PostgreSQL driver rejects offset"
+        },
+        {
+          "query": "skip=18446744073709551615",
+          "rust_status": 422,
+          "rust_type": "less_than_equal",
+          "python": "validation accepts; PostgreSQL driver rejects offset"
+        }
+      ]
     }
   ]
 }
