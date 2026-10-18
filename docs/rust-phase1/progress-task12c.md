@@ -54,7 +54,7 @@ commit, `20c9d7dd`, the bootstrap SHA. See *CI follow-ups* below.
 | --- | --- |
 | Bootstrap SHA plan | The inactive first release is the commit that lands these unit bytes and the manifest entry, subject **`feat: add the staged Rust unit and its manifest entry`**. It landed locally as `20c9d7dd`, but read its exact SHA with `git rev-parse` on the reviewed push: the PM rebases this branch onto the remote, so any SHA written here would change. Baseline before this task: `d06e8248`. |
 | Unit bytes | `deploy/systemd/verdaxis-rust-staging.service` |
-| Unit SHA-256 | `6662a389e04a67ddc7d291a93ae0814b05047ff8f8bb07a55642fdb882de9453` |
+| Current unit SHA-256 (19 Oct bootstrap correction) | `e18cae0829bd0424536c1640b9b3ff63f2618f6848dd7bbd86c1b57e4f5b4666` |
 | Manifest SHA-256 | `fb25de27f6d0366a0a896a4d12e18a8e86336655a860d6747e0849e2875cd64d` |
 | Manifest entry | `staging	verdaxis-rust-staging.service` |
 | `deploy/rust/staging-policy.json` `rust_enabled` | `false` (Rust stays inactive in this tree) |
@@ -73,8 +73,10 @@ the PM's provenance record (Task 12a/12b).
 
 ## Unit contract, test-proven
 
-- `ExecStart` is exactly the binary the transaction installs
-  (`.runtime-rust/verdaxis-read`, atomic rename, `chmod 0755`) and the
+- `ExecStart` uses `/usr/bin/env` without `-i` to exec the exact binary the
+  transaction installs (`.runtime-rust/verdaxis-read`, atomic rename,
+  `chmod 0755`). This preserves the environment and main PID, but lets systemd
+  verify the unit before the first artifact exists. The
   transaction's own `RUST_UNIT_NAME`/`RUST_RUNTIME_DIR` variables are asserted
   against the unit's absolute paths, so unit and deploy cannot drift.
 - `EnvironmentFile` lines are exactly `.runtime-release.env` and
@@ -120,6 +122,18 @@ The second run mounted `runtime.env` **as a file**, so the denial comes from the
 file's own mode, not from a directory bit.
 
 ## systemd syntax verification (PM requirement 3)
+
+**19 Oct correction:** The results below are historical checks of the original
+`6662a389…9453` unit, not first-install acceptance. Materializing its `ExecStart`
+path hid a bootstrap dependency: the old helper, installer and bootstrap helper
+verify the unit before any Rust artifact exists. The current unit uses
+`/usr/bin/env` and the regression leaves `.runtime-rust/` absent. On the staging
+test host, systemd `249.11-0ubuntu3.23`, all three verifier calls failed with
+exit 1 before the change and pass with exit 0 after it. Only the checkout prefix
+is relocated into a private test directory; no host placeholder is created.
+Systemd 249 does not support `verify --root`. See
+[the bootstrap correction record](bootstrap-unit-verify.md) for the audit and gates.
+
 
 The test host is Ubuntu 24.04 with systemd 255; staging is Ubuntu 22.04 with
 systemd 249. Unit SHA-256 as verified: `6662a389…9453`.
