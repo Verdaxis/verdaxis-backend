@@ -169,3 +169,66 @@ def test_measurement_defaults_to_rust_only():
     run = Measurement("small", output_dir=Path("work/test"), warmup_seconds=0,
                       windows=[(3000, 10)], repetitions=1)
     assert run.measurement_targets(1, 2) == [("rust", 2)]
+
+
+# ------------------------------------------------- decision 96 rate-limited floors
+
+
+def limited_measurement(route_counts: dict | None = None, offered_per_route: int = 1200):
+    """A Rust-only 3,600 s run at 10 RPS (30 routes x 1,200 offered).
+
+    `route_counts` overrides a route's successful 2xx count; the rest of that
+    route's offers are recorded as rate-limited 429 responses, exactly as the
+    real measurement records them. The offered total stays 36,000, so the
+    gate's derived window is exactly 3,600 s.
+    """
+    base = report.load_python_baseline()
+    config = report.gate_config()
+    route_counts = route_counts or {}
+    samples = []
+    for rid, row in base["routes"].items():
+        successes = route_counts.get(rid, 1000)
+        successes = min(successes, offered_per_route)
+        samples.extend({"route_id": rid, "seconds": row["p95"] / 2, "status": 200, "rps": 10.0}
+                       for _ in range(successes))
+        samples.extend({"route_id": rid, "seconds": row["p95"] / 2, "status": 429, "rps": 10.0}
+                       for _ in range(offered_per_route - successes))
+    return {"size": "small", "mode": "rust-only", "source_sha": "a" * 40, "harness_sha": "a" * 40,
+            "manifest_digest": base["manifest_digest"], "baseline_sha256": config["python_baseline_sha256"],
+            "measurement_date": "2026-10-18", "rates_rps": [10.0], "weight_key": "weight_baseline",
+            "repetitions": [{"index": 0, "cells": {"rust": {"counters": [], "samples": samples}}}]}
+
+
+def rate_limited_route():
+    """The route the committed limits table names (R14, 10 per minute)."""
+    limits = report.gate_config()["rust_route_limits_per_minute"]
+    assert set(limits) <= set(report.load_python_baseline()["routes"])
+    rid = "R14"  # the 10-per-minute export route the decision names
+    assert limits[rid] == 10
+    return rid
+
+
+def test_rate_limited_route_reaches_its_written_floor():
+    # R14's written limit allows 600 successes in 3,600 s; 95% of that is 570,
+    # and the real decision-87 run recorded exactly 596.
+    assert verdict(limited_measurement({"R14": 596}))["outcome"] == "pass"
+
+
+def test_rate_limited_route_below_its_written_floor_fails():
+    # 569 successes is below the 570 floor (95% of the 600 the limit allows).
+    assert verdict(limited_measurement({"R14": 569}))["outcome"] == "inconclusive"
+
+
+def test_unlimited_route_at_999_still_fails():
+    # A route with no written limit keeps the full 1,000 floor.
+    assert verdict(limited_measurement({"R27": 999}))["outcome"] == "inconclusive"
+
+
+def test_missing_limit_entry_is_inconclusive(monkeypatch):
+    # The limits table must name real routes only; a non-positive limit is a defect.
+    rid = rate_limited_route()
+    evidence = limited_measurement({rid: 596})
+    config = report.gate_config()
+    broken = {**config, "rust_route_limits_per_minute": {rid: 0}}
+    monkeypatch.setattr(report, "gate_config", lambda: broken)
+    assert verdict(evidence)["outcome"] == "inconclusive"

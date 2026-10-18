@@ -44,6 +44,11 @@ pub struct RustMeasurement {
 struct GateConfig {
     python_baseline_sha256: String,
     rust_successful_samples_per_route: u64,
+    /// Written per-client per-minute limits (tracker decision 78). A route in
+    /// this table can never receive more successes in a window than its limit
+    /// allows, so decision 96 lowers its floor to 95% of that maximum.
+    #[serde(default)]
+    rust_route_limits_per_minute: std::collections::BTreeMap<String, u64>,
 }
 #[derive(Deserialize)]
 struct BaselineRoute {
@@ -80,6 +85,62 @@ fn hex(value: &str, length: usize) -> bool {
 }
 fn positive(value: f64) -> bool {
     value.is_finite() && value > 0.0
+}
+
+/// Per-route successful-sample floors (decisions 87 and 96).
+///
+/// The measured window is derived from the run's own evidence: total offered
+/// requests divided by the offered rate, which is exact for the fixed-rate
+/// generator the measurement uses. A missing or non-positive limit, a window
+/// that cannot be derived, or a limit naming a route the baseline does not
+/// carry is INCONCLUSIVE.
+fn route_floors(
+    config: &GateConfig,
+    baseline: &Baseline,
+    offered: u64,
+    offered_rates: &[f64],
+) -> Option<std::collections::BTreeMap<String, u64>> {
+    let full_floor = config.rust_successful_samples_per_route;
+    if full_floor < 1000 || config.rust_route_limits_per_minute.is_empty() {
+        return None;
+    }
+    if config
+        .rust_route_limits_per_minute
+        .values()
+        .any(|limit| *limit == 0)
+    {
+        return None;
+    }
+    if offered == 0 || offered_rates.is_empty() || !offered_rates.iter().all(finite_positive) {
+        return None;
+    }
+    let window_seconds = offered as f64 / offered_rates[0];
+    if !finite_positive(&window_seconds) {
+        return None;
+    }
+    let mut floors = std::collections::BTreeMap::new();
+    for id in baseline.routes.keys() {
+        let floor = match config.rust_route_limits_per_minute.get(id) {
+            Some(limit) => (0.95 * *limit as f64 * window_seconds / 60.0).floor() as u64,
+            None => full_floor,
+        };
+        if floor == 0 {
+            return None;
+        }
+        floors.insert(id.clone(), floor.min(full_floor));
+    }
+    if config
+        .rust_route_limits_per_minute
+        .keys()
+        .any(|id| !floors.contains_key(id))
+    {
+        return None;
+    }
+    Some(floors)
+}
+
+fn finite_positive(value: &f64) -> bool {
+    value.is_finite() && *value > 0.0
 }
 
 /// Missing or invalid evidence always yields Inconclusive, including at large.
@@ -138,10 +199,20 @@ pub fn frozen_performance_gate(
         })
         || run.routes.iter().any(|r| {
             !positive(r.p95)
-                || r.successful < config.rust_successful_samples_per_route
                 || r.successful > r.offered
                 || r.errors_5xx > r.offered - r.successful
         })
+    {
+        return invalid();
+    }
+    let offered: u64 = run.routes.iter().map(|r| r.offered).sum();
+    let Some(floors) = route_floors(&config, &base, offered, &run.offered_rates) else {
+        return invalid();
+    };
+    if run
+        .routes
+        .iter()
+        .any(|r| r.successful < floors[&r.route_id])
     {
         return invalid();
     }
