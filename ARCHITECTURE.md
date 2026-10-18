@@ -67,6 +67,18 @@ Current fixtures reuse the Task 6 matrix and add ports, news, exact terms and
 trusted/untrusted signals. The runner pins the runtime KYC switch and records
 all groups twice; incomplete or unstable recordings cannot replace golden data.
 
+Task 14b adds the staging-only shadow content path. `shadow.py` reads private
+reviewed cases, enforces serial rolling call/minute budgets, direct loopback
+transport with an absolute deadline/body cap, separate Python/Rust readiness
+identities, memory-pressure backoff and deploy-state stops. It delegates both
+legs of each Python–Rust–Python sandwich to `compare.compare_responses` with
+the byte profile. Only schema-specific validated request-clock tokens and the
+existing reviewed exact-item tie exceptions may differ. Payloads and internal
+capture hashes stay in memory; evidence is bounded metadata in a private path
+outside the checkout. Missing coverage, empty-only results or an unapproved
+short floor cannot return PASS. Candidate activation remains a separate gate;
+see `docs/rust-phase1/readiness-task14b.md`.
+
 Task 5 exports the catalog policy as data. `scripts/rust_contract/export_policy.py`
 turns the approved `app.market_catalog` constants and the reviewed
 qualification-profile map into `deploy/rust/market-policy.json` (identity, lanes,
@@ -191,13 +203,41 @@ maintenance units. The unit loads `.runtime-release.env` and the deploy-written
 `.runtime-rust/runtime.env` (never the secret-rich `.env`) and runs the deploy
 start guard, the migrator-backed revision check and the budget drift check
 before `ExecStart`; it serves `127.0.0.1:8011` with a 256 MiB cap on the same
-sandbox directives as the running backend unit. Activation stays off in the
-committed `deploy/rust/staging-policy.json` until the two-release bootstrap
-installs this unit; a Rust-enabled staging deploy then restarts both units in
-one call and requires both readiness documents before state clears. Production
+sandbox directives as the running backend unit. Task 14b enables staging-only policy in
+`deploy/rust/staging-policy.json`; this source approval is not an activation
+command. The independent candidate activation path remains a PM gate. The
+canonical Rust-enabled staging deploy restarts both units in one call and
+requires both readiness documents before state clears. Production
 carries neither record and reads no Rust path.
 `docs/rust-phase1/progress-task12c.md` holds the unit digest, the artifact
 digest and the systemd 249/255 and staging-ABI start evidence.
+
+## Rust Phase 2 contract preparation
+
+`tests/rust_contract/phase2/routes.json` pins the 27 CRUD method/path pairs,
+OpenAPI operations, DTO exports, effect classes and Python source digests.
+`export_inventory.py` reproduces the export through the full HTTP OpenAPI route
+on the isolated test host. `evidence-manifest.json` declares required route and
+scenario coverage and separates disposable-artifact qualification from
+production-cutover acceptance. It contains no run results or cutover verdict.
+See `outputs/rust-phase2/source-checkpoint.md` for the oracle identity and checks.
+Authentication issuance, market writers, SSE and dispatch remain Python-owned.
+`compare.py::compare_responses` is the raw-response profile boundary. Its explicit
+`phase2-meaning-v1` branch delegates to private `phase2_meaning.py`, with a
+SHA-256-pinned `normalization.json` ledger. It uses exact tagged JSON values,
+schema-local decimal/timestamp rules and complete-item multisets inside approved
+ties only. The Phase 1 default and existing recording comparator stay unchanged.
+
+Task 5 adds verification-only `rs/read/src/auth/{token,claims}.rs`. It verifies
+HS256 current/previous keys and Python-compatible access claims against an explicit
+clock. Its account projection validates cutoffs and mutable status without issuing
+sessions or exposing database writes. It is not mounted in the serving router;
+Task 6 must load account state under the shared transaction/user-row lock.
+`phase2_auth_vectors.py` exports synthetic full-HTTP Python results for Rust's
+in-process HTTP tests. See `docs/rust-phase2-task5.md` for scope, source findings
+and every gate result.
+
+### Frozen Phase 1 measurement reference
 
 Decisions 86/87 freeze the Python small-workload performance reference in
 `tests/rust_contract/python-baseline-small.json`, pinned by `gate-config.json`.

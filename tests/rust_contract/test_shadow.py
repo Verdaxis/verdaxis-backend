@@ -128,23 +128,116 @@ def test_busy_status_is_not_economic_coverage():
 # ------------------------------------------------------- sandwich classification
 
 
+def observation(raw=b'{"n":1}', status=200, headers=None):
+    return {"status": status, "headers": headers or {"content-type": "application/json"},
+            "raw": raw, "bytes": len(raw), "duration_ms": 1.0,
+            "started_utc": "2026-10-18T00:00:00Z", "ended_utc": "2026-10-18T01:00:00Z"}
+
+
 def test_data_change_is_inconclusive_not_a_match():
-    first = {"status": 200, "n": 1}
-    rust = {"status": 200, "n": 1}
-    third = {"status": 200, "n": 2}
-    assert shadow.classify_sandwich(first, rust, third) == "data_changed"
+    first = observation()
+    third = observation(b'{"n":2}')
+    assert shadow.classify_sandwich(first, first, third, request_path="/api/news") == "data_changed"
 
 
 def test_rust_mismatch_is_a_difference():
-    first = {"status": 200, "n": 1}
-    third = {"status": 200, "n": 1}
-    rust = {"status": 200, "n": 9}
-    assert shadow.classify_sandwich(first, rust, third) == "difference"
+    first = observation()
+    rust = observation(b'{"n":9}')
+    assert len(first["raw"]) == len(rust["raw"])
+    assert shadow.classify_sandwich(first, rust, first, request_path="/api/news") == "difference"
 
 
 def test_matching_sandwich_is_a_match():
-    same = {"status": 200, "n": 1}
-    assert shadow.classify_sandwich(same, dict(same), dict(same)) == "match"
+    same = observation()
+    assert shadow.classify_sandwich(same, dict(same), dict(same), request_path="/api/news") == "match"
+
+
+def test_sandwich_uses_the_authoritative_byte_comparator(monkeypatch):
+    from scripts.rust_contract import compare
+
+    calls = []
+    def authoritative(left, right, *, request_path, profile, live):
+        calls.append((request_path, profile, live))
+        return ["/body:value"] if len(calls) == 2 else []
+    monkeypatch.setattr(compare, "compare_responses", authoritative, raising=False)
+    same = observation()
+    assert shadow.classify_sandwich(same, same, same, request_path="/api/news") == "difference"
+    assert calls == [("/api/news", "byte", True)] * 2
+
+
+@pytest.mark.parametrize("left,right", [
+    (b'{"n":1.0}', b'{"n":1.00}'),
+    (b'{"n":null}', b'{}'),
+    (b'[1,2]', b'[2,1]'),
+    (b'{"a":1,"b":2}', b'{"b":2,"a":1}'),
+    (b'a,b\\n1,2\\n', b'a,b\\r\\n1,2\\r\\n'),
+])
+def test_byte_profile_preserves_wire_content(left, right):
+    from scripts.rust_contract import compare
+
+    headers = {"content-type": "text/csv"} if left.startswith(b'a,b') else None
+    assert compare.compare_responses(observation(left, headers=headers), observation(right, headers=headers),
+                                     request_path="/api/orderbook", profile="byte", live=True)
+
+
+def test_decision_85_permits_only_exact_items_inside_confirmed_time_ties():
+    from scripts.rust_contract import compare
+
+    a = b'{"confirmed_at":"2026-10-18T00:00:00Z","price":"1.00"}'
+    b = b'{"confirmed_at":"2026-10-18T00:00:00Z","price":"2.00"}'
+    first = observation(b'{"items":[' + a + b',' + b + b'],"total":2}')
+    swapped = observation(b'{"items":[' + b + b',' + a + b'],"total":2}')
+    assert not compare.compare_responses(first, swapped, request_path="/api/trade-tape", profile="byte", live=True)
+    changed = observation(swapped["raw"].replace(b'2.00', b'2.01'))
+    assert compare.compare_responses(first, changed, request_path="/api/trade-tape", profile="byte", live=True)
+    assert compare.compare_responses(first, swapped, request_path="/api/orderbook", profile="byte", live=True)
+
+
+def test_only_reviewed_generation_time_is_ignored():
+    from scripts.rust_contract import compare
+
+    first = observation(b'{"generated_at":"2026-10-18T00:00:00Z","observed_at":"2026-10-17T00:00:00Z"}')
+    later = observation(first["raw"].replace(b'18T00', b'18T01'))
+    assert not compare.compare_responses(first, later, request_path="/api/prices", profile="byte", live=True)
+    stored = observation(first["raw"].replace(b'17T00', b'17T01'))
+    assert compare.compare_responses(first, stored, request_path="/api/prices", profile="byte", live=True)
+    assert compare.compare_responses(first, later, request_path="/api/news", profile="byte", live=True)
+
+
+def test_mcp_text_escaping_is_not_silently_normalized():
+    from scripts.rust_contract import compare
+
+    inner = json.dumps({"observed_at": "2026-10-18T00:00:00Z", "x": "a"})
+    raw = json.dumps({"result": {"content": [{"type": "text", "text": inner}]}}).encode()
+    raw = raw.replace(b'Z', b'\\u005a')
+    # This encoded JSON must either remain a difference or fail closed; it must
+    # not gain equality by re-encoding an unrelated escaped value.
+    item = observation(raw)
+    with pytest.raises(compare.ContractError):
+        compare.compare_responses(item, item, request_path="/mcp#get_market_slice", live=True)
+
+
+def test_generation_clock_must_be_utc_and_inside_call_interval():
+    from scripts.rust_contract import compare
+
+    for value in ("not-a-time", "2026-10-17T00:00:00Z", "2026-10-18T08:00:00+08:00"):
+        item = observation(json.dumps({"generated_at": value}).encode())
+        with pytest.raises(compare.ContractError):
+            compare.compare_responses(item, item, request_path="/api/prices", profile="byte", live=True)
+
+
+def test_mcp_slice_clock_normalizes_both_sdk_representations_only():
+    from scripts.rust_contract import compare
+
+    def response(hour):
+        data = {"observed_at": f"2026-10-18T{hour}:00:00Z", "bid_order_count": 1}
+        result = {"content": [{"type": "text", "text": json.dumps(data)}], "structuredContent": data, "isError": False}
+        return observation(json.dumps({"jsonrpc": "2.0", "id": 8, "result": result}).encode())
+    first, second = response("00"), response("01")
+    assert not compare.compare_responses(first, second, request_path="/mcp#get_market_slice", profile="byte", live=True)
+    assert compare.compare_responses(first, second, request_path="/mcp#list_markets", profile="byte", live=True)
+    changed = observation(second["raw"].replace(b'count\\": 1', b'count\\": 2'))
+    assert compare.compare_responses(first, changed, request_path="/mcp#get_market_slice", profile="byte", live=True)
 
 
 # ------------------------------------------------------------------- coverage

@@ -65,6 +65,19 @@ def route_floors(
     }
 
 
+def performance_evidence(size: str, evidence: dict[str, Any] | None) -> dict[str, Any]:
+    """Only omitted large evidence is optional; supplied evidence stays fail closed."""
+    if size == "large" and evidence is None:
+        return {"outcome": "pass", "reason": "large-size speed not measured (decisions 82 and 96)",
+                "speed": {"outcome": "pass", "blocking_regressions": [], "fix_items": []},
+                "errors": {"outcome": "pass", "reported_only": True}}
+    if evidence is not None and evidence.get("size") == size:
+        return frozen_verdict(evidence)
+    return {"outcome": "inconclusive", "reason": "missing or mismatched performance evidence",
+            "speed": {"outcome": "inconclusive", "blocking_regressions": [], "fix_items": []},
+            "errors": {"outcome": "inconclusive"}}
+
+
 def frozen_verdict(evidence: dict[str, Any], *, successor: bool = False) -> dict[str, Any]:
     # Local import avoids a report/measure import cycle while sharing the exact
     # percentile and threshold logic used by historical report rendering.

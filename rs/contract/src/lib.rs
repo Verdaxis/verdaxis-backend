@@ -7,14 +7,14 @@
 mod frozen_gate;
 mod gate;
 pub use frozen_gate::{
-    GateOutcome, PerformanceVerdict, RustMeasurement, RustRoute, frozen_performance_gate,
-    meaning_performance_gate,
+    frozen_performance_gate, meaning_performance_gate, performance_evidence_gate, GateOutcome,
+    PerformanceVerdict, RustMeasurement, RustRoute,
 };
 
 pub use gate::{
-    ContractEvidence, RouteP95, RouteRequests, WorkloadSize, blocking_regressions,
-    contract_differences, expected_route_ids, fix_item_regressions, passes_gate,
-    passes_paired_gate, same_workload,
+    blocking_regressions, contract_differences, expected_route_ids, fix_item_regressions,
+    passes_gate, passes_paired_gate, same_workload, ContractEvidence, RouteP95, RouteRequests,
+    WorkloadSize,
 };
 
 /// Run the external comparator for one contract group.

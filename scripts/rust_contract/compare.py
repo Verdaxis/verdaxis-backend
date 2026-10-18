@@ -115,6 +115,7 @@ def compare(expected: dict[str, Any], actual: dict[str, Any]) -> list[str]:
 def compare_responses(
     expected, actual, *, profile=None, route_id=None, rules_sha256=None,
     rules_path=None, request_id=None, diagnostic_context=None,
+    request_path="", live=False,
 ):
     """Compare raw status/header/body pairs under an explicit profile.
 
@@ -122,6 +123,8 @@ def compare_responses(
     reviewed route ID and ledger digest; no rule is inferred from body fields.
     All golden, simulation, stability and staging callers use this boundary.
     """
+    if profile == "byte" or (profile is None and "raw" in expected):
+        return _compare_phase1_responses(expected, actual, request_path=request_path, profile="byte", live=live)
     if profile is None:
         return compare(
             capture(expected["status"], expected["headers"], expected["body"]),
@@ -381,6 +384,127 @@ def compare_trade_tape_tie_groups(expected, actual, *, request_path, rules_path=
         {k: v for k, v in expected.items() if k not in ignored},
         {k: v for k, v in actual.items() if k not in ignored},
     )
+
+
+# Live clock exceptions are schema paths, never recursive timestamp deletion.
+LIVE_ROOT_CLOCK_ROUTES = frozenset({
+    "/api/prices", "/api/prices/reference", "/api/orderbook/snapshot",
+    "/api/curves/forward", "/api/curves/forward/table",
+    "/api/curves/forward/slice", "/api/curves/forward/board",
+})
+
+
+def _live_clock_path(request_path: str, path: tuple[str, ...]) -> bool:
+    if request_path == "/mcp#get_market_slice" and path == ("result", "structuredContent", "observed_at"):
+        return True
+    if request_path == "/mcp-slice-text" and path == ("observed_at",):
+        return True
+    if request_path in LIVE_ROOT_CLOCK_ROUTES and path == ("generated_at",):
+        return True
+    if request_path == "/api/curves/forward/slice":
+        return path in {
+            ("cell", "generated_at"),
+            ("cell", "fair_price_band_provenance", "generated_at"),
+            ("cell", "indication_summary", "provenance", "generated_at"),
+            ("cell", "physical_stem_summary", "provenance", "generated_at"),
+        } or (len(path) == 4 and path[0] in {"indications", "physical_stems"}
+              and path[1].isdigit() and path[2:] == ("provenance", "generated_at"))
+    if request_path == "/api/curves/forward/board":
+        return path in {("focus", "fair_price_band_provenance", "generated_at")} or (
+            len(path) == 5 and path[:2] in {("focus", "indications"), ("focus", "physical_stems")}
+            and path[2].isdigit() and path[3:] == ("provenance", "generated_at")
+        ) or (len(path) >= 5 and path[0] == "ports" and path[1].isdigit()
+              and path[2] == "cells" and path[3].isdigit()
+              and path[4:] in {("fair_price_band_provenance", "generated_at"),
+                              ("indication_summary", "provenance", "generated_at"),
+                              ("physical_stem_summary", "provenance", "generated_at")})
+    return False
+
+
+def _live_bytes(response: dict[str, Any], request_path: str) -> bytes:
+    """Replace only validated request-clock string tokens; keep all other bytes."""
+    from datetime import datetime, timedelta
+
+    raw = response["raw"]
+    if not _is_json(strip_headers(response["headers"]).get("content-type", "")):
+        return raw
+    parse_json(raw)  # Reject ambiguous keys before walking raw tokens.
+    text = raw.decode("utf-8")
+    decoder = json.JSONDecoder()
+    replacements = []
+
+    def utc(value):
+        if not isinstance(value, str) or not value.endswith(("Z", "+00:00")):
+            raise ContractError("invalid live request clock")
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError as error:
+            raise ContractError("invalid live request clock") from error
+        if parsed.utcoffset() != timedelta(0):
+            raise ContractError("invalid live request clock")
+        return parsed
+
+    def skip(index):
+        while index < len(text) and text[index].isspace():
+            index += 1
+        return index
+
+    def walk(index, path):
+        index = skip(index)
+        start = index
+        value, end = decoder.raw_decode(text, index)
+        if (request_path == "/mcp#get_market_slice" and len(path) == 4
+                and path[:2] == ("result", "content") and path[2].isdigit() and path[3] == "text"):
+            if not isinstance(value, str):
+                raise ContractError("invalid SDK text content")
+            if text[start:end] != json.dumps(value, ensure_ascii=False):
+                raise ContractError("SDK text has noncanonical string escaping")
+            nested = dict(response, raw=value.encode(), headers={"content-type": "application/json"})
+            normalized = _live_bytes(nested, "/mcp-slice-text").decode()
+            replacements.append((start, end, json.dumps(normalized, ensure_ascii=False)))
+        elif _live_clock_path(request_path, path):
+            clock = utc(value)
+            if not utc(response.get("started_utc")) <= clock <= utc(response.get("ended_utc")):
+                raise ContractError("live request clock outside call interval")
+            replacements.append((start, end, '"<request-clock>"'))
+        elif isinstance(value, dict):
+            cursor = skip(index + 1)
+            while text[cursor] != "}":
+                key, cursor = decoder.raw_decode(text, cursor)
+                cursor = walk(skip(cursor) + 1, path + (key,))
+                cursor = skip(cursor)
+                if text[cursor] == ",":
+                    cursor = skip(cursor + 1)
+        elif isinstance(value, list):
+            cursor = skip(index + 1)
+            for number in range(len(value)):
+                cursor = skip(walk(cursor, path + (str(number),)))
+                if text[cursor] == ",":
+                    cursor = skip(cursor + 1)
+        return end
+
+    walk(0, ())
+    for start, end, replacement in reversed(replacements):
+        text = text[:start] + replacement + text[end:]
+    return text.encode("utf-8")
+
+
+def _compare_phase1_responses(expected, actual, *, request_path, profile="byte", live=False):
+    """Authoritative Phase 1 wire comparison, with only reviewed exceptions.
+
+    Raw response data and internal capture digests must remain in memory. Callers
+    may persist only separately validated diagnostic paths and categories.
+    """
+    if profile != "byte":
+        raise ContractError("Phase 1 requires the byte comparison profile")
+    envelopes = []
+    for response in (expected, actual):
+        # Validate the original Content-Length before clock token replacement.
+        capture(response["status"], response["headers"], response["raw"])
+        raw = _live_bytes(response, request_path) if live else response["raw"]
+        headers = {k: v for k, v in response["headers"].items() if k.lower() != "content-length"}
+        envelopes.append(capture(response["status"], headers, raw))
+    return compare_price_summary_multiset(*envelopes, request_path=request_path)
 
 
 def recording_differences(

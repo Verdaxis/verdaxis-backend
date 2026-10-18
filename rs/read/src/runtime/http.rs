@@ -32,6 +32,7 @@ pub fn client_ip(peer: Option<IpAddr>, forwarded: Option<&str>) -> String {
 struct HttpState {
     started: Instant,
     buckets: Arc<Mutex<HashMap<(String, String), RateBucket>>>,
+    phase2_limits: Arc<Mutex<crate::auth::limits::Phase2Limits>>,
 }
 
 pub fn middleware(routes: Router) -> Router {
@@ -46,6 +47,7 @@ fn compose(routes: Router, app_state: Option<crate::AppState>) -> Router {
     let state = HttpState {
         started: Instant::now(),
         buckets: Arc::new(Mutex::new(HashMap::new())),
+        phase2_limits: Arc::new(Mutex::new(crate::auth::limits::Phase2Limits::default())),
     };
     let routes = routes.layer(middleware::from_fn_with_state(state, dispatch_boundary));
     let routes = if let Some(app_state) = app_state {
@@ -253,6 +255,33 @@ async fn dispatch_boundary(
     next: Next,
 ) -> Response {
     let path = request.uri().path();
+    let peer = request
+        .extensions()
+        .get::<ConnectInfo<SocketAddr>>()
+        .map(|peer| peer.0.ip());
+    let client = client_ip(
+        peer,
+        request
+            .headers()
+            .get("x-forwarded-for")
+            .and_then(|value| value.to_str().ok()),
+    );
+    if !state
+        .phase2_limits
+        .lock()
+        .expect("phase2 rate lock")
+        .preauth(&client, path, state.started.elapsed().as_secs())
+    {
+        return (
+            StatusCode::TOO_MANY_REQUESTS,
+            [("retry-after", "60")],
+            axum::Json(serde_json::json!({"detail":"Rate limit exceeded"})),
+        )
+            .into_response();
+    }
+    if let Some(response) = crate::auth::scope::known_get_refusal(request.method().as_str(), path) {
+        return response;
+    }
     // Python's support-scope middleware classifies POST /api/orderbook as an
     // allowed market-support mutation, so that one combination falls through
     // to the route instead of the generic 403 other unclassified mutations get.

@@ -20,6 +20,8 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+import pytest
+
 from tests.unit.test_rust_release import RustReleaseFixture
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -312,17 +314,26 @@ def test_activation_requires_the_manifest_unit_and_a_verified_artifact(tmp_path)
     assert fixture.state_text() == ""
 
 
-def test_committed_tree_is_the_inactive_first_bootstrap_release():
-    """The reviewed policy in this tree disables Rust until the unit is live."""
+@pytest.mark.parametrize("environment, enabled", [("staging", "1"), ("production", "0")])
+def test_committed_policy_allows_only_staging(environment, enabled):
+    """Policy approval does not enable production or publish a public route."""
     deploy = _text(DEPLOY)
     functions = deploy[
         deploy.index("load_rust_staging_policy() {"):
         deploy.index("resolve_provenance_public_key() {")
     ]
-    assert json.loads(_text(POLICY))["rust_enabled"] is False
+    policy = json.loads(_text(POLICY))
+    assert policy["rust_enabled"] is True
+    assert policy["environment"] == "staging"
+    assert policy["bind"] == "127.0.0.1:8011"
+    assert policy["health_url"] == "http://127.0.0.1:8011/health/ready"
+    assert not any(
+        line.startswith("production\tverdaxis-rust")
+        for line in _text(MANIFEST).splitlines()
+    )
     script = (
         "set -euo pipefail\n"
-        'DEPLOY_ENVIRONMENT="staging"\n'
+        f'DEPLOY_ENVIRONMENT="{environment}"\n'
         f'RUST_STAGING_POLICY_PATH="{POLICY}"\n'
         f'UNIT_MANIFEST_PATH="{MANIFEST}"\n'
         f'RUST_UNIT_NAME="{RUST_UNIT_NAME}"\n'
@@ -337,7 +348,7 @@ def test_committed_tree_is_the_inactive_first_bootstrap_release():
         check=False,
     )
     assert result.returncode == 0, result.stderr
-    assert "RUST_ENABLED=0" in result.stdout
+    assert f"RUST_ENABLED={enabled}" in result.stdout
 
 
 def test_installer_requires_its_own_clean_checkout_at_the_source_ref():

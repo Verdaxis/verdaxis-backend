@@ -48,6 +48,34 @@ fn decide(run: &RustMeasurement) -> GateOutcome {
 }
 
 #[test]
+fn optional_large_evidence_preserves_validation() {
+    use verdaxis_contract::performance_evidence_gate;
+    let bytes = include_bytes!("../../../tests/rust_contract/python-baseline-small.json");
+    let config = include_str!("../../../tests/rust_contract/gate-config.json");
+    let absent = performance_evidence_gate(bytes, config, WorkloadSize::Large, None);
+    assert_eq!(absent.outcome, GateOutcome::Pass);
+    assert_eq!(
+        absent.note,
+        Some("large-size speed not measured (decisions 82 and 96)")
+    );
+    assert_eq!(
+        performance_evidence_gate(bytes, config, WorkloadSize::Small, None).outcome,
+        GateOutcome::Inconclusive
+    );
+    let mut run = measurement();
+    run.size = WorkloadSize::Large;
+    run.routes[0].p95 = 5.0;
+    let valid = performance_evidence_gate(bytes, config, WorkloadSize::Large, Some(&run));
+    assert_eq!(valid.outcome, GateOutcome::Pass);
+    assert!(valid.fix_items.contains(&run.routes[0].route_id));
+    run.harness_sha.clear();
+    assert_eq!(
+        performance_evidence_gate(bytes, config, WorkloadSize::Large, Some(&run)).outcome,
+        GateOutcome::Inconclusive
+    );
+}
+
+#[test]
 fn frozen_rust_within_limits_passes() {
     assert_eq!(decide(&measurement()), GateOutcome::Pass);
 }

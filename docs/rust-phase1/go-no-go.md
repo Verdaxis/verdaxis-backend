@@ -1,6 +1,6 @@
 # Rust Phase 1 go/no-go
 
-## Founder decisions 86/87 — 18 October 2026
+## Founder decisions 82/86/87/96 — 18 October 2026
 
 > Capacity update (18 Oct, founder decision 88): the eight-slot/nine-connection
 > values in historical evidence do not describe the current configuration. Current
@@ -8,11 +8,11 @@
 > read pool plus one readiness connection. Python is unchanged. See
 > [admission-capacity.md](admission-capacity.md).
 
-**Overall: INCONCLUSIVE; not GO.** The existing `t14d-d87` small Rust-only
-measurement passes under decisions 87 and 96. Both differential contract sizes
-pass. The remaining blocker is qualified large Rust-only performance evidence:
-the existing large inputs lack Rust-only identity. No new measurement was run
-and no deployment is authorized.
+**Overall: GO for the founder's review.** The existing `t14d-d87` small
+Rust-only measurement passes under decisions 87 and 96. Both differential
+contract sizes pass. Large-size performance evidence is optional under the PM's
+clarification of decisions 82 and 96: **large-size speed not measured (decisions
+82 and 96)**. No new measurement was run and no deployment is authorized.
 
 ### Rule
 
@@ -27,8 +27,10 @@ and no deployment is authorized.
   Per-route p95 blocks only above 100 ms or above 50% regression. Error-rate
   comparison uses exact integer count cross-products against the frozen 5xx/503
   rate, so different offered request totals are allowed.
-- Large workload is Rust-only and reported under decisions 82/86. Valid baseline
-  and Rust measurement evidence, including the success floor, remain mandatory.
+- Large performance evidence is optional under decisions 82 and 96. An omitted
+  input does not block the gate. A supplied input must pass identity and sample
+  floor validation; its speed regressions are fix items, never blockers. Invalid
+  supplied evidence remains INCONCLUSIVE. Contract evidence at large is required.
 - Rust memory is reported, not blocking. Python speed and memory are not measured.
 - Missing/edited/unpinned baseline, missing routes, invalid latency, insufficient
   Rust successes, or missing/mismatched run identity give INCONCLUSIVE, never GO.
@@ -121,8 +123,8 @@ only retained results; it did not change the simulation or comparator semantics.
 All lane calls finished and disposable environments were cleaned up.
 
 This closes the large differential gate. Qualified small performance evidence
-is supplied below from the existing run. Qualified large Rust-only performance
-evidence remains missing; that is the sole evidence blocker to an overall GO.
+is supplied below from the existing run. Large performance evidence is omitted
+under the PM clarification of decisions 82 and 96, not fabricated or reclassified.
 
 ### Final speed integration — decisions 87 and 96
 
@@ -149,7 +151,8 @@ as successful and no rate limit was bypassed.
 Code difference from measured source to merged tip: Rust-owned configurable
 admission defaults to **16 read slots**, matching read pool plus one separate
 readiness connection, associated budget/harness/test updates, and gate/report
-code for decision 96. `git diff 8a5e4536 147838ef -- rs/read/sql` is empty;
+code for decision 96, including the optional-large boundary at `a7e23660`.
+`git diff 8a5e4536 a7e23660 -- rs/read/sql` is empty;
 production Rust source changes are confined to `lib.rs`, `runtime/admission.rs`
 and `runtime/config.rs`. The merged binary itself was not measured.
 
@@ -164,25 +167,36 @@ and `4e6b22baee366b665c32fb93be734ea247fe29418023bd9ce555efe3f7a844cf`.
 Accepted large summary SHA-256:
 `fe749add838b15901b6c9c5f5346683f05f021b98dc3071e3a754913c37e61bc`.
 
-**Exact remaining blocker to overall GO:** the unchanged report/gate requires
-valid Rust-only performance evidence at both sizes. `t14d-d87` is `size=small`.
-The existing large v2 run (`e43282aee6cb5b5b5ee6fe093be88d80704e104a`, SHA-256
-`27efbd9796c98dbcf29d40b0b1cc2413d687ec958e8b6717c285571512da2ab5`)
-is historical paired evidence, not a qualified Rust-only run; it lacks
-`mode=rust-only`, harness SHA, manifest/baseline pins and measurement date, and
-its roughly 48–51 successes per route are below the floor. The gate returns
-`inconclusive (missing Rust-only workload identity)` before floor admission.
-Large *speed regressions* being reported-only does not waive evidence admission.
-No new waiver was inferred, no identity was fabricated, and no new measurement
-was run. Thus small speed and both contract gates pass, but the combined report
-remains **INCONCLUSIVE**, not GO. Founder review must resolve the large-evidence
-requirement or supply qualified existing evidence before an overall GO.
+### PM clarification — optional large performance evidence
 
-All requested merged-tip checks ran on staging through `heavy run 3600`:
-report regeneration **0**; Rust gate targets **0**; `tests/rust_contract` **0**;
-Cargo workspace tests **0**; fmt **0**; strict all-target workspace clippy **0**.
-The host wrapper exited **0**. Log: `work/final-speed-integration.log`.
-No application behavior or gate policy was changed to produce a GO.
+The PM clarified decisions 82 and 96 (19:30 SGT record: "No more large-size
+speed runs"): large-size Rust performance evidence is not required for Phase 1.
+This supersedes the earlier INCONCLUSIVE conclusion, not the evidence itself.
+Gate commit `a7e23660` implements the same boundary in Rust and Python:
+
+- Small Rust-only evidence remains mandatory and fully fail closed: identity,
+  baseline/manifest pins, rate-limited and full sample floors, thresholds, errors.
+- Only absence (`None` / omitted `--large`) is optional. Supplied empty, malformed,
+  wrong-size, or otherwise invalid evidence remains INCONCLUSIVE. A supplied
+  valid large run is validated fully; regressions are fix items, never blockers.
+- Contract evidence at both sizes and the integration result remain mandatory.
+
+The report command deliberately omits `--large`. The historical paired large
+file is retained as historical evidence, not passed as qualified evidence and
+not silently discarded by the gate. No new speed run was performed. The prior
+missing-large blocker is removed by this explicit policy clarification.
+
+Tests cover absent large → PASS with the exact note; valid large regression →
+PASS with fix item; invalid supplied large → INCONCLUSIVE; absent small →
+INCONCLUSIVE; and missing contract evidence still prevents GO. Original small
+identity, floor, threshold and error-rate regression tests remain green.
+
+All checks ran on staging through `heavy run 3600`: Rust gate targets **0**;
+`tests/rust_contract` **0**; Cargo workspace **0**; fmt **0**; strict workspace
+all-target clippy **0**. Report regeneration and evidence assertions **0**.
+Logs: `work/optional-large-final.log`, `work/optional-large-report.log`.
+The initial implementation check had a Python import failure (exit **1**),
+corrected before the final run; every final check exited **0**.
 
 ### Verification
 
@@ -196,7 +210,7 @@ clippy passed (exit 0). Report regeneration and nonempty output check passed
 # Rust Phase 1 go/no-go — decisions 86 and 87
 
 Python is the correctness reference only. Speed and small-size error rates use the pinned frozen baseline.
-Large Rust speed and errors are reported; Rust memory is reported only. Both sizes require valid Rust evidence.
+Large Rust performance evidence is optional (decisions 82 and 96); supplied evidence must be valid. Rust memory is reported only.
 
 ## Frozen Python baseline
 
@@ -295,50 +309,18 @@ Historical/unqualified Rust samples remain diagnostic when evidence admission fa
 
 ## Large workload
 
-- Outcome: INCONCLUSIVE.
-- Rust-only performance evidence: inconclusive (missing Rust-only workload identity).
-- Offered Rust rates: [1.0, 5.0]; higher than the frozen 5 RPS maximum is stricter for Rust.
+- Outcome: PASS.
+- Rust-only performance evidence: pass (large-size speed not measured (decisions 82 and 96)).
+- Offered Rust rates: not measured; higher than the frozen 5 RPS maximum is stricter for Rust.
 - zero unexplained contract differences at both sizes: pass ({'outcome': 'pass', 'differences': 0, 'missing': [], 'invalid': []}).
 - integration suite: pass (explicit suite result).
-- Rust-only frozen-baseline performance evidence: inconclusive (missing Rust-only workload identity).
-- Rust memory steady median: 206.3 MiB; non-blocking.
+- Rust-only frozen-baseline performance evidence: pass (large-size speed not measured (decisions 82 and 96)).
+- Rust memory steady median: not measured; non-blocking.
 - Blocking routes: none proven.
 - Same-meaning fix items: none proven.
 
-Historical/unqualified Rust samples remain diagnostic when evidence admission fails.
+**Overall: GO for the founder's review.**
 
-| Route/tool | Rust p95 (s) | Successful | Required |
-| --- | ---: | ---: | ---: |
-| R01 | 0.232 | 19 | 1000 |
-| R02 | 0.275 | 59 | 1000 |
-| R03 | 0.106 | 39 | 1000 |
-| R04 | 0.206 | 15 | 1000 |
-| R05 | 0.072 | 17 | 1000 |
-| R06 | 4.509 | 21 | 1000 |
-| R07 | 0.532 | 38 | 1000 |
-| R08 | 0.419 | 19 | 1000 |
-| R09 | 33.946 | 14 | 1000 |
-| R10 | 2.225 | 67 | 1000 |
-| R11 | 4.844 | 39 | 1000 |
-| R12 | 1.100 | 26 | 1000 |
-| R13 | 4.957 | 22 | 1000 |
-| R14 | 4.128 | 48 | 714 |
-| R15 | 5.777 | 16 | 1000 |
-| R16 | 22.326 | 23 | 1000 |
-| R17 | 12.470 | 19 | 1000 |
-| R18 | 25.811 | 33 | 1000 |
-| R19 | 11.929 | 37 | 1000 |
-| R20 | 7.666 | 38 | 1000 |
-| R21 | 14.371 | 19 | 1000 |
-| R22 | 15.919 | 25 | 1000 |
-| R23 | 10.410 | 18 | 1000 |
-| R24 | 10.123 | 78 | 1000 |
-| R25 | 9.350 | 38 | 1000 |
-| R26 | 26.264 | 14 | 1000 |
-| R27 | 29.322 | 4 | 1000 |
-| get_market_slice | 1.808 | 151 | 1000 |
-| list_markets | 0.053 | 151 | 1000 |
-| plan_voyage_fuel | 0.129 | 151 | 1000 |
 
-- Integration evidence: Accepted integration at 70908804; current merged-tip checks recorded separately.
+- Integration evidence: Staging optional-large gate, contract tests, workspace, fmt and strict clippy all exit 0; work/optional-large-final.log.
 - Production status: not authorized by this report.
