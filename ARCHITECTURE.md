@@ -195,6 +195,17 @@ carries neither record and reads no Rust path.
 `docs/rust-phase1/progress-task12c.md` holds the unit digest, the artifact
 digest and the systemd 249/255 and staging-ABI start evidence.
 
+## Rust Phase 2 contract preparation
+
+`tests/rust_contract/phase2/routes.json` pins the 27 CRUD method/path pairs,
+OpenAPI operations, DTO exports, effect classes and Python source digests.
+`export_inventory.py` reproduces the export through the full HTTP OpenAPI route
+on the isolated test host. `evidence-manifest.json` declares required route and
+scenario coverage and separates disposable-artifact qualification from
+production-cutover acceptance. It contains no run results or cutover verdict.
+See `outputs/rust-phase2/source-checkpoint.md` for the oracle identity and checks.
+Authentication issuance, market writers, SSE and dispatch remain Python-owned.
+
 ## File Map
 
 ```
