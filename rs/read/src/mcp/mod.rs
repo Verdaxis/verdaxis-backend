@@ -1,4 +1,3 @@
-pub mod decimal;
 pub mod prices;
 mod protocol;
 mod server;
@@ -182,7 +181,7 @@ async fn dispatch(State(state): State<AppState>, request: Request) -> Response {
                 .expect("method argument rejection");
         }
         if let Err(message) = validation::tool_arguments(&tool, &mut arguments) {
-            let mut result = serde_json::json!({"content":[{"text":format!("Error executing tool {tool}: {message}"),"type":"text"}],"isError":true});
+            let mut result = serde_json::json!({"content":[{"text":message,"type":"text"}],"isError":true});
             if modern {
                 result["resultType"] = serde_json::json!("complete");
             }

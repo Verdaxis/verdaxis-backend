@@ -179,3 +179,41 @@ publish skipped. No PR comments, edits, merge or close actions are authorized.
 - Task 2 CI completed: all five required jobs passed; publish skipped.
 - Skipped measurements: all latency, memory, CPU, rate/capacity and probes under
   decision 96. No release verdict or production permission is claimed.
+
+### Task 4 partial checkpoint — blocked, not accepted
+
+Task 3 is committed as `5d3704ca`. Its CI completed with all five required jobs
+passing and publication skipped. Task 4 edits remain uncommitted and unpushed.
+
+- Added a shared arbitrary-precision `Amount` implementation and domain product/sum
+  operations, moved voyage/validation consumers to it, and replaced map-specific
+  digit arithmetic. Retained 28-digit intermediate economic rounding and separate
+  digest canonicalization. This is not yet the complete Task 4 cleanup.
+- Amount RED: cargo/wrapper `101` (missing amount module). First GREEN: `101`
+  (test expected an inconsistent simple spelling). Second GREEN: `101` (old voyage
+  string equality rejected value-equivalent distance spelling). After routing
+  those assertions through the shared Python comparator, the amount, market,
+  price and voyage suites passed 33 tests; cargo/wrapper `0`.
+- Structured tool-validation diagnostics now preserve kind/location/message/input
+  as JSON. Protocol diagnostics are still exact and have not been removed.
+  Existing diagnostic spelling assertions failed as expected (`101`). A semantic
+  diagnostic bridge passed rejected-input comparisons but still failed accepted
+  normalized-string equality (`101`). The next edit moved positive normalization
+  checks to the pinned Python model; that edit is **not verified**.
+- Last call: `work/task4-diagnostic-final.log`, `CALL_EXIT=255`, no
+  `DIAGNOSTIC_GREEN_EXIT` marker. Compilation finished; the test did not report a
+  result before the connection ended. Do not call this a test pass or infer a
+  test exit from the wrapper. No call was interrupted and no extra host call ran
+  concurrently from this lane.
+- A subsequent light read-only process check showed no lane systemd unit,
+  `mcp_validation`, `compare_values`, or `heavy run` process remaining.
+- No measurements or live application changes ran. No Python application source
+  was changed. Do not push the partial Task 4 tree.
+
+Resume: diagnose why the MCP positive-normalization bridge stalled (including
+extreme-exponent Decimal comparisons and process lifecycle), add bounded failure
+handling, and rerun it through the host helper without increasing its time limit.
+Then finish Task 4: remove obsolete amount module/format helpers only after all
+consumers move; remove envelope ordering; preserve protocol-version fields and
+non-approved errors; verify all semantic vectors, shared comparator tests, fmt and
+CI. Tasks 5–6 have not started. Tasks 7–12 remain outside this brief.

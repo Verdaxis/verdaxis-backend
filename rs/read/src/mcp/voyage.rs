@@ -1,5 +1,5 @@
 //! Pure voyage calculations. Decimal operation order follows the Python oracle.
-use super::decimal::Decimal as D;
+use crate::market::amount::Amount as D;
 use crate::Json;
 use chrono::{Datelike, Duration, NaiveDate};
 use serde::Deserialize;

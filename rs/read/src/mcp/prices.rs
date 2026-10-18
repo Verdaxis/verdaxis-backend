@@ -176,7 +176,7 @@ async fn resolve_prices(
         });
         let price = if let Some(row) = row {
             let real = row.get::<String, _>("provenance") == "REAL";
-            json!({"fuel":lookup["fuel"],"port":lookup["port"],"price_usd_per_mt":super::decimal::Decimal::parse(&row.get::<String,_>("price")).and_then(|v|v.quantize(2)).map_err(|_|ApiError::internal())?,"source":if real{"LIVE_ORDER"}else{"DEMO_ORDER"},"executable":real,"availability_window":row.get::<String,_>("availability_window"),"observed_at":curve_projection::timestamp(now),"carbon_intensity_gco2e_per_mj":row.get::<Option<String>,_>("ci"),"energy_density_mj_per_kg":row.get::<Option<String>,_>("energy")})
+            json!({"fuel":lookup["fuel"],"port":lookup["port"],"price_usd_per_mt":crate::market::amount::Amount::parse(&row.get::<String,_>("price")).and_then(|v|v.quantize(2)).map_err(|_|ApiError::internal())?,"source":if real{"LIVE_ORDER"}else{"DEMO_ORDER"},"executable":real,"availability_window":row.get::<String,_>("availability_window"),"observed_at":curve_projection::timestamp(now),"carbon_intensity_gco2e_per_mj":row.get::<Option<String>,_>("ci"),"energy_density_mj_per_kg":row.get::<Option<String>,_>("energy")})
         } else {
             let key = (
                 lookup["fuel"]

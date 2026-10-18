@@ -84,11 +84,14 @@ fn child(path: &str, field: &str) -> String {
 
 struct Validator<'a> {
     definitions: &'a Json,
-    errors: Vec<String>,
+    errors: Vec<Json>,
 }
 impl Validator<'_> {
     fn error(&mut self, path: &str, message: &str, kind: &str, input: &Json) {
-        self.errors.push(diagnostic(path, message, kind, input));
+        let location: Vec<Json> = path.split('.').filter(|part| !part.is_empty())
+            .map(|part| part.parse::<usize>().map_or_else(|_| json!(part), |index| json!(index)))
+            .collect();
+        self.errors.push(json!({"type": kind, "loc": location, "msg": message, "input": input}));
     }
     fn value(&mut self, schema: &Json, input: &Json, path: &str) -> Json {
         if let Some(reference) = schema["$ref"].as_str() {
@@ -261,7 +264,7 @@ impl Validator<'_> {
             );
             return input.clone();
         }
-        match super::decimal::Decimal::parse(&text) {
+        match crate::market::amount::Amount::parse(&text) {
             Ok(value) => {
                 let output = json!(value.text());
                 self.bounds(schema, &output, input, path);
@@ -284,7 +287,7 @@ impl Validator<'_> {
             .as_str()
             .map(str::to_owned)
             .unwrap_or_else(|| value.to_string());
-        let Ok(value) = super::decimal::Decimal::parse(&text) else {
+        let Ok(value) = crate::market::amount::Amount::parse(&text) else {
             return;
         };
         for (key, kind, phrase, fail) in [
@@ -310,7 +313,7 @@ impl Validator<'_> {
             if let Some(limit) = schema.get(key) {
                 let text = limit.to_string();
                 let text = text.strip_suffix(".0").unwrap_or(&text);
-                let bound = super::decimal::Decimal::parse(text).unwrap();
+                let bound = crate::market::amount::Amount::parse(text).unwrap();
                 let order = value.compare(&bound);
                 if (key == "exclusiveMinimum" && order != fail)
                     || (key != "exclusiveMinimum" && order == fail)
@@ -458,10 +461,10 @@ impl Validator<'_> {
             }
             if before == self.errors.len() {
                 for (key, value) in &output {
-                    let decimal = super::decimal::Decimal::parse(value.as_str().unwrap()).unwrap();
-                    let zero = super::decimal::Decimal::parse("0").unwrap();
+                    let decimal = crate::market::amount::Amount::parse(value.as_str().unwrap()).unwrap();
+                    let zero = crate::market::amount::Amount::parse("0").unwrap();
                     let price = path.ends_with(".vlsfo_price_usd_per_mt");
-                    let high = super::decimal::Decimal::parse(if price { "10000" } else { "200" })
+                    let high = crate::market::amount::Amount::parse(if price { "10000" } else { "200" })
                         .unwrap();
                     let low_order = decimal.compare(&zero);
                     if low_order == std::cmp::Ordering::Less
@@ -558,11 +561,6 @@ pub fn tool_arguments(tool: &str, arguments: &mut Json) -> Result<(), String> {
         *arguments = normalized;
         Ok(())
     } else {
-        Err(format!(
-            "{} validation error{} for {tool}Arguments\n{}",
-            validator.errors.len(),
-            if validator.errors.len() == 1 { "" } else { "s" },
-            validator.errors.join("\n")
-        ))
+        Err(format!("Validation failed: {}", Json::Array(validator.errors)))
     }
 }
