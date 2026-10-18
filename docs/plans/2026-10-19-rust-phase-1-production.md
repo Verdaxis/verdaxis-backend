@@ -115,7 +115,25 @@ Commit in small logical steps with `Co-Authored-By: Claude Opus 5.5 <noreply@ant
 
 Update `ARCHITECTURE.md` for production relationships. Before final delivery use demand-elegance and verification-before-completion. Report plan/commit/runbook paths, each gate exit code, CI and unresolved host questions. Do not claim live staging rehearsal or production readiness acceptance.
 
-## Open host questions (PM read-only commands)
+## PM amendment — 19 October, ~04:20 SGT (supersedes earlier Caddy assumptions)
+
+Architecture **PASS**: keep the single EU `/etc/caddy/Caddyfile`, no imports. Code quality **PASS**: scoped structural edits, unchanged analytics/fallback and exact rollback bytes. Tests **PASS**: real analyzer on systemd 249 and 255, real Caddy validate/adapt, synthetic passive-log edge cases. Performance **PASS**: passive existing traffic only, no workload generator or measurement.
+
+PM facts: EU `vmi3623757`, systemd 255, four CPUs, 7.9 GB RAM (~6.7 available), 96 GB root/45 GB free. Clean production remains `56d75770`, database `verdaxis_prod`, union checkpoint, max_connections 100, UTC, 11 idle app connections plus one postgres at observation time. Python MemoryMax 1 GiB, analytics EnvironmentFile drop-in and production-isolation drop-in (CPUWeight 500, SSH inaccessible); no Rust unit/listener. No recovery beyond unit Restart. Timers include onboarding-attention, order-expiry-reminders, demo-activity, auth-maintenance, analytics-prune, local-db-backup and news-refresh. Analytics relay 8700 and test guard must remain untouched.
+
+EU Caddy 2.11.2 has one file, no access log or passive thresholds. Global trusted proxy is 194.233.68.86/32 with strict parsing. API route contains `/script.js` and Origin-guarded `/api/send` analytics handles, then Python fallback with explicit X-Forwarded-For client_ip, flush_interval -1 and keepalive off. Preserve all those bytes and security/body/encoding directives. Public DNS is direct EU. Shared-host stale production relay/log remains untouched; it is not the EU baseline.
+
+### Amendment tasks (test first, sequential)
+
+1. After PR #94 is merged, fetch and merge `origin/staging`. Read `docs/rust-phase1/bootstrap-unit-verify.md`. Extend its real three-caller analyzer regressions to the production unit with `.runtime-rust/` absent. Run red then `/usr/bin/env` launch green via staging wrapper (249) and prod-test wrapper (255), each `heavy run 3600`. Preserve environment/PID and every start/sandbox gate; no placeholder binary.
+2. Replace production import-argument generation in `scripts/rust_caddy_candidate.py` with scoped group-block insertion into the actual API route, after analytics and before bare fallback. Keep staging import mode. Fixture `tests/fixtures/caddy/production.Caddyfile` models the PM-supplied one-file structure, including another site to prove isolation. Reuse Task 13 matcher bytes, add identical explicit proxy options, refuse absent/ambiguous anchors, imports and duplicate group. Rollback is the exact original full file; earlier groups remain.
+3. Add separate `access-log` candidate operation for P0: API site only, `/var/log/caddy/api.verdaxis.exchange.log`, roll 20MiB/3, JSON filter deleting request Authorization/Cookie/X-Monitor-Token and response Set-Cookie; remove only the stale temporary-log comment. Real Caddy validate/adapt on staging test host checks the complete fixture, redaction configuration and unchanged analytics/fallback. No route moves in P0.
+4. Add `scripts/rust_passive_no_harm.py` with synthetic tests in `tests/unit/test_rust_passive_no_harm.py`. Read ordinary access/journal logs only. Equal adjacent pre/post windows (default 30 min); exact group GET paths; fail on Rust readiness failure, new 5xx from zero or increase >0.5 percentage points, p95 >2x before only with >=50 requests in both windows, or new Rust/Python error class. Empty traffic or incomplete inputs are inconclusive, never PASS. Exact passive-log commands go in both private runbooks. No active traffic generator.
+5. Update both private runbooks, this plan, `docs/rust-phase1/production-path.md` and architecture relationships. P0 logging precedes baseline and route windows; never use the shared relay log as EU evidence. Commit logical steps, push only this branch, wait for draft #95 CI.
+
+Resume: amendment tests first, then unit, generator/logging, passive checks and runbooks. Source acceptance does not mark any live window executed.
+
+## Historical open host questions (answered above; recheck at window entry)
 
 1. Correct host/mapping and DNS? On each authorized host: `hostname -s; getent ahostsv4 api.verdaxis.exchange; getent ahostsv4 api-staging.verdaxis.exchange`; read the two map files identified in CLAUDE.md.
 2. Actual units/paths/drop-ins/limits? `systemctl show verdaxis-backend.service verdaxis-rust.service caddy.service -p User -p WorkingDirectory -p FragmentPath -p DropInPaths -p ExecStart -p MemoryMax -p CPUQuotaPerSecUSec`; staging names separately.
