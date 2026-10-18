@@ -24,7 +24,8 @@ identity. `verdaxis-contract` is an independent library and CLI that drives the
 external HTTP contract comparison and never links `verdaxis-read`.
 
 Task 2 adds `rs/read/src/runtime/` for configuration, pool authority, and health
-checks. The pool has nine connections and read-only session defaults. Startup
+checks. The pool has configured read admission slots plus one readiness connection
+and read-only session defaults. Startup
 checks the compiled revision allowlist, exact database role, memberships, and
 connection budget. Required `DB_SESSION_TIME_ZONE` (`db_session_time_zone` in
 `RUST_CONFIG`) is applied and verified by `after_connect` on every new read and
@@ -39,8 +40,11 @@ passes it to the binary with `--budget-file`; the contract harness may instead
 carry the document in `RUST_CONFIG`. `runtime::config::config_from_deployed_environment`
 builds the same validated `Config` from the flat deployed environment, so a
 staging start needs no JSON document from an operator.
-Task 3 splits the nine connections into an eight-connection read pool and a
-one-connection readiness pool. `runtime/admission.rs` transfers admission to a
+Task 3 separates the read pool from a one-connection readiness pool. Founder
+decision 88 (18 Oct) makes `read_admission_slots` Rust-owned, default 16; the
+read pool matches it and `pool_max` is slots + 1. Both configured and observed
+PostgreSQL connection limits include Python, reserve, and the full Rust pool.
+The prepared environment digest and release checks remain required. `runtime/admission.rs` transfers admission to a
 query-owning Tokio task so caller cancellation does not release database
 capacity. HTTP composition provides correlation, CORS, support boundaries and
 fixed-window price limits. Empty route and MCP modules reserve later task

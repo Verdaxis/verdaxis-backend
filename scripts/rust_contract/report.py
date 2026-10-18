@@ -17,8 +17,8 @@ import statistics
 from pathlib import Path
 from typing import Any
 
-from scripts.rust_contract import workload
 from scripts.rust_contract import measure as measure_mod
+from scripts.rust_contract import workload
 
 ROOT = Path(__file__).resolve().parents[2]
 NOT_MEASURED = "not measured"
@@ -572,9 +572,10 @@ def render_markdown(bundle: dict[str, Any]) -> str:
                  "Python's four local counters can admit up to four times more | PM defines documented "
                  "per-client limits as the contract | Rust exact-boundary concurrent burst/reset tests; "
                  "counts excluded from parity |")
-    lines.append("| AD-02 | Rust uses one 8-slot public-read admission gate; Python uses 2 slots in each "
-                 "of 4 workers | Same total capacity | Mixed-concurrency test; 503 rates recorded |")
-    lines.append("| AD-03 | Rust admits `/api/news` through the same 8-slot gate | Every Rust database use "
+    lines.append("| AD-02 | Rust owns configured read_admission_slots (default 16); Python keeps 2 slots in each "
+                 "of 4 workers | Founder decision 88 (18 Oct); full database budget checked | "
+                 "Configured-capacity and cancellation tests; 503 rates recorded |")
+    lines.append("| AD-03 | Rust admits `/api/news` through the same configured gate | Every Rust database use "
                  "holds a permit | Two-direction contention test |")
     lines.append("")
     lines.append("- Production status: not authorized by this report.")

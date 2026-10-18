@@ -1,5 +1,11 @@
 # Rust Phase 1 progress — Task 8 (Lane: simple reads)
 
+> Capacity update (18 Oct, founder decision 88): the eight-slot/nine-connection
+> values below are historical evidence. Current Rust admission is configured by
+> `read_admission_slots` (default 16), with matching read pool plus one readiness
+> connection. Python is unchanged. See [admission-capacity.md](admission-capacity.md).
+
+
 This file is the Task 8 record for the lane branch
 `feat/rust-phase-1-lane-simple-reads`. It is deliberately separate from
 `docs/rust-phase1/progress.md` so parallel lanes can merge without clashing.

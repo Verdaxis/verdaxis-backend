@@ -1,5 +1,11 @@
 # Rust Phase 1 go/no-go
 
+> Capacity update (18 Oct, founder decision 88): the eight-slot/nine-connection
+> values below are historical evidence. Current Rust admission is configured by
+> `read_admission_slots` (default 16), with matching read pool plus one readiness
+> connection. Python is unchanged. See [admission-capacity.md](admission-capacity.md).
+
+
 Status: **draft for the founder decision, Task 14a (17 October 2026)**.
 Everything in this report was measured on the test host (`vmi3623757`, the
 production VPS's isolated `verdaxis-test` slice, 3 CPUs / 4 GB as seen by the
