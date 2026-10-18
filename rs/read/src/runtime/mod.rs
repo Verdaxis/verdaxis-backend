@@ -1,5 +1,6 @@
 pub mod admission;
 pub mod artifact;
+pub mod cache;
 pub mod config;
 pub mod db;
 pub mod error;
