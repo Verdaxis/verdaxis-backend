@@ -20,7 +20,7 @@ use serde_json::{Number, Value};
 use std::str::FromStr;
 use uuid::Uuid;
 
-use super::locks::{SliceKey, sha256_hex};
+use super::locks::{sha256_hex, SliceKey};
 
 /// The six commands a receipt may record. The listed string is the reviewed
 /// `market_command_results.operation` value.
@@ -293,16 +293,12 @@ fn write_python_json(value: &Canonical, out: &mut String) {
 }
 
 /// Python `datetime.isoformat()` inside an explicit UTC zone: `timespec="auto"`
-/// writes no fraction, three digits or six, then `Z` for the `+00:00` offset.
+/// writes six fractional digits when microseconds are nonzero, then `Z`.
 fn python_timestamp(instant: &DateTime<Utc>) -> String {
     let micros = instant.timestamp_subsec_nanos() / 1_000;
     let mut text = instant.format("%Y-%m-%dT%H:%M:%S").to_string();
     if micros != 0 {
-        if micros.is_multiple_of(1_000) {
-            text.push_str(&format!(".{:03}", micros / 1_000));
-        } else {
-            text.push_str(&format!(".{micros:06}"));
-        }
+        text.push_str(&format!(".{micros:06}"));
     }
     text.push('Z');
     text

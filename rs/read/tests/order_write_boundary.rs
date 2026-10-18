@@ -792,6 +792,19 @@ fn idempotency_scopes_match_python() {
 }
 
 #[test]
+fn command_timestamps_keep_python_microsecond_precision() {
+    let payload = Canonical::Timestamp(
+        chrono::DateTime::parse_from_rfc3339("2026-10-19T00:00:00.123000Z")
+            .unwrap()
+            .with_timezone(&chrono::Utc),
+    );
+    assert_eq!(
+        verdaxis_read::order_write::python_json(&payload),
+        "\"2026-10-19T00:00:00.123000Z\""
+    );
+}
+
+#[test]
 fn request_hashes_match_python() {
     let spec = spec();
     for row in spec["command_request_hashes"].as_array().unwrap() {
