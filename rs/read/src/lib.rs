@@ -1,4 +1,7 @@
 pub mod auth;
+// Phase 2 Task 17: referral reads and public resolution (start)
+pub mod crud;
+// Phase 2 Task 17: referral reads and public resolution (end)
 pub mod market;
 pub mod mcp;
 pub mod routes;
