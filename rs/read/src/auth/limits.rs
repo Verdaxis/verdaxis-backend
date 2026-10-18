@@ -2,6 +2,44 @@
 //! shared by ingress before Python/Rust splitting for the admin prefix.
 use std::collections::HashMap;
 
+#[derive(Clone, Default)]
+pub struct SharedLimits(std::sync::Arc<std::sync::Mutex<Phase2Limits>>);
+
+impl SharedLimits {
+    pub fn preauth(&self, client: &str, path: &str, now: u64) -> bool {
+        self.0
+            .lock()
+            .expect("quota authority lock")
+            .preauth(client, path, now)
+    }
+
+    /// Route adapters call this after bearer/current-account admission and
+    /// typed validation. Invalid authentication never consumes endpoint quota.
+    pub fn check_endpoint(
+        &self,
+        client: &str,
+        path: &str,
+        now: u64,
+    ) -> Result<(), crate::ApiError> {
+        if self
+            .0
+            .lock()
+            .expect("quota authority lock")
+            .endpoint(client, path, now)
+        {
+            return Ok(());
+        }
+        let (_, limit, window) = endpoint_policy(path).expect("limited endpoint");
+        let unit = if window == 3600 { "hour" } else { "minute" };
+        Err(crate::ApiError {
+            status: axum::http::StatusCode::TOO_MANY_REQUESTS,
+            detail: serde_json::json!(format!("Rate limit exceeded: {limit} per 1 {unit}")),
+            retry_after: None,
+            kind: crate::ApiErrorKind::Expected,
+        })
+    }
+}
+
 #[derive(Default)]
 pub struct Phase2Limits {
     buckets: HashMap<(String, String), (u64, u32)>,

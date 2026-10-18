@@ -32,22 +32,36 @@ pub fn client_ip(peer: Option<IpAddr>, forwarded: Option<&str>) -> String {
 struct HttpState {
     started: Instant,
     buckets: Arc<Mutex<HashMap<(String, String), RateBucket>>>,
-    phase2_limits: Arc<Mutex<crate::auth::limits::Phase2Limits>>,
+    phase2_limits: crate::auth::limits::SharedLimits,
 }
 
 pub fn middleware(routes: Router) -> Router {
-    compose(routes, None)
+    compose(routes, None, crate::auth::limits::SharedLimits::default())
 }
 
 pub fn middleware_with_state(routes: Router, app_state: crate::AppState) -> Router {
-    compose(routes, Some(app_state))
+    compose(
+        routes,
+        Some(app_state),
+        crate::auth::limits::SharedLimits::default(),
+    )
 }
 
-fn compose(routes: Router, app_state: Option<crate::AppState>) -> Router {
+/// Compose one pre-auth authority around a route split. Task 22 must attach
+/// both real upstream owners here before admin-feedback cutover is permitted.
+pub fn middleware_with_limits(routes: Router, limits: crate::auth::limits::SharedLimits) -> Router {
+    compose(routes, None, limits)
+}
+
+fn compose(
+    routes: Router,
+    app_state: Option<crate::AppState>,
+    limits: crate::auth::limits::SharedLimits,
+) -> Router {
     let state = HttpState {
         started: Instant::now(),
         buckets: Arc::new(Mutex::new(HashMap::new())),
-        phase2_limits: Arc::new(Mutex::new(crate::auth::limits::Phase2Limits::default())),
+        phase2_limits: limits,
     };
     let routes = routes.layer(middleware::from_fn_with_state(state, dispatch_boundary));
     let routes = if let Some(app_state) = app_state {
@@ -268,8 +282,6 @@ async fn dispatch_boundary(
     );
     if !state
         .phase2_limits
-        .lock()
-        .expect("phase2 rate lock")
         .preauth(&client, path, state.started.elapsed().as_secs())
     {
         return (
