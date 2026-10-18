@@ -43,6 +43,20 @@ All runs use `verdaxis-staging-test` and `heavy run 3600`. No local tests.
 - Corrected schema red: exit 101; exact union revision refused as expected.
 - Schema green: exit 0; all 15 runtime tests pass, including production refusal.
 
+## Staging policy
+
+The committed staging policy now allows Rust at `127.0.0.1:8011`. No public
+route, unit, installer, or deploy helper changed. Production reads neither
+activation record, has no Rust manifest entry, and remains disabled. Tests
+execute the existing policy loader for both staging and production.
+
+- Policy initial red: exit 2 (missing test import; corrected before implementation).
+- Policy corrected red: exit 1; disabled staging policy rejected as expected.
+- First combined green: exit 1; 48 passed, one fixture readiness failure in
+  `test_host_key_matching_the_pinned_digest_is_preferred`.
+- Separate rerun: unit policy suite exit 0 (15 passed); release suite exit 0
+  (34 passed). No source change was needed for the fixture readiness rerun.
+
 ## Remaining operator gates
 
 Candidate artifact publication and independent candidate activation remain owned

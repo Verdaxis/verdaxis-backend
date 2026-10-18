@@ -191,10 +191,11 @@ maintenance units. The unit loads `.runtime-release.env` and the deploy-written
 `.runtime-rust/runtime.env` (never the secret-rich `.env`) and runs the deploy
 start guard, the migrator-backed revision check and the budget drift check
 before `ExecStart`; it serves `127.0.0.1:8011` with a 256 MiB cap on the same
-sandbox directives as the running backend unit. Activation stays off in the
-committed `deploy/rust/staging-policy.json` until the two-release bootstrap
-installs this unit; a Rust-enabled staging deploy then restarts both units in
-one call and requires both readiness documents before state clears. Production
+sandbox directives as the running backend unit. Task 14b enables staging-only policy in
+`deploy/rust/staging-policy.json`; this source approval is not an activation
+command. The independent candidate activation path remains a PM gate. The
+canonical Rust-enabled staging deploy restarts both units in one call and
+requires both readiness documents before state clears. Production
 carries neither record and reads no Rust path.
 `docs/rust-phase1/progress-task12c.md` holds the unit digest, the artifact
 digest and the systemd 249/255 and staging-ABI start evidence.
