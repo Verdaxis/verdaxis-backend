@@ -208,6 +208,16 @@ identity, successful-sample floor, frozen p95 thresholds and error-rate rule.
 source and harness identities. Python remains the differential correctness oracle
 at both sizes. Historical paired evidence cannot satisfy the new Rust-only gate.
 
+## Shared same-meaning comparator
+
+The successor branch reuses Phase 2's reviewed comparator commit `64179cd1`.
+Authentication issuance, market writers, SSE and dispatch remain Python-owned.
+`compare.py::compare_responses` is the raw-response profile boundary. Its explicit
+`phase2-meaning-v1` branch delegates to private `phase2_meaning.py`, with a
+SHA-256-pinned `normalization.json` ledger. It uses exact tagged JSON values,
+schema-local decimal/timestamp rules and complete-item multisets inside approved
+ties only. The Phase 1 default and existing recording comparator stay unchanged.
+
 ## File Map
 
 ```

@@ -112,6 +112,31 @@ def compare(expected: dict[str, Any], actual: dict[str, Any]) -> list[str]:
     return differences
 
 
+def compare_responses(
+    expected, actual, *, profile=None, route_id=None, rules_sha256=None,
+    rules_path=None, request_id=None,
+):
+    """Compare raw status/header/body pairs under an explicit profile.
+
+    No profile keeps the Phase 1 byte gate. Phase 2 callers must supply a
+    reviewed route ID and ledger digest; no rule is inferred from body fields.
+    All golden, simulation, stability and staging callers use this boundary.
+    """
+    if profile is None:
+        return compare(
+            capture(expected["status"], expected["headers"], expected["body"]),
+            capture(actual["status"], actual["headers"], actual["body"]),
+        )
+    if profile != "phase2-meaning-v1":
+        raise ContractError("unknown comparator profile")
+    from scripts.rust_contract.phase2_meaning import compare_meaning
+
+    return compare_meaning(
+        expected, actual, route_id=route_id, rules_sha256=rules_sha256,
+        rules_path=rules_path, request_id=request_id,
+    )
+
+
 def _news_item_bytes(raw: bytes) -> list[str] | None:
     """Slice original JSON tokens, retaining each item's spelling and key order."""
     text = raw.decode("utf-8")

@@ -23,6 +23,13 @@ from scripts.rust_contract.compare import (
 )
 
 
+def test_default_profile_keeps_raw_json_byte_differences():
+    assert hasattr(compare_module, "compare_responses"), "missing explicit profile dispatch"
+    left = {"status": 200, "headers": {"content-type": "application/json"}, "body": b'{"a":1}'}
+    right = {**left, "body": b' {"a":1.0} '}
+    assert compare_module.compare_responses(left, right)
+
+
 def test_decimal_scale_and_null_are_not_normalized():
     base = {"status": 200, "headers": {}, "body": {"price": "1.00", "x": None}}
     assert compare(base, {**base, "body": {"price": "1", "x": None}})
