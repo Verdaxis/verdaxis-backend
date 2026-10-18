@@ -21,8 +21,8 @@ use super::{
 };
 use crate::market::{
     visibility::{
-        MAP_PROJECTION, PublicOrderFilters, VisibilityClock, bind_order_query,
-        order_query_sql_projected,
+        COUNT_PROJECTION, DISTINCT_PROJECTION, MAP_PROJECTION, PublicOrderFilters,
+        VisibilityClock, bind_order_query, order_query_sql_projected,
     },
     windows::{normalize_window, window_sort_key},
 };
@@ -312,7 +312,10 @@ async fn counts(State(state): State<AppState>, RawQuery(raw): RawQuery) -> ApiRe
         Box::pin(async move {
             let path = "/api/orderbook/product-counts";
             let mut tx = map_transaction(connection, path).await?;
-            let sql = order_query_sql_projected(include_str!("../../sql/orderbook/counts.sql"), MAP_PROJECTION);
+            let sql = order_query_sql_projected(
+                include_str!("../../sql/orderbook/counts.sql"),
+                COUNT_PROJECTION,
+            );
             let rows = bind_order_query(
                 &sql,
                 &owned.policy,
@@ -546,7 +549,10 @@ async fn distinct(state: AppState, field: &'static str) -> ApiResult {
     let owned = state.clone();
     let result = run_admitted(&state, move |connection| {
         Box::pin(async move {
-            let sql = order_query_sql_projected(include_str!("../../sql/orderbook/distinct.sql"), MAP_PROJECTION);
+            let sql = order_query_sql_projected(
+                include_str!("../../sql/orderbook/distinct.sql"),
+                DISTINCT_PROJECTION,
+            );
             let path = format!("/api/orderbook/{field}");
             let mut tx = map_transaction(connection, &path).await?;
             let rows = bind_order_query(

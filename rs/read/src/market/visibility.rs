@@ -35,6 +35,12 @@ pub fn expand_shared_markers(sql: &str, gate: &str) -> String {
 /// column a tail starts reading must be added in this one place.
 pub const MAP_PROJECTION: &str = "o.id, o.product_id, o.delivery_point_id, o.side, o.provenance, o.availability_window, o.price_per_mt_usd, o.remaining_quantity_mt, o.created_at, o.updated_at, o.off_spec, o.idempotency_operation,";
 
+/// The count and distinct tails read only the projected labels: no order
+/// column at all, so the base rows travel through the predicate and nothing
+/// wider. (count groups by market_product; distinct takes the three labels.)
+pub const COUNT_PROJECTION: &str = "";
+pub const DISTINCT_PROJECTION: &str = "";
+
 /// The projection every consumer needs: the order's own columns plus the
 /// catalog labels. `o.*` is the historical default; aggregate and distinct
 /// tails replace it through the same marker with only the columns they read,
