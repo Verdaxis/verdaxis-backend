@@ -210,10 +210,34 @@ passing and publication skipped. Task 4 edits remain uncommitted and unpushed.
 - No measurements or live application changes ran. No Python application source
   was changed. Do not push the partial Task 4 tree.
 
-Resume: diagnose why the MCP positive-normalization bridge stalled (including
-extreme-exponent Decimal comparisons and process lifecycle), add bounded failure
-handling, and rerun it through the host helper without increasing its time limit.
-Then finish Task 4: remove obsolete amount module/format helpers only after all
-consumers move; remove envelope ordering; preserve protocol-version fields and
-non-approved errors; verify all semantic vectors, shared comparator tests, fmt and
-CI. Tasks 5–6 have not started. Tasks 7–12 remain outside this brief.
+### Task 4 resumed checkpoint
+
+PM confirmed the `255` was a lost SSH connection, not a test hang. The wrapper
+now has keepalive. The required one-time rerun passed: `MCP_INPUT_EXIT=0`,
+`CALL_EXIT=0`. No bridge diagnosis or time-limit increase was needed.
+
+- Checkpoint `8962a36b` preserves the exact amount operations and semantic bridge.
+- Merged comparator-owner branch at `e718c97d` as `51f495bf` before further
+  comparator work. Both profiles and the unified byte/live API remain present.
+  Merge regression: 182 passed; test/wrapper `0`. No `app/` or `alembic/` change.
+- Removed the obsolete MCP decimal module (352 lines), product spelling helper
+  (64 lines), map digit reducer duplication and envelope key-order builders.
+  The new amount module retains significant-digit intermediate rounding because
+  tests prove it changes economic values. Digest canonicalization remains separate.
+- Kept protocol diagnostics and ordinary error repr helpers: decision 84 applies
+  only to the reviewed tool argument paths, not every error string.
+- Protocol/arithmetic GREEN: 46 tests passed; `TASK4_GATE_EXIT=0`, wrapper `0`.
+  Additional map/arithmetic GREEN: 38 tests passed; `TASK4_FINAL_EXIT=0`, wrapper
+  `0`. Host formatting `FORMAT_EXIT=0`. Earlier cleanup runs returned `101` for
+  obsolete spelling assertions and one plain-text fixture parsed as JSON; semantic
+  assertions and strict plain-text comparison now cover those cases.
+- `preserve_order` remains: ordered schema/digest consumers are still present.
+  No dependency was removed without proof that its semantic consumers were gone.
+- All measurements remain skipped under decision 96. No tests ran on the Mac.
+
+New PM scope authorizes Tasks 5–8, but forbids edits under `app/` and `alembic/`.
+Task 7 explicitly requires an Alembic-owned migration. That conflict blocks Task 7
+acceptance until the PM assigns or authorizes the migration. Task 8 also requires
+Task 7 plus reviewed Task 9/10 route handoffs. Do not activate trading caches or
+invent a second schema/deployment path to bypass those dependencies.
+Tasks 5–6 have not started at this checkpoint.

@@ -1,6 +1,6 @@
 //! Exact economic values remain independent of decimal wire spelling.
 use std::cmp::Ordering;
-use verdaxis_read::market::amount::{trade_total, Amount};
+use verdaxis_read::market::amount::{Amount, trade_total};
 
 fn amount(text: &str) -> Amount {
     Amount::parse(text).unwrap()

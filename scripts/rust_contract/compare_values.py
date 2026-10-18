@@ -25,6 +25,10 @@ def main():
                     "body": json.dumps({"jsonrpc": "2.0", "id": 1, "result": {"content": [{"type": "text", "text": text}], "isError": True}}).encode()}
         left = diagnostic(f"Error executing tool {context['tool']}: {pair['expected']}")
         right = diagnostic(pair["actual"])
+    elif pair.get("raw_envelope"):
+        def envelope(value):
+            return {"status": 200, "headers": {"content-type": "application/json"}, "body": json.dumps(value).encode()}
+        left, right = envelope(pair["expected"]), envelope(pair["actual"])
     else:
         left, right = response(pair["expected"]), response(pair["actual"])
     differences = compare_responses(left, right,

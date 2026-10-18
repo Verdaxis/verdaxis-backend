@@ -1,5 +1,5 @@
 //! Decisions 86/87: validate Rust measurements against pinned Python bytes.
-use crate::gate::{RouteP95, WorkloadSize, expected_route_ids, route_regression_blocks};
+use crate::gate::{expected_route_ids, route_regression_blocks, RouteP95, WorkloadSize};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};

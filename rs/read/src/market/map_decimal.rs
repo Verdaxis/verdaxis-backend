@@ -1,5 +1,5 @@
 //! Compact map economics share the public-market amount operations.
-use crate::market::amount::{sum_quantities, Amount};
+use crate::market::amount::{Amount, sum_quantities};
 use std::cmp::Ordering;
 
 pub fn compare(left: &str, right: &str) -> Result<Ordering, String> {

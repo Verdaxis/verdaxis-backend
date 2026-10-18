@@ -88,10 +88,16 @@ struct Validator<'a> {
 }
 impl Validator<'_> {
     fn error(&mut self, path: &str, message: &str, kind: &str, input: &Json) {
-        let location: Vec<Json> = path.split('.').filter(|part| !part.is_empty())
-            .map(|part| part.parse::<usize>().map_or_else(|_| json!(part), |index| json!(index)))
+        let location: Vec<Json> = path
+            .split('.')
+            .filter(|part| !part.is_empty())
+            .map(|part| {
+                part.parse::<usize>()
+                    .map_or_else(|_| json!(part), |index| json!(index))
+            })
             .collect();
-        self.errors.push(json!({"type": kind, "loc": location, "msg": message, "input": input}));
+        self.errors
+            .push(json!({"type": kind, "loc": location, "msg": message, "input": input}));
     }
     fn value(&mut self, schema: &Json, input: &Json, path: &str) -> Json {
         if let Some(reference) = schema["$ref"].as_str() {
@@ -461,11 +467,13 @@ impl Validator<'_> {
             }
             if before == self.errors.len() {
                 for (key, value) in &output {
-                    let decimal = crate::market::amount::Amount::parse(value.as_str().unwrap()).unwrap();
+                    let decimal =
+                        crate::market::amount::Amount::parse(value.as_str().unwrap()).unwrap();
                     let zero = crate::market::amount::Amount::parse("0").unwrap();
                     let price = path.ends_with(".vlsfo_price_usd_per_mt");
-                    let high = crate::market::amount::Amount::parse(if price { "10000" } else { "200" })
-                        .unwrap();
+                    let high =
+                        crate::market::amount::Amount::parse(if price { "10000" } else { "200" })
+                            .unwrap();
                     let low_order = decimal.compare(&zero);
                     if low_order == std::cmp::Ordering::Less
                         || (price && low_order == std::cmp::Ordering::Equal)
@@ -561,6 +569,9 @@ pub fn tool_arguments(tool: &str, arguments: &mut Json) -> Result<(), String> {
         *arguments = normalized;
         Ok(())
     } else {
-        Err(format!("Validation failed: {}", Json::Array(validator.errors)))
+        Err(format!(
+            "Validation failed: {}",
+            Json::Array(validator.errors)
+        ))
     }
 }
