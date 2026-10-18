@@ -16,15 +16,64 @@ def runner_module():
     return importlib.import_module("scripts.rust_contract.phase2_scenarios")
 
 
-def test_group_selection_never_substitutes_harness_smoke():
+def test_group_selection_never_substitutes_harness_smoke(monkeypatch):
+    from types import SimpleNamespace
     module = runner_module()
-    with pytest.raises(module.ScenarioError, match="registered route"):
-        module.select_scenarios("notifications", None)
-    assert [item.name for item in module.select_scenarios("all", ["runner-example"])] == ["runner-example"]
+    monkeypatch.setattr(module, "REGISTRY", {})
+    for group in ("notifications", "all"):
+        with pytest.raises(module.ScenarioError, match="registered route"):
+            module.select_scenarios(group, None)
+    fake = SimpleNamespace(name="fake-notifications", group="notifications", route_qualification=True)
+    monkeypatch.setattr(module, "REGISTRY", {fake.name: fake})
+    assert module.select_scenarios("notifications", None) == [fake]
+    assert module.select_scenarios("all", None) == [fake]
+    assert module.select_scenarios("all", [fake.name]) == [fake]
+    with pytest.raises(module.ScenarioError, match="group"):
+        module.select_scenarios("alerts", [fake.name])
+    fake.route_qualification = False
     with pytest.raises(module.ScenarioError, match="registered route"):
         module.select_scenarios("all", None)
-    with pytest.raises(module.ScenarioError, match="group"):
-        module.select_scenarios("alerts", ["runner-example"])
+    assert module.select_scenarios("all", [fake.name]) == [fake]
+
+
+def test_created_route_databases_follow_runtime_test_target_grammar(monkeypatch):
+    import re
+    from types import SimpleNamespace
+
+    from scripts.rust_contract import phase2_routes, run_disposable
+
+    created = []
+
+    class Connection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            pass
+
+        def execute(self, sql):
+            if sql.startswith("CREATE DATABASE"):
+                created.append(sql.split('"')[1])
+
+    class StopBeforeServers(Exception):
+        pass
+
+    def stop(_context):
+        raise StopBeforeServers
+
+    monkeypatch.setattr(phase2_routes, "connect", lambda *_args, **_kwargs: Connection())
+    monkeypatch.setattr(phase2_routes, "snapshot", lambda _connection: {})
+    monkeypatch.setattr(run_disposable, "docker", lambda *_args: "")
+    runner = SimpleNamespace(start_database=lambda: 49152, sha="a" * 40,
+        urls=lambda _port: {}, migrate_and_seed=lambda _env: None,
+        container="owned-test", python_bin="python")
+    scenario = SimpleNamespace(setup=lambda _connection: None, build=(), servers=stop)
+    with pytest.raises(StopBeforeServers):
+        phase2_routes.run_registered(runner, SimpleNamespace(phase2_races=False), [scenario])
+    assert len(created) == 4
+    for database in created:
+        assert re.fullmatch(r"[a-z][a-z0-9_]*_test", database), database
+    assert len(set(created)) == len(created)
 
 
 class Cell:

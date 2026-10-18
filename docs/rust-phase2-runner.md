@@ -154,6 +154,35 @@ verdaxis-staging-test "$PWD" '/home/verdaxis-test/bin/heavy run 3600 -- bash -lc
 This example deliberately reports `scope=harness-only` and
 `route_qualification=false`. It does not qualify any CRUD route or candidate.
 
+## Route-lane integration correction
+
+The first notification registration exposed two gaps in the shared runner.
+Route template and Python/Rust/mixed cell names now all end in `_test` and
+use Rust's lowercase disposable-name grammar. Runtime target validation is
+unchanged; children still run in `ENVIRONMENT=test`, never development mode.
+The selection regression now installs isolated empty and one-entry registries,
+including a non-qualifying entry, rather than assuming the shared registry
+remains empty as lanes add routes.
+
+The target audit also checked the base `verdaxis_rust_test`, Task 4 twins
+`phase2_python_test`/`phase2_rust_test`, and `phase2_mixed_test`; these already
+comply. PostgreSQL publication and HTTP listeners use numeric loopback. HTTP
+listeners use the existing kernel-ephemeral allocator; the mail listener binds
+loopback port zero. No systemd services are created by the runner. No further
+name, service or port mismatch with Rust runtime validation was found.
+The synthetic example does not use the full Rust runtime Config validator, so
+its success alone could not detect the original name mismatch. A regression
+now checks every actual route `CREATE DATABASE` target against that grammar.
+
+| Correction gate | Own exit | Result |
+| --- | ---: | --- |
+| RED on staging | 1 | Two expected failures, eight passed: populated-registry assumption and invalid database suffix |
+| Focused GREEN on staging | 0 | 69 passed across scenario, Task 4 runner and Phase 2 comparator suites |
+| End-to-end example with races on staging | 0 | Twin actions, repeated barriers and mixed Python dispatcher passed |
+
+Logs: `work/runner-correction-{red,green}.log`. Both calls used `heavy run 3600`
+and finished. No measurements ran.
+
 ## Verification record
 
 All focused checks ran on staging through `heavy run 3600`. Every call finished.

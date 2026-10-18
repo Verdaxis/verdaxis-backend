@@ -87,11 +87,11 @@ def run_registered(runner, args, selected):
     with MailStub() as mail:
         for index, scenario in enumerate(selected):
             context = Context(ROOT, runner.python_bin, environment, mail=mail)
-            template = f"phase2_route_seed_{index}"
+            template = f"phase2_route_seed_{index}_test"
             clone(DB_NAME, template)
             with connect(port, template) as source:
                 scenario.setup(source)
-            databases = [f"phase2_route_{index}_{label}" for label in ("python", "rust", "mixed")]
+            databases = [f"phase2_route_{index}_{label}_test" for label in ("python", "rust", "mixed")]
             for database in databases:
                 clone(template, database)
                 prepare(database)
