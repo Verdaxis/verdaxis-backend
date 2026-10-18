@@ -67,6 +67,18 @@ Current fixtures reuse the Task 6 matrix and add ports, news, exact terms and
 trusted/untrusted signals. The runner pins the runtime KYC switch and records
 all groups twice; incomplete or unstable recordings cannot replace golden data.
 
+Task 14b adds the staging-only shadow content path. `shadow.py` reads private
+reviewed cases, enforces serial rolling call/minute budgets, direct loopback
+transport with an absolute deadline/body cap, separate Python/Rust readiness
+identities, memory-pressure backoff and deploy-state stops. It delegates both
+legs of each Python–Rust–Python sandwich to `compare.compare_responses` with
+the byte profile. Only schema-specific validated request-clock tokens and the
+existing reviewed exact-item tie exceptions may differ. Payloads and internal
+capture hashes stay in memory; evidence is bounded metadata in a private path
+outside the checkout. Missing coverage, empty-only results or an unapproved
+short floor cannot return PASS. Candidate activation remains a separate gate;
+see `docs/rust-phase1/readiness-task14b.md`.
+
 Task 5 exports the catalog policy as data. `scripts/rust_contract/export_policy.py`
 turns the approved `app.market_catalog` constants and the reviewed
 qualification-profile map into `deploy/rust/market-policy.json` (identity, lanes,
@@ -191,10 +203,11 @@ maintenance units. The unit loads `.runtime-release.env` and the deploy-written
 `.runtime-rust/runtime.env` (never the secret-rich `.env`) and runs the deploy
 start guard, the migrator-backed revision check and the budget drift check
 before `ExecStart`; it serves `127.0.0.1:8011` with a 256 MiB cap on the same
-sandbox directives as the running backend unit. Activation stays off in the
-committed `deploy/rust/staging-policy.json` until the two-release bootstrap
-installs this unit; a Rust-enabled staging deploy then restarts both units in
-one call and requires both readiness documents before state clears. Production
+sandbox directives as the running backend unit. Task 14b enables staging-only policy in
+`deploy/rust/staging-policy.json`; this source approval is not an activation
+command. The independent candidate activation path remains a PM gate. The
+canonical Rust-enabled staging deploy restarts both units in one call and
+requires both readiness documents before state clears. Production
 carries neither record and reads no Rust path.
 `docs/rust-phase1/progress-task12c.md` holds the unit digest, the artifact
 digest and the systemd 249/255 and staging-ABI start evidence.

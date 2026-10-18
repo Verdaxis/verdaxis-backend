@@ -80,6 +80,15 @@ fn revisions_fail_closed() {
 }
 
 #[test]
+fn union_checkpoint_is_accepted_by_compiled_policy() {
+    let mut config = staging();
+    config.migration_revision = "p0_20261016_union".into();
+    assert!(validate_config(&config).is_ok());
+    config.environment = "production".into();
+    assert!(validate_config(&config).is_err());
+}
+
+#[test]
 fn staging_configuration_fails_closed() {
     let base = staging();
     assert!(validate_config(&base).is_ok());
