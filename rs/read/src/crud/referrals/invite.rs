@@ -33,46 +33,114 @@ pub fn normalize_email(body: &Value) -> Result<String, ApiError> {
         ));
     };
     let text = text.trim();
-    let address = if let Some((_, rest)) = text.rsplit_once('<') {
-        rest.strip_suffix('>').unwrap_or(rest).trim()
+    let address = if text.ends_with('>') {
+        text.rsplit_once('<')
+            .map(|(_, rest)| rest[..rest.len() - 1].trim())
+            .unwrap_or(text)
     } else {
         text
     };
-    let invalid = || {
+    let invalid = |reason: &str| {
         refusal(
             StatusCode::UNPROCESSABLE_ENTITY,
-            json!([{"type":"value_error","loc":["body","email"],"msg":"value is not a valid email address","input":value}]),
+            json!([{"type":"value_error","loc":["body","email"],"msg":format!("value is not a valid email address: {reason}"),"input":value,"ctx":{"reason":reason}}]),
         )
     };
-    let (local, domain) = address.rsplit_once('@').ok_or_else(invalid)?;
-    if local.is_empty()
-        || local.len() > 64
-        || local.starts_with('.')
-        || local.ends_with('.')
-        || local.contains("..")
-        || local
-            .chars()
-            .any(|c| c.is_control() || c.is_whitespace() || "@<>(),;:\\\"[]".contains(c))
-    {
-        return Err(invalid());
+    if text.contains('<') && !text.ends_with('>') {
+        return Err(invalid(
+            "An open angle bracket at the start of the email address has to be followed by a close angle bracket at the end.",
+        ));
     }
-    let ascii = idna::domain_to_ascii(domain).map_err(|_| invalid())?;
+    let (local, domain) = address
+        .rsplit_once('@')
+        .ok_or_else(|| invalid("An email address must have an @-sign."))?;
+    if local.is_empty() {
+        return Err(invalid("There must be something before the @-sign."));
+    }
+    if local.contains(' ') {
+        return Err(invalid(
+            "The email address contains invalid characters before the @-sign: SPACE.",
+        ));
+    }
+    if local.contains('\u{200b}') {
+        return Err(invalid(
+            "The email address contains unsafe characters: ZERO WIDTH SPACE.",
+        ));
+    }
+    if local.starts_with('.') {
+        return Err(invalid("An email address cannot start with a period."));
+    }
+    if local.ends_with('.') {
+        return Err(invalid(
+            "An email address cannot have a period immediately before the @-sign.",
+        ));
+    }
+    if local.contains("..") {
+        return Err(invalid(
+            "An email address cannot have two periods in a row.",
+        ));
+    }
+    if local
+        .chars()
+        .any(|c| c.is_control() || c.is_whitespace() || "@<>(),;:\\\"[]".contains(c))
+    {
+        return Err(invalid(
+            "The email address contains invalid characters before the @-sign.",
+        ));
+    }
+    if domain.is_empty() {
+        return Err(invalid("There must be something after the @-sign."));
+    }
+    if domain.contains('_') {
+        return Err(invalid(
+            "The part after the @-sign contains invalid characters: '_'.",
+        ));
+    }
+    if domain.starts_with('-') {
+        return Err(invalid(
+            "An email address cannot have a hyphen immediately after the @-sign.",
+        ));
+    }
+    if domain.ends_with('.') {
+        return Err(invalid("An email address cannot end with a period."));
+    }
+    let ascii = idna::domain_to_ascii(domain)
+        .map_err(|_| invalid("The part after the @-sign is not valid IDNA."))?;
+    if !ascii.contains('.') {
+        return Err(invalid(
+            "The part after the @-sign is not valid. It should have a period.",
+        ));
+    }
+    if ascii
+        .rsplit('.')
+        .next()
+        .is_some_and(|part| part.bytes().all(|c| c.is_ascii_digit()))
+    {
+        return Err(invalid(
+            "The part after the @-sign is not valid. It is not within a valid top-level domain.",
+        ));
+    }
+    if ["test", "invalid", "localhost", "local", "onion"]
+        .iter()
+        .any(|suffix| ascii == *suffix || ascii.ends_with(&format!(".{suffix}")))
+    {
+        return Err(invalid(
+            "The part after the @-sign is a special-use or reserved name that cannot be used with email.",
+        ));
+    }
     if ascii.len() > 253
-        || !ascii.contains('.')
         || ascii.split('.').any(|part| {
-            part.is_empty()
-                || part.len() > 63
-                || part.starts_with('-')
-                || part.ends_with('-')
-                || !part.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+            part.is_empty() || part.len() > 63 || part.starts_with('-') || part.ends_with('-')
         })
     {
-        return Err(invalid());
+        return Err(invalid("The part after the @-sign is not valid."));
     }
+    use unicode_normalization::UnicodeNormalization;
+    let local: String = local.nfc().collect();
     let (domain, _) = idna::domain_to_unicode(&ascii);
     let result = format!("{local}@{}", domain.to_lowercase());
     if result.len() > 254 {
-        return Err(invalid());
+        return Err(invalid("The email address is too long."));
     }
     Ok(result)
 }

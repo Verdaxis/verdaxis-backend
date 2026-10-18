@@ -1,0 +1,320 @@
+[
+  {
+    "input": null,
+    "errors": [
+      {
+        "type": "string_type",
+        "loc": [
+          "email"
+        ],
+        "msg": "Input should be a valid string",
+        "input": null
+      }
+    ]
+  },
+  {
+    "input": 12,
+    "errors": [
+      {
+        "type": "string_type",
+        "loc": [
+          "email"
+        ],
+        "msg": "Input should be a valid string",
+        "input": 12
+      }
+    ]
+  },
+  {
+    "input": "",
+    "errors": [
+      {
+        "type": "value_error",
+        "loc": [
+          "email"
+        ],
+        "msg": "value is not a valid email address: An email address must have an @-sign.",
+        "input": "",
+        "ctx": {
+          "reason": "An email address must have an @-sign."
+        }
+      }
+    ]
+  },
+  {
+    "input": "not-email",
+    "errors": [
+      {
+        "type": "value_error",
+        "loc": [
+          "email"
+        ],
+        "msg": "value is not a valid email address: An email address must have an @-sign.",
+        "input": "not-email",
+        "ctx": {
+          "reason": "An email address must have an @-sign."
+        }
+      }
+    ]
+  },
+  {
+    "input": "a@localhost",
+    "errors": [
+      {
+        "type": "value_error",
+        "loc": [
+          "email"
+        ],
+        "msg": "value is not a valid email address: The part after the @-sign is not valid. It should have a period.",
+        "input": "a@localhost",
+        "ctx": {
+          "reason": "The part after the @-sign is not valid. It should have a period."
+        }
+      }
+    ]
+  },
+  {
+    "input": "a@",
+    "errors": [
+      {
+        "type": "value_error",
+        "loc": [
+          "email"
+        ],
+        "msg": "value is not a valid email address: There must be something after the @-sign.",
+        "input": "a@",
+        "ctx": {
+          "reason": "There must be something after the @-sign."
+        }
+      }
+    ]
+  },
+  {
+    "input": "@example.com",
+    "errors": [
+      {
+        "type": "value_error",
+        "loc": [
+          "email"
+        ],
+        "msg": "value is not a valid email address: There must be something before the @-sign.",
+        "input": "@example.com",
+        "ctx": {
+          "reason": "There must be something before the @-sign."
+        }
+      }
+    ]
+  },
+  {
+    "input": "a b@example.com",
+    "errors": [
+      {
+        "type": "value_error",
+        "loc": [
+          "email"
+        ],
+        "msg": "value is not a valid email address: The email address contains invalid characters before the @-sign: SPACE.",
+        "input": "a b@example.com",
+        "ctx": {
+          "reason": "The email address contains invalid characters before the @-sign: SPACE."
+        }
+      }
+    ]
+  },
+  {
+    "input": ".a@example.com",
+    "errors": [
+      {
+        "type": "value_error",
+        "loc": [
+          "email"
+        ],
+        "msg": "value is not a valid email address: An email address cannot start with a period.",
+        "input": ".a@example.com",
+        "ctx": {
+          "reason": "An email address cannot start with a period."
+        }
+      }
+    ]
+  },
+  {
+    "input": "a..b@example.com",
+    "errors": [
+      {
+        "type": "value_error",
+        "loc": [
+          "email"
+        ],
+        "msg": "value is not a valid email address: An email address cannot have two periods in a row.",
+        "input": "a..b@example.com",
+        "ctx": {
+          "reason": "An email address cannot have two periods in a row."
+        }
+      }
+    ]
+  },
+  {
+    "input": "a@-example.com",
+    "errors": [
+      {
+        "type": "value_error",
+        "loc": [
+          "email"
+        ],
+        "msg": "value is not a valid email address: An email address cannot have a hyphen immediately after the @-sign.",
+        "input": "a@-example.com",
+        "ctx": {
+          "reason": "An email address cannot have a hyphen immediately after the @-sign."
+        }
+      }
+    ]
+  },
+  {
+    "input": "a@example.com.",
+    "errors": [
+      {
+        "type": "value_error",
+        "loc": [
+          "email"
+        ],
+        "msg": "value is not a valid email address: An email address cannot end with a period.",
+        "input": "a@example.com.",
+        "ctx": {
+          "reason": "An email address cannot end with a period."
+        }
+      }
+    ]
+  },
+  {
+    "input": "a@exa_mple.com",
+    "errors": [
+      {
+        "type": "value_error",
+        "loc": [
+          "email"
+        ],
+        "msg": "value is not a valid email address: The part after the @-sign contains invalid characters: '_'.",
+        "input": "a@exa_mple.com",
+        "ctx": {
+          "reason": "The part after the @-sign contains invalid characters: '_'."
+        }
+      }
+    ]
+  },
+  {
+    "input": "User@EXAMPLE.COM",
+    "email": "User@example.com"
+  },
+  {
+    "input": "Ada <user@例子.公司>",
+    "email": "user@例子.公司"
+  },
+  {
+    "input": "a@xn--fsqu00a.xn--55qx5d",
+    "email": "a@例子.公司"
+  },
+  {
+    "input": "ü@example.com",
+    "email": "ü@example.com"
+  },
+  {
+    "input": "x​@example.com",
+    "errors": [
+      {
+        "type": "value_error",
+        "loc": [
+          "email"
+        ],
+        "msg": "value is not a valid email address: The email address contains unsafe characters: ZERO WIDTH SPACE.",
+        "input": "x​@example.com",
+        "ctx": {
+          "reason": "The email address contains unsafe characters: ZERO WIDTH SPACE."
+        }
+      }
+    ]
+  },
+  {
+    "input": "a@example.test",
+    "errors": [
+      {
+        "type": "value_error",
+        "loc": [
+          "email"
+        ],
+        "msg": "value is not a valid email address: The part after the @-sign is a special-use or reserved name that cannot be used with email.",
+        "input": "a@example.test",
+        "ctx": {
+          "reason": "The part after the @-sign is a special-use or reserved name that cannot be used with email."
+        }
+      }
+    ]
+  },
+  {
+    "input": "a@example.invalid",
+    "errors": [
+      {
+        "type": "value_error",
+        "loc": [
+          "email"
+        ],
+        "msg": "value is not a valid email address: The part after the @-sign is a special-use or reserved name that cannot be used with email.",
+        "input": "a@example.invalid",
+        "ctx": {
+          "reason": "The part after the @-sign is a special-use or reserved name that cannot be used with email."
+        }
+      }
+    ]
+  },
+  {
+    "input": "a@127.0.0.1",
+    "errors": [
+      {
+        "type": "value_error",
+        "loc": [
+          "email"
+        ],
+        "msg": "value is not a valid email address: The part after the @-sign is not valid. It is not within a valid top-level domain.",
+        "input": "a@127.0.0.1",
+        "ctx": {
+          "reason": "The part after the @-sign is not valid. It is not within a valid top-level domain."
+        }
+      }
+    ]
+  },
+  {
+    "input": "a@b.123",
+    "errors": [
+      {
+        "type": "value_error",
+        "loc": [
+          "email"
+        ],
+        "msg": "value is not a valid email address: The part after the @-sign is not valid. It is not within a valid top-level domain.",
+        "input": "a@b.123",
+        "ctx": {
+          "reason": "The part after the @-sign is not valid. It is not within a valid top-level domain."
+        }
+      }
+    ]
+  },
+  {
+    "input": "a+b@example.com",
+    "email": "a+b@example.com"
+  },
+  {
+    "input": "a<user@example.com",
+    "errors": [
+      {
+        "type": "value_error",
+        "loc": [
+          "email"
+        ],
+        "msg": "value is not a valid email address: An open angle bracket at the start of the email address has to be followed by a close angle bracket at the end.",
+        "input": "a<user@example.com",
+        "ctx": {
+          "reason": "An open angle bracket at the start of the email address has to be followed by a close angle bracket at the end."
+        }
+      }
+    ]
+  }
+]

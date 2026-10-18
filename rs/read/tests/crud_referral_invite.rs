@@ -18,6 +18,31 @@ fn invite_addresses_preserve_local_case_and_normalize_domains() {
 }
 
 #[test]
+fn emailstr_oracle_vectors_keep_normalized_values_and_diagnostics() {
+    let vectors: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../tests/rust_contract/phase2/referral-email-vectors.json"
+    ))
+    .unwrap();
+    for vector in vectors.as_array().unwrap() {
+        let result = normalize_email(&json!({"email": vector["input"]}));
+        if let Some(expected) = vector.get("email") {
+            assert_eq!(
+                result.unwrap(),
+                expected.as_str().unwrap(),
+                "{}",
+                vector["input"]
+            );
+        } else {
+            let mut expected = vector["errors"].clone();
+            for error in expected.as_array_mut().unwrap() {
+                error["loc"] = json!(["body", "email"]);
+            }
+            assert_eq!(result.unwrap_err().detail, expected, "{}", vector["input"]);
+        }
+    }
+}
+
+#[test]
 fn invitation_escapes_content_and_trims_only_its_link() {
     let payload = render_invite(
         "sender@example.com",
