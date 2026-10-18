@@ -19,7 +19,8 @@ EnvironmentFile=/home/verdaxis-prod/verdaxis/prod/be/.runtime-rust/runtime.env
 ExecStartPre=/usr/bin/env -i /usr/bin/python3 -I -S -B /home/verdaxis-prod/verdaxis/prod/be/scripts/verify_deploy_start_guard.py --environment production --expected-release-sha ${RELEASE_SHA}
 ExecStartPre=/home/verdaxis-prod/verdaxis/prod/be/venv/bin/python scripts/verify_migration_revision.py --expected ${MIGRATION_REVISION}
 ExecStartPre=/home/verdaxis-prod/verdaxis/prod/be/venv/bin/python scripts/prepare_rust_budget.py --verify --environment-file /home/verdaxis-prod/verdaxis/prod/be/.env --release-sha ${RELEASE_SHA} --output /home/verdaxis-prod/verdaxis/prod/be/.runtime-rust/budget.json
-ExecStart=/home/verdaxis-prod/verdaxis/prod/be/.runtime-rust/verdaxis-read --bind 127.0.0.1:8010 --budget-file /home/verdaxis-prod/verdaxis/prod/be/.runtime-rust/budget.json
+# The OS launcher permits pre-artifact unit verification; env execs in the same PID.
+ExecStart=/usr/bin/env /home/verdaxis-prod/verdaxis/prod/be/.runtime-rust/verdaxis-read --bind 127.0.0.1:8010 --budget-file /home/verdaxis-prod/verdaxis/prod/be/.runtime-rust/budget.json
 Restart=on-failure
 RestartSec=5
 KillSignal=SIGTERM
