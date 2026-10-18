@@ -290,14 +290,31 @@ fn project(row: sqlx::postgres::PgRow, policy: &crate::MarketPolicy) -> Value {
     })
 }
 
-/// Caller owns the authenticated transaction. No implicit retry or org lock:
-/// the source organization-cap race must be compared by the runner lane.
+/// Caller owns the authenticated transaction and its existing user lock.
+/// PD8 serializes the organization-wide count/insert without organization row locks.
 pub async fn create(
     connection: &mut PgConnection,
     organization: Uuid,
     input: AlertCreate,
     policy: &crate::MarketPolicy,
 ) -> Result<Value, ApiError> {
+    #[cfg(feature = "contract-tests")]
+    contract::before_cap_lock().await;
+    // A fixed namespace plus the full organization UUID defines this lock domain.
+    // Hash collisions only serialize unrelated organizations; they cannot weaken
+    // the cap. The transaction owner releases the lock on commit or rollback.
+    let lock_key = {
+        use sha2::{Digest, Sha256};
+        let mut hash = Sha256::new();
+        hash.update(b"verdaxis:price-alert-cap:v1:");
+        hash.update(organization.as_bytes());
+        i64::from_be_bytes(hash.finalize()[..8].try_into().expect("eight digest bytes"))
+    };
+    sqlx::query("SELECT pg_catalog.pg_advisory_xact_lock($1)")
+        .bind(lock_key)
+        .execute(&mut *connection)
+        .await
+        .map_err(|_| ApiError::database())?;
     let count: i64 =
         sqlx::query_scalar("SELECT count(*) FROM price_alerts WHERE org_id=$1 AND is_active=true")
             .bind(organization)
@@ -310,8 +327,6 @@ pub async fn create(
             "Free tier limit of 5 active alerts reached. Delete an existing alert to create a new one.",
         ));
     }
-    #[cfg(feature = "contract-tests")]
-    contract::after_count().await;
     #[cfg(feature = "contract-tests")]
     let id = contract::id().unwrap_or_else(Uuid::new_v4);
     #[cfg(not(feature = "contract-tests"))]

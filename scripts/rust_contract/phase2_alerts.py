@@ -76,14 +76,12 @@ def actions(_context):
 
 
 def races(_context):
-    from scripts.rust_contract.phase2_scenarios import Race
+    from scripts.rust_contract.phase2_alert_pd8 import PD8Race
     def invariant(before, after, results):
-        assert len(after["price_alerts"]["rows"]) == len(before["price_alerts"]["rows"]) + 2
-        assert all(result[0]["status"] == 201 for result in results.values())
-        # Both SQL counts observe four before either INSERT. Source cap race is
-        # explicitly reproduced, not silently repaired by a Rust-only org lock.
-        assert sum(row["is_active"] for row in after["price_alerts"]["rows"].values()) == 6
-    return [Race((action("cap-owner", number=20, barrier="cap-count"),
+        assert len(after["price_alerts"]["rows"]) == len(before["price_alerts"]["rows"]) + 1
+        assert sorted(result[0]["status"] for result in results.values()) == [201, 403]
+        assert sum(row["is_active"] for row in after["price_alerts"]["rows"].values()) == 5
+    return [PD8Race((action("cap-owner", number=20, barrier="cap-count"),
                   action("cap-member", number=21, actor=1, barrier="cap-count")), invariant, repeats=1, seed=20261018)]
 
 

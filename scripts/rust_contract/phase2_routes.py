@@ -137,6 +137,12 @@ def run_registered(runner, args, selected):
                 if not schedules:
                     raise ScenarioError("race mode has no schedules")
                 for race in schedules:
+                    # Phase 2 Task 16: PD8 approved race-only difference
+                    from scripts.rust_contract.phase2_alert_pd8 import PD8Race, run_pd8
+                    if isinstance(race, PD8Race):
+                        races.extend(run_pd8(race, cells))
+                        continue
+                    # Phase 2 Task 16: end PD8 approved race-only difference
                     races.extend(run_race(race, cells))
             mixed = None
             if scenario.mixed:

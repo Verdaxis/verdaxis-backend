@@ -30,9 +30,11 @@ component checks against the existing disposable PostgreSQL fixture, then runs
 Python's trigger helper on the committed Rust row. The registered `alerts-crud`
 and `alerts-crud-reverse` scenarios use the shared runner for paired HTTP/state,
 rollback, retained-commit/no-replay and mixed dispatcher checks. Disposable-only
-adapters control IDs/clocks and hold both SQL counts before inserts. They confirm
-the source organization-cap race (six active rows from four); PM disposition is
-required before full acceptance. Evidence is in `docs/rust-phase2/task16-handoff.md`.
+adapters control IDs/clocks and record approved PD8: Python's SQL-count barrier
+reproduces six active rows; Rust takes a namespaced per-organization transaction
+advisory lock after the authenticated user lock and before counting, admitting
+one create and refusing the other with the existing 403, leaving five active rows.
+No organization row lock, Python change, or runtime ACL grant is required. Evidence is in `docs/rust-phase2/task16-handoff.md`.
 Coverage requirements are data in `tests/rust_contract/phase2/alerts-scenarios.json`.
 
 ## Rust Phase 1 bootstrap

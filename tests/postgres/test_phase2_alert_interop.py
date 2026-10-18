@@ -36,6 +36,14 @@ async def test_rust_alert_crud_and_python_trigger(pg_session):
             "VALUES (:id,:email,'unused','BUYER','APPROVED',:org,true,false)"
         ), {"id": actor, "email": f"alert-{actor}@example.test", "org": [organization, organization, foreign, None][index]})
     await session.commit()
+    from sqlalchemy.ext.asyncio import create_async_engine
+    runtime = create_async_engine(os.environ["DATABASE_URL"])
+    try:
+        async with runtime.begin() as connection:
+            assert await connection.scalar(text("SELECT has_function_privilege(current_user, 'pg_catalog.pg_advisory_xact_lock(bigint)', 'EXECUTE')")), "runtime role needs EXECUTE on pg_catalog.pg_advisory_xact_lock(bigint)"
+            await connection.execute(text("SELECT pg_catalog.pg_advisory_xact_lock(123456789::bigint)"))
+    finally:
+        await runtime.dispose()
     env = {
         **os.environ,
         "RELEASE_SHA": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),

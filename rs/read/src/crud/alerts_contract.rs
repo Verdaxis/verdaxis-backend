@@ -47,7 +47,7 @@ pub(crate) async fn scope(
     }
     response
 }
-pub(crate) async fn after_count() {
+pub(crate) async fn before_cap_lock() {
     if let Some(group) = value("x-alert-barrier") {
         static BARRIERS: OnceLock<Mutex<HashMap<String, Arc<Barrier>>>> = OnceLock::new();
         let barrier = BARRIERS
@@ -59,7 +59,7 @@ pub(crate) async fn after_count() {
             .clone();
         tokio::time::timeout(std::time::Duration::from_secs(10), barrier.wait())
             .await
-            .expect("both SQL counts must complete before inserts");
+            .expect("both authenticated users must reach the organization cap lock");
     }
 }
 pub(crate) async fn after_insert(
