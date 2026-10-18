@@ -196,9 +196,9 @@ class RustReleaseFixture:
         (systemd / "verdaxis-backend-staging.service").write_text(
             "[Unit]\nDescription=python backend fixture\n" + unit_body
         )
-        (source / RUST_UNIT).write_text(
-            "[Unit]\nDescription=rust reads fixture\n" + unit_body
-        )
+        # Keep the shipped launch and sandbox contract in release archives.
+        # The real verifier's missing-artifact case lives in test_rust_units.
+        shutil.copy2(ROOT / RUST_UNIT, source / RUST_UNIT)
 
         rust = source / "deploy/rust"
         rust.mkdir(parents=True)
