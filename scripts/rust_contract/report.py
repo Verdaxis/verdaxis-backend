@@ -227,6 +227,32 @@ def speed_verdict(
     }
 
 
+def error_verdict(latency: dict[str, Any]) -> dict[str, Any]:
+    """The fixed schedule requires equal offered totals on every route.
+
+    Count transport failures as offered requests too. Different successful
+    subsets do not change the denominator of the 5xx/503 comparison.
+    """
+    manifest = workload.load()
+    expected = {row["id"] for row in [*workload.routes(manifest), *workload.tools(manifest)]}
+    totals = {target: 0 for target in ("python", "rust")}
+    errors = {target: 0 for target in totals}
+    same_workload = set(latency) == expected
+    for targets in latency.values():
+        counts = {}
+        for target in totals:
+            row = targets.get(target, {})
+            counts[target] = sum(row.get("statuses", {}).values())
+            totals[target] += counts[target]
+            errors[target] += row.get("server_errors", 0) + row.get("busy", 0)
+        same_workload &= counts["python"] == counts["rust"] and counts["python"] > 0
+    rates = {target: errors[target] / totals[target] if totals[target] else None for target in totals}
+    return {
+        "outcome": "inconclusive" if not same_workload else ("no-go" if rates["rust"] > rates["python"] else "pass"),
+        "same_workload": same_workload, "requests": totals, "errors": errors, "rates": rates,
+    }
+
+
 def write_report(destination: Path, document: str) -> None:
     destination.parent.mkdir(parents=True, exist_ok=True)
     destination.write_text(document)
@@ -253,19 +279,9 @@ def build_bundle(
     latency = latency_table(measurement) if measurement else {}
     mix = mix_table(manifest, latency) if latency else {}
 
-    # The 5xx/503 rise compares Rust against Python over the same offered
-    # workload. Only responses in the 5xx class count; contract 4xx and 429
-    # are their own reported classes.
-    rust_5xx = sum(
-        row.get("server_errors", 0) + row.get("busy", 0)
-        for targets in latency.values()
-        for row in [targets.get("rust", {})]
-    )
-    python_5xx = sum(
-        row.get("server_errors", 0) + row.get("busy", 0)
-        for targets in latency.values()
-        for row in [targets.get("python", {})]
-    )
+    errors = error_verdict(latency)
+    rust_5xx = errors["errors"]["rust"]
+    python_5xx = errors["errors"]["python"]
 
     coverage_counts: dict[str, int] = {}
     for row in _cells(measurement) if measurement else []:
@@ -281,7 +297,7 @@ def build_bundle(
 
     speed = speed_verdict(latency, mix)
     conditions = _gate_conditions(
-        unapproved_differences, rust_5xx, python_5xx, integration_passed, speed, memory
+        unapproved_differences, rust_5xx, python_5xx, integration_passed, speed, memory, errors
     )
     # Memory and coverage report their own outcomes but never block; a
     # non-blocking outcome value must not fail the gate.
@@ -302,11 +318,12 @@ def build_bundle(
         "coverage": covered,
         "gate": {
             "passes": passes,
-            "outcome": "pass" if passes else "no-go",
+            "outcome": "inconclusive" if any(c["outcome"] == "inconclusive" for c in conditions) else ("pass" if passes else "no-go"),
             "conditions": conditions,
             "rust_5xx": rust_5xx,
             "python_5xx": python_5xx,
             "speed": speed,
+            "errors": errors,
         },
         "integration": {"passed": integration_passed, "summary": integration_summary},
     }
@@ -319,6 +336,7 @@ def _gate_conditions(
     integration_passed: bool,
     speed: dict[str, Any],
     memory: dict[str, Any],
+    errors: dict[str, Any] | None = None,
 ) -> list[dict[str, str]]:
     """The decision-68 conditions with an explicit per-condition outcome.
 
@@ -327,7 +345,7 @@ def _gate_conditions(
     is reported against its target but never blocks.
     """
     difference_outcome = "pass" if unapproved_differences == 0 else "no-go"
-    errors_outcome = "pass" if rust_5xx <= python_5xx else "no-go"
+    errors_outcome = errors["outcome"] if errors else "inconclusive"
     integration_outcome = "pass" if integration_passed else "no-go"
     speed_outcome = speed["outcome"]
     python_mem = memory.get("python", {}).get("median_bytes")
@@ -345,7 +363,8 @@ def _gate_conditions(
         {"name": "zero unexplained contract differences", "outcome": difference_outcome,
          "detail": f"{unapproved_differences} unexplained difference(s)"},
         {"name": "no rise in 5xx/503 from Rust against Python", "outcome": errors_outcome,
-         "detail": f"Rust {rust_5xx} vs Python {python_5xx} on the same workload"},
+         "detail": f"Rust {rust_5xx} vs Python {python_5xx}; "
+                   f"offered totals/rates: {errors or NOT_MEASURED}"},
         {"name": "the integration suite passes", "outcome": integration_outcome,
          "detail": "the unchanged disposable integration suite"},
         {"name": "speed (mix p95 and per-route thresholds)", "outcome": speed_outcome,

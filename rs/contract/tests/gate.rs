@@ -3,7 +3,7 @@
 //! Every test here is written to fail if the gate ever passes on a condition
 //! that is missing, unmeasured, or spelled as a placeholder.
 
-use verdaxis_contract::RouteP95;
+use verdaxis_contract::{RouteP95, RouteRequests};
 use verdaxis_contract::{blocking_regressions, fix_item_regressions, passes_gate};
 
 fn route(id: &'static str, python: f64, rust: f64) -> RouteP95 {
@@ -22,6 +22,10 @@ fn complete_routes() -> Vec<RouteP95> {
     }).collect()
 }
 
+fn complete_requests() -> Vec<RouteRequests> {
+    complete_routes().iter().map(|row| RouteRequests { route_id: row.route_id, python: 1000, rust: 1000 }).collect()
+}
+
 #[allow(clippy::too_many_arguments)]
 fn gate_with_routes(differences: u64, rust_errors: u64, python_errors: u64, integration: bool, rust_mix: f64, python_mix: f64, overrides: &[RouteP95]) -> bool {
     let mut routes = complete_routes();
@@ -32,7 +36,7 @@ fn gate_with_routes(differences: u64, rust_errors: u64, python_errors: u64, inte
             routes.push(*item);
         }
     }
-    passes_gate(differences, rust_errors, python_errors, integration, rust_mix, python_mix, &routes)
+    passes_gate(differences, rust_errors, python_errors, integration, rust_mix, python_mix, &routes, &complete_requests())
 }
 
 #[test]
@@ -227,10 +231,10 @@ fn route_inputs_must_be_finite_before_the_gate() {
 
 #[test]
 fn missing_or_empty_manifest_routes_never_pass() {
-    assert!(!passes_gate(0, 0, 0, true, 0.5, 0.6, &[]));
+    assert!(!passes_gate(0, 0, 0, true, 0.5, 0.6, &[], &complete_requests()));
     let mut routes = complete_routes();
     routes.pop();
-    assert!(!passes_gate(0, 0, 0, true, 0.5, 0.6, &routes));
+    assert!(!passes_gate(0, 0, 0, true, 0.5, 0.6, &routes, &complete_requests()));
 }
 
 #[test]
@@ -239,7 +243,7 @@ fn both_route_measurements_must_be_positive_and_finite() {
         for python_side in [true, false] {
             let mut routes = complete_routes();
             if python_side { routes[0].python = invalid; } else { routes[0].rust = invalid; }
-            assert!(!passes_gate(0, 0, 0, true, 0.5, 0.6, &routes));
+            assert!(!passes_gate(0, 0, 0, true, 0.5, 0.6, &routes, &complete_requests()));
         }
     }
 }
@@ -251,5 +255,18 @@ fn decimal_threshold_boundaries_are_exact() {
         assert!(blocking_regressions(&[pair]).is_empty());
         assert_eq!(fix_item_regressions(&[pair]), ["R01"]);
         assert!(!blocking_regressions(&[route("R01", python, rust + 0.000001)]).is_empty());
+    }
+}
+
+#[test]
+fn unequal_request_totals_cannot_pass_the_error_gate() {
+    for (python, rust, py_errors, rs_errors, passes) in [
+        (1000, 100, 10, 9, false), (1000, 1000, 10, 9, true),
+        (1000, 1000, 10, 11, false), (0, 0, 0, 0, false),
+    ] {
+        let requests: Vec<_> = complete_routes().iter().map(|row| RouteRequests {
+            route_id: row.route_id, python, rust,
+        }).collect();
+        assert_eq!(passes_gate(0, rs_errors, py_errors, true, 0.5, 0.6, &complete_routes(), &requests), passes);
     }
 }

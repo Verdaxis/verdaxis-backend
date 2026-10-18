@@ -329,7 +329,7 @@ def test_a_5xx_rise_blocks_with_everything_else_passing():
     conditions = report._gate_conditions(
         0, rust_5xx=2, python_5xx=0, integration_passed=True,
         speed={"outcome": "pass", "mix_blocks": False, "fix_items": [], "blocking_regressions": []},
-        memory=memory,
+        memory=memory, errors={"outcome": "no-go"},
     )
     assert {c["name"]: c["outcome"] for c in conditions}["no rise in 5xx/503 from Rust against Python"] == "no-go"
     assert all(c["outcome"] == "pass" for c in conditions if "5xx" not in c["name"])
@@ -349,7 +349,7 @@ def test_build_bundle_counts_the_5xx_rise_from_latency_classes():
     )
     assert bundle["gate"]["rust_5xx"] == 1
     assert bundle["gate"]["python_5xx"] == 0
-    assert bundle["gate"]["outcome"] == "no-go"
+    assert bundle["gate"]["outcome"] == "inconclusive"
 
 
 def test_memory_below_target_no_longer_blocks():
@@ -433,3 +433,30 @@ def test_invalid_route_p95_is_inconclusive(target, invalid):
 
 def test_empty_route_set_is_inconclusive():
     assert report.speed_verdict({}, {"python": {"p95": 1.0}, "rust": {"p95": 0.5}})["outcome"] == "inconclusive"
+
+
+@pytest.mark.parametrize("python_total,rust_total,python_errors,rust_errors,expected", [
+    (1000, 100, 10, 9, "inconclusive"),
+    (1000, 1000, 10, 9, "pass"),
+    (1000, 1000, 10, 11, "no-go"),
+    (0, 0, 0, 0, "inconclusive"),
+])
+def test_error_gate_requires_equal_workloads_and_compares_rates(python_total, rust_total, python_errors, rust_errors, expected):
+    def samples(total, errors):
+        return [{"route_id": rid, "seconds": 0.1, "status": 503 if index < errors and rid == "R01" else 200}
+                for rid in _latency([]) for index in range(total)]
+    evidence = _evidence(python_current=1000, rust_current=400,
+        samples_python=samples(python_total, python_errors), samples_rust=samples(rust_total, rust_errors))
+    bundle = report.build_bundle(identities={}, contract={}, simulation={}, measurement=evidence,
+        unapproved_differences=0, integration_passed=True)
+    condition = next(c for c in bundle["gate"]["conditions"] if "5xx" in c["name"])
+    assert condition["outcome"] == expected
+
+
+def test_equal_overall_request_totals_do_not_hide_a_missing_route_workload():
+    py = [{"route_id": "R01", "seconds": 0.1, "status": 200}]
+    rs = [{"route_id": "R02", "seconds": 0.1, "status": 200}]
+    bundle = report.build_bundle(identities={}, contract={}, simulation={},
+        measurement=_evidence(python_current=1000, rust_current=400, samples_python=py, samples_rust=rs),
+        unapproved_differences=0, integration_passed=True)
+    assert next(c for c in bundle["gate"]["conditions"] if "5xx" in c["name"])["outcome"] == "inconclusive"
