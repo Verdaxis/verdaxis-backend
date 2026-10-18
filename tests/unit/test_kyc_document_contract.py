@@ -10,7 +10,7 @@ def test_checkpoint_and_migration_chain():
     head = script.get_current_head()
     checkpoints = Path("deploy/migration-checkpoints.tsv").read_text().splitlines()
     assert f"{head}\t{head}" in checkpoints
-    assert script.get_revision("kycd_20261015_staging") in list(script.walk_revisions(head, "base"))
+    assert script.get_revision("kycd_20261015_staging") in list(script.walk_revisions(base="base", head=head))
     assert script.get_revision("p0_20261016_union").down_revision == "kycd_20261015_staging"
     assert script.get_revision("kycd_20261015_staging").down_revision == "kycg_20261014_staging"
     rows = Path("deploy/migration-checkpoints.tsv").read_text().splitlines()

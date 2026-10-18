@@ -241,3 +241,132 @@ acceptance until the PM assigns or authorizes the migration. Task 8 also require
 Task 7 plus reviewed Task 9/10 route handoffs. Do not activate trading caches or
 invent a second schema/deployment path to bypass those dependencies.
 Tasks 5–6 have not started at this checkpoint.
+
+### CI checkpoint after Task 4 cleanup
+
+- Pushed cleanup `cec750dd`, format correction `b84837d1`, and test-lint
+  correction `0bc77829` only to `feat/rust-same-meaning`.
+- Latest CI: offline passed (workspace tests, fmt, clippy and build); backend test,
+  postgres-phase0 and postgres-analytics passed. Contract failed, step exit `1`;
+  publish skipped. CI watch exit `1`. All jobs have finished.
+- The contract job still runs the historical byte runner. It rejects the intended
+  decimal spelling and MCP presentation changes in orderbook_map, prices and MCP.
+  Run `39151343120` records those failures. Do not weaken the historical byte gate
+  or describe this CI as green. Task 6 owns explicit successor runner selection;
+  it must land before this branch can pass that job without reverting the cleanup.
+- Automated post-commit security review did not complete (API HTTP 404); its local
+  details are in `/Users/jonathanjie/.claude/security/log.txt`. No independent
+  security-review success is claimed.
+
+PM accepted Task 4 and authorized draft contract CI to remain red until Task 6.
+This lane owns Task 7's additive migration, literal checkpoint and exact ACL rows.
+Python route/service changes still require a stop and PM review. Production remains
+at `p0_20261016_union`; no live migration or deployment is authorized by this work.
+
+### Task 5 checkpoint
+
+Pushed `7b134ae1`: bounded public reference payload cache, canonical tape SQL tuple
+order, and test-only complete-relation Python page oracle. Cache keys are typed;
+validation runs before news lookups, errors are not inserted, headers are rebuilt,
+and each AppState owns its policy/environment/schema-bound cache. Trading caching
+remains absent.
+
+- RED Rust exit `101` (missing cache API); Python exit `2` (missing oracle module).
+- GREEN: 16 Rust cache/simple-read tests, `CACHE_GREEN_EXIT=0`; 26 Python
+  oracle/comparator tests, `ORACLE_GREEN_EXIT=0`; wrapper `0`. Format exit `0`.
+- CI on `7b134ae1`: offline, backend, postgres-phase0 and postgres-analytics passed.
+  Byte contract failed, step/watch exit `1`, under the PM-approved temporary
+  exception. Publication skipped. All jobs finished.
+- Remaining acceptance evidence belongs to Task 6: populated canonical page
+  comparisons and both-KYC meaning groups. Current unit tape tests cover 405 tied
+  rows, nonzero offsets, repeated pages, full UUID prefix collisions and duplicate
+  source refusal, but do not establish complete database filter/plan coverage.
+
+### Task 6 partial checkpoint — not accepted
+
+Uncommitted successor plumbing adds explicit profile/digest recording comparison
+and a test-only canonical tape response builder. The historical default byte path
+is unchanged. CI workflow selection and corpus replacement are not yet complete.
+
+- RED runner tests: exit `1`. GREEN: 43 passed, `RUNNER_GREEN_EXIT=0`, wrapper `0`.
+  The first GREEN failed because a synthetic test omitted the captured exchange
+  body/digest; it now constructs the complete capture.
+- First full KYC-on run: `MEANING_ON_EXIT=1`, wrapper `1`; empty HEAD and non-JSON
+  method responses incorrectly reached JSON parsing. Successor transport bodies
+  now remain exact bytes; Phase 2 rules stay unchanged.
+- Second full KYC-on run: `MEANING_ON_EXIT=1`, wrapper `1`. Nine groups passed;
+  `simple_reads` failed `duplicate-list:/body:value`, and `prices` failed
+  `fixture-0:/body:value` and `fixture-1:/body:value`. Every group completed and
+  the runner cleaned up. No KYC-off run was started after this failure.
+- Price diagnosis: the declared collection tie path is `/prices`, but the source
+  DTO uses `/summaries`. Correct the successor ledger through the shared owner
+  boundary, update its pin and tests, and never broaden arbitrary arrays.
+- Simple-read diagnosis is pending: check whether its test fixture mutates port
+  intelligence after an earlier cache fill, and whether the test needs explicit
+  cache clear/expiry evidence. Do not hide changed fields or relax port ordering.
+- Task 7 has not started. No measurement ran. No Python app or Alembic source was
+  changed. All host and CI runs have finished; no active run remains.
+
+### Resumed Task 6 evidence
+
+- `56567679` selects the explicit successor runner in CI and propagates the
+  reviewed profile/digest. `bc244657` records the successor corpus and architecture.
+- Simple-read mismatch was a test mutation after warming a legal 60-second
+  reference cache. The duplicate fixture now exists before any read; all 49
+  existing requests plus duplicate list/detail remain checked. Target exit `0`.
+- Price collection path corrected to the actual DTO `/summaries`; populated target
+  exit `0`. New ledger pin is
+  `f68125dd74d59f0af49f120b839d8e3cdadef1deca8027f9d0f08fc8a0b99e0e`.
+- Full KYC enabled: `MEANING_ON_EXIT=0`, wrapper `0`; full KYC disabled resumed
+  after the session interruption: `MEANING_OFF_EXIT=0`, wrapper `0`. All 11 groups
+  passed in each run. The interrupted earlier disabled run is not counted.
+- Runner/comparator regressions: 114 passed, exit `0`; corpus coverage: 14 passed,
+  exit `0`. Both corpus recordings: `TOTAL_UNSTABLE=0`, `RECORD_FAILURES=0`,
+  recording/wrapper exit `0`. Each state retains all 487 requests.
+- Both tape recording legs now use the canonical complete-relation page builder;
+  ordinary unchanged-Python pages cannot establish tie membership. The first
+  recording refused publication for three tape mismatches and one curve timeout;
+  its failed evidence remains in `work/`.
+- CI passed all five required jobs on both `56567679` and `bc244657`; publish skipped.
+- Historical byte bodies are archived at `work/historical-byte-corpus.tgz`, SHA-256
+  `dde43542e10d6cee94950b09c8baf774019002dcfb344786492179f3810a4fe7`.
+  Exact deletion inventory has 1,948 bodies. They are not deleted yet: policy export
+  and its tests still read them. Do not break those consumers or claim full cleanup.
+- PM accepted Task 6 at `56567679` and `bc244657`. Task 11 owns these named
+  mandatory cleanup items; Task 6 is not reopened for them:
+  - **SM-11-BYTE-CONSUMERS:** migrate policy-export and test consumers, then remove
+    only the reviewed obsolete byte-body inventory; preserve historical evidence.
+  - **SM-11-SHADOW-PROFILE:** finish explicit successor profile/digest support for
+    shadow and staging reads; absent canonical live snapshot proof is INCONCLUSIVE.
+  - **SM-11-CANONICAL-REPLAY:** bind tape evidence to an immutable snapshot/source
+    multiset and retain canonical proof in replay; never sort Python pages or
+    suppress membership differences.
+
+### Task 7 partial infrastructure checkpoint
+
+Pushed `852d8760`: additive checkpoint `prc_20261018_cache` after
+`p0_20261016_union`, three metadata tables, restricted transaction-owned generation
+triggers, exact runtime SELECT ACL rows, declaration-only models and disabled
+Rust authority/fence primitives. No Python handler/service changed. No live DDL.
+
+- PostgreSQL RED: two failed, exit `1`. First GREEN migration failed, exit `1`,
+  because asyncpg refuses two commands in one prepared statement. Split function
+  creation and REVOKE. Corrected metadata/rollback/ACL plus Alembic checks: four
+  passed, `CACHE_DB_GREEN_EXIT=0`, wrapper `0`.
+- Rust authority/reference cache checks: five passed, `AUTHORITY_EXIT=0`, wrapper
+  `0`; host formatting exit `0`.
+- CI `39172005757`: backend unit and both PostgreSQL jobs failed (exit `1`);
+  `39172005678`: offline and successor contract passed, publish skipped. All jobs
+  finished. Unit/market migration tests still pin head to `p0_20261016_union`;
+  Phase 0 builds a historical union fixture then runs `alembic check` against the
+  newer source head, causing `Target database is not up to date` (exit `255`).
+  Do not change historical Phase 0 identity to hide this; separate historical
+  fixture checks from current-head drift checks.
+- Task 7 is NOT complete: listener delivery, external authority activation,
+  old-primary pool retirement, two-incarnation failover proof and budget tests
+  remain. Trading caching stays disabled. See `cache-dependencies.md`.
+
+Resume: repair migration-head test assumptions without altering frozen Phase 0
+schema evidence, complete Task 6 residual consumers/proof, then complete Task 7's
+canonical deployment/recovery fencing integration. No measurements ran and no
+host or CI run remains active at this checkpoint.
