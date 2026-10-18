@@ -7,8 +7,8 @@
 - Production bootstrap policy remains false. New unit is `verdaxis-rust.service`, loopback 8010, app-only projected runtime credentials, existing start/revision/budget prestarts, 192/256 MiB memory limits, one-CPU quota and lower CPU weight.
 - Production configuration requires `verdaxis_app`, `127.0.0.1:5432/verdaxis_prod`, union checkpoint and prepared budget. Production CORS uses the current Python production origin set. MCP remains non-production.
 - Shared deploy selects the environment policy and binds production artifact provenance to `refs/heads/prod`. Unit absence and wrong provenance refuse before source mutation. Both readiness documents are required before state clears.
-- Offline Caddy candidate generation changes only one upstream token and retains exact rollback bytes; production MCP changes refuse. The existing Task 13 matcher snippet is unchanged.
-- No changes under `app/` or `alembic/`, and no changes to staging policy, staging unit or comparator. No host install/deploy/Caddy action, signing, live database access or measurements were performed.
+- Production Caddy candidates now edit the confirmed single EU Caddyfile: P0 redacted API access logging, then one exact Task 13 matcher/handle block after analytics and before Python fallback. Rust proxies retain explicit client_ip forwarding, flush -1 and keepalive off. Exact prior full-file bytes are the rollback. Staging retains import-argument mode; production MCP changes refuse.
+- No changes under `app/` or `alembic/`, no staging policy/comparator edits. Staging unit changes came only from PM-authorized merge of PR #94 (`origin/staging` at `b068f89e`); this lane applies its env-launch rule to production. No live host install/deploy/Caddy action, signing, database access or measurements were performed.
 
 ## Test-first evidence (isolated staging test account only)
 
@@ -42,4 +42,18 @@ Private runbooks are in the workspace-level `outputs/runbooks/`, not this public
 
 Live acceptance requires staging 14b PASS, checklist D rehearsal, reviewed full promotion payload, production B' deploy/install, separate prod-push S' artifact and activation, then simple/orderbook/prices/curves windows. Production MCP stays Python. R12–R14 quotas are process-local; the PM must accept the bounded one-minute quota reset or stop prices for a separately approved shared limiter.
 
-Host questions and exact read-only commands are in the plan: confirmed EU Caddy import/site paths, unit/drop-in authority, live source/revision, PostgreSQL maximum/timezone/connection owners, and usable passive latency/5xx monitoring thresholds. No source test substitutes for those answers. Never fill missing host configuration with guessed Caddy bytes.
+## PM host answers and amendment acceptance
+
+PM supplied read-only facts at ~04:20 SGT: EU systemd 255/four CPUs/7.9 GB RAM (6.7 available)/45 GB root free, clean baseline `56d75770`, union schema, PostgreSQL maximum 100/UTC/11 idle app plus one postgres. Python MemoryMax 1 GiB and analytics/isolation drop-ins remain unchanged. Rust unit/listener absent. Only unit Restart recovery exists. Analytics relay 8700, test guard and the named operational timers are not owned by this lane.
+
+Caddy 2.11.2 has one `/etc/caddy/Caddyfile`, no imports and initially no access log. Strict trusted proxy is shared host /32; API DNS is direct EU. Shared host's obsolete production relay/log remains untouched and cannot supply EU baseline. Fixture models the supplied structure (including analytics Origin control, headers/body limits and fallback); it is not a verbatim host-file capture or permission to overwrite unreviewed host bytes.
+
+Production unit `/usr/bin/env` launch is verified with `.runtime-rust/` absent. Three real caller shapes (old production helper at `56d75770`, installer, next helper) each returned 1 before the fix and 0 after on both systemd 249 and 255. PID/environment check passed on both. Test-host suite exits: 249 red 1, 255 red 1, 249 green 0, 255 green 0. No service starts or fake future binary were used by analyzer fixtures.
+
+P0 logging red test exited 1 before generator support. Real staging Caddy validate/adapt now returns 0 for P0 and each of four cumulative group candidates (10 individual checks). Initial fixture syntax failed validation (exit 1); its multi-origin matcher was corrected to an equivalent valid expression before acceptance. API log rolls at 20MiB/3 and the adapted filter deletes Authorization/Cookie/X-Monitor-Token request headers and Set-Cookie response headers. Original routes/other sites stay byte-identical; group rollback removes only its exact generated block.
+
+Passive gate red exited 1 before helper implementation; synthetic threshold tests passed (exit 0). Helper reads existing logs only: equal adjacent 30-minute windows, new 5xx from zero or rate increase >0.5 percentage points, p95 >2x with >=50 rows in each window, new journal error class, or failed exact Rust readiness. Sparse/invalid evidence is HOLD, not PASS. Runbooks contain complete commands for rotated log snapshots, journal windows, readiness input, checker invocation and rollback. No active measurement or traffic generator is used.
+
+Final staging amendment suite: exit 0, 20 passed, including CLI return codes and adapted redaction fields. A late test run returned 1 for a missing cache import; it was corrected and the complete suite rerun. The existing unit-policy/production regression selection also passed (31 tests, exit 0). All ten individual Caddy validate/adapt invocations returned 0. Historical verifier command text is pinned in the regression so shallow PR checkouts need no commit-history fetch.
+
+Both private runbooks now distinguish EU one-file P0/block rollout from staging imports, retain all seven PM-named timer/deploy controls (exact names rechecked on entry), and state the concrete passive thresholds. Host acceptance still requires operator execution and fresh entry drift checks; supplied point-in-time facts do not prove later state.

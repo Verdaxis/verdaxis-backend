@@ -227,7 +227,14 @@ Production needs its own B' policy-off deploy, root manifest install, then S'
 policy-on prod-push artifact; neither staging artifacts nor an independent SHA
 are accepted. `scripts/rust_caddy_candidate.py` prepares private per-group Caddy
 candidates and exact rollback bytes without touching live config. It reuses Task
-13's exact snippet and refuses production MCP activation. See
+13's exact matchers and refuses production MCP activation. Production uses the
+single EU Caddyfile: P0 adds a bounded redacted API access log, then each group
+inserts its handle after analytics and before the unchanged Python fallback,
+retaining client-IP forwarding, flush and keepalive policy. Staging keeps snippet
+imports. `scripts/rust_passive_no_harm.py` evaluates equal ordinary-traffic log
+windows and journal error classes; it performs no requests or measurements.
+Both Rust units launch through `/usr/bin/env` so real systemd verification works
+before the first artifact exists without weakening startup checks. See
 `docs/plans/2026-10-19-rust-phase-1-production.md`; host acceptance remains separate.
 `docs/rust-phase1/progress-task12c.md` holds the unit digest, the artifact
 digest and the systemd 249/255 and staging-ABI start evidence.
