@@ -1,6 +1,6 @@
 use verdaxis_read::runtime::db::log_session_timezone;
 use verdaxis_read::{
-    Config, check_revision, compiled_sha, connection_budget, validate_budget, validate_config,
+    check_revision, compiled_sha, connection_budget, validate_budget, validate_config, Config,
 };
 
 fn staging() -> Config {
@@ -77,6 +77,15 @@ fn revisions_fail_closed() {
     for revision in ["head", "", "kycg_20261014_prod", "unexpected"] {
         assert!(check_revision(revision, &allowed).is_err());
     }
+}
+
+#[test]
+fn union_checkpoint_is_accepted_by_compiled_policy() {
+    let mut config = staging();
+    config.migration_revision = "p0_20261016_union".into();
+    assert!(validate_config(&config).is_ok());
+    config.environment = "production".into();
+    assert!(validate_config(&config).is_err());
 }
 
 #[test]
@@ -174,13 +183,11 @@ fn rust_admission_is_independent_of_python_capacity() {
             "rust_pool": slots + 1, "python_budget": 52, "total": 53 + slots,
             "configured_max_connections": 100
         });
-        assert!(
-            verdaxis_read::runtime::config::validate_prepared_budget(
-                &config,
-                &artifact.to_string()
-            )
-            .is_ok()
-        );
+        assert!(verdaxis_read::runtime::config::validate_prepared_budget(
+            &config,
+            &artifact.to_string()
+        )
+        .is_ok());
     }
 }
 
@@ -270,10 +277,11 @@ fn prepared_budget_is_bound_to_runtime() {
         "services": 2, "workers": 4, "pool": 2, "overflow": 1, "reserve": 20,
         "rust_pool": 17, "python_budget": 52, "total": 69, "configured_max_connections": 100
     });
-    assert!(
-        verdaxis_read::runtime::config::validate_prepared_budget(&config, &artifact.to_string())
-            .is_ok()
-    );
+    assert!(verdaxis_read::runtime::config::validate_prepared_budget(
+        &config,
+        &artifact.to_string()
+    )
+    .is_ok());
     for (key, value) in [
         ("total", serde_json::json!(55)),
         ("python_budget", serde_json::json!(46)),
@@ -282,13 +290,11 @@ fn prepared_budget_is_bound_to_runtime() {
     ] {
         let original = artifact[key].clone();
         artifact[key] = value;
-        assert!(
-            verdaxis_read::runtime::config::validate_prepared_budget(
-                &config,
-                &artifact.to_string()
-            )
-            .is_err()
-        );
+        assert!(verdaxis_read::runtime::config::validate_prepared_budget(
+            &config,
+            &artifact.to_string()
+        )
+        .is_err());
         artifact[key] = original;
     }
 }
