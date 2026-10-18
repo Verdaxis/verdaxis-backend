@@ -49,4 +49,6 @@ The inherited prior remote RED log had no `CALL_EXIT=` marker. Its exact exit is
 
 ## GitHub CI
 
-The authorized draft PR targets `staging`, is CI-only, and must not be merged directly. The PM integrates this through `feat/rust-phase-2`. CI result and PR URL will be recorded after the run completes.
+Draft PR: https://github.com/Verdaxis/verdaxis-backend/pull/99. It targets `staging`, is CI-only, and must not be merged directly. The PM integrates this through `feat/rust-phase-2`.
+
+Candidate `7b164361` passed both GitHub workflows: Rust run `39166184664` (`offline` and `contract`) and backend run `39166184675` (`test`, `postgres-analytics`, `postgres-phase0`). `gh pr checks --watch` exited 0. `publish` was skipped by design for the draft PR. These shared CI gates do not replace the pending Task 8 twin-cell scenario. Implementation commit: `d1535a68`.
