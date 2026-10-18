@@ -21,8 +21,8 @@ use super::{
 };
 use crate::market::{
     visibility::{
-        COUNT_PROJECTION, DISTINCT_PROJECTION, MAP_PROJECTION, PublicOrderFilters,
-        VisibilityClock, bind_order_query, order_query_sql_projected,
+        COUNT_PROJECTION, DISTINCT_PROJECTION, MAP_PROJECTION, PublicOrderFilters, VisibilityClock,
+        bind_order_query, order_query_sql_projected,
     },
     windows::{normalize_window, window_sort_key},
 };
@@ -240,7 +240,10 @@ async fn aggregates(
     filters: &Filters,
     path: &str,
 ) -> Result<Vec<Json>, ApiError> {
-    let sql = order_query_sql_projected(include_str!("../../sql/orderbook/aggregate.sql"), MAP_PROJECTION);
+    let sql = order_query_sql_projected(
+        include_str!("../../sql/orderbook/aggregate.sql"),
+        MAP_PROJECTION,
+    );
     let rows = bind_order_query(
         &sql,
         &state.policy,
@@ -261,7 +264,10 @@ async fn recent(
     now: DateTime<Utc>,
     path: &str,
 ) -> Result<Vec<Json>, ApiError> {
-    let sql = order_query_sql_projected(include_str!("../../sql/orderbook/recent_asks.sql"), MAP_PROJECTION);
+    let sql = order_query_sql_projected(
+        include_str!("../../sql/orderbook/recent_asks.sql"),
+        MAP_PROJECTION,
+    );
     let rows = bind_order_query(
         &sql,
         &state.policy,

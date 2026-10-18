@@ -53,7 +53,7 @@ policy_points AS MATERIALIZED (
 -- against this relation lets the planner hash the lane predicate instead of
 -- re-running `jsonb_array_elements_text` per candidate row (measured at 60k
 -- re-executions on the large fixture). The lanes come from the same attested
--- policy; no product identity is duplicated here.
+-- policy, and no product identity is duplicated here.
 policy_lanes AS MATERIALIZED (
     SELECT pp.id AS product_id, lane.value::uuid AS delivery_point_id
     FROM policy_products AS pp

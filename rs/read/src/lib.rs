@@ -11,8 +11,7 @@ pub use market::terms::{
 };
 pub use market::visibility::{
     PublicOrderFilters, TradeEvidenceFilters, VisibilityClock, order_query_sql_projected,
-    public_order_sql,
-    select_public_order_ids, select_trade_evidence_ids, trade_evidence_sql,
+    public_order_sql, select_public_order_ids, select_trade_evidence_ids, trade_evidence_sql,
 };
 pub use market::windows::{
     normalize_window, window_display_label, window_sort_key, window_start_date,
