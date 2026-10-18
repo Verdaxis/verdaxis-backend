@@ -44,13 +44,15 @@ pub async fn visible_order_rows(
 }
 
 impl Metrics {
-    /// PD2/PD5: filter before counting/latest aggregation. No rows are deleted.
-    /// The cutoff is mandatory input; there is no wall-clock or release default.
+    /// PD2/PD4-G: filter before counting/latest aggregation; retain every row.
+    /// Current rows have no trusted producer attestation. Best-price event type
+    /// is therefore a durable deny rule, regardless of source ID or timestamp.
+    /// The explicit cutoff is reserved for the later trusted producer (PD5).
     pub fn from_visible_events(
         targets: &[Target],
         events: &[Event],
         visible_orders: &HashSet<Uuid>,
-        best_price_cutoff: DateTime<Utc>,
+        _best_price_cutoff: DateTime<Utc>,
     ) -> Self {
         let allowed = targets
             .iter()
@@ -68,8 +70,7 @@ impl Metrics {
                 || event
                     .order_id
                     .is_some_and(|id| !visible_orders.contains(&id))
-                || (event.event_type == "SLICE_BEST_PRICE_MOVED"
-                    && event.created_at < best_price_cutoff)
+                || event.event_type == "SLICE_BEST_PRICE_MOVED"
             {
                 continue;
             }
