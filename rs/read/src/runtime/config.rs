@@ -302,8 +302,13 @@ pub fn validate_config(config: &Config) -> Result<(), String> {
     ))
     .map_err(|_| "invalid compiled revision allowlist")?;
     check_revision(&config.migration_revision, &allowed)?;
-    if config.environment == "production" && config.migration_revision != "p0_20261016_union" {
-        return Err("production requires its reviewed union checkpoint".into());
+    if config.environment == "production" {
+        if config.migration_revision != "p0_20261016_union" {
+            return Err("production requires its reviewed union checkpoint".into());
+        }
+        if config.prepared_budget.is_none() {
+            return Err("production requires its prepared connection budget".into());
+        }
     }
     database_target(config)?;
     let total = config

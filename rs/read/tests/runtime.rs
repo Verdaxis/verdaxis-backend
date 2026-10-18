@@ -95,6 +95,8 @@ fn production_requires_its_exact_database_and_union_checkpoint() {
     base.database_url = "postgres://verdaxis_app:local-secret@127.0.0.1:5432/verdaxis_prod".into();
     base.migration_revision = "p0_20261016_union".into();
     base.bind = "127.0.0.1:8010".parse().unwrap();
+    assert!(validate_config(&base).is_err());
+    base.prepared_budget = Some(budget_document(compiled_sha()));
     assert!(validate_config(&base).is_ok());
     for (from, to) in [
         ("verdaxis_app", "verdaxis_app_staging"),
