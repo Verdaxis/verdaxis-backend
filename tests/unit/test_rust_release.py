@@ -327,6 +327,9 @@ printf '%s' "${DEPLOY_CURL_BODY:-}"
             """#!/usr/bin/env bash
 set -euo pipefail
 printf 'systemctl:%s\n' "$*" >> "${DEPLOY_TEST_LOG:?}"
+if [[ "$*" == "show --property=LoadState --value verdaxis-rust-staging.service" ]]; then
+    printf '%s\n' "${DEPLOY_RUST_LOAD_STATE:-loaded}"
+fi
 exit 0
 """,
         )
@@ -651,6 +654,18 @@ def test_rust_health_uses_loopback_identity_url(release_fixture):
         e for e in release_fixture.ledger if e.startswith("curl:") and "8011" in e
     )
     assert "http://127.0.0.1:8011/health/ready" in identity
+
+
+@pytest.mark.parametrize("load_state", ["not-found", "masked", "error"])
+def test_unavailable_rust_unit_refuses_before_source_or_restart(release_fixture, load_state):
+    new_sha = release_fixture.push_rust_release(enabled=True)
+    release_fixture.build_artifact(new_sha)
+    result = release_fixture.deploy(new_sha, DEPLOY_RUST_LOAD_STATE=load_state)
+    assert result.returncode != 0
+    assert "unit" in (result.stderr + result.stdout).lower()
+    assert not any("sudo:systemctl" in e for e in release_fixture.ledger)
+    assert release_fixture.state_text() == ""
+    assert _git(release_fixture.checkout, "rev-parse", "HEAD").stdout.strip() == release_fixture.old_sha
 
 
 def test_missing_provenance_record_refuses_before_any_stop(release_fixture):

@@ -1,7 +1,7 @@
 {
   "version": 1,
   "environment": "staging",
-  "rust_enabled": true,
+  "rust_enabled": false,
   "service_name": "verdaxis-rust-staging.service",
   "bind": "127.0.0.1:8011",
   "health_url": "http://127.0.0.1:8011/health/ready",

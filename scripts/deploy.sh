@@ -817,6 +817,15 @@ if [[ "$DEPLOY_ENVIRONMENT" == "staging" ]] \
     load_rust_staging_policy "$REMOTE_SHA" "$RUST_POLICY_TEMP"
 fi
 
+# A first activation must not reach a joint restart before the root-owned
+# unit has been installed from the prior, policy-off bootstrap release.
+if [[ "$RUST_ENABLED" == "1" ]]; then
+    if [[ "$(systemctl show --property=LoadState --value "$RUST_UNIT_NAME")" != "loaded" ]]; then
+        echo "Rust unit is not loaded; install the reviewed bootstrap unit before activation." >&2
+        exit 1
+    fi
+fi
+
 acquire_deploy_lock
 # The artifact is verified and extracted under the main lock, before any state
 # write or service stop. A stale staging for the same SHA (a retried deploy)
