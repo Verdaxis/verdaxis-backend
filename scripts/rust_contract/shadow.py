@@ -72,7 +72,7 @@ ALLOWED_DIAGNOSTIC_FIELDS = frozenset(
     }
 )
 DIFFERENCE_CATEGORIES = frozenset(
-    {"type", "keys", "length", "value", "sequence", "order", "tie-item-bytes", "surrounding-bytes"}
+    {"type", "keys", "length", "value", "sequence", "order", "tie-item-bytes", "surrounding-bytes", "http-status", "tool-error", "timeout", "oversize", "unreachable", "busy", "comparison-error", "data-changed", "no-stable-pair"}
 )
 
 # A caller that tries to persist one of these is refused, not silently allowed:
@@ -286,7 +286,7 @@ def memory_pressure() -> bool:
     """Use the existing kernel pressure signal; no load measurement is run."""
     try:
         rows = Path("/proc/pressure/memory").read_text().splitlines()
-        return any(row.startswith("full ") and float(row.split("avg10=", 1)[1].split()[0]) > 0
+        return any(row.startswith("full ") and float(row.split("avg10=", 1)[1].split()[0]) >= 1.0
                    for row in rows)
     except (OSError, ValueError, IndexError) as error:
         raise ShadowError("memory pressure signal unavailable") from error
@@ -497,7 +497,8 @@ def _one_call(config: ShadowConfig, base_url: str, case: dict[str, Any]) -> dict
     body = None
     if case["method"] == "POST":
         body = json.dumps(case["body"]).encode()
-        headers.update({"content-type": "application/json", "accept": "application/json, text/event-stream"})
+        headers.update({"host": "api-staging.verdaxis.exchange", "content-type": "application/json",
+                        "accept": "application/json, text/event-stream"})
     assert_safe_headers(headers)
     path = case["path"] + ("?" + case["query"] if case.get("query") else "")
     connection = http.client.HTTPConnection(target.hostname, target.port, timeout=config.per_call_deadline_seconds)
@@ -579,7 +580,27 @@ def run(config: ShadowConfig, duration_seconds: int, *, cases=None) -> dict[str,
     ready = {"id": "READY", "method": "GET", "path": "/health/ready"}
     limits = MINUTE_LIMITS | config.price_minute_limits
 
-    def pause():
+    pause_reasons = {"memory-full": 0, "busy": 0, "readiness": 0}
+    diagnostic_keys = set()
+
+    def diagnose(case, category, steps=()):
+        key = (case["id"], category)
+        if key in diagnostic_keys:
+            return
+        record = {"route_id": case["id"], "case_id": case["case_id"],
+                  "field_path": "/body", "difference_category": category}
+        if steps:
+            statuses = [str(s.get("status") or "none") for s in steps]
+            if len(statuses) == 1:
+                statuses.append("none")
+            record["status_pair"] = "/".join(statuses)
+            record["byte_counts"] = [s.get("bytes", 0) for s in steps]
+            record["durations_ms"] = [s.get("duration_ms", 0) for s in steps]
+        diagnostics.append(sanitize_diagnostic(record))
+        diagnostic_keys.add(key)
+
+    def pause(reason):
+        pause_reasons[reason] += 1
         counters["pauses"] += 1
         if time.monotonic() + config.pause_seconds >= deadline:
             raise ShadowPaused("comparison duration reached")
@@ -589,7 +610,7 @@ def run(config: ShadowConfig, duration_seconds: int, *, cases=None) -> dict[str,
     def call(base, case):
         _death_line(config)
         while memory_pressure():
-            pause()
+            pause("memory-full")
         bucket = _bucket(case["path"])
         pacer.wait(base, bucket, limits.get(bucket, 60), deadline=deadline - config.per_call_deadline_seconds)
         _death_line(config)
@@ -599,7 +620,7 @@ def run(config: ShadowConfig, duration_seconds: int, *, cases=None) -> dict[str,
         for base, sha in ((config.python_url, config.python_sha), (config.rust_url, config.candidate_sha)):
             response = call(base, ready)
             if response.get("inconclusive") or response["status"] != 200:
-                pause()
+                pause("readiness")
                 raise ShadowError("readiness unavailable after safety pause")
             try:
                 actual = compare.parse_json(response["raw"])
@@ -616,7 +637,7 @@ def run(config: ShadowConfig, duration_seconds: int, *, cases=None) -> dict[str,
             for base, sha in ((config.python_url, config.python_sha), (config.rust_url, config.candidate_sha)):
                 response = call(base, {"id": identifier, "method": "GET", "path": path})
                 if response.get("inconclusive") or response["status"] != 200:
-                    pause()
+                    pause("readiness")
                     raise ShadowError("health contract unavailable")
                 try:
                     actual = compare.parse_json(response["raw"])
@@ -643,8 +664,9 @@ def run(config: ShadowConfig, duration_seconds: int, *, cases=None) -> dict[str,
                     reason = step["inconclusive"]
                     counters[reason] += 1
                     counters["inconclusive"] += 1
+                    diagnose(case, reason, steps)
                     if reason == "busy" or step.get("status") in (429, 503):
-                        pause()
+                        pause("busy")
                     break
             if any(s.get("inconclusive") for s in steps):
                 continue
@@ -654,6 +676,7 @@ def run(config: ShadowConfig, duration_seconds: int, *, cases=None) -> dict[str,
             except compare.ContractError:
                 counters["error"] += 1
                 counters["inconclusive"] += 1
+                diagnose(case, "comparison-error", steps)
                 continue
             counters[outcome] += 1
             successful = all(s["status"] == 200 for s in steps)
@@ -664,6 +687,9 @@ def run(config: ShadowConfig, duration_seconds: int, *, cases=None) -> dict[str,
                 nonempty[case["id"]] |= _nonempty(steps[0], case)
             elif outcome == "match":
                 counters["inconclusive"] += 1
+                diagnose(case, "http-status" if any(s["status"] != 200 for s in steps) else "tool-error", steps)
+            if outcome == "data_changed":
+                diagnose(case, "data-changed", steps)
             if outcome == "difference":
                 # A root schema path is intentionally conservative: dynamic JSON
                 # keys and comparator hashes can never escape into diagnostics.
@@ -682,6 +708,9 @@ def run(config: ShadowConfig, duration_seconds: int, *, cases=None) -> dict[str,
                 break
     except ShadowPaused:
         pass
+    for case in cases:
+        if pairs[case["id"]] == 0:
+            diagnose(case, "no-stable-pair")
     covered = coverage(pairs, config.required_observations_per_route, nonempty=nonempty,
                        approved_empty_routes=config.approved_empty_routes)
     usable = sum(pairs.values())
@@ -690,7 +719,7 @@ def run(config: ShadowConfig, duration_seconds: int, *, cases=None) -> dict[str,
             and counters["attempted"] and usable / counters["attempted"] >= .99):
         outcome = "PASS"
     return {"outcome": outcome, "counters": counters, "pairs": pairs,
-            "coverage": covered, "diagnostics": diagnostics}
+            "coverage": covered, "diagnostics": diagnostics, "pause_reasons": pause_reasons}
 
 
 def result_exit_code(result):
