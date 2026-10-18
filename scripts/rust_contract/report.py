@@ -227,6 +227,45 @@ def speed_verdict(
     }
 
 
+def contract_verdict(simulation: dict[str, Any]) -> dict[str, Any]:
+    """Require explicit comparison results for every committed group and size."""
+    expected_groups = set(json.loads((ROOT / "tests/rust_contract/cases.json").read_text())["groups"])
+    expected_sizes = set(workload.sizes(workload.load()))
+    runs = simulation.get("runs", [simulation] if simulation else [])
+    results: dict[tuple[str, str], dict[str, Any]] = {}
+    invalid = []
+    for run in runs:
+        size = run.get("size")
+        groups = run.get("groups", {})
+        differences = run.get("differences")
+        if (size not in expected_sizes or type(differences) is not int or differences < 0
+                or not groups or run.get("inconclusive_groups")):
+            invalid.append("missing or invalid simulation totals")
+            continue
+        group_differences = 0
+        cases = 0
+        for group, row in groups.items():
+            count = row.get("differences")
+            n = row.get("cases")
+            if (group not in expected_groups or type(count) is not int or count < 0
+                    or type(n) is not int or n <= 0
+                    or row.get("outcome") != ("match" if count == 0 else "difference")):
+                invalid.append(f"{size}/{group}: incomplete comparison")
+                continue
+            group_differences += count
+            cases += n
+            # An explicit later rerun can replace the same size/group only.
+            results[(size, group)] = row
+        if group_differences != differences or cases != run.get("total_pairs"):
+            invalid.append(f"{size}: inconsistent simulation totals")
+    missing = sorted(f"{size}/{group}" for size in expected_sizes for group in expected_groups
+                     if (size, group) not in results)
+    differences = sum(row["differences"] for row in results.values())
+    return {"outcome": "inconclusive" if invalid or missing else ("no-go" if differences else "pass"),
+            "differences": differences if not invalid and not missing else None,
+            "missing": missing, "invalid": invalid}
+
+
 def error_verdict(latency: dict[str, Any]) -> dict[str, Any]:
     """The fixed schedule requires equal offered totals on every route.
 
@@ -279,6 +318,7 @@ def build_bundle(
     latency = latency_table(measurement) if measurement else {}
     mix = mix_table(manifest, latency) if latency else {}
 
+    contract_result = contract_verdict(simulation)
     errors = error_verdict(latency)
     rust_5xx = errors["errors"]["rust"]
     python_5xx = errors["errors"]["python"]
@@ -297,7 +337,7 @@ def build_bundle(
 
     speed = speed_verdict(latency, mix)
     conditions = _gate_conditions(
-        unapproved_differences, rust_5xx, python_5xx, integration_passed, speed, memory, errors
+        unapproved_differences, rust_5xx, python_5xx, integration_passed, speed, memory, errors, contract_result
     )
     # Memory and coverage report their own outcomes but never block; a
     # non-blocking outcome value must not fail the gate.
@@ -326,6 +366,7 @@ def build_bundle(
             "python_5xx": python_5xx,
             "speed": speed,
             "errors": errors,
+            "contract": contract_result,
         },
         "integration": {"passed": integration_passed, "summary": integration_summary},
     }
@@ -339,6 +380,7 @@ def _gate_conditions(
     speed: dict[str, Any],
     memory: dict[str, Any],
     errors: dict[str, Any] | None = None,
+    contract_result: dict[str, Any] | None = None,
 ) -> list[dict[str, str]]:
     """The decision-68 conditions with an explicit per-condition outcome.
 
@@ -346,7 +388,7 @@ def _gate_conditions(
     passing integration suite. Speed blocks only per the threshold rule. Memory
     is reported against its target but never blocks.
     """
-    difference_outcome = "pass" if unapproved_differences == 0 else "no-go"
+    difference_outcome = contract_result["outcome"] if contract_result else "inconclusive"
     errors_outcome = errors["outcome"] if errors else "inconclusive"
     integration_outcome = "pass" if integration_passed else "no-go"
     speed_outcome = speed["outcome"]
@@ -363,7 +405,7 @@ def _gate_conditions(
         memory_outcome = "not measured (non-blocking)"
     conditions = [
         {"name": "zero unexplained contract differences", "outcome": difference_outcome,
-         "detail": f"{unapproved_differences} unexplained difference(s)"},
+         "detail": f"{contract_result or NOT_MEASURED}"},
         {"name": "no rise in 5xx/503 from Rust against Python", "outcome": errors_outcome,
          "detail": f"Rust {rust_5xx} vs Python {python_5xx}; "
                    f"offered totals/rates: {errors or NOT_MEASURED}"},
@@ -391,7 +433,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--small", type=Path, required=True, help="measure-small.json")
     parser.add_argument("--large", type=Path, required=True, help="measure-large.json")
-    parser.add_argument("--simulation", type=Path, required=True, help="simulation-<size>.json")
+    parser.add_argument("--simulation", type=Path, action="append", required=True,
+                        help="simulation-<size>.json; repeat for all sizes and later group reruns")
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--candidate-sha", default="")
     parser.add_argument(
@@ -403,7 +446,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--integration-summary", default="")
     args = parser.parse_args(argv)
 
-    simulation = _load(args.simulation)
+    simulation = {"runs": [_load(path) for path in args.simulation]}
     small = _load(args.small)
     large = _load(args.large)
     measurement = {
@@ -412,7 +455,7 @@ def main(argv: list[str] | None = None) -> int:
             *large.get("repetitions", []),
         ]
     }
-    unapproved = int(simulation.get("differences", 0))
+    unapproved = contract_verdict(simulation)["differences"]
     bundle = build_bundle(
         identities={
             "candidate_sha": args.candidate_sha or simulation.get("source_sha", ""),
@@ -423,6 +466,7 @@ def main(argv: list[str] | None = None) -> int:
         },
         contract={},
         simulation={
+            **simulation,
             "summary": _simulation_summary(simulation),
             "evidence_digest": evidence_digest(simulation) if simulation else "",
         },
@@ -465,11 +509,13 @@ def report_policy_digest() -> str:
 def _simulation_summary(simulation: dict[str, Any]) -> str:
     if not simulation:
         return NOT_MEASURED
+    if "runs" in simulation:
+        return "; ".join(_simulation_summary(run) for run in simulation["runs"])
     groups = simulation.get("groups", {})
     matched = sum(1 for outcome in groups.values() if outcome.get("outcome") == "match")
     return (
         f"size {simulation.get('size')}: {matched}/{len(groups)} groups matched, "
-        f"{simulation.get('total_pairs', 0)} pairs, {simulation.get('differences', 0)} differences, "
+        f"{simulation.get('total_pairs', 0)} pairs, {simulation.get('differences', NOT_MEASURED)} differences, "
         f"gate {simulation.get('gate')}"
     )
 

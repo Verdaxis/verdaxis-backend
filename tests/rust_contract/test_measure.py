@@ -329,7 +329,7 @@ def test_a_5xx_rise_blocks_with_everything_else_passing():
     conditions = report._gate_conditions(
         0, rust_5xx=2, python_5xx=0, integration_passed=True,
         speed={"outcome": "pass", "mix_blocks": False, "fix_items": [], "blocking_regressions": []},
-        memory=memory, errors={"outcome": "no-go"},
+        memory=memory, errors={"outcome": "no-go"}, contract_result={"outcome": "pass"},
     )
     assert {c["name"]: c["outcome"] for c in conditions}["no rise in 5xx/503 from Rust against Python"] == "no-go"
     assert all(c["outcome"] == "pass" for c in conditions if "5xx" not in c["name"])
@@ -344,7 +344,7 @@ def test_build_bundle_counts_the_5xx_rise_from_latency_classes():
                       {"route_id": "R01", "seconds": 0.1, "status": 503}],
     )
     bundle = report.build_bundle(
-        identities={}, contract={}, simulation={"differences": 0}, measurement=evidence,
+        identities={}, contract={}, simulation={"runs": _complete_simulations()}, measurement=evidence,
         unapproved_differences=0, integration_passed=True,
     )
     assert bundle["gate"]["rust_5xx"] == 1
@@ -360,7 +360,7 @@ def test_memory_below_target_no_longer_blocks():
         samples_rust=[{"route_id": rid, "seconds": 0.5, "status": 200} for rid in _latency([])],
     )
     bundle = report.build_bundle(
-        identities={}, contract={}, simulation={"differences": 0}, measurement=evidence,
+        identities={}, contract={}, simulation={"runs": _complete_simulations()}, measurement=evidence,
         unapproved_differences=0, integration_passed=True,
     )
     memory_condition = next(
@@ -466,3 +466,42 @@ def test_adaptive_report_does_not_trust_legacy_chosen_rate_after_failed_first_pr
     assert "python" in text and "2" in text
     assert bundle["adaptive"]["chosen_rps"] is None
     assert bundle["adaptive"]["stop_reason"] == "5xx/503 at 1 RPS"
+
+
+@pytest.mark.parametrize("defect", ["missing", "missing_count", "missing_group", "missing_size", "skipped", "negative"])
+def test_incomplete_contract_evidence_is_inconclusive(defect):
+    simulations = _complete_simulations()
+    if defect == "missing":
+        simulations = []
+    elif defect == "missing_count":
+        del simulations[0]["differences"]
+    elif defect == "missing_group":
+        simulations[0]["groups"].pop("prices")
+    elif defect == "missing_size":
+        simulations.pop()
+    elif defect == "skipped":
+        simulations[0]["groups"]["prices"]["outcome"] = "skipped"
+    else:
+        simulations[0]["groups"]["prices"]["differences"] = -1
+    bundle = report.build_bundle(identities={}, contract={}, simulation={"runs": simulations}, measurement={},
+        unapproved_differences=0, integration_passed=True)
+    assert bundle["gate"]["conditions"][0]["outcome"] == "inconclusive"
+    assert bundle["gate"]["outcome"] == "inconclusive"
+
+
+def _complete_simulations():
+    from scripts.rust_contract.run_disposable import GROUPS
+    return [{"size": size, "differences": 0, "total_pairs": len(GROUPS),
+             "groups": {group: {"outcome": "match", "cases": 1, "differences": 0} for group in GROUPS}}
+            for size in workload.sizes(workload.load())]
+
+
+def test_complete_contract_evidence_passes_but_real_differences_block():
+    runs = _complete_simulations()
+    def condition():
+        return report.build_bundle(identities={}, contract={}, simulation={"runs": runs}, measurement={},
+            unapproved_differences=0, integration_passed=True)["gate"]["conditions"][0]
+    assert condition()["outcome"] == "pass"
+    runs[0]["groups"]["prices"].update(outcome="difference", differences=1)
+    runs[0]["differences"] = 1
+    assert condition()["outcome"] == "no-go"

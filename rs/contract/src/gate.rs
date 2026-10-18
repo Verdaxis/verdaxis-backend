@@ -90,6 +90,34 @@ pub fn same_workload(requests: &[RouteRequests]) -> bool {
         && requests.iter().all(|row| row.python > 0 && row.python == row.rust)
 }
 
+/// A completed simulation group. Missing counts are not zero differences.
+#[derive(Clone, Copy, Debug)]
+pub struct ContractEvidence {
+    pub size: &'static str,
+    pub group: &'static str,
+    pub cases: u64,
+    pub differences: Option<u64>,
+}
+
+/// Require one completed result for every committed group at every size.
+pub fn contract_differences(evidence: &[ContractEvidence]) -> Option<u64> {
+    let cases: serde_json::Value = serde_json::from_str(include_str!("../../../tests/rust_contract/cases.json")).ok()?;
+    let workload: serde_json::Value = serde_json::from_str(include_str!("../../../tests/rust_contract/workload.json")).ok()?;
+    let groups = cases["groups"].as_object()?;
+    let sizes = workload["sizes"].as_object()?;
+    if evidence.len() != groups.len() * sizes.len() { return None; }
+    let mut total = 0_u64;
+    for size in sizes.keys() {
+        for group in groups.keys() {
+            let mut rows = evidence.iter().filter(|row| row.size == size && row.group == group);
+            let row = rows.next()?;
+            if rows.next().is_some() || row.cases == 0 { return None; }
+            total = total.checked_add(row.differences?)?;
+        }
+    }
+    Some(total)
+}
+
 /// The decision-68 gate over the measured evidence.
 ///
 /// `unapproved_differences` is the count the comparator still reports after the
@@ -99,7 +127,7 @@ pub fn same_workload(requests: &[RouteRequests]) -> bool {
 /// an argument; it stays measured and reported by the harness.
 #[allow(clippy::too_many_arguments)]
 pub fn passes_gate(
-    unapproved_differences: u64,
+    contract: &[ContractEvidence],
     rust_5xx: u64,
     python_5xx: u64,
     integration_passed: bool,
@@ -127,7 +155,7 @@ pub fn passes_gate(
         && u128::from(rust_5xx) <= rust_requests;
     let error_rate_does_not_rise = u128::from(rust_5xx) * python_requests
         <= u128::from(python_5xx) * rust_requests;
-    let hard_gates = unapproved_differences == 0 && errors_measured
+    let hard_gates = contract_differences(contract) == Some(0) && errors_measured
         && error_rate_does_not_rise && integration_passed;
     let speed = mix_measured
         && routes_measured

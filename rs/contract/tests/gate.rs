@@ -3,7 +3,7 @@
 //! Every test here is written to fail if the gate ever passes on a condition
 //! that is missing, unmeasured, or spelled as a placeholder.
 
-use verdaxis_contract::{RouteP95, RouteRequests};
+use verdaxis_contract::{ContractEvidence, RouteP95, RouteRequests};
 use verdaxis_contract::{blocking_regressions, fix_item_regressions, passes_gate};
 
 fn route(id: &'static str, python: f64, rust: f64) -> RouteP95 {
@@ -22,6 +22,18 @@ fn complete_routes() -> Vec<RouteP95> {
     }).collect()
 }
 
+fn complete_contract(differences: u64) -> Vec<ContractEvidence> {
+    static CASES: std::sync::OnceLock<serde_json::Value> = std::sync::OnceLock::new();
+    let cases = CASES.get_or_init(|| serde_json::from_str(include_str!("../../../tests/rust_contract/cases.json")).unwrap());
+    let mut rows: Vec<_> = ["small", "large"].iter().flat_map(|size| {
+        cases["groups"].as_object().unwrap().keys().map(move |group| ContractEvidence {
+            size, group, cases: 1, differences: Some(0),
+        })
+    }).collect();
+    rows[0].differences = Some(differences);
+    rows
+}
+
 fn complete_requests() -> Vec<RouteRequests> {
     complete_routes().iter().map(|row| RouteRequests { route_id: row.route_id, python: 1000, rust: 1000 }).collect()
 }
@@ -36,7 +48,7 @@ fn gate_with_routes(differences: u64, rust_errors: u64, python_errors: u64, inte
             routes.push(*item);
         }
     }
-    passes_gate(differences, rust_errors, python_errors, integration, rust_mix, python_mix, &routes, &complete_requests())
+    passes_gate(&complete_contract(differences), rust_errors, python_errors, integration, rust_mix, python_mix, &routes, &complete_requests())
 }
 
 #[test]
@@ -231,10 +243,10 @@ fn route_inputs_must_be_finite_before_the_gate() {
 
 #[test]
 fn missing_or_empty_manifest_routes_never_pass() {
-    assert!(!passes_gate(0, 0, 0, true, 0.5, 0.6, &[], &complete_requests()));
+    assert!(!passes_gate(&complete_contract(0), 0, 0, true, 0.5, 0.6, &[], &complete_requests()));
     let mut routes = complete_routes();
     routes.pop();
-    assert!(!passes_gate(0, 0, 0, true, 0.5, 0.6, &routes, &complete_requests()));
+    assert!(!passes_gate(&complete_contract(0), 0, 0, true, 0.5, 0.6, &routes, &complete_requests()));
 }
 
 #[test]
@@ -243,7 +255,7 @@ fn both_route_measurements_must_be_positive_and_finite() {
         for python_side in [true, false] {
             let mut routes = complete_routes();
             if python_side { routes[0].python = invalid; } else { routes[0].rust = invalid; }
-            assert!(!passes_gate(0, 0, 0, true, 0.5, 0.6, &routes, &complete_requests()));
+            assert!(!passes_gate(&complete_contract(0), 0, 0, true, 0.5, 0.6, &routes, &complete_requests()));
         }
     }
 }
@@ -267,6 +279,21 @@ fn unequal_request_totals_cannot_pass_the_error_gate() {
         let requests: Vec<_> = complete_routes().iter().map(|row| RouteRequests {
             route_id: row.route_id, python, rust,
         }).collect();
-        assert_eq!(passes_gate(0, rs_errors, py_errors, true, 0.5, 0.6, &complete_routes(), &requests), passes);
+        assert_eq!(passes_gate(&complete_contract(0), rs_errors, py_errors, true, 0.5, 0.6, &complete_routes(), &requests), passes);
     }
+}
+
+#[test]
+fn absent_contract_evidence_is_not_zero_differences() {
+    assert!(!passes_gate(&[], 0, 0, true, 0.5, 0.6, &complete_routes(), &complete_requests()));
+}
+
+#[test]
+fn incomplete_contract_groups_and_counts_never_pass() {
+    let mut evidence = complete_contract(0);
+    evidence[0].differences = None;
+    assert!(!passes_gate(&evidence, 0, 0, true, 0.5, 0.6, &complete_routes(), &complete_requests()));
+    evidence = complete_contract(0);
+    evidence.pop();
+    assert!(!passes_gate(&evidence, 0, 0, true, 0.5, 0.6, &complete_routes(), &complete_requests()));
 }
