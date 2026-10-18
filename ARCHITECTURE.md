@@ -223,6 +223,17 @@ carries neither record and reads no Rust path.
 `docs/rust-phase1/progress-task12c.md` holds the unit digest, the artifact
 digest and the systemd 249/255 and staging-ABI start evidence.
 
+## Rust Phase 2 shared route runner
+
+`phase2_scenarios.py` owns lane registrations, per-action HTTP/state/effect checks,
+barrier races and mixed-writer schedules. `phase2_routes.py` adapts them to the
+existing `run_disposable.Runner` lifecycle and app-role cloned databases.
+`phase2_mail.py` owns the per-run loopback captured-send provider;
+`phase2_oracle.py` redirects Python email only in disposable tests. The complete
+synthetic registration is `phase2_example.py`, not CRUD qualification. Groups
+without real registrations refuse rather than execute harness smoke. See
+`docs/rust-phase2-runner.md` for lane adapters and acceptance boundaries.
+
 ## Rust Phase 2 contract preparation
 
 `tests/rust_contract/phase2/routes.json` pins the 27 CRUD method/path pairs,

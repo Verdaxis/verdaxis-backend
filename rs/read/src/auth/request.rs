@@ -89,13 +89,31 @@ pub fn validate_and_admit<T>(
     Ok(value)
 }
 
+fn json_error_position(raw: &[u8], error: &serde_json::Error) -> usize {
+    // serde reports one-based byte columns; FastAPI reports an absolute
+    // Unicode code-point offset. EOF points after the last input character.
+    if error.is_eof() {
+        return String::from_utf8_lossy(raw).chars().count();
+    }
+    let line_start = raw
+        .iter()
+        .enumerate()
+        .filter(|(_, byte)| **byte == b'\n')
+        .take(error.line().saturating_sub(1))
+        .map(|(index, _)| index + 1)
+        .last()
+        .unwrap_or(0);
+    let byte_offset = (line_start + error.column().saturating_sub(1)).min(raw.len());
+    String::from_utf8_lossy(&raw[..byte_offset]).chars().count()
+}
+
 pub fn parse_json_body(raw: &[u8]) -> Result<Value, ApiError> {
     serde_json::from_slice(raw).map_err(|error| ApiError {
         status: StatusCode::UNPROCESSABLE_ENTITY,
         // Route oracle vectors own exact Python parser diagnostics. Keep this
         // syntax refusal separate from field-validation and authentication.
         detail: serde_json::json!([{
-            "type":"json_invalid", "loc":["body",error.column().saturating_sub(1)],
+            "type":"json_invalid", "loc":["body",json_error_position(raw,&error)],
             "msg":"JSON decode error", "input":{}, "ctx":{"error":error.to_string()}
         }]),
         retry_after: None,
