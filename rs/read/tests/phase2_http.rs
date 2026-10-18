@@ -269,6 +269,24 @@ async fn admission_order_is_observed_through_http_and_early_cors() {
 }
 
 #[test]
+fn approved_json_wording_difference_keeps_status_type_and_absolute_location() {
+    let ledger: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../tests/rust_contract/phase2/json-syntax-differences.json"
+    ))
+    .unwrap();
+    for vector in ledger["vectors"].as_array().unwrap() {
+        let error = verdaxis_read::auth::request::parse_json_body(
+            vector["raw"].as_str().unwrap().as_bytes(),
+        )
+        .unwrap_err();
+        let observed = serde_json::json!({"status":error.status.as_u16(),"type":error.detail[0]["type"],"loc":error.detail[0]["loc"]});
+        assert_eq!(observed, vector["rust_expected"], "{}", vector["id"]);
+        assert_eq!(vector["python"], vector["rust_expected"]);
+        assert_eq!(vector["approved_difference"], "msg and ctx.error only");
+    }
+}
+
+#[test]
 fn exact_endpoint_limits_and_shared_admin_prefix_reset() {
     use verdaxis_read::auth::limits::Phase2Limits;
     let mut limits = Phase2Limits::default();
