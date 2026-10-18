@@ -89,6 +89,28 @@ fn union_checkpoint_is_accepted_by_compiled_policy() {
 }
 
 #[test]
+fn production_requires_its_exact_database_and_union_checkpoint() {
+    let mut base = staging();
+    base.environment = "production".into();
+    base.database_url = "postgres://verdaxis_app:local-secret@127.0.0.1:5432/verdaxis_prod".into();
+    base.migration_revision = "p0_20261016_union".into();
+    base.bind = "127.0.0.1:8010".parse().unwrap();
+    assert!(validate_config(&base).is_ok());
+    for (from, to) in [
+        ("verdaxis_app", "verdaxis_app_staging"),
+        ("/verdaxis", "/verdaxis_staging"),
+        (":5432", ":5433"),
+        ("127.0.0.1", "127.0.0.2"),
+    ] {
+        let mut config = base.clone();
+        config.database_url = config.database_url.replace(from, to);
+        assert!(validate_config(&config).is_err());
+    }
+    base.migration_revision = "kycg_20261014_staging".into();
+    assert!(validate_config(&base).is_err());
+}
+
+#[test]
 fn staging_configuration_fails_closed() {
     let base = staging();
     assert!(validate_config(&base).is_ok());
