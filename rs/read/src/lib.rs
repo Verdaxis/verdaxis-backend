@@ -1,4 +1,5 @@
 pub mod auth;
+pub mod crud;
 pub mod market;
 pub mod mcp;
 pub mod routes;
