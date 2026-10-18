@@ -4,7 +4,7 @@
 //! that is missing, unmeasured, or spelled as a placeholder.
 
 use verdaxis_contract::{ContractEvidence, RouteP95, RouteRequests, WorkloadSize};
-use verdaxis_contract::{blocking_regressions, fix_item_regressions, passes_gate};
+use verdaxis_contract::{blocking_regressions, fix_item_regressions, passes_paired_gate};
 
 fn route(id: &'static str, python: f64, rust: f64) -> RouteP95 {
     RouteP95 {
@@ -79,7 +79,7 @@ fn gate_with_routes(
             routes.push(*item);
         }
     }
-    passes_gate(
+    passes_paired_gate(
         WorkloadSize::Small,
         &complete_contract(differences),
         rust_errors,
@@ -290,7 +290,7 @@ fn route_inputs_must_be_finite_before_the_gate() {
 
 #[test]
 fn missing_or_empty_manifest_routes_never_pass() {
-    assert!(!passes_gate(
+    assert!(!passes_paired_gate(
         WorkloadSize::Small,
         &complete_contract(0),
         0,
@@ -303,7 +303,7 @@ fn missing_or_empty_manifest_routes_never_pass() {
     ));
     let mut routes = complete_routes();
     routes.pop();
-    assert!(!passes_gate(
+    assert!(!passes_paired_gate(
         WorkloadSize::Small,
         &complete_contract(0),
         0,
@@ -326,7 +326,7 @@ fn both_route_measurements_must_be_positive_and_finite() {
             } else {
                 routes[0].rust = invalid;
             }
-            assert!(!passes_gate(
+            assert!(!passes_paired_gate(
                 WorkloadSize::Small,
                 &complete_contract(0),
                 0,
@@ -368,7 +368,7 @@ fn unequal_request_totals_cannot_pass_the_error_gate() {
             })
             .collect();
         assert_eq!(
-            passes_gate(
+            passes_paired_gate(
                 WorkloadSize::Small,
                 &complete_contract(0),
                 rs_errors,
@@ -386,7 +386,7 @@ fn unequal_request_totals_cannot_pass_the_error_gate() {
 
 #[test]
 fn absent_contract_evidence_is_not_zero_differences() {
-    assert!(!passes_gate(
+    assert!(!passes_paired_gate(
         WorkloadSize::Small,
         &[],
         0,
@@ -403,7 +403,7 @@ fn absent_contract_evidence_is_not_zero_differences() {
 fn incomplete_contract_groups_and_counts_never_pass() {
     let mut evidence = complete_contract(0);
     evidence[0].differences = None;
-    assert!(!passes_gate(
+    assert!(!passes_paired_gate(
         WorkloadSize::Small,
         &evidence,
         0,
@@ -416,7 +416,7 @@ fn incomplete_contract_groups_and_counts_never_pass() {
     ));
     evidence = complete_contract(0);
     evidence.pop();
-    assert!(!passes_gate(
+    assert!(!passes_paired_gate(
         WorkloadSize::Small,
         &evidence,
         0,
@@ -437,7 +437,7 @@ fn decision82_gate(
     rust_mix: f64,
     routes: &[RouteP95],
 ) -> bool {
-    passes_gate(
+    passes_paired_gate(
         if large {
             WorkloadSize::Large
         } else {

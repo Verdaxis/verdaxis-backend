@@ -4,11 +4,16 @@
 //! authoritative Python comparator. It never links the read package and holds
 //! no second comparator or normalization implementation.
 
+mod frozen_gate;
 mod gate;
+pub use frozen_gate::{
+    GateOutcome, PerformanceVerdict, RustMeasurement, RustRoute, frozen_performance_gate,
+};
 
 pub use gate::{
     ContractEvidence, RouteP95, RouteRequests, WorkloadSize, blocking_regressions,
-    contract_differences, expected_route_ids, fix_item_regressions, passes_gate, same_workload,
+    contract_differences, expected_route_ids, fix_item_regressions, passes_gate,
+    passes_paired_gate, same_workload,
 };
 
 /// Run the external comparator for one contract group.

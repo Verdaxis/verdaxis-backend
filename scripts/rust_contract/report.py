@@ -20,6 +20,7 @@ from typing import Any
 
 from scripts.rust_contract import measure as measure_mod
 from scripts.rust_contract import workload
+from scripts.rust_contract.frozen_gate import frozen_verdict
 
 ROOT = Path(__file__).resolve().parents[2]
 NOT_MEASURED = "not measured"
@@ -300,6 +301,21 @@ def write_report(destination: Path, document: str) -> None:
     destination.write_text(document)
 
 
+def build_frozen_bundle(measurement: dict[str, Any], simulation: dict[str, Any], integration_passed: bool) -> dict[str, Any]:
+    """Authoritative decision-86 gate; paired performance is historical only."""
+    performance = frozen_verdict(measurement)
+    contract = contract_verdict(simulation)
+    conditions = [
+        {"name": "zero unexplained contract differences at both sizes", "outcome": contract["outcome"], "detail": str(contract)},
+        {"name": "integration suite", "outcome": "pass" if integration_passed else "no-go", "detail": "explicit suite result"},
+        {"name": "Rust-only frozen-baseline performance evidence", "outcome": performance["outcome"], "detail": performance.get("reason", "validated")},
+    ]
+    outcomes = [row["outcome"] for row in conditions]
+    outcome = "inconclusive" if "inconclusive" in outcomes else ("no-go" if "no-go" in outcomes else "pass")
+    return {"gate": {"outcome": outcome, "passes": outcome == "pass", "conditions": conditions},
+            "performance": performance, "measurement": measurement}
+
+
 def build_bundle(
     *,
     identities: dict[str, Any],
@@ -456,31 +472,62 @@ def main(argv: list[str] | None = None) -> int:
     simulation = {"runs": [_load(path) for path in args.simulation]}
     small = _load(args.small)
     large = _load(args.large)
-    unapproved = contract_verdict(simulation)["differences"]
-    identities = {
-        "candidate_sha": args.candidate_sha,
-        "oracle_sha": _oracle_sha(),
-        "corpus_digest": _corpus_digest(),
-        "schema_revision": "kycd_20261015_staging",
-        "policy_digest": report_policy_digest(),
-    }
-    sections = ["# Rust Phase 1 go/no-go", "",
-                "Generated from existing evidence; small and large workloads are decided separately.", ""]
+    lines = ["# Rust Phase 1 go/no-go — decisions 86 and 87", "",
+             "Python is the correctness reference only. Speed and small-size error rates use the pinned frozen baseline.",
+             "Large Rust speed and errors are reported; Rust memory is reported only. Both sizes require valid Rust evidence.", ""]
+    from scripts.rust_contract import baseline
+    try:
+        frozen = baseline.load_python_baseline()
+        lines.extend(["## Frozen Python baseline", "",
+                      f"- Pin: `{baseline.gate_config()['python_baseline_sha256']}`.",
+                      f"- Source file SHA-256: `{frozen['source_file_sha256']}`.",
+                      f"- Source and harness SHA: `{frozen['source_sha']}`.",
+                      f"- Manifest digest: `{frozen['manifest_digest']}`.",
+                      f"- Date: {frozen['measurement_date']}, ended about {frozen['measurement_end_approx']}.",
+                      f"- Attestation: {frozen['identity_attested_by']}.",
+                      f"- Known limit: {frozen['known_limit']}.",
+                      f"- Offered windows: {frozen['offered_windows']}.",
+                      f"- Weighted mix p95: {frozen['mix_p95']:.9f} s.",
+                      f"- 5xx/503: {frozen['errors_5xx']}/{frozen['offered']} ({frozen['error_rate']:.6%}).", "",
+                      "| Route/tool | Frozen Python p95 (s) | Successful | Offered | 5xx | 503 |",
+                      "| --- | ---: | ---: | ---: | ---: | ---: |"])
+        for rid, row in frozen["routes"].items():
+            lines.append(f"| {rid} | {row['p95']:.9f} | {row['successful']} | {row['offered']} | {row['errors_5xx']} | {row['busy_503']} |")
+    except ValueError as error:
+        frozen = None
+        lines.extend(["## Frozen Python baseline", f"INCONCLUSIVE: {error}"])
     for size, measurement in (("small", small), ("large", large)):
         if measurement.get("size") != size:
             measurement = {}
-        bundle = build_bundle(
-            identities=identities, contract={},
-            simulation={**simulation, "summary": _simulation_summary(simulation),
-                        "evidence_digest": evidence_digest(simulation)},
-            measurement=measurement, unapproved_differences=unapproved,
-            integration_passed=args.integration_passed, integration_summary=args.integration_summary,
-        )
-        sections.extend([f"## {size.title()} workload", "",
-                         f"- Measurement file SHA-256: {sha256_file(args.small if size == 'small' else args.large) if measurement else NOT_MEASURED}",
-                         f"- Measured source SHA: {measurement.get('source_sha', NOT_MEASURED)}", "",
-                         render_markdown(bundle)])
-    write_report(args.out, "\n".join(sections))
+        bundle = build_frozen_bundle(measurement, simulation, args.integration_passed)
+        result = bundle["performance"]
+        lines.extend(["", f"## {size.title()} workload", "",
+                      f"- Outcome: {bundle['gate']['outcome'].upper()}.",
+                      f"- Rust-only performance evidence: {result['outcome']} ({result.get('reason', 'validated')}).",
+                      f"- Offered Rust rates: {measurement.get('rates_rps', NOT_MEASURED)}; higher than the frozen 5 RPS maximum is stricter for Rust."])
+        for condition in bundle["gate"]["conditions"]:
+            lines.append(f"- {condition['name']}: {condition['outcome']} ({condition['detail']}).")
+        cells = {"repetitions": [{**rep, "cells": {"rust": rep.get("cells", {}).get("rust", {"samples": [], "counters": []})}}
+                                 for rep in measurement.get("repetitions", [])]}
+        rust_memory = memory_table(cells).get("rust", {}) if cells["repetitions"] else {}
+        lines.append(f"- Rust memory steady median: {_bytes_mib(rust_memory.get('median_bytes'))}; non-blocking.")
+        lines.append(f"- Blocking routes: {', '.join(result['speed'].get('blocking_regressions', [])) or 'none proven'}.")
+        lines.append(f"- Same-meaning fix items: {', '.join(result['speed'].get('fix_items', [])) or 'none proven'}.")
+        # Show historical Rust samples as diagnostics without attesting missing
+        # identity or granting a waiver of the Rust successful-sample floor.
+        observed = latency_table(cells) if cells["repetitions"] else {}
+        if observed:
+            lines.extend(["", "Historical/unqualified Rust samples remain diagnostic when evidence admission fails.", "",
+                          "| Route/tool | Rust p95 (s) | Successful | Required |", "| --- | ---: | ---: | ---: |"])
+            for rid, targets in sorted(observed.items()):
+                row = targets["rust"]
+                lines.append(f"| {rid} | {_seconds(row.get('p95'))} | {row.get('n', 0)} | 1000 |")
+        if measurement.get("mode") == "adaptive":
+            adaptive = measure_mod.adaptive_choice(measurement.get("probe", []), measurement.get("probe_max_rps", 0))
+            lines.append(f"- Adaptive probe: {'no clean rate found' if adaptive['chosen_rps'] is None else adaptive['chosen_rps']}; {adaptive['stop_reason']}.")
+    lines.extend(["", f"- Integration evidence: {args.integration_summary or 'not supplied'}.",
+                  "- Production status: not authorized by this report."])
+    write_report(args.out, "\n".join(lines) + "\n")
     print(f"report written to {args.out}")
     return 0
 

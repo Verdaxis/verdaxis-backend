@@ -159,7 +159,7 @@ pub fn contract_differences(evidence: &[ContractEvidence]) -> Option<u64> {
 /// unchanged integration suite's result. Memory no longer blocks, so it is not
 /// an argument; it stays measured and reported by the harness.
 #[allow(clippy::too_many_arguments)]
-pub fn passes_gate(
+pub fn passes_paired_gate(
     size: WorkloadSize,
     contract: &[ContractEvidence],
     rust_5xx: u64,
@@ -204,4 +204,19 @@ pub fn passes_gate(
         && (size == WorkloadSize::Large
             || (rust_mix_p95 <= python_mix_p95 && blocking_regressions(routes).is_empty()));
     hard_gates && speed
+}
+
+/// Decision 86 is authoritative: performance has no live Python input.
+pub fn passes_gate(
+    contract: &[ContractEvidence],
+    integration_passed: bool,
+    baseline_bytes: &[u8],
+    configuration: &str,
+    measurement: &crate::frozen_gate::RustMeasurement,
+) -> bool {
+    contract_differences(contract) == Some(0)
+        && integration_passed
+        && crate::frozen_gate::frozen_performance_gate(baseline_bytes, configuration, measurement)
+            .outcome
+            == crate::frozen_gate::GateOutcome::Pass
 }
