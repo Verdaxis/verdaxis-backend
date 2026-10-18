@@ -20,7 +20,8 @@ from typing import Any
 
 from scripts.rust_contract import measure as measure_mod
 from scripts.rust_contract import workload
-from scripts.rust_contract.frozen_gate import frozen_verdict
+from scripts.rust_contract.frozen_gate import frozen_verdict as frozen_verdict
+from scripts.rust_contract.frozen_gate import performance_evidence
 
 ROOT = Path(__file__).resolve().parents[2]
 NOT_MEASURED = "not measured"
@@ -301,9 +302,10 @@ def write_report(destination: Path, document: str) -> None:
     destination.write_text(document)
 
 
-def build_frozen_bundle(measurement: dict[str, Any], simulation: dict[str, Any], integration_passed: bool) -> dict[str, Any]:
-    """Authoritative decision-86 gate; paired performance is historical only."""
-    performance = frozen_verdict(measurement)
+def build_frozen_bundle(measurement: dict[str, Any] | None, simulation: dict[str, Any], integration_passed: bool,
+                        *, size: str = "small") -> dict[str, Any]:
+    """Small performance and both contracts are required; large performance is optional."""
+    performance = performance_evidence(size, measurement)
     contract = contract_verdict(simulation)
     conditions = [
         {"name": "zero unexplained contract differences at both sizes", "outcome": contract["outcome"], "detail": str(contract)},
@@ -455,7 +457,7 @@ def _load(path: Path) -> dict[str, Any]:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--small", type=Path, required=True, help="measure-small.json")
-    parser.add_argument("--large", type=Path, required=True, help="measure-large.json")
+    parser.add_argument("--large", type=Path, help="optional large evidence; supplied files must be valid")
     parser.add_argument("--simulation", type=Path, action="append", required=True,
                         help="simulation-<size>.json; repeat for all sizes and later group reruns")
     parser.add_argument("--out", type=Path, required=True)
@@ -471,10 +473,10 @@ def main(argv: list[str] | None = None) -> int:
 
     simulation = {"runs": [_load(path) for path in args.simulation]}
     small = _load(args.small)
-    large = _load(args.large)
+    large = _load(args.large) if args.large is not None else None
     lines = ["# Rust Phase 1 go/no-go — decisions 86 and 87", "",
              "Python is the correctness reference only. Speed and small-size error rates use the pinned frozen baseline.",
-             "Large Rust speed and errors are reported; Rust memory is reported only. Both sizes require valid Rust evidence.", ""]
+             "Large Rust performance evidence is optional (decisions 82 and 96); supplied evidence must be valid. Rust memory is reported only.", ""]
     from scripts.rust_contract import baseline
     try:
         frozen = baseline.load_python_baseline()
@@ -496,11 +498,12 @@ def main(argv: list[str] | None = None) -> int:
     except ValueError as error:
         frozen = None
         lines.extend(["## Frozen Python baseline", f"INCONCLUSIVE: {error}"])
+    outcomes = []
     for size, measurement in (("small", small), ("large", large)):
-        if measurement.get("size") != size:
-            measurement = {}
-        bundle = build_frozen_bundle(measurement, simulation, args.integration_passed)
+        bundle = build_frozen_bundle(measurement, simulation, args.integration_passed, size=size)
+        outcomes.append(bundle["gate"]["outcome"])
         result = bundle["performance"]
+        measurement = measurement or {}
         lines.extend(["", f"## {size.title()} workload", "",
                       f"- Outcome: {bundle['gate']['outcome'].upper()}.",
                       f"- Rust-only performance evidence: {result['outcome']} ({result.get('reason', 'validated')}).",
@@ -544,6 +547,8 @@ def main(argv: list[str] | None = None) -> int:
         if measurement.get("mode") == "adaptive":
             adaptive = measure_mod.adaptive_choice(measurement.get("probe", []), measurement.get("probe_max_rps", 0))
             lines.append(f"- Adaptive probe: {'no clean rate found' if adaptive['chosen_rps'] is None else adaptive['chosen_rps']}; {adaptive['stop_reason']}.")
+    overall = "INCONCLUSIVE" if "inconclusive" in outcomes else ("NO-GO" if "no-go" in outcomes else "GO for the founder's review")
+    lines.extend(["", f"**Overall: {overall}.**", ""])
     lines.extend(["", f"- Integration evidence: {args.integration_summary or 'not supplied'}.",
                   "- Production status: not authorized by this report."])
     write_report(args.out, "\n".join(lines) + "\n")

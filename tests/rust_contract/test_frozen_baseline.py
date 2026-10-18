@@ -5,7 +5,8 @@ import json
 
 import pytest
 
-from scripts.rust_contract import baseline as report, workload
+from scripts.rust_contract import baseline as report
+from scripts.rust_contract import workload
 
 
 def test_baseline_is_pinned_and_complete():
@@ -164,8 +165,9 @@ def test_actual_frozen_r27_relative_boundary():
 
 
 def test_measurement_defaults_to_rust_only():
-    from scripts.rust_contract.measure import Measurement
     from pathlib import Path
+
+    from scripts.rust_contract.measure import Measurement
     run = Measurement("small", output_dir=Path("work/test"), warmup_seconds=0,
                       windows=[(3000, 10)], repetitions=1)
     assert run.measurement_targets(1, 2) == [("rust", 2)]
@@ -206,6 +208,70 @@ def rate_limited_route():
     rid = "R14"  # the 10-per-minute export route the decision names
     assert limits[rid] == 10
     return rid
+
+
+@pytest.mark.parametrize("size,provided,expected", [
+    ("large", False, "pass"),
+    ("small", False, "inconclusive"),
+    ("large", True, "inconclusive"),
+])
+def test_optional_performance_evidence_preserves_admission(size, provided, expected):
+    from scripts.rust_contract.frozen_gate import performance_evidence
+    result = performance_evidence(size, {} if provided else None)
+    assert result["outcome"] == expected
+    if size == "large" and not provided:
+        assert result["reason"] == "large-size speed not measured (decisions 82 and 96)"
+
+
+def test_optional_large_present_regression_is_a_fix_item():
+    from scripts.rust_contract.frozen_gate import performance_evidence
+    evidence = rust_measurement()
+    evidence["size"] = "large"
+    for sample in evidence["repetitions"][0]["cells"]["rust"]["samples"]:
+        sample["seconds"] = 5.0
+    result = performance_evidence("large", evidence)
+    assert result["outcome"] == "pass"
+    assert "R27" in result["speed"]["fix_items"]
+
+
+@pytest.mark.parametrize("content", ["{}", "not json", '{"size":"small"}'])
+def test_cli_does_not_ignore_invalid_supplied_large_evidence(tmp_path, content):
+    from scripts.rust_contract import report as reports
+    small = tmp_path / "small.json"
+    small.write_text(json.dumps(rust_measurement()))
+    large = tmp_path / "large.json"
+    large.write_text(content)
+    sim = tmp_path / "sim.json"
+    sim.write_text("{}")
+    out = tmp_path / "report.md"
+    reports.main(["--small", str(small), "--large", str(large), "--simulation", str(sim), "--out", str(out)])
+    text = out.read_text().split("## Large workload")[1]
+    assert "Rust-only performance evidence: inconclusive" in text
+    assert "large-size speed not measured" not in text
+
+
+@pytest.mark.parametrize("complete_contract", [False, True])
+def test_cli_allows_omitted_large_evidence(tmp_path, complete_contract):
+    from scripts.rust_contract import report as reports
+    small = tmp_path / "small.json"
+    small.write_text(json.dumps(rust_measurement()))
+    sim = tmp_path / "sim.json"
+    groups = workload.ROOT / "tests/rust_contract/cases.json"
+    names = json.loads(groups.read_text())["groups"]
+    simulations = [
+        {"size": size, "groups": {name: {"outcome": "match", "cases": 1, "differences": 0} for name in names},
+         "total_pairs": len(names), "differences": 0, "inconclusive_groups": []}
+        for size in ("small", "large")
+    ] if complete_contract else [{}]
+    sim.write_text(json.dumps(simulations[0]))
+    second = tmp_path / "sim-large.json"
+    second.write_text(json.dumps(simulations[-1]))
+    out = tmp_path / "report.md"
+    reports.main(["--small", str(small), "--simulation", str(sim), "--simulation", str(second),
+                  "--integration-passed", "--out", str(out)])
+    assert "large-size speed not measured (decisions 82 and 96)" in out.read_text()
+    expected = "GO for the founder's review" if complete_contract else "INCONCLUSIVE"
+    assert f"Overall: {expected}" in out.read_text()
 
 
 def test_rate_limited_route_reaches_its_written_floor():

@@ -17,6 +17,7 @@ pub struct PerformanceVerdict {
     pub fix_items: Vec<String>,
     pub blocking_routes: Vec<String>,
     pub mix_regressed: bool,
+    pub note: Option<&'static str>,
 }
 
 #[derive(Clone, Debug)]
@@ -143,7 +144,34 @@ fn finite_positive(value: &f64) -> bool {
     value.is_finite() && *value > 0.0
 }
 
-/// Missing or invalid evidence always yields Inconclusive, including at large.
+/// Decisions 82/96 allow absent large performance evidence, not invalid evidence.
+pub fn performance_evidence_gate(
+    bytes: &[u8],
+    config: &str,
+    size: WorkloadSize,
+    run: Option<&RustMeasurement>,
+) -> PerformanceVerdict {
+    match run {
+        Some(run) if run.size == size => frozen_performance_gate(bytes, config, run),
+        _ => PerformanceVerdict {
+            outcome: if run.is_none() && size == WorkloadSize::Large {
+                GateOutcome::Pass
+            } else {
+                GateOutcome::Inconclusive
+            },
+            fix_items: vec![],
+            blocking_routes: vec![],
+            mix_regressed: false,
+            note: if run.is_none() && size == WorkloadSize::Large {
+                Some("large-size speed not measured (decisions 82 and 96)")
+            } else {
+                None
+            },
+        },
+    }
+}
+
+/// Supplied evidence always requires full validation, including at large.
 pub fn frozen_performance_gate(
     bytes: &[u8],
     config: &str,
@@ -154,6 +182,7 @@ pub fn frozen_performance_gate(
         fix_items: vec![],
         blocking_routes: vec![],
         mix_regressed: false,
+        note: None,
     };
     let Ok(config) = serde_json::from_str::<GateConfig>(config) else {
         return invalid();
@@ -274,5 +303,6 @@ pub fn frozen_performance_gate(
         fix_items,
         blocking_routes,
         mix_regressed,
+        note: None,
     }
 }
