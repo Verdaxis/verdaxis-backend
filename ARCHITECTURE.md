@@ -195,6 +195,15 @@ carries neither record and reads no Rust path.
 `docs/rust-phase1/progress-task12c.md` holds the unit digest, the artifact
 digest and the systemd 249/255 and staging-ABI start evidence.
 
+Decisions 86/87 freeze the Python small-workload performance reference in
+`tests/rust_contract/python-baseline-small.json`, pinned by `gate-config.json`.
+`scripts/rust_contract/baseline.py` validates its bytes and PM attestation;
+`frozen_gate.py` and `rs/contract/src/frozen_gate.rs` enforce the Rust-only
+identity, successful-sample floor, frozen p95 thresholds and error-rate rule.
+`measure.py --rust-only` starts no Python service and records baseline, manifest,
+source and harness identities. Python remains the differential correctness oracle
+at both sizes. Historical paired evidence cannot satisfy the new Rust-only gate.
+
 ## File Map
 
 ```
