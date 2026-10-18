@@ -114,7 +114,7 @@ def compare(expected: dict[str, Any], actual: dict[str, Any]) -> list[str]:
 
 def compare_responses(
     expected, actual, *, profile=None, route_id=None, rules_sha256=None,
-    rules_path=None, request_id=None,
+    rules_path=None, request_id=None, diagnostic_context=None,
 ):
     """Compare raw status/header/body pairs under an explicit profile.
 
@@ -127,13 +127,14 @@ def compare_responses(
             capture(expected["status"], expected["headers"], expected["body"]),
             capture(actual["status"], actual["headers"], actual["body"]),
         )
-    if profile != "phase2-meaning-v1":
+    if profile not in {"phase2-meaning-v1", "phase1-meaning-v1"}:
         raise ContractError("unknown comparator profile")
     from scripts.rust_contract.phase2_meaning import compare_meaning
 
     return compare_meaning(
         expected, actual, route_id=route_id, rules_sha256=rules_sha256,
-        rules_path=rules_path, request_id=request_id,
+        rules_path=rules_path, request_id=request_id, profile=profile,
+        diagnostic_context=diagnostic_context,
     )
 
 

@@ -125,10 +125,31 @@ Tasks 7–12 are outside this brief.
   those paths back into this inventory. This checkpoint does not claim typed-path
   normalization is implemented.
 
-Next: reuse the reviewed Phase 2 comparator through Git history for Task 2; do not
-copy its files or introduce another normalizer. Publication is pending clarification
-because the brief both requests a draft PR and forbids lane pushes.
+PM clarified publication authority: push only `feat/rust-same-meaning` and open
+the draft PR. PR 90 targets staging, is draft, and says Do not merge. Task 1 CI
+completed: offline, contract, test, postgres-phase0 and postgres-analytics passed;
+publish skipped. No PR comments, edits, merge or close actions are authorized.
 
-Before continuing, resolve whether this lane may push its own branch and create
-the requested draft PR. No run remains active at this checkpoint. Tasks 2–6 have
-not started; Tasks 7–12 remain outside the brief.
+### Task 2 checkpoint
+
+- Reused `64179cd1` through cherry-pick with source attribution (`6c44e31a`).
+  Kept the already-integrated baseline architecture notes and omitted unrelated
+  Phase 2 output documentation. No application Python code changed.
+- Imported comparator regression suite: 94 passed, test exit `0`, wrapper exit `0`.
+- RED: 23 failed, 64 passed; test exit `1`, wrapper exit `1` (missing successor
+  ledger/profile). Source-derived ledger export: exit `0`, wrapper exit `0`.
+- First GREEN: 1 failed, 122 passed, exit `1`; the negative `isError=false` mutation
+  was correctly rejected as invalid inner JSON, while the test expected a normal
+  difference. The test now requires invalid evidence for that malformed success.
+- Final GREEN: 123 passed, test exit `0`, wrapper exit `0`. One existing Pydantic
+  class-config warning. Includes unchanged Phase 2, byte, news and tape checks.
+- Immutable Phase 1 ledger digest:
+  `92578257e18b80120fbb87d27d3a4f3ae6e83bc84342ba33bd07aed20d38b80d`.
+  Inventory scalar placeholders are replaced with the reviewed paths.
+- The engine remains `phase2_meaning.py`; one profile dispatch, one JSON walker,
+  typed-map traversal only at reviewed paths, and no new comparator or repr parser.
+  Decision 84 validates structured error semantics against the request validator.
+- CSV and non-JSON auxiliary bytes stay strict. Tape membership and order stay
+  strict; Task 5 must supply the canonical complete-relation page oracle.
+- No measurements ran. Next: Task 3 must reuse the existing decision-87 baseline
+  and gate, not create another baseline file or refresh Python performance.

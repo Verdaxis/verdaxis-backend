@@ -67,8 +67,9 @@
       "comparator_route_id": "P1-R01",
       "codec": "json",
       "decimal_paths": [],
-      "datetime_paths": [],
-      "scalar_rule_status": "strict until Task 2 source-derived ledger is reviewed",
+      "datetime_paths": [
+        "/*/intelligence/captured_at"
+      ],
       "order_keys": [
         "source order; no tie relaxation"
       ],
@@ -86,8 +87,9 @@
       "comparator_route_id": "P1-R02",
       "codec": "json",
       "decimal_paths": [],
-      "datetime_paths": [],
-      "scalar_rule_status": "strict until Task 2 source-derived ledger is reviewed",
+      "datetime_paths": [
+        "/intelligence/captured_at"
+      ],
       "order_keys": [
         "source order; no tie relaxation"
       ],
@@ -104,9 +106,10 @@
       "path": "/api/catalog/products",
       "comparator_route_id": "P1-R03",
       "codec": "json",
-      "decimal_paths": [],
+      "decimal_paths": [
+        "/*/min_lot_size"
+      ],
       "datetime_paths": [],
-      "scalar_rule_status": "strict until Task 2 source-derived ledger is reviewed",
       "order_keys": [
         "source order; no tie relaxation"
       ],
@@ -125,7 +128,6 @@
       "codec": "json",
       "decimal_paths": [],
       "datetime_paths": [],
-      "scalar_rule_status": "strict until Task 2 source-derived ledger is reviewed",
       "order_keys": [
         "source order; no tie relaxation"
       ],
@@ -143,8 +145,10 @@
       "comparator_route_id": "P1-R05",
       "codec": "json",
       "decimal_paths": [],
-      "datetime_paths": [],
-      "scalar_rule_status": "strict until Task 2 source-derived ledger is reviewed",
+      "datetime_paths": [
+        "/*/fetched_at",
+        "/*/published_at"
+      ],
       "order_keys": [
         "published_at DESC; equal-time multiset"
       ],
@@ -160,9 +164,14 @@
       "path": "/api/trade-tape",
       "comparator_route_id": "P1-R06",
       "codec": "json",
-      "decimal_paths": [],
-      "datetime_paths": [],
-      "scalar_rule_status": "strict until Task 2 source-derived ledger is reviewed",
+      "decimal_paths": [
+        "/items/*/price_per_mt_usd",
+        "/items/*/quantity_mt",
+        "/items/*/total_usd"
+      ],
+      "datetime_paths": [
+        "/items/*/confirmed_at"
+      ],
       "order_keys": [
         "confirmed_at DESC",
         "full trade UUID DESC"
@@ -182,9 +191,16 @@
       "path": "/api/curves/forward",
       "comparator_route_id": "P1-R07",
       "codec": "json",
-      "decimal_paths": [],
-      "datetime_paths": [],
-      "scalar_rule_status": "strict until Task 2 source-derived ledger is reviewed",
+      "decimal_paths": [
+        "/curve/*/best_ask",
+        "/curve/*/best_bid",
+        "/curve/*/mid_price",
+        "/curve/*/spread",
+        "/curve/*/volume_mt"
+      ],
+      "datetime_paths": [
+        "/generated_at"
+      ],
       "order_keys": [
         "source order; no tie relaxation"
       ],
@@ -207,7 +223,6 @@
       "codec": "bytes",
       "decimal_paths": [],
       "datetime_paths": [],
-      "scalar_rule_status": "strict until Task 2 source-derived ledger is reviewed",
       "order_keys": [
         "source order; no tie relaxation"
       ],
@@ -228,9 +243,19 @@
       "path": "/api/curves/forward/table",
       "comparator_route_id": "P1-R09",
       "codec": "json",
-      "decimal_paths": [],
-      "datetime_paths": [],
-      "scalar_rule_status": "strict until Task 2 source-derived ledger is reviewed",
+      "decimal_paths": [
+        "/latest_signals/*/primary_value",
+        "/rows/*/cells/*/best_ask",
+        "/rows/*/cells/*/best_bid",
+        "/rows/*/cells/*/primary_value",
+        "/rows/*/cells/*/spread",
+        "/rows/*/cells/*/volume_mt"
+      ],
+      "datetime_paths": [
+        "/generated_at",
+        "/latest_signals/*/observed_at",
+        "/rows/*/cells/*/observed_at"
+      ],
       "order_keys": [
         "source order; no tie relaxation"
       ],
@@ -251,9 +276,69 @@
       "path": "/api/curves/forward/slice",
       "comparator_route_id": "P1-R10",
       "codec": "json",
-      "decimal_paths": [],
-      "datetime_paths": [],
-      "scalar_rule_status": "strict until Task 2 source-derived ledger is reviewed",
+      "decimal_paths": [
+        "/cell/benchmark_mid",
+        "/cell/best_ask",
+        "/cell/best_bid",
+        "/cell/demo_best_ask",
+        "/cell/demo_best_bid",
+        "/cell/fair_price_band/high_price_per_mt_usd",
+        "/cell/fair_price_band/low_price_per_mt_usd",
+        "/cell/fair_price_band/mid_price_per_mt_usd",
+        "/cell/indication_summary/latest_ask_price_per_mt_usd",
+        "/cell/indication_summary/latest_bid_price_per_mt_usd",
+        "/cell/indication_summary/latest_mid_price_per_mt_usd",
+        "/cell/indication_summary/total_quantity_mt",
+        "/cell/physical_stem_summary/available_quantity_mt",
+        "/cell/physical_stem_summary/tentative_quantity_mt",
+        "/cell/primary_value",
+        "/cell/real_best_ask",
+        "/cell/real_best_bid",
+        "/cell/spread",
+        "/cell/volume_mt",
+        "/depth_asks/*/price_per_mt_usd",
+        "/depth_asks/*/quantity_mt",
+        "/depth_bids/*/price_per_mt_usd",
+        "/depth_bids/*/quantity_mt",
+        "/evidence_points/*/high_price_per_mt_usd",
+        "/evidence_points/*/low_price_per_mt_usd",
+        "/evidence_points/*/price_per_mt_usd",
+        "/evidence_points/*/quantity_mt",
+        "/fair_price_band/high_price_per_mt_usd",
+        "/fair_price_band/low_price_per_mt_usd",
+        "/fair_price_band/mid_price_per_mt_usd",
+        "/indications/*/price_per_mt_usd",
+        "/indications/*/quantity_mt",
+        "/physical_stems/*/quantity_mt",
+        "/trades/*/price_per_mt_usd",
+        "/trades/*/quantity_mt"
+      ],
+      "datetime_paths": [
+        "/cell/benchmark_observed_at",
+        "/cell/fair_price_band/provenance/generated_at",
+        "/cell/fair_price_band/provenance/observed_at",
+        "/cell/fair_price_band_provenance/generated_at",
+        "/cell/fair_price_band_provenance/observed_at",
+        "/cell/generated_at",
+        "/cell/indication_summary/provenance/generated_at",
+        "/cell/indication_summary/provenance/observed_at",
+        "/cell/observed_at",
+        "/cell/physical_stem_summary/earliest_stem_start",
+        "/cell/physical_stem_summary/latest_stem_end",
+        "/cell/physical_stem_summary/provenance/generated_at",
+        "/cell/physical_stem_summary/provenance/observed_at",
+        "/evidence_points/*/observed_at",
+        "/fair_price_band/provenance/generated_at",
+        "/fair_price_band/provenance/observed_at",
+        "/generated_at",
+        "/indications/*/provenance/generated_at",
+        "/indications/*/provenance/observed_at",
+        "/physical_stems/*/provenance/generated_at",
+        "/physical_stems/*/provenance/observed_at",
+        "/physical_stems/*/stem_end",
+        "/physical_stems/*/stem_start",
+        "/trades/*/confirmed_at"
+      ],
       "order_keys": [
         "source order; no tie relaxation"
       ],
@@ -274,9 +359,91 @@
       "path": "/api/curves/forward/board",
       "comparator_route_id": "P1-R11",
       "codec": "json",
-      "decimal_paths": [],
-      "datetime_paths": [],
-      "scalar_rule_status": "strict until Task 2 source-derived ledger is reviewed",
+      "decimal_paths": [
+        "/focus/curve/*/benchmark_mid",
+        "/focus/curve/*/best_ask",
+        "/focus/curve/*/best_bid",
+        "/focus/curve/*/demo_best_ask",
+        "/focus/curve/*/demo_best_bid",
+        "/focus/curve/*/fair_price_band/high_price_per_mt_usd",
+        "/focus/curve/*/fair_price_band/low_price_per_mt_usd",
+        "/focus/curve/*/fair_price_band/mid_price_per_mt_usd",
+        "/focus/curve/*/indication_summary/latest_ask_price_per_mt_usd",
+        "/focus/curve/*/indication_summary/latest_bid_price_per_mt_usd",
+        "/focus/curve/*/indication_summary/latest_mid_price_per_mt_usd",
+        "/focus/curve/*/indication_summary/total_quantity_mt",
+        "/focus/curve/*/physical_stem_summary/available_quantity_mt",
+        "/focus/curve/*/physical_stem_summary/tentative_quantity_mt",
+        "/focus/curve/*/real_best_ask",
+        "/focus/curve/*/real_best_bid",
+        "/focus/curve/*/spread",
+        "/focus/curve/*/volume_mt",
+        "/focus/depth_asks/*/price_per_mt_usd",
+        "/focus/depth_asks/*/quantity_mt",
+        "/focus/depth_bids/*/price_per_mt_usd",
+        "/focus/depth_bids/*/quantity_mt",
+        "/focus/fair_price_band/high_price_per_mt_usd",
+        "/focus/fair_price_band/low_price_per_mt_usd",
+        "/focus/fair_price_band/mid_price_per_mt_usd",
+        "/focus/indications/*/price_per_mt_usd",
+        "/focus/indications/*/quantity_mt",
+        "/focus/physical_stems/*/quantity_mt",
+        "/ports/*/cells/*/benchmark_mid",
+        "/ports/*/cells/*/best_ask",
+        "/ports/*/cells/*/best_bid",
+        "/ports/*/cells/*/demo_best_ask",
+        "/ports/*/cells/*/demo_best_bid",
+        "/ports/*/cells/*/fair_price_band/high_price_per_mt_usd",
+        "/ports/*/cells/*/fair_price_band/low_price_per_mt_usd",
+        "/ports/*/cells/*/fair_price_band/mid_price_per_mt_usd",
+        "/ports/*/cells/*/indication_summary/latest_ask_price_per_mt_usd",
+        "/ports/*/cells/*/indication_summary/latest_bid_price_per_mt_usd",
+        "/ports/*/cells/*/indication_summary/latest_mid_price_per_mt_usd",
+        "/ports/*/cells/*/indication_summary/total_quantity_mt",
+        "/ports/*/cells/*/physical_stem_summary/available_quantity_mt",
+        "/ports/*/cells/*/physical_stem_summary/tentative_quantity_mt",
+        "/ports/*/cells/*/real_best_ask",
+        "/ports/*/cells/*/real_best_bid",
+        "/ports/*/cells/*/spread",
+        "/ports/*/cells/*/volume_mt"
+      ],
+      "datetime_paths": [
+        "/focus/curve/*/benchmark_observed_at",
+        "/focus/curve/*/fair_price_band/provenance/generated_at",
+        "/focus/curve/*/fair_price_band/provenance/observed_at",
+        "/focus/curve/*/fair_price_band_provenance/generated_at",
+        "/focus/curve/*/fair_price_band_provenance/observed_at",
+        "/focus/curve/*/indication_summary/provenance/generated_at",
+        "/focus/curve/*/indication_summary/provenance/observed_at",
+        "/focus/curve/*/order_observed_at",
+        "/focus/curve/*/physical_stem_summary/earliest_stem_start",
+        "/focus/curve/*/physical_stem_summary/latest_stem_end",
+        "/focus/curve/*/physical_stem_summary/provenance/generated_at",
+        "/focus/curve/*/physical_stem_summary/provenance/observed_at",
+        "/focus/fair_price_band/provenance/generated_at",
+        "/focus/fair_price_band/provenance/observed_at",
+        "/focus/fair_price_band_provenance/generated_at",
+        "/focus/fair_price_band_provenance/observed_at",
+        "/focus/indications/*/provenance/generated_at",
+        "/focus/indications/*/provenance/observed_at",
+        "/focus/physical_stems/*/provenance/generated_at",
+        "/focus/physical_stems/*/provenance/observed_at",
+        "/focus/physical_stems/*/stem_end",
+        "/focus/physical_stems/*/stem_start",
+        "/generated_at",
+        "/ports/*/cells/*/benchmark_observed_at",
+        "/ports/*/cells/*/fair_price_band/provenance/generated_at",
+        "/ports/*/cells/*/fair_price_band/provenance/observed_at",
+        "/ports/*/cells/*/fair_price_band_provenance/generated_at",
+        "/ports/*/cells/*/fair_price_band_provenance/observed_at",
+        "/ports/*/cells/*/indication_summary/provenance/generated_at",
+        "/ports/*/cells/*/indication_summary/provenance/observed_at",
+        "/ports/*/cells/*/order_observed_at",
+        "/ports/*/cells/*/physical_stem_summary/earliest_stem_start",
+        "/ports/*/cells/*/physical_stem_summary/latest_stem_end",
+        "/ports/*/cells/*/physical_stem_summary/provenance/generated_at",
+        "/ports/*/cells/*/physical_stem_summary/provenance/observed_at"
+      ],
       "order_keys": [
         "source order; no tie relaxation"
       ],
@@ -297,9 +464,19 @@
       "path": "/api/prices",
       "comparator_route_id": "P1-R12",
       "codec": "json",
-      "decimal_paths": [],
-      "datetime_paths": [],
-      "scalar_rule_status": "strict until Task 2 source-derived ledger is reviewed",
+      "decimal_paths": [
+        "/summaries/*/avg_price_24h",
+        "/summaries/*/high_24h",
+        "/summaries/*/last_price",
+        "/summaries/*/low_24h",
+        "/summaries/*/price_change_pct",
+        "/summaries/*/volume_24h"
+      ],
+      "datetime_paths": [
+        "/generated_at",
+        "/summaries/*/last_trade_at",
+        "/summaries/*/observed_at"
+      ],
       "order_keys": [
         "reviewed price-summary collection multiset"
       ],
@@ -320,9 +497,13 @@
       "path": "/api/prices/reference",
       "comparator_route_id": "P1-R13",
       "codec": "json",
-      "decimal_paths": [],
-      "datetime_paths": [],
-      "scalar_rule_status": "strict until Task 2 source-derived ledger is reviewed",
+      "decimal_paths": [
+        "/prices/*/total_volume_mt",
+        "/prices/*/vwap_usd"
+      ],
+      "datetime_paths": [
+        "/generated_at"
+      ],
       "order_keys": [
         "source order; no tie relaxation"
       ],
@@ -345,7 +526,6 @@
       "codec": "bytes",
       "decimal_paths": [],
       "datetime_paths": [],
-      "scalar_rule_status": "strict until Task 2 source-derived ledger is reviewed",
       "order_keys": [
         "source order; no tie relaxation"
       ],
@@ -366,9 +546,53 @@
       "path": "/api/orderbook/snapshot",
       "comparator_route_id": "P1-R15",
       "codec": "json",
-      "decimal_paths": [],
-      "datetime_paths": [],
-      "scalar_rule_status": "strict until Task 2 source-derived ledger is reviewed",
+      "decimal_paths": [
+        "/asks/*/benchmark_price_per_mt_usd",
+        "/asks/*/carbon_intensity_gco2_mj",
+        "/asks/*/fame_terms/cfpp_c",
+        "/asks/*/fame_terms/ci_gco2e_mj",
+        "/asks/*/fame_terms/cloud_point_c",
+        "/asks/*/fame_terms/lhv_mj_kg",
+        "/asks/*/fame_terms/max_cfpp_c",
+        "/asks/*/fame_terms/max_ci_gco2e_mj",
+        "/asks/*/fame_terms/max_cloud_point_c",
+        "/asks/*/fame_terms/quality_evidence/results/*/value",
+        "/asks/*/lng_terms/bio_share_pct",
+        "/asks/*/lng_terms/max_wtt_ghg_gco2e_mj",
+        "/asks/*/lng_terms/min_bio_share_pct",
+        "/asks/*/lng_terms/min_methane_number",
+        "/asks/*/lng_terms/wtt_ghg_gco2e_mj",
+        "/asks/*/premium_discount_per_mt_usd",
+        "/asks/*/price_per_mt_usd",
+        "/asks/*/quantity_mt",
+        "/asks/*/remaining_quantity_mt",
+        "/bids/*/benchmark_price_per_mt_usd",
+        "/bids/*/carbon_intensity_gco2_mj",
+        "/bids/*/fame_terms/cfpp_c",
+        "/bids/*/fame_terms/ci_gco2e_mj",
+        "/bids/*/fame_terms/cloud_point_c",
+        "/bids/*/fame_terms/lhv_mj_kg",
+        "/bids/*/fame_terms/max_cfpp_c",
+        "/bids/*/fame_terms/max_ci_gco2e_mj",
+        "/bids/*/fame_terms/max_cloud_point_c",
+        "/bids/*/fame_terms/quality_evidence/results/*/value",
+        "/bids/*/lng_terms/bio_share_pct",
+        "/bids/*/lng_terms/max_wtt_ghg_gco2e_mj",
+        "/bids/*/lng_terms/min_bio_share_pct",
+        "/bids/*/lng_terms/min_methane_number",
+        "/bids/*/lng_terms/wtt_ghg_gco2e_mj",
+        "/bids/*/premium_discount_per_mt_usd",
+        "/bids/*/price_per_mt_usd",
+        "/bids/*/quantity_mt",
+        "/bids/*/remaining_quantity_mt"
+      ],
+      "datetime_paths": [
+        "/asks/*/created_at",
+        "/asks/*/expires_at",
+        "/bids/*/created_at",
+        "/bids/*/expires_at",
+        "/generated_at"
+      ],
       "order_keys": [
         "side",
         "price priority",
@@ -392,9 +616,31 @@
       "path": "/api/orderbook/bids",
       "comparator_route_id": "P1-R16",
       "codec": "json",
-      "decimal_paths": [],
-      "datetime_paths": [],
-      "scalar_rule_status": "strict until Task 2 source-derived ledger is reviewed",
+      "decimal_paths": [
+        "/items/*/benchmark_price_per_mt_usd",
+        "/items/*/carbon_intensity_gco2_mj",
+        "/items/*/fame_terms/cfpp_c",
+        "/items/*/fame_terms/ci_gco2e_mj",
+        "/items/*/fame_terms/cloud_point_c",
+        "/items/*/fame_terms/lhv_mj_kg",
+        "/items/*/fame_terms/max_cfpp_c",
+        "/items/*/fame_terms/max_ci_gco2e_mj",
+        "/items/*/fame_terms/max_cloud_point_c",
+        "/items/*/fame_terms/quality_evidence/results/*/value",
+        "/items/*/lng_terms/bio_share_pct",
+        "/items/*/lng_terms/max_wtt_ghg_gco2e_mj",
+        "/items/*/lng_terms/min_bio_share_pct",
+        "/items/*/lng_terms/min_methane_number",
+        "/items/*/lng_terms/wtt_ghg_gco2e_mj",
+        "/items/*/premium_discount_per_mt_usd",
+        "/items/*/price_per_mt_usd",
+        "/items/*/quantity_mt",
+        "/items/*/remaining_quantity_mt"
+      ],
+      "datetime_paths": [
+        "/items/*/created_at",
+        "/items/*/expires_at"
+      ],
       "order_keys": [
         "source order; no tie relaxation"
       ],
@@ -415,9 +661,31 @@
       "path": "/api/orderbook/asks",
       "comparator_route_id": "P1-R17",
       "codec": "json",
-      "decimal_paths": [],
-      "datetime_paths": [],
-      "scalar_rule_status": "strict until Task 2 source-derived ledger is reviewed",
+      "decimal_paths": [
+        "/items/*/benchmark_price_per_mt_usd",
+        "/items/*/carbon_intensity_gco2_mj",
+        "/items/*/fame_terms/cfpp_c",
+        "/items/*/fame_terms/ci_gco2e_mj",
+        "/items/*/fame_terms/cloud_point_c",
+        "/items/*/fame_terms/lhv_mj_kg",
+        "/items/*/fame_terms/max_cfpp_c",
+        "/items/*/fame_terms/max_ci_gco2e_mj",
+        "/items/*/fame_terms/max_cloud_point_c",
+        "/items/*/fame_terms/quality_evidence/results/*/value",
+        "/items/*/lng_terms/bio_share_pct",
+        "/items/*/lng_terms/max_wtt_ghg_gco2e_mj",
+        "/items/*/lng_terms/min_bio_share_pct",
+        "/items/*/lng_terms/min_methane_number",
+        "/items/*/lng_terms/wtt_ghg_gco2e_mj",
+        "/items/*/premium_discount_per_mt_usd",
+        "/items/*/price_per_mt_usd",
+        "/items/*/quantity_mt",
+        "/items/*/remaining_quantity_mt"
+      ],
+      "datetime_paths": [
+        "/items/*/created_at",
+        "/items/*/expires_at"
+      ],
       "order_keys": [
         "source order; no tie relaxation"
       ],
@@ -438,9 +706,37 @@
       "path": "/api/orderbook/with-ci",
       "comparator_route_id": "P1-R18",
       "codec": "json",
-      "decimal_paths": [],
-      "datetime_paths": [],
-      "scalar_rule_status": "strict until Task 2 source-derived ledger is reviewed",
+      "decimal_paths": [
+        "/*/benchmark_price_per_mt_usd",
+        "/*/carbon_intensity_gco2_mj",
+        "/*/ci_adjusted_price/base_price_per_mt",
+        "/*/ci_adjusted_price/carbon_intensity_gco2_mj",
+        "/*/ci_adjusted_price/compliance_cost_per_mt",
+        "/*/ci_adjusted_price/effective_price_per_mt",
+        "/*/ci_adjusted_price/fueleu_ghg_intensity",
+        "/*/ci_adjusted_price/ghg_reduction_pct",
+        "/*/fame_terms/cfpp_c",
+        "/*/fame_terms/ci_gco2e_mj",
+        "/*/fame_terms/cloud_point_c",
+        "/*/fame_terms/lhv_mj_kg",
+        "/*/fame_terms/max_cfpp_c",
+        "/*/fame_terms/max_ci_gco2e_mj",
+        "/*/fame_terms/max_cloud_point_c",
+        "/*/fame_terms/quality_evidence/results/*/value",
+        "/*/lng_terms/bio_share_pct",
+        "/*/lng_terms/max_wtt_ghg_gco2e_mj",
+        "/*/lng_terms/min_bio_share_pct",
+        "/*/lng_terms/min_methane_number",
+        "/*/lng_terms/wtt_ghg_gco2e_mj",
+        "/*/premium_discount_per_mt_usd",
+        "/*/price_per_mt_usd",
+        "/*/quantity_mt",
+        "/*/remaining_quantity_mt"
+      ],
+      "datetime_paths": [
+        "/*/created_at",
+        "/*/expires_at"
+      ],
       "order_keys": [
         "created_at DESC",
         "full UUID DESC"
@@ -462,9 +758,14 @@
       "path": "/api/orderbook/aggregated",
       "comparator_route_id": "P1-R19",
       "codec": "json",
-      "decimal_paths": [],
-      "datetime_paths": [],
-      "scalar_rule_status": "strict until Task 2 source-derived ledger is reviewed",
+      "decimal_paths": [
+        "/*/max_price",
+        "/*/min_price",
+        "/*/total_quantity"
+      ],
+      "datetime_paths": [
+        "/*/observed_at"
+      ],
       "order_keys": [
         "source order; no tie relaxation"
       ],
@@ -487,7 +788,6 @@
       "codec": "json",
       "decimal_paths": [],
       "datetime_paths": [],
-      "scalar_rule_status": "strict until Task 2 source-derived ledger is reviewed",
       "order_keys": [
         "source order; no tie relaxation"
       ],
@@ -508,9 +808,17 @@
       "path": "/api/orderbook/map-summary",
       "comparator_route_id": "P1-R21",
       "codec": "json",
-      "decimal_paths": [],
-      "datetime_paths": [],
-      "scalar_rule_status": "strict until Task 2 source-derived ledger is reviewed",
+      "decimal_paths": [
+        "/groups/*/max_price",
+        "/groups/*/min_price",
+        "/groups/*/total_quantity",
+        "/recent_asks/*/price_per_mt_usd",
+        "/recent_asks/*/remaining_quantity_mt"
+      ],
+      "datetime_paths": [
+        "/groups/*/observed_at",
+        "/recent_asks/*/created_at"
+      ],
       "order_keys": [
         "source order; no tie relaxation"
       ],
@@ -531,9 +839,26 @@
       "path": "/api/orderbook/map-summary/compact",
       "comparator_route_id": "P1-R22",
       "codec": "json",
-      "decimal_paths": [],
-      "datetime_paths": [],
-      "scalar_rule_status": "strict until Task 2 source-derived ledger is reviewed",
+      "decimal_paths": [
+        "/demo_groups/*/max_price",
+        "/demo_groups/*/min_price",
+        "/demo_groups/*/total_quantity",
+        "/markets/*/ask_max_price",
+        "/markets/*/ask_min_price",
+        "/markets/*/ask_total_quantity",
+        "/markets/*/bid_max_price",
+        "/markets/*/bid_min_price",
+        "/markets/*/bid_total_quantity",
+        "/markets/*/spot_best_ask",
+        "/markets/*/spot_best_bid",
+        "/recent_asks/*/price_per_mt_usd",
+        "/recent_asks/*/remaining_quantity_mt"
+      ],
+      "datetime_paths": [
+        "/demo_groups/*/observed_at",
+        "/markets/*/observed_at",
+        "/recent_asks/*/created_at"
+      ],
       "order_keys": [
         "source order; no tie relaxation"
       ],
@@ -556,7 +881,6 @@
       "codec": "json",
       "decimal_paths": [],
       "datetime_paths": [],
-      "scalar_rule_status": "strict until Task 2 source-derived ledger is reviewed",
       "order_keys": [
         "source order; no tie relaxation"
       ],
@@ -579,7 +903,6 @@
       "codec": "json",
       "decimal_paths": [],
       "datetime_paths": [],
-      "scalar_rule_status": "strict until Task 2 source-derived ledger is reviewed",
       "order_keys": [
         "source order; no tie relaxation"
       ],
@@ -602,7 +925,6 @@
       "codec": "json",
       "decimal_paths": [],
       "datetime_paths": [],
-      "scalar_rule_status": "strict until Task 2 source-derived ledger is reviewed",
       "order_keys": [
         "source order; no tie relaxation"
       ],
@@ -623,9 +945,31 @@
       "path": "/api/orderbook",
       "comparator_route_id": "P1-R26",
       "codec": "json",
-      "decimal_paths": [],
-      "datetime_paths": [],
-      "scalar_rule_status": "strict until Task 2 source-derived ledger is reviewed",
+      "decimal_paths": [
+        "/*/benchmark_price_per_mt_usd",
+        "/*/carbon_intensity_gco2_mj",
+        "/*/fame_terms/cfpp_c",
+        "/*/fame_terms/ci_gco2e_mj",
+        "/*/fame_terms/cloud_point_c",
+        "/*/fame_terms/lhv_mj_kg",
+        "/*/fame_terms/max_cfpp_c",
+        "/*/fame_terms/max_ci_gco2e_mj",
+        "/*/fame_terms/max_cloud_point_c",
+        "/*/fame_terms/quality_evidence/results/*/value",
+        "/*/lng_terms/bio_share_pct",
+        "/*/lng_terms/max_wtt_ghg_gco2e_mj",
+        "/*/lng_terms/min_bio_share_pct",
+        "/*/lng_terms/min_methane_number",
+        "/*/lng_terms/wtt_ghg_gco2e_mj",
+        "/*/premium_discount_per_mt_usd",
+        "/*/price_per_mt_usd",
+        "/*/quantity_mt",
+        "/*/remaining_quantity_mt"
+      ],
+      "datetime_paths": [
+        "/*/created_at",
+        "/*/expires_at"
+      ],
       "order_keys": [
         "created_at DESC",
         "full UUID DESC"
@@ -647,9 +991,15 @@
       "path": "/api/listings",
       "comparator_route_id": "P1-R27",
       "codec": "json",
-      "decimal_paths": [],
-      "datetime_paths": [],
-      "scalar_rule_status": "strict until Task 2 source-derived ledger is reviewed",
+      "decimal_paths": [
+        "/*/carbon_intensity_gco2_mj",
+        "/*/price_per_mt_usd",
+        "/*/quantity_mt"
+      ],
+      "datetime_paths": [
+        "/*/expires_at",
+        "/*/observed_at"
+      ],
       "order_keys": [
         "source order; no tie relaxation"
       ],
@@ -672,7 +1022,9 @@
       "path": "/mcp",
       "comparator_route_id": "P1-tool-list_markets",
       "codec": "mcp-json",
-      "decimal_paths": [],
+      "decimal_paths": [
+        "/products/*/min_lot_size"
+      ],
       "datetime_paths": [],
       "order_keys": [
         "source order"
@@ -689,8 +1041,16 @@
       "path": "/mcp",
       "comparator_route_id": "P1-tool-get_market_slice",
       "codec": "mcp-json",
-      "decimal_paths": [],
-      "datetime_paths": [],
+      "decimal_paths": [
+        "/ask_quantity_mt",
+        "/benchmark_usd_per_mt",
+        "/best_ask_usd_per_mt",
+        "/best_bid_usd_per_mt",
+        "/bid_quantity_mt"
+      ],
+      "datetime_paths": [
+        "/observed_at"
+      ],
       "order_keys": [
         "source order"
       ],
@@ -709,8 +1069,31 @@
       "path": "/mcp",
       "comparator_route_id": "P1-tool-plan_voyage_fuel",
       "codec": "mcp-json",
-      "decimal_paths": [],
-      "datetime_paths": [],
+      "decimal_paths": [
+        "/legs/*/berth_days",
+        "/legs/*/berth_energy_mj",
+        "/legs/*/berth_eu_scope_share",
+        "/legs/*/distance_nm",
+        "/legs/*/eu_scope_share",
+        "/legs/*/sea_days",
+        "/legs/*/sea_energy_mj",
+        "/strategies/*/eu_ets_cost_eur",
+        "/strategies/*/fuel_cost_usd",
+        "/strategies/*/fuel_uses/*/cost_usd",
+        "/strategies/*/fuel_uses/*/price/carbon_intensity_gco2e_per_mj",
+        "/strategies/*/fuel_uses/*/price/energy_density_mj_per_kg",
+        "/strategies/*/fuel_uses/*/price/price_usd_per_mt",
+        "/strategies/*/fuel_uses/*/tonnes",
+        "/strategies/*/fueleu_balance_tco2e",
+        "/strategies/*/fueleu_cost_eur",
+        "/strategies/*/fueleu_target_gco2e_per_mj",
+        "/strategies/*/ghg_intensity_gco2e_per_mj",
+        "/strategies/*/in_scope_energy_mj",
+        "/strategies/*/total_cost_usd"
+      ],
+      "datetime_paths": [
+        "/strategies/*/fuel_uses/*/price/observed_at"
+      ],
       "order_keys": [
         "source order"
       ],
