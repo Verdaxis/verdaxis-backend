@@ -1,0 +1,20 @@
+# Decision 87: Rust-only small-workload measurement against the frozen Python
+# baseline. No Python service is started; the gate compares every route p95 to
+# the pinned baseline (digest in tests/rust_contract/gate-config.json).
+#
+# The frozen run offered 1 RPS for 15 s and 5 RPS for 900 s. Rust-only runs must
+# offer at least the frozen maximum (5 RPS) on the same equal-weight schedule.
+# This window offers 10 RPS for 3,600 s: about 36,000 requests over 30 measured
+# ids, enough for the 1,000-successful-sample floor per route at equal weight,
+# with margin for the three rate-limited price routes (60/30/10 per minute) and
+# any busy responses. 10 RPS is stricter for Rust than the frozen schedule and is
+# disclosed in the report. Only successful 2xx responses count toward the floor.
+size = "small"
+weight_key = "weight_baseline"
+
+warmup_seconds = 15
+repetitions = 1
+
+[[windows]]
+seconds = 3600
+rps = 10

@@ -20,7 +20,10 @@ use super::{
     prices::{captured_now, fields, integer, uuid},
 };
 use crate::market::{
-    visibility::{PublicOrderFilters, VisibilityClock, bind_order_query, order_query_sql},
+    visibility::{
+        COUNT_PROJECTION, DISTINCT_PROJECTION, MAP_PROJECTION, PublicOrderFilters, VisibilityClock,
+        bind_order_query, order_query_sql_projected,
+    },
     windows::{normalize_window, window_sort_key},
 };
 use crate::{ApiError, ApiResult, AppState, Json, run_admitted};
@@ -237,7 +240,10 @@ async fn aggregates(
     filters: &Filters,
     path: &str,
 ) -> Result<Vec<Json>, ApiError> {
-    let sql = order_query_sql(include_str!("../../sql/orderbook/aggregate.sql"));
+    let sql = order_query_sql_projected(
+        include_str!("../../sql/orderbook/aggregate.sql"),
+        MAP_PROJECTION,
+    );
     let rows = bind_order_query(
         &sql,
         &state.policy,
@@ -258,7 +264,10 @@ async fn recent(
     now: DateTime<Utc>,
     path: &str,
 ) -> Result<Vec<Json>, ApiError> {
-    let sql = order_query_sql(include_str!("../../sql/orderbook/recent_asks.sql"));
+    let sql = order_query_sql_projected(
+        include_str!("../../sql/orderbook/recent_asks.sql"),
+        MAP_PROJECTION,
+    );
     let rows = bind_order_query(
         &sql,
         &state.policy,
@@ -309,7 +318,10 @@ async fn counts(State(state): State<AppState>, RawQuery(raw): RawQuery) -> ApiRe
         Box::pin(async move {
             let path = "/api/orderbook/product-counts";
             let mut tx = map_transaction(connection, path).await?;
-            let sql = order_query_sql(include_str!("../../sql/orderbook/counts.sql"));
+            let sql = order_query_sql_projected(
+                include_str!("../../sql/orderbook/counts.sql"),
+                COUNT_PROJECTION,
+            );
             let rows = bind_order_query(
                 &sql,
                 &owned.policy,
@@ -543,7 +555,10 @@ async fn distinct(state: AppState, field: &'static str) -> ApiResult {
     let owned = state.clone();
     let result = run_admitted(&state, move |connection| {
         Box::pin(async move {
-            let sql = order_query_sql(include_str!("../../sql/orderbook/distinct.sql"));
+            let sql = order_query_sql_projected(
+                include_str!("../../sql/orderbook/distinct.sql"),
+                DISTINCT_PROJECTION,
+            );
             let path = format!("/api/orderbook/{field}");
             let mut tx = map_transaction(connection, &path).await?;
             let rows = bind_order_query(

@@ -138,8 +138,14 @@ async fn resolve_prices(
         }
     }
     let keys: Vec<_> = targets.iter().flat_map(|(lookup,product,point,_,windows)|windows.iter().map(move |window|json!({"product_id":product,"delivery_point_id":point,"availability_window":window,"market_product":lookup["fuel"]}))).collect();
+    // The requested key set is materialised once and matched as one composite
+    // text key through `= ANY(ARRAY(SELECT ...))`, the same measured shape as
+    // the curve tails: a per-row EXISTS over jsonb_to_recordset let the planner
+    // choose a nested loop and compare three columns per candidate order
+    // (measured at the large size as a uniform ~0.6 s tool call against
+    // Python's ~0.09 s). The predicate and the row multiset are unchanged.
     let query = order_query_sql(
-        "SELECT product_id, delivery_point_id, availability_window, price_per_mt_usd::text AS price, provenance::text AS provenance, carbon_intensity_gco2_mj::text AS ci, energy_density_mj_kg::text AS energy FROM eligible_orders WHERE EXISTS (SELECT 1 FROM jsonb_to_recordset($14::jsonb) AS k(product_id uuid, delivery_point_id uuid, availability_window text) WHERE k.product_id=eligible_orders.product_id AND k.delivery_point_id=eligible_orders.delivery_point_id AND k.availability_window=eligible_orders.availability_window) ORDER BY price_per_mt_usd, acceptance_ordinal",
+        ", requested_slice_keys AS MATERIALIZED (SELECT product_id, delivery_point_id, availability_window FROM jsonb_to_recordset($14::jsonb) AS k(product_id uuid, delivery_point_id uuid, availability_window text)), slice_orders AS (SELECT product_id, delivery_point_id, availability_window, price_per_mt_usd::text AS price, provenance::text AS provenance, carbon_intensity_gco2_mj::text AS ci, energy_density_mj_kg::text AS energy FROM eligible_orders WHERE (product_id::text || E'\\x01' || delivery_point_id::text || E'\\x01' || availability_window) = ANY (ARRAY(SELECT k.product_id::text || E'\\x01' || k.delivery_point_id::text || E'\\x01' || k.availability_window FROM requested_slice_keys AS k)) ORDER BY price_per_mt_usd, acceptance_ordinal) SELECT * FROM slice_orders",
     );
     let filters = PublicOrderFilters {
         side: Some("ASK"),

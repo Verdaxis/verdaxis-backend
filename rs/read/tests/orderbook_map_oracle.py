@@ -125,7 +125,7 @@ def main():
     port = ephemeral_port()
     config = dict(environment="test", release_sha=os.environ["RELEASE_SHA"],
                   migration_revision=MIGRATION_REVISION, database_url=os.environ["RUST_DATABASE_URL"],
-                  db_session_time_zone=ORACLE_TIMEZONE, bind=f"127.0.0.1:{port}", pool_max=9,
+                  db_session_time_zone=ORACLE_TIMEZONE, bind=f"127.0.0.1:{port}", read_admission_slots=16, pool_max=17,
                   python_budget=52, configured_max_connections=100,
                   kyc_execution_gate_enabled=os.environ["KYC_EXECUTION_GATE_ENABLED"].lower() == "true")
     child = subprocess.Popen([str(ROOT / "rs/target/debug/examples/contract_server")],

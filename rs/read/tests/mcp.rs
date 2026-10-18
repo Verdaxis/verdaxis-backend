@@ -340,14 +340,15 @@ fn state_with_pool() -> (AppState, sqlx::PgPool) {
         migration_revision: "kycg_20261014_staging".into(),
         database_url: "postgres://fixture:fixture_pw@127.0.0.1:1/fixture_test".into(),
         bind: "127.0.0.1:0".parse().unwrap(),
-        pool_max: 9,
+        read_admission_slots: 16,
+        pool_max: 17,
         python_budget: 52,
         configured_max_connections: 100,
         prepared_budget: None,
     };
     let pools = verdaxis_read::runtime::db::Pools {
         read: sqlx::postgres::PgPoolOptions::new()
-            .max_connections(8)
+            .max_connections(config.read_admission_slots)
             .connect_lazy(&config.database_url)
             .unwrap(),
         health: sqlx::postgres::PgPoolOptions::new()
@@ -369,7 +370,12 @@ async fn catalog_and_protocol_bypass_saturated_database_admission() {
     };
     use tower::ServiceExt;
     let state = state();
-    let permit = state.reads.clone().acquire_many_owned(8).await.unwrap();
+    let permit = state
+        .reads
+        .clone()
+        .acquire_many_owned(state.config.read_admission_slots)
+        .await
+        .unwrap();
     let app = verdaxis_read::mcp::mcp_router().with_state(state.clone());
     for (method, params) in [
         (
@@ -414,7 +420,10 @@ async fn catalog_and_protocol_bypass_saturated_database_admission() {
         assert_eq!(state.reads.available_permits(), 0);
     }
     drop(permit);
-    assert_eq!(state.reads.available_permits(), 8);
+    assert_eq!(
+        state.reads.available_permits(),
+        state.config.read_admission_slots as usize
+    );
 }
 
 #[tokio::test]
@@ -425,7 +434,12 @@ async fn invalid_matrix_inputs_precede_saturated_admission() {
     };
     use tower::ServiceExt;
     let state = state();
-    let _permit = state.reads.clone().acquire_many_owned(8).await.unwrap();
+    let _permit = state
+        .reads
+        .clone()
+        .acquire_many_owned(state.config.read_admission_slots)
+        .await
+        .unwrap();
     let app = verdaxis_read::mcp::mcp_router().with_state(state.clone());
     let vectors: serde_json::Value = serde_json::from_str(include_str!(
         "../../../deploy/rust/mcp-validation-vectors.json"
@@ -515,6 +529,9 @@ async fn database_unavailability_is_sanitized_and_catalog_stays_available() {
             assert!(!String::from_utf8_lossy(&bytes).contains("fixture_pw"));
             assert!(!String::from_utf8_lossy(&bytes).contains("postgres"));
         }
-        assert_eq!(state.reads.available_permits(), 8);
+        assert_eq!(
+            state.reads.available_permits(),
+            state.config.read_admission_slots as usize
+        );
     }
 }

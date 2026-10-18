@@ -29,6 +29,55 @@ def validate_identity(evidence: dict[str, Any], reference: dict[str, Any]) -> No
         raise ValueError("Rust schedule must use the frozen equal-weight workload")
 
 
+def route_floors(
+    reference: dict[str, Any], declared_rates: list[Any], offered: int
+) -> dict[str, int]:
+    """Per-route successful-sample floors (decisions 87 and 96).
+
+    A route with no written per-client limit keeps the full floor. A route with
+    a written per-minute limit (decision 78) can never receive more successes
+    than that limit allows in the measured window, so its floor is the smaller
+    of the full floor and 95% of its written maximum. The measured window is
+    derived from the evidence: offered requests divided by the offered rate,
+    which is exact for the fixed-rate generator the measurement uses. A missing
+    or non-positive limit, a non-positive window, or a limit naming a route the
+    baseline does not carry is INCONCLUSIVE, never a pass.
+    """
+    config = baseline.gate_config()
+    floor = config["rust_successful_samples_per_route"]
+    if type(floor) is not int or floor < 1000:
+        raise ValueError("Rust successful sample floor must be at least 1000")
+    limits = config.get("rust_route_limits_per_minute")
+    if not isinstance(limits, dict) or not limits:
+        raise ValueError("missing rust route limits table")
+    rates = [rate for rate in declared_rates if isinstance(rate, (int, float)) and rate > 0]
+    if not rates or offered <= 0:
+        raise ValueError("missing measured window")
+    window_seconds = offered / rates[0]
+    known = set(reference["routes"])
+    if not set(limits).issubset(known):
+        raise ValueError("route limit names an unknown route")
+    if any(type(value) is not int or value <= 0 for value in limits.values()):
+        raise ValueError("route limit must be a positive integer")
+    return {
+        rid: min(floor, int(0.95 * limits[rid] * window_seconds / 60)) if rid in limits else floor
+        for rid in known
+    }
+
+
+def performance_evidence(size: str, evidence: dict[str, Any] | None) -> dict[str, Any]:
+    """Only omitted large evidence is optional; supplied evidence stays fail closed."""
+    if size == "large" and evidence is None:
+        return {"outcome": "pass", "reason": "large-size speed not measured (decisions 82 and 96)",
+                "speed": {"outcome": "pass", "blocking_regressions": [], "fix_items": []},
+                "errors": {"outcome": "pass", "reported_only": True}}
+    if evidence is not None and evidence.get("size") == size:
+        return frozen_verdict(evidence)
+    return {"outcome": "inconclusive", "reason": "missing or mismatched performance evidence",
+            "speed": {"outcome": "inconclusive", "blocking_regressions": [], "fix_items": []},
+            "errors": {"outcome": "inconclusive"}}
+
+
 def frozen_verdict(evidence: dict[str, Any]) -> dict[str, Any]:
     # Local import avoids a report/measure import cycle while sharing the exact
     # percentile and threshold logic used by historical report rendering.
@@ -56,11 +105,9 @@ def frozen_verdict(evidence: dict[str, Any]) -> dict[str, Any]:
                 errors += 500 <= status < 600
                 if 200 <= status < 300:
                     samples[sample["route_id"]].append(seconds)
-        floor = baseline.gate_config()["rust_successful_samples_per_route"]
-        if type(floor) is not int or floor < 1000:
-            raise ValueError("Rust successful sample floor must be at least 1000")
+        floor = route_floors(reference, declared_rates, offered)
         counts = {rid: len(values) for rid, values in samples.items()}
-        if any(count < floor for count in counts.values()):
+        if any(count < floor[rid] for rid, count in counts.items()):
             raise ValueError(f"Rust successful sample floor not reached: {counts}")
         latency = {rid: {"python": {"p95": reference["routes"][rid]["p95"]},
                          "rust": {"p95": measure.summarize(values)["p95"]}}

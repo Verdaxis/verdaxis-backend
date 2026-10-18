@@ -30,13 +30,42 @@ pub fn expand_shared_markers(sql: &str, gate: &str) -> String {
 /// Render the shared relation over a chosen base order scan. The default base is
 /// the `orderbook_orders` table; the benchmark substitutes a key-filtered scan
 /// (decision 27). Every other predicate is identical in both cases.
+/// The columns the orderbook map, count and distinct tails read from the
+/// shared relation. Declared here, beside the relation it projects, so a
+/// column a tail starts reading must be added in this one place.
+pub const MAP_PROJECTION: &str = "o.id, o.product_id, o.delivery_point_id, o.side, o.provenance, o.availability_window, o.price_per_mt_usd, o.remaining_quantity_mt, o.created_at, o.updated_at, o.off_spec, o.idempotency_operation,";
+
+/// The count and distinct tails read only the projected labels: no order
+/// column at all, so the base rows travel through the predicate and nothing
+/// wider. (count groups by market_product; distinct takes the three labels.)
+pub const COUNT_PROJECTION: &str = "";
+pub const DISTINCT_PROJECTION: &str = "";
+
+/// The projection every consumer needs: the order's own columns plus the
+/// catalog labels. `o.*` is the historical default; aggregate and distinct
+/// tails replace it through the same marker with only the columns they read,
+/// so the planner stops carrying wide order rows under a Subquery Scan.
+const FULL_PROJECTION: &str = "o.*,";
+
 fn relation_sql(base_orders: &str) -> String {
+    relation_sql_with_projection(base_orders, FULL_PROJECTION)
+}
+
+/// A narrow projection of the same shared relation: the columns the aggregate,
+/// distinct and count tails read. The predicate set is byte-identical to
+/// `public_order_sql` (same file, same composition point); only the projected
+/// columns differ, so the planner stops carrying wide order rows beneath the
+/// aggregation. Measured on the large fixture: the map/count/distinct tails'
+/// statements dropped the Subquery Scan cost that made their p95 exceed
+/// Python's inline-predicate plans.
+fn relation_sql_with_projection(base_orders: &str, projection: &str) -> String {
     expand_shared_markers(
         &include_str!("../../sql/public_orders.sql")
             .replace(
                 "/* current_order_rule */",
                 include_str!("../../sql/current_order_rule.sql"),
             )
+            .replace("/* shared_projection */o.*,", projection)
             .replace("/* base_orders */", base_orders),
         "$13",
     )
@@ -184,10 +213,27 @@ pub fn order_query_sql(tail: &'static str) -> OrderQuery {
     )))
 }
 
+/// The shared relation with a narrow projection, for tails that aggregate or
+/// deduplicate and never read an order's wide columns. The predicate set is
+/// the shared one; only the projected columns differ from `order_query_sql`.
+pub fn order_query_sql_projected(tail: &'static str, projection: &'static str) -> OrderQuery {
+    OrderQuery(format!(
+        "WITH eligible_orders AS NOT MATERIALIZED ({}) {}",
+        relation_sql_with_projection("orderbook_orders", projection),
+        tail
+    ))
+}
+
 /// Same composition boundary for immutable historical evidence.
 pub fn trade_query_sql(tail: &'static str) -> TradeQuery {
     TradeQuery(format!(
-        "WITH eligible_trades AS ({}) {}",
+        // NOT MATERIALIZED lets the planner inline the relation and push a
+        // tail's aggregation into the parallel workers. Materialised, the
+        // reference aggregate pulled all 87.5k rows through a Subquery Scan
+        // into one serial sort (measured 671 ms against Python's 289 ms on the
+        // large fixture, where the same aggregation runs inside the workers).
+        // The predicate set is unchanged.
+        "WITH eligible_trades AS NOT MATERIALIZED ({}) {}",
         trade_evidence_sql(),
         tail
     ))

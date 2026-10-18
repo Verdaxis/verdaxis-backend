@@ -19,10 +19,10 @@ import argparse
 import io
 import json
 import os
-from pathlib import Path
 import stat
 import sys
 import urllib.parse
+from pathlib import Path
 
 from dotenv import dotenv_values
 
@@ -155,6 +155,7 @@ def project_runtime_environment(
         "MIGRATION_REVISION": migration_revision,
         "DATABASE_URL": app_database_url(values, "staging"),
         "DB_SESSION_TIME_ZONE": policy["db_session_time_zone"],
+        "READ_ADMISSION_SLOTS": values.get("READ_ADMISSION_SLOTS", "16"),
         KYC_GATE_KEY: kyc_execution_gate(values),
     }
 

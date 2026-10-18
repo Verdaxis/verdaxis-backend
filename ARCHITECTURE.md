@@ -24,7 +24,8 @@ identity. `verdaxis-contract` is an independent library and CLI that drives the
 external HTTP contract comparison and never links `verdaxis-read`.
 
 Task 2 adds `rs/read/src/runtime/` for configuration, pool authority, and health
-checks. The pool has nine connections and read-only session defaults. Startup
+checks. The pool has configured read admission slots plus one readiness connection
+and read-only session defaults. Startup
 checks the compiled revision allowlist, exact database role, memberships, and
 connection budget. Required `DB_SESSION_TIME_ZONE` (`db_session_time_zone` in
 `RUST_CONFIG`) is applied and verified by `after_connect` on every new read and
@@ -39,8 +40,11 @@ passes it to the binary with `--budget-file`; the contract harness may instead
 carry the document in `RUST_CONFIG`. `runtime::config::config_from_deployed_environment`
 builds the same validated `Config` from the flat deployed environment, so a
 staging start needs no JSON document from an operator.
-Task 3 splits the nine connections into an eight-connection read pool and a
-one-connection readiness pool. `runtime/admission.rs` transfers admission to a
+Task 3 separates the read pool from a one-connection readiness pool. Founder
+decision 88 (18 Oct) makes `read_admission_slots` Rust-owned, default 16; the
+read pool matches it and `pool_max` is slots + 1. Both configured and observed
+PostgreSQL connection limits include Python, reserve, and the full Rust pool.
+The prepared environment digest and release checks remain required. `runtime/admission.rs` transfers admission to a
 query-owning Tokio task so caller cancellation does not release database
 capacity. HTTP composition provides correlation, CORS, support boundaries and
 fixed-window price limits. Empty route and MCP modules reserve later task
@@ -62,6 +66,18 @@ Task 4b adds attested corpus construction: legal pre-guard history is inserted a
 Current fixtures reuse the Task 6 matrix and add ports, news, exact terms and
 trusted/untrusted signals. The runner pins the runtime KYC switch and records
 all groups twice; incomplete or unstable recordings cannot replace golden data.
+
+Task 14b adds the staging-only shadow content path. `shadow.py` reads private
+reviewed cases, enforces serial rolling call/minute budgets, direct loopback
+transport with an absolute deadline/body cap, separate Python/Rust readiness
+identities, memory-pressure backoff and deploy-state stops. It delegates both
+legs of each Python–Rust–Python sandwich to `compare.compare_responses` with
+the byte profile. Only schema-specific validated request-clock tokens and the
+existing reviewed exact-item tie exceptions may differ. Payloads and internal
+capture hashes stay in memory; evidence is bounded metadata in a private path
+outside the checkout. Missing coverage, empty-only results or an unapproved
+short floor cannot return PASS. Candidate activation remains a separate gate;
+see `docs/rust-phase1/readiness-task14b.md`.
 
 Task 5 exports the catalog policy as data. `scripts/rust_contract/export_policy.py`
 turns the approved `app.market_catalog` constants and the reviewed
@@ -187,10 +203,11 @@ maintenance units. The unit loads `.runtime-release.env` and the deploy-written
 `.runtime-rust/runtime.env` (never the secret-rich `.env`) and runs the deploy
 start guard, the migrator-backed revision check and the budget drift check
 before `ExecStart`; it serves `127.0.0.1:8011` with a 256 MiB cap on the same
-sandbox directives as the running backend unit. Activation stays off in the
-committed `deploy/rust/staging-policy.json` until the two-release bootstrap
-installs this unit; a Rust-enabled staging deploy then restarts both units in
-one call and requires both readiness documents before state clears. Production
+sandbox directives as the running backend unit. Task 14b enables staging-only policy in
+`deploy/rust/staging-policy.json`; this source approval is not an activation
+command. The independent candidate activation path remains a PM gate. The
+canonical Rust-enabled staging deploy restarts both units in one call and
+requires both readiness documents before state clears. Production
 carries neither record and reads no Rust path.
 `docs/rust-phase1/progress-task12c.md` holds the unit digest, the artifact
 digest and the systemd 249/255 and staging-ABI start evidence.

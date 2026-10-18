@@ -1,0 +1,187 @@
+{
+  "source_sha": "16a9486d960f34a2d2a3a1f0cb95272acd3e2d3f",
+  "profile": "release",
+  "size": "small",
+  "steps": [
+    {
+      "slots": 8,
+      "rps": 5,
+      "seconds": 60.030742245027795,
+      "successes": 299,
+      "busy_503": 0,
+      "other_statuses": {
+        "429": 1
+      },
+      "success_rps": 4.9807813266670955,
+      "p95_ms": 694.2957639694214,
+      "slice_cpu_cores": 0.8395341139426663,
+      "pool_waits": "not instrumented; no pool-wait duration claim",
+      "rust_cpu_cores": 0.10866539764429034
+    },
+    {
+      "slots": 8,
+      "rps": 10,
+      "seconds": 60.19327129703015,
+      "successes": 590,
+      "busy_503": 1,
+      "other_statuses": {
+        "429": 9
+      },
+      "success_rps": 9.801760018799804,
+      "p95_ms": 928.649018984288,
+      "slice_cpu_cores": 1.6269094516687561,
+      "pool_waits": "not instrumented; no pool-wait duration claim",
+      "rust_cpu_cores": 0.19657592696833892
+    },
+    {
+      "slots": 8,
+      "rps": 15,
+      "seconds": 60.45386818400584,
+      "successes": 870,
+      "busy_503": 12,
+      "other_statuses": {
+        "429": 18
+      },
+      "success_rps": 14.391138667122945,
+      "p95_ms": 1019.035052973777,
+      "slice_cpu_cores": 2.2327599052745333,
+      "pool_waits": "not instrumented; no pool-wait duration claim",
+      "rust_cpu_cores": 0.2720657331327249
+    },
+    {
+      "slots": 8,
+      "rps": 20,
+      "seconds": 60.64446414797567,
+      "successes": 1097,
+      "busy_503": 69,
+      "other_statuses": {
+        "429": 34
+      },
+      "success_rps": 18.089037728542916,
+      "p95_ms": 1084.2159090097994,
+      "slice_cpu_cores": 2.6992334799196036,
+      "pool_waits": "not instrumented; no pool-wait duration claim",
+      "rust_cpu_cores": 0.33696700571990257
+    },
+    {
+      "slots": 8,
+      "rps": 30,
+      "seconds": 61.10298721701838,
+      "successes": 1191,
+      "busy_503": 574,
+      "other_statuses": {
+        "429": 35
+      },
+      "success_rps": 19.491682064085456,
+      "p95_ms": 1563.772673951462,
+      "slice_cpu_cores": 2.956842524872161,
+      "pool_waits": "not instrumented; no pool-wait duration claim",
+      "rust_cpu_cores": 0.3430438286125246
+    },
+    {
+      "slots": 8,
+      "rps": 40,
+      "seconds": 60.741504051024094,
+      "successes": 1431,
+      "busy_503": 917,
+      "other_statuses": {
+        "429": 52
+      },
+      "success_rps": 23.558850284608216,
+      "p95_ms": 1426.4956428669393,
+      "slice_cpu_cores": 2.963378003429028,
+      "pool_waits": "not instrumented; no pool-wait duration claim",
+      "rust_cpu_cores": 0.34013384360363524
+    },
+    {
+      "slots": 16,
+      "rps": 5,
+      "seconds": 60.04917310294695,
+      "successes": 299,
+      "busy_503": 0,
+      "other_statuses": {
+        "429": 1
+      },
+      "success_rps": 4.979252578339441,
+      "p95_ms": 686.6556480526924,
+      "slice_cpu_cores": 0.808394662100979,
+      "pool_waits": "not instrumented; no pool-wait duration claim",
+      "rust_cpu_cores": 0.10452408931623179
+    },
+    {
+      "slots": 16,
+      "rps": 10,
+      "seconds": 60.177599583985284,
+      "successes": 591,
+      "busy_503": 0,
+      "other_statuses": {
+        "429": 9
+      },
+      "success_rps": 9.820930114953928,
+      "p95_ms": 896.8859349843115,
+      "slice_cpu_cores": 1.6447612015807354,
+      "pool_waits": "not instrumented; no pool-wait duration claim",
+      "rust_cpu_cores": 0.20424333876642287
+    },
+    {
+      "slots": 16,
+      "rps": 15,
+      "seconds": 60.63176088407636,
+      "successes": 879,
+      "busy_503": 2,
+      "other_statuses": {
+        "429": 19
+      },
+      "success_rps": 14.497352331240814,
+      "p95_ms": 1145.2041051816195,
+      "slice_cpu_cores": 2.3470938815727895,
+      "pool_waits": "not instrumented; no pool-wait duration claim",
+      "rust_cpu_cores": 0.28044558020817273
+    },
+    {
+      "slots": 16,
+      "rps": 20,
+      "seconds": 60.736804289976135,
+      "successes": 1045,
+      "busy_503": 128,
+      "other_statuses": {
+        "429": 27
+      },
+      "success_rps": 17.205383329205954,
+      "p95_ms": 2627.9794408474118,
+      "slice_cpu_cores": 2.951846200930083,
+      "pool_waits": "not instrumented; no pool-wait duration claim",
+      "rust_cpu_cores": 0.3449292957851956
+    },
+    {
+      "slots": 16,
+      "rps": 30,
+      "seconds": 61.179930282058194,
+      "successes": 1373,
+      "busy_503": 376,
+      "other_statuses": {
+        "429": 51
+      },
+      "success_rps": 22.442000075352325,
+      "p95_ms": 2795.926555991173,
+      "slice_cpu_cores": 2.9816775233151365,
+      "pool_waits": "not instrumented; no pool-wait duration claim",
+      "rust_cpu_cores": 0.3485196671018956
+    },
+    {
+      "slots": 16,
+      "rps": 40,
+      "seconds": 61.14885240304284,
+      "successes": 1403,
+      "busy_503": 949,
+      "other_statuses": {
+        "429": 48
+      },
+      "success_rps": 22.944011945679378,
+      "p95_ms": 3047.743170056492,
+      "slice_cpu_cores": 2.9851002402608753,
+      "pool_waits": "not instrumented; no pool-wait duration claim",
+      "rust_cpu_cores": 0.35817366137041873
+    }
+  ]
+}

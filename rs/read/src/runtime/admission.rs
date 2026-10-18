@@ -1,10 +1,8 @@
 use crate::{ApiError, AppState, busy};
 use sqlx::Connection;
 
-/// Public-read admission slots, equal to Python's four workers times two
-/// per-worker slots (AD-02). Eight read connections plus one readiness
-/// connection keep the total connection budget at nine.
-pub const ADMISSION_SLOTS: u32 = 8;
+/// Rust-owned default (founder decision 88); readiness has one extra connection.
+pub const DEFAULT_READ_ADMISSION_SLOTS: u32 = 16;
 
 tokio::task_local! {
     static REQUEST_PERMIT: std::sync::Mutex<Option<tokio::sync::OwnedSemaphorePermit>>;

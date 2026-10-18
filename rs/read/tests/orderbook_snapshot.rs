@@ -12,14 +12,15 @@ fn state() -> AppState {
         migration_revision: "kycg_20261014_staging".into(),
         database_url: "postgres://fixture:fixture_pw@127.0.0.1:1/fixture_test".into(),
         bind: "127.0.0.1:0".parse().unwrap(),
-        pool_max: 9,
+        read_admission_slots: 16,
+        pool_max: 17,
         python_budget: 52,
         configured_max_connections: 100,
         prepared_budget: None,
     };
     let pools = verdaxis_read::runtime::db::Pools {
         read: sqlx::postgres::PgPoolOptions::new()
-            .max_connections(8)
+            .max_connections(config.read_admission_slots)
             .connect_lazy(&config.database_url)
             .unwrap(),
         health: sqlx::postgres::PgPoolOptions::new()

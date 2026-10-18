@@ -20,7 +20,8 @@ from typing import Any
 
 from scripts.rust_contract import measure as measure_mod
 from scripts.rust_contract import workload
-from scripts.rust_contract.frozen_gate import frozen_verdict
+from scripts.rust_contract.frozen_gate import frozen_verdict as frozen_verdict
+from scripts.rust_contract.frozen_gate import performance_evidence
 
 ROOT = Path(__file__).resolve().parents[2]
 NOT_MEASURED = "not measured"
@@ -301,9 +302,10 @@ def write_report(destination: Path, document: str) -> None:
     destination.write_text(document)
 
 
-def build_frozen_bundle(measurement: dict[str, Any], simulation: dict[str, Any], integration_passed: bool) -> dict[str, Any]:
-    """Authoritative decision-86 gate; paired performance is historical only."""
-    performance = frozen_verdict(measurement)
+def build_frozen_bundle(measurement: dict[str, Any] | None, simulation: dict[str, Any], integration_passed: bool,
+                        *, size: str = "small") -> dict[str, Any]:
+    """Small performance and both contracts are required; large performance is optional."""
+    performance = performance_evidence(size, measurement)
     contract = contract_verdict(simulation)
     conditions = [
         {"name": "zero unexplained contract differences at both sizes", "outcome": contract["outcome"], "detail": str(contract)},
@@ -455,7 +457,7 @@ def _load(path: Path) -> dict[str, Any]:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--small", type=Path, required=True, help="measure-small.json")
-    parser.add_argument("--large", type=Path, required=True, help="measure-large.json")
+    parser.add_argument("--large", type=Path, help="optional large evidence; supplied files must be valid")
     parser.add_argument("--simulation", type=Path, action="append", required=True,
                         help="simulation-<size>.json; repeat for all sizes and later group reruns")
     parser.add_argument("--out", type=Path, required=True)
@@ -471,10 +473,10 @@ def main(argv: list[str] | None = None) -> int:
 
     simulation = {"runs": [_load(path) for path in args.simulation]}
     small = _load(args.small)
-    large = _load(args.large)
+    large = _load(args.large) if args.large is not None else None
     lines = ["# Rust Phase 1 go/no-go — decisions 86 and 87", "",
              "Python is the correctness reference only. Speed and small-size error rates use the pinned frozen baseline.",
-             "Large Rust speed and errors are reported; Rust memory is reported only. Both sizes require valid Rust evidence.", ""]
+             "Large Rust performance evidence is optional (decisions 82 and 96); supplied evidence must be valid. Rust memory is reported only.", ""]
     from scripts.rust_contract import baseline
     try:
         frozen = baseline.load_python_baseline()
@@ -496,11 +498,12 @@ def main(argv: list[str] | None = None) -> int:
     except ValueError as error:
         frozen = None
         lines.extend(["## Frozen Python baseline", f"INCONCLUSIVE: {error}"])
+    outcomes = []
     for size, measurement in (("small", small), ("large", large)):
-        if measurement.get("size") != size:
-            measurement = {}
-        bundle = build_frozen_bundle(measurement, simulation, args.integration_passed)
+        bundle = build_frozen_bundle(measurement, simulation, args.integration_passed, size=size)
+        outcomes.append(bundle["gate"]["outcome"])
         result = bundle["performance"]
+        measurement = measurement or {}
         lines.extend(["", f"## {size.title()} workload", "",
                       f"- Outcome: {bundle['gate']['outcome'].upper()}.",
                       f"- Rust-only performance evidence: {result['outcome']} ({result.get('reason', 'validated')}).",
@@ -513,18 +516,39 @@ def main(argv: list[str] | None = None) -> int:
         lines.append(f"- Rust memory steady median: {_bytes_mib(rust_memory.get('median_bytes'))}; non-blocking.")
         lines.append(f"- Blocking routes: {', '.join(result['speed'].get('blocking_regressions', [])) or 'none proven'}.")
         lines.append(f"- Same-meaning fix items: {', '.join(result['speed'].get('fix_items', [])) or 'none proven'}.")
+        if size == "small" and measurement.get("mode") == "rust-only":
+            lines.append(f"- Measured source SHA: `{measurement.get('source_sha')}`; "
+                         f"harness SHA `{measurement.get('harness_sha')}`; run identity "
+                         f"{measurement.get('mode')} at {measurement.get('rates_rps')} RPS on the "
+                         f"equal-weight schedule, baseline pin `{measurement.get('baseline_sha256')}`.")
+            lines.append("- The integration branch later adds only the 16-slot admission change and "
+                         "gate code; no query change follows this measurement.")
         # Show historical Rust samples as diagnostics without attesting missing
         # identity or granting a waiver of the Rust successful-sample floor.
         observed = latency_table(cells) if cells["repetitions"] else {}
         if observed:
             lines.extend(["", "Historical/unqualified Rust samples remain diagnostic when evidence admission fails.", "",
                           "| Route/tool | Rust p95 (s) | Successful | Required |", "| --- | ---: | ---: | ---: |"])
+            floors = result.get("successful_counts") and {}
+            from scripts.rust_contract import frozen_gate as gate_module
+            offered = sum(row.get("offered", 0) for row in [])  # placeholder removed below
+            _floors = None
+            try:
+                if measurement.get("rates_rps"):
+                    total = sum(len(rep.get("cells", {}).get("rust", {}).get("samples", []))
+                                for rep in measurement.get("repetitions", []))
+                    _floors = gate_module.route_floors(frozen, measurement["rates_rps"], total)
+            except Exception:
+                _floors = None
             for rid, targets in sorted(observed.items()):
                 row = targets["rust"]
-                lines.append(f"| {rid} | {_seconds(row.get('p95'))} | {row.get('n', 0)} | 1000 |")
+                required = (_floors or {}).get(rid, 1000)
+                lines.append(f"| {rid} | {_seconds(row.get('p95'))} | {row.get('n', 0)} | {required} |")
         if measurement.get("mode") == "adaptive":
             adaptive = measure_mod.adaptive_choice(measurement.get("probe", []), measurement.get("probe_max_rps", 0))
             lines.append(f"- Adaptive probe: {'no clean rate found' if adaptive['chosen_rps'] is None else adaptive['chosen_rps']}; {adaptive['stop_reason']}.")
+    overall = "INCONCLUSIVE" if "inconclusive" in outcomes else ("NO-GO" if "no-go" in outcomes else "GO for the founder's review")
+    lines.extend(["", f"**Overall: {overall}.**", ""])
     lines.extend(["", f"- Integration evidence: {args.integration_summary or 'not supplied'}.",
                   "- Production status: not authorized by this report."])
     write_report(args.out, "\n".join(lines) + "\n")
@@ -713,9 +737,10 @@ def render_markdown(bundle: dict[str, Any]) -> str:
                  "Python's four local counters can admit up to four times more | PM defines documented "
                  "per-client limits as the contract | Rust exact-boundary concurrent burst/reset tests; "
                  "counts excluded from parity |")
-    lines.append("| AD-02 | Rust uses one 8-slot public-read admission gate; Python uses 2 slots in each "
-                 "of 4 workers | Same total capacity | Mixed-concurrency test; 503 rates recorded |")
-    lines.append("| AD-03 | Rust admits `/api/news` through the same 8-slot gate | Every Rust database use "
+    lines.append("| AD-02 | Rust owns configured read_admission_slots (default 16); Python keeps 2 slots in each "
+                 "of 4 workers | Founder decision 88 (18 Oct); full database budget checked | "
+                 "Configured-capacity and cancellation tests; 503 rates recorded |")
+    lines.append("| AD-03 | Rust admits `/api/news` through the same configured gate | Every Rust database use "
                  "holds a permit | Two-direction contention test |")
     lines.append("")
     lines.append("- Production status: not authorized by this report.")

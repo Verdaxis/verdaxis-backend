@@ -263,24 +263,24 @@ class RustReleaseFixture:
         # artifact verifier and runtime preparer are executed for real so the
         # transaction's provenance and projection logic is what runs under
         # test; every other helper stays fake.
-        fake_python = f"""#!/usr/bin/env bash
+        fake_python = """#!/usr/bin/env bash
 set -euo pipefail
-if [[ "${{1:-}}" == "-I" && "${{2:-}}" == "-c" ]]; then
+if [[ "${1:-}" == "-I" && "${2:-}" == "-c" ]]; then
     # A nested trusted-settings import from a real helper: run the real
     # interpreter for the inline code instead of this ledger wrapper.
     exec __REAL_PYTHON__ "$@"
 fi
-printf 'python:%s\\n' "$*" >> "${{DEPLOY_TEST_LOG:?}}"
-if [[ "${{DEPLOY_FAIL_PHASE:-}}" == "preflight" && "${{1:-}}" == "scripts/preflight_runtime.py" ]]; then exit 41; fi
-if [[ "${{DEPLOY_FAIL_PHASE:-}}" == "budget" && "${{1:-}}" == "scripts/prepare_rust_budget.py" ]]; then exit 47; fi
-if [[ "${{DEPLOY_FAIL_PHASE:-}}" == "rust-runtime" && "${{1:-}}" == *"prepare_rust_runtime.py" ]]; then exit 48; fi
-if [[ "${{DEPLOY_FAIL_PHASE:-}}" == "health" && "${{1:-}}" == "scripts/validate_health_response.py" ]]; then exit 44; fi
-case "${{1:-}}" in
+printf 'python:%s\\n' "$*" >> "${DEPLOY_TEST_LOG:?}"
+if [[ "${DEPLOY_FAIL_PHASE:-}" == "preflight" && "${1:-}" == "scripts/preflight_runtime.py" ]]; then exit 41; fi
+if [[ "${DEPLOY_FAIL_PHASE:-}" == "budget" && "${1:-}" == "scripts/prepare_rust_budget.py" ]]; then exit 47; fi
+if [[ "${DEPLOY_FAIL_PHASE:-}" == "rust-runtime" && "${1:-}" == *"prepare_rust_runtime.py" ]]; then exit 48; fi
+if [[ "${DEPLOY_FAIL_PHASE:-}" == "health" && "${1:-}" == "scripts/validate_health_response.py" ]]; then exit 44; fi
+case "${1:-}" in
   *verify_rust_artifact.py|*prepare_rust_runtime.py|*prepare_rust_budget.py)
       exec __REAL_PYTHON__ "$@"
       ;;
 esac
-if [[ "${{DEPLOY_BLOCK_PHASE:-}}" == "${{1:-}}" ]]; then sleep 30; fi
+if [[ "${DEPLOY_BLOCK_PHASE:-}" == "${1:-}" ]]; then sleep 30; fi
 """
         # The fixture's `venv/bin/python` wrapper must work in a clean checkout.
         # GitHub CI installs the dependencies into the interpreter that runs
@@ -299,10 +299,10 @@ if [[ "${{DEPLOY_BLOCK_PHASE:-}}" == "${{1:-}}" ]]; then sleep 30; fi
         # because the digest comparison happens in deploy.sh itself.
         _write_executable(
             fake_bin / "sudo",
-            f"""#!/usr/bin/env bash
+            """#!/usr/bin/env bash
 set -euo pipefail
-printf 'sudo:%s\\n' "$*" >> "${{DEPLOY_TEST_LOG:?}}"
-if [[ "${{DEPLOY_FAIL_PHASE:-}}" == "systemctl-restart" ]]; then exit 50; fi
+printf 'sudo:%s\\n' "$*" >> "${DEPLOY_TEST_LOG:?}"
+if [[ "${DEPLOY_FAIL_PHASE:-}" == "systemctl-restart" ]]; then exit 50; fi
 """,
         )
         # curl prints a valid readiness body for both services; when
@@ -960,6 +960,7 @@ def test_runtime_environment_carries_only_the_projected_settings(release_fixture
         "MIGRATION_REVISION",
         "DATABASE_URL",
         "DB_SESSION_TIME_ZONE",
+        "READ_ADMISSION_SLOTS",
         "KYC_EXECUTION_GATE_ENABLED",
     }
     # The shipped fixture `.env` carries the Private Beta switch state, so the
@@ -975,6 +976,7 @@ def test_runtime_environment_carries_only_the_projected_settings(release_fixture
             "ENVIRONMENT=staging",
             "KYC_EXECUTION_GATE_ENABLED=false",
             f"MIGRATION_REVISION={MIGRATION_TARGET}",
+            "READ_ADMISSION_SLOTS=16",
             f"RELEASE_SHA={new_sha}",
         ]
     )

@@ -552,7 +552,7 @@ class Measurement(runner.Runner):
                 "database_url": base_env["RUST_DATABASE_URL"],
                 "db_session_time_zone": runner.ORACLE_TIMEZONE,
                 "bind": f"127.0.0.1:{rust_port}",
-                "pool_max": 9,
+                "read_admission_slots": 16, "pool_max": 17,
                 "python_budget": 52,
                 "configured_max_connections": 100,
             }
@@ -625,7 +625,7 @@ class Measurement(runner.Runner):
             "environment": "test", "kyc_execution_gate_enabled": True, "release_sha": self.sha,
             "migration_revision": runner.MIGRATION_REVISION, "database_url": base_env["RUST_DATABASE_URL"],
             "db_session_time_zone": runner.ORACLE_TIMEZONE, "bind": f"127.0.0.1:{rust_port}",
-            "pool_max": 9, "python_budget": 52, "configured_max_connections": 100,
+            "read_admission_slots": 16, "pool_max": 17, "python_budget": 52, "configured_max_connections": 100,
         })
         evidence: dict[str, Any] = {
             "size": self.size, "counts": self.counts, "source_sha": self.sha,

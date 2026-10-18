@@ -1,37 +1,24 @@
-# Reviewed shadow-harness template (Task 14a). Copy to work/rust-phase1/staging.toml
-# and fill in the loopback URLs the operator deployed. Never put a secret here:
-# the harness carries no credential, and no field below is a token or password.
-#
-# This file is a template only. No command in Task 14a runs it, and no pass in
-# Task 14a touches the staging or production host.
-
-# Loopback targets on the staging host. Production hosts are refused.
+# Task 14b template, NOT an approved live command or floor.
+# Fill this in a private file outside the Python checkout after PM approval.
+# No secrets, credentials, disposable token, public URL or fixture defaults.
 python_url = "http://127.0.0.1:8001"
 rust_url = "http://127.0.0.1:8011"
-
-# Three upstream calls per ten seconds: one Python-Rust-Python sandwich.
+python_sha = ""
+candidate_sha = ""
+policy_hash = ""
+cases_path = "/var/tmp/REPLACE-private-14b/cases.json"
+output_dir = "/var/tmp/REPLACE-private-14b/evidence"
+deploy_state_path = "/home/verdaxis-prod/verdaxis/staging/be/.runtime-deploy/staging.state"
 sampling_calls_per_ten_seconds = 3
 per_call_deadline_seconds = 2.0
 max_response_bytes = 1048576
-
-# Sanitized diagnostics and the aggregate summary are written under this folder.
-output_dir = "work/rust-phase1/shadow"
-
-# The harness stops while deploy state exists, including a dangling symlink.
-deploy_state_path = "/home/verdaxis-prod/verdaxis/staging/be/.runtime-deploy/staging.state"
-
-# Any 429/503 or readiness failure pauses the harness for this many seconds.
+max_evidence_bytes = 10485760
 pause_seconds = 60
-
-# A route below this many stable pairs is reported inconclusive, never a pass.
+# The proposed five-pair short floor is not approved by this template.
+# Set both fields only to the separately approved short-pass rule.
 required_observations_per_route = 1000
+floor_approved = false
 
-# Identity of the candidate under test. The operator copies these from the
-# reviewed release record, not from the harness.
-candidate_sha = ""
-policy_hash = ""
-
-# Route minute limits the harness honours; the shadow traffic stays under them.
 [limits]
 prices_per_minute = 60
 reference_per_minute = 30

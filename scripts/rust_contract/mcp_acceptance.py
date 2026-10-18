@@ -85,19 +85,19 @@ async def cancellation(base_url):
             await transaction.start()
             try:
                 await control.execute("LOCK TABLE orderbook_orders IN ACCESS EXCLUSIVE MODE")
-                callers = [asyncio.create_task(client.post("/mcp", json=request)) for _ in range(8)]
+                callers = [asyncio.create_task(client.post("/mcp", json=request)) for _ in range(16)]
                 deadline = time.monotonic() + 10
                 while True:
                     count = await observer.fetchval("SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE '%eligible_orders%'")
-                    if count == 8:
+                    if count == 16:
                         break
-                    assert time.monotonic() < deadline, "eight MCP SQL reads did not start"
+                    assert time.monotonic() < deadline, "configured MCP SQL reads did not start"
                     await asyncio.sleep(.02)
                 for caller in callers:
                     caller.cancel()
                 await asyncio.gather(*callers, return_exceptions=True)
                 count = await observer.fetchval("SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE '%eligible_orders%'")
-                assert count == 8, "HTTP cancellation cancelled admitted SQL"
+                assert count == 16, "HTTP cancellation cancelled admitted SQL"
                 busy = (await client.post("/mcp",json=request)).json()
                 assert busy["result"]["isError"] is True
                 assert "Verdaxis market tools are busy; retry shortly." in busy["result"]["content"][0]["text"]
@@ -116,7 +116,7 @@ async def cancellation(base_url):
                 assert time.monotonic()<deadline, "cancelled SQL did not drain"
                 await asyncio.sleep(.02)
             # Successful work returns its connection before releasing the permit.
-            # Wait for the last cleanup ping as well before the next eight-call batch.
+            # Wait for the last cleanup ping as well before the next configured-call batch.
             await asyncio.sleep(.2)
             print(f"SQL cancellation verified: {request['params']['name']}",flush=True)
     await observer.close()
