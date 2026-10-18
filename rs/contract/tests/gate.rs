@@ -3,7 +3,7 @@
 //! Every test here is written to fail if the gate ever passes on a condition
 //! that is missing, unmeasured, or spelled as a placeholder.
 
-use verdaxis_contract::{ContractEvidence, RouteP95, RouteRequests};
+use verdaxis_contract::{ContractEvidence, RouteP95, RouteRequests, WorkloadSize};
 use verdaxis_contract::{blocking_regressions, fix_item_regressions, passes_gate};
 
 fn route(id: &'static str, python: f64, rust: f64) -> RouteP95 {
@@ -80,6 +80,7 @@ fn gate_with_routes(
         }
     }
     passes_gate(
+        WorkloadSize::Small,
         &complete_contract(differences),
         rust_errors,
         python_errors,
@@ -142,7 +143,10 @@ fn a_regression_of_exactly_100_ms_does_not_block() {
         0.6,
         &[route("R20", 0.200, 0.300)]
     ));
-    assert_eq!(fix_item_regressions(&[route("R20", 0.200, 0.300)]), ["R20"]);
+    assert_eq!(
+        fix_item_regressions(WorkloadSize::Small, &[route("R20", 0.200, 0.300)]),
+        ["R20"]
+    );
     assert!(blocking_regressions(&[route("R20", 0.200, 0.300)]).is_empty());
 }
 
@@ -174,7 +178,10 @@ fn a_regression_of_exactly_50_percent_does_not_block_when_under_100_ms() {
         0.6,
         &[route("R01", 0.100, 0.150)]
     ));
-    assert_eq!(fix_item_regressions(&[route("R01", 0.100, 0.150)]), ["R01"]);
+    assert_eq!(
+        fix_item_regressions(WorkloadSize::Small, &[route("R01", 0.100, 0.150)]),
+        ["R01"]
+    );
 }
 
 #[test]
@@ -200,7 +207,10 @@ fn smaller_regressions_do_not_block_and_become_fix_items() {
         route("R01", 0.569, 0.085), // an improvement
     ];
     assert!(blocking_regressions(&routes).is_empty());
-    assert_eq!(fix_item_regressions(&routes), ["R20", "R24"]);
+    assert_eq!(
+        fix_item_regressions(WorkloadSize::Small, &routes),
+        ["R20", "R24"]
+    );
     assert!(gate_with_routes(0, 0, 5, true, 0.5, 0.6, &routes));
 }
 
@@ -217,7 +227,7 @@ fn a_mix_regression_with_every_route_inside_its_limit_still_blocks() {
 fn an_improvement_never_blocks() {
     let routes = [route("R16", 2.806, 1.460)];
     assert!(blocking_regressions(&routes).is_empty());
-    assert!(fix_item_regressions(&routes).is_empty());
+    assert!(fix_item_regressions(WorkloadSize::Small, &routes).is_empty());
 }
 
 #[test]
@@ -281,6 +291,7 @@ fn route_inputs_must_be_finite_before_the_gate() {
 #[test]
 fn missing_or_empty_manifest_routes_never_pass() {
     assert!(!passes_gate(
+        WorkloadSize::Small,
         &complete_contract(0),
         0,
         0,
@@ -293,6 +304,7 @@ fn missing_or_empty_manifest_routes_never_pass() {
     let mut routes = complete_routes();
     routes.pop();
     assert!(!passes_gate(
+        WorkloadSize::Small,
         &complete_contract(0),
         0,
         0,
@@ -315,6 +327,7 @@ fn both_route_measurements_must_be_positive_and_finite() {
                 routes[0].rust = invalid;
             }
             assert!(!passes_gate(
+                WorkloadSize::Small,
                 &complete_contract(0),
                 0,
                 0,
@@ -333,7 +346,7 @@ fn decimal_threshold_boundaries_are_exact() {
     for (python, rust) in [(0.300, 0.400), (0.180, 0.270)] {
         let pair = route("R01", python, rust);
         assert!(blocking_regressions(&[pair]).is_empty());
-        assert_eq!(fix_item_regressions(&[pair]), ["R01"]);
+        assert_eq!(fix_item_regressions(WorkloadSize::Small, &[pair]), ["R01"]);
         assert!(!blocking_regressions(&[route("R01", python, rust + 0.000001)]).is_empty());
     }
 }
@@ -356,6 +369,7 @@ fn unequal_request_totals_cannot_pass_the_error_gate() {
             .collect();
         assert_eq!(
             passes_gate(
+                WorkloadSize::Small,
                 &complete_contract(0),
                 rs_errors,
                 py_errors,
@@ -373,6 +387,7 @@ fn unequal_request_totals_cannot_pass_the_error_gate() {
 #[test]
 fn absent_contract_evidence_is_not_zero_differences() {
     assert!(!passes_gate(
+        WorkloadSize::Small,
         &[],
         0,
         0,
@@ -389,6 +404,7 @@ fn incomplete_contract_groups_and_counts_never_pass() {
     let mut evidence = complete_contract(0);
     evidence[0].differences = None;
     assert!(!passes_gate(
+        WorkloadSize::Small,
         &evidence,
         0,
         0,
@@ -401,6 +417,7 @@ fn incomplete_contract_groups_and_counts_never_pass() {
     evidence = complete_contract(0);
     evidence.pop();
     assert!(!passes_gate(
+        WorkloadSize::Small,
         &evidence,
         0,
         0,
@@ -410,4 +427,53 @@ fn incomplete_contract_groups_and_counts_never_pass() {
         &complete_routes(),
         &complete_requests()
     ));
+}
+
+fn decision82_gate(
+    large: bool,
+    differences: u64,
+    rust_errors: u64,
+    integration: bool,
+    rust_mix: f64,
+    routes: &[RouteP95],
+) -> bool {
+    passes_gate(
+        if large {
+            WorkloadSize::Large
+        } else {
+            WorkloadSize::Small
+        },
+        &complete_contract(differences),
+        rust_errors,
+        0,
+        integration,
+        rust_mix,
+        0.2,
+        routes,
+        &complete_requests(),
+    )
+}
+
+#[test]
+fn decision82_large_speed_regressions_are_fix_items_not_blocks() {
+    let mut routes = complete_routes();
+    routes[0].rust = 0.6;
+    assert!(decision82_gate(true, 0, 0, true, 0.3, &routes));
+    assert_eq!(
+        fix_item_regressions(WorkloadSize::Large, &routes),
+        [routes[0].route_id]
+    );
+    assert!(!decision82_gate(false, 0, 0, true, 0.3, &routes));
+}
+
+#[test]
+fn decision82_large_hard_gates_and_measurements_still_block() {
+    let routes = complete_routes();
+    assert!(!decision82_gate(true, 1, 0, true, 0.1, &routes));
+    assert!(!decision82_gate(true, 0, 1, true, 0.1, &routes));
+    assert!(!decision82_gate(true, 0, 0, false, 0.1, &routes));
+    assert!(!decision82_gate(true, 0, 0, true, 0.1, &[]));
+    let mut invalid = routes;
+    invalid[0].rust = f64::NAN;
+    assert!(!decision82_gate(true, 0, 0, true, 0.1, &invalid));
 }

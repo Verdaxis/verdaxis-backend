@@ -188,16 +188,14 @@ def _route_pairs(latency: dict[str, Any]) -> list[tuple[str, float, float]]:
 
 
 def speed_verdict(
-    latency: dict[str, Any], mix: dict[str, dict[str, float]]
+    latency: dict[str, Any], mix: dict[str, dict[str, float]], size: str = "small"
 ) -> dict[str, Any]:
-    """The decision-68 speed verdict: blocking regressions and fix items.
+    """Decision 82: speed blocks only at small; large regressions are fix items.
 
-    Speed blocks only when the overall weighted mix p95 of Rust is worse than
-    Python's, or a single route crosses its threshold. Smaller per-route
-    regressions are listed as fix items for the report.
+    Both sizes still require complete, finite, positive measurements.
     """
     pairs = _route_pairs(latency)
-    blocking = [
+    threshold_regressions = [
         route_id
         for route_id, python_p95, rust_p95 in pairs
         if route_regression_blocks(python_p95, rust_p95)
@@ -205,7 +203,7 @@ def speed_verdict(
     fix_items = [
         route_id
         for route_id, python_p95, rust_p95 in pairs
-        if rust_p95 > python_p95 and not route_regression_blocks(python_p95, rust_p95)
+        if rust_p95 > python_p95 and (size == "large" or not route_regression_blocks(python_p95, rust_p95))
     ]
     python_mix = mix.get("python", {}).get("p95")
     rust_mix = mix.get("rust", {}).get("p95")
@@ -217,10 +215,15 @@ def speed_verdict(
         and python_mix > 0
         and rust_mix > 0
     )
-    mix_blocks = bool(mix_measured and rust_mix > python_mix)
+    mix_regressed = bool(mix_measured and rust_mix > python_mix)
+    mix_blocks = size == "small" and mix_regressed
+    blocking = threshold_regressions if size == "small" else []
     return {
-        "outcome": "inconclusive" if not mix_measured or not pairs else ("no-go" if mix_blocks or blocking else "pass"),
+        "outcome": "inconclusive" if size not in {"small", "large"} or not mix_measured or not pairs else ("no-go" if mix_blocks or blocking else "pass"),
         "mix_blocks": mix_blocks,
+        "mix_regressed": mix_regressed,
+        "size": size,
+        "threshold_regressions": sorted(threshold_regressions),
         "mix_measured": mix_measured,
         "blocking_regressions": sorted(blocking),
         "fix_items": sorted(fix_items),
@@ -335,7 +338,7 @@ def build_bundle(
         ok = sum(1 for row in covered["routes"].values() if row["outcome"] == "ok")
         covered = {**covered, "summary": f"{ok}/{len(covered['routes'])} routes reached the floor"}
 
-    speed = speed_verdict(latency, mix)
+    speed = speed_verdict(latency, mix, measurement.get("size"))
     conditions = _gate_conditions(
         unapproved_differences, rust_5xx, python_5xx, integration_passed, speed, memory, errors, contract_result
     )
@@ -464,6 +467,8 @@ def main(argv: list[str] | None = None) -> int:
     sections = ["# Rust Phase 1 go/no-go", "",
                 "Generated from existing evidence; small and large workloads are decided separately.", ""]
     for size, measurement in (("small", small), ("large", large)):
+        if measurement.get("size") != size:
+            measurement = {}
         bundle = build_bundle(
             identities=identities, contract={},
             simulation={**simulation, "summary": _simulation_summary(simulation),
@@ -631,12 +636,14 @@ def render_markdown(bundle: dict[str, Any]) -> str:
                  f"{_seconds(mix.get('python', {}).get('p95'))} p95, Rust "
                  f"{_seconds(mix.get('rust', {}).get('p95'))} p95.")
     lines.append("")
-    lines.append("## Gate (founder decision 68, 17 Oct)")
+    lines.append("## Gate (founder decisions 68 and 82, 18 Oct)")
     lines.append("")
     lines.append("Hard gates: zero unexplained differences, no rise in 5xx/503 from Rust "
                  "against Python on the same workload, and a passing integration suite. "
-                 "Speed blocks only on a mix p95 regression or a per-route regression "
-                 "beyond 100 ms or 50 %; smaller per-route regressions are fix items. "
+                 "Speed blocks only at the small workload: a mix p95 regression or a per-route "
+                 "regression beyond 100 ms or 50 %. At the large workload, mix p95 is "
+                 "reported and all route regressions are fix items for the same-meaning pass. "
+                 "Complete valid measurements remain required at both sizes. "
                  "Memory is reported against its target and does not block.")
     lines.append("")
     lines.append(f"- Outcome: {'PASS' if gate.get('passes') else gate.get('outcome', 'inconclusive').upper()}.")

@@ -512,8 +512,8 @@ def test_report_cli_preserves_sizes_and_adaptive_probe(tmp_path):
     large = tmp_path / "large.json"
     simulation = tmp_path / "simulation.json"
     out = tmp_path / "report.md"
-    small.write_text(json.dumps({"repetitions": []}))
-    large.write_text(json.dumps({"mode": "adaptive", "probe_max_rps": 4, "repetitions": [],
+    small.write_text(json.dumps({"size": "small", "repetitions": []}))
+    large.write_text(json.dumps({"size": "large", "mode": "adaptive", "probe_max_rps": 4, "repetitions": [],
         "probe": [{"rps": 1, "busy": {"python": 2, "rust": 0}}]}))
     simulation.write_text("{}")
     assert report.main(["--small", str(small), "--large", str(large), "--simulation", str(simulation), "--out", str(out)]) == 0
@@ -544,3 +544,56 @@ def test_report_module_entrypoint_runs(tmp_path):
     assert result.returncode == 0
     assert out.is_file()
     assert "INCONCLUSIVE" in out.read_text()
+
+
+@pytest.mark.parametrize("size,expected", [("small", "no-go"), ("large", "pass")])
+@pytest.mark.parametrize("rust_seconds", [0.301, 0.600])
+def test_decision82_speed_blocks_only_small(size, expected, rust_seconds):
+    evidence = _evidence(python_current=1000, rust_current=400,
+        samples_python=[{"route_id": rid, "seconds": 0.2, "status": 200} for rid in _latency([])],
+        samples_rust=[{"route_id": rid, "seconds": rust_seconds if rid == "R01" else 0.1, "status": 200}
+                      for rid in _latency([])])
+    evidence["size"] = size
+    bundle = report.build_bundle(identities={}, contract={}, simulation={"runs": _complete_simulations()},
+        measurement=evidence, unapproved_differences=0, integration_passed=True)
+    assert bundle["gate"]["outcome"] == expected
+    speed = bundle["gate"]["speed"]
+    assert speed["blocking_regressions"] == (["R01"] if size == "small" else [])
+    if size == "large":
+        assert "R01" in speed["fix_items"]
+
+
+@pytest.mark.parametrize("defect", ["missing_route", "invalid_p95", "missing", "errors", "contract", "integration"])
+def test_decision82_large_still_requires_measurements_and_hard_gates(defect):
+    py = [{"route_id": rid, "seconds": 0.2, "status": 200} for rid in _latency([])]
+    rs = [{"route_id": rid, "seconds": 0.1, "status": 200} for rid in _latency([])]
+    runs = _complete_simulations()
+    if defect == "missing_route":
+        rs.pop()
+    elif defect == "invalid_p95":
+        rs[0]["seconds"] = float("nan")
+    elif defect == "errors":
+        rs.append({"route_id": "R01", "seconds": 0.1, "status": 503})
+        py.append({"route_id": "R01", "seconds": 0.1, "status": 200})
+    elif defect == "contract":
+        runs[1]["groups"]["prices"].update(outcome="difference", differences=1)
+        runs[1]["differences"] = 1
+    evidence = _evidence(python_current=1000, rust_current=400, samples_python=py, samples_rust=rs)
+    evidence["size"] = "large"
+    if defect == "missing":
+        evidence = {}
+    bundle = report.build_bundle(identities={}, contract={}, simulation={"runs": runs}, measurement=evidence,
+        unapproved_differences=0, integration_passed=defect != "integration")
+    assert bundle["gate"]["outcome"] == ("inconclusive" if defect in {"missing_route", "invalid_p95", "missing"} else "no-go")
+
+
+def test_decision82_large_mix_regression_is_reported_not_blocking():
+    evidence = _evidence(python_current=1000, rust_current=400,
+        samples_python=[{"route_id": rid, "seconds": 0.2, "status": 200} for rid in _latency([])],
+        samples_rust=[{"route_id": rid, "seconds": 0.4, "status": 200} for rid in _latency([])])
+    evidence["size"] = "large"
+    bundle = report.build_bundle(identities={}, contract={}, simulation={"runs": _complete_simulations()},
+        measurement=evidence, unapproved_differences=0, integration_passed=True)
+    assert bundle["gate"]["passes"]
+    assert bundle["gate"]["speed"]["mix_regressed"] is True
+    assert bundle["gate"]["speed"]["mix_blocks"] is False

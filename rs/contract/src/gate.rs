@@ -1,4 +1,4 @@
-//! The pure go/no-go gate (founder decision 68, 17 Oct).
+//! The pure go/no-go gate (decisions 68 and 82, 18 Oct).
 //!
 //! The gate takes only the **unapproved** difference count: tie-group order the
 //! comparator already permits, and AD-01's rate-limit threshold counts, are
@@ -11,12 +11,18 @@
 //!    workload;
 //! 3. the integration suite passes.
 //!
-//! Speed blocks only when the overall weighted p95 of Rust is worse than
-//! Python's, or any single route's Rust p95 is slower than Python's by more
-//! than 100 ms or by more than 50 % — whichever threshold that route crosses
-//! first. Smaller per-route regressions do not block; the caller lists them as
-//! fix items. Memory is measured and reported (target: Rust at most half of
-//! Python for the ported routes) but does not block.
+//! Speed blocks at the small workload only (decision 82): the overall weighted
+//! p95 must not rise, and no route may regress by more than 100 ms or 50 %.
+//! Large-workload speed remains mandatory evidence, but regressions are fix
+//! items for the same-meaning pass, not blockers. Hard gates apply at both sizes.
+//! Memory is reported but does not block.
+
+/// The committed workload size. Only small-workload speed can block.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WorkloadSize {
+    Small,
+    Large,
+}
 
 /// A single route's p95 pair, in seconds.
 #[derive(Clone, Copy, Debug)]
@@ -57,10 +63,13 @@ pub fn blocking_regressions(routes: &[RouteP95]) -> Vec<&'static str> {
 }
 
 /// The non-blocking regressions, as fix items for the report.
-pub fn fix_item_regressions(routes: &[RouteP95]) -> Vec<&'static str> {
+pub fn fix_item_regressions(size: WorkloadSize, routes: &[RouteP95]) -> Vec<&'static str> {
     routes
         .iter()
-        .filter(|route| route.rust > route.python && !route_regression_blocks(**route))
+        .filter(|route| {
+            route.rust > route.python
+                && (size == WorkloadSize::Large || !route_regression_blocks(**route))
+        })
         .map(|route| route.route_id)
         .collect()
 }
@@ -142,7 +151,7 @@ pub fn contract_differences(evidence: &[ContractEvidence]) -> Option<u64> {
     Some(total)
 }
 
-/// The decision-68 gate over the measured evidence.
+/// The decision-68 hard gates with decision-82 workload-aware speed.
 ///
 /// `unapproved_differences` is the count the comparator still reports after the
 /// reviewed tie rules. `rust_5xx` and `python_5xx` are the 5xx/503 counts each
@@ -151,6 +160,7 @@ pub fn contract_differences(evidence: &[ContractEvidence]) -> Option<u64> {
 /// an argument; it stays measured and reported by the harness.
 #[allow(clippy::too_many_arguments)]
 pub fn passes_gate(
+    size: WorkloadSize,
     contract: &[ContractEvidence],
     rust_5xx: u64,
     python_5xx: u64,
@@ -191,7 +201,7 @@ pub fn passes_gate(
         && integration_passed;
     let speed = mix_measured
         && routes_measured
-        && rust_mix_p95 <= python_mix_p95
-        && blocking_regressions(routes).is_empty();
+        && (size == WorkloadSize::Large
+            || (rust_mix_p95 <= python_mix_p95 && blocking_regressions(routes).is_empty()));
     hard_gates && speed
 }
