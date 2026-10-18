@@ -270,6 +270,13 @@ if [[ "${1:-}" == "-I" && "${2:-}" == "-c" ]]; then
     # interpreter for the inline code instead of this ledger wrapper.
     exec __REAL_PYTHON__ "$@"
 fi
+if [[ "${1:-}" == "scripts/validate_health_response.py" ]]; then
+    # deploy.sh pipes the readiness payload into the real helper, which reads
+    # it from stdin. A wrapper that exits without draining that pipe can lose
+    # the race with the `printf` writer, whose SIGPIPE (141) then fails the
+    # pipeline and the health gate although the payload was valid.
+    cat > /dev/null
+fi
 printf 'python:%s\\n' "$*" >> "${DEPLOY_TEST_LOG:?}"
 if [[ "${DEPLOY_FAIL_PHASE:-}" == "preflight" && "${1:-}" == "scripts/preflight_runtime.py" ]]; then exit 41; fi
 if [[ "${DEPLOY_FAIL_PHASE:-}" == "budget" && "${1:-}" == "scripts/prepare_rust_budget.py" ]]; then exit 47; fi
@@ -557,6 +564,27 @@ exit 0
 @pytest.fixture()
 def release_fixture(tmp_path):
     return RustReleaseFixture(tmp_path)
+
+
+@pytest.mark.parametrize("fail_phase, expected_exit", [("", 0), ("health", 44)])
+def test_fixture_health_validator_drains_its_input(release_fixture, fail_phase, expected_exit):
+    """A payload larger than the pipe capacity exposes an early reader exit."""
+    environment = release_fixture.deploy_environment(release_fixture.old_sha)
+    environment["DEPLOY_FAIL_PHASE"] = fail_phase
+    result = subprocess.run(
+        [
+            "bash", "-c",
+            'set -o pipefail; cat | "$1" scripts/validate_health_response.py',
+            "fixture-health-pipeline", str(release_fixture.checkout / "venv/bin/python"),
+        ],
+        input=b"x" * (1024 * 1024),
+        env=environment,
+        capture_output=True,
+        check=False,
+        timeout=10,
+    )
+    assert result.returncode == expected_exit, result.stderr.decode()
+    assert release_fixture.ledger == ["python:scripts/validate_health_response.py"]
 
 
 def test_fixture_checkout_relies_on_the_documented_layout_override(release_fixture):
