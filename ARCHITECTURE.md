@@ -212,7 +212,23 @@ verifies the signed artifact before state publication, restarts both units in
 one call and requires both readiness documents before state clears. Decisions
 99 and 101–103 use normal staging publication and one shared Python/Rust release
 SHA; there is no independent candidate activation path. Production
-carries neither record and reads no Rust path.
+now has a separate policy-off bootstrap record and unit; no production Rust
+activation occurs merely by promoting this source. `deploy/rust/production-policy.json`
+selects `verdaxis-rust.service` at `127.0.0.1:8010`. The shared transaction selects
+only its own environment policy, verifies production provenance against
+`refs/heads/prod`, prepares app-only runtime credentials, and requires the same
+Python/Rust release SHA and both readiness documents. Production startup requires
+`verdaxis_app` on `127.0.0.1:5432/verdaxis_prod` and exact checkpoint
+`p0_20261016_union`. Production browser CORS follows the Python production origin
+set, not staging's origin. The production unit caps Rust at 256 MiB and one CPU;
+Python retains four workers. Conservative default connection accounting is 69
+including the 20-connection reserve and Rust's 16 reads plus readiness.
+Production needs its own B' policy-off deploy, root manifest install, then S'
+policy-on prod-push artifact; neither staging artifacts nor an independent SHA
+are accepted. `scripts/rust_caddy_candidate.py` prepares private per-group Caddy
+candidates and exact rollback bytes without touching live config. It reuses Task
+13's exact snippet and refuses production MCP activation. See
+`docs/plans/2026-10-19-rust-phase-1-production.md`; host acceptance remains separate.
 `docs/rust-phase1/progress-task12c.md` holds the unit digest, the artifact
 digest and the systemd 249/255 and staging-ABI start evidence.
 
