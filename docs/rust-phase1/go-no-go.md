@@ -1,9 +1,25 @@
 # Rust Phase 1 go/no-go
 
-## Fail-closed review — 18 October 2026
+## Decision 82 — 18 October 2026
 
-**Overall: NO-GO. No deployment is authorized.** The speed verdict does not
-change. The earlier claim that all hard gates pass at both sizes is withdrawn.
+**Overall: NO-GO. No deployment is authorized.** Decision 82 changes large-size
+speed from blocking to reporting. Small-size speed still blocks, and the
+retained large-size contract result still prevents GO.
+
+### Rule (founder decisions 68 and 82)
+
+- Hard gates block at **both** sizes: zero unexplained contract differences,
+  no rise in Rust 5xx/503 against Python on the same workload, and a passing
+  integration suite.
+- **Small:** overall weighted p95 must not rise. A route regression blocks
+  only above 100 ms or above 50%; exact boundaries do not block.
+- **Large:** overall weighted p95 is reported, not blocking. Every route
+  regression is a fix item for the same-meaning pass, not a blocker. Production
+  data will not reach this size before that pass is live (founder rationale).
+- Complete valid measurement evidence is still mandatory at both sizes.
+  Missing or invalid evidence gives INCONCLUSIVE, never GO. Memory is reported.
+
+### Evidence and verdict
 
 - The small `prices` rerun has zero differences. It replaces only the small
   `prices` result, not the large result. The retained large simulation still
@@ -20,8 +36,9 @@ change. The earlier claim that all hard gates pass at both sizes is withdrawn.
   Python 2 busy responses and Rust 0. The old harness nevertheless measured a
   600-second window at 1 RPS. Those samples are retained as historical evidence,
   not a clean-rate measurement. No higher rate was tested.
-- Speed remains NO-GO: small R27; large R09, R10, R11, R14, R19, R20, R21,
-  R24, R25 and `get_market_slice`. Mix p95 passes at both sizes. These are the
+- Small speed remains NO-GO on R27. Large speed is now non-blocking; its
+  former blocking routes are listed below as same-meaning fix items. Mix p95
+  is lower for Rust at both sizes. These are the
   existing samples, not a new measurement of this gate-only branch. The small
   R27 diagnostic after the JIT fix is separate from the full workload samples.
 - Integration: historical evidence says 79 passed, exit 0. This lane did not
@@ -35,15 +52,23 @@ JSON evidence. The sibling worktree and its evidence were not modified.
 Later same-size/group simulation runs replace only their exact pair; missing
 files, counts, groups or sizes are INCONCLUSIVE, never GO.
 
+### Fix items for the same-meaning pass
+
+- Large routes above the old blocking thresholds: **R09, R10, R11, R14, R19,
+  R20, R21, R24, R25, `get_market_slice`**. Decision 82 makes all ten fix items.
+- Large R27 is also a fix item (a smaller regression).
+- Small non-blocking fix items: R20, R24 and `plan_voyage_fuel`.
+- Small R27 remains a blocker in the full-workload evidence, not merely a fix item.
+
 ## Verification of the gate-only changes
 
-All builds and tests ran through `verdaxis-prod-test`, with the shared heavy
-lock for suites and Rust commands. No SQL or serving-route code changed.
+All builds and tests ran through `verdaxis-prod-test`, through `/home/verdaxis-test/bin/heavy run 3600`
+for suites and Rust commands. No SQL or serving-route code changed.
 
 | Check | Exit code |
 | --- | ---: |
-| Rust gate tests (23 passed) | 0 |
-| `tests/rust_contract` (579 passed; 5 dependency deprecation warnings) | 0 |
+| Rust gate tests (25 passed) | 0 |
+| `tests/rust_contract` (590 passed; 5 dependency deprecation warnings) | 0 |
 | `cargo test --manifest-path rs/Cargo.toml --locked --workspace` | 0 |
 | `cargo fmt --manifest-path rs/Cargo.toml --all -- --check` | 0 |
 | `cargo clippy --manifest-path rs/Cargo.toml --locked --workspace --all-targets -- -D warnings` | 0 |
@@ -63,7 +88,7 @@ Generated from existing evidence; small and large workloads are decided separate
 # Rust Phase 1 go/no-go
 
 - Decision requested: continue / pause / stop.
-- Candidate source SHA: df685fa3f9250387db581c7492e897499f83580f
+- Candidate source SHA: 3c6ca84d41f2673e8c8d2f6b929e4e5e62c9d29a
 - Python oracle SHA and corpus digest: 4ed68a2fb324835216dd3a602af5ef8e4c6e0154 / 0c0d252f5c23fcfd3cc3d051d04077d981601f1433575cf0197cfcaee7ec9060
 - Schema revision and policy digest: kycd_20261015_staging / c935b83ed8f77faf74ced70849e10447ca351f9f3c1485f243b1cca36bf09693
 - Rust toolchain, target, libc minimum, Cargo.lock digest, artifact digest: not measured
@@ -132,9 +157,9 @@ The latency series is successful (2xx) responses only. Busy (503), rate-limited 
 
 - Weighted representative mix: Python 0.984 p95, Rust 0.499 p95.
 
-## Gate (founder decision 68, 17 Oct)
+## Gate (founder decisions 68 and 82, 18 Oct)
 
-Hard gates: zero unexplained differences, no rise in 5xx/503 from Rust against Python on the same workload, and a passing integration suite. Speed blocks only on a mix p95 regression or a per-route regression beyond 100 ms or 50 %; smaller per-route regressions are fix items. Memory is reported against its target and does not block.
+Hard gates: zero unexplained differences, no rise in 5xx/503 from Rust against Python on the same workload, and a passing integration suite. Speed blocks only at the small workload: a mix p95 regression or a per-route regression beyond 100 ms or 50 %. At the large workload, mix p95 is reported and all route regressions are fix items for the same-meaning pass. Complete valid measurements remain required at both sizes. Memory is reported against its target and does not block.
 
 - Outcome: NO-GO.
   - zero unexplained contract differences: no-go ({'outcome': 'no-go', 'differences': 33, 'missing': [], 'invalid': []})
@@ -194,7 +219,7 @@ Hard gates: zero unexplained differences, no rise in 5xx/503 from Rust against P
 # Rust Phase 1 go/no-go
 
 - Decision requested: continue / pause / stop.
-- Candidate source SHA: df685fa3f9250387db581c7492e897499f83580f
+- Candidate source SHA: 3c6ca84d41f2673e8c8d2f6b929e4e5e62c9d29a
 - Python oracle SHA and corpus digest: 4ed68a2fb324835216dd3a602af5ef8e4c6e0154 / 0c0d252f5c23fcfd3cc3d051d04077d981601f1433575cf0197cfcaee7ec9060
 - Schema revision and policy digest: kycd_20261015_staging / c935b83ed8f77faf74ced70849e10447ca351f9f3c1485f243b1cca36bf09693
 - Rust toolchain, target, libc minimum, Cargo.lock digest, artifact digest: not measured
@@ -269,17 +294,17 @@ The latency series is successful (2xx) responses only. Busy (503), rate-limited 
 
 - Weighted representative mix: Python 4.031 p95, Rust 2.771 p95.
 
-## Gate (founder decision 68, 17 Oct)
+## Gate (founder decisions 68 and 82, 18 Oct)
 
-Hard gates: zero unexplained differences, no rise in 5xx/503 from Rust against Python on the same workload, and a passing integration suite. Speed blocks only on a mix p95 regression or a per-route regression beyond 100 ms or 50 %; smaller per-route regressions are fix items. Memory is reported against its target and does not block.
+Hard gates: zero unexplained differences, no rise in 5xx/503 from Rust against Python on the same workload, and a passing integration suite. Speed blocks only at the small workload: a mix p95 regression or a per-route regression beyond 100 ms or 50 %. At the large workload, mix p95 is reported and all route regressions are fix items for the same-meaning pass. Complete valid measurements remain required at both sizes. Memory is reported against its target and does not block.
 
 - Outcome: NO-GO.
   - zero unexplained contract differences: no-go ({'outcome': 'no-go', 'differences': 33, 'missing': [], 'invalid': []})
   - no rise in 5xx/503 from Rust against Python: pass (Rust 0 vs Python 13; offered totals/rates: {'outcome': 'pass', 'same_workload': True, 'requests': {'python': 600, 'rust': 600}, 'errors': {'python': 13, 'rust': 0}, 'rates': {'python': 0.021666666666666667, 'rust': 0.0}})
   - the integration suite passes: pass (the unchanged disposable integration suite)
-  - speed (mix p95 and per-route thresholds): no-go (blocking routes: R09, R10, R11, R14, R19, R20, R21, R24, R25, get_market_slice; fix items: R27)
+  - speed (mix p95 and per-route thresholds): pass (blocking routes: none; fix items: R09, R10, R11, R14, R19, R20, R21, R24, R25, R27, get_market_slice)
   - memory target (Rust at most half of Python; non-blocking): pass (Rust 192.1 MiB vs Python 979.9 MiB (19.6% of Python))
-- Fix items (non-blocking regressions): R27.
+- Fix items (non-blocking regressions): R09, R10, R11, R14, R19, R20, R21, R24, R25, R27, get_market_slice.
 - Coverage: 0/30 routes reached the floor
   - R01: inconclusive, 960 more observations needed
   - R02: inconclusive, 960 more observations needed
