@@ -1,4 +1,4 @@
-use crate::{ADMISSION_SLOTS, Config, verify_release};
+use crate::{Config, DEFAULT_READ_ADMISSION_SLOTS, verify_release};
 use percent_encoding::percent_decode_str;
 use std::net::IpAddr;
 
@@ -50,13 +50,6 @@ struct PreparedBudget {
     configured_max_connections: u32,
 }
 
-/// Python's aggregate public-read capacity: every worker reserves one fewer
-/// than its own pool plus overflow. Rust's single gate must match it (AD-02).
-pub fn public_read_slots(workers: u32, pool: u32, overflow: u32) -> Option<u32> {
-    let per_worker = pool.checked_add(overflow)?.checked_sub(1)?;
-    workers.checked_mul(per_worker)
-}
-
 /// Validate public budget metadata only; the prestart helper checks the secret file digest.
 pub fn validate_prepared_budget(config: &Config, json: &str) -> Result<(), String> {
     let budget: PreparedBudget =
@@ -76,8 +69,6 @@ pub fn validate_prepared_budget(config: &Config, json: &str) -> Result<(), Strin
             .environment_digest
             .bytes()
             .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-        || public_read_slots(budget.workers, budget.pool, budget.overflow)
-            != Some(crate::ADMISSION_SLOTS)
         || budget.rust_pool != config.pool_max
         || budget.python_budget != config.python_budget
         || budget.configured_max_connections != config.configured_max_connections
@@ -112,7 +103,16 @@ pub fn config_from_deployed_environment(
     let release_sha = required("RELEASE_SHA")?;
     let budget: PreparedBudget = serde_json::from_str(budget_json)
         .map_err(|_| "the prepared budget artifact is not valid JSON")?;
-    let rust_pool = ADMISSION_SLOTS + 1;
+    let read_admission_slots = environment
+        .get("READ_ADMISSION_SLOTS")
+        .map(|value| value.trim().parse::<u32>())
+        .transpose()
+        .map_err(|_| "READ_ADMISSION_SLOTS must be a positive integer")?
+        .unwrap_or(DEFAULT_READ_ADMISSION_SLOTS);
+    let rust_pool = read_admission_slots
+        .checked_add(1)
+        .filter(|_| read_admission_slots >= 1)
+        .ok_or("READ_ADMISSION_SLOTS must be positive and leave room for readiness")?;
     if budget.version != 1 || budget.release_sha != release_sha {
         return Err("the prepared budget artifact does not belong to this release".into());
     }
@@ -130,6 +130,7 @@ pub fn config_from_deployed_environment(
         db_session_time_zone: required("DB_SESSION_TIME_ZONE")?,
         prepared_budget: Some(budget_json.to_owned()),
         bind,
+        read_admission_slots,
         pool_max: rust_pool,
         python_budget: budget.python_budget,
         configured_max_connections: budget.configured_max_connections,
@@ -281,8 +282,12 @@ pub fn validate_config(config: &Config) -> Result<(), String> {
     if !config.bind.ip().is_loopback() {
         return Err("HTTP bind must be loopback".into());
     }
-    if config.pool_max != 9 {
-        return Err("Phase 1 requires exactly nine pool connections".into());
+    if config.read_admission_slots == 0
+        || config.read_admission_slots.checked_add(1) != Some(config.pool_max)
+    {
+        return Err(
+            "read admission slots must be positive and pool_max must equal slots plus one".into(),
+        );
     }
     let allowed: Vec<String> = serde_json::from_str(include_str!(
         "../../../../deploy/rust/allowed-revisions.json"

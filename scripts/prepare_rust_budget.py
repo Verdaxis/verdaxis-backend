@@ -7,12 +7,12 @@ import hashlib
 import io
 import json
 import os
-from pathlib import Path
 import re
 import stat
 import subprocess
 import sys
 import tempfile
+from pathlib import Path
 from types import SimpleNamespace
 
 from dotenv import dotenv_values
@@ -27,7 +27,8 @@ FIELDS = {
 def derive_budget(settings, rust_pool):
     """Derive the configured upper bound, including each Python dispatcher."""
     values = {key: getattr(settings, field) for key, field in FIELDS.items()}
-    if rust_pool != 9 or any(type(value) is not int or not 0 <= value <= 0xFFFFFFFF for value in values.values()):
+    if (type(rust_pool) is not int or not 2 <= rust_pool <= 0xFFFFFFFF
+            or any(type(value) is not int or not 0 <= value <= 0xFFFFFFFF for value in values.values())):
         raise ValueError("invalid budget inputs")
     python_budget = values["services"] * values["workers"] * (values["pool"] + values["overflow"] + 1) + values["reserve"]
     total = python_budget + rust_pool
@@ -70,9 +71,14 @@ def artifact_for(environment_file, release_sha):
     if not re.fullmatch(r"[0-9a-f]{40}", release_sha) or release_sha == "0" * 40:
         raise ValueError("full release SHA required")
     raw = read_regular(environment_file)
+    environment = dotenv_values(stream=io.StringIO(raw.decode("utf-8")), interpolate=False)
+    raw_slots = environment.get("READ_ADMISSION_SLOTS", "16")
+    if raw_slots is None or not re.fullmatch(r"[0-9]+", raw_slots.strip()):
+        raise ValueError("READ_ADMISSION_SLOTS must be a positive integer")
+    slots = int(raw_slots)
     return {"version": 1, "release_sha": release_sha,
             "environment_digest": hashlib.sha256(raw).hexdigest(),
-            **derive_budget(effective_settings(raw), 9)}
+            **derive_budget(effective_settings(raw), slots + 1)}
 
 
 def prepare(environment_file, release_sha, output):

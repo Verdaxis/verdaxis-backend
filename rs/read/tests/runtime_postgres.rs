@@ -11,7 +11,8 @@ fn config(variable: &str) -> Config {
         migration_revision: "kycg_20261014_staging".into(),
         database_url: std::env::var(variable).expect("explicit disposable test URL required"),
         bind: "127.0.0.1:0".parse().unwrap(),
-        pool_max: 9,
+        read_admission_slots: 16,
+        pool_max: 17,
         python_budget: 52,
         configured_max_connections: 100,
         prepared_budget: None,
@@ -219,7 +220,10 @@ async fn raw_role_pool_and_health_contract() {
     let pool = connect(&config)
         .await
         .unwrap_or_else(|_| panic!("safe app role refused"));
-    assert_eq!(pool.read.options().get_max_connections(), 8);
+    assert_eq!(
+        pool.read.options().get_max_connections(),
+        config.read_admission_slots
+    );
     assert_eq!(pool.health.options().get_max_connections(), 1);
     let health = pool.health.clone();
     let pool = pool.read;

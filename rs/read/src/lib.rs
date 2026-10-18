@@ -16,7 +16,7 @@ pub use market::visibility::{
 pub use market::windows::{
     normalize_window, window_display_label, window_sort_key, window_start_date,
 };
-pub use runtime::admission::{ADMISSION_SLOTS, run_admitted, selected_read, try_read};
+pub use runtime::admission::{DEFAULT_READ_ADMISSION_SLOTS, run_admitted, selected_read, try_read};
 pub use runtime::artifact::{
     ARTIFACT_VERSION, LIBC_MIN, verify_artifact_identity, verify_compiled_identity, version_json,
 };
@@ -64,16 +64,19 @@ impl AppState {
         policy: MarketPolicy,
     ) -> Result<Self, String> {
         validate_config(&config)?;
-        if pools.read.options().get_max_connections() != ADMISSION_SLOTS
+        if pools.read.options().get_max_connections() != config.read_admission_slots
             || pools.health.options().get_max_connections() != 1
         {
-            return Err("Phase 1 requires read/health pools of eight/one".into());
+            return Err("read pool must match admission slots; health pool must be one".into());
         }
+        let reads = std::sync::Arc::new(tokio::sync::Semaphore::new(
+            config.read_admission_slots as usize,
+        ));
         Ok(Self {
             config: std::sync::Arc::new(config),
             pools,
             policy: std::sync::Arc::new(policy),
-            reads: std::sync::Arc::new(tokio::sync::Semaphore::new(ADMISSION_SLOTS as usize)),
+            reads,
         })
     }
 }
@@ -111,9 +114,16 @@ pub struct Config {
     #[serde(default)]
     pub prepared_budget: Option<String>,
     pub bind: std::net::SocketAddr,
+    #[serde(default = "read_admission_default", alias = "READ_ADMISSION_SLOTS")]
+    pub read_admission_slots: u32,
+    /// Total Rust connections: read admission slots plus one readiness connection.
     pub pool_max: u32,
     pub python_budget: u32,
     pub configured_max_connections: u32,
+}
+
+fn read_admission_default() -> u32 {
+    DEFAULT_READ_ADMISSION_SLOTS
 }
 
 fn kyc_gate_default() -> bool {

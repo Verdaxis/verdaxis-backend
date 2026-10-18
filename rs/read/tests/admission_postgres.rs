@@ -18,7 +18,10 @@ async fn admitted_unexpected_and_database_failures_keep_distinct_types() {
     .await
     .unwrap_err();
     assert_eq!(error.kind, verdaxis_read::ApiErrorKind::Unexpected);
-    assert_eq!(state.reads.available_permits(), 8);
+    assert_eq!(
+        state.reads.available_permits(),
+        state.config.read_admission_slots as usize
+    );
     let error = run_admitted::<()>(&state, |connection| {
         Box::pin(async move {
             sqlx::query("SELECT 1 / 0")
@@ -31,7 +34,10 @@ async fn admitted_unexpected_and_database_failures_keep_distinct_types() {
     .await
     .unwrap_err();
     assert_eq!(error.kind, verdaxis_read::ApiErrorKind::Database);
-    assert_eq!(state.reads.available_permits(), 8);
+    assert_eq!(
+        state.reads.available_permits(),
+        state.config.read_admission_slots as usize
+    );
     let value = run_admitted(&state, |connection| {
         Box::pin(async move {
             sqlx::query_scalar::<_, i32>("SELECT 1")
@@ -58,7 +64,8 @@ async fn state() -> (Arc<AppState>, sqlx::PgPool, sqlx::PgPool) {
         migration_revision: "kycg_20261014_staging".into(),
         database_url: std::env::var("RUST_TEST_DATABASE_URL").expect("disposable URL required"),
         bind: "127.0.0.1:0".parse().unwrap(),
-        pool_max: 9,
+        read_admission_slots: 16,
+        pool_max: 17,
         python_budget: 52,
         configured_max_connections: 100,
         prepared_budget: None,
@@ -153,11 +160,11 @@ async fn cancelled_query_keeps_slot_until_drop() {
     );
     use tower::ServiceExt;
 
-    // Cycle 0 cancels eight clients while their queries are in flight; cycle 1
+    // Cycle 0 cancels configured clients while their queries are in flight; cycle 1
     // then proves the slots and pool connections are reusable.
     for cycle in 0..2 {
         let mut callers = Vec::new();
-        for _ in 0..8 {
+        for _ in 0..state.config.read_admission_slots {
             let app = app.clone();
             callers.push(tokio::spawn(async move {
                 app.oneshot(
@@ -172,9 +179,9 @@ async fn cancelled_query_keeps_slot_until_drop() {
         }
         {
             let observer = observer.clone();
-            wait_for("all eight reads to start", move || {
+            wait_for("all configured reads to start", move || {
                 let observer = observer.clone();
-                Box::pin(async move { active_reads(&observer).await == 8 })
+                Box::pin(async move { active_reads(&observer).await == 16 })
             })
             .await;
         }
@@ -187,8 +194,8 @@ async fn cancelled_query_keeps_slot_until_drop() {
         assert_eq!(rejected.retry_after, Some(1));
         assert_eq!(state.reads.available_permits(), 0);
         assert!(
-            connections(&observer).await <= 9,
-            "app role must never exceed the nine-connection budget"
+            connections(&observer).await <= 17,
+            "app role must never exceed the configured-connection budget"
         );
 
         if cycle == 0 {
@@ -220,8 +227,8 @@ async fn cancelled_query_keeps_slot_until_drop() {
                 let state = state.clone();
                 let observer = observer.clone();
                 Box::pin(async move {
-                    assert!(connections(&observer).await <= 9);
-                    state.reads.available_permits() == 8
+                    assert!(connections(&observer).await <= 17);
+                    state.reads.available_permits() == 16
                 })
             })
             .await;
@@ -256,9 +263,10 @@ async fn cancelled_error_closes_before_replacement_and_logs_stage() {
     let _guard = tracing::subscriber::set_default(subscriber);
     let (state, observer, read) = state().await;
     let release = Arc::new(tokio::sync::Notify::new());
-    let (started_tx, mut started_rx) = tokio::sync::mpsc::channel(8);
+    let (started_tx, mut started_rx) =
+        tokio::sync::mpsc::channel(state.config.read_admission_slots as usize);
     let mut callers = Vec::new();
-    for _ in 0..8 {
+    for _ in 0..state.config.read_admission_slots {
         let state = state.clone();
         let release = release.clone();
         let started = started_tx.clone();
@@ -285,7 +293,7 @@ async fn cancelled_error_closes_before_replacement_and_logs_stage() {
         }));
     }
     let mut old_pids = Vec::new();
-    for _ in 0..8 {
+    for _ in 0..state.config.read_admission_slots {
         old_pids.push(started_rx.recv().await.unwrap());
     }
     for caller in callers {
@@ -302,7 +310,7 @@ async fn cancelled_error_closes_before_replacement_and_logs_stage() {
     let ready = state.clone();
     wait_for("failed owners to close", move || {
         let ready = ready.clone();
-        Box::pin(async move { ready.reads.available_permits() == 8 })
+        Box::pin(async move { ready.reads.available_permits() == 16 })
     })
     .await;
     let pid: i32 = run_admitted(&state, |connection| {
@@ -316,8 +324,11 @@ async fn cancelled_error_closes_before_replacement_and_logs_stage() {
     .await
     .expect("fresh request after replacement");
     assert!(!old_pids.contains(&pid));
-    assert_eq!(state.reads.available_permits(), 8);
-    assert!(connections(&observer).await <= 9);
+    assert_eq!(
+        state.reads.available_permits(),
+        state.config.read_admission_slots as usize
+    );
+    assert!(connections(&observer).await <= 17);
     let logs = String::from_utf8(bytes.lock().unwrap().clone()).unwrap();
     assert!(!logs.contains("secret-sentinel"));
     let failures: Vec<serde_json::Value> = logs
@@ -346,7 +357,8 @@ async fn news_and_market_reads_share_capacity_in_both_directions() {
     ] {
         let (state, observer, read) = state().await;
         let release = Arc::new(tokio::sync::Notify::new());
-        let (started_tx, mut started_rx) = tokio::sync::mpsc::channel(8);
+        let (started_tx, mut started_rx) =
+            tokio::sync::mpsc::channel(state.config.read_admission_slots as usize);
         let held_state = state.clone();
         let held_release = release.clone();
         let held = axum::Router::new().route(
@@ -387,7 +399,7 @@ async fn news_and_market_reads_share_capacity_in_both_directions() {
             (*state).clone(),
         );
         let mut callers = Vec::new();
-        for _ in 0..8 {
+        for _ in 0..state.config.read_admission_slots {
             let app = app.clone();
             callers.push(tokio::spawn(async move {
                 app.oneshot(
@@ -400,7 +412,7 @@ async fn news_and_market_reads_share_capacity_in_both_directions() {
                 .unwrap()
             }));
         }
-        for _ in 0..8 {
+        for _ in 0..state.config.read_admission_slots {
             started_rx.recv().await.unwrap();
         }
         assert_eq!(state.reads.available_permits(), 0);
@@ -420,12 +432,15 @@ async fn news_and_market_reads_share_capacity_in_both_directions() {
             serde_json::from_slice::<serde_json::Value>(&body).unwrap(),
             serde_json::json!({"detail":"Public market data is temporarily busy; retry shortly."})
         );
-        assert!(connections(&observer).await <= 9);
+        assert!(connections(&observer).await <= 17);
         release.notify_waiters();
         for caller in callers {
             assert_eq!(caller.await.unwrap().status(), 200);
         }
-        assert_eq!(state.reads.available_permits(), 8);
+        assert_eq!(
+            state.reads.available_permits(),
+            state.config.read_admission_slots as usize
+        );
         read.close().await;
         observer.close().await;
     }

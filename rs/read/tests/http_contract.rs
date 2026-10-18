@@ -128,14 +128,15 @@ async fn router_health_methods_and_empty_routes() {
         migration_revision: "kycg_20261014_staging".into(),
         database_url: "postgres://fixture:fixture_pw@127.0.0.1:1/fixture_test".into(),
         bind: "127.0.0.1:0".parse().unwrap(),
-        pool_max: 9,
+        read_admission_slots: 16,
+        pool_max: 17,
         python_budget: 52,
         configured_max_connections: 100,
         prepared_budget: None,
     };
     let pools = verdaxis_read::runtime::db::Pools {
         read: sqlx::postgres::PgPoolOptions::new()
-            .max_connections(8)
+            .max_connections(config.read_admission_slots)
             .connect_lazy(&config.database_url)
             .unwrap(),
         health: sqlx::postgres::PgPoolOptions::new()
@@ -289,14 +290,15 @@ async fn post_orderbook_answers_python_auth_boundary() {
         migration_revision: "kycg_20261014_staging".into(),
         database_url: "postgres://fixture:fixture_pw@127.0.0.1:1/fixture_test".into(),
         bind: "127.0.0.1:0".parse().unwrap(),
-        pool_max: 9,
+        read_admission_slots: 16,
+        pool_max: 17,
         python_budget: 52,
         configured_max_connections: 100,
         prepared_budget: None,
     };
     let pools = verdaxis_read::runtime::db::Pools {
         read: sqlx::postgres::PgPoolOptions::new()
-            .max_connections(8)
+            .max_connections(config.read_admission_slots)
             .connect_lazy(&config.database_url)
             .unwrap(),
         health: sqlx::postgres::PgPoolOptions::new()
@@ -483,16 +485,8 @@ fn exact_limit_and_reset() {
 }
 
 #[test]
-fn admission_slots_match_python_workers() {
-    use verdaxis_read::ADMISSION_SLOTS;
-    use verdaxis_read::runtime::config::public_read_slots;
-    // Two per worker times four workers, from the attested release settings.
-    assert_eq!(public_read_slots(4, 2, 1), Some(ADMISSION_SLOTS));
-    assert_eq!(ADMISSION_SLOTS, 8);
-    assert_eq!(public_read_slots(4, 8, 1), Some(32));
-    assert_eq!(public_read_slots(4, 2, 2), Some(12));
-    assert_eq!(public_read_slots(u32::MAX, 2, 1), None);
-    assert_eq!(public_read_slots(4, 0, 0), None);
+fn admission_default_is_rust_owned() {
+    assert_eq!(verdaxis_read::DEFAULT_READ_ADMISSION_SLOTS, 16);
 }
 
 #[tokio::test]
@@ -735,14 +729,15 @@ async fn cors_wraps_saturated_admission() {
         migration_revision: "kycg_20261014_staging".into(),
         database_url: "postgres://fixture:fixture_pw@127.0.0.1:1/fixture_test".into(),
         bind: "127.0.0.1:0".parse().unwrap(),
-        pool_max: 9,
+        read_admission_slots: 16,
+        pool_max: 17,
         python_budget: 52,
         configured_max_connections: 100,
         prepared_budget: None,
     };
     let pools = verdaxis_read::runtime::db::Pools {
         read: sqlx::postgres::PgPoolOptions::new()
-            .max_connections(8)
+            .max_connections(config.read_admission_slots)
             .connect_lazy(&config.database_url)
             .unwrap(),
         health: sqlx::postgres::PgPoolOptions::new()
@@ -764,8 +759,8 @@ async fn cors_wraps_saturated_admission() {
         Router::new().route("/api/ports", get(|| async { "ports" })),
         state.clone(),
     );
-    // Occupy every public-read slot, as eight concurrent slow reads would.
-    let held: Vec<_> = (0..8)
+    // Occupy every public-read slot, as concurrent slow reads would.
+    let held: Vec<_> = (0..state.config.read_admission_slots)
         .map(|_| state.reads.clone().try_acquire_owned().unwrap())
         .collect();
     let response = app
