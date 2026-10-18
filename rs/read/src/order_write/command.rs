@@ -20,7 +20,7 @@ use serde_json::{Number, Value};
 use std::str::FromStr;
 use uuid::Uuid;
 
-use super::locks::{sha256_hex, SliceKey};
+use super::locks::{SliceKey, sha256_hex};
 
 /// The six commands a receipt may record. The listed string is the reviewed
 /// `market_command_results.operation` value.
