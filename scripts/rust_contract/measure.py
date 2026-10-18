@@ -241,7 +241,7 @@ class Measurement(runner.Runner):
         probe_max_rps: int = 5,
         measure_seconds: int = 600,
         keep: bool = False,
-        rust_only: bool = False,
+        rust_only: bool = True,
     ) -> None:
         super().__init__(
             "all", seed=True, keep=keep, seed_mode="corpus", mixed_caddy=True, release=True
@@ -757,8 +757,8 @@ def main(argv: list[str] | None = None) -> int:
         help="ramp the offered rate while neither stack returns busy/503, then measure",
     )
     args = parser.parse_args(argv)
-    if args.rust_only and args.adaptive:
-        parser.error("Rust-only mode uses explicit fixed windows, not the paired adaptive probe")
+    if args.adaptive:
+        parser.error("Decision 86 measures Rust only; use explicit fixed windows, not paired adaptive probes")
     import tomllib
 
     document = tomllib.loads(args.config.read_text())
@@ -773,7 +773,7 @@ def main(argv: list[str] | None = None) -> int:
         probe_seconds=int(document.get("probe_seconds", 30)),
         probe_max_rps=int(document.get("probe_max_rps", 5)),
         measure_seconds=int(document.get("measure_seconds", 600)),
-        rust_only=args.rust_only,
+        rust_only=True,
     )
     try:
         if args.adaptive:

@@ -161,3 +161,11 @@ def test_actual_frozen_r27_relative_boundary():
     for sample in evidence["repetitions"][0]["cells"]["rust"]["samples"]:
         if sample["route_id"] == "R27": sample["seconds"] += 0.000001
     assert verdict(evidence)["outcome"] == "no-go"
+
+
+def test_measurement_defaults_to_rust_only():
+    from scripts.rust_contract.measure import Measurement
+    from pathlib import Path
+    run = Measurement("small", output_dir=Path("work/test"), warmup_seconds=0,
+                      windows=[(3000, 10)], repetitions=1)
+    assert run.measurement_targets(1, 2) == [("rust", 2)]
