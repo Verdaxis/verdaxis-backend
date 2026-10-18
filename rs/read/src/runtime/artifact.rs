@@ -120,7 +120,7 @@ mod tests {
         assert_eq!(document["os"], std::env::consts::OS);
         assert_eq!(
             document["migration_revision_allowlist"],
-            serde_json::json!(["kycg_20261014_staging"])
+            serde_json::json!(["kycg_20261014_staging", "p0_20261016_union"])
         );
     }
 
