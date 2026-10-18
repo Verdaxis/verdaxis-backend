@@ -4,7 +4,8 @@
   "_task9_scenarios": "preferences: P01/P02 HTTP and committed-state differential",
   "_task9_end": "Phase 2 Task 9: end preferences scenario registration",
   "scenarios": [
-    {"id": "preferences", "group": "preferences", "kind": "http-state-contract", "actions": ["validation", "replace", "isolation", "unknown-namespace"]},
+    {"id": "preferences", "group": "preferences", "kind": "http-state-contract", "registration": "scripts.rust_contract.phase2_preferences", "actions": ["validation", "replace", "isolation", "unknown-namespace", "rollback", "no-replay", "same-user-race"]},
+    {"id": "runner-example", "group": "all", "kind": "registered-route-example", "registration": "scripts.rust_contract.phase2_example", "actions": ["committed", "rollback", "response-loss"], "route_qualification": false},
     {"id": "harness-smoke", "group": "all", "kind": "harness-only", "actions": ["read-state", "insert-feedback", "between-writes", "after-commit"]},
     {"id": "auth-state-matrix", "group": "all", "kind": "postgres-auth", "actions": ["shared-locks", "revocation", "cancellation"]},
     {"id": "http-boundaries", "group": "all", "kind": "http-contract", "actions": ["scope", "cors", "validation-order", "quota-thresholds"]},
