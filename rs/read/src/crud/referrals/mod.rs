@@ -13,7 +13,10 @@
 //! 23 owns the projection of `JWT_SECRET`, `JWT_SECRET_PREVIOUS`, `JWT_ISSUER`,
 //! `JWT_AUDIENCE` and `FRONTEND_URL`.
 
+mod code;
 mod reads;
+
+pub use code::{COLLISION_PROBES, Candidates, referral_code_response};
 
 use std::sync::Arc;
 
@@ -63,6 +66,7 @@ impl ReferralSettings {
 /// integration owner.
 pub fn routes(settings: ReferralSettings) -> Router<AppState> {
     Router::new()
+        .route("/api/referrals/my-code", axum::routing::post(my_code))
         .route(
             "/api/referrals/my-referrals",
             get(my_referrals).head(refuse_head),
@@ -143,6 +147,34 @@ fn admitted(
         chrono::Utc::now(),
     )
     .map_err(RequestError::Authentication)
+}
+
+/// R01: allocation commits before a successful response is returned.
+async fn my_code(
+    State(state): State<AppState>,
+    Extension(settings): Extension<ReferralSettings>,
+    headers: HeaderMap,
+) -> Result<Response, ReferralError> {
+    let access = admitted(&headers, &settings)?;
+    let request = AuthenticatedRequest::new(
+        "POST",
+        "/api/referrals/my-code",
+        crate::auth::scope::support_present(&headers),
+    );
+    let body = run_authenticated(&state, access, request, move |transaction| {
+        Box::pin(async move {
+            let actor = transaction.actor().clone();
+            code::allocate_my_code(
+                transaction.connection(),
+                &actor,
+                &settings.frontend_url,
+                &mut Candidates::new(),
+            )
+            .await
+        })
+    })
+    .await?;
+    Ok(axum::Json(body).into_response())
 }
 
 /// R02: GET `/api/referrals/my-referrals`.

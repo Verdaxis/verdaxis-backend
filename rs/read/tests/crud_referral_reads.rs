@@ -718,4 +718,68 @@ async fn postgres_referral_reads_and_public_resolution() {
 
     // No read changed the actor row.
     assert_eq!(snapshot(actor).await, before);
+
+    // R01 preserves existing codes and changes no unrelated account field.
+    let all_users = || async {
+        sqlx::query_scalar::<_, Value>(
+            "SELECT coalesce(jsonb_agg(to_jsonb(u) ORDER BY id), '[]') FROM users u",
+        )
+        .fetch_one(&admin)
+        .await
+        .unwrap()
+    };
+    let unchanged = all_users().await;
+    let (status, body) = send(&app, "POST", "/api/referrals/my-code", Some(&token), false).await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["referral_code"], "VDX-AAA111");
+    assert_eq!(all_users().await, unchanged);
+
+    sqlx::query("UPDATE users SET email_verified = false WHERE id = $1")
+        .bind(other_referrer)
+        .execute(&admin)
+        .await
+        .unwrap();
+    let unchanged = all_users().await;
+    let (status, body) = send(
+        &app,
+        "POST",
+        "/api/referrals/my-code",
+        Some(&access_token(other_referrer)),
+        false,
+    )
+    .await;
+    assert_eq!(status, 403, "{body}");
+    assert_eq!(all_users().await, unchanged);
+
+    let unchanged = all_users().await;
+    let new_token = access_token(referred_active);
+    let (first, second) = tokio::join!(
+        send(
+            &app,
+            "POST",
+            "/api/referrals/my-code",
+            Some(&new_token),
+            false
+        ),
+        send(
+            &app,
+            "POST",
+            "/api/referrals/my-code",
+            Some(&new_token),
+            false
+        ),
+    );
+    assert_eq!(first.0, 200, "{}", first.1);
+    assert_eq!(second.0, 200, "{}", second.1);
+    assert_eq!(first.1, second.1);
+    assert!(code_matches_python_format(
+        first.1["referral_code"].as_str().unwrap()
+    ));
+    let mut expected = unchanged;
+    for user in expected.as_array_mut().unwrap() {
+        if user["id"] == referred_active.to_string() {
+            user["referral_code"] = first.1["referral_code"].clone();
+        }
+    }
+    assert_eq!(all_users().await, expected);
 }
