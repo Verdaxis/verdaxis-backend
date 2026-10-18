@@ -597,6 +597,9 @@ CREATE EXTENSION IF NOT EXISTS postgis;
         """Write the machine-readable contract-gate report and echo it."""
         report = {
             "source_sha": self.sha,
+            "profile": os.environ.get("RUST_CONTRACT_PROFILE", "byte"),
+            "rules_sha256": os.environ.get("MEANING_RULES_SHA256"),
+            "kyc_execution_gate_enabled": self.gate,
             "group": self.group,
             "rust_target": self.rust_target,
             "mixed_caddy": self.mixed_caddy,
@@ -1015,7 +1018,17 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--phase2-measure", action="store_true")
     parser.add_argument("--phase2-order-write-benchmark", action="store_true")
     parser.add_argument("--release-binary", type=Path)
+    parser.add_argument("--profile", choices=("phase1-meaning-v1",))
+    parser.add_argument("--rules-sha256")
     args = parser.parse_args(argv)
+    if args.profile:
+        from scripts.rust_contract.phase2_meaning import PHASE1_RULES_SHA256
+        if args.rules_sha256 != PHASE1_RULES_SHA256:
+            parser.error("reviewed successor rules digest is required")
+        os.environ["RUST_CONTRACT_PROFILE"] = args.profile
+        os.environ["MEANING_RULES_SHA256"] = args.rules_sha256
+    elif args.rules_sha256:
+        parser.error("rules digest requires an explicit profile")
     if args.phase2:
         scenarios = json.loads((ROOT / "tests/rust_contract/phase2/scenarios.json").read_text())["scenarios"]
         if any(name not in {row["id"] for row in scenarios} for name in (args.phase2_scenario or [])):

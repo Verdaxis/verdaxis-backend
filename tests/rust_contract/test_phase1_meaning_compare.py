@@ -72,8 +72,8 @@ def test_news_ties_and_price_collections_preserve_full_item_multisets():
     assert differences(response([a, b]), response([b, a]), "P1-R05") == []
     assert differences(response([a, b]), response([a, a]), "P1-R05")
     assert differences(response([a, b]), response([{**b, "published_at": "2026-10-17T10:00:00Z"}, a]), "P1-R05")
-    prices = {"prices": [{"fuel_type": "a", "last_price": "750.00"}, {"fuel_type": "b", "last_price": "800"}]}
-    assert differences(response(prices), response({"prices": list(reversed(prices["prices"]))}), "P1-R12") == []
+    prices = {"summaries": [{"fuel_type": "a", "last_price": "750.00"}, {"fuel_type": "b", "last_price": "800"}]}
+    assert differences(response(prices), response({"summaries": list(reversed(prices["summaries"]))}), "P1-R12") == []
 
 
 @pytest.mark.parametrize("value", ["NaN", "Infinity", " 100 ", "not-a-number"])

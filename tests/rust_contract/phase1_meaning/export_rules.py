@@ -65,7 +65,7 @@ def export():
         rules.update(codec="bytes" if identity in {"R08", "R14"} else "json", ties=[])
         routes["P1-" + identity] = rules
     routes["P1-R05"].update(datetime_paths=["/*/fetched_at", "/*/published_at"], ties=[{"path": "", "key": "published_at"}])
-    routes["P1-R12"]["ties"] = [{"path": "/prices", "key": "unordered"}]
+    routes["P1-R12"]["ties"] = [{"path": "/summaries", "key": "unordered"}]
     routes["P1-R06"]["page_oracle"] = "decision85-v1:complete-python-relation-before-pagination"
     # The compatibility listing is an explicit dict projection, not a DTO.
     routes["P1-R27"].update(

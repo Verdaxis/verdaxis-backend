@@ -238,6 +238,8 @@ jobs:
         run: |
           venv/bin/python -m scripts.rust_contract.run_disposable \
             --group all --rust-target all --mixed-caddy --require-complete-ledger \
+            --profile phase1-meaning-v1 \
+            --rules-sha256 f68125dd74d59f0af49f120b839d8e3cdadef1deca8027f9d0f08fc8a0b99e0e \
             --report docs/rust-phase1/ci-contract.json
 
       - name: Check the SQLx query metadata

@@ -300,7 +300,7 @@
       "codec": "json",
       "ties": [
         {
-          "path": "/prices",
+          "path": "/summaries",
           "key": "unordered"
         }
       ]

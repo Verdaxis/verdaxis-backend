@@ -2,7 +2,7 @@
 
 Use only `compare.compare_responses` with explicit `profile="phase1-meaning-v1"`,
 a `P1-` route ID, and ledger digest
-`92578257e18b80120fbb87d27d3a4f3ae6e83bc84342ba33bd07aed20d38b80d`.
+`f68125dd74d59f0af49f120b839d8e3cdadef1deca8027f9d0f08fc8a0b99e0e`.
 The engine pins the same digest. Phase 2's v1 ledger and the no-profile byte path
 remain unchanged.
 

@@ -25,7 +25,7 @@ from scripts.rust_contract.compare import (
 RULES_PATH = Path(__file__).resolve().parents[2] / "tests/rust_contract/phase2/normalization.json"
 APPROVED_RULES_SHA256 = "08e9165617b804704a35fa46685f90ca310bd3f0985c61797ddad20c706dfee4"
 PHASE1_RULES_PATH = RULES_PATH.parents[1] / "phase1_meaning/normalization.json"
-PHASE1_RULES_SHA256 = "92578257e18b80120fbb87d27d3a4f3ae6e83bc84342ba33bd07aed20d38b80d"
+PHASE1_RULES_SHA256 = "f68125dd74d59f0af49f120b839d8e3cdadef1deca8027f9d0f08fc8a0b99e0e"
 PROFILES = {
     "phase2-meaning-v1": (RULES_PATH, APPROVED_RULES_SHA256),
     "phase1-meaning-v1": (PHASE1_RULES_PATH, PHASE1_RULES_SHA256),
@@ -228,7 +228,7 @@ def _response(response, rules, request_id, diagnostic_context=None):
     else:
         codec = rules.get("codec", "json")
         is_json = _is_json(kept.get("content-type", ""))
-        if codec == "bytes" and 200 <= status < 300 or not is_json and codec == "json-or-bytes":
+        if (rules.get("allow_transport_body") and (not raw or not is_json)) or codec == "bytes" and 200 <= status < 300 or not is_json and codec == "json-or-bytes":
             body = ("bytes", raw)
         else:
             if not is_json:
@@ -248,6 +248,8 @@ def compare_meaning(expected, actual, *, route_id, rules_sha256, rules_path=None
     from scripts.rust_contract.compare import compare
 
     rules = _load_rules(rules_path, rules_sha256, route_id, profile)
+    if profile == "phase1-meaning-v1":
+        rules = {**rules, "allow_transport_body": True}
     if request_id is not None and not re.fullmatch(r"[A-Za-z0-9._:-]{1,36}", request_id):
         raise ContractError("invalid harness-supplied request ID")
     left = _response(expected, rules, request_id, diagnostic_context)
