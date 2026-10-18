@@ -1,6 +1,6 @@
 use verdaxis_read::runtime::db::log_session_timezone;
 use verdaxis_read::{
-    check_revision, compiled_sha, connection_budget, validate_budget, validate_config, Config,
+    Config, check_revision, compiled_sha, connection_budget, validate_budget, validate_config,
 };
 
 fn staging() -> Config {
@@ -183,11 +183,13 @@ fn rust_admission_is_independent_of_python_capacity() {
             "rust_pool": slots + 1, "python_budget": 52, "total": 53 + slots,
             "configured_max_connections": 100
         });
-        assert!(verdaxis_read::runtime::config::validate_prepared_budget(
-            &config,
-            &artifact.to_string()
-        )
-        .is_ok());
+        assert!(
+            verdaxis_read::runtime::config::validate_prepared_budget(
+                &config,
+                &artifact.to_string()
+            )
+            .is_ok()
+        );
     }
 }
 
@@ -277,11 +279,10 @@ fn prepared_budget_is_bound_to_runtime() {
         "services": 2, "workers": 4, "pool": 2, "overflow": 1, "reserve": 20,
         "rust_pool": 17, "python_budget": 52, "total": 69, "configured_max_connections": 100
     });
-    assert!(verdaxis_read::runtime::config::validate_prepared_budget(
-        &config,
-        &artifact.to_string()
-    )
-    .is_ok());
+    assert!(
+        verdaxis_read::runtime::config::validate_prepared_budget(&config, &artifact.to_string())
+            .is_ok()
+    );
     for (key, value) in [
         ("total", serde_json::json!(55)),
         ("python_budget", serde_json::json!(46)),
@@ -290,11 +291,13 @@ fn prepared_budget_is_bound_to_runtime() {
     ] {
         let original = artifact[key].clone();
         artifact[key] = value;
-        assert!(verdaxis_read::runtime::config::validate_prepared_budget(
-            &config,
-            &artifact.to_string()
-        )
-        .is_err());
+        assert!(
+            verdaxis_read::runtime::config::validate_prepared_budget(
+                &config,
+                &artifact.to_string()
+            )
+            .is_err()
+        );
         artifact[key] = original;
     }
 }
