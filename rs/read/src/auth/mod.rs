@@ -1,6 +1,8 @@
 //! Verification only. Session issuance and authentication-state writes stay in Python.
 mod actor;
 mod claims;
+pub mod limits;
+pub mod scope;
 mod token;
 mod transaction;
 
