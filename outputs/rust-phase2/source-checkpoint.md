@@ -43,6 +43,29 @@ Keep watchlist visibility and malformed stored PIN-window acceptance blocked unt
 - Manifest SHA-256: `2cfb207e7049e8d872cd7361d304aca5d80dd21f72fb1d37c0b6a9619442574d`.
 - Additional files beyond the task list: `phase2/export_inventory.py` is the reproducible HTTP/schema export helper; `ARCHITECTURE.md` records its relationship as required by project instructions. No application behavior changed.
 
+## Task 2 — explicit comparator profile
+
+- Entry point: `scripts.rust_contract.compare.compare_responses`. Callers supply raw status, headers and body bytes, explicit profile `phase2-meaning-v1`, stable route ID, and the reviewed rule-ledger digest. No profile keeps the Phase 1 byte gate. Existing recording behavior is unchanged.
+- Private implementation: `scripts/rust_contract/phase2_meaning.py`. This new file keeps most code out of the shared comparator. `tests/rust_contract/phase2/README.md` documents the interface and rule boundary.
+- Normalization ledger SHA-256: `08e9165617b804704a35fa46685f90ca310bd3f0985c61797ddad20c706dfee4`. A caller's matching digest alone cannot authorize an unreviewed ledger: the implementation pins it too.
+- RED: exit 1; 40 failed for missing explicit profile dispatch, 17 existing tests passed. Log: `work/rust-phase2/task2-red.log`.
+- Initial GREEN attempt: exit 1; 3 failed, 54 passed. Two test inputs lacked required timestamp/JSON content type; one exposed the need to report cross-key movement as a contract difference rather than invalid evidence. These were corrected without weakening the required assertions. Log: `work/rust-phase2/task2-green.log`.
+- GREEN: exit 0; 57 passed. Log: `work/rust-phase2/task2-green-fixed.log`.
+- Final expanded regression gate: exit 0; 114 passed, 11 existing Pydantic warnings. Includes inventory, Phase 2 comparison, default Phase 1 comparison, and existing news/trade-tape/price-summary tie tests. Rust format exit 0; identity-pinned Clippy exit 0. Log: `work/rust-phase2/task2-final.log`.
+- Every host call used the measurement wait, shared lock (`-w 7200`) and `timeout --kill-after=60 3600`. No project code ran on the Mac. No call was interrupted, and all calls finished.
+
+### Cases that prevent hidden differences
+
+Exact numeric values preserve bool/number separation and large-number precision. Decimal normalization is restricted to the two alert response paths, with string wire types retained. Typed datetime paths compare exact microseconds; arbitrary preference/notification/event JSON and opaque cursors remain exact. Null versus absence, private `_email_` fields, error messages/locations/input values, array order, status, header values/absence, content length and supplied request-ID round trips are tested.
+
+Tie tests retain every item field, rank, multiplicity and page member. They fail dropped, duplicated, changed, cross-key or substituted members; even matching incorrectly sorted arrays fail. Only W01 entries are fully unordered. Nested slice/PIN ties normalize only at their exact paths. Invalid UTF-8, duplicate keys, nonfinite JSON, invalid typed strings, unknown profiles/routes, wrong digests and widened paths are invalid evidence.
+
+### Review and limits
+
+One comparator authority, one opt-in profile, one pinned ledger. No new harness lifecycle, runtime service, schema, migration, database role or application feature. Shared edits are the small `compare.py` dispatch, the Phase 1 separation regression and required architecture documentation. The gate lane's report/measure/Rust files and the speed lane's SQL/runtime files were not changed.
+
+This is comparator and inventory unit evidence only. No twin-database state, token acceptance, full CRUD middleware matrix, cursor execution, performance, signed artifact, staging or cutover result is claimed. The evidence manifest is still `not-run`. Task 3 and all later tasks remain unstarted.
+
 ## Resume point
 
-Finish Task 1 precommit checks and commit only its inventory/exporter/test/checkpoint files. Then run Task 2's comparator RED/GREEN cycle and commit it separately. Do not begin the evidence gate, runtime ports, or Task 3.
+Task 1 commit: `95d31f6f` (`test: pin Phase 2 CRUD contract inventory`). Task 2 is committed separately as `feat: add explicit Phase 2 meaning comparator`. Commit attribution was updated to the user's requested trailer; tested file bytes did not change. Stop here. The PM must reconcile the Phase 1 gate lane before authorizing Task 3. After the approved Python watchlist fixes merge, regenerate the pinned oracle and review changed digests before accepting the Rust port.

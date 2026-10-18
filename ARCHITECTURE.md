@@ -205,6 +205,11 @@ scenario coverage and separates disposable-artifact qualification from
 production-cutover acceptance. It contains no run results or cutover verdict.
 See `outputs/rust-phase2/source-checkpoint.md` for the oracle identity and checks.
 Authentication issuance, market writers, SSE and dispatch remain Python-owned.
+`compare.py::compare_responses` is the raw-response profile boundary. Its explicit
+`phase2-meaning-v1` branch delegates to private `phase2_meaning.py`, with a
+SHA-256-pinned `normalization.json` ledger. It uses exact tagged JSON values,
+schema-local decimal/timestamp rules and complete-item multisets inside approved
+ties only. The Phase 1 default and existing recording comparator stay unchanged.
 
 ## File Map
 
