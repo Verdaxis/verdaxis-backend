@@ -181,6 +181,16 @@ async fn postgres_authentication_ownership_and_revocation() {
         )
         .await
     });
+    // Observe PostgreSQL waiting on the current-user lock before releasing
+    // Python; spawning a future alone would not prove the second lock order.
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let waiting: i64 = sqlx::query_scalar("SELECT count(*) FROM pg_stat_activity WHERE usename='verdaxis_phase2_app_test' AND wait_event_type='Lock' AND query LIKE '%FROM users WHERE id=$1 FOR UPDATE%'")
+                .fetch_one(&admin).await.unwrap();
+            if waiting > 0 { break; }
+            tokio::task::yield_now().await;
+        }
+    }).await.unwrap();
     python
         .stdin
         .as_mut()
