@@ -43,7 +43,7 @@ async fn explicit_timezone_applies_to_every_connection_and_checks_database_defau
         let pools = connect(&config).await.unwrap();
         reference_boundaries(&mut owner, &config, &pools, zone).await;
         let mut held = Vec::new();
-        for _ in 0..8 {
+        for _ in 0..config.read_admission_slots {
             let mut connection = pools.read.acquire().await.unwrap();
             let actual: String = sqlx::query_scalar("SHOW TimeZone")
                 .fetch_one(&mut *connection)
