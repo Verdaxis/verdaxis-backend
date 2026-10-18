@@ -539,7 +539,7 @@ async fn postgres_referral_reads_and_public_resolution() {
         },
     )
     .unwrap();
-    let settings = ReferralSettings::new(
+    let mut settings = ReferralSettings::new(
         verdaxis_read::auth::VerificationSettings::new(
             SECRET.into(),
             None,
@@ -549,8 +549,8 @@ async fn postgres_referral_reads_and_public_resolution() {
         "https://app.verdaxis.test",
     );
     let app = verdaxis_read::runtime::http::router_with(
-        verdaxis_read::crud::referrals::routes(settings),
-        state,
+        verdaxis_read::crud::referrals::routes(settings.clone()),
+        state.clone(),
     );
 
     let token = access_token(actor);
@@ -782,4 +782,85 @@ async fn postgres_referral_reads_and_public_resolution() {
         }
     }
     assert_eq!(all_users().await, expected);
+
+    // Invite provider failure retains exactly the code committed before send.
+    async fn invite_request(app: &axum::Router, token: &str, email: &str) -> (u16, Value) {
+        let response = app
+            .clone()
+            .oneshot(
+                axum::http::Request::builder()
+                    .method("POST")
+                    .uri("/api/referrals/invite")
+                    .header("authorization", format!("Bearer {token}"))
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(json!({"email":email}).to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let status = response.status().as_u16();
+        let bytes = axum::body::to_bytes(response.into_body(), 1 << 20)
+            .await
+            .unwrap();
+        (status, serde_json::from_slice(&bytes).unwrap())
+    }
+    let invite_actor = other_referred;
+    let before = all_users().await;
+    let (status, body) = invite_request(&app, &access_token(invite_actor), "new@example.com").await;
+    assert_eq!(status, 502, "{body}");
+    let after = all_users().await;
+    let mut expected = before;
+    for user in expected.as_array_mut().unwrap() {
+        if user["id"] == invite_actor.to_string() {
+            let stored = after
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|row| row["id"] == user["id"])
+                .unwrap();
+            assert!(code_matches_python_format(
+                stored["referral_code"].as_str().unwrap()
+            ));
+            user["referral_code"] = stored["referral_code"].clone();
+        }
+    }
+    assert_eq!(after, expected);
+
+    // Repeated accepted invites are separate attempts; use only a local stub.
+    let attempts = std::sync::Arc::new(std::sync::Mutex::new(Vec::<Value>::new()));
+    let ledger = attempts.clone();
+    let stub = axum::Router::new().route(
+        "/emails",
+        axum::routing::post(move |axum::Json(payload): axum::Json<Value>| {
+            let ledger = ledger.clone();
+            async move {
+                ledger.lock().unwrap().push(payload);
+                axum::http::StatusCode::CREATED
+            }
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        axum::serve(listener, stub).await.unwrap();
+    });
+    settings.mail = verdaxis_read::crud::referrals::invite::MailClient::loopback(
+        format!("http://{address}/emails"),
+        "test-key".into(),
+    )
+    .unwrap();
+    settings.email_from = "Verdaxis <sender@example.com>".into();
+    let sending = verdaxis_read::runtime::http::router_with(
+        verdaxis_read::crud::referrals::routes(settings),
+        state,
+    );
+    for _ in 0..2 {
+        let (status, body) =
+            invite_request(&sending, &access_token(invite_actor), "new@example.com").await;
+        assert_eq!(status, 200, "{body}");
+    }
+    assert_eq!(attempts.lock().unwrap().len(), 2);
+    assert_eq!(all_users().await, after);
+    server.abort();
+    let _ = server.await;
 }

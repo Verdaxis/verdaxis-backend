@@ -35,10 +35,33 @@ R01 is registered with the referral router. Allocation holds the shared authenti
 - Migrated PostgreSQL component: exit 0, 10 passed; includes existing/unverified users, same-user concurrent allocation and exact whole-users-row comparison.
 - Wrapper: CALL_EXIT=0 (`work/rust-phase2/task18-green.log`).
 - Twin-database state/response comparison, collision barriers, ten-collision schedules and mixed writer: pending the runner lane. Definitions are in `tests/rust_contract/phase2/referral-code.json`.
-- CI: pending this task's push.
+- CI at 14961e1a: exit 0; test, postgres-phase0, postgres-analytics, offline and contract passed; publish skipped.
 
 Draft PR: https://github.com/Verdaxis/verdaxis-backend/pull/102.
 
-## Resume
+## Task 19 — invite delivery component
 
-Commit/push Task 17 and obtain CI results. Then complete Task 18 code allocation with focused tests, followed by Task 19 invite delivery. Task 18 preliminary source and vectors are not Task 17 evidence. No real test email is authorized. Shared runner race, mixed-writer and captured-send gates remain pending that lane. Runtime settings, environment projection, new dependencies and comparator/CI changes require the PM boundary stated in the brief.
+R04 validates, authenticates, normalizes the address and consumes the shared endpoint quota before business checks. Existing recipients get the generic response without code allocation or delivery. Missing code allocation commits before the provider request, so a refused send retains only that code. Repeated accepted requests send again. Provider requests are bounded to ten seconds, accept only 200/201, ignore response bodies and log no addresses or provider content. Source HTML is held in `invite.html`; substitutions are escaped in one pass. R04 trims the frontend slash and quotes the code, unlike R01.
+
+Already-locked dependencies `reqwest=0.13.5` and `idna=1.1.0` were reported before declaration. The lockfile adds only those direct dependency edges, no new package. Mail is disabled by default; tests never obtain a production key.
+
+| Gate | Exit | Result |
+| --- | --- | --- |
+| Focused RED | 101 | Missing invite module |
+| First component test | 0 | 3 passed |
+| First lint | 101 | Collapsible conditional; corrected |
+| Final focused component | 0 | 3 passed, including local status matrix and disabled transport |
+| Final Clippy | 0 | Warnings denied |
+| Migrated PostgreSQL component | 0 | 10 passed; includes failed-send retained code and two captured successful sends |
+| Final wrapper | 0 | CALL_EXIT=0 in task19-green2.log |
+| CI | pending | Recorded after push |
+
+## Pending integration / resume
+
+These components are not a cutover qualification. Shared runner response/state differentials, deterministic collision barriers, mixed-writer schedules, injected transaction faults, complete EmailStr diagnostics/Unicode normalization vectors, timeout transport vectors and full captured payload comparison remain pending. Scenario data is in `tests/rust_contract/phase2/referral-{reads,code,invite}.json`; it must be adapted to the runner lane's final schema rather than silently treated as executable coverage.
+
+Needed runtime projection (not implemented): construct `ReferralSettings` with the shared `VerificationSettings` and raw `FRONTEND_URL`; inject `EMAIL_FROM`, `MailClient::production(RESEND_API_KEY)` and the composition's shared `SharedLimits`; merge `routes::referral_routes(settings)`. No Config/AppState, secret/environment, deploy, comparator or CI workflow changes were made. Public HEAD refusal is local to this router. EmailStr compatibility is not complete: the current address validator covers basic local/domain and pretty-address cases, but its generic invalid-address diagnostic is not Python's detailed error envelope; this must be resolved before qualification. Cancellation after pre-send commit is also not yet tested against Python. Keep referrals on Python until those gates pass.
+
+No real test email, measurement or live deployment ran. The repository's optional commit security hook returned HTTP 404 for Task 17, so that review did not run; details remain in the private local security log.
+
+After CI, wait for the PM runner handoff. Do not implement shared runner features in this lane.

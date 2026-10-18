@@ -14,6 +14,7 @@
 //! `JWT_AUDIENCE` and `FRONTEND_URL`.
 
 mod code;
+pub mod invite;
 mod reads;
 
 pub use code::{COLLISION_PROBES, Candidates, referral_code_response};
@@ -48,6 +49,10 @@ pub use reads::{
 pub struct ReferralSettings {
     pub verification: Arc<VerificationSettings>,
     pub frontend_url: Arc<str>,
+    pub mail: invite::MailClient,
+    pub email_from: Arc<str>,
+    pub limits: crate::auth::limits::SharedLimits,
+    started: std::time::Instant,
 }
 
 impl ReferralSettings {
@@ -55,6 +60,10 @@ impl ReferralSettings {
         Self {
             verification: Arc::new(verification),
             frontend_url: frontend_url.into(),
+            mail: invite::MailClient::disabled(),
+            email_from: "".into(),
+            limits: crate::auth::limits::SharedLimits::default(),
+            started: std::time::Instant::now(),
         }
     }
 }
@@ -67,6 +76,7 @@ impl ReferralSettings {
 pub fn routes(settings: ReferralSettings) -> Router<AppState> {
     Router::new()
         .route("/api/referrals/my-code", axum::routing::post(my_code))
+        .route("/api/referrals/invite", axum::routing::post(send_invite))
         .route(
             "/api/referrals/my-referrals",
             get(my_referrals).head(refuse_head),
@@ -175,6 +185,101 @@ async fn my_code(
     })
     .await?;
     Ok(axum::Json(body).into_response())
+}
+
+/// R04: code allocation commits before provider delivery. Provider failure must
+/// not roll that code back, and an existing recipient never causes allocation.
+async fn send_invite(
+    State(state): State<AppState>,
+    Extension(settings): Extension<ReferralSettings>,
+    headers: HeaderMap,
+    raw: axum::body::Bytes,
+) -> Result<Response, ReferralError> {
+    use crate::auth::request::{RequestAdmission, parse_json_body, validate_and_admit};
+    let body = parse_json_body(&raw)?;
+    let access = admitted(&headers, &settings)?;
+    let request = AuthenticatedRequest::new(
+        "POST",
+        "/api/referrals/invite",
+        crate::auth::scope::support_present(&headers),
+    );
+    let admission = RequestAdmission {
+        client: crate::runtime::http::client_ip(
+            None,
+            headers.get("x-forwarded-for").and_then(|v| v.to_str().ok()),
+        ),
+        path: "/api/referrals/invite".into(),
+        now_seconds: settings.started.elapsed().as_secs(),
+        limits: settings.limits.clone(),
+    };
+    let frontend = settings.frontend_url.clone();
+    let sender = settings.email_from.clone();
+    let prepared = run_authenticated(&state, access, request, move |transaction| {
+        Box::pin(async move {
+            let recipient =
+                validate_and_admit(body, &admission, |body| invite::normalize_email(&body))?;
+            let actor = transaction.actor().clone();
+            let (email, first, last): (String, Option<String>, Option<String>) =
+                sqlx::query_as("SELECT email,first_name,last_name FROM users WHERE id=$1")
+                    .bind(actor.id)
+                    .fetch_one(&mut *transaction.connection())
+                    .await
+                    .map_err(|_| ApiError::database())?;
+            if !actor.email_verified {
+                return Err(invite_refusal(
+                    403,
+                    "Email must be verified to send invites",
+                ));
+            }
+            if email == recipient {
+                return Err(invite_refusal(400, "Cannot invite yourself"));
+            }
+            let existing: bool =
+                sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM users WHERE email=$1)")
+                    .bind(&recipient)
+                    .fetch_one(&mut *transaction.connection())
+                    .await
+                    .map_err(|_| ApiError::database())?;
+            if existing {
+                return Ok((recipient, None));
+            }
+            let response = code::allocate_my_code(
+                transaction.connection(),
+                &actor,
+                &frontend,
+                &mut Candidates::new(),
+            )
+            .await?;
+            let code = response["referral_code"].as_str().expect("code response");
+            let payload = invite::render_invite(
+                &sender,
+                &recipient,
+                &display_name(first.as_deref(), last.as_deref()),
+                code,
+                &frontend,
+            );
+            Ok((recipient, Some(payload)))
+        })
+    })
+    .await?;
+    if let Some(payload) = prepared.1
+        && !settings.mail.send(&payload).await
+    {
+        return Err(invite_refusal(502, "Failed to send invite email").into());
+    }
+    Ok(
+        axum::Json(serde_json::json!({"message":"Invitation processed","email":prepared.0}))
+            .into_response(),
+    )
+}
+
+fn invite_refusal(status: u16, message: &str) -> ApiError {
+    ApiError {
+        status: axum::http::StatusCode::from_u16(status).expect("static status"),
+        detail: serde_json::json!(message),
+        retry_after: None,
+        kind: crate::ApiErrorKind::Expected,
+    }
 }
 
 /// R02: GET `/api/referrals/my-referrals`.
