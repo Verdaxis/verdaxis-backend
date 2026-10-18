@@ -1,0 +1,5 @@
+{
+  "python_baseline_path": "tests/rust_contract/python-baseline-small.json",
+  "python_baseline_sha256": "3c74f7960add211757198149241f1633ef90a165ec89a902ac40bf79c1f8ea5e",
+  "rust_successful_samples_per_route": 1000
+}
