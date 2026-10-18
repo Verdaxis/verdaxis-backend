@@ -271,6 +271,7 @@
 - **Trigger:** A review run inherited the test suite's implicit localhost API target and created a pending production registration while deploy identity, backup producer wiring, and retirement proof were still only partially integrated.
 - **Rule:** Integration and E2E tests must require an explicit disposable opt-in, loopback URL, non-live port, and matching disposable-server attestation; operational remediations must test the complete producer/deploy/cutover wiring rather than isolated consumers alone.
 - **Why:** Safe-looking defaults and source-only helpers can cross a live boundary or leave critical invariants unenforced when the caller, producer, and retirement path are not mechanically gated end to end.
+- **Runner correction (2026-10-19):** Check generated targets against the real runtime validator, not only synthetic transports. All Rust test database names, including route templates and mixed cells, must end in `_test` and use the validator's lowercase grammar. Test shared registry selection with isolated empty and populated registries; never assume the integration registry stays empty as route lanes register.
 
 ### Exercise Process and Promotion Boundaries End to End
 - **Date:** 2026-07-20

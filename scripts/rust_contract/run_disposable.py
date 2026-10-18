@@ -781,7 +781,24 @@ CREATE EXTENSION IF NOT EXISTS postgis;
         from scripts.rust_contract.phase2_state import compare_state, validate_cells
 
         scenarios = json.loads((ROOT / "tests/rust_contract/phase2/scenarios.json").read_text())["scenarios"]
-        selected = args.phase2_scenario or ["harness-smoke"]
+        from scripts.rust_contract.phase2_scenarios import (
+            REGISTRY,
+            ScenarioError,
+            select_scenarios,
+        )
+
+        if args.phase2_measure or args.phase2_order_write_benchmark:
+            raise RunnerError("Phase 2 measurement and benchmark routes are not implemented")
+        selected = args.phase2_scenario or []
+        if not selected or any(name in REGISTRY for name in selected):
+            from scripts.rust_contract.phase2_routes import run_registered
+
+            try:
+                registered = select_scenarios(args.phase2_group, selected or None)
+                run_registered(self, args, registered)
+            except ScenarioError as error:
+                raise RunnerError(str(error)) from error
+            return
         known = {row["id"]: row for row in scenarios}
         if any(name not in known for name in selected):
             raise RunnerError("unknown Phase 2 scenario")
@@ -959,7 +976,7 @@ CREATE EXTENSION IF NOT EXISTS postgis;
                 "route_qualification": False, "databases": list(DATABASES), "seed_sha256": digest(initial[0]), "acl_sha256": acl,
                 "actions": actions, "dispatchers": "not-started"}, indent=2) + "\n")
 
-    def cleanup(self) -> None:
+    def stop_children(self) -> None:
         for child in self.children:
             child.terminate()
         for child in self.children:
@@ -969,6 +986,9 @@ CREATE EXTENSION IF NOT EXISTS postgis;
                 child.kill()
                 child.wait()
         self.children = []
+
+    def cleanup(self) -> None:
+        self.stop_children()
         if self.container and not self.keep:
             # -v removes the anonymous data volume; a forced remove skips the --rm cleanup.
             owned = self.container
@@ -1034,7 +1054,9 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.phase2:
         scenarios = json.loads((ROOT / "tests/rust_contract/phase2/scenarios.json").read_text())["scenarios"]
-        if any(name not in {row["id"] for row in scenarios} for name in (args.phase2_scenario or [])):
+        from scripts.rust_contract.phase2_scenarios import REGISTRY
+        known = {row["id"] for row in scenarios} | REGISTRY.keys()
+        if any(name not in known for name in (args.phase2_scenario or [])):
             parser.error("unknown Phase 2 scenario")
     if args.mixed_caddy and args.group != "all":
         parser.error("--mixed-caddy requires --group all")
