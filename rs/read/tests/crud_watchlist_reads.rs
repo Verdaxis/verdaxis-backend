@@ -55,8 +55,13 @@ fn hidden_pins_and_old_best_price_events_do_not_change_counts_or_latest_time() {
         },
     ];
     let mut events = events;
-    events.push(Event {target_id:Uuid::from_u128(1),event_type:"SLICE_BEST_PRICE_MOVED".into(),
-        order_id:Some(Uuid::from_u128(1002)),is_read:false,created_at:cutoff+chrono::Duration::days(1)});
+    events.push(Event {
+        target_id: Uuid::from_u128(1),
+        event_type: "SLICE_BEST_PRICE_MOVED".into(),
+        order_id: Some(Uuid::from_u128(1002)),
+        is_read: false,
+        created_at: cutoff + chrono::Duration::days(1),
+    });
     let visible = std::collections::HashSet::from([Uuid::from_u128(1002)]);
     let metrics = Metrics::from_visible_events(&targets, &events, &visible, cutoff);
     let targets = targets
