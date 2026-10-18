@@ -25,6 +25,22 @@ from scripts.rust_contract import run_disposable as runner
 
 ROTTERDAM = "1379d36c-1ca9-55b7-9c0d-5235a0ba1f36"
 
+# The measured MCP tools (POST /mcp with the corpus Accept set).
+TOOL_BODIES = {
+    "get_market_slice": {"jsonrpc": "2.0", "id": 8, "method": "tools/call",
+        "params": {"name": "get_market_slice", "arguments": {
+            "market_product": "BIO_METHANOL", "delivery_point": "Singapore",
+            "availability_window": "SPOT"}}},
+    "list_markets": {"jsonrpc": "2.0", "id": 7, "method": "tools/call",
+        "params": {"name": "list_markets", "arguments": {}}},
+    "plan_voyage_fuel": {"jsonrpc": "2.0", "id": 15, "method": "tools/call",
+        "params": {"name": "plan_voyage_fuel", "arguments": {"request": {
+            "vessel": {"speed_knots": "14", "sea_consumption_mt_per_day": "20",
+                       "compatible_fuels": ["VLSFO"]},
+            "legs": [{"from_port": "Singapore", "to_port": "Rotterdam"}],
+            "start_date": "2026-10-15"}}}},
+}
+
 PATHS = {
     "R06": "/api/trade-tape",
     "R09": "/api/curves/forward/table",
@@ -38,7 +54,30 @@ PATHS = {
     "R24": "/api/orderbook/regions",
     "R25": "/api/orderbook/fuel-types",
     "R27": "/api/listings?limit=100",
+    # The MCP tools POST /mcp; measure() uses TOOL_BODIES for these ids.
+    "get_market_slice": "/mcp",
+    "list_markets": "/mcp",
+    "plan_voyage_fuel": "/mcp",
 }
+
+
+
+def send_case(client: "httpx.Client", url: str, name: str, path: str) -> "httpx.Response":
+    """Send one measured case exactly as the corpus recorder sends it.
+
+    An MCP tool is a POST /mcp with the corpus Accept set. A GET /mcp opens the
+    server's event stream, which never ends and blocks the caller past every
+    timeout — the warm-up once did exactly that and held the host lock for
+    46 minutes. Both the warm-up and the sample loop call this one helper, so
+    the two cannot drift apart again.
+    """
+    if name in TOOL_BODIES:
+        return client.post(
+            url + "/mcp",
+            json=TOOL_BODIES[name],
+            headers={"accept": "application/json, text/event-stream"},
+        )
+    return client.get(url + path)
 
 
 class Diagnose(runner.Runner):
@@ -123,14 +162,14 @@ class Diagnose(runner.Runner):
         cells = {t: {"samples": [], "statements": [], "plans": []} for t, _ in targets}
         with httpx.Client(timeout=180, trust_env=False) as client:
             for target, url in targets:
-                response = client.get(url + path)
+                response = send_case(client, url, name, path)
                 response.raise_for_status()
             for index in range(self.samples):
                 for target, url in targets[::1 if index % 2 == 0 else -1]:
                     self.reset_stats()
                     with httpx.Client(timeout=180, trust_env=False) as client:
                         started = time.perf_counter()
-                        response = client.get(url + path)
+                        response = send_case(client, url, name, path)
                         elapsed = time.perf_counter() - started
                     response.raise_for_status()
                     cell = cells[target]
