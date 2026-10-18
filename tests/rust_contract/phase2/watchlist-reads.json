@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "scope": "watchlist-read-acceptance",
+  "routes": ["W01", "W04"],
+  "required_cases": ["owner-empty", "foreign-detail", "legacy-entries", "slices-and-pins", "hidden-order-pin", "hidden-order-event", "pre-cutoff-best-price-event", "at-cutoff-best-price-event", "totals-before-truncation", "both-kyc-states", "no-write-delta"],
+  "approved_differences": ["PD2", "PD3", "PD5"],
+  "cutoff": "required-explicit-aware-instant-no-default",
+  "qualified": false
+}
