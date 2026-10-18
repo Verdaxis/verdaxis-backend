@@ -220,6 +220,17 @@ Task 6 must load account state under the shared transaction/user-row lock.
 in-process HTTP tests. See `docs/rust-phase2-task5.md` for scope, source findings
 and every gate result.
 
+### Frozen Phase 1 measurement reference
+
+Decisions 86/87 freeze the Python small-workload performance reference in
+`tests/rust_contract/python-baseline-small.json`, pinned by `gate-config.json`.
+`scripts/rust_contract/baseline.py` validates its bytes and PM attestation;
+`frozen_gate.py` and `rs/contract/src/frozen_gate.rs` enforce the Rust-only
+identity, successful-sample floor, frozen p95 thresholds and error-rate rule.
+`measure.py --rust-only` starts no Python service and records baseline, manifest,
+source and harness identities. Python remains the differential correctness oracle
+at both sizes. Historical paired evidence cannot satisfy the new Rust-only gate.
+
 ## File Map
 
 ```

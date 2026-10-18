@@ -1,0 +1,272 @@
+{
+  "version": 1,
+  "size": "small",
+  "identity_attested_by": "PM, tracker decision 87",
+  "source_file": "/home/verdaxis-test/runs/rust-phase1-build/work/rust-phase1/measure-small.json",
+  "source_file_sha256": "e78ec3cb8b675b14313018f5d7522192dee1e28d0606014a33a05cbd59965d74",
+  "source_sha": "738fe0e85d85d7667263e8950fe4de4c05831e38",
+  "harness_sha": "738fe0e85d85d7667263e8950fe4de4c05831e38",
+  "manifest_digest": "85d6617ffc7361c05446e4e485c5b00112fc88b6f76671e6c8ca552880aca215",
+  "manifest_digest_attestation": "computed with workload.manifest_digest at the attested harness SHA; source run has no digest field",
+  "measurement_date": "2026-10-18",
+  "measurement_end_approx": "14:24 SGT",
+  "offered_windows": [
+    {
+      "seconds": 15,
+      "rps": 1.0
+    },
+    {
+      "seconds": 900,
+      "rps": 5.0
+    }
+  ],
+  "known_limit": "below the 1,000-sample floor; frozen by founder decision 87",
+  "routes": {
+    "R01": {
+      "p95": 0.6566188118886203,
+      "offered": 150,
+      "successful": 132,
+      "errors_5xx": 18,
+      "busy_503": 18,
+      "error_rate": 0.12
+    },
+    "R02": {
+      "p95": 0.07423095707781613,
+      "offered": 151,
+      "successful": 150,
+      "errors_5xx": 1,
+      "busy_503": 1,
+      "error_rate": 0.006622516556291391
+    },
+    "R03": {
+      "p95": 0.05995503021404147,
+      "offered": 151,
+      "successful": 148,
+      "errors_5xx": 3,
+      "busy_503": 3,
+      "error_rate": 0.019867549668874173
+    },
+    "R04": {
+      "p95": 1.0831920970231295,
+      "offered": 150,
+      "successful": 131,
+      "errors_5xx": 19,
+      "busy_503": 19,
+      "error_rate": 0.12666666666666668
+    },
+    "R05": {
+      "p95": 0.20362498704344034,
+      "offered": 151,
+      "successful": 151,
+      "errors_5xx": 0,
+      "busy_503": 0,
+      "error_rate": 0.0
+    },
+    "R06": {
+      "p95": 1.1616771209519356,
+      "offered": 150,
+      "successful": 106,
+      "errors_5xx": 44,
+      "busy_503": 44,
+      "error_rate": 0.29333333333333333
+    },
+    "R07": {
+      "p95": 0.06720847799442708,
+      "offered": 151,
+      "successful": 151,
+      "errors_5xx": 0,
+      "busy_503": 0,
+      "error_rate": 0.0
+    },
+    "R08": {
+      "p95": 0.10411404981277883,
+      "offered": 151,
+      "successful": 147,
+      "errors_5xx": 4,
+      "busy_503": 4,
+      "error_rate": 0.026490066225165563
+    },
+    "R09": {
+      "p95": 0.8049386139027774,
+      "offered": 150,
+      "successful": 123,
+      "errors_5xx": 27,
+      "busy_503": 27,
+      "error_rate": 0.18
+    },
+    "R10": {
+      "p95": 0.35774051398038864,
+      "offered": 151,
+      "successful": 150,
+      "errors_5xx": 1,
+      "busy_503": 1,
+      "error_rate": 0.006622516556291391
+    },
+    "R11": {
+      "p95": 0.765786194941029,
+      "offered": 150,
+      "successful": 150,
+      "errors_5xx": 0,
+      "busy_503": 0,
+      "error_rate": 0.0
+    },
+    "R12": {
+      "p95": 0.20893171895295382,
+      "offered": 151,
+      "successful": 149,
+      "errors_5xx": 2,
+      "busy_503": 2,
+      "error_rate": 0.013245033112582781
+    },
+    "R13": {
+      "p95": 0.1730417269282043,
+      "offered": 151,
+      "successful": 142,
+      "errors_5xx": 9,
+      "busy_503": 9,
+      "error_rate": 0.059602649006622516
+    },
+    "R14": {
+      "p95": 0.0966268868651241,
+      "offered": 151,
+      "successful": 142,
+      "errors_5xx": 1,
+      "busy_503": 1,
+      "error_rate": 0.006622516556291391
+    },
+    "R15": {
+      "p95": 0.6436918049585074,
+      "offered": 150,
+      "successful": 142,
+      "errors_5xx": 8,
+      "busy_503": 8,
+      "error_rate": 0.05333333333333334
+    },
+    "R16": {
+      "p95": 2.833226972958073,
+      "offered": 150,
+      "successful": 149,
+      "errors_5xx": 1,
+      "busy_503": 1,
+      "error_rate": 0.006666666666666667
+    },
+    "R17": {
+      "p95": 1.0075881578959525,
+      "offered": 150,
+      "successful": 148,
+      "errors_5xx": 2,
+      "busy_503": 2,
+      "error_rate": 0.013333333333333334
+    },
+    "R18": {
+      "p95": 2.376513658091426,
+      "offered": 150,
+      "successful": 145,
+      "errors_5xx": 5,
+      "busy_503": 5,
+      "error_rate": 0.03333333333333333
+    },
+    "R19": {
+      "p95": 0.30435541504994035,
+      "offered": 151,
+      "successful": 148,
+      "errors_5xx": 3,
+      "busy_503": 3,
+      "error_rate": 0.019867549668874173
+    },
+    "R20": {
+      "p95": 0.2542692038696259,
+      "offered": 150,
+      "successful": 150,
+      "errors_5xx": 0,
+      "busy_503": 0,
+      "error_rate": 0.0
+    },
+    "R21": {
+      "p95": 0.5775821718852967,
+      "offered": 151,
+      "successful": 149,
+      "errors_5xx": 2,
+      "busy_503": 2,
+      "error_rate": 0.013245033112582781
+    },
+    "R22": {
+      "p95": 1.5255659809336066,
+      "offered": 150,
+      "successful": 148,
+      "errors_5xx": 2,
+      "busy_503": 2,
+      "error_rate": 0.013333333333333334
+    },
+    "R23": {
+      "p95": 1.4080001839902252,
+      "offered": 150,
+      "successful": 150,
+      "errors_5xx": 0,
+      "busy_503": 0,
+      "error_rate": 0.0
+    },
+    "R24": {
+      "p95": 0.20912803709506989,
+      "offered": 150,
+      "successful": 150,
+      "errors_5xx": 0,
+      "busy_503": 0,
+      "error_rate": 0.0
+    },
+    "R25": {
+      "p95": 0.29154633777216077,
+      "offered": 151,
+      "successful": 147,
+      "errors_5xx": 4,
+      "busy_503": 4,
+      "error_rate": 0.026490066225165563
+    },
+    "R26": {
+      "p95": 2.7305975381750613,
+      "offered": 150,
+      "successful": 150,
+      "errors_5xx": 0,
+      "busy_503": 0,
+      "error_rate": 0.0
+    },
+    "R27": {
+      "p95": 0.14899390004575253,
+      "offered": 150,
+      "successful": 150,
+      "errors_5xx": 0,
+      "busy_503": 0,
+      "error_rate": 0.0
+    },
+    "get_market_slice": {
+      "p95": 0.6161734841298312,
+      "offered": 151,
+      "successful": 151,
+      "errors_5xx": 0,
+      "busy_503": 0,
+      "error_rate": 0.0
+    },
+    "list_markets": {
+      "p95": 0.02163628814741969,
+      "offered": 151,
+      "successful": 151,
+      "errors_5xx": 0,
+      "busy_503": 0,
+      "error_rate": 0.0
+    },
+    "plan_voyage_fuel": {
+      "p95": 0.03931728098541498,
+      "offered": 151,
+      "successful": 151,
+      "errors_5xx": 0,
+      "busy_503": 0,
+      "error_rate": 0.0
+    }
+  },
+  "mix_p95": 0.9779164533213001,
+  "offered": 4515,
+  "successful": 4351,
+  "errors_5xx": 156,
+  "busy_503": 156,
+  "error_rate": 0.0345514950166113
+}

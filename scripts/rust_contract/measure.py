@@ -19,6 +19,7 @@ run is reported inconclusive with the number still needed -- never a pass.
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timezone
 import json
 import math
 import os
@@ -41,6 +42,26 @@ from scripts.rust_contract import workload  # noqa: E402
 
 
 # ---------------------------------------------------------------- pure helpers
+
+
+def adaptive_choice(probes: list[dict[str, Any]], max_rps: int) -> dict[str, Any]:
+    """Select only a rate proved clean by both stacks; never assume 1 RPS."""
+    chosen = None
+    reason = "no complete probe"
+    for expected, probe in enumerate(probes, 1):
+        busy = probe.get("busy", {})
+        if probe.get("rps") != expected or set(busy) != {"python", "rust"}:
+            reason = "incomplete probe evidence"
+            break
+        if any(not isinstance(count, int) or count < 0 for count in busy.values()):
+            reason = "invalid probe evidence"
+            break
+        if any(busy.values()):
+            reason = f"5xx/503 at {expected} RPS"
+            break
+        chosen = float(expected)
+        reason = "maximum probe rate reached" if expected == max_rps else "probe ended"
+    return {"chosen_rps": chosen, "stop_reason": reason, "probe": probes}
 
 
 def percentile(sorted_values: list[float], q: float) -> float:
@@ -220,10 +241,12 @@ class Measurement(runner.Runner):
         probe_max_rps: int = 5,
         measure_seconds: int = 600,
         keep: bool = False,
+        rust_only: bool = True,
     ) -> None:
         super().__init__(
             "all", seed=True, keep=keep, seed_mode="corpus", mixed_caddy=True, release=True
         )
+        self.rust_only = rust_only
         self.size = size
         self.output_dir = output_dir
         self.warmup_seconds = warmup_seconds
@@ -238,6 +261,22 @@ class Measurement(runner.Runner):
         self.schedule = workload.weighted_schedule(self.manifest, weight_key)
         self.cases = self._case_table()
         self.services: list[ServiceHandle] = []
+
+    def measurement_targets(self, python_port: int, rust_port: int) -> list[tuple[str, int]]:
+        return [("rust", rust_port)] if self.rust_only else [("python", python_port), ("rust", rust_port)]
+
+    def measurement_identity(self) -> dict[str, Any]:
+        from scripts.rust_contract import baseline
+        reference = baseline.load_python_baseline()
+        rates = [rate for _, rate in self.windows]
+        minimum = max(window["rps"] for window in reference["offered_windows"])
+        if self.rust_only and (self.weight_key != "weight_baseline" or any(rate < minimum for rate in rates)):
+            raise ValueError("Rust-only runs require the frozen schedule at at least its maximum offered rate")
+        return {"mode": "rust-only" if self.rust_only else "paired", "source_sha": self.sha,
+                "harness_sha": self.sha, "manifest_digest": workload.manifest_digest(self.manifest),
+                "baseline_sha256": baseline.gate_config()["python_baseline_sha256"],
+                "measurement_date": datetime.now(timezone.utc).date().isoformat(),
+                "rates_rps": rates, "weight_key": self.weight_key}
 
     # -- workload plumbing
 
@@ -475,6 +514,7 @@ class Measurement(runner.Runner):
 
     def run(self) -> None:
         """Build, seed once, then run both runtimes in alternating order."""
+        identity = self.measurement_identity()
         subprocess.run(self.build_command(), cwd=ROOT, env={**os.environ, "RELEASE_SHA": self.sha}, check=True)
         subprocess.run(
             ["cargo", "build", "--manifest-path", "rs/Cargo.toml", "--locked", "--release", "-p", "verdaxis-read"],
@@ -529,7 +569,8 @@ class Measurement(runner.Runner):
             "repetitions": [],
             "systemd_units": bool(shutil.which("systemd-run")),
         }
-        order = [("python", python_port), ("rust", rust_port)]
+        evidence.update(identity)
+        order = self.measurement_targets(python_port, rust_port)
         for repetition in range(self.repetitions):
             # Alternate which runtime goes first, so a warm cache never favours
             # one side across every repetition.
@@ -542,7 +583,12 @@ class Measurement(runner.Runner):
                 finally:
                     self.stop_service(handle)
             evidence["repetitions"].append(rep)
-        out = self.output_dir / f"measure-{self.size}.json"
+        if self.rust_only:
+            from scripts.rust_contract.frozen_gate import frozen_verdict
+            evidence["performance_verdict"] = frozen_verdict(evidence)
+            evidence["performance_verdict"].pop("baseline", None)
+        suffix = "-rust-only" if self.rust_only else ""
+        out = self.output_dir / f"measure-{self.size}{suffix}.json"
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(json.dumps(evidence, indent=2) + "\n")
         print(f"MEASUREMENT_JSON {out}")
@@ -598,7 +644,7 @@ class Measurement(runner.Runner):
                 self._await_ready(port)
                 caddies[target] = self._start_caddy(f"127.0.0.1:{port}")
             # Probe: raise the rate while neither stack shows a busy/5xx.
-            clean_rps = 1.0
+            clean_rps = None
             for rps in range(1, self.probe_max_rps + 1):
                 busy = {}
                 for target, _ in order:
@@ -609,17 +655,20 @@ class Measurement(runner.Runner):
                 if any(count > 0 for count in busy.values()):
                     break
                 clean_rps = float(rps)
-            evidence["chosen_rps"] = clean_rps
-            # Measure the full window at the highest clean rate the probe found.
-            self.windows = [(float(self.measure_seconds), clean_rps)]
-            cells: dict[str, Any] = {}
-            for target, port in order:
-                cells[target] = self._measure_cell(
-                    handles[target], port, caddy_port=caddies[target][1]
+            choice = adaptive_choice(evidence["probe"], self.probe_max_rps)
+            evidence.update(choice)
+            clean_rps = choice["chosen_rps"]
+            if clean_rps is not None:
+                # Measure the full window at the highest clean rate the probe found.
+                self.windows = [(float(self.measure_seconds), clean_rps)]
+                cells: dict[str, Any] = {}
+                for target, port in order:
+                    cells[target] = self._measure_cell(
+                        handles[target], port, caddy_port=caddies[target][1]
+                    )
+                evidence["repetitions"].append(
+                    {"index": 0, "order": [n for n, _ in order], "cells": cells}
                 )
-            evidence["repetitions"].append(
-                {"index": 0, "order": [n for n, _ in order], "cells": cells}
-            )
         finally:
             for caddy, _ in caddies.values():
                 caddy.terminate()
@@ -701,12 +750,15 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--rust-only", action="store_true", help="measure Rust only against the frozen Python baseline")
     parser.add_argument(
         "--adaptive",
         action="store_true",
         help="ramp the offered rate while neither stack returns busy/503, then measure",
     )
     args = parser.parse_args(argv)
+    if args.adaptive:
+        parser.error("Decision 86 measures Rust only; use explicit fixed windows, not paired adaptive probes")
     import tomllib
 
     document = tomllib.loads(args.config.read_text())
@@ -721,6 +773,7 @@ def main(argv: list[str] | None = None) -> int:
         probe_seconds=int(document.get("probe_seconds", 30)),
         probe_max_rps=int(document.get("probe_max_rps", 5)),
         measure_seconds=int(document.get("measure_seconds", 600)),
+        rust_only=True,
     )
     try:
         if args.adaptive:
