@@ -124,6 +124,66 @@ This closes the large differential gate. Qualified small performance evidence
 is supplied below from the existing run. Qualified large Rust-only performance
 evidence remains missing; that is the sole evidence blocker to an overall GO.
 
+### Final speed integration — decisions 87 and 96
+
+Continued the in-progress merge of speed tip `3990151f` without aborting or
+rebasing. Merge commit: `147838efa1dd61a74cb004dac93ae37dea7627c3`.
+The only conflicted file was this report: retained the accepted large-contract
+record and the speed lane's qualified small result. No serving query changed.
+
+Existing run `t14d-d87` was read from the prod test lane's
+`work/rust-phase1/measure-small-rust-only.json`; SHA-256
+`df1662ae6b61733d527c06bccaaad6bb7df9aa161713f9e0dd2b51ddd7ea4543`.
+Measured source and harness: `8a5e45369326db6a25bc94e0aa7cbbe0ff263310`.
+This is the original evidence, including its original pre-decision-96 cached
+INCONCLUSIVE verdict; the merged gate recomputed PASS from its unchanged samples.
+The measured run used the release profile, 10 RPS for 3,600 seconds, equal-weight
+schedule, 36,000 offered requests. Weighted mix p95 is **0.329429481 s** versus
+**0.977916453 s** frozen Python; Rust has **19/36,000** 5xx responses
+(**0.052778%**) versus **156/4,515** (**3.455150%**). Zero blocking routes;
+zero same-meaning fix items. R14 has **596** successful responses against the
+written 10/minute limit: `floor(0.95 × 10 × 3600 / 60) = 570` (decision 96).
+Other routes/tools meet their enforced floors. No failed response was counted
+as successful and no rate limit was bypassed.
+
+Code difference from measured source to merged tip: Rust-owned configurable
+admission defaults to **16 read slots**, matching read pool plus one separate
+readiness connection, associated budget/harness/test updates, and gate/report
+code for decision 96. `git diff 8a5e4536 147838ef -- rs/read/sql` is empty;
+production Rust source changes are confined to `lib.rs`, `runtime/admission.rs`
+and `runtime/config.rs`. The merged binary itself was not measured.
+
+Contract inputs: the original small simulation at `518adc6a` plus its accepted
+prices-group rerun at `086d4dda` (later group result supersedes the original
+nine tie-order paths), and this lane's accepted large 487/487 summary at
+`1bae4d58`. The large summary was adapted only to the report's existing input
+schema; no outcomes or counts changed. Combined contract verdict: **PASS**, zero
+differences, zero missing/invalid groups. Small evidence SHA-256 values:
+`8dd7c4371ac32d2e58ace9f9662c1b9a2dc8bdfc816e6a418de778fedfc56b2c`
+and `4e6b22baee366b665c32fb93be734ea247fe29418023bd9ce555efe3f7a844cf`.
+Accepted large summary SHA-256:
+`fe749add838b15901b6c9c5f5346683f05f021b98dc3071e3a754913c37e61bc`.
+
+**Exact remaining blocker to overall GO:** the unchanged report/gate requires
+valid Rust-only performance evidence at both sizes. `t14d-d87` is `size=small`.
+The existing large v2 run (`e43282aee6cb5b5b5ee6fe093be88d80704e104a`, SHA-256
+`27efbd9796c98dbcf29d40b0b1cc2413d687ec958e8b6717c285571512da2ab5`)
+is historical paired evidence, not a qualified Rust-only run; it lacks
+`mode=rust-only`, harness SHA, manifest/baseline pins and measurement date, and
+its roughly 48–51 successes per route are below the floor. The gate returns
+`inconclusive (missing Rust-only workload identity)` before floor admission.
+Large *speed regressions* being reported-only does not waive evidence admission.
+No new waiver was inferred, no identity was fabricated, and no new measurement
+was run. Thus small speed and both contract gates pass, but the combined report
+remains **INCONCLUSIVE**, not GO. Founder review must resolve the large-evidence
+requirement or supply qualified existing evidence before an overall GO.
+
+All requested merged-tip checks ran on staging through `heavy run 3600`:
+report regeneration **0**; Rust gate targets **0**; `tests/rust_contract` **0**;
+Cargo workspace tests **0**; fmt **0**; strict all-target workspace clippy **0**.
+The host wrapper exited **0**. Log: `work/final-speed-integration.log`.
+No application behavior or gate policy was changed to produce a GO.
+
 ### Verification
 
 All builds/tests ran on the isolated test host through `heavy run 3600`.
@@ -237,13 +297,48 @@ Historical/unqualified Rust samples remain diagnostic when evidence admission fa
 
 - Outcome: INCONCLUSIVE.
 - Rust-only performance evidence: inconclusive (missing Rust-only workload identity).
-- Offered Rust rates: not measured; higher than the frozen 5 RPS maximum is stricter for Rust.
+- Offered Rust rates: [1.0, 5.0]; higher than the frozen 5 RPS maximum is stricter for Rust.
 - zero unexplained contract differences at both sizes: pass ({'outcome': 'pass', 'differences': 0, 'missing': [], 'invalid': []}).
 - integration suite: pass (explicit suite result).
 - Rust-only frozen-baseline performance evidence: inconclusive (missing Rust-only workload identity).
-- Rust memory steady median: not measured; non-blocking.
+- Rust memory steady median: 206.3 MiB; non-blocking.
 - Blocking routes: none proven.
 - Same-meaning fix items: none proven.
 
-- Integration evidence: not supplied.
+Historical/unqualified Rust samples remain diagnostic when evidence admission fails.
+
+| Route/tool | Rust p95 (s) | Successful | Required |
+| --- | ---: | ---: | ---: |
+| R01 | 0.232 | 19 | 1000 |
+| R02 | 0.275 | 59 | 1000 |
+| R03 | 0.106 | 39 | 1000 |
+| R04 | 0.206 | 15 | 1000 |
+| R05 | 0.072 | 17 | 1000 |
+| R06 | 4.509 | 21 | 1000 |
+| R07 | 0.532 | 38 | 1000 |
+| R08 | 0.419 | 19 | 1000 |
+| R09 | 33.946 | 14 | 1000 |
+| R10 | 2.225 | 67 | 1000 |
+| R11 | 4.844 | 39 | 1000 |
+| R12 | 1.100 | 26 | 1000 |
+| R13 | 4.957 | 22 | 1000 |
+| R14 | 4.128 | 48 | 714 |
+| R15 | 5.777 | 16 | 1000 |
+| R16 | 22.326 | 23 | 1000 |
+| R17 | 12.470 | 19 | 1000 |
+| R18 | 25.811 | 33 | 1000 |
+| R19 | 11.929 | 37 | 1000 |
+| R20 | 7.666 | 38 | 1000 |
+| R21 | 14.371 | 19 | 1000 |
+| R22 | 15.919 | 25 | 1000 |
+| R23 | 10.410 | 18 | 1000 |
+| R24 | 10.123 | 78 | 1000 |
+| R25 | 9.350 | 38 | 1000 |
+| R26 | 26.264 | 14 | 1000 |
+| R27 | 29.322 | 4 | 1000 |
+| get_market_slice | 1.808 | 151 | 1000 |
+| list_markets | 0.053 | 151 | 1000 |
+| plan_voyage_fuel | 0.129 | 151 | 1000 |
+
+- Integration evidence: Accepted integration at 70908804; current merged-tip checks recorded separately.
 - Production status: not authorized by this report.
