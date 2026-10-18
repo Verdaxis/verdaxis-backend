@@ -180,7 +180,8 @@ fn frozen_route_just_inside_and_outside_relative_limit() {
 fn limited_measurement(counts: &[(&str, u64, u64)]) -> RustMeasurement {
     let mut run = measurement();
     for route in &mut run.routes {
-        if let Some((_, offered, successful)) = counts.iter().find(|(id, _, _)| *id == route.route_id)
+        if let Some((_, offered, successful)) =
+            counts.iter().find(|(id, _, _)| *id == route.route_id)
         {
             route.offered = *offered;
             route.successful = *successful;

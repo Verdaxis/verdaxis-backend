@@ -198,9 +198,7 @@ pub fn frozen_performance_gate(
                 || (r.error_rate - r.errors_5xx as f64 / r.offered as f64).abs() > f64::EPSILON
         })
         || run.routes.iter().any(|r| {
-            !positive(r.p95)
-                || r.successful > r.offered
-                || r.errors_5xx > r.offered - r.successful
+            !positive(r.p95) || r.successful > r.offered || r.errors_5xx > r.offered - r.successful
         })
     {
         return invalid();
