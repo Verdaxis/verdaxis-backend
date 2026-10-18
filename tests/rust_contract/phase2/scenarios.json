@@ -4,6 +4,7 @@
     {"id": "harness-smoke", "group": "all", "kind": "harness-only", "actions": ["read-state", "insert-feedback", "between-writes", "after-commit"]},
     {"id": "auth-state-matrix", "group": "all", "kind": "postgres-auth", "actions": ["shared-locks", "revocation", "cancellation"]},
     {"id": "http-boundaries", "group": "all", "kind": "http-contract", "actions": ["scope", "cors", "validation-order", "quota-thresholds"]},
+    {"id": "watchlist-reads", "group": "watchlists", "kind": "postgres-projection", "actions": ["owner-scope", "read-only-state"]},
     {"id": "auth-token-matrix", "group": "notifications", "kind": "token-only", "actions": []}
   ],
   "release_coverage": "not-qualified",

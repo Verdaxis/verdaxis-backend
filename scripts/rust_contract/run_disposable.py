@@ -807,7 +807,7 @@ CREATE EXTENSION IF NOT EXISTS postgis;
             subprocess.run(["cargo", "test", "--manifest-path", "rs/Cargo.toml", "--locked", "-p", "verdaxis-read", "--test", "auth_tokens"],
                 cwd=ROOT, env={**os.environ, "RELEASE_SHA": self.sha, "SQLX_OFFLINE": "true"}, check=True)
             return
-        if selected not in (["harness-smoke"], ["auth-state-matrix"]):
+        if selected not in (["harness-smoke"], ["auth-state-matrix"], ["watchlist-reads"]):
             raise RunnerError("select one implemented Phase 2 scenario")
         port = self.start_database()
         env = {**os.environ, "ENVIRONMENT": "test", "RELEASE_SHA": self.sha,
@@ -833,6 +833,11 @@ CREATE EXTENSION IF NOT EXISTS postgis;
                     "-v", f"backup_role={BACKUP_ROLE}", "-f", f"{policy_dir}/{script}")
         with connect(port, DATABASES[0]) as admin:
             admin.execute(f"ALTER ROLE {identifier(role)} PASSWORD '{PASSWORD}'")
+        if selected == ["watchlist-reads"]:
+            subprocess.run(["cargo","test","--manifest-path","rs/Cargo.toml","--locked","-p","verdaxis-read","--test","crud_watchlist_reads"],cwd=ROOT,
+                env={**env,"RELEASE_SHA":self.sha,"SQLX_OFFLINE":"true",
+                    "AUTH_INTEROP_ADMIN_URL":f"postgresql://postgres:disposable_admin_pw@127.0.0.1:{port}/{DATABASES[0]}"},check=True)
+            return
         if selected == ["auth-state-matrix"]:
             subprocess.run(["cargo", "test", "--manifest-path", "rs/Cargo.toml", "--locked", "-p", "verdaxis-read", "--test", "auth_transactions", "--test", "auth_tokens", "--", "--nocapture"], cwd=ROOT,
                 env={**env, "RELEASE_SHA": self.sha, "SQLX_OFFLINE": "true", "REQUIRE_AUTH_INTEROP": "true",

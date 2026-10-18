@@ -74,6 +74,69 @@ fn hidden_pins_and_old_best_price_events_do_not_change_counts_or_latest_time() {
     assert_eq!(summary.slices[0].pins[0].id, Uuid::from_u128(2));
 }
 
+#[tokio::test]
+async fn database_detail_is_actor_scoped_and_does_not_mutate_rows() {
+    use verdaxis_read::crud::watchlists::load_detail;
+    let Ok(url) = std::env::var("AUTH_INTEROP_ADMIN_URL") else {
+        return;
+    };
+    let mut connection = sqlx::PgConnection::connect(&url).await.unwrap();
+    use sqlx::Connection;
+    let owner = Uuid::parse_str("20000000-0000-4000-8000-000000000001").unwrap();
+    let id = Uuid::from_u128(700);
+    sqlx::query("INSERT INTO watchlists(id,user_id,name,kind,created_at) VALUES($1,$2,'fixture','CUSTOM','2026-10-19T00:00:00Z')")
+        .bind(id).bind(owner).execute(&mut connection).await.unwrap();
+    let before: String =
+        sqlx::query_scalar("SELECT row_to_json(w)::text FROM watchlists w WHERE id=$1")
+            .bind(id)
+            .fetch_one(&mut connection)
+            .await
+            .unwrap();
+    let cutoff = Utc.with_ymd_and_hms(2026, 10, 19, 0, 0, 0).unwrap();
+    let visible = std::collections::HashSet::new();
+    assert!(
+        load_detail(&mut connection, Uuid::nil(), id, &visible, &[], cutoff)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    let summary = load_detail(&mut connection, owner, id, &visible, &[], cutoff)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(summary.total_slice_count, 0);
+    assert_eq!(summary.name, "fixture");
+    // Keep the database query count independent of target count: target and
+    // event loading are one batch each, never a query per SLICE/PIN.
+    let point = Uuid::from_u128(701);
+    sqlx::query("INSERT INTO delivery_points(id,name,region,is_active) VALUES($1,'Fixture point','Fixture',true)")
+        .bind(point).execute(&mut connection).await.unwrap();
+    sqlx::query("INSERT INTO watchlist_targets(id,watchlist_id,target_type,market_product_code,delivery_point_id,availability_window_code,created_at) SELECT gen_random_uuid(),$1,'SLICE','TEST_PRODUCT',$2,'2026-'||lpad(n::text,2,'0'),'2026-10-19T00:00:00Z'::timestamptz FROM generate_series(1,10) n")
+        .bind(id).bind(point).execute(&mut connection).await.unwrap();
+    let populated = load_detail(&mut connection, owner, id, &visible, &[], cutoff)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(populated.total_slice_count, 10);
+    sqlx::query("DELETE FROM watchlist_targets WHERE watchlist_id=$1")
+        .bind(id)
+        .execute(&mut connection)
+        .await
+        .unwrap();
+    let after: String =
+        sqlx::query_scalar("SELECT row_to_json(w)::text FROM watchlists w WHERE id=$1")
+            .bind(id)
+            .fetch_one(&mut connection)
+            .await
+            .unwrap();
+    assert_eq!(before, after);
+    sqlx::query("DELETE FROM watchlists WHERE id=$1")
+        .bind(id)
+        .execute(&mut connection)
+        .await
+        .unwrap();
+}
+
 #[test]
 fn empty_projection_keeps_declared_nulls_and_default_fields() {
     let now = Utc.with_ymd_and_hms(2026, 10, 19, 0, 0, 0).unwrap();
