@@ -10,6 +10,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if std::env::var("ENVIRONMENT").as_deref() != Ok("test") {
         return Err("test only".into());
     }
+    tracing_subscriber::fmt().with_env_filter("info").init();
     let token = std::env::var("DISPOSABLE_TEST_TOKEN")?;
     if token.len() < 32 {
         return Err("disposable identity required".into());

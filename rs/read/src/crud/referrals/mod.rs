@@ -178,7 +178,7 @@ async fn my_code(
                 transaction.connection(),
                 &actor,
                 &settings.frontend_url,
-                &mut Candidates::new(),
+                &mut Candidates::for_actor(actor.id),
             )
             .await
         })
@@ -247,7 +247,7 @@ async fn send_invite(
                 transaction.connection(),
                 &actor,
                 &frontend,
-                &mut Candidates::new(),
+                &mut Candidates::for_actor(actor.id),
             )
             .await?;
             let code = response["referral_code"].as_str().expect("code response");

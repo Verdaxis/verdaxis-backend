@@ -58,6 +58,21 @@ impl Candidates {
         Self::Random
     }
 
+    pub(crate) fn for_actor(actor: Uuid) -> Self {
+        #[cfg(feature = "contract-tests")]
+        if std::env::var("ENVIRONMENT").as_deref() == Ok("test") {
+            if let Ok(raw) = std::env::var("REFERRAL_CANDIDATE_MAP") {
+                if let Ok(map) = serde_json::from_str::<std::collections::HashMap<String, Vec<String>>>(&raw) {
+                    if let Some(sequence) = map.get(&actor.to_string()) {
+                        return Self::fixed(sequence.clone());
+                    }
+                }
+            }
+        }
+        let _ = actor;
+        Self::new()
+    }
+
     /// A deterministic candidate sequence, for tests and the contract harness.
     pub fn fixed(codes: Vec<String>) -> Self {
         Self::Fixed(codes.into_iter())
