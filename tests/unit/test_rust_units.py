@@ -61,6 +61,86 @@ def _directives(unit_text: str) -> set[str]:
     }
 
 
+@pytest.mark.parametrize(
+    "bootstrap_step, command",
+    [
+        # f4663bf4091ea4261875414f017cd27cd5a2ceb1 deploy.sh:560.
+        ("old-helper-on-bootstrap", 'systemd-analyze verify "${CANDIDATE_UNITS[@]}"'),
+        ("bootstrap-installer", None),
+        ("bootstrap-helper-on-activation", None),
+    ],
+)
+def test_bootstrap_verifies_without_a_rust_artifact(tmp_path, bootstrap_step, command):
+    """Verify real unit bytes, not a fake binary that hides first-install failures."""
+    analyzer = shutil.which("systemd-analyze")
+    if analyzer is None:
+        pytest.skip("systemd-analyze is required for the Linux bootstrap gate")
+    if command is None:
+        source = _text(INSTALLER if bootstrap_step == "bootstrap-installer" else DEPLOY)
+        command = next(
+            line.strip() for line in source.splitlines()
+            if "systemd-analyze verify" in line
+        ).removeprefix("sudo ")
+
+    root = tmp_path / "root"
+    units = root / "etc/systemd/system"
+    units.mkdir(parents=True)
+    unit = units / RUST_UNIT_NAME
+    # systemd 249 does not support verify --root. Relocate only the checkout
+    # prefix into this test user's private tree; keep every directive and flag.
+    backend = root / "be"
+    python = backend / "venv/bin/python"
+    python.parent.mkdir(parents=True)
+    python.symlink_to(shutil.which("python3"))
+    unit.write_text(_text(UNIT).replace(STAGING_BACKEND, str(backend)))
+    (units / "postgresql.service").write_text(
+        "[Service]\nType=oneshot\nExecStart=/bin/true\n"
+    )
+    for name in ("sysinit.target", "basic.target", "network-online.target",
+                 "shutdown.target"):
+        (units / name).write_text("[Unit]\nDescription=fixture target\n")
+    assert not (backend / ".runtime-rust").exists()
+    # Preserve each caller's array invocation. No service starts, host files or
+    # privileges are involved; SYSTEMD_UNIT_PATH supplies only dependency stubs.
+    script = (
+        'CANDIDATE_UNITS=("$UNIT_PATH")\nUNIT_SOURCES=("$UNIT_PATH")\n'
+        + command
+    )
+    result = subprocess.run(
+        ["bash", "-c", script], capture_output=True, text=True, check=False,
+        env={**os.environ, "SYSTEMD_UNIT_PATH": str(units), "UNIT_PATH": str(unit)},
+    )
+    print(f"{bootstrap_step}: VERIFY_EXIT={result.returncode}\n{result.stderr}")
+    assert result.returncode == 0, result.stderr
+
+
+def test_rust_start_preserves_environment_arguments_and_main_pid(tmp_path):
+    import shlex
+    import sys
+
+    backend = tmp_path / "be"
+    binary = backend / ".runtime-rust/verdaxis-read"
+    binary.parent.mkdir(parents=True)
+    binary.symlink_to(sys.executable)
+    command = next(
+        line.removeprefix("ExecStart=") for line in _text(UNIT).splitlines()
+        if line.startswith("ExecStart=")
+    ).replace(STAGING_BACKEND, str(backend))
+    arguments = shlex.split(command)
+    assert arguments[2:] == [
+        "--bind", BIND, "--budget-file", str(binary.parent / "budget.json")
+    ]
+    # Use a real executable to observe exec semantics, without starting a server.
+    process = subprocess.Popen(
+        arguments[:2] + ["-c", "import os; print(os.getpid(), os.environ['RELEASE_SHA'])"],
+        env={**os.environ, "RELEASE_SHA": RELEASE_SHA},
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+    )
+    stdout, stderr = process.communicate(timeout=10)
+    assert process.returncode == 0, stderr
+    assert stdout.strip() == f"{process.pid} {RELEASE_SHA}"
+
+
 def test_rust_unit_keeps_runtime_credentials_separate():
     """The plan's unit contract: loopback bind, bounded memory, no `.env`."""
     unit = _text(UNIT)
@@ -85,7 +165,7 @@ def test_rust_unit_paths_are_the_files_the_deploy_transaction_writes():
     assert 'target = output_dir / "runtime.env"' in _text(PREPARE_RUNTIME)
 
     assert f"WorkingDirectory={STAGING_BACKEND}\n" in unit
-    assert f"ExecStart={RUNTIME_DIR}/verdaxis-read --bind {BIND} " in unit
+    assert f"ExecStart=/usr/bin/env {RUNTIME_DIR}/verdaxis-read --bind {BIND} " in unit
     assert f"--budget-file {RUNTIME_DIR}/budget.json\n" in unit
     # Every EnvironmentFile is a deploy-written file; the unit never hands the
     # secret-rich `.env` to systemd.

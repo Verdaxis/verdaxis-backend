@@ -1646,7 +1646,15 @@ Add only `staging\tverdaxis-rust-staging.service` to the manifest. The existing 
 - [x] **Step 4: Run** release failure-injection tests, existing deploy/start-guard/installer tests, unit syntax verification on Linux, and artifact startup on a disposable Linux host/container with the same target ABI. Expected pass. Check `git diff -- deploy/postgres/app_acl_policy.sql` is empty.
 - [x] **Step 5: Commit** release files and documentation: `git commit -m 'feat: add attested staging Rust release integration'` with trailer.
 
-**Resume point (17 Oct):** Task 12c is done on `feat/rust-phase-1-20261015`, from
+**19 Oct bootstrap correction:** The 17 Oct digest and path-materialized checks
+below are historical, not bootstrap acceptance. The current unit digest is
+`e18cae0829bd0424536c1640b9b3ff63f2618f6848dd7bbd86c1b57e4f5b4666`.
+Its `ExecStart` uses `/usr/bin/env` without `-i`, so verification does not require
+the first artifact. See `docs/rust-phase1/bootstrap-unit-verify.md` for the
+systemd 249 absent-artifact regression and the three bootstrap gates. Promote
+and install the corrected policy-off release before the policy-on release.
+
+**Resume point (17 Oct, historical):** Task 12c is done on `feat/rust-phase-1-20261015`, from
 `d06e8248` (the handoff HEAD; the branch is still based on `b2971573`). Two Task
 12b failures in the draft PR #86 `test` job landed first as their own commits —
 `09642af5` (the release fixture's interpreter/checkout layout, which now uses
