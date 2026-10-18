@@ -2,7 +2,7 @@
   "version": 1,
   "task": 20,
   "group": "order-write-boundary",
-  "registration": "pending-runner-lane",
+  "registration": "scripts.rust_contract.phase2_order_write:order-write-postgres",
   "scope": "Private transaction shell only. No market HTTP route, matching, lifecycle implementation or measurement.",
   "scenarios": [
     {"id": "order-write-lock-identity", "kind": "vectors", "actions": ["normalize-windows", "compare-side-independent-slice-hashes", "sort-and-deduplicate-slices", "compare-idempotency-scopes", "compare-request-hashes"]},
@@ -13,5 +13,5 @@
   ],
   "required_state": ["all-business-tables", "users", "market_command_results", "market_event_outbox"],
   "dispatchers": "stopped",
-  "verdict": "INCONCLUSIVE until the runner lane registers and executes the database scenarios"
+  "verdict": "See docs/rust-phase2/task20-write-boundary.md for executed boundary scope and evidence"
 }

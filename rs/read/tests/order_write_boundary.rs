@@ -369,7 +369,12 @@ fn scan_repository() -> Vec<String> {
             }
         }
         let is_manifest = path.file_name().and_then(|name| name.to_str()) == Some("lib.rs");
-        if !inside_boundary && !is_manifest && path != &owned_test && text.contains("order_write") {
+        if !inside_boundary
+            && !is_manifest
+            && path != &owned_test
+            && path != &root.join("rs/read/examples/order_write.rs")
+            && text.contains("order_write")
+        {
             violations.push(format!("{}: names the write boundary", path.display()));
         }
     }
@@ -449,6 +454,7 @@ fn only_the_registration_line_names_the_boundary() {
         if path.starts_with(root.join("rs/read/src/order_write"))
             || path == root.join("rs/read/src/lib.rs")
             || path == owned_test
+            || path == root.join("rs/read/examples/order_write.rs")
         {
             continue;
         }

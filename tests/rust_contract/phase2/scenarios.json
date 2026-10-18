@@ -1,6 +1,7 @@
 {
   "version": 1,
   "scenarios": [
+    {"id": "order-write-postgres", "group": "order-write-boundary", "kind": "postgres-boundary", "registration": "scripts.rust_contract.phase2_order_write", "owner": "Phase 2 Task 20", "actions": ["rollback-after-outbox", "atomic-outbox-receipt", "receipt-replay", "slice-timeout", "database-lock-order", "lost-response-no-replay", "explicit-replay-after-loss", "retry-serialization", "deadlock-attempt-bound"]},
     {"id": "runner-example", "group": "all", "kind": "registered-route-example", "registration": "scripts.rust_contract.phase2_example", "actions": ["committed", "rollback", "response-loss"], "route_qualification": false},
     {"id": "harness-smoke", "group": "all", "kind": "harness-only", "actions": ["read-state", "insert-feedback", "between-writes", "after-commit"]},
     {"id": "auth-state-matrix", "group": "all", "kind": "postgres-auth", "actions": ["shared-locks", "revocation", "cancellation"]},

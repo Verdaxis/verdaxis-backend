@@ -268,4 +268,9 @@ class HTTPCell:
 from scripts.rust_contract.phase2_example import example_scenario
 
 register(example_scenario())
+# Phase 2 Task 20: order-write boundary start
+from scripts.rust_contract.phase2_order_write import order_write_scenario
+
+register(order_write_scenario())
+# Phase 2 Task 20: order-write boundary end
 # END LANE REGISTRATIONS

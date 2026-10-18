@@ -30,3 +30,6 @@ pub use transaction::{
     REPLAY_CONFLICT_MESSAGE, RETRYABLE_SQLSTATES, SERIALIZATION_FAILED_MESSAGE, SLICE_BUSY_MESSAGE,
     SLICE_TIMEOUT_MESSAGE, execute_order_command,
 };
+
+#[cfg(feature = "contract-tests")]
+pub use transaction::contract::serve_contract;

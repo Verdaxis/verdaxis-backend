@@ -459,6 +459,8 @@ fn map_database_failure(phase: LockPhase, error: &WriteError) -> ApiError {
 struct PgWriteSession {
     transaction: Option<sqlx::Transaction<'static, sqlx::Postgres>>,
     _permit: OwnedSemaphorePermit,
+    #[cfg(feature = "contract-tests")]
+    fixture: Option<Value>,
 }
 
 impl PgWriteSession {
@@ -630,20 +632,31 @@ impl WriteSession for PgWriteSession {
             let participants = serde_json::to_string(&event.participant_org_ids)
                 .map_err(|_| WriteError::other())?;
             let payload = serde_json::to_string(&event.payload).map_err(|_| WriteError::other())?;
+            let event_id = Uuid::new_v4();
+            #[cfg(feature = "contract-tests")]
+            let event_id = self
+                .fixture
+                .as_ref()
+                .map(|v| v["id"].as_str().unwrap().parse().unwrap())
+                .unwrap_or(event_id);
+            let statement = "INSERT INTO market_event_outbox (id, event_type, aggregate_type, aggregate_id, participant_org_ids, payload) VALUES ($1, $2, $3, $4, $5::json, $6::json)";
+            #[cfg(feature = "contract-tests")]
+            let statement = if self.fixture.is_some() {
+                "INSERT INTO market_event_outbox (id, event_type, aggregate_type, aggregate_id, participant_org_ids, payload, created_at) VALUES ($1, $2, $3, $4, $5::json, $6::json, '2026-10-19T00:00:00Z')"
+            } else {
+                statement
+            };
             let connection = self.connection()?;
-            sqlx::query(
-                "INSERT INTO market_event_outbox (id, event_type, aggregate_type, aggregate_id, \
-                 participant_org_ids, payload) VALUES ($1, $2, $3, $4, $5::json, $6::json)",
-            )
-            .bind(Uuid::new_v4())
-            .bind(&event.event_type)
-            .bind(&event.aggregate_type)
-            .bind(&event.aggregate_id)
-            .bind(participants)
-            .bind(payload)
-            .execute(&mut *connection)
-            .await
-            .map_err(|error| write_error(&error))?;
+            sqlx::query(statement)
+                .bind(event_id)
+                .bind(&event.event_type)
+                .bind(&event.aggregate_type)
+                .bind(&event.aggregate_id)
+                .bind(participants)
+                .bind(payload)
+                .execute(&mut *connection)
+                .await
+                .map_err(|error| write_error(&error))?;
             Ok(())
         })
     }
@@ -655,6 +668,10 @@ impl WriteSession for PgWriteSession {
         Box::pin(async move {
             let response_body =
                 serde_json::to_string(&receipt.response_body).map_err(|_| WriteError::other())?;
+            #[cfg(feature = "contract-tests")]
+            if let Some(fixture) = self.fixture.clone() {
+                return contract::insert_fixture_receipt(self, receipt, &fixture).await;
+            }
             let connection = self.connection()?;
             sqlx::query(
                 "INSERT INTO market_command_results (id, actor_user_id, effective_organization_id, \
@@ -712,6 +729,8 @@ async fn open_session(
     Ok(PgWriteSession {
         transaction: Some(transaction),
         _permit: permit,
+        #[cfg(feature = "contract-tests")]
+        fixture: None,
     })
 }
 
@@ -735,3 +754,7 @@ fn decode_body(text: Option<String>) -> Result<Value, WriteError> {
         Some(text) => serde_json::from_str(&text).map_err(|_| WriteError::other()),
     }
 }
+
+#[cfg(feature = "contract-tests")]
+#[path = "contract.rs"]
+pub(super) mod contract;
