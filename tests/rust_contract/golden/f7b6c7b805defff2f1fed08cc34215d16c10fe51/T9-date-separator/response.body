@@ -1,0 +1,1 @@
+{"detail":[{"type":"date_from_datetime_parsing","loc":["query","date_from"],"msg":"Input should be a valid date or datetime, invalid date separator, expected `-`","input":"2026/01/01","ctx":{"error":"invalid date separator, expected `-`"}}]}

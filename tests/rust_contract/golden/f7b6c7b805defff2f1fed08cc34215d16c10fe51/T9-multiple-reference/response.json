@@ -1,0 +1,96 @@
+{
+  "status": 422,
+  "headers": {
+    "content-type": "application/json",
+    "x-request-id": "00000000-0000-4000-8000-000000000001"
+  },
+  "body": {
+    "detail": [
+      {
+        "type": "uuid_parsing",
+        "loc": [
+          "query",
+          "product_id"
+        ],
+        "msg": "Input should be a valid UUID, invalid length: expected length 32 for simple format, found 3",
+        "input": "bad",
+        "ctx": {
+          "error": "invalid length: expected length 32 for simple format, found 3"
+        }
+      },
+      {
+        "type": "uuid_parsing",
+        "loc": [
+          "query",
+          "delivery_point_id"
+        ],
+        "msg": "Input should be a valid UUID, invalid length: expected length 32 for simple format, found 3",
+        "input": "bad",
+        "ctx": {
+          "error": "invalid length: expected length 32 for simple format, found 3"
+        }
+      },
+      {
+        "type": "date_from_datetime_parsing",
+        "loc": [
+          "query",
+          "date_from"
+        ],
+        "msg": "Input should be a valid date or datetime, input is too short",
+        "input": "x",
+        "ctx": {
+          "error": "input is too short"
+        }
+      },
+      {
+        "type": "date_from_datetime_parsing",
+        "loc": [
+          "query",
+          "date_to"
+        ],
+        "msg": "Input should be a valid date or datetime, input is too short",
+        "input": "x",
+        "ctx": {
+          "error": "input is too short"
+        }
+      },
+      {
+        "type": "date_from_datetime_parsing",
+        "loc": [
+          "query",
+          "from"
+        ],
+        "msg": "Input should be a valid date or datetime, input is too short",
+        "input": "x",
+        "ctx": {
+          "error": "input is too short"
+        }
+      },
+      {
+        "type": "date_from_datetime_parsing",
+        "loc": [
+          "query",
+          "to"
+        ],
+        "msg": "Input should be a valid date or datetime, input is too short",
+        "input": "x",
+        "ctx": {
+          "error": "input is too short"
+        }
+      },
+      {
+        "type": "literal_error",
+        "loc": [
+          "query",
+          "visibility"
+        ],
+        "msg": "Input should be 'internal' or 'external'",
+        "input": "x",
+        "ctx": {
+          "expected": "'internal' or 'external'"
+        }
+      }
+    ]
+  },
+  "body_sha256": "da60d96e7c62189ba609cc525d806c51a530424d5f5401652e78646f6ad8aeb8"
+}

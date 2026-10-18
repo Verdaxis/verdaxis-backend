@@ -1,0 +1,1 @@
+{"detail":[{"type":"enum","loc":["query","market_product"],"msg":"Input should be 'B30', 'B100', 'UCOME_B100', 'BIO_LNG', 'BIO_METHANOL', 'E_METHANOL', 'BIO_ETHANOL' or 'SYNTHETIC_ETHANOL'","input":"NOPE","ctx":{"expected":"'B30', 'B100', 'UCOME_B100', 'BIO_LNG', 'BIO_METHANOL', 'E_METHANOL', 'BIO_ETHANOL' or 'SYNTHETIC_ETHANOL'"}}]}

@@ -1,0 +1,21 @@
+{
+  "status": 200,
+  "headers": {
+    "content-type": "application/json",
+    "x-request-id": "00000000-0000-4000-8000-000000000001"
+  },
+  "body": {
+    "jsonrpc": "2.0",
+    "id": 50,
+    "result": {
+      "content": [
+        {
+          "text": "Error executing tool plan_voyage_fuel: 1 validation error for plan_voyage_fuelArguments\nrequest.assumptions.vlsfo_price_usd_per_mt\n  Value error, VLSFO price for Singapore must be above 0 and at most 10000 USD/t [type=value_error, input_value={'Singapore': '0'}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.13/v/value_error",
+          "type": "text"
+        }
+      ],
+      "isError": true
+    }
+  },
+  "body_sha256": "8110c0c4e4e4c06516c8f27ad421c69bd73f39dd8e418a77656d14b160f401e8"
+}

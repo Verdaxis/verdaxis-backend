@@ -1,0 +1,38 @@
+{
+  "conventional_fuel": "VLSFO",
+  "eu_ports": [
+    "Rotterdam"
+  ],
+  "fuels": {
+    "VLSFO": {
+      "lcv_mj_per_kg": "41.0",
+      "ets_co2_t_per_t": "3.151",
+      "default_intensity_gco2e_per_mj": "91.16"
+    },
+    "UCOME_B100": {
+      "lcv_mj_per_kg": "37.2",
+      "ets_co2_t_per_t": "0",
+      "default_intensity_gco2e_per_mj": "35.00"
+    },
+    "BIO_METHANOL": {
+      "lcv_mj_per_kg": "19.9",
+      "ets_co2_t_per_t": "0",
+      "default_intensity_gco2e_per_mj": "31.00"
+    },
+    "E_METHANOL": {
+      "lcv_mj_per_kg": "19.9",
+      "ets_co2_t_per_t": "0",
+      "default_intensity_gco2e_per_mj": "8.00"
+    },
+    "BIO_ETHANOL": {
+      "lcv_mj_per_kg": "26.8",
+      "ets_co2_t_per_t": "0",
+      "default_intensity_gco2e_per_mj": null
+    },
+    "SYNTHETIC_ETHANOL": {
+      "lcv_mj_per_kg": "26.8",
+      "ets_co2_t_per_t": "0",
+      "default_intensity_gco2e_per_mj": null
+    }
+  }
+}

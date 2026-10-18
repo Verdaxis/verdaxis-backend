@@ -1,0 +1,15 @@
+{
+  "status": 200,
+  "headers": {
+    "content-type": "application/json",
+    "x-request-id": "00000000-0000-4000-8000-000000000001"
+  },
+  "body": [
+    "B100",
+    "B30",
+    "Bio Methanol",
+    "Bio-LNG",
+    "UCOME B100"
+  ],
+  "body_sha256": "4d108453dcc9467d2ce26698d3b17ce020bea5d104dbaaac0052c5e31d70a4e0"
+}

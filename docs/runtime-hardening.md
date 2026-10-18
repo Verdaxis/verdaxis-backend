@@ -197,6 +197,25 @@ backend service. Recovery is a corrected forward release or an explicitly
 designed atomic code-and-identity restoration—not an identity-only rollback
 and never an automatic schema downgrade.
 
+A staging release whose committed `deploy/rust/staging-policy.json` enables Rust
+and whose committed manifest names `verdaxis-rust-staging.service` extends that
+same transaction instead of adding a second owner. It verifies the separately
+approved Rust artifact against its provenance record before any service stops,
+publishes the app-only `.runtime-rust/runtime.env` (mode 0600, no mail, JWT,
+provider or migrator credential) and the private `.runtime-rust/budget.json`,
+installs the active binary by atomic rename, and restarts both units in one
+`systemctl restart` inside the restart window. Python's public readiness and the
+Rust loopback readiness (`http://127.0.0.1:8011/health/ready`) must then both
+report the same environment and full SHA before state clears; the failure trap
+stops both attempted units. Production carries no Rust policy and reads no Rust
+path, so its command sequence is unchanged. The bootstrap uses two releases: the
+first deploys the guarded helper and artifact support with Rust inactive (the
+committed policy ships `false`), the operator installs the reviewed unit bundle
+at that exact clean SHA, and the second deploys the Rust-active policy that
+exercises both units and both readiness gates. Rollback remains
+forward-only: there is no identity-only or Rust-only rollback, and never an
+automatic schema downgrade.
+
 `scripts/deploy.sh --dry-run` makes no deployed-state change. It requires the
 live checkout to be clean and on the target branch, resolves one remote branch
 to a full SHA, fetches that object, and materializes only its unit manifest,
@@ -229,7 +248,8 @@ requires `--environment production|staging` and an explicit full
 explicit `--apply`. The selected environment maps to one fixed release
 checkout. Its exact unit set comes from that commit's
 `deploy/systemd/runtime-units.manifest`; the current manifest names the backend,
-singleton news service/timer, and product-analytics prune service/timer. Before
+singleton news service/timer, product-analytics prune service/timer, and the
+staging Rust public-reads unit. Before
 preflight or mutation, the installer requires that checkout to be clean and
 exactly at the source ref. Git
 replacement refs and tracked `assume-unchanged`/`skip-worktree` flags are

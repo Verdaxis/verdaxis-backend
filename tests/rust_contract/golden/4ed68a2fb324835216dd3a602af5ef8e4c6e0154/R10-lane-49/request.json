@@ -1,0 +1,8 @@
+{
+  "method": "GET",
+  "path": "/api/curves/forward/slice",
+  "query": "market_product=E_METHANOL&delivery_point_id=1379d36c-1ca9-55b7-9c0d-5235a0ba1f36&availability_window=2026-11",
+  "headers": {
+    "x-request-id": "00000000-0000-4000-8000-000000000001"
+  }
+}

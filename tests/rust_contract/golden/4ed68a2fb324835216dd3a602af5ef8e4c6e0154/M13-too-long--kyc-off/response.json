@@ -1,0 +1,21 @@
+{
+  "status": 200,
+  "headers": {
+    "content-type": "application/json",
+    "x-request-id": "00000000-0000-4000-8000-000000000001"
+  },
+  "body": {
+    "jsonrpc": "2.0",
+    "id": 42,
+    "result": {
+      "content": [
+        {
+          "text": "Error executing tool plan_voyage_fuel: The voyage is longer than 365 days; check distances, speed and berth days.",
+          "type": "text"
+        }
+      ],
+      "isError": true
+    }
+  },
+  "body_sha256": "acd4524fe20332e2b1097650d6c01cf4b288cee79526bff058936e8044f75931"
+}

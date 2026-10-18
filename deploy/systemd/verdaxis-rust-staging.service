@@ -1,0 +1,49 @@
+[Unit]
+Description=Verdaxis Rust public reads (staging)
+Wants=network-online.target
+Requires=postgresql.service
+After=network-online.target postgresql.service
+RequiresMountsFor=/home/verdaxis-prod/verdaxis/staging/be
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=verdaxis-prod
+Group=verdaxis-prod
+WorkingDirectory=/home/verdaxis-prod/verdaxis/staging/be
+# Identity from the release artifact, then the app-only Rust runtime file the
+# deploy transaction projects (ENVIRONMENT, RELEASE_SHA, MIGRATION_REVISION,
+# DATABASE_URL, DB_SESSION_TIME_ZONE, KYC_EXECUTION_GATE_ENABLED). The
+# secret-rich .env is never loaded: mail, JWT, provider and migrator
+# credentials stay out of this long-running process.
+EnvironmentFile=/home/verdaxis-prod/verdaxis/staging/be/.runtime-release.env
+EnvironmentFile=/home/verdaxis-prod/verdaxis/staging/be/.runtime-rust/runtime.env
+ExecStartPre=/usr/bin/env -i /usr/bin/python3 -I -S -B /home/verdaxis-prod/verdaxis/staging/be/scripts/verify_deploy_start_guard.py --environment staging --expected-release-sha ${RELEASE_SHA}
+ExecStartPre=/home/verdaxis-prod/verdaxis/staging/be/venv/bin/python scripts/verify_migration_revision.py --expected ${MIGRATION_REVISION}
+ExecStartPre=/home/verdaxis-prod/verdaxis/staging/be/venv/bin/python scripts/prepare_rust_budget.py --verify --environment-file /home/verdaxis-prod/verdaxis/staging/be/.env --release-sha ${RELEASE_SHA} --output /home/verdaxis-prod/verdaxis/staging/be/.runtime-rust/budget.json
+ExecStart=/home/verdaxis-prod/verdaxis/staging/be/.runtime-rust/verdaxis-read --bind 127.0.0.1:8011 --budget-file /home/verdaxis-prod/verdaxis/staging/be/.runtime-rust/budget.json
+Restart=on-failure
+RestartSec=5
+KillSignal=SIGTERM
+TimeoutStopSec=30
+TimeoutStartSec=120
+LimitNOFILE=65536
+TasksMax=256
+MemoryHigh=192M
+MemoryMax=256M
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=read-only
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictSUIDSGID=true
+LockPersonality=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+
+[Install]
+WantedBy=multi-user.target

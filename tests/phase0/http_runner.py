@@ -40,11 +40,13 @@ try:
     cmd('docker','exec',name,'psql','-U','postgres','-c',f"ALTER ROLE phase0_app_test PASSWORD '{password}'")
     env['DATABASE_URL']=url.replace('phase0_owner:','phase0_app_test:')
     # Linux's port-0 allocation can fall below the disposable target allowlist.
-    # Select within that allowlist; never relax the server/client guard.
-    from tests.disposable_target import MIN_DISPOSABLE_PORT, MAX_DISPOSABLE_PORT
+    # The allowlist is the kernel ephemeral range itself (tests.ephemeral_ports);
+    # select within it and never relax the server/client guard.
+    from tests.ephemeral_ports import ephemeral_range
     import secrets
+    range_first, range_last = ephemeral_range()
     for attempt in range(128):
-        http_port = MIN_DISPOSABLE_PORT + secrets.randbelow(MAX_DISPOSABLE_PORT - MIN_DISPOSABLE_PORT + 1)
+        http_port = range_first + secrets.randbelow(range_last - range_first + 1)
         with socket.socket() as sock:
             try:
                 sock.bind(('127.0.0.1', http_port))

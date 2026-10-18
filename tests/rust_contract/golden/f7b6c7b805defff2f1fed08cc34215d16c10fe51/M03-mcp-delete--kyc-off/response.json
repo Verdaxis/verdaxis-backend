@@ -1,0 +1,16 @@
+{
+  "status": 405,
+  "headers": {
+    "content-type": "application/json",
+    "x-request-id": "00000000-0000-4000-8000-000000000001"
+  },
+  "body": {
+    "jsonrpc": "2.0",
+    "id": null,
+    "error": {
+      "code": -32600,
+      "message": "Method Not Allowed: Session termination not supported"
+    }
+  },
+  "body_sha256": "5d75b9986d63cf51d6e7409db3844ee621c60921a03a6985d49916d6cb025e40"
+}

@@ -1,0 +1,8 @@
+{
+  "method": "GET",
+  "path": "/api/curves/forward/table",
+  "query": "windows=2026-Q1&windows=2027-Q1&windows=2028-Q1&windows=2029-Q1&windows=2030-Q1&windows=2031-Q1&windows=2032-Q1&windows=2033-Q1&windows=2034-Q1&windows=2035-Q1&windows=2036-Q1&windows=2037-Q1&windows=2038-Q1&windows=2039-Q1&windows=2040-Q1&windows=2041-Q1&windows=2042-Q1&windows=2043-Q1&windows=2044-Q1&windows=2045-Q1&windows=2046-Q1&windows=2047-Q1&windows=2048-Q1&windows=2049-Q1&windows=2050-Q1",
+  "headers": {
+    "x-request-id": "00000000-0000-4000-8000-000000000001"
+  }
+}

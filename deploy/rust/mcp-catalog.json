@@ -1,0 +1,169 @@
+{
+  "source_sha": "4ed68a2fb324835216dd3a602af5ef8e4c6e0154",
+  "products": [
+    {
+      "code": "B30",
+      "name": "B30",
+      "fuel_type": "Biofuel",
+      "unit": "MT",
+      "min_lot_size": "200",
+      "delivery_points": [
+        "Dalian",
+        "Busan",
+        "Shanghai",
+        "Singapore",
+        "Rotterdam",
+        "Houston",
+        "Los Angeles",
+        "Santos"
+      ]
+    },
+    {
+      "code": "B100",
+      "name": "B100",
+      "fuel_type": "Biofuel",
+      "unit": "MT",
+      "min_lot_size": "200",
+      "delivery_points": [
+        "Dalian",
+        "Busan",
+        "Shanghai",
+        "Singapore",
+        "Rotterdam",
+        "Houston",
+        "Los Angeles",
+        "Santos"
+      ]
+    },
+    {
+      "code": "BIO_LNG",
+      "name": "Bio-LNG",
+      "fuel_type": "LNG",
+      "unit": "MT",
+      "min_lot_size": "1",
+      "delivery_points": [
+        "Rotterdam"
+      ]
+    },
+    {
+      "code": "UCOME_B100",
+      "name": "UCOME B100",
+      "fuel_type": "FAME",
+      "unit": "MT",
+      "min_lot_size": "1",
+      "delivery_points": [
+        "Singapore"
+      ]
+    },
+    {
+      "code": "BIO_METHANOL",
+      "name": "Bio Methanol",
+      "fuel_type": "Methanol",
+      "unit": "MT",
+      "min_lot_size": "200",
+      "delivery_points": [
+        "Dalian",
+        "Busan",
+        "Shanghai",
+        "Singapore",
+        "Rotterdam",
+        "Houston",
+        "Los Angeles",
+        "Santos"
+      ]
+    },
+    {
+      "code": "E_METHANOL",
+      "name": "e-Methanol",
+      "fuel_type": "Methanol",
+      "unit": "MT",
+      "min_lot_size": "200",
+      "delivery_points": [
+        "Dalian",
+        "Busan",
+        "Shanghai",
+        "Singapore",
+        "Rotterdam",
+        "Houston",
+        "Los Angeles",
+        "Santos"
+      ]
+    },
+    {
+      "code": "BIO_ETHANOL",
+      "name": "Bio Ethanol",
+      "fuel_type": "Ethanol",
+      "unit": "MT",
+      "min_lot_size": "200",
+      "delivery_points": [
+        "Dalian",
+        "Busan",
+        "Shanghai",
+        "Singapore",
+        "Rotterdam",
+        "Houston",
+        "Los Angeles",
+        "Santos"
+      ]
+    },
+    {
+      "code": "SYNTHETIC_ETHANOL",
+      "name": "Synthetic Ethanol",
+      "fuel_type": "Ethanol",
+      "unit": "MT",
+      "min_lot_size": "200",
+      "delivery_points": [
+        "Dalian",
+        "Busan",
+        "Shanghai",
+        "Singapore",
+        "Rotterdam",
+        "Houston",
+        "Los Angeles",
+        "Santos"
+      ]
+    }
+  ],
+  "delivery_points": [
+    {
+      "name": "Dalian",
+      "region": "Asia",
+      "is_eu": false
+    },
+    {
+      "name": "Busan",
+      "region": "Asia",
+      "is_eu": false
+    },
+    {
+      "name": "Shanghai",
+      "region": "Asia",
+      "is_eu": false
+    },
+    {
+      "name": "Singapore",
+      "region": "Asia",
+      "is_eu": false
+    },
+    {
+      "name": "Rotterdam",
+      "region": "Europe",
+      "is_eu": true
+    },
+    {
+      "name": "Houston",
+      "region": "Americas",
+      "is_eu": false
+    },
+    {
+      "name": "Los Angeles",
+      "region": "Americas",
+      "is_eu": false
+    },
+    {
+      "name": "Santos",
+      "region": "Americas",
+      "is_eu": false
+    }
+  ]
+}

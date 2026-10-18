@@ -1,0 +1,339 @@
+# Rust read-service CI: build, contract-test, and attest the release artifact.
+#
+# Live branches are staging/prod. This workflow never deploys and never receives
+# staging or production secrets. The contract job starts its own disposable
+# PostgreSQL, Python oracle, Rust server and Caddy inside that one job.
+#
+# Triggers (PM decision, 16 Oct): pull requests to staging/prod run the offline
+# and contract jobs; pushes to staging/prod run all three; a manual dispatch runs
+# the offline and contract jobs. No job runs on every feature-branch push.
+# The publish job runs only on a push to staging/prod and only when both other
+# jobs returned exactly `success` (not `skipped`).
+#
+# Every third-party Action is pinned by full commit SHA; the tag is in a comment
+# beside it. SHAs were resolved from the release tags with read-only `gh api`
+# calls.
+
+name: Rust read CI
+
+on:
+  pull_request:
+    branches: [staging, prod]
+  push:
+    branches: [staging, prod]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  # Both live hosts are x86_64 Linux; staging glibc is 2.35, so the build runs
+  # on the oldest of the two and the binary must not need a newer glibc symbol.
+  RUST_TARGET: x86_64-unknown-linux-gnu
+  LIBC_MIN: "2.35"
+  # Caddy is used only by the contract job. Pin the release and its checksum.
+  CADDY_VERSION: "2.11.7"
+  # SHA-256 of caddy_2.11.7_linux_amd64.tar.gz as GitHub records it for the release
+  # asset (`gh api repos/caddyserver/caddy/releases/tags/v2.11.7`, field `digest`).
+  # The release checksums file lists SHA-512 values, which `sha256sum` cannot check.
+  CADDY_SHA256: "727b91701a392de6ebc5027509f548bf39979e5216340d0faed8fa5e69c84f8b"
+  SQLX_CLI_VERSION: "0.9.0"
+
+jobs:
+  # Pure tests plus the release build, the glibc floor check, and the archivable
+  # release artifact. No database, no container, no secrets.
+  offline:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+
+      - name: Install the pinned Rust toolchain
+        shell: bash
+        run: |
+          channel="$(grep -oP 'channel = "\K[^"]+' rs/rust-toolchain.toml)"
+          rustup toolchain install "$channel" --profile minimal --component rustfmt,clippy
+          rustup default "$channel"
+          rustup show
+
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/.cargo
+          key: cargo-offline-${{ runner.os }}-${{ env.RUST_TARGET }}-${{ hashFiles('rs/Cargo.lock') }}
+
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      # The artifact tests import only the standard library and cryptography, but
+      # the shared tests/conftest.py imports httpx and SQLAlchemy, so the offline
+      # job installs the same requirements the existing backend CI does. The
+      # pure differential tests under rs/ (orderbook_map) exec the project
+      # interpreter at <repo>/venv/bin/python, so the dependencies live in a venv
+      # at exactly that path, as the contract job already builds.
+      - name: Install the Python test environment
+        run: |
+          python -m venv venv
+          venv/bin/python -m pip install --upgrade pip
+          venv/bin/pip install -r requirements.txt -c constraints.txt
+
+      - name: Run the artifact verifier unit tests
+        env:
+          ENVIRONMENT: test
+          RELEASE_SHA: test
+          JWT_SECRET: test-secret-key-for-testing-minimum-32-chars
+          DATABASE_URL: "sqlite+aiosqlite:///:memory:"
+        run: venv/bin/python -m pytest tests/unit/test_rust_artifact.py -q
+
+      - name: Fetch dependencies
+        run: cargo fetch --manifest-path rs/Cargo.toml --locked
+
+      - name: Run the offline Rust tests
+        env:
+          RELEASE_SHA: ${{ github.sha }}
+          SQLX_OFFLINE: "true"
+        run: cargo test --manifest-path rs/Cargo.toml --locked --workspace
+
+      - name: Check formatting and lints
+        env:
+          RELEASE_SHA: ${{ github.sha }}
+        run: |
+          cargo fmt --manifest-path rs/Cargo.toml --all -- --check
+          cargo clippy --manifest-path rs/Cargo.toml --locked --workspace --all-targets -- -D warnings
+
+      - name: Build the release artifact for the host target
+        env:
+          RELEASE_SHA: ${{ github.sha }}
+        run: |
+          cargo build --manifest-path rs/Cargo.toml --locked --release \
+            --target "$RUST_TARGET" -p verdaxis-read
+          sha256sum "rs/target/$RUST_TARGET/release/verdaxis-read"
+
+      - name: Check the glibc floor of the built binary
+        shell: bash
+        run: |
+          command -v objdump >/dev/null || sudo apt-get install -y -qq binutils
+          objdump -T "rs/target/$RUST_TARGET/release/verdaxis-read" > objdump-symbols.txt
+          python3 scripts/verify_rust_artifact.py --glibc-check \
+            --objdump objdump-symbols.txt --max "$LIBC_MIN" \
+            --source-sha "$GITHUB_SHA" \
+            | tee glibc-report.txt
+
+      - name: Package the release artifact
+        shell: bash
+        run: |
+          mkdir -p release
+          cp "rs/target/$RUST_TARGET/release/verdaxis-read" release/verdaxis-read
+          # Keep every uploaded file under release/, so the artifact root is release/
+          # and both download steps (path: release) find release/<file>.
+          cp glibc-report.txt release/glibc-report.txt
+          python3 scripts/verify_rust_artifact.py --package \
+            --binary release/verdaxis-read \
+            --data-dir deploy/rust \
+            --lockfile rs/Cargo.lock \
+            --toolchain "$(grep -oP 'channel = "\K[^"]+' rs/rust-toolchain.toml)" \
+            --source-sha "$GITHUB_SHA" \
+            --target "$RUST_TARGET" \
+            --output "release/verdaxis-read-$GITHUB_SHA.tar" \
+            --metadata-out release/artifact-metadata.json
+
+      - name: Upload the release artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rust-read-artifact
+          if-no-files-found: error
+          retention-days: 7
+          path: |
+            release/verdaxis-read
+            release/verdaxis-read-*.tar
+            release/artifact-metadata.json
+            release/glibc-report.txt
+
+  # The full differential contract gate and the unchanged integration suite,
+  # each against this job's own disposable database. It also runs the release
+  # binary's identity check, so the digest it reports is one it executed.
+  contract:
+    needs: offline
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      - name: Install the pinned Rust toolchain
+        shell: bash
+        run: |
+          channel="$(grep -oP 'channel = "\K[^"]+' rs/rust-toolchain.toml)"
+          rustup toolchain install "$channel" --profile minimal --component rustfmt,clippy
+          rustup default "$channel"
+          rustup show
+
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/.cargo
+          key: cargo-contract-${{ runner.os }}-${{ env.RUST_TARGET }}-${{ hashFiles('rs/Cargo.lock') }}
+
+      - name: Install the Python environment the runner expects
+        run: |
+          python -m venv venv
+          venv/bin/python -m pip install --upgrade pip
+          venv/bin/pip install -r requirements.txt -c constraints.txt
+
+      - name: Install sqlx-cli
+        run: |
+          if ! command -v sqlx >/dev/null; then
+            cargo install sqlx-cli --version "$SQLX_CLI_VERSION" --locked \
+              --no-default-features --features postgres,rustls
+          fi
+
+      - name: Install the pinned Caddy
+        shell: bash
+        run: |
+          curl -fsSL -o "caddy_${CADDY_VERSION}_linux_amd64.tar.gz" \
+            "https://github.com/caddyserver/caddy/releases/download/v${CADDY_VERSION}/caddy_${CADDY_VERSION}_linux_amd64.tar.gz"
+          echo "${CADDY_SHA256}  caddy_${CADDY_VERSION}_linux_amd64.tar.gz" | sha256sum -c -
+          tar -xzf "caddy_${CADDY_VERSION}_linux_amd64.tar.gz" caddy
+          install -D -m 0755 caddy "$RUNNER_TEMP/bin/caddy"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+
+      - name: Download the release artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: rust-read-artifact
+          path: release
+
+      - name: Test the release binary identity
+        shell: bash
+        env:
+          RELEASE_SHA: ${{ github.sha }}
+        run: |
+          chmod +x release/verdaxis-read
+          python3 - <<'PY'
+          import hashlib, json, os, subprocess, sys
+          from pathlib import Path
+          binary = Path("release/verdaxis-read")
+          metadata = json.loads(Path("release/artifact-metadata.json").read_text())
+          digest = hashlib.sha256(binary.read_bytes()).hexdigest()
+          assert digest == metadata["binary"]["sha256"], "binary digest differs from metadata"
+          assert metadata["release_sha"] == os.environ["RELEASE_SHA"], "metadata source SHA differs"
+          document = json.loads(subprocess.run([str(binary), "--version-json"], check=True,
+                                               capture_output=True, text=True).stdout)
+          assert document["release_sha"] == os.environ["RELEASE_SHA"], "compiled identity differs"
+          assert document["libc_min"] == metadata["libc_min"], "libc floor differs"
+          report = {"release_sha": os.environ["RELEASE_SHA"], "binary_sha256": digest,
+                    "version_json": document, "metadata_sha256": hashlib.sha256(
+                        Path("release/artifact-metadata.json").read_bytes()).hexdigest()}
+          Path("tested-binary.json").write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
+          print("TESTED " + json.dumps({"binary_sha256": digest}))
+          PY
+
+      - name: Run the combined contract gate
+        env:
+          RELEASE_SHA: ${{ github.sha }}
+        run: |
+          venv/bin/python -m scripts.rust_contract.run_disposable \
+            --group all --rust-target all --mixed-caddy --require-complete-ledger \
+            --report docs/rust-phase1/ci-contract.json
+
+      - name: Check the SQLx query metadata
+        env:
+          RELEASE_SHA: ${{ github.sha }}
+        run: venv/bin/python scripts/rust_contract/sqlx_offline_check.py
+
+      - name: Upload the contract evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rust-contract-evidence
+          if-no-files-found: warn
+          retention-days: 7
+          path: |
+            docs/rust-phase1/ci-contract.json
+            tested-binary.json
+
+  # Publish runs only for a push to a live branch and only when both other jobs
+  # returned exactly `success`. It attests the exact binary digest the contract
+  # job tested, then packages the release bundle for the operator.
+  publish:
+    needs: [offline, contract]
+    if: >-
+      github.event_name == 'push' &&
+      (github.ref == 'refs/heads/staging' || github.ref == 'refs/heads/prod') &&
+      needs.offline.result == 'success' &&
+      needs.contract.result == 'success'
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      - name: Download the release artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: rust-read-artifact
+          path: release
+
+      - name: Download the contract evidence
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: rust-contract-evidence
+          path: evidence
+
+      - name: Require the tested digest to be the published digest
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          tested = json.loads(Path("evidence/tested-binary.json").read_text())
+          digest = hashlib.sha256(Path("release/verdaxis-read").read_bytes()).hexdigest()
+          # The attestation subject must be the bytes the contract job executed.
+          assert tested["binary_sha256"] == digest, "published binary is not the tested binary"
+          report = json.loads(Path("evidence/ci-contract.json").read_text())
+          assert report["source_sha"] == tested["release_sha"], "contract report source differs"
+          assert not report["failed_groups"], "contract gate reported failures"
+          print("PUBLISHING " + digest)
+          PY
+
+      - name: Package the release bundle
+        shell: bash
+        run: |
+          tar --owner=root --group=root --mtime=@0 \
+            -cf "rust-read-release-$GITHUB_SHA.tar" \
+            release/verdaxis-read \
+            release/verdaxis-read-*.tar \
+            release/artifact-metadata.json \
+            release/glibc-report.txt \
+            evidence/ci-contract.json \
+            evidence/tested-binary.json
+          sha256sum "rust-read-release-$GITHUB_SHA.tar"
+
+      # Attest both the binary the contract job tested and the archive that
+      # carries it, so the workstation can verify the binary digest directly.
+      - name: Attest the release artifact
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
+        with:
+          subject-path: |
+            release/verdaxis-read
+            release/verdaxis-read-*.tar
+
+      - name: Upload the release bundle
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rust-read-release
+          if-no-files-found: error
+          retention-days: 30
+          path: |
+            rust-read-release-*.tar
+            release/verdaxis-read
+            release/verdaxis-read-*.tar
+            release/artifact-metadata.json
+            evidence/ci-contract.json
+            evidence/tested-binary.json

@@ -1,0 +1,53 @@
+{
+  "status": 200,
+  "headers": {
+    "content-type": "application/json",
+    "x-request-id": "00000000-0000-4000-8000-000000000001"
+  },
+  "body": {
+    "columns": [
+      {
+        "availability_window": "2031-04",
+        "display_label": "Apr 2031",
+        "group": "Monthly"
+      }
+    ],
+    "rows": [
+      {
+        "row_key": "BIO_METHANOL:73835e92-820e-584b-8280-bb61c63aa28e",
+        "market_product": "BIO_METHANOL",
+        "product_name": "Bio Methanol",
+        "representative_product_id": "9510c713-6e39-5080-add3-0a7c29657b79",
+        "product_count": 1,
+        "delivery_point_id": "73835e92-820e-584b-8280-bb61c63aa28e",
+        "delivery_point_name": "Singapore",
+        "region": "Asia",
+        "cells": {
+          "2031-04": {
+            "primary_value": null,
+            "primary_signal_type": "NO_DATA",
+            "primary_source_kind": "NO_DATA",
+            "public_source_label": "No data",
+            "staleness_status": "NO_DATA",
+            "is_executable": false,
+            "is_reference": false,
+            "demo_status": "REAL_ONLY",
+            "observed_at": null,
+            "best_bid": "1000.00",
+            "best_ask": null,
+            "spread": null,
+            "volume_mt": "1000000.00",
+            "order_count": 10000,
+            "real_order_count": 10000,
+            "demo_order_count": 0,
+            "unknown_order_count": 0
+          }
+        }
+      }
+    ],
+    "latest_signals": [],
+    "generated_at": "2026-10-15T12:00:00Z",
+    "disclaimer": "Indicative estimate only. Not legal, regulatory, tax, or compliance filing advice."
+  },
+  "body_sha256": "064f1804a512bd2a25c4d132633f64f0f32816fda6588b4423028078b612bac9"
+}

@@ -1,0 +1,20 @@
+[workspace]
+members = ["read", "contract"]
+resolver = "3"
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.95"
+
+# Line tables keep file:line in backtraces but cut the debug build size,
+# because each parallel lane worktree builds its own target folder.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "debuginfo"

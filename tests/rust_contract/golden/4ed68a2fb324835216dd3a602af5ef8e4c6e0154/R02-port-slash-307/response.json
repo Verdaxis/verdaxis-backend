@@ -1,0 +1,9 @@
+{
+  "status": 307,
+  "headers": {
+    "location": "{endpoint}/api/ports/1379d36c-1ca9-55b7-9c0d-5235a0ba1f36",
+    "x-request-id": "00000000-0000-4000-8000-000000000001"
+  },
+  "body": null,
+  "body_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+}

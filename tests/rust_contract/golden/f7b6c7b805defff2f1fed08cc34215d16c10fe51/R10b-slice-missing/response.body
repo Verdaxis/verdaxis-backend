@@ -1,0 +1,1 @@
+{"detail":[{"type":"missing","loc":["query","market_product"],"msg":"Field required","input":null},{"type":"missing","loc":["query","delivery_point_id"],"msg":"Field required","input":null},{"type":"missing","loc":["query","availability_window"],"msg":"Field required","input":null}]}

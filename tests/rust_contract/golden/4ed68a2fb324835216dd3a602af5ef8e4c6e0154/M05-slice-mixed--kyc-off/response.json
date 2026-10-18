@@ -1,0 +1,36 @@
+{
+  "status": 200,
+  "headers": {
+    "content-type": "application/json",
+    "x-request-id": "00000000-0000-4000-8000-000000000001"
+  },
+  "body": {
+    "jsonrpc": "2.0",
+    "id": 8,
+    "result": {
+      "content": [
+        {
+          "text": "{\n  \"market_product\": \"BIO_METHANOL\",\n  \"delivery_point\": \"Singapore\",\n  \"availability_window\": \"SPOT\",\n  \"best_bid_usd_per_mt\": \"600.00\",\n  \"best_ask_usd_per_mt\": \"600.00\",\n  \"bid_order_count\": 13,\n  \"ask_order_count\": 1,\n  \"bid_quantity_mt\": \"1240.00\",\n  \"ask_quantity_mt\": \"100.00\",\n  \"demo_status\": \"MIXED\",\n  \"benchmark_usd_per_mt\": \"985.00\",\n  \"observed_at\": \"2026-10-15T12:00:00Z\",\n  \"note\": \"This slice shows a mix of live orders from real organizations and demo preview liquidity; the benchmark is an indicative reference, not an executable price.\"\n}",
+          "type": "text"
+        }
+      ],
+      "isError": false,
+      "structuredContent": {
+        "market_product": "BIO_METHANOL",
+        "delivery_point": "Singapore",
+        "availability_window": "SPOT",
+        "best_bid_usd_per_mt": "600.00",
+        "best_ask_usd_per_mt": "600.00",
+        "bid_order_count": 13,
+        "ask_order_count": 1,
+        "bid_quantity_mt": "1240.00",
+        "ask_quantity_mt": "100.00",
+        "demo_status": "MIXED",
+        "benchmark_usd_per_mt": "985.00",
+        "observed_at": "2026-10-15T12:00:00Z",
+        "note": "This slice shows a mix of live orders from real organizations and demo preview liquidity; the benchmark is an indicative reference, not an executable price."
+      }
+    }
+  },
+  "body_sha256": "33b73388ca5f57534bf12f0f5f9aec21b6f9b7cf7695fa84c9f05f5493f53325"
+}

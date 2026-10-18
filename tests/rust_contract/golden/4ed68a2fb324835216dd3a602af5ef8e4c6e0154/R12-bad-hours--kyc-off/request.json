@@ -1,0 +1,8 @@
+{
+  "method": "GET",
+  "path": "/api/prices",
+  "query": "hours=0",
+  "headers": {
+    "x-request-id": "00000000-0000-4000-8000-000000000001"
+  }
+}

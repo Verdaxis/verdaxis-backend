@@ -1,0 +1,1 @@
+{"detail":[{"type":"date_from_datetime_parsing","loc":["query","date_from"],"msg":"Input should be a valid date or datetime, month value is outside expected range of 1-12","input":"2026-13-01","ctx":{"error":"month value is outside expected range of 1-12"}}]}

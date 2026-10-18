@@ -1,0 +1,21 @@
+{
+  "status": 200,
+  "headers": {
+    "content-type": "application/json",
+    "x-request-id": "00000000-0000-4000-8000-000000000001"
+  },
+  "body": {
+    "jsonrpc": "2.0",
+    "id": 41,
+    "result": {
+      "content": [
+        {
+          "text": "Error executing tool plan_voyage_fuel: No Cape route for Shanghai to Singapore",
+          "type": "text"
+        }
+      ],
+      "isError": true
+    }
+  },
+  "body_sha256": "67c3f1c03dd8a6e744d5aacf2aa64132659c2e87543b5c2cb5f1bf9987a0af3e"
+}

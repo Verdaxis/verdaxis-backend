@@ -1,0 +1,21 @@
+{
+  "status": 422,
+  "headers": {
+    "content-type": "application/json",
+    "x-request-id": "00000000-0000-4000-8000-000000000001"
+  },
+  "body": {
+    "detail": [
+      {
+        "type": "date_from_datetime_inexact",
+        "loc": [
+          "query",
+          "date_from"
+        ],
+        "msg": "Datetimes provided to dates should have zero time - e.g. be exact dates",
+        "input": "2026-01-01T01:00:00Z"
+      }
+    ]
+  },
+  "body_sha256": "abdbf9472c861c13051806f8db9d55fe95ab70a39fc7b09d247949cb1e93c915"
+}

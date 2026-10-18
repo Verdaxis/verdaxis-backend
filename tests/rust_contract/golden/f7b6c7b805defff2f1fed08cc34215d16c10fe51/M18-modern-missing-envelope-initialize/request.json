@@ -1,0 +1,12 @@
+{
+  "method": "POST",
+  "path": "/mcp",
+  "query": "",
+  "headers": {
+    "x-request-id": "00000000-0000-4000-8000-000000000001",
+    "content-type": "application/json",
+    "accept": "application/json",
+    "mcp-protocol-version": "2026-07-28"
+  },
+  "body": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2026-07-28\",\"capabilities\":{},\"clientInfo\":{\"name\":\"t\",\"version\":\"1\"}}}"
+}

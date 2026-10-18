@@ -1,0 +1,51 @@
+[
+  {
+    "id": "78281fb3-e726-5396-802e-34b01fda21e8",
+    "name": "Dalian",
+    "region": "Asia",
+    "timezone": "Asia/Shanghai",
+    "is_active": true
+  },
+  {
+    "id": "262d36ae-6f35-5785-b9e8-9e221b0f1b78",
+    "name": "Busan",
+    "region": "Asia",
+    "timezone": "Asia/Seoul",
+    "is_active": true
+  },
+  {
+    "id": "633c0593-f9b9-52ad-abe5-a0285f6888d3",
+    "name": "Shanghai",
+    "region": "Asia",
+    "timezone": "Asia/Shanghai",
+    "is_active": true
+  },
+  {
+    "id": "73835e92-820e-584b-8280-bb61c63aa28e",
+    "name": "Singapore",
+    "region": "Asia",
+    "timezone": "Asia/Singapore",
+    "is_active": true
+  },
+  {
+    "id": "1379d36c-1ca9-55b7-9c0d-5235a0ba1f36",
+    "name": "Rotterdam",
+    "region": "Europe",
+    "timezone": "Europe/Amsterdam",
+    "is_active": true
+  },
+  {
+    "id": "a083db06-b050-56c2-a274-3897eac2fdae",
+    "name": "Houston",
+    "region": "Americas",
+    "timezone": "America/Chicago",
+    "is_active": true
+  },
+  {
+    "id": "1be2a5cb-fc34-5e88-8b15-7f7d0fd6e534",
+    "name": "Los Angeles",
+    "region": "Americas",
+    "timezone": "America/Los_Angeles",
+    "is_active": true
+  }
+]

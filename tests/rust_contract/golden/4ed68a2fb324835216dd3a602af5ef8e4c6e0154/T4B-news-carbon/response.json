@@ -1,0 +1,25 @@
+{
+  "status": 200,
+  "headers": {
+    "content-type": "application/json",
+    "x-request-id": "00000000-0000-4000-8000-000000000001"
+  },
+  "body": [
+    {
+      "id": "6bd896cc-effe-5e18-9063-42eb89ed12c7",
+      "title": "Corpus carbon",
+      "summary": null,
+      "source": "Corpus",
+      "source_url": "https://example.test",
+      "url": "https://example.test/carbon",
+      "category": "carbon",
+      "relevance": 5,
+      "published_at": "2026-10-15T12:00:00+00:00",
+      "fetched_at": "2026-10-15T12:00:00+00:00"
+    }
+  ],
+  "body_sha256": "34f5122433f7a85603a644dec0bae7b5b27be1c16df0405a13c1e513fb548df8",
+  "news_exact_items": [
+    "{\"id\":\"6bd896cc-effe-5e18-9063-42eb89ed12c7\",\"title\":\"Corpus carbon\",\"summary\":null,\"source\":\"Corpus\",\"source_url\":\"https://example.test\",\"url\":\"https://example.test/carbon\",\"category\":\"carbon\",\"relevance\":5,\"published_at\":\"2026-10-15T12:00:00+00:00\",\"fetched_at\":\"2026-10-15T12:00:00+00:00\"}"
+  ]
+}

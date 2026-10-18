@@ -1,0 +1,12 @@
+{
+  "status": 401,
+  "headers": {
+    "www-authenticate": "Bearer",
+    "content-type": "application/json",
+    "x-request-id": "00000000-0000-4000-8000-000000000001"
+  },
+  "body": {
+    "detail": "Not authenticated"
+  },
+  "body_sha256": "cfec9feffbcc0dabaa0f92491e3609eeb1e9bc8d17625cd7f043be03b609c812"
+}

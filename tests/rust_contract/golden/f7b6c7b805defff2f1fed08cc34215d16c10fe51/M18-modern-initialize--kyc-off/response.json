@@ -1,0 +1,32 @@
+{
+  "status": 200,
+  "headers": {
+    "content-type": "application/json",
+    "x-request-id": "00000000-0000-4000-8000-000000000001"
+  },
+  "body": {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": {
+      "capabilities": {
+        "prompts": {
+          "listChanged": false
+        },
+        "resources": {
+          "listChanged": false,
+          "subscribe": false
+        },
+        "tools": {
+          "listChanged": false
+        }
+      },
+      "instructions": "These tools are read-only. Prices come from Verdaxis market data and caller assumptions. State the provenance of each price. Never present a demo or benchmark price as executable. Results are indicative planning estimates, not quotes or offers.",
+      "protocolVersion": "2025-11-25",
+      "serverInfo": {
+        "name": "verdaxis-market",
+        "version": ""
+      }
+    }
+  },
+  "body_sha256": "df1a234cff53f5cc51a0fdfec3e33b262546bcbf7a3cc78bafec11c763222eac"
+}

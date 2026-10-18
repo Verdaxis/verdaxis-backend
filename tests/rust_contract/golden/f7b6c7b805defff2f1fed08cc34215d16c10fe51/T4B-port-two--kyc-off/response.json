@@ -1,0 +1,24 @@
+{
+  "status": 200,
+  "headers": {
+    "content-type": "application/json",
+    "x-request-id": "00000000-0000-4000-8000-000000000001"
+  },
+  "body": {
+    "id": "T4B_TWO",
+    "name": "Corpus TWO",
+    "country": "Singapore",
+    "location": null,
+    "timezone": "Asia/Singapore",
+    "is_active": true,
+    "lat": "1.234567891234",
+    "lng": "103.123456789123",
+    "intelligence": {
+      "congestion_level": "Low",
+      "methanol_price_avg": "601.0",
+      "biofuel_price_avg": null,
+      "captured_at": "2026-10-15T12:00:00Z"
+    }
+  },
+  "body_sha256": "f5a97135f6a97e712cd45c1040af34d2ea8b78e7febfa500d353b98b7a336e52"
+}

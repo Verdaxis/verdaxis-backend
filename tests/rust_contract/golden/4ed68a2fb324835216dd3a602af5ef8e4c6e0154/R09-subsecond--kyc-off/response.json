@@ -1,0 +1,104 @@
+{
+  "status": 200,
+  "headers": {
+    "content-type": "application/json",
+    "x-request-id": "00000000-0000-4000-8000-000000000001"
+  },
+  "body": {
+    "columns": [
+      {
+        "availability_window": "2031-05",
+        "display_label": "May 2031",
+        "group": "Monthly"
+      },
+      {
+        "availability_window": "2031-06",
+        "display_label": "Jun 2031",
+        "group": "Monthly"
+      }
+    ],
+    "rows": [
+      {
+        "row_key": "BIO_METHANOL:73835e92-820e-584b-8280-bb61c63aa28e",
+        "market_product": "BIO_METHANOL",
+        "product_name": "Bio Methanol",
+        "representative_product_id": "9510c713-6e39-5080-add3-0a7c29657b79",
+        "product_count": 1,
+        "delivery_point_id": "73835e92-820e-584b-8280-bb61c63aa28e",
+        "delivery_point_name": "Singapore",
+        "region": "Asia",
+        "cells": {
+          "2031-05": {
+            "primary_value": "1050.00",
+            "primary_signal_type": "ORDERBOOK_BID",
+            "primary_source_kind": "LIVE_ORDER",
+            "public_source_label": "Executable orderbook midpoint",
+            "staleness_status": "FRESH",
+            "is_executable": true,
+            "is_reference": false,
+            "demo_status": "REAL_ONLY",
+            "observed_at": "2026-10-15T11:00:00Z",
+            "best_bid": "1000.00",
+            "best_ask": "1100.00",
+            "spread": "100.00",
+            "volume_mt": "200.00",
+            "order_count": 2,
+            "real_order_count": 2,
+            "demo_order_count": 0,
+            "unknown_order_count": 0
+          },
+          "2031-06": {
+            "primary_value": "1050.00",
+            "primary_signal_type": "ORDERBOOK_BID",
+            "primary_source_kind": "LIVE_ORDER",
+            "public_source_label": "Executable orderbook midpoint",
+            "staleness_status": "FRESH",
+            "is_executable": true,
+            "is_reference": false,
+            "demo_status": "REAL_ONLY",
+            "observed_at": "2026-10-15T11:00:00.500000Z",
+            "best_bid": "1000.00",
+            "best_ask": "1100.00",
+            "spread": "100.00",
+            "volume_mt": "200.00",
+            "order_count": 2,
+            "real_order_count": 2,
+            "demo_order_count": 0,
+            "unknown_order_count": 0
+          }
+        }
+      }
+    ],
+    "latest_signals": [
+      {
+        "market_product": "BIO_METHANOL",
+        "delivery_point_id": "73835e92-820e-584b-8280-bb61c63aa28e",
+        "delivery_point_name": "Singapore",
+        "availability_window": "2031-06",
+        "primary_value": "1050.00",
+        "primary_signal_type": "ORDERBOOK_BID",
+        "primary_source_kind": "LIVE_ORDER",
+        "public_source_label": "Executable orderbook midpoint",
+        "demo_status": "REAL_ONLY",
+        "observed_at": "2026-10-15T11:00:00.500000Z",
+        "staleness_status": "FRESH"
+      },
+      {
+        "market_product": "BIO_METHANOL",
+        "delivery_point_id": "73835e92-820e-584b-8280-bb61c63aa28e",
+        "delivery_point_name": "Singapore",
+        "availability_window": "2031-05",
+        "primary_value": "1050.00",
+        "primary_signal_type": "ORDERBOOK_BID",
+        "primary_source_kind": "LIVE_ORDER",
+        "public_source_label": "Executable orderbook midpoint",
+        "demo_status": "REAL_ONLY",
+        "observed_at": "2026-10-15T11:00:00Z",
+        "staleness_status": "FRESH"
+      }
+    ],
+    "generated_at": "2026-10-15T12:00:00Z",
+    "disclaimer": "Indicative estimate only. Not legal, regulatory, tax, or compliance filing advice."
+  },
+  "body_sha256": "277a432e9811d423cf092b5c6c820ddf7162d3a85d57d82adfcafeda4439f2d9"
+}

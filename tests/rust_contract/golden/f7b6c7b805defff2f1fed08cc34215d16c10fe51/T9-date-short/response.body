@@ -1,0 +1,1 @@
+{"detail":[{"type":"date_from_datetime_parsing","loc":["query","date_from"],"msg":"Input should be a valid date or datetime, input is too short","input":"2026-1-1","ctx":{"error":"input is too short"}}]}

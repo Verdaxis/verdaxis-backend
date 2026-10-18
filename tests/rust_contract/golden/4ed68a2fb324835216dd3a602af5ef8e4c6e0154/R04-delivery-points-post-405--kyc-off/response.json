@@ -1,0 +1,12 @@
+{
+  "status": 405,
+  "headers": {
+    "allow": "GET",
+    "content-type": "application/json",
+    "x-request-id": "00000000-0000-4000-8000-000000000001"
+  },
+  "body": {
+    "detail": "Method Not Allowed"
+  },
+  "body_sha256": "83c09ba9a8daedb136f90b17a294caa90ad471a016e430df6e229acb5a81e100"
+}

@@ -1,0 +1,11 @@
+{
+  "status": 422,
+  "headers": {
+    "content-type": "application/json",
+    "x-request-id": "00000000-0000-4000-8000-000000000001"
+  },
+  "body": {
+    "detail": "availability_window must be SPOT, YYYY-MM, YYYY-QN, or YYYY-CAL"
+  },
+  "body_sha256": "c3c1e17efe2c35eac1051a4aa05d7ccad50d6724eac1c62351960b688e063173"
+}

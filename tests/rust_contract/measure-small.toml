@@ -1,0 +1,32 @@
+# Task 14a measurement configuration (test host only).
+# The measurement runs one disposable environment per size, seeds the workload
+# manifest's rows, then runs four-worker Python and one Rust process over the
+# identical offered load. No staging or production host is involved.
+#
+# Schedule: the equal-weight route baseline, so every measured unit receives
+# equal traffic. The declared representative mix is reported as a weighted
+# aggregate of the same per-route measurements, not a second run.
+#
+# Time budget: the whole task must fit inside four hours of test-host run time
+# and the first small-size attempt timed out at 10 RPS, so the offered load is
+# 1 and 5 RPS (the plan's two lower rates; no saturation run above 10 RPS is
+# made in this task). With warmup 15 s and windows 15 s @ 1 RPS + 900 s @ 5 RPS,
+# one cell is about 15.5 minutes and the four cells (two sizes, two runtimes)
+# are about 1 h 2 m, leaving room for the two seeds, the migrations and the
+# release build. A route receives about 150 completed observations, below the
+# 1,000 floor; every route is reported inconclusive with the number still
+# needed rather than claimed as a pass.
+
+size = "small"
+weight_key = "weight_baseline"
+
+warmup_seconds = 15
+repetitions = 1
+
+[[windows]]
+seconds = 15
+rps = 1
+
+[[windows]]
+seconds = 900
+rps = 5

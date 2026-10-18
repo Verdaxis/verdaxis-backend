@@ -1,0 +1,25 @@
+# Task 14b template, NOT an approved live command or floor.
+# Fill this in a private file outside the Python checkout after PM approval.
+# No secrets, credentials, disposable token, public URL or fixture defaults.
+python_url = "http://127.0.0.1:8001"
+rust_url = "http://127.0.0.1:8011"
+python_sha = ""
+candidate_sha = ""
+policy_hash = ""
+cases_path = "/var/tmp/REPLACE-private-14b/cases.json"
+output_dir = "/var/tmp/REPLACE-private-14b/evidence"
+deploy_state_path = "/home/verdaxis-prod/verdaxis/staging/be/.runtime-deploy/staging.state"
+sampling_calls_per_ten_seconds = 3
+per_call_deadline_seconds = 2.0
+max_response_bytes = 1048576
+max_evidence_bytes = 10485760
+pause_seconds = 60
+# The proposed five-pair short floor is not approved by this template.
+# Set both fields only to the separately approved short-pass rule.
+required_observations_per_route = 1000
+floor_approved = false
+
+[limits]
+prices_per_minute = 60
+reference_per_minute = 30
+export_per_minute = 10

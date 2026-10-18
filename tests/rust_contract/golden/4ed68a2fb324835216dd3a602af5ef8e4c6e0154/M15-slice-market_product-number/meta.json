@@ -1,0 +1,11 @@
+{
+  "source_sha": "4ed68a2fb324835216dd3a602af5ef8e4c6e0154",
+  "schema_revision": "kycd_20261015_staging",
+  "timezone": "Asia/Singapore",
+  "clock": "2026-10-15T12:00:00+00:00",
+  "group": "mcp",
+  "KYC_EXECUTION_GATE_ENABLED": true,
+  "seed_mode": "corpus",
+  "seed_manifest_sha256": "1e58ca60294750693071245ab0360883e8584b0699d0eb74cf37135dadaf170b",
+  "case_id": "M15-slice-market_product-number"
+}
