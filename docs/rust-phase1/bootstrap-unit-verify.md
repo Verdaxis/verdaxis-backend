@@ -45,7 +45,17 @@ selection above completed successfully. Raw logs remain in ignored `work/`.
 
 Affected suites: `test_rust_units`, `test_rust_release`, `test_rust_budget`,
 `test_rust_artifact`, `test_deploy_health`, and monitor source-ownership tests.
-Full Rust workspace and CI results are recorded in the final handoff.
+Full Rust workspace: `SQLX_OFFLINE=true cargo test --manifest-path rs/Cargo.toml
+--locked --workspace`, with the base full SHA as `RELEASE_SHA`: exit 0. All test
+binaries and doc tests finished with zero failures.
+
+PR: https://github.com/Verdaxis/verdaxis-backend/pull/94 (normal, target `staging`).
+Implementation commit: `ab34808ba041877d29a246fa65e3bac588f6a7d0`.
+CI at that commit: Rust `offline` and `contract` passed (run `39151838054`);
+backend `test`, `postgres-analytics` and `postgres-phase0` passed
+(run `39151838058`). `publish` was skipped as required for a PR.
+`gh pr checks --watch` exited 0. Merge remains with the PM. A later documentation
+commit records these results; its CI must also finish before the handoff.
 
 ## Source consumer audit
 
