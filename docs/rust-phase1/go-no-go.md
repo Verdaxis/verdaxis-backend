@@ -18,8 +18,10 @@ measurement was run in this lane. No deployment is authorized.
 
 - Python is retained as the differential correctness oracle at both sizes.
   Zero unexplained contract differences and a passing integration suite remain
-  mandatory. The supplied large simulation still records 33 historical trade-tape
-  differences; the small prices rerun does not replace that large result.
+  mandatory. The large differential gate now passes: the 18 October staging rerun
+  compared 487 pairs under decision 85, with zero unexplained differences and no
+  inconclusive sandwiches. See the contract result below; the 33 historical
+  trade-tape differences are superseded, not reclassified as fresh evidence.
 - Small Rust performance compares only against the committed frozen Python
   baseline, never a live Python performance cell. Weighted mix p95 must not rise.
   Per-route p95 blocks only above 100 ms or above 50% regression. Error-rate
@@ -62,6 +64,66 @@ A bounded run below the floor records INCONCLUSIVE; extend the reviewed duration
 rather than count failed requests as successes. Rust identity records full source
 and harness SHAs, manifest and baseline digests, date and offered rates. Use the
 exclusive `heavy measure` helper for an actual performance run.
+
+### Contract result — large differential rerun, 18 October 2026
+
+**Large contract gate: PASS.** Tested source/harness
+`1bae4d583c09b63d2f530b18d3afc78d1a878d8c` on the isolated staging test host
+`vmi1840561.contaboserver.net`, through `verdaxis-staging-test` and `heavy run`.
+Manifest digest: `85d6617ffc7361c05446e4e485c5b00112fc88b6f76671e6c8ca552880aca215`.
+Each group used a fresh disposable large workload (100,000 orders and 100,000
+trades), both stacks, and the Python–Rust–Python sandwich from `simulate.py`.
+
+Decision 85 (`19f84191`) was active: only exact trade-tape item bytes within a
+`confirmed_at` tie may permute. Tie-key sequence/order, item sets, surrounding
+bytes, total and market hours remain strict. No comparator, application or SQL
+code changed. The unchanged authoritative comparator checked all saved recordings.
+
+| Group | Pairs compared | Matches under approved rules | Unexplained differences | Inconclusive sandwiches |
+| --- | ---: | ---: | ---: | ---: |
+| health | 8 | 8 | 0 | 0 |
+| echo | 2 | 2 | 0 | 0 |
+| simple_reads | 49 | 49 | 0 | 0 |
+| live_benchmarks | 4 | 4 | 0 | 0 |
+| orderbook_snapshot | 7 | 7 | 0 | 0 |
+| orderbook_lists | 28 | 28 | 0 | 0 |
+| orderbook_map | 41 | 41 | 0 | 0 |
+| prices | 56 | 56 | 0 | 0 |
+| curves_legacy | 12 | 12 | 0 | 0 |
+| curves_canonical | 137 | 137 | 0 | 0 |
+| mcp | 143 | 143 | 0 | 0 |
+| **Total** | **487** | **487** | **0** | **0** |
+
+Difference classification: no new trade-tape raw-body ordering differences were
+observed, so zero cases needed the tie exception; zero unexplained differences
+remain. The former 33 differences are historical observations, not differences
+from this rerun. Other existing approved comparator rules remain unchanged.
+
+The full invocation was `simulate.py --size large`, with a 7,200-second hard
+limit because it seeds 11 fresh large datasets and records three passes each.
+It finished ten groups, then failed starting the final MCP container: Podman
+3.4.4 timed out fetching the pinned image configuration over IPv6 from Docker
+Hub. The simulation and wrapper exited **1**. This was a registry transport
+failure, not a byte-comparison result; no host guard was changed. A separate
+`simulate.py --size large --groups mcp` call under `heavy run 3600` completed
+with simulation/wrapper exits **0/0**. All 33 saved recordings were then checked
+together under `heavy run 3600`: aggregate contract gate/wrapper exits **0/0**.
+No completed group was omitted, and no inconclusive group was counted as a match.
+The run used staging Python 3.12.13; no version-dependent contract difference was
+observed. No performance, memory or capacity measurement was run.
+
+Local logs: `work/large-contract-d85.log`, `work/large-contract-d85-mcp.log`,
+`work/large-contract-d85-summary.log`. Staging evidence:
+`work/large-contract-d85/recording-01.pickle` through `recording-33.pickle` and
+`summary-large.json` (includes each recording's SHA-256). The recorder wrapper
+only retained results; it did not change the simulation or comparator semantics.
+All lane calls finished and disposable environments were cleaned up.
+
+This closes the large differential gate only. The overall decision remains
+**INCONCLUSIVE**, not GO: qualified Rust-only performance evidence is still
+separately required. The generated sections below retain their historical
+measurement inputs; their old contract no-go entries are superseded by this
+contract result, not by a new performance run.
 
 ### Verification
 
@@ -128,7 +190,7 @@ Large Rust speed and errors are reported; Rust memory is reported only. Both siz
 - Outcome: INCONCLUSIVE.
 - Rust-only performance evidence: inconclusive (missing Rust-only workload identity).
 - Offered Rust rates: [1.0, 5.0]; higher than the frozen 5 RPS maximum is stricter for Rust.
-- zero unexplained contract differences at both sizes: no-go ({'outcome': 'no-go', 'differences': 33, 'missing': [], 'invalid': []}).
+- zero unexplained contract differences: prior small acceptance retained; large PASS (18 October rerun, 487/487 pairs, zero unexplained differences, no inconclusive sandwiches; see contract result above).
 - integration suite: pass (explicit suite result).
 - Rust-only frozen-baseline performance evidence: inconclusive (missing Rust-only workload identity).
 - Rust memory steady median: 43.0 MiB; non-blocking.
@@ -175,7 +237,7 @@ Historical/unqualified Rust samples remain diagnostic when evidence admission fa
 - Outcome: INCONCLUSIVE.
 - Rust-only performance evidence: inconclusive (missing Rust-only workload identity).
 - Offered Rust rates: not measured; higher than the frozen 5 RPS maximum is stricter for Rust.
-- zero unexplained contract differences at both sizes: no-go ({'outcome': 'no-go', 'differences': 33, 'missing': [], 'invalid': []}).
+- zero unexplained contract differences: prior small acceptance retained; large PASS (18 October rerun, 487/487 pairs, zero unexplained differences, no inconclusive sandwiches; see contract result above).
 - integration suite: pass (explicit suite result).
 - Rust-only frozen-baseline performance evidence: inconclusive (missing Rust-only workload identity).
 - Rust memory steady median: 192.1 MiB; non-blocking.
