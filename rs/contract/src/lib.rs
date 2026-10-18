@@ -6,7 +6,10 @@
 
 mod gate;
 
-pub use gate::{ContractEvidence, contract_differences, RouteP95, RouteRequests, same_workload, blocking_regressions, expected_route_ids, fix_item_regressions, passes_gate};
+pub use gate::{
+    ContractEvidence, RouteP95, RouteRequests, blocking_regressions, contract_differences,
+    expected_route_ids, fix_item_regressions, passes_gate, same_workload,
+};
 
 /// Run the external comparator for one contract group.
 ///

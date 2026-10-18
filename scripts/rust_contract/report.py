@@ -181,7 +181,7 @@ def _route_pairs(latency: dict[str, Any]) -> list[tuple[str, float, float]]:
     pairs = []
     for route_id in sorted(expected):
         values = [latency[route_id].get(target, {}).get("p95") for target in ("python", "rust")]
-        if any(not isinstance(value, (int, float)) or not math.isfinite(value) or value <= 0 for value in values):
+        if any(type(value) not in (int, float) or not math.isfinite(value) or value <= 0 for value in values):
             return []
         pairs.append((route_id, *values))
     return pairs
@@ -210,8 +210,8 @@ def speed_verdict(
     python_mix = mix.get("python", {}).get("p95")
     rust_mix = mix.get("rust", {}).get("p95")
     mix_measured = (
-        python_mix is not None
-        and rust_mix is not None
+        type(python_mix) in (int, float)
+        and type(rust_mix) in (int, float)
         and math.isfinite(python_mix)
         and math.isfinite(rust_mix)
         and python_mix > 0
@@ -426,7 +426,11 @@ def _gate_conditions(
 def _load(path: Path) -> dict[str, Any]:
     if not path or not path.is_file():
         return {}
-    return json.loads(path.read_text())
+    try:
+        document = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return {}
+    return document if isinstance(document, dict) else {}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -449,33 +453,29 @@ def main(argv: list[str] | None = None) -> int:
     simulation = {"runs": [_load(path) for path in args.simulation]}
     small = _load(args.small)
     large = _load(args.large)
-    measurement = {
-        "repetitions": [
-            *small.get("repetitions", []),
-            *large.get("repetitions", []),
-        ]
-    }
     unapproved = contract_verdict(simulation)["differences"]
-    bundle = build_bundle(
-        identities={
-            "candidate_sha": args.candidate_sha or simulation.get("source_sha", ""),
-            "oracle_sha": _oracle_sha(),
-            "corpus_digest": _corpus_digest(),
-            "schema_revision": "kycd_20261015_staging",
-            "policy_digest": report_policy_digest(),
-        },
-        contract={},
-        simulation={
-            **simulation,
-            "summary": _simulation_summary(simulation),
-            "evidence_digest": evidence_digest(simulation) if simulation else "",
-        },
-        measurement=measurement,
-        unapproved_differences=unapproved,
-        integration_passed=bool(args.integration_passed),
-        integration_summary=args.integration_summary,
-    )
-    write_report(args.out, render_markdown(bundle))
+    identities = {
+        "candidate_sha": args.candidate_sha,
+        "oracle_sha": _oracle_sha(),
+        "corpus_digest": _corpus_digest(),
+        "schema_revision": "kycd_20261015_staging",
+        "policy_digest": report_policy_digest(),
+    }
+    sections = ["# Rust Phase 1 go/no-go", "",
+                "Generated from existing evidence; small and large workloads are decided separately.", ""]
+    for size, measurement in (("small", small), ("large", large)):
+        bundle = build_bundle(
+            identities=identities, contract={},
+            simulation={**simulation, "summary": _simulation_summary(simulation),
+                        "evidence_digest": evidence_digest(simulation)},
+            measurement=measurement, unapproved_differences=unapproved,
+            integration_passed=args.integration_passed, integration_summary=args.integration_summary,
+        )
+        sections.extend([f"## {size.title()} workload", "",
+                         f"- Measurement file SHA-256: {sha256_file(args.small if size == 'small' else args.large) if measurement else NOT_MEASURED}",
+                         f"- Measured source SHA: {measurement.get('source_sha', NOT_MEASURED)}", "",
+                         render_markdown(bundle)])
+    write_report(args.out, "\n".join(sections))
     print(f"report written to {args.out}")
     return 0
 
@@ -666,3 +666,7 @@ def render_markdown(bundle: dict[str, Any]) -> str:
     lines.append("")
     lines.append("- Production status: not authorized by this report.")
     return "\n".join(lines) + "\n"
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

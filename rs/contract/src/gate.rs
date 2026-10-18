@@ -67,11 +67,23 @@ pub fn fix_item_regressions(routes: &[RouteP95]) -> Vec<&'static str> {
 
 /// Expected measured routes and MCP tools, from the committed workload manifest.
 pub fn expected_route_ids() -> Vec<String> {
-    let manifest: serde_json::Value = serde_json::from_str(include_str!("../../../tests/rust_contract/workload.json"))
-        .expect("committed workload manifest must be valid JSON");
-    ["routes", "tools"].iter().flat_map(|key| {
-        manifest[key].as_array().expect("committed workload route list")
-    }).map(|row| row["id"].as_str().expect("committed workload route id").to_owned()).collect()
+    let manifest: serde_json::Value =
+        serde_json::from_str(include_str!("../../../tests/rust_contract/workload.json"))
+            .expect("committed workload manifest must be valid JSON");
+    ["routes", "tools"]
+        .iter()
+        .flat_map(|key| {
+            manifest[key]
+                .as_array()
+                .expect("committed workload route list")
+        })
+        .map(|row| {
+            row["id"]
+                .as_str()
+                .expect("committed workload route id")
+                .to_owned()
+        })
+        .collect()
 }
 
 /// Offered request totals for one route, including transport failures.
@@ -86,8 +98,12 @@ pub struct RouteRequests {
 pub fn same_workload(requests: &[RouteRequests]) -> bool {
     let expected = expected_route_ids();
     requests.len() == expected.len()
-        && expected.iter().all(|id| requests.iter().filter(|row| row.route_id == id).count() == 1)
-        && requests.iter().all(|row| row.python > 0 && row.python == row.rust)
+        && expected
+            .iter()
+            .all(|id| requests.iter().filter(|row| row.route_id == id).count() == 1)
+        && requests
+            .iter()
+            .all(|row| row.python > 0 && row.python == row.rust)
 }
 
 /// A completed simulation group. Missing counts are not zero differences.
@@ -101,17 +117,25 @@ pub struct ContractEvidence {
 
 /// Require one completed result for every committed group at every size.
 pub fn contract_differences(evidence: &[ContractEvidence]) -> Option<u64> {
-    let cases: serde_json::Value = serde_json::from_str(include_str!("../../../tests/rust_contract/cases.json")).ok()?;
-    let workload: serde_json::Value = serde_json::from_str(include_str!("../../../tests/rust_contract/workload.json")).ok()?;
+    let cases: serde_json::Value =
+        serde_json::from_str(include_str!("../../../tests/rust_contract/cases.json")).ok()?;
+    let workload: serde_json::Value =
+        serde_json::from_str(include_str!("../../../tests/rust_contract/workload.json")).ok()?;
     let groups = cases["groups"].as_object()?;
     let sizes = workload["sizes"].as_object()?;
-    if evidence.len() != groups.len() * sizes.len() { return None; }
+    if evidence.len() != groups.len() * sizes.len() {
+        return None;
+    }
     let mut total = 0_u64;
     for size in sizes.keys() {
         for group in groups.keys() {
-            let mut rows = evidence.iter().filter(|row| row.size == size && row.group == group);
+            let mut rows = evidence
+                .iter()
+                .filter(|row| row.size == size && row.group == group);
             let row = rows.next()?;
-            if rows.next().is_some() || row.cases == 0 { return None; }
+            if rows.next().is_some() || row.cases == 0 {
+                return None;
+            }
             total = total.checked_add(row.differences?)?;
         }
     }
@@ -145,18 +169,26 @@ pub fn passes_gate(
         && rust_mix_p95 > 0.0;
     let expected = expected_route_ids();
     let routes_measured = routes.len() == expected.len()
-        && expected.iter().all(|id| routes.iter().filter(|route| route.route_id == id).count() == 1)
-        && routes.iter().all(|route| route.python.is_finite() && route.rust.is_finite()
-            && route.python > 0.0 && route.rust > 0.0);
+        && expected
+            .iter()
+            .all(|id| routes.iter().filter(|route| route.route_id == id).count() == 1)
+        && routes.iter().all(|route| {
+            route.python.is_finite()
+                && route.rust.is_finite()
+                && route.python > 0.0
+                && route.rust > 0.0
+        });
     let python_requests: u128 = requests.iter().map(|row| u128::from(row.python)).sum();
     let rust_requests: u128 = requests.iter().map(|row| u128::from(row.rust)).sum();
     let errors_measured = same_workload(requests)
         && u128::from(python_5xx) <= python_requests
         && u128::from(rust_5xx) <= rust_requests;
-    let error_rate_does_not_rise = u128::from(rust_5xx) * python_requests
-        <= u128::from(python_5xx) * rust_requests;
-    let hard_gates = contract_differences(contract) == Some(0) && errors_measured
-        && error_rate_does_not_rise && integration_passed;
+    let error_rate_does_not_rise =
+        u128::from(rust_5xx) * python_requests <= u128::from(python_5xx) * rust_requests;
+    let hard_gates = contract_differences(contract) == Some(0)
+        && errors_measured
+        && error_rate_does_not_rise
+        && integration_passed;
     let speed = mix_measured
         && routes_measured
         && rust_mix_p95 <= python_mix_p95

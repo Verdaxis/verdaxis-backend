@@ -16,30 +16,61 @@ fn route(id: &'static str, python: f64, rust: f64) -> RouteP95 {
 
 fn complete_routes() -> Vec<RouteP95> {
     static MANIFEST: std::sync::OnceLock<serde_json::Value> = std::sync::OnceLock::new();
-    let manifest = MANIFEST.get_or_init(|| serde_json::from_str(include_str!("../../../tests/rust_contract/workload.json")).unwrap());
-    ["routes", "tools"].iter().flat_map(|key| manifest[key].as_array().unwrap()).map(|row| {
-        route(row["id"].as_str().unwrap(), 0.2, 0.1)
-    }).collect()
+    let manifest = MANIFEST.get_or_init(|| {
+        serde_json::from_str(include_str!("../../../tests/rust_contract/workload.json")).unwrap()
+    });
+    ["routes", "tools"]
+        .iter()
+        .flat_map(|key| manifest[key].as_array().unwrap())
+        .map(|row| route(row["id"].as_str().unwrap(), 0.2, 0.1))
+        .collect()
 }
 
 fn complete_contract(differences: u64) -> Vec<ContractEvidence> {
     static CASES: std::sync::OnceLock<serde_json::Value> = std::sync::OnceLock::new();
-    let cases = CASES.get_or_init(|| serde_json::from_str(include_str!("../../../tests/rust_contract/cases.json")).unwrap());
-    let mut rows: Vec<_> = ["small", "large"].iter().flat_map(|size| {
-        cases["groups"].as_object().unwrap().keys().map(move |group| ContractEvidence {
-            size, group, cases: 1, differences: Some(0),
+    let cases = CASES.get_or_init(|| {
+        serde_json::from_str(include_str!("../../../tests/rust_contract/cases.json")).unwrap()
+    });
+    let mut rows: Vec<_> = ["small", "large"]
+        .iter()
+        .flat_map(|size| {
+            cases["groups"]
+                .as_object()
+                .unwrap()
+                .keys()
+                .map(move |group| ContractEvidence {
+                    size,
+                    group,
+                    cases: 1,
+                    differences: Some(0),
+                })
         })
-    }).collect();
+        .collect();
     rows[0].differences = Some(differences);
     rows
 }
 
 fn complete_requests() -> Vec<RouteRequests> {
-    complete_routes().iter().map(|row| RouteRequests { route_id: row.route_id, python: 1000, rust: 1000 }).collect()
+    complete_routes()
+        .iter()
+        .map(|row| RouteRequests {
+            route_id: row.route_id,
+            python: 1000,
+            rust: 1000,
+        })
+        .collect()
 }
 
 #[allow(clippy::too_many_arguments)]
-fn gate_with_routes(differences: u64, rust_errors: u64, python_errors: u64, integration: bool, rust_mix: f64, python_mix: f64, overrides: &[RouteP95]) -> bool {
+fn gate_with_routes(
+    differences: u64,
+    rust_errors: u64,
+    python_errors: u64,
+    integration: bool,
+    rust_mix: f64,
+    python_mix: f64,
+    overrides: &[RouteP95],
+) -> bool {
     let mut routes = complete_routes();
     for item in overrides {
         if let Some(existing) = routes.iter_mut().find(|r| r.route_id == item.route_id) {
@@ -48,7 +79,16 @@ fn gate_with_routes(differences: u64, rust_errors: u64, python_errors: u64, inte
             routes.push(*item);
         }
     }
-    passes_gate(&complete_contract(differences), rust_errors, python_errors, integration, rust_mix, python_mix, &routes, &complete_requests())
+    passes_gate(
+        &complete_contract(differences),
+        rust_errors,
+        python_errors,
+        integration,
+        rust_mix,
+        python_mix,
+        &routes,
+        &complete_requests(),
+    )
 }
 
 #[test]
@@ -134,10 +174,7 @@ fn a_regression_of_exactly_50_percent_does_not_block_when_under_100_ms() {
         0.6,
         &[route("R01", 0.100, 0.150)]
     ));
-    assert_eq!(
-        fix_item_regressions(&[route("R01", 0.100, 0.150)]),
-        ["R01"]
-    );
+    assert_eq!(fix_item_regressions(&[route("R01", 0.100, 0.150)]), ["R01"]);
 }
 
 #[test]
@@ -243,10 +280,28 @@ fn route_inputs_must_be_finite_before_the_gate() {
 
 #[test]
 fn missing_or_empty_manifest_routes_never_pass() {
-    assert!(!passes_gate(&complete_contract(0), 0, 0, true, 0.5, 0.6, &[], &complete_requests()));
+    assert!(!passes_gate(
+        &complete_contract(0),
+        0,
+        0,
+        true,
+        0.5,
+        0.6,
+        &[],
+        &complete_requests()
+    ));
     let mut routes = complete_routes();
     routes.pop();
-    assert!(!passes_gate(&complete_contract(0), 0, 0, true, 0.5, 0.6, &routes, &complete_requests()));
+    assert!(!passes_gate(
+        &complete_contract(0),
+        0,
+        0,
+        true,
+        0.5,
+        0.6,
+        &routes,
+        &complete_requests()
+    ));
 }
 
 #[test]
@@ -254,8 +309,21 @@ fn both_route_measurements_must_be_positive_and_finite() {
     for invalid in [-0.1, 0.0, f64::NAN, f64::INFINITY] {
         for python_side in [true, false] {
             let mut routes = complete_routes();
-            if python_side { routes[0].python = invalid; } else { routes[0].rust = invalid; }
-            assert!(!passes_gate(&complete_contract(0), 0, 0, true, 0.5, 0.6, &routes, &complete_requests()));
+            if python_side {
+                routes[0].python = invalid;
+            } else {
+                routes[0].rust = invalid;
+            }
+            assert!(!passes_gate(
+                &complete_contract(0),
+                0,
+                0,
+                true,
+                0.5,
+                0.6,
+                &routes,
+                &complete_requests()
+            ));
         }
     }
 }
@@ -273,27 +341,73 @@ fn decimal_threshold_boundaries_are_exact() {
 #[test]
 fn unequal_request_totals_cannot_pass_the_error_gate() {
     for (python, rust, py_errors, rs_errors, passes) in [
-        (1000, 100, 10, 9, false), (1000, 1000, 10, 9, true),
-        (1000, 1000, 10, 11, false), (0, 0, 0, 0, false),
+        (1000, 100, 10, 9, false),
+        (1000, 1000, 10, 9, true),
+        (1000, 1000, 10, 11, false),
+        (0, 0, 0, 0, false),
     ] {
-        let requests: Vec<_> = complete_routes().iter().map(|row| RouteRequests {
-            route_id: row.route_id, python, rust,
-        }).collect();
-        assert_eq!(passes_gate(&complete_contract(0), rs_errors, py_errors, true, 0.5, 0.6, &complete_routes(), &requests), passes);
+        let requests: Vec<_> = complete_routes()
+            .iter()
+            .map(|row| RouteRequests {
+                route_id: row.route_id,
+                python,
+                rust,
+            })
+            .collect();
+        assert_eq!(
+            passes_gate(
+                &complete_contract(0),
+                rs_errors,
+                py_errors,
+                true,
+                0.5,
+                0.6,
+                &complete_routes(),
+                &requests
+            ),
+            passes
+        );
     }
 }
 
 #[test]
 fn absent_contract_evidence_is_not_zero_differences() {
-    assert!(!passes_gate(&[], 0, 0, true, 0.5, 0.6, &complete_routes(), &complete_requests()));
+    assert!(!passes_gate(
+        &[],
+        0,
+        0,
+        true,
+        0.5,
+        0.6,
+        &complete_routes(),
+        &complete_requests()
+    ));
 }
 
 #[test]
 fn incomplete_contract_groups_and_counts_never_pass() {
     let mut evidence = complete_contract(0);
     evidence[0].differences = None;
-    assert!(!passes_gate(&evidence, 0, 0, true, 0.5, 0.6, &complete_routes(), &complete_requests()));
+    assert!(!passes_gate(
+        &evidence,
+        0,
+        0,
+        true,
+        0.5,
+        0.6,
+        &complete_routes(),
+        &complete_requests()
+    ));
     evidence = complete_contract(0);
     evidence.pop();
-    assert!(!passes_gate(&evidence, 0, 0, true, 0.5, 0.6, &complete_routes(), &complete_requests()));
+    assert!(!passes_gate(
+        &evidence,
+        0,
+        0,
+        true,
+        0.5,
+        0.6,
+        &complete_routes(),
+        &complete_requests()
+    ));
 }

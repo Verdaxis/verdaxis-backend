@@ -505,3 +505,42 @@ def test_complete_contract_evidence_passes_but_real_differences_block():
     runs[0]["groups"]["prices"].update(outcome="difference", differences=1)
     runs[0]["differences"] = 1
     assert condition()["outcome"] == "no-go"
+
+
+def test_report_cli_preserves_sizes_and_adaptive_probe(tmp_path):
+    small = tmp_path / "small.json"
+    large = tmp_path / "large.json"
+    simulation = tmp_path / "simulation.json"
+    out = tmp_path / "report.md"
+    small.write_text(json.dumps({"repetitions": []}))
+    large.write_text(json.dumps({"mode": "adaptive", "probe_max_rps": 4, "repetitions": [],
+        "probe": [{"rps": 1, "busy": {"python": 2, "rust": 0}}]}))
+    simulation.write_text("{}")
+    assert report.main(["--small", str(small), "--large", str(large), "--simulation", str(simulation), "--out", str(out)]) == 0
+    text = out.read_text()
+    assert "## Small workload" in text and "## Large workload" in text
+    assert "no clean rate found" in text
+    assert "INCONCLUSIVE" in text
+
+
+def test_malformed_evidence_is_inconclusive_not_a_default_zero(tmp_path):
+    path = tmp_path / "broken.json"
+    path.write_text("{broken")
+    assert report._load(path) == {}
+
+
+@pytest.mark.parametrize("invalid", ["NaN", {}, True])
+def test_invalid_mix_types_are_inconclusive(invalid):
+    assert report.speed_verdict(_latency([]), {"python": {"p95": invalid}, "rust": {"p95": 0.5}})["outcome"] == "inconclusive"
+
+
+def test_report_module_entrypoint_runs(tmp_path):
+    import subprocess
+    import sys
+    out = tmp_path / "report.md"
+    result = subprocess.run([sys.executable, "-m", "scripts.rust_contract.report", "--small", str(tmp_path / "missing-small"),
+        "--large", str(tmp_path / "missing-large"), "--simulation", str(tmp_path / "missing-sim"), "--out", str(out)],
+        capture_output=True, text=True)
+    assert result.returncode == 0
+    assert out.is_file()
+    assert "INCONCLUSIVE" in out.read_text()
