@@ -38,7 +38,13 @@ async fn access_vectors_match_python_http_outcomes() {
         let user: AccountState = serde_json::from_value(vector["user"].clone()).unwrap();
         let outcome = verify_authorization(first, &config, now)
             .and_then(|access| validate_account(&access, &user).map(|()| access));
-        let expected = vector["python"]["status"].as_u64().unwrap() as u16;
+        let expected_wire = vector.get("rust_expected").unwrap_or(&vector["python"]);
+        if vector.get("rust_expected").is_some() {
+            assert_eq!(vector["approved_difference"]["defect"], "PD7");
+            assert_eq!(vector["approved_difference"]["decision"], 94);
+            assert_eq!(vector["python"]["status"], 500);
+        }
+        let expected = expected_wire["status"].as_u64().unwrap() as u16;
         let (status, body, authenticate) = match outcome {
             Ok(access) => {
                 assert_eq!(
@@ -60,12 +66,12 @@ async fn access_vectors_match_python_http_outcomes() {
         assert_eq!(status, expected, "{id}: HTTP status");
         if expected != 500 {
             let expected_body: Value =
-                serde_json::from_str(vector["python"]["body"].as_str().unwrap()).unwrap();
+                serde_json::from_str(expected_wire["body"].as_str().unwrap()).unwrap();
             assert_eq!(body, expected_body, "{id}: error envelope");
         }
         assert_eq!(
             authenticate,
-            vector["python"]["www_authenticate"].as_str(),
+            expected_wire["www_authenticate"].as_str(),
             "{id}: authentication header"
         );
         // Exercise a complete in-process HTTP response on Rust too. This
@@ -124,7 +130,7 @@ async fn access_vectors_match_python_http_outcomes() {
                 .headers()
                 .get("www-authenticate")
                 .and_then(|v| v.to_str().ok()),
-            vector["python"]["www_authenticate"].as_str(),
+            expected_wire["www_authenticate"].as_str(),
             "{id}: paired HTTP header"
         );
         let raw = to_bytes(response.into_body(), 4096).await.unwrap();
@@ -137,7 +143,7 @@ async fn access_vectors_match_python_http_outcomes() {
         } else {
             assert_eq!(
                 serde_json::from_slice::<Value>(&raw).unwrap(),
-                serde_json::from_str::<Value>(vector["python"]["body"].as_str().unwrap()).unwrap(),
+                serde_json::from_str::<Value>(expected_wire["body"].as_str().unwrap()).unwrap(),
                 "{id}: paired HTTP body"
             );
         }

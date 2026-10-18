@@ -30,16 +30,12 @@ pub enum AuthError {
     Pending,
     Rejected,
     PasswordChangeRequired,
-    /// Python's out-of-range timestamp conversion is an unmapped HTTP 500.
-    /// Keep it visible; it blocks affected cutover pending source disposition.
-    IssuanceOutOfRange,
 }
 
 impl AuthError {
     pub fn status(self) -> u16 {
         match self {
             Self::Pending | Self::Rejected | Self::PasswordChangeRequired => 403,
-            Self::IssuanceOutOfRange => 500,
             _ => 401,
         }
     }
@@ -61,7 +57,6 @@ impl AuthError {
             Self::Pending => json!("Account is PENDING. Please wait for admin approval."),
             Self::Rejected => json!("Account is REJECTED. Please wait for admin approval."),
             Self::PasswordChangeRequired => json!("Password change required."),
-            Self::IssuanceOutOfRange => return json!("Internal Server Error"),
         };
         json!({"detail": detail})
     }
@@ -76,8 +71,10 @@ pub fn validate_account(access: &VerifiedAccess, user: &AccountState) -> Result<
         (user.authentication_revoked_at, AuthError::SessionRevoked),
     ] {
         if let Some(cutoff) = cutoff {
+            // PD7 / decision 94: an unusable issuance time fails the active
+            // cutoff, with password cutoff precedence, never an HTTP 500.
             if access.issuance_out_of_range {
-                return Err(AuthError::IssuanceOutOfRange);
+                return Err(error);
             }
             if access
                 .issued_at

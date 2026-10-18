@@ -209,6 +209,13 @@ def export():
         app.dependency_overrides.update(overrides)
         for name, value in originals.items():
             setattr(settings, name, value)
+    for vector in vectors:
+        if vector["python"]["status"] == 500 and vector["id"].endswith("out-of-range"):
+            password = vector["id"].startswith("password_changed_at")
+            vector["approved_difference"] = {"decision": 94, "defect": "PD7", "reference_sha": "cf0cb692d75d7d6ce9a372dc80c7d09cdef6fdb7"}
+            vector["rust_expected"] = {"status": 401, "www_authenticate": "Bearer", "body": json.dumps({"detail": {
+                "code": "AUTH_PASSWORD_CHANGED" if password else "AUTH_SESSION_REVOKED",
+                "message": "Password was changed; sign in again" if password else "Session was revoked; sign in again"}}, separators=(",", ":"))}
     return {"version": 1, "oracle_sha": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
             "pyjwt_version": jwt.__version__, "now": NOW, "fixture_only": True,
             "settings": {"current": CURRENT, "previous": PREVIOUS, "issuer": ISSUER, "audience": AUDIENCE},

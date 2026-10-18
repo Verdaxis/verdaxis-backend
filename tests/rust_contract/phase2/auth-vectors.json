@@ -2934,6 +2934,16 @@
         "status": 500,
         "body": "Internal Server Error",
         "www_authenticate": null
+      },
+      "approved_difference": {
+        "decision": 94,
+        "defect": "PD7",
+        "reference_sha": "cf0cb692d75d7d6ce9a372dc80c7d09cdef6fdb7"
+      },
+      "rust_expected": {
+        "status": 401,
+        "www_authenticate": "Bearer",
+        "body": "{\"detail\":{\"code\":\"AUTH_PASSWORD_CHANGED\",\"message\":\"Password was changed; sign in again\"}}"
       }
     },
     {
@@ -3049,6 +3059,16 @@
         "status": 500,
         "body": "Internal Server Error",
         "www_authenticate": null
+      },
+      "approved_difference": {
+        "decision": 94,
+        "defect": "PD7",
+        "reference_sha": "cf0cb692d75d7d6ce9a372dc80c7d09cdef6fdb7"
+      },
+      "rust_expected": {
+        "status": 401,
+        "www_authenticate": "Bearer",
+        "body": "{\"detail\":{\"code\":\"AUTH_PASSWORD_CHANGED\",\"message\":\"Password was changed; sign in again\"}}"
       }
     },
     {
@@ -3348,6 +3368,16 @@
         "status": 500,
         "body": "Internal Server Error",
         "www_authenticate": null
+      },
+      "approved_difference": {
+        "decision": 94,
+        "defect": "PD7",
+        "reference_sha": "cf0cb692d75d7d6ce9a372dc80c7d09cdef6fdb7"
+      },
+      "rust_expected": {
+        "status": 401,
+        "www_authenticate": "Bearer",
+        "body": "{\"detail\":{\"code\":\"AUTH_SESSION_REVOKED\",\"message\":\"Session was revoked; sign in again\"}}"
       }
     },
     {
@@ -3463,6 +3493,16 @@
         "status": 500,
         "body": "Internal Server Error",
         "www_authenticate": null
+      },
+      "approved_difference": {
+        "decision": 94,
+        "defect": "PD7",
+        "reference_sha": "cf0cb692d75d7d6ce9a372dc80c7d09cdef6fdb7"
+      },
+      "rust_expected": {
+        "status": 401,
+        "www_authenticate": "Bearer",
+        "body": "{\"detail\":{\"code\":\"AUTH_SESSION_REVOKED\",\"message\":\"Session was revoked; sign in again\"}}"
       }
     },
     {
