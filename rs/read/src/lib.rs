@@ -1,4 +1,7 @@
 pub mod auth;
+// Phase 2 Task 16: organization price-alert CRUD
+pub mod crud;
+// Phase 2 Task 16: end organization price-alert CRUD
 pub mod market;
 pub mod mcp;
 pub mod routes;

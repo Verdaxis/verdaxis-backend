@@ -16,6 +16,21 @@ comes from each environment's `/health/ready` response, not a dated SHA in
 source documentation. The shared-host marker is
 `/home/verdaxis-prod/verdaxis/PRODUCTION_HOST.md`.
 
+## Rust Phase 2 price-alert component
+
+Task 16 adds `rs/read/src/crud/alerts.rs` for organization-owned alert create,
+list, and delete. `routes::alerts_router` exposes the component router; runtime
+composition must supply the existing verification settings and shared quota
+authority. Each request uses the shared authenticated transaction owner and
+current database organization. NUMERIC rounding remains PostgreSQL-owned;
+product codes derive from the attested exact label tuple, including inactive
+products. Python retains price triggering and participant-event production.
+`tests/postgres/test_phase2_alert_interop.py` drives Rust storage and HTTP
+component checks against the existing disposable PostgreSQL fixture, then runs
+Python's trigger helper on the committed Rust row. Paired HTTP/state, race,
+and dispatcher gates remain pending the shared runner lane. Coverage requirements
+are data in `tests/rust_contract/phase2/alerts-scenarios.json`.
+
 ## Rust Phase 1 bootstrap
 
 `rs/` is a Rust 1.95 workspace with two packages. `verdaxis-read` defines the
