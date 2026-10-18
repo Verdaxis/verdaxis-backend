@@ -6,6 +6,67 @@ use sqlx::{PgConnection, Row};
 use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
 
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+pub struct LegacyEntry {
+    pub id: Uuid,
+    pub product_id: Uuid,
+    pub product_name: Option<String>,
+    pub delivery_point_id: Option<Uuid>,
+    pub delivery_point_name: Option<String>,
+    pub best_bid: Option<f64>,
+    pub best_ask: Option<f64>,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct LegacyWatchlist {
+    pub id: Uuid,
+    pub name: String,
+    pub entry_count: usize,
+    pub entries: Vec<LegacyEntry>,
+    pub created_at: DateTime<Utc>,
+}
+
+/// One container query and one joined child query for the actor's full list.
+/// Entries have no source relationship ordering and retain their null quotes.
+pub async fn load_legacy_list(
+    connection: &mut PgConnection,
+    actor_id: Uuid,
+) -> Result<Vec<LegacyWatchlist>, sqlx::Error> {
+    let containers = sqlx::query(
+        "SELECT id,name,created_at FROM watchlists WHERE user_id=$1 ORDER BY created_at DESC",
+    )
+    .bind(actor_id)
+    .fetch_all(&mut *connection)
+    .await?;
+    let rows=sqlx::query("SELECT json_build_object('id',e.id,'product_id',e.product_id,'product_name',p.name,'delivery_point_id',e.delivery_point_id,'delivery_point_name',d.name,'best_bid',NULL,'best_ask',NULL,'created_at',e.created_at)::text AS value,e.watchlist_id FROM watchlist_entries e JOIN watchlists w ON w.id=e.watchlist_id LEFT JOIN products p ON p.id=e.product_id LEFT JOIN delivery_points d ON d.id=e.delivery_point_id WHERE w.user_id=$1")
+        .bind(actor_id).fetch_all(&mut *connection).await?;
+    let mut entries = HashMap::<Uuid, Vec<LegacyEntry>>::new();
+    for row in rows {
+        let raw: String = row.try_get("value")?;
+        let entry =
+            serde_json::from_str(&raw).map_err(|error| sqlx::Error::Decode(Box::new(error)))?;
+        entries
+            .entry(row.try_get("watchlist_id")?)
+            .or_default()
+            .push(entry);
+    }
+    containers
+        .into_iter()
+        .map(|row| {
+            let id = row.try_get("id")?;
+            let children = entries.remove(&id).unwrap_or_default();
+            Ok(LegacyWatchlist {
+                id,
+                name: row.try_get("name")?,
+                entry_count: children.len(),
+                entries: children,
+                created_at: row.try_get("created_at")?,
+            })
+        })
+        .collect()
+}
+
 #[derive(Debug, Clone)]
 pub struct VisibleOrder {
     pub market_product: String,

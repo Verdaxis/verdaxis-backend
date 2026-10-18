@@ -106,6 +106,18 @@ async fn database_detail_is_actor_scoped_and_does_not_mutate_rows() {
         .unwrap();
     assert_eq!(summary.total_slice_count, 0);
     assert_eq!(summary.name, "fixture");
+    let legacy = verdaxis_read::crud::watchlists::load_legacy_list(&mut connection, owner)
+        .await
+        .unwrap();
+    assert_eq!(legacy.len(), 1);
+    assert_eq!(legacy[0].id, id);
+    assert_eq!(legacy[0].entry_count, 0);
+    assert!(
+        verdaxis_read::crud::watchlists::load_legacy_list(&mut connection, Uuid::nil())
+            .await
+            .unwrap()
+            .is_empty()
+    );
     // Keep the database query count independent of target count: target and
     // event loading are one batch each, never a query per SLICE/PIN.
     let point = Uuid::from_u128(701);
