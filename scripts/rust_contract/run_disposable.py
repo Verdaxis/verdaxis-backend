@@ -762,6 +762,107 @@ CREATE EXTENSION IF NOT EXISTS postgis;
                 },
             )
 
+    def run_phase2(self, args) -> None:
+        """Use this lifecycle owner for isolated write cells; never a live target."""
+        from scripts.rust_contract.phase2_seed import (
+            APP_ROLE as role,
+        )
+        from scripts.rust_contract.phase2_seed import (
+            BACKUP_ROLE,
+            DATABASES,
+            MIGRATOR_ROLE,
+            PASSWORD,
+            connect,
+            digest,
+            identifier,
+            snapshot,
+        )
+        from scripts.rust_contract.phase2_state import compare_state, validate_cells
+
+        scenarios = json.loads((ROOT / "tests/rust_contract/phase2/scenarios.json").read_text())["scenarios"]
+        selected = args.phase2_scenario or ["harness-smoke"]
+        known = {row["id"]: row for row in scenarios}
+        if any(name not in known for name in selected):
+            raise RunnerError("unknown Phase 2 scenario")
+        if args.phase2_measure or args.phase2_order_write_benchmark or args.phase2_races:
+            raise RunnerError("Phase 2 measurement, benchmark and race routes are not implemented")
+        if args.phase2_group != "all" and any(known[name]["group"] not in {args.phase2_group, "all"} for name in selected):
+            raise RunnerError("scenario does not belong to selected group")
+        if selected == ["auth-token-matrix"]:
+            subprocess.run([self.python_bin, "-m", "scripts.rust_contract.phase2_auth_vectors", "--check"],
+                cwd=ROOT, env={**os.environ, "ENVIRONMENT": "test", "RELEASE_SHA": self.sha,
+                              "DATABASE_URL": "sqlite+aiosqlite:///:memory:"}, check=True)
+            subprocess.run(["cargo", "test", "--manifest-path", "rs/Cargo.toml", "--locked", "-p", "verdaxis-read", "--test", "auth_tokens"],
+                cwd=ROOT, env={**os.environ, "RELEASE_SHA": self.sha, "SQLX_OFFLINE": "true"}, check=True)
+            return
+        if selected != ["harness-smoke"]:
+            raise RunnerError("select one implemented Phase 2 scenario")
+        port = self.start_database()
+        env = {**os.environ, "ENVIRONMENT": "test", "RELEASE_SHA": self.sha,
+               "JWT_SECRET": "test-secret-key-for-testing-minimum-32-chars", **self.urls(port)}
+        self.seed = False
+        self.migrate_and_seed(env)
+        # Seed one immutable source schema before cloning. Neither request cell
+        # owns its schema. Apply the same audited role policy in each clone.
+        with connect(port, DB_NAME) as source:
+            source.execute("INSERT INTO organizations (id,name,domain,type) VALUES ('10000000-0000-4000-8000-000000000001','Phase 2 fixture','phase2.invalid','FUEL_BUYER')")
+            source.execute("INSERT INTO users (id,email,password_hash,role,status,organization_id,email_verified,must_change_password) VALUES ('20000000-0000-4000-8000-000000000001','actor@phase2.invalid','not-a-login','BUYER','APPROVED','10000000-0000-4000-8000-000000000001',true,false)")
+        with connect(port, "postgres", autocommit=True) as admin:
+            for database in DATABASES:
+                admin.execute(f"CREATE DATABASE {identifier(database)} TEMPLATE {identifier(DB_NAME)}")
+        policy_dir = "/tmp/phase2-role-policy"
+        docker("exec", self.container, "mkdir", "-p", policy_dir)
+        for name in ("app_acl_policy.sql", "converge_runtime_object_acls.sql", "bootstrap_roles.sql", "validate_roles.sql"):
+            docker("cp", str(ROOT / "deploy/postgres" / name), f"{self.container}:{policy_dir}/{name}")
+        for database in DATABASES:
+            for script in ("bootstrap_roles.sql", "validate_roles.sql"):
+                docker("exec", self.container, "psql", "-X", "-U", "postgres", "-d", database,
+                    "-v", f"database_name={database}", "-v", f"app_role={role}", "-v", f"migrator_role={MIGRATOR_ROLE}",
+                    "-v", f"backup_role={BACKUP_ROLE}", "-f", f"{policy_dir}/{script}")
+        with connect(port, DATABASES[0]) as admin:
+            admin.execute(f"ALTER ROLE {identifier(role)} PASSWORD '{PASSWORD}'")
+        initial = []
+        for database in DATABASES:
+            with connect(port, database) as reader:
+                initial.append(snapshot(reader))
+        if compare_state(*initial):
+            raise RunnerError("twin initial logical state differs")
+        acl = digest({name: (ROOT / "deploy/postgres" / name).read_text() for name in ("app_acl_policy.sql", "converge_runtime_object_acls.sql")})
+        validate_cells({"database": DATABASES[0], "seed": digest(initial[0]), "acl": acl},
+                       {"database": DATABASES[1], "seed": digest(initial[1]), "acl": acl}, self.token, f"http://127.0.0.1:{ephemeral_port()}")
+        actions = []
+        for action, fault in (("insert-feedback", None), ("between-writes", "between"), ("after-commit", "after")):
+            for database in DATABASES:
+                with connect(port, database, app=True) as cell:
+                    current = cell.execute("SELECT current_user, (SELECT rolsuper FROM pg_roles WHERE rolname=current_user), (SELECT pg_get_userbyid(datdba)=current_user FROM pg_database WHERE datname=current_database())").fetchone()
+                    if current != (role, False, False):
+                        raise RunnerError("request execution requires non-owner runtime role")
+                    try:
+                        cell.execute("INSERT INTO feedback_entries(id,user_id,message,page,created_at) VALUES (%s,'20000000-0000-4000-8000-000000000001',%s,NULL,'2026-10-18T00:00:00Z')", (f"30000000-0000-4000-8000-{len(actions)+1:012d}", action))
+                        if fault == "between":
+                            raise RunnerError("injected between related writes")
+                        cell.execute("INSERT INTO feedback_entries(id,user_id,message,page,created_at) VALUES (%s,'20000000-0000-4000-8000-000000000001',%s,NULL,'2026-10-18T00:00:00Z')", (f"40000000-0000-4000-8000-{len(actions)+1:012d}", action + "-child"))
+                        cell.commit()
+                    except RunnerError:
+                        cell.rollback()
+            states = []
+            for database in DATABASES:
+                with connect(port, database) as reader:
+                    states.append(snapshot(reader))
+            differences = compare_state(*states)
+            if differences:
+                raise RunnerError("committed twin state differs")
+            expected_rows = 2 if len(actions) < 2 else 4
+            if len(states[0]["feedback_entries"]["rows"]) != expected_rows:
+                raise RunnerError("fault schedule left partial or replayed child rows")
+            actions.append({"id": action, "outcome": "rolled-back" if fault == "between" else "ambiguous" if fault == "after" else "committed",
+                            "python_state_sha256": digest(states[0]), "rust_state_sha256": digest(states[1]), "differences": differences})
+        if args.report:
+            args.report.parent.mkdir(parents=True, exist_ok=True)
+            args.report.write_text(json.dumps({"source_sha": self.sha, "scenario": "harness-smoke", "scope": "harness-only",
+                "route_qualification": False, "databases": list(DATABASES), "seed_sha256": digest(initial[0]), "acl_sha256": acl,
+                "actions": actions, "dispatchers": "not-started"}, indent=2) + "\n")
+
     def cleanup(self) -> None:
         for child in self.children:
             child.terminate()
@@ -774,7 +875,10 @@ CREATE EXTENSION IF NOT EXISTS postgis;
         self.children = []
         if self.container and not self.keep:
             # -v removes the anonymous data volume; a forced remove skips the --rm cleanup.
-            docker("rm", "-f", "-v", self.container, check=False)
+            owned = self.container
+            docker("rm", "-f", "-v", owned)
+            if docker("ps", "-aq", "--filter", f"id={owned}").strip():
+                raise RunnerError("owned disposable container remains after cleanup")
         self.container = ""
 
 
@@ -823,7 +927,19 @@ def main(argv: list[str] | None = None) -> int:
         default="corpus",
         help="ordinary applies only scripts/seed.py; corpus also applies the fixture families",
     )
+    parser.add_argument("--phase2", action="store_true")
+    parser.add_argument("--phase2-group", choices=("all", "notifications", "preferences", "feedback", "watchlists", "alerts", "referrals"), default="all")
+    parser.add_argument("--phase2-scenario", action="append")
+    parser.add_argument("--phase2-size", choices=("small", "large"), default="small")
+    parser.add_argument("--phase2-races", action="store_true")
+    parser.add_argument("--phase2-measure", action="store_true")
+    parser.add_argument("--phase2-order-write-benchmark", action="store_true")
+    parser.add_argument("--release-binary", type=Path)
     args = parser.parse_args(argv)
+    if args.phase2:
+        scenarios = json.loads((ROOT / "tests/rust_contract/phase2/scenarios.json").read_text())["scenarios"]
+        if any(name not in {row["id"] for row in scenarios} for name in (args.phase2_scenario or [])):
+            parser.error("unknown Phase 2 scenario")
     if args.mixed_caddy and args.group != "all":
         parser.error("--mixed-caddy requires --group all")
     if args.mixed_caddy and args.record_all:
@@ -853,7 +969,10 @@ def main(argv: list[str] | None = None) -> int:
         release=args.release,
     )
     try:
-        runner.run()
+        if args.phase2:
+            runner.run_phase2(args)
+        else:
+            runner.run()
     except (RunnerError, subprocess.CalledProcessError) as error:
         print(f"disposable run failed: {error}", file=sys.stderr)
         return 1
