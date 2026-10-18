@@ -63,11 +63,11 @@ async fn modern_success_and_header_precedence_match_python() {
         let request: serde_json::Value =
             serde_json::from_str(vector["body"].as_str().unwrap()).unwrap_or(json!({}));
         let tool = request["params"]["name"].as_str();
-        let matches = if actual["result"]["isError"] == true && tool.is_some() {
+        let matches = if let Some(tool) = tool.filter(|_| actual["result"]["isError"] == true) {
             shared_meaning(
                 json!({"expected": expected["result"]["content"][0]["text"].as_str().unwrap().split_once(": ").unwrap().1,
-                "actual":actual["result"]["content"][0]["text"], "route_id":format!("P1-tool-{}",tool.unwrap()),
-                "diagnostic_context":{"tool":tool.unwrap(),"arguments":request["params"]["arguments"]}}),
+                "actual":actual["result"]["content"][0]["text"], "route_id":format!("P1-tool-{tool}"),
+                "diagnostic_context":{"tool":tool,"arguments":request["params"]["arguments"]}}),
             )
         } else {
             shared_meaning(
