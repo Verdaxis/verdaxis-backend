@@ -153,3 +153,29 @@ publish skipped. No PR comments, edits, merge or close actions are authorized.
   strict; Task 5 must supply the canonical complete-relation page oracle.
 - No measurements ran. Next: Task 3 must reuse the existing decision-87 baseline
   and gate, not create another baseline file or refresh Python performance.
+
+### Task 3 checkpoint
+
+- Reused the accepted decision-87 baseline at its existing path. Its bytes remain
+  SHA-256 `3c74f7960add211757198149241f1633ef90a165ec89a902ac40bf79c1f8ea5e`.
+  No duplicate baseline file or fresh Python measurement was created. Historical
+  source provenance remains PM-attested; this lane did not re-open its private raw
+  source on the production test host.
+- Successor policy is explicit: `frozen_verdict(..., successor=True)` and Rust
+  `meaning_performance_gate`. Existing first-cutover defaults retain their policy.
+  Successor error rates block at both sizes, exact cross-products allow unequal
+  offered totals, positive lower rates are valid, transport failures block, and
+  the full sample floor remains required. Large speed remains a fix list.
+- Python RED: 9 failed, 30 passed; test/wrapper exit `1`. GREEN with measurement
+  unit tests: 131 passed; test/wrapper exit `0`. No measurement process started.
+- Rust RED: missing successor API, cargo/wrapper exit `101`. GREEN: 38 tests
+  passed across meaning, frozen and legacy gate suites; cargo/wrapper exit `0`.
+- Initial fmt command lacked `--all` (exit `1`). Corrected check found import
+  ordering differences (exit `1`); host formatting and final check exit `0`.
+- Successor bundle requires digest-checked both-size correctness artifacts and
+  actual JUnit case coverage; caller booleans cannot qualify a release. Known
+  failures take precedence over incomplete evidence. Task 6 must produce the
+  declared correctness artifact fields and canonical tape proof.
+- Task 2 CI completed: all five required jobs passed; publish skipped.
+- Skipped measurements: all latency, memory, CPU, rate/capacity and probes under
+  decision 96. No release verdict or production permission is claimed.

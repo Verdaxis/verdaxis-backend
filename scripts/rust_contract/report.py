@@ -301,6 +301,55 @@ def write_report(destination: Path, document: str) -> None:
     destination.write_text(document)
 
 
+def build_meaning_bundle(measurement: dict[str, Any], artifacts: dict[str, Any]) -> dict[str, Any]:
+    """Successor-only evidence boundary; boolean assertions are not proof.
+
+    Task 6 supplies the digest-bound correctness artifacts. Until then missing
+    artifacts are explicitly inconclusive, and cannot qualify a release.
+    """
+    performance = frozen_verdict(measurement, successor=True)
+    import hashlib
+    import xml.etree.ElementTree as ET
+
+    outcomes = [performance["outcome"]]
+    try:
+        required = {"integration-small", "integration-large", "correctness-small", "correctness-large"}
+        if set(artifacts) != required:
+            raise ValueError("exact both-size artifact set required")
+        for name, reference in artifacts.items():
+            raw = Path(reference["path"]).read_bytes()
+            if hashlib.sha256(raw).hexdigest() != reference["sha256"]:
+                raise ValueError("artifact digest mismatch")
+            if name.startswith("integration"):
+                root = ET.fromstring(raw)
+                cases = list(root.iter("testcase"))
+                expected = reference["expected_cases"]
+                actual = [case.get("classname", "") + "::" + case.get("name", "") for case in cases]
+                if not expected or len(actual) != len(set(actual)) or set(actual) != set(expected):
+                    raise ValueError("integration case coverage mismatch")
+                if any(case.find("skipped") is not None for case in cases):
+                    raise ValueError("integration has required skips")
+                outcomes.append("no-go" if any(case.find("failure") is not None or case.find("error") is not None for case in cases) else "pass")
+            else:
+                run = json.loads(raw)
+                if run.get("profile") != "phase1-meaning-v1" or run.get("size") != name.removeprefix("correctness-"):
+                    raise ValueError("correctness profile/size mismatch")
+                from scripts.rust_contract.phase2_meaning import PHASE1_RULES_SHA256
+                inventory = json.loads((ROOT / "tests/rust_contract/phase1_meaning/routes.json").read_text())
+                expected = {case["request"]["id"] for group in inventory["groups"].values() for case in group}
+                ids = run["case_ids"]
+                if run.get("rules_sha256") != PHASE1_RULES_SHA256 or len(ids) != len(set(ids)) or set(ids) != expected:
+                    raise ValueError("correctness ledger or case coverage mismatch")
+                if run.get("exit_code") != 0 or run.get("skips") != 0 or run.get("canonical_tape_verified") is not True:
+                    raise ValueError("incomplete correctness or canonical tape evidence")
+                outcomes.append("no-go" if run["differences"] != 0 else "pass")
+    except (OSError, ValueError, KeyError, TypeError, ET.ParseError):
+        outcomes.append("inconclusive")
+    outcome = "no-go" if "no-go" in outcomes else "inconclusive" if "inconclusive" in outcomes else "pass"
+    return {"outcome": outcome, "performance": performance,
+            "conditions": outcomes}
+
+
 def build_frozen_bundle(measurement: dict[str, Any], simulation: dict[str, Any], integration_passed: bool) -> dict[str, Any]:
     """Authoritative decision-86 gate; paired performance is historical only."""
     performance = frozen_verdict(measurement)
