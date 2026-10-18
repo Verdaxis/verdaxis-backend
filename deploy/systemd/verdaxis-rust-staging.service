@@ -20,8 +20,7 @@ WorkingDirectory=/home/verdaxis-prod/verdaxis/staging/be
 EnvironmentFile=/home/verdaxis-prod/verdaxis/staging/be/.runtime-release.env
 EnvironmentFile=/home/verdaxis-prod/verdaxis/staging/be/.runtime-rust/runtime.env
 ExecStartPre=/usr/bin/env -i /usr/bin/python3 -I -S -B /home/verdaxis-prod/verdaxis/staging/be/scripts/verify_deploy_start_guard.py --environment staging --expected-release-sha ${RELEASE_SHA}
-ExecStartPre=/home/verdaxis-prod/verdaxis/staging/be/venv/bin/python scripts/verify_migration_revision.py --expected ${MIGRATION_REVISION}
-ExecStartPre=/home/verdaxis-prod/verdaxis/staging/be/venv/bin/python scripts/prepare_rust_budget.py --verify --environment-file /home/verdaxis-prod/verdaxis/staging/be/.env --release-sha ${RELEASE_SHA} --output /home/verdaxis-prod/verdaxis/staging/be/.runtime-rust/budget.json
+ExecStartPre=/usr/bin/env -i /usr/bin/python3 -I -S -B /home/verdaxis-prod/verdaxis/staging/be/scripts/verify_rust_start.py --expected-release-sha ${RELEASE_SHA} --budget-file /home/verdaxis-prod/verdaxis/staging/be/.runtime-rust/budget.json --expected-revision ${MIGRATION_REVISION} --revision-file /home/verdaxis-prod/verdaxis/staging/be/.runtime-rust/revision.json
 # env exists before the first artifact, so policy-off bootstrap verification
 # needs no Rust binary. It preserves the environment and execs in the same PID.
 ExecStart=/usr/bin/env /home/verdaxis-prod/verdaxis/staging/be/.runtime-rust/verdaxis-read --bind 127.0.0.1:8011 --budget-file /home/verdaxis-prod/verdaxis/staging/be/.runtime-rust/budget.json
