@@ -150,6 +150,20 @@ async fn database_detail_is_actor_scoped_and_does_not_mutate_rows() {
 }
 
 #[test]
+fn public_visibility_snapshot_owns_ids_and_count_keys_together() {
+    use verdaxis_read::crud::watchlists::VisibleSnapshot;
+    let snapshot = VisibleSnapshot::from_orders(vec![(
+        Uuid::from_u128(1),
+        "TEST".into(),
+        Uuid::from_u128(2),
+        "SPOT".into(),
+    )]);
+    assert!(snapshot.contains(Uuid::from_u128(1)));
+    assert!(!snapshot.contains(Uuid::from_u128(3)));
+    assert_eq!(snapshot.order_count(), 1);
+}
+
+#[test]
 fn empty_projection_keeps_declared_nulls_and_default_fields() {
     let now = Utc.with_ymd_and_hms(2026, 10, 19, 0, 0, 0).unwrap();
     let summary = project_summary(

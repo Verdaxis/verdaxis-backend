@@ -74,6 +74,70 @@ pub struct VisibleOrder {
     pub availability_window: String,
 }
 
+/// One captured public relation supplies both PIN membership and count keys.
+/// Route adapters should use `capture_visible` rather than assembling two
+/// independent datasets with potentially different clocks or policy states.
+pub struct VisibleSnapshot {
+    ids: HashSet<Uuid>,
+    orders: Vec<VisibleOrder>,
+}
+
+impl VisibleSnapshot {
+    pub fn from_orders(rows: Vec<(Uuid, String, Uuid, String)>) -> Self {
+        let mut ids = HashSet::new();
+        let orders = rows
+            .into_iter()
+            .map(
+                |(id, market_product, delivery_point_id, availability_window)| {
+                    ids.insert(id);
+                    VisibleOrder {
+                        market_product,
+                        delivery_point_id,
+                        availability_window,
+                    }
+                },
+            )
+            .collect();
+        Self { ids, orders }
+    }
+    pub fn contains(&self, id: Uuid) -> bool {
+        self.ids.contains(&id)
+    }
+    pub fn order_count(&self) -> usize {
+        self.orders.len()
+    }
+    pub async fn detail(
+        &self,
+        connection: &mut PgConnection,
+        actor: Uuid,
+        id: Uuid,
+        cutoff: DateTime<Utc>,
+    ) -> Result<Option<Summary>, sqlx::Error> {
+        load_detail(connection, actor, id, &self.ids, &self.orders, cutoff).await
+    }
+}
+
+pub async fn capture_visible(
+    connection: &mut PgConnection,
+    policy: &crate::MarketPolicy,
+    clock: &crate::market::visibility::VisibilityClock,
+    config: &crate::Config,
+) -> Result<VisibleSnapshot, sqlx::Error> {
+    let rows = super::visible_order_rows(connection, policy, clock, config).await?;
+    let values = rows
+        .iter()
+        .map(|row| {
+            Ok((
+                row.try_get("id")?,
+                row.try_get("market_product")?,
+                row.try_get("delivery_point_id")?,
+                row.try_get("availability_window")?,
+            ))
+        })
+        .collect::<Result<Vec<_>, sqlx::Error>>()?;
+    Ok(VisibleSnapshot::from_orders(values))
+}
+
 /// Four bounded statements independent of target count: owner, targets, events
 /// and (by the caller) the shared public-order relation. No state is updated.
 pub async fn load_detail(
