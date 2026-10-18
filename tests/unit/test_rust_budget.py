@@ -55,6 +55,25 @@ class RustBudgetTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 budget.verify(env, sha, artifact)
 
+    def test_second_preparation_and_retry_replace_budget(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            env = root / "runtime.env"
+            env.write_text("ENVIRONMENT=test\nRELEASE_SHA=test\nDATABASE_URL=sqlite+aiosqlite:///:memory:\n")
+            artifact = root / "budget.json"
+            for sha in ("a" * 40, "b" * 40, "b" * 40):
+                budget.prepare(env, sha, artifact)
+                budget.verify(env, sha, artifact)
+            self.assertEqual(artifact.stat().st_mode & 0o777, 0o600)
+            saved = artifact.read_bytes()
+            artifact.unlink()
+            victim = root / "victim"
+            victim.write_bytes(saved)
+            artifact.symlink_to(victim)
+            with self.assertRaises((ValueError, OSError)):
+                budget.prepare(env, "c" * 40, artifact)
+            self.assertEqual(victim.read_bytes(), saved)
+
     def test_environment_symlink_is_refused(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
