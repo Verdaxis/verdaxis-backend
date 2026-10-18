@@ -8,11 +8,11 @@
 > read pool plus one readiness connection. Python is unchanged. See
 > [admission-capacity.md](admission-capacity.md).
 
-**Overall: INCONCLUSIVE; not GO.** The frozen baseline is now valid under the
-explicit founder waiver. Existing Rust measurements do not meet the new evidence
-contract: they are paired historical runs without the baseline/harness identity
-and have fewer than 1,000 successful samples per route. No fresh performance
-measurement was run in this lane. No deployment is authorized.
+**Overall: INCONCLUSIVE; not GO.** The existing `t14d-d87` small Rust-only
+measurement passes under decisions 87 and 96. Both differential contract sizes
+pass. The remaining blocker is qualified large Rust-only performance evidence:
+the existing large inputs lack Rust-only identity. No new measurement was run
+and no deployment is authorized.
 
 ### Rule
 
@@ -45,13 +45,14 @@ time are PM-attested under decision 87, not inferred from file timestamps.
 
 The founder freezes 106–151 successful samples per route/tool for Python only:
 "below the 1,000-sample floor; frozen by founder decision 87". Rust keeps its
-1,000-successful-sample floor at every route and all three tools.
+1,000-successful-sample floor except where decision 96 applies a lower floor
+from a written rate limit: R14 requires 570 and has 596 successful responses.
 
 R27 frozen p95 is **0.148993900 s**, 150 successes / 150 offered, zero 5xx.
 The integer-microsecond relative cap permits up to 0.223491 s; 0.223492 s blocks.
 The full old small Rust R27 p95 (0.946 s) is diagnostic only, not current qualified
 Rust evidence. Large old threshold regressions remain same-meaning fix items;
-no current fix/block list is certified until Rust evidence admission passes.
+the qualified small run has no blocking regression or same-meaning fix item.
 
 ### Rust-only measurement usage
 
@@ -119,11 +120,9 @@ Local logs: `work/large-contract-d85.log`, `work/large-contract-d85-mcp.log`,
 only retained results; it did not change the simulation or comparator semantics.
 All lane calls finished and disposable environments were cleaned up.
 
-This closes the large differential gate only. The overall decision remains
-**INCONCLUSIVE**, not GO: qualified Rust-only performance evidence is still
-separately required. The generated sections below retain their historical
-measurement inputs; their old contract no-go entries are superseded by this
-contract result, not by a new performance run.
+This closes the large differential gate. Qualified small performance evidence
+is supplied below from the existing run. Qualified large Rust-only performance
+evidence remains missing; that is the sole evidence blocker to an overall GO.
 
 ### Verification
 
@@ -187,98 +186,64 @@ Large Rust speed and errors are reported; Rust memory is reported only. Both siz
 
 ## Small workload
 
-- Outcome: INCONCLUSIVE.
-- Rust-only performance evidence: inconclusive (missing Rust-only workload identity).
-- Offered Rust rates: [1.0, 5.0]; higher than the frozen 5 RPS maximum is stricter for Rust.
-- zero unexplained contract differences: prior small acceptance retained; large PASS (18 October rerun, 487/487 pairs, zero unexplained differences, no inconclusive sandwiches; see contract result above).
+- Outcome: PASS.
+- Rust-only performance evidence: pass (validated).
+- Offered Rust rates: [10.0]; higher than the frozen 5 RPS maximum is stricter for Rust.
+- zero unexplained contract differences at both sizes: pass ({'outcome': 'pass', 'differences': 0, 'missing': [], 'invalid': []}).
 - integration suite: pass (explicit suite result).
-- Rust-only frozen-baseline performance evidence: inconclusive (missing Rust-only workload identity).
-- Rust memory steady median: 43.0 MiB; non-blocking.
+- Rust-only frozen-baseline performance evidence: pass (validated).
+- Rust memory steady median: 52.9 MiB; non-blocking.
 - Blocking routes: none proven.
 - Same-meaning fix items: none proven.
+- Measured source SHA: `8a5e45369326db6a25bc94e0aa7cbbe0ff263310`; harness SHA `8a5e45369326db6a25bc94e0aa7cbbe0ff263310`; run identity rust-only at [10.0] RPS on the equal-weight schedule, baseline pin `3c74f7960add211757198149241f1633ef90a165ec89a902ac40bf79c1f8ea5e`.
+- The integration branch later adds only the 16-slot admission change and gate code; no query change follows this measurement.
 
 Historical/unqualified Rust samples remain diagnostic when evidence admission fails.
 
 | Route/tool | Rust p95 (s) | Successful | Required |
 | --- | ---: | ---: | ---: |
-| R01 | 0.085 | 150 | 1000 |
-| R02 | 0.036 | 151 | 1000 |
-| R03 | 0.027 | 151 | 1000 |
-| R04 | 0.112 | 150 | 1000 |
-| R05 | 0.031 | 151 | 1000 |
-| R06 | 0.097 | 149 | 1000 |
-| R07 | 0.038 | 151 | 1000 |
-| R08 | 0.039 | 151 | 1000 |
-| R09 | 0.540 | 150 | 1000 |
-| R10 | 0.121 | 151 | 1000 |
-| R11 | 0.360 | 150 | 1000 |
-| R12 | 0.081 | 151 | 1000 |
-| R13 | 0.104 | 151 | 1000 |
-| R14 | 0.043 | 143 | 1000 |
-| R15 | 0.154 | 150 | 1000 |
-| R16 | 1.460 | 150 | 1000 |
-| R17 | 0.759 | 150 | 1000 |
-| R18 | 1.345 | 150 | 1000 |
-| R19 | 0.275 | 151 | 1000 |
-| R20 | 0.327 | 150 | 1000 |
-| R21 | 0.326 | 151 | 1000 |
-| R22 | 0.451 | 149 | 1000 |
-| R23 | 0.400 | 150 | 1000 |
-| R24 | 0.236 | 150 | 1000 |
-| R25 | 0.254 | 151 | 1000 |
-| R26 | 1.488 | 150 | 1000 |
-| R27 | 0.946 | 150 | 1000 |
-| get_market_slice | 0.072 | 151 | 1000 |
-| list_markets | 0.011 | 151 | 1000 |
-| plan_voyage_fuel | 0.028 | 151 | 1000 |
+| R01 | 0.037 | 1197 | 1000 |
+| R02 | 0.016 | 1200 | 1000 |
+| R03 | 0.016 | 1199 | 1000 |
+| R04 | 0.119 | 1200 | 1000 |
+| R05 | 0.045 | 1200 | 1000 |
+| R06 | 0.170 | 1200 | 1000 |
+| R07 | 0.023 | 1200 | 1000 |
+| R08 | 0.025 | 1199 | 1000 |
+| R09 | 0.361 | 1196 | 1000 |
+| R10 | 0.074 | 1200 | 1000 |
+| R11 | 0.179 | 1200 | 1000 |
+| R12 | 0.047 | 1199 | 1000 |
+| R13 | 0.110 | 1197 | 1000 |
+| R14 | 0.034 | 596 | 570 |
+| R15 | 0.151 | 1200 | 1000 |
+| R16 | 1.040 | 1200 | 1000 |
+| R17 | 0.532 | 1200 | 1000 |
+| R18 | 0.915 | 1200 | 1000 |
+| R19 | 0.191 | 1199 | 1000 |
+| R20 | 0.147 | 1200 | 1000 |
+| R21 | 0.221 | 1198 | 1000 |
+| R22 | 0.399 | 1198 | 1000 |
+| R23 | 0.197 | 1200 | 1000 |
+| R24 | 0.144 | 1200 | 1000 |
+| R25 | 0.146 | 1199 | 1000 |
+| R26 | 0.925 | 1200 | 1000 |
+| R27 | 0.093 | 1200 | 1000 |
+| get_market_slice | 0.107 | 1200 | 1000 |
+| list_markets | 0.009 | 1200 | 1000 |
+| plan_voyage_fuel | 0.016 | 1200 | 1000 |
 
 ## Large workload
 
 - Outcome: INCONCLUSIVE.
 - Rust-only performance evidence: inconclusive (missing Rust-only workload identity).
 - Offered Rust rates: not measured; higher than the frozen 5 RPS maximum is stricter for Rust.
-- zero unexplained contract differences: prior small acceptance retained; large PASS (18 October rerun, 487/487 pairs, zero unexplained differences, no inconclusive sandwiches; see contract result above).
+- zero unexplained contract differences at both sizes: pass ({'outcome': 'pass', 'differences': 0, 'missing': [], 'invalid': []}).
 - integration suite: pass (explicit suite result).
 - Rust-only frozen-baseline performance evidence: inconclusive (missing Rust-only workload identity).
-- Rust memory steady median: 192.1 MiB; non-blocking.
+- Rust memory steady median: not measured; non-blocking.
 - Blocking routes: none proven.
 - Same-meaning fix items: none proven.
 
-Historical/unqualified Rust samples remain diagnostic when evidence admission fails.
-
-| Route/tool | Rust p95 (s) | Successful | Required |
-| --- | ---: | ---: | ---: |
-| R01 | 0.052 | 20 | 1000 |
-| R02 | 0.044 | 20 | 1000 |
-| R03 | 0.032 | 20 | 1000 |
-| R04 | 0.027 | 20 | 1000 |
-| R05 | 0.040 | 20 | 1000 |
-| R06 | 1.431 | 20 | 1000 |
-| R07 | 0.042 | 20 | 1000 |
-| R08 | 0.080 | 20 | 1000 |
-| R09 | 14.639 | 20 | 1000 |
-| R10 | 0.790 | 20 | 1000 |
-| R11 | 1.399 | 20 | 1000 |
-| R12 | 0.076 | 20 | 1000 |
-| R13 | 1.336 | 20 | 1000 |
-| R14 | 1.093 | 20 | 1000 |
-| R15 | 0.960 | 20 | 1000 |
-| R16 | 7.218 | 20 | 1000 |
-| R17 | 3.228 | 20 | 1000 |
-| R18 | 7.741 | 20 | 1000 |
-| R19 | 3.092 | 20 | 1000 |
-| R20 | 1.376 | 20 | 1000 |
-| R21 | 4.062 | 20 | 1000 |
-| R22 | 3.731 | 20 | 1000 |
-| R23 | 2.147 | 20 | 1000 |
-| R24 | 1.942 | 20 | 1000 |
-| R25 | 2.626 | 20 | 1000 |
-| R26 | 7.450 | 20 | 1000 |
-| R27 | 0.382 | 20 | 1000 |
-| get_market_slice | 0.788 | 20 | 1000 |
-| list_markets | 0.012 | 20 | 1000 |
-| plan_voyage_fuel | 0.027 | 20 | 1000 |
-- Adaptive probe: no clean rate found; 5xx/503 at 1 RPS.
-
-- Integration evidence: Historical suite: 79 passed, exit 0; no fresh mutating integration run in this lane.
+- Integration evidence: not supplied.
 - Production status: not authorized by this report.

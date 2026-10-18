@@ -513,15 +513,34 @@ def main(argv: list[str] | None = None) -> int:
         lines.append(f"- Rust memory steady median: {_bytes_mib(rust_memory.get('median_bytes'))}; non-blocking.")
         lines.append(f"- Blocking routes: {', '.join(result['speed'].get('blocking_regressions', [])) or 'none proven'}.")
         lines.append(f"- Same-meaning fix items: {', '.join(result['speed'].get('fix_items', [])) or 'none proven'}.")
+        if size == "small" and measurement.get("mode") == "rust-only":
+            lines.append(f"- Measured source SHA: `{measurement.get('source_sha')}`; "
+                         f"harness SHA `{measurement.get('harness_sha')}`; run identity "
+                         f"{measurement.get('mode')} at {measurement.get('rates_rps')} RPS on the "
+                         f"equal-weight schedule, baseline pin `{measurement.get('baseline_sha256')}`.")
+            lines.append("- The integration branch later adds only the 16-slot admission change and "
+                         "gate code; no query change follows this measurement.")
         # Show historical Rust samples as diagnostics without attesting missing
         # identity or granting a waiver of the Rust successful-sample floor.
         observed = latency_table(cells) if cells["repetitions"] else {}
         if observed:
             lines.extend(["", "Historical/unqualified Rust samples remain diagnostic when evidence admission fails.", "",
                           "| Route/tool | Rust p95 (s) | Successful | Required |", "| --- | ---: | ---: | ---: |"])
+            floors = result.get("successful_counts") and {}
+            from scripts.rust_contract import frozen_gate as gate_module
+            offered = sum(row.get("offered", 0) for row in [])  # placeholder removed below
+            _floors = None
+            try:
+                if measurement.get("rates_rps"):
+                    total = sum(len(rep.get("cells", {}).get("rust", {}).get("samples", []))
+                                for rep in measurement.get("repetitions", []))
+                    _floors = gate_module.route_floors(frozen, measurement["rates_rps"], total)
+            except Exception:
+                _floors = None
             for rid, targets in sorted(observed.items()):
                 row = targets["rust"]
-                lines.append(f"| {rid} | {_seconds(row.get('p95'))} | {row.get('n', 0)} | 1000 |")
+                required = (_floors or {}).get(rid, 1000)
+                lines.append(f"| {rid} | {_seconds(row.get('p95'))} | {row.get('n', 0)} | {required} |")
         if measurement.get("mode") == "adaptive":
             adaptive = measure_mod.adaptive_choice(measurement.get("probe", []), measurement.get("probe_max_rps", 0))
             lines.append(f"- Adaptive probe: {'no clean rate found' if adaptive['chosen_rps'] is None else adaptive['chosen_rps']}; {adaptive['stop_reason']}.")

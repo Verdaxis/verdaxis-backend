@@ -173,3 +173,76 @@ fn frozen_route_just_inside_and_outside_relative_limit() {
         .p95 += 0.000001;
     assert_eq!(decide(&run), GateOutcome::NoGo);
 }
+
+// ------------------------------------------------- decision 96 rate-limited floors
+
+/// A measurement like `measurement()` but with per-route offered/success counts.
+fn limited_measurement(counts: &[(&str, u64, u64)]) -> RustMeasurement {
+    let mut run = measurement();
+    for route in &mut run.routes {
+        if let Some((_, offered, successful)) =
+            counts.iter().find(|(id, _, _)| *id == route.route_id)
+        {
+            route.offered = *offered;
+            route.successful = *successful;
+        }
+    }
+    run
+}
+
+/// R14's written limit (10/minute, decision 78) allows 600 successes in a
+/// 3,600 s window; 95% of that is 570. The run's own offered total derives the
+/// window: every route at 1,200 offered across 30 routes at 10 RPS is 3,600 s.
+fn window_3600_run() -> RustMeasurement {
+    let mut run = measurement();
+    for route in &mut run.routes {
+        route.offered = 1200;
+        route.successful = 1200;
+    }
+    run
+}
+
+#[test]
+fn rate_limited_route_at_its_written_floor_passes() {
+    let mut run = window_3600_run();
+    for route in &mut run.routes {
+        if route.route_id == "R14" {
+            route.successful = 596; // 95% of the 600 the limit allows; >= 570
+        }
+    }
+    assert_eq!(decide(&run), GateOutcome::Pass);
+}
+
+#[test]
+fn rate_limited_route_below_its_written_floor_is_inconclusive() {
+    let mut run = window_3600_run();
+    for route in &mut run.routes {
+        if route.route_id == "R14" {
+            route.successful = 569; // below 95% of 600
+        }
+    }
+    assert_eq!(decide(&run), GateOutcome::Inconclusive);
+}
+
+#[test]
+fn unlimited_route_at_999_still_fails() {
+    let run = limited_measurement(&[("R27", 1000, 999)]);
+    assert_eq!(decide(&run), GateOutcome::Inconclusive);
+}
+
+#[test]
+fn a_non_positive_limit_is_inconclusive() {
+    // A zero limit is a defect in the committed table, never a lower floor.
+    let mut config = include_str!("../../../tests/rust_contract/gate-config.json").to_owned();
+    config = config.replace("\"R14\": 10", "\"R14\": 0");
+    let run = window_3600_run();
+    assert_eq!(
+        frozen_performance_gate(
+            include_bytes!("../../../tests/rust_contract/python-baseline-small.json"),
+            &config,
+            &run
+        )
+        .outcome,
+        GateOutcome::Inconclusive
+    );
+}
