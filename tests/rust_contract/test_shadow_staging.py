@@ -325,3 +325,96 @@ def test_final_readiness_must_complete_before_pass(tmp_path, monkeypatch):
 def test_diagnostics_accept_only_typed_schema_metadata(record):
     with pytest.raises(shadow.ShadowError):
         shadow.sanitize_diagnostic(record)
+
+
+@pytest.mark.parametrize("port", ["SGSIN", "sg-sin"])
+def test_port_id_forms_match_public_data(tmp_path, port):
+    path = tmp_path / "cases.json"
+    path.write_text(json.dumps([case("R02", "/api/ports/" + port)]))
+    assert shadow.load_staging_cases(path, require_complete=False)[0]["path"].endswith(port)
+
+
+@pytest.mark.parametrize("port", ["SG-SIN", "sgsin", "sg-Sin", "sg-sin/extra", "sg-sin?x=1", "../sg-sin"])
+def test_other_port_forms_are_refused(tmp_path, port):
+    path = tmp_path / "cases.json"
+    path.write_text(json.dumps([case("R02", "/api/ports/" + port)]))
+    with pytest.raises(shadow.ShadowError):
+        shadow.load_staging_cases(path, require_complete=False)
+
+
+@pytest.mark.parametrize("approved", [False, True])
+def test_empty_route_needs_explicit_approval(tmp_path, monkeypatch, approved):
+    cfg, _, _ = setup_run(tmp_path, monkeypatch, [observation(b"[]")] * 3)
+    cfg = replace(cfg, approved_empty_routes=["R07"] if approved else [])
+    result = shadow.run(cfg, 100, cases=[case("R07", "/api/curves/forward")])
+    assert result["outcome"] == ("PASS" if approved else "INCONCLUSIVE")
+    if approved:
+        assert result["coverage"]["routes"]["R07"]["reason"] == "empty-only (approved)"
+
+
+def test_approved_empty_csv_still_compares_exact_bytes(tmp_path, monkeypatch):
+    first = observation(b"a,b\n", headers={"content-type": "text/csv"})
+    other = observation(b"a,c\n", headers={"content-type": "text/csv"})
+    cfg, _, _ = setup_run(tmp_path, monkeypatch, [first, other, first])
+    cfg = replace(cfg, approved_empty_routes=["R08"])
+    assert shadow.run(cfg, 100, cases=[case("R08", "/api/curves/forward/export")])["outcome"] == "FAIL"
+
+
+@pytest.mark.parametrize("overrides", [{"R21": 16777217}, {"R99": 8388608}, {"R21": True}, {"R21": 0}])
+def test_invalid_body_overrides_refuse(tmp_path, overrides):
+    with pytest.raises(shadow.ShadowError):
+        shadow.validate_config(replace(config(tmp_path), body_limit_overrides=overrides))
+
+
+def test_r21_transport_override_and_oversize_inconclusive(tmp_path, monkeypatch):
+    cfg, _, _ = setup_run(tmp_path, monkeypatch, [])
+    cfg = replace(cfg, body_limit_overrides={"R21": 8388608})
+    # Exercise the real bounded transport under the run loop, not an oversized
+    # preclassified fixture. Every health response remains valid.
+    original = shadow._one_call
+    real_call = REAL_ONE_CALL
+    sizes = []
+    class Response:
+        status = 200
+        def read(self, size):
+            sizes.append(size)
+            return b"x" * size
+        def getheaders(self):
+            return [("content-type", "application/json")]
+    class Connection:
+        def __init__(self, *args, **kwargs): pass
+        def request(self, *args, **kwargs): pass
+        def getresponse(self): return Response()
+        def close(self): pass
+    monkeypatch.setattr(shadow.http.client, "HTTPConnection", Connection)
+    def fetch(config, base, request):
+        if request["id"] == "R21": return real_call(config, base, request)
+        return original(config, base, request)
+    monkeypatch.setattr(shadow, "_one_call", fetch)
+    result = shadow.run(cfg, 23, cases=[case("R21", "/api/orderbook/map-summary")])
+    assert sizes and all(size == 8388609 for size in sizes)
+    assert result["outcome"] == "INCONCLUSIVE"
+    assert result["counters"]["oversize"] == len(sizes)
+    assert shadow.result_exit_code(result) == 2
+    assert shadow.response_body_limit(cfg, "R05") == 1048576
+
+
+REAL_ONE_CALL = shadow._one_call
+
+
+def test_optional_staging_settings_load_without_changing_defaults(tmp_path):
+    path = tmp_path / "config.toml"
+    path.write_text('python_url = "http://127.0.0.1:8001"\nrust_url = "http://127.0.0.1:8011"\n'
+                    'approved_empty_routes = ["R07", "R08"]\nbody_limit_overrides = { R21 = 8388608 }\n')
+    cfg = shadow.load_config(path)
+    assert cfg.approved_empty_routes == ["R07", "R08"]
+    assert cfg.body_limit_overrides == {"R21": 8388608}
+    assert shadow.ShadowConfig("", "").approved_empty_routes == []
+    assert shadow.ShadowConfig("", "").body_limit_overrides == {}
+
+
+def test_large_route_difference_retains_only_bounded_byte_counts():
+    record = {"route_id": "R21", "byte_counts": [8388608, 8388608, 8388608]}
+    assert shadow.sanitize_diagnostic(record) == record
+    with pytest.raises(shadow.ShadowError):
+        shadow.sanitize_diagnostic({"byte_counts": [16777217]})
