@@ -268,4 +268,9 @@ class HTTPCell:
 from scripts.rust_contract.phase2_example import example_scenario
 
 register(example_scenario())
+# Phase 2 Task 10: feedback route scenario.
+from scripts.rust_contract.feedback_scenario import feedback_scenario
+
+register(feedback_scenario())
+# Phase 2 Task 10: end feedback route scenario.
 # END LANE REGISTRATIONS

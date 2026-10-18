@@ -54,6 +54,11 @@ const MAX_BODY_BYTES: usize = 64 * 1024 * 1024;
 pub enum Clock {
     Wall,
     Fixed(DateTime<Utc>),
+    #[cfg(feature = "contract-tests")]
+    Contract {
+        instant: DateTime<Utc>,
+        id: Uuid,
+    },
 }
 
 impl Clock {
@@ -61,6 +66,8 @@ impl Clock {
         match self {
             Self::Wall => Utc::now(),
             Self::Fixed(value) => *value,
+            #[cfg(feature = "contract-tests")]
+            Self::Contract { instant, .. } => *instant,
         }
     }
 }
@@ -162,6 +169,11 @@ async fn submit_feedback(State(state): State<AppState>, request: Request) -> Res
         limits: context.limits.clone(),
     };
     let support_present = crate::auth::scope::support_present(&parts.headers);
+    let id = match &context.clock {
+        #[cfg(feature = "contract-tests")]
+        Clock::Contract { id, .. } => *id,
+        _ => Uuid::new_v4(),
+    };
     let result = run_authenticated(
         &state,
         access,
@@ -170,7 +182,7 @@ async fn submit_feedback(State(state): State<AppState>, request: Request) -> Res
             Box::pin(async move {
                 // Rule 3 and 4: account state, then typed input, then quota.
                 let submission = validate_and_admit(payload, &admission, validate_submission)?;
-                insert_feedback(transaction, submission, now).await
+                insert_feedback(transaction, submission, now, id).await
             })
         },
     )
@@ -460,8 +472,8 @@ async fn insert_feedback(
     transaction: &mut AuthenticatedTransaction<'_>,
     submission: Submission,
     created_at: DateTime<Utc>,
+    id: Uuid,
 ) -> Result<Response, ApiError> {
-    let id = Uuid::new_v4();
     sqlx::query(
         "INSERT INTO feedback_entries (id, user_id, message, page, created_at) \
          VALUES ($1, $2, $3, $4, $5)",
