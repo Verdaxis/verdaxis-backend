@@ -171,6 +171,68 @@ fn public_visibility_snapshot_owns_ids_and_count_keys_together() {
     assert_eq!(snapshot.order_count(), 1);
 }
 
+#[tokio::test]
+async fn mounted_watchlist_reads_refuse_missing_bearer_before_bad_uuid() {
+    use axum::{Router, body::Body, http::Request};
+    use tower::ServiceExt;
+    use verdaxis_read::crud::watchlists::{ReadSettings, read_routes};
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(16)
+        .connect_lazy("postgres://unused:unused@127.0.0.1:54321/unused_test")
+        .unwrap();
+    let config = verdaxis_read::Config {
+        kyc_execution_gate_enabled: true,
+        environment: "test".into(),
+        release_sha: verdaxis_read::compiled_sha().into(),
+        migration_revision: "kycg_20261014_staging".into(),
+        database_url: "postgres://unused:unused@127.0.0.1:54321/unused_test".into(),
+        db_session_time_zone: "UTC".into(),
+        prepared_budget: None,
+        bind: "127.0.0.1:0".parse().unwrap(),
+        read_admission_slots: 16,
+        pool_max: 17,
+        python_budget: 52,
+        configured_max_connections: 100,
+    };
+    let state = verdaxis_read::AppState::new(
+        config,
+        verdaxis_read::runtime::db::Pools {
+            read: pool.clone(),
+            health: sqlx::postgres::PgPoolOptions::new()
+                .max_connections(1)
+                .connect_lazy("postgres://unused:unused@127.0.0.1:54321/unused_test")
+                .unwrap(),
+        },
+        verdaxis_read::MarketPolicy {
+            source_sha: verdaxis_read::compiled_sha().into(),
+            products: vec![],
+            points: vec![],
+        },
+    )
+    .unwrap();
+    let settings = ReadSettings::new(
+        verdaxis_read::auth::VerificationSettings::new(
+            "synthetic".into(),
+            None,
+            "issuer".into(),
+            "audience".into(),
+        ),
+        Utc.with_ymd_and_hms(2026, 10, 19, 0, 0, 0).unwrap(),
+    );
+    let app: Router = read_routes(settings).with_state(state);
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/watchlists/not-a-uuid")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 401);
+    assert_eq!(response.headers()["www-authenticate"], "Bearer");
+}
+
 #[test]
 fn empty_projection_keeps_declared_nulls_and_default_fields() {
     let now = Utc.with_ymd_and_hms(2026, 10, 19, 0, 0, 0).unwrap();
