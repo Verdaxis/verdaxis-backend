@@ -77,6 +77,14 @@ def snapshot(connection):
     return result
 
 
+def sequence_marks(connection):
+    marks = {}
+    for schema, name in connection.execute("SELECT schemaname, sequencename FROM pg_sequences WHERE schemaname='public' ORDER BY sequencename"):
+        row = connection.execute(f"SELECT last_value,is_called FROM {identifier(schema)}.{identifier(name)}").fetchone()
+        marks[name] = {"last_value": row[0], "is_called": row[1]}
+    return marks
+
+
 def digest(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 

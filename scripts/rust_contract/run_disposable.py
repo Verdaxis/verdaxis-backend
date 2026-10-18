@@ -775,6 +775,7 @@ CREATE EXTENSION IF NOT EXISTS postgis;
             connect,
             digest,
             identifier,
+            sequence_marks,
             snapshot,
         )
         from scripts.rust_contract.phase2_state import compare_state, validate_cells
@@ -830,21 +831,46 @@ CREATE EXTENSION IF NOT EXISTS postgis;
         acl = digest({name: (ROOT / "deploy/postgres" / name).read_text() for name in ("app_acl_policy.sql", "converge_runtime_object_acls.sql")})
         validate_cells({"database": DATABASES[0], "seed": digest(initial[0]), "acl": acl},
                        {"database": DATABASES[1], "seed": digest(initial[1]), "acl": acl}, self.token, f"http://127.0.0.1:{ephemeral_port()}")
+        import urllib.error
+        import urllib.request
+        from datetime import UTC, datetime
+
+        from scripts.rust_contract.compare import compare_responses
+        subprocess.run(["cargo", "build", "--manifest-path", "rs/Cargo.toml", "--locked", "-p", "verdaxis-read", "--features", "contract-tests", "--example", "phase2_transport"],
+            cwd=ROOT, env={**os.environ, "RELEASE_SHA": self.sha, "SQLX_OFFLINE": "true"}, check=True)
+        endpoints = []
+        for runtime, database in zip(("python", "rust"), DATABASES):
+            bind_port = ephemeral_port()
+            probe_env = {**env, "DISPOSABLE_TEST_TOKEN": self.token, "PHASE2_DATABASE_URL": f"postgresql://{role}:{PASSWORD}@127.0.0.1:{port}/{database}",
+                         "PHASE2_BIND": f"127.0.0.1:{bind_port}"}
+            command = [self.python_bin, "-m", "tests.rust_contract.server", "--port", str(bind_port)] if runtime == "python" else [str(ROOT / "rs/target/debug/examples/phase2_transport")]
+            self.spawn(command, probe_env)
+            wait_for_port(bind_port)
+            endpoint = f"http://127.0.0.1:{bind_port}"
+            attest(endpoint, self.token)
+            endpoints.append(endpoint)
         actions = []
-        for action, fault in (("insert-feedback", None), ("between-writes", "between"), ("after-commit", "after")):
-            for database in DATABASES:
-                with connect(port, database, app=True) as cell:
-                    current = cell.execute("SELECT current_user, (SELECT rolsuper FROM pg_roles WHERE rolname=current_user), (SELECT pg_get_userbyid(datdba)=current_user FROM pg_database WHERE datname=current_database())").fetchone()
-                    if current != (role, False, False):
-                        raise RunnerError("request execution requires non-owner runtime role")
-                    try:
-                        cell.execute("INSERT INTO feedback_entries(id,user_id,message,page,created_at) VALUES (%s,'20000000-0000-4000-8000-000000000001',%s,NULL,'2026-10-18T00:00:00Z')", (f"30000000-0000-4000-8000-{len(actions)+1:012d}", action))
-                        if fault == "between":
-                            raise RunnerError("injected between related writes")
-                        cell.execute("INSERT INTO feedback_entries(id,user_id,message,page,created_at) VALUES (%s,'20000000-0000-4000-8000-000000000001',%s,NULL,'2026-10-18T00:00:00Z')", (f"40000000-0000-4000-8000-{len(actions)+1:012d}", action + "-child"))
-                        cell.commit()
-                    except RunnerError:
-                        cell.rollback()
+        for action, fault in (("insert-feedback", "none"), ("between-writes", "between-writes"), ("after-commit", "after-commit")):
+            request_action = {"ids": [f"30000000-0000-4000-8000-{len(actions)+1:012d}", f"40000000-0000-4000-8000-{len(actions)+1:012d}"],
+                              "now": f"2026-10-18T00:00:00.{len(actions)+1:06d}+00:00", "referral_code": "VDX-ABC123", "fault": fault}
+            responses, clock_evidence = [], []
+            for endpoint in endpoints:
+                before = datetime.now(UTC)
+                request = urllib.request.Request(endpoint + "/__contract__/phase2/write", data=json.dumps(request_action).encode(),
+                    headers={"content-type": "application/json", "x-disposable-token": self.token}, method="POST")
+                try:
+                    response = urllib.request.urlopen(request, timeout=20)
+                except urllib.error.HTTPError as error:
+                    response = error
+                with response:
+                    raw = response.read()
+                    database_now = datetime.fromisoformat(response.headers["x-database-now"])
+                    if not before <= database_now <= datetime.now(UTC):
+                        raise RunnerError("database now outside captured request interval")
+                    responses.append({"status": response.status, "headers": {"content-type": response.headers["content-type"]}, "body": raw})
+                    clock_evidence.append({"database_now": database_now.isoformat(), "action_clock": request_action["now"]})
+            if compare_responses(*responses, profile="phase2-meaning-v1", route_id="N02", rules_sha256=__import__("hashlib").sha256((ROOT / "tests/rust_contract/phase2/normalization.json").read_bytes()).hexdigest()):
+                raise RunnerError("write transport responses differ")
             states = []
             for database in DATABASES:
                 with connect(port, database) as reader:
@@ -855,11 +881,59 @@ CREATE EXTENSION IF NOT EXISTS postgis;
             expected_rows = 2 if len(actions) < 2 else 4
             if len(states[0]["feedback_entries"]["rows"]) != expected_rows:
                 raise RunnerError("fault schedule left partial or replayed child rows")
-            actions.append({"id": action, "outcome": "rolled-back" if fault == "between" else "ambiguous" if fault == "after" else "committed",
+            actions.append({"id": action, "outcome": "rolled-back" if fault == "between-writes" else "ambiguous" if fault == "after-commit" else "committed",
+                            "database_clock": clock_evidence,
                             "python_state_sha256": digest(states[0]), "rust_state_sha256": digest(states[1]), "differences": differences})
+        sequence_evidence = {}
+        for database in DATABASES:
+            with connect(port, database) as reader:
+                sequence_evidence[database] = sequence_marks(reader)
+        mixed_database = "phase2_mixed_test"
+        # Probe ASGI lifespan can hold an application pool on the seed. Stop
+        # only this runner's servers before cloning the untouched seed again.
+        for child in self.children:
+            child.terminate()
+        for child in self.children:
+            child.wait(timeout=15)
+        self.children = []
+        with connect(port, "postgres", autocommit=True) as admin:
+            admin.execute(f"CREATE DATABASE {identifier(mixed_database)} TEMPLATE {identifier(DB_NAME)}")
+        for script in ("bootstrap_roles.sql", "validate_roles.sql"):
+            docker("exec", self.container, "psql", "-X", "-U", "postgres", "-d", mixed_database,
+                "-v", f"database_name={mixed_database}", "-v", f"app_role={role}", "-v", f"migrator_role={MIGRATOR_ROLE}",
+                "-v", f"backup_role={BACKUP_ROLE}", "-f", f"{policy_dir}/{script}")
+        mixed_url = f"postgresql://{role}:{PASSWORD}@127.0.0.1:{port}/{mixed_database}"
+        mixed_endpoints = []
+        for runtime in ("python", "rust"):
+            bind_port = ephemeral_port()
+            probe_env = {**env, "DISPOSABLE_TEST_TOKEN": self.token, "PHASE2_DATABASE_URL": mixed_url,
+                         "PHASE2_BIND": f"127.0.0.1:{bind_port}", "PHASE2_EMIT_EVENTS": "true"}
+            command = [self.python_bin, "-m", "tests.rust_contract.server", "--port", str(bind_port)] if runtime == "python" else [str(ROOT / "rs/target/debug/examples/phase2_transport")]
+            self.spawn(command, probe_env)
+            wait_for_port(bind_port)
+            endpoint = f"http://127.0.0.1:{bind_port}"
+            attest(endpoint, self.token)
+            mixed_endpoints.append(endpoint)
+        for index, endpoint in enumerate(mixed_endpoints):
+            action = {"ids": [f"50000000-0000-4000-8000-{index+1:012d}", f"60000000-0000-4000-8000-{index+1:012d}"],
+                      "now": "2026-10-18T00:00:01+00:00", "referral_code": "VDX-ABC123", "fault": "none"}
+            request = urllib.request.Request(endpoint + "/__contract__/phase2/write", data=json.dumps(action).encode(),
+                headers={"content-type": "application/json", "x-disposable-token": self.token}, method="POST")
+            with urllib.request.urlopen(request, timeout=20) as response:
+                if response.status != 200:
+                    raise RunnerError("mixed writer refused")
+                response.read()
+        dispatched = subprocess.run([self.python_bin, "-m", "tests.rust_contract.phase2.mixed_dispatch"], cwd=ROOT,
+            env={**env, "PHASE2_DATABASE_URL": mixed_url}, check=True, capture_output=True, text=True)
+        mixed_evidence = json.loads(dispatched.stdout.strip().splitlines()[-1])
+        with connect(port, mixed_database) as reader:
+            mixed_evidence["sequence_high_water"] = sequence_marks(reader)
+            if len(snapshot(reader)["feedback_entries"]["rows"]) != 4:
+                raise RunnerError("mixed writers lost committed rows")
         if args.report:
             args.report.parent.mkdir(parents=True, exist_ok=True)
             args.report.write_text(json.dumps({"source_sha": self.sha, "scenario": "harness-smoke", "scope": "harness-only",
+                "sequence_high_water": sequence_evidence, "mixed_writer_dispatch": mixed_evidence,
                 "route_qualification": False, "databases": list(DATABASES), "seed_sha256": digest(initial[0]), "acl_sha256": acl,
                 "actions": actions, "dispatchers": "not-started"}, indent=2) + "\n")
 

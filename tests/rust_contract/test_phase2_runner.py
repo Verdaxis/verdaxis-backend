@@ -89,6 +89,19 @@ def test_action_values_advance_and_exhaust_without_runtime_override(monkeypatch)
         ActionValues(datetime.now(UTC), [], [])
 
 
+def test_transport_action_contract_requires_clock_ids_and_fault_schedule(monkeypatch):
+    module = importlib.import_module("scripts.rust_contract.phase2_state")
+    assert hasattr(module, "validate_action"), "missing shared HTTP action contract"
+    action = {"ids": ["30000000-0000-4000-8000-000000000001", "40000000-0000-4000-8000-000000000001"],
+              "now": "2026-10-18T00:00:00.000001+00:00", "referral_code": "VDX-ABC123", "fault": "none"}
+    assert module.validate_action(action) == action
+    for field in ("ids", "now", "referral_code", "fault"):
+        broken = dict(action)
+        del broken[field]
+        with pytest.raises(module.StateError):
+            module.validate_action(broken)
+
+
 def test_cleanup_failure_never_passes():
     module = state_module()
     with pytest.raises(module.StateError):

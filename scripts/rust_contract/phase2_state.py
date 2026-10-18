@@ -55,6 +55,28 @@ def apply_action(cell, writes, *, fault=None):
     return "ambiguous" if fault in {"after-commit", "commit-acknowledgement"} else "committed"
 
 
+def validate_action(action):
+    import re
+    from datetime import datetime
+    from uuid import UUID
+    try:
+        if set(action) != {"ids", "now", "referral_code", "fault"}:
+            raise ValueError("action fields")
+        if len(action["ids"]) != 2 or len(set(action["ids"])) != 2:
+            raise ValueError("two distinct IDs required")
+        for value in action["ids"]:
+            UUID(value)
+        if datetime.fromisoformat(action["now"]).tzinfo is None:
+            raise ValueError("aware action clock required")
+        if not re.fullmatch(r"VDX-[A-Z0-9]{6}", action["referral_code"]):
+            raise ValueError("referral candidate")
+        if action["fault"] not in {"none", "between-writes", "before-commit", "after-commit"}:
+            raise ValueError("fault schedule")
+    except (KeyError, TypeError, ValueError, AttributeError) as error:
+        raise StateError("invalid controlled action") from error
+    return action
+
+
 def require_cleanup(remaining):
     if remaining:
         raise StateError("owned disposable resources remain after cleanup")
