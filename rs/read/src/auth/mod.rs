@@ -2,6 +2,7 @@
 mod actor;
 mod claims;
 pub mod limits;
+pub mod request;
 pub mod scope;
 mod token;
 mod transaction;
