@@ -268,4 +268,9 @@ class HTTPCell:
 from scripts.rust_contract.phase2_example import example_scenario
 
 register(example_scenario())
+# Phase 2 Task 8: notifications — start
+from scripts.rust_contract.phase2_notifications import scenario as notification_scenario
+
+register(notification_scenario())
+# Phase 2 Task 8: notifications — end
 # END LANE REGISTRATIONS

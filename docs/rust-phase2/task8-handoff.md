@@ -2,7 +2,22 @@
 
 ## Status and resume point
 
-The Rust component is implemented and passes its focused PostgreSQL tests. The twin-database HTTP, fault, race, and mixed-writer gates are **pending the runner lane**, per the PM decision of 19 October. No cutover qualification is claimed.
+The Rust component is implemented and passes its focused PostgreSQL tests. The runner branch was merged as `2507d442`; real scenario registration and task-local adapters are added. **Route acceptance is blocked by two shared-runner compatibility defects. Task 8 is not yet complete.** No cutover qualification is claimed.
+
+### Runner follow-up, 19 October
+
+The authorized notifications group was run twice through staging `heavy run 3600` with `--phase2-races`. Each call completed with `ROUTE_GATE_EXIT=1` and `CALL_EXIT=1`:
+
+1. Fixture timestamp binding failed before requests (asyncpg requires a datetime); the task-owned fixture loader was corrected.
+2. Rust correctly refused startup because `phase2_routes.py:94` creates names such as `phase2_route_0_rust`, but `runtime/config.rs:250` requires disposable test database names ending in `_test`.
+
+Required owner change: suffix the three shared route cell names with `_test`. Do not weaken runtime target validation or substitute development mode. The adapter uses the runner's existing `Asia/Singapore` database timezone.
+
+An independent check completed with component invocation exit 0, adapter Clippy exit 0, registry tests exit 1, enclosing call exit 1. The component invocation ran the offline checks; its database section was not enabled in this invocation (the earlier required PostgreSQL gate remains recorded below). Registry tests found another shared defect: `test_phase2_scenarios.py:19-27` assumes that no real notifications or all-group scenarios can ever be registered. The owner should test selection against an isolated empty registry instead of the growing lane registry. Eight other registry tests passed.
+
+Ownership permits scenario registration entries only, not changes to shared lifecycle behavior or another lane's tests. These exact fixes are reported rather than implemented here. Current route adapters compile and pass focused Clippy. No shared comparator, runtime settings, dependency, app, migration or CI changes were made.
+
+The registered scenario supplies HTTP/full-state assertions, recipient scope, private-field preservation, database-trigger rollback, test-adapter postcommit response-loss classification, no-mail assertions and six fixed-seed concurrent schedules. Those schedules have not executed because startup refused. They assert commuting read-state invariants, not deterministic SQL lock order. No mixed producer/dispatcher gate is required by Task 8, which creates no event. This task has no invitation delivery; its mail requirement is an empty send ledger. The scenario data and adapters remain unqualified until the actual route gate runs.
 
 After the runner lands on `feat/rust-phase-2`, integrate its guide, register `notification_scope_and_email_state`, adapt the task-owned `tests/rust_contract/phase2/notification-scenario.json` to its data format, and run the notification differential gate. Do not use harness smoke as notification evidence.
 
