@@ -6,6 +6,7 @@
     {"id": "auth-state-matrix", "group": "all", "kind": "postgres-auth", "actions": ["shared-locks", "revocation", "cancellation"]},
     {"id": "http-boundaries", "group": "all", "kind": "http-contract", "actions": ["scope", "cors", "validation-order", "quota-thresholds"]},
     {"id": "auth-token-matrix", "group": "notifications", "kind": "token-only", "actions": []},
+    {"id": "referral-contract", "group": "referrals", "kind": "registered-route", "registration": "scripts.rust_contract.phase2_referrals", "actions": ["reads", "existing-code", "mail-status-matrix", "invalid-email"]},
     {"id": "referral-reads", "group": "referrals", "kind": "component-contract", "actions": ["success", "auth-and-scope", "committed-state", "public-resolution"]}
   ],
   "release_coverage": "not-qualified",

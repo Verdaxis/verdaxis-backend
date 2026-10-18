@@ -268,4 +268,9 @@ class HTTPCell:
 from scripts.rust_contract.phase2_example import example_scenario
 
 register(example_scenario())
+# Phase 2 Task 17–19: referrals (start)
+from scripts.rust_contract.phase2_referrals import scenario as referral_scenario
+
+register(referral_scenario())
+# Phase 2 Task 17–19: referrals (end)
 # END LANE REGISTRATIONS

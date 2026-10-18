@@ -64,4 +64,34 @@ Needed runtime projection (not implemented): construct `ReferralSettings` with t
 
 No real test email, measurement or live deployment ran. The repository's optional commit security hook returned HTTP 404 for Task 17, so that review did not run; details remain in the private local security log.
 
-After CI, wait for the PM runner handoff. Do not implement shared runner features in this lane.
+## Runner integration follow-up — 19 Oct
+
+Merged `origin/feat/rust-p2-runner` through `808f4fa8` as `31bbc6d7`. Added one marked real registry block and a test-only Rust HTTP server. No shared runner behavior or comparator changed.
+
+### Completed gates in this follow-up
+
+| Gate | Own exit | Evidence |
+| --- | ---: | --- |
+| First twin adapter build | 101 (wrapper 1) | ApiError conversion in example; corrected |
+| First real HTTP differential | 1 | Invalid email lacked Python reason/ctx; earlier actions passed |
+| Python EmailStr vector capture | 0 | 24 synthetic inputs, no network |
+| Exact EmailStr RED | 101 | Missing detailed reason/ctx |
+| First vector GREEN attempt | 101 | Unclosed angle bracket diagnostic; corrected |
+| Focused invite vectors | 0 | 4 tests passed; captured vectors compare exact normalized strings and errors |
+| Real referral group with races | 0 | `referral-twins-green2.log`, full HTTP/state/mail comparison |
+| Timeout/no-replay | 0 | One local attempt; ten-second provider deadline; no retry |
+| All-target Clippy | 0 | Warnings denied |
+| Shared registry regression | 0 | 10 passed with populated registration |
+| Final check wrapper | 0 | CALL_EXIT=0 |
+
+The real scenario compares empty stats/leaderboard, public valid/unknown/newline/invalid-bearer resolution, unauthenticated reads, existing-code R01, five provider status cases, exact complete mail payloads and invalid-email diagnostics. Three fixed-seed same-user existing-code client-barrier schedules preserve all committed state. They do **not** prove database lock order or allocation races.
+
+`unicode-normalization=0.1.25` was reported before direct declaration; it was already locked. NFC local normalization and specific Python diagnostic branches now pass the captured vector set. This is not proof of full EmailStr grammar: unsupported Unicode categories, arbitrary invalid-character names, lengths and some pretty-address details still need complete parity. No approved-difference exception was added.
+
+### Exact remaining blockers
+
+Tasks 17–19 are **not complete**. This scenario lacks nonempty top-ten/tie-boundary fixtures, deterministic allocation and ten-collision HTTP schedules, explicit database-level collision/lock barriers in both adapters, injected rollback/ambiguous-commit schedules, a mixed-writer cell, and twin timeout/mail-failure state coverage for missing-code invites. Full payload comparison is proven for the ordinary-name existing-code status matrix only. Existing component checks do not substitute for these route gates. `mixed_writer_dispatch` is null in the current report. Keep all referral routes on Python.
+
+Task 23 runtime change stays exactly: project raw `FRONTEND_URL` into `ReferralSettings::new` without trimming; inject existing verification settings, EMAIL_FROM, production mail client from RESEND_API_KEY, and shared quota authority; merge the exported route factory. No production runtime projection was edited.
+
+Private run report: `work/rust-phase2/referral-twins-green2.json`. Source and vectors are committed; raw provider payloads remain memory-only. CI for this follow-up is reported after push.
