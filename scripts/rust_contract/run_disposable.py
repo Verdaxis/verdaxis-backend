@@ -781,6 +781,18 @@ CREATE EXTENSION IF NOT EXISTS postgis;
         from scripts.rust_contract.phase2_state import compare_state, validate_cells
 
         scenarios = json.loads((ROOT / "tests/rust_contract/phase2/scenarios.json").read_text())["scenarios"]
+        # Phase 2 Task 9: preferences scenario dispatch
+        if args.phase2_group == "preferences":
+            from scripts.rust_contract.phase2_preferences import run_preferences
+
+            selected_preferences = args.phase2_scenario or ["preferences"]
+            if selected_preferences != ["preferences"]:
+                raise RunnerError("preferences group requires the preferences scenario")
+            if args.phase2_measure or args.phase2_order_write_benchmark or args.phase2_races:
+                raise RunnerError("preferences scenario includes correctness only")
+            run_preferences(self, args)
+            return
+        # Phase 2 Task 9: end preferences scenario dispatch
         selected = args.phase2_scenario or ["harness-smoke"]
         known = {row["id"]: row for row in scenarios}
         if any(name not in known for name in selected):

@@ -1,4 +1,7 @@
 pub mod auth;
+// Phase 2 Task 9: preferences module
+pub mod crud;
+// Phase 2 Task 9: end preferences module
 pub mod market;
 pub mod mcp;
 pub mod routes;

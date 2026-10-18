@@ -237,6 +237,16 @@ Task 6 must load account state under the shared transaction/user-row lock.
 in-process HTTP tests. See `docs/rust-phase2-task5.md` for scope, source findings
 and every gate result.
 
+Task 9 adds `crud/preferences.rs` and the marked `routes::preferences_router`
+registration seam for P01/P02. Both routes use the shared authenticated transaction;
+PUT retains the exclusive user lock through commit and preserves the original
+validated JSON. The integration owner supplies verification settings and shared
+quota authority; this task does not activate deployed routes. The disposable
+`phase2_preferences.py` scenario uses the existing runner lifecycle, separate
+Python/Rust databases, controlled IDs/clocks, full-state comparison, and observed
+same-user lock waits. Evidence and remaining boundaries are in
+`docs/rust-phase2-task9.md`.
+
 ### Frozen Phase 1 measurement reference
 
 Decisions 86/87 freeze the Python small-workload performance reference in
