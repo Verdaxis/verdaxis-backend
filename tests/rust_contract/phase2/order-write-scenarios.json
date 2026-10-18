@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "task": 20,
+  "group": "order-write-boundary",
+  "registration": "pending-runner-lane",
+  "scope": "Private transaction shell only. No market HTTP route, matching, lifecycle implementation or measurement.",
+  "scenarios": [
+    {"id": "order-write-lock-identity", "kind": "vectors", "actions": ["normalize-windows", "compare-side-independent-slice-hashes", "sort-and-deduplicate-slices", "compare-idempotency-scopes", "compare-request-hashes"]},
+    {"id": "order-write-timeout-bounds", "kind": "postgres-boundary", "actions": ["assert-lock-timeout-500ms", "assert-statement-timeout-5s", "hold-slice-lock", "assert-refusal-and-rollback"]},
+    {"id": "order-write-bounded-retry", "kind": "fault-schedule", "actions": ["inject-40001-before-commit", "retry-fresh-transaction", "inject-40P01-before-commit", "assert-two-attempt-bound", "assert-no-retry-after-ambiguous-commit"]},
+    {"id": "order-write-atomic-outbox", "kind": "committed-state", "actions": ["inject-failure-between-outbox-and-receipt", "assert-no-committed-delta", "commit-outbox-and-receipt", "replay-command", "assert-one-event-and-one-receipt"]},
+    {"id": "order-write-production-refusal", "kind": "source-boundary", "actions": ["assert-no-route-mounted", "assert-private-lock-and-write-methods", "assert-unsupported-command-refused-before-database-access"]}
+  ],
+  "required_state": ["all-business-tables", "users", "market_command_results", "market_event_outbox"],
+  "dispatchers": "stopped",
+  "verdict": "INCONCLUSIVE until the runner lane registers and executes the database scenarios"
+}

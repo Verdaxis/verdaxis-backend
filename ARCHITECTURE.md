@@ -16,6 +16,22 @@ comes from each environment's `/health/ready` response, not a dated SHA in
 source documentation. The shared-host marker is
 `/home/verdaxis-prod/verdaxis/PRODUCTION_HOST.md`.
 
+## Rust Phase 2 order-write boundary
+
+Task 20 adds `rs/read/src/order_write/` for Python-derived lock identities,
+request hashes, receipt replay, bounded retries, and a private PostgreSQL
+transaction shell. The shell preserves caller-declared order-row acquisition
+order and sorts side-independent slice locks. Its database methods and test
+doubles remain inside the boundary. SQLx owns rollback on transaction drop.
+The public command entry point refuses unsupported commands before database
+access; no market HTTP write route is mounted. This task implements neither
+matching nor trade lifecycle operations. Public-scope event generation (PD4)
+remains mandatory before a future command can emit market events.
+
+`tests/rust_contract/phase2/market-write-spec.json` pins the Python source and
+hash vectors; `order-write-scenarios.json` is unregistered runner input. See
+`docs/rust-phase2/task20-write-boundary.md` for gate results and the resume point.
+
 ## Rust Phase 1 bootstrap
 
 `rs/` is a Rust 1.95 workspace with two packages. `verdaxis-read` defines the
