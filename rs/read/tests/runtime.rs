@@ -13,7 +13,8 @@ fn staging() -> Config {
         database_url:
             "postgres://verdaxis_app_staging:local-secret@127.0.0.1:5432/verdaxis_staging".into(),
         bind: "127.0.0.1:0".parse().unwrap(),
-        pool_max: 9,
+        read_admission_slots: 16,
+        pool_max: 17,
         python_budget: 52,
         configured_max_connections: 100,
         prepared_budget: None,
@@ -26,7 +27,7 @@ fn kyc_runtime_input_defaults_enabled_and_rejects_ambiguous_values() {
         "environment": "test", "release_sha": compiled_sha(),
         "migration_revision": "kycg_20261014_staging",
         "database_url": "postgres://rust_app:pw@127.0.0.1:12345/verdaxis_test",
-        "bind": "127.0.0.1:0", "pool_max": 9, "python_budget": 52,
+        "bind": "127.0.0.1:0", "pool_max": 17, "python_budget": 52,
         "configured_max_connections": 100, "db_session_time_zone": "UTC"
     });
     assert!(
@@ -55,7 +56,7 @@ fn timezone_policy_is_required_and_cannot_inject_startup_options() {
     let input = serde_json::json!({
         "environment":"test", "release_sha":compiled_sha(), "migration_revision":"kycg_20261014_staging",
         "database_url":"postgres://rust_app:pw@127.0.0.1:12345/verdaxis_test",
-        "bind":"127.0.0.1:0", "pool_max":9, "python_budget":52, "configured_max_connections":100
+        "bind":"127.0.0.1:0", "pool_max":17, "python_budget":52, "configured_max_connections":100
     });
     assert!(serde_json::from_value::<Config>(input).is_err());
     let mut config = staging();
@@ -156,6 +157,70 @@ fn tests_require_explicit_numeric_loopback_database() {
 }
 
 #[test]
+fn rust_admission_is_independent_of_python_capacity() {
+    for slots in [1_u32, 8, 16, 24, 47] {
+        let config: Config = serde_json::from_value(serde_json::json!({
+            "environment": "staging", "release_sha": compiled_sha(),
+            "migration_revision": "kycg_20261014_staging",
+            "database_url": "postgres://verdaxis_app_staging:local-secret@127.0.0.1:5432/verdaxis_staging",
+            "db_session_time_zone": "UTC", "bind": "127.0.0.1:0",
+            "read_admission_slots": slots, "pool_max": slots + 1,
+            "python_budget": 52, "configured_max_connections": 100
+        })).unwrap();
+        assert!(validate_config(&config).is_ok(), "refused {slots} slots");
+        let artifact = serde_json::json!({
+            "version": 1, "release_sha": compiled_sha(), "environment_digest": "a".repeat(64),
+            "services": 2, "workers": 4, "pool": 2, "overflow": 1, "reserve": 20,
+            "rust_pool": slots + 1, "python_budget": 52, "total": 53 + slots,
+            "configured_max_connections": 100
+        });
+        assert!(
+            verdaxis_read::runtime::config::validate_prepared_budget(
+                &config,
+                &artifact.to_string()
+            )
+            .is_ok()
+        );
+    }
+}
+
+#[test]
+fn admission_configuration_refuses_zero_overflow_and_excess_budget() {
+    for (slots, pool) in [(0, 1), (u32::MAX, 0), (16, 16), (48, 49)] {
+        let mut config = staging();
+        config.read_admission_slots = slots;
+        config.pool_max = pool;
+        assert!(validate_config(&config).is_err());
+    }
+    let mut environment = deployed_environment();
+    let bind = "127.0.0.1:0".parse().unwrap();
+    for value in ["0", "", "-1", "abc", "4294967295"] {
+        environment.insert("READ_ADMISSION_SLOTS".into(), value.into());
+        assert!(
+            verdaxis_read::runtime::config::config_from_deployed_environment(
+                &environment,
+                bind,
+                &budget_document(compiled_sha())
+            )
+            .is_err()
+        );
+    }
+    environment.insert("READ_ADMISSION_SLOTS".into(), "24".into());
+    let mut budget: serde_json::Value =
+        serde_json::from_str(&budget_document(compiled_sha())).unwrap();
+    budget["rust_pool"] = serde_json::json!(25);
+    budget["total"] = serde_json::json!(77);
+    let config = verdaxis_read::runtime::config::config_from_deployed_environment(
+        &environment,
+        bind,
+        &budget.to_string(),
+    )
+    .unwrap();
+    assert_eq!(config.read_admission_slots, 24);
+    assert!(validate_config(&config).is_ok());
+}
+
+#[test]
 fn budget_uses_effective_settings() {
     assert_eq!(connection_budget(2, 4, 2, 1, 20, 9), Some(61));
     assert_eq!(connection_budget(2, 4, 8, 1, 20, 9), Some(109));
@@ -203,7 +268,7 @@ fn prepared_budget_is_bound_to_runtime() {
     let mut artifact = serde_json::json!({
         "version": 1, "release_sha": compiled_sha(), "environment_digest": "a".repeat(64),
         "services": 2, "workers": 4, "pool": 2, "overflow": 1, "reserve": 20,
-        "rust_pool": 9, "python_budget": 52, "total": 61, "configured_max_connections": 100
+        "rust_pool": 17, "python_budget": 52, "total": 69, "configured_max_connections": 100
     });
     assert!(
         verdaxis_read::runtime::config::validate_prepared_budget(&config, &artifact.to_string())
@@ -232,7 +297,7 @@ fn budget_document(release_sha: &str) -> String {
     serde_json::json!({
         "version": 1, "release_sha": release_sha, "environment_digest": "a".repeat(64),
         "services": 2, "workers": 4, "pool": 2, "overflow": 1, "reserve": 20,
-        "rust_pool": 9, "python_budget": 52, "total": 61, "configured_max_connections": 100
+        "rust_pool": 17, "python_budget": 52, "total": 69, "configured_max_connections": 100
     })
     .to_string()
 }
@@ -267,7 +332,7 @@ fn deployed_environment_builds_the_runtime_configuration() {
 
     assert_eq!(config.environment, "staging");
     assert_eq!(config.bind, bind);
-    assert_eq!(config.pool_max, 9);
+    assert_eq!(config.pool_max, 17);
     assert_eq!(config.python_budget, 52);
     assert_eq!(config.configured_max_connections, 100);
     assert!(!config.kyc_execution_gate_enabled);

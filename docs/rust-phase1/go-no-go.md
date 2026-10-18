@@ -2,6 +2,12 @@
 
 ## Founder decisions 86/87 — 18 October 2026
 
+> Capacity update (18 Oct, founder decision 88): the eight-slot/nine-connection
+> values in historical evidence do not describe the current configuration. Current
+> Rust admission is configured by `read_admission_slots` (default 16), with matching
+> read pool plus one readiness connection. Python is unchanged. See
+> [admission-capacity.md](admission-capacity.md).
+
 **Overall: INCONCLUSIVE; not GO.** The frozen baseline is now valid under the
 explicit founder waiver. Existing Rust measurements do not meet the new evidence
 contract: they are paired historical runs without the baseline/harness identity

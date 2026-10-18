@@ -1,5 +1,11 @@
 # Rust Phase 1 progress
 
+> Capacity update (18 Oct, founder decision 88): the eight-slot/nine-connection
+> values below are historical evidence. Current Rust admission is configured by
+> `read_admission_slots` (default 16), with matching read pool plus one readiness
+> connection. Python is unchanged. See [admission-capacity.md](admission-capacity.md).
+
+
 ## Task 1 — Workspace and compiled identity
 
 - Status: complete; Tasks 2–14 were not started.

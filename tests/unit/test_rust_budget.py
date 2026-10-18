@@ -1,10 +1,10 @@
 """Offline tests for the Rust runtime budget preparation boundary."""
 import importlib.util
 import json
+import tempfile
+import unittest
 from pathlib import Path
 from types import SimpleNamespace
-import unittest
-import tempfile
 
 ROOT = Path(__file__).resolve().parents[2]
 spec = importlib.util.spec_from_file_location("prepare_rust_budget", ROOT / "scripts/prepare_rust_budget.py")
@@ -18,6 +18,13 @@ class RustBudgetTests(unittest.TestCase):
                       DB_MAX_OVERFLOW=1, DB_RESERVED_CONNECTIONS=20, DB_MAX_CONNECTIONS=100)
         values.update(changes)
         return SimpleNamespace(**values)
+
+    def test_rust_pool_is_not_pinned_to_python_admission(self):
+        for slots in (1, 8, 16, 24, 47):
+            self.assertEqual(budget.derive_budget(self.settings(), slots + 1)["total"], 53 + slots)
+        for rust_pool in (0, 1, 49, 2**32, True):
+            with self.assertRaises(ValueError):
+                budget.derive_budget(self.settings(), rust_pool)
 
     def test_effective_budget_and_overflow(self):
         self.assertEqual(budget.derive_budget(self.settings(), 9)["total"], 61)
@@ -37,7 +44,7 @@ class RustBudgetTests(unittest.TestCase):
             sha = "a" * 40
             budget.prepare(env, sha, artifact)
             data = json.loads(artifact.read_text())
-            self.assertEqual(data["total"], 61)
+            self.assertEqual(data["total"], 69)
             self.assertEqual(data["release_sha"], sha)
             self.assertEqual(artifact.stat().st_mode & 0o777, 0o600)
             self.assertNotIn("DATABASE_URL", artifact.read_text())
