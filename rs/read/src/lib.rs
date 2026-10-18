@@ -1,4 +1,7 @@
 pub mod auth;
+// Phase 2 Task 8: notifications — start
+pub mod crud;
+// Phase 2 Task 8: notifications — end
 pub mod market;
 pub mod mcp;
 pub mod routes;
