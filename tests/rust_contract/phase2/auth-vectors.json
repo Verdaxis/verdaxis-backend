@@ -1,0 +1,3720 @@
+{
+  "version": 1,
+  "oracle_sha": "64179cd15c85e1da76ec49d8756b6f7419e94c66",
+  "pyjwt_version": "2.15.1",
+  "now": 1792320000,
+  "fixture_only": true,
+  "settings": {
+    "current": "phase2-fixture-current-key-not-for-runtime-0001",
+    "previous": "phase2-fixture-previous-key-not-for-runtime-0002",
+    "issuer": "verdaxis-test-api",
+    "audience": "verdaxis-test-web"
+  },
+  "sources": {
+    "app/core/security.py": "5b18535f90a62253e52dca546d23b0c048e76637a8d08a17149d8e1550ab6087",
+    "app/routers/auth_simple.py": "37a2874515a96ffdf9dd581939797fbe869002a8326766d3f80b501b300a91c0"
+  },
+  "vectors": [
+    {
+      "id": "current-key",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.c16556ybnpqf7VuAXQG4ZUszqMaHKxvpcWFRdY6a-Do",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.c16556ybnpqf7VuAXQG4ZUszqMaHKxvpcWFRdY6a-Do"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 200,
+        "body": "{\"count\":0}",
+        "www_authenticate": null
+      }
+    },
+    {
+      "id": "previous-key",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.WN7gcTJqTkYXhsZ9yCpB6w81jxHt3CWca9zZEyBGmys",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.WN7gcTJqTkYXhsZ9yCpB6w81jxHt3CWca9zZEyBGmys"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 200,
+        "body": "{\"count\":0}",
+        "www_authenticate": null
+      }
+    },
+    {
+      "id": "previous-key-absent",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.WN7gcTJqTkYXhsZ9yCpB6w81jxHt3CWca9zZEyBGmys",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.WN7gcTJqTkYXhsZ9yCpB6w81jxHt3CWca9zZEyBGmys"
+      ],
+      "previous_enabled": false,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":\"Could not validate credentials\"}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "wrong-key",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.ofCfSg_JrguRN74kYMDLZblKIGI4nPXlixnRB_aiRHU",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.ofCfSg_JrguRN74kYMDLZblKIGI4nPXlixnRB_aiRHU"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":\"Could not validate credentials\"}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "altered-payload",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiAiMDAwMDAwMDAtMDAwMC0wMDAwLTAwMDAtMDAwMDAwMDAwMDAxIiwgInR5cGUiOiAiYWNjZXNzIiwgImlzcyI6ICJ2ZXJkYXhpcy10ZXN0LWFwaSIsICJhdWQiOiAidmVyZGF4aXMtdGVzdC13ZWIiLCAiaWF0IjogMTc5MjMxOTk0MCwgImlhdF91cyI6IDE3OTIzMTk5NDAwMDAwMDAsICJleHAiOiAxNzkyMzIwMDYwfQ.c16556ybnpqf7VuAXQG4ZUszqMaHKxvpcWFRdY6a-Do",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiAiMDAwMDAwMDAtMDAwMC0wMDAwLTAwMDAtMDAwMDAwMDAwMDAxIiwgInR5cGUiOiAiYWNjZXNzIiwgImlzcyI6ICJ2ZXJkYXhpcy10ZXN0LWFwaSIsICJhdWQiOiAidmVyZGF4aXMtdGVzdC13ZWIiLCAiaWF0IjogMTc5MjMxOTk0MCwgImlhdF91cyI6IDE3OTIzMTk5NDAwMDAwMDAsICJleHAiOiAxNzkyMzIwMDYwfQ.c16556ybnpqf7VuAXQG4ZUszqMaHKxvpcWFRdY6a-Do"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":\"Could not validate credentials\"}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "algorithm-none",
+      "token": "eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.",
+      "authorization": [
+        "Bearer eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9."
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":\"Could not validate credentials\"}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "algorithm-hs384",
+      "token": "eyJhbGciOiJIUzM4NCIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.wO9LWRIpQ0q4VFOWo4MX2MvQValxLG6E74VybDR7PDLni3UgdNtg8piqrTNF9try",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzM4NCIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.wO9LWRIpQ0q4VFOWo4MX2MvQValxLG6E74VybDR7PDLni3UgdNtg8piqrTNF9try"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":\"Could not validate credentials\"}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "malformed-token-empty",
+      "token": "",
+      "authorization": [
+        "Bearer "
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":\"Could not validate credentials\"}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "malformed-token-broken",
+      "token": "broken",
+      "authorization": [
+        "Bearer broken"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":\"Could not validate credentials\"}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "malformed-token-a.b.c",
+      "token": "a.b.c",
+      "authorization": [
+        "Bearer a.b.c"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":\"Could not validate credentials\"}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "malformed-token-a.b",
+      "token": "a.b",
+      "authorization": [
+        "Bearer a.b"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":\"Could not validate credentials\"}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "malformed-token-a.b.c.d",
+      "token": "a.b.c.d",
+      "authorization": [
+        "Bearer a.b.c.d"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":\"Could not validate credentials\"}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "bearer-missing",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.c16556ybnpqf7VuAXQG4ZUszqMaHKxvpcWFRdY6a-Do",
+      "authorization": [],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":\"Not authenticated\"}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "bearer-empty",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.c16556ybnpqf7VuAXQG4ZUszqMaHKxvpcWFRdY6a-Do",
+      "authorization": [
+        ""
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":\"Not authenticated\"}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "bearer-basic",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.c16556ybnpqf7VuAXQG4ZUszqMaHKxvpcWFRdY6a-Do",
+      "authorization": [
+        "Basic abc"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":\"Not authenticated\"}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "bearer-scheme-only",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.c16556ybnpqf7VuAXQG4ZUszqMaHKxvpcWFRdY6a-Do",
+      "authorization": [
+        "Bearer"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":\"Could not validate credentials\"}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "bearer-leading-space",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.c16556ybnpqf7VuAXQG4ZUszqMaHKxvpcWFRdY6a-Do",
+      "authorization": [
+        " Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.c16556ybnpqf7VuAXQG4ZUszqMaHKxvpcWFRdY6a-Do"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":\"Not authenticated\"}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "bearer-double-space",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.c16556ybnpqf7VuAXQG4ZUszqMaHKxvpcWFRdY6a-Do",
+      "authorization": [
+        "Bearer  eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.c16556ybnpqf7VuAXQG4ZUszqMaHKxvpcWFRdY6a-Do"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 200,
+        "body": "{\"count\":0}",
+        "www_authenticate": null
+      }
+    },
+    {
+      "id": "bearer-mixed-case",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.c16556ybnpqf7VuAXQG4ZUszqMaHKxvpcWFRdY6a-Do",
+      "authorization": [
+        "bEaReR eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.c16556ybnpqf7VuAXQG4ZUszqMaHKxvpcWFRdY6a-Do"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 200,
+        "body": "{\"count\":0}",
+        "www_authenticate": null
+      }
+    },
+    {
+      "id": "duplicate-header-valid-first",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.c16556ybnpqf7VuAXQG4ZUszqMaHKxvpcWFRdY6a-Do",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.c16556ybnpqf7VuAXQG4ZUszqMaHKxvpcWFRdY6a-Do",
+        "Basic invalid"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 200,
+        "body": "{\"count\":0}",
+        "www_authenticate": null
+      }
+    },
+    {
+      "id": "duplicate-header-invalid-first",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.c16556ybnpqf7VuAXQG4ZUszqMaHKxvpcWFRdY6a-Do",
+      "authorization": [
+        "Basic invalid",
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.c16556ybnpqf7VuAXQG4ZUszqMaHKxvpcWFRdY6a-Do"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":\"Not authenticated\"}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "iss-absent",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiYXVkIjoidmVyZGF4aXMtdGVzdC13ZWIiLCJpYXQiOjE3OTIzMTk5NDAsImlhdF91cyI6MTc5MjMxOTk0MDAwMDAwMCwiZXhwIjoxNzkyMzIwMDYwfQ.8NfO1v-pEv9az0Xs-rGjPG88UWLymDG4uklxDtSeErU",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiYXVkIjoidmVyZGF4aXMtdGVzdC13ZWIiLCJpYXQiOjE3OTIzMTk5NDAsImlhdF91cyI6MTc5MjMxOTk0MDAwMDAwMCwiZXhwIjoxNzkyMzIwMDYwfQ.8NfO1v-pEv9az0Xs-rGjPG88UWLymDG4uklxDtSeErU"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":\"Could not validate credentials\"}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "iss-wrong",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoib3RoZXIiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.FlDM_13tpG6m7WUyK10_4ceRVekKD8oF3aIrtDJmXFI",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoib3RoZXIiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.FlDM_13tpG6m7WUyK10_4ceRVekKD8oF3aIrtDJmXFI"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":\"Could not validate credentials\"}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "iss-null",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjpudWxsLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.Dm9r-GdES7DUVfkVd78NKtHxdEWFpQ5_Ed-l_4wvVrk",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjpudWxsLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.Dm9r-GdES7DUVfkVd78NKtHxdEWFpQ5_Ed-l_4wvVrk"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":\"Could not validate credentials\"}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "iss-number",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoxLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.SQSDOhq3BSmjOuX1Rokp432OCOlL6iHxFn5WiTHgTh4",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoxLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.SQSDOhq3BSmjOuX1Rokp432OCOlL6iHxFn5WiTHgTh4"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":\"Could not validate credentials\"}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "iss-boolean",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjp0cnVlLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.SxjN18dbvj2SfNSRX6bTdbjKwQKUrCKETOOeR2VD_uc",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjp0cnVlLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.SxjN18dbvj2SfNSRX6bTdbjKwQKUrCKETOOeR2VD_uc"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":\"Could not validate credentials\"}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "iss-empty",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoiIiwiYXVkIjoidmVyZGF4aXMtdGVzdC13ZWIiLCJpYXQiOjE3OTIzMTk5NDAsImlhdF91cyI6MTc5MjMxOTk0MDAwMDAwMCwiZXhwIjoxNzkyMzIwMDYwfQ.hXODWkjTwHbnj5pfcGrxBZcLzljTVjXDRXYZ7yvSdJw",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoiIiwiYXVkIjoidmVyZGF4aXMtdGVzdC13ZWIiLCJpYXQiOjE3OTIzMTk5NDAsImlhdF91cyI6MTc5MjMxOTk0MDAwMDAwMCwiZXhwIjoxNzkyMzIwMDYwfQ.hXODWkjTwHbnj5pfcGrxBZcLzljTVjXDRXYZ7yvSdJw"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":\"Could not validate credentials\"}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "iss-object",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjp7fSwiYXVkIjoidmVyZGF4aXMtdGVzdC13ZWIiLCJpYXQiOjE3OTIzMTk5NDAsImlhdF91cyI6MTc5MjMxOTk0MDAwMDAwMCwiZXhwIjoxNzkyMzIwMDYwfQ.FC3Tw5oLgjNCF0v3B1A7VKVP9HHszogWPysoGz4ifyA",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjp7fSwiYXVkIjoidmVyZGF4aXMtdGVzdC13ZWIiLCJpYXQiOjE3OTIzMTk5NDAsImlhdF91cyI6MTc5MjMxOTk0MDAwMDAwMCwiZXhwIjoxNzkyMzIwMDYwfQ.FC3Tw5oLgjNCF0v3B1A7VKVP9HHszogWPysoGz4ifyA"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":\"Could not validate credentials\"}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "aud-absent",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJpYXQiOjE3OTIzMTk5NDAsImlhdF91cyI6MTc5MjMxOTk0MDAwMDAwMCwiZXhwIjoxNzkyMzIwMDYwfQ.3tNqODHCaOvoaGdsHw88nMtKUDYmBgz0MXu0WGLv4Rg",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJpYXQiOjE3OTIzMTk5NDAsImlhdF91cyI6MTc5MjMxOTk0MDAwMDAwMCwiZXhwIjoxNzkyMzIwMDYwfQ.3tNqODHCaOvoaGdsHw88nMtKUDYmBgz0MXu0WGLv4Rg"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":\"Could not validate credentials\"}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "aud-wrong",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJvdGhlciIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.ugS3SFGvVWxt4Md21tTptQaHbfJL6L3BwmpheRi4tMk",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJvdGhlciIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.ugS3SFGvVWxt4Md21tTptQaHbfJL6L3BwmpheRi4tMk"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":\"Could not validate credentials\"}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "aud-null",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOm51bGwsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.tvLuJZ7oS3NAwdXPq-3Og3uOM8lRcuKYb4R_36WhVd4",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOm51bGwsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.tvLuJZ7oS3NAwdXPq-3Og3uOM8lRcuKYb4R_36WhVd4"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":\"Could not validate credentials\"}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "aud-number",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOjEsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.QrETCmfFrm23F258bOOezGXfCOlLIhUcL3EB4sLK5_I",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOjEsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.QrETCmfFrm23F258bOOezGXfCOlLIhUcL3EB4sLK5_I"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":\"Could not validate credentials\"}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "aud-boolean",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOnRydWUsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.JRWEHRMOxc668I1uHJvpEa55FpJfZWhrReEHOtOV8mI",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOnRydWUsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.JRWEHRMOxc668I1uHJvpEa55FpJfZWhrReEHOtOV8mI"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":\"Could not validate credentials\"}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "aud-empty",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiIiLCJpYXQiOjE3OTIzMTk5NDAsImlhdF91cyI6MTc5MjMxOTk0MDAwMDAwMCwiZXhwIjoxNzkyMzIwMDYwfQ.yxBEgT_i-47X26JLiqYFd9zSqCN8_IofXWDRq95q3qM",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiIiLCJpYXQiOjE3OTIzMTk5NDAsImlhdF91cyI6MTc5MjMxOTk0MDAwMDAwMCwiZXhwIjoxNzkyMzIwMDYwfQ.yxBEgT_i-47X26JLiqYFd9zSqCN8_IofXWDRq95q3qM"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":\"Could not validate credentials\"}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "aud-object",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOnt9LCJpYXQiOjE3OTIzMTk5NDAsImlhdF91cyI6MTc5MjMxOTk0MDAwMDAwMCwiZXhwIjoxNzkyMzIwMDYwfQ.rvwy4-gETccdFgqF7uXeSCel8ZXzch760DR2SF_DZAw",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOnt9LCJpYXQiOjE3OTIzMTk5NDAsImlhdF91cyI6MTc5MjMxOTk0MDAwMDAwMCwiZXhwIjoxNzkyMzIwMDYwfQ.rvwy4-gETccdFgqF7uXeSCel8ZXzch760DR2SF_DZAw"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":\"Could not validate credentials\"}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "aud-list",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOlsidmVyZGF4aXMtdGVzdC13ZWIiXSwiaWF0IjoxNzkyMzE5OTQwLCJpYXRfdXMiOjE3OTIzMTk5NDAwMDAwMDAsImV4cCI6MTc5MjMyMDA2MH0.sIrBGtaf4J8ObneJ2DnVJCIX_OagzF0gK37_oYFPBpg",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOlsidmVyZGF4aXMtdGVzdC13ZWIiXSwiaWF0IjoxNzkyMzE5OTQwLCJpYXRfdXMiOjE3OTIzMTk5NDAwMDAwMDAsImV4cCI6MTc5MjMyMDA2MH0.sIrBGtaf4J8ObneJ2DnVJCIX_OagzF0gK37_oYFPBpg"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 200,
+        "body": "{\"count\":0}",
+        "www_authenticate": null
+      }
+    },
+    {
+      "id": "aud-extra-list",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOlsib3RoZXIiLCJ2ZXJkYXhpcy10ZXN0LXdlYiJdLCJpYXQiOjE3OTIzMTk5NDAsImlhdF91cyI6MTc5MjMxOTk0MDAwMDAwMCwiZXhwIjoxNzkyMzIwMDYwfQ.FAj0QVC74d2xqk-057Hvc96JxZP7QpCBYNExKkmdvi0",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOlsib3RoZXIiLCJ2ZXJkYXhpcy10ZXN0LXdlYiJdLCJpYXQiOjE3OTIzMTk5NDAsImlhdF91cyI6MTc5MjMxOTk0MDAwMDAwMCwiZXhwIjoxNzkyMzIwMDYwfQ.FAj0QVC74d2xqk-057Hvc96JxZP7QpCBYNExKkmdvi0"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 200,
+        "body": "{\"count\":0}",
+        "www_authenticate": null
+      }
+    },
+    {
+      "id": "aud-wrong-list",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOlsib3RoZXIiXSwiaWF0IjoxNzkyMzE5OTQwLCJpYXRfdXMiOjE3OTIzMTk5NDAwMDAwMDAsImV4cCI6MTc5MjMyMDA2MH0.FRKAZqOBet4_f3CnyinRAmqGKEpU_EirRv_vjq-mxtw",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOlsib3RoZXIiXSwiaWF0IjoxNzkyMzE5OTQwLCJpYXRfdXMiOjE3OTIzMTk5NDAwMDAwMDAsImV4cCI6MTc5MjMyMDA2MH0.FRKAZqOBet4_f3CnyinRAmqGKEpU_EirRv_vjq-mxtw"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":\"Could not validate credentials\"}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "aud-mixed-list",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOlsidmVyZGF4aXMtdGVzdC13ZWIiLDFdLCJpYXQiOjE3OTIzMTk5NDAsImlhdF91cyI6MTc5MjMxOTk0MDAwMDAwMCwiZXhwIjoxNzkyMzIwMDYwfQ.bm8wYWZa-iipFKNbp9sUwLqhE5g0rEc20dTJIEti1Mk",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOlsidmVyZGF4aXMtdGVzdC13ZWIiLDFdLCJpYXQiOjE3OTIzMTk5NDAsImlhdF91cyI6MTc5MjMxOTk0MDAwMDAwMCwiZXhwIjoxNzkyMzIwMDYwfQ.bm8wYWZa-iipFKNbp9sUwLqhE5g0rEc20dTJIEti1Mk"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":\"Could not validate credentials\"}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "aud-empty-list",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOltdLCJpYXQiOjE3OTIzMTk5NDAsImlhdF91cyI6MTc5MjMxOTk0MDAwMDAwMCwiZXhwIjoxNzkyMzIwMDYwfQ.xUa8PHLgGqndq7o5bCVU5VCzruCVgyFAGyRporWx3o0",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOltdLCJpYXQiOjE3OTIzMTk5NDAsImlhdF91cyI6MTc5MjMxOTk0MDAwMDAwMCwiZXhwIjoxNzkyMzIwMDYwfQ.xUa8PHLgGqndq7o5bCVU5VCzruCVgyFAGyRporWx3o0"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":\"Could not validate credentials\"}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "environment-mismatch",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtc3RhZ2luZy1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy1zdGFnaW5nLXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.udsMgb6Y-rjmGucCC3b4pts1R_4qI1fB20_8GFA6iLI",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtc3RhZ2luZy1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy1zdGFnaW5nLXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.udsMgb6Y-rjmGucCC3b4pts1R_4qI1fB20_8GFA6iLI"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":\"Could not validate credentials\"}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "exp-absent",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwfQ.vV8KZfadu6gJGPVcqdM702c66S085B7u5ZOLAfCBH40",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwfQ.vV8KZfadu6gJGPVcqdM702c66S085B7u5ZOLAfCBH40"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 200,
+        "body": "{\"count\":0}",
+        "www_authenticate": null
+      }
+    },
+    {
+      "id": "exp-before",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMTk5OTl9.UWpkKnEJnE_SUdpD6EJGuZh-W-YG99vqG7gIjlAqmkA",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMTk5OTl9.UWpkKnEJnE_SUdpD6EJGuZh-W-YG99vqG7gIjlAqmkA"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":\"Could not validate credentials\"}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "exp-equal",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwMDB9.dizN7q5P_KTXaq3IAZeZyTDdClk3x9SlSi1yJiMfL4o",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwMDB9.dizN7q5P_KTXaq3IAZeZyTDdClk3x9SlSi1yJiMfL4o"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":\"Could not validate credentials\"}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "exp-after",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwMDF9._FU_evYfe36tFF4jLiViEz-cxoj2uYKNc3i7DDrbnZw",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwMDF9._FU_evYfe36tFF4jLiViEz-cxoj2uYKNc3i7DDrbnZw"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 200,
+        "body": "{\"count\":0}",
+        "www_authenticate": null
+      }
+    },
+    {
+      "id": "exp-numeric-string",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOiIxNzkyMzIwMDAwIn0.52RNJYPALjhXaw1SmSwOV739o2JNDL31VOvT0mX76D0",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOiIxNzkyMzIwMDAwIn0.52RNJYPALjhXaw1SmSwOV739o2JNDL31VOvT0mX76D0"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":\"Could not validate credentials\"}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "exp-float",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwMDAuOX0.fnZMT2d8PkByi0PFTWEqmEBVjR4-YQ3tqhoJvMosifg",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwMDAuOX0.fnZMT2d8PkByi0PFTWEqmEBVjR4-YQ3tqhoJvMosifg"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":\"Could not validate credentials\"}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "exp-float-string",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOiIxNzkyMzIwMDAwLjUifQ.pi5h1h5JpUjStSweJA1TXndlDqB5GjJ8rclHAvpMb9w",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOiIxNzkyMzIwMDAwLjUifQ.pi5h1h5JpUjStSweJA1TXndlDqB5GjJ8rclHAvpMb9w"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":\"Could not validate credentials\"}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "exp-null",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOm51bGx9.kp_bCXUHZ6qHHZ_5FdIhfJda3d6Im8-k5_zmbulxA7I",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOm51bGx9.kp_bCXUHZ6qHHZ_5FdIhfJda3d6Im8-k5_zmbulxA7I"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":\"Could not validate credentials\"}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "exp-boolean",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOnRydWV9.lLIm5qCDWfCVX8kNeRjGBkoHlYbkrbga_deph370qbk",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOnRydWV9.lLIm5qCDWfCVX8kNeRjGBkoHlYbkrbga_deph370qbk"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":\"Could not validate credentials\"}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "exp-array",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOltdfQ.kJBmp0xIL6qSLYibQ3JLouc9-GXldh1Q8yRZqQUayFs",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOltdfQ.kJBmp0xIL6qSLYibQ3JLouc9-GXldh1Q8yRZqQUayFs"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":\"Could not validate credentials\"}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "exp-object",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOnt9fQ.tScPmOcmhAgry6dxTrg2JQbJELTKYDdvivmog0WtD5c",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOnt9fQ.tScPmOcmhAgry6dxTrg2JQbJELTKYDdvivmog0WtD5c"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":\"Could not validate credentials\"}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "exp-invalid-string",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOiJuZXZlciJ9.2eI2a7UNcxe5egu6Dkw_MYEaBWuPVrImcHNrbKRMA1Y",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOiJuZXZlciJ9.2eI2a7UNcxe5egu6Dkw_MYEaBWuPVrImcHNrbKRMA1Y"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":\"Could not validate credentials\"}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "exp-negative",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOi0xfQ.RV3-q-z_u-Ph0s9CharIgEAfoVubt8o3fnRYoZEoN4g",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOi0xfQ.RV3-q-z_u-Ph0s9CharIgEAfoVubt8o3fnRYoZEoN4g"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":\"Could not validate credentials\"}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "exp-spaced-string",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOiIgICsxNzkyMzIwMDAwICAifQ.0-qdIZU8_qcS0AwwGeE3iKjc_jLPFqLc7_762C5-1y8",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOiIgICsxNzkyMzIwMDAwICAifQ.0-qdIZU8_qcS0AwwGeE3iKjc_jLPFqLc7_762C5-1y8"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":\"Could not validate credentials\"}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "exp-underscored-string",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOiIxXzc5Ml8zMjBfMDAwIn0.3n8o7T8Igv6gtinlA9fVbQWxcAeimCodno9kNZcOf4w",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOiIxXzc5Ml8zMjBfMDAwIn0.3n8o7T8Igv6gtinlA9fVbQWxcAeimCodno9kNZcOf4w"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":\"Could not validate credentials\"}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "exp-unicode-string",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOiJcdTA2NjFcdTA2NjdcdTA2NjlcdTA2NjJcdTA2NjNcdTA2NjJcdTA2NjBcdTA2NjBcdTA2NjBcdTA2NjAifQ.NK-Bsr3Sjll0dBt-sgxFbuKoF47oQnEHoYyeM9MXHH4",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOiJcdTA2NjFcdTA2NjdcdTA2NjlcdTA2NjJcdTA2NjNcdTA2NjJcdTA2NjBcdTA2NjBcdTA2NjBcdTA2NjAifQ.NK-Bsr3Sjll0dBt-sgxFbuKoF47oQnEHoYyeM9MXHH4"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":\"Could not validate credentials\"}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "nbf-absent",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.c16556ybnpqf7VuAXQG4ZUszqMaHKxvpcWFRdY6a-Do",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.c16556ybnpqf7VuAXQG4ZUszqMaHKxvpcWFRdY6a-Do"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 200,
+        "body": "{\"count\":0}",
+        "www_authenticate": null
+      }
+    },
+    {
+      "id": "nbf-before",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjAsIm5iZiI6MTc5MjMxOTk5OX0.2skV4sTxQCYL6uhpJcRXC3ebv0XLLb-s49qyjH9Ixw4",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjAsIm5iZiI6MTc5MjMxOTk5OX0.2skV4sTxQCYL6uhpJcRXC3ebv0XLLb-s49qyjH9Ixw4"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 200,
+        "body": "{\"count\":0}",
+        "www_authenticate": null
+      }
+    },
+    {
+      "id": "nbf-equal",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjAsIm5iZiI6MTc5MjMyMDAwMH0.2rZf-pVafu4P2SIlQWks6DaN5uOdjYEcS5xKs31G-I0",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjAsIm5iZiI6MTc5MjMyMDAwMH0.2rZf-pVafu4P2SIlQWks6DaN5uOdjYEcS5xKs31G-I0"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 200,
+        "body": "{\"count\":0}",
+        "www_authenticate": null
+      }
+    },
+    {
+      "id": "nbf-after",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjAsIm5iZiI6MTc5MjMyMDAwMX0.1jznPiBGPLuCl2_-2P1BNoUNwqwiYhDwLelrZc5pe9E",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjAsIm5iZiI6MTc5MjMyMDAwMX0.1jznPiBGPLuCl2_-2P1BNoUNwqwiYhDwLelrZc5pe9E"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":\"Could not validate credentials\"}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "nbf-numeric-string",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjAsIm5iZiI6IjE3OTIzMjAwMDAifQ.zCeLllAhrMdqnpzhYJwu_lWBwPwLB3lvtPsCrY_5gzg",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjAsIm5iZiI6IjE3OTIzMjAwMDAifQ.zCeLllAhrMdqnpzhYJwu_lWBwPwLB3lvtPsCrY_5gzg"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 200,
+        "body": "{\"count\":0}",
+        "www_authenticate": null
+      }
+    },
+    {
+      "id": "nbf-float",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjAsIm5iZiI6MTc5MjMyMDAwMC45fQ.X9DERp-QwzzEEeZ7wWw7_MGAf2LEoh0Fz-HJsykC4kM",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjAsIm5iZiI6MTc5MjMyMDAwMC45fQ.X9DERp-QwzzEEeZ7wWw7_MGAf2LEoh0Fz-HJsykC4kM"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 200,
+        "body": "{\"count\":0}",
+        "www_authenticate": null
+      }
+    },
+    {
+      "id": "nbf-float-string",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjAsIm5iZiI6IjE3OTIzMjAwMDAuNSJ9.y8kxeTRb0rWzaFs9SFqD3hqoZyo1OviMtH1QoZNgnV0",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjAsIm5iZiI6IjE3OTIzMjAwMDAuNSJ9.y8kxeTRb0rWzaFs9SFqD3hqoZyo1OviMtH1QoZNgnV0"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":\"Could not validate credentials\"}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "nbf-null",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjAsIm5iZiI6bnVsbH0.fRJPeMGEw_iocyv1idEbjoN2-qGUFLmmjxL4kYMUozQ",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjAsIm5iZiI6bnVsbH0.fRJPeMGEw_iocyv1idEbjoN2-qGUFLmmjxL4kYMUozQ"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":\"Could not validate credentials\"}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "nbf-boolean",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjAsIm5iZiI6dHJ1ZX0.mTYAvMCCJLCipCIsGuANtUmdvD4M8DZPgCOyRO61_2U",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjAsIm5iZiI6dHJ1ZX0.mTYAvMCCJLCipCIsGuANtUmdvD4M8DZPgCOyRO61_2U"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 200,
+        "body": "{\"count\":0}",
+        "www_authenticate": null
+      }
+    },
+    {
+      "id": "nbf-array",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjAsIm5iZiI6W119.vFI-hQRy6r0WeR3A2k5yEEHV6a4eLdY5VV13702KITk",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjAsIm5iZiI6W119.vFI-hQRy6r0WeR3A2k5yEEHV6a4eLdY5VV13702KITk"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":\"Could not validate credentials\"}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "nbf-object",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjAsIm5iZiI6e319.UbpQYkudq-a684phdErZhzPMNa0RBVKk2TvfTZ0P-Kw",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjAsIm5iZiI6e319.UbpQYkudq-a684phdErZhzPMNa0RBVKk2TvfTZ0P-Kw"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":\"Could not validate credentials\"}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "nbf-invalid-string",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjAsIm5iZiI6Im5ldmVyIn0.VVW1_gyyw8a0jVy84R5cdy-ER1t5gbDmp91GK59BB_A",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjAsIm5iZiI6Im5ldmVyIn0.VVW1_gyyw8a0jVy84R5cdy-ER1t5gbDmp91GK59BB_A"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":\"Could not validate credentials\"}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "nbf-negative",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjAsIm5iZiI6LTF9.HoHnFiXiZlLDVT3e-MRa-L9IDjH4Zbel62SYhq4pqRA",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjAsIm5iZiI6LTF9.HoHnFiXiZlLDVT3e-MRa-L9IDjH4Zbel62SYhq4pqRA"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 200,
+        "body": "{\"count\":0}",
+        "www_authenticate": null
+      }
+    },
+    {
+      "id": "nbf-spaced-string",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjAsIm5iZiI6IiAgKzE3OTIzMjAwMDAgICJ9.x2UKuU0O4o-ILycjuDFIMAs-asqvcbSRDHtACciVBQc",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjAsIm5iZiI6IiAgKzE3OTIzMjAwMDAgICJ9.x2UKuU0O4o-ILycjuDFIMAs-asqvcbSRDHtACciVBQc"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 200,
+        "body": "{\"count\":0}",
+        "www_authenticate": null
+      }
+    },
+    {
+      "id": "nbf-underscored-string",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjAsIm5iZiI6IjFfNzkyXzMyMF8wMDAifQ.w2vM9VLoV4QbX_QZ94rxZb9yPkDjJ_a8xL_Z-sY9X2E",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjAsIm5iZiI6IjFfNzkyXzMyMF8wMDAifQ.w2vM9VLoV4QbX_QZ94rxZb9yPkDjJ_a8xL_Z-sY9X2E"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 200,
+        "body": "{\"count\":0}",
+        "www_authenticate": null
+      }
+    },
+    {
+      "id": "nbf-unicode-string",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjAsIm5iZiI6Ilx1MDY2MVx1MDY2N1x1MDY2OVx1MDY2Mlx1MDY2M1x1MDY2Mlx1MDY2MFx1MDY2MFx1MDY2MFx1MDY2MCJ9.NudPYZhlEbNvTRF8Q--e_asN54SArMkk6qqECI4spEY",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjAsIm5iZiI6Ilx1MDY2MVx1MDY2N1x1MDY2OVx1MDY2Mlx1MDY2M1x1MDY2Mlx1MDY2MFx1MDY2MFx1MDY2MFx1MDY2MCJ9.NudPYZhlEbNvTRF8Q--e_asN54SArMkk6qqECI4spEY"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 200,
+        "body": "{\"count\":0}",
+        "www_authenticate": null
+      }
+    },
+    {
+      "id": "iat-absent",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdF91cyI6MTc5MjMxOTk0MDAwMDAwMCwiZXhwIjoxNzkyMzIwMDYwfQ.HG8sJ-pXrIvmQXbUREFRrMRYXAS-VS0wOwVuIcDCBso",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdF91cyI6MTc5MjMxOTk0MDAwMDAwMCwiZXhwIjoxNzkyMzIwMDYwfQ.HG8sJ-pXrIvmQXbUREFRrMRYXAS-VS0wOwVuIcDCBso"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 200,
+        "body": "{\"count\":0}",
+        "www_authenticate": null
+      }
+    },
+    {
+      "id": "iat-before",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk5OSwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.6xD-UDavsHdkl4UD8Gz7KO9VCnBXJmobaZaCjVnbcDo",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk5OSwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.6xD-UDavsHdkl4UD8Gz7KO9VCnBXJmobaZaCjVnbcDo"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 200,
+        "body": "{\"count\":0}",
+        "www_authenticate": null
+      }
+    },
+    {
+      "id": "iat-equal",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMyMDAwMCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.KoRov_MwCfkPddvNNBjuLi2l_3YaVL4ftc2gI-Hn0Uc",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMyMDAwMCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.KoRov_MwCfkPddvNNBjuLi2l_3YaVL4ftc2gI-Hn0Uc"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 200,
+        "body": "{\"count\":0}",
+        "www_authenticate": null
+      }
+    },
+    {
+      "id": "iat-after",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMyMDAwMSwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.Ken3SndoAqTd-4hx9FBg_Qv39fnE5UxO1sZjoSGHZAw",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMyMDAwMSwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.Ken3SndoAqTd-4hx9FBg_Qv39fnE5UxO1sZjoSGHZAw"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":\"Could not validate credentials\"}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "iat-numeric-string",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6IjE3OTIzMjAwMDAiLCJpYXRfdXMiOjE3OTIzMTk5NDAwMDAwMDAsImV4cCI6MTc5MjMyMDA2MH0.3EzOyIZYN9l443r89isqtJBkGPGIPTTZJ6lCtit-leI",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6IjE3OTIzMjAwMDAiLCJpYXRfdXMiOjE3OTIzMTk5NDAwMDAwMDAsImV4cCI6MTc5MjMyMDA2MH0.3EzOyIZYN9l443r89isqtJBkGPGIPTTZJ6lCtit-leI"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 200,
+        "body": "{\"count\":0}",
+        "www_authenticate": null
+      }
+    },
+    {
+      "id": "iat-float",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMyMDAwMC45LCJpYXRfdXMiOjE3OTIzMTk5NDAwMDAwMDAsImV4cCI6MTc5MjMyMDA2MH0.orCZcK9cTN3OAG-UcIGwB5lUS3EcnipgNXBCbbE8KHU",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMyMDAwMC45LCJpYXRfdXMiOjE3OTIzMTk5NDAwMDAwMDAsImV4cCI6MTc5MjMyMDA2MH0.orCZcK9cTN3OAG-UcIGwB5lUS3EcnipgNXBCbbE8KHU"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 200,
+        "body": "{\"count\":0}",
+        "www_authenticate": null
+      }
+    },
+    {
+      "id": "iat-float-string",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6IjE3OTIzMjAwMDAuNSIsImlhdF91cyI6MTc5MjMxOTk0MDAwMDAwMCwiZXhwIjoxNzkyMzIwMDYwfQ.z-ehNWJFLGIXrorkwvDaw7JMse11sXPvdt5784GQeEI",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6IjE3OTIzMjAwMDAuNSIsImlhdF91cyI6MTc5MjMxOTk0MDAwMDAwMCwiZXhwIjoxNzkyMzIwMDYwfQ.z-ehNWJFLGIXrorkwvDaw7JMse11sXPvdt5784GQeEI"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":\"Could not validate credentials\"}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "iat-null",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6bnVsbCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.xWjcOhvZHHOmMoh0ZVLAar19vYFHPeGLsALPaCMVUqE",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6bnVsbCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.xWjcOhvZHHOmMoh0ZVLAar19vYFHPeGLsALPaCMVUqE"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":\"Could not validate credentials\"}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "iat-boolean",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6dHJ1ZSwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.o78TUncn-wBPRYqODVq5P7NJJt-zncmnHZYGFR-sbc0",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6dHJ1ZSwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.o78TUncn-wBPRYqODVq5P7NJJt-zncmnHZYGFR-sbc0"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 200,
+        "body": "{\"count\":0}",
+        "www_authenticate": null
+      }
+    },
+    {
+      "id": "iat-array",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6W10sImlhdF91cyI6MTc5MjMxOTk0MDAwMDAwMCwiZXhwIjoxNzkyMzIwMDYwfQ.XDD_92CX4Q3L_m424xVk0JHiaYr7ZlHzpeA12SdYAjM",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6W10sImlhdF91cyI6MTc5MjMxOTk0MDAwMDAwMCwiZXhwIjoxNzkyMzIwMDYwfQ.XDD_92CX4Q3L_m424xVk0JHiaYr7ZlHzpeA12SdYAjM"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":\"Could not validate credentials\"}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "iat-object",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6e30sImlhdF91cyI6MTc5MjMxOTk0MDAwMDAwMCwiZXhwIjoxNzkyMzIwMDYwfQ.SQ-1TtFo0pLfXGCuHHN9grCI7ORzib7ux6mHXZca8xA",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6e30sImlhdF91cyI6MTc5MjMxOTk0MDAwMDAwMCwiZXhwIjoxNzkyMzIwMDYwfQ.SQ-1TtFo0pLfXGCuHHN9grCI7ORzib7ux6mHXZca8xA"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":\"Could not validate credentials\"}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "iat-invalid-string",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6Im5ldmVyIiwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.AoJJJio0G9VVzbNiUjaLhk4I3wPannXDJKQHYXPu73E",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6Im5ldmVyIiwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.AoJJJio0G9VVzbNiUjaLhk4I3wPannXDJKQHYXPu73E"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":\"Could not validate credentials\"}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "iat-negative",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6LTEsImlhdF91cyI6MTc5MjMxOTk0MDAwMDAwMCwiZXhwIjoxNzkyMzIwMDYwfQ.RNhhM3Z3YVWsD8OZtG5vkVM2fA8lyC58cO1AnR0iCaM",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6LTEsImlhdF91cyI6MTc5MjMxOTk0MDAwMDAwMCwiZXhwIjoxNzkyMzIwMDYwfQ.RNhhM3Z3YVWsD8OZtG5vkVM2fA8lyC58cO1AnR0iCaM"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 200,
+        "body": "{\"count\":0}",
+        "www_authenticate": null
+      }
+    },
+    {
+      "id": "iat-spaced-string",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6IiAgKzE3OTIzMjAwMDAgICIsImlhdF91cyI6MTc5MjMxOTk0MDAwMDAwMCwiZXhwIjoxNzkyMzIwMDYwfQ.NhkCvPJ7oXN4gO3AoNCLtBS3UrPHwcJljZUCqf_O0hA",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6IiAgKzE3OTIzMjAwMDAgICIsImlhdF91cyI6MTc5MjMxOTk0MDAwMDAwMCwiZXhwIjoxNzkyMzIwMDYwfQ.NhkCvPJ7oXN4gO3AoNCLtBS3UrPHwcJljZUCqf_O0hA"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 200,
+        "body": "{\"count\":0}",
+        "www_authenticate": null
+      }
+    },
+    {
+      "id": "iat-underscored-string",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6IjFfNzkyXzMyMF8wMDAiLCJpYXRfdXMiOjE3OTIzMTk5NDAwMDAwMDAsImV4cCI6MTc5MjMyMDA2MH0.5QZvnz8Mj2BjbJhuK4hVIf_4DiObt4HweC6ehAKElaI",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6IjFfNzkyXzMyMF8wMDAiLCJpYXRfdXMiOjE3OTIzMTk5NDAwMDAwMDAsImV4cCI6MTc5MjMyMDA2MH0.5QZvnz8Mj2BjbJhuK4hVIf_4DiObt4HweC6ehAKElaI"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 200,
+        "body": "{\"count\":0}",
+        "www_authenticate": null
+      }
+    },
+    {
+      "id": "iat-unicode-string",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6Ilx1MDY2MVx1MDY2N1x1MDY2OVx1MDY2Mlx1MDY2M1x1MDY2Mlx1MDY2MFx1MDY2MFx1MDY2MFx1MDY2MCIsImlhdF91cyI6MTc5MjMxOTk0MDAwMDAwMCwiZXhwIjoxNzkyMzIwMDYwfQ.X4pqUAH8oEUfEMac1dBDvWiHLr4PsQrZsG9J-UjVBf4",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6Ilx1MDY2MVx1MDY2N1x1MDY2OVx1MDY2Mlx1MDY2M1x1MDY2Mlx1MDY2MFx1MDY2MFx1MDY2MFx1MDY2MCIsImlhdF91cyI6MTc5MjMxOTk0MDAwMDAwMCwiZXhwIjoxNzkyMzIwMDYwfQ.X4pqUAH8oEUfEMac1dBDvWiHLr4PsQrZsG9J-UjVBf4"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 200,
+        "body": "{\"count\":0}",
+        "www_authenticate": null
+      }
+    },
+    {
+      "id": "type-refresh",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoicmVmcmVzaCIsImlzcyI6InZlcmRheGlzLXRlc3QtYXBpIiwiYXVkIjoidmVyZGF4aXMtdGVzdC13ZWIiLCJpYXQiOjE3OTIzMTk5NDAsImlhdF91cyI6MTc5MjMxOTk0MDAwMDAwMCwiZXhwIjoxNzkyMzIwMDYwfQ.ofB-68HFfP2YJUhrH9Bs8R99V6mvcdchh4fxzbIWl14",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoicmVmcmVzaCIsImlzcyI6InZlcmRheGlzLXRlc3QtYXBpIiwiYXVkIjoidmVyZGF4aXMtdGVzdC13ZWIiLCJpYXQiOjE3OTIzMTk5NDAsImlhdF91cyI6MTc5MjMxOTk0MDAwMDAwMCwiZXhwIjoxNzkyMzIwMDYwfQ.ofB-68HFfP2YJUhrH9Bs8R99V6mvcdchh4fxzbIWl14"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":\"Could not validate credentials\"}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "type-stream",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoic3RyZWFtIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.2DfMd0e8R76SunjC4k8-3HaoIWd09oXvEWiIthtD_qA",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoic3RyZWFtIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.2DfMd0e8R76SunjC4k8-3HaoIWd09oXvEWiIthtD_qA"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":\"Could not validate credentials\"}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "type-unknown",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoib3RoZXIiLCJpc3MiOiJ2ZXJkYXhpcy10ZXN0LWFwaSIsImF1ZCI6InZlcmRheGlzLXRlc3Qtd2ViIiwiaWF0IjoxNzkyMzE5OTQwLCJpYXRfdXMiOjE3OTIzMTk5NDAwMDAwMDAsImV4cCI6MTc5MjMyMDA2MH0.Hna_TD0HximfXopg5inQOmkaGfpw5hUB8HQ0Eqcy7C8",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoib3RoZXIiLCJpc3MiOiJ2ZXJkYXhpcy10ZXN0LWFwaSIsImF1ZCI6InZlcmRheGlzLXRlc3Qtd2ViIiwiaWF0IjoxNzkyMzE5OTQwLCJpYXRfdXMiOjE3OTIzMTk5NDAwMDAwMDAsImV4cCI6MTc5MjMyMDA2MH0.Hna_TD0HximfXopg5inQOmkaGfpw5hUB8HQ0Eqcy7C8"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":\"Could not validate credentials\"}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "type-null",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjpudWxsLCJpc3MiOiJ2ZXJkYXhpcy10ZXN0LWFwaSIsImF1ZCI6InZlcmRheGlzLXRlc3Qtd2ViIiwiaWF0IjoxNzkyMzE5OTQwLCJpYXRfdXMiOjE3OTIzMTk5NDAwMDAwMDAsImV4cCI6MTc5MjMyMDA2MH0.4MjS4YO7JxWwKrUceCTHSGcHImOYbtaTROLmJ-x0NGs",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjpudWxsLCJpc3MiOiJ2ZXJkYXhpcy10ZXN0LWFwaSIsImF1ZCI6InZlcmRheGlzLXRlc3Qtd2ViIiwiaWF0IjoxNzkyMzE5OTQwLCJpYXRfdXMiOjE3OTIzMTk5NDAwMDAwMDAsImV4cCI6MTc5MjMyMDA2MH0.4MjS4YO7JxWwKrUceCTHSGcHImOYbtaTROLmJ-x0NGs"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":\"Could not validate credentials\"}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "type-number",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoxLCJpc3MiOiJ2ZXJkYXhpcy10ZXN0LWFwaSIsImF1ZCI6InZlcmRheGlzLXRlc3Qtd2ViIiwiaWF0IjoxNzkyMzE5OTQwLCJpYXRfdXMiOjE3OTIzMTk5NDAwMDAwMDAsImV4cCI6MTc5MjMyMDA2MH0.wijYwZXpVDYuvY7ER07bxNP20Af9wrzqcVrQ4mZ9jBk",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoxLCJpc3MiOiJ2ZXJkYXhpcy10ZXN0LWFwaSIsImF1ZCI6InZlcmRheGlzLXRlc3Qtd2ViIiwiaWF0IjoxNzkyMzE5OTQwLCJpYXRfdXMiOjE3OTIzMTk5NDAwMDAwMDAsImV4cCI6MTc5MjMyMDA2MH0.wijYwZXpVDYuvY7ER07bxNP20Af9wrzqcVrQ4mZ9jBk"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":\"Could not validate credentials\"}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "type-absent",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJpc3MiOiJ2ZXJkYXhpcy10ZXN0LWFwaSIsImF1ZCI6InZlcmRheGlzLXRlc3Qtd2ViIiwiaWF0IjoxNzkyMzE5OTQwLCJpYXRfdXMiOjE3OTIzMTk5NDAwMDAwMDAsImV4cCI6MTc5MjMyMDA2MH0.Mt4R2JIWlfXU_h2IovmUihaxLFdui8b7JMy6x0Ka6Qk",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJpc3MiOiJ2ZXJkYXhpcy10ZXN0LWFwaSIsImF1ZCI6InZlcmRheGlzLXRlc3Qtd2ViIiwiaWF0IjoxNzkyMzE5OTQwLCJpYXRfdXMiOjE3OTIzMTk5NDAwMDAwMDAsImV4cCI6MTc5MjMyMDA2MH0.Mt4R2JIWlfXU_h2IovmUihaxLFdui8b7JMy6x0Ka6Qk"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":\"Could not validate credentials\"}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "sub-uppercase",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJBNTUwQzY5Qi0yOTM0LTRCMzYtODdGNS1FNEY5OTc2RDFBRjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.PiAO6Rb75SwmXdFaFVkAN9AtCkeNkkSd1n0a8o4xUfw",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJBNTUwQzY5Qi0yOTM0LTRCMzYtODdGNS1FNEY5OTc2RDFBRjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.PiAO6Rb75SwmXdFaFVkAN9AtCkeNkkSd1n0a8o4xUfw"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 200,
+        "body": "{\"count\":0}",
+        "www_authenticate": null
+      }
+    },
+    {
+      "id": "sub-hex",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5YjI5MzQ0YjM2ODdmNWU0Zjk5NzZkMWFmMCIsInR5cGUiOiJhY2Nlc3MiLCJpc3MiOiJ2ZXJkYXhpcy10ZXN0LWFwaSIsImF1ZCI6InZlcmRheGlzLXRlc3Qtd2ViIiwiaWF0IjoxNzkyMzE5OTQwLCJpYXRfdXMiOjE3OTIzMTk5NDAwMDAwMDAsImV4cCI6MTc5MjMyMDA2MH0.wX_59ipEYRHBw3HPwz_QVec2Ia9y4kO71zKxNeyAlZc",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5YjI5MzQ0YjM2ODdmNWU0Zjk5NzZkMWFmMCIsInR5cGUiOiJhY2Nlc3MiLCJpc3MiOiJ2ZXJkYXhpcy10ZXN0LWFwaSIsImF1ZCI6InZlcmRheGlzLXRlc3Qtd2ViIiwiaWF0IjoxNzkyMzE5OTQwLCJpYXRfdXMiOjE3OTIzMTk5NDAwMDAwMDAsImV4cCI6MTc5MjMyMDA2MH0.wX_59ipEYRHBw3HPwz_QVec2Ia9y4kO71zKxNeyAlZc"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 200,
+        "body": "{\"count\":0}",
+        "www_authenticate": null
+      }
+    },
+    {
+      "id": "sub-braces",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ7YTU1MGM2OWItMjkzNC00YjM2LTg3ZjUtZTRmOTk3NmQxYWYwfSIsInR5cGUiOiJhY2Nlc3MiLCJpc3MiOiJ2ZXJkYXhpcy10ZXN0LWFwaSIsImF1ZCI6InZlcmRheGlzLXRlc3Qtd2ViIiwiaWF0IjoxNzkyMzE5OTQwLCJpYXRfdXMiOjE3OTIzMTk5NDAwMDAwMDAsImV4cCI6MTc5MjMyMDA2MH0.IPLlKba2HyFt932Ro4SESQOFoyy3BWpxpCfHDMqJkkg",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ7YTU1MGM2OWItMjkzNC00YjM2LTg3ZjUtZTRmOTk3NmQxYWYwfSIsInR5cGUiOiJhY2Nlc3MiLCJpc3MiOiJ2ZXJkYXhpcy10ZXN0LWFwaSIsImF1ZCI6InZlcmRheGlzLXRlc3Qtd2ViIiwiaWF0IjoxNzkyMzE5OTQwLCJpYXRfdXMiOjE3OTIzMTk5NDAwMDAwMDAsImV4cCI6MTc5MjMyMDA2MH0.IPLlKba2HyFt932Ro4SESQOFoyy3BWpxpCfHDMqJkkg"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 200,
+        "body": "{\"count\":0}",
+        "www_authenticate": null
+      }
+    },
+    {
+      "id": "sub-urn",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1cm46dXVpZDphNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.CxgcroxoLXv3eK7D9QrSBHJOZh8N7VP89iE5a113h64",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1cm46dXVpZDphNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.CxgcroxoLXv3eK7D9QrSBHJOZh8N7VP89iE5a113h64"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 200,
+        "body": "{\"count\":0}",
+        "www_authenticate": null
+      }
+    },
+    {
+      "id": "sub-unusual-hyphens",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwLWM2OWIyOTM0NGIzNjg3ZjVlNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.2WZSFTIiEM3MqbL_h3H7DgUeeWGisVhgzuDRrJoZhwE",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwLWM2OWIyOTM0NGIzNjg3ZjVlNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.2WZSFTIiEM3MqbL_h3H7DgUeeWGisVhgzuDRrJoZhwE"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 200,
+        "body": "{\"count\":0}",
+        "www_authenticate": null
+      }
+    },
+    {
+      "id": "sub-invalid",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1bmtub3duIiwidHlwZSI6ImFjY2VzcyIsImlzcyI6InZlcmRheGlzLXRlc3QtYXBpIiwiYXVkIjoidmVyZGF4aXMtdGVzdC13ZWIiLCJpYXQiOjE3OTIzMTk5NDAsImlhdF91cyI6MTc5MjMxOTk0MDAwMDAwMCwiZXhwIjoxNzkyMzIwMDYwfQ.a_OZe9eQl0S_qqtaqpLtUH-DkRhKOuSLhaoEI6Td7yM",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1bmtub3duIiwidHlwZSI6ImFjY2VzcyIsImlzcyI6InZlcmRheGlzLXRlc3QtYXBpIiwiYXVkIjoidmVyZGF4aXMtdGVzdC13ZWIiLCJpYXQiOjE3OTIzMTk5NDAsImlhdF91cyI6MTc5MjMxOTk0MDAwMDAwMCwiZXhwIjoxNzkyMzIwMDYwfQ.a_OZe9eQl0S_qqtaqpLtUH-DkRhKOuSLhaoEI6Td7yM"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":\"Could not validate credentials\"}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "sub-empty",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.2ywSMXZcsxti-dP-3Lg2KwP3dqv2n6ApZhUqwWWWwjo",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.2ywSMXZcsxti-dP-3Lg2KwP3dqv2n6ApZhUqwWWWwjo"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":\"Could not validate credentials\"}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "sub-null",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOm51bGwsInR5cGUiOiJhY2Nlc3MiLCJpc3MiOiJ2ZXJkYXhpcy10ZXN0LWFwaSIsImF1ZCI6InZlcmRheGlzLXRlc3Qtd2ViIiwiaWF0IjoxNzkyMzE5OTQwLCJpYXRfdXMiOjE3OTIzMTk5NDAwMDAwMDAsImV4cCI6MTc5MjMyMDA2MH0._VWc141M4XFZt2UmZUOlF8KmwZw2Aon8wR_wZGL686w",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOm51bGwsInR5cGUiOiJhY2Nlc3MiLCJpc3MiOiJ2ZXJkYXhpcy10ZXN0LWFwaSIsImF1ZCI6InZlcmRheGlzLXRlc3Qtd2ViIiwiaWF0IjoxNzkyMzE5OTQwLCJpYXRfdXMiOjE3OTIzMTk5NDAwMDAwMDAsImV4cCI6MTc5MjMyMDA2MH0._VWc141M4XFZt2UmZUOlF8KmwZw2Aon8wR_wZGL686w"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":\"Could not validate credentials\"}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "sub-number",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOjEsInR5cGUiOiJhY2Nlc3MiLCJpc3MiOiJ2ZXJkYXhpcy10ZXN0LWFwaSIsImF1ZCI6InZlcmRheGlzLXRlc3Qtd2ViIiwiaWF0IjoxNzkyMzE5OTQwLCJpYXRfdXMiOjE3OTIzMTk5NDAwMDAwMDAsImV4cCI6MTc5MjMyMDA2MH0.g8W44fSV_NSeZlIzycNQGgf_PsBJy45opGPpZQfUmKQ",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOjEsInR5cGUiOiJhY2Nlc3MiLCJpc3MiOiJ2ZXJkYXhpcy10ZXN0LWFwaSIsImF1ZCI6InZlcmRheGlzLXRlc3Qtd2ViIiwiaWF0IjoxNzkyMzE5OTQwLCJpYXRfdXMiOjE3OTIzMTk5NDAwMDAwMDAsImV4cCI6MTc5MjMyMDA2MH0.g8W44fSV_NSeZlIzycNQGgf_PsBJy45opGPpZQfUmKQ"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":\"Could not validate credentials\"}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "sub-array",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOltdLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.d-QCbXMl2TB1tZpRZfBHmS1Oia66a83Cu8R1COhF_9s",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOltdLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.d-QCbXMl2TB1tZpRZfBHmS1Oia66a83Cu8R1COhF_9s"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":\"Could not validate credentials\"}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "sub-absent",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9._eKI5uPIWGvrgBgm4HSytjZMWzwGopmvxIXw7JwjPP0",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9._eKI5uPIWGvrgBgm4HSytjZMWzwGopmvxIXw7JwjPP0"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":\"Could not validate credentials\"}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "jti-string",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjAsImp0aSI6InRlc3QtanRpIn0.6gNp46KHq7YMckQ1SP95Cqxwfu6CtGIvzKs4n0oKPbg",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjAsImp0aSI6InRlc3QtanRpIn0.6gNp46KHq7YMckQ1SP95Cqxwfu6CtGIvzKs4n0oKPbg"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 200,
+        "body": "{\"count\":0}",
+        "www_authenticate": null
+      }
+    },
+    {
+      "id": "jti-empty",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjAsImp0aSI6IiJ9.adIHNib_AtjxCvXcTvtI8f3l1GtinYFgoe0gQmNVH6c",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjAsImp0aSI6IiJ9.adIHNib_AtjxCvXcTvtI8f3l1GtinYFgoe0gQmNVH6c"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 200,
+        "body": "{\"count\":0}",
+        "www_authenticate": null
+      }
+    },
+    {
+      "id": "jti-null",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjAsImp0aSI6bnVsbH0.ONKTKUE5DvH5fH22FgGBjPxckmdDFRW0-aVdr9fCPsE",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjAsImp0aSI6bnVsbH0.ONKTKUE5DvH5fH22FgGBjPxckmdDFRW0-aVdr9fCPsE"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":\"Could not validate credentials\"}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "jti-number",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjAsImp0aSI6MX0.ou-BRqOyoZFfRVg-ogBE5GUKIYXFDjU2xi2q0bSaJ2E",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjAsImp0aSI6MX0.ou-BRqOyoZFfRVg-ogBE5GUKIYXFDjU2xi2q0bSaJ2E"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":\"Could not validate credentials\"}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "jti-array",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjAsImp0aSI6W119.GuH8_395-cwz7alOIjz7BHxxnhI-BmdXp4FRw24wBFg",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjAsImp0aSI6W119.GuH8_395-cwz7alOIjz7BHxxnhI-BmdXp4FRw24wBFg"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":\"Could not validate credentials\"}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "jti-absent",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.c16556ybnpqf7VuAXQG4ZUszqMaHKxvpcWFRdY6a-Do",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.c16556ybnpqf7VuAXQG4ZUszqMaHKxvpcWFRdY6a-Do"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 200,
+        "body": "{\"count\":0}",
+        "www_authenticate": null
+      }
+    },
+    {
+      "id": "user-unknown",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.c16556ybnpqf7VuAXQG4ZUszqMaHKxvpcWFRdY6a-Do",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.c16556ybnpqf7VuAXQG4ZUszqMaHKxvpcWFRdY6a-Do"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": false,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":\"Could not validate credentials\"}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "user-pending",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.c16556ybnpqf7VuAXQG4ZUszqMaHKxvpcWFRdY6a-Do",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.c16556ybnpqf7VuAXQG4ZUszqMaHKxvpcWFRdY6a-Do"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "PENDING",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 403,
+        "body": "{\"detail\":\"Account is PENDING. Please wait for admin approval.\"}",
+        "www_authenticate": null
+      }
+    },
+    {
+      "id": "user-rejected",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.c16556ybnpqf7VuAXQG4ZUszqMaHKxvpcWFRdY6a-Do",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.c16556ybnpqf7VuAXQG4ZUszqMaHKxvpcWFRdY6a-Do"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "REJECTED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 403,
+        "body": "{\"detail\":\"Account is REJECTED. Please wait for admin approval.\"}",
+        "www_authenticate": null
+      }
+    },
+    {
+      "id": "password-change-required",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.c16556ybnpqf7VuAXQG4ZUszqMaHKxvpcWFRdY6a-Do",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.c16556ybnpqf7VuAXQG4ZUszqMaHKxvpcWFRdY6a-Do"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": true,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 403,
+        "body": "{\"detail\":\"Password change required.\"}",
+        "www_authenticate": null
+      }
+    },
+    {
+      "id": "unverified-user",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.c16556ybnpqf7VuAXQG4ZUszqMaHKxvpcWFRdY6a-Do",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.c16556ybnpqf7VuAXQG4ZUszqMaHKxvpcWFRdY6a-Do"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": false,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 200,
+        "body": "{\"count\":0}",
+        "www_authenticate": null
+      }
+    },
+    {
+      "id": "no-organization",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.c16556ybnpqf7VuAXQG4ZUszqMaHKxvpcWFRdY6a-Do",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.c16556ybnpqf7VuAXQG4ZUszqMaHKxvpcWFRdY6a-Do"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": null
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 200,
+        "body": "{\"count\":0}",
+        "www_authenticate": null
+      }
+    },
+    {
+      "id": "password_changed_at-before",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTM5OTk5OTk5LCJleHAiOjE3OTIzMjAwNjB9.7hdHQ4hnyRluzdJRe8LEAUdeAoTSAWMD3ECzWpKvgA4",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTM5OTk5OTk5LCJleHAiOjE3OTIzMjAwNjB9.7hdHQ4hnyRluzdJRe8LEAUdeAoTSAWMD3ECzWpKvgA4"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": 1792319940000000,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319939999999,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":{\"code\":\"AUTH_PASSWORD_CHANGED\",\"message\":\"Password was changed; sign in again\"}}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "password_changed_at-equal",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.c16556ybnpqf7VuAXQG4ZUszqMaHKxvpcWFRdY6a-Do",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.c16556ybnpqf7VuAXQG4ZUszqMaHKxvpcWFRdY6a-Do"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": 1792319940000000,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":{\"code\":\"AUTH_PASSWORD_CHANGED\",\"message\":\"Password was changed; sign in again\"}}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "password_changed_at-after",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAxLCJleHAiOjE3OTIzMjAwNjB9.uJpm_zZRUf2bOSSgODj6WorkLrK_VaELOaRg6nL-vPo",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAxLCJleHAiOjE3OTIzMjAwNjB9.uJpm_zZRUf2bOSSgODj6WorkLrK_VaELOaRg6nL-vPo"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": 1792319940000000,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000001,
+      "python": {
+        "status": 200,
+        "body": "{\"count\":0}",
+        "www_authenticate": null
+      }
+    },
+    {
+      "id": "password_changed_at-iat-us-boolean-true",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjp0cnVlLCJleHAiOjE3OTIzMjAwNjB9.3MyrImwsLjtXLcyfENdzLBze1zHcKEehoowdyn4Tf-4",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjp0cnVlLCJleHAiOjE3OTIzMjAwNjB9.3MyrImwsLjtXLcyfENdzLBze1zHcKEehoowdyn4Tf-4"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": 1792319940000000,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":{\"code\":\"AUTH_PASSWORD_CHANGED\",\"message\":\"Password was changed; sign in again\"}}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "password_changed_at-iat-us-boolean-false",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjpmYWxzZSwiZXhwIjoxNzkyMzIwMDYwfQ.Lzqh4UunoAm5xGvTbciX23aNF0oTit56SWpSg1ItC4M",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjpmYWxzZSwiZXhwIjoxNzkyMzIwMDYwfQ.Lzqh4UunoAm5xGvTbciX23aNF0oTit56SWpSg1ItC4M"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": 1792319940000000,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 0,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":{\"code\":\"AUTH_PASSWORD_CHANGED\",\"message\":\"Password was changed; sign in again\"}}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "password_changed_at-iat-us-negative",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjotMSwiZXhwIjoxNzkyMzIwMDYwfQ.NcxWoDP9_4yGCGBoBJnnXd3ZPZgeaTlZAOHev3YH_Ic",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjotMSwiZXhwIjoxNzkyMzIwMDYwfQ.NcxWoDP9_4yGCGBoBJnnXd3ZPZgeaTlZAOHev3YH_Ic"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": 1792319940000000,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":{\"code\":\"AUTH_PASSWORD_CHANGED\",\"message\":\"Password was changed; sign in again\"}}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "password_changed_at-iat-us-string",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoiMTc5MjMxOTk0MDAwMDAwMSIsImV4cCI6MTc5MjMyMDA2MH0.tSD27bdeVwUax4q1Oa6NycVzUnETPXyTe8O6qtQkGcA",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoiMTc5MjMxOTk0MDAwMDAwMSIsImV4cCI6MTc5MjMyMDA2MH0.tSD27bdeVwUax4q1Oa6NycVzUnETPXyTe8O6qtQkGcA"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": 1792319940000000,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":{\"code\":\"AUTH_PASSWORD_CHANGED\",\"message\":\"Password was changed; sign in again\"}}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "password_changed_at-iat-us-float",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAxLjAsImV4cCI6MTc5MjMyMDA2MH0.DWRbfPvBv-SDacoTYtv_RDcJZk43rkU-GCOVlLmAQD8",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAxLjAsImV4cCI6MTc5MjMyMDA2MH0.DWRbfPvBv-SDacoTYtv_RDcJZk43rkU-GCOVlLmAQD8"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": 1792319940000000,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":{\"code\":\"AUTH_PASSWORD_CHANGED\",\"message\":\"Password was changed; sign in again\"}}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "password_changed_at-iat-us-out-of-range",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.Miaic3M4QwUZSJ0albzR-J-GviFoq-GRgUtJv9nk9aQ",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.Miaic3M4QwUZSJ0albzR-J-GviFoq-GRgUtJv9nk9aQ"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": 1792319940000000,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": "out-of-range",
+      "python": {
+        "status": 500,
+        "body": "Internal Server Error",
+        "www_authenticate": null
+      }
+    },
+    {
+      "id": "password_changed_at-fallback-integer",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MSwiZXhwIjoxNzkyMzIwMDYwfQ.T87AWrDfzNf3tRHWVkk6pPGJ5rYfwD7T5B7-FKCi4xg",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MSwiZXhwIjoxNzkyMzIwMDYwfQ.T87AWrDfzNf3tRHWVkk6pPGJ5rYfwD7T5B7-FKCi4xg"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": 1792319940000000,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319941000000,
+      "python": {
+        "status": 200,
+        "body": "{\"count\":0}",
+        "www_authenticate": null
+      }
+    },
+    {
+      "id": "password_changed_at-fallback-float",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MC41LCJleHAiOjE3OTIzMjAwNjB9.SBFx_IY-G8ASDdOIGIWwYAQYt3_dYCRXM2aG-VRsAJc",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MC41LCJleHAiOjE3OTIzMjAwNjB9.SBFx_IY-G8ASDdOIGIWwYAQYt3_dYCRXM2aG-VRsAJc"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": 1792319940000000,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940500000,
+      "python": {
+        "status": 200,
+        "body": "{\"count\":0}",
+        "www_authenticate": null
+      }
+    },
+    {
+      "id": "password_changed_at-fallback-string",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6IjE3OTIzMTk5NDEiLCJleHAiOjE3OTIzMjAwNjB9.3OlqJS-Vn9n2Tj4Q1I4UPS3J0jo1lMLSIHQ2_RIcNko",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6IjE3OTIzMTk5NDEiLCJleHAiOjE3OTIzMjAwNjB9.3OlqJS-Vn9n2Tj4Q1I4UPS3J0jo1lMLSIHQ2_RIcNko"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": 1792319940000000,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": null,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":{\"code\":\"AUTH_PASSWORD_CHANGED\",\"message\":\"Password was changed; sign in again\"}}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "password_changed_at-fallback-boolean",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6dHJ1ZSwiZXhwIjoxNzkyMzIwMDYwfQ.zWYZedyCKAZepDckgChe4IyML1t0VrOTeWUK_8SEq6w",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6dHJ1ZSwiZXhwIjoxNzkyMzIwMDYwfQ.zWYZedyCKAZepDckgChe4IyML1t0VrOTeWUK_8SEq6w"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": 1792319940000000,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": null,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":{\"code\":\"AUTH_PASSWORD_CHANGED\",\"message\":\"Password was changed; sign in again\"}}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "password_changed_at-fallback-out-of-range",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6LTEwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAsImV4cCI6MTc5MjMyMDA2MH0.V8j-5rD0qL50F_oXIPUIgodlHJMvMvuqp4nSAenrD8s",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6LTEwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAsImV4cCI6MTc5MjMyMDA2MH0.V8j-5rD0qL50F_oXIPUIgodlHJMvMvuqp4nSAenrD8s"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": 1792319940000000,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": "out-of-range",
+      "python": {
+        "status": 500,
+        "body": "Internal Server Error",
+        "www_authenticate": null
+      }
+    },
+    {
+      "id": "password_changed_at-no-issuance",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImV4cCI6MTc5MjMyMDA2MH0.4swc1Rj4IJEh-2-vAbt5qR2iBFOuWR41p_nTbiayyGU",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImV4cCI6MTc5MjMyMDA2MH0.4swc1Rj4IJEh-2-vAbt5qR2iBFOuWR41p_nTbiayyGU"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": 1792319940000000,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": null,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":{\"code\":\"AUTH_PASSWORD_CHANGED\",\"message\":\"Password was changed; sign in again\"}}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "password_changed_at-fractional-fallback-1e-06",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MC4wMDAwMDEsImV4cCI6MTc5MjMyMDA2MH0.ZB3W-PyNMxZi_JZTgEgt1IpOK2MQtujNawywAJbufxQ",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MC4wMDAwMDEsImV4cCI6MTc5MjMyMDA2MH0.ZB3W-PyNMxZi_JZTgEgt1IpOK2MQtujNawywAJbufxQ"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": 1792319940000000,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000001,
+      "python": {
+        "status": 200,
+        "body": "{\"count\":0}",
+        "www_authenticate": null
+      }
+    },
+    {
+      "id": "password_changed_at-fractional-fallback-0.123456",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MC4xMjM0NTYsImV4cCI6MTc5MjMyMDA2MH0.wrZj3KzkG9l8KahyZ6h02XjXbEElYylUfjqYemZSZV4",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MC4xMjM0NTYsImV4cCI6MTc5MjMyMDA2MH0.wrZj3KzkG9l8KahyZ6h02XjXbEElYylUfjqYemZSZV4"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": 1792319940000000,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940123456,
+      "python": {
+        "status": 200,
+        "body": "{\"count\":0}",
+        "www_authenticate": null
+      }
+    },
+    {
+      "id": "password_changed_at-fractional-fallback-0.999999",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MC45OTk5OTksImV4cCI6MTc5MjMyMDA2MH0.wsKHnRX82fi_Ls8-tdZIRUjPc5hv-Wonri4aHJaTQ-Y",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MC45OTk5OTksImV4cCI6MTc5MjMyMDA2MH0.wsKHnRX82fi_Ls8-tdZIRUjPc5hv-Wonri4aHJaTQ-Y"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": 1792319940000000,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940999999,
+      "python": {
+        "status": 200,
+        "body": "{\"count\":0}",
+        "www_authenticate": null
+      }
+    },
+    {
+      "id": "authentication_revoked_at-before",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTM5OTk5OTk5LCJleHAiOjE3OTIzMjAwNjB9.7hdHQ4hnyRluzdJRe8LEAUdeAoTSAWMD3ECzWpKvgA4",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTM5OTk5OTk5LCJleHAiOjE3OTIzMjAwNjB9.7hdHQ4hnyRluzdJRe8LEAUdeAoTSAWMD3ECzWpKvgA4"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": 1792319940000000,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319939999999,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":{\"code\":\"AUTH_SESSION_REVOKED\",\"message\":\"Session was revoked; sign in again\"}}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "authentication_revoked_at-equal",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.c16556ybnpqf7VuAXQG4ZUszqMaHKxvpcWFRdY6a-Do",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.c16556ybnpqf7VuAXQG4ZUszqMaHKxvpcWFRdY6a-Do"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": 1792319940000000,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":{\"code\":\"AUTH_SESSION_REVOKED\",\"message\":\"Session was revoked; sign in again\"}}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "authentication_revoked_at-after",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAxLCJleHAiOjE3OTIzMjAwNjB9.uJpm_zZRUf2bOSSgODj6WorkLrK_VaELOaRg6nL-vPo",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAxLCJleHAiOjE3OTIzMjAwNjB9.uJpm_zZRUf2bOSSgODj6WorkLrK_VaELOaRg6nL-vPo"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": 1792319940000000,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000001,
+      "python": {
+        "status": 200,
+        "body": "{\"count\":0}",
+        "www_authenticate": null
+      }
+    },
+    {
+      "id": "authentication_revoked_at-iat-us-boolean-true",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjp0cnVlLCJleHAiOjE3OTIzMjAwNjB9.3MyrImwsLjtXLcyfENdzLBze1zHcKEehoowdyn4Tf-4",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjp0cnVlLCJleHAiOjE3OTIzMjAwNjB9.3MyrImwsLjtXLcyfENdzLBze1zHcKEehoowdyn4Tf-4"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": 1792319940000000,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":{\"code\":\"AUTH_SESSION_REVOKED\",\"message\":\"Session was revoked; sign in again\"}}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "authentication_revoked_at-iat-us-boolean-false",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjpmYWxzZSwiZXhwIjoxNzkyMzIwMDYwfQ.Lzqh4UunoAm5xGvTbciX23aNF0oTit56SWpSg1ItC4M",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjpmYWxzZSwiZXhwIjoxNzkyMzIwMDYwfQ.Lzqh4UunoAm5xGvTbciX23aNF0oTit56SWpSg1ItC4M"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": 1792319940000000,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 0,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":{\"code\":\"AUTH_SESSION_REVOKED\",\"message\":\"Session was revoked; sign in again\"}}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "authentication_revoked_at-iat-us-negative",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjotMSwiZXhwIjoxNzkyMzIwMDYwfQ.NcxWoDP9_4yGCGBoBJnnXd3ZPZgeaTlZAOHev3YH_Ic",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjotMSwiZXhwIjoxNzkyMzIwMDYwfQ.NcxWoDP9_4yGCGBoBJnnXd3ZPZgeaTlZAOHev3YH_Ic"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": 1792319940000000,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":{\"code\":\"AUTH_SESSION_REVOKED\",\"message\":\"Session was revoked; sign in again\"}}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "authentication_revoked_at-iat-us-string",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoiMTc5MjMxOTk0MDAwMDAwMSIsImV4cCI6MTc5MjMyMDA2MH0.tSD27bdeVwUax4q1Oa6NycVzUnETPXyTe8O6qtQkGcA",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoiMTc5MjMxOTk0MDAwMDAwMSIsImV4cCI6MTc5MjMyMDA2MH0.tSD27bdeVwUax4q1Oa6NycVzUnETPXyTe8O6qtQkGcA"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": 1792319940000000,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":{\"code\":\"AUTH_SESSION_REVOKED\",\"message\":\"Session was revoked; sign in again\"}}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "authentication_revoked_at-iat-us-float",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAxLjAsImV4cCI6MTc5MjMyMDA2MH0.DWRbfPvBv-SDacoTYtv_RDcJZk43rkU-GCOVlLmAQD8",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAxLjAsImV4cCI6MTc5MjMyMDA2MH0.DWRbfPvBv-SDacoTYtv_RDcJZk43rkU-GCOVlLmAQD8"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": 1792319940000000,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":{\"code\":\"AUTH_SESSION_REVOKED\",\"message\":\"Session was revoked; sign in again\"}}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "authentication_revoked_at-iat-us-out-of-range",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.Miaic3M4QwUZSJ0albzR-J-GviFoq-GRgUtJv9nk9aQ",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.Miaic3M4QwUZSJ0albzR-J-GviFoq-GRgUtJv9nk9aQ"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": 1792319940000000,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": "out-of-range",
+      "python": {
+        "status": 500,
+        "body": "Internal Server Error",
+        "www_authenticate": null
+      }
+    },
+    {
+      "id": "authentication_revoked_at-fallback-integer",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MSwiZXhwIjoxNzkyMzIwMDYwfQ.T87AWrDfzNf3tRHWVkk6pPGJ5rYfwD7T5B7-FKCi4xg",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MSwiZXhwIjoxNzkyMzIwMDYwfQ.T87AWrDfzNf3tRHWVkk6pPGJ5rYfwD7T5B7-FKCi4xg"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": 1792319940000000,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319941000000,
+      "python": {
+        "status": 200,
+        "body": "{\"count\":0}",
+        "www_authenticate": null
+      }
+    },
+    {
+      "id": "authentication_revoked_at-fallback-float",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MC41LCJleHAiOjE3OTIzMjAwNjB9.SBFx_IY-G8ASDdOIGIWwYAQYt3_dYCRXM2aG-VRsAJc",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MC41LCJleHAiOjE3OTIzMjAwNjB9.SBFx_IY-G8ASDdOIGIWwYAQYt3_dYCRXM2aG-VRsAJc"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": 1792319940000000,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940500000,
+      "python": {
+        "status": 200,
+        "body": "{\"count\":0}",
+        "www_authenticate": null
+      }
+    },
+    {
+      "id": "authentication_revoked_at-fallback-string",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6IjE3OTIzMTk5NDEiLCJleHAiOjE3OTIzMjAwNjB9.3OlqJS-Vn9n2Tj4Q1I4UPS3J0jo1lMLSIHQ2_RIcNko",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6IjE3OTIzMTk5NDEiLCJleHAiOjE3OTIzMjAwNjB9.3OlqJS-Vn9n2Tj4Q1I4UPS3J0jo1lMLSIHQ2_RIcNko"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": 1792319940000000,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": null,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":{\"code\":\"AUTH_SESSION_REVOKED\",\"message\":\"Session was revoked; sign in again\"}}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "authentication_revoked_at-fallback-boolean",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6dHJ1ZSwiZXhwIjoxNzkyMzIwMDYwfQ.zWYZedyCKAZepDckgChe4IyML1t0VrOTeWUK_8SEq6w",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6dHJ1ZSwiZXhwIjoxNzkyMzIwMDYwfQ.zWYZedyCKAZepDckgChe4IyML1t0VrOTeWUK_8SEq6w"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": 1792319940000000,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": null,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":{\"code\":\"AUTH_SESSION_REVOKED\",\"message\":\"Session was revoked; sign in again\"}}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "authentication_revoked_at-fallback-out-of-range",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6LTEwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAsImV4cCI6MTc5MjMyMDA2MH0.V8j-5rD0qL50F_oXIPUIgodlHJMvMvuqp4nSAenrD8s",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6LTEwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAsImV4cCI6MTc5MjMyMDA2MH0.V8j-5rD0qL50F_oXIPUIgodlHJMvMvuqp4nSAenrD8s"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": 1792319940000000,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": "out-of-range",
+      "python": {
+        "status": 500,
+        "body": "Internal Server Error",
+        "www_authenticate": null
+      }
+    },
+    {
+      "id": "authentication_revoked_at-no-issuance",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImV4cCI6MTc5MjMyMDA2MH0.4swc1Rj4IJEh-2-vAbt5qR2iBFOuWR41p_nTbiayyGU",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImV4cCI6MTc5MjMyMDA2MH0.4swc1Rj4IJEh-2-vAbt5qR2iBFOuWR41p_nTbiayyGU"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": 1792319940000000,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": null,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":{\"code\":\"AUTH_SESSION_REVOKED\",\"message\":\"Session was revoked; sign in again\"}}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "authentication_revoked_at-fractional-fallback-1e-06",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MC4wMDAwMDEsImV4cCI6MTc5MjMyMDA2MH0.ZB3W-PyNMxZi_JZTgEgt1IpOK2MQtujNawywAJbufxQ",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MC4wMDAwMDEsImV4cCI6MTc5MjMyMDA2MH0.ZB3W-PyNMxZi_JZTgEgt1IpOK2MQtujNawywAJbufxQ"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": 1792319940000000,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000001,
+      "python": {
+        "status": 200,
+        "body": "{\"count\":0}",
+        "www_authenticate": null
+      }
+    },
+    {
+      "id": "authentication_revoked_at-fractional-fallback-0.123456",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MC4xMjM0NTYsImV4cCI6MTc5MjMyMDA2MH0.wrZj3KzkG9l8KahyZ6h02XjXbEElYylUfjqYemZSZV4",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MC4xMjM0NTYsImV4cCI6MTc5MjMyMDA2MH0.wrZj3KzkG9l8KahyZ6h02XjXbEElYylUfjqYemZSZV4"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": 1792319940000000,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940123456,
+      "python": {
+        "status": 200,
+        "body": "{\"count\":0}",
+        "www_authenticate": null
+      }
+    },
+    {
+      "id": "authentication_revoked_at-fractional-fallback-0.999999",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MC45OTk5OTksImV4cCI6MTc5MjMyMDA2MH0.wsKHnRX82fi_Ls8-tdZIRUjPc5hv-Wonri4aHJaTQ-Y",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MC45OTk5OTksImV4cCI6MTc5MjMyMDA2MH0.wsKHnRX82fi_Ls8-tdZIRUjPc5hv-Wonri4aHJaTQ-Y"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": 1792319940000000,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940999999,
+      "python": {
+        "status": 200,
+        "body": "{\"count\":0}",
+        "www_authenticate": null
+      }
+    },
+    {
+      "id": "both-cutoffs-password-first",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.c16556ybnpqf7VuAXQG4ZUszqMaHKxvpcWFRdY6a-Do",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.c16556ybnpqf7VuAXQG4ZUszqMaHKxvpcWFRdY6a-Do"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": 1792319940000000,
+        "authentication_revoked_at": 1792319940000000,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":{\"code\":\"AUTH_PASSWORD_CHANGED\",\"message\":\"Password was changed; sign in again\"}}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "reapproved-old-token",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.c16556ybnpqf7VuAXQG4ZUszqMaHKxvpcWFRdY6a-Do",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.c16556ybnpqf7VuAXQG4ZUszqMaHKxvpcWFRdY6a-Do"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": 1792319940000001,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":{\"code\":\"AUTH_SESSION_REVOKED\",\"message\":\"Session was revoked; sign in again\"}}",
+        "www_authenticate": "Bearer"
+      }
+    },
+    {
+      "id": "jwt-role-status-ignored",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjAsInJvbGUiOiJBRE1JTiIsInN0YXR1cyI6IkFQUFJPVkVEIn0.lxNh28HZnSGf82eadS4q29D_Vy-vFrMlM0NaZZwzAIo",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjAsInJvbGUiOiJBRE1JTiIsInN0YXR1cyI6IkFQUFJPVkVEIn0.lxNh28HZnSGf82eadS4q29D_Vy-vFrMlM0NaZZwzAIo"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "REJECTED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 403,
+        "body": "{\"detail\":\"Account is REJECTED. Please wait for admin approval.\"}",
+        "www_authenticate": null
+      }
+    },
+    {
+      "id": "cookies-expired-refresh",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.c16556ybnpqf7VuAXQG4ZUszqMaHKxvpcWFRdY6a-Do",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.c16556ybnpqf7VuAXQG4ZUszqMaHKxvpcWFRdY6a-Do"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 200,
+        "body": "{\"count\":0}",
+        "www_authenticate": null
+      }
+    },
+    {
+      "id": "cookies-foreign-device-revoked-refresh",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.c16556ybnpqf7VuAXQG4ZUszqMaHKxvpcWFRdY6a-Do",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.c16556ybnpqf7VuAXQG4ZUszqMaHKxvpcWFRdY6a-Do"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 200,
+        "body": "{\"count\":0}",
+        "www_authenticate": null
+      }
+    },
+    {
+      "id": "cookies-foreign-refresh",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.c16556ybnpqf7VuAXQG4ZUszqMaHKxvpcWFRdY6a-Do",
+      "authorization": [
+        "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.c16556ybnpqf7VuAXQG4ZUszqMaHKxvpcWFRdY6a-Do"
+      ],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 200,
+        "body": "{\"count\":0}",
+        "www_authenticate": null
+      }
+    },
+    {
+      "id": "cookie-only",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhNTUwYzY5Yi0yOTM0LTRiMzYtODdmNS1lNGY5OTc2ZDFhZjAiLCJ0eXBlIjoiYWNjZXNzIiwiaXNzIjoidmVyZGF4aXMtdGVzdC1hcGkiLCJhdWQiOiJ2ZXJkYXhpcy10ZXN0LXdlYiIsImlhdCI6MTc5MjMxOTk0MCwiaWF0X3VzIjoxNzkyMzE5OTQwMDAwMDAwLCJleHAiOjE3OTIzMjAwNjB9.c16556ybnpqf7VuAXQG4ZUszqMaHKxvpcWFRdY6a-Do",
+      "authorization": [],
+      "previous_enabled": true,
+      "user": {
+        "exists": true,
+        "status": "APPROVED",
+        "must_change_password": false,
+        "password_changed_at": null,
+        "authentication_revoked_at": null,
+        "email_verified": true,
+        "organization_id": "synthetic-org"
+      },
+      "issued_at_us": 1792319940000000,
+      "python": {
+        "status": 401,
+        "body": "{\"detail\":\"Not authenticated\"}",
+        "www_authenticate": "Bearer"
+      }
+    }
+  ]
+}

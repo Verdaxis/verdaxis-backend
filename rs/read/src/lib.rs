@@ -1,3 +1,4 @@
+pub mod auth;
 pub mod market;
 pub mod mcp;
 pub mod routes;

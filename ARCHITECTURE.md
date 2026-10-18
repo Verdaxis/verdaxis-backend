@@ -211,6 +211,15 @@ SHA-256-pinned `normalization.json` ledger. It uses exact tagged JSON values,
 schema-local decimal/timestamp rules and complete-item multisets inside approved
 ties only. The Phase 1 default and existing recording comparator stay unchanged.
 
+Task 5 adds verification-only `rs/read/src/auth/{token,claims}.rs`. It verifies
+HS256 current/previous keys and Python-compatible access claims against an explicit
+clock. Its account projection validates cutoffs and mutable status without issuing
+sessions or exposing database writes. It is not mounted in the serving router;
+Task 6 must load account state under the shared transaction/user-row lock.
+`phase2_auth_vectors.py` exports synthetic full-HTTP Python results for Rust's
+in-process HTTP tests. See `docs/rust-phase2-task5.md` for scope, source findings
+and every gate result.
+
 ## File Map
 
 ```
