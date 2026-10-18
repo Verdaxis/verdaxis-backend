@@ -20,7 +20,8 @@ def test_production_bootstrap_verify_without_runtime_directory(tmp_path, caller)
     version = subprocess.run(["systemd-analyze", "--version"], capture_output=True, text=True, check=True).stdout.splitlines()[0]
     if caller == "old-helper":
         # Production baseline 56d75770 uses this exact command shape.
-        source = subprocess.run(["git", "show", "56d7577085af99411a6f9c3e34e64ad929d09954:scripts/deploy.sh"], cwd=ROOT, capture_output=True, text=True, check=True).stdout
+        # Pin the reviewed caller text so shallow PR checkouts need no history.
+        source = 'systemd-analyze verify "${CANDIDATE_UNITS[@]}"'
     else:
         source = (ROOT / ("scripts/install_systemd_units.sh" if caller == "installer" else "scripts/deploy.sh")).read_text()
     command = next(line.strip() for line in source.splitlines() if "systemd-analyze verify" in line).removeprefix("sudo ")
