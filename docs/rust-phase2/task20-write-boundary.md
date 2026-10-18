@@ -31,7 +31,7 @@ protocol-double test is not evidence of a committed PostgreSQL transaction.
 - Source checks reject orderbook writes and row locks outside `order_write/`.
   They do not permit arbitrary integration-test orderbook mutations.
 - Scenario data is in `tests/rust_contract/phase2/order-write-scenarios.json`.
-  It is not registered with the shared runner.
+  The executable `order-write-postgres` scenario is registered in the shared runner.
 
 PD4 is not implemented as an emitter in this scaffold. No production command
 can emit an event. Before enabling any command, its order-bearing events and
@@ -94,31 +94,88 @@ suite gates do not execute the unregistered Task 20 database scenarios.
 Automated commit/push security review returned HTTP 404; it is not a passing
 security review. Local details: `/Users/jonathanjie/.claude/security/log.txt`.
 
-## Pending the runner lane — resume point
+## Runner acceptance — 19 October 2026
 
-The following gates remain **pending the runner lane**, not passing or skipped
-successes:
+Merged `origin/feat/rust-p2-runner` with merge commit `76af0844`.
+Implementation and scenario commit: `1f6181989492be12d98787a1c47070b17401edc8`.
+The production command still returns 501 before database access. The only new
+HTTP adapter is an example invoking a `contract-tests`-gated boundary module.
+No market write route, lifecycle operation, schema or runtime setting is added.
 
-1. Register the scenario group without a harness-smoke fallback.
-2. Run `run_disposable --phase2 --phase2-group order-write-boundary` through
-   staging `heavy run` after reconciling the runner's accepted scenario format.
-3. Prove real PostgreSQL timeout values, contention, rollback before commit,
-   atomic outbox/receipt state, replay without duplicate events, and uncertain
-   commit behavior using fresh-connection committed-state evidence.
-4. Exercise both SQLSTATE retry schedules with the two-attempt bound, and
-   cancellation/connection cleanup. Doubles currently prove protocol ordering
-   only, not database effects.
-5. Before a future command is enabled, use authenticated actor authority,
-   revalidate the concrete actor and organization inside its transaction,
-   prove that operation's actual row-lock order, and enforce PD4 via the shared
-   public-order relation. Do not enable the caller-supplied scaffold result or
-   event descriptors as a business implementation.
+The group is registered as one marked Task 20 block. The runner has no fallback.
+Command:
 
-Codesight refresh was checked but deferred: its helper regenerates shared
-CLAUDE.md/AGENTS.md and context-map files outside this lane's allowed blocks.
-ARCHITECTURE.md records the new structure; the integration owner must refresh
-Codesight when combining lanes.
+```sh
+venv/bin/python -m scripts.rust_contract.run_disposable --phase2 \
+  --phase2-group order-write-boundary --phase2-races \
+  --report work/rust-phase2/task20-postgres.json
+```
 
-No shared runner, comparator, Config/AppState, runtime projection, CI workflow
-or Python application code was changed. There is no candidate GO or cutover
-approval from these focused results.
+Every call ran on staging with `heavy run 3600` and finished. The final
+`task20-runner-final-gates.log` records these independent exits:
+
+| Gate | Result | Own exit |
+| --- | --- | ---: |
+| Private protocol | 14 passed | 0 |
+| Rust vectors/source ownership | 16 passed | 0 |
+| Feature-enabled Clippy | no warnings | 0 |
+| Pinned Rust formatting | passed | 0 |
+| Python boundary and registry | 9 passed | 0 |
+| Registered PostgreSQL group with races | passed | 0 |
+| Whole wrapper call | `CALL_EXIT=0` | 0 |
+
+`task20-postgres-committed.log` repeats the database gate on committed
+`1f618198` with own exit 0 and `CALL_EXIT=0`. Its SHA-bound JSON report is under
+`work/rust-phase2/task20-postgres.json` (temporary, not committed).
+
+Database evidence covers:
+
+- Nine twin actions, with HTTP envelopes compared by the unchanged comparator
+  and every business-table column captured through fresh reader connections.
+- Real division-by-zero after outbox insertion: no outbox, receipt or unrelated
+  row survives rollback. Successful command inserts exactly one of each.
+- Explicit receipt replay returns the saved result and adds no event.
+- A held slice advisory lock produces the expected 409 without a committed delta.
+  Real transaction settings are asserted as `500ms` and `5s`.
+- Database scheduling establishes a holder before the boundary command starts,
+  observes that command's ungranted advisory lock in `pg_locks`, then releases
+  the holder. A client barrier is not used as proof of SQL ordering.
+- Server-raised SQLSTATE 40001 reruns the complete transaction once and commits
+  one unit; server-raised 40P01 on both attempts returns 503 with no state delta.
+  These are injected server errors, not claims of a naturally occurring deadlock.
+- Postcommit response-failure simulation retains exactly one complete unit and
+  records one attempt. The explicit later replay adds nothing. This is a
+  controlled response-failure classification, not a severed COMMIT socket test;
+  ambiguous COMMIT no-retry itself remains covered by the private protocol test.
+- Three actors contend on the same receipt key, roll back, and preserve all
+  state; three repeats use seeds 20261019–20261021 and recorded actor order.
+- Python and Rust each write to the third cell; the existing Python dispatcher
+  consumes both outbox events. Two receipts and two outbox rows remain. No mail
+  is sent; twin mail ledgers are asserted empty. Invite delivery is out of scope.
+
+The runner labels selected groups `route-contract`/`route_qualification=true`.
+For this group that means **boundary acceptance only**, never acceptance of a
+market HTTP route, matching engine, lifecycle, candidate or cutover.
+
+Correction runs are retained in `work/`: registry RED exit 1; initial group exit
+2 (missing CLI choice); subsequent adapter attempts exit 1 (handshake path,
+rollback status, typed timestamp binding). Corrected runs 6, final, retry and
+committed each exit 0. No failed attempt is counted as passing evidence.
+
+CI on `1f618198`: Rust run `39173872723` and backend run `39173872730` both
+completed successfully. Offline, contract, test, postgres-phase0 and
+postgres-analytics passed. Publish was skipped by design. The CI watch returned
+0. Automated security review returned HTTP 404, not a passing review; details
+are in `/Users/jonathanjie/.claude/security/log.txt`.
+
+Task 20's accepted boundary scope is complete. Before a future business command
+is enabled, use authenticated actor authority, prove that operation's actual
+row-lock plan and enforce PD4 through the shared public-order scope. No order
+mutation or wider lifecycle is smuggled into this evidence adapter. Task 21 and
+all measurements remain excluded.
+
+Codesight regeneration remains integration-owned because it changes managed
+instruction files outside this lane's allowed blocks. ARCHITECTURE.md records
+the new module. No comparator, Config/AppState, runtime projection, CI workflow
+or Python application code was changed. Shared runner edits are limited to the
+marked Task 20 registration and group entry.

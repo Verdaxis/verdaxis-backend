@@ -29,7 +29,9 @@ matching nor trade lifecycle operations. Public-scope event generation (PD4)
 remains mandatory before a future command can emit market events.
 
 `tests/rust_contract/phase2/market-write-spec.json` pins the Python source and
-hash vectors; `order-write-scenarios.json` is unregistered runner input. See
+hash vectors. The registered `order-write-postgres` group uses feature-gated
+loopback adapters to prove twin state, rollback, replay, timeouts, observed
+PostgreSQL advisory-lock order, bounded retries, races and mixed dispatch. See
 `docs/rust-phase2/task20-write-boundary.md` for gate results and the resume point.
 
 ## Rust Phase 1 bootstrap
