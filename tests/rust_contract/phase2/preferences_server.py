@@ -37,7 +37,17 @@ class ControlledPreferences:
         marker = preference_id.set(row_id)
         clock_marker = preference_clock.set(instant)
         try:
-            await self.app(scope, receive, send)
+            if headers.get(b"x-test-preference-response-loss") == b"true":
+                captured = []
+                async def retain(message):
+                    captured.append(message)
+                await self.app(scope, receive, retain)
+                assert captured[0]["status"] == 200
+                body = b'{"detail":"Disposable response lost after commit"}'
+                await send({"type":"http.response.start", "status":503, "headers":[(b"content-type",b"application/json"),(b"x-request-id",b"preferences-contract")]})
+                await send({"type":"http.response.body", "body":body})
+            else:
+                await self.app(scope, receive, send)
         finally:
             preference_clock.reset(clock_marker)
             preference_id.reset(marker)

@@ -68,6 +68,7 @@ mod disposable {
             "/.well-known/verdaxis-disposable-test",
             get(move || async move { Json(json!({"disposable":true,"token":expected})) }),
         ));
+        let app = app.layer(axum::middleware::from_fn(response_loss));
         let app = verdaxis_read::runtime::http::middleware(app);
         axum::serve(
             tokio::net::TcpListener::bind(bind).await?,
@@ -75,6 +76,28 @@ mod disposable {
         )
         .await?;
         Ok(())
+    }
+
+    async fn response_loss(
+        request: axum::extract::Request,
+        next: axum::middleware::Next,
+    ) -> axum::response::Response {
+        use axum::response::IntoResponse;
+        let lost = request
+            .headers()
+            .get("x-test-preference-response-loss")
+            .is_some();
+        let response = next.run(request).await;
+        if lost {
+            assert_eq!(response.status(), axum::http::StatusCode::OK);
+            (
+                axum::http::StatusCode::SERVICE_UNAVAILABLE,
+                Json(json!({"detail":"Disposable response lost after commit"})),
+            )
+                .into_response()
+        } else {
+            response
+        }
     }
 
     fn controls(headers: &HeaderMap) -> (chrono::DateTime<chrono::Utc>, uuid::Uuid) {

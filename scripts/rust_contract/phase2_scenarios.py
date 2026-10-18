@@ -268,4 +268,9 @@ class HTTPCell:
 from scripts.rust_contract.phase2_example import example_scenario
 
 register(example_scenario())
+# Phase 2 Task 9: preferences scenario registration
+from scripts.rust_contract.phase2_preferences import preferences_scenario
+
+register(preferences_scenario())
+# Phase 2 Task 9: end preferences scenario registration
 # END LANE REGISTRATIONS

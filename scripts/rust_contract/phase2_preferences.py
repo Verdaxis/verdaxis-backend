@@ -1,177 +1,131 @@
-"""Task 9 disposable preferences differential. Uses the existing lifecycle owner."""
-
-import hashlib
+"""Task 9 schedules for the shared route runner; no lifecycle or dispatch owner."""
 import json
-import os
-import subprocess
-import urllib.error
-import urllib.request
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from scripts.rust_contract.compare import compare_responses
-from scripts.rust_contract.phase2_seed import (
-    APP_ROLE,
-    BACKUP_ROLE,
-    DATABASES,
-    MIGRATOR_ROLE,
-    PASSWORD,
-    connect,
-    digest,
-    identifier,
-    snapshot,
-)
-from scripts.rust_contract.phase2_state import compare_state
+from scripts.rust_contract.phase2_scenarios import Action, Race, Scenario, Server
 
 ROOT = Path(__file__).resolve().parents[2]
 ACTOR = "20000000-0000-4000-8000-000000000001"
 OTHER = "20000000-0000-4000-8000-000000000002"
 
 
-def request(endpoint, method, path, body, headers):
-    req = urllib.request.Request(endpoint + path, data=body, method=method, headers=headers)
-    try:
-        response = urllib.request.urlopen(req, timeout=30)
-    except urllib.error.HTTPError as error:
-        response = error
-    with response:
-        return {"status": response.status, "headers": dict(response.headers), "body": response.read()}
+def setup(connection):
+    connection.execute("INSERT INTO users(id,email,password_hash,role,status,organization_id,email_verified,must_change_password) VALUES (%s,'other@preferences.invalid','not-a-login','BUYER','APPROVED','10000000-0000-4000-8000-000000000001',true,false)", (OTHER,))
+    connection.execute("INSERT INTO user_preferences(id,user_id,namespace,value,updated_at) VALUES ('30000000-0000-4000-8000-000000000001',%s,'legacy_unknown','[1,{\"keep\":null}]','2026-10-18T00:00:00Z')", (ACTOR,))
+    # Fixture-owned SQL fault: both real handlers reach the write and fail before
+    # commit. The runtime role cannot create or bypass this trigger.
+    connection.execute("""CREATE FUNCTION preferences_test_failure() RETURNS trigger LANGUAGE plpgsql AS $$
+    BEGIN
+      IF NEW.value::jsonb->'portIds' = '["rollback"]'::jsonb THEN
+        RAISE EXCEPTION 'disposable preference write failure';
+      END IF;
+      RETURN NEW;
+    END $$""")
+    connection.execute("CREATE TRIGGER preferences_test_failure BEFORE INSERT OR UPDATE ON user_preferences FOR EACH ROW EXECUTE FUNCTION preferences_test_failure()")
 
 
-def run_preferences(runner, args):
-    from scripts.rust_contract.run_disposable import (
-        DB_NAME,
-        RunnerError,
-        attest,
-        docker,
-        ephemeral_port,
-        wait_for_port,
+def servers(context):
+    return (
+        Server((context.python_bin, "-m", "tests.rust_contract.phase2.preferences_server", "--port", "{port}")),
+        Server((str(context.root / "rs/target/debug/examples/preferences_server"),)),
     )
 
-    port = runner.start_database()
-    env = {**os.environ, "ENVIRONMENT": "test", "RELEASE_SHA": runner.sha,
-           "JWT_SECRET": "test-secret-key-for-testing-minimum-32-chars", **runner.urls(port)}
-    runner.seed = False
-    runner.migrate_and_seed(env)
-    with connect(port, DB_NAME) as source:
-        source.execute("INSERT INTO organizations(id,name,domain,type) VALUES ('10000000-0000-4000-8000-000000000001','Preferences fixture','preferences.invalid','FUEL_BUYER')")
-        for user, email in ((ACTOR, "actor"), (OTHER, "other")):
-            source.execute("INSERT INTO users(id,email,password_hash,role,status,organization_id,email_verified,must_change_password) VALUES (%s,%s,'not-a-login','BUYER','APPROVED','10000000-0000-4000-8000-000000000001',true,false)", (user, email + "@preferences.invalid"))
-        source.execute("INSERT INTO user_preferences(id,user_id,namespace,value,updated_at) VALUES ('30000000-0000-4000-8000-000000000001',%s,'legacy_unknown','[1,{\"keep\":null}]','2026-10-18T00:00:00Z')", (ACTOR,))
-    with connect(port, "postgres", autocommit=True) as admin:
-        for database in DATABASES:
-            admin.execute(f"CREATE DATABASE {identifier(database)} TEMPLATE {identifier(DB_NAME)}")
-    policy_dir = "/tmp/preferences-role-policy"
-    docker("exec", runner.container, "mkdir", "-p", policy_dir)
-    for name in ("app_acl_policy.sql", "converge_runtime_object_acls.sql", "bootstrap_roles.sql", "validate_roles.sql"):
-        docker("cp", str(ROOT / "deploy/postgres" / name), f"{runner.container}:{policy_dir}/{name}")
-    for database in DATABASES:
-        for script in ("bootstrap_roles.sql", "validate_roles.sql"):
-            docker("exec", runner.container, "psql", "-X", "-U", "postgres", "-d", database,
-                   "-v", f"database_name={database}", "-v", f"app_role={APP_ROLE}",
-                   "-v", f"migrator_role={MIGRATOR_ROLE}", "-v", f"backup_role={BACKUP_ROLE}",
-                   "-f", f"{policy_dir}/{script}")
-    with connect(port, DATABASES[0]) as admin:
-        admin.execute(f"ALTER ROLE {identifier(APP_ROLE)} PASSWORD '{PASSWORD}'")
-    initial = []
-    for database in DATABASES:
-        with connect(port, database) as reader:
-            initial.append(snapshot(reader))
-    if compare_state(*initial):
-        raise RunnerError("preferences twin seed differs")
-    subprocess.run(["cargo", "build", "--manifest-path", "rs/Cargo.toml", "--locked", "-p", "verdaxis-read",
-                    "--features", "contract-tests", "--example", "preferences_server"], cwd=ROOT,
-                   env={**env, "SQLX_OFFLINE": "true"}, check=True)
-    endpoints = []
-    for runtime, database in zip(("python", "rust"), DATABASES):
-        bind = ephemeral_port()
-        url = f"postgresql://{APP_ROLE}:{PASSWORD}@127.0.0.1:{port}/{database}"
-        cell_env = {**env, "DATABASE_URL": url.replace("postgresql://", "postgresql+asyncpg://"),
-                    "PHASE2_DATABASE_URL": url, "PHASE2_BIND": f"127.0.0.1:{bind}",
-                    "DISPOSABLE_TEST_TOKEN": runner.token}
-        command = [runner.python_bin, "-m", "tests.rust_contract.phase2.preferences_server", "--port", str(bind)] if runtime == "python" else [str(ROOT / "rs/target/debug/examples/preferences_server")]
-        runner.spawn(command, cell_env)
-        wait_for_port(bind)
-        endpoint = f"http://127.0.0.1:{bind}"
-        attest(endpoint, runner.token)
-        endpoints.append(endpoint)
+
+def headers(index, user=ACTOR):
     import jwt
     now = datetime.now(UTC)
-    tokens = {user: jwt.encode({"sub": user, "type": "access", "iss": "verdaxis-test-api", "aud": "verdaxis-test-web",
-                               "iat": int(now.timestamp()), "exp": int((now + timedelta(hours=2)).timestamp())}, env["JWT_SECRET"], algorithm="HS256") for user in (ACTOR, OTHER)}
-    rules = hashlib.sha256((ROOT / "tests/rust_contract/phase2/normalization.json").read_bytes()).hexdigest()
-    actions = []
-    fixtures = json.loads((ROOT / "tests/rust_contract/phase2/preferences.json").read_text())
-    cases = [("read-unknown", "GET", "", None, ACTOR)]
-    cases += [(case["id"], "PUT", "/" + case["namespace"], case["raw"].encode(), ACTOR) for case in fixtures["vectors"]]
-    cases += [("repeat-first", "PUT", "/tutorial", b'{"completed":true}', ACTOR),
-              ("repeat-second", "PUT", "/tutorial", b'{"completed":true}', ACTOR),
-              ("other-isolated", "GET", "", None, OTHER),
-              ("read-final", "GET", "", None, ACTOR)]
-    for index, (name, method, suffix, body, user) in enumerate(cases):
-        clock = (datetime(2026, 10, 19, tzinfo=UTC) + timedelta(seconds=index)).isoformat()
-        row_id = f"40000000-0000-4000-8000-{index:012d}"
-        headers = {"content-type": "application/json", "authorization": "Bearer " + tokens[user],
-                   "x-request-id": "preferences-contract", "x-disposable-token": runner.token,
-                   "x-test-preference-clock": clock, "x-test-preference-id": row_id,
-                   "x-forwarded-for": f"192.0.2.{index + 1}"}
-        responses = [request(endpoint, method, "/api/users/me/preferences" + suffix, body, headers) for endpoint in endpoints]
-        print("PREFERENCES_ACTION", name, [(r["status"], r["headers"].get("content-type", r["headers"].get("Content-Type"))) for r in responses], flush=True)
-        if name == "empty-namespace":
-            # The JSON profile deliberately refuses redirects. Check the empty
-            # body and exact route-local Location separately, without widening it.
-            for endpoint, response in zip(endpoints, responses):
-                location = next((v for k, v in response["headers"].items() if k.lower() == "location"), None)
-                if response["status"] != 307 or response["body"] or location != endpoint + "/api/users/me/preferences":
-                    raise RunnerError("preferences slash redirect differs")
-            differences = []
-        else:
-            differences = compare_responses(*responses, profile="phase2-meaning-v1", route_id="P01" if method == "GET" else "P02", rules_sha256=rules, request_id="preferences-contract")
-        if differences:
-            raise RunnerError(f"preferences response {name}: {differences}")
-        states = []
-        for database in DATABASES:
-            with connect(port, database) as reader:
-                states.append(snapshot(reader))
-        if compare_state(*states):
-            raise RunnerError(f"preferences committed state {name} differs")
-        for table in initial[0]:
-            if table != "user_preferences" and states[0][table] != initial[0][table]:
-                raise RunnerError(f"preferences changed unrelated table {table}")
-        if name == "other-isolated" and json.loads(responses[0]["body"]) != {}:
-            raise RunnerError("preferences crossed user boundary")
-        actions.append({"id": name, "status": responses[0]["status"], "state_sha256": digest(states[0]), "differences": []})
-    # Hold the actor row until both requests are observed waiting in PostgreSQL.
-    # The same exact value/clock/ID makes either accepted ordering equivalent.
-    import time
-    from concurrent.futures import ThreadPoolExecutor
-    for endpoint, database in zip(endpoints, DATABASES):
-        with connect(port, database) as blocker:
-            blocker.execute("SELECT id FROM users WHERE id=%s FOR UPDATE", (ACTOR,))
-            with ThreadPoolExecutor(max_workers=2) as workers:
-                futures = [workers.submit(request, endpoint, "PUT", "/api/users/me/preferences/tutorial",
-                    b'{"completed":false}', {**headers, "authorization": "Bearer " + tokens[ACTOR],
-                    "x-test-preference-clock": "2026-10-19T01:00:00+00:00", "x-forwarded-for": "192.0.2.200"}) for _ in range(2)]
-                deadline = time.monotonic() + 15
-                with connect(port, database, autocommit=True) as observer:
-                    while True:
-                        waiting = observer.execute("SELECT count(*) AS count FROM pg_stat_activity WHERE datname=%s AND wait_event_type='Lock' AND usename=%s", (database, APP_ROLE)).fetchone()[0]
-                        if waiting >= 2:
-                            break
-                        if time.monotonic() > deadline:
-                            blocker.rollback()
-                            raise RunnerError("concurrent preferences did not reach user lock")
-                blocker.commit()
-                if [future.result()["status"] for future in futures] != [200, 200]:
-                    raise RunnerError("concurrent preference PUT failed")
-    states = []
-    for database in DATABASES:
-        with connect(port, database) as reader:
-            states.append(snapshot(reader))
-    if compare_state(*states):
-        raise RunnerError("concurrent preferences state differs")
-    actions.append({"id": "same-user-concurrent-put", "status": 200, "state_sha256": digest(states[0]), "differences": []})
-    if args.report:
-        args.report.parent.mkdir(parents=True, exist_ok=True)
-        args.report.write_text(json.dumps({"source_sha": runner.sha, "scenario": "preferences", "scope": "task9-component",
-            "seed_sha256": digest(initial[0]), "actions": actions, "dispatchers": "not-started"}, indent=2) + "\n")
+    token = jwt.encode({"sub": user, "type": "access", "iss": "verdaxis-test-api", "aud": "verdaxis-test-web",
+                        "iat": int(now.timestamp()), "exp": int((now + timedelta(hours=2)).timestamp())},
+                       "test-secret-key-for-testing-minimum-32-chars", algorithm="HS256")
+    return {"authorization": "Bearer " + token, "x-request-id": "preferences-contract",
+            "x-test-preference-clock": (datetime(2026, 10, 19, tzinfo=UTC) + timedelta(seconds=index)).isoformat(),
+            "x-test-preference-id": f"40000000-0000-4000-8000-{index:012d}",
+            "x-forwarded-for": f"192.0.2.{index % 250 + 1}"}
+
+
+def rows(state):
+    return list(state["user_preferences"]["rows"].values())
+
+
+def assertion(user, namespace=None, value=None, clock=None, unchanged=False):
+    def check(before, after, response, mail):
+        assert mail == [], "preferences sent mail"
+        for table in before:
+            if table != "user_preferences" or unchanged:
+                assert before[table] == after[table], f"unexpected write: {table}"
+        if namespace is not None and not unchanged:
+            selected = [row for row in rows(after) if row["user_id"] == user and row["namespace"] == namespace]
+            assert len(selected) == 1
+            assert selected[0]["value"] == value
+            assert datetime.fromisoformat(selected[0]["updated_at"]) == datetime.fromisoformat(clock)
+            assert [row for row in rows(before) if row["user_id"] != user] == [row for row in rows(after) if row["user_id"] != user]
+    return check
+
+
+def actions(context):
+    yield Action("read-unknown", "P01", "GET", "/api/users/me/preferences", 200,
+                 headers=headers(0), actor_id=ACTOR,
+                 assert_after=lambda before, after, response, mail: (
+                     assertion(ACTOR, unchanged=True)(before, after, response, mail),
+                     _require(json.loads(response["body"])["legacy_unknown"] == [1, {"keep": None}])
+                 ))
+    fixture = json.loads((ROOT / "tests/rust_contract/phase2/preferences.json").read_text())
+    index = 0
+    for case in fixture["vectors"]:
+        # Raw syntax/redirect cases stay in the accepted component evidence. The
+        # shared Action interface sends JSON, not arbitrary raw bytes/redirects.
+        if case["id"].startswith("syntax-") or case["id"] == "empty-namespace":
+            continue
+        index += 1
+        head = headers(index)
+        success = case["python_status"] == 200
+        yield Action(case["id"], "P02", "PUT", "/api/users/me/preferences/" + case["namespace"],
+                     case["python_status"], body=case["value"], headers=head, actor_id=ACTOR,
+                     outcome="committed" if success else "rolled-back",
+                     assert_after=assertion(ACTOR, case["namespace"], case["value"], head["x-test-preference-clock"], not success))
+    for offset, name in enumerate(("repeat-first", "repeat-second", "response-loss", "read-after-loss"), 100):
+        head = headers(offset)
+        lost = name == "response-loss"
+        if lost:
+            head["x-test-preference-response-loss"] = "true"
+        read = name == "read-after-loss"
+        yield Action(name, "P01" if read else "P02", "GET" if read else "PUT",
+                     "/api/users/me/preferences" + ("" if read else "/tutorial"), 503 if lost else 200,
+                     body=None if read else {"completed": True}, headers=head, actor_id=ACTOR,
+                     outcome="ambiguous" if lost else "committed",
+                     assert_after=assertion(ACTOR, None if read else "tutorial", {"completed": True}, head["x-test-preference-clock"], read))
+    yield Action("database-rollback", "P02", "PUT", "/api/users/me/preferences/market_watch", 500,
+                 body={"products": [], "portIds": ["rollback"]}, headers=headers(110), actor_id=ACTOR,
+                 outcome="rolled-back", assert_after=assertion(ACTOR, unchanged=True))
+    yield Action("other-isolated", "P01", "GET", "/api/users/me/preferences", 200,
+                 headers=headers(111, OTHER), actor_id=OTHER,
+                 assert_after=lambda before, after, response, mail: (
+                     assertion(OTHER, unchanged=True)(before, after, response, mail),
+                     _require(json.loads(response["body"]) == {})))
+
+
+def _require(condition):
+    assert condition
+
+
+def races(context):
+    # Both writers update the same existing row with identical values and clock.
+    # Either SQL lock order must produce one row, never a duplicate. No claim is
+    # made that a client barrier fixes SQL lock order. The accepted component run
+    # separately observed both requests blocked on the authenticated user row.
+    head = headers(200)
+    actors = tuple(Action(name, "P02", "PUT", "/api/users/me/preferences/tutorial", 200,
+                          body={"completed": False}, headers=head, actor_id=ACTOR) for name in ("same-user-a", "same-user-b"))
+    def invariant(before, after, results):
+        assertion(ACTOR, "tutorial", {"completed": False}, head["x-test-preference-clock"])(before, after, None, [])
+        assert len(rows(before)) == len(rows(after))
+        assert all(result[0]["status"] == 200 and result[1] is None for result in results.values())
+    return [Race(actors=actors, invariant=invariant, repeats=3, seed=20261019)]
+
+
+def preferences_scenario():
+    return Scenario(name="preferences", group="preferences", setup=setup, servers=servers,
+                    actions=actions, races=races,
+                    build=("cargo", "build", "--manifest-path", "rs/Cargo.toml", "--locked", "-p", "verdaxis-read",
+                           "--features", "contract-tests", "--example", "preferences_server"))
