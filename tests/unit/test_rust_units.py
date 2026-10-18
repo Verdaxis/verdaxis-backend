@@ -393,7 +393,7 @@ def test_activation_requires_the_manifest_unit_and_a_verified_artifact(tmp_path)
     assert fixture.state_text() == ""
 
 
-@pytest.mark.parametrize("environment, enabled", [("staging", "0"), ("production", "0")])
+@pytest.mark.parametrize("environment, enabled", [("staging", "1"), ("production", "0")])
 def test_committed_policy_allows_only_staging(environment, enabled):
     """Policy approval does not enable production or publish a public route."""
     deploy = _text(DEPLOY)
@@ -402,7 +402,7 @@ def test_committed_policy_allows_only_staging(environment, enabled):
         deploy.index("resolve_provenance_public_key() {")
     ]
     policy = json.loads(_text(POLICY))
-    assert policy["rust_enabled"] is False
+    assert policy["rust_enabled"] is True
     assert policy["environment"] == "staging"
     assert policy["bind"] == "127.0.0.1:8011"
     assert policy["health_url"] == "http://127.0.0.1:8011/health/ready"
