@@ -1,4 +1,7 @@
 pub mod catalog;
+// Phase 2 Task 10: feedback route registration.
+pub use crate::crud::feedback::routes as feedback_routes;
+// Phase 2 Task 10: end feedback route registration.
 pub mod curves_canonical;
 pub mod curves_legacy;
 pub mod listings;

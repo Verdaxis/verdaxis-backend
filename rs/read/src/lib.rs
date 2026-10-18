@@ -1,4 +1,7 @@
 pub mod auth;
+// Phase 2 Task 10: feedback CRUD module.
+pub mod crud;
+// Phase 2 Task 10: end feedback CRUD module.
 pub mod market;
 pub mod mcp;
 pub mod routes;
