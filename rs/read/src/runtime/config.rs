@@ -247,6 +247,14 @@ pub(crate) fn database_target(config: &Config) -> Result<DatabaseTarget, String>
     {
         return Err(invalid());
     }
+    if config.environment == "production"
+        && (target.host != "127.0.0.1"
+            || target.port != 5432
+            || target.user != "verdaxis_app"
+            || target.database != "verdaxis_prod")
+    {
+        return Err(invalid());
+    }
     if config.environment == "test"
         && (!target.database.ends_with("_test")
             || !target
@@ -265,7 +273,7 @@ pub(crate) fn database_target(config: &Config) -> Result<DatabaseTarget, String>
 pub fn validate_config(config: &Config) -> Result<(), String> {
     if !matches!(
         config.environment.as_str(),
-        "development" | "test" | "staging"
+        "development" | "test" | "staging" | "production"
     ) {
         return Err("unsupported runtime environment".into());
     }
@@ -294,6 +302,14 @@ pub fn validate_config(config: &Config) -> Result<(), String> {
     ))
     .map_err(|_| "invalid compiled revision allowlist")?;
     check_revision(&config.migration_revision, &allowed)?;
+    if config.environment == "production" {
+        if config.migration_revision != "p0_20261016_union" {
+            return Err("production requires its reviewed union checkpoint".into());
+        }
+        if config.prepared_budget.is_none() {
+            return Err("production requires its prepared connection budget".into());
+        }
+    }
     database_target(config)?;
     let total = config
         .python_budget

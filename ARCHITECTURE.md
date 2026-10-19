@@ -221,7 +221,32 @@ retry. Python failures remain fail-closed. Both readiness documents are required
 before successful deploy state clears. Decisions
 99 and 101–103 use normal staging publication and one shared Python/Rust release
 SHA; there is no independent candidate activation path. Production
-carries neither record and reads no Rust path.
+now has a separate policy-off bootstrap record and unit; no production Rust
+activation occurs merely by promoting this source. `deploy/rust/production-policy.json`
+selects `verdaxis-rust.service` at `127.0.0.1:8010`. The shared transaction selects
+only its own environment policy, verifies production provenance against
+`refs/heads/staging`, prepares app-only runtime credentials, and requires the same
+Python/Rust release SHA and both readiness documents. Production startup requires
+`verdaxis_app` on `127.0.0.1:5432/verdaxis_prod` and exact checkpoint
+`p0_20261016_union`. Production browser CORS follows the Python production origin
+set, not staging's origin. The production unit caps Rust at 256 MiB and one CPU;
+Python retains four workers. Conservative default connection accounting is 69
+including the 20-connection reserve and Rust's 16 reads plus readiness.
+Production needs its own B' policy-off deploy, root manifest install, then S'
+policy-on prod-push artifact; neither staging artifacts nor an independent SHA
+are accepted. `scripts/rust_caddy_candidate.py` prepares private per-group Caddy
+candidates and exact rollback bytes without touching live config. It reuses Task
+13's exact matchers and refuses production MCP activation. Production uses the
+single EU Caddyfile: P0 adds a bounded redacted API access log, then each group
+inserts its handle after analytics and before the unchanged Python fallback,
+retaining client-IP forwarding, flush and keepalive policy. Staging keeps snippet
+imports. `scripts/rust_passive_no_harm.py` evaluates equal ordinary-traffic log
+windows and journal error classes; it performs no requests or measurements. An
+empty or missing journal window is invalid evidence (exit 2 with a reason), never
+"no new error classes".
+Both Rust units launch through `/usr/bin/env` so real systemd verification works
+before the first artifact exists without weakening startup checks. See
+`docs/plans/2026-10-19-rust-phase-1-production.md`; host acceptance remains separate.
 `docs/rust-phase1/progress-task12c.md` holds the unit digest, the artifact
 digest and the systemd 249/255 and staging-ABI start evidence.
 

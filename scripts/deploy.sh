@@ -90,10 +90,18 @@ ACL_CONVERGENCE_SQL_PATH="deploy/postgres/converge_runtime_object_acls.sql"
 ACL_CONVERGENCE_HELPER_PATH="scripts/converge_runtime_acls.py"
 DEPLOY_START_GUARD_HELPER_PATH="scripts/verify_deploy_start_guard.py"
 RUST_STAGING_POLICY_PATH="deploy/rust/staging-policy.json"
+RUST_POLICY_PATH="deploy/rust/$DEPLOY_ENVIRONMENT-policy.json"
+# Production deploys the staging tip and CI signs the artifact on the staging
+# push, so both environments bind provenance to that one ref (PD-P1). The
+# repository, workflow path, exact commit and attestation checks stay exact.
+RUST_WORKFLOW_REF="refs/heads/staging"
 RUST_PROVENANCE_KEY_PATH="deploy/rust/artifact-provenance.pub.pem"
 RUST_ARTIFACT_VERIFIER_PATH="scripts/verify_rust_artifact.py"
 RUST_RUNTIME_PREPARER_PATH="scripts/prepare_rust_runtime.py"
 RUST_UNIT_NAME="verdaxis-rust-staging.service"
+if [[ "$DEPLOY_ENVIRONMENT" == "production" ]]; then
+    RUST_UNIT_NAME="verdaxis-rust.service"
+fi
 HOST_PROVENANCE_KEY_PATH="${HOST_PROVENANCE_KEY_PATH:-/etc/verdaxis/artifact-provenance.pub.pem}"
 RUST_ARTIFACT_ARCHIVE="${RUST_ARTIFACT_ARCHIVE:-}"
 RUST_PROVENANCE_RECORD="${RUST_PROVENANCE_RECORD:-}"
@@ -235,27 +243,26 @@ load_rust_staging_policy() {
     local source_sha="$1" staged="$2"
 
     RUST_POLICY_PRESENT=0
-    if [[ "$DEPLOY_ENVIRONMENT" != "staging" ]] \
-        || [[ ! -f "$staged/$RUST_STAGING_POLICY_PATH" ]]; then
-        # A tree without the committed staging policy deploys exactly as the
-        # pre-Rust transaction did; production never carries one.
+    local policy_path="${RUST_POLICY_PATH:-$RUST_STAGING_POLICY_PATH}"
+    if [[ ! -f "$staged/$policy_path" ]]; then
+        # Older trees without this environment's policy remain Python-only.
         RUST_ENABLED=0
         return 0
     fi
     RUST_POLICY_PRESENT=1
-    RUST_ENABLED="$(python3 - "$staged/$RUST_STAGING_POLICY_PATH" \
-        "$staged/$UNIT_MANIFEST_PATH" "$RUST_UNIT_NAME" <<'PY'
+    RUST_ENABLED="$(python3 - "$staged/$policy_path" \
+        "$staged/$UNIT_MANIFEST_PATH" "$RUST_UNIT_NAME" "$DEPLOY_ENVIRONMENT" <<'PY'
 import json, sys
 try:
     policy = json.load(open(sys.argv[1], encoding="utf-8"))
     enabled = policy.get("rust_enabled")
 except (OSError, ValueError):
     sys.exit(3)
-if not isinstance(enabled, bool):
+if not isinstance(enabled, bool) or policy.get("environment") != sys.argv[4]:
     sys.exit(3)
 if enabled:
     manifest_lines = open(sys.argv[2], encoding="utf-8").read().splitlines()
-    environment, unit = "staging", sys.argv[3]
+    environment, unit = sys.argv[4], sys.argv[3]
     if not any(
         line == f"{environment}\t{unit}" for line in manifest_lines
     ):
@@ -326,6 +333,7 @@ verify_rust_artifact_for_release() {
     if ! "${PYTHON_ENV[@]}" ./venv/bin/python "$RUST_ARTIFACT_VERIFIER_PATH" \
         --archive "$RUST_ARTIFACT_ARCHIVE" \
         --source-sha "$source_sha" \
+        --workflow-ref "$RUST_WORKFLOW_REF" \
         --target x86_64-unknown-linux-gnu \
         --output-dir "$extract_dir" \
         --provenance-record "$RUST_PROVENANCE_RECORD" \
@@ -684,10 +692,9 @@ if [[ "$DRY_RUN" == "1" ]]; then
     assert_release_tree_regular "$REMOTE_SHA"
     mkdir -m 0700 "$DRY_RUN_TEMP/candidate-units"
     RUST_ATTEST_PATHS=()
-    if [[ "$DEPLOY_ENVIRONMENT" == "staging" ]] \
-        && "${GIT[@]}" cat-file -e "$REMOTE_SHA:$RUST_STAGING_POLICY_PATH" 2>/dev/null; then
+    if "${GIT[@]}" cat-file -e "$REMOTE_SHA:$RUST_POLICY_PATH" 2>/dev/null; then
         "${GIT[@]}" cat-file -e "$REMOTE_SHA:$RUST_PROVENANCE_KEY_PATH"
-        RUST_ATTEST_PATHS+=("$RUST_STAGING_POLICY_PATH" "$RUST_PROVENANCE_KEY_PATH")
+        RUST_ATTEST_PATHS+=("$RUST_POLICY_PATH" "$RUST_PROVENANCE_KEY_PATH")
     fi
     "${GIT[@]}" cat-file -e "$REMOTE_SHA:$UNIT_MANIFEST_PATH"
     "${GIT[@]}" cat-file -e "$REMOTE_SHA:$MIGRATION_POLICY_PATH"
@@ -816,15 +823,14 @@ validate_migration_policy \
 # concurrent deploy still serializes. Every artifact refusal happens before
 # any state write or service stop.
 RUST_ENABLED=0
-if [[ "$DEPLOY_ENVIRONMENT" == "staging" ]] \
-    && "${GIT[@]}" cat-file -e "$REMOTE_SHA:$RUST_STAGING_POLICY_PATH" 2>/dev/null; then
+if "${GIT[@]}" cat-file -e "$REMOTE_SHA:$RUST_POLICY_PATH" 2>/dev/null; then
     umask 077
     RUST_POLICY_TEMP="$(mktemp -d /tmp/verdaxis-rust-policy.XXXXXXXX)"
     chmod 0700 "$RUST_POLICY_TEMP"
     "${GIT[@]}" archive --format=tar "$REMOTE_SHA" \
-        "$RUST_STAGING_POLICY_PATH" "$UNIT_MANIFEST_PATH" "$RUST_PROVENANCE_KEY_PATH" \
+        "$RUST_POLICY_PATH" "$UNIT_MANIFEST_PATH" "$RUST_PROVENANCE_KEY_PATH" \
         | tar --extract --file=- --directory="$RUST_POLICY_TEMP"
-    for relative in "$RUST_STAGING_POLICY_PATH" "$UNIT_MANIFEST_PATH" "$RUST_PROVENANCE_KEY_PATH"; do
+    for relative in "$RUST_POLICY_PATH" "$UNIT_MANIFEST_PATH" "$RUST_PROVENANCE_KEY_PATH"; do
         verify_archived_blob "$REMOTE_SHA" "$relative" \
             "$RUST_POLICY_TEMP/$relative"
     done
@@ -878,11 +884,11 @@ if [[ "$RUST_ENABLED" == "1" ]]; then
     # cannot drift between selection and readiness.
     umask 077
     mkdir -p -- "$RUST_RUNTIME_DIR"
-    if [[ -L "$RUST_RUNTIME_DIR/staging-policy.json" ]] \
-        || ! cp -- "$RUST_POLICY_TEMP/$RUST_STAGING_POLICY_PATH" \
-            "$RUST_RUNTIME_DIR/staging-policy.json.tmp.$$" \
-        || ! mv -- "$RUST_RUNTIME_DIR/staging-policy.json.tmp.$$" \
-            "$RUST_RUNTIME_DIR/staging-policy.json"; then
+    if [[ -L "$RUST_RUNTIME_DIR/$DEPLOY_ENVIRONMENT-policy.json" ]] \
+        || ! cp -- "$RUST_POLICY_TEMP/$RUST_POLICY_PATH" \
+            "$RUST_RUNTIME_DIR/$DEPLOY_ENVIRONMENT-policy.json.tmp.$$" \
+        || ! mv -- "$RUST_RUNTIME_DIR/$DEPLOY_ENVIRONMENT-policy.json.tmp.$$" \
+            "$RUST_RUNTIME_DIR/$DEPLOY_ENVIRONMENT-policy.json"; then
         echo "Could not stage the verified Rust policy bytes." >&2
         exit 1
     fi
@@ -994,6 +1000,7 @@ assert_clean_tree "Deploy steps"
 if [[ "$RUST_SELECTED" == "1" ]]; then
     if ! "${PYTHON_ENV[@]}" ./venv/bin/python \
         "$RUST_RUNTIME_PREPARER_PATH" \
+        --environment "$DEPLOY_ENVIRONMENT" \
         --environment-file "$BACKEND_DIR/.env" \
         --release-sha "$CURRENT_SHA" \
         --output-dir "$RUST_RUNTIME_DIR" \
@@ -1064,7 +1071,7 @@ if [[ "$RUST_SELECTED" == "1" ]]; then
     write_deploy_state "restart-authorized" "$CURRENT_SHA"
     sudo -n systemctl restart "$RUST_UNIT_NAME"
     RUST_HEALTH_URL="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["health_url"])' \
-        "$RUST_RUNTIME_DIR/staging-policy.json")" \
+        "$RUST_RUNTIME_DIR/$DEPLOY_ENVIRONMENT-policy.json")" \
         || { echo "The staged Rust policy does not name a health URL." >&2; exit 1; }
     systemctl is-active --quiet "$RUST_UNIT_NAME"
     for ((attempt = 1; attempt <= HEALTH_ATTEMPTS; attempt++)); do

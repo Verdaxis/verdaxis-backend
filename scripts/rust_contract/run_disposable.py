@@ -648,6 +648,8 @@ CREATE EXTENSION IF NOT EXISTS postgis;
             **{f"{group}_UPSTREAM": f"127.0.0.1:{rust_port}"
                for group in ("SIMPLE", "ORDERBOOK", "PRICES", "CURVES", "MCP")},
         }
+        # One shared config owns forwarding options for both route groups and
+        # Python fallback; do not synthesize a plain-proxy variant here.
         config = str(ROOT / "tests/rust_contract/Caddyfile")
         subprocess.run([caddy, "adapt", "--config", config, "--validate"],
                        cwd=ROOT, env=caddy_env, check=True)

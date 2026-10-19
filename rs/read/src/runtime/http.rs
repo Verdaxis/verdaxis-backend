@@ -13,8 +13,19 @@ use std::{
     time::Instant,
 };
 
-/// The one credentialed browser origin in scope for Phase 1.
-const STAGING_ORIGIN: &str = "https://staging.verdaxis.exchange";
+/// Mirror the deployed Python credentialed-origin boundary, without sharing
+/// production browser authority with staging. Test harnesses retain their oracle.
+pub fn allowed_browser_origin(environment: &str, origin: &str) -> bool {
+    match environment {
+        "production" => matches!(
+            origin,
+            "https://app.verdaxis.exchange"
+                | "https://verdaxis.exchange"
+                | "https://canary.verdaxis.exchange"
+        ),
+        _ => origin == "https://staging.verdaxis.exchange",
+    }
+}
 
 pub fn client_ip(peer: Option<IpAddr>, forwarded: Option<&str>) -> String {
     if peer.is_some_and(|ip| ip.is_loopback())
@@ -47,6 +58,10 @@ fn compose(routes: Router, app_state: Option<crate::AppState>) -> Router {
         started: Instant::now(),
         buckets: Arc::new(Mutex::new(HashMap::new())),
     };
+    let environment = app_state
+        .as_ref()
+        .map(|state| state.config.environment.clone())
+        .unwrap_or_else(|| "staging".into());
     let routes = routes.layer(middleware::from_fn_with_state(state, dispatch_boundary));
     let routes = if let Some(app_state) = app_state {
         routes.layer(middleware::from_fn_with_state(
@@ -57,7 +72,7 @@ fn compose(routes: Router, app_state: Option<crate::AppState>) -> Router {
         routes
     };
     routes
-        .layer(middleware::from_fn(cors))
+        .layer(middleware::from_fn_with_state(environment, cors))
         .layer(middleware::from_fn(log_request))
 }
 
@@ -114,11 +129,13 @@ async fn log_request(mut request: Request, next: Next) -> Response {
     response
 }
 
-async fn cors(request: Request, next: Next) -> Response {
+async fn cors(State(environment): State<String>, request: Request, next: Next) -> Response {
     let Some(origin) = request.headers().get(header::ORIGIN).cloned() else {
         return next.run(request).await;
     };
-    let allowed = origin == STAGING_ORIGIN;
+    let allowed = origin
+        .to_str()
+        .is_ok_and(|origin| allowed_browser_origin(&environment, origin));
     let preflight = request.method() == "OPTIONS"
         && request
             .headers()

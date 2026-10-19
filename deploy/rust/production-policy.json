@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "environment": "production",
+  "rust_enabled": false,
+  "service_name": "verdaxis-rust.service",
+  "bind": "127.0.0.1:8010",
+  "health_url": "http://127.0.0.1:8010/health/ready",
+  "db_session_time_zone": "UTC",
+  "staged_releases_dir": ".runtime-rust/releases"
+}

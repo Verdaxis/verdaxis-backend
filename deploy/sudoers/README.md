@@ -1,7 +1,9 @@
 # Reviewed deployment service authority
 
 Install only the file for the actual environment, as root, after reviewing its
-exact commands. Production has no Rust authority. No wildcards, shell, arbitrary
+exact commands. Each environment grants only its backend restart/stop and its
+own Rust restart/stop/disable; production policy remains off until separately
+approved activation. No wildcards, shell, arbitrary
 unit, enable, daemon-reload or file-install authority is granted to the app user.
 An administrator retains installer and sudoers installation authority.
 
