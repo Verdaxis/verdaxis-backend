@@ -281,5 +281,12 @@ register(fault_scenario())
 from scripts.rust_contract.referral_mixed import scenario as mixed_referral_scenario
 
 register(mixed_referral_scenario())
+from scripts.rust_contract.referral_invite import failure_scenario as invite_failure_scenario
+from scripts.rust_contract.referral_invite import no_key_scenario as invite_no_key_scenario
+from scripts.rust_contract.referral_invite import timeout_scenario as invite_timeout_scenario
+
+register(invite_failure_scenario())
+register(invite_timeout_scenario())
+register(invite_no_key_scenario())
 # Phase 2 Task 17–19: referrals (end)
 # END LANE REGISTRATIONS

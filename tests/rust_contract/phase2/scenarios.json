@@ -7,7 +7,13 @@
     {"id": "http-boundaries", "group": "all", "kind": "http-contract", "actions": ["scope", "cors", "validation-order", "quota-thresholds"]},
     {"id": "auth-token-matrix", "group": "notifications", "kind": "token-only", "actions": []},
     {"id": "referral-contract", "group": "referrals", "kind": "registered-route", "registration": "scripts.rust_contract.phase2_referrals", "actions": ["reads", "existing-code", "mail-status-matrix", "invalid-email"]},
-    {"id": "referral-reads", "group": "referrals", "kind": "component-contract", "actions": ["success", "auth-and-scope", "committed-state", "public-resolution"]}
+    {"id": "referral-reads", "group": "referrals", "kind": "component-contract", "actions": ["success", "auth-and-scope", "committed-state", "public-resolution"]},
+    {"id": "referral-allocation", "group": "referrals", "kind": "registered-route", "registration": "scripts.rust_contract.referral_allocation", "actions": ["ten-collisions", "nine-collisions-then-free", "database-ordered-same-user", "database-ordered-cross-user-collision"]},
+    {"id": "referral-faults", "group": "referrals", "kind": "registered-route", "registration": "scripts.rust_contract.referral_faults", "actions": ["before-commit-rollback", "lost-response-after-commit", "explicit-call-after-loss"]},
+    {"id": "referral-mixed", "group": "referrals", "kind": "registered-route", "registration": "scripts.rust_contract.referral_mixed", "actions": ["python-and-rust-writers-share-database", "python-dispatcher-idle"]},
+    {"id": "referral-invite-failures", "group": "referrals", "kind": "registered-route", "registration": "scripts.rust_contract.referral_invite", "actions": ["missing-code-provider-matrix", "before-commit-rollback", "lost-response-after-send", "explicit-second-send", "existing-recipient"]},
+    {"id": "referral-invite-timeout", "group": "referrals", "kind": "registered-route", "registration": "scripts.rust_contract.referral_invite", "actions": ["missing-code-provider-timeout", "explicit-second-timeout"]},
+    {"id": "referral-invite-no-key", "group": "referrals", "kind": "registered-route", "registration": "scripts.rust_contract.referral_invite", "actions": ["missing-code-without-provider-key", "explicit-second-call"]}
   ],
   "release_coverage": "not-qualified",
   "note": "Route write scenarios are added by their owning tasks. Harness smoke does not qualify a route or candidate."

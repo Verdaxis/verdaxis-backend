@@ -254,6 +254,25 @@ impl MailClient {
             return false;
         };
         // Do not parse, retain or log provider bodies or recipient addresses.
-        matches!(self.client.post(&self.endpoint).bearer_auth(key).json(payload).send().await, Ok(response) if matches!(response.status().as_u16(), 200 | 201))
+        let Ok(mut response) = self
+            .client
+            .post(&self.endpoint)
+            .bearer_auth(key)
+            .json(payload)
+            .send()
+            .await
+        else {
+            return false;
+        };
+        let accepted = matches!(response.status().as_u16(), 200 | 201);
+        // HTTPX completes the response body before returning from post(). Drain
+        // without retaining provider content, under the same request deadline.
+        loop {
+            match response.chunk().await {
+                Ok(Some(_)) => (),
+                Ok(None) => return accepted,
+                Err(_) => return false,
+            }
+        }
     }
 }

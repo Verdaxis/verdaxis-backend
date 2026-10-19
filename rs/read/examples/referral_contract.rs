@@ -76,8 +76,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         std::env::var("FRONTEND_URL")?,
     );
     settings.email_from = std::env::var("EMAIL_FROM")?.into();
-    settings.mail =
-        MailClient::loopback(std::env::var("PHASE2_MAIL_URL")?, "disposable-only".into())?;
+    settings.mail = if std::env::var("REFERRAL_TEST_MAIL_KEY_ABSENT").as_deref() == Ok("true") {
+        MailClient::disabled()
+    } else {
+        MailClient::loopback(std::env::var("PHASE2_MAIL_URL")?, "disposable-only".into())?
+    };
     let routes = Router::new()
         .merge(verdaxis_read::crud::referrals::routes(settings))
         .route(

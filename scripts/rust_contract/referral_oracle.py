@@ -27,6 +27,10 @@ def main():
         sequence = current.get(None)
         return next(sequence) if sequence is not None else original_generate()
 
+    if os.environ.get('REFERRAL_TEST_MAIL_KEY_ABSENT') == 'true':
+        # Only the disposable adapter process loses its provider key.
+        from app.config import settings
+        settings.RESEND_API_KEY = ''
     referrals._assign_unique_referral_code = assign
     referrals.generate_referral_code = generate
     # Drop the successful response only after the actual handler commits.
