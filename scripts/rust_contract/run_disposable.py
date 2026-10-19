@@ -856,7 +856,7 @@ CREATE EXTENSION IF NOT EXISTS postgis;
                     "AUTH_INTEROP_ADMIN_URL":f"postgresql://postgres:disposable_admin_pw@127.0.0.1:{port}/{DATABASES[0]}"},check=True)
             return
         if selected == ["auth-state-matrix"]:
-            subprocess.run(["cargo", "test", "--manifest-path", "rs/Cargo.toml", "--locked", "-p", "verdaxis-read", "--test", "auth_transactions", "--test", "auth_tokens", "--", "--nocapture"], cwd=ROOT,
+            subprocess.run(["cargo", "test", "--manifest-path", "rs/Cargo.toml", "--locked", "-p", "verdaxis-read", "--test", "auth_transactions", "--test", "auth_transaction_panic", "--test", "auth_tokens", "--", "--nocapture"], cwd=ROOT,
                 env={**env, "RELEASE_SHA": self.sha, "SQLX_OFFLINE": "true", "REQUIRE_AUTH_INTEROP": "true",
                      "AUTH_INTEROP_APP_URL": f"postgresql://{role}:{PASSWORD}@127.0.0.1:{port}/{DATABASES[0]}",
                      "AUTH_INTEROP_ADMIN_URL": f"postgresql://postgres:disposable_admin_pw@127.0.0.1:{port}/{DATABASES[0]}"}, check=True)
