@@ -370,3 +370,62 @@ Resume: repair migration-head test assumptions without altering frozen Phase 0
 schema evidence, complete Task 6 residual consumers/proof, then complete Task 7's
 canonical deployment/recovery fencing integration. No measurements ran and no
 host or CI run remains active at this checkpoint.
+
+### Task 7 checkpoint — listener, external authority, fencing, failover proof
+
+Migration-head CI repair landed earlier (`2857a68d`, `6299cbfc`; frozen Phase 0
+evidence untouched, drift checks not weakened); listener groundwork `68b3d564`.
+This checkpoint completes Task 7's infrastructure. Trading caching stays disabled:
+nothing starts the listener or the refresh loop and no deploy budgets a listener.
+
+- **External authority.** The activation proof is an owner record outside every
+  database (`.runtime-rust/cache-authority.json`), written only by
+  `scripts/rust_cache_authority.py` (`revoke`, `activate`, `status`). It revokes,
+  waits twice the Rust lease, binds the incarnation row to a fresh epoch, primary
+  identity and higher revision through the migrator role, then publishes the
+  active record; any failure leaves it revoked. Ordinary deploys neither create
+  nor rotate it (pinned by test). `scripts/deploy.sh` and
+  `scripts/prepare_rust_runtime.py` are deliberately unchanged: the release
+  fixture copies a fixed script list, and authority rotation belongs to the
+  recovery owner, so the runbook section in
+  `docs/runbooks/integrated-migration-cutover.md` is the integration point.
+- **Fencing.** `CacheAuthority` grants a hit or fill only under the record, a
+  5 s lease re-read every second, the serving connection's own identity, a
+  listener bound to that identity and an unchanged fence counter. A stuck process
+  loses its hits by itself, so no acknowledgement or routing removal is needed.
+  This replaces the plan's acknowledge-or-lose-route step; safety rests on the
+  lease. Generation rollback inside one authority revokes everything.
+- **Dependency ledger.** Closed-world test over Rust queries versus the migrated
+  table list with reviewed exclusions; per-table, per-statement trigger tests;
+  real Python writers (place, amend, cancel, publish, cross); concurrent writers
+  get contiguous generations. Triggers are now `ENABLE ALWAYS` and the listener
+  refuses to attach unless all sixteen keep that exact shape. The migration takes
+  `SHARE ROW EXCLUSIVE ... NOWAIT` locks first.
+- **ACL.** The deployed application role reads the three cache tables, has no
+  INSERT, UPDATE, DELETE or TRUNCATE on any, cannot disable or drop a trigger or
+  set `session_replication_role`, and its business statement and the generation
+  append share one transaction.
+- **Budget.** `budget.json` gains an optional `cache_listener` (0 or 1), absent
+  and byte-identical when 0; Python and Rust both count it and require the whole
+  total to fit. `CacheEvents::connect` refuses an unbudgeted listener before it
+  connects. The compiled revision allowlist now accepts `prc_20261018_cache` and
+  keeps both earlier checkpoints. A test starts against a schema without the
+  checkpoint and finds nothing to serve.
+- **Failover proof** on two migrated incarnations (`cache_failover_postgres.rs`):
+  promotion with a reused generation, restore with copied metadata, old-primary
+  connection and listener, stale fills with equal, ahead and rolled-back
+  generations at both insertion and response, uncertain authority (lease lapse,
+  missing, malformed and symlinked records, mismatched metadata) and missing
+  generation infrastructure. Listener loss and reconnect catch-up are proved in
+  `cache_events_postgres.rs`.
+- **Not measured.** The single generation row serializes writers and can deadlock
+  with a later lock; no measurement ran (decision 96). See
+  `docs/rust-phase1/cache-dependencies.md`.
+- **For Task 8.** Remaining there: start the refresh loop and listener under an
+  explicit switch (passing `--cache-listener 1`), clear the reference cache when
+  `current_fence()` changes, commit-safe hit checks in routes, time boundaries.
+  Tasks 9 and 10 need measured dispositions and so PM measurement authority.
+
+Resume: Task 8 starts only after Tasks 9 and 10 hand off reviewed uncached route
+commits; their acceptance needs large-data measurements the brief has not
+authorized.

@@ -222,6 +222,13 @@ recorded twice on disposable data. Canonical tape pages come from the complete
 Python-filtered relation before full-UUID pagination, not a sorted Python page.
 `runtime/cache.rs` stores only bounded public reference payloads for 60 seconds;
 request headers are rebuilt. Trading caches remain unimplemented and disabled.
+Their infrastructure is prepared: migration `prc_20261018_cache` adds the
+generation, event and incarnation tables and an always-enabled statement trigger
+on each trading dependency. `runtime/cache_authority.rs` grants a hit only under an
+owner record outside the database (`scripts/rust_cache_authority.py` writes it),
+a lease, a matching database identity and a bound listener; `runtime/cache_events.rs`
+owns the one budgeted listener connection. Nothing starts either yet. See
+`docs/rust-phase1/cache-dependencies.md`.
 Exact `market/amount.rs` operations retain intermediate economic rounding while
 removing wire-spelling emulation. See `docs/rust-phase1/same-meaning-contract.md`.
 
