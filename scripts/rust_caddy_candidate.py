@@ -135,16 +135,11 @@ def production_group(group: str) -> str:
     snippet = (Path(__file__).resolve().parents[1] / "deploy/caddy/rust-public-staging.caddy").read_text()
     lines = snippet.splitlines(keepends=True)
     start = next(i for i, line in enumerate(lines) if line.strip() == f"@rust_{group} {{")
-    stop = next(i for i in range(start, len(lines)) if lines[i].strip() == f"handle @rust_{group} {{") + 3
-    body = "".join(lines[start:stop])
+    definition = blocks(snippet)[0]
+    handle = one(definition["children"], f"handle @rust_{group}")
+    body = snippet[sum(len(line) for line in lines[:start]):handle["end"]]
     index = GROUPS.index(group)
-    body = body.replace(f"reverse_proxy {{args[{index}]}}", """reverse_proxy 127.0.0.1:8010 {
-\t\t\theader_up X-Forwarded-For {client_ip}
-\t\t\tflush_interval -1
-\t\t\ttransport http {
-\t\t\t\tkeepalive off
-\t\t\t}
-\t\t}""")
+    body = body.replace(f"reverse_proxy {{args[{index}]}} {{", "reverse_proxy 127.0.0.1:8010 {\n\t\t\theader_up X-Forwarded-For {client_ip}")
     body = "".join("\t" + line for line in body.splitlines(keepends=True))
     return f"\t\t# BEGIN verdaxis-rust {group}\n" + body + f"\t\t# END verdaxis-rust {group}\n"
 

@@ -61,6 +61,18 @@ def test_malformed_selected_rows_fail_closed_and_p95_uses_nearest_rank():
     assert module.error_classes([{"MESSAGE": '{"level":"error","error_type":"DatabaseError"}', "_SYSTEMD_UNIT": "verdaxis-rust.service"}]) == {"verdaxis-rust.service:DatabaseError"}
 
 
+def test_staging_json_access_shape_is_read_without_volume_override():
+    module = checker()
+    path = ROOT / "tests/fixtures/caddy/staging-access.jsonl"
+    report = module.evaluate(module.json_lines([path]), "simple", 2800, 1800, True, set(), set())
+    assert report["requests"] == [1, 1]
+    assert report["errors_5xx"] == [0, 0]
+    assert report["p95_seconds"] == [0.02, 0.03]
+    assert report["decision"] == "HOLD"
+    # Checklist D's mechanics-only exception is operator policy, not a weakened
+    # production passive decision in this shared reader.
+
+
 def test_passive_cli_reads_files_and_returns_the_decision_exit(tmp_path):
     import datetime
     import json

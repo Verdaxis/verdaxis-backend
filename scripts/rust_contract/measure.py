@@ -19,27 +19,24 @@ run is reported inconclusive with the number still needed -- never a pass.
 from __future__ import annotations
 
 import argparse
-from datetime import datetime, timezone
 import json
 import math
 import os
 import shutil
-import statistics
 import subprocess
-import sys
 import threading
 import time
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
 
-from scripts.rust_contract import run_disposable as runner  # noqa: E402
-from scripts.rust_contract import workload  # noqa: E402
-
+from scripts.rust_contract import run_disposable as runner
+from scripts.rust_contract import workload
 
 # ---------------------------------------------------------------- pure helpers
 
@@ -503,6 +500,8 @@ class Measurement(runner.Runner):
             "PYTHON_UPSTREAM": upstream,
             **{f"{group}_UPSTREAM": upstream for group in ("SIMPLE", "ORDERBOOK", "PRICES", "CURVES", "MCP")},
         }
+        # Reuse the serving contract's flush/keepalive policy for every owner.
+        # Changing this source does not authorize a measurement run.
         config = str(ROOT / "tests/rust_contract/Caddyfile")
         subprocess.run([caddy, "adapt", "--config", config, "--validate"], cwd=ROOT, env=env, check=True)
         child = subprocess.Popen(

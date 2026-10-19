@@ -30,6 +30,20 @@ def test_candidate_changes_one_group_and_keeps_rollback_exact(environment, pytho
         module.candidate(original.replace(" route {", " handle {"), environment, "simple")
 
 
+def test_all_snippet_groups_preserve_staging_forwarding_options():
+    module = generator()
+    snippet = (ROOT / "deploy/caddy/rust-public-staging.caddy").read_text()
+    definition = module.blocks(snippet)[0]
+    for group in module.GROUPS:
+        handle = module.one(definition["children"], f"handle @rust_{group}")
+        body = snippet[handle["start"]:handle["end"]]
+        assert "flush_interval -1" in body
+        assert "transport http {" in body
+        assert "keepalive off" in body
+    contract = (ROOT / "tests/rust_contract/Caddyfile").read_text()
+    assert "flush_interval -1" in contract and "keepalive off" in contract
+
+
 def production_fixture():
     return (ROOT / "tests/fixtures/caddy/production.Caddyfile").read_text()
 
