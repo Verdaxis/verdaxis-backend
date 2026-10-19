@@ -47,6 +47,82 @@ pub fn path_uuid(name: &str, raw: &str) -> Result<Uuid, Value> {
     })
 }
 
+/// JSON syntax is checked before authentication. An empty body is "no body".
+pub fn parse_body(raw: &[u8]) -> Result<Value, ApiError> {
+    if raw.is_empty() {
+        return Ok(Value::Null);
+    }
+    crate::auth::request::parse_json_body(raw)
+}
+
+/// Errors for a body that is not a JSON object. FastAPI reports an absent or
+/// null body as missing and every other non-object as a model type error.
+fn body_shape_error(body: &Value) -> Value {
+    if body.is_null() {
+        json!({"type":"missing","loc":["body"],"msg":"Field required","input":body})
+    } else {
+        json!({"type":"model_attributes_type","loc":["body"],
+            "msg":"Input should be a valid dictionary or object to extract fields from",
+            "input":body})
+    }
+}
+
+pub fn body_field_error(path: &[&str], kind: &str, message: &str, input: &Value) -> Value {
+    let mut location = vec![json!("body")];
+    location.extend(path.iter().map(|part| json!(part)));
+    json!({"type":kind,"loc":location,"msg":message,"input":input})
+}
+
+/// A required string with Pydantic's length bounds, counted in code points.
+fn bounded_string(
+    body: &Value,
+    object: &serde_json::Map<String, Value>,
+    name: &str,
+    length: std::ops::RangeInclusive<usize>,
+) -> Result<String, Value> {
+    let Some(value) = object.get(name) else {
+        return Err(body_field_error(&[name], "missing", "Field required", body));
+    };
+    let Some(text) = value.as_str() else {
+        return Err(body_field_error(
+            &[name],
+            "string_type",
+            "Input should be a valid string",
+            value,
+        ));
+    };
+    let characters = text.chars().count();
+    if characters < *length.start() {
+        let mut error = body_field_error(
+            &[name],
+            "string_too_short",
+            "String should have at least 1 character",
+            value,
+        );
+        error["ctx"] = json!({"min_length":length.start()});
+        return Err(error);
+    }
+    if characters > *length.end() {
+        let mut error = body_field_error(
+            &[name],
+            "string_too_long",
+            &format!("String should have at most {} characters", length.end()),
+            value,
+        );
+        error["ctx"] = json!({"max_length":length.end()});
+        return Err(error);
+    }
+    Ok(text.to_owned())
+}
+
+/// `WatchlistCreateRequest`: one name of 1 to 100 characters. Whitespace counts.
+pub fn validate_create(body: &Value) -> Result<String, Vec<Value>> {
+    let Some(object) = body.as_object() else {
+        return Err(vec![body_shape_error(body)]);
+    };
+    bounded_string(body, object, "name", 1..=100).map_err(|error| vec![error])
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -85,6 +161,65 @@ mod tests {
     #[test]
     fn other_diagnostics_pass_through() {
         assert_eq!(pydantic_uuid_cause("other".into()), "other");
+    }
+
+    #[test]
+    fn a_name_of_one_to_one_hundred_characters_is_accepted() {
+        for name in ["a", "   ", &"é".repeat(100)] {
+            assert_eq!(validate_create(&json!({"name":name})).unwrap(), name);
+        }
+    }
+
+    #[test]
+    fn extra_fields_are_ignored() {
+        let body = json!({"name":"x","kind":"RADAR_DEFAULT"});
+        assert_eq!(validate_create(&body).unwrap(), "x");
+    }
+
+    #[test]
+    fn name_length_errors_carry_the_bound() {
+        let short = validate_create(&json!({"name":""})).unwrap_err();
+        assert_eq!(short[0]["type"], "string_too_short");
+        assert_eq!(short[0]["ctx"], json!({"min_length":1}));
+        assert_eq!(short[0]["loc"], json!(["body", "name"]));
+        let long = validate_create(&json!({"name":"x".repeat(101)})).unwrap_err();
+        assert_eq!(long[0]["type"], "string_too_long");
+        assert_eq!(long[0]["msg"], "String should have at most 100 characters");
+        assert_eq!(long[0]["ctx"], json!({"max_length":100}));
+    }
+
+    #[test]
+    fn missing_and_mistyped_names_echo_their_input() {
+        let body = json!({"other":1});
+        let missing = validate_create(&body).unwrap_err();
+        assert_eq!(missing[0]["type"], "missing");
+        assert_eq!(missing[0]["input"], body);
+        let typed = validate_create(&json!({"name":5})).unwrap_err();
+        assert_eq!(typed[0]["type"], "string_type");
+        assert_eq!(typed[0]["input"], 5);
+    }
+
+    #[test]
+    fn a_body_that_is_not_an_object_names_its_shape() {
+        let null = validate_create(&Value::Null).unwrap_err();
+        assert_eq!(null[0]["type"], "missing");
+        assert_eq!(null[0]["loc"], json!(["body"]));
+        let array = validate_create(&json!(["name"])).unwrap_err();
+        assert_eq!(array[0]["type"], "model_attributes_type");
+        assert_eq!(array[0]["input"], json!(["name"]));
+    }
+
+    #[test]
+    fn an_empty_body_is_null_and_bad_syntax_is_refused() {
+        assert_eq!(parse_body(b"").unwrap(), Value::Null);
+        assert_eq!(
+            parse_body(b"{\"name\":\"a\"}").unwrap(),
+            json!({"name":"a"})
+        );
+        assert_eq!(
+            parse_body(b"{").unwrap_err().status,
+            StatusCode::UNPROCESSABLE_ENTITY
+        );
     }
 
     #[test]

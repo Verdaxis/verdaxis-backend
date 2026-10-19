@@ -175,7 +175,7 @@ fn public_visibility_snapshot_owns_ids_and_count_keys_together() {
 async fn mounted_watchlist_reads_refuse_missing_bearer_before_bad_uuid() {
     use axum::{Router, body::Body, http::Request};
     use tower::ServiceExt;
-    use verdaxis_read::crud::watchlists::{ReadSettings, read_routes};
+    use verdaxis_read::crud::watchlists::{WatchlistSettings, router};
     let pool = sqlx::postgres::PgPoolOptions::new()
         .max_connections(16)
         .connect_lazy("postgres://unused:unused@127.0.0.1:54321/unused_test")
@@ -210,7 +210,7 @@ async fn mounted_watchlist_reads_refuse_missing_bearer_before_bad_uuid() {
         },
     )
     .unwrap();
-    let settings = ReadSettings::new(
+    let settings = WatchlistSettings::new(
         verdaxis_read::auth::VerificationSettings::new(
             "synthetic".into(),
             None,
@@ -219,7 +219,7 @@ async fn mounted_watchlist_reads_refuse_missing_bearer_before_bad_uuid() {
         ),
         Utc.with_ymd_and_hms(2026, 10, 19, 0, 0, 0).unwrap(),
     );
-    let app: Router = read_routes(settings).with_state(state);
+    let app: Router = router(state, settings);
     let response = app
         .oneshot(
             Request::builder()

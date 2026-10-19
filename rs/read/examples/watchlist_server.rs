@@ -1,7 +1,7 @@
 //! Disposable-only watchlist HTTP adapter, owned by the shared runner.
 use axum::{Json, Router, routing::get};
 use verdaxis_read::auth::VerificationSettings;
-use verdaxis_read::crud::watchlists::{ReadSettings, read_routes};
+use verdaxis_read::crud::watchlists::{WatchlistSettings, WriteControls, router};
 use verdaxis_read::{AppState, Config, MarketPolicy};
 
 #[tokio::main]
@@ -41,7 +41,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "../../../deploy/rust/market-policy.json"
         ))?,
     )?;
-    let settings = ReadSettings::new(
+    let settings = WatchlistSettings::new(
         VerificationSettings::new(
             std::env::var("JWT_SECRET")?,
             None,
@@ -50,7 +50,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ),
         chrono::DateTime::parse_from_rfc3339(&std::env::var("WATCHLIST_TEST_CUTOFF")?)?
             .with_timezone(&chrono::Utc),
-    );
+    )
+    .with_controls(controls);
     let identity = Router::new().route(
         "/.well-known/verdaxis-disposable-test",
         get(move || {
@@ -58,11 +59,33 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             async move { Json(serde_json::json!({"disposable":true,"token":token})) }
         }),
     );
-    let routes = read_routes(settings).with_state(state).merge(identity);
+    let routes = router(state, settings).merge(identity);
     axum::serve(
         tokio::net::TcpListener::bind(bind).await?,
         verdaxis_read::runtime::http::middleware(routes),
     )
     .await?;
     Ok(())
+}
+
+/// Disposable write controls: the runner supplies the same clock, identifier
+/// sequence and summary failpoint to both stacks through authenticated headers.
+fn controls(headers: &axum::http::HeaderMap) -> WriteControls {
+    let text = |name: &str| headers.get(name).and_then(|value| value.to_str().ok());
+    let trusted =
+        text("x-disposable-token") == std::env::var("DISPOSABLE_TEST_TOKEN").ok().as_deref();
+    let Some(clock) = text("x-test-watchlist-clock").filter(|_| trusted) else {
+        return WriteControls::real();
+    };
+    let ids = text("x-test-watchlist-ids")
+        .unwrap_or_default()
+        .split(',')
+        .filter(|part| !part.is_empty())
+        .map(|part| part.parse().expect("controlled identifier"))
+        .collect();
+    WriteControls::controlled(
+        clock.parse().expect("controlled clock"),
+        ids,
+        text("x-test-watchlist-fail-summary") == Some("true"),
+    )
 }
