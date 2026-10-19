@@ -64,7 +64,7 @@ organization.
 | Runner and inventory Python tests | 0 | 30 passed |
 | `cargo clippy -D warnings` (lib, `crud_watchlist_reads`, `watchlist_server`) | 0 | clean |
 | `cargo test` (lib, `crud_watchlist_reads`) | 0 | 19 and 6 passed |
-| Differential, both KYC states, 18 actions each | 0 | every approved pair matched |
+| Differential, both KYC states, 15 actions each | 0 | every approved pair matched |
 
 Logs: `work/rust-phase2/task11-check-2.log` (not committed). One earlier call
 ended with exit 255 when the SSH connection to the host dropped; it was rerun.
