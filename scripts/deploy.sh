@@ -91,16 +91,16 @@ ACL_CONVERGENCE_HELPER_PATH="scripts/converge_runtime_acls.py"
 DEPLOY_START_GUARD_HELPER_PATH="scripts/verify_deploy_start_guard.py"
 RUST_STAGING_POLICY_PATH="deploy/rust/staging-policy.json"
 RUST_POLICY_PATH="deploy/rust/$DEPLOY_ENVIRONMENT-policy.json"
-RUST_WORKFLOW_REF="refs/heads/$TARGET_BRANCH"
+# Production deploys the staging tip and CI signs the artifact on the staging
+# push, so both environments bind provenance to that one ref (PD-P1). The
+# repository, workflow path, exact commit and attestation checks stay exact.
+RUST_WORKFLOW_REF="refs/heads/staging"
 RUST_PROVENANCE_KEY_PATH="deploy/rust/artifact-provenance.pub.pem"
 RUST_ARTIFACT_VERIFIER_PATH="scripts/verify_rust_artifact.py"
 RUST_RUNTIME_PREPARER_PATH="scripts/prepare_rust_runtime.py"
 RUST_UNIT_NAME="verdaxis-rust-staging.service"
 if [[ "$DEPLOY_ENVIRONMENT" == "production" ]]; then
     RUST_UNIT_NAME="verdaxis-rust.service"
-    RUST_WORKFLOW_REF="refs/heads/prod"
-else
-    RUST_WORKFLOW_REF="refs/heads/staging"
 fi
 HOST_PROVENANCE_KEY_PATH="${HOST_PROVENANCE_KEY_PATH:-/etc/verdaxis/artifact-provenance.pub.pem}"
 RUST_ARTIFACT_ARCHIVE="${RUST_ARTIFACT_ARCHIVE:-}"

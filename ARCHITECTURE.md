@@ -225,7 +225,7 @@ now has a separate policy-off bootstrap record and unit; no production Rust
 activation occurs merely by promoting this source. `deploy/rust/production-policy.json`
 selects `verdaxis-rust.service` at `127.0.0.1:8010`. The shared transaction selects
 only its own environment policy, verifies production provenance against
-`refs/heads/prod`, prepares app-only runtime credentials, and requires the same
+`refs/heads/staging`, prepares app-only runtime credentials, and requires the same
 Python/Rust release SHA and both readiness documents. Production startup requires
 `verdaxis_app` on `127.0.0.1:5432/verdaxis_prod` and exact checkpoint
 `p0_20261016_union`. Production browser CORS follows the Python production origin

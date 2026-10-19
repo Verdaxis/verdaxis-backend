@@ -71,7 +71,8 @@ Copy exact-command preflight and noninteractive execution, reviewed minimal
 per-environment sudoers, atomic private artifact replacement, isolated prestarts,
 and separate restart/readiness phases. Optional Rust failure must never stop an
 exact-ready Python API. Do not enable production Rust, widen database roles or
-copy staging identities/unit names. Do not copy the existing production branch
-mapping bug (`DEFAULT_BRANCH=staging`) as deployment authority: production lane
-must resolve that separately before any live production use. Root installer
+copy staging identities/unit names. Production deploys the tip of
+`origin/staging` (`DEFAULT_BRANCH=staging` for `*/prod/be`); this is the design,
+not a bug. Phase 0 made `staging` the single source branch on purpose (founder
+decisions 89 and 99); see `docs/rust-phase1/production-path.md`. Root installer
 preflight and apply both require the fixed clean exact-SHA checkout.

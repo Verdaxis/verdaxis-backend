@@ -6,7 +6,7 @@
 
 - Production bootstrap policy remains false. New unit is `verdaxis-rust.service`, loopback 8010, app-only projected runtime credentials, existing start/revision/budget prestarts, 192/256 MiB memory limits, one-CPU quota and lower CPU weight.
 - Production configuration requires `verdaxis_app`, `127.0.0.1:5432/verdaxis_prod`, union checkpoint and prepared budget. Production CORS uses the current Python production origin set. MCP remains non-production.
-- Shared deploy selects the environment policy and binds production artifact provenance to `refs/heads/prod`. Unit absence and wrong provenance refuse before source mutation. Both readiness documents are required before state clears.
+- Shared deploy selects the environment policy and binds production artifact provenance to `refs/heads/staging` (decision PD-P1, below). Unit absence and wrong provenance refuse before source mutation. Both readiness documents are required before state clears.
 - Production Caddy candidates now edit the confirmed single EU Caddyfile: P0 redacted API access logging, then one exact Task 13 matcher/handle block after analytics and before Python fallback. Rust proxies retain explicit client_ip forwarding, flush -1 and keepalive off. Exact prior full-file bytes are the rollback. Staging retains import-argument mode; production MCP changes refuse.
 - No changes under `app/` or `alembic/`, no staging policy/comparator edits. Staging unit changes came only from PM-authorized merge of PR #94 (`origin/staging` at `b068f89e`); this lane applies its env-launch rule to production. No live host install/deploy/Caddy action, signing, database access or measurements were performed.
 
@@ -83,4 +83,10 @@ The complete unit suite runs in GitHub CI (first run on this branch: 2755 passed
 
 An earlier commit in this round changed production's default branch to `prod`, and the first CI run failed `test_canonical_branch_and_canary_origin`, the guard for the Phase 0 rule. That was a regression and is reverted: production follows `staging` (founder decisions 89 and 99), the guard test is byte-identical to `origin/staging`, and the production release fixtures use a `staging` source branch.
 
-Open item for the PM: the production artifact provenance binding in `scripts/deploy.sh` (`RUST_WORKFLOW_REF="refs/heads/prod"` for production) predates this round and is unchanged. If the production Rust artifact is signed on the `staging` push, that binding needs a reviewed decision before production activation; today it fails closed.
+### Decision PD-P1: production artifact provenance binds to `refs/heads/staging`
+
+Production's Rust artifact provenance binds to `refs/heads/staging`, not `refs/heads/prod`. Production deploys the `staging` tip, CI signs on the `staging` push, and `prod` has diverged (258 commits not on `staging`), so a promotion push is not possible without a force-push. This does not widen trust: whoever can push to `staging` already decides production's Python code.
+
+Every other binding stays exact: repository, workflow file path, the exact commit being deployed and the attestation checks. `RUST_WORKFLOW_REF` in `scripts/deploy.sh` is one constant, `refs/heads/staging`, for both environments; the staging binding is unchanged.
+
+Tests (`tests/unit/test_rust_production.py`): production refuses an artifact attested from `refs/heads/prod`, a `refs/pull/...` ref, a feature branch, a tag or a look-alike branch, and refuses the right ref for a different commit (a record that names another commit, and a whole artifact built for another commit). Each refusal happens before any source, state or service change. Earlier text in this directory and in the plan that names `refs/heads/prod` as the production provenance ref is superseded by this decision.

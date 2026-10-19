@@ -126,13 +126,20 @@ class ProductionReleaseFixture(RustReleaseFixture):
                 "verdaxis-rust-staging.service", "verdaxis-rust.service"
             ).replace("8011", "8010"))
 
-    def sign_for_prod(self):
+    def attest_from(self, ref, *, source_sha=None):
+        """Rewrite and re-sign the fixture record as attested from `ref`."""
         record = self.artifact_root / "provenance-record.json"
         body = json.loads(record.read_text())
-        body["workflow_ref"] = "refs/heads/prod"
+        body["workflow_ref"] = ref
+        if source_sha is not None:
+            body["source_sha"] = source_sha
         data = json.dumps(body).encode()
         record.write_bytes(data)
         (self.artifact_root / "provenance-record.sig").write_bytes(self.key.sign(data))
+
+    def sign_for_prod(self):
+        """Production accepts only the attestation made on the staging push."""
+        self.attest_from("refs/heads/staging")
 
 
 @pytest.mark.parametrize("failure", ["", "unit", "provenance", "readiness"])
@@ -140,7 +147,9 @@ def test_production_activation_requires_its_unit_provenance_and_readiness(tmp_pa
     fixture = ProductionReleaseFixture(tmp_path)
     sha = fixture.push_rust_release(enabled=True)
     fixture.build_artifact(sha)
-    if failure != "provenance":
+    if failure == "provenance":
+        fixture.attest_from("refs/heads/prod")
+    else:
         fixture.sign_for_prod()
     overrides = {}
     if failure == "unit":
@@ -168,6 +177,56 @@ def test_production_activation_requires_its_unit_provenance_and_readiness(tmp_pa
         else:
             assert "DEPLOYMENT_STATE=rust-failed" in (tmp_path / "runtime-deploy-state/production.state").read_text()
             assert "verdaxis-rust.service" in fixture.stopped_services()
+
+
+def refused_before_any_change(fixture, result):
+    """The artifact refusal happens before source, state or service changes."""
+    output = result.stdout + result.stderr
+    assert result.returncode != 0, output
+    assert "Rust artifact verification refused" in output
+    assert _git(fixture.checkout, "rev-parse", "HEAD").stdout.strip() == fixture.old_sha
+    assert not any(line.startswith("sudo:systemctl") for line in fixture.ledger)
+    assert not (fixture.tmp_path / "runtime-deploy-state/production.state").exists()
+    return output
+
+
+@pytest.mark.parametrize("ref", [
+    "refs/heads/prod",
+    "refs/pull/95/merge",
+    "refs/heads/feat/rust-phase1-production",
+    "refs/tags/v1.0.0",
+    "refs/heads/staging-next",
+])
+def test_production_refuses_an_artifact_attested_from_any_other_ref(tmp_path, ref):
+    fixture = ProductionReleaseFixture(tmp_path)
+    sha = fixture.push_rust_release(enabled=True)
+    fixture.build_artifact(sha)
+    fixture.attest_from(ref)
+    output = refused_before_any_change(fixture, fixture.deploy(sha))
+    assert "workflow_ref does not match" in output
+
+
+def test_production_refuses_the_staging_ref_for_a_different_commit(tmp_path):
+    fixture = ProductionReleaseFixture(tmp_path)
+    sha = fixture.push_rust_release(enabled=True)
+    fixture.build_artifact(sha)
+    fixture.attest_from("refs/heads/staging", source_sha="e" * 40)
+    output = refused_before_any_change(fixture, fixture.deploy(sha))
+    assert "source_sha does not match" in output
+
+
+def test_production_refuses_a_staging_artifact_built_for_another_commit(tmp_path):
+    fixture = ProductionReleaseFixture(tmp_path)
+    sha = fixture.push_rust_release(enabled=True)
+    fixture.build_artifact("e" * 40)
+    fixture.sign_for_prod()
+    refused_before_any_change(fixture, fixture.deploy(sha))
+
+
+def test_production_artifact_ref_is_the_staging_push_and_staging_is_unchanged():
+    deploy = (ROOT / "scripts/deploy.sh").read_text()
+    assert deploy.count('RUST_WORKFLOW_REF="refs/heads/staging"') == 1
+    assert "refs/heads/prod" not in deploy
 
 
 def test_production_policy_off_preserves_python_only_deploy(tmp_path):
