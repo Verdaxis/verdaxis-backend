@@ -36,7 +36,12 @@ def test_old_database_is_only_for_old_release(database):
 
 def test_canonical_branch_and_canary_origin():
     source = (ROOT / "scripts/deploy.sh").read_text()
-    assert 'DEFAULT_BRANCH="prod"' not in source
+    # The canonical production checkout follows `prod`, the branch whose pushes
+    # publish the production Rust artifact; the staging checkout follows `staging`.
+    production = source.split("*/prod/be)", 1)[1].split(";;", 1)[0]
+    staging = source.split("*/staging/be)", 1)[1].split(";;", 1)[0]
+    assert 'DEFAULT_BRANCH="prod"' in production
+    assert 'DEFAULT_BRANCH="staging"' in staging
     assert "https://canary.verdaxis.exchange" in production_settings().BACKEND_CORS_ORIGINS
 
 
