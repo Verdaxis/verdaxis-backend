@@ -61,7 +61,13 @@ def inserted(identifier, message, page):
 def actions(context):
     now = int(time.time())
     def token(subject):
-        return jwt.encode({"sub": subject, "type": "access", "iss": "verdaxis", "aud": "verdaxis-api", "iat": now - 60, "exp": now + 86400}, SECRET, algorithm="HS256")
+        # The Rust cell validates the token against the pinned action clock,
+        # while the Python cell uses the wall clock. Keep the claims valid for
+        # both so the scenario does not depend on the day it runs.
+        instant = int(datetime.fromisoformat(INSTANT).timestamp())
+        issued_at = min(now, instant) - 60
+        expires_at = max(now, instant) + 86400
+        return jwt.encode({"sub": subject, "type": "access", "iss": "verdaxis", "aud": "verdaxis-api", "iat": issued_at, "exp": expires_at}, SECRET, algorithm="HS256")
     serial = 0
     def action(name, status, body=None, *, subject=BUYER, path="/api/feedback", method="POST", outcome="committed", check=unchanged, extra=None):
         nonlocal serial
