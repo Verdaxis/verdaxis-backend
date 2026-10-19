@@ -8,6 +8,8 @@ development shell, so the tables describe the oracle that production runs:
 The output is Rust source. It contains only Unicode properties (from the
 interpreter's `unicodedata`) and the published IDNA tables (from the `idna`
 package), so a change in either dependency shows up as a diff in this file.
+Run `cargo fmt` after regenerating: the generator ends with a blank line that
+rustfmt removes.
 """
 import sys
 import unicodedata
@@ -98,6 +100,7 @@ def main():
     emit_array('BIDIRECTIONAL', '(u32, u32, u8)',
                [f'(0x{start:x}, 0x{end:x}, {BIDI_CLASSES.index(value)})' for start, end, value in bidi if value != SURROGATE],
                per_line=5)
+    print('#[rustfmt::skip]')
     print('pub static BIDIRECTIONAL_CLASSES: &[&str] = &[' + ', '.join(rust_string(value) for value in BIDI_CLASSES) + '];')
     print()
 
@@ -116,6 +119,7 @@ def main():
         emit_ranges(f'SCRIPT_{script.upper()}', intrange_pairs(idnadata.scripts[script]))
     for joining in sorted(idnadata.joining_types):
         emit_ranges(f'JOINING_{joining}', intrange_pairs(idnadata.joining_types[joining]))
+    print('#[rustfmt::skip]')
     print('pub static JOINING_TYPES: &[(char, &[(u32, u32)])] = &[' + ', '.join(
         f"('{joining}', JOINING_{joining})" for joining in sorted(idnadata.joining_types)) + '];')
     print()

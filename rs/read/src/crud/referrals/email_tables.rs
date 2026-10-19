@@ -2903,7 +2903,11 @@ pub static BIDIRECTIONAL: &[(u32, u32, u8)] = &[
     (0x100000, 0x10fffd, 1), (0x10fffe, 0x10ffff, 0),
 ];
 
-pub static BIDIRECTIONAL_CLASSES: &[&str] = &["", "L", "R", "AL", "EN", "ES", "ET", "AN", "CS", "NSM", "BN", "B", "S", "WS", "ON", "LRE", "LRO", "RLE", "RLO", "PDF", "LRI", "RLI", "FSI", "PDI"];
+#[rustfmt::skip]
+pub static BIDIRECTIONAL_CLASSES: &[&str] = &[
+    "", "L", "R", "AL", "EN", "ES", "ET", "AN", "CS", "NSM", "BN", "B", "S", "WS", "ON", "LRE",
+    "LRO", "RLE", "RLO", "PDF", "LRI", "RLI", "FSI", "PDI",
+];
 
 #[rustfmt::skip]
 pub static VIRAMA: &[u32] = &[
@@ -3206,7 +3210,14 @@ pub static JOINING_T: &[(u32, u32)] = &[
     (0xe0001, 0xe0001), (0xe0020, 0xe007f), (0xe0100, 0xe01ef),
 ];
 
-pub static JOINING_TYPES: &[(char, &[(u32, u32)])] = &[('C', JOINING_C), ('D', JOINING_D), ('L', JOINING_L), ('R', JOINING_R), ('T', JOINING_T)];
+#[rustfmt::skip]
+pub static JOINING_TYPES: &[(char, &[(u32, u32)])] = &[
+    ('C', JOINING_C),
+    ('D', JOINING_D),
+    ('L', JOINING_L),
+    ('R', JOINING_R),
+    ('T', JOINING_T),
+];
 
 #[rustfmt::skip]
 pub static IDNA_PVALID: &[(u32, u32)] = &[
@@ -6459,4 +6470,3 @@ pub static UTS46_REPLACEMENTS: &[Option<&str>] = &[
     Some("\u{2a600}"), None, None, None,
     None, None, None, None,
 ];
-
