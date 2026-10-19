@@ -394,9 +394,12 @@ def test_activation_requires_the_manifest_unit_and_a_verified_artifact(tmp_path)
     assert fixture.state_text() == ""
 
 
-@pytest.mark.parametrize("environment, enabled", [("staging", "1"), ("production", "0")])
-def test_committed_policy_enables_staging_but_keeps_production_bootstrap_off(environment, enabled):
-    """Policy approval does not enable production or publish a public route."""
+@pytest.mark.parametrize(
+    "environment, unit_name, enabled",
+    [("staging", RUST_UNIT_NAME, "1"), ("production", "verdaxis-rust.service", "1")],
+)
+def test_committed_policies_enable_the_loopback_service_in_both_environments(environment, unit_name, enabled):
+    """Policy approval starts the loopback service; it does not publish a public route."""
     deploy = _text(DEPLOY)
     functions = deploy[
         deploy.index("load_rust_staging_policy() {"):
@@ -407,14 +410,14 @@ def test_committed_policy_enables_staging_but_keeps_production_bootstrap_off(env
     assert policy["environment"] == "staging"
     assert policy["bind"] == "127.0.0.1:8011"
     assert policy["health_url"] == "http://127.0.0.1:8011/health/ready"
-    assert json.loads(_text("deploy/rust/production-policy.json"))["rust_enabled"] is False
+    assert json.loads(_text("deploy/rust/production-policy.json"))["rust_enabled"] is True
     script = (
         "set -euo pipefail\n"
         f'DEPLOY_ENVIRONMENT="{environment}"\n'
         f'RUST_STAGING_POLICY_PATH="{POLICY}"\n'
         f'RUST_POLICY_PATH="deploy/rust/{environment}-policy.json"\n'
         f'UNIT_MANIFEST_PATH="{MANIFEST}"\n'
-        f'RUST_UNIT_NAME="{RUST_UNIT_NAME}"\n'
+        f'RUST_UNIT_NAME="{unit_name}"\n'
         + functions
         + f'\nload_rust_staging_policy "{RELEASE_SHA}" "{ROOT}"\n'
         'printf "RUST_ENABLED=%s\\n" "$RUST_ENABLED"\n'
