@@ -5,6 +5,22 @@ reads W01 and W04. Tasks 12 and 13 port the container and target writes. The
 policy basis is PD1 to PD4 and PD6 in the Phase 2 plan, PD4-G (decision 94) and
 the plan record in `rust-phase2-plan-record.md`.
 
+## Composition
+
+`rs/read/src/crud/watchlists/http.rs` owns `router(app, settings)`, the one
+composition point for the group, and `run`, which verifies the bearer and runs a
+handler in the one authenticated transaction. Route registration for the
+integration router is the marked block in `rs/read/src/routes/mod.rs`
+(`watchlist_router`). Nothing here changes `Config` or `AppState`; the settings
+(verification and the reserved PD5 cutoff) are supplied by the caller, and the
+runtime secret wiring stays with Tasks 22 and 23.
+
+Generated values (row clock and row identifiers) come from `WriteControls`.
+Production requests use the real clock and random identifiers. Only a build with
+the `contract-tests` feature can install a control source
+(`WatchlistSettings::with_controls`), and an exhausted controlled sequence
+panics instead of falling back to random identifiers.
+
 ## Task 11: reads
 
 `rs/read/src/crud/watchlists/` holds the projection, the metrics, the batched
@@ -68,3 +84,45 @@ organization.
 
 Logs: `work/rust-phase2/task11-check-2.log` (not committed). One earlier call
 ended with exit 255 when the SSH connection to the host dropped; it was rerun.
+
+## Task 12: containers (W02, W03, W11)
+
+`containers.rs` holds the three handlers. The user-row lock taken at
+authentication serializes every write of one user, so radar uniqueness and the
+container cap need no further locking.
+
+- W02 selects the user's default radar and inserts one only when none exists. The
+  summary is read inside a savepoint after the insert, so a failed read returns the
+  database error response and the radar still commits (source contract: Python
+  commits before it builds the summary).
+- W03 counts every container of the user, of any kind, and refuses the eleventh
+  with 400. Name length counts code points and whitespace-only names pass.
+- W11 deletes events, targets and entries explicitly before the container, in one
+  transaction. A failure at any step restores everything.
+- Body JSON syntax is refused before authentication; authentication precedes path
+  and body validation; validation errors carry no documentation `url` (FastAPI).
+
+Scenario `watchlist-containers` runs both stacks on twin databases with the same
+clock and identifier sequence. Python runs through
+`tests/rust_contract/phase2/watchlist_server.py`, which patches only column
+defaults and one summary call, behind the disposable-target token. Every action
+asserts the exact committed change. Cases and the evidence for each are listed in
+`tests/rust_contract/phase2/watchlist-containers.json`. There are no approved
+differences. A concurrent pair at the container cap is not scheduled: the runner
+pairs one expected status per actor, and both stacks serialize on the user row.
+
+Not modeled: a non-JSON `Content-Type` on a body route (FastAPI then validates
+raw bytes). The frontend always sends JSON.
+
+| Gate | Own exit | Result |
+| --- | ---: | --- |
+| Runner and inventory Python tests | 0 | 30 passed |
+| `cargo clippy -D warnings` (lib, both watchlist test files, `watchlist_server`) | 0 | clean |
+| `cargo test` (lib, `crud_watchlist_reads`, `crud_watchlist_containers`) | 0 | 28, 3 and 6 passed |
+| `watchlist-containers` with `--phase2-races` (29 actions, 3 barrier repeats) | 0 | every response and committed state matched |
+| Read matrix after the router refactor, both KYC states | 0 | unchanged |
+
+Logs: `work/rust-phase2/task12-check-{1,2}.log` (not committed). The first
+containers run failed because the fixture gave the database-failure case no
+identifier; both stacks then reported an exhausted controlled sequence, which is
+the intended refusal to fall back to random identifiers.

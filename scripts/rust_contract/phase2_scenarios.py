@@ -45,6 +45,8 @@ class Action:
     assert_http_difference: Callable | None = None
     mail_status: int = 200
     mail_body: bytes = b'{"id":"disposable-send"}'
+    # Exact request bytes for cases JSON encoding cannot express (empty or `null` bodies).
+    raw_body: bytes | None = None
 
 
 @dataclass(frozen=True)
@@ -247,8 +249,12 @@ class HTTPCell:
         if not action.path.startswith("/") or action.path.startswith("//"):
             raise ScenarioError("scenario request must use a local absolute path")
         headers = {"content-type": "application/json", "x-disposable-token": self.token, **action.headers}
+        if action.raw_body is not None:
+            data = action.raw_body
+        else:
+            data = None if action.body is None else json.dumps(action.body).encode()
         request = urllib.request.Request(self.endpoint + action.path, method=action.method,
-            headers=headers, data=None if action.body is None else json.dumps(action.body).encode())
+            headers=headers, data=data)
         # Never follow redirects to a different host or resend a write.
         class NoRedirect(urllib.request.HTTPRedirectHandler):
             def redirect_request(self, *_args, **_kwargs):
@@ -286,4 +292,7 @@ from scripts.rust_contract.phase2_watchlists import (
 
 register(watchlist_reads_scenario())
 register(watchlist_reads_gate_off_scenario())
+from scripts.rust_contract.phase2_watchlist_containers import watchlist_containers_scenario
+
+register(watchlist_containers_scenario())
 # END LANE REGISTRATIONS
