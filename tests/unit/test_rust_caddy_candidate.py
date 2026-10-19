@@ -126,6 +126,61 @@ def test_real_caddy_adapts_and_validates_production_candidates(tmp_path):
                 assert all(value == {"filter": "delete"} for value in encoder["fields"].values())
 
 
+def test_real_caddy_gives_every_staging_group_the_python_fallback_transport(tmp_path):
+    import json
+    import shutil
+    import subprocess
+
+    caddy = shutil.which("caddy")
+    if not caddy:
+        pytest.skip("real Caddy is required for the test-host gate")
+    module = generator()
+    snippet = (ROOT / "deploy/caddy/rust-public-staging.caddy").read_text()
+    prepared = snippet + """
+http://:8080 {
+\troute {
+\t\timport verdaxis_rust_public 127.0.0.1:8001 127.0.0.1:8001 127.0.0.1:8001 127.0.0.1:8001 127.0.0.1:8001
+\t\thandle {
+\t\t\treverse_proxy 127.0.0.1:8001 {
+\t\t\t\tflush_interval -1
+\t\t\t\ttransport http {
+\t\t\t\t\tkeepalive off
+\t\t\t\t}
+\t\t\t}
+\t\t}
+\t}
+}
+"""
+    # Preparation sends all five groups to Python; the first cutover changes one.
+    for name, text, rust_proxies in (
+        ("prepared", prepared, 0),
+        ("simple", module.candidate(prepared, "staging", "simple"), 1),
+    ):
+        config = tmp_path / f"{name}.Caddyfile"
+        config.write_text(text)
+        result = subprocess.run([caddy, "adapt", "--config", str(config), "--adapter", "caddyfile"], capture_output=True, text=True, timeout=30)
+        assert result.returncode == 0, result.stderr
+        proxies = []
+
+        def collect(node):
+            if isinstance(node, dict):
+                if node.get("handler") == "reverse_proxy":
+                    proxies.append(node)
+                for value in node.values():
+                    collect(value)
+            elif isinstance(node, list):
+                for value in node:
+                    collect(value)
+
+        collect(json.loads(result.stdout))
+        assert len(proxies) == 6, name
+        for proxy in proxies:
+            assert proxy["flush_interval"] == -1, name
+            assert proxy["transport"]["protocol"] == "http", name
+            assert proxy["transport"]["keep_alive"] == {"enabled": False}, name
+        assert sum(proxy["upstreams"][0]["dial"] == "127.0.0.1:8011" for proxy in proxies) == rust_proxies
+
+
 def test_cli_writes_complete_candidate_and_exact_private_rollback(tmp_path):
     import subprocess
     import sys
