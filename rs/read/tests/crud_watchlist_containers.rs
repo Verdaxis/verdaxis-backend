@@ -1,58 +1,15 @@
 //! Offline checks for the container routes: request ordering before any
 //! database work. Row effects are proven by the twin-database scenario.
 use axum::{
-    Router,
     body::Body,
     http::{Method, Request},
 };
-use chrono::{TimeZone, Utc};
 use serde_json::Value;
 use tower::ServiceExt;
-use verdaxis_read::crud::watchlists::{WatchlistSettings, router};
 
-fn app() -> Router {
-    let url = "postgres://unused:unused@127.0.0.1:54321/unused_test";
-    let config = verdaxis_read::Config {
-        kyc_execution_gate_enabled: true,
-        environment: "test".into(),
-        release_sha: verdaxis_read::compiled_sha().into(),
-        migration_revision: "kycg_20261014_staging".into(),
-        database_url: url.into(),
-        db_session_time_zone: "UTC".into(),
-        prepared_budget: None,
-        bind: "127.0.0.1:0".parse().unwrap(),
-        read_admission_slots: 16,
-        pool_max: 17,
-        python_budget: 52,
-        configured_max_connections: 100,
-    };
-    let pools = verdaxis_read::runtime::db::Pools {
-        read: sqlx::postgres::PgPoolOptions::new()
-            .max_connections(16)
-            .connect_lazy(url)
-            .unwrap(),
-        health: sqlx::postgres::PgPoolOptions::new()
-            .max_connections(1)
-            .connect_lazy(url)
-            .unwrap(),
-    };
-    let policy = verdaxis_read::MarketPolicy {
-        source_sha: verdaxis_read::compiled_sha().into(),
-        products: vec![],
-        points: vec![],
-    };
-    let state = verdaxis_read::AppState::new(config, pools, policy).unwrap();
-    let settings = WatchlistSettings::new(
-        verdaxis_read::auth::VerificationSettings::new(
-            "synthetic".into(),
-            None,
-            "issuer".into(),
-            "audience".into(),
-        ),
-        Utc.with_ymd_and_hms(2026, 10, 19, 0, 0, 0).unwrap(),
-    );
-    router(state, settings)
-}
+#[path = "support/watchlist_app.rs"]
+mod watchlist_app;
+use watchlist_app::app;
 
 async fn call(method: Method, path: &str, body: &str) -> (u16, Value) {
     let response = app()

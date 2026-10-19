@@ -4,6 +4,7 @@ pub use http::{ControlSource, WatchlistSettings, WriteControls, router};
 mod metrics;
 mod projection;
 mod reads;
+mod targets;
 mod validation;
 pub use reads::{
     LegacyEntry, LegacyWatchlist, VisibleOrder, VisibleSnapshot, capture_visible, load_detail,

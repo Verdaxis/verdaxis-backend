@@ -3,7 +3,7 @@
 //! `router` is the one composition point for the watchlist group. Handlers for
 //! the container and target writes live in their own modules and share `run`.
 use super::validation::{path_uuid, unprocessable};
-use super::{capture_visible, containers, load_legacy_list};
+use super::{capture_visible, containers, load_legacy_list, targets};
 use crate::auth::{
     AuthenticatedError, AuthenticatedRequest, AuthenticatedTransaction, VerificationSettings,
     run_authenticated, verify_authorization,
@@ -117,6 +117,14 @@ pub fn router(app: AppState, settings: WatchlistSettings) -> Router {
             "/api/watchlists/{watchlist_id}",
             get(detail).delete(containers::delete),
         )
+        .route(
+            "/api/watchlists/{watchlist_id}/targets",
+            post(targets::create),
+        )
+        .route(
+            "/api/watchlists/{watchlist_id}/targets/{target_id}",
+            axum::routing::delete(targets::delete),
+        )
         .with_state(WatchlistState { app, settings })
 }
 
@@ -134,10 +142,10 @@ pub(super) fn not_found(detail: &'static str) -> ApiError {
     refusal(StatusCode::NOT_FOUND, detail)
 }
 
-pub(super) fn refusal(status: StatusCode, detail: &'static str) -> ApiError {
+pub(super) fn refusal(status: StatusCode, detail: impl Into<String>) -> ApiError {
     ApiError {
         status,
-        detail: serde_json::json!(detail),
+        detail: serde_json::Value::String(detail.into()),
         retry_after: None,
         kind: ApiErrorKind::Expected,
     }

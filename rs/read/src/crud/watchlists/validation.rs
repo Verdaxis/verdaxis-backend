@@ -123,6 +123,124 @@ pub fn validate_create(body: &Value) -> Result<String, Vec<Value>> {
     bounded_string(body, object, "name", 1..=100).map_err(|error| vec![error])
 }
 
+/// A required string field with no bound.
+fn required_string(
+    body: &Value,
+    object: &serde_json::Map<String, Value>,
+    path: &[&str],
+) -> Result<String, Value> {
+    let name = path[path.len() - 1];
+    match object.get(name) {
+        None => Err(body_field_error(path, "missing", "Field required", body)),
+        Some(Value::String(text)) => Ok(text.clone()),
+        Some(other) => Err(body_field_error(
+            path,
+            "string_type",
+            "Input should be a valid string",
+            other,
+        )),
+    }
+}
+
+/// A required UUID field as Pydantic validates it from JSON: a string only.
+fn required_uuid(
+    body: &Value,
+    object: &serde_json::Map<String, Value>,
+    path: &[&str],
+) -> Result<Uuid, Value> {
+    let name = path[path.len() - 1];
+    match object.get(name) {
+        None => Err(body_field_error(path, "missing", "Field required", body)),
+        Some(Value::String(text)) => Uuid::parse_str(text).map_err(|cause| {
+            let cause = pydantic_uuid_cause(cause.to_string());
+            let mut error = body_field_error(
+                path,
+                "uuid_parsing",
+                &format!("Input should be a valid UUID, {cause}"),
+                &Value::String(text.clone()),
+            );
+            error["ctx"] = json!({"error":cause});
+            error
+        }),
+        Some(other) => Err(body_field_error(
+            path,
+            "uuid_type",
+            "UUID input should be a string, bytes or UUID object",
+            other,
+        )),
+    }
+}
+
+/// The two target shapes, chosen by `target_type`.
+#[derive(Debug, PartialEq)]
+pub enum TargetCreate {
+    Slice {
+        market_product_code: String,
+        delivery_point_id: Uuid,
+        availability_window_code: String,
+    },
+    Pin {
+        order_id: Uuid,
+    },
+}
+
+/// Python's `str()` of a JSON value that reached a discriminator lookup.
+fn python_text(tag: &Value) -> String {
+    match tag {
+        Value::String(text) => text.clone(),
+        Value::Bool(true) => "True".into(),
+        Value::Bool(false) => "False".into(),
+        Value::Null => "None".into(),
+        other => other.to_string(),
+    }
+}
+
+/// `WatchlistTargetCreate`: a discriminated union on `target_type`. Errors for a
+/// chosen member carry the tag in their location, as Pydantic reports them.
+pub fn validate_target(body: &Value) -> Result<TargetCreate, Vec<Value>> {
+    let Some(object) = body.as_object() else {
+        return Err(vec![body_shape_error(body)]);
+    };
+    let Some(tag) = object.get("target_type") else {
+        return Err(vec![json!({"type":"union_tag_not_found","loc":["body"],
+            "msg":"Unable to extract tag using discriminator 'target_type'","input":body,
+            "ctx":{"discriminator":"'target_type'"}})]);
+    };
+    match tag.as_str() {
+        Some("SLICE") => {
+            let fields = [
+                required_string(body, object, &["SLICE", "market_product_code"]),
+                required_uuid(body, object, &["SLICE", "delivery_point_id"])
+                    .map(|id| id.to_string()),
+                required_string(body, object, &["SLICE", "availability_window_code"]),
+            ];
+            let errors: Vec<Value> = fields
+                .iter()
+                .filter_map(|field| field.as_ref().err().cloned())
+                .collect();
+            if !errors.is_empty() {
+                return Err(errors);
+            }
+            let [code, point, window] = fields.map(|field| field.expect("checked"));
+            Ok(TargetCreate::Slice {
+                market_product_code: code,
+                delivery_point_id: Uuid::parse_str(&point).expect("validated"),
+                availability_window_code: window,
+            })
+        }
+        Some("PIN") => required_uuid(body, object, &["PIN", "order_id"])
+            .map(|order_id| TargetCreate::Pin { order_id })
+            .map_err(|error| vec![error]),
+        _ => {
+            let tag = python_text(tag);
+            Err(vec![json!({"type":"union_tag_invalid","loc":["body"],
+                "msg":format!("Input tag '{tag}' found using 'target_type' does not match any of the expected tags: 'SLICE', 'PIN'"),
+                "input":body,
+                "ctx":{"discriminator":"'target_type'","tag":tag,"expected_tags":"'SLICE', 'PIN'"}})])
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -219,6 +337,113 @@ mod tests {
         assert_eq!(
             parse_body(b"{").unwrap_err().status,
             StatusCode::UNPROCESSABLE_ENTITY
+        );
+    }
+
+    #[test]
+    fn a_slice_body_is_accepted_and_extra_fields_are_ignored() {
+        let point = "70000000-0000-4000-8000-000000000001";
+        let body = json!({"target_type":"SLICE","market_product_code":"B30",
+            "delivery_point_id":point,"availability_window_code":"SPOT","order_id":5});
+        assert_eq!(
+            validate_target(&body).unwrap(),
+            TargetCreate::Slice {
+                market_product_code: "B30".into(),
+                delivery_point_id: Uuid::parse_str(point).unwrap(),
+                availability_window_code: "SPOT".into(),
+            }
+        );
+    }
+
+    #[test]
+    fn a_pin_body_needs_only_an_order() {
+        let order = "74000000-0000-4000-8000-000000000001";
+        let body = json!({"target_type":"PIN","order_id":order});
+        assert_eq!(
+            validate_target(&body).unwrap(),
+            TargetCreate::Pin {
+                order_id: Uuid::parse_str(order).unwrap()
+            }
+        );
+    }
+
+    #[test]
+    fn slice_errors_follow_field_order_and_carry_the_tag() {
+        let body =
+            json!({"target_type":"SLICE","delivery_point_id":"x","availability_window_code":4});
+        let errors = validate_target(&body).unwrap_err();
+        let located: Vec<_> = errors
+            .iter()
+            .map(|e| (e["type"].clone(), e["loc"].clone()))
+            .collect();
+        assert_eq!(
+            located,
+            vec![
+                (
+                    json!("missing"),
+                    json!(["body", "SLICE", "market_product_code"])
+                ),
+                (
+                    json!("uuid_parsing"),
+                    json!(["body", "SLICE", "delivery_point_id"])
+                ),
+                (
+                    json!("string_type"),
+                    json!(["body", "SLICE", "availability_window_code"])
+                ),
+            ]
+        );
+        assert_eq!(errors[0]["input"], body);
+        assert_eq!(errors[1]["input"], "x");
+        assert_eq!(errors[2]["input"], 4);
+    }
+
+    #[test]
+    fn a_uuid_field_rejects_a_non_string() {
+        let errors = validate_target(&json!({"target_type":"PIN","order_id":7})).unwrap_err();
+        assert_eq!(errors[0]["type"], "uuid_type");
+        assert_eq!(
+            errors[0]["msg"],
+            "UUID input should be a string, bytes or UUID object"
+        );
+    }
+
+    #[test]
+    fn the_discriminator_errors_name_the_tag() {
+        let missing = validate_target(&json!({"order_id":"x"})).unwrap_err();
+        assert_eq!(missing[0]["type"], "union_tag_not_found");
+        assert_eq!(missing[0]["ctx"], json!({"discriminator":"'target_type'"}));
+        assert_eq!(missing[0]["loc"], json!(["body"]));
+        for (tag, shown) in [
+            (json!("slice"), "slice"),
+            (json!(5), "5"),
+            (json!(true), "True"),
+            (Value::Null, "None"),
+        ] {
+            let invalid = validate_target(&json!({"target_type":tag})).unwrap_err();
+            assert_eq!(invalid[0]["type"], "union_tag_invalid");
+            assert_eq!(
+                invalid[0]["ctx"],
+                json!({"discriminator":"'target_type'","tag":shown,"expected_tags":"'SLICE', 'PIN'"})
+            );
+            assert_eq!(
+                invalid[0]["msg"],
+                format!(
+                    "Input tag '{shown}' found using 'target_type' does not match any of the expected tags: 'SLICE', 'PIN'"
+                )
+            );
+        }
+    }
+
+    #[test]
+    fn a_target_body_that_is_not_an_object_names_its_shape() {
+        assert_eq!(
+            validate_target(&Value::Null).unwrap_err()[0]["type"],
+            "missing"
+        );
+        assert_eq!(
+            validate_target(&json!("SLICE")).unwrap_err()[0]["type"],
+            "model_attributes_type"
         );
     }
 
