@@ -490,7 +490,6 @@ def test_reviewed_sudoers_has_exact_environment_authority(environment):
     assert "*" not in text
     suffix = "-staging" if environment == "staging" else ""
     commands = {f"/usr/bin/systemctl {action} verdaxis-backend{suffix}.service" for action in ("restart", "stop")}
-    if environment == "staging":
-        commands |= {f"/usr/bin/systemctl {action} verdaxis-rust-staging.service" for action in ("restart", "stop", "disable")}
+    commands |= {f"/usr/bin/systemctl {action} verdaxis-rust{suffix}.service" for action in ("restart", "stop", "disable")}
     actual = text.split("NOPASSWD: ", 1)[1].strip().split(", ")
     assert set(actual) == commands
