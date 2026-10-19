@@ -120,6 +120,21 @@ def error_classes(rows) -> set[str]:
     return result
 
 
+class InvalidEvidence(ValueError):
+    """The evidence cannot support a decision; the message is safe to print."""
+
+
+def journal_rows(path: Path, label: str) -> list[dict]:
+    """Read one extracted journal window; an empty or missing file is never "no errors"."""
+    try:
+        rows = list(json_lines([path]))
+    except OSError as exc:
+        raise InvalidEvidence(f"{label} journal cannot be read") from exc
+    if not rows:
+        raise InvalidEvidence(f"{label} journal is empty")
+    return rows
+
+
 def json_lines(paths):
     for path in paths:
         with path.open() as stream:
@@ -151,8 +166,11 @@ def main() -> int:
         }
         report = evaluate(json_lines(args.access_log), args.group, timestamp(args.cutover),
                           args.window_seconds, ready,
-                          error_classes(json_lines([args.before_journal])),
-                          error_classes(json_lines([args.after_journal])))
+                          error_classes(journal_rows(args.before_journal, "before")),
+                          error_classes(journal_rows(args.after_journal, "after")))
+    except InvalidEvidence as exc:
+        print(f"Passive gate refused: {exc}; review private inputs", file=sys.stderr)
+        return 2
     except (ValueError, OSError, TypeError) as exc:
         print(f"Passive gate refused: {type(exc).__name__}; review private inputs", file=sys.stderr)
         return 2

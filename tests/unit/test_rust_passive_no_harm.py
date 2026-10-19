@@ -73,6 +73,65 @@ def test_staging_json_access_shape_is_read_without_volume_override():
     # production passive decision in this shared reader.
 
 
+JOURNAL_ROW = '{"MESSAGE": "started", "_SYSTEMD_UNIT": "verdaxis-rust.service"}\n'
+
+
+def run_passive_cli(tmp_path, before_text, after_text, *, omit=None):
+    import datetime
+    import json
+    import subprocess
+    import sys
+
+    access = tmp_path / "access.jsonl"
+    access.write_text("".join(json.dumps(row) + "\n" for row in rows() + rows(start=2800)))
+    for name, text in (("before", before_text), ("after", after_text)):
+        if name != omit:
+            (tmp_path / f"{name}.journal.jsonl").write_text(text)
+    ready = tmp_path / "ready.json"
+    ready.write_text(json.dumps(dict(status="ok", db="ok", environment="staging", release_sha="a" * 40)))
+    cutover = datetime.datetime.fromtimestamp(2800, datetime.timezone.utc).isoformat()
+    command = [sys.executable, str(ROOT / "scripts/rust_passive_no_harm.py"), "--access-log", str(access),
+               "--before-journal", str(tmp_path / "before.journal.jsonl"),
+               "--after-journal", str(tmp_path / "after.journal.jsonl"), "--cutover", cutover,
+               "--group", "simple", "--readiness", str(ready), "--environment", "staging", "--release-sha", "a" * 40]
+    return subprocess.run(command, capture_output=True, text=True, timeout=10)
+
+
+@pytest.mark.parametrize("before_text,after_text,which", [
+    ("", JOURNAL_ROW, "before"),
+    (JOURNAL_ROW, "", "after"),
+    ("", "", "before"),
+    ("\n\n", JOURNAL_ROW, "before"),
+])
+def test_an_empty_journal_is_invalid_evidence_not_zero_error_classes(tmp_path, before_text, after_text, which):
+    result = run_passive_cli(tmp_path, before_text, after_text)
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert result.stdout == ""
+    assert f"{which} journal is empty" in result.stderr
+
+
+def test_a_journal_extraction_error_message_is_invalid_evidence(tmp_path):
+    parse_error = "Failed to parse timestamp: 2026-10-19T00:00:00Z\n"
+    result = run_passive_cli(tmp_path, parse_error, JOURNAL_ROW)
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert result.stdout == ""
+
+
+def test_a_missing_journal_file_is_invalid_evidence(tmp_path):
+    result = run_passive_cli(tmp_path, JOURNAL_ROW, JOURNAL_ROW, omit="before")
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert result.stdout == ""
+    assert "before journal cannot be read" in result.stderr
+
+
+def test_non_empty_journals_with_no_errors_still_pass_the_volume_rule(tmp_path):
+    import json
+
+    result = run_passive_cli(tmp_path, JOURNAL_ROW, JOURNAL_ROW)
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout)["decision"] == "PASS"
+
+
 def test_passive_cli_reads_files_and_returns_the_decision_exit(tmp_path):
     import datetime
     import json
@@ -82,7 +141,7 @@ def test_passive_cli_reads_files_and_returns_the_decision_exit(tmp_path):
     access = tmp_path / "access.jsonl"
     access.write_text("".join(json.dumps(row) + "\n" for row in rows() + rows(start=2800)))
     journal = tmp_path / "journal.jsonl"
-    journal.write_text("")
+    journal.write_text(JOURNAL_ROW)
     ready = tmp_path / "ready.json"
     ready.write_text(json.dumps(dict(status="ok", db="ok", environment="production", release_sha="a" * 40)))
     command = [sys.executable, str(ROOT / "scripts/rust_passive_no_harm.py"), "--access-log", str(access), "--before-journal", str(journal), "--after-journal", str(journal), "--cutover", datetime.datetime.fromtimestamp(2800, datetime.timezone.utc).isoformat(), "--group", "simple", "--readiness", str(ready), "--environment", "production", "--release-sha", "a" * 40]
