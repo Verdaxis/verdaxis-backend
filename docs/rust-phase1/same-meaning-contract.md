@@ -429,3 +429,32 @@ nothing starts the listener or the refresh loop and no deploy budgets a listener
 Resume: Task 8 starts only after Tasks 9 and 10 hand off reviewed uncached route
 commits; their acceptance needs large-data measurements the brief has not
 authorized.
+
+### Task 7 verification of the listener, authority, fencing and budget commits
+
+Gates ran on the staging test host against `54d98df8` (the four Task 7 commits
+plus one lint correction). Trading caching stays disabled.
+
+- Host formatting exit `0`; workspace clippy exit `0`; package clippy with
+  `contract-tests` exit `0`; workspace tests exit `0`.
+- Python unit suite: 2,447 passed. Two `test_assert_host_git_owner` cases fail
+  only on this host because `/etc/systemd/system/verdaxis-backend.service` is a
+  symlink to `/dev/null`; the suite passes with those host-artifact cases
+  deselected, exit `0`. CI runs the same cases without that host file.
+- Disposable PostgreSQL suite (`tests/postgres`, including the cache event and
+  two-incarnation failover cases that start the Rust suites): 296 passed, one
+  failure in `test_fee_downgrade_fails_fast_during_idempotent_trade_read`. That
+  case upgrades only to `kycd_20261015_staging`, before this migration, and it
+  passed alone in 27.85 s; the full run took 21:54 on a busy host and exceeded
+  the case's five-second refusal window. Not a schema regression.
+- No measurement ran. No deploy, live DDL or application change ran.
+
+CI blocker: after the push, GitHub created no workflow run for `54d98df8`.
+Pull request 90 is `CONFLICTING` with `staging`, and GitHub skips
+`pull_request` workflows for a conflicting merge ref. The conflicts are a union
+of staging's `p0_20261016_union` allowlist and atomic budget write with this
+branch's cache checkpoint and optional listener count, in
+`rs/read/src/runtime/artifact.rs`, `rs/read/tests/runtime.rs` and
+`scripts/prepare_rust_budget.py`. Resolving needs a merge of `staging` into this
+branch; that changes branch topology, so this lane stopped for a PM decision
+instead of doing it unasked.
