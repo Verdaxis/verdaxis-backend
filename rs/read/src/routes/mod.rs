@@ -19,3 +19,7 @@ pub use crate::crud::watchlists::router as watchlist_router;
 // Phase 2 Task 8: notifications — start
 pub use crate::crud::notifications::routes as notification_routes;
 // Phase 2 Task 8: notifications — end
+
+// Phase 2 Task 9: preferences route registration
+pub use crate::crud::preferences::router as preferences_router;
+// Phase 2 Task 9: end preferences route registration

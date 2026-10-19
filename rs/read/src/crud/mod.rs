@@ -8,4 +8,8 @@ pub mod feedback;
 pub mod notifications;
 // Phase 2 Task 8: notifications — end
 
+// Phase 2 Task 9: preferences module
+pub mod preferences;
+// Phase 2 Task 9: end preferences module
+
 pub mod watchlists;

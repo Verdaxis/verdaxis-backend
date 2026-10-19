@@ -279,6 +279,18 @@ The twin-cell HTTP scenario remains pending the runner lane. Its task-owned data
 is `tests/rust_contract/phase2/notification-scenario.json`; current gate evidence
 and integration requirements are in `docs/rust-phase2/task8-handoff.md`.
 
+### Phase 2 Task 9: preferences
+
+Task 9 adds `crud/preferences.rs` and the marked `routes::preferences_router`
+registration seam for P01/P02. Both routes use the shared authenticated transaction;
+PUT retains the exclusive user lock through commit and preserves the original
+validated JSON. The integration owner supplies verification settings and shared
+quota authority; this task does not activate deployed routes. The disposable
+`phase2_preferences.py` scenario uses the existing runner lifecycle, separate
+Python/Rust databases, controlled IDs/clocks, full-state comparison, and observed
+same-user lock waits. Evidence and remaining boundaries are in
+`docs/rust-phase2-task9.md`.
+
 ### Frozen Phase 1 measurement reference
 
 Decisions 86/87 freeze the Python small-workload performance reference in

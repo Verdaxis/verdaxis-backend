@@ -358,4 +358,9 @@ from scripts.rust_contract.phase2_notifications import scenario as notification_
 
 register(notification_scenario())
 # Phase 2 Task 8: notifications — end
+# Phase 2 Task 9: preferences scenario registration
+from scripts.rust_contract.phase2_preferences import preferences_scenario
+
+register(preferences_scenario())
+# Phase 2 Task 9: end preferences scenario registration
 # END LANE REGISTRATIONS
