@@ -241,7 +241,9 @@ single EU Caddyfile: P0 adds a bounded redacted API access log, then each group
 inserts its handle after analytics and before the unchanged Python fallback,
 retaining client-IP forwarding, flush and keepalive policy. Staging keeps snippet
 imports. `scripts/rust_passive_no_harm.py` evaluates equal ordinary-traffic log
-windows and journal error classes; it performs no requests or measurements.
+windows and journal error classes; it performs no requests or measurements. An
+empty or missing journal window is invalid evidence (exit 2 with a reason), never
+"no new error classes".
 Both Rust units launch through `/usr/bin/env` so real systemd verification works
 before the first artifact exists without weakening startup checks. See
 `docs/plans/2026-10-19-rust-phase-1-production.md`; host acceptance remains separate.

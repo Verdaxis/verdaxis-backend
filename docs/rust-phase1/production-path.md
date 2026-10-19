@@ -40,7 +40,7 @@ Private runbooks are in the workspace-level `outputs/runbooks/`, not this public
 - `2026-10-19-rust-staging-caddy-rehearsal.md`
 - `2026-10-19-rust-production-phase1.md`
 
-Live acceptance requires staging 14b PASS, checklist D rehearsal, reviewed full promotion payload, production B' deploy/install, separate prod-push S' artifact and activation, then simple/orderbook/prices/curves windows. Production MCP stays Python. R12–R14 quotas are process-local; the PM must accept the bounded one-minute quota reset or stop prices for a separately approved shared limiter.
+Live acceptance requires staging 14b PASS, checklist D PASS (recorded 19 October 2026 on staging: mechanics and both exact rollbacks, ownership proven by the response `server` header and by request IDs in the journals; the private runbook holds the detail), reviewed full promotion payload, production B' deploy/install, the S' activation artifact signed on the staging push (PD-P1), then simple/orderbook/prices/curves windows. Production MCP stays Python. R12–R14 quotas are process-local; the PM must accept the bounded one-minute quota reset or stop prices for a separately approved shared limiter.
 
 ## PM host answers and amendment acceptance
 
@@ -90,3 +90,19 @@ Production's Rust artifact provenance binds to `refs/heads/staging`, not `refs/h
 Every other binding stays exact: repository, workflow file path, the exact commit being deployed and the attestation checks. `RUST_WORKFLOW_REF` in `scripts/deploy.sh` is one constant, `refs/heads/staging`, for both environments; the staging binding is unchanged.
 
 Tests (`tests/unit/test_rust_production.py`): production refuses an artifact attested from `refs/heads/prod`, a `refs/pull/...` ref, a feature branch, a tag or a look-alike branch, and refuses the right ref for a different commit (a record that names another commit, and a whole artifact built for another commit). Each refusal happens before any source, state or service change. Earlier text in this directory and in the plan that names `refs/heads/prod` as the production provenance ref is superseded by this decision.
+
+### Round 4: passive evidence must be non-empty, and journal windows use epoch seconds
+
+19 October 2026. Three corrections. No passive threshold or decision rule changed.
+
+- `rust_passive_no_harm.py` refuses an empty or missing journal window as invalid evidence: exit 2, no decision on stdout, and a reason that names the window (`before journal is empty`, `before journal cannot be read`). Before this, an empty extraction produced an empty error-class set and the gate reported PASS or HOLD — "no new error classes" from no evidence at all. A journal file whose content is only a journalctl parse error is refused the same way. Non-empty windows with no errors still follow the unchanged volume rule.
+- `scripts/verify_rust_artifact.py` already compared the record's `repository` with the expected one. A regression test now pins that refusal beside the existing workflow, workflow-ref, source-SHA, target and attestation refusals.
+- Both private runbooks extract journal windows with `--since @<seconds> --until @<seconds>` and fail closed on a journalctl error, any stderr text, or an empty or non-JSON file. Staging's systemd 249 rejects RFC 3339 `...Z` strings ("Failed to parse timestamp"), and the old form left the window files empty without failing the step. The staging runbook's section 2 validation tree copies only the enabled site files into a temporary tree owned by `caddy`, rewrites only the main file's import line, and compares adapted JSON with the tree path normalised and handle `group` names compared as a partition, so another project's TLS private key is never copied. Its probe IDs are capped at 32 characters because both services replace a longer client `X-Request-ID` with a UUID.
+
+Gate results (staging test account, `heavy run`):
+
+| Gate | Exit | Result |
+| --- | --- | --- |
+| The new empty-journal tests against the previous checker | 1 | 4 failed: an empty or blank journal returned `PASS` with exit 0 |
+| Focused passive, production, bootstrap, release, artifact, Caddy, budget, units, deploy-health and Phase 0 runtime suites with source ownership | 0 | 234 passed |
+| Runbook section 2/3 helper harness on a synthetic live-layout tree with real Caddy 2.11.2 | 0 | Fail-closed journal windows, no certificate or key copied, adapted-config partition comparison plus its negatives, live tree manifest unchanged; one fail-open in `build_validation_tree` found and fixed |
