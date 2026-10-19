@@ -58,9 +58,9 @@ Already-locked dependencies `reqwest=0.13.5` and `idna=1.1.0` were reported befo
 
 ## Pending integration / resume
 
-These components are not a cutover qualification. Shared runner response/state differentials, deterministic collision barriers, mixed-writer schedules, injected transaction faults, complete EmailStr diagnostics/Unicode normalization vectors, timeout transport vectors and full captured payload comparison remain pending. Scenario data is in `tests/rust_contract/phase2/referral-{reads,code,invite}.json`; it must be adapted to the runner lane's final schema rather than silently treated as executable coverage.
+These components are not a cutover qualification. The gap gates below now cover shared runner response/state differentials, deterministic collision barriers, mixed writers, injected transaction faults, the captured EmailStr corpus and timeout transport vectors. Scenario data is registered through `tests/rust_contract/phase2/scenarios.json` and the lane block in `phase2_scenarios.py`.
 
-Needed runtime projection (not implemented): construct `ReferralSettings` with the shared `VerificationSettings` and raw `FRONTEND_URL`; inject `EMAIL_FROM`, `MailClient::production(RESEND_API_KEY)` and the composition's shared `SharedLimits`; merge `routes::referral_routes(settings)`. No Config/AppState, secret/environment, deploy, comparator or CI workflow changes were made. Public HEAD refusal is local to this router. EmailStr compatibility is not complete: the current address validator covers basic local/domain and pretty-address cases, but its generic invalid-address diagnostic is not Python's detailed error envelope; this must be resolved before qualification. Cancellation after pre-send commit is also not yet tested against Python. Keep referrals on Python until those gates pass.
+Needed runtime projection (not implemented): construct `ReferralSettings` with the shared `VerificationSettings` and raw `FRONTEND_URL`; inject `EMAIL_FROM`, `MailClient::production(RESEND_API_KEY)` and the composition's shared `SharedLimits`; merge `routes::referral_routes(settings)`. No Config/AppState, secret/environment, deploy, comparator or CI workflow changes were made. Public HEAD refusal is local to this router. Cancellation after pre-send commit is covered by the lost-response schedule, which classifies the request as ambiguous and never replays it. Keep referrals on Python until the PM integrates the runtime projection.
 
 No real test email, measurement or live deployment ran. The repository's optional commit security hook returned HTTP 404 for Task 17, so that review did not run; details remain in the private local security log.
 
@@ -88,10 +88,44 @@ The real scenario compares empty stats/leaderboard, public valid/unknown/newline
 
 `unicode-normalization=0.1.25` was reported before direct declaration; it was already locked. NFC local normalization and specific Python diagnostic branches now pass the captured vector set. This is not proof of full EmailStr grammar: unsupported Unicode categories, arbitrary invalid-character names, lengths and some pretty-address details still need complete parity. No approved-difference exception was added.
 
-### Exact remaining blockers
+### Remaining blockers at that point (closed below)
 
-Tasks 17–19 are **not complete**. This scenario lacks nonempty top-ten/tie-boundary fixtures, deterministic allocation and ten-collision HTTP schedules, explicit database-level collision/lock barriers in both adapters, injected rollback/ambiguous-commit schedules, a mixed-writer cell, and twin timeout/mail-failure state coverage for missing-code invites. Full payload comparison is proven for the ordinary-name existing-code status matrix only. Existing component checks do not substitute for these route gates. `mixed_writer_dispatch` is null in the current report. Keep all referral routes on Python.
+The follow-up scenario lacked the gap fixtures; the section after this one records their closure. Keep all referral routes on Python until the PM integrates the runtime projection.
 
 Task 23 runtime change stays exactly: project raw `FRONTEND_URL` into `ReferralSettings::new` without trimming; inject existing verification settings, EMAIL_FROM, production mail client from RESEND_API_KEY, and shared quota authority; merge the exported route factory. No production runtime projection was edited.
 
 Private run report: `work/rust-phase2/referral-twins-green2.json`. Source and vectors are committed; raw provider payloads remain memory-only. CI for this follow-up is reported after push.
+
+## Gap closure — 19–20 Oct (6adea51a)
+
+All calls used staging `heavy run 3600`. No measurement ran. Each gate ran alone; every call finished with its own marker.
+
+| Gate | Own exit | Result |
+| --- | ---: | --- |
+| Python EmailStr corpus regeneration | 0 | 1535 synthetic vectors, byte-identical to the committed file |
+| Committed corpus comparison | 0 | 1535 vectors, exact normalized address or complete error list; no difference |
+| Python Unicode sweep generation | 0 | 387171 lines, sampled code points in nine address positions |
+| Focused Rust unit targets | 0 | `crud_referral_invite` 5 passed, 1 ignored; `referral_mail_timeout` 2 passed |
+| Unicode sweep replay (`--ignored`) | 0 | 387171 lines, no difference |
+| Referral-target Clippy | 0 | Warnings denied |
+| `referral-contract` with races | 0 | 14 actions, 3 races, state and mail digests equal |
+| `referral-allocation` with races | 0 | ten-collision and nine-collision HTTP schedules; four database-ordered schedules with lock-wait observation in both runtimes |
+| `referral-faults` | 0 | injected before-commit rollback; ambiguous commit retained, no replay |
+| `referral-mixed` | 0 | both writers on one database, then Python dispatcher; `mixed_writer_dispatch` recorded |
+| `referral-invite-failures` | 0 | nine missing-code and existing-recipient actions |
+| `referral-invite-timeout` | 0 | two provider timeouts at the ten-second deadline; first code retained, no replay |
+| `referral-invite-no-key`, `referral-reads-populated`, `referral-invite-addresses` | 0 | 2, 14 and 34 actions; every state digest equal |
+
+The allocation gate installs a fixture-only trigger that takes an advisory transaction lock on the updated row. The schedule holds that lock, waits until `pg_stat_activity` reports a lock wait for the scenario database, then releases it. Both runtimes therefore take the same database order, not only the same client order.
+
+The populated gate returns a full top ten whose counts tie inside the ranking and across tenth place, with blank, missing, padded and non-English names. The comparison keeps ranks, page membership and order.
+
+The address gate sends 34 requests through the route, including quoted local parts, IP literals, special-use domains, control and bidi characters, length boundaries, non-string bodies, display names, decomposed and internationalized domains, and self- and existing-recipient cases after normalization.
+
+### EmailStr corpus and approved difference
+
+`referral_email_vectors.py` derives the corpus from the pinned Python schema without network or database access. It covers ordinary and special-character local parts, quoted local parts, display names, IP literals, internationalized local parts and domains, punycode, normalization forms, every length boundary and representative code points. The Rust test compares the normalized address, or the complete pydantic error list including `loc`, `type`, `msg` and `ctx`.
+
+Decision 94 exception, recorded with vectors in `tests/rust_contract/phase2/referral-email-approved-differences.json`: a lone surrogate escape is valid JSON, and Python rejects the address with a 422 whose echoed input Starlette cannot encode, so Python answers 500. Rust refuses the broken JSON with 422 `json_invalid` and never answers 5xx. Only status and body may differ; state and provider sends must match. Three vectors cover high, low and reversed surrogate escapes.
+
+Referral routes stay on Python until the PM integrates the runtime projection. The transaction-safety change in `rs/read/src/auth/transaction.rs` is not in this branch.
