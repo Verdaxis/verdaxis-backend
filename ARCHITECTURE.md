@@ -264,6 +264,21 @@ Task 6 must load account state under the shared transaction/user-row lock.
 in-process HTTP tests. See `docs/rust-phase2-task5.md` for scope, source findings
 and every gate result.
 
+### Phase 2 Task 8: notifications
+
+`rs/read/src/crud/notifications.rs` serves N01–N04 through `auth::run_authenticated`.
+List/count filter by recipient and PostgreSQL's `_email_only` boolean coercion;
+response projection removes top-level `_email_` keys only. Both writes include
+email-only rows and create no events. `notification_authority.rs` accepts explicit
+verification settings and a shared quota authority at composition time; it adds
+no runtime settings or secrets. `routes::notification_routes` exposes the route
+group without activating it in the serving binary.
+`rs/read/tests/run_notifications.py` reuses the existing disposable lifecycle to
+run the Rust component tests against the migrated schema and audited app ACLs.
+The twin-cell HTTP scenario remains pending the runner lane. Its task-owned data
+is `tests/rust_contract/phase2/notification-scenario.json`; current gate evidence
+and integration requirements are in `docs/rust-phase2/task8-handoff.md`.
+
 ### Frozen Phase 1 measurement reference
 
 Decisions 86/87 freeze the Python small-workload performance reference in

@@ -2,6 +2,7 @@
   "version": 1,
   "scenarios": [
     {"id": "feedback-routes", "group": "feedback", "kind": "registered-route", "registration": "scripts.rust_contract.feedback_scenario", "actions": ["schema-vectors", "repeat", "rollback", "retained-commit", "admin-list"], "route_qualification": true},
+    {"id": "notification_scope_and_email_state", "group": "notifications", "kind": "route-contract", "registration": "scripts.rust_contract.phase2_notifications", "actions": ["list", "count", "mark-read", "read-all", "rollback", "response-loss", "races"]},
     {"id": "runner-example", "group": "all", "kind": "registered-route-example", "registration": "scripts.rust_contract.phase2_example", "actions": ["committed", "rollback", "response-loss"], "route_qualification": false},
     {"id": "harness-smoke", "group": "all", "kind": "harness-only", "actions": ["read-state", "insert-feedback", "between-writes", "after-commit"]},
     {"id": "auth-state-matrix", "group": "all", "kind": "postgres-auth", "actions": ["shared-locks", "revocation", "cancellation"]},

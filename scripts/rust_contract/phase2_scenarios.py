@@ -353,4 +353,9 @@ from scripts.rust_contract.feedback_scenario import feedback_scenario
 
 register(feedback_scenario())
 # Phase 2 Task 10: end feedback route scenario.
+# Phase 2 Task 8: notifications — start
+from scripts.rust_contract.phase2_notifications import scenario as notification_scenario
+
+register(notification_scenario())
+# Phase 2 Task 8: notifications — end
 # END LANE REGISTRATIONS
