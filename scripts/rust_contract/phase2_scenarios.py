@@ -268,4 +268,7 @@ class HTTPCell:
 from scripts.rust_contract.phase2_example import example_scenario
 
 register(example_scenario())
+from scripts.rust_contract.phase2_watchlists import watchlist_reads_scenario
+
+register(watchlist_reads_scenario())
 # END LANE REGISTRATIONS

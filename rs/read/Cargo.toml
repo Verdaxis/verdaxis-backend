@@ -24,6 +24,10 @@ required-features = ["contract-tests"]
 name = "phase2_transport"
 required-features = ["contract-tests"]
 
+[[example]]
+name = "watchlist_server"
+required-features = ["contract-tests"]
+
 [features]
 contract-tests = []
 
