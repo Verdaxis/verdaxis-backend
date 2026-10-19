@@ -46,8 +46,21 @@ struct PreparedBudget {
     reserve: u32,
     rust_pool: u32,
     python_budget: u32,
+    /// One when the dedicated cache listener connection is budgeted, else zero.
+    /// Absent from artifacts that predate the listener, which read as zero.
+    #[serde(default)]
+    cache_listener: u32,
     total: u32,
     configured_max_connections: u32,
+}
+
+impl PreparedBudget {
+    /// Python's budget, the Rust pool and the optional listener connection.
+    fn expected_total(&self) -> Option<u32> {
+        self.python_budget
+            .checked_add(self.rust_pool)?
+            .checked_add(self.cache_listener)
+    }
 }
 
 /// Validate public budget metadata only; the prestart helper checks the secret file digest.
@@ -61,8 +74,10 @@ pub fn validate_prepared_budget(config: &Config, json: &str) -> Result<(), Strin
         budget.overflow,
         budget.reserve,
         budget.rust_pool,
-    );
+    )
+    .and_then(|total| total.checked_add(budget.cache_listener));
     if budget.version != 1
+        || budget.cache_listener > 1
         || budget.release_sha != config.release_sha
         || budget.environment_digest.len() != 64
         || !budget
@@ -73,11 +88,17 @@ pub fn validate_prepared_budget(config: &Config, json: &str) -> Result<(), Strin
         || budget.python_budget != config.python_budget
         || budget.configured_max_connections != config.configured_max_connections
         || total != Some(budget.total)
-        || budget.python_budget.checked_add(budget.rust_pool) != total
+        || budget.expected_total() != total
     {
         return Err("prepared budget does not match runtime configuration".into());
     }
-    validate_config(config)
+    validate_config(config)?;
+    // The listener connection is outside `pool_max`, so check the whole budget.
+    validate_budget(
+        budget.total,
+        config.configured_max_connections,
+        config.configured_max_connections,
+    )
 }
 
 /// Build the runtime configuration from the flat deployed environment.
@@ -117,7 +138,8 @@ pub fn config_from_deployed_environment(
         return Err("the prepared budget artifact does not belong to this release".into());
     }
     if budget.rust_pool != rust_pool
-        || budget.python_budget.checked_add(budget.rust_pool) != Some(budget.total)
+        || budget.cache_listener > 1
+        || budget.expected_total() != Some(budget.total)
     {
         return Err("the prepared budget artifact is internally inconsistent".into());
     }
