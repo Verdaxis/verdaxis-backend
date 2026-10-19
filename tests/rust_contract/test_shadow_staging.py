@@ -227,7 +227,7 @@ def test_transport_body_bound_and_mcp_headers(tmp_path, monkeypatch):
     cfg = replace(config(tmp_path), max_response_bytes=32)
     result = shadow._one_call(cfg, cfg.rust_url, {"id": "list_markets", "method": "POST", "path": "/mcp", "body": {}})
     assert result["inconclusive"] == "oversize"
-    assert sent[0][1]["host"] == "127.0.0.1"
+    assert sent[0][1]["host"] == "api-staging.verdaxis.exchange"
     assert sent[0][1]["accept"] == "application/json, text/event-stream"
     assert not set(sent[0][1]) & shadow.FORBIDDEN_HEADERS
 
@@ -325,3 +325,157 @@ def test_final_readiness_must_complete_before_pass(tmp_path, monkeypatch):
 def test_diagnostics_accept_only_typed_schema_metadata(record):
     with pytest.raises(shadow.ShadowError):
         shadow.sanitize_diagnostic(record)
+
+
+@pytest.mark.parametrize("port", ["SGSIN", "sg-sin"])
+def test_port_id_forms_match_public_data(tmp_path, port):
+    path = tmp_path / "cases.json"
+    path.write_text(json.dumps([case("R02", "/api/ports/" + port)]))
+    assert shadow.load_staging_cases(path, require_complete=False)[0]["path"].endswith(port)
+
+
+@pytest.mark.parametrize("port", ["SG-SIN", "sgsin", "sg-Sin", "sg-sin/extra", "sg-sin?x=1", "../sg-sin"])
+def test_other_port_forms_are_refused(tmp_path, port):
+    path = tmp_path / "cases.json"
+    path.write_text(json.dumps([case("R02", "/api/ports/" + port)]))
+    with pytest.raises(shadow.ShadowError):
+        shadow.load_staging_cases(path, require_complete=False)
+
+
+@pytest.mark.parametrize("approved", [False, True])
+def test_empty_route_needs_explicit_approval(tmp_path, monkeypatch, approved):
+    cfg, _, _ = setup_run(tmp_path, monkeypatch, [observation(b"[]")] * 3)
+    cfg = replace(cfg, approved_empty_routes=["R07"] if approved else [])
+    result = shadow.run(cfg, 100, cases=[case("R07", "/api/curves/forward")])
+    assert result["outcome"] == ("PASS" if approved else "INCONCLUSIVE")
+    if approved:
+        assert result["coverage"]["routes"]["R07"]["reason"] == "empty-only (approved)"
+
+
+def test_approved_empty_csv_still_compares_exact_bytes(tmp_path, monkeypatch):
+    first = observation(b"a,b\n", headers={"content-type": "text/csv"})
+    other = observation(b"a,c\n", headers={"content-type": "text/csv"})
+    cfg, _, _ = setup_run(tmp_path, monkeypatch, [first, other, first])
+    cfg = replace(cfg, approved_empty_routes=["R08"])
+    assert shadow.run(cfg, 100, cases=[case("R08", "/api/curves/forward/export")])["outcome"] == "FAIL"
+
+
+@pytest.mark.parametrize("overrides", [{"R21": 16777217}, {"R99": 8388608}, {"R21": True}, {"R21": 0}])
+def test_invalid_body_overrides_refuse(tmp_path, overrides):
+    with pytest.raises(shadow.ShadowError):
+        shadow.validate_config(replace(config(tmp_path), body_limit_overrides=overrides))
+
+
+def test_r21_transport_override_and_oversize_inconclusive(tmp_path, monkeypatch):
+    cfg, _, _ = setup_run(tmp_path, monkeypatch, [])
+    cfg = replace(cfg, body_limit_overrides={"R21": 8388608})
+    # Exercise the real bounded transport under the run loop, not an oversized
+    # preclassified fixture. Every health response remains valid.
+    original = shadow._one_call
+    real_call = REAL_ONE_CALL
+    sizes = []
+    class Response:
+        status = 200
+        def read(self, size):
+            sizes.append(size)
+            return b"x" * size
+        def getheaders(self):
+            return [("content-type", "application/json")]
+    class Connection:
+        def __init__(self, *args, **kwargs): pass
+        def request(self, *args, **kwargs): pass
+        def getresponse(self): return Response()
+        def close(self): pass
+    monkeypatch.setattr(shadow.http.client, "HTTPConnection", Connection)
+    def fetch(config, base, request):
+        if request["id"] == "R21": return real_call(config, base, request)
+        return original(config, base, request)
+    monkeypatch.setattr(shadow, "_one_call", fetch)
+    result = shadow.run(cfg, 23, cases=[case("R21", "/api/orderbook/map-summary")])
+    assert sizes and all(size == 8388609 for size in sizes)
+    assert result["outcome"] == "INCONCLUSIVE"
+    assert result["counters"]["oversize"] == len(sizes)
+    assert shadow.result_exit_code(result) == 2
+    assert shadow.response_body_limit(cfg, "R05") == 1048576
+
+
+REAL_ONE_CALL = shadow._one_call
+
+
+def test_optional_staging_settings_load_without_changing_defaults(tmp_path):
+    path = tmp_path / "config.toml"
+    path.write_text('python_url = "http://127.0.0.1:8001"\nrust_url = "http://127.0.0.1:8011"\n'
+                    'approved_empty_routes = ["R07", "R08"]\nbody_limit_overrides = { R21 = 8388608 }\n')
+    cfg = shadow.load_config(path)
+    assert cfg.approved_empty_routes == ["R07", "R08"]
+    assert cfg.body_limit_overrides == {"R21": 8388608}
+    assert shadow.ShadowConfig("", "").approved_empty_routes == []
+    assert shadow.ShadowConfig("", "").body_limit_overrides == {}
+
+
+def test_large_route_difference_retains_only_bounded_byte_counts():
+    record = {"route_id": "R21", "byte_counts": [8388608, 8388608, 8388608]}
+    assert shadow.sanitize_diagnostic(record) == record
+    with pytest.raises(shadow.ShadowError):
+        shadow.sanitize_diagnostic({"byte_counts": [16777217]})
+
+
+def test_board_focus_curve_request_clocks_are_compared_as_clocks():
+    def response(hour):
+        clock = f"2026-10-18T{hour}:00:00Z"
+        cell = {"fair_price_band_provenance": {"generated_at": clock},
+                "indication_summary": {"provenance": {"generated_at": clock}},
+                "physical_stem_summary": {"provenance": {"generated_at": clock}},
+                "order_observed_at": "2026-10-17T00:00:00Z"}
+        return observation(json.dumps({"focus": {"curve": [cell]}, "generated_at": clock}).encode())
+    first, later = response("00"), response("01")
+    assert shadow.classify_sandwich(first, later, later, request_path="/api/curves/forward/board") == "match"
+    changed = dict(later, raw=later["raw"].replace(b'17T00', b'17T01'))
+    assert shadow.classify_sandwich(first, changed, first, request_path="/api/curves/forward/board") == "difference"
+
+
+def test_non_success_pair_and_missing_route_produce_safe_diagnostics(tmp_path, monkeypatch):
+    denied = observation(b'Invalid Host header', status=421, headers={"content-type": "text/plain"})
+    cfg, _, _ = setup_run(tmp_path, monkeypatch, [denied] * 3)
+    result = shadow.run(cfg, 23, cases=[case("list_markets", "/mcp")])
+    assert result["pairs"]["list_markets"] == 0
+    assert {d["difference_category"] for d in result["diagnostics"]} >= {"http-status", "no-stable-pair"}
+    assert "Invalid Host" not in json.dumps(result)
+
+
+@pytest.mark.parametrize("full,expected", [(0.01, False), (0.99, False), (1.0, True), (5.0, True)])
+def test_shared_host_pressure_uses_only_meaningful_memory_full(monkeypatch, full, expected):
+    paths = []
+    def read(path, *args, **kwargs):
+        paths.append(str(path))
+        return f"some avg10=99.0 avg60=99.0 avg300=99.0 total=1\nfull avg10={full} avg60=0.0 avg300=0.0 total=1\n"
+    monkeypatch.setattr(shadow.Path, "read_text", read)
+    assert shadow.memory_pressure() is expected
+    assert paths == ["/proc/pressure/memory"]
+
+
+def test_pressure_pause_is_attributed(tmp_path, monkeypatch):
+    cfg, _, clock = setup_run(tmp_path, monkeypatch, [])
+    monkeypatch.setattr(shadow, "memory_pressure", lambda: clock.now < 60)
+    result = shadow.run(cfg, 100, cases=[case()])
+    assert result["pause_reasons"]["memory-full"] == 1
+    assert sum(result["pause_reasons"].values()) == result["counters"]["pauses"]
+
+
+def test_five_pairs_for_thirty_cases_fit_cap_without_pauses(tmp_path, monkeypatch):
+    cfg, _, _ = setup_run(tmp_path, monkeypatch, [])
+    cfg = replace(cfg, required_observations_per_route=5)
+    rows = [case(f"R{n:02}") for n in range(1, 28)]
+    rows += [dict(case(tool, "/mcp"), method="POST", group="mcp")
+             for tool in ("list_markets", "get_market_slice", "plan_voyage_fuel")]
+    def fetch(config, base, request):
+        if request["path"] == "/health/live": return observation(b'{"status":"ok"}')
+        if request["path"] in {"/health/ready", "/health"}:
+            sha = config.python_sha if base == config.python_url else config.candidate_sha
+            return observation(json.dumps({"status":"ok","db":"ok","environment":"staging","release_sha":sha}).encode())
+        return observation(b'{"result":{"isError":false,"structuredContent":{"n":1}}}')
+    monkeypatch.setattr(shadow, "_one_call", fetch)
+    result = shadow.run(cfg, 2100, cases=rows)
+    assert result["outcome"] == "PASS"
+    assert all(n >= 5 for n in result["pairs"].values())
+    print("FLOOR=5 CASES=30 CAP=2100 ZERO_PAUSE_SCHEDULE=PASS")

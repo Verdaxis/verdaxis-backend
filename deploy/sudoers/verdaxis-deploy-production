@@ -1,0 +1,2 @@
+# Install only on the named environment host. No wildcards or arbitrary units.
+verdaxis-prod ALL=(root) NOPASSWD: /usr/bin/systemctl restart verdaxis-backend.service, /usr/bin/systemctl stop verdaxis-backend.service, /usr/bin/systemctl restart verdaxis-rust.service, /usr/bin/systemctl stop verdaxis-rust.service, /usr/bin/systemctl disable verdaxis-rust.service

@@ -62,6 +62,31 @@ async fn middleware_wraps_errors_and_preflight() {
 }
 
 #[test]
+fn browser_origins_are_bound_to_the_deployed_environment() {
+    use verdaxis_read::runtime::http::allowed_browser_origin;
+    assert!(allowed_browser_origin(
+        "production",
+        "https://app.verdaxis.exchange"
+    ));
+    assert!(!allowed_browser_origin(
+        "production",
+        "https://staging.verdaxis.exchange"
+    ));
+    assert!(!allowed_browser_origin(
+        "staging",
+        "https://app.verdaxis.exchange"
+    ));
+    assert!(allowed_browser_origin(
+        "staging",
+        "https://staging.verdaxis.exchange"
+    ));
+    assert!(!allowed_browser_origin(
+        "production",
+        "https://denied.invalid"
+    ));
+}
+
+#[test]
 fn forwarded_client_uses_final_hop_only_from_loopback() {
     use verdaxis_read::runtime::http::client_ip;
     assert_eq!(

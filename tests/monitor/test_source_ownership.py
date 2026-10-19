@@ -24,12 +24,14 @@ MANIFEST = MONITOR / "artifact-manifest.json"
 # startup log line (app/main.py).
 # Task 12b extends scripts/deploy.sh in place with the dual-service Rust
 # staging transaction (artifact verification, runtime preparation, both
-# readiness gates); the pinned blob below is that reviewed revision.
+# readiness gates). Production Phase 1 extends that same transaction with
+# environment-specific policy/unit selection and exact prod provenance; the
+# pinned blob below includes that reviewed runtime-owned change.
 RUNTIME_OWNED_BLOBS = {
     "app/config.py": "5eac216236919ebc8c48415a619d0e70169d1154",
     "app/database.py": "43456b2c2079c07368359d4d54f5ce9629c9b57b",
     "app/main.py": "a3a73bf74d817499cccac1f6ecc9ba062cbba3ea",
-    "scripts/deploy.sh": "3e75a493b502cfd065dbbf99c0b9e3da8e4c5622",
+    "scripts/deploy.sh": "307f6a2689504f73e7624be71c0636dab36a9b5e",
     "scripts/run_demo_activity.py": "b92cee8429669c3f908a52047025acd6db804697",
 }
 
