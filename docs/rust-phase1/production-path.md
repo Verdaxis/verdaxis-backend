@@ -57,3 +57,26 @@ Passive gate red exited 1 before helper implementation; synthetic threshold test
 Final staging amendment suite: exit 0, 20 passed, including CLI return codes and adapted redaction fields. A late test run returned 1 for a missing cache import; it was corrected and the complete suite rerun. The existing unit-policy/production regression selection also passed (31 tests, exit 0). All ten individual Caddy validate/adapt invocations returned 0. Historical verifier command text is pinned in the regression so shallow PR checkouts need no commit-history fetch.
 
 Both private runbooks now distinguish EU one-file P0/block rollout from staging imports, retain all seven PM-named timer/deploy controls (exact names rechecked on entry), and state the concrete passive thresholds. Host acceptance still requires operator execution and fresh entry drift checks; supplied point-in-time facts do not prove later state.
+
+## Staging S2 rules in the production path (round 3)
+
+19 October 2026. The branch merged `origin/staging` at `cd964294` (PRs #98, #105 and #107) and applies the same deployment rules to production:
+
+- The shared deploy helper checks every reviewed backend and Rust restart/stop/disable command with `sudo -n -l` before the first source or state change, then runs each with `sudo -n`. The reviewed production sudoers file now lists the same exact Rust commands as staging, and the unit tests pin the list.
+- The Rust unit start check is the stdlib-only `verify_rust_start.py`; it reads `revision.json` and the budget file without `.env` or application imports. The prepared budget is replaced atomically and a symlink at its path is refused, so a second release and a retry both work.
+- Python restarts first and must report exact readiness before Rust starts. A Rust-only failure records `rust-failed`, stops and disables only Rust, and leaves Python serving; tests cover the retry and the next release after each failure.
+- Canonical production deploys use branch `prod`.
+- `deploy/caddy/rust-public-staging.caddy`: every group proxy now carries `flush_interval -1` and `transport http { keepalive off }`, the same options as the live staging Python fallback (Uvicorn closes idle keep-alives after five seconds, and the MCP group carries POST). A unit test pins the options in each group handle, and a real-Caddy adapt test checks the prepared site and the first single-group change. The staging candidate generator still edits only the import line. Production generation reuses the same group blocks.
+- `rust_passive_no_harm.py` reads the staging API access-log shape (Caddy JSON with nested `request`, `tls`, headers and `resp_headers`); a synthetic fixture test covers it. Its volume rule is unchanged: fewer than 50 requests in a window is HOLD. Any staging exemption for sparse traffic is operator policy in the private runbook, not checker behavior.
+
+Gate results for this round (isolated staging test account, `heavy run`):
+
+| Gate | Exit | Result |
+| --- | --- | --- |
+| Transport test against the old snippet | 1 | Missing `flush_interval` on the first group proxy |
+| Caddy candidate suite after the snippet change | 0 | 10 passed, including the real-Caddy transport test |
+| Focused production, budget, bootstrap, units, release, Caddy, passive and artifact suites with source ownership | 0 | 146 passed |
+| Deploy health, runtime hardening, migration checkpoint, real-Caddy routing and shadow suites | 0 | 550 passed, 1 skipped |
+| Staging prep and validation commands on a synthetic tree with Caddy 2.11.2 | 0 | Prep diff as expected, validate and adapt passed, host set unchanged |
+
+The complete unit suite runs in GitHub CI. Two tests in `tests/unit/test_assert_host_git_owner.py` fail on the test host with "Invalid artifact" from `scripts/phase0/assert_host.py`. This lane did not change either file; CI is the authority for them.
