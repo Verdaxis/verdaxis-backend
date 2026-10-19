@@ -21,6 +21,13 @@ DEPENDENCIES = (
 
 
 def upgrade():
+    connection = op.get_bind()
+    # CREATE TRIGGER needs SHARE ROW EXCLUSIVE. Taking every lock up front without
+    # waiting fails fast behind an active writer, rather than queueing behind it
+    # and blocking every later writer. Readers are not blocked.
+    connection.execute(sa.text(
+        "LOCK TABLE " + ", ".join(f'public."{table}"' for table in DEPENDENCIES)
+        + " IN SHARE ROW EXCLUSIVE MODE NOWAIT"))
     op.create_table("public_read_cache_generations",
         sa.Column("domain", sa.Text(), primary_key=True),
         sa.Column("generation", sa.BigInteger(), nullable=False, server_default="0"),
@@ -55,11 +62,13 @@ def upgrade():
         END $$;
     """)
     op.execute("REVOKE ALL ON FUNCTION public.bump_public_read_cache_generation() FROM PUBLIC")
-    connection = op.get_bind()
     for table in DEPENDENCIES:
         if connection.execute(sa.text("SELECT to_regclass(:name)"), {"name": "public." + table}).scalar() is None:
             raise RuntimeError("cache dependency table is absent: " + table)
         op.execute(f'CREATE TRIGGER public_read_cache_changed AFTER INSERT OR UPDATE OR DELETE OR TRUNCATE ON public."{table}" FOR EACH STATEMENT EXECUTE FUNCTION public.bump_public_read_cache_generation()')
+        # ALWAYS: freshness must not depend on a session's replication role, which
+        # tooling and restores change to skip ordinary triggers.
+        op.execute(f'ALTER TABLE public."{table}" ENABLE ALWAYS TRIGGER public_read_cache_changed')
 
 
 def downgrade():

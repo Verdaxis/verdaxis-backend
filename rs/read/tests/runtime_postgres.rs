@@ -305,3 +305,18 @@ fn singleton_revision_uses_existing_migrator_verifier() {
         .expect("run existing revision verifier");
     assert!(result.success());
 }
+
+#[tokio::test]
+async fn caching_stays_off_against_a_schema_without_the_cache_checkpoint() {
+    use verdaxis_read::runtime::cache_authority::database_state;
+
+    // This database carries only the Alembic row of an earlier checkpoint. The
+    // service must start, and the cache authority must report nothing to serve.
+    let config = config("RUST_TEST_DATABASE_URL");
+    let pools = connect(&config).await.unwrap();
+    let mut connection = pools.read.acquire().await.unwrap();
+    assert!(database_state(&mut connection).await.unwrap().is_none());
+    drop(connection);
+    pools.read.close().await;
+    pools.health.close().await;
+}
