@@ -266,6 +266,13 @@ class ArtifactVerificationTests(unittest.TestCase):
         self.assertEqual(self.fixture.verify(), 1)
         self.fixture.assert_refused()
 
+    def test_wrong_repository_is_refused(self):
+        # The record must name the repository that signed the attestation, not
+        # just any repository with a valid signature.
+        self.fixture.write_record(repository="someone/else")
+        self.assertEqual(self.fixture.verify(), 1)
+        self.fixture.assert_refused()
+
     def test_missing_attestation_verification_is_refused(self):
         self.fixture.write_record(gh_attestation_verified=False)
         self.assertEqual(self.fixture.verify(), 1)
