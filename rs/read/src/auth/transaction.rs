@@ -49,14 +49,19 @@ pub async fn run_authenticated<T: Send + 'static>(
             .map_err(|_| AuthenticatedError::Database(ApiError::database()))?
             .map_err(|_| AuthenticatedError::Database(ApiError::database()))?;
         let mut connection = pool.acquire().await.map_err(|_| AuthenticatedError::Database(ApiError::database()))?;
-        sqlx::query("BEGIN ISOLATION LEVEL READ COMMITTED READ WRITE").execute(&mut *connection).await
+        // The guard marks the connection as in a transaction, so dropping it
+        // (including during an unwind) queues a ROLLBACK. The next use of the
+        // connection sends that ROLLBACK before any other statement.
+        let mut transaction = connection
+            .begin_with("BEGIN ISOLATION LEVEL READ COMMITTED READ WRITE")
+            .await
             .map_err(|_| AuthenticatedError::Database(ApiError::database()))?;
         let result = async {
             let query = match request.lock_mode() {
                 UserLockMode::Share => "SELECT id,organization_id,role::text AS role,status::text AS status,email_verified,must_change_password,password_changed_at,authentication_revoked_at FROM users WHERE id=$1 FOR SHARE",
                 UserLockMode::Update => "SELECT id,organization_id,role::text AS role,status::text AS status,email_verified,must_change_password,password_changed_at,authentication_revoked_at FROM users WHERE id=$1 FOR UPDATE",
             };
-            let row = sqlx::query(query).bind(access.subject).fetch_optional(&mut *connection).await
+            let row = sqlx::query(query).bind(access.subject).fetch_optional(&mut *transaction).await
                 .map_err(|_| AuthenticatedError::Database(ApiError::database()))?
                 .ok_or(AuthenticatedError::Authentication(AuthError::Credentials))?;
             let password: Option<chrono::DateTime<chrono::Utc>> = row.get("password_changed_at");
@@ -66,15 +71,17 @@ pub async fn run_authenticated<T: Send + 'static>(
                 password_changed_at:password.map(|v|v.timestamp_micros()), authentication_revoked_at:revoked.map(|v|v.timestamp_micros()),
             }).map_err(AuthenticatedError::Authentication)?;
             let actor = CurrentActor { id:row.get("id"), organization_id:row.get("organization_id"), role:row.get("role"), email_verified:row.get("email_verified") };
-            work(&mut AuthenticatedTransaction { connection:&mut connection, actor }).await.map_err(AuthenticatedError::Database)
+            work(&mut AuthenticatedTransaction { connection:&mut transaction, actor }).await.map_err(AuthenticatedError::Database)
         }.await;
         if result.is_err() {
-            if sqlx::query("ROLLBACK").execute(&mut *connection).await.is_err() || connection.ping().await.is_err() {
+            if transaction.rollback().await.is_err() || connection.ping().await.is_err() {
                 let _ = connection.close().await;
             } else { connection.return_to_pool().await; }
             return result;
         }
-        if sqlx::query("COMMIT").execute(&mut *connection).await.is_err() {
+        if transaction.commit().await.is_err() {
+            // The commit may have applied. Never reuse the connection: the
+            // caller cannot safely replay or complete this request.
             let _ = connection.close().await;
             return Err(AuthenticatedError::AmbiguousCommit);
         }
