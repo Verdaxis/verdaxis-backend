@@ -381,7 +381,14 @@ def _live_clock_path(request_path: str, path: tuple[str, ...]) -> bool:
         } or (len(path) == 4 and path[0] in {"indications", "physical_stems"}
               and path[1].isdigit() and path[2:] == ("provenance", "generated_at"))
     if request_path == "/api/curves/forward/board":
-        return path in {("focus", "fair_price_band_provenance", "generated_at")} or (
+        focus_curve_clock = (
+            len(path) >= 5 and path[:2] == ("focus", "curve") and path[2].isdigit()
+            and path[3:] in {("fair_price_band_provenance", "generated_at"),
+                             ("fair_price_band", "provenance", "generated_at"),
+                             ("indication_summary", "provenance", "generated_at"),
+                             ("physical_stem_summary", "provenance", "generated_at")}
+        )
+        return focus_curve_clock or path in {("focus", "fair_price_band_provenance", "generated_at")} or (
             len(path) == 5 and path[:2] in {("focus", "indications"), ("focus", "physical_stems")}
             and path[2].isdigit() and path[3:] == ("provenance", "generated_at")
         ) or (len(path) >= 5 and path[0] == "ports" and path[1].isdigit()

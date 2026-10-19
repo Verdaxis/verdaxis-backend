@@ -83,13 +83,34 @@ def artifact_for(environment_file, release_sha):
 
 def prepare(environment_file, release_sha, output):
     artifact = artifact_for(environment_file, release_sha)
-    # Never overwrite another preparation or follow an output symlink.
-    descriptor = os.open(output, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
-    with os.fdopen(descriptor, "w") as stream:
-        json.dump(artifact, stream, sort_keys=True)
-        stream.write("\n")
-        stream.flush()
-        os.fsync(stream.fileno())
+    # The deploy lock serializes writers. Open the directory without following
+    # a symlink, write a private sibling, then publish by atomic rename.
+    directory = os.open(output.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    temporary = f".{output.name}.{os.getpid()}.tmp"
+    try:
+        try:
+            previous = os.stat(output.name, dir_fd=directory, follow_symlinks=False)
+        except FileNotFoundError:
+            previous = None
+        if previous is not None and not stat.S_ISREG(previous.st_mode):
+            raise ValueError("budget output must be a regular file")
+        descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                             0o600, dir_fd=directory)
+        try:
+            with os.fdopen(descriptor, "w") as stream:
+                json.dump(artifact, stream, sort_keys=True)
+                stream.write("\n")
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary, output.name, src_dir_fd=directory, dst_dir_fd=directory)
+            os.fsync(directory)
+        finally:
+            try:
+                os.unlink(temporary, dir_fd=directory)
+            except FileNotFoundError:
+                pass
+    finally:
+        os.close(directory)
 
 
 def verify(environment_file, release_sha, artifact):
