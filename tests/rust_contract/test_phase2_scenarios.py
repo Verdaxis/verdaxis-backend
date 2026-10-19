@@ -137,6 +137,45 @@ def test_combined_approved_difference_names_must_all_be_reviewed():
     assert len(checked)==1
 
 
+def test_approved_difference_does_not_parse_a_non_json_response():
+    module=runner_module()
+    left={"status":500,"headers":{"content-type":"text/plain"},"body":b"Internal Server Error"}
+    right={"status":404,"headers":{"content-type":"application/json"},"body":b'{"detail":"Order not found"}'}
+    seen=[]
+    item=action(module,approved_difference="PD1+PD6",assert_http_difference=lambda pair: seen.append(pair))
+    module._compare_http(item,[left,right],[None,None])
+    assert seen==[[left,right]]
+
+
+def test_state_difference_needs_a_named_rule_and_is_not_silent():
+    module=runner_module()
+
+    def cells_where_python_stores_one_extra_row():
+        python,rust=Cell(),Cell()
+        original=python.request
+        def stores_extra(item):
+            python.rows["stored"]={"id":"stored"}
+            return original(item)
+        python.request=stores_extra
+        return [python,rust]
+
+    def pinned(before,after):
+        assert before[0]==before[1]
+        assert set(after[0]["feedback_entries"]["rows"])=={"stored","write"}
+        assert set(after[1]["feedback_entries"]["rows"])=={"write"}
+        seen.append(True)
+
+    seen=[]
+    with pytest.raises(module.ScenarioError,match="named approved difference"):
+        module.run_actions([action(module,assert_state_difference=pinned)],cells_where_python_stores_one_extra_row())
+    with pytest.raises(module.ScenarioError,match="committed state differs"):
+        module.run_actions([action(module)],cells_where_python_stores_one_extra_row())
+    assert seen==[]
+    module.run_actions([action(module,approved_difference="PD1",assert_http_difference=lambda pair: None,
+                               assert_state_difference=pinned)],cells_where_python_stores_one_extra_row())
+    assert seen==[True]
+
+
 def test_equal_http_does_not_hide_extra_committed_row():
     module = runner_module()
     with pytest.raises(module.ScenarioError, match="state"):
@@ -216,6 +255,80 @@ def test_race_mode_repeats_and_runs_each_runtime_invariant():
     evidence = module.run_race(race, [Cell(), Cell()])
     assert len(observed) == 6
     assert [row["seed"] for row in evidence] == [7, 8, 9]
+
+
+class FirstWins(Cell):
+    """One named actor is created; every other request conflicts."""
+
+    def __init__(self, winner):
+        super().__init__()
+        self.winner = winner
+
+    def request(self, action):
+        self.calls += 1
+        if action.name == self.winner:
+            # Both stacks commit the same row, so only the actor-specific
+            # response can make an uncontested comparison fail.
+            self.rows["created"] = {"id": "created"}
+            return {"status": 201, "headers": {"content-type": "application/json"}, "body": b'{"ok":true}'}
+        return {"status": 409, "headers": {"content-type": "application/json"}, "body": b'{"detail":"duplicate"}'}
+
+
+def test_contested_race_compares_response_sets_not_actor_names():
+    module = runner_module()
+    seen = []
+
+    def invariant(before, after, results):
+        statuses = sorted(response["status"] for response, _error in results.values())
+        assert statuses == [201, 409]
+        assert len(after["feedback_entries"]["rows"]) == 1
+        seen.append(statuses)
+
+    actors = tuple(action(module, name, accepted_statuses=(201, 409)) for name in ("first", "second"))
+    race = module.Race(actors, invariant, repeats=1, seed=5, contested=True)
+    cells = [FirstWins("first"), FirstWins("second")]
+    module.run_race(race, cells)
+    assert len(seen) == 2
+
+
+def test_uncontested_race_still_pairs_responses_by_actor_name():
+    module = runner_module()
+    actors = tuple(action(module, name, accepted_statuses=(201, 409)) for name in ("first", "second"))
+    race = module.Race(actors, lambda *_args: None, repeats=1, seed=5)
+    # Actor identity is part of an uncontested comparison: a status outside the
+    # accepted set, or a different response per actor, must still fail.
+    with pytest.raises(module.ScenarioError):
+        module.run_race(race, [FirstWins("first"), FirstWins("second")])
+
+
+def test_contested_race_rejects_a_status_no_actor_may_receive():
+    module = runner_module()
+    actors = tuple(action(module, name, accepted_statuses=(201,)) for name in ("first", "second"))
+    race = module.Race(actors, lambda *_args: None, repeats=1, seed=5, contested=True)
+    with pytest.raises(module.ScenarioError, match="unexpected HTTP status 409"):
+        module.run_race(race, [FirstWins("first"), FirstWins("second")])
+
+
+def test_watchlist_inventory_names_exactly_the_registered_actions():
+    from pathlib import Path
+    from types import SimpleNamespace
+
+    module = runner_module()
+    inventory = json.loads((Path(__file__).parent / "phase2/scenarios.json").read_text())["scenarios"]
+    context = SimpleNamespace(environment={"JWT_SECRET": "test-secret-key-for-testing-minimum-32-chars"},
+                              root=Path("."), python_bin="python")
+    names = [name for name, scenario in module.REGISTRY.items() if scenario.group == "watchlists"]
+    assert names
+    for name in names:
+        listed = [row for row in inventory if row["id"] == name]
+        assert len(listed) == 1, name
+        registered = [action.name for action in module.REGISTRY[name].actions(context)]
+        assert listed[0]["actions"] == registered, name
+        assert len(set(registered)) == len(registered), name
+        scheduled = module.REGISTRY[name].races
+        assert bool(listed[0].get("races")) == (scheduled is not None), name
+        if scheduled is not None:
+            assert listed[0]["races"] == [race.actors[0].name.rsplit("-", 1)[0] for race in scheduled(context)], name
 
 
 def test_oracle_refuses_external_mail_endpoint(monkeypatch):

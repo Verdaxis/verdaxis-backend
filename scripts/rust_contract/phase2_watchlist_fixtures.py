@@ -7,6 +7,7 @@ provenance, and approving the fixture organization would reclassify it.
 """
 import json
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 
 ORGANIZATION = "10000000-0000-4000-8000-000000000001"
 OWNER = "20000000-0000-4000-8000-000000000001"
@@ -66,14 +67,14 @@ def insert_slice(connection, target_id, container_id, product_code, point_id, wi
         (target_id, container_id, product_code, point_id, window, created_at))
 
 
-def insert_pin(connection, target_id, container_id, order_id, point_id, created_at):
+def insert_pin(connection, target_id, container_id, order_id, point_id, created_at, window="SPOT"):
     connection.execute(
         "INSERT INTO watchlist_targets(id,watchlist_id,target_type,market_product_code,"
         "delivery_point_id,availability_window_code,order_id,snapshot_price_per_mt_usd,"
         "snapshot_quantity_mt,snapshot_remaining_quantity_mt,snapshot_status,snapshot_side,"
         "snapshot_market_product,snapshot_availability_window,created_at) "
-        "VALUES(%s,%s,'PIN','B30',%s,'SPOT',%s,612.5,100,100,'OPEN','BID','B30','SPOT',%s)",
-        (target_id, container_id, point_id, order_id, created_at))
+        "VALUES(%s,%s,'PIN','B30',%s,%s,%s,612.5,100,100,'OPEN','BID','B30',%s,%s)",
+        (target_id, container_id, point_id, window, order_id, window, created_at))
 
 
 def insert_event(connection, event_id, container_id, target_id, event_type, payload, created_at,
@@ -96,13 +97,16 @@ def order_event(order_id):
             "order_id": order_id, "old_price_per_mt_usd": 590.0, "new_price_per_mt_usd": 612.5}
 
 
-def insert_order(connection, order_id, organization_id, owner_id, provenance, point_id, expires_at):
+def insert_order(connection, order_id, organization_id, owner_id, provenance, point_id, expires_at, *,
+                 window="SPOT", price=Decimal("600"), quantity=Decimal("100"), remaining=Decimal("100"),
+                 status="OPEN"):
     connection.execute(
         "INSERT INTO orderbook_orders(id,organization_id,owner_user_id,provenance,side,product_id,"
         "delivery_point_id,quantity_mt,remaining_quantity_mt,price_per_mt_usd,availability_window,"
         "status,expires_at,created_at,updated_at) "
-        "VALUES(%s,%s,%s,%s,'BID',%s,%s,100,100,600,'SPOT','OPEN',%s,%s,%s)",
-        (order_id, organization_id, owner_id, provenance, B30, point_id, expires_at, BASE_TIME, BASE_TIME))
+        "VALUES(%s,%s,%s,%s,'BID',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+        (order_id, organization_id, owner_id, provenance, B30, point_id, quantity, remaining, price,
+         window, status, expires_at, BASE_TIME, BASE_TIME))
 
 
 def seed_users_and_orders(connection):

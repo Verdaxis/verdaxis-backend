@@ -4,15 +4,22 @@ Both stacks receive the same action clock and row identifiers, so every generate
 value stays in the response and state comparison. Each action also asserts the
 expected committed change; equal twins alone would not prove it.
 """
-import json
-from datetime import datetime
-
 from scripts.rust_contract.phase2_scenarios import (
     Action,
     Race,
     Scenario,
     ScenarioError,
     Server,
+)
+from scripts.rust_contract.phase2_watchlist_asserts import (
+    Schedule,
+    body_of,
+    created,
+    no_write,
+    rows,
+    same_instant,
+    uid,
+    unchanged_except,
 )
 from scripts.rust_contract.phase2_watchlist_fixtures import (
     B30,
@@ -21,7 +28,6 @@ from scripts.rust_contract.phase2_watchlist_fixtures import (
     OWNER,
     PUBLIC_ORDER,
     at,
-    bearer,
     insert_container,
     insert_entry,
     insert_event,
@@ -38,10 +44,6 @@ OTHER = GATED_USER
 CAPPED = "20000000-0000-4000-8000-000000000003"
 FAILURE = "20000000-0000-4000-8000-000000000004"
 RACER = "20000000-0000-4000-8000-000000000005"
-
-
-def uid(group, number):
-    return f"{group}000000-0000-4000-8000-{number:012d}"
 
 
 # Containers seeded before the run.
@@ -91,40 +93,12 @@ def _setup(connection):
                        "FOR EACH ROW EXECUTE FUNCTION watchlist_container_failure()")
 
 
-def _rows(state, table):
-    return list(state[table]["rows"].values())
-
-
-def _unchanged_except(before, after, *tables):
-    for table in before:
-        if table not in tables and before[table] != after[table]:
-            raise ScenarioError(f"unexpected write: {table}")
-
-
-def _created(before, after, table):
-    known = {row["id"] for row in _rows(before, table)}
-    return [row for row in _rows(after, table) if row["id"] not in known]
-
-
-def _same_instant(stored, expected):
-    return datetime.fromisoformat(stored) == datetime.fromisoformat(expected)
-
-
-def _body(response):
-    return json.loads(response["body"])
-
-
-def _no_write(before, after, response, mail):
-    if before != after or mail:
-        raise ScenarioError("refused request changed state or sent mail")
-
-
 def _created_container(user, name, identifier, clock, kind="CUSTOM"):
     def check(before, after, response, mail):
-        _unchanged_except(before, after, "watchlists")
-        (row,) = _created(before, after, "watchlists")
+        unchanged_except(before, after, "watchlists")
+        (row,) = created(before, after, "watchlists")
         expected = {"id": identifier, "user_id": user, "name": name, "kind": kind}
-        if {key: row[key] for key in expected} != expected or not _same_instant(row["created_at"], clock):
+        if {key: row[key] for key in expected} != expected or not same_instant(row["created_at"], clock):
             raise ScenarioError("created container differs from the controlled values")
         if mail:
             raise ScenarioError("container write sent mail")
@@ -137,11 +111,11 @@ def _create_response(user, name, identifier, clock):
 
     def check(before, after, response, mail):
         base(before, after, response, mail)
-        body = _body(response)
+        body = body_of(response)
         if {key: body[key] for key in ("id", "name", "entry_count", "entries")} != {
                 "id": identifier, "name": name, "entry_count": 0, "entries": []}:
             raise ScenarioError("create response differs from the committed container")
-        if not _same_instant(body["created_at"], clock):
+        if not same_instant(body["created_at"], clock):
             raise ScenarioError("create response clock differs")
     return check
 
@@ -151,7 +125,7 @@ def _radar_response(user, identifier, clock):
 
     def check(before, after, response, mail):
         base(before, after, response, mail)
-        body = _body(response)
+        body = body_of(response)
         if (body["id"], body["kind"], body["slices"], body["total_slice_count"]) != (
                 identifier, "RADAR_DEFAULT", [], 0):
             raise ScenarioError("radar summary differs from the committed radar")
@@ -159,7 +133,7 @@ def _radar_response(user, identifier, clock):
 
 
 def _radars(state, user):
-    return [row for row in _rows(state, "watchlists")
+    return [row for row in rows(state, "watchlists")
             if row["user_id"] == user and row["kind"] == "RADAR_DEFAULT"]
 
 
@@ -168,54 +142,36 @@ def _existing_radar(user, identifier):
         if before != after or mail:
             raise ScenarioError("an existing radar must not change state")
         (radar,) = _radars(after, user)
-        if radar["id"] != identifier or _body(response)["id"] != identifier:
+        if radar["id"] != identifier or body_of(response)["id"] != identifier:
             raise ScenarioError("the radar identifier is not stable")
     return check
 
 
 def _other_rows(state, table, container):
-    return [row for row in _rows(state, table) if row["watchlist_id"] != container]
+    return [row for row in rows(state, table) if row["watchlist_id"] != container]
 
 
 def _deleted_container(container, kept):
     def check(before, after, response, mail):
         if response["body"] != b"" or mail:
             raise ScenarioError("delete must return an empty body and send no mail")
-        _unchanged_except(before, after, "watchlists", "watchlist_entries", "watchlist_targets", "watchlist_events")
-        if [row for row in _rows(after, "watchlists") if row["id"] == container]:
+        unchanged_except(before, after, "watchlists", "watchlist_entries", "watchlist_targets", "watchlist_events")
+        if [row for row in rows(after, "watchlists") if row["id"] == container]:
             raise ScenarioError("container survived its deletion")
         for table in ("watchlist_entries", "watchlist_targets", "watchlist_events"):
-            if [row for row in _rows(after, table) if row["watchlist_id"] == container]:
+            if [row for row in rows(after, table) if row["watchlist_id"] == container]:
                 raise ScenarioError(f"{table} rows survived their container")
             if _other_rows(before, table, container) != _other_rows(after, table, container):
                 raise ScenarioError(f"{table} rows of other containers changed")
-        if not [row for row in _rows(after, "watchlist_targets") if row["watchlist_id"] == kept]:
+        if not [row for row in rows(after, "watchlist_targets") if row["watchlist_id"] == kept]:
             raise ScenarioError("another container lost its targets")
-        if _created(before, after, "watchlist_events"):
+        if created(before, after, "watchlist_events"):
             raise ScenarioError("deletion created an event")
     return check
 
 
-class _Schedule:
-    """One clock tick and one identifier list per request, shared by both stacks."""
-
-    def __init__(self, secret):
-        self.secret = secret
-        self.tick = 0
-
-    def headers(self, user, ids, *, fail_summary=False, token=None):
-        self.tick += 1
-        clock = at(days=2, minutes=self.tick)
-        headers = {"authorization": token or bearer(self.secret, user), "x-request-id": REQUEST_ID,
-                   "x-test-watchlist-clock": clock.isoformat(),
-                   "x-test-watchlist-ids": ",".join(ids)}
-        if fail_summary:
-            headers["x-test-watchlist-fail-summary"] = "true"
-        return headers, clock.isoformat()
-
-
 def _actions(context):
-    schedule = _Schedule(context.environment["JWT_SECRET"])
+    schedule = Schedule(context.environment["JWT_SECRET"], REQUEST_ID)
 
     def write(name, route, method, path, status, user, *, ids=(), body=None, raw=None,
               check=None, outcome="committed", fail_summary=False, token=None, clock_check=None):
@@ -228,7 +184,7 @@ def _actions(context):
         if created is not None:
             options["clock_check"] = lambda clock: _create_response(user, created, ids[0], clock)
         elif status != 201:
-            options.setdefault("check", _no_write)
+            options.setdefault("check", no_write)
         return write(name, "W03", "POST", "/api/watchlists", status, user, ids=ids, body=body, raw=raw, **options)
 
     def radar(name, user, ids, **options):
@@ -264,13 +220,13 @@ def _actions(context):
     yield create("create-database-failure", 500, ACTOR, {"name": "rollback-create"}, ids=[uid(81, 6)],
                  outcome="rolled-back")
     yield _summary_failure(write, FAILURE, uid(80, 4))
-    yield delete("delete-default-radar", 400, ACTOR, uid(80, 1), check=_no_write)
-    yield delete("delete-foreign-container", 404, ACTOR, FOREIGN, check=_no_write)
-    yield delete("delete-missing-container", 404, ACTOR, MISSING, check=_no_write)
-    yield delete("delete-malformed-identifier", 422, ACTOR, "not-a-uuid", check=_no_write)
-    yield delete("delete-database-failure", 500, ACTOR, UNDELETABLE, outcome="rolled-back", check=_no_write)
+    yield delete("delete-default-radar", 400, ACTOR, uid(80, 1), check=no_write)
+    yield delete("delete-foreign-container", 404, ACTOR, FOREIGN, check=no_write)
+    yield delete("delete-missing-container", 404, ACTOR, MISSING, check=no_write)
+    yield delete("delete-malformed-identifier", 422, ACTOR, "not-a-uuid", check=no_write)
+    yield delete("delete-database-failure", 500, ACTOR, UNDELETABLE, outcome="rolled-back", check=no_write)
     yield delete("delete-container-with-children", 204, ACTOR, CHILDREN, check=_deleted_container(CHILDREN, KEEP))
-    yield delete("delete-repeat", 404, ACTOR, CHILDREN, check=_no_write)
+    yield delete("delete-repeat", 404, ACTOR, CHILDREN, check=no_write)
 
 
 def _summary_failure(write, user, identifier):
@@ -280,7 +236,7 @@ def _summary_failure(write, user, identifier):
 
         def check(before, after, response, mail):
             base(before, after, response, mail)
-            if _body(response) != {"detail": "Database operation failed."}:
+            if body_of(response) != {"detail": "Database operation failed."}:
                 raise ScenarioError("summary failure must be the database error response")
         return check
     return write("radar-summary-failure-after-commit", "W02", "POST", "/api/watchlists/me", 500, user,
@@ -288,18 +244,18 @@ def _summary_failure(write, user, identifier):
 
 
 def _races(context):
-    schedule = _Schedule(context.environment["JWT_SECRET"])
+    schedule = Schedule(context.environment["JWT_SECRET"], REQUEST_ID)
     headers, clock = schedule.headers(RACER, [uid(80, 5)])
     actors = tuple(Action(name, "W02", "POST", "/api/watchlists/me", 200, headers=headers, actor_id=RACER)
                    for name in ("radar-first", "radar-second"))
 
     def invariant(before, after, results):
-        _unchanged_except(before, after, "watchlists")
+        unchanged_except(before, after, "watchlists")
         (radar,) = _radars(after, RACER)
-        if radar["id"] != uid(80, 5) or not _same_instant(radar["created_at"], clock):
+        if radar["id"] != uid(80, 5) or not same_instant(radar["created_at"], clock):
             raise ScenarioError("concurrent radar creation must keep one row and one identifier")
         for response, error in results.values():
-            if error is not None or _body(response)["id"] != uid(80, 5):
+            if error is not None or body_of(response)["id"] != uid(80, 5):
                 raise ScenarioError("every concurrent radar call must return the one radar")
     return [Race(actors=actors, invariant=invariant, repeats=3, seed=20261019)]
 

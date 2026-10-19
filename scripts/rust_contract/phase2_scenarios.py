@@ -47,6 +47,12 @@ class Action:
     mail_body: bytes = b'{"id":"disposable-send"}'
     # Exact request bytes for cases JSON encoding cannot express (empty or `null` bodies).
     raw_body: bytes | None = None
+    # Statuses a contested request may legitimately receive; see `Race.contested`.
+    accepted_statuses: tuple[int, ...] = ()
+    # Replaces the strict twin-state comparison for one reviewed difference that
+    # changes committed rows (for example PD1). Receives the two stacks' states
+    # before and after, Python first, and must pin both sides exactly.
+    assert_state_difference: Callable | None = None
 
 
 @dataclass(frozen=True)
@@ -57,10 +63,15 @@ class Server:
 
 @dataclass(frozen=True)
 class Race:
+    """Actors released together. With `contested`, the actors send identical
+    requests for one resource, so which actor wins is not part of the contract:
+    each stack's responses are compared as a sorted set, and every actor lists
+    the statuses it may receive in `accepted_statuses`."""
     actors: tuple[Action, ...]
     invariant: Callable
     repeats: int = 3
     seed: int = 20261018
+    contested: bool = False
 
 
 @dataclass(frozen=True)
@@ -113,7 +124,7 @@ def _check_result(action, response, error):
     if error:
         if not action.allow_transport_error:
             raise ScenarioError(f"{action.name}: unexpected transport failure {error}")
-    elif response["status"] != action.expected_status:
+    elif response["status"] not in (action.accepted_statuses or (action.expected_status,)):
         raise ScenarioError(f"{action.name}: unexpected HTTP status {response['status']}")
 
 
@@ -128,20 +139,46 @@ def _compare_http(action, responses, errors):
     if errors[0] != errors[1]:
         raise ScenarioError(f"{action.name}: transport outcomes differ")
     for response, error in zip(responses, errors):
-        _check_result(action, response, error)
+        if error:
+            _check_result(action, response, error)
     if not any(errors):
-        wire = [{key: response[key] for key in ("status", "headers", "body")} for response in responses]
-        problems = compare_responses(*wire, profile="phase2-meaning-v1", route_id=action.route_id,
-                                    rules_sha256=hashlib.sha256(RULES.read_bytes()).hexdigest(),
-                                    request_id=action.headers.get("x-request-id"))
         if action.approved_difference:
             # One response may carry several named rules, written as "PD2+PD3".
             named_rules = set(action.approved_difference.split("+"))
             if not named_rules <= APPROVED_DIFFERENCES or action.assert_http_difference is None:
                 raise ScenarioError("approved difference requires reviewed rule and exact pair assertion")
+            # The pair assertion owns status, headers and body; a reviewed
+            # response need not be JSON.
             action.assert_http_difference(list(responses))
-        elif problems:
+            return
+        for response, error in zip(responses, errors):
+            _check_result(action, response, error)
+        wire = [{key: response[key] for key in ("status", "headers", "body")} for response in responses]
+        problems = compare_responses(*wire, profile="phase2-meaning-v1", route_id=action.route_id,
+                                    rules_sha256=hashlib.sha256(RULES.read_bytes()).hexdigest(),
+                                    request_id=action.headers.get("x-request-id"))
+        if problems:
             raise ScenarioError(f"{action.name}: HTTP responses differ: {problems}")
+
+
+def _compare_contested(actions, results):
+    """Compare each stack's responses as a sorted set, not by actor name."""
+    ordered = []
+    for stack in results:
+        wires = []
+        for name, (response, error) in stack.items():
+            if error:
+                raise ScenarioError(f"{name}: transport failure in a contested race")
+            _check_result(actions[name], response, None)
+            wires.append({key: response[key] for key in ("status", "headers", "body")})
+        ordered.append(sorted(wires, key=lambda wire: (wire["status"], wire["body"])))
+    first = next(iter(actions.values()))
+    for left, right in zip(*ordered):
+        problems = compare_responses(left, right, profile="phase2-meaning-v1", route_id=first.route_id,
+                                    rules_sha256=hashlib.sha256(RULES.read_bytes()).hexdigest(),
+                                    request_id=first.headers.get("x-request-id"))
+        if problems:
+            raise ScenarioError(f"contested race responses differ: {problems}")
 
 
 def run_actions(actions, cells):
@@ -152,7 +189,11 @@ def run_actions(actions, cells):
         responses, errors = zip(*[_request(cell, action) for cell in cells])
         after = [cell.snapshot() for cell in cells]
         _compare_http(action, responses, errors)
-        if compare_state(*after):
+        if action.assert_state_difference:
+            if not action.approved_difference:
+                raise ScenarioError("a state difference requires a named approved difference")
+            action.assert_state_difference(list(before), list(after))
+        elif compare_state(*after):
             raise ScenarioError(f"{action.name}: committed state differs")
         mail = [cell.mail() for cell in cells]
         if compare_state(*mail):
@@ -205,8 +246,11 @@ def run_race(race, cells):
         results = [run_barrier(tuple(actions), lambda name: _request(cell, actions[name]), seed=seed)
                    for cell in cells]
         after = [cell.snapshot() for cell in cells]
-        for name, action in actions.items():
-            _compare_http(action, [result[name][0] for result in results], [result[name][1] for result in results])
+        if race.contested:
+            _compare_contested(actions, results)
+        else:
+            for name, action in actions.items():
+                _compare_http(action, [result[name][0] for result in results], [result[name][1] for result in results])
         if compare_state(*after) or compare_state(cells[0].mail(), cells[1].mail()):
             raise ScenarioError("race committed state or mail differs")
         for old, new, result in zip(before, after, results):
@@ -295,4 +339,13 @@ register(watchlist_reads_gate_off_scenario())
 from scripts.rust_contract.phase2_watchlist_containers import watchlist_containers_scenario
 
 register(watchlist_containers_scenario())
+from scripts.rust_contract.phase2_watchlist_targets import (
+    watchlist_targets_gate_off_scenario,
+    watchlist_targets_hidden_scenario,
+    watchlist_targets_scenario,
+)
+
+register(watchlist_targets_scenario())
+register(watchlist_targets_gate_off_scenario())
+register(watchlist_targets_hidden_scenario())
 # END LANE REGISTRATIONS
