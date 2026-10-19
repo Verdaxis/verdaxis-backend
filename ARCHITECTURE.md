@@ -16,6 +16,22 @@ comes from each environment's `/health/ready` response, not a dated SHA in
 source documentation. The shared-host marker is
 `/home/verdaxis-prod/verdaxis/PRODUCTION_HOST.md`.
 
+## Rust Phase 2 feedback
+
+`rs/read/src/crud/feedback.rs` provides the Task 10 feedback submission and
+administrator listing routers. Both use the shared authenticated transaction;
+submission and pagination validation precede endpoint quota consumption through
+`validate_and_admit`. The admin view retains identified support data and outer
+joins. `rs/read/tests/run_feedback.sh` runs the focused HTTP/database checks in a
+disposable PostgreSQL container; `tests/rust_contract/phase2/feedback.json` holds
+validation vectors and scenario definitions. `feedback_scenario.py` registers
+31 real-route twin-database actions with full committed-state, rollback,
+postcommit no-replay and empty-mail-ledger assertions. The feature-gated
+`feedback_contract` example and Python test adapter control IDs and clocks without
+changing deployed settings. These routers are
+not activated in the serving binary. Feedback stays on Python at cutover until
+Task 22 provides the shared Python–Rust quota counter across real processes.
+
 ## Rust Phase 1 bootstrap
 
 `rs/` is a Rust 1.95 workspace with two packages. `verdaxis-read` defines the

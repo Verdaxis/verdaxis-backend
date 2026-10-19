@@ -348,4 +348,9 @@ from scripts.rust_contract.phase2_watchlist_targets import (
 register(watchlist_targets_scenario())
 register(watchlist_targets_gate_off_scenario())
 register(watchlist_targets_hidden_scenario())
+# Phase 2 Task 10: feedback route scenario.
+from scripts.rust_contract.feedback_scenario import feedback_scenario
+
+register(feedback_scenario())
+# Phase 2 Task 10: end feedback route scenario.
 # END LANE REGISTRATIONS
