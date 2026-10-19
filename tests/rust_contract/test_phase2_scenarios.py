@@ -121,6 +121,22 @@ def test_approved_http_difference_requires_named_rule_and_exact_pair():
         module._compare_http(action(module,approved_difference="PD4-G"),[left,right],[None,None])
 
 
+def test_combined_approved_difference_names_must_all_be_reviewed():
+    module=runner_module()
+    left={"status":200,"headers":{"content-type":"application/json"},"body":b'{"count":1}'}
+    right={"status":200,"headers":{"content-type":"application/json"},"body":b'{"count":0}'}
+    checked=[]
+    def approved(pair):
+        checked.append(pair)
+    combined=action(module,approved_difference="PD2+PD3",assert_http_difference=approved)
+    module._compare_http(combined,[left,right],[None,None])
+    assert checked==[[left,right]]
+    for unreviewed in ("PD2+PD9","PD9","PD2+"):
+        with pytest.raises(module.ScenarioError):
+            module._compare_http(action(module,approved_difference=unreviewed,assert_http_difference=approved),[left,right],[None,None])
+    assert len(checked)==1
+
+
 def test_equal_http_does_not_hide_extra_committed_row():
     module = runner_module()
     with pytest.raises(module.ScenarioError, match="state"):

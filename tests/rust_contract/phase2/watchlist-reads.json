@@ -1,9 +1,21 @@
 {
-  "version": 1,
+  "version": 2,
   "scope": "watchlist-read-acceptance",
   "routes": ["W01", "W04"],
-  "required_cases": ["owner-empty", "foreign-detail", "legacy-entries", "slices-and-pins", "hidden-order-pin", "hidden-order-event", "pre-cutoff-best-price-event", "at-cutoff-best-price-event", "totals-before-truncation", "both-kyc-states", "no-write-delta"],
-  "approved_differences": ["PD2", "PD3", "PD5"],
-  "cutoff": "required-explicit-aware-instant-no-default",
-  "qualified": false
+  "scenarios": ["watchlist-http-reads", "watchlist-http-reads-gate-off"],
+  "required_cases": {
+    "owner-empty": "owner-empty",
+    "foreign-detail": "foreign-detail",
+    "legacy-entries": "legacy-list, legacy-entries-detail",
+    "slices-and-pins": "public-slice-and-pin",
+    "hidden-order-pin": "hidden-order-pin-and-event",
+    "hidden-order-event": "hidden-order-event-only",
+    "best-price-event-before-at-after-any-cutoff": "best-price-events-hidden",
+    "totals-before-truncation": "totals-before-truncation",
+    "both-kyc-states": "gate-on-order-hidden, gate-off-order-visible",
+    "no-write-delta": "every action asserts unchanged business state and no mail"
+  },
+  "approved_differences": ["PD2", "PD3", "PD4-G"],
+  "cutoff": "reserved-for-a-later-trusted-producer-never-a-default",
+  "qualified": true
 }

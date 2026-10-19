@@ -24,6 +24,9 @@ class ScenarioError(RuntimeError):
     pass
 
 
+APPROVED_DIFFERENCES = frozenset({"PD1", "PD2", "PD3", "PD4-G", "PD6", "PD7", "json-syntax-wording-v1"})
+
+
 @dataclass(frozen=True)
 class Action:
     name: str
@@ -130,7 +133,9 @@ def _compare_http(action, responses, errors):
                                     rules_sha256=hashlib.sha256(RULES.read_bytes()).hexdigest(),
                                     request_id=action.headers.get("x-request-id"))
         if action.approved_difference:
-            if action.approved_difference not in {"PD1", "PD2", "PD3", "PD4-G", "PD6", "PD7", "json-syntax-wording-v1"} or action.assert_http_difference is None:
+            # One response may carry several named rules, written as "PD2+PD3".
+            named_rules = set(action.approved_difference.split("+"))
+            if not named_rules <= APPROVED_DIFFERENCES or action.assert_http_difference is None:
                 raise ScenarioError("approved difference requires reviewed rule and exact pair assertion")
             action.assert_http_difference(list(responses))
         elif problems:
@@ -274,7 +279,11 @@ class HTTPCell:
 from scripts.rust_contract.phase2_example import example_scenario
 
 register(example_scenario())
-from scripts.rust_contract.phase2_watchlists import watchlist_reads_scenario
+from scripts.rust_contract.phase2_watchlists import (
+    watchlist_reads_gate_off_scenario,
+    watchlist_reads_scenario,
+)
 
 register(watchlist_reads_scenario())
+register(watchlist_reads_gate_off_scenario())
 # END LANE REGISTRATIONS
