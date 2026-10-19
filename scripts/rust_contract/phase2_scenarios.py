@@ -288,5 +288,8 @@ from scripts.rust_contract.referral_invite import timeout_scenario as invite_tim
 register(invite_failure_scenario())
 register(invite_timeout_scenario())
 register(invite_no_key_scenario())
+from scripts.rust_contract.referral_populated import scenario as populated_reads_scenario
+
+register(populated_reads_scenario())
 # Phase 2 Task 17–19: referrals (end)
 # END LANE REGISTRATIONS
