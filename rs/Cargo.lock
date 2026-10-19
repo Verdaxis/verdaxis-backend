@@ -3184,7 +3184,6 @@ dependencies = [
  "chrono",
  "chrono-tz",
  "futures-util",
- "idna",
  "jsonwebtoken",
  "num-bigint",
  "num-traits",

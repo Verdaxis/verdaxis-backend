@@ -14,6 +14,8 @@
 //! `JWT_AUDIENCE` and `FRONTEND_URL`.
 
 mod code;
+mod email;
+mod email_tables;
 pub mod invite;
 mod reads;
 

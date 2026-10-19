@@ -14,7 +14,8 @@
     {"id": "referral-invite-failures", "group": "referrals", "kind": "registered-route", "registration": "scripts.rust_contract.referral_invite", "actions": ["missing-code-provider-matrix", "before-commit-rollback", "lost-response-after-send", "explicit-second-send", "existing-recipient"]},
     {"id": "referral-invite-timeout", "group": "referrals", "kind": "registered-route", "registration": "scripts.rust_contract.referral_invite", "actions": ["missing-code-provider-timeout", "explicit-second-timeout"]},
     {"id": "referral-invite-no-key", "group": "referrals", "kind": "registered-route", "registration": "scripts.rust_contract.referral_invite", "actions": ["missing-code-without-provider-key", "explicit-second-call"]},
-    {"id": "referral-reads-populated", "group": "referrals", "kind": "registered-route", "registration": "scripts.rust_contract.referral_populated", "actions": ["statistics-with-referrals", "top-ten-with-ties-across-the-boundary", "public-resolution-matrix"]}
+    {"id": "referral-reads-populated", "group": "referrals", "kind": "registered-route", "registration": "scripts.rust_contract.referral_populated", "actions": ["statistics-with-referrals", "top-ten-with-ties-across-the-boundary", "public-resolution-matrix"]},
+    {"id": "referral-invite-addresses", "group": "referrals", "kind": "registered-route", "registration": "scripts.rust_contract.referral_addresses", "actions": ["rejected-address-matrix", "normalized-recipient-matrix", "self-and-existing-user-after-normalization"]}
   ],
   "release_coverage": "not-qualified",
   "note": "Route write scenarios are added by their owning tasks. Harness smoke does not qualify a route or candidate."

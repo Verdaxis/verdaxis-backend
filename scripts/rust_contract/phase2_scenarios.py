@@ -291,5 +291,8 @@ register(invite_no_key_scenario())
 from scripts.rust_contract.referral_populated import scenario as populated_reads_scenario
 
 register(populated_reads_scenario())
+from scripts.rust_contract.referral_addresses import scenario as address_scenario
+
+register(address_scenario())
 # Phase 2 Task 17–19: referrals (end)
 # END LANE REGISTRATIONS
