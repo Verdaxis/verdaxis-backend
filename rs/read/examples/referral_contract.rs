@@ -5,6 +5,31 @@ use verdaxis_read::{
     crud::referrals::{ReferralSettings, invite::MailClient},
 };
 
+async fn response_loss(
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    let lose = request
+        .headers()
+        .get("x-referral-test-response-loss")
+        .is_some_and(|v| v == "true");
+    let request_id = request.headers().get("x-request-id").cloned();
+    let response = next.run(request).await;
+    if lose && response.status() == axum::http::StatusCode::OK {
+        let mut lost = (
+            axum::http::StatusCode::SERVICE_UNAVAILABLE,
+            axum::Json(serde_json::json!({"detail":"disposable response lost after commit"})),
+        )
+            .into_response();
+        if let Some(value) = request_id {
+            lost.headers_mut().insert("x-request-id", value);
+        }
+        return lost;
+    }
+    response
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if std::env::var("ENVIRONMENT").as_deref() != Ok("test") {
@@ -62,7 +87,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 async move { axum::Json(serde_json::json!({"disposable":true,"token":token})) }
             }),
         );
-    let app = verdaxis_read::runtime::http::router_with(routes, state);
+    let app = verdaxis_read::runtime::http::router_with(routes, state)
+        .layer(axum::middleware::from_fn(response_loss));
     axum::serve(tokio::net::TcpListener::bind(config.bind).await?, app).await?;
     Ok(())
 }

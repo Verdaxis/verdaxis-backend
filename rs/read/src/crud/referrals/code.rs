@@ -50,24 +50,24 @@ pub enum Candidates {
 impl Candidates {
     pub fn new() -> Self {
         #[cfg(feature = "contract-tests")]
-        if let Ok(text) = std::env::var("RUST_CONTRACT_REFERRAL_CANDIDATES") {
-            if let Ok(sequence) = serde_json::from_str::<Vec<String>>(&text) {
-                return Self::fixed(sequence);
-            }
+        if std::env::var("ENVIRONMENT").as_deref() == Ok("test")
+            && let Ok(text) = std::env::var("RUST_CONTRACT_REFERRAL_CANDIDATES")
+            && let Ok(sequence) = serde_json::from_str::<Vec<String>>(&text)
+        {
+            return Self::fixed(sequence);
         }
         Self::Random
     }
 
     pub(crate) fn for_actor(actor: Uuid) -> Self {
         #[cfg(feature = "contract-tests")]
-        if std::env::var("ENVIRONMENT").as_deref() == Ok("test") {
-            if let Ok(raw) = std::env::var("REFERRAL_CANDIDATE_MAP") {
-                if let Ok(map) = serde_json::from_str::<std::collections::HashMap<String, Vec<String>>>(&raw) {
-                    if let Some(sequence) = map.get(&actor.to_string()) {
-                        return Self::fixed(sequence.clone());
-                    }
-                }
-            }
+        if std::env::var("ENVIRONMENT").as_deref() == Ok("test")
+            && let Ok(raw) = std::env::var("REFERRAL_CANDIDATE_MAP")
+            && let Ok(map) =
+                serde_json::from_str::<std::collections::HashMap<String, Vec<String>>>(&raw)
+            && let Some(sequence) = map.get(&actor.to_string())
+        {
+            return Self::fixed(sequence.clone());
         }
         let _ = actor;
         Self::new()

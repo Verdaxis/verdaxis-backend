@@ -29,6 +29,16 @@ def main():
 
     referrals._assign_unique_referral_code = assign
     referrals.generate_referral_code = generate
+    # Drop the successful response only after the actual handler commits.
+    from starlette.responses import JSONResponse
+
+    from app.main import app
+    @app.middleware('http')
+    async def response_loss(request, call_next):
+        response = await call_next(request)
+        if request.headers.get('x-referral-test-response-loss') == 'true' and response.status_code == 200:
+            return JSONResponse({'detail':'disposable response lost after commit'},status_code=503,headers={'x-request-id':request.headers['x-request-id']})
+        return response
     from scripts.rust_contract.phase2_oracle import main as serve
     return serve()
 

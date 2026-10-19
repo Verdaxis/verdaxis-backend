@@ -275,5 +275,8 @@ register(referral_scenario())
 from scripts.rust_contract.referral_allocation import scenario as allocation_scenario
 
 register(allocation_scenario())
+from scripts.rust_contract.referral_faults import scenario as fault_scenario
+
+register(fault_scenario())
 # Phase 2 Task 17–19: referrals (end)
 # END LANE REGISTRATIONS
