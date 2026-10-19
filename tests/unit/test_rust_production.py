@@ -158,6 +158,10 @@ def test_production_activation_requires_its_unit_provenance_and_readiness(tmp_pa
     if not failure:
         assert result.returncode == 0, result.stdout + result.stderr
         ledger = fixture.ledger
+        expected_checks = {f"sudo:-n -l systemctl {action} {unit}" for unit, actions in (("verdaxis-backend.service", ("restart", "stop")), ("verdaxis-rust.service", ("restart", "stop", "disable"))) for action in actions}
+        assert expected_checks <= set(ledger)
+        first_mutation = next(i for i, line in enumerate(ledger) if "verify_migration_revision.py" in line)
+        assert all(ledger.index(check) < first_mutation for check in expected_checks)
         python_restart = ledger.index("sudo:systemctl restart verdaxis-backend.service")
         rust_restart = ledger.index("sudo:systemctl restart verdaxis-rust.service")
         assert python_restart < next(i for i, line in enumerate(ledger) if "validate_health_response.py" in line) < rust_restart
