@@ -73,13 +73,6 @@ def test_production_runtime_projects_only_its_app_identity(tmp_path):
 class ProductionReleaseFixture(RustReleaseFixture):
     """Reuse the real transaction fixture, with separate production source."""
 
-    def __init__(self, tmp_path):
-        super().__init__(tmp_path)
-        _git(self.source, "branch", "-m", "prod")
-        _git(self.source, "push", "-q", "origin", "prod")
-        _git(self.checkout, "fetch", "-q", "origin")
-        _git(self.checkout, "checkout", "-q", "-b", "prod", "origin/prod")
-
     def _write_source_tree(self):
         super()._write_source_tree()
         for name in ("production-policy.json",):
@@ -104,13 +97,13 @@ class ProductionReleaseFixture(RustReleaseFixture):
         (self.source / "release.txt").write_text(str(enabled))
         _git(self.source, "add", "-A")
         _git(self.source, "commit", "-qm", "production release")
-        _git(self.source, "push", "-q", "origin", "prod")
+        _git(self.source, "push", "-q", "origin", "staging")
         return _git(self.source, "rev-parse", "HEAD").stdout.strip()
 
     def deploy_environment(self, release_sha, *, fail_phase=""):
         env = super().deploy_environment(release_sha, fail_phase=fail_phase)
         env.update(
-            TARGET_BRANCH="prod", DEPLOY_ENVIRONMENT="production",
+            TARGET_BRANCH="staging", DEPLOY_ENVIRONMENT="production",
             SERVICE_NAME="verdaxis-backend.service",
             MIGRATION_EXPECTED_CURRENT_REVISION="p0_20261016_union",
             MIGRATION_TARGET_REVISION="p0_20261016_union",
@@ -192,7 +185,7 @@ def test_production_sudoers_and_canonical_branch_are_exact():
     assert set(text.split("NOPASSWD: ", 1)[1].strip().split(", ")) == commands
     deploy = (ROOT / "scripts/deploy.sh").read_text()
     production = deploy.split("*/prod/be)", 1)[1].split(";;", 1)[0]
-    assert 'DEFAULT_BRANCH="prod"' in production
+    assert 'DEFAULT_BRANCH="staging"' in production
 
 
 @pytest.mark.parametrize("failure", ["start", "readiness"])
@@ -209,7 +202,7 @@ def test_production_rust_failure_retry_and_next_release_keep_python(tmp_path, fa
     assert fixture.deploy(sha).returncode == 0
     assert not state.exists()
     _git(fixture.source, "commit", "--allow-empty", "-qm", "next production release")
-    _git(fixture.source, "push", "-q", "origin", "prod")
+    _git(fixture.source, "push", "-q", "origin", "staging")
     second = _git(fixture.source, "rev-parse", "HEAD").stdout.strip()
     fixture.build_artifact(second)
     fixture.sign_for_prod()
