@@ -3,6 +3,7 @@ pub use http::{ReadSettings, read_routes};
 mod metrics;
 mod projection;
 mod reads;
+mod validation;
 pub use reads::{
     LegacyEntry, LegacyWatchlist, VisibleOrder, VisibleSnapshot, capture_visible, load_detail,
     load_legacy_list,

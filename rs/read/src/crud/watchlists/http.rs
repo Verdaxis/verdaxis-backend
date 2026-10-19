@@ -1,4 +1,5 @@
 //! Authenticated watchlist reads, composed explicitly with verification policy.
+use super::validation::{path_uuid, unprocessable};
 use super::{capture_visible, load_legacy_list};
 use crate::auth::{
     AuthenticatedError, AuthenticatedRequest, VerificationSettings, run_authenticated,
@@ -14,7 +15,6 @@ use axum::{
 };
 use chrono::{DateTime, Utc};
 use std::sync::Arc;
-use uuid::Uuid;
 
 #[derive(Clone)]
 pub struct ReadSettings {
@@ -122,16 +122,39 @@ async fn detail(
     );
     let policy = state.policy.clone();
     let config = state.config.clone();
-    match run_authenticated(&state,access,request,move |transaction|Box::pin(async move {
-        // User state precedes path validation, as in the FastAPI dependency chain.
-        let id=Uuid::parse_str(&raw).map_err(|_|ApiError {status:StatusCode::UNPROCESSABLE_ENTITY,
-            detail:serde_json::json!([{"type":"uuid_parsing","loc":["path","watchlist_id"],"msg":"Input should be a valid UUID","input":raw}]),retry_after:None,kind:ApiErrorKind::Expected})?;
-        let actor=transaction.actor().id;
-        let visible=capture_visible(transaction.connection(),&policy,&crate::market::visibility::VisibilityClock::at(now),&config)
-            .await.map_err(|_|ApiError::database())?;
-        visible.detail(transaction.connection(),actor,id,settings.best_price_cutoff).await.map_err(|_|ApiError::database())?
-            .ok_or(ApiError {status:StatusCode::NOT_FOUND,detail:serde_json::json!("Watchlist not found"),retry_after:None,kind:ApiErrorKind::Expected})
-    })).await {
-        Ok(value)=>Json(value).into_response(),Err(failure)=>error(failure),
+    match run_authenticated(&state, access, request, move |transaction| {
+        Box::pin(async move {
+            // User state precedes path validation, as in the FastAPI dependency chain.
+            let id = path_uuid("watchlist_id", &raw).map_err(|item| unprocessable(vec![item]))?;
+            let actor = transaction.actor().id;
+            let visible = capture_visible(
+                transaction.connection(),
+                &policy,
+                &crate::market::visibility::VisibilityClock::at(now),
+                &config,
+            )
+            .await
+            .map_err(|_| ApiError::database())?;
+            visible
+                .detail(
+                    transaction.connection(),
+                    actor,
+                    id,
+                    settings.best_price_cutoff,
+                )
+                .await
+                .map_err(|_| ApiError::database())?
+                .ok_or(ApiError {
+                    status: StatusCode::NOT_FOUND,
+                    detail: serde_json::json!("Watchlist not found"),
+                    retry_after: None,
+                    kind: ApiErrorKind::Expected,
+                })
+        })
+    })
+    .await
+    {
+        Ok(value) => Json(value).into_response(),
+        Err(failure) => error(failure),
     }
 }
