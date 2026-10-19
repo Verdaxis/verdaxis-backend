@@ -35,3 +35,14 @@ async def test_cache_trigger_functions_are_not_publicly_executable(analytics_pg_
             assert await connection.scalar(text("SELECT count(*) FROM pg_proc p, LATERAL aclexplode(p.proacl) a WHERE p.proname='bump_public_read_cache_generation' AND a.grantee=0 AND a.privilege_type='EXECUTE'")) == 0
     finally:
         await engine.dispose()
+
+
+def test_rust_listener_uses_migrated_disposable_database(analytics_pg_url):
+    import os
+    import subprocess
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[2]
+    environment = {**os.environ, "PUBLIC_CACHE_TEST_DATABASE_URL": analytics_pg_url.replace("postgresql+asyncpg://", "postgres://"),
+                   "RELEASE_SHA": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip(), "SQLX_OFFLINE": "true"}
+    subprocess.run(["cargo", "test", "--manifest-path", "rs/Cargo.toml", "-p", "verdaxis-read", "--test", "cache_events_postgres"],
+                   cwd=root, env=environment, check=True, timeout=900)
