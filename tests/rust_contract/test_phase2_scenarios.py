@@ -106,6 +106,21 @@ def action(module, name="write", **kwargs):
     return module.Action(name=name, route_id="N02", method="POST", path="/test", expected_status=200, **kwargs)
 
 
+def test_approved_http_difference_requires_named_rule_and_exact_pair():
+    module=runner_module()
+    left={"status":200,"headers":{"content-type":"application/json"},"body":b'{"count":1}'}
+    right={"status":200,"headers":{"content-type":"application/json"},"body":b'{"count":0}'}
+    checked=[]
+    def approved(pair):
+        assert pair==[left,right]
+        checked.append(True)
+    item=action(module,approved_difference="PD4-G",assert_http_difference=approved)
+    module._compare_http(item,[left,right],[None,None])
+    assert checked==[True]
+    with pytest.raises(module.ScenarioError):
+        module._compare_http(action(module,approved_difference="PD4-G"),[left,right],[None,None])
+
+
 def test_equal_http_does_not_hide_extra_committed_row():
     module = runner_module()
     with pytest.raises(module.ScenarioError, match="state"):

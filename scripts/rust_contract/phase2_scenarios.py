@@ -38,6 +38,8 @@ class Action:
     actor_id: str = ""
     recipient_exists: bool = False
     assert_after: Callable | None = None
+    approved_difference: str | None = None
+    assert_http_difference: Callable | None = None
     mail_status: int = 200
     mail_body: bytes = b'{"id":"disposable-send"}'
 
@@ -127,7 +129,11 @@ def _compare_http(action, responses, errors):
         problems = compare_responses(*wire, profile="phase2-meaning-v1", route_id=action.route_id,
                                     rules_sha256=hashlib.sha256(RULES.read_bytes()).hexdigest(),
                                     request_id=action.headers.get("x-request-id"))
-        if problems:
+        if action.approved_difference:
+            if action.approved_difference not in {"PD1", "PD2", "PD3", "PD4-G", "PD6", "PD7", "json-syntax-wording-v1"} or action.assert_http_difference is None:
+                raise ScenarioError("approved difference requires reviewed rule and exact pair assertion")
+            action.assert_http_difference(list(responses))
+        elif problems:
             raise ScenarioError(f"{action.name}: HTTP responses differ: {problems}")
 
 
@@ -153,7 +159,7 @@ def run_actions(actions, cells):
                 raise ScenarioError(f"{action.name}: unrelated users columns changed")
             if action.assert_after:
                 action.assert_after(old, new, response, sends)
-        evidence.append({"id": action.name, "outcome": action.outcome,
+        evidence.append({"id": action.name, "outcome": action.outcome, "approved_difference": action.approved_difference,
                          "transport_errors": list(errors), "statuses": [r["status"] if r else None for r in responses],
                          "state_sha256": [digest(state) for state in after],
                          "mail_sha256": [digest(sends) for sends in mail],
