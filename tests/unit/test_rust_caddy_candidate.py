@@ -85,6 +85,7 @@ def test_production_access_log_is_a_separate_redacted_change():
     assert "output file /var/log/caddy/api.verdaxis.exchange.log" in updated
     for field in ("request>headers>Authorization", "request>headers>Cookie", "request>headers>X-Monitor-Token", "resp_headers>Set-Cookie"):
         assert f"{field} delete" in updated
+    assert "request>uri query {" in updated and "delete stream_token" in updated
     assert "roll_size 20MiB" in updated and "roll_keep 3" in updated
     with pytest.raises(ValueError):
         module.candidate(updated, "production", "access-log")
@@ -123,7 +124,9 @@ def test_real_caddy_adapts_and_validates_production_candidates(tmp_path):
                 encoder = document["logging"]["logs"]["log0"]["encoder"]
                 assert encoder["format"] == "filter"
                 assert encoder["wrap"]["format"] == "json"
-                assert all(value == {"filter": "delete"} for value in encoder["fields"].values())
+                fields = dict(encoder["fields"])
+                assert fields.pop("request>uri") == {"filter": "query", "actions": [{"type": "delete", "parameter": "stream_token"}]}
+                assert all(value == {"filter": "delete"} for value in fields.values())
 
 
 def test_real_caddy_gives_every_staging_group_the_python_fallback_transport(tmp_path):
