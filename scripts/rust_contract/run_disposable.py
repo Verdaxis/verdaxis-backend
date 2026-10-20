@@ -1044,7 +1044,9 @@ def main(argv: list[str] | None = None) -> int:
         help="ordinary applies only scripts/seed.py; corpus also applies the fixture families",
     )
     parser.add_argument("--phase2", action="store_true")
-    parser.add_argument("--phase2-group", choices=("all", "notifications", "preferences", "feedback", "watchlists", "alerts", "referrals"), default="all")
+    # Phase 2 Task 20: register the order-write boundary group start
+    parser.add_argument("--phase2-group", choices=("all", "notifications", "preferences", "feedback", "watchlists", "alerts", "referrals", "order-write-boundary"), default="all")
+    # Phase 2 Task 20: register the order-write boundary group end
     parser.add_argument("--phase2-scenario", action="append")
     parser.add_argument("--phase2-size", choices=("small", "large"), default="small")
     parser.add_argument("--phase2-races", action="store_true")

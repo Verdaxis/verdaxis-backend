@@ -32,6 +32,24 @@ changing deployed settings. These routers are
 not activated in the serving binary. Feedback stays on Python at cutover until
 Task 22 provides the shared Python–Rust quota counter across real processes.
 
+## Rust Phase 2 order-write boundary
+
+Task 20 adds `rs/read/src/order_write/` for Python-derived lock identities,
+request hashes, receipt replay, bounded retries, and a private PostgreSQL
+transaction shell. The shell preserves caller-declared order-row acquisition
+order and sorts side-independent slice locks. Its database methods and test
+doubles remain inside the boundary. SQLx owns rollback on transaction drop.
+The public command entry point refuses unsupported commands before database
+access; no market HTTP write route is mounted. This task implements neither
+matching nor trade lifecycle operations. Public-scope event generation (PD4)
+remains mandatory before a future command can emit market events.
+
+`tests/rust_contract/phase2/market-write-spec.json` pins the Python source and
+hash vectors. The registered `order-write-postgres` group uses feature-gated
+loopback adapters to prove twin state, rollback, replay, timeouts, observed
+PostgreSQL advisory-lock order, bounded retries, races and mixed dispatch. See
+`docs/rust-phase2/task20-write-boundary.md` for gate results and the resume point.
+
 ## Rust Phase 1 bootstrap
 
 `rs/` is a Rust 1.95 workspace with two packages. `verdaxis-read` defines the

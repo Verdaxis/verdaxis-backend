@@ -363,4 +363,9 @@ from scripts.rust_contract.phase2_preferences import preferences_scenario
 
 register(preferences_scenario())
 # Phase 2 Task 9: end preferences scenario registration
+# Phase 2 Task 20: order-write boundary start
+from scripts.rust_contract.phase2_order_write import order_write_scenario
+
+register(order_write_scenario())
+# Phase 2 Task 20: order-write boundary end
 # END LANE REGISTRATIONS
