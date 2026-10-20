@@ -1,9 +1,12 @@
 """Transactional public cache metadata never grants runtime write authority."""
 import asyncio
 import importlib.util
+import json
 import os
 import re
+import secrets
 import subprocess
+import time
 from pathlib import Path
 
 import pytest
@@ -406,3 +409,153 @@ def test_rust_listener_uses_migrated_disposable_database(analytics_pg_url):
                    "RELEASE_SHA": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip(), "SQLX_OFFLINE": "true"}
     subprocess.run(["cargo", "test", "--manifest-path", "rs/Cargo.toml", "-p", "verdaxis-read", "--test", "cache_events_postgres"],
                    cwd=root, env=environment, check=True, timeout=900)
+
+
+async def _wait_for_file(path: Path, timeout: float = 180.0) -> None:
+    deadline = time.monotonic() + timeout
+    while not path.exists():
+        if time.monotonic() > deadline:
+            raise AssertionError(f"timed out waiting for {path.name}")
+        await asyncio.sleep(0.05)
+
+
+@pytest.mark.asyncio
+async def test_two_rust_readers_never_serve_the_prior_generation(
+    route_market, market_pg_url, tmp_path
+):
+    """Mixed Python-writer/Rust-reader schedule.
+
+    Two independent Rust processes warm a trading entry at generation G. The
+    Python route writer commits a real order. Neither Rust process consumes the
+    invalidation wake before its next read, so each must derive G+1 from the
+    generation check in its own snapshot. Only then is the wake delivered and
+    the entry cleared. This is a correctness schedule; it measures nothing.
+    """
+    client, seeded = route_market
+    url = market_pg_url.replace("postgresql+asyncpg://", "postgres://", 1)
+    engine = seeded["engine"]
+    epoch = secrets.token_hex(32)
+    primary = secrets.token_hex(32)
+
+    async with engine.begin() as connection:
+        await connection.execute(
+            text(
+                "UPDATE public_read_cache_incarnation SET database_epoch = :epoch, "
+                "primary_identity = :primary, authority_revision = 1, active = true "
+                "WHERE singleton"
+            ),
+            {"epoch": epoch, "primary": primary},
+        )
+    record = tmp_path / "cache-authority.json"
+    record.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "state": "active",
+                "database_epoch": epoch,
+                "primary_identity": primary,
+                "authority_revision": 1,
+            }
+        )
+    )
+
+    root = ROOT
+    release = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=root, text=True
+    ).strip()
+    environment = {
+        **os.environ,
+        "PUBLIC_CACHE_TEST_DATABASE_URL": url,
+        "PUBLIC_CACHE_TEST_RECORD": str(record),
+        "PUBLIC_CACHE_TEST_SCHEDULE": "mixed",
+        "PUBLIC_CACHE_TEST_BARRIER_DIR": str(tmp_path),
+        "RELEASE_SHA": release,
+        "SQLX_OFFLINE": "true",
+    }
+    # Build once so the two readers do not contend for the cargo lock.
+    subprocess.run(
+        [
+            "cargo",
+            "test",
+            "--manifest-path",
+            "rs/Cargo.toml",
+            "-p",
+            "verdaxis-read",
+            "--test",
+            "trading_cache_postgres",
+            "--no-run",
+        ],
+        cwd=root,
+        env=environment,
+        check=True,
+        timeout=900,
+    )
+
+    processes = {}
+    logs = []
+    try:
+        for reader in ("a", "b"):
+            log = (tmp_path / f"reader_{reader}.log").open("wb")
+            logs.append(log)
+            processes[reader] = await asyncio.create_subprocess_exec(
+                "cargo",
+                "test",
+                "--manifest-path",
+                "rs/Cargo.toml",
+                "-p",
+                "verdaxis-read",
+                "--test",
+                "trading_cache_postgres",
+                "--",
+                "--exact",
+                "--nocapture",
+                "mixed_python_writer_schedule",
+                cwd=root,
+                env={**environment, "PUBLIC_CACHE_TEST_READER": reader},
+                stdout=log,
+                stderr=asyncio.subprocess.STDOUT,
+            )
+        for reader in processes:
+            await _wait_for_file(tmp_path / f"{reader}.warm.rust")
+
+        created = await client.post(
+            "/api/orderbook",
+            json={
+                "side": "BID",
+                "product_id": str(seeded["product_id"]),
+                "delivery_point_id": str(seeded["point_id"]),
+                "quantity_mt": "200.00",
+                "price_per_mt_usd": "600.00",
+                "availability_window": "SPOT",
+            },
+            headers=_headers(seeded["buyer_id"], "cache-race-writer"),
+        )
+        assert created.status_code == 201, created.text
+        for reader in processes:
+            (tmp_path / f"{reader}.warm.python").write_text("1")
+
+        for reader in processes:
+            await _wait_for_file(tmp_path / f"{reader}.read.rust")
+            result = json.loads((tmp_path / f"result_{reader}.json").read_text())
+            assert result["after"] > result["before"], (reader, result)
+            await _wait_for_file(tmp_path / f"{reader}.cleared.rust")
+            code = await asyncio.wait_for(processes[reader].wait(), 120)
+            assert code == 0, (
+                (tmp_path / f"reader_{reader}.log").read_text()
+                if (tmp_path / f"reader_{reader}.log").exists()
+                else reader
+            )
+    finally:
+        for process in processes.values():
+            if process.returncode is None:
+                process.kill()
+                await process.wait()
+        for log in logs:
+            log.close()
+        async with engine.begin() as connection:
+            await connection.execute(
+                text(
+                    "UPDATE public_read_cache_incarnation SET active = false, "
+                    "authority_revision = 0"
+                )
+            )
