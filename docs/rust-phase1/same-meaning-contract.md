@@ -458,3 +458,32 @@ branch's cache checkpoint and optional listener count, in
 `scripts/prepare_rust_budget.py`. Resolving needs a merge of `staging` into this
 branch; that changes branch topology, so this lane stopped for a PM decision
 instead of doing it unasked.
+
+### Task 8–10 correctness gate record after the staging merge
+
+Evidence tree `e2fe7dfe` (the branch after `origin/staging` was merged, which
+brings PR 95 and the populated Task 4b corpus). Every run used the reviewed
+successor profile `phase1-meaning-v1` with rules digest
+`f68125dd74d59f0af49f120b839d8e3cdadef1deca8027f9d0f08fc8a0b99e0e`, the same
+profile the CI contract job runs. No measurement, deploy, live DDL or route
+change ran.
+
+| Plan task | Contract group | Cases | Exit |
+| --- | --- | ---: | ---: |
+| 8 — ports, catalog, news | `simple_reads` | 49 | `0` |
+| 9 — prices and trade tape | `prices` | 56 | `0` |
+| 10a — legacy curves | `curves_legacy` | 12 | `0` |
+| 10b — canonical curves and board | `curves_canonical` | 137 | `0` |
+
+The combined gate (`--group all --rust-target all --mixed-caddy
+--require-complete-ledger` with the same profile) exited `0`: health 8, echo 2,
+simple_reads, live_benchmarks 4, orderbook_snapshot 7, orderbook_lists 28,
+orderbook_map 41, prices 56, curves_legacy 12, curves_canonical 137, mcp 143,
+and the assertion ledger reported OK.
+
+Without the reviewed profile the strict legacy comparison reports the known
+reviewed typed-path differences only: tape item bytes in `prices` ties and
+quantity spellings in `orderbook_map`. Those are the differences the successor
+profile declares; no route changed in this checkpoint. The merged tree therefore
+carries Tasks 8–10 with their populated-corpus gates green. Task 13 route
+registration and any phase-gate measurement remain outside this checkpoint.
