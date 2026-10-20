@@ -62,6 +62,12 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt -c constraints.txt
 
+      - name: Install the pinned Rust toolchain for cache listener integration
+        run: |
+          channel="$(grep -oP 'channel = "\K[^"]+' rs/rust-toolchain.toml)"
+          rustup toolchain install "$channel" --profile minimal
+          rustup default "$channel"
+
       - name: Run PostgreSQL correctness tests
         env:
           ENVIRONMENT: test

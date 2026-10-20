@@ -24,6 +24,12 @@ from scripts.rust_contract.compare import (
 
 RULES_PATH = Path(__file__).resolve().parents[2] / "tests/rust_contract/phase2/normalization.json"
 APPROVED_RULES_SHA256 = "08e9165617b804704a35fa46685f90ca310bd3f0985c61797ddad20c706dfee4"
+PHASE1_RULES_PATH = RULES_PATH.parents[1] / "phase1_meaning/normalization.json"
+PHASE1_RULES_SHA256 = "f68125dd74d59f0af49f120b839d8e3cdadef1deca8027f9d0f08fc8a0b99e0e"
+PROFILES = {
+    "phase2-meaning-v1": (RULES_PATH, APPROVED_RULES_SHA256),
+    "phase1-meaning-v1": (PHASE1_RULES_PATH, PHASE1_RULES_SHA256),
+}
 TIMESTAMP = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,6})?(?:Z|[+-][0-9]{2}:[0-9]{2})")
 DECIMAL = re.compile(r"[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?")
 MINIMUM_TIME = datetime.min.replace(tzinfo=UTC)
@@ -41,16 +47,17 @@ def _parse(raw):
         raise ContractError("response body is not valid finite UTF-8 JSON") from error
 
 
-def _load_rules(path, digest, route_id):
+def _load_rules(path, digest, route_id, profile):
+    default_path, approved_digest = PROFILES[profile]
     try:
-        raw = path.read_bytes()
+        raw = (path or default_path).read_bytes()
     except OSError as error:
-        raise ContractError("Phase 2 normalization ledger is unreadable") from error
-    if digest != APPROVED_RULES_SHA256 or hashlib.sha256(raw).hexdigest() != digest:
-        raise ContractError("unreviewed or mismatched Phase 2 normalization ledger")
+        raise ContractError("normalization ledger is unreadable") from error
+    if digest != approved_digest or hashlib.sha256(raw).hexdigest() != digest:
+        raise ContractError("unreviewed or mismatched normalization ledger")
     rules = _parse(raw)
-    if route_id not in rules["routes"]:
-        raise ContractError("unknown Phase 2 route ID")
+    if rules["profile"] != profile or route_id not in rules["routes"]:
+        raise ContractError("unknown comparator route ID or profile ledger")
     return rules["routes"][route_id]
 
 
@@ -84,7 +91,7 @@ def _tie_key(item, kind):
         raise ContractError("tie array item is not an object")
     if kind == "unordered":
         return ()
-    if kind in {"created_at", "signed_up_at"}:
+    if kind in {"created_at", "signed_up_at", "published_at"}:
         return (_instant(item.get(kind)),)
     if kind == "referral_count":
         number = item.get(kind)
@@ -103,6 +110,46 @@ def _tie_key(item, kind):
     raise ContractError("unknown tie key rule")
 
 
+def _diagnostic_contract(context):
+    """Use the pinned Python validator as input authority, never parse its repr."""
+    from pydantic import ValidationError
+
+    from app.mcp_server import build_mcp_server
+
+    if not isinstance(context, dict) or set(context) != {"tool", "arguments"}:
+        raise ContractError("MCP diagnostic comparison needs exact request context")
+    tool = context["tool"]
+    metadata = build_mcp_server(read_limiter=None)._tool_manager.get_tool(tool)
+    if metadata is None:
+        raise ContractError("unknown MCP diagnostic tool")
+    metadata = metadata.fn_metadata
+    try:
+        metadata.arg_model.model_validate(metadata.pre_parse_json(context["arguments"]))
+    except ValidationError as error:
+        errors = _parse(error.json(include_url=False, include_context=False).encode())
+        text = f"Error executing tool {tool}: {error}"
+        return text, errors
+    raise ContractError("diagnostic request is not rejected by the pinned validator")
+
+
+def _mcp_payload(value, rules, context):
+    """Declare the two tool-payload copies to the existing JSON walker."""
+    result = value.get("result", {}) if isinstance(value, dict) else {}
+    outer = {"decimal_paths": [], "datetime_paths": [], "ties": []}
+    if isinstance(result, dict) and result.get("isError") is not True:
+        for field in ("decimal_paths", "datetime_paths", "map_paths"):
+            outer[field] = ["/result/structuredContent" + path for path in rules.get(field, [])]
+        outer["embedded_json"] = {"/result/content/*/text": rules}
+    elif isinstance(result, dict) and result.get("isError") is True and context is not None:
+        # Only rejected argument-validation requests admit decision 84. Ordinary
+        # tool failures keep exact text, even when the caller supplies context.
+        try:
+            outer["diagnostic"] = _diagnostic_contract(context)
+        except ContractError:
+            pass
+    return _canonical(value, "", outer)
+
+
 def _canonical(value, path, rules):
     """Tag every JSON kind; wildcards are introduced only by array traversal."""
     if value is None:
@@ -112,13 +159,27 @@ def _canonical(value, path, rules):
     if isinstance(value, Decimal):
         return ("number", value)
     if isinstance(value, str):
+        if path in rules.get("embedded_json", {}):
+            return ("embedded-json", _canonical(_parse(value.encode()), "", rules["embedded_json"][path]))
+        if path == "/result/content/*/text" and "diagnostic" in rules:
+            expected_text, errors = rules["diagnostic"]
+            if value == expected_text:
+                return ("validation-diagnostic", _canonical(errors, "", {"decimal_paths": [], "datetime_paths": [], "ties": []}))
+            if value.startswith("Validation failed: "):
+                parsed = _parse(value.removeprefix("Validation failed: ").encode())
+                exact = {"decimal_paths": [], "datetime_paths": [], "ties": []}
+                actual_errors = _canonical(parsed, "", exact)
+                expected_errors = _canonical(errors, "", exact)
+                if actual_errors != expected_errors:
+                    return ("invalid-diagnostic", actual_errors)
+                return ("validation-diagnostic", actual_errors)
         if path in rules["decimal_paths"]:
             return ("decimal-string", _decimal_string(value))
         if path in rules["datetime_paths"]:
             return ("datetime-string", _instant(value))
         return ("string", value)
     if isinstance(value, dict):
-        return ("object", tuple((key, _canonical(child, path + "/" + key.replace("~", "~0").replace("/", "~1"), rules)) for key, child in sorted(value.items())))
+        return ("object", tuple((key, _canonical(child, path + "/" + ("*" if path in rules.get("map_paths", []) else key.replace("~", "~0").replace("/", "~1")), rules)) for key, child in sorted(value.items())))
     if isinstance(value, list):
         children = [_canonical(child, path + "/*", rules) for child in value]
         tie = next((entry for entry in rules["ties"] if entry["path"] == path), None)
@@ -133,7 +194,7 @@ def _canonical(value, path, rules):
     raise ContractError("unsupported parsed JSON kind")
 
 
-def _response(response, rules, request_id):
+def _response(response, rules, request_id, diagnostic_context=None):
     if not isinstance(response, dict) or set(response) != {"status", "headers", "body"}:
         raise ContractError("raw response requires exactly status, headers and body")
     status, raw = response["status"], response["body"]
@@ -165,29 +226,39 @@ def _response(response, rules, request_id):
             raise ContractError("204 response has a nonempty body")
         body = ("empty",)
     else:
-        if not _is_json(kept.get("content-type", "")):
-            raise ContractError("Phase 2 route requires a JSON response")
-        parsed = _parse(raw)
-        # Typed DTO rules apply only to successful responses. Error envelopes
-        # are ordinary exact JSON, including validation locations and values.
-        active_rules = rules if 200 <= status < 300 else {"decimal_paths": [], "datetime_paths": [], "ties": []}
-        body = _canonical(parsed, "", active_rules)
+        codec = rules.get("codec", "json")
+        is_json = _is_json(kept.get("content-type", ""))
+        if (rules.get("allow_transport_body") and (not raw or not is_json)) or codec == "bytes" and 200 <= status < 300 or not is_json and codec == "json-or-bytes":
+            body = ("bytes", raw)
+        else:
+            if not is_json:
+                raise ContractError("route requires a JSON response")
+            parsed = _parse(raw)
+            # Errors retain exact fields and strings. MCP validation uses only
+            # its declared codec, request context, and structured error values.
+            active_rules = rules if 200 <= status < 300 else {"decimal_paths": [], "datetime_paths": [], "ties": []}
+            body = (_mcp_payload(parsed, active_rules, diagnostic_context)
+                    if codec == "mcp-json" and 200 <= status < 300 else
+                    _canonical(parsed, "", active_rules))
     return {"status": status, "headers": kept, "body": body}
 
 
-def compare_meaning(expected, actual, *, route_id, rules_sha256, rules_path=None, request_id=None):
+def compare_meaning(expected, actual, *, route_id, rules_sha256, rules_path=None, request_id=None,
+                    profile="phase2-meaning-v1", diagnostic_context=None):
     from scripts.rust_contract.compare import compare
 
-    rules = _load_rules(rules_path or RULES_PATH, rules_sha256, route_id)
+    rules = _load_rules(rules_path, rules_sha256, route_id, profile)
+    if profile == "phase1-meaning-v1":
+        rules = {**rules, "allow_transport_body": True}
     if request_id is not None and not re.fullmatch(r"[A-Za-z0-9._:-]{1,36}", request_id):
         raise ContractError("invalid harness-supplied request ID")
-    left = _response(expected, rules, request_id)
-    right = _response(actual, rules, request_id)
+    left = _response(expected, rules, request_id, diagnostic_context)
+    right = _response(actual, rules, request_id, diagnostic_context)
     differences = compare(left, right)
 
     def has_invalid_order(value):
         return isinstance(value, tuple) and (
-            (bool(value) and value[0] == "invalid-tie-order")
+            (bool(value) and value[0] in ("invalid-tie-order", "invalid-diagnostic"))
             or any(has_invalid_order(child) for child in value)
         )
 

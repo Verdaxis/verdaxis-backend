@@ -8,7 +8,12 @@ http://:{$CADDY_PORT} {
 	route {
 		import verdaxis_rust_public {$SIMPLE_UPSTREAM} {$ORDERBOOK_UPSTREAM} {$PRICES_UPSTREAM} {$CURVES_UPSTREAM} {$MCP_UPSTREAM}
 		handle {
-			reverse_proxy {$PYTHON_UPSTREAM}
+			reverse_proxy {$PYTHON_UPSTREAM} {
+				flush_interval -1
+				transport http {
+					keepalive off
+				}
+			}
 		}
 	}
 }

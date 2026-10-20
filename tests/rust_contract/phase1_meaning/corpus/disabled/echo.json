@@ -1,0 +1,58 @@
+{
+  "profile": "phase1-meaning-v1",
+  "rules_sha256": "f68125dd74d59f0af49f120b839d8e3cdadef1deca8027f9d0f08fc8a0b99e0e",
+  "source_sha": "56567679662daa76c9b7171015f57a7e76a3609a",
+  "clock": "2026-10-15T12:00:00+00:00",
+  "group": "echo",
+  "kyc_gate": false,
+  "entries": [
+    {
+      "id": "E01-echo--kyc-off",
+      "request": {
+        "method": "GET",
+        "path": "/__contract__/echo",
+        "query": "value=alpha",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "echo": "alpha",
+          "method": "GET"
+        },
+        "body_sha256": "fb4b1a26f43be5dff847c421b61267ba4cf13e22c87317ee55751f42b1af7325"
+      },
+      "raw_body_base64": "eyJlY2hvIjoiYWxwaGEiLCJtZXRob2QiOiJHRVQifQ=="
+    },
+    {
+      "id": "E02-echo-empty--kyc-off",
+      "request": {
+        "method": "GET",
+        "path": "/__contract__/echo",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "echo": null,
+          "method": "GET"
+        },
+        "body_sha256": "2c8d4658dac73bc66f7279de6cce595cc6c58f089b707957ad11582b69f0f714"
+      },
+      "raw_body_base64": "eyJlY2hvIjpudWxsLCJtZXRob2QiOiJHRVQifQ=="
+    }
+  ]
+}

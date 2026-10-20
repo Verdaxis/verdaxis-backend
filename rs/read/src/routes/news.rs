@@ -109,11 +109,21 @@ async fn list_news(
     RawQuery(raw): RawQuery,
 ) -> Result<Response, ApiError> {
     let query = news_query(&raw.unwrap_or_default())?;
+    let key = crate::runtime::cache::ReferenceKey::News {
+        limit: query.limit,
+        category: query.category.clone(),
+        min_relevance: query.min_relevance,
+    };
+    if let Some(payload) = crate::runtime::cache::cached_payload(&state, &key) {
+        return Ok(axum::Json(payload).into_response());
+    }
     let items = run_admitted(&state, move |connection| {
         Box::pin(async move { select_news(connection, query).await })
     })
     .await?;
-    Ok(axum::Json(Json::Array(items)).into_response())
+    let payload = Json::Array(items);
+    crate::runtime::cache::store_payload(&state, key, &payload);
+    Ok(axum::Json(payload).into_response())
 }
 
 async fn select_news(

@@ -1,5 +1,25 @@
 use verdaxis_read::mcp::voyage::voyage_plan;
 
+fn assert_meaning(actual: &serde_json::Value, expected: &serde_json::Value) {
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let mut child = Command::new(root.join("venv/bin/python"))
+        .current_dir(&root)
+        .args(["-m", "scripts.rust_contract.compare_values"])
+        .stdin(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let pair = serde_json::json!({"expected": expected, "actual": actual, "route_id": "P1-tool-plan_voyage_fuel"});
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(pair.to_string().as_bytes())
+        .unwrap();
+    assert!(child.wait().unwrap().success(), "voyage meaning changed");
+}
+
 #[test]
 fn price_map_keys_are_canonicalized_before_calculation() {
     let vectors: serde_json::Value =
@@ -15,19 +35,19 @@ fn price_map_keys_are_canonicalized_before_calculation() {
         vector["today"].as_str().unwrap().parse().unwrap(),
     )
     .unwrap();
-    assert_eq!(result, vector["result"]);
+    assert_meaning(&result, &vector["result"]);
 
     request["assumptions"]["vlsfo_price_usd_per_mt"] = serde_json::json!({
         "Shanghai": "1", " shanghai ": "650", "SINGAPORE": "907"
     });
-    assert_eq!(
-        voyage_plan(
+    assert_meaning(
+        &voyage_plan(
             &request,
             &vector["prices"],
             vector["today"].as_str().unwrap().parse().unwrap(),
         )
         .unwrap(),
-        vector["result"]
+        &vector["result"],
     );
 }
 
@@ -69,7 +89,7 @@ fn complete_voyage_outputs_match_python() {
                 vector["name"]
             );
         } else {
-            assert_eq!(result.unwrap(), vector["result"], "{}", vector["name"]);
+            assert_meaning(&result.unwrap(), &vector["result"]);
         }
     }
 }

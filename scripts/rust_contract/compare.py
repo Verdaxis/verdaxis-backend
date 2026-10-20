@@ -114,7 +114,8 @@ def compare(expected: dict[str, Any], actual: dict[str, Any]) -> list[str]:
 
 def compare_responses(
     expected, actual, *, profile=None, route_id=None, rules_sha256=None,
-    rules_path=None, request_id=None, request_path="", live=False,
+    rules_path=None, request_id=None, diagnostic_context=None,
+    request_path="", live=False,
 ):
     """Compare raw status/header/body pairs under an explicit profile.
 
@@ -129,13 +130,14 @@ def compare_responses(
             capture(expected["status"], expected["headers"], expected["body"]),
             capture(actual["status"], actual["headers"], actual["body"]),
         )
-    if profile != "phase2-meaning-v1":
+    if profile not in {"phase2-meaning-v1", "phase1-meaning-v1"}:
         raise ContractError("unknown comparator profile")
     from scripts.rust_contract.phase2_meaning import compare_meaning
 
     return compare_meaning(
         expected, actual, route_id=route_id, rules_sha256=rules_sha256,
-        rules_path=rules_path, request_id=request_id,
+        rules_path=rules_path, request_id=request_id, profile=profile,
+        diagnostic_context=diagnostic_context,
     )
 
 
@@ -408,7 +410,14 @@ def _live_clock_path(request_path: str, path: tuple[str, ...]) -> bool:
         } or (len(path) == 4 and path[0] in {"indications", "physical_stems"}
               and path[1].isdigit() and path[2:] == ("provenance", "generated_at"))
     if request_path == "/api/curves/forward/board":
-        return path in {("focus", "fair_price_band_provenance", "generated_at")} or (
+        focus_curve_clock = (
+            len(path) >= 5 and path[:2] == ("focus", "curve") and path[2].isdigit()
+            and path[3:] in {("fair_price_band_provenance", "generated_at"),
+                             ("fair_price_band", "provenance", "generated_at"),
+                             ("indication_summary", "provenance", "generated_at"),
+                             ("physical_stem_summary", "provenance", "generated_at")}
+        )
+        return focus_curve_clock or path in {("focus", "fair_price_band_provenance", "generated_at")} or (
             len(path) == 5 and path[:2] in {("focus", "indications"), ("focus", "physical_stems")}
             and path[2].isdigit() and path[3:] == ("provenance", "generated_at")
         ) or (len(path) >= 5 and path[0] == "ports" and path[1].isdigit()
@@ -506,7 +515,8 @@ def _compare_phase1_responses(expected, actual, *, request_path, profile="byte",
 
 
 def recording_differences(
-    expected: Sequence[dict[str, Any]], actual: Sequence[dict[str, Any]]
+    expected: Sequence[dict[str, Any]], actual: Sequence[dict[str, Any]], *,
+    profile=None, rules_sha256=None,
 ) -> list[str]:
     """Compare two recordings of one group. Empty means equal.
 
@@ -519,6 +529,10 @@ def recording_differences(
     for left, right in zip(expected, actual):
         if left["id"] != right["id"]:
             problems.append(f"{left['id']}:ordering")
+            continue
+        if profile is not None:
+            from scripts.rust_contract.meaning_runner import compare_recorded_case
+            problems.extend(f"{left['id']}:{path}" for path in compare_recorded_case(left, right, profile, rules_sha256))
             continue
         problems += [
             f"{left['id']}:{path}"
@@ -637,6 +651,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--group", required=True)
     parser.add_argument("--cases", type=Path, default=CASES_PATH)
+    parser.add_argument("--profile", default=os.environ.get("RUST_CONTRACT_PROFILE"))
+    parser.add_argument("--rules-sha256", default=os.environ.get("MEANING_RULES_SHA256"))
     args = parser.parse_args(argv)
 
     from scripts.rust_contract.record import record
@@ -661,7 +677,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             file=sys.stderr,
         )
         return 1
-    problems = recording_differences(expected, actual)
+    problems = recording_differences(expected, actual, profile=args.profile, rules_sha256=args.rules_sha256)
     for problem in problems:
         # Schema path and category only. Never a body value.
         print(problem, file=sys.stderr)

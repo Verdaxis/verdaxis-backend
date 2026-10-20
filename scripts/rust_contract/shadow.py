@@ -72,7 +72,7 @@ ALLOWED_DIAGNOSTIC_FIELDS = frozenset(
     }
 )
 DIFFERENCE_CATEGORIES = frozenset(
-    {"type", "keys", "length", "value", "sequence", "order", "tie-item-bytes", "surrounding-bytes"}
+    {"type", "keys", "length", "value", "sequence", "order", "tie-item-bytes", "surrounding-bytes", "http-status", "tool-error", "timeout", "oversize", "unreachable", "busy", "comparison-error", "data-changed", "no-stable-pair"}
 )
 
 # A caller that tries to persist one of these is refused, not silently allowed:
@@ -120,6 +120,8 @@ class ShadowConfig:
     cases_path: str = ""
     floor_approved: bool = False
     max_evidence_bytes: int = 10 * 1024 * 1024
+    approved_empty_routes: list[str] = field(default_factory=list)
+    body_limit_overrides: dict[str, int] = field(default_factory=dict)
 
 
 def load_config(path: Path) -> ShadowConfig:
@@ -153,6 +155,8 @@ def load_config(path: Path) -> ShadowConfig:
         cases_path=str(document.get("cases_path", "")),
         floor_approved=document.get("floor_approved", False),
         max_evidence_bytes=int(document.get("max_evidence_bytes", 10 * 1024 * 1024)),
+        approved_empty_routes=document.get("approved_empty_routes", []),
+        body_limit_overrides=document.get("body_limit_overrides", {}),
     )
 
 
@@ -177,6 +181,16 @@ def validate_config(config: ShadowConfig) -> None:
             raise ShadowError("separate full readiness identities are required")
     if type(config.floor_approved) is not bool:
         raise ShadowError("floor approval must be explicit")
+    route_ids = {route["id"] for route in workload.routes(workload.load())}
+    if (not isinstance(config.approved_empty_routes, list)
+            or any(not isinstance(route, str) or route not in route_ids
+                   for route in config.approved_empty_routes)):
+        raise ShadowError("empty-route approval must name known routes")
+    if (not isinstance(config.body_limit_overrides, dict)
+            or any(route not in route_ids or type(limit) is not int
+                   or not 0 < limit <= 16 * 1024 * 1024
+                   for route, limit in config.body_limit_overrides.items())):
+        raise ShadowError("body overrides require known routes and at most 16 MiB")
     for key, value in config.price_minute_limits.items():
         if key not in MINUTE_LIMITS or not 0 < value <= MINUTE_LIMITS[key]:
             raise ShadowError("unsafe minute limit")
@@ -203,7 +217,7 @@ def load_staging_cases(path: Path, *, require_complete=True) -> list[dict[str, A
         if identifier in routes:
             expected = routes[identifier]
             valid_path = (case.get("path") == expected if identifier != "R02" else
-                          bool(re.fullmatch(r"/api/ports/[A-Z]{5}", case.get("path", ""))))
+                          bool(re.fullmatch(r"/api/ports/(?:[A-Z]{5}|[a-z]{2}-[a-z]{3})", case.get("path", ""))))
             if not valid_path or case.get("method") != "GET":
                 raise ShadowError("unreviewed public route")
         elif identifier in tools:
@@ -272,7 +286,7 @@ def memory_pressure() -> bool:
     """Use the existing kernel pressure signal; no load measurement is run."""
     try:
         rows = Path("/proc/pressure/memory").read_text().splitlines()
-        return any(row.startswith("full ") and float(row.split("avg10=", 1)[1].split()[0]) > 0
+        return any(row.startswith("full ") and float(row.split("avg10=", 1)[1].split()[0]) >= 1.0
                    for row in rows)
     except (OSError, ValueError, IndexError) as error:
         raise ShadowError("memory pressure signal unavailable") from error
@@ -360,6 +374,7 @@ def coverage(
     required: int,
     *,
     nonempty: dict[str, bool] | None = None,
+    approved_empty_routes: list[str] | None = None,
 ) -> dict[str, Any]:
     """Coverage outcome per route: ok, or inconclusive with the number needed.
 
@@ -374,6 +389,8 @@ def coverage(
         if count < required:
             outcomes[route_id] = {"outcome": "inconclusive", "pairs": count, "needed": required - count}
             inconclusive.append(route_id)
+        elif nonempty.get(route_id) is False and route_id in (approved_empty_routes or []):
+            outcomes[route_id] = {"outcome": "ok", "pairs": count, "reason": "empty-only (approved)"}
         elif nonempty.get(route_id) is False:
             outcomes[route_id] = {"outcome": "inconclusive", "pairs": count, "needed": 0, "reason": "no nonempty observation"}
             inconclusive.append(route_id)
@@ -424,7 +441,9 @@ def sanitize_diagnostic(record: dict[str, Any]) -> dict[str, Any]:
                 raise ShadowError("invalid status pair")
             if key in {"byte_counts", "durations_ms"} and (
                 not isinstance(value, list) or len(value) > 3
-                or any(type(v) not in {int, float} or not 0 <= v <= 1048576 for v in value)
+                or any(type(v) not in {int, float}
+                       or not 0 <= v <= (16 * 1024 * 1024 if key == "byte_counts" else 1048576)
+                       for v in value)
             ):
                 raise ShadowError("invalid numeric diagnostic")
             if key == "counters" and (not isinstance(value, dict) or any(
@@ -458,6 +477,10 @@ def _shadow_request_id(route_id: str) -> str:
     return f"shadow-{route_id.lower()}"
 
 
+def response_body_limit(config: ShadowConfig, route_id: str) -> int:
+    return config.body_limit_overrides.get(route_id, config.max_response_bytes)
+
+
 def _one_call(config: ShadowConfig, base_url: str, case: dict[str, Any]) -> dict[str, Any]:
     """Direct loopback HTTP, no proxy/redirect, bounded by a real elapsed alarm.
 
@@ -474,7 +497,8 @@ def _one_call(config: ShadowConfig, base_url: str, case: dict[str, Any]) -> dict
     body = None
     if case["method"] == "POST":
         body = json.dumps(case["body"]).encode()
-        headers.update({"content-type": "application/json", "accept": "application/json, text/event-stream"})
+        headers.update({"host": "api-staging.verdaxis.exchange", "content-type": "application/json",
+                        "accept": "application/json, text/event-stream"})
     assert_safe_headers(headers)
     path = case["path"] + ("?" + case["query"] if case.get("query") else "")
     connection = http.client.HTTPConnection(target.hostname, target.port, timeout=config.per_call_deadline_seconds)
@@ -487,8 +511,9 @@ def _one_call(config: ShadowConfig, base_url: str, case: dict[str, Any]) -> dict
         connection.request(case["method"], path, body=body, headers=headers)
         response = connection.getresponse()
         status = response.status
-        raw = response.read(config.max_response_bytes + 1)
-        if len(raw) > config.max_response_bytes:
+        body_limit = response_body_limit(config, case["id"])
+        raw = response.read(body_limit + 1)
+        if len(raw) > body_limit:
             return {"status": status, "inconclusive": "oversize"}
         result = {"status": status, "headers": dict(response.getheaders()), "raw": raw,
                   "bytes": len(raw), "duration_ms": (time.monotonic() - started) * 1000,
@@ -555,7 +580,27 @@ def run(config: ShadowConfig, duration_seconds: int, *, cases=None) -> dict[str,
     ready = {"id": "READY", "method": "GET", "path": "/health/ready"}
     limits = MINUTE_LIMITS | config.price_minute_limits
 
-    def pause():
+    pause_reasons = {"memory-full": 0, "busy": 0, "readiness": 0}
+    diagnostic_keys = set()
+
+    def diagnose(case, category, steps=()):
+        key = (case["id"], category)
+        if key in diagnostic_keys:
+            return
+        record = {"route_id": case["id"], "case_id": case["case_id"],
+                  "field_path": "/body", "difference_category": category}
+        if steps:
+            statuses = [str(s.get("status") or "none") for s in steps]
+            if len(statuses) == 1:
+                statuses.append("none")
+            record["status_pair"] = "/".join(statuses)
+            record["byte_counts"] = [s.get("bytes", 0) for s in steps]
+            record["durations_ms"] = [s.get("duration_ms", 0) for s in steps]
+        diagnostics.append(sanitize_diagnostic(record))
+        diagnostic_keys.add(key)
+
+    def pause(reason):
+        pause_reasons[reason] += 1
         counters["pauses"] += 1
         if time.monotonic() + config.pause_seconds >= deadline:
             raise ShadowPaused("comparison duration reached")
@@ -565,7 +610,7 @@ def run(config: ShadowConfig, duration_seconds: int, *, cases=None) -> dict[str,
     def call(base, case):
         _death_line(config)
         while memory_pressure():
-            pause()
+            pause("memory-full")
         bucket = _bucket(case["path"])
         pacer.wait(base, bucket, limits.get(bucket, 60), deadline=deadline - config.per_call_deadline_seconds)
         _death_line(config)
@@ -575,7 +620,7 @@ def run(config: ShadowConfig, duration_seconds: int, *, cases=None) -> dict[str,
         for base, sha in ((config.python_url, config.python_sha), (config.rust_url, config.candidate_sha)):
             response = call(base, ready)
             if response.get("inconclusive") or response["status"] != 200:
-                pause()
+                pause("readiness")
                 raise ShadowError("readiness unavailable after safety pause")
             try:
                 actual = compare.parse_json(response["raw"])
@@ -592,7 +637,7 @@ def run(config: ShadowConfig, duration_seconds: int, *, cases=None) -> dict[str,
             for base, sha in ((config.python_url, config.python_sha), (config.rust_url, config.candidate_sha)):
                 response = call(base, {"id": identifier, "method": "GET", "path": path})
                 if response.get("inconclusive") or response["status"] != 200:
-                    pause()
+                    pause("readiness")
                     raise ShadowError("health contract unavailable")
                 try:
                     actual = compare.parse_json(response["raw"])
@@ -619,8 +664,9 @@ def run(config: ShadowConfig, duration_seconds: int, *, cases=None) -> dict[str,
                     reason = step["inconclusive"]
                     counters[reason] += 1
                     counters["inconclusive"] += 1
+                    diagnose(case, reason, steps)
                     if reason == "busy" or step.get("status") in (429, 503):
-                        pause()
+                        pause("busy")
                     break
             if any(s.get("inconclusive") for s in steps):
                 continue
@@ -630,6 +676,7 @@ def run(config: ShadowConfig, duration_seconds: int, *, cases=None) -> dict[str,
             except compare.ContractError:
                 counters["error"] += 1
                 counters["inconclusive"] += 1
+                diagnose(case, "comparison-error", steps)
                 continue
             counters[outcome] += 1
             successful = all(s["status"] == 200 for s in steps)
@@ -640,6 +687,9 @@ def run(config: ShadowConfig, duration_seconds: int, *, cases=None) -> dict[str,
                 nonempty[case["id"]] |= _nonempty(steps[0], case)
             elif outcome == "match":
                 counters["inconclusive"] += 1
+                diagnose(case, "http-status" if any(s["status"] != 200 for s in steps) else "tool-error", steps)
+            if outcome == "data_changed":
+                diagnose(case, "data-changed", steps)
             if outcome == "difference":
                 # A root schema path is intentionally conservative: dynamic JSON
                 # keys and comparator hashes can never escape into diagnostics.
@@ -658,14 +708,18 @@ def run(config: ShadowConfig, duration_seconds: int, *, cases=None) -> dict[str,
                 break
     except ShadowPaused:
         pass
-    covered = coverage(pairs, config.required_observations_per_route, nonempty=nonempty)
+    for case in cases:
+        if pairs[case["id"]] == 0:
+            diagnose(case, "no-stable-pair")
+    covered = coverage(pairs, config.required_observations_per_route, nonempty=nonempty,
+                       approved_empty_routes=config.approved_empty_routes)
     usable = sum(pairs.values())
     outcome = "FAIL" if failed else "INCONCLUSIVE"
     if (not failed and final_ready and config.floor_approved and not covered["inconclusive"]
             and counters["attempted"] and usable / counters["attempted"] >= .99):
         outcome = "PASS"
     return {"outcome": outcome, "counters": counters, "pairs": pairs,
-            "coverage": covered, "diagnostics": diagnostics}
+            "coverage": covered, "diagnostics": diagnostics, "pause_reasons": pause_reasons}
 
 
 def result_exit_code(result):
