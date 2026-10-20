@@ -306,8 +306,16 @@ candidates and exact rollback bytes without touching live config. It reuses Task
 13's exact matchers and refuses production MCP activation. Production uses the
 single EU Caddyfile: P0 adds a bounded redacted API access log, then each group
 inserts its handle after analytics and before the unchanged Python fallback,
-retaining client-IP forwarding, flush and keepalive policy. Staging keeps snippet
-imports. `scripts/rust_passive_no_harm.py` evaluates equal ordinary-traffic log
+retaining client-IP forwarding, flush and keepalive policy. Each read group lists
+Rust first and the Python process second with `lb_policy first`, a ten-second
+`lb_try_duration`, a 250 ms `lb_try_interval`, and passive health
+(`fail_duration 30s`, `max_fails 1`), so a stopped Rust service answers from
+Python. The `fallback` candidate adds a 15-second retry window to the Python
+catch-all so a request waits out a Python restart. MCP keeps one upstream because
+it carries writes: Caddy retries any method after a dial error, but a non-GET
+request after a successful connection is not retried. Staging keeps snippet
+imports and takes the same options from `deploy/caddy/rust-public-staging.caddy`.
+`scripts/rust_passive_no_harm.py` evaluates equal ordinary-traffic log
 windows and journal error classes; it performs no requests or measurements. An
 empty or missing journal window is invalid evidence (exit 2 with a reason), never
 "no new error classes".
