@@ -827,8 +827,23 @@ CREATE EXTENSION IF NOT EXISTS postgis;
         if selected not in (["harness-smoke"], ["auth-state-matrix"]):
             raise RunnerError("select one implemented Phase 2 scenario")
         port = self.start_database()
+        policy_dir = "/tmp/phase2-role-policy"
+        docker("exec", self.container, "mkdir", "-p", policy_dir)
+        for name in ("app_acl_policy.sql", "converge_runtime_object_acls.sql", "bootstrap_roles.sql", "validate_roles.sql"):
+            docker("cp", str(ROOT / "deploy/postgres" / name), f"{self.container}:{policy_dir}/{name}")
+        # Create the roles and move schema ownership to the migrator before the
+        # migration, exactly as production does. Metadata functions declared
+        # SECURITY DEFINER then run with migrator authority; migrating as the
+        # app role left them unable to bump the cache generation.
+        docker("exec", self.container, "psql", "-X", "-U", "postgres", "-d", DB_NAME,
+            "-v", f"database_name={DB_NAME}", "-v", f"app_role={role}", "-v", f"migrator_role={MIGRATOR_ROLE}",
+            "-v", f"backup_role={BACKUP_ROLE}", "-f", f"{policy_dir}/bootstrap_roles.sql")
+        docker("exec", self.container, "psql", "-X", "-U", "postgres", "-d", DB_NAME,
+            "-c", f"ALTER ROLE {identifier(MIGRATOR_ROLE)} PASSWORD '{PASSWORD}'")
+        migrator_url = f"postgresql+asyncpg://{MIGRATOR_ROLE}:{PASSWORD}@127.0.0.1:{port}/{DB_NAME}"
         env = {**os.environ, "ENVIRONMENT": "test", "RELEASE_SHA": self.sha,
-               "JWT_SECRET": "test-secret-key-for-testing-minimum-32-chars", **self.urls(port)}
+               "JWT_SECRET": "test-secret-key-for-testing-minimum-32-chars", **self.urls(port),
+               "DATABASE_URL": migrator_url, "MIGRATOR_DATABASE_URL": migrator_url}
         self.seed = False
         self.migrate_and_seed(env)
         # Seed one immutable source schema before cloning. Neither request cell
@@ -839,10 +854,6 @@ CREATE EXTENSION IF NOT EXISTS postgis;
         with connect(port, "postgres", autocommit=True) as admin:
             for database in DATABASES:
                 admin.execute(f"CREATE DATABASE {identifier(database)} TEMPLATE {identifier(DB_NAME)}")
-        policy_dir = "/tmp/phase2-role-policy"
-        docker("exec", self.container, "mkdir", "-p", policy_dir)
-        for name in ("app_acl_policy.sql", "converge_runtime_object_acls.sql", "bootstrap_roles.sql", "validate_roles.sql"):
-            docker("cp", str(ROOT / "deploy/postgres" / name), f"{self.container}:{policy_dir}/{name}")
         for database in DATABASES:
             for script in ("bootstrap_roles.sql", "validate_roles.sql"):
                 docker("exec", self.container, "psql", "-X", "-U", "postgres", "-d", database,
