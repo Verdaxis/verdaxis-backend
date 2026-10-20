@@ -17,7 +17,7 @@ def generator():
 @pytest.mark.parametrize("environment,python,rust", [("staging", "8001", "8011")])
 def test_candidate_changes_one_group_and_keeps_rollback_exact(environment, python, rust):
     module = generator()
-    original = "site.example {\n route {\n  import verdaxis_rust_public " + " ".join([f"127.0.0.1:{python}"] * 5) + "\n  reverse_proxy 127.0.0.1:" + python + "\n }\n}\n"
+    original = "site.example {\n route {\n  import verdaxis_rust_public " + " ".join([f"127.0.0.1:{python}"] * 6) + "\n  reverse_proxy 127.0.0.1:" + python + "\n }\n}\n"
     for index, group in enumerate(["simple", "orderbook", "prices", "curves"]):
         candidate = module.candidate(original, environment, group)
         assert candidate.count(f"127.0.0.1:{rust}") == 1
@@ -28,6 +28,13 @@ def test_candidate_changes_one_group_and_keeps_rollback_exact(environment, pytho
         module.candidate(original + original, environment, "simple")
     with pytest.raises(ValueError):
         module.candidate(original.replace(" route {", " handle {"), environment, "simple")
+    # The fallback is a required sixth argument and must be Python.
+    python_token = f"127.0.0.1:{python}"
+    six = " ".join([python_token] * 6)
+    with pytest.raises(ValueError):
+        module.candidate(original.replace(six, " ".join([python_token] * 5)), environment, "simple")
+    with pytest.raises(ValueError):
+        module.candidate(original.replace(six, " ".join([python_token] * 5 + [f"127.0.0.1:{rust}"])), environment, "simple")
 
 
 def test_all_snippet_groups_preserve_staging_forwarding_options():
@@ -40,8 +47,23 @@ def test_all_snippet_groups_preserve_staging_forwarding_options():
         assert "flush_interval -1" in body
         assert "transport http {" in body
         assert "keepalive off" in body
+        if group in module.READ_GROUPS:
+            # Every read group tries its own upstream, then the shared Python
+            # fallback, in that order, and remembers a refused connection.
+            assert f"reverse_proxy {{args[{module.GROUPS.index(group)}]}} {{args[5]}} {{" in body
+            assert "lb_policy first" in body
+            assert "lb_try_duration 10s" in body
+            assert "lb_try_interval 250ms" in body
+            assert "fail_duration 30s" in body
+            assert "max_fails 1" in body
+        else:
+            # MCP carries writes and must keep a single upstream.
+            assert body.count("reverse_proxy ") == 1
+            assert "{args[5]}" not in body
+            assert "lb_try_duration" not in body
     contract = (ROOT / "tests/rust_contract/Caddyfile").read_text()
     assert "flush_interval -1" in contract and "keepalive off" in contract
+    assert contract.count("{$PYTHON_UPSTREAM}") == 2
 
 
 def production_fixture():
@@ -60,7 +82,9 @@ def test_production_inserts_one_group_between_analytics_and_python(group):
     block = updated[start:stop]
     assert updated[:start] + updated[stop:] == logged
     assert updated.index("handle /api/send") < start < updated.index("reverse_proxy localhost:8000")
-    for option in ("reverse_proxy 127.0.0.1:8010", "header_up X-Forwarded-For {client_ip}", "flush_interval -1", "keepalive off"):
+    for option in ("reverse_proxy 127.0.0.1:8010 127.0.0.1:8000", "header_up X-Forwarded-For {client_ip}",
+                   "lb_policy first", "lb_try_duration 10s", "lb_try_interval 250ms",
+                   "fail_duration 30s", "max_fails 1", "flush_interval -1", "keepalive off"):
         assert option in block
     assert module.rollback(updated, "production", group) == logged
     with pytest.raises(ValueError):
@@ -94,6 +118,23 @@ def test_production_access_log_is_a_separate_redacted_change():
             module.candidate(broken, "production", "access-log")
 
 
+def proxies(document):
+    found = []
+
+    def collect(node):
+        if isinstance(node, dict):
+            if node.get("handler") == "reverse_proxy":
+                found.append(node)
+            for value in node.values():
+                collect(value)
+        elif isinstance(node, list):
+            for value in node:
+                collect(value)
+
+    collect(document)
+    return found
+
+
 def test_real_caddy_adapts_and_validates_production_candidates(tmp_path):
     import json
     import shutil
@@ -103,10 +144,9 @@ def test_real_caddy_adapts_and_validates_production_candidates(tmp_path):
     if not caddy:
         pytest.skip("real Caddy is required for the test-host gate")
     module = generator()
-    current = module.candidate(production_fixture(), "production", "access-log")
-    for group in ["access-log", "simple", "orderbook", "prices", "curves"]:
-        if group != "access-log":
-            current = module.candidate(current, "production", group)
+    current = production_fixture()
+    for group in ["access-log", "fallback", "simple", "orderbook", "prices", "curves"]:
+        current = module.candidate(current, "production", group)
         # Relocate only the log file into the isolated account; never write /var/log.
         config = tmp_path / f"{group}.Caddyfile"
         config.write_text(current.replace("/var/log/caddy/api.verdaxis.exchange.log", str(tmp_path / "access.log")))
@@ -119,8 +159,30 @@ def test_real_caddy_adapts_and_validates_production_candidates(tmp_path):
                 text = json.dumps(document)
                 for field in ("request>headers>Authorization", "request>headers>Cookie", "request>headers>X-Monitor-Token", "resp_headers>Set-Cookie"):
                     assert field in text
-                if group != "access-log":
-                    assert "127.0.0.1:8010" in text
+                adapted = proxies(document)
+                catchalls = [p for p in adapted
+                             if len(p["upstreams"]) == 1 and p["upstreams"][0]["dial"] == "localhost:8000"]
+                assert len(catchalls) == 1
+                if group == "access-log":
+                    assert "load_balancing" not in catchalls[0]
+                else:
+                    assert catchalls[0]["load_balancing"]["try_duration"] == 15_000_000_000
+                    assert catchalls[0]["load_balancing"]["try_interval"] == 250_000_000
+                groups = [p for p in adapted
+                          if any(u["dial"] == "127.0.0.1:8010" for u in p["upstreams"])]
+                if group in module.READ_GROUPS:
+                    assert len(groups) == module.READ_GROUPS.index(group) + 1
+                    for proxy in groups:
+                        assert [u["dial"] for u in proxy["upstreams"]] == [
+                            "127.0.0.1:8010", "127.0.0.1:8000"]
+                        balancing = proxy["load_balancing"]
+                        assert balancing["selection_policy"] == {"policy": "first"}
+                        assert balancing["try_duration"] == 10_000_000_000
+                        assert balancing["try_interval"] == 250_000_000
+                        assert proxy["health_checks"]["passive"] == {
+                            "fail_duration": 30_000_000_000, "max_fails": 1}
+                else:
+                    assert groups == []
                 encoder = document["logging"]["logs"]["log0"]["encoder"]
                 assert encoder["format"] == "filter"
                 assert encoder["wrap"]["format"] == "json"
@@ -142,7 +204,7 @@ def test_real_caddy_gives_every_staging_group_the_python_fallback_transport(tmp_
     prepared = snippet + """
 http://:8080 {
 \troute {
-\t\timport verdaxis_rust_public 127.0.0.1:8001 127.0.0.1:8001 127.0.0.1:8001 127.0.0.1:8001 127.0.0.1:8001
+\t\timport verdaxis_rust_public 127.0.0.1:8001 127.0.0.1:8001 127.0.0.1:8001 127.0.0.1:8001 127.0.0.1:8001 127.0.0.1:8001
 \t\thandle {
 \t\t\treverse_proxy 127.0.0.1:8001 {
 \t\t\t\tflush_interval -1
@@ -161,8 +223,12 @@ http://:8080 {
     ):
         config = tmp_path / f"{name}.Caddyfile"
         config.write_text(text)
+        for verb in ("validate", "adapt"):
+            command = [caddy, verb, "--config", str(config), "--adapter", "caddyfile"]
+            result = subprocess.run(command, capture_output=True, text=True, timeout=30)
+            print(f"{name} caddy {verb} EXIT={result.returncode}")
+            assert result.returncode == 0, result.stderr
         result = subprocess.run([caddy, "adapt", "--config", str(config), "--adapter", "caddyfile"], capture_output=True, text=True, timeout=30)
-        assert result.returncode == 0, result.stderr
         proxies = []
 
         def collect(node):
@@ -182,18 +248,100 @@ http://:8080 {
             assert proxy["transport"]["protocol"] == "http", name
             assert proxy["transport"]["keep_alive"] == {"enabled": False}, name
         assert sum(proxy["upstreams"][0]["dial"] == "127.0.0.1:8011" for proxy in proxies) == rust_proxies
+        # The four read groups carry Rust then Python; MCP and the final
+        # catch-all keep a single upstream.
+        read = [proxy for proxy in proxies if len(proxy["upstreams"]) == 2]
+        single = [proxy for proxy in proxies if len(proxy["upstreams"]) == 1]
+        assert len(read) == 4, name
+        assert len(single) == 2, name
+        for proxy in read:
+            dials = [upstream["dial"] for upstream in proxy["upstreams"]]
+            assert dials[1] == "127.0.0.1:8001", name
+            assert dials[0] in {"127.0.0.1:8001", "127.0.0.1:8011"}, name
+            balancing = proxy["load_balancing"]
+            assert balancing["selection_policy"] == {"policy": "first"}, name
+            assert balancing["try_duration"] == 10_000_000_000, name
+            assert balancing["try_interval"] == 250_000_000, name
+            assert proxy["health_checks"]["passive"] == {
+                "fail_duration": 30_000_000_000, "max_fails": 1}, name
+        for proxy in single:
+            assert "load_balancing" not in proxy, name
+            assert "health_checks" not in proxy, name
 
 
-def test_cli_writes_complete_candidate_and_exact_private_rollback(tmp_path):
+def staging_site():
+    return (
+        "api-staging.example {\n"
+        "\troute {\n"
+        "\t\timport verdaxis_rust_public 127.0.0.1:8001 127.0.0.1:8001 127.0.0.1:8001 "
+        "127.0.0.1:8001 127.0.0.1:8001 127.0.0.1:8001\n"
+        "\t\thandle {\n"
+        "\t\t\treverse_proxy 127.0.0.1:8001 {\n"
+        "\t\t\t\tflush_interval -1\n"
+        "\t\t\t\ttransport http {\n"
+        "\t\t\t\t\tkeepalive off\n"
+        "\t\t\t\t}\n"
+        "\t\t\t}\n"
+        "\t\t}\n"
+        "\t}\n"
+        "}\n"
+    )
+
+
+def test_production_python_catchall_waits_across_a_restart():
+    module = generator()
+    logged = module.candidate(production_fixture(), "production", "access-log")
+    updated = module.candidate(logged, "production", "fallback")
+    proxy = "\t\t\treverse_proxy localhost:8000 {\n"
+    retry = "\t\t\t\tlb_try_duration 15s\n\t\t\t\tlb_try_interval 250ms\n"
+    assert updated.count("lb_try_duration") == 1
+    assert updated.count("lb_try_interval") == 1
+    assert updated.replace(proxy + retry, proxy, 1) == logged
+    with pytest.raises(ValueError):
+        module.candidate(updated, "production", "fallback")
+    # The reviewed catch-all anchor is required and must stay unique.
+    with pytest.raises(ValueError):
+        module.candidate(logged.replace("reverse_proxy localhost:8000", "reverse_proxy localhost:9000"),
+                          "production", "fallback")
+    with pytest.raises(ValueError):
+        module.candidate(logged.replace("\troute {", "\thandle {"), "production", "fallback")
+
+
+def test_staging_python_catchall_waits_across_a_restart():
+    module = generator()
+    original = staging_site()
+    updated = module.candidate(original, "staging", "fallback")
+    proxy = "\t\t\treverse_proxy 127.0.0.1:8001 {\n"
+    retry = "\t\t\t\tlb_try_duration 15s\n\t\t\t\tlb_try_interval 250ms\n"
+    assert updated.count("lb_try_duration") == 1
+    assert updated.replace(proxy + retry, proxy, 1) == original
+    with pytest.raises(ValueError):
+        module.candidate(updated, "staging", "fallback")
+    # The import found first is not the final catch-all: insert a second handle.
+    trailing = original.replace("\t\t}\n\t}\n}\n", "\t\t}\n\t\thandle /extra {\n\t\t\trespond 200\n\t\t}\n\t}\n}\n")
+    with pytest.raises(ValueError):
+        module.candidate(trailing, "staging", "fallback")
+    with pytest.raises(ValueError):
+        module.candidate(original.replace(" 127.0.0.1:8001\n", "\n", 1), "staging", "fallback")
+    with pytest.raises(ValueError):
+        module.candidate(original.replace(
+            "127.0.0.1:8001 127.0.0.1:8001 127.0.0.1:8001 127.0.0.1:8001 127.0.0.1:8001 127.0.0.1:8001",
+            "127.0.0.1:8001 127.0.0.1:8001 127.0.0.1:8001 127.0.0.1:8001 127.0.0.1:8001 127.0.0.1:8011"),
+            "staging", "fallback")
+
+
+@pytest.mark.parametrize("group", ["access-log", "fallback"])
+def test_cli_writes_complete_candidate_and_exact_private_rollback(tmp_path, group):
     import subprocess
     import sys
 
     source = tmp_path / "Caddyfile"
     original = production_fixture().encode()
     source.write_bytes(original)
-    output = tmp_path / "change"
-    result = subprocess.run([sys.executable, str(ROOT / "scripts/rust_caddy_candidate.py"), "--site", str(source), "--environment", "production", "--group", "access-log", "--output-dir", str(output)], capture_output=True, text=True, timeout=10)
+    output = tmp_path / f"change-{group}"
+    result = subprocess.run([sys.executable, str(ROOT / "scripts/rust_caddy_candidate.py"), "--site", str(source), "--environment", "production", "--group", group, "--output-dir", str(output)], capture_output=True, text=True, timeout=10)
     assert result.returncode == 0, result.stderr
     assert (output / "rollback.caddy").read_bytes() == original
     assert source.read_bytes() == original
     assert (output / "candidate.caddy").stat().st_mode & 0o777 == 0o600
+    assert (output / "candidate.caddy").read_bytes() != original
