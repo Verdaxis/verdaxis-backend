@@ -179,6 +179,21 @@ impl OrderSurface {
 pub struct OrderQuery(pub(super) String);
 pub struct TradeQuery(String);
 
+impl OrderQuery {
+    /// The composed statement text. Diagnostic only: the plan-capture example
+    /// runs `EXPLAIN` on exactly these bytes, so it never re-composes SQL.
+    pub fn sql(&self) -> &str {
+        &self.0
+    }
+}
+
+impl TradeQuery {
+    /// See `OrderQuery::sql`.
+    pub fn sql(&self) -> &str {
+        &self.0
+    }
+}
+
 /// Rust decision 24: the one shared definition of the private digest input.
 /// Consumers expand it for the rows they keep, never for the whole relation.
 pub fn private_digest_input_sql(row_alias: &str) -> String {
@@ -246,7 +261,20 @@ pub fn bind_order_query<'q>(
     config: &Config,
     filters: &PublicOrderFilters<'_>,
 ) -> Result<Query<'q, sqlx::Postgres, PgArguments>, sqlx::Error> {
-    Ok(sqlx::query(sqlx::AssertSqlSafe(sql.0.clone()))
+    bind_order_sql(sql.sql(), policy, clock, config, filters)
+}
+
+/// The one bind order for the shared-relation statement. `bind_order_query`
+/// delegates here, and the plan-capture proof can bind a wrapped statement
+/// (`SELECT to_jsonb(x) FROM (<composed>) x`) with the same values.
+pub fn bind_order_sql<'q>(
+    sql: &'q str,
+    policy: &MarketPolicy,
+    clock: &VisibilityClock,
+    config: &Config,
+    filters: &PublicOrderFilters<'_>,
+) -> Result<Query<'q, sqlx::Postgres, PgArguments>, sqlx::Error> {
+    Ok(sqlx::query(sqlx::AssertSqlSafe(sql.to_owned()))
         .bind(policy_json(policy)?)
         .bind(clock.now)
         .bind(clock.singapore_date.format("%Y-%m-%d").to_string())
@@ -267,7 +295,16 @@ pub fn bind_trade_query<'q>(
     policy: &MarketPolicy,
     filters: &TradeEvidenceFilters<'_>,
 ) -> Result<Query<'q, sqlx::Postgres, PgArguments>, sqlx::Error> {
-    Ok(sqlx::query(sqlx::AssertSqlSafe(sql.0.clone()))
+    bind_trade_sql(sql.sql(), policy, filters)
+}
+
+/// See `bind_order_sql`: the one bind order for the trade-evidence statement.
+pub fn bind_trade_sql<'q>(
+    sql: &'q str,
+    policy: &MarketPolicy,
+    filters: &TradeEvidenceFilters<'_>,
+) -> Result<Query<'q, sqlx::Postgres, PgArguments>, sqlx::Error> {
+    Ok(sqlx::query(sqlx::AssertSqlSafe(sql.to_owned()))
         .bind(policy_json(policy)?)
         .bind(filters.confirmed_since)
         .bind(filters.confirmed_before)
