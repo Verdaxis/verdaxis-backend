@@ -1,0 +1,362 @@
+{
+  "schema_version": 1,
+  "frontend_sha": "993fa42b3d01c88da18ee28b381873b8ae66382c",
+  "models": {
+    "Availability": {
+      "port_id": "string",
+      "port_name": "string",
+      "lat": "number",
+      "lng": "number",
+      "fuel_type": "string",
+      "market_product_code": "string",
+      "total_stock_mt": "decimal_string|null",
+      "supplier_count": "integer",
+      "availability_level": "AVAILABLE|LIMITED|NONE",
+      "avg_price_per_mt": "decimal_string|null",
+      "source_kind": "string",
+      "scope": "string",
+      "demo_status": "string",
+      "unknown_count": "integer"
+    },
+    "Demand": {
+      "fuel_type": "string",
+      "region": "string",
+      "market_product_code": "string|null",
+      "delivery_point_id": "uuid|null",
+      "delivery_point_name": "string|null",
+      "availability_window_code": "string|null",
+      "volume_mt": "decimal_string|null",
+      "max_price_per_mt": "decimal_string|null",
+      "urgency": "HIGH|MEDIUM|LOW",
+      "bid_count": "integer",
+      "earliest_delivery": "string",
+      "created_at": "datetime",
+      "source_kind": "string",
+      "scope": "string",
+      "demo_status": "string",
+      "unknown_count": "integer"
+    },
+    "Producer": {
+      "id": "uuid",
+      "name": "string",
+      "fuel_type": "string",
+      "capacity_kt_per_year": "decimal_string|null",
+      "country": "string",
+      "region": "string|null",
+      "lat": "number|null",
+      "lng": "number|null",
+      "cod_date": "date|null",
+      "cod_year": "integer|null",
+      "status": "string",
+      "data_source": "string|null",
+      "gena_project_id": "string|null",
+      "organization_id": "uuid|null",
+      "feedstock": "string|null",
+      "technology": "string|null",
+      "carbon_intensity_gco2_mj": "decimal_string|null",
+      "notes": "string|null",
+      "created_at": "datetime"
+    },
+    "Benchmark": {
+      "market_product": "string",
+      "delivery_point_id": "uuid",
+      "delivery_point_name": "string",
+      "availability_window": "string",
+      "benchmark_price_per_mt_usd": "decimal_string",
+      "source": "string",
+      "generated_at": "datetime",
+      "observed_at": "datetime|null"
+    },
+    "BenchmarkResponse": {
+      "items": "array<Benchmark>",
+      "generated_at": "datetime"
+    },
+    "FleetEntry": {
+      "fuel": "string",
+      "ordered_vessels": "integer",
+      "delivered_vessels": "integer",
+      "avg_consumption_mt": "integer",
+      "color": "string"
+    },
+    "FleetDocument": {
+      "entries": "array<FleetEntry>",
+      "last_updated": "date",
+      "sources": "array<string>"
+    },
+    "FuelEU": {
+      "ghg_intensity_gco2_mj": "decimal_string",
+      "target_intensity_gco2_mj": "decimal_string",
+      "reduction_pct": "decimal_string",
+      "compliance_balance_gco2": "decimal_string",
+      "estimated_penalty_eur": "decimal_string",
+      "score": "integer"
+    },
+    "EUETS": {
+      "calculation_status": "UNPRICED|SCENARIO",
+      "total_co2_tonnes": "decimal_string|null",
+      "ets_price_per_tonne_eur": "decimal_string",
+      "phase_in_pct": "decimal_string",
+      "estimated_cost_eur": "decimal_string|null",
+      "score": "integer"
+    },
+    "CII": {
+      "rating": "string",
+      "score": "integer"
+    },
+    "Score": {
+      "vessel_id": "string",
+      "vessel_name": "string",
+      "overall_score": "integer",
+      "status": "string",
+      "traffic_light": "string",
+      "fueleu": "FuelEU",
+      "eu_ets": "EUETS",
+      "cii": "CII",
+      "recommendations": "array<string>"
+    },
+    "FleetSummary": {
+      "total_vessels": "integer",
+      "green_count": "integer",
+      "amber_count": "integer",
+      "red_count": "integer",
+      "average_score": "number",
+      "vessels": "array<Score>"
+    },
+    "Fuels": {
+      "fuels": "map<string,decimal_string>",
+      "unit": "gCO2eq/MJ",
+      "source": "string"
+    },
+    "ListingOverlay": {
+      "financial_benefit_status": "UNPRICED",
+      "penalty_avoided_eur_per_mt": "decimal_string",
+      "penalty_avoided_usd_per_mt": "decimal_string",
+      "tco2e_avoided_per_mt": "decimal_string",
+      "ci_gco2_mj": "decimal_string",
+      "ci_basis": "LISTING|PRODUCT_DEFAULT",
+      "lcv_mj_kg": "decimal_string",
+      "lcv_basis": "LISTING|PRODUCT_DEFAULT"
+    },
+    "Assumptions": {
+      "eur_usd_rate": "decimal_string",
+      "vlsfo_baseline_gco2_mj": "decimal_string",
+      "ghgie_actual_gco2_mj": "decimal_string",
+      "fleet_intensity_basis": "ORG_FLEET|DEFAULT_VLSFO",
+      "fleet_vessel_count": "integer",
+      "penalty_eur_per_tonne": "decimal_string",
+      "year": "integer",
+      "year_target": "decimal_string",
+      "excluded_factors": "array<string>"
+    },
+    "OverlayResponse": {
+      "overlays": "map<uuid,ListingOverlay|null>",
+      "assumptions": "Assumptions"
+    }
+  },
+  "routes": {
+    "M01": {
+      "response_model": "BenchmarkResponse",
+      "container": "object",
+      "request": {
+        "market_product": "string?",
+        "delivery_point_id": "uuid?",
+        "availability_window": "canonical_window=SPOT"
+      },
+      "success_status": 200,
+      "consumer_sources": [
+        "external HTTP clients; no in-tree wrapper"
+      ],
+      "error_statuses": [
+        422,
+        503
+      ]
+    },
+    "M02": {
+      "response_model": "Availability",
+      "container": "array",
+      "request": {
+        "fuel_type": "string?"
+      },
+      "success_status": 200,
+      "consumer_sources": [
+        "src/services/api.ts (canonical frontend)"
+      ],
+      "error_statuses": [
+        422,
+        503
+      ],
+      "consumer_sha": "c0bb9d997799a6becf3f0c7754727065b5924c39"
+    },
+    "M03": {
+      "response_model": "Demand",
+      "container": "array",
+      "request": {
+        "fuel_type": "string?",
+        "region": "string?",
+        "limit": "integer=256;1..512"
+      },
+      "success_status": 200,
+      "consumer_sources": [
+        "src/services/api.ts (canonical frontend)"
+      ],
+      "error_statuses": [
+        422,
+        503
+      ],
+      "consumer_sha": "c0bb9d997799a6becf3f0c7754727065b5924c39"
+    },
+    "M04": {
+      "response_model": "FleetDocument",
+      "container": "object",
+      "request": {},
+      "success_status": 200,
+      "consumer_sources": [
+        "src/services/api.ts",
+        "src/components/DataAnalytics.tsx"
+      ],
+      "error_statuses": [
+        422,
+        503
+      ],
+      "consumer_sha": "993fa42b3d01c88da18ee28b381873b8ae66382c"
+    },
+    "M05": {
+      "response_model": "Producer",
+      "container": "array",
+      "request": {
+        "fuel_type": "string?",
+        "country": "string?",
+        "status": "producer_status?",
+        "cod_year_min": "integer?",
+        "cod_year_max": "integer?"
+      },
+      "success_status": 200,
+      "consumer_sources": [
+        "src/services/api.ts (canonical frontend)"
+      ],
+      "error_statuses": [
+        422,
+        503
+      ],
+      "consumer_sha": "c0bb9d997799a6becf3f0c7754727065b5924c39"
+    },
+    "C01": {
+      "response_model": "FleetSummary",
+      "container": "object",
+      "request": {},
+      "success_status": 200,
+      "consumer_sources": [
+        "src/services/api.ts",
+        "src/components/compliance/ComplianceDashboard.tsx"
+      ],
+      "error_statuses": [
+        422,
+        503,
+        401,
+        403
+      ],
+      "consumer_sha": "993fa42b3d01c88da18ee28b381873b8ae66382c"
+    },
+    "C02": {
+      "response_model": "Score",
+      "container": "object",
+      "request": {
+        "vessel_id": "uuid"
+      },
+      "success_status": 200,
+      "consumer_sources": [
+        "src/services/api.ts",
+        "src/components/compliance/ComplianceDashboard.tsx"
+      ],
+      "error_statuses": [
+        422,
+        503,
+        401,
+        403,
+        404
+      ],
+      "consumer_sha": "993fa42b3d01c88da18ee28b381873b8ae66382c"
+    },
+    "C03": {
+      "response_model": "Fuels",
+      "container": "object",
+      "request": {},
+      "success_status": 200,
+      "consumer_sources": [
+        "src/services/api.ts",
+        "src/components/compliance/ComplianceDashboard.tsx"
+      ],
+      "error_statuses": [
+        422,
+        503
+      ],
+      "consumer_sha": "993fa42b3d01c88da18ee28b381873b8ae66382c"
+    },
+    "C04": {
+      "response_model": "OverlayResponse",
+      "container": "object",
+      "request": {
+        "order_ids": "array<uuid>;max100",
+        "year": "integer=2026;2025..9999",
+        "extra_fields": "forbidden"
+      },
+      "success_status": 200,
+      "consumer_sources": [
+        "src/services/api.ts",
+        "src/features/marketplace/api/marketplaceApi.ts",
+        "src/features/marketplace/api/marketplaceQueries.ts",
+        "src/features/marketplace/hooks/useMarketplaceQueries.ts",
+        "src/features/marketplace/components/ListingsTable.tsx"
+      ],
+      "error_statuses": [
+        422,
+        503,
+        401,
+        403
+      ],
+      "consumer_sha": "993fa42b3d01c88da18ee28b381873b8ae66382c"
+    },
+    "C05": {
+      "response_model": "Score",
+      "container": "object",
+      "request": {
+        "vessel_id": "string;max128scalars/512bytes",
+        "fuel_mix": "map<known_fuel,decimal>;normalized_fraction",
+        "year": "integer=2026;2025..9999"
+      },
+      "success_status": 200,
+      "consumer_sources": [
+        "src/services/api.ts",
+        "src/components/compliance/ComplianceDashboard.tsx"
+      ],
+      "error_statuses": [
+        422,
+        503,
+        401,
+        403
+      ],
+      "consumer_sha": "993fa42b3d01c88da18ee28b381873b8ae66382c"
+    }
+  },
+  "error": {
+    "detail": {
+      "code": "UPPER_SNAKE_CODE",
+      "message": "string"
+    }
+  },
+  "required_client_scenarios": [
+    "market_read_wrapper_cases",
+    "compliance_marketplace_cases",
+    "compliance_dashboard_cases",
+    "fleet_display_states",
+    "scenario_label_cases"
+  ],
+  "semantics": [
+    "Null economics are not zero. Decimal strings stay exact until the client decimal boundary.",
+    "Fleet fallback is a baseline estimate, not an observation; valid empty observations remain empty.",
+    "ETS remains unpriced without supplied emissions; lifecycle comparison does not create a cash benefit.",
+    "Generic scenario labels echo vessel_id and use Vessel {vessel_id}.",
+    "Client fields and status codes are contracts; wording, key order and number spelling are not byte gates."
+  ],
+  "source_reconciliation": "Canonical market wrappers are not present in the refactor target. Keep their contract pinned to the canonical source; Task 11 must restore or receive an explicit disposition before wrapper journeys can pass."
+}
