@@ -135,15 +135,25 @@ def curve_keys(policy: dict, board: bool) -> list[dict]:
     return keys
 
 
-def bind_literals(policy: dict, profile: str) -> list[str]:
-    """The exact bind list each statement expects, in `$n` order."""
+def bind_literals(
+    policy: dict, profile: str, slice_key: tuple[str, str, str] | None = None
+) -> list[str]:
+    """The exact bind list each statement expects, in `$n` order.
+
+    `slice_key` is a product id, delivery point id and window that the seeded
+    corpus actually fills, so the single-slice statements plan real rows.
+    """
     policy_text = json.dumps(policy)
     dollar = f"$policy${policy_text}$policy$"
-    first_product = next(
-        p for p in policy["products"] if p["execution_mode"] == "ORDERBOOK"
-    )
-    product = first_product["id"]
-    point = first_product["lanes"][0]
+    if slice_key is not None:
+        product, point, window = slice_key
+    else:
+        first_product = next(
+            p for p in policy["products"] if p["execution_mode"] == "ORDERBOOK"
+        )
+        product = first_product["id"]
+        point = first_product["lanes"][0]
+        window = "SPOT"
     table_keys = json.dumps(curve_keys(policy, board=False))
     board_keys = curve_keys(policy, board=True) + [
         {
@@ -158,7 +168,7 @@ def bind_literals(policy: dict, profile: str) -> list[str]:
             {
                 "product_id": product,
                 "delivery_point_id": point,
-                "availability_window": "SPOT",
+                "availability_window": window,
             }
         ]
     )
@@ -206,11 +216,11 @@ def bind_literals(policy: dict, profile: str) -> list[str]:
         return order(
             product=f"'{product}'",
             point=f"'{point}'",
-            window="'SPOT'",
+            window=f"'{window}'",
             **curves,
         ) + [_quote(slice_keys)]
     if profile == "depth":
-        return order(**curves) + [f"'{product}'", f"'{point}'", "'SPOT'"]
+        return order(**curves) + [f"'{product}'", f"'{point}'", f"'{window}'"]
     if profile == "board":
         return order(**curves) + [_quote(board_keys)]
     if profile == "unknown_keys":
@@ -227,7 +237,7 @@ def bind_literals(policy: dict, profile: str) -> list[str]:
             product=f"'{product}'",
             point=f"'{point}'",
             side="'ASK'",
-            window="'SPOT'",
+            window=f"'{window}'",
         ) + [_quote(slice_keys)]
     if profile == "reference":
         return [dollar, "NULL", "NULL", "NULL", "NULL", "NULL"] + ["NULL"] * 5
@@ -258,7 +268,7 @@ class PlanCapture(runner.Runner):
             "-i",
             self.container,
             "psql",
-            "-XAt",
+            "-qXAt",
             "-U",
             "postgres",
             "-d",
@@ -268,19 +278,33 @@ class PlanCapture(runner.Runner):
             input_text=script,
         )
 
-    def explain(self, sql: str, binds: list[str]) -> dict:
+    def explain(self, name: str, sql: str, binds: list[str]) -> dict:
         script = (
+            # Every captured route runs its statement in a transaction with
+            # `SET LOCAL jit = off`; this session setting mirrors that.
+            "SET jit = off;\n"
             "SET plan_cache_mode = force_generic_plan;\n"
             f"PREPARE plan_stmt AS {sql};\n"
+            "\\o /tmp/plan.json\n"
             "EXPLAIN (ANALYZE, BUFFERS, TIMING OFF, FORMAT JSON) EXECUTE plan_stmt("
             + ", ".join(binds)
             + ");\n"
         )
-        output = self.sql(script).strip()
-        return json.loads(output)[0]
+        self.sql(script)
+        # A large plan can exceed one `docker exec` stream read; reading the
+        # file it wrote keeps every byte.
+        output = runner.docker(
+            "exec", self.container, "cat", "/tmp/plan.json"
+        ).strip()
+        try:
+            return json.loads(output)[0]
+        except ValueError as error:
+            raise runner.RunnerError(
+                f"{name}: EXPLAIN printed no JSON plan; output tail:\n{output[-2000:]}"
+            ) from error
 
 
-def composed_statements() -> dict:
+def composed_statements(sha: str) -> dict:
     """The exact statement bytes from the Rust example (one composer)."""
     result = subprocess.run(
         [
@@ -294,6 +318,7 @@ def composed_statements() -> dict:
             "explain_statements",
         ],
         cwd=runner.ROOT,
+        env={**os.environ, "RELEASE_SHA": sha},
         capture_output=True,
         text=True,
     )
@@ -311,11 +336,10 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     wanted = [name.strip() for name in args.items.split(",") if name.strip()]
 
-    statements = composed_statements()
+    capture = PlanCapture("all", seed=True, keep=False, seed_mode="corpus")
+    statements = composed_statements(capture.sha)
     with open(os.path.join(runner.ROOT, POLICY_PATH)) as handle:
         policy = json.load(handle)
-
-    capture = PlanCapture("all", seed=True, keep=False, seed_mode="corpus")
     try:
         port = capture.start_database()
         env = {
@@ -345,13 +369,22 @@ def main(argv: list[str] | None = None) -> int:
             check=True,
         )
         capture.sql("ANALYZE;")
+        raw = capture.sql(
+            "SELECT product_id, delivery_point_id, availability_window "
+            "FROM orderbook_orders WHERE side = 'ASK' AND provenance = 'REAL' "
+            "AND status IN ('OPEN', 'PARTIALLY_FILLED') "
+            "GROUP BY 1, 2, 3 ORDER BY count(*) DESC LIMIT 1;"
+        ).strip()
+        if not raw:
+            raise runner.RunnerError("the corpus exposed no ASK slice")
+        slice_key = tuple(raw.split("|"))
         for name, entry in statements.items():
             if wanted and not any(
                 name == item or name.startswith(item + ".") for item in wanted
             ):
                 continue
-            binds = bind_literals(policy, entry["profile"])
-            plan = capture.explain(entry["sql"], binds)
+            binds = bind_literals(policy, entry["profile"], slice_key)
+            plan = capture.explain(name, entry["sql"], binds)
             summary = summarize(plan)
             print(
                 f"=== {name} profile={entry['profile']} "

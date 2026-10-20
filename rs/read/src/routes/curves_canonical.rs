@@ -14,7 +14,7 @@ pub mod signals;
 use crate::market::{
     visibility::{
         OrderSurface, PublicOrderFilters, TradeEvidenceFilters, VisibilityClock, bind_order_query,
-        bind_trade_query, order_query_sql, trade_query_sql,
+        bind_trade_query, curve_candidate_sql, order_query_sql, trade_query_sql,
     },
     windows::{normalize_window, window_display_label, window_sort_key},
 };
@@ -326,7 +326,9 @@ async fn inputs(
         );
     }
     let clock = VisibilityClock::at(now);
-    let query = order_query_sql(include_str!("../../sql/curves/orders.sql"));
+    // The requested cells restrict the base scan before eligibility runs; the
+    // shared relation and this tail are byte-identical to the unkeyed shape.
+    let query = curve_candidate_sql(include_str!("../../sql/curves/orders.sql"));
     // A single slice can use the shared scalar binds as well as exact keys;
     // this lets PostgreSQL prune before evaluating the owner-admission checks.
     let single_key = (board_focus.is_none() && keys.len() == 1).then(|| &keys[0]);

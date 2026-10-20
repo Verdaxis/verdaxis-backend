@@ -1,6 +1,6 @@
 //! Anonymous MCP market snapshots over the shared public-order relation.
 use crate::market::visibility::{
-    PublicOrderFilters, VisibilityClock, bind_order_query, order_query_sql,
+    PublicOrderFilters, VisibilityClock, bind_order_query, curve_candidate_sql,
 };
 use crate::market::windows::normalize_window;
 use crate::routes::curves_canonical::{benchmarks, curve_projection};
@@ -144,8 +144,8 @@ async fn resolve_prices(
     // choose a nested loop and compare three columns per candidate order
     // (measured at the large size as a uniform ~0.6 s tool call against
     // Python's ~0.09 s). The predicate and the row multiset are unchanged.
-    let query = order_query_sql(
-        ", requested_slice_keys AS MATERIALIZED (SELECT product_id, delivery_point_id, availability_window FROM jsonb_to_recordset($14::jsonb) AS k(product_id uuid, delivery_point_id uuid, availability_window text)), slice_orders AS (SELECT product_id, delivery_point_id, availability_window, price_per_mt_usd::text AS price, provenance::text AS provenance, carbon_intensity_gco2_mj::text AS ci, energy_density_mj_kg::text AS energy FROM eligible_orders WHERE (product_id::text || E'\\x01' || delivery_point_id::text || E'\\x01' || availability_window) = ANY (ARRAY(SELECT k.product_id::text || E'\\x01' || k.delivery_point_id::text || E'\\x01' || k.availability_window FROM requested_slice_keys AS k)) ORDER BY price_per_mt_usd, acceptance_ordinal) SELECT * FROM slice_orders",
+    let query = curve_candidate_sql(
+        ", slice_orders AS (SELECT product_id, delivery_point_id, availability_window, price_per_mt_usd::text AS price, provenance::text AS provenance, carbon_intensity_gco2_mj::text AS ci, energy_density_mj_kg::text AS energy FROM eligible_orders ORDER BY price_per_mt_usd, acceptance_ordinal) SELECT * FROM slice_orders",
     );
     let filters = PublicOrderFilters {
         side: Some("ASK"),
@@ -226,7 +226,7 @@ pub async fn market_slice(
             invalid(format!("Unsupported market product {}. Supported products: {}", super::transport::python_string_repr(&product), codes.join(", ")))
         })?;
         let point_id = owned.policy.points.iter().find(|value| value.name == point).map(|value| value.id).ok_or_else(|| invalid(format!("Unsupported delivery point {}. Supported delivery points: {}", super::transport::python_string_repr(&point), owned.policy.points.iter().map(|value| value.name.as_str()).collect::<Vec<_>>().join(", "))))?;
-        let query = order_query_sql("SELECT side::text AS side, price_per_mt_usd::text AS price, remaining_quantity_mt::text AS quantity, provenance::text AS provenance FROM eligible_orders");
+        let query = curve_candidate_sql("SELECT side::text AS side, price_per_mt_usd::text AS price, remaining_quantity_mt::text AS quantity, provenance::text AS provenance FROM eligible_orders");
         let filters = PublicOrderFilters { product_id: Some(product_id), delivery_point_id: Some(point_id), availability_window: Some(&window), ..Default::default() };
         let rows = bind_order_query(&query, &owned.policy, &VisibilityClock::at(now), &owned.config, &filters)
             .map_err(|_| ApiError::internal())?.fetch_all(&mut *connection).await.map_err(|_| ApiError::database())?;
