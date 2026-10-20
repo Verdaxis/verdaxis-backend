@@ -16,6 +16,16 @@ comes from each environment's `/health/ready` response, not a dated SHA in
 source documentation. The shared-host marker is
 `/home/verdaxis-prod/verdaxis/PRODUCTION_HOST.md`.
 
+## Rust stream contract reservations
+
+`tests/rust_contract/phase6/` defines the three stream routes, client control
+contract and required scenario IDs. `docs/rust-phase6/interfaces.md` defines the
+shared auth, replay, hub and runtime seams. `rs/read/src/streams/` and the
+`streams_*` Cargo targets reserve component ownership only; no route or dispatcher
+is activated, and empty targets are not acceptance evidence. Token issuance
+remains authentication-owned; activity remains Python-owned. Watchlist producers
+are not part of this component.
+
 ## Rust Phase 2 feedback
 
 `rs/read/src/crud/feedback.rs` provides the Task 10 feedback submission and
