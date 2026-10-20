@@ -469,7 +469,9 @@ pub async fn acknowledge(
         return Err(not_found("Event not found"));
     }
     if !event.is_read {
-        sqlx::query("UPDATE watchlist_events SET is_read=true WHERE id=$1")
+        // `AND is_read=false` re-checks the row after a concurrent reader's
+        // lock is released: under READ COMMITTED the loser writes nothing.
+        sqlx::query("UPDATE watchlist_events SET is_read=true WHERE id=$1 AND is_read=false")
             .bind(event_id)
             .execute(&mut *connection)
             .await

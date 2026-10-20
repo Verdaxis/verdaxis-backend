@@ -10,7 +10,7 @@ use chrono::{DateTime, TimeZone, Utc};
 use serde_json::{Map, Value, json};
 use uuid::Uuid;
 use verdaxis_read::crud::watchlists::{
-    EventCursor, EventQuery, StoredEvent, TargetColumns, VisibleSnapshot, acknowledge,
+    EventCursor, EventQuery, EventsPage, StoredEvent, TargetColumns, VisibleSnapshot, acknowledge,
     decode_cursor, encode_cursor, event_visible, feed_page, parse_event_query,
 };
 
@@ -343,6 +343,93 @@ fn the_point_name_prefers_payload_then_live_then_snapshot() {
             .delivery_point_name
             .as_deref(),
         Some("Snapshot Point")
+    );
+}
+
+// ------------------------------------------------------------ client contract
+
+const CONTRACT: &str = include_str!("../../../tests/rust_contract/phase2/watchlist-events.json");
+
+/// The exact field set `src/types.ts` declares. A field renamed or dropped here
+/// breaks the frontend feed silently, so the fixture pins every key and its
+/// nullability.
+#[test]
+fn the_serialized_event_has_exactly_the_frontend_fields() {
+    let contract: Value = serde_json::from_str(CONTRACT).unwrap();
+    let expected = contract["event_fields"].as_object().unwrap();
+    let value = serde_json::to_value(
+        record(json!({}), target("SLICE", None, None))
+            .project()
+            .unwrap(),
+    )
+    .unwrap();
+    let actual = value.as_object().unwrap();
+
+    let mut wanted: Vec<&str> = expected.keys().map(String::as_str).collect();
+    let mut found: Vec<&str> = actual.keys().map(String::as_str).collect();
+    wanted.sort_unstable();
+    found.sort_unstable();
+    assert_eq!(
+        found, wanted,
+        "the event field set differs from the frontend contract"
+    );
+
+    for (field, kind) in expected {
+        let present = actual.get(field).unwrap();
+        let matches = match kind.as_str().unwrap() {
+            "uuid" => present.is_string(),
+            "string" => present.is_string(),
+            "boolean" => present.is_boolean(),
+            "object" => present.is_object(),
+            "array" => present.is_array(),
+            "SLICE|PIN" => matches!(present.as_str(), Some("SLICE" | "PIN")),
+            "instant" => present.is_string(),
+            "instant|null" => present.is_null() || present.is_string(),
+            "uuid|null" => present.is_null() || present.is_string(),
+            "string|null" => present.is_null() || present.is_string(),
+            other => panic!("unknown contract kind {other}"),
+        };
+        assert!(matches, "{field} does not match {kind:?}");
+    }
+}
+
+#[test]
+fn the_serialized_page_and_bounds_match_the_contract() {
+    let contract: Value = serde_json::from_str(CONTRACT).unwrap();
+    let page = EventsPage {
+        items: vec![
+            record(json!({}), target("SLICE", None, None))
+                .project()
+                .unwrap(),
+        ],
+        next_cursor: None,
+    };
+    let value = serde_json::to_value(&page).unwrap();
+    let mut keys: Vec<&str> = value
+        .as_object()
+        .unwrap()
+        .keys()
+        .map(String::as_str)
+        .collect();
+    keys.sort_unstable();
+    assert_eq!(keys, vec!["items", "next_cursor"]);
+    assert!(value["next_cursor"].is_null());
+
+    assert_eq!(
+        parse_event_query("").unwrap(),
+        EventQuery {
+            limit: contract["page"]["default_limit"].as_i64().unwrap(),
+            cursor: None
+        }
+    );
+    // The declared bounds are the ones the query validates.
+    assert_eq!(
+        parse_event_query("limit=0").unwrap_err().detail[0]["ctx"]["ge"],
+        contract["page"]["minimum_limit"].as_i64().unwrap()
+    );
+    assert_eq!(
+        parse_event_query("limit=101").unwrap_err().detail[0]["ctx"]["le"],
+        contract["page"]["maximum_limit"].as_i64().unwrap()
     );
 }
 
@@ -868,6 +955,83 @@ mod postgres {
             assert!(!is_read(&migrator, id).await);
             assert_eq!(before, xmin(&migrator, id).await);
         }
+    }
+
+    /// Two readers acknowledge the same unread event at once. The row lock
+    /// serializes them; the loser's conditional update matches no row, so the
+    /// event is written exactly once and both readers succeed.
+    #[tokio::test]
+    async fn concurrent_acknowledgements_write_the_event_once() {
+        let Some(migrator) = harness().await else {
+            return;
+        };
+        install_ack_counter(&migrator).await;
+        let id = 0x7c00_0000_0000_0000_0000_0000_0000_0001u128;
+        insert_event(
+            &migrator,
+            id,
+            SLICE,
+            "SLICE_NEW_ORDER",
+            json!({}),
+            instant(1_792_378_000),
+            false,
+        )
+        .await;
+
+        let mut first = migrator.begin().await.unwrap();
+        let ack = acknowledge(&mut first, uuid(CONTAINER), uuid(id), &visible())
+            .await
+            .unwrap();
+        assert!(ack.is_some_and(|event| event.is_read));
+
+        // The second reader starts while the first still holds the row lock.
+        let pool = migrator.clone();
+        let second = tokio::spawn(async move {
+            let mut transaction = pool.begin().await.unwrap();
+            let ack = acknowledge(&mut transaction, uuid(CONTAINER), uuid(id), &visible())
+                .await
+                .unwrap();
+            transaction.commit().await.unwrap();
+            ack.is_some_and(|event| event.is_read)
+        });
+
+        first.commit().await.unwrap();
+        assert!(
+            second.await.unwrap(),
+            "the blocked reader must still succeed"
+        );
+
+        assert!(is_read(&migrator, id).await);
+        assert_eq!(
+            ack_writes(&migrator).await,
+            1,
+            "the loser must not write the row"
+        );
+    }
+
+    async fn install_ack_counter(migrator: &PgPool) {
+        for statement in [
+            "CREATE TABLE IF NOT EXISTS watchlist_event_ack_writes (writes bigint NOT NULL)",
+            "CREATE OR REPLACE FUNCTION watchlist_event_ack_count() RETURNS trigger LANGUAGE plpgsql AS $$
+             BEGIN UPDATE watchlist_event_ack_writes SET writes = writes + 1; RETURN NEW; END $$",
+            "DROP TRIGGER IF EXISTS watchlist_event_ack_count ON watchlist_events",
+            "CREATE TRIGGER watchlist_event_ack_count AFTER UPDATE ON watchlist_events \
+             FOR EACH ROW EXECUTE FUNCTION watchlist_event_ack_count()",
+            "DELETE FROM watchlist_event_ack_writes",
+            "INSERT INTO watchlist_event_ack_writes VALUES (0)",
+        ] {
+            sqlx::query(statement)
+                .execute(migrator)
+                .await
+                .unwrap_or_else(|error| panic!("ack counter failed: {error}\n{statement}"));
+        }
+    }
+
+    async fn ack_writes(migrator: &PgPool) -> i64 {
+        sqlx::query_scalar("SELECT writes FROM watchlist_event_ack_writes")
+            .fetch_one(migrator)
+            .await
+            .unwrap()
     }
 
     #[tokio::test]
