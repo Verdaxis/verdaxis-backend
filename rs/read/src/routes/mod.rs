@@ -23,3 +23,7 @@ pub use crate::crud::notifications::routes as notification_routes;
 // Phase 2 Task 9: preferences route registration
 pub use crate::crud::preferences::router as preferences_router;
 // Phase 2 Task 9: end preferences route registration
+
+// Phase 2 Task 16: organization price-alert CRUD
+pub use crate::crud::alerts::router as alerts_router;
+// Phase 2 Task 16: end organization price-alert CRUD

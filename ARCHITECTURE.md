@@ -32,6 +32,7 @@ changing deployed settings. These routers are
 not activated in the serving binary. Feedback stays on Python at cutover until
 Task 22 provides the shared Python–Rust quota counter across real processes.
 
+
 ## Rust Phase 2 order-write boundary
 
 Task 20 adds `rs/read/src/order_write/` for Python-derived lock identities,
@@ -49,6 +50,27 @@ hash vectors. The registered `order-write-postgres` group uses feature-gated
 loopback adapters to prove twin state, rollback, replay, timeouts, observed
 PostgreSQL advisory-lock order, bounded retries, races and mixed dispatch. See
 `docs/rust-phase2/task20-write-boundary.md` for gate results and the resume point.
+
+## Rust Phase 2 price-alert component
+
+Task 16 adds `rs/read/src/crud/alerts.rs` for organization-owned alert create,
+list, and delete. `routes::alerts_router` exposes the component router; runtime
+composition must supply the existing verification settings and shared quota
+authority. Each request uses the shared authenticated transaction owner and
+current database organization. NUMERIC rounding remains PostgreSQL-owned;
+product codes derive from the attested exact label tuple, including inactive
+products. Python retains price triggering and participant-event production.
+`tests/postgres/test_phase2_alert_interop.py` drives Rust storage and HTTP
+component checks against the existing disposable PostgreSQL fixture, then runs
+Python's trigger helper on the committed Rust row. The registered `alerts-crud`
+and `alerts-crud-reverse` scenarios use the shared runner for paired HTTP/state,
+rollback, retained-commit/no-replay and mixed dispatcher checks. Disposable-only
+adapters control IDs/clocks and record approved PD8: Python's SQL-count barrier
+reproduces six active rows; Rust takes a namespaced per-organization transaction
+advisory lock after the authenticated user lock and before counting, admitting
+one create and refusing the other with the existing 403, leaving five active rows.
+No organization row lock, Python change, or runtime ACL grant is required. Evidence is in `docs/rust-phase2/task16-handoff.md`.
+Coverage requirements are data in `tests/rust_contract/phase2/alerts-scenarios.json`.
 
 ## Rust Phase 1 bootstrap
 

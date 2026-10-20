@@ -368,4 +368,10 @@ from scripts.rust_contract.phase2_order_write import order_write_scenario
 
 register(order_write_scenario())
 # Phase 2 Task 20: order-write boundary end
+# Phase 2 Task 16: organization price-alert CRUD
+from scripts.rust_contract.phase2_alerts import alerts_scenario
+
+register(alerts_scenario())
+register(alerts_scenario(reverse=True))
+# Phase 2 Task 16: end organization price-alert CRUD
 # END LANE REGISTRATIONS
