@@ -103,6 +103,11 @@ impl VisibleSnapshot {
     pub fn contains(&self, id: Uuid) -> bool {
         self.ids.contains(&id)
     }
+    /// The full public order scope as a bindable list, for reads that filter
+    /// rows in SQL.
+    pub fn visible_ids(&self) -> Vec<Uuid> {
+        self.ids.iter().copied().collect()
+    }
     pub fn order_count(&self) -> usize {
         self.orders.len()
     }

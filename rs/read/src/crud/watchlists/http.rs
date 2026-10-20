@@ -3,7 +3,7 @@
 //! `router` is the one composition point for the watchlist group. Handlers for
 //! the container and target writes live in their own modules and share `run`.
 use super::validation::{path_uuid, unprocessable};
-use super::{capture_visible, containers, load_legacy_list, targets};
+use super::{capture_visible, containers, events, load_legacy_list, targets};
 use crate::auth::{
     AuthenticatedError, AuthenticatedRequest, AuthenticatedTransaction, VerificationSettings,
     run_authenticated, verify_authorization,
@@ -124,6 +124,11 @@ pub fn router(app: AppState, settings: WatchlistSettings) -> Router {
         .route(
             "/api/watchlists/{watchlist_id}/targets/{target_id}",
             axum::routing::delete(targets::delete),
+        )
+        .route("/api/watchlists/{watchlist_id}/events", get(events::list))
+        .route(
+            "/api/watchlists/{watchlist_id}/events/{event_id}",
+            axum::routing::patch(events::mark_read),
         )
         .with_state(WatchlistState { app, settings })
 }

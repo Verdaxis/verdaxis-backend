@@ -513,6 +513,11 @@ impl QueryFields {
         )
     }
 
+    /// The raw text of a query parameter, before any declared conversion.
+    pub fn raw(&self, name: &str) -> Option<&str> {
+        self.0.get(name).map(String::as_str)
+    }
+
     pub fn validate(
         &self,
         name: &str,
