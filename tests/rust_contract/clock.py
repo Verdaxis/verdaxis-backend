@@ -84,6 +84,26 @@ def require_test_environment() -> None:
         raise RuntimeError("clock overrides require ENVIRONMENT=test")
 
 
+class ActionValues:
+    """Test-only action clock and finite generated-value sequences."""
+    def __init__(self, now, identifiers, referral_codes):
+        require_test_environment()
+        if now.tzinfo is None:
+            raise ValueError("action clock must be aware")
+        self.now = now
+        self.identifiers = iter(identifiers)
+        self.referral_codes = iter(referral_codes)
+
+    def next_id(self):
+        return next(self.identifiers)
+
+    def next_referral_code(self):
+        return next(self.referral_codes)
+
+    def advance(self, delta):
+        self.now += delta
+
+
 def fixed_clock_patches(now: datetime) -> ExitStack:
     """Patch every manifest clock symbol to the frozen instant `now`.
 

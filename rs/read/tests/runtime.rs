@@ -89,6 +89,21 @@ fn union_checkpoint_is_accepted_by_compiled_policy() {
 }
 
 #[test]
+fn cache_checkpoint_is_accepted_and_earlier_checkpoints_stay_accepted() {
+    let mut config = staging();
+    for revision in [
+        "kycg_20261014_staging",
+        "p0_20261016_union",
+        "prc_20261018_cache",
+    ] {
+        config.migration_revision = revision.into();
+        assert!(validate_config(&config).is_ok(), "{revision}");
+    }
+    config.migration_revision = "prc_20261018_other".into();
+    assert!(validate_config(&config).is_err());
+}
+
+#[test]
 fn production_requires_its_exact_database_and_union_checkpoint() {
     let mut base = staging();
     base.environment = "production".into();
@@ -324,6 +339,33 @@ fn prepared_budget_is_bound_to_runtime() {
         );
         artifact[key] = original;
     }
+}
+
+#[test]
+fn cache_listener_connection_is_part_of_the_prepared_budget() {
+    use verdaxis_read::runtime::config::validate_prepared_budget;
+
+    let mut config = staging();
+    let artifact = |listener: u32, total: u32, configured: u32| {
+        serde_json::json!({
+            "version": 1, "release_sha": compiled_sha(), "environment_digest": "a".repeat(64),
+            "services": 2, "workers": 4, "pool": 2, "overflow": 1, "reserve": 20,
+            "rust_pool": 17, "python_budget": 52, "cache_listener": listener,
+            "total": total, "configured_max_connections": configured
+        })
+        .to_string()
+    };
+    assert!(validate_prepared_budget(&config, &artifact(0, 69, 100)).is_ok());
+    assert!(validate_prepared_budget(&config, &artifact(1, 70, 100)).is_ok());
+    // Two listener connections, or a total that ignores the listener, are not
+    // the one dedicated connection the budget allows.
+    assert!(validate_prepared_budget(&config, &artifact(2, 71, 100)).is_err());
+    assert!(validate_prepared_budget(&config, &artifact(1, 69, 100)).is_err());
+    assert!(validate_prepared_budget(&config, &artifact(0, 70, 100)).is_err());
+    // The listener must fit inside the configured maximum on its own.
+    config.configured_max_connections = 69;
+    assert!(validate_prepared_budget(&config, &artifact(0, 69, 69)).is_ok());
+    assert!(validate_prepared_budget(&config, &artifact(1, 70, 69)).is_err());
 }
 
 fn budget_document(release_sha: &str) -> String {

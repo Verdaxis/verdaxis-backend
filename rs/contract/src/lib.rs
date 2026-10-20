@@ -8,7 +8,7 @@ mod frozen_gate;
 mod gate;
 pub use frozen_gate::{
     GateOutcome, PerformanceVerdict, RustMeasurement, RustRoute, frozen_performance_gate,
-    performance_evidence_gate,
+    meaning_performance_gate, performance_evidence_gate,
 };
 
 pub use gate::{

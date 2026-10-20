@@ -112,6 +112,35 @@ def compare(expected: dict[str, Any], actual: dict[str, Any]) -> list[str]:
     return differences
 
 
+def compare_responses(
+    expected, actual, *, profile=None, route_id=None, rules_sha256=None,
+    rules_path=None, request_id=None, diagnostic_context=None,
+    request_path="", live=False,
+):
+    """Compare raw status/header/body pairs under an explicit profile.
+
+    No profile keeps the Phase 1 byte gate. Phase 2 callers must supply a
+    reviewed route ID and ledger digest; no rule is inferred from body fields.
+    All golden, simulation, stability and staging callers use this boundary.
+    """
+    if profile == "byte" or (profile is None and "raw" in expected):
+        return _compare_phase1_responses(expected, actual, request_path=request_path, profile="byte", live=live)
+    if profile is None:
+        return compare(
+            capture(expected["status"], expected["headers"], expected["body"]),
+            capture(actual["status"], actual["headers"], actual["body"]),
+        )
+    if profile not in {"phase2-meaning-v1", "phase1-meaning-v1"}:
+        raise ContractError("unknown comparator profile")
+    from scripts.rust_contract.phase2_meaning import compare_meaning
+
+    return compare_meaning(
+        expected, actual, route_id=route_id, rules_sha256=rules_sha256,
+        rules_path=rules_path, request_id=request_id, profile=profile,
+        diagnostic_context=diagnostic_context,
+    )
+
+
 def _news_item_bytes(raw: bytes) -> list[str] | None:
     """Slice original JSON tokens, retaining each item's spelling and key order."""
     text = raw.decode("utf-8")
@@ -467,7 +496,7 @@ def _live_bytes(response: dict[str, Any], request_path: str) -> bytes:
     return text.encode("utf-8")
 
 
-def compare_responses(expected, actual, *, request_path, profile="byte", live=False):
+def _compare_phase1_responses(expected, actual, *, request_path, profile="byte", live=False):
     """Authoritative Phase 1 wire comparison, with only reviewed exceptions.
 
     Raw response data and internal capture digests must remain in memory. Callers
@@ -486,7 +515,8 @@ def compare_responses(expected, actual, *, request_path, profile="byte", live=Fa
 
 
 def recording_differences(
-    expected: Sequence[dict[str, Any]], actual: Sequence[dict[str, Any]]
+    expected: Sequence[dict[str, Any]], actual: Sequence[dict[str, Any]], *,
+    profile=None, rules_sha256=None,
 ) -> list[str]:
     """Compare two recordings of one group. Empty means equal.
 
@@ -499,6 +529,10 @@ def recording_differences(
     for left, right in zip(expected, actual):
         if left["id"] != right["id"]:
             problems.append(f"{left['id']}:ordering")
+            continue
+        if profile is not None:
+            from scripts.rust_contract.meaning_runner import compare_recorded_case
+            problems.extend(f"{left['id']}:{path}" for path in compare_recorded_case(left, right, profile, rules_sha256))
             continue
         problems += [
             f"{left['id']}:{path}"
@@ -617,6 +651,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--group", required=True)
     parser.add_argument("--cases", type=Path, default=CASES_PATH)
+    parser.add_argument("--profile", default=os.environ.get("RUST_CONTRACT_PROFILE"))
+    parser.add_argument("--rules-sha256", default=os.environ.get("MEANING_RULES_SHA256"))
     args = parser.parse_args(argv)
 
     from scripts.rust_contract.record import record
@@ -641,7 +677,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             file=sys.stderr,
         )
         return 1
-    problems = recording_differences(expected, actual)
+    problems = recording_differences(expected, actual, profile=args.profile, rules_sha256=args.rules_sha256)
     for problem in problems:
         # Schema path and category only. Never a body value.
         print(problem, file=sys.stderr)

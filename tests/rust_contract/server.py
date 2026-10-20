@@ -44,6 +44,25 @@ class ContractOracleApp:
         self.identity = DisposableIdentityApp(application, token)
 
     async def __call__(self, scope, receive, send) -> None:
+        if scope.get("type") == "http" and scope.get("path") == "/__contract__/phase2/write":
+            headers = dict(scope.get("headers", []))
+            if os.environ.get("ENVIRONMENT") != "test" or headers.get(b"x-disposable-token", b"").decode() != os.environ.get("DISPOSABLE_TEST_TOKEN"):
+                await send({"type": "http.response.start", "status": 403, "headers": []})
+                await send({"type": "http.response.body", "body": b""})
+                return
+            chunks = []
+            while True:
+                message = await receive()
+                chunks.append(message.get("body", b""))
+                if not message.get("more_body"):
+                    break
+            from tests.rust_contract.phase2.transport import execute
+            result, database_now = await execute(json.loads(b"".join(chunks)))
+            body = json.dumps(result, separators=(",", ":")).encode()
+            await send({"type": "http.response.start", "status": 503 if result["outcome"] == "ambiguous" else 200,
+                        "headers": [(b"content-type", b"application/json"), (b"x-database-now", database_now.isoformat().encode())]})
+            await send({"type": "http.response.body", "body": body})
+            return
         if scope.get("type") == "http" and scope.get("path") == ECHO_PATH:
             await self._echo(scope, send)
             return
@@ -128,7 +147,8 @@ def main(argv: list[str] | None = None) -> int:
     from app.main import app
 
     apply_fixed_clock()
-    uvicorn.run(ContractOracleApp(app, token), host=host, port=args.port, log_level="warning")
+    uvicorn.run(ContractOracleApp(app, token), host=host, port=args.port, log_level="warning",
+                lifespan="off" if os.environ.get("PHASE2_DATABASE_URL") else "auto")
     return 0
 
 

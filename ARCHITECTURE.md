@@ -250,6 +250,53 @@ before the first artifact exists without weakening startup checks. See
 `docs/rust-phase1/progress-task12c.md` holds the unit digest, the artifact
 digest and the systemd 249/255 and staging-ABI start evidence.
 
+## Phase 1 same-meaning successor
+
+The explicit `phase1-meaning-v1` profile reuses `phase2_meaning.py` and its single
+raw-response comparator. The default byte path remains historical and unchanged.
+The successor CI runner supplies the reviewed ledger digest explicitly.
+`phase1_meaning/corpus/{enabled,disabled}` retains all 487 requests per KYC state,
+recorded twice on disposable data. Canonical tape pages come from the complete
+Python-filtered relation before full-UUID pagination, not a sorted Python page.
+`runtime/cache.rs` stores only bounded public reference payloads for 60 seconds;
+request headers are rebuilt. Trading caches remain unimplemented and disabled.
+Their infrastructure is prepared: migration `prc_20261018_cache` adds the
+generation, event and incarnation tables and an always-enabled statement trigger
+on each trading dependency. `runtime/cache_authority.rs` grants a hit only under an
+owner record outside the database (`scripts/rust_cache_authority.py` writes it),
+a lease, a matching database identity and a bound listener; `runtime/cache_events.rs`
+owns the one budgeted listener connection. Nothing starts either yet. See
+`docs/rust-phase1/cache-dependencies.md`.
+Exact `market/amount.rs` operations retain intermediate economic rounding while
+removing wire-spelling emulation. See `docs/rust-phase1/same-meaning-contract.md`.
+
+## Rust Phase 2 contract preparation
+
+`tests/rust_contract/phase2/routes.json` pins the 27 CRUD method/path pairs,
+OpenAPI operations, DTO exports, effect classes and Python source digests.
+`export_inventory.py` reproduces the export through the full HTTP OpenAPI route
+on the isolated test host. `evidence-manifest.json` declares required route and
+scenario coverage and separates disposable-artifact qualification from
+production-cutover acceptance. It contains no run results or cutover verdict.
+See `outputs/rust-phase2/source-checkpoint.md` for the oracle identity and checks.
+Authentication issuance, market writers, SSE and dispatch remain Python-owned.
+`compare.py::compare_responses` is the raw-response profile boundary. Its explicit
+`phase2-meaning-v1` branch delegates to private `phase2_meaning.py`, with a
+SHA-256-pinned `normalization.json` ledger. It uses exact tagged JSON values,
+schema-local decimal/timestamp rules and complete-item multisets inside approved
+ties only. The Phase 1 default and existing recording comparator stay unchanged.
+
+Task 5 adds verification-only `rs/read/src/auth/{token,claims}.rs`. It verifies
+HS256 current/previous keys and Python-compatible access claims against an explicit
+clock. Its account projection validates cutoffs and mutable status without issuing
+sessions or exposing database writes. It is not mounted in the serving router;
+Task 6 must load account state under the shared transaction/user-row lock.
+`phase2_auth_vectors.py` exports synthetic full-HTTP Python results for Rust's
+in-process HTTP tests. See `docs/rust-phase2-task5.md` for scope, source findings
+and every gate result.
+
+### Frozen Phase 1 measurement reference
+
 Decisions 86/87 freeze the Python small-workload performance reference in
 `tests/rust_contract/python-baseline-small.json`, pinned by `gate-config.json`.
 `scripts/rust_contract/baseline.py` validates its bytes and PM attestation;
@@ -258,6 +305,16 @@ identity, successful-sample floor, frozen p95 thresholds and error-rate rule.
 `measure.py --rust-only` starts no Python service and records baseline, manifest,
 source and harness identities. Python remains the differential correctness oracle
 at both sizes. Historical paired evidence cannot satisfy the new Rust-only gate.
+
+## Shared same-meaning comparator
+
+The successor branch reuses Phase 2's reviewed comparator commit `64179cd1`.
+Authentication issuance, market writers, SSE and dispatch remain Python-owned.
+`compare.py::compare_responses` is the raw-response profile boundary. Its explicit
+`phase2-meaning-v1` branch delegates to private `phase2_meaning.py`, with a
+SHA-256-pinned `normalization.json` ledger. It uses exact tagged JSON values,
+schema-local decimal/timestamp rules and complete-item multisets inside approved
+ties only. The Phase 1 default and existing recording comparator stay unchanged.
 
 ## File Map
 
