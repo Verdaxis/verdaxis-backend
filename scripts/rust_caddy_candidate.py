@@ -8,10 +8,17 @@ import re
 from pathlib import Path
 
 GROUPS = ("simple", "orderbook", "prices", "curves", "mcp")
+READ_GROUPS = GROUPS[:-1]
 IMPORT = re.compile(r"^(?P<prefix>[ \t]*import verdaxis_rust_public[ \t]+)(?P<upstreams>[^\r\n]+)(?P<end>\r?\n|$)", re.MULTILINE)
+PROXY = re.compile(r"^(?P<indent>[ \t]*)reverse_proxy[ \t]+(?P<upstreams>[^{]+?)[ \t]*\{[ \t]*$", re.MULTILINE)
 
 
 def candidate(original: str, environment: str, group: str) -> str:
+    if environment not in {"production", "staging"}:
+        raise ValueError("unknown environment")
+    if group == "fallback":
+        return (production_fallback_candidate(original) if environment == "production"
+                else staging_fallback_candidate(original, environment))
     if environment == "production":
         return production_candidate(original, group)
     return staging_candidate(original, environment, group)
@@ -40,8 +47,11 @@ def staging_candidate(original: str, environment: str, group: str) -> str:
     python, rust = (("8000", "8010") if environment == "production" else ("8001", "8011"))
     upstreams = match["upstreams"].split()
     allowed = {f"127.0.0.1:{python}", f"127.0.0.1:{rust}"}
-    if len(upstreams) != 5 or any(value not in allowed for value in upstreams):
+    # The sixth argument is the shared Python fallback for the four read groups.
+    if len(upstreams) != 6 or any(value not in allowed for value in upstreams[:5]):
         raise ValueError("unexpected public upstream selection")
+    if upstreams[5] != f"127.0.0.1:{python}":
+        raise ValueError("read groups require the Python fallback upstream")
     if environment == "production" and upstreams[4] != f"127.0.0.1:{python}":
         raise ValueError("production MCP must remain on Python")
     index = GROUPS.index(group)
@@ -87,6 +97,76 @@ def one(nodes: list[dict], header: str) -> dict:
     if len(found) != 1:
         raise ValueError(f"expected exactly one {header} block")
     return found[0]
+
+
+def enclosing(nodes: list[dict], offset: int) -> dict | None:
+    """Return the deepest block whose body contains offset."""
+    for node in nodes:
+        if node["start"] < offset < node["end"]:
+            return enclosing(node["children"], offset) or node
+    return None
+
+
+def python_proxies(text: str, python: str) -> list[re.Match]:
+    """Find proxies whose sole upstream is the environment's Python process."""
+    allowed = {f"127.0.0.1:{python}", f"localhost:{python}"}
+    return [match for match in PROXY.finditer(text)
+            if len(match["upstreams"].split()) == 1
+            and match["upstreams"].split()[0] in allowed]
+
+
+def with_python_retry(text: str, start: int, end: int, python: str) -> str:
+    """Give the catch-all Python proxy a bounded wait across a restart.
+
+    A dial failure is retried for lb_try_duration. No passive health check is
+    added here: with one upstream, a remembered failure would make Caddy stop
+    selecting it, and the request would fail before the restart completed.
+    """
+    window = text[start:end]
+    if "lb_try_duration" in window or "lb_try_interval" in window:
+        raise ValueError("Python retry window already present")
+    matches = python_proxies(window, python)
+    if len(matches) != 1:
+        raise ValueError("expected exactly one Python catch-all proxy")
+    match = matches[0]
+    line_end = window.find("\n", match.end())
+    if line_end < 0:
+        raise ValueError("Python catch-all proxy line is incomplete")
+    eol = "\r\n" if window[:line_end].endswith("\r") else "\n"
+    insertion = (f"{match['indent']}\tlb_try_duration 15s{eol}"
+                 f"{match['indent']}\tlb_try_interval 250ms{eol}")
+    at = start + line_end + 1
+    return text[:at] + insertion + text[at:]
+
+
+def production_fallback_candidate(original: str) -> str:
+    _, _, fallback = production_layout(original)
+    return with_python_retry(original, fallback["start"], fallback["end"], "8000")
+
+
+def staging_fallback_candidate(original: str, environment: str) -> str:
+    if environment != "staging":
+        raise ValueError("staging fallback candidate requires the staging environment")
+    matches = list(IMPORT.finditer(original))
+    if len(matches) != 1:
+        raise ValueError("exactly one full-line public import is required")
+    match = matches[0]
+    python, rust = "8001", "8011"
+    upstreams = match["upstreams"].split()
+    if (len(upstreams) != 6 or upstreams[5] != f"127.0.0.1:{python}"
+            or any(value not in {f"127.0.0.1:{python}", f"127.0.0.1:{rust}"} for value in upstreams[:5])):
+        raise ValueError("unexpected public upstream selection")
+    route = enclosing(blocks(original), match.start())
+    if route is None or route["header"] != "route":
+        raise ValueError("public import must be inside the reviewed route block")
+    handles = [node for node in route["children"] if node["header"] == "handle"]
+    catchalls = [node for node in handles
+                 if python_proxies(original[node["start"]:node["end"]], python)]
+    # The bare handle must be the final route child; anything after it is
+    # unreachable and means the reviewed layout is not the expected one.
+    if len(catchalls) != 1 or route["children"][-1] is not catchalls[0]:
+        raise ValueError("expected exactly one final Python catch-all")
+    return with_python_retry(original, catchalls[0]["start"], catchalls[0]["end"], python)
 
 
 def production_layout(original: str) -> tuple[dict, dict, dict]:
@@ -143,7 +223,13 @@ def production_group(group: str) -> str:
     handle = one(definition["children"], f"handle @rust_{group}")
     body = snippet[sum(len(line) for line in lines[:start]):handle["end"]]
     index = GROUPS.index(group)
-    body = body.replace(f"reverse_proxy {{args[{index}]}} {{", "reverse_proxy 127.0.0.1:8010 {\n\t\t\theader_up X-Forwarded-For {client_ip}")
+    placeholder = f"reverse_proxy {{args[{index}]}} {{args[5]}} {{"
+    if body.count(placeholder) != 1:
+        raise ValueError("unexpected group proxy layout")
+    # Rust first, the unchanged Python process second. lb_policy first keeps
+    # that reviewed order; the snippet carries the retry and passive-health
+    # options, which apply to whichever upstream is selected.
+    body = body.replace(placeholder, "reverse_proxy 127.0.0.1:8010 127.0.0.1:8000 {\n\t\t\theader_up X-Forwarded-For {client_ip}")
     body = "".join("\t" + line for line in body.splitlines(keepends=True))
     return f"\t\t# BEGIN verdaxis-rust {group}\n" + body + f"\t\t# END verdaxis-rust {group}\n"
 
@@ -180,7 +266,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--site", required=True, type=Path)
     parser.add_argument("--environment", required=True, choices=("staging", "production"))
-    parser.add_argument("--group", required=True, choices=(*GROUPS, "access-log"))
+    parser.add_argument("--group", required=True, choices=(*GROUPS, "access-log", "fallback"))
     parser.add_argument("--output-dir", required=True, type=Path)
     args = parser.parse_args()
     original = args.site.read_bytes()
