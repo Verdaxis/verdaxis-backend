@@ -122,6 +122,10 @@ ACCESS_LOG = """\t# BEGIN verdaxis-rust access-log
 \t\t\t\trequest>headers>Cookie delete
 \t\t\t\trequest>headers>X-Monitor-Token delete
 \t\t\t\tresp_headers>Set-Cookie delete
+\t\t\t\t# The activity stream sends a short-lived token in its query string.
+\t\t\t\trequest>uri query {
+\t\t\t\t\tdelete stream_token
+\t\t\t\t}
 \t\t\t}
 \t\t}
 \t}

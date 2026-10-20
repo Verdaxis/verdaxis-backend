@@ -12,12 +12,12 @@ ROOT = Path(__file__).resolve().parents[2]
 SHA = "a" * 40
 
 
-def test_production_policy_and_unit_are_a_policy_off_bootstrap():
+def test_production_policy_is_the_reviewed_activation_with_the_bootstrap_unit():
     policy = json.loads((ROOT / "deploy/rust/production-policy.json").read_text())
     assert policy == {
         "version": 1,
         "environment": "production",
-        "rust_enabled": False,
+        "rust_enabled": True,
         "service_name": "verdaxis-rust.service",
         "bind": "127.0.0.1:8010",
         "health_url": "http://127.0.0.1:8010/health/ready",
