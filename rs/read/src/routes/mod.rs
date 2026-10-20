@@ -27,3 +27,7 @@ pub use crate::crud::preferences::router as preferences_router;
 // Phase 2 Task 16: organization price-alert CRUD
 pub use crate::crud::alerts::router as alerts_router;
 // Phase 2 Task 16: end organization price-alert CRUD
+
+// Phase 2 Task 17: referral reads and public resolution (start)
+pub use crate::crud::referrals::routes as referral_routes;
+// Phase 2 Task 17: referral reads and public resolution (end)

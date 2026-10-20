@@ -72,6 +72,17 @@ one create and refusing the other with the existing 403, leaving five active row
 No organization row lock, Python change, or runtime ACL grant is required. Evidence is in `docs/rust-phase2/task16-handoff.md`.
 Coverage requirements are data in `tests/rust_contract/phase2/alerts-scenarios.json`.
 
+## Rust Phase 2 referral routes
+
+`rs/read/src/crud/referrals/` implements referral statistics, leaderboard,
+public code resolution, serialized code allocation and invite preparation.
+Routes use shared authentication/transaction authority; invite allocation commits
+before the bounded provider call. Only the actor's referral code can change.
+Mail settings are injected, default disabled, and tests use numeric loopback
+stubs. No referral or outbox row is inserted by invite. Shared runtime projection
+and twin-database/race qualification remain integration gates. See
+`docs/rust-phase2-referrals.md`.
+
 ## Rust Phase 1 bootstrap
 
 `rs/` is a Rust 1.95 workspace with two packages. `verdaxis-read` defines the

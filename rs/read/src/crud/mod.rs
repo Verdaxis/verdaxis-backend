@@ -17,3 +17,6 @@ pub mod preferences;
 // Phase 2 Task 9: end preferences module
 
 pub mod watchlists;
+// Phase 2 Task 17: referral reads and public resolution (start)
+pub mod referrals;
+// Phase 2 Task 17: referral reads and public resolution (end)

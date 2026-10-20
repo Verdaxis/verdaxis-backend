@@ -824,6 +824,31 @@ CREATE EXTENSION IF NOT EXISTS postgis;
             subprocess.run(["cargo", "test", "--manifest-path", "rs/Cargo.toml", "--locked", "-p", "verdaxis-read", "--test", "auth_tokens"],
                 cwd=ROOT, env={**os.environ, "RELEASE_SHA": self.sha, "SQLX_OFFLINE": "true"}, check=True)
             return
+        # Phase 2 Task 17: referral reads and public resolution (start)
+        if selected == ["referral-reads"]:
+            # One migrated disposable database. The Rust test seeds and
+            # truncates its own deterministic rows through the admin URL, then
+            # drives the real router as the application role.
+            port = self.start_database()
+            env = {**os.environ, "ENVIRONMENT": "test", "RELEASE_SHA": self.sha,
+                   "JWT_SECRET": "test-secret-key-for-testing-minimum-32-chars", **self.urls(port)}
+            self.seed = False
+            self.migrate_and_seed(env)
+            app_url = f"postgresql://{APP_ROLE}:{APP_PASSWORD}@127.0.0.1:{port}/{DB_NAME}"
+            admin_url = f"postgresql://postgres:disposable_admin_pw@127.0.0.1:{port}/{DB_NAME}"
+            subprocess.run(["cargo", "test", "--manifest-path", "rs/Cargo.toml", "--locked", "-p", "verdaxis-read",
+                            "--test", "crud_referral_reads"], cwd=ROOT,
+                env={**env, "SQLX_OFFLINE": "true", "REQUIRE_REFERRAL_INTEROP": "true",
+                     "REFERRAL_INTEROP_APP_URL": app_url, "REFERRAL_INTEROP_ADMIN_URL": admin_url,
+                     "REFERRAL_INTEROP_TIME_ZONE": ORACLE_TIMEZONE}, check=True)
+            if args.report:
+                args.report.parent.mkdir(parents=True, exist_ok=True)
+                args.report.write_text(json.dumps({"source_sha": self.sha, "scenario": "referral-reads",
+                    "scope": "component-contract", "rust_exit": 0, "route_ids": ["R02", "R03", "R05"],
+                    "databases": [DB_NAME], "cross_process_ingress_qualified": False,
+                    "note": "single disposable database; the twin-stack response and state differential belongs to the Phase 2 transport owner"}, indent=2) + "\n")
+            return
+        # Phase 2 Task 17: referral reads and public resolution (end)
         if selected not in (["harness-smoke"], ["auth-state-matrix"], ["watchlist-reads"]):
             raise RunnerError("select one implemented Phase 2 scenario")
         port = self.start_database()
