@@ -327,6 +327,10 @@ fn scan_repository() -> Vec<String> {
         ["PG_ADVISORY", "_XACT_LOCK"].concat(),
         ["PG_ADVISORY", "_LOCK"].concat(),
     ];
+    // PM decision 94 (PD8) approves one advisory lock outside this boundary:
+    // the price-alert cap serializes organization creators in its own namespace.
+    // It does not touch order-book rows, so the boundary rule names it exactly.
+    let price_alert_cap = [root.join("rs/read/src/crud/alerts.rs")];
     let mut violations = Vec::new();
 
     let mut rust_files = Vec::new();
@@ -361,7 +365,7 @@ fn scan_repository() -> Vec<String> {
             let test_only = gated
                 .iter()
                 .any(|(open, close)| start >= *open && start <= *close);
-            if takes_advisory_lock && !test_only {
+            if takes_advisory_lock && !test_only && !price_alert_cap.contains(path) {
                 violations.push(format!(
                     "{}: advisory lock outside order_write",
                     path.display()
