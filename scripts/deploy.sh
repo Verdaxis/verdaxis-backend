@@ -854,7 +854,7 @@ for action in restart stop; do
     }
 done
 if [[ "$RUST_ENABLED" == "1" ]]; then
-    for action in restart stop disable; do
+    for action in restart stop disable enable; do
         sudo -n -l systemctl "$action" "$RUST_UNIT_NAME" >/dev/null || {
             echo "Required Rust service authority is unavailable." >&2; exit 1;
         }
@@ -1090,6 +1090,9 @@ if [[ "$RUST_SELECTED" == "1" ]]; then
         sleep "$HEALTH_RETRY_DELAY"
     done
     echo "Rust service is healthy: $RUST_HEALTH_URL"
+    # Both services are exact-ready, so enable the Rust unit before the deploy
+    # records success: a host reboot must not leave the activated unit stopped.
+    sudo -n systemctl enable "$RUST_UNIT_NAME"
 fi
 clear_deploy_state
 echo "=== Backend Deployment Complete ==="
