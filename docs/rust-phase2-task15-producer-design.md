@@ -1,7 +1,7 @@
 # Task 15 evidence and the PD4-G trusted producer design
 
-Status: Task 15 is ported. The producer design below is a proposal for PM
-approval; no producer code is written.
+Status: Task 15 is ported and accepted. The producer design below is approved
+as the target with PM decision PD6-2; no producer code is written in Phase 2.
 
 ## Task 15 — feed and read state (W07, W08)
 
@@ -29,7 +29,25 @@ committed read state and repeat no-write, concurrent acknowledgement write
 count, guarded refusals without writes, foreign container, missing target, no
 prune on read, snapshot point-name fallback). No Python comparison is a gate.
 
-## PD4-G trusted producer — design proposal
+## PD4-G trusted producer — approved target (PM decision PD6-2)
+
+Two PM decisions change the proposal below and override it where they differ:
+
+1. **No shadow comparison against Python's rows.** Python's rows are the
+   defective ones, so they are not acceptance evidence (decision 112). The
+   producer's own tests prove the public-scope rules: unit tests over the
+   derivation, PostgreSQL integration tests over committed outbox rows, and
+   race tests over replay, duplicates and visibility transitions.
+2. **Built and activated in Phase 8, with the Rust order-write cutover.** Only
+   the order writer can add the mutation identity and the before/after
+   evidence to the outbox row in the same economic transaction, so the
+   producer cannot precede it. Phase 2 ships with the PD4-G read guard exactly
+   as ported; nothing in this task waits on the producer.
+
+The shadow-mode paragraph under "Activation" is therefore superseded: the
+producer goes straight from unbuilt to serving in Phase 8, behind the same
+reviewed activation metadata. Rollback, visibility, replay and guard-removal
+preconditions are unchanged.
 
 ### Why a producer is needed
 
@@ -124,14 +142,14 @@ Per environment, in runtime release metadata with the full release SHA:
 - `PD5_ACTIVATION` instant, independent per environment, with no clock or config
   default.
 
-Only one producer writes per environment. Python's emitter currently lives in
-the order-write paths, so switching it off is a Python edit. That edit is not
-authorized today (decision 47) and belongs to the order-write group cutover
-(Task 25) or a separately approved change. Until then the Rust producer can run
-in **shadow**: it derives and records events with `producer='rust-shadow'`,
-which reads never serve, and the comparison of shadow rows against Python's
-rows becomes the acceptance evidence. Activation is the single reviewed switch
-from shadow to serving.
+Only one producer writes per environment. Python's emitter lives in the
+order-write paths, so only the Rust order-write cutover can replace it in the
+same transaction that adds the mutation identity and before/after evidence.
+Per PD6-2 the producer is therefore built in Phase 8 with that cutover, not in
+Phase 2, and there is no shadow period: its evidence is its own unit,
+PostgreSQL and race tests, never a comparison against Python's rows
+(decision 112). Activation is the single reviewed switch from `legacy-python`
+to `rust-market-v1` after those tests pass in the environment.
 
 ### Rollback
 

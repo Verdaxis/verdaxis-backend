@@ -85,11 +85,24 @@ serialized response.
 Evidence: 21 Rust tests, 10 of them on disposable PostgreSQL. No Python
 comparison is a gate.
 
-The trusted producer that would let the PD4-G guard go is a design proposal,
-not code: `docs/rust-phase2-task15-producer-design.md`. It covers the outbox
+The trusted producer that will let the PD4-G guard go is designed, not
+implemented: `docs/rust-phase2-task15-producer-design.md`. It covers the outbox
 consumer identity, additive producer columns, replay watermark, visibility
-transitions, shadow mode, activation metadata, rollback and the guard-removal
-preconditions. PM approval is required before implementation.
+transitions, activation metadata, rollback and the guard-removal
+preconditions.
+
+PM decision PD6-2 (Phase 6 fact base) approves that design as the target with
+two changes:
+
+1. No shadow comparison against Python's rows is acceptance evidence
+   (decision 112): Python's rows are the defective ones. The producer's own
+   unit, PostgreSQL integration and race tests prove the public-scope rules.
+2. The producer is built and activated in Phase 8 with the Rust order-write
+   cutover, because only the order writer can add the mutation identity and
+   before/after evidence to the outbox row in the same economic transaction.
+
+Phase 2 therefore ships with the PD4-G read guard exactly as ported above, and
+no Phase 2 gate waits on the producer.
 
 ## Approved difference PD8 — price-alert cap concurrency
 
