@@ -11,9 +11,43 @@ fn input_domain_matches_python_oracle() {
         let mut arguments = vector["arguments"].clone();
         let result = tool_arguments(vector["tool"].as_str().unwrap(), &mut arguments);
         let matches = if let Some(error) = vector.get("error") {
-            result.as_ref().err().map(String::as_str) == error.as_str()
+            use std::io::Write;
+            use std::process::{Command, Stdio};
+            let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+            let mut child = Command::new(root.join("venv/bin/python"))
+                .current_dir(&root)
+                .args(["-m", "scripts.rust_contract.compare_values"])
+                .stdin(Stdio::piped())
+                .spawn()
+                .unwrap();
+            let pair = serde_json::json!({"expected": error, "actual": result.as_ref().err(),
+                "route_id": format!("P1-tool-{}", vector["tool"].as_str().unwrap()),
+                "diagnostic_context": {"tool": vector["tool"], "arguments": vector["arguments"]}});
+            child
+                .stdin
+                .take()
+                .unwrap()
+                .write_all(pair.to_string().as_bytes())
+                .unwrap();
+            child.wait().unwrap().success()
         } else {
-            result.is_ok() && arguments == vector["normalized"]
+            use std::io::Write;
+            use std::process::{Command, Stdio};
+            let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+            let mut child = Command::new(root.join("venv/bin/python"))
+                .current_dir(&root)
+                .args(["-m", "scripts.rust_contract.compare_values"])
+                .stdin(Stdio::piped())
+                .spawn()
+                .unwrap();
+            let pair = serde_json::json!({"expected": vector["normalized"], "actual": arguments, "validation_tool": vector["tool"]});
+            child
+                .stdin
+                .take()
+                .unwrap()
+                .write_all(pair.to_string().as_bytes())
+                .unwrap();
+            result.is_ok() && child.wait().unwrap().success()
         };
         if !matches {
             failures.push(format!(

@@ -58,7 +58,7 @@ class Simulation(runner.Runner):
         from unittest.mock import patch
 
         from scripts.rust_contract.compare import ContractError, recording_differences
-        from scripts.rust_contract.record import record, stable
+        from scripts.rust_contract.record import record
 
         env = self.start_environment(group)
         try:
@@ -69,18 +69,22 @@ class Simulation(runner.Runner):
                 first = record(env["python_url"], self.token, cases)
                 middle = record(env["rust_url"], self.token, cases)
                 third = record(env["python_url"], self.token, cases)
+                profile = os.environ.get("RUST_CONTRACT_PROFILE")
+                digest = os.environ.get("MEANING_RULES_SHA256")
+                stability = recording_differences(first, third, profile=profile, rules_sha256=digest)
+                parity = recording_differences(first, middle, profile=profile, rules_sha256=digest)
         except ContractError as error:
             return {"outcome": "error", "error": str(error), "cases": len(cases)}
         finally:
             self.stop_environment()
 
-        if recording_differences(first, third):
+        if stability:
             return {
                 "outcome": "inconclusive",
                 "reason": "python sandwich disagreed",
                 "cases": len(cases),
             }
-        differences = recording_differences(stable(first), stable(middle))
+        differences = parity
         return {
             "outcome": "match" if not differences else "difference",
             "cases": len(cases),
@@ -141,7 +145,17 @@ def main(argv: list[str] | None = None) -> int:
         default="",
         help="comma-separated contract groups to run (default: every group)",
     )
+    parser.add_argument("--profile", choices=("phase1-meaning-v1",))
+    parser.add_argument("--rules-sha256")
     args = parser.parse_args(argv)
+    if args.profile:
+        from scripts.rust_contract.phase2_meaning import PHASE1_RULES_SHA256
+        if args.rules_sha256 != PHASE1_RULES_SHA256:
+            parser.error("reviewed successor rules digest required")
+        os.environ["RUST_CONTRACT_PROFILE"] = args.profile
+        os.environ["MEANING_RULES_SHA256"] = args.rules_sha256
+    elif args.rules_sha256:
+        parser.error("rules digest requires explicit profile")
     groups = [group for group in args.groups.split(",") if group] or None
     simulation = Simulation(args.size, output_dir=args.output, keep=args.keep, groups=groups)
     try:

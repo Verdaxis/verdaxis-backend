@@ -1,0 +1,318 @@
+{
+  "profile": "phase1-meaning-v1",
+  "rules_sha256": "f68125dd74d59f0af49f120b839d8e3cdadef1deca8027f9d0f08fc8a0b99e0e",
+  "source_sha": "56567679662daa76c9b7171015f57a7e76a3609a",
+  "clock": "2026-10-15T12:00:00+00:00",
+  "group": "curves_legacy",
+  "kyc_gate": false,
+  "entries": [
+    {
+      "id": "R07-forward--kyc-off",
+      "request": {
+        "method": "GET",
+        "path": "/api/curves/forward",
+        "query": "product_id=8f6f34a5-2927-54a6-8564-cca40ae7cb8a",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "product_id": "8f6f34a5-2927-54a6-8564-cca40ae7cb8a",
+          "delivery_point_id": null,
+          "curve": [
+            {
+              "availability_window": "SPOT",
+              "best_bid": null,
+              "best_ask": "600.00",
+              "mid_price": null,
+              "spread": null,
+              "volume_mt": "400.00",
+              "order_count": 4
+            }
+          ],
+          "generated_at": "2026-10-15T12:00:00Z"
+        },
+        "body_sha256": "ffbff68c0185b2a77192bb45ada7b7fccaac6c2bd307975a3853327a0b9e4557"
+      },
+      "raw_body_base64": "eyJwcm9kdWN0X2lkIjoiOGY2ZjM0YTUtMjkyNy01NGE2LTg1NjQtY2NhNDBhZTdjYjhhIiwiZGVsaXZlcnlfcG9pbnRfaWQiOm51bGwsImN1cnZlIjpbeyJhdmFpbGFiaWxpdHlfd2luZG93IjoiU1BPVCIsImJlc3RfYmlkIjpudWxsLCJiZXN0X2FzayI6IjYwMC4wMCIsIm1pZF9wcmljZSI6bnVsbCwic3ByZWFkIjpudWxsLCJ2b2x1bWVfbXQiOiI0MDAuMDAiLCJvcmRlcl9jb3VudCI6NH1dLCJnZW5lcmF0ZWRfYXQiOiIyMDI2LTEwLTE1VDEyOjAwOjAwWiJ9"
+    },
+    {
+      "id": "R07-forward-head--kyc-off",
+      "request": {
+        "method": "HEAD",
+        "path": "/api/curves/forward",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 405,
+        "headers": {
+          "allow": "GET",
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": null,
+        "body_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "raw_body_base64": ""
+    },
+    {
+      "id": "R07-forward-post-405--kyc-off",
+      "request": {
+        "method": "POST",
+        "path": "/api/curves/forward",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 405,
+        "headers": {
+          "allow": "GET",
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "detail": "Method Not Allowed"
+        },
+        "body_sha256": "83c09ba9a8daedb136f90b17a294caa90ad471a016e430df6e229acb5a81e100"
+      },
+      "raw_body_base64": "eyJkZXRhaWwiOiJNZXRob2QgTm90IEFsbG93ZWQifQ=="
+    },
+    {
+      "id": "R07-forward-options-405--kyc-off",
+      "request": {
+        "method": "OPTIONS",
+        "path": "/api/curves/forward",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 405,
+        "headers": {
+          "allow": "GET",
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "detail": "Method Not Allowed"
+        },
+        "body_sha256": "83c09ba9a8daedb136f90b17a294caa90ad471a016e430df6e229acb5a81e100"
+      },
+      "raw_body_base64": "eyJkZXRhaWwiOiJNZXRob2QgTm90IEFsbG93ZWQifQ=="
+    },
+    {
+      "id": "R07-forward-slash-307--kyc-off",
+      "request": {
+        "method": "GET",
+        "path": "/api/curves/forward/",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 307,
+        "headers": {
+          "location": "{endpoint}/api/curves/forward",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": null,
+        "body_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "raw_body_base64": ""
+    },
+    {
+      "id": "R07b-forward-missing--kyc-off",
+      "request": {
+        "method": "GET",
+        "path": "/api/curves/forward",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 422,
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "detail": [
+            {
+              "type": "missing",
+              "loc": [
+                "query",
+                "product_id"
+              ],
+              "msg": "Field required",
+              "input": null
+            }
+          ]
+        },
+        "body_sha256": "e8df0ad75c4b9b8b86b7f21b90282d087c1799e01a07016b0e65f7b2a78f43f0"
+      },
+      "raw_body_base64": "eyJkZXRhaWwiOlt7InR5cGUiOiJtaXNzaW5nIiwibG9jIjpbInF1ZXJ5IiwicHJvZHVjdF9pZCJdLCJtc2ciOiJGaWVsZCByZXF1aXJlZCIsImlucHV0IjpudWxsfV19"
+    },
+    {
+      "id": "R08-forward-export--kyc-off",
+      "request": {
+        "method": "GET",
+        "path": "/api/curves/forward/export",
+        "query": "product_id=8f6f34a5-2927-54a6-8564-cca40ae7cb8a",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 200,
+        "headers": {
+          "content-disposition": "attachment; filename=\"forward_curve_8f6f34a5-2927-54a6-8564-cca40ae7cb8a.csv\"",
+          "content-type": "text/csv; charset=utf-8",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "raw": "availability_window,best_bid,best_ask,mid_price,spread,volume_mt,order_count\nSPOT,,600.00,,,400.00,4\n"
+        },
+        "body_sha256": "5f63217128ab4716df1ffb5c4b1431dce941d38bada91ea850e46f55c34b17ef"
+      },
+      "raw_body_base64": "YXZhaWxhYmlsaXR5X3dpbmRvdyxiZXN0X2JpZCxiZXN0X2FzayxtaWRfcHJpY2Usc3ByZWFkLHZvbHVtZV9tdCxvcmRlcl9jb3VudApTUE9ULCw2MDAuMDAsLCw0MDAuMDAsNAo="
+    },
+    {
+      "id": "R08-forward-export-head--kyc-off",
+      "request": {
+        "method": "HEAD",
+        "path": "/api/curves/forward/export",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 405,
+        "headers": {
+          "allow": "GET",
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": null,
+        "body_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "raw_body_base64": ""
+    },
+    {
+      "id": "R08-forward-export-post-405--kyc-off",
+      "request": {
+        "method": "POST",
+        "path": "/api/curves/forward/export",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 405,
+        "headers": {
+          "allow": "GET",
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "detail": "Method Not Allowed"
+        },
+        "body_sha256": "83c09ba9a8daedb136f90b17a294caa90ad471a016e430df6e229acb5a81e100"
+      },
+      "raw_body_base64": "eyJkZXRhaWwiOiJNZXRob2QgTm90IEFsbG93ZWQifQ=="
+    },
+    {
+      "id": "R08-forward-export-options-405--kyc-off",
+      "request": {
+        "method": "OPTIONS",
+        "path": "/api/curves/forward/export",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 405,
+        "headers": {
+          "allow": "GET",
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "detail": "Method Not Allowed"
+        },
+        "body_sha256": "83c09ba9a8daedb136f90b17a294caa90ad471a016e430df6e229acb5a81e100"
+      },
+      "raw_body_base64": "eyJkZXRhaWwiOiJNZXRob2QgTm90IEFsbG93ZWQifQ=="
+    },
+    {
+      "id": "R08-forward-export-slash-307--kyc-off",
+      "request": {
+        "method": "GET",
+        "path": "/api/curves/forward/export/",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 307,
+        "headers": {
+          "location": "{endpoint}/api/curves/forward/export",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": null,
+        "body_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "raw_body_base64": ""
+    },
+    {
+      "id": "R08b-forward-export-missing--kyc-off",
+      "request": {
+        "method": "GET",
+        "path": "/api/curves/forward/export",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 422,
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "detail": [
+            {
+              "type": "missing",
+              "loc": [
+                "query",
+                "product_id"
+              ],
+              "msg": "Field required",
+              "input": null
+            }
+          ]
+        },
+        "body_sha256": "e8df0ad75c4b9b8b86b7f21b90282d087c1799e01a07016b0e65f7b2a78f43f0"
+      },
+      "raw_body_base64": "eyJkZXRhaWwiOlt7InR5cGUiOiJtaXNzaW5nIiwibG9jIjpbInF1ZXJ5IiwicHJvZHVjdF9pZCJdLCJtc2ciOiJGaWVsZCByZXF1aXJlZCIsImlucHV0IjpudWxsfV19"
+    }
+  ]
+}
