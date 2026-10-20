@@ -1278,3 +1278,45 @@ async def test_automatic_org_classification_downgrade_restores_prior_guard(migra
         database_url, "SELECT provenance FROM organizations WHERE id=:id", {"id": organization_id},
     )
     assert result.scalar_one() == "REAL"
+
+
+@pytest.mark.asyncio
+async def test_cache_checkpoint_follows_production_revision(migration_database):
+    """The first same-meaning release upgrades from production's revision.
+
+    ``prc_20261018_cache`` must be the only head, hang directly off the
+    revision production runs (``p0_20261016_union``), and be named by the
+    release allowlist, so the upgrade below is the deploy path.
+    """
+    database_url, _database_name = migration_database
+
+    script = ScriptDirectory.from_config(Config(str(_BACKEND_ROOT / "alembic.ini")))
+    assert script.get_current_head() == "prc_20261018_cache"
+    assert script.get_revision("prc_20261018_cache").down_revision == "p0_20261016_union"
+    allowlist = json.loads(
+        (_BACKEND_ROOT / "deploy/rust/allowed-revisions.json").read_text()
+    )
+    assert allowlist == ["kycg_20261014_staging", "p0_20261016_union", "prc_20261018_cache"]
+
+    production = await asyncio.to_thread(
+        _alembic, database_url, "upgrade", "p0_20261016_union"
+    )
+    assert production.returncode == 0, production.stderr
+    current = await _database_execute(
+        database_url, "SELECT version_num FROM alembic_version"
+    )
+    assert current.scalar_one() == "p0_20261016_union"
+
+    upgraded = await asyncio.to_thread(_alembic, database_url, "upgrade", "head")
+    assert upgraded.returncode == 0, upgraded.stderr
+    current = await _database_execute(
+        database_url, "SELECT version_num FROM alembic_version"
+    )
+    assert current.scalar_one() == "prc_20261018_cache"
+    cache_tables = await _database_execute(
+        database_url,
+        "SELECT count(*) FROM pg_tables WHERE schemaname = 'public' "
+        "AND tablename IN ('public_read_cache_generations', "
+        "'public_read_cache_events', 'public_read_cache_incarnation')",
+    )
+    assert cache_tables.scalar_one() == 3
