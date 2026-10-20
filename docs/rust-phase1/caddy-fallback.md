@@ -114,6 +114,20 @@ The focused suite covers:
 | `test_sse_response_streams_through_the_catch_all` | (e) the first SSE event reaches the client while the upstream still holds the second |
 | Generator unit tests | exact rollback bytes, six-argument refusals, fallback insertion and refusal cases, CLI 0600 output |
 
+## GitHub CI (draft PR #111)
+
+| Check | Result |
+| --- | --- |
+| `test` (unit suite plus `tests/monitor`) | pass, 2819 passed, 7 skipped |
+| `offline` | pass |
+| `contract` | pass |
+| `postgres-analytics` | pass |
+| `postgres-phase0` | pass |
+| `publish` | skipped (not a `staging`/`prod` push) |
+
+CI confirms the two `test_assert_host_git_owner.py` failures are a property of
+the staging test host, not the change: the same tests pass in CI.
+
 ## Not run
 
 - No latency, memory or capacity measurement (decision 110).
