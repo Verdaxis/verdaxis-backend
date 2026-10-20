@@ -1,0 +1,472 @@
+{
+  "profile": "phase1-meaning-v1",
+  "rules_sha256": "f68125dd74d59f0af49f120b839d8e3cdadef1deca8027f9d0f08fc8a0b99e0e",
+  "source_sha": "56567679662daa76c9b7171015f57a7e76a3609a",
+  "clock": "2026-10-15T12:00:00+00:00",
+  "group": "orderbook_snapshot",
+  "kyc_gate": false,
+  "entries": [
+    {
+      "id": "R15-snapshot--kyc-off",
+      "request": {
+        "method": "GET",
+        "path": "/api/orderbook/snapshot",
+        "query": "market_product=BIO_LNG&delivery_point_id=1379d36c-1ca9-55b7-9c0d-5235a0ba1f36&availability_window=SPOT",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "market_product": "BIO_LNG",
+          "delivery_point_id": "1379d36c-1ca9-55b7-9c0d-5235a0ba1f36",
+          "availability_window": "SPOT",
+          "generated_at": "2026-10-15T12:00:00Z",
+          "source_kind": "LIVE_ORDER",
+          "scope": "DELIVERY_POINT",
+          "demo_status": "REAL_ONLY",
+          "bids": [],
+          "asks": [
+            {
+              "certification_declared": true,
+              "certification_scheme": "ISCC EU",
+              "specification_standard": "EN 14214",
+              "msds_available": true,
+              "carbon_intensity_gco2_mj": null,
+              "carbon_intensity_method": null,
+              "feedstock": "Used cooking oil",
+              "origin": "Singapore",
+              "off_spec": false,
+              "off_spec_notes": null,
+              "id": "40397d95-d0b0-5dad-9977-e3cf391533b3",
+              "terms_digest": "e67a2df2b5374a48f76dcecf2d2fc42aec6f9e1ef58d9307f799b22f4234fcea",
+              "version": 1,
+              "fame_terms": null,
+              "lng_terms": {
+                "side": "ASK",
+                "sustainability_scheme": "ISCC_EU",
+                "chain_of_custody": "MASS_BALANCE",
+                "union_database_registered": true,
+                "bio_share_pct": "85.00",
+                "feedstock": "MANURE",
+                "feedstock_detail": null,
+                "production_country": "NL",
+                "wtt_ghg_gco2e_mj": "12.30",
+                "specification_standard": "ISO 23306:2020",
+                "min_methane_number": null,
+                "delivery_method": "SHIP_TO_SHIP",
+                "seller_is_physical_supplier": true,
+                "pos_timing": "WITH_DELIVERY",
+                "reseller": false,
+                "fueleu_recognition": "UNION_DATABASE"
+              },
+              "side": "ASK",
+              "product_id": "8f6f34a5-2927-54a6-8564-cca40ae7cb8a",
+              "product_name": "Bio-LNG",
+              "market_product": "BIO_LNG",
+              "fuel_type": "LNG",
+              "fuel_grade": "Bio",
+              "delivery_point_id": "1379d36c-1ca9-55b7-9c0d-5235a0ba1f36",
+              "delivery_point_name": "Rotterdam",
+              "region": "Europe",
+              "port_id": null,
+              "quantity_mt": "100.00",
+              "remaining_quantity_mt": "100.00",
+              "price_per_mt_usd": "600.00",
+              "availability_window": "SPOT",
+              "certifications": [],
+              "is_verdaxis_verified": false,
+              "tier_label": "INDEPENDENT",
+              "status": "OPEN",
+              "expires_at": null,
+              "created_at": "2026-10-15T12:00:00Z",
+              "benchmark_price_per_mt_usd": "600.00",
+              "premium_discount_per_mt_usd": "0.00",
+              "benchmark_source": "live_slice_ask_vwap",
+              "is_crossed": false,
+              "is_demo_listing": false,
+              "source_kind": "LIVE_ORDER",
+              "scope": "DELIVERY_POINT",
+              "demo_status": "REAL_ONLY",
+              "unknown_count": 0
+            },
+            {
+              "certification_declared": true,
+              "certification_scheme": "ISCC EU",
+              "specification_standard": "EN 14214",
+              "msds_available": true,
+              "carbon_intensity_gco2_mj": null,
+              "carbon_intensity_method": null,
+              "feedstock": "Used cooking oil",
+              "origin": "Singapore",
+              "off_spec": false,
+              "off_spec_notes": null,
+              "id": "040dbf52-9496-5af2-bfa8-4a3c5331ea91",
+              "terms_digest": "72d3628b81a274946d0a9509a9a252d92282fdacdfcd5527187115f50dd8f3be",
+              "version": 1,
+              "fame_terms": null,
+              "lng_terms": {
+                "side": "ASK",
+                "sustainability_scheme": "ISCC_EU",
+                "chain_of_custody": "MASS_BALANCE",
+                "union_database_registered": true,
+                "bio_share_pct": "85.00",
+                "feedstock": "MANURE",
+                "feedstock_detail": null,
+                "production_country": "NL",
+                "wtt_ghg_gco2e_mj": "12.30",
+                "specification_standard": "ISO 23306:2020",
+                "min_methane_number": null,
+                "delivery_method": "SHIP_TO_SHIP",
+                "seller_is_physical_supplier": false,
+                "pos_timing": "WITH_DELIVERY",
+                "reseller": true,
+                "fueleu_recognition": "UNION_DATABASE"
+              },
+              "side": "ASK",
+              "product_id": "8f6f34a5-2927-54a6-8564-cca40ae7cb8a",
+              "product_name": "Bio-LNG",
+              "market_product": "BIO_LNG",
+              "fuel_type": "LNG",
+              "fuel_grade": "Bio",
+              "delivery_point_id": "1379d36c-1ca9-55b7-9c0d-5235a0ba1f36",
+              "delivery_point_name": "Rotterdam",
+              "region": "Europe",
+              "port_id": null,
+              "quantity_mt": "100.00",
+              "remaining_quantity_mt": "100.00",
+              "price_per_mt_usd": "600.00",
+              "availability_window": "SPOT",
+              "certifications": [],
+              "is_verdaxis_verified": false,
+              "tier_label": "INDEPENDENT",
+              "status": "OPEN",
+              "expires_at": null,
+              "created_at": "2026-10-15T12:00:00Z",
+              "benchmark_price_per_mt_usd": "600.00",
+              "premium_discount_per_mt_usd": "0.00",
+              "benchmark_source": "live_slice_ask_vwap",
+              "is_crossed": false,
+              "is_demo_listing": false,
+              "source_kind": "LIVE_ORDER",
+              "scope": "DELIVERY_POINT",
+              "demo_status": "REAL_ONLY",
+              "unknown_count": 0
+            },
+            {
+              "certification_declared": true,
+              "certification_scheme": "ISCC EU",
+              "specification_standard": "EN 14214",
+              "msds_available": true,
+              "carbon_intensity_gco2_mj": null,
+              "carbon_intensity_method": null,
+              "feedstock": "Used cooking oil",
+              "origin": "Singapore",
+              "off_spec": false,
+              "off_spec_notes": null,
+              "id": "b4832725-9532-51c8-9066-794eae5c3f3c",
+              "terms_digest": "2b71ed1668a72a1ff1a3c56be6a81f4f2330e44b5e487b6f4302d37de579dc3f",
+              "version": 1,
+              "fame_terms": null,
+              "lng_terms": {
+                "side": "ASK",
+                "sustainability_scheme": "ISCC_EU",
+                "chain_of_custody": "MASS_BALANCE",
+                "union_database_registered": true,
+                "bio_share_pct": "85.00",
+                "feedstock": "MANURE",
+                "feedstock_detail": null,
+                "production_country": "NL",
+                "wtt_ghg_gco2e_mj": "12.30",
+                "specification_standard": "ISO 23306:2020",
+                "min_methane_number": "1E-29",
+                "delivery_method": "SHIP_TO_SHIP",
+                "seller_is_physical_supplier": true,
+                "pos_timing": "WITH_DELIVERY",
+                "reseller": false,
+                "fueleu_recognition": "UNION_DATABASE"
+              },
+              "side": "ASK",
+              "product_id": "8f6f34a5-2927-54a6-8564-cca40ae7cb8a",
+              "product_name": "Bio-LNG",
+              "market_product": "BIO_LNG",
+              "fuel_type": "LNG",
+              "fuel_grade": "Bio",
+              "delivery_point_id": "1379d36c-1ca9-55b7-9c0d-5235a0ba1f36",
+              "delivery_point_name": "Rotterdam",
+              "region": "Europe",
+              "port_id": null,
+              "quantity_mt": "100.00",
+              "remaining_quantity_mt": "100.00",
+              "price_per_mt_usd": "600.00",
+              "availability_window": "SPOT",
+              "certifications": [],
+              "is_verdaxis_verified": false,
+              "tier_label": "INDEPENDENT",
+              "status": "OPEN",
+              "expires_at": null,
+              "created_at": "2026-10-15T12:00:00Z",
+              "benchmark_price_per_mt_usd": "600.00",
+              "premium_discount_per_mt_usd": "0.00",
+              "benchmark_source": "live_slice_ask_vwap",
+              "is_crossed": false,
+              "is_demo_listing": false,
+              "source_kind": "LIVE_ORDER",
+              "scope": "DELIVERY_POINT",
+              "demo_status": "REAL_ONLY",
+              "unknown_count": 0
+            },
+            {
+              "certification_declared": true,
+              "certification_scheme": "ISCC EU",
+              "specification_standard": "EN 14214",
+              "msds_available": true,
+              "carbon_intensity_gco2_mj": null,
+              "carbon_intensity_method": null,
+              "feedstock": "Used cooking oil",
+              "origin": "Singapore",
+              "off_spec": false,
+              "off_spec_notes": null,
+              "id": "28bcf0fc-1ecf-59f1-b61c-221fb3408c00",
+              "terms_digest": "4cabe2ac058b9fa160b9c1f285c3136a16829ed1b103b7a1b7795cca9954d518",
+              "version": 1,
+              "fame_terms": null,
+              "lng_terms": {
+                "side": "ASK",
+                "sustainability_scheme": "ISCC_EU",
+                "chain_of_custody": "MASS_BALANCE",
+                "union_database_registered": true,
+                "bio_share_pct": "85.00",
+                "feedstock": "MANURE",
+                "feedstock_detail": null,
+                "production_country": "NL",
+                "wtt_ghg_gco2e_mj": "12.30",
+                "specification_standard": "ISO 23306:2020",
+                "min_methane_number": "0E-100",
+                "delivery_method": "SHIP_TO_SHIP",
+                "seller_is_physical_supplier": true,
+                "pos_timing": "WITH_DELIVERY",
+                "reseller": false,
+                "fueleu_recognition": "UNION_DATABASE"
+              },
+              "side": "ASK",
+              "product_id": "8f6f34a5-2927-54a6-8564-cca40ae7cb8a",
+              "product_name": "Bio-LNG",
+              "market_product": "BIO_LNG",
+              "fuel_type": "LNG",
+              "fuel_grade": "Bio",
+              "delivery_point_id": "1379d36c-1ca9-55b7-9c0d-5235a0ba1f36",
+              "delivery_point_name": "Rotterdam",
+              "region": "Europe",
+              "port_id": null,
+              "quantity_mt": "100.00",
+              "remaining_quantity_mt": "100.00",
+              "price_per_mt_usd": "600.00",
+              "availability_window": "SPOT",
+              "certifications": [],
+              "is_verdaxis_verified": false,
+              "tier_label": "INDEPENDENT",
+              "status": "OPEN",
+              "expires_at": null,
+              "created_at": "2026-10-15T12:00:00Z",
+              "benchmark_price_per_mt_usd": "600.00",
+              "premium_discount_per_mt_usd": "0.00",
+              "benchmark_source": "live_slice_ask_vwap",
+              "is_crossed": false,
+              "is_demo_listing": false,
+              "source_kind": "LIVE_ORDER",
+              "scope": "DELIVERY_POINT",
+              "demo_status": "REAL_ONLY",
+              "unknown_count": 0
+            }
+          ]
+        },
+        "body_sha256": "dcab7c7bfaf4b05f880747042fd9b9659413f812238afdb6cb3c786458dea515"
+      },
+      "raw_body_base64": "eyJtYXJrZXRfcHJvZHVjdCI6IkJJT19MTkciLCJkZWxpdmVyeV9wb2ludF9pZCI6IjEzNzlkMzZjLTFjYTktNTViNy05YzBkLTUyMzVhMGJhMWYzNiIsImF2YWlsYWJpbGl0eV93aW5kb3ciOiJTUE9UIiwiZ2VuZXJhdGVkX2F0IjoiMjAyNi0xMC0xNVQxMjowMDowMFoiLCJzb3VyY2Vfa2luZCI6IkxJVkVfT1JERVIiLCJzY29wZSI6IkRFTElWRVJZX1BPSU5UIiwiZGVtb19zdGF0dXMiOiJSRUFMX09OTFkiLCJiaWRzIjpbXSwiYXNrcyI6W3siY2VydGlmaWNhdGlvbl9kZWNsYXJlZCI6dHJ1ZSwiY2VydGlmaWNhdGlvbl9zY2hlbWUiOiJJU0NDIEVVIiwic3BlY2lmaWNhdGlvbl9zdGFuZGFyZCI6IkVOIDE0MjE0IiwibXNkc19hdmFpbGFibGUiOnRydWUsImNhcmJvbl9pbnRlbnNpdHlfZ2NvMl9taiI6bnVsbCwiY2FyYm9uX2ludGVuc2l0eV9tZXRob2QiOm51bGwsImZlZWRzdG9jayI6IlVzZWQgY29va2luZyBvaWwiLCJvcmlnaW4iOiJTaW5nYXBvcmUiLCJvZmZfc3BlYyI6ZmFsc2UsIm9mZl9zcGVjX25vdGVzIjpudWxsLCJpZCI6IjQwMzk3ZDk1LWQwYjAtNWRhZC05OTc3LWUzY2YzOTE1MzNiMyIsInRlcm1zX2RpZ2VzdCI6ImU2N2EyZGYyYjUzNzRhNDhmNzZkY2VjZjJkMmZjNDJhZWM2ZjllMWVmNThkOTMwN2Y3OTliMjJmNDIzNGZjZWEiLCJ2ZXJzaW9uIjoxLCJmYW1lX3Rlcm1zIjpudWxsLCJsbmdfdGVybXMiOnsic2lkZSI6IkFTSyIsInN1c3RhaW5hYmlsaXR5X3NjaGVtZSI6IklTQ0NfRVUiLCJjaGFpbl9vZl9jdXN0b2R5IjoiTUFTU19CQUxBTkNFIiwidW5pb25fZGF0YWJhc2VfcmVnaXN0ZXJlZCI6dHJ1ZSwiYmlvX3NoYXJlX3BjdCI6Ijg1LjAwIiwiZmVlZHN0b2NrIjoiTUFOVVJFIiwiZmVlZHN0b2NrX2RldGFpbCI6bnVsbCwicHJvZHVjdGlvbl9jb3VudHJ5IjoiTkwiLCJ3dHRfZ2hnX2djbzJlX21qIjoiMTIuMzAiLCJzcGVjaWZpY2F0aW9uX3N0YW5kYXJkIjoiSVNPIDIzMzA2OjIwMjAiLCJtaW5fbWV0aGFuZV9udW1iZXIiOm51bGwsImRlbGl2ZXJ5X21ldGhvZCI6IlNISVBfVE9fU0hJUCIsInNlbGxlcl9pc19waHlzaWNhbF9zdXBwbGllciI6dHJ1ZSwicG9zX3RpbWluZyI6IldJVEhfREVMSVZFUlkiLCJyZXNlbGxlciI6ZmFsc2UsImZ1ZWxldV9yZWNvZ25pdGlvbiI6IlVOSU9OX0RBVEFCQVNFIn0sInNpZGUiOiJBU0siLCJwcm9kdWN0X2lkIjoiOGY2ZjM0YTUtMjkyNy01NGE2LTg1NjQtY2NhNDBhZTdjYjhhIiwicHJvZHVjdF9uYW1lIjoiQmlvLUxORyIsIm1hcmtldF9wcm9kdWN0IjoiQklPX0xORyIsImZ1ZWxfdHlwZSI6IkxORyIsImZ1ZWxfZ3JhZGUiOiJCaW8iLCJkZWxpdmVyeV9wb2ludF9pZCI6IjEzNzlkMzZjLTFjYTktNTViNy05YzBkLTUyMzVhMGJhMWYzNiIsImRlbGl2ZXJ5X3BvaW50X25hbWUiOiJSb3R0ZXJkYW0iLCJyZWdpb24iOiJFdXJvcGUiLCJwb3J0X2lkIjpudWxsLCJxdWFudGl0eV9tdCI6IjEwMC4wMCIsInJlbWFpbmluZ19xdWFudGl0eV9tdCI6IjEwMC4wMCIsInByaWNlX3Blcl9tdF91c2QiOiI2MDAuMDAiLCJhdmFpbGFiaWxpdHlfd2luZG93IjoiU1BPVCIsImNlcnRpZmljYXRpb25zIjpbXSwiaXNfdmVyZGF4aXNfdmVyaWZpZWQiOmZhbHNlLCJ0aWVyX2xhYmVsIjoiSU5ERVBFTkRFTlQiLCJzdGF0dXMiOiJPUEVOIiwiZXhwaXJlc19hdCI6bnVsbCwiY3JlYXRlZF9hdCI6IjIwMjYtMTAtMTVUMTI6MDA6MDBaIiwiYmVuY2htYXJrX3ByaWNlX3Blcl9tdF91c2QiOiI2MDAuMDAiLCJwcmVtaXVtX2Rpc2NvdW50X3Blcl9tdF91c2QiOiIwLjAwIiwiYmVuY2htYXJrX3NvdXJjZSI6ImxpdmVfc2xpY2VfYXNrX3Z3YXAiLCJpc19jcm9zc2VkIjpmYWxzZSwiaXNfZGVtb19saXN0aW5nIjpmYWxzZSwic291cmNlX2tpbmQiOiJMSVZFX09SREVSIiwic2NvcGUiOiJERUxJVkVSWV9QT0lOVCIsImRlbW9fc3RhdHVzIjoiUkVBTF9PTkxZIiwidW5rbm93bl9jb3VudCI6MH0seyJjZXJ0aWZpY2F0aW9uX2RlY2xhcmVkIjp0cnVlLCJjZXJ0aWZpY2F0aW9uX3NjaGVtZSI6IklTQ0MgRVUiLCJzcGVjaWZpY2F0aW9uX3N0YW5kYXJkIjoiRU4gMTQyMTQiLCJtc2RzX2F2YWlsYWJsZSI6dHJ1ZSwiY2FyYm9uX2ludGVuc2l0eV9nY28yX21qIjpudWxsLCJjYXJib25faW50ZW5zaXR5X21ldGhvZCI6bnVsbCwiZmVlZHN0b2NrIjoiVXNlZCBjb29raW5nIG9pbCIsIm9yaWdpbiI6IlNpbmdhcG9yZSIsIm9mZl9zcGVjIjpmYWxzZSwib2ZmX3NwZWNfbm90ZXMiOm51bGwsImlkIjoiMDQwZGJmNTItOTQ5Ni01YWYyLWJmYTgtNGEzYzUzMzFlYTkxIiwidGVybXNfZGlnZXN0IjoiNzJkMzYyOGI4MWEyNzQ5NDZkMGE5NTA5YTlhMjUyZDkyMjgyZmRhY2RmY2Q1NTI3MTg3MTE1ZjUwZGQ4ZjNiZSIsInZlcnNpb24iOjEsImZhbWVfdGVybXMiOm51bGwsImxuZ190ZXJtcyI6eyJzaWRlIjoiQVNLIiwic3VzdGFpbmFiaWxpdHlfc2NoZW1lIjoiSVNDQ19FVSIsImNoYWluX29mX2N1c3RvZHkiOiJNQVNTX0JBTEFOQ0UiLCJ1bmlvbl9kYXRhYmFzZV9yZWdpc3RlcmVkIjp0cnVlLCJiaW9fc2hhcmVfcGN0IjoiODUuMDAiLCJmZWVkc3RvY2siOiJNQU5VUkUiLCJmZWVkc3RvY2tfZGV0YWlsIjpudWxsLCJwcm9kdWN0aW9uX2NvdW50cnkiOiJOTCIsInd0dF9naGdfZ2NvMmVfbWoiOiIxMi4zMCIsInNwZWNpZmljYXRpb25fc3RhbmRhcmQiOiJJU08gMjMzMDY6MjAyMCIsIm1pbl9tZXRoYW5lX251bWJlciI6bnVsbCwiZGVsaXZlcnlfbWV0aG9kIjoiU0hJUF9UT19TSElQIiwic2VsbGVyX2lzX3BoeXNpY2FsX3N1cHBsaWVyIjpmYWxzZSwicG9zX3RpbWluZyI6IldJVEhfREVMSVZFUlkiLCJyZXNlbGxlciI6dHJ1ZSwiZnVlbGV1X3JlY29nbml0aW9uIjoiVU5JT05fREFUQUJBU0UifSwic2lkZSI6IkFTSyIsInByb2R1Y3RfaWQiOiI4ZjZmMzRhNS0yOTI3LTU0YTYtODU2NC1jY2E0MGFlN2NiOGEiLCJwcm9kdWN0X25hbWUiOiJCaW8tTE5HIiwibWFya2V0X3Byb2R1Y3QiOiJCSU9fTE5HIiwiZnVlbF90eXBlIjoiTE5HIiwiZnVlbF9ncmFkZSI6IkJpbyIsImRlbGl2ZXJ5X3BvaW50X2lkIjoiMTM3OWQzNmMtMWNhOS01NWI3LTljMGQtNTIzNWEwYmExZjM2IiwiZGVsaXZlcnlfcG9pbnRfbmFtZSI6IlJvdHRlcmRhbSIsInJlZ2lvbiI6IkV1cm9wZSIsInBvcnRfaWQiOm51bGwsInF1YW50aXR5X210IjoiMTAwLjAwIiwicmVtYWluaW5nX3F1YW50aXR5X210IjoiMTAwLjAwIiwicHJpY2VfcGVyX210X3VzZCI6IjYwMC4wMCIsImF2YWlsYWJpbGl0eV93aW5kb3ciOiJTUE9UIiwiY2VydGlmaWNhdGlvbnMiOltdLCJpc192ZXJkYXhpc192ZXJpZmllZCI6ZmFsc2UsInRpZXJfbGFiZWwiOiJJTkRFUEVOREVOVCIsInN0YXR1cyI6Ik9QRU4iLCJleHBpcmVzX2F0IjpudWxsLCJjcmVhdGVkX2F0IjoiMjAyNi0xMC0xNVQxMjowMDowMFoiLCJiZW5jaG1hcmtfcHJpY2VfcGVyX210X3VzZCI6IjYwMC4wMCIsInByZW1pdW1fZGlzY291bnRfcGVyX210X3VzZCI6IjAuMDAiLCJiZW5jaG1hcmtfc291cmNlIjoibGl2ZV9zbGljZV9hc2tfdndhcCIsImlzX2Nyb3NzZWQiOmZhbHNlLCJpc19kZW1vX2xpc3RpbmciOmZhbHNlLCJzb3VyY2Vfa2luZCI6IkxJVkVfT1JERVIiLCJzY29wZSI6IkRFTElWRVJZX1BPSU5UIiwiZGVtb19zdGF0dXMiOiJSRUFMX09OTFkiLCJ1bmtub3duX2NvdW50IjowfSx7ImNlcnRpZmljYXRpb25fZGVjbGFyZWQiOnRydWUsImNlcnRpZmljYXRpb25fc2NoZW1lIjoiSVNDQyBFVSIsInNwZWNpZmljYXRpb25fc3RhbmRhcmQiOiJFTiAxNDIxNCIsIm1zZHNfYXZhaWxhYmxlIjp0cnVlLCJjYXJib25faW50ZW5zaXR5X2djbzJfbWoiOm51bGwsImNhcmJvbl9pbnRlbnNpdHlfbWV0aG9kIjpudWxsLCJmZWVkc3RvY2siOiJVc2VkIGNvb2tpbmcgb2lsIiwib3JpZ2luIjoiU2luZ2Fwb3JlIiwib2ZmX3NwZWMiOmZhbHNlLCJvZmZfc3BlY19ub3RlcyI6bnVsbCwiaWQiOiJiNDgzMjcyNS05NTMyLTUxYzgtOTA2Ni03OTRlYWU1YzNmM2MiLCJ0ZXJtc19kaWdlc3QiOiIyYjcxZWQxNjY4YTcyYTFmZjFhM2M1NmJlNmE4MWY0ZjIzMzBlNDRiNWU0ODdiNmY0MzAyZDM3ZGU1NzlkYzNmIiwidmVyc2lvbiI6MSwiZmFtZV90ZXJtcyI6bnVsbCwibG5nX3Rlcm1zIjp7InNpZGUiOiJBU0siLCJzdXN0YWluYWJpbGl0eV9zY2hlbWUiOiJJU0NDX0VVIiwiY2hhaW5fb2ZfY3VzdG9keSI6Ik1BU1NfQkFMQU5DRSIsInVuaW9uX2RhdGFiYXNlX3JlZ2lzdGVyZWQiOnRydWUsImJpb19zaGFyZV9wY3QiOiI4NS4wMCIsImZlZWRzdG9jayI6Ik1BTlVSRSIsImZlZWRzdG9ja19kZXRhaWwiOm51bGwsInByb2R1Y3Rpb25fY291bnRyeSI6Ik5MIiwid3R0X2doZ19nY28yZV9taiI6IjEyLjMwIiwic3BlY2lmaWNhdGlvbl9zdGFuZGFyZCI6IklTTyAyMzMwNjoyMDIwIiwibWluX21ldGhhbmVfbnVtYmVyIjoiMUUtMjkiLCJkZWxpdmVyeV9tZXRob2QiOiJTSElQX1RPX1NISVAiLCJzZWxsZXJfaXNfcGh5c2ljYWxfc3VwcGxpZXIiOnRydWUsInBvc190aW1pbmciOiJXSVRIX0RFTElWRVJZIiwicmVzZWxsZXIiOmZhbHNlLCJmdWVsZXVfcmVjb2duaXRpb24iOiJVTklPTl9EQVRBQkFTRSJ9LCJzaWRlIjoiQVNLIiwicHJvZHVjdF9pZCI6IjhmNmYzNGE1LTI5MjctNTRhNi04NTY0LWNjYTQwYWU3Y2I4YSIsInByb2R1Y3RfbmFtZSI6IkJpby1MTkciLCJtYXJrZXRfcHJvZHVjdCI6IkJJT19MTkciLCJmdWVsX3R5cGUiOiJMTkciLCJmdWVsX2dyYWRlIjoiQmlvIiwiZGVsaXZlcnlfcG9pbnRfaWQiOiIxMzc5ZDM2Yy0xY2E5LTU1YjctOWMwZC01MjM1YTBiYTFmMzYiLCJkZWxpdmVyeV9wb2ludF9uYW1lIjoiUm90dGVyZGFtIiwicmVnaW9uIjoiRXVyb3BlIiwicG9ydF9pZCI6bnVsbCwicXVhbnRpdHlfbXQiOiIxMDAuMDAiLCJyZW1haW5pbmdfcXVhbnRpdHlfbXQiOiIxMDAuMDAiLCJwcmljZV9wZXJfbXRfdXNkIjoiNjAwLjAwIiwiYXZhaWxhYmlsaXR5X3dpbmRvdyI6IlNQT1QiLCJjZXJ0aWZpY2F0aW9ucyI6W10sImlzX3ZlcmRheGlzX3ZlcmlmaWVkIjpmYWxzZSwidGllcl9sYWJlbCI6IklOREVQRU5ERU5UIiwic3RhdHVzIjoiT1BFTiIsImV4cGlyZXNfYXQiOm51bGwsImNyZWF0ZWRfYXQiOiIyMDI2LTEwLTE1VDEyOjAwOjAwWiIsImJlbmNobWFya19wcmljZV9wZXJfbXRfdXNkIjoiNjAwLjAwIiwicHJlbWl1bV9kaXNjb3VudF9wZXJfbXRfdXNkIjoiMC4wMCIsImJlbmNobWFya19zb3VyY2UiOiJsaXZlX3NsaWNlX2Fza192d2FwIiwiaXNfY3Jvc3NlZCI6ZmFsc2UsImlzX2RlbW9fbGlzdGluZyI6ZmFsc2UsInNvdXJjZV9raW5kIjoiTElWRV9PUkRFUiIsInNjb3BlIjoiREVMSVZFUllfUE9JTlQiLCJkZW1vX3N0YXR1cyI6IlJFQUxfT05MWSIsInVua25vd25fY291bnQiOjB9LHsiY2VydGlmaWNhdGlvbl9kZWNsYXJlZCI6dHJ1ZSwiY2VydGlmaWNhdGlvbl9zY2hlbWUiOiJJU0NDIEVVIiwic3BlY2lmaWNhdGlvbl9zdGFuZGFyZCI6IkVOIDE0MjE0IiwibXNkc19hdmFpbGFibGUiOnRydWUsImNhcmJvbl9pbnRlbnNpdHlfZ2NvMl9taiI6bnVsbCwiY2FyYm9uX2ludGVuc2l0eV9tZXRob2QiOm51bGwsImZlZWRzdG9jayI6IlVzZWQgY29va2luZyBvaWwiLCJvcmlnaW4iOiJTaW5nYXBvcmUiLCJvZmZfc3BlYyI6ZmFsc2UsIm9mZl9zcGVjX25vdGVzIjpudWxsLCJpZCI6IjI4YmNmMGZjLTFlY2YtNTlmMS1iNjFjLTIyMWZiMzQwOGMwMCIsInRlcm1zX2RpZ2VzdCI6IjRjYWJlMmFjMDU4YjlmYTE2MGI5YzFmMjg1YzMxMzZhMTY4MjllZDFiMTAzYjdhMWI3Nzk1Y2NhOTk1NGQ1MTgiLCJ2ZXJzaW9uIjoxLCJmYW1lX3Rlcm1zIjpudWxsLCJsbmdfdGVybXMiOnsic2lkZSI6IkFTSyIsInN1c3RhaW5hYmlsaXR5X3NjaGVtZSI6IklTQ0NfRVUiLCJjaGFpbl9vZl9jdXN0b2R5IjoiTUFTU19CQUxBTkNFIiwidW5pb25fZGF0YWJhc2VfcmVnaXN0ZXJlZCI6dHJ1ZSwiYmlvX3NoYXJlX3BjdCI6Ijg1LjAwIiwiZmVlZHN0b2NrIjoiTUFOVVJFIiwiZmVlZHN0b2NrX2RldGFpbCI6bnVsbCwicHJvZHVjdGlvbl9jb3VudHJ5IjoiTkwiLCJ3dHRfZ2hnX2djbzJlX21qIjoiMTIuMzAiLCJzcGVjaWZpY2F0aW9uX3N0YW5kYXJkIjoiSVNPIDIzMzA2OjIwMjAiLCJtaW5fbWV0aGFuZV9udW1iZXIiOiIwRS0xMDAiLCJkZWxpdmVyeV9tZXRob2QiOiJTSElQX1RPX1NISVAiLCJzZWxsZXJfaXNfcGh5c2ljYWxfc3VwcGxpZXIiOnRydWUsInBvc190aW1pbmciOiJXSVRIX0RFTElWRVJZIiwicmVzZWxsZXIiOmZhbHNlLCJmdWVsZXVfcmVjb2duaXRpb24iOiJVTklPTl9EQVRBQkFTRSJ9LCJzaWRlIjoiQVNLIiwicHJvZHVjdF9pZCI6IjhmNmYzNGE1LTI5MjctNTRhNi04NTY0LWNjYTQwYWU3Y2I4YSIsInByb2R1Y3RfbmFtZSI6IkJpby1MTkciLCJtYXJrZXRfcHJvZHVjdCI6IkJJT19MTkciLCJmdWVsX3R5cGUiOiJMTkciLCJmdWVsX2dyYWRlIjoiQmlvIiwiZGVsaXZlcnlfcG9pbnRfaWQiOiIxMzc5ZDM2Yy0xY2E5LTU1YjctOWMwZC01MjM1YTBiYTFmMzYiLCJkZWxpdmVyeV9wb2ludF9uYW1lIjoiUm90dGVyZGFtIiwicmVnaW9uIjoiRXVyb3BlIiwicG9ydF9pZCI6bnVsbCwicXVhbnRpdHlfbXQiOiIxMDAuMDAiLCJyZW1haW5pbmdfcXVhbnRpdHlfbXQiOiIxMDAuMDAiLCJwcmljZV9wZXJfbXRfdXNkIjoiNjAwLjAwIiwiYXZhaWxhYmlsaXR5X3dpbmRvdyI6IlNQT1QiLCJjZXJ0aWZpY2F0aW9ucyI6W10sImlzX3ZlcmRheGlzX3ZlcmlmaWVkIjpmYWxzZSwidGllcl9sYWJlbCI6IklOREVQRU5ERU5UIiwic3RhdHVzIjoiT1BFTiIsImV4cGlyZXNfYXQiOm51bGwsImNyZWF0ZWRfYXQiOiIyMDI2LTEwLTE1VDEyOjAwOjAwWiIsImJlbmNobWFya19wcmljZV9wZXJfbXRfdXNkIjoiNjAwLjAwIiwicHJlbWl1bV9kaXNjb3VudF9wZXJfbXRfdXNkIjoiMC4wMCIsImJlbmNobWFya19zb3VyY2UiOiJsaXZlX3NsaWNlX2Fza192d2FwIiwiaXNfY3Jvc3NlZCI6ZmFsc2UsImlzX2RlbW9fbGlzdGluZyI6ZmFsc2UsInNvdXJjZV9raW5kIjoiTElWRV9PUkRFUiIsInNjb3BlIjoiREVMSVZFUllfUE9JTlQiLCJkZW1vX3N0YXR1cyI6IlJFQUxfT05MWSIsInVua25vd25fY291bnQiOjB9XX0="
+    },
+    {
+      "id": "R15-snapshot-head--kyc-off",
+      "request": {
+        "method": "HEAD",
+        "path": "/api/orderbook/snapshot",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 405,
+        "headers": {
+          "allow": "GET",
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": null,
+        "body_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "raw_body_base64": ""
+    },
+    {
+      "id": "R15-snapshot-post-405--kyc-off",
+      "request": {
+        "method": "POST",
+        "path": "/api/orderbook/snapshot",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 405,
+        "headers": {
+          "allow": "GET",
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "detail": "Method Not Allowed"
+        },
+        "body_sha256": "83c09ba9a8daedb136f90b17a294caa90ad471a016e430df6e229acb5a81e100"
+      },
+      "raw_body_base64": "eyJkZXRhaWwiOiJNZXRob2QgTm90IEFsbG93ZWQifQ=="
+    },
+    {
+      "id": "R15-snapshot-options-405--kyc-off",
+      "request": {
+        "method": "OPTIONS",
+        "path": "/api/orderbook/snapshot",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 405,
+        "headers": {
+          "allow": "GET",
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "detail": "Method Not Allowed"
+        },
+        "body_sha256": "83c09ba9a8daedb136f90b17a294caa90ad471a016e430df6e229acb5a81e100"
+      },
+      "raw_body_base64": "eyJkZXRhaWwiOiJNZXRob2QgTm90IEFsbG93ZWQifQ=="
+    },
+    {
+      "id": "R15-snapshot-slash-307--kyc-off",
+      "request": {
+        "method": "GET",
+        "path": "/api/orderbook/snapshot/",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 307,
+        "headers": {
+          "location": "{endpoint}/api/orderbook/snapshot",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": null,
+        "body_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "raw_body_base64": ""
+    },
+    {
+      "id": "R15b-snapshot-bad-enum--kyc-off",
+      "request": {
+        "method": "GET",
+        "path": "/api/orderbook/snapshot",
+        "query": "market_product=NOPE&delivery_point_id=1379d36c-1ca9-55b7-9c0d-5235a0ba1f36&availability_window=SPOT",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 422,
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "detail": [
+            {
+              "type": "enum",
+              "loc": [
+                "query",
+                "market_product"
+              ],
+              "msg": "Input should be 'B30', 'B100', 'UCOME_B100', 'BIO_LNG', 'BIO_METHANOL', 'E_METHANOL', 'BIO_ETHANOL' or 'SYNTHETIC_ETHANOL'",
+              "input": "NOPE",
+              "ctx": {
+                "expected": "'B30', 'B100', 'UCOME_B100', 'BIO_LNG', 'BIO_METHANOL', 'E_METHANOL', 'BIO_ETHANOL' or 'SYNTHETIC_ETHANOL'"
+              }
+            }
+          ]
+        },
+        "body_sha256": "ff2eb94d6c139d59a46fba4fc88442b83076842631cf7a6967c321ab0e7d0cf4"
+      },
+      "raw_body_base64": "eyJkZXRhaWwiOlt7InR5cGUiOiJlbnVtIiwibG9jIjpbInF1ZXJ5IiwibWFya2V0X3Byb2R1Y3QiXSwibXNnIjoiSW5wdXQgc2hvdWxkIGJlICdCMzAnLCAnQjEwMCcsICdVQ09NRV9CMTAwJywgJ0JJT19MTkcnLCAnQklPX01FVEhBTk9MJywgJ0VfTUVUSEFOT0wnLCAnQklPX0VUSEFOT0wnIG9yICdTWU5USEVUSUNfRVRIQU5PTCciLCJpbnB1dCI6Ik5PUEUiLCJjdHgiOnsiZXhwZWN0ZWQiOiInQjMwJywgJ0IxMDAnLCAnVUNPTUVfQjEwMCcsICdCSU9fTE5HJywgJ0JJT19NRVRIQU5PTCcsICdFX01FVEhBTk9MJywgJ0JJT19FVEhBTk9MJyBvciAnU1lOVEhFVElDX0VUSEFOT0wnIn19XX0="
+    },
+    {
+      "id": "R15c-snapshot-missing--kyc-off",
+      "request": {
+        "method": "GET",
+        "path": "/api/orderbook/snapshot",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 422,
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "detail": [
+            {
+              "type": "missing",
+              "loc": [
+                "query",
+                "market_product"
+              ],
+              "msg": "Field required",
+              "input": null
+            },
+            {
+              "type": "missing",
+              "loc": [
+                "query",
+                "delivery_point_id"
+              ],
+              "msg": "Field required",
+              "input": null
+            },
+            {
+              "type": "missing",
+              "loc": [
+                "query",
+                "availability_window"
+              ],
+              "msg": "Field required",
+              "input": null
+            }
+          ]
+        },
+        "body_sha256": "f7eb2032f4b8d4005ac066df212e514278df64263983c5fd895f0eb5781921a6"
+      },
+      "raw_body_base64": "eyJkZXRhaWwiOlt7InR5cGUiOiJtaXNzaW5nIiwibG9jIjpbInF1ZXJ5IiwibWFya2V0X3Byb2R1Y3QiXSwibXNnIjoiRmllbGQgcmVxdWlyZWQiLCJpbnB1dCI6bnVsbH0seyJ0eXBlIjoibWlzc2luZyIsImxvYyI6WyJxdWVyeSIsImRlbGl2ZXJ5X3BvaW50X2lkIl0sIm1zZyI6IkZpZWxkIHJlcXVpcmVkIiwiaW5wdXQiOm51bGx9LHsidHlwZSI6Im1pc3NpbmciLCJsb2MiOlsicXVlcnkiLCJhdmFpbGFiaWxpdHlfd2luZG93Il0sIm1zZyI6IkZpZWxkIHJlcXVpcmVkIiwiaW5wdXQiOm51bGx9XX0="
+    }
+  ]
+}

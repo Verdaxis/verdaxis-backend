@@ -1,0 +1,2865 @@
+{
+  "profile": "phase1-meaning-v1",
+  "rules_sha256": "f68125dd74d59f0af49f120b839d8e3cdadef1deca8027f9d0f08fc8a0b99e0e",
+  "source_sha": "56567679662daa76c9b7171015f57a7e76a3609a",
+  "clock": "2026-10-15T12:00:00+00:00",
+  "group": "orderbook_map",
+  "kyc_gate": false,
+  "entries": [
+    {
+      "id": "T4B-negative-fame-holder--kyc-off",
+      "request": {
+        "method": "GET",
+        "path": "/api/listings",
+        "query": "limit=100",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 500,
+        "headers": {
+          "content-type": "text/plain; charset=utf-8"
+        },
+        "body": {
+          "raw": "Internal Server Error"
+        },
+        "body_sha256": "e41656eb2ba6c6293bf6dd928e5a88cdbc50535cab661c1969e0f598e497ed62"
+      },
+      "raw_body_base64": "SW50ZXJuYWwgU2VydmVyIEVycm9y"
+    },
+    {
+      "id": "R27-listings--kyc-off",
+      "request": {
+        "method": "GET",
+        "path": "/api/listings",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": [
+          {
+            "id": "010b6ad9-fb39-177a-ccae-51e349fd21e1",
+            "product_name": "Bio Methanol",
+            "market_product": "BIO_METHANOL",
+            "fuel_type": "Methanol",
+            "fuel_grade": "Bio",
+            "quantity_mt": "100.00",
+            "price_per_mt_usd": "1103",
+            "region": "Asia",
+            "availability_window": "2031-02",
+            "certifications": [],
+            "certification_declared": true,
+            "certification_scheme": "ISCC EU",
+            "specification_standard": "EN 14214",
+            "msds_available": true,
+            "carbon_intensity_gco2_mj": "18.40",
+            "carbon_intensity_method": null,
+            "feedstock": "Used cooking oil",
+            "origin": "Singapore",
+            "off_spec": false,
+            "off_spec_notes": null,
+            "lng_terms": null,
+            "fame_terms": null,
+            "status": "OPEN",
+            "match_count": 0,
+            "expires_at": null,
+            "observed_at": "2026-10-15T12:00:00+00:00",
+            "source_kind": "LIVE_ORDER",
+            "scope": "DELIVERY_POINT",
+            "demo_status": "REAL_ONLY",
+            "is_demo_listing": false,
+            "unknown_count": 0,
+            "delivery_point_id": "73835e92-820e-584b-8280-bb61c63aa28e"
+          },
+          {
+            "id": "040dbf52-9496-5af2-bfa8-4a3c5331ea91",
+            "product_name": "Bio-LNG",
+            "market_product": "BIO_LNG",
+            "fuel_type": "LNG",
+            "fuel_grade": "Bio",
+            "quantity_mt": "100.00",
+            "price_per_mt_usd": "600.00",
+            "region": "Europe",
+            "availability_window": "SPOT",
+            "certifications": [],
+            "certification_declared": true,
+            "certification_scheme": "ISCC EU",
+            "specification_standard": "EN 14214",
+            "msds_available": true,
+            "carbon_intensity_gco2_mj": null,
+            "carbon_intensity_method": null,
+            "feedstock": "Used cooking oil",
+            "origin": "Singapore",
+            "off_spec": false,
+            "off_spec_notes": null,
+            "lng_terms": {
+              "side": "ASK",
+              "sustainability_scheme": "ISCC_EU",
+              "chain_of_custody": "MASS_BALANCE",
+              "union_database_registered": true,
+              "bio_share_pct": "85.00",
+              "feedstock": "MANURE",
+              "feedstock_detail": null,
+              "production_country": "NL",
+              "wtt_ghg_gco2e_mj": "12.30",
+              "specification_standard": "ISO 23306:2020",
+              "min_methane_number": null,
+              "delivery_method": "SHIP_TO_SHIP",
+              "seller_is_physical_supplier": false,
+              "pos_timing": "WITH_DELIVERY",
+              "reseller": true,
+              "fueleu_recognition": "UNION_DATABASE"
+            },
+            "fame_terms": null,
+            "status": "OPEN",
+            "match_count": 0,
+            "expires_at": null,
+            "observed_at": "2026-10-15T12:00:00+00:00",
+            "source_kind": "LIVE_ORDER",
+            "scope": "DELIVERY_POINT",
+            "demo_status": "REAL_ONLY",
+            "is_demo_listing": false,
+            "unknown_count": 0,
+            "delivery_point_id": "1379d36c-1ca9-55b7-9c0d-5235a0ba1f36"
+          },
+          {
+            "id": "0a86cd79-ec86-8b68-c020-65936e2e2087",
+            "product_name": "Bio Methanol",
+            "market_product": "BIO_METHANOL",
+            "fuel_type": "Methanol",
+            "fuel_grade": "Bio",
+            "quantity_mt": "100.00",
+            "price_per_mt_usd": "1110",
+            "region": "Asia",
+            "availability_window": "2031-02",
+            "certifications": [],
+            "certification_declared": true,
+            "certification_scheme": "ISCC EU",
+            "specification_standard": "EN 14214",
+            "msds_available": true,
+            "carbon_intensity_gco2_mj": "18.40",
+            "carbon_intensity_method": null,
+            "feedstock": "Used cooking oil",
+            "origin": "Singapore",
+            "off_spec": false,
+            "off_spec_notes": null,
+            "lng_terms": null,
+            "fame_terms": null,
+            "status": "OPEN",
+            "match_count": 0,
+            "expires_at": null,
+            "observed_at": "2026-10-15T12:00:00+00:00",
+            "source_kind": "LIVE_ORDER",
+            "scope": "DELIVERY_POINT",
+            "demo_status": "REAL_ONLY",
+            "is_demo_listing": false,
+            "unknown_count": 0,
+            "delivery_point_id": "73835e92-820e-584b-8280-bb61c63aa28e"
+          },
+          {
+            "id": "0ba8b180-ea4b-e23a-8ec6-c5f3e45d0953",
+            "product_name": "Bio Methanol",
+            "market_product": "BIO_METHANOL",
+            "fuel_type": "Methanol",
+            "fuel_grade": "Bio",
+            "quantity_mt": "100.00",
+            "price_per_mt_usd": "1111",
+            "region": "Asia",
+            "availability_window": "2031-02",
+            "certifications": [],
+            "certification_declared": true,
+            "certification_scheme": "ISCC EU",
+            "specification_standard": "EN 14214",
+            "msds_available": true,
+            "carbon_intensity_gco2_mj": "18.40",
+            "carbon_intensity_method": null,
+            "feedstock": "Used cooking oil",
+            "origin": "Singapore",
+            "off_spec": false,
+            "off_spec_notes": null,
+            "lng_terms": null,
+            "fame_terms": null,
+            "status": "OPEN",
+            "match_count": 0,
+            "expires_at": null,
+            "observed_at": "2026-10-15T12:00:00+00:00",
+            "source_kind": "LIVE_ORDER",
+            "scope": "DELIVERY_POINT",
+            "demo_status": "REAL_ONLY",
+            "is_demo_listing": false,
+            "unknown_count": 0,
+            "delivery_point_id": "73835e92-820e-584b-8280-bb61c63aa28e"
+          },
+          {
+            "id": "186e900a-bccf-58fa-88ca-40164daa759c",
+            "product_name": "UCOME B100",
+            "market_product": "UCOME_B100",
+            "fuel_type": "FAME",
+            "fuel_grade": "UCOME",
+            "quantity_mt": "100.00",
+            "price_per_mt_usd": "600.00",
+            "region": "Asia",
+            "availability_window": "SPOT",
+            "certifications": [],
+            "certification_declared": true,
+            "certification_scheme": "ISCC EU",
+            "specification_standard": "EN 14214",
+            "msds_available": true,
+            "carbon_intensity_gco2_mj": null,
+            "carbon_intensity_method": null,
+            "feedstock": "Used cooking oil",
+            "origin": "Singapore",
+            "off_spec": false,
+            "off_spec_notes": null,
+            "lng_terms": null,
+            "fame_terms": {
+              "schema_version": 1,
+              "neat_fame": true,
+              "nomination_status": "PENDING",
+              "uco_mass_pct": 100,
+              "standard": "EN_14214",
+              "standard_edition": "EN 14214:2019",
+              "astm_grade": null,
+              "en_climate_class": null,
+              "production_origin": null,
+              "feedstock_origin": null,
+              "shipping_location": null,
+              "cfpp_c": "1E-29",
+              "cloud_point_c": null,
+              "ci_gco2e_mj": null,
+              "ci_methodology": null,
+              "ci_boundary": null,
+              "ci_basis": null,
+              "lhv_mj_kg": null,
+              "sustainability_scheme": "ISCC_EU",
+              "certificate_valid_until": "2027-10-15",
+              "evidence_status": "DECLARED",
+              "quality_evidence": null,
+              "sustainability_evidence": null,
+              "side": "ASK",
+              "evidence_due": "BEFORE_LOADING"
+            },
+            "status": "OPEN",
+            "match_count": 0,
+            "expires_at": null,
+            "observed_at": "2026-10-15T12:00:00+00:00",
+            "source_kind": "LIVE_ORDER",
+            "scope": "DELIVERY_POINT",
+            "demo_status": "REAL_ONLY",
+            "is_demo_listing": false,
+            "unknown_count": 0,
+            "delivery_point_id": "73835e92-820e-584b-8280-bb61c63aa28e"
+          },
+          {
+            "id": "28b0438f-87b1-5c42-8e4a-bd35f6b7e276",
+            "product_name": "B100",
+            "market_product": "B100",
+            "fuel_type": "Biofuel",
+            "fuel_grade": "B100",
+            "quantity_mt": "100.00",
+            "price_per_mt_usd": "600.00",
+            "region": "Asia",
+            "availability_window": "SPOT",
+            "certifications": [],
+            "certification_declared": true,
+            "certification_scheme": "ISCC EU",
+            "specification_standard": "ISO 8217:2024 DFA",
+            "msds_available": true,
+            "carbon_intensity_gco2_mj": "18.40",
+            "carbon_intensity_method": "Whole-fuel FAME CI and LCV",
+            "feedstock": "Used cooking oil",
+            "origin": "Singapore",
+            "off_spec": false,
+            "off_spec_notes": null,
+            "lng_terms": null,
+            "fame_terms": null,
+            "status": "OPEN",
+            "match_count": 0,
+            "expires_at": null,
+            "observed_at": "2026-10-15T12:00:00+00:00",
+            "source_kind": "LIVE_ORDER",
+            "scope": "DELIVERY_POINT",
+            "demo_status": "REAL_ONLY",
+            "is_demo_listing": false,
+            "unknown_count": 0,
+            "delivery_point_id": "73835e92-820e-584b-8280-bb61c63aa28e"
+          },
+          {
+            "id": "28bcf0fc-1ecf-59f1-b61c-221fb3408c00",
+            "product_name": "Bio-LNG",
+            "market_product": "BIO_LNG",
+            "fuel_type": "LNG",
+            "fuel_grade": "Bio",
+            "quantity_mt": "100.00",
+            "price_per_mt_usd": "600.00",
+            "region": "Europe",
+            "availability_window": "SPOT",
+            "certifications": [],
+            "certification_declared": true,
+            "certification_scheme": "ISCC EU",
+            "specification_standard": "EN 14214",
+            "msds_available": true,
+            "carbon_intensity_gco2_mj": null,
+            "carbon_intensity_method": null,
+            "feedstock": "Used cooking oil",
+            "origin": "Singapore",
+            "off_spec": false,
+            "off_spec_notes": null,
+            "lng_terms": {
+              "side": "ASK",
+              "sustainability_scheme": "ISCC_EU",
+              "chain_of_custody": "MASS_BALANCE",
+              "union_database_registered": true,
+              "bio_share_pct": "85.00",
+              "feedstock": "MANURE",
+              "feedstock_detail": null,
+              "production_country": "NL",
+              "wtt_ghg_gco2e_mj": "12.30",
+              "specification_standard": "ISO 23306:2020",
+              "min_methane_number": "0E-100",
+              "delivery_method": "SHIP_TO_SHIP",
+              "seller_is_physical_supplier": true,
+              "pos_timing": "WITH_DELIVERY",
+              "reseller": false,
+              "fueleu_recognition": "UNION_DATABASE"
+            },
+            "fame_terms": null,
+            "status": "OPEN",
+            "match_count": 0,
+            "expires_at": null,
+            "observed_at": "2026-10-15T12:00:00+00:00",
+            "source_kind": "LIVE_ORDER",
+            "scope": "DELIVERY_POINT",
+            "demo_status": "REAL_ONLY",
+            "is_demo_listing": false,
+            "unknown_count": 0,
+            "delivery_point_id": "1379d36c-1ca9-55b7-9c0d-5235a0ba1f36"
+          },
+          {
+            "id": "37775f8f-deb3-5ecd-8aeb-3d463c06c80e",
+            "product_name": "UCOME B100",
+            "market_product": "UCOME_B100",
+            "fuel_type": "FAME",
+            "fuel_grade": "UCOME",
+            "quantity_mt": "100.00",
+            "price_per_mt_usd": "600.00",
+            "region": "Asia",
+            "availability_window": "SPOT",
+            "certifications": [],
+            "certification_declared": true,
+            "certification_scheme": "ISCC EU",
+            "specification_standard": "EN 14214",
+            "msds_available": true,
+            "carbon_intensity_gco2_mj": null,
+            "carbon_intensity_method": null,
+            "feedstock": "Used cooking oil",
+            "origin": "Singapore",
+            "off_spec": false,
+            "off_spec_notes": null,
+            "lng_terms": null,
+            "fame_terms": {
+              "schema_version": 1,
+              "neat_fame": true,
+              "nomination_status": "PENDING",
+              "uco_mass_pct": 100,
+              "standard": "EN_14214",
+              "standard_edition": "EN 14214:2019",
+              "astm_grade": null,
+              "en_climate_class": null,
+              "production_origin": null,
+              "feedstock_origin": null,
+              "shipping_location": null,
+              "cfpp_c": "0E-100",
+              "cloud_point_c": null,
+              "ci_gco2e_mj": null,
+              "ci_methodology": null,
+              "ci_boundary": null,
+              "ci_basis": null,
+              "lhv_mj_kg": null,
+              "sustainability_scheme": "ISCC_EU",
+              "certificate_valid_until": "2027-10-15",
+              "evidence_status": "DECLARED",
+              "quality_evidence": null,
+              "sustainability_evidence": null,
+              "side": "ASK",
+              "evidence_due": "BEFORE_LOADING"
+            },
+            "status": "OPEN",
+            "match_count": 0,
+            "expires_at": null,
+            "observed_at": "2026-10-15T12:00:00+00:00",
+            "source_kind": "LIVE_ORDER",
+            "scope": "DELIVERY_POINT",
+            "demo_status": "REAL_ONLY",
+            "is_demo_listing": false,
+            "unknown_count": 0,
+            "delivery_point_id": "73835e92-820e-584b-8280-bb61c63aa28e"
+          },
+          {
+            "id": "40397d95-d0b0-5dad-9977-e3cf391533b3",
+            "product_name": "Bio-LNG",
+            "market_product": "BIO_LNG",
+            "fuel_type": "LNG",
+            "fuel_grade": "Bio",
+            "quantity_mt": "100.00",
+            "price_per_mt_usd": "600.00",
+            "region": "Europe",
+            "availability_window": "SPOT",
+            "certifications": [],
+            "certification_declared": true,
+            "certification_scheme": "ISCC EU",
+            "specification_standard": "EN 14214",
+            "msds_available": true,
+            "carbon_intensity_gco2_mj": null,
+            "carbon_intensity_method": null,
+            "feedstock": "Used cooking oil",
+            "origin": "Singapore",
+            "off_spec": false,
+            "off_spec_notes": null,
+            "lng_terms": {
+              "side": "ASK",
+              "sustainability_scheme": "ISCC_EU",
+              "chain_of_custody": "MASS_BALANCE",
+              "union_database_registered": true,
+              "bio_share_pct": "85.00",
+              "feedstock": "MANURE",
+              "feedstock_detail": null,
+              "production_country": "NL",
+              "wtt_ghg_gco2e_mj": "12.30",
+              "specification_standard": "ISO 23306:2020",
+              "min_methane_number": null,
+              "delivery_method": "SHIP_TO_SHIP",
+              "seller_is_physical_supplier": true,
+              "pos_timing": "WITH_DELIVERY",
+              "reseller": false,
+              "fueleu_recognition": "UNION_DATABASE"
+            },
+            "fame_terms": null,
+            "status": "OPEN",
+            "match_count": 0,
+            "expires_at": null,
+            "observed_at": "2026-10-15T12:00:00+00:00",
+            "source_kind": "LIVE_ORDER",
+            "scope": "DELIVERY_POINT",
+            "demo_status": "REAL_ONLY",
+            "is_demo_listing": false,
+            "unknown_count": 0,
+            "delivery_point_id": "1379d36c-1ca9-55b7-9c0d-5235a0ba1f36"
+          },
+          {
+            "id": "41204f9f-08cf-56d0-a89a-baddccc8770c",
+            "product_name": "B30",
+            "market_product": "B30",
+            "fuel_type": "Biofuel",
+            "fuel_grade": "B30",
+            "quantity_mt": "100.00",
+            "price_per_mt_usd": "600.00",
+            "region": "Asia",
+            "availability_window": "SPOT",
+            "certifications": [],
+            "certification_declared": true,
+            "certification_scheme": "ISCC EU",
+            "specification_standard": "ISO 8217:2024 RF 380",
+            "msds_available": true,
+            "carbon_intensity_gco2_mj": "18.40",
+            "carbon_intensity_method": "Whole-blend CI and LCV",
+            "feedstock": "Used cooking oil",
+            "origin": "Singapore",
+            "off_spec": false,
+            "off_spec_notes": null,
+            "lng_terms": null,
+            "fame_terms": null,
+            "status": "OPEN",
+            "match_count": 0,
+            "expires_at": null,
+            "observed_at": "2026-10-15T12:00:00+00:00",
+            "source_kind": "LIVE_ORDER",
+            "scope": "DELIVERY_POINT",
+            "demo_status": "REAL_ONLY",
+            "is_demo_listing": false,
+            "unknown_count": 0,
+            "delivery_point_id": "73835e92-820e-584b-8280-bb61c63aa28e"
+          },
+          {
+            "id": "572b829a-ccc8-5525-a46b-36dcc486ed39",
+            "product_name": "Bio Methanol",
+            "market_product": "BIO_METHANOL",
+            "fuel_type": "Methanol",
+            "fuel_grade": "Bio",
+            "quantity_mt": "100.00",
+            "price_per_mt_usd": "600.00",
+            "region": "Asia",
+            "availability_window": "SPOT",
+            "certifications": [],
+            "certification_declared": true,
+            "certification_scheme": "ISCC EU",
+            "specification_standard": "EN 14214",
+            "msds_available": true,
+            "carbon_intensity_gco2_mj": "18.40",
+            "carbon_intensity_method": null,
+            "feedstock": "Used cooking oil",
+            "origin": "Singapore",
+            "off_spec": false,
+            "off_spec_notes": null,
+            "lng_terms": null,
+            "fame_terms": null,
+            "status": "OPEN",
+            "match_count": 0,
+            "expires_at": null,
+            "observed_at": "2026-10-15T12:00:00+00:00",
+            "source_kind": "LIVE_ORDER",
+            "scope": "DELIVERY_POINT",
+            "demo_status": "REAL_ONLY",
+            "is_demo_listing": false,
+            "unknown_count": 0,
+            "delivery_point_id": "73835e92-820e-584b-8280-bb61c63aa28e"
+          },
+          {
+            "id": "689b9685-ac15-9b3b-027c-67d95533974b",
+            "product_name": "Bio Methanol",
+            "market_product": "BIO_METHANOL",
+            "fuel_type": "Methanol",
+            "fuel_grade": "Bio",
+            "quantity_mt": "100.00",
+            "price_per_mt_usd": "1104",
+            "region": "Asia",
+            "availability_window": "2031-02",
+            "certifications": [],
+            "certification_declared": true,
+            "certification_scheme": "ISCC EU",
+            "specification_standard": "EN 14214",
+            "msds_available": true,
+            "carbon_intensity_gco2_mj": "18.40",
+            "carbon_intensity_method": null,
+            "feedstock": "Used cooking oil",
+            "origin": "Singapore",
+            "off_spec": false,
+            "off_spec_notes": null,
+            "lng_terms": null,
+            "fame_terms": null,
+            "status": "OPEN",
+            "match_count": 0,
+            "expires_at": null,
+            "observed_at": "2026-10-15T12:00:00+00:00",
+            "source_kind": "LIVE_ORDER",
+            "scope": "DELIVERY_POINT",
+            "demo_status": "REAL_ONLY",
+            "is_demo_listing": false,
+            "unknown_count": 0,
+            "delivery_point_id": "73835e92-820e-584b-8280-bb61c63aa28e"
+          },
+          {
+            "id": "6f071b10-8d25-44a1-1330-5de9acef2124",
+            "product_name": "Bio Methanol",
+            "market_product": "BIO_METHANOL",
+            "fuel_type": "Methanol",
+            "fuel_grade": "Bio",
+            "quantity_mt": "100.00",
+            "price_per_mt_usd": "1112",
+            "region": "Asia",
+            "availability_window": "2031-02",
+            "certifications": [],
+            "certification_declared": true,
+            "certification_scheme": "ISCC EU",
+            "specification_standard": "EN 14214",
+            "msds_available": true,
+            "carbon_intensity_gco2_mj": "18.40",
+            "carbon_intensity_method": null,
+            "feedstock": "Used cooking oil",
+            "origin": "Singapore",
+            "off_spec": false,
+            "off_spec_notes": null,
+            "lng_terms": null,
+            "fame_terms": null,
+            "status": "OPEN",
+            "match_count": 0,
+            "expires_at": null,
+            "observed_at": "2026-10-15T12:00:00+00:00",
+            "source_kind": "LIVE_ORDER",
+            "scope": "DELIVERY_POINT",
+            "demo_status": "REAL_ONLY",
+            "is_demo_listing": false,
+            "unknown_count": 0,
+            "delivery_point_id": "73835e92-820e-584b-8280-bb61c63aa28e"
+          },
+          {
+            "id": "83499fc3-9c69-f631-29d5-ce68f2b3302e",
+            "product_name": "Bio Methanol",
+            "market_product": "BIO_METHANOL",
+            "fuel_type": "Methanol",
+            "fuel_grade": "Bio",
+            "quantity_mt": "100.00",
+            "price_per_mt_usd": "1105",
+            "region": "Asia",
+            "availability_window": "2031-02",
+            "certifications": [],
+            "certification_declared": true,
+            "certification_scheme": "ISCC EU",
+            "specification_standard": "EN 14214",
+            "msds_available": true,
+            "carbon_intensity_gco2_mj": "18.40",
+            "carbon_intensity_method": null,
+            "feedstock": "Used cooking oil",
+            "origin": "Singapore",
+            "off_spec": false,
+            "off_spec_notes": null,
+            "lng_terms": null,
+            "fame_terms": null,
+            "status": "OPEN",
+            "match_count": 0,
+            "expires_at": null,
+            "observed_at": "2026-10-15T12:00:00+00:00",
+            "source_kind": "LIVE_ORDER",
+            "scope": "DELIVERY_POINT",
+            "demo_status": "REAL_ONLY",
+            "is_demo_listing": false,
+            "unknown_count": 0,
+            "delivery_point_id": "73835e92-820e-584b-8280-bb61c63aa28e"
+          },
+          {
+            "id": "b4832725-9532-51c8-9066-794eae5c3f3c",
+            "product_name": "Bio-LNG",
+            "market_product": "BIO_LNG",
+            "fuel_type": "LNG",
+            "fuel_grade": "Bio",
+            "quantity_mt": "100.00",
+            "price_per_mt_usd": "600.00",
+            "region": "Europe",
+            "availability_window": "SPOT",
+            "certifications": [],
+            "certification_declared": true,
+            "certification_scheme": "ISCC EU",
+            "specification_standard": "EN 14214",
+            "msds_available": true,
+            "carbon_intensity_gco2_mj": null,
+            "carbon_intensity_method": null,
+            "feedstock": "Used cooking oil",
+            "origin": "Singapore",
+            "off_spec": false,
+            "off_spec_notes": null,
+            "lng_terms": {
+              "side": "ASK",
+              "sustainability_scheme": "ISCC_EU",
+              "chain_of_custody": "MASS_BALANCE",
+              "union_database_registered": true,
+              "bio_share_pct": "85.00",
+              "feedstock": "MANURE",
+              "feedstock_detail": null,
+              "production_country": "NL",
+              "wtt_ghg_gco2e_mj": "12.30",
+              "specification_standard": "ISO 23306:2020",
+              "min_methane_number": "1E-29",
+              "delivery_method": "SHIP_TO_SHIP",
+              "seller_is_physical_supplier": true,
+              "pos_timing": "WITH_DELIVERY",
+              "reseller": false,
+              "fueleu_recognition": "UNION_DATABASE"
+            },
+            "fame_terms": null,
+            "status": "OPEN",
+            "match_count": 0,
+            "expires_at": null,
+            "observed_at": "2026-10-15T12:00:00+00:00",
+            "source_kind": "LIVE_ORDER",
+            "scope": "DELIVERY_POINT",
+            "demo_status": "REAL_ONLY",
+            "is_demo_listing": false,
+            "unknown_count": 0,
+            "delivery_point_id": "1379d36c-1ca9-55b7-9c0d-5235a0ba1f36"
+          },
+          {
+            "id": "b632961d-c01d-9be0-da86-aee66a8277f2",
+            "product_name": "Bio Methanol",
+            "market_product": "BIO_METHANOL",
+            "fuel_type": "Methanol",
+            "fuel_grade": "Bio",
+            "quantity_mt": "100.00",
+            "price_per_mt_usd": "1106",
+            "region": "Asia",
+            "availability_window": "2031-02",
+            "certifications": [],
+            "certification_declared": true,
+            "certification_scheme": "ISCC EU",
+            "specification_standard": "EN 14214",
+            "msds_available": true,
+            "carbon_intensity_gco2_mj": "18.40",
+            "carbon_intensity_method": null,
+            "feedstock": "Used cooking oil",
+            "origin": "Singapore",
+            "off_spec": false,
+            "off_spec_notes": null,
+            "lng_terms": null,
+            "fame_terms": null,
+            "status": "OPEN",
+            "match_count": 0,
+            "expires_at": null,
+            "observed_at": "2026-10-15T12:00:00+00:00",
+            "source_kind": "LIVE_ORDER",
+            "scope": "DELIVERY_POINT",
+            "demo_status": "REAL_ONLY",
+            "is_demo_listing": false,
+            "unknown_count": 0,
+            "delivery_point_id": "73835e92-820e-584b-8280-bb61c63aa28e"
+          },
+          {
+            "id": "c1fed707-bcc2-10fd-cb66-7b8048e91bd9",
+            "product_name": "Bio Methanol",
+            "market_product": "BIO_METHANOL",
+            "fuel_type": "Methanol",
+            "fuel_grade": "Bio",
+            "quantity_mt": "100.00",
+            "price_per_mt_usd": "1108",
+            "region": "Asia",
+            "availability_window": "2031-02",
+            "certifications": [],
+            "certification_declared": true,
+            "certification_scheme": "ISCC EU",
+            "specification_standard": "EN 14214",
+            "msds_available": true,
+            "carbon_intensity_gco2_mj": "18.40",
+            "carbon_intensity_method": null,
+            "feedstock": "Used cooking oil",
+            "origin": "Singapore",
+            "off_spec": false,
+            "off_spec_notes": null,
+            "lng_terms": null,
+            "fame_terms": null,
+            "status": "OPEN",
+            "match_count": 0,
+            "expires_at": null,
+            "observed_at": "2026-10-15T12:00:00+00:00",
+            "source_kind": "LIVE_ORDER",
+            "scope": "DELIVERY_POINT",
+            "demo_status": "REAL_ONLY",
+            "is_demo_listing": false,
+            "unknown_count": 0,
+            "delivery_point_id": "73835e92-820e-584b-8280-bb61c63aa28e"
+          },
+          {
+            "id": "c35bedfd-e5a4-5632-bb6d-a9f6c2ad8f0a",
+            "product_name": "UCOME B100",
+            "market_product": "UCOME_B100",
+            "fuel_type": "FAME",
+            "fuel_grade": "UCOME",
+            "quantity_mt": "100.00",
+            "price_per_mt_usd": "600.00",
+            "region": "Asia",
+            "availability_window": "SPOT",
+            "certifications": [],
+            "certification_declared": true,
+            "certification_scheme": "ISCC EU",
+            "specification_standard": "EN 14214",
+            "msds_available": true,
+            "carbon_intensity_gco2_mj": null,
+            "carbon_intensity_method": null,
+            "feedstock": "Used cooking oil",
+            "origin": "Singapore",
+            "off_spec": false,
+            "off_spec_notes": null,
+            "lng_terms": null,
+            "fame_terms": {
+              "schema_version": 1,
+              "neat_fame": true,
+              "nomination_status": "PENDING",
+              "uco_mass_pct": 100,
+              "standard": "EN_14214",
+              "standard_edition": "EN 14214:2019",
+              "astm_grade": null,
+              "en_climate_class": null,
+              "production_origin": null,
+              "feedstock_origin": null,
+              "shipping_location": null,
+              "cfpp_c": null,
+              "cloud_point_c": null,
+              "ci_gco2e_mj": null,
+              "ci_methodology": null,
+              "ci_boundary": null,
+              "ci_basis": null,
+              "lhv_mj_kg": null,
+              "sustainability_scheme": "ISCC_EU",
+              "certificate_valid_until": "2027-10-15",
+              "evidence_status": "DECLARED",
+              "quality_evidence": null,
+              "sustainability_evidence": null,
+              "side": "ASK",
+              "evidence_due": "BEFORE_LOADING"
+            },
+            "status": "OPEN",
+            "match_count": 0,
+            "expires_at": null,
+            "observed_at": "2026-10-15T12:00:00+00:00",
+            "source_kind": "LIVE_ORDER",
+            "scope": "DELIVERY_POINT",
+            "demo_status": "REAL_ONLY",
+            "is_demo_listing": false,
+            "unknown_count": 0,
+            "delivery_point_id": "73835e92-820e-584b-8280-bb61c63aa28e"
+          },
+          {
+            "id": "e36ed11c-10bd-7785-38ee-e36a9f8bf822",
+            "product_name": "Bio Methanol",
+            "market_product": "BIO_METHANOL",
+            "fuel_type": "Methanol",
+            "fuel_grade": "Bio",
+            "quantity_mt": "100.00",
+            "price_per_mt_usd": "1107",
+            "region": "Asia",
+            "availability_window": "2031-02",
+            "certifications": [],
+            "certification_declared": true,
+            "certification_scheme": "ISCC EU",
+            "specification_standard": "EN 14214",
+            "msds_available": true,
+            "carbon_intensity_gco2_mj": "18.40",
+            "carbon_intensity_method": null,
+            "feedstock": "Used cooking oil",
+            "origin": "Singapore",
+            "off_spec": false,
+            "off_spec_notes": null,
+            "lng_terms": null,
+            "fame_terms": null,
+            "status": "OPEN",
+            "match_count": 0,
+            "expires_at": null,
+            "observed_at": "2026-10-15T12:00:00+00:00",
+            "source_kind": "LIVE_ORDER",
+            "scope": "DELIVERY_POINT",
+            "demo_status": "REAL_ONLY",
+            "is_demo_listing": false,
+            "unknown_count": 0,
+            "delivery_point_id": "73835e92-820e-584b-8280-bb61c63aa28e"
+          },
+          {
+            "id": "ee177d78-fab1-5f93-8a18-288cc47f2336",
+            "product_name": "Bio Methanol",
+            "market_product": "BIO_METHANOL",
+            "fuel_type": "Methanol",
+            "fuel_grade": "Bio",
+            "quantity_mt": "100.00",
+            "price_per_mt_usd": "600.00",
+            "region": "Asia",
+            "availability_window": "SPOT",
+            "certifications": [],
+            "certification_declared": false,
+            "certification_scheme": null,
+            "specification_standard": null,
+            "msds_available": false,
+            "carbon_intensity_gco2_mj": null,
+            "carbon_intensity_method": null,
+            "feedstock": null,
+            "origin": null,
+            "off_spec": false,
+            "off_spec_notes": null,
+            "lng_terms": null,
+            "fame_terms": null,
+            "status": "OPEN",
+            "match_count": 0,
+            "expires_at": null,
+            "observed_at": "2026-10-15T12:00:00+00:00",
+            "source_kind": "LIVE_ORDER",
+            "scope": "DELIVERY_POINT",
+            "demo_status": "REAL_ONLY",
+            "is_demo_listing": false,
+            "unknown_count": 0,
+            "delivery_point_id": "73835e92-820e-584b-8280-bb61c63aa28e"
+          },
+          {
+            "id": "f1230423-13ac-23e2-3e40-c47994ce4c59",
+            "product_name": "Bio Methanol",
+            "market_product": "BIO_METHANOL",
+            "fuel_type": "Methanol",
+            "fuel_grade": "Bio",
+            "quantity_mt": "100.00",
+            "price_per_mt_usd": "1102",
+            "region": "Asia",
+            "availability_window": "2031-02",
+            "certifications": [],
+            "certification_declared": true,
+            "certification_scheme": "ISCC EU",
+            "specification_standard": "EN 14214",
+            "msds_available": true,
+            "carbon_intensity_gco2_mj": "18.40",
+            "carbon_intensity_method": null,
+            "feedstock": "Used cooking oil",
+            "origin": "Singapore",
+            "off_spec": false,
+            "off_spec_notes": null,
+            "lng_terms": null,
+            "fame_terms": null,
+            "status": "OPEN",
+            "match_count": 0,
+            "expires_at": null,
+            "observed_at": "2026-10-15T12:00:00+00:00",
+            "source_kind": "LIVE_ORDER",
+            "scope": "DELIVERY_POINT",
+            "demo_status": "REAL_ONLY",
+            "is_demo_listing": false,
+            "unknown_count": 0,
+            "delivery_point_id": "73835e92-820e-584b-8280-bb61c63aa28e"
+          },
+          {
+            "id": "f51cf3ad-2577-a756-5a98-49b60de2cd12",
+            "product_name": "Bio Methanol",
+            "market_product": "BIO_METHANOL",
+            "fuel_type": "Methanol",
+            "fuel_grade": "Bio",
+            "quantity_mt": "100.00",
+            "price_per_mt_usd": "1101",
+            "region": "Asia",
+            "availability_window": "2031-02",
+            "certifications": [],
+            "certification_declared": true,
+            "certification_scheme": "ISCC EU",
+            "specification_standard": "EN 14214",
+            "msds_available": true,
+            "carbon_intensity_gco2_mj": "18.40",
+            "carbon_intensity_method": null,
+            "feedstock": "Used cooking oil",
+            "origin": "Singapore",
+            "off_spec": false,
+            "off_spec_notes": null,
+            "lng_terms": null,
+            "fame_terms": null,
+            "status": "OPEN",
+            "match_count": 0,
+            "expires_at": null,
+            "observed_at": "2026-10-15T12:00:00+00:00",
+            "source_kind": "LIVE_ORDER",
+            "scope": "DELIVERY_POINT",
+            "demo_status": "REAL_ONLY",
+            "is_demo_listing": false,
+            "unknown_count": 0,
+            "delivery_point_id": "73835e92-820e-584b-8280-bb61c63aa28e"
+          },
+          {
+            "id": "fc5b5564-a729-ff92-a0d0-7de63c788203",
+            "product_name": "Bio Methanol",
+            "market_product": "BIO_METHANOL",
+            "fuel_type": "Methanol",
+            "fuel_grade": "Bio",
+            "quantity_mt": "100.00",
+            "price_per_mt_usd": "1109",
+            "region": "Asia",
+            "availability_window": "2031-02",
+            "certifications": [],
+            "certification_declared": true,
+            "certification_scheme": "ISCC EU",
+            "specification_standard": "EN 14214",
+            "msds_available": true,
+            "carbon_intensity_gco2_mj": "18.40",
+            "carbon_intensity_method": null,
+            "feedstock": "Used cooking oil",
+            "origin": "Singapore",
+            "off_spec": false,
+            "off_spec_notes": null,
+            "lng_terms": null,
+            "fame_terms": null,
+            "status": "OPEN",
+            "match_count": 0,
+            "expires_at": null,
+            "observed_at": "2026-10-15T12:00:00+00:00",
+            "source_kind": "LIVE_ORDER",
+            "scope": "DELIVERY_POINT",
+            "demo_status": "REAL_ONLY",
+            "is_demo_listing": false,
+            "unknown_count": 0,
+            "delivery_point_id": "73835e92-820e-584b-8280-bb61c63aa28e"
+          },
+          {
+            "id": "d0f6e265-078c-b9da-67bf-3a24f9c0a033",
+            "product_name": "Bio Methanol",
+            "market_product": "BIO_METHANOL",
+            "fuel_type": "Methanol",
+            "fuel_grade": "Bio",
+            "quantity_mt": "100.00",
+            "price_per_mt_usd": "1100",
+            "region": "Asia",
+            "availability_window": "2031-06",
+            "certifications": [],
+            "certification_declared": true,
+            "certification_scheme": "ISCC EU",
+            "specification_standard": "EN 14214",
+            "msds_available": true,
+            "carbon_intensity_gco2_mj": "18.40",
+            "carbon_intensity_method": null,
+            "feedstock": "Used cooking oil",
+            "origin": "Singapore",
+            "off_spec": false,
+            "off_spec_notes": null,
+            "lng_terms": null,
+            "fame_terms": null,
+            "status": "OPEN",
+            "match_count": 0,
+            "expires_at": null,
+            "observed_at": "2026-10-15T11:00:00.500000+00:00",
+            "source_kind": "LIVE_ORDER",
+            "scope": "DELIVERY_POINT",
+            "demo_status": "REAL_ONLY",
+            "is_demo_listing": false,
+            "unknown_count": 0,
+            "delivery_point_id": "73835e92-820e-584b-8280-bb61c63aa28e"
+          },
+          {
+            "id": "67d189c7-f3c5-a050-2def-1240f145c693",
+            "product_name": "Bio Methanol",
+            "market_product": "BIO_METHANOL",
+            "fuel_type": "Methanol",
+            "fuel_grade": "Bio",
+            "quantity_mt": "100.00",
+            "price_per_mt_usd": "1100",
+            "region": "Asia",
+            "availability_window": "2031-05",
+            "certifications": [],
+            "certification_declared": true,
+            "certification_scheme": "ISCC EU",
+            "specification_standard": "EN 14214",
+            "msds_available": true,
+            "carbon_intensity_gco2_mj": "18.40",
+            "carbon_intensity_method": null,
+            "feedstock": "Used cooking oil",
+            "origin": "Singapore",
+            "off_spec": false,
+            "off_spec_notes": null,
+            "lng_terms": null,
+            "fame_terms": null,
+            "status": "OPEN",
+            "match_count": 0,
+            "expires_at": null,
+            "observed_at": "2026-10-15T11:00:00+00:00",
+            "source_kind": "LIVE_ORDER",
+            "scope": "DELIVERY_POINT",
+            "demo_status": "REAL_ONLY",
+            "is_demo_listing": false,
+            "unknown_count": 0,
+            "delivery_point_id": "73835e92-820e-584b-8280-bb61c63aa28e"
+          }
+        ],
+        "body_sha256": "723087e374699719c4d58d92e601b47a4e17019e406459e17735ed23ba0f073a"
+      },
+      "raw_body_base64": "W3siaWQiOiIwMTBiNmFkOS1mYjM5LTE3N2EtY2NhZS01MWUzNDlmZDIxZTEiLCJwcm9kdWN0X25hbWUiOiJCaW8gTWV0aGFub2wiLCJtYXJrZXRfcHJvZHVjdCI6IkJJT19NRVRIQU5PTCIsImZ1ZWxfdHlwZSI6Ik1ldGhhbm9sIiwiZnVlbF9ncmFkZSI6IkJpbyIsInF1YW50aXR5X210IjoiMTAwLjAwIiwicHJpY2VfcGVyX210X3VzZCI6IjExMDMiLCJyZWdpb24iOiJBc2lhIiwiYXZhaWxhYmlsaXR5X3dpbmRvdyI6IjIwMzEtMDIiLCJjZXJ0aWZpY2F0aW9ucyI6W10sImNlcnRpZmljYXRpb25fZGVjbGFyZWQiOnRydWUsImNlcnRpZmljYXRpb25fc2NoZW1lIjoiSVNDQyBFVSIsInNwZWNpZmljYXRpb25fc3RhbmRhcmQiOiJFTiAxNDIxNCIsIm1zZHNfYXZhaWxhYmxlIjp0cnVlLCJjYXJib25faW50ZW5zaXR5X2djbzJfbWoiOiIxOC40MCIsImNhcmJvbl9pbnRlbnNpdHlfbWV0aG9kIjpudWxsLCJmZWVkc3RvY2siOiJVc2VkIGNvb2tpbmcgb2lsIiwib3JpZ2luIjoiU2luZ2Fwb3JlIiwib2ZmX3NwZWMiOmZhbHNlLCJvZmZfc3BlY19ub3RlcyI6bnVsbCwibG5nX3Rlcm1zIjpudWxsLCJmYW1lX3Rlcm1zIjpudWxsLCJzdGF0dXMiOiJPUEVOIiwibWF0Y2hfY291bnQiOjAsImV4cGlyZXNfYXQiOm51bGwsIm9ic2VydmVkX2F0IjoiMjAyNi0xMC0xNVQxMjowMDowMCswMDowMCIsInNvdXJjZV9raW5kIjoiTElWRV9PUkRFUiIsInNjb3BlIjoiREVMSVZFUllfUE9JTlQiLCJkZW1vX3N0YXR1cyI6IlJFQUxfT05MWSIsImlzX2RlbW9fbGlzdGluZyI6ZmFsc2UsInVua25vd25fY291bnQiOjAsImRlbGl2ZXJ5X3BvaW50X2lkIjoiNzM4MzVlOTItODIwZS01ODRiLTgyODAtYmI2MWM2M2FhMjhlIn0seyJpZCI6IjA0MGRiZjUyLTk0OTYtNWFmMi1iZmE4LTRhM2M1MzMxZWE5MSIsInByb2R1Y3RfbmFtZSI6IkJpby1MTkciLCJtYXJrZXRfcHJvZHVjdCI6IkJJT19MTkciLCJmdWVsX3R5cGUiOiJMTkciLCJmdWVsX2dyYWRlIjoiQmlvIiwicXVhbnRpdHlfbXQiOiIxMDAuMDAiLCJwcmljZV9wZXJfbXRfdXNkIjoiNjAwLjAwIiwicmVnaW9uIjoiRXVyb3BlIiwiYXZhaWxhYmlsaXR5X3dpbmRvdyI6IlNQT1QiLCJjZXJ0aWZpY2F0aW9ucyI6W10sImNlcnRpZmljYXRpb25fZGVjbGFyZWQiOnRydWUsImNlcnRpZmljYXRpb25fc2NoZW1lIjoiSVNDQyBFVSIsInNwZWNpZmljYXRpb25fc3RhbmRhcmQiOiJFTiAxNDIxNCIsIm1zZHNfYXZhaWxhYmxlIjp0cnVlLCJjYXJib25faW50ZW5zaXR5X2djbzJfbWoiOm51bGwsImNhcmJvbl9pbnRlbnNpdHlfbWV0aG9kIjpudWxsLCJmZWVkc3RvY2siOiJVc2VkIGNvb2tpbmcgb2lsIiwib3JpZ2luIjoiU2luZ2Fwb3JlIiwib2ZmX3NwZWMiOmZhbHNlLCJvZmZfc3BlY19ub3RlcyI6bnVsbCwibG5nX3Rlcm1zIjp7InNpZGUiOiJBU0siLCJzdXN0YWluYWJpbGl0eV9zY2hlbWUiOiJJU0NDX0VVIiwiY2hhaW5fb2ZfY3VzdG9keSI6Ik1BU1NfQkFMQU5DRSIsInVuaW9uX2RhdGFiYXNlX3JlZ2lzdGVyZWQiOnRydWUsImJpb19zaGFyZV9wY3QiOiI4NS4wMCIsImZlZWRzdG9jayI6Ik1BTlVSRSIsImZlZWRzdG9ja19kZXRhaWwiOm51bGwsInByb2R1Y3Rpb25fY291bnRyeSI6Ik5MIiwid3R0X2doZ19nY28yZV9taiI6IjEyLjMwIiwic3BlY2lmaWNhdGlvbl9zdGFuZGFyZCI6IklTTyAyMzMwNjoyMDIwIiwibWluX21ldGhhbmVfbnVtYmVyIjpudWxsLCJkZWxpdmVyeV9tZXRob2QiOiJTSElQX1RPX1NISVAiLCJzZWxsZXJfaXNfcGh5c2ljYWxfc3VwcGxpZXIiOmZhbHNlLCJwb3NfdGltaW5nIjoiV0lUSF9ERUxJVkVSWSIsInJlc2VsbGVyIjp0cnVlLCJmdWVsZXVfcmVjb2duaXRpb24iOiJVTklPTl9EQVRBQkFTRSJ9LCJmYW1lX3Rlcm1zIjpudWxsLCJzdGF0dXMiOiJPUEVOIiwibWF0Y2hfY291bnQiOjAsImV4cGlyZXNfYXQiOm51bGwsIm9ic2VydmVkX2F0IjoiMjAyNi0xMC0xNVQxMjowMDowMCswMDowMCIsInNvdXJjZV9raW5kIjoiTElWRV9PUkRFUiIsInNjb3BlIjoiREVMSVZFUllfUE9JTlQiLCJkZW1vX3N0YXR1cyI6IlJFQUxfT05MWSIsImlzX2RlbW9fbGlzdGluZyI6ZmFsc2UsInVua25vd25fY291bnQiOjAsImRlbGl2ZXJ5X3BvaW50X2lkIjoiMTM3OWQzNmMtMWNhOS01NWI3LTljMGQtNTIzNWEwYmExZjM2In0seyJpZCI6IjBhODZjZDc5LWVjODYtOGI2OC1jMDIwLTY1OTM2ZTJlMjA4NyIsInByb2R1Y3RfbmFtZSI6IkJpbyBNZXRoYW5vbCIsIm1hcmtldF9wcm9kdWN0IjoiQklPX01FVEhBTk9MIiwiZnVlbF90eXBlIjoiTWV0aGFub2wiLCJmdWVsX2dyYWRlIjoiQmlvIiwicXVhbnRpdHlfbXQiOiIxMDAuMDAiLCJwcmljZV9wZXJfbXRfdXNkIjoiMTExMCIsInJlZ2lvbiI6IkFzaWEiLCJhdmFpbGFiaWxpdHlfd2luZG93IjoiMjAzMS0wMiIsImNlcnRpZmljYXRpb25zIjpbXSwiY2VydGlmaWNhdGlvbl9kZWNsYXJlZCI6dHJ1ZSwiY2VydGlmaWNhdGlvbl9zY2hlbWUiOiJJU0NDIEVVIiwic3BlY2lmaWNhdGlvbl9zdGFuZGFyZCI6IkVOIDE0MjE0IiwibXNkc19hdmFpbGFibGUiOnRydWUsImNhcmJvbl9pbnRlbnNpdHlfZ2NvMl9taiI6IjE4LjQwIiwiY2FyYm9uX2ludGVuc2l0eV9tZXRob2QiOm51bGwsImZlZWRzdG9jayI6IlVzZWQgY29va2luZyBvaWwiLCJvcmlnaW4iOiJTaW5nYXBvcmUiLCJvZmZfc3BlYyI6ZmFsc2UsIm9mZl9zcGVjX25vdGVzIjpudWxsLCJsbmdfdGVybXMiOm51bGwsImZhbWVfdGVybXMiOm51bGwsInN0YXR1cyI6Ik9QRU4iLCJtYXRjaF9jb3VudCI6MCwiZXhwaXJlc19hdCI6bnVsbCwib2JzZXJ2ZWRfYXQiOiIyMDI2LTEwLTE1VDEyOjAwOjAwKzAwOjAwIiwic291cmNlX2tpbmQiOiJMSVZFX09SREVSIiwic2NvcGUiOiJERUxJVkVSWV9QT0lOVCIsImRlbW9fc3RhdHVzIjoiUkVBTF9PTkxZIiwiaXNfZGVtb19saXN0aW5nIjpmYWxzZSwidW5rbm93bl9jb3VudCI6MCwiZGVsaXZlcnlfcG9pbnRfaWQiOiI3MzgzNWU5Mi04MjBlLTU4NGItODI4MC1iYjYxYzYzYWEyOGUifSx7ImlkIjoiMGJhOGIxODAtZWE0Yi1lMjNhLThlYzYtYzVmM2U0NWQwOTUzIiwicHJvZHVjdF9uYW1lIjoiQmlvIE1ldGhhbm9sIiwibWFya2V0X3Byb2R1Y3QiOiJCSU9fTUVUSEFOT0wiLCJmdWVsX3R5cGUiOiJNZXRoYW5vbCIsImZ1ZWxfZ3JhZGUiOiJCaW8iLCJxdWFudGl0eV9tdCI6IjEwMC4wMCIsInByaWNlX3Blcl9tdF91c2QiOiIxMTExIiwicmVnaW9uIjoiQXNpYSIsImF2YWlsYWJpbGl0eV93aW5kb3ciOiIyMDMxLTAyIiwiY2VydGlmaWNhdGlvbnMiOltdLCJjZXJ0aWZpY2F0aW9uX2RlY2xhcmVkIjp0cnVlLCJjZXJ0aWZpY2F0aW9uX3NjaGVtZSI6IklTQ0MgRVUiLCJzcGVjaWZpY2F0aW9uX3N0YW5kYXJkIjoiRU4gMTQyMTQiLCJtc2RzX2F2YWlsYWJsZSI6dHJ1ZSwiY2FyYm9uX2ludGVuc2l0eV9nY28yX21qIjoiMTguNDAiLCJjYXJib25faW50ZW5zaXR5X21ldGhvZCI6bnVsbCwiZmVlZHN0b2NrIjoiVXNlZCBjb29raW5nIG9pbCIsIm9yaWdpbiI6IlNpbmdhcG9yZSIsIm9mZl9zcGVjIjpmYWxzZSwib2ZmX3NwZWNfbm90ZXMiOm51bGwsImxuZ190ZXJtcyI6bnVsbCwiZmFtZV90ZXJtcyI6bnVsbCwic3RhdHVzIjoiT1BFTiIsIm1hdGNoX2NvdW50IjowLCJleHBpcmVzX2F0IjpudWxsLCJvYnNlcnZlZF9hdCI6IjIwMjYtMTAtMTVUMTI6MDA6MDArMDA6MDAiLCJzb3VyY2Vfa2luZCI6IkxJVkVfT1JERVIiLCJzY29wZSI6IkRFTElWRVJZX1BPSU5UIiwiZGVtb19zdGF0dXMiOiJSRUFMX09OTFkiLCJpc19kZW1vX2xpc3RpbmciOmZhbHNlLCJ1bmtub3duX2NvdW50IjowLCJkZWxpdmVyeV9wb2ludF9pZCI6IjczODM1ZTkyLTgyMGUtNTg0Yi04MjgwLWJiNjFjNjNhYTI4ZSJ9LHsiaWQiOiIxODZlOTAwYS1iY2NmLTU4ZmEtODhjYS00MDE2NGRhYTc1OWMiLCJwcm9kdWN0X25hbWUiOiJVQ09NRSBCMTAwIiwibWFya2V0X3Byb2R1Y3QiOiJVQ09NRV9CMTAwIiwiZnVlbF90eXBlIjoiRkFNRSIsImZ1ZWxfZ3JhZGUiOiJVQ09NRSIsInF1YW50aXR5X210IjoiMTAwLjAwIiwicHJpY2VfcGVyX210X3VzZCI6IjYwMC4wMCIsInJlZ2lvbiI6IkFzaWEiLCJhdmFpbGFiaWxpdHlfd2luZG93IjoiU1BPVCIsImNlcnRpZmljYXRpb25zIjpbXSwiY2VydGlmaWNhdGlvbl9kZWNsYXJlZCI6dHJ1ZSwiY2VydGlmaWNhdGlvbl9zY2hlbWUiOiJJU0NDIEVVIiwic3BlY2lmaWNhdGlvbl9zdGFuZGFyZCI6IkVOIDE0MjE0IiwibXNkc19hdmFpbGFibGUiOnRydWUsImNhcmJvbl9pbnRlbnNpdHlfZ2NvMl9taiI6bnVsbCwiY2FyYm9uX2ludGVuc2l0eV9tZXRob2QiOm51bGwsImZlZWRzdG9jayI6IlVzZWQgY29va2luZyBvaWwiLCJvcmlnaW4iOiJTaW5nYXBvcmUiLCJvZmZfc3BlYyI6ZmFsc2UsIm9mZl9zcGVjX25vdGVzIjpudWxsLCJsbmdfdGVybXMiOm51bGwsImZhbWVfdGVybXMiOnsic2NoZW1hX3ZlcnNpb24iOjEsIm5lYXRfZmFtZSI6dHJ1ZSwibm9taW5hdGlvbl9zdGF0dXMiOiJQRU5ESU5HIiwidWNvX21hc3NfcGN0IjoxMDAsInN0YW5kYXJkIjoiRU5fMTQyMTQiLCJzdGFuZGFyZF9lZGl0aW9uIjoiRU4gMTQyMTQ6MjAxOSIsImFzdG1fZ3JhZGUiOm51bGwsImVuX2NsaW1hdGVfY2xhc3MiOm51bGwsInByb2R1Y3Rpb25fb3JpZ2luIjpudWxsLCJmZWVkc3RvY2tfb3JpZ2luIjpudWxsLCJzaGlwcGluZ19sb2NhdGlvbiI6bnVsbCwiY2ZwcF9jIjoiMUUtMjkiLCJjbG91ZF9wb2ludF9jIjpudWxsLCJjaV9nY28yZV9taiI6bnVsbCwiY2lfbWV0aG9kb2xvZ3kiOm51bGwsImNpX2JvdW5kYXJ5IjpudWxsLCJjaV9iYXNpcyI6bnVsbCwibGh2X21qX2tnIjpudWxsLCJzdXN0YWluYWJpbGl0eV9zY2hlbWUiOiJJU0NDX0VVIiwiY2VydGlmaWNhdGVfdmFsaWRfdW50aWwiOiIyMDI3LTEwLTE1IiwiZXZpZGVuY2Vfc3RhdHVzIjoiREVDTEFSRUQiLCJxdWFsaXR5X2V2aWRlbmNlIjpudWxsLCJzdXN0YWluYWJpbGl0eV9ldmlkZW5jZSI6bnVsbCwic2lkZSI6IkFTSyIsImV2aWRlbmNlX2R1ZSI6IkJFRk9SRV9MT0FESU5HIn0sInN0YXR1cyI6Ik9QRU4iLCJtYXRjaF9jb3VudCI6MCwiZXhwaXJlc19hdCI6bnVsbCwib2JzZXJ2ZWRfYXQiOiIyMDI2LTEwLTE1VDEyOjAwOjAwKzAwOjAwIiwic291cmNlX2tpbmQiOiJMSVZFX09SREVSIiwic2NvcGUiOiJERUxJVkVSWV9QT0lOVCIsImRlbW9fc3RhdHVzIjoiUkVBTF9PTkxZIiwiaXNfZGVtb19saXN0aW5nIjpmYWxzZSwidW5rbm93bl9jb3VudCI6MCwiZGVsaXZlcnlfcG9pbnRfaWQiOiI3MzgzNWU5Mi04MjBlLTU4NGItODI4MC1iYjYxYzYzYWEyOGUifSx7ImlkIjoiMjhiMDQzOGYtODdiMS01YzQyLThlNGEtYmQzNWY2YjdlMjc2IiwicHJvZHVjdF9uYW1lIjoiQjEwMCIsIm1hcmtldF9wcm9kdWN0IjoiQjEwMCIsImZ1ZWxfdHlwZSI6IkJpb2Z1ZWwiLCJmdWVsX2dyYWRlIjoiQjEwMCIsInF1YW50aXR5X210IjoiMTAwLjAwIiwicHJpY2VfcGVyX210X3VzZCI6IjYwMC4wMCIsInJlZ2lvbiI6IkFzaWEiLCJhdmFpbGFiaWxpdHlfd2luZG93IjoiU1BPVCIsImNlcnRpZmljYXRpb25zIjpbXSwiY2VydGlmaWNhdGlvbl9kZWNsYXJlZCI6dHJ1ZSwiY2VydGlmaWNhdGlvbl9zY2hlbWUiOiJJU0NDIEVVIiwic3BlY2lmaWNhdGlvbl9zdGFuZGFyZCI6IklTTyA4MjE3OjIwMjQgREZBIiwibXNkc19hdmFpbGFibGUiOnRydWUsImNhcmJvbl9pbnRlbnNpdHlfZ2NvMl9taiI6IjE4LjQwIiwiY2FyYm9uX2ludGVuc2l0eV9tZXRob2QiOiJXaG9sZS1mdWVsIEZBTUUgQ0kgYW5kIExDViIsImZlZWRzdG9jayI6IlVzZWQgY29va2luZyBvaWwiLCJvcmlnaW4iOiJTaW5nYXBvcmUiLCJvZmZfc3BlYyI6ZmFsc2UsIm9mZl9zcGVjX25vdGVzIjpudWxsLCJsbmdfdGVybXMiOm51bGwsImZhbWVfdGVybXMiOm51bGwsInN0YXR1cyI6Ik9QRU4iLCJtYXRjaF9jb3VudCI6MCwiZXhwaXJlc19hdCI6bnVsbCwib2JzZXJ2ZWRfYXQiOiIyMDI2LTEwLTE1VDEyOjAwOjAwKzAwOjAwIiwic291cmNlX2tpbmQiOiJMSVZFX09SREVSIiwic2NvcGUiOiJERUxJVkVSWV9QT0lOVCIsImRlbW9fc3RhdHVzIjoiUkVBTF9PTkxZIiwiaXNfZGVtb19saXN0aW5nIjpmYWxzZSwidW5rbm93bl9jb3VudCI6MCwiZGVsaXZlcnlfcG9pbnRfaWQiOiI3MzgzNWU5Mi04MjBlLTU4NGItODI4MC1iYjYxYzYzYWEyOGUifSx7ImlkIjoiMjhiY2YwZmMtMWVjZi01OWYxLWI2MWMtMjIxZmIzNDA4YzAwIiwicHJvZHVjdF9uYW1lIjoiQmlvLUxORyIsIm1hcmtldF9wcm9kdWN0IjoiQklPX0xORyIsImZ1ZWxfdHlwZSI6IkxORyIsImZ1ZWxfZ3JhZGUiOiJCaW8iLCJxdWFudGl0eV9tdCI6IjEwMC4wMCIsInByaWNlX3Blcl9tdF91c2QiOiI2MDAuMDAiLCJyZWdpb24iOiJFdXJvcGUiLCJhdmFpbGFiaWxpdHlfd2luZG93IjoiU1BPVCIsImNlcnRpZmljYXRpb25zIjpbXSwiY2VydGlmaWNhdGlvbl9kZWNsYXJlZCI6dHJ1ZSwiY2VydGlmaWNhdGlvbl9zY2hlbWUiOiJJU0NDIEVVIiwic3BlY2lmaWNhdGlvbl9zdGFuZGFyZCI6IkVOIDE0MjE0IiwibXNkc19hdmFpbGFibGUiOnRydWUsImNhcmJvbl9pbnRlbnNpdHlfZ2NvMl9taiI6bnVsbCwiY2FyYm9uX2ludGVuc2l0eV9tZXRob2QiOm51bGwsImZlZWRzdG9jayI6IlVzZWQgY29va2luZyBvaWwiLCJvcmlnaW4iOiJTaW5nYXBvcmUiLCJvZmZfc3BlYyI6ZmFsc2UsIm9mZl9zcGVjX25vdGVzIjpudWxsLCJsbmdfdGVybXMiOnsic2lkZSI6IkFTSyIsInN1c3RhaW5hYmlsaXR5X3NjaGVtZSI6IklTQ0NfRVUiLCJjaGFpbl9vZl9jdXN0b2R5IjoiTUFTU19CQUxBTkNFIiwidW5pb25fZGF0YWJhc2VfcmVnaXN0ZXJlZCI6dHJ1ZSwiYmlvX3NoYXJlX3BjdCI6Ijg1LjAwIiwiZmVlZHN0b2NrIjoiTUFOVVJFIiwiZmVlZHN0b2NrX2RldGFpbCI6bnVsbCwicHJvZHVjdGlvbl9jb3VudHJ5IjoiTkwiLCJ3dHRfZ2hnX2djbzJlX21qIjoiMTIuMzAiLCJzcGVjaWZpY2F0aW9uX3N0YW5kYXJkIjoiSVNPIDIzMzA2OjIwMjAiLCJtaW5fbWV0aGFuZV9udW1iZXIiOiIwRS0xMDAiLCJkZWxpdmVyeV9tZXRob2QiOiJTSElQX1RPX1NISVAiLCJzZWxsZXJfaXNfcGh5c2ljYWxfc3VwcGxpZXIiOnRydWUsInBvc190aW1pbmciOiJXSVRIX0RFTElWRVJZIiwicmVzZWxsZXIiOmZhbHNlLCJmdWVsZXVfcmVjb2duaXRpb24iOiJVTklPTl9EQVRBQkFTRSJ9LCJmYW1lX3Rlcm1zIjpudWxsLCJzdGF0dXMiOiJPUEVOIiwibWF0Y2hfY291bnQiOjAsImV4cGlyZXNfYXQiOm51bGwsIm9ic2VydmVkX2F0IjoiMjAyNi0xMC0xNVQxMjowMDowMCswMDowMCIsInNvdXJjZV9raW5kIjoiTElWRV9PUkRFUiIsInNjb3BlIjoiREVMSVZFUllfUE9JTlQiLCJkZW1vX3N0YXR1cyI6IlJFQUxfT05MWSIsImlzX2RlbW9fbGlzdGluZyI6ZmFsc2UsInVua25vd25fY291bnQiOjAsImRlbGl2ZXJ5X3BvaW50X2lkIjoiMTM3OWQzNmMtMWNhOS01NWI3LTljMGQtNTIzNWEwYmExZjM2In0seyJpZCI6IjM3Nzc1ZjhmLWRlYjMtNWVjZC04YWViLTNkNDYzYzA2YzgwZSIsInByb2R1Y3RfbmFtZSI6IlVDT01FIEIxMDAiLCJtYXJrZXRfcHJvZHVjdCI6IlVDT01FX0IxMDAiLCJmdWVsX3R5cGUiOiJGQU1FIiwiZnVlbF9ncmFkZSI6IlVDT01FIiwicXVhbnRpdHlfbXQiOiIxMDAuMDAiLCJwcmljZV9wZXJfbXRfdXNkIjoiNjAwLjAwIiwicmVnaW9uIjoiQXNpYSIsImF2YWlsYWJpbGl0eV93aW5kb3ciOiJTUE9UIiwiY2VydGlmaWNhdGlvbnMiOltdLCJjZXJ0aWZpY2F0aW9uX2RlY2xhcmVkIjp0cnVlLCJjZXJ0aWZpY2F0aW9uX3NjaGVtZSI6IklTQ0MgRVUiLCJzcGVjaWZpY2F0aW9uX3N0YW5kYXJkIjoiRU4gMTQyMTQiLCJtc2RzX2F2YWlsYWJsZSI6dHJ1ZSwiY2FyYm9uX2ludGVuc2l0eV9nY28yX21qIjpudWxsLCJjYXJib25faW50ZW5zaXR5X21ldGhvZCI6bnVsbCwiZmVlZHN0b2NrIjoiVXNlZCBjb29raW5nIG9pbCIsIm9yaWdpbiI6IlNpbmdhcG9yZSIsIm9mZl9zcGVjIjpmYWxzZSwib2ZmX3NwZWNfbm90ZXMiOm51bGwsImxuZ190ZXJtcyI6bnVsbCwiZmFtZV90ZXJtcyI6eyJzY2hlbWFfdmVyc2lvbiI6MSwibmVhdF9mYW1lIjp0cnVlLCJub21pbmF0aW9uX3N0YXR1cyI6IlBFTkRJTkciLCJ1Y29fbWFzc19wY3QiOjEwMCwic3RhbmRhcmQiOiJFTl8xNDIxNCIsInN0YW5kYXJkX2VkaXRpb24iOiJFTiAxNDIxNDoyMDE5IiwiYXN0bV9ncmFkZSI6bnVsbCwiZW5fY2xpbWF0ZV9jbGFzcyI6bnVsbCwicHJvZHVjdGlvbl9vcmlnaW4iOm51bGwsImZlZWRzdG9ja19vcmlnaW4iOm51bGwsInNoaXBwaW5nX2xvY2F0aW9uIjpudWxsLCJjZnBwX2MiOiIwRS0xMDAiLCJjbG91ZF9wb2ludF9jIjpudWxsLCJjaV9nY28yZV9taiI6bnVsbCwiY2lfbWV0aG9kb2xvZ3kiOm51bGwsImNpX2JvdW5kYXJ5IjpudWxsLCJjaV9iYXNpcyI6bnVsbCwibGh2X21qX2tnIjpudWxsLCJzdXN0YWluYWJpbGl0eV9zY2hlbWUiOiJJU0NDX0VVIiwiY2VydGlmaWNhdGVfdmFsaWRfdW50aWwiOiIyMDI3LTEwLTE1IiwiZXZpZGVuY2Vfc3RhdHVzIjoiREVDTEFSRUQiLCJxdWFsaXR5X2V2aWRlbmNlIjpudWxsLCJzdXN0YWluYWJpbGl0eV9ldmlkZW5jZSI6bnVsbCwic2lkZSI6IkFTSyIsImV2aWRlbmNlX2R1ZSI6IkJFRk9SRV9MT0FESU5HIn0sInN0YXR1cyI6Ik9QRU4iLCJtYXRjaF9jb3VudCI6MCwiZXhwaXJlc19hdCI6bnVsbCwib2JzZXJ2ZWRfYXQiOiIyMDI2LTEwLTE1VDEyOjAwOjAwKzAwOjAwIiwic291cmNlX2tpbmQiOiJMSVZFX09SREVSIiwic2NvcGUiOiJERUxJVkVSWV9QT0lOVCIsImRlbW9fc3RhdHVzIjoiUkVBTF9PTkxZIiwiaXNfZGVtb19saXN0aW5nIjpmYWxzZSwidW5rbm93bl9jb3VudCI6MCwiZGVsaXZlcnlfcG9pbnRfaWQiOiI3MzgzNWU5Mi04MjBlLTU4NGItODI4MC1iYjYxYzYzYWEyOGUifSx7ImlkIjoiNDAzOTdkOTUtZDBiMC01ZGFkLTk5NzctZTNjZjM5MTUzM2IzIiwicHJvZHVjdF9uYW1lIjoiQmlvLUxORyIsIm1hcmtldF9wcm9kdWN0IjoiQklPX0xORyIsImZ1ZWxfdHlwZSI6IkxORyIsImZ1ZWxfZ3JhZGUiOiJCaW8iLCJxdWFudGl0eV9tdCI6IjEwMC4wMCIsInByaWNlX3Blcl9tdF91c2QiOiI2MDAuMDAiLCJyZWdpb24iOiJFdXJvcGUiLCJhdmFpbGFiaWxpdHlfd2luZG93IjoiU1BPVCIsImNlcnRpZmljYXRpb25zIjpbXSwiY2VydGlmaWNhdGlvbl9kZWNsYXJlZCI6dHJ1ZSwiY2VydGlmaWNhdGlvbl9zY2hlbWUiOiJJU0NDIEVVIiwic3BlY2lmaWNhdGlvbl9zdGFuZGFyZCI6IkVOIDE0MjE0IiwibXNkc19hdmFpbGFibGUiOnRydWUsImNhcmJvbl9pbnRlbnNpdHlfZ2NvMl9taiI6bnVsbCwiY2FyYm9uX2ludGVuc2l0eV9tZXRob2QiOm51bGwsImZlZWRzdG9jayI6IlVzZWQgY29va2luZyBvaWwiLCJvcmlnaW4iOiJTaW5nYXBvcmUiLCJvZmZfc3BlYyI6ZmFsc2UsIm9mZl9zcGVjX25vdGVzIjpudWxsLCJsbmdfdGVybXMiOnsic2lkZSI6IkFTSyIsInN1c3RhaW5hYmlsaXR5X3NjaGVtZSI6IklTQ0NfRVUiLCJjaGFpbl9vZl9jdXN0b2R5IjoiTUFTU19CQUxBTkNFIiwidW5pb25fZGF0YWJhc2VfcmVnaXN0ZXJlZCI6dHJ1ZSwiYmlvX3NoYXJlX3BjdCI6Ijg1LjAwIiwiZmVlZHN0b2NrIjoiTUFOVVJFIiwiZmVlZHN0b2NrX2RldGFpbCI6bnVsbCwicHJvZHVjdGlvbl9jb3VudHJ5IjoiTkwiLCJ3dHRfZ2hnX2djbzJlX21qIjoiMTIuMzAiLCJzcGVjaWZpY2F0aW9uX3N0YW5kYXJkIjoiSVNPIDIzMzA2OjIwMjAiLCJtaW5fbWV0aGFuZV9udW1iZXIiOm51bGwsImRlbGl2ZXJ5X21ldGhvZCI6IlNISVBfVE9fU0hJUCIsInNlbGxlcl9pc19waHlzaWNhbF9zdXBwbGllciI6dHJ1ZSwicG9zX3RpbWluZyI6IldJVEhfREVMSVZFUlkiLCJyZXNlbGxlciI6ZmFsc2UsImZ1ZWxldV9yZWNvZ25pdGlvbiI6IlVOSU9OX0RBVEFCQVNFIn0sImZhbWVfdGVybXMiOm51bGwsInN0YXR1cyI6Ik9QRU4iLCJtYXRjaF9jb3VudCI6MCwiZXhwaXJlc19hdCI6bnVsbCwib2JzZXJ2ZWRfYXQiOiIyMDI2LTEwLTE1VDEyOjAwOjAwKzAwOjAwIiwic291cmNlX2tpbmQiOiJMSVZFX09SREVSIiwic2NvcGUiOiJERUxJVkVSWV9QT0lOVCIsImRlbW9fc3RhdHVzIjoiUkVBTF9PTkxZIiwiaXNfZGVtb19saXN0aW5nIjpmYWxzZSwidW5rbm93bl9jb3VudCI6MCwiZGVsaXZlcnlfcG9pbnRfaWQiOiIxMzc5ZDM2Yy0xY2E5LTU1YjctOWMwZC01MjM1YTBiYTFmMzYifSx7ImlkIjoiNDEyMDRmOWYtMDhjZi01NmQwLWE4OWEtYmFkZGNjYzg3NzBjIiwicHJvZHVjdF9uYW1lIjoiQjMwIiwibWFya2V0X3Byb2R1Y3QiOiJCMzAiLCJmdWVsX3R5cGUiOiJCaW9mdWVsIiwiZnVlbF9ncmFkZSI6IkIzMCIsInF1YW50aXR5X210IjoiMTAwLjAwIiwicHJpY2VfcGVyX210X3VzZCI6IjYwMC4wMCIsInJlZ2lvbiI6IkFzaWEiLCJhdmFpbGFiaWxpdHlfd2luZG93IjoiU1BPVCIsImNlcnRpZmljYXRpb25zIjpbXSwiY2VydGlmaWNhdGlvbl9kZWNsYXJlZCI6dHJ1ZSwiY2VydGlmaWNhdGlvbl9zY2hlbWUiOiJJU0NDIEVVIiwic3BlY2lmaWNhdGlvbl9zdGFuZGFyZCI6IklTTyA4MjE3OjIwMjQgUkYgMzgwIiwibXNkc19hdmFpbGFibGUiOnRydWUsImNhcmJvbl9pbnRlbnNpdHlfZ2NvMl9taiI6IjE4LjQwIiwiY2FyYm9uX2ludGVuc2l0eV9tZXRob2QiOiJXaG9sZS1ibGVuZCBDSSBhbmQgTENWIiwiZmVlZHN0b2NrIjoiVXNlZCBjb29raW5nIG9pbCIsIm9yaWdpbiI6IlNpbmdhcG9yZSIsIm9mZl9zcGVjIjpmYWxzZSwib2ZmX3NwZWNfbm90ZXMiOm51bGwsImxuZ190ZXJtcyI6bnVsbCwiZmFtZV90ZXJtcyI6bnVsbCwic3RhdHVzIjoiT1BFTiIsIm1hdGNoX2NvdW50IjowLCJleHBpcmVzX2F0IjpudWxsLCJvYnNlcnZlZF9hdCI6IjIwMjYtMTAtMTVUMTI6MDA6MDArMDA6MDAiLCJzb3VyY2Vfa2luZCI6IkxJVkVfT1JERVIiLCJzY29wZSI6IkRFTElWRVJZX1BPSU5UIiwiZGVtb19zdGF0dXMiOiJSRUFMX09OTFkiLCJpc19kZW1vX2xpc3RpbmciOmZhbHNlLCJ1bmtub3duX2NvdW50IjowLCJkZWxpdmVyeV9wb2ludF9pZCI6IjczODM1ZTkyLTgyMGUtNTg0Yi04MjgwLWJiNjFjNjNhYTI4ZSJ9LHsiaWQiOiI1NzJiODI5YS1jY2M4LTU1MjUtYTQ2Yi0zNmRjYzQ4NmVkMzkiLCJwcm9kdWN0X25hbWUiOiJCaW8gTWV0aGFub2wiLCJtYXJrZXRfcHJvZHVjdCI6IkJJT19NRVRIQU5PTCIsImZ1ZWxfdHlwZSI6Ik1ldGhhbm9sIiwiZnVlbF9ncmFkZSI6IkJpbyIsInF1YW50aXR5X210IjoiMTAwLjAwIiwicHJpY2VfcGVyX210X3VzZCI6IjYwMC4wMCIsInJlZ2lvbiI6IkFzaWEiLCJhdmFpbGFiaWxpdHlfd2luZG93IjoiU1BPVCIsImNlcnRpZmljYXRpb25zIjpbXSwiY2VydGlmaWNhdGlvbl9kZWNsYXJlZCI6dHJ1ZSwiY2VydGlmaWNhdGlvbl9zY2hlbWUiOiJJU0NDIEVVIiwic3BlY2lmaWNhdGlvbl9zdGFuZGFyZCI6IkVOIDE0MjE0IiwibXNkc19hdmFpbGFibGUiOnRydWUsImNhcmJvbl9pbnRlbnNpdHlfZ2NvMl9taiI6IjE4LjQwIiwiY2FyYm9uX2ludGVuc2l0eV9tZXRob2QiOm51bGwsImZlZWRzdG9jayI6IlVzZWQgY29va2luZyBvaWwiLCJvcmlnaW4iOiJTaW5nYXBvcmUiLCJvZmZfc3BlYyI6ZmFsc2UsIm9mZl9zcGVjX25vdGVzIjpudWxsLCJsbmdfdGVybXMiOm51bGwsImZhbWVfdGVybXMiOm51bGwsInN0YXR1cyI6Ik9QRU4iLCJtYXRjaF9jb3VudCI6MCwiZXhwaXJlc19hdCI6bnVsbCwib2JzZXJ2ZWRfYXQiOiIyMDI2LTEwLTE1VDEyOjAwOjAwKzAwOjAwIiwic291cmNlX2tpbmQiOiJMSVZFX09SREVSIiwic2NvcGUiOiJERUxJVkVSWV9QT0lOVCIsImRlbW9fc3RhdHVzIjoiUkVBTF9PTkxZIiwiaXNfZGVtb19saXN0aW5nIjpmYWxzZSwidW5rbm93bl9jb3VudCI6MCwiZGVsaXZlcnlfcG9pbnRfaWQiOiI3MzgzNWU5Mi04MjBlLTU4NGItODI4MC1iYjYxYzYzYWEyOGUifSx7ImlkIjoiNjg5Yjk2ODUtYWMxNS05YjNiLTAyN2MtNjdkOTU1MzM5NzRiIiwicHJvZHVjdF9uYW1lIjoiQmlvIE1ldGhhbm9sIiwibWFya2V0X3Byb2R1Y3QiOiJCSU9fTUVUSEFOT0wiLCJmdWVsX3R5cGUiOiJNZXRoYW5vbCIsImZ1ZWxfZ3JhZGUiOiJCaW8iLCJxdWFudGl0eV9tdCI6IjEwMC4wMCIsInByaWNlX3Blcl9tdF91c2QiOiIxMTA0IiwicmVnaW9uIjoiQXNpYSIsImF2YWlsYWJpbGl0eV93aW5kb3ciOiIyMDMxLTAyIiwiY2VydGlmaWNhdGlvbnMiOltdLCJjZXJ0aWZpY2F0aW9uX2RlY2xhcmVkIjp0cnVlLCJjZXJ0aWZpY2F0aW9uX3NjaGVtZSI6IklTQ0MgRVUiLCJzcGVjaWZpY2F0aW9uX3N0YW5kYXJkIjoiRU4gMTQyMTQiLCJtc2RzX2F2YWlsYWJsZSI6dHJ1ZSwiY2FyYm9uX2ludGVuc2l0eV9nY28yX21qIjoiMTguNDAiLCJjYXJib25faW50ZW5zaXR5X21ldGhvZCI6bnVsbCwiZmVlZHN0b2NrIjoiVXNlZCBjb29raW5nIG9pbCIsIm9yaWdpbiI6IlNpbmdhcG9yZSIsIm9mZl9zcGVjIjpmYWxzZSwib2ZmX3NwZWNfbm90ZXMiOm51bGwsImxuZ190ZXJtcyI6bnVsbCwiZmFtZV90ZXJtcyI6bnVsbCwic3RhdHVzIjoiT1BFTiIsIm1hdGNoX2NvdW50IjowLCJleHBpcmVzX2F0IjpudWxsLCJvYnNlcnZlZF9hdCI6IjIwMjYtMTAtMTVUMTI6MDA6MDArMDA6MDAiLCJzb3VyY2Vfa2luZCI6IkxJVkVfT1JERVIiLCJzY29wZSI6IkRFTElWRVJZX1BPSU5UIiwiZGVtb19zdGF0dXMiOiJSRUFMX09OTFkiLCJpc19kZW1vX2xpc3RpbmciOmZhbHNlLCJ1bmtub3duX2NvdW50IjowLCJkZWxpdmVyeV9wb2ludF9pZCI6IjczODM1ZTkyLTgyMGUtNTg0Yi04MjgwLWJiNjFjNjNhYTI4ZSJ9LHsiaWQiOiI2ZjA3MWIxMC04ZDI1LTQ0YTEtMTMzMC01ZGU5YWNlZjIxMjQiLCJwcm9kdWN0X25hbWUiOiJCaW8gTWV0aGFub2wiLCJtYXJrZXRfcHJvZHVjdCI6IkJJT19NRVRIQU5PTCIsImZ1ZWxfdHlwZSI6Ik1ldGhhbm9sIiwiZnVlbF9ncmFkZSI6IkJpbyIsInF1YW50aXR5X210IjoiMTAwLjAwIiwicHJpY2VfcGVyX210X3VzZCI6IjExMTIiLCJyZWdpb24iOiJBc2lhIiwiYXZhaWxhYmlsaXR5X3dpbmRvdyI6IjIwMzEtMDIiLCJjZXJ0aWZpY2F0aW9ucyI6W10sImNlcnRpZmljYXRpb25fZGVjbGFyZWQiOnRydWUsImNlcnRpZmljYXRpb25fc2NoZW1lIjoiSVNDQyBFVSIsInNwZWNpZmljYXRpb25fc3RhbmRhcmQiOiJFTiAxNDIxNCIsIm1zZHNfYXZhaWxhYmxlIjp0cnVlLCJjYXJib25faW50ZW5zaXR5X2djbzJfbWoiOiIxOC40MCIsImNhcmJvbl9pbnRlbnNpdHlfbWV0aG9kIjpudWxsLCJmZWVkc3RvY2siOiJVc2VkIGNvb2tpbmcgb2lsIiwib3JpZ2luIjoiU2luZ2Fwb3JlIiwib2ZmX3NwZWMiOmZhbHNlLCJvZmZfc3BlY19ub3RlcyI6bnVsbCwibG5nX3Rlcm1zIjpudWxsLCJmYW1lX3Rlcm1zIjpudWxsLCJzdGF0dXMiOiJPUEVOIiwibWF0Y2hfY291bnQiOjAsImV4cGlyZXNfYXQiOm51bGwsIm9ic2VydmVkX2F0IjoiMjAyNi0xMC0xNVQxMjowMDowMCswMDowMCIsInNvdXJjZV9raW5kIjoiTElWRV9PUkRFUiIsInNjb3BlIjoiREVMSVZFUllfUE9JTlQiLCJkZW1vX3N0YXR1cyI6IlJFQUxfT05MWSIsImlzX2RlbW9fbGlzdGluZyI6ZmFsc2UsInVua25vd25fY291bnQiOjAsImRlbGl2ZXJ5X3BvaW50X2lkIjoiNzM4MzVlOTItODIwZS01ODRiLTgyODAtYmI2MWM2M2FhMjhlIn0seyJpZCI6IjgzNDk5ZmMzLTljNjktZjYzMS0yOWQ1LWNlNjhmMmIzMzAyZSIsInByb2R1Y3RfbmFtZSI6IkJpbyBNZXRoYW5vbCIsIm1hcmtldF9wcm9kdWN0IjoiQklPX01FVEhBTk9MIiwiZnVlbF90eXBlIjoiTWV0aGFub2wiLCJmdWVsX2dyYWRlIjoiQmlvIiwicXVhbnRpdHlfbXQiOiIxMDAuMDAiLCJwcmljZV9wZXJfbXRfdXNkIjoiMTEwNSIsInJlZ2lvbiI6IkFzaWEiLCJhdmFpbGFiaWxpdHlfd2luZG93IjoiMjAzMS0wMiIsImNlcnRpZmljYXRpb25zIjpbXSwiY2VydGlmaWNhdGlvbl9kZWNsYXJlZCI6dHJ1ZSwiY2VydGlmaWNhdGlvbl9zY2hlbWUiOiJJU0NDIEVVIiwic3BlY2lmaWNhdGlvbl9zdGFuZGFyZCI6IkVOIDE0MjE0IiwibXNkc19hdmFpbGFibGUiOnRydWUsImNhcmJvbl9pbnRlbnNpdHlfZ2NvMl9taiI6IjE4LjQwIiwiY2FyYm9uX2ludGVuc2l0eV9tZXRob2QiOm51bGwsImZlZWRzdG9jayI6IlVzZWQgY29va2luZyBvaWwiLCJvcmlnaW4iOiJTaW5nYXBvcmUiLCJvZmZfc3BlYyI6ZmFsc2UsIm9mZl9zcGVjX25vdGVzIjpudWxsLCJsbmdfdGVybXMiOm51bGwsImZhbWVfdGVybXMiOm51bGwsInN0YXR1cyI6Ik9QRU4iLCJtYXRjaF9jb3VudCI6MCwiZXhwaXJlc19hdCI6bnVsbCwib2JzZXJ2ZWRfYXQiOiIyMDI2LTEwLTE1VDEyOjAwOjAwKzAwOjAwIiwic291cmNlX2tpbmQiOiJMSVZFX09SREVSIiwic2NvcGUiOiJERUxJVkVSWV9QT0lOVCIsImRlbW9fc3RhdHVzIjoiUkVBTF9PTkxZIiwiaXNfZGVtb19saXN0aW5nIjpmYWxzZSwidW5rbm93bl9jb3VudCI6MCwiZGVsaXZlcnlfcG9pbnRfaWQiOiI3MzgzNWU5Mi04MjBlLTU4NGItODI4MC1iYjYxYzYzYWEyOGUifSx7ImlkIjoiYjQ4MzI3MjUtOTUzMi01MWM4LTkwNjYtNzk0ZWFlNWMzZjNjIiwicHJvZHVjdF9uYW1lIjoiQmlvLUxORyIsIm1hcmtldF9wcm9kdWN0IjoiQklPX0xORyIsImZ1ZWxfdHlwZSI6IkxORyIsImZ1ZWxfZ3JhZGUiOiJCaW8iLCJxdWFudGl0eV9tdCI6IjEwMC4wMCIsInByaWNlX3Blcl9tdF91c2QiOiI2MDAuMDAiLCJyZWdpb24iOiJFdXJvcGUiLCJhdmFpbGFiaWxpdHlfd2luZG93IjoiU1BPVCIsImNlcnRpZmljYXRpb25zIjpbXSwiY2VydGlmaWNhdGlvbl9kZWNsYXJlZCI6dHJ1ZSwiY2VydGlmaWNhdGlvbl9zY2hlbWUiOiJJU0NDIEVVIiwic3BlY2lmaWNhdGlvbl9zdGFuZGFyZCI6IkVOIDE0MjE0IiwibXNkc19hdmFpbGFibGUiOnRydWUsImNhcmJvbl9pbnRlbnNpdHlfZ2NvMl9taiI6bnVsbCwiY2FyYm9uX2ludGVuc2l0eV9tZXRob2QiOm51bGwsImZlZWRzdG9jayI6IlVzZWQgY29va2luZyBvaWwiLCJvcmlnaW4iOiJTaW5nYXBvcmUiLCJvZmZfc3BlYyI6ZmFsc2UsIm9mZl9zcGVjX25vdGVzIjpudWxsLCJsbmdfdGVybXMiOnsic2lkZSI6IkFTSyIsInN1c3RhaW5hYmlsaXR5X3NjaGVtZSI6IklTQ0NfRVUiLCJjaGFpbl9vZl9jdXN0b2R5IjoiTUFTU19CQUxBTkNFIiwidW5pb25fZGF0YWJhc2VfcmVnaXN0ZXJlZCI6dHJ1ZSwiYmlvX3NoYXJlX3BjdCI6Ijg1LjAwIiwiZmVlZHN0b2NrIjoiTUFOVVJFIiwiZmVlZHN0b2NrX2RldGFpbCI6bnVsbCwicHJvZHVjdGlvbl9jb3VudHJ5IjoiTkwiLCJ3dHRfZ2hnX2djbzJlX21qIjoiMTIuMzAiLCJzcGVjaWZpY2F0aW9uX3N0YW5kYXJkIjoiSVNPIDIzMzA2OjIwMjAiLCJtaW5fbWV0aGFuZV9udW1iZXIiOiIxRS0yOSIsImRlbGl2ZXJ5X21ldGhvZCI6IlNISVBfVE9fU0hJUCIsInNlbGxlcl9pc19waHlzaWNhbF9zdXBwbGllciI6dHJ1ZSwicG9zX3RpbWluZyI6IldJVEhfREVMSVZFUlkiLCJyZXNlbGxlciI6ZmFsc2UsImZ1ZWxldV9yZWNvZ25pdGlvbiI6IlVOSU9OX0RBVEFCQVNFIn0sImZhbWVfdGVybXMiOm51bGwsInN0YXR1cyI6Ik9QRU4iLCJtYXRjaF9jb3VudCI6MCwiZXhwaXJlc19hdCI6bnVsbCwib2JzZXJ2ZWRfYXQiOiIyMDI2LTEwLTE1VDEyOjAwOjAwKzAwOjAwIiwic291cmNlX2tpbmQiOiJMSVZFX09SREVSIiwic2NvcGUiOiJERUxJVkVSWV9QT0lOVCIsImRlbW9fc3RhdHVzIjoiUkVBTF9PTkxZIiwiaXNfZGVtb19saXN0aW5nIjpmYWxzZSwidW5rbm93bl9jb3VudCI6MCwiZGVsaXZlcnlfcG9pbnRfaWQiOiIxMzc5ZDM2Yy0xY2E5LTU1YjctOWMwZC01MjM1YTBiYTFmMzYifSx7ImlkIjoiYjYzMjk2MWQtYzAxZC05YmUwLWRhODYtYWVlNjZhODI3N2YyIiwicHJvZHVjdF9uYW1lIjoiQmlvIE1ldGhhbm9sIiwibWFya2V0X3Byb2R1Y3QiOiJCSU9fTUVUSEFOT0wiLCJmdWVsX3R5cGUiOiJNZXRoYW5vbCIsImZ1ZWxfZ3JhZGUiOiJCaW8iLCJxdWFudGl0eV9tdCI6IjEwMC4wMCIsInByaWNlX3Blcl9tdF91c2QiOiIxMTA2IiwicmVnaW9uIjoiQXNpYSIsImF2YWlsYWJpbGl0eV93aW5kb3ciOiIyMDMxLTAyIiwiY2VydGlmaWNhdGlvbnMiOltdLCJjZXJ0aWZpY2F0aW9uX2RlY2xhcmVkIjp0cnVlLCJjZXJ0aWZpY2F0aW9uX3NjaGVtZSI6IklTQ0MgRVUiLCJzcGVjaWZpY2F0aW9uX3N0YW5kYXJkIjoiRU4gMTQyMTQiLCJtc2RzX2F2YWlsYWJsZSI6dHJ1ZSwiY2FyYm9uX2ludGVuc2l0eV9nY28yX21qIjoiMTguNDAiLCJjYXJib25faW50ZW5zaXR5X21ldGhvZCI6bnVsbCwiZmVlZHN0b2NrIjoiVXNlZCBjb29raW5nIG9pbCIsIm9yaWdpbiI6IlNpbmdhcG9yZSIsIm9mZl9zcGVjIjpmYWxzZSwib2ZmX3NwZWNfbm90ZXMiOm51bGwsImxuZ190ZXJtcyI6bnVsbCwiZmFtZV90ZXJtcyI6bnVsbCwic3RhdHVzIjoiT1BFTiIsIm1hdGNoX2NvdW50IjowLCJleHBpcmVzX2F0IjpudWxsLCJvYnNlcnZlZF9hdCI6IjIwMjYtMTAtMTVUMTI6MDA6MDArMDA6MDAiLCJzb3VyY2Vfa2luZCI6IkxJVkVfT1JERVIiLCJzY29wZSI6IkRFTElWRVJZX1BPSU5UIiwiZGVtb19zdGF0dXMiOiJSRUFMX09OTFkiLCJpc19kZW1vX2xpc3RpbmciOmZhbHNlLCJ1bmtub3duX2NvdW50IjowLCJkZWxpdmVyeV9wb2ludF9pZCI6IjczODM1ZTkyLTgyMGUtNTg0Yi04MjgwLWJiNjFjNjNhYTI4ZSJ9LHsiaWQiOiJjMWZlZDcwNy1iY2MyLTEwZmQtY2I2Ni03YjgwNDhlOTFiZDkiLCJwcm9kdWN0X25hbWUiOiJCaW8gTWV0aGFub2wiLCJtYXJrZXRfcHJvZHVjdCI6IkJJT19NRVRIQU5PTCIsImZ1ZWxfdHlwZSI6Ik1ldGhhbm9sIiwiZnVlbF9ncmFkZSI6IkJpbyIsInF1YW50aXR5X210IjoiMTAwLjAwIiwicHJpY2VfcGVyX210X3VzZCI6IjExMDgiLCJyZWdpb24iOiJBc2lhIiwiYXZhaWxhYmlsaXR5X3dpbmRvdyI6IjIwMzEtMDIiLCJjZXJ0aWZpY2F0aW9ucyI6W10sImNlcnRpZmljYXRpb25fZGVjbGFyZWQiOnRydWUsImNlcnRpZmljYXRpb25fc2NoZW1lIjoiSVNDQyBFVSIsInNwZWNpZmljYXRpb25fc3RhbmRhcmQiOiJFTiAxNDIxNCIsIm1zZHNfYXZhaWxhYmxlIjp0cnVlLCJjYXJib25faW50ZW5zaXR5X2djbzJfbWoiOiIxOC40MCIsImNhcmJvbl9pbnRlbnNpdHlfbWV0aG9kIjpudWxsLCJmZWVkc3RvY2siOiJVc2VkIGNvb2tpbmcgb2lsIiwib3JpZ2luIjoiU2luZ2Fwb3JlIiwib2ZmX3NwZWMiOmZhbHNlLCJvZmZfc3BlY19ub3RlcyI6bnVsbCwibG5nX3Rlcm1zIjpudWxsLCJmYW1lX3Rlcm1zIjpudWxsLCJzdGF0dXMiOiJPUEVOIiwibWF0Y2hfY291bnQiOjAsImV4cGlyZXNfYXQiOm51bGwsIm9ic2VydmVkX2F0IjoiMjAyNi0xMC0xNVQxMjowMDowMCswMDowMCIsInNvdXJjZV9raW5kIjoiTElWRV9PUkRFUiIsInNjb3BlIjoiREVMSVZFUllfUE9JTlQiLCJkZW1vX3N0YXR1cyI6IlJFQUxfT05MWSIsImlzX2RlbW9fbGlzdGluZyI6ZmFsc2UsInVua25vd25fY291bnQiOjAsImRlbGl2ZXJ5X3BvaW50X2lkIjoiNzM4MzVlOTItODIwZS01ODRiLTgyODAtYmI2MWM2M2FhMjhlIn0seyJpZCI6ImMzNWJlZGZkLWU1YTQtNTYzMi1iYjZkLWE5ZjZjMmFkOGYwYSIsInByb2R1Y3RfbmFtZSI6IlVDT01FIEIxMDAiLCJtYXJrZXRfcHJvZHVjdCI6IlVDT01FX0IxMDAiLCJmdWVsX3R5cGUiOiJGQU1FIiwiZnVlbF9ncmFkZSI6IlVDT01FIiwicXVhbnRpdHlfbXQiOiIxMDAuMDAiLCJwcmljZV9wZXJfbXRfdXNkIjoiNjAwLjAwIiwicmVnaW9uIjoiQXNpYSIsImF2YWlsYWJpbGl0eV93aW5kb3ciOiJTUE9UIiwiY2VydGlmaWNhdGlvbnMiOltdLCJjZXJ0aWZpY2F0aW9uX2RlY2xhcmVkIjp0cnVlLCJjZXJ0aWZpY2F0aW9uX3NjaGVtZSI6IklTQ0MgRVUiLCJzcGVjaWZpY2F0aW9uX3N0YW5kYXJkIjoiRU4gMTQyMTQiLCJtc2RzX2F2YWlsYWJsZSI6dHJ1ZSwiY2FyYm9uX2ludGVuc2l0eV9nY28yX21qIjpudWxsLCJjYXJib25faW50ZW5zaXR5X21ldGhvZCI6bnVsbCwiZmVlZHN0b2NrIjoiVXNlZCBjb29raW5nIG9pbCIsIm9yaWdpbiI6IlNpbmdhcG9yZSIsIm9mZl9zcGVjIjpmYWxzZSwib2ZmX3NwZWNfbm90ZXMiOm51bGwsImxuZ190ZXJtcyI6bnVsbCwiZmFtZV90ZXJtcyI6eyJzY2hlbWFfdmVyc2lvbiI6MSwibmVhdF9mYW1lIjp0cnVlLCJub21pbmF0aW9uX3N0YXR1cyI6IlBFTkRJTkciLCJ1Y29fbWFzc19wY3QiOjEwMCwic3RhbmRhcmQiOiJFTl8xNDIxNCIsInN0YW5kYXJkX2VkaXRpb24iOiJFTiAxNDIxNDoyMDE5IiwiYXN0bV9ncmFkZSI6bnVsbCwiZW5fY2xpbWF0ZV9jbGFzcyI6bnVsbCwicHJvZHVjdGlvbl9vcmlnaW4iOm51bGwsImZlZWRzdG9ja19vcmlnaW4iOm51bGwsInNoaXBwaW5nX2xvY2F0aW9uIjpudWxsLCJjZnBwX2MiOm51bGwsImNsb3VkX3BvaW50X2MiOm51bGwsImNpX2djbzJlX21qIjpudWxsLCJjaV9tZXRob2RvbG9neSI6bnVsbCwiY2lfYm91bmRhcnkiOm51bGwsImNpX2Jhc2lzIjpudWxsLCJsaHZfbWpfa2ciOm51bGwsInN1c3RhaW5hYmlsaXR5X3NjaGVtZSI6IklTQ0NfRVUiLCJjZXJ0aWZpY2F0ZV92YWxpZF91bnRpbCI6IjIwMjctMTAtMTUiLCJldmlkZW5jZV9zdGF0dXMiOiJERUNMQVJFRCIsInF1YWxpdHlfZXZpZGVuY2UiOm51bGwsInN1c3RhaW5hYmlsaXR5X2V2aWRlbmNlIjpudWxsLCJzaWRlIjoiQVNLIiwiZXZpZGVuY2VfZHVlIjoiQkVGT1JFX0xPQURJTkcifSwic3RhdHVzIjoiT1BFTiIsIm1hdGNoX2NvdW50IjowLCJleHBpcmVzX2F0IjpudWxsLCJvYnNlcnZlZF9hdCI6IjIwMjYtMTAtMTVUMTI6MDA6MDArMDA6MDAiLCJzb3VyY2Vfa2luZCI6IkxJVkVfT1JERVIiLCJzY29wZSI6IkRFTElWRVJZX1BPSU5UIiwiZGVtb19zdGF0dXMiOiJSRUFMX09OTFkiLCJpc19kZW1vX2xpc3RpbmciOmZhbHNlLCJ1bmtub3duX2NvdW50IjowLCJkZWxpdmVyeV9wb2ludF9pZCI6IjczODM1ZTkyLTgyMGUtNTg0Yi04MjgwLWJiNjFjNjNhYTI4ZSJ9LHsiaWQiOiJlMzZlZDExYy0xMGJkLTc3ODUtMzhlZS1lMzZhOWY4YmY4MjIiLCJwcm9kdWN0X25hbWUiOiJCaW8gTWV0aGFub2wiLCJtYXJrZXRfcHJvZHVjdCI6IkJJT19NRVRIQU5PTCIsImZ1ZWxfdHlwZSI6Ik1ldGhhbm9sIiwiZnVlbF9ncmFkZSI6IkJpbyIsInF1YW50aXR5X210IjoiMTAwLjAwIiwicHJpY2VfcGVyX210X3VzZCI6IjExMDciLCJyZWdpb24iOiJBc2lhIiwiYXZhaWxhYmlsaXR5X3dpbmRvdyI6IjIwMzEtMDIiLCJjZXJ0aWZpY2F0aW9ucyI6W10sImNlcnRpZmljYXRpb25fZGVjbGFyZWQiOnRydWUsImNlcnRpZmljYXRpb25fc2NoZW1lIjoiSVNDQyBFVSIsInNwZWNpZmljYXRpb25fc3RhbmRhcmQiOiJFTiAxNDIxNCIsIm1zZHNfYXZhaWxhYmxlIjp0cnVlLCJjYXJib25faW50ZW5zaXR5X2djbzJfbWoiOiIxOC40MCIsImNhcmJvbl9pbnRlbnNpdHlfbWV0aG9kIjpudWxsLCJmZWVkc3RvY2siOiJVc2VkIGNvb2tpbmcgb2lsIiwib3JpZ2luIjoiU2luZ2Fwb3JlIiwib2ZmX3NwZWMiOmZhbHNlLCJvZmZfc3BlY19ub3RlcyI6bnVsbCwibG5nX3Rlcm1zIjpudWxsLCJmYW1lX3Rlcm1zIjpudWxsLCJzdGF0dXMiOiJPUEVOIiwibWF0Y2hfY291bnQiOjAsImV4cGlyZXNfYXQiOm51bGwsIm9ic2VydmVkX2F0IjoiMjAyNi0xMC0xNVQxMjowMDowMCswMDowMCIsInNvdXJjZV9raW5kIjoiTElWRV9PUkRFUiIsInNjb3BlIjoiREVMSVZFUllfUE9JTlQiLCJkZW1vX3N0YXR1cyI6IlJFQUxfT05MWSIsImlzX2RlbW9fbGlzdGluZyI6ZmFsc2UsInVua25vd25fY291bnQiOjAsImRlbGl2ZXJ5X3BvaW50X2lkIjoiNzM4MzVlOTItODIwZS01ODRiLTgyODAtYmI2MWM2M2FhMjhlIn0seyJpZCI6ImVlMTc3ZDc4LWZhYjEtNWY5My04YTE4LTI4OGNjNDdmMjMzNiIsInByb2R1Y3RfbmFtZSI6IkJpbyBNZXRoYW5vbCIsIm1hcmtldF9wcm9kdWN0IjoiQklPX01FVEhBTk9MIiwiZnVlbF90eXBlIjoiTWV0aGFub2wiLCJmdWVsX2dyYWRlIjoiQmlvIiwicXVhbnRpdHlfbXQiOiIxMDAuMDAiLCJwcmljZV9wZXJfbXRfdXNkIjoiNjAwLjAwIiwicmVnaW9uIjoiQXNpYSIsImF2YWlsYWJpbGl0eV93aW5kb3ciOiJTUE9UIiwiY2VydGlmaWNhdGlvbnMiOltdLCJjZXJ0aWZpY2F0aW9uX2RlY2xhcmVkIjpmYWxzZSwiY2VydGlmaWNhdGlvbl9zY2hlbWUiOm51bGwsInNwZWNpZmljYXRpb25fc3RhbmRhcmQiOm51bGwsIm1zZHNfYXZhaWxhYmxlIjpmYWxzZSwiY2FyYm9uX2ludGVuc2l0eV9nY28yX21qIjpudWxsLCJjYXJib25faW50ZW5zaXR5X21ldGhvZCI6bnVsbCwiZmVlZHN0b2NrIjpudWxsLCJvcmlnaW4iOm51bGwsIm9mZl9zcGVjIjpmYWxzZSwib2ZmX3NwZWNfbm90ZXMiOm51bGwsImxuZ190ZXJtcyI6bnVsbCwiZmFtZV90ZXJtcyI6bnVsbCwic3RhdHVzIjoiT1BFTiIsIm1hdGNoX2NvdW50IjowLCJleHBpcmVzX2F0IjpudWxsLCJvYnNlcnZlZF9hdCI6IjIwMjYtMTAtMTVUMTI6MDA6MDArMDA6MDAiLCJzb3VyY2Vfa2luZCI6IkxJVkVfT1JERVIiLCJzY29wZSI6IkRFTElWRVJZX1BPSU5UIiwiZGVtb19zdGF0dXMiOiJSRUFMX09OTFkiLCJpc19kZW1vX2xpc3RpbmciOmZhbHNlLCJ1bmtub3duX2NvdW50IjowLCJkZWxpdmVyeV9wb2ludF9pZCI6IjczODM1ZTkyLTgyMGUtNTg0Yi04MjgwLWJiNjFjNjNhYTI4ZSJ9LHsiaWQiOiJmMTIzMDQyMy0xM2FjLTIzZTItM2U0MC1jNDc5OTRjZTRjNTkiLCJwcm9kdWN0X25hbWUiOiJCaW8gTWV0aGFub2wiLCJtYXJrZXRfcHJvZHVjdCI6IkJJT19NRVRIQU5PTCIsImZ1ZWxfdHlwZSI6Ik1ldGhhbm9sIiwiZnVlbF9ncmFkZSI6IkJpbyIsInF1YW50aXR5X210IjoiMTAwLjAwIiwicHJpY2VfcGVyX210X3VzZCI6IjExMDIiLCJyZWdpb24iOiJBc2lhIiwiYXZhaWxhYmlsaXR5X3dpbmRvdyI6IjIwMzEtMDIiLCJjZXJ0aWZpY2F0aW9ucyI6W10sImNlcnRpZmljYXRpb25fZGVjbGFyZWQiOnRydWUsImNlcnRpZmljYXRpb25fc2NoZW1lIjoiSVNDQyBFVSIsInNwZWNpZmljYXRpb25fc3RhbmRhcmQiOiJFTiAxNDIxNCIsIm1zZHNfYXZhaWxhYmxlIjp0cnVlLCJjYXJib25faW50ZW5zaXR5X2djbzJfbWoiOiIxOC40MCIsImNhcmJvbl9pbnRlbnNpdHlfbWV0aG9kIjpudWxsLCJmZWVkc3RvY2siOiJVc2VkIGNvb2tpbmcgb2lsIiwib3JpZ2luIjoiU2luZ2Fwb3JlIiwib2ZmX3NwZWMiOmZhbHNlLCJvZmZfc3BlY19ub3RlcyI6bnVsbCwibG5nX3Rlcm1zIjpudWxsLCJmYW1lX3Rlcm1zIjpudWxsLCJzdGF0dXMiOiJPUEVOIiwibWF0Y2hfY291bnQiOjAsImV4cGlyZXNfYXQiOm51bGwsIm9ic2VydmVkX2F0IjoiMjAyNi0xMC0xNVQxMjowMDowMCswMDowMCIsInNvdXJjZV9raW5kIjoiTElWRV9PUkRFUiIsInNjb3BlIjoiREVMSVZFUllfUE9JTlQiLCJkZW1vX3N0YXR1cyI6IlJFQUxfT05MWSIsImlzX2RlbW9fbGlzdGluZyI6ZmFsc2UsInVua25vd25fY291bnQiOjAsImRlbGl2ZXJ5X3BvaW50X2lkIjoiNzM4MzVlOTItODIwZS01ODRiLTgyODAtYmI2MWM2M2FhMjhlIn0seyJpZCI6ImY1MWNmM2FkLTI1NzctYTc1Ni01YTk4LTQ5YjYwZGUyY2QxMiIsInByb2R1Y3RfbmFtZSI6IkJpbyBNZXRoYW5vbCIsIm1hcmtldF9wcm9kdWN0IjoiQklPX01FVEhBTk9MIiwiZnVlbF90eXBlIjoiTWV0aGFub2wiLCJmdWVsX2dyYWRlIjoiQmlvIiwicXVhbnRpdHlfbXQiOiIxMDAuMDAiLCJwcmljZV9wZXJfbXRfdXNkIjoiMTEwMSIsInJlZ2lvbiI6IkFzaWEiLCJhdmFpbGFiaWxpdHlfd2luZG93IjoiMjAzMS0wMiIsImNlcnRpZmljYXRpb25zIjpbXSwiY2VydGlmaWNhdGlvbl9kZWNsYXJlZCI6dHJ1ZSwiY2VydGlmaWNhdGlvbl9zY2hlbWUiOiJJU0NDIEVVIiwic3BlY2lmaWNhdGlvbl9zdGFuZGFyZCI6IkVOIDE0MjE0IiwibXNkc19hdmFpbGFibGUiOnRydWUsImNhcmJvbl9pbnRlbnNpdHlfZ2NvMl9taiI6IjE4LjQwIiwiY2FyYm9uX2ludGVuc2l0eV9tZXRob2QiOm51bGwsImZlZWRzdG9jayI6IlVzZWQgY29va2luZyBvaWwiLCJvcmlnaW4iOiJTaW5nYXBvcmUiLCJvZmZfc3BlYyI6ZmFsc2UsIm9mZl9zcGVjX25vdGVzIjpudWxsLCJsbmdfdGVybXMiOm51bGwsImZhbWVfdGVybXMiOm51bGwsInN0YXR1cyI6Ik9QRU4iLCJtYXRjaF9jb3VudCI6MCwiZXhwaXJlc19hdCI6bnVsbCwib2JzZXJ2ZWRfYXQiOiIyMDI2LTEwLTE1VDEyOjAwOjAwKzAwOjAwIiwic291cmNlX2tpbmQiOiJMSVZFX09SREVSIiwic2NvcGUiOiJERUxJVkVSWV9QT0lOVCIsImRlbW9fc3RhdHVzIjoiUkVBTF9PTkxZIiwiaXNfZGVtb19saXN0aW5nIjpmYWxzZSwidW5rbm93bl9jb3VudCI6MCwiZGVsaXZlcnlfcG9pbnRfaWQiOiI3MzgzNWU5Mi04MjBlLTU4NGItODI4MC1iYjYxYzYzYWEyOGUifSx7ImlkIjoiZmM1YjU1NjQtYTcyOS1mZjkyLWEwZDAtN2RlNjNjNzg4MjAzIiwicHJvZHVjdF9uYW1lIjoiQmlvIE1ldGhhbm9sIiwibWFya2V0X3Byb2R1Y3QiOiJCSU9fTUVUSEFOT0wiLCJmdWVsX3R5cGUiOiJNZXRoYW5vbCIsImZ1ZWxfZ3JhZGUiOiJCaW8iLCJxdWFudGl0eV9tdCI6IjEwMC4wMCIsInByaWNlX3Blcl9tdF91c2QiOiIxMTA5IiwicmVnaW9uIjoiQXNpYSIsImF2YWlsYWJpbGl0eV93aW5kb3ciOiIyMDMxLTAyIiwiY2VydGlmaWNhdGlvbnMiOltdLCJjZXJ0aWZpY2F0aW9uX2RlY2xhcmVkIjp0cnVlLCJjZXJ0aWZpY2F0aW9uX3NjaGVtZSI6IklTQ0MgRVUiLCJzcGVjaWZpY2F0aW9uX3N0YW5kYXJkIjoiRU4gMTQyMTQiLCJtc2RzX2F2YWlsYWJsZSI6dHJ1ZSwiY2FyYm9uX2ludGVuc2l0eV9nY28yX21qIjoiMTguNDAiLCJjYXJib25faW50ZW5zaXR5X21ldGhvZCI6bnVsbCwiZmVlZHN0b2NrIjoiVXNlZCBjb29raW5nIG9pbCIsIm9yaWdpbiI6IlNpbmdhcG9yZSIsIm9mZl9zcGVjIjpmYWxzZSwib2ZmX3NwZWNfbm90ZXMiOm51bGwsImxuZ190ZXJtcyI6bnVsbCwiZmFtZV90ZXJtcyI6bnVsbCwic3RhdHVzIjoiT1BFTiIsIm1hdGNoX2NvdW50IjowLCJleHBpcmVzX2F0IjpudWxsLCJvYnNlcnZlZF9hdCI6IjIwMjYtMTAtMTVUMTI6MDA6MDArMDA6MDAiLCJzb3VyY2Vfa2luZCI6IkxJVkVfT1JERVIiLCJzY29wZSI6IkRFTElWRVJZX1BPSU5UIiwiZGVtb19zdGF0dXMiOiJSRUFMX09OTFkiLCJpc19kZW1vX2xpc3RpbmciOmZhbHNlLCJ1bmtub3duX2NvdW50IjowLCJkZWxpdmVyeV9wb2ludF9pZCI6IjczODM1ZTkyLTgyMGUtNTg0Yi04MjgwLWJiNjFjNjNhYTI4ZSJ9LHsiaWQiOiJkMGY2ZTI2NS0wNzhjLWI5ZGEtNjdiZi0zYTI0ZjljMGEwMzMiLCJwcm9kdWN0X25hbWUiOiJCaW8gTWV0aGFub2wiLCJtYXJrZXRfcHJvZHVjdCI6IkJJT19NRVRIQU5PTCIsImZ1ZWxfdHlwZSI6Ik1ldGhhbm9sIiwiZnVlbF9ncmFkZSI6IkJpbyIsInF1YW50aXR5X210IjoiMTAwLjAwIiwicHJpY2VfcGVyX210X3VzZCI6IjExMDAiLCJyZWdpb24iOiJBc2lhIiwiYXZhaWxhYmlsaXR5X3dpbmRvdyI6IjIwMzEtMDYiLCJjZXJ0aWZpY2F0aW9ucyI6W10sImNlcnRpZmljYXRpb25fZGVjbGFyZWQiOnRydWUsImNlcnRpZmljYXRpb25fc2NoZW1lIjoiSVNDQyBFVSIsInNwZWNpZmljYXRpb25fc3RhbmRhcmQiOiJFTiAxNDIxNCIsIm1zZHNfYXZhaWxhYmxlIjp0cnVlLCJjYXJib25faW50ZW5zaXR5X2djbzJfbWoiOiIxOC40MCIsImNhcmJvbl9pbnRlbnNpdHlfbWV0aG9kIjpudWxsLCJmZWVkc3RvY2siOiJVc2VkIGNvb2tpbmcgb2lsIiwib3JpZ2luIjoiU2luZ2Fwb3JlIiwib2ZmX3NwZWMiOmZhbHNlLCJvZmZfc3BlY19ub3RlcyI6bnVsbCwibG5nX3Rlcm1zIjpudWxsLCJmYW1lX3Rlcm1zIjpudWxsLCJzdGF0dXMiOiJPUEVOIiwibWF0Y2hfY291bnQiOjAsImV4cGlyZXNfYXQiOm51bGwsIm9ic2VydmVkX2F0IjoiMjAyNi0xMC0xNVQxMTowMDowMC41MDAwMDArMDA6MDAiLCJzb3VyY2Vfa2luZCI6IkxJVkVfT1JERVIiLCJzY29wZSI6IkRFTElWRVJZX1BPSU5UIiwiZGVtb19zdGF0dXMiOiJSRUFMX09OTFkiLCJpc19kZW1vX2xpc3RpbmciOmZhbHNlLCJ1bmtub3duX2NvdW50IjowLCJkZWxpdmVyeV9wb2ludF9pZCI6IjczODM1ZTkyLTgyMGUtNTg0Yi04MjgwLWJiNjFjNjNhYTI4ZSJ9LHsiaWQiOiI2N2QxODljNy1mM2M1LWEwNTAtMmRlZi0xMjQwZjE0NWM2OTMiLCJwcm9kdWN0X25hbWUiOiJCaW8gTWV0aGFub2wiLCJtYXJrZXRfcHJvZHVjdCI6IkJJT19NRVRIQU5PTCIsImZ1ZWxfdHlwZSI6Ik1ldGhhbm9sIiwiZnVlbF9ncmFkZSI6IkJpbyIsInF1YW50aXR5X210IjoiMTAwLjAwIiwicHJpY2VfcGVyX210X3VzZCI6IjExMDAiLCJyZWdpb24iOiJBc2lhIiwiYXZhaWxhYmlsaXR5X3dpbmRvdyI6IjIwMzEtMDUiLCJjZXJ0aWZpY2F0aW9ucyI6W10sImNlcnRpZmljYXRpb25fZGVjbGFyZWQiOnRydWUsImNlcnRpZmljYXRpb25fc2NoZW1lIjoiSVNDQyBFVSIsInNwZWNpZmljYXRpb25fc3RhbmRhcmQiOiJFTiAxNDIxNCIsIm1zZHNfYXZhaWxhYmxlIjp0cnVlLCJjYXJib25faW50ZW5zaXR5X2djbzJfbWoiOiIxOC40MCIsImNhcmJvbl9pbnRlbnNpdHlfbWV0aG9kIjpudWxsLCJmZWVkc3RvY2siOiJVc2VkIGNvb2tpbmcgb2lsIiwib3JpZ2luIjoiU2luZ2Fwb3JlIiwib2ZmX3NwZWMiOmZhbHNlLCJvZmZfc3BlY19ub3RlcyI6bnVsbCwibG5nX3Rlcm1zIjpudWxsLCJmYW1lX3Rlcm1zIjpudWxsLCJzdGF0dXMiOiJPUEVOIiwibWF0Y2hfY291bnQiOjAsImV4cGlyZXNfYXQiOm51bGwsIm9ic2VydmVkX2F0IjoiMjAyNi0xMC0xNVQxMTowMDowMCswMDowMCIsInNvdXJjZV9raW5kIjoiTElWRV9PUkRFUiIsInNjb3BlIjoiREVMSVZFUllfUE9JTlQiLCJkZW1vX3N0YXR1cyI6IlJFQUxfT05MWSIsImlzX2RlbW9fbGlzdGluZyI6ZmFsc2UsInVua25vd25fY291bnQiOjAsImRlbGl2ZXJ5X3BvaW50X2lkIjoiNzM4MzVlOTItODIwZS01ODRiLTgyODAtYmI2MWM2M2FhMjhlIn1d"
+    },
+    {
+      "id": "R27-listings-head--kyc-off",
+      "request": {
+        "method": "HEAD",
+        "path": "/api/listings",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 405,
+        "headers": {
+          "allow": "GET",
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": null,
+        "body_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "raw_body_base64": ""
+    },
+    {
+      "id": "R27-listings-post-405--kyc-off",
+      "request": {
+        "method": "POST",
+        "path": "/api/listings",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 405,
+        "headers": {
+          "allow": "GET",
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "detail": "Method Not Allowed"
+        },
+        "body_sha256": "83c09ba9a8daedb136f90b17a294caa90ad471a016e430df6e229acb5a81e100"
+      },
+      "raw_body_base64": "eyJkZXRhaWwiOiJNZXRob2QgTm90IEFsbG93ZWQifQ=="
+    },
+    {
+      "id": "R27-listings-options-405--kyc-off",
+      "request": {
+        "method": "OPTIONS",
+        "path": "/api/listings",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 405,
+        "headers": {
+          "allow": "GET",
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "detail": "Method Not Allowed"
+        },
+        "body_sha256": "83c09ba9a8daedb136f90b17a294caa90ad471a016e430df6e229acb5a81e100"
+      },
+      "raw_body_base64": "eyJkZXRhaWwiOiJNZXRob2QgTm90IEFsbG93ZWQifQ=="
+    },
+    {
+      "id": "R27-listings-slash-307--kyc-off",
+      "request": {
+        "method": "GET",
+        "path": "/api/listings/",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 307,
+        "headers": {
+          "location": "{endpoint}/api/listings",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": null,
+        "body_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "raw_body_base64": ""
+    },
+    {
+      "id": "R19-aggregated--kyc-off",
+      "request": {
+        "method": "GET",
+        "path": "/api/orderbook/aggregated",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": [
+          {
+            "product_id": "74eb9cb5-f0e3-55f1-b82c-fe29b7c45bf5",
+            "product_name": "B100",
+            "market_product": "B100",
+            "fuel_type": "Biofuel",
+            "delivery_point_id": "73835e92-820e-584b-8280-bb61c63aa28e",
+            "delivery_point_name": "Singapore",
+            "availability_window": "SPOT",
+            "region": "Asia",
+            "side": "ASK",
+            "min_price": "600.00",
+            "max_price": "600.00",
+            "total_quantity": "100.00",
+            "order_count": 1,
+            "product_total_order_count": 2,
+            "evidence_class": "REAL",
+            "source_kind": "LIVE_ORDER",
+            "scope": "DELIVERY_POINT",
+            "demo_status": "REAL_ONLY",
+            "observed_at": "2026-10-15T12:00:00Z"
+          },
+          {
+            "product_id": "74eb9cb5-f0e3-55f1-b82c-fe29b7c45bf5",
+            "product_name": "B100",
+            "market_product": "B100",
+            "fuel_type": "Biofuel",
+            "delivery_point_id": "73835e92-820e-584b-8280-bb61c63aa28e",
+            "delivery_point_name": "Singapore",
+            "availability_window": "SPOT",
+            "region": "Asia",
+            "side": "BID",
+            "min_price": "600.00",
+            "max_price": "600.00",
+            "total_quantity": "100.00",
+            "order_count": 1,
+            "product_total_order_count": 2,
+            "evidence_class": "REAL",
+            "source_kind": "LIVE_ORDER",
+            "scope": "DELIVERY_POINT",
+            "demo_status": "REAL_ONLY",
+            "observed_at": "2026-10-15T12:00:00Z"
+          },
+          {
+            "product_id": "c4cecebc-3d2d-5840-8021-57a9a11bc673",
+            "product_name": "B30",
+            "market_product": "B30",
+            "fuel_type": "Biofuel",
+            "delivery_point_id": "73835e92-820e-584b-8280-bb61c63aa28e",
+            "delivery_point_name": "Singapore",
+            "availability_window": "SPOT",
+            "region": "Asia",
+            "side": "ASK",
+            "min_price": "600.00",
+            "max_price": "600.00",
+            "total_quantity": "100.00",
+            "order_count": 1,
+            "product_total_order_count": 2,
+            "evidence_class": "REAL",
+            "source_kind": "LIVE_ORDER",
+            "scope": "DELIVERY_POINT",
+            "demo_status": "REAL_ONLY",
+            "observed_at": "2026-10-15T12:00:00Z"
+          },
+          {
+            "product_id": "c4cecebc-3d2d-5840-8021-57a9a11bc673",
+            "product_name": "B30",
+            "market_product": "B30",
+            "fuel_type": "Biofuel",
+            "delivery_point_id": "73835e92-820e-584b-8280-bb61c63aa28e",
+            "delivery_point_name": "Singapore",
+            "availability_window": "SPOT",
+            "region": "Asia",
+            "side": "BID",
+            "min_price": "600.00",
+            "max_price": "600.00",
+            "total_quantity": "100.00",
+            "order_count": 1,
+            "product_total_order_count": 2,
+            "evidence_class": "REAL",
+            "source_kind": "LIVE_ORDER",
+            "scope": "DELIVERY_POINT",
+            "demo_status": "REAL_ONLY",
+            "observed_at": "2026-10-15T12:00:00Z"
+          },
+          {
+            "product_id": "8f6f34a5-2927-54a6-8564-cca40ae7cb8a",
+            "product_name": "Bio-LNG",
+            "market_product": "BIO_LNG",
+            "fuel_type": "LNG",
+            "delivery_point_id": "1379d36c-1ca9-55b7-9c0d-5235a0ba1f36",
+            "delivery_point_name": "Rotterdam",
+            "availability_window": "SPOT",
+            "region": "Europe",
+            "side": "ASK",
+            "min_price": "600.00",
+            "max_price": "600.00",
+            "total_quantity": "400.00",
+            "order_count": 4,
+            "product_total_order_count": 4,
+            "evidence_class": "REAL",
+            "source_kind": "LIVE_ORDER",
+            "scope": "DELIVERY_POINT",
+            "demo_status": "REAL_ONLY",
+            "observed_at": "2026-10-15T12:00:00Z"
+          },
+          {
+            "product_id": "9510c713-6e39-5080-add3-0a7c29657b79",
+            "product_name": "Bio Methanol",
+            "market_product": "BIO_METHANOL",
+            "fuel_type": "Methanol",
+            "delivery_point_id": "73835e92-820e-584b-8280-bb61c63aa28e",
+            "delivery_point_name": "Singapore",
+            "availability_window": "2031-02",
+            "region": "Asia",
+            "side": "ASK",
+            "min_price": "1101",
+            "max_price": "1112",
+            "total_quantity": "1200.00",
+            "order_count": 12,
+            "product_total_order_count": 10041,
+            "evidence_class": "REAL",
+            "source_kind": "LIVE_ORDER",
+            "scope": "DELIVERY_POINT",
+            "demo_status": "REAL_ONLY",
+            "observed_at": "2026-10-15T12:00:00Z"
+          },
+          {
+            "product_id": "9510c713-6e39-5080-add3-0a7c29657b79",
+            "product_name": "Bio Methanol",
+            "market_product": "BIO_METHANOL",
+            "fuel_type": "Methanol",
+            "delivery_point_id": "73835e92-820e-584b-8280-bb61c63aa28e",
+            "delivery_point_name": "Singapore",
+            "availability_window": "2031-02",
+            "region": "Asia",
+            "side": "BID",
+            "min_price": "1001",
+            "max_price": "1012",
+            "total_quantity": "1200.00",
+            "order_count": 12,
+            "product_total_order_count": 10041,
+            "evidence_class": "REAL",
+            "source_kind": "LIVE_ORDER",
+            "scope": "DELIVERY_POINT",
+            "demo_status": "REAL_ONLY",
+            "observed_at": "2026-10-15T12:00:00Z"
+          },
+          {
+            "product_id": "9510c713-6e39-5080-add3-0a7c29657b79",
+            "product_name": "Bio Methanol",
+            "market_product": "BIO_METHANOL",
+            "fuel_type": "Methanol",
+            "delivery_point_id": "73835e92-820e-584b-8280-bb61c63aa28e",
+            "delivery_point_name": "Singapore",
+            "availability_window": "2031-04",
+            "region": "Asia",
+            "side": "BID",
+            "min_price": "1000.000000000000000000000000000000",
+            "max_price": "1000.000000000000000000000000000000",
+            "total_quantity": "1000000.00",
+            "order_count": 10000,
+            "product_total_order_count": 10041,
+            "evidence_class": "REAL",
+            "source_kind": "LIVE_ORDER",
+            "scope": "DELIVERY_POINT",
+            "demo_status": "REAL_ONLY",
+            "observed_at": "2026-10-15T12:00:00Z"
+          },
+          {
+            "product_id": "9510c713-6e39-5080-add3-0a7c29657b79",
+            "product_name": "Bio Methanol",
+            "market_product": "BIO_METHANOL",
+            "fuel_type": "Methanol",
+            "delivery_point_id": "73835e92-820e-584b-8280-bb61c63aa28e",
+            "delivery_point_name": "Singapore",
+            "availability_window": "2031-05",
+            "region": "Asia",
+            "side": "ASK",
+            "min_price": "1100",
+            "max_price": "1100",
+            "total_quantity": "100.00",
+            "order_count": 1,
+            "product_total_order_count": 10041,
+            "evidence_class": "REAL",
+            "source_kind": "LIVE_ORDER",
+            "scope": "DELIVERY_POINT",
+            "demo_status": "REAL_ONLY",
+            "observed_at": "2026-10-15T11:00:00Z"
+          },
+          {
+            "product_id": "9510c713-6e39-5080-add3-0a7c29657b79",
+            "product_name": "Bio Methanol",
+            "market_product": "BIO_METHANOL",
+            "fuel_type": "Methanol",
+            "delivery_point_id": "73835e92-820e-584b-8280-bb61c63aa28e",
+            "delivery_point_name": "Singapore",
+            "availability_window": "2031-05",
+            "region": "Asia",
+            "side": "BID",
+            "min_price": "1000",
+            "max_price": "1000",
+            "total_quantity": "100.00",
+            "order_count": 1,
+            "product_total_order_count": 10041,
+            "evidence_class": "REAL",
+            "source_kind": "LIVE_ORDER",
+            "scope": "DELIVERY_POINT",
+            "demo_status": "REAL_ONLY",
+            "observed_at": "2026-10-15T11:00:00Z"
+          },
+          {
+            "product_id": "9510c713-6e39-5080-add3-0a7c29657b79",
+            "product_name": "Bio Methanol",
+            "market_product": "BIO_METHANOL",
+            "fuel_type": "Methanol",
+            "delivery_point_id": "73835e92-820e-584b-8280-bb61c63aa28e",
+            "delivery_point_name": "Singapore",
+            "availability_window": "2031-06",
+            "region": "Asia",
+            "side": "ASK",
+            "min_price": "1100",
+            "max_price": "1100",
+            "total_quantity": "100.00",
+            "order_count": 1,
+            "product_total_order_count": 10041,
+            "evidence_class": "REAL",
+            "source_kind": "LIVE_ORDER",
+            "scope": "DELIVERY_POINT",
+            "demo_status": "REAL_ONLY",
+            "observed_at": "2026-10-15T11:00:00.500000Z"
+          },
+          {
+            "product_id": "9510c713-6e39-5080-add3-0a7c29657b79",
+            "product_name": "Bio Methanol",
+            "market_product": "BIO_METHANOL",
+            "fuel_type": "Methanol",
+            "delivery_point_id": "73835e92-820e-584b-8280-bb61c63aa28e",
+            "delivery_point_name": "Singapore",
+            "availability_window": "2031-06",
+            "region": "Asia",
+            "side": "BID",
+            "min_price": "1000",
+            "max_price": "1000",
+            "total_quantity": "100.00",
+            "order_count": 1,
+            "product_total_order_count": 10041,
+            "evidence_class": "REAL",
+            "source_kind": "LIVE_ORDER",
+            "scope": "DELIVERY_POINT",
+            "demo_status": "REAL_ONLY",
+            "observed_at": "2026-10-15T11:00:00.500000Z"
+          },
+          {
+            "product_id": "9510c713-6e39-5080-add3-0a7c29657b79",
+            "product_name": "Bio Methanol",
+            "market_product": "BIO_METHANOL",
+            "fuel_type": "Methanol",
+            "delivery_point_id": "73835e92-820e-584b-8280-bb61c63aa28e",
+            "delivery_point_name": "Singapore",
+            "availability_window": "SPOT",
+            "region": "Asia",
+            "side": "ASK",
+            "min_price": "600.00",
+            "max_price": "600.00",
+            "total_quantity": "100.00",
+            "order_count": 1,
+            "product_total_order_count": 10041,
+            "evidence_class": "REAL",
+            "source_kind": "LIVE_ORDER",
+            "scope": "DELIVERY_POINT",
+            "demo_status": "REAL_ONLY",
+            "observed_at": "2026-10-15T12:00:00Z"
+          },
+          {
+            "product_id": "9510c713-6e39-5080-add3-0a7c29657b79",
+            "product_name": "Bio Methanol",
+            "market_product": "BIO_METHANOL",
+            "fuel_type": "Methanol",
+            "delivery_point_id": "73835e92-820e-584b-8280-bb61c63aa28e",
+            "delivery_point_name": "Singapore",
+            "availability_window": "SPOT",
+            "region": "Asia",
+            "side": "BID",
+            "min_price": "600.00",
+            "max_price": "600.00",
+            "total_quantity": "100.00",
+            "order_count": 1,
+            "product_total_order_count": 1,
+            "evidence_class": "DEMO",
+            "source_kind": "DEMO_SEED",
+            "scope": "DELIVERY_POINT",
+            "demo_status": "DEMO_ONLY",
+            "observed_at": "2026-10-15T12:00:00Z"
+          },
+          {
+            "product_id": "9510c713-6e39-5080-add3-0a7c29657b79",
+            "product_name": "Bio Methanol",
+            "market_product": "BIO_METHANOL",
+            "fuel_type": "Methanol",
+            "delivery_point_id": "73835e92-820e-584b-8280-bb61c63aa28e",
+            "delivery_point_name": "Singapore",
+            "availability_window": "SPOT",
+            "region": "Asia",
+            "side": "BID",
+            "min_price": "600.00",
+            "max_price": "600.00",
+            "total_quantity": "1140.00",
+            "order_count": 12,
+            "product_total_order_count": 10041,
+            "evidence_class": "REAL",
+            "source_kind": "LIVE_ORDER",
+            "scope": "DELIVERY_POINT",
+            "demo_status": "REAL_ONLY",
+            "observed_at": "2026-10-15T12:00:00Z"
+          },
+          {
+            "product_id": "e561e43f-d9b2-598e-981c-f1d28d515ddc",
+            "product_name": "UCOME B100",
+            "market_product": "UCOME_B100",
+            "fuel_type": "FAME",
+            "delivery_point_id": "73835e92-820e-584b-8280-bb61c63aa28e",
+            "delivery_point_name": "Singapore",
+            "availability_window": "SPOT",
+            "region": "Asia",
+            "side": "ASK",
+            "min_price": "600.00",
+            "max_price": "600.00",
+            "total_quantity": "300.00",
+            "order_count": 3,
+            "product_total_order_count": 3,
+            "evidence_class": "REAL",
+            "source_kind": "LIVE_ORDER",
+            "scope": "DELIVERY_POINT",
+            "demo_status": "REAL_ONLY",
+            "observed_at": "2026-10-15T12:00:00Z"
+          }
+        ],
+        "body_sha256": "8aa99b4a9abfd146ad69ac26d6c12aa7c55fb69a4ca5402c86c6704df56dee06"
+      },
+      "raw_body_base64": "W3sicHJvZHVjdF9pZCI6Ijc0ZWI5Y2I1LWYwZTMtNTVmMS1iODJjLWZlMjliN2M0NWJmNSIsInByb2R1Y3RfbmFtZSI6IkIxMDAiLCJtYXJrZXRfcHJvZHVjdCI6IkIxMDAiLCJmdWVsX3R5cGUiOiJCaW9mdWVsIiwiZGVsaXZlcnlfcG9pbnRfaWQiOiI3MzgzNWU5Mi04MjBlLTU4NGItODI4MC1iYjYxYzYzYWEyOGUiLCJkZWxpdmVyeV9wb2ludF9uYW1lIjoiU2luZ2Fwb3JlIiwiYXZhaWxhYmlsaXR5X3dpbmRvdyI6IlNQT1QiLCJyZWdpb24iOiJBc2lhIiwic2lkZSI6IkFTSyIsIm1pbl9wcmljZSI6IjYwMC4wMCIsIm1heF9wcmljZSI6IjYwMC4wMCIsInRvdGFsX3F1YW50aXR5IjoiMTAwLjAwIiwib3JkZXJfY291bnQiOjEsInByb2R1Y3RfdG90YWxfb3JkZXJfY291bnQiOjIsImV2aWRlbmNlX2NsYXNzIjoiUkVBTCIsInNvdXJjZV9raW5kIjoiTElWRV9PUkRFUiIsInNjb3BlIjoiREVMSVZFUllfUE9JTlQiLCJkZW1vX3N0YXR1cyI6IlJFQUxfT05MWSIsIm9ic2VydmVkX2F0IjoiMjAyNi0xMC0xNVQxMjowMDowMFoifSx7InByb2R1Y3RfaWQiOiI3NGViOWNiNS1mMGUzLTU1ZjEtYjgyYy1mZTI5YjdjNDViZjUiLCJwcm9kdWN0X25hbWUiOiJCMTAwIiwibWFya2V0X3Byb2R1Y3QiOiJCMTAwIiwiZnVlbF90eXBlIjoiQmlvZnVlbCIsImRlbGl2ZXJ5X3BvaW50X2lkIjoiNzM4MzVlOTItODIwZS01ODRiLTgyODAtYmI2MWM2M2FhMjhlIiwiZGVsaXZlcnlfcG9pbnRfbmFtZSI6IlNpbmdhcG9yZSIsImF2YWlsYWJpbGl0eV93aW5kb3ciOiJTUE9UIiwicmVnaW9uIjoiQXNpYSIsInNpZGUiOiJCSUQiLCJtaW5fcHJpY2UiOiI2MDAuMDAiLCJtYXhfcHJpY2UiOiI2MDAuMDAiLCJ0b3RhbF9xdWFudGl0eSI6IjEwMC4wMCIsIm9yZGVyX2NvdW50IjoxLCJwcm9kdWN0X3RvdGFsX29yZGVyX2NvdW50IjoyLCJldmlkZW5jZV9jbGFzcyI6IlJFQUwiLCJzb3VyY2Vfa2luZCI6IkxJVkVfT1JERVIiLCJzY29wZSI6IkRFTElWRVJZX1BPSU5UIiwiZGVtb19zdGF0dXMiOiJSRUFMX09OTFkiLCJvYnNlcnZlZF9hdCI6IjIwMjYtMTAtMTVUMTI6MDA6MDBaIn0seyJwcm9kdWN0X2lkIjoiYzRjZWNlYmMtM2QyZC01ODQwLTgwMjEtNTdhOWExMWJjNjczIiwicHJvZHVjdF9uYW1lIjoiQjMwIiwibWFya2V0X3Byb2R1Y3QiOiJCMzAiLCJmdWVsX3R5cGUiOiJCaW9mdWVsIiwiZGVsaXZlcnlfcG9pbnRfaWQiOiI3MzgzNWU5Mi04MjBlLTU4NGItODI4MC1iYjYxYzYzYWEyOGUiLCJkZWxpdmVyeV9wb2ludF9uYW1lIjoiU2luZ2Fwb3JlIiwiYXZhaWxhYmlsaXR5X3dpbmRvdyI6IlNQT1QiLCJyZWdpb24iOiJBc2lhIiwic2lkZSI6IkFTSyIsIm1pbl9wcmljZSI6IjYwMC4wMCIsIm1heF9wcmljZSI6IjYwMC4wMCIsInRvdGFsX3F1YW50aXR5IjoiMTAwLjAwIiwib3JkZXJfY291bnQiOjEsInByb2R1Y3RfdG90YWxfb3JkZXJfY291bnQiOjIsImV2aWRlbmNlX2NsYXNzIjoiUkVBTCIsInNvdXJjZV9raW5kIjoiTElWRV9PUkRFUiIsInNjb3BlIjoiREVMSVZFUllfUE9JTlQiLCJkZW1vX3N0YXR1cyI6IlJFQUxfT05MWSIsIm9ic2VydmVkX2F0IjoiMjAyNi0xMC0xNVQxMjowMDowMFoifSx7InByb2R1Y3RfaWQiOiJjNGNlY2ViYy0zZDJkLTU4NDAtODAyMS01N2E5YTExYmM2NzMiLCJwcm9kdWN0X25hbWUiOiJCMzAiLCJtYXJrZXRfcHJvZHVjdCI6IkIzMCIsImZ1ZWxfdHlwZSI6IkJpb2Z1ZWwiLCJkZWxpdmVyeV9wb2ludF9pZCI6IjczODM1ZTkyLTgyMGUtNTg0Yi04MjgwLWJiNjFjNjNhYTI4ZSIsImRlbGl2ZXJ5X3BvaW50X25hbWUiOiJTaW5nYXBvcmUiLCJhdmFpbGFiaWxpdHlfd2luZG93IjoiU1BPVCIsInJlZ2lvbiI6IkFzaWEiLCJzaWRlIjoiQklEIiwibWluX3ByaWNlIjoiNjAwLjAwIiwibWF4X3ByaWNlIjoiNjAwLjAwIiwidG90YWxfcXVhbnRpdHkiOiIxMDAuMDAiLCJvcmRlcl9jb3VudCI6MSwicHJvZHVjdF90b3RhbF9vcmRlcl9jb3VudCI6MiwiZXZpZGVuY2VfY2xhc3MiOiJSRUFMIiwic291cmNlX2tpbmQiOiJMSVZFX09SREVSIiwic2NvcGUiOiJERUxJVkVSWV9QT0lOVCIsImRlbW9fc3RhdHVzIjoiUkVBTF9PTkxZIiwib2JzZXJ2ZWRfYXQiOiIyMDI2LTEwLTE1VDEyOjAwOjAwWiJ9LHsicHJvZHVjdF9pZCI6IjhmNmYzNGE1LTI5MjctNTRhNi04NTY0LWNjYTQwYWU3Y2I4YSIsInByb2R1Y3RfbmFtZSI6IkJpby1MTkciLCJtYXJrZXRfcHJvZHVjdCI6IkJJT19MTkciLCJmdWVsX3R5cGUiOiJMTkciLCJkZWxpdmVyeV9wb2ludF9pZCI6IjEzNzlkMzZjLTFjYTktNTViNy05YzBkLTUyMzVhMGJhMWYzNiIsImRlbGl2ZXJ5X3BvaW50X25hbWUiOiJSb3R0ZXJkYW0iLCJhdmFpbGFiaWxpdHlfd2luZG93IjoiU1BPVCIsInJlZ2lvbiI6IkV1cm9wZSIsInNpZGUiOiJBU0siLCJtaW5fcHJpY2UiOiI2MDAuMDAiLCJtYXhfcHJpY2UiOiI2MDAuMDAiLCJ0b3RhbF9xdWFudGl0eSI6IjQwMC4wMCIsIm9yZGVyX2NvdW50Ijo0LCJwcm9kdWN0X3RvdGFsX29yZGVyX2NvdW50Ijo0LCJldmlkZW5jZV9jbGFzcyI6IlJFQUwiLCJzb3VyY2Vfa2luZCI6IkxJVkVfT1JERVIiLCJzY29wZSI6IkRFTElWRVJZX1BPSU5UIiwiZGVtb19zdGF0dXMiOiJSRUFMX09OTFkiLCJvYnNlcnZlZF9hdCI6IjIwMjYtMTAtMTVUMTI6MDA6MDBaIn0seyJwcm9kdWN0X2lkIjoiOTUxMGM3MTMtNmUzOS01MDgwLWFkZDMtMGE3YzI5NjU3Yjc5IiwicHJvZHVjdF9uYW1lIjoiQmlvIE1ldGhhbm9sIiwibWFya2V0X3Byb2R1Y3QiOiJCSU9fTUVUSEFOT0wiLCJmdWVsX3R5cGUiOiJNZXRoYW5vbCIsImRlbGl2ZXJ5X3BvaW50X2lkIjoiNzM4MzVlOTItODIwZS01ODRiLTgyODAtYmI2MWM2M2FhMjhlIiwiZGVsaXZlcnlfcG9pbnRfbmFtZSI6IlNpbmdhcG9yZSIsImF2YWlsYWJpbGl0eV93aW5kb3ciOiIyMDMxLTAyIiwicmVnaW9uIjoiQXNpYSIsInNpZGUiOiJBU0siLCJtaW5fcHJpY2UiOiIxMTAxIiwibWF4X3ByaWNlIjoiMTExMiIsInRvdGFsX3F1YW50aXR5IjoiMTIwMC4wMCIsIm9yZGVyX2NvdW50IjoxMiwicHJvZHVjdF90b3RhbF9vcmRlcl9jb3VudCI6MTAwNDEsImV2aWRlbmNlX2NsYXNzIjoiUkVBTCIsInNvdXJjZV9raW5kIjoiTElWRV9PUkRFUiIsInNjb3BlIjoiREVMSVZFUllfUE9JTlQiLCJkZW1vX3N0YXR1cyI6IlJFQUxfT05MWSIsIm9ic2VydmVkX2F0IjoiMjAyNi0xMC0xNVQxMjowMDowMFoifSx7InByb2R1Y3RfaWQiOiI5NTEwYzcxMy02ZTM5LTUwODAtYWRkMy0wYTdjMjk2NTdiNzkiLCJwcm9kdWN0X25hbWUiOiJCaW8gTWV0aGFub2wiLCJtYXJrZXRfcHJvZHVjdCI6IkJJT19NRVRIQU5PTCIsImZ1ZWxfdHlwZSI6Ik1ldGhhbm9sIiwiZGVsaXZlcnlfcG9pbnRfaWQiOiI3MzgzNWU5Mi04MjBlLTU4NGItODI4MC1iYjYxYzYzYWEyOGUiLCJkZWxpdmVyeV9wb2ludF9uYW1lIjoiU2luZ2Fwb3JlIiwiYXZhaWxhYmlsaXR5X3dpbmRvdyI6IjIwMzEtMDIiLCJyZWdpb24iOiJBc2lhIiwic2lkZSI6IkJJRCIsIm1pbl9wcmljZSI6IjEwMDEiLCJtYXhfcHJpY2UiOiIxMDEyIiwidG90YWxfcXVhbnRpdHkiOiIxMjAwLjAwIiwib3JkZXJfY291bnQiOjEyLCJwcm9kdWN0X3RvdGFsX29yZGVyX2NvdW50IjoxMDA0MSwiZXZpZGVuY2VfY2xhc3MiOiJSRUFMIiwic291cmNlX2tpbmQiOiJMSVZFX09SREVSIiwic2NvcGUiOiJERUxJVkVSWV9QT0lOVCIsImRlbW9fc3RhdHVzIjoiUkVBTF9PTkxZIiwib2JzZXJ2ZWRfYXQiOiIyMDI2LTEwLTE1VDEyOjAwOjAwWiJ9LHsicHJvZHVjdF9pZCI6Ijk1MTBjNzEzLTZlMzktNTA4MC1hZGQzLTBhN2MyOTY1N2I3OSIsInByb2R1Y3RfbmFtZSI6IkJpbyBNZXRoYW5vbCIsIm1hcmtldF9wcm9kdWN0IjoiQklPX01FVEhBTk9MIiwiZnVlbF90eXBlIjoiTWV0aGFub2wiLCJkZWxpdmVyeV9wb2ludF9pZCI6IjczODM1ZTkyLTgyMGUtNTg0Yi04MjgwLWJiNjFjNjNhYTI4ZSIsImRlbGl2ZXJ5X3BvaW50X25hbWUiOiJTaW5nYXBvcmUiLCJhdmFpbGFiaWxpdHlfd2luZG93IjoiMjAzMS0wNCIsInJlZ2lvbiI6IkFzaWEiLCJzaWRlIjoiQklEIiwibWluX3ByaWNlIjoiMTAwMC4wMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAiLCJtYXhfcHJpY2UiOiIxMDAwLjAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMCIsInRvdGFsX3F1YW50aXR5IjoiMTAwMDAwMC4wMCIsIm9yZGVyX2NvdW50IjoxMDAwMCwicHJvZHVjdF90b3RhbF9vcmRlcl9jb3VudCI6MTAwNDEsImV2aWRlbmNlX2NsYXNzIjoiUkVBTCIsInNvdXJjZV9raW5kIjoiTElWRV9PUkRFUiIsInNjb3BlIjoiREVMSVZFUllfUE9JTlQiLCJkZW1vX3N0YXR1cyI6IlJFQUxfT05MWSIsIm9ic2VydmVkX2F0IjoiMjAyNi0xMC0xNVQxMjowMDowMFoifSx7InByb2R1Y3RfaWQiOiI5NTEwYzcxMy02ZTM5LTUwODAtYWRkMy0wYTdjMjk2NTdiNzkiLCJwcm9kdWN0X25hbWUiOiJCaW8gTWV0aGFub2wiLCJtYXJrZXRfcHJvZHVjdCI6IkJJT19NRVRIQU5PTCIsImZ1ZWxfdHlwZSI6Ik1ldGhhbm9sIiwiZGVsaXZlcnlfcG9pbnRfaWQiOiI3MzgzNWU5Mi04MjBlLTU4NGItODI4MC1iYjYxYzYzYWEyOGUiLCJkZWxpdmVyeV9wb2ludF9uYW1lIjoiU2luZ2Fwb3JlIiwiYXZhaWxhYmlsaXR5X3dpbmRvdyI6IjIwMzEtMDUiLCJyZWdpb24iOiJBc2lhIiwic2lkZSI6IkFTSyIsIm1pbl9wcmljZSI6IjExMDAiLCJtYXhfcHJpY2UiOiIxMTAwIiwidG90YWxfcXVhbnRpdHkiOiIxMDAuMDAiLCJvcmRlcl9jb3VudCI6MSwicHJvZHVjdF90b3RhbF9vcmRlcl9jb3VudCI6MTAwNDEsImV2aWRlbmNlX2NsYXNzIjoiUkVBTCIsInNvdXJjZV9raW5kIjoiTElWRV9PUkRFUiIsInNjb3BlIjoiREVMSVZFUllfUE9JTlQiLCJkZW1vX3N0YXR1cyI6IlJFQUxfT05MWSIsIm9ic2VydmVkX2F0IjoiMjAyNi0xMC0xNVQxMTowMDowMFoifSx7InByb2R1Y3RfaWQiOiI5NTEwYzcxMy02ZTM5LTUwODAtYWRkMy0wYTdjMjk2NTdiNzkiLCJwcm9kdWN0X25hbWUiOiJCaW8gTWV0aGFub2wiLCJtYXJrZXRfcHJvZHVjdCI6IkJJT19NRVRIQU5PTCIsImZ1ZWxfdHlwZSI6Ik1ldGhhbm9sIiwiZGVsaXZlcnlfcG9pbnRfaWQiOiI3MzgzNWU5Mi04MjBlLTU4NGItODI4MC1iYjYxYzYzYWEyOGUiLCJkZWxpdmVyeV9wb2ludF9uYW1lIjoiU2luZ2Fwb3JlIiwiYXZhaWxhYmlsaXR5X3dpbmRvdyI6IjIwMzEtMDUiLCJyZWdpb24iOiJBc2lhIiwic2lkZSI6IkJJRCIsIm1pbl9wcmljZSI6IjEwMDAiLCJtYXhfcHJpY2UiOiIxMDAwIiwidG90YWxfcXVhbnRpdHkiOiIxMDAuMDAiLCJvcmRlcl9jb3VudCI6MSwicHJvZHVjdF90b3RhbF9vcmRlcl9jb3VudCI6MTAwNDEsImV2aWRlbmNlX2NsYXNzIjoiUkVBTCIsInNvdXJjZV9raW5kIjoiTElWRV9PUkRFUiIsInNjb3BlIjoiREVMSVZFUllfUE9JTlQiLCJkZW1vX3N0YXR1cyI6IlJFQUxfT05MWSIsIm9ic2VydmVkX2F0IjoiMjAyNi0xMC0xNVQxMTowMDowMFoifSx7InByb2R1Y3RfaWQiOiI5NTEwYzcxMy02ZTM5LTUwODAtYWRkMy0wYTdjMjk2NTdiNzkiLCJwcm9kdWN0X25hbWUiOiJCaW8gTWV0aGFub2wiLCJtYXJrZXRfcHJvZHVjdCI6IkJJT19NRVRIQU5PTCIsImZ1ZWxfdHlwZSI6Ik1ldGhhbm9sIiwiZGVsaXZlcnlfcG9pbnRfaWQiOiI3MzgzNWU5Mi04MjBlLTU4NGItODI4MC1iYjYxYzYzYWEyOGUiLCJkZWxpdmVyeV9wb2ludF9uYW1lIjoiU2luZ2Fwb3JlIiwiYXZhaWxhYmlsaXR5X3dpbmRvdyI6IjIwMzEtMDYiLCJyZWdpb24iOiJBc2lhIiwic2lkZSI6IkFTSyIsIm1pbl9wcmljZSI6IjExMDAiLCJtYXhfcHJpY2UiOiIxMTAwIiwidG90YWxfcXVhbnRpdHkiOiIxMDAuMDAiLCJvcmRlcl9jb3VudCI6MSwicHJvZHVjdF90b3RhbF9vcmRlcl9jb3VudCI6MTAwNDEsImV2aWRlbmNlX2NsYXNzIjoiUkVBTCIsInNvdXJjZV9raW5kIjoiTElWRV9PUkRFUiIsInNjb3BlIjoiREVMSVZFUllfUE9JTlQiLCJkZW1vX3N0YXR1cyI6IlJFQUxfT05MWSIsIm9ic2VydmVkX2F0IjoiMjAyNi0xMC0xNVQxMTowMDowMC41MDAwMDBaIn0seyJwcm9kdWN0X2lkIjoiOTUxMGM3MTMtNmUzOS01MDgwLWFkZDMtMGE3YzI5NjU3Yjc5IiwicHJvZHVjdF9uYW1lIjoiQmlvIE1ldGhhbm9sIiwibWFya2V0X3Byb2R1Y3QiOiJCSU9fTUVUSEFOT0wiLCJmdWVsX3R5cGUiOiJNZXRoYW5vbCIsImRlbGl2ZXJ5X3BvaW50X2lkIjoiNzM4MzVlOTItODIwZS01ODRiLTgyODAtYmI2MWM2M2FhMjhlIiwiZGVsaXZlcnlfcG9pbnRfbmFtZSI6IlNpbmdhcG9yZSIsImF2YWlsYWJpbGl0eV93aW5kb3ciOiIyMDMxLTA2IiwicmVnaW9uIjoiQXNpYSIsInNpZGUiOiJCSUQiLCJtaW5fcHJpY2UiOiIxMDAwIiwibWF4X3ByaWNlIjoiMTAwMCIsInRvdGFsX3F1YW50aXR5IjoiMTAwLjAwIiwib3JkZXJfY291bnQiOjEsInByb2R1Y3RfdG90YWxfb3JkZXJfY291bnQiOjEwMDQxLCJldmlkZW5jZV9jbGFzcyI6IlJFQUwiLCJzb3VyY2Vfa2luZCI6IkxJVkVfT1JERVIiLCJzY29wZSI6IkRFTElWRVJZX1BPSU5UIiwiZGVtb19zdGF0dXMiOiJSRUFMX09OTFkiLCJvYnNlcnZlZF9hdCI6IjIwMjYtMTAtMTVUMTE6MDA6MDAuNTAwMDAwWiJ9LHsicHJvZHVjdF9pZCI6Ijk1MTBjNzEzLTZlMzktNTA4MC1hZGQzLTBhN2MyOTY1N2I3OSIsInByb2R1Y3RfbmFtZSI6IkJpbyBNZXRoYW5vbCIsIm1hcmtldF9wcm9kdWN0IjoiQklPX01FVEhBTk9MIiwiZnVlbF90eXBlIjoiTWV0aGFub2wiLCJkZWxpdmVyeV9wb2ludF9pZCI6IjczODM1ZTkyLTgyMGUtNTg0Yi04MjgwLWJiNjFjNjNhYTI4ZSIsImRlbGl2ZXJ5X3BvaW50X25hbWUiOiJTaW5nYXBvcmUiLCJhdmFpbGFiaWxpdHlfd2luZG93IjoiU1BPVCIsInJlZ2lvbiI6IkFzaWEiLCJzaWRlIjoiQVNLIiwibWluX3ByaWNlIjoiNjAwLjAwIiwibWF4X3ByaWNlIjoiNjAwLjAwIiwidG90YWxfcXVhbnRpdHkiOiIxMDAuMDAiLCJvcmRlcl9jb3VudCI6MSwicHJvZHVjdF90b3RhbF9vcmRlcl9jb3VudCI6MTAwNDEsImV2aWRlbmNlX2NsYXNzIjoiUkVBTCIsInNvdXJjZV9raW5kIjoiTElWRV9PUkRFUiIsInNjb3BlIjoiREVMSVZFUllfUE9JTlQiLCJkZW1vX3N0YXR1cyI6IlJFQUxfT05MWSIsIm9ic2VydmVkX2F0IjoiMjAyNi0xMC0xNVQxMjowMDowMFoifSx7InByb2R1Y3RfaWQiOiI5NTEwYzcxMy02ZTM5LTUwODAtYWRkMy0wYTdjMjk2NTdiNzkiLCJwcm9kdWN0X25hbWUiOiJCaW8gTWV0aGFub2wiLCJtYXJrZXRfcHJvZHVjdCI6IkJJT19NRVRIQU5PTCIsImZ1ZWxfdHlwZSI6Ik1ldGhhbm9sIiwiZGVsaXZlcnlfcG9pbnRfaWQiOiI3MzgzNWU5Mi04MjBlLTU4NGItODI4MC1iYjYxYzYzYWEyOGUiLCJkZWxpdmVyeV9wb2ludF9uYW1lIjoiU2luZ2Fwb3JlIiwiYXZhaWxhYmlsaXR5X3dpbmRvdyI6IlNQT1QiLCJyZWdpb24iOiJBc2lhIiwic2lkZSI6IkJJRCIsIm1pbl9wcmljZSI6IjYwMC4wMCIsIm1heF9wcmljZSI6IjYwMC4wMCIsInRvdGFsX3F1YW50aXR5IjoiMTAwLjAwIiwib3JkZXJfY291bnQiOjEsInByb2R1Y3RfdG90YWxfb3JkZXJfY291bnQiOjEsImV2aWRlbmNlX2NsYXNzIjoiREVNTyIsInNvdXJjZV9raW5kIjoiREVNT19TRUVEIiwic2NvcGUiOiJERUxJVkVSWV9QT0lOVCIsImRlbW9fc3RhdHVzIjoiREVNT19PTkxZIiwib2JzZXJ2ZWRfYXQiOiIyMDI2LTEwLTE1VDEyOjAwOjAwWiJ9LHsicHJvZHVjdF9pZCI6Ijk1MTBjNzEzLTZlMzktNTA4MC1hZGQzLTBhN2MyOTY1N2I3OSIsInByb2R1Y3RfbmFtZSI6IkJpbyBNZXRoYW5vbCIsIm1hcmtldF9wcm9kdWN0IjoiQklPX01FVEhBTk9MIiwiZnVlbF90eXBlIjoiTWV0aGFub2wiLCJkZWxpdmVyeV9wb2ludF9pZCI6IjczODM1ZTkyLTgyMGUtNTg0Yi04MjgwLWJiNjFjNjNhYTI4ZSIsImRlbGl2ZXJ5X3BvaW50X25hbWUiOiJTaW5nYXBvcmUiLCJhdmFpbGFiaWxpdHlfd2luZG93IjoiU1BPVCIsInJlZ2lvbiI6IkFzaWEiLCJzaWRlIjoiQklEIiwibWluX3ByaWNlIjoiNjAwLjAwIiwibWF4X3ByaWNlIjoiNjAwLjAwIiwidG90YWxfcXVhbnRpdHkiOiIxMTQwLjAwIiwib3JkZXJfY291bnQiOjEyLCJwcm9kdWN0X3RvdGFsX29yZGVyX2NvdW50IjoxMDA0MSwiZXZpZGVuY2VfY2xhc3MiOiJSRUFMIiwic291cmNlX2tpbmQiOiJMSVZFX09SREVSIiwic2NvcGUiOiJERUxJVkVSWV9QT0lOVCIsImRlbW9fc3RhdHVzIjoiUkVBTF9PTkxZIiwib2JzZXJ2ZWRfYXQiOiIyMDI2LTEwLTE1VDEyOjAwOjAwWiJ9LHsicHJvZHVjdF9pZCI6ImU1NjFlNDNmLWQ5YjItNTk4ZS05ODFjLWYxZDI4ZDUxNWRkYyIsInByb2R1Y3RfbmFtZSI6IlVDT01FIEIxMDAiLCJtYXJrZXRfcHJvZHVjdCI6IlVDT01FX0IxMDAiLCJmdWVsX3R5cGUiOiJGQU1FIiwiZGVsaXZlcnlfcG9pbnRfaWQiOiI3MzgzNWU5Mi04MjBlLTU4NGItODI4MC1iYjYxYzYzYWEyOGUiLCJkZWxpdmVyeV9wb2ludF9uYW1lIjoiU2luZ2Fwb3JlIiwiYXZhaWxhYmlsaXR5X3dpbmRvdyI6IlNQT1QiLCJyZWdpb24iOiJBc2lhIiwic2lkZSI6IkFTSyIsIm1pbl9wcmljZSI6IjYwMC4wMCIsIm1heF9wcmljZSI6IjYwMC4wMCIsInRvdGFsX3F1YW50aXR5IjoiMzAwLjAwIiwib3JkZXJfY291bnQiOjMsInByb2R1Y3RfdG90YWxfb3JkZXJfY291bnQiOjMsImV2aWRlbmNlX2NsYXNzIjoiUkVBTCIsInNvdXJjZV9raW5kIjoiTElWRV9PUkRFUiIsInNjb3BlIjoiREVMSVZFUllfUE9JTlQiLCJkZW1vX3N0YXR1cyI6IlJFQUxfT05MWSIsIm9ic2VydmVkX2F0IjoiMjAyNi0xMC0xNVQxMjowMDowMFoifV0="
+    },
+    {
+      "id": "R19-aggregated-head--kyc-off",
+      "request": {
+        "method": "HEAD",
+        "path": "/api/orderbook/aggregated",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 405,
+        "headers": {
+          "allow": "GET",
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": null,
+        "body_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "raw_body_base64": ""
+    },
+    {
+      "id": "R19-aggregated-post-405--kyc-off",
+      "request": {
+        "method": "POST",
+        "path": "/api/orderbook/aggregated",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 405,
+        "headers": {
+          "allow": "GET",
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "detail": "Method Not Allowed"
+        },
+        "body_sha256": "83c09ba9a8daedb136f90b17a294caa90ad471a016e430df6e229acb5a81e100"
+      },
+      "raw_body_base64": "eyJkZXRhaWwiOiJNZXRob2QgTm90IEFsbG93ZWQifQ=="
+    },
+    {
+      "id": "R19-aggregated-options-405--kyc-off",
+      "request": {
+        "method": "OPTIONS",
+        "path": "/api/orderbook/aggregated",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 405,
+        "headers": {
+          "allow": "GET",
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "detail": "Method Not Allowed"
+        },
+        "body_sha256": "83c09ba9a8daedb136f90b17a294caa90ad471a016e430df6e229acb5a81e100"
+      },
+      "raw_body_base64": "eyJkZXRhaWwiOiJNZXRob2QgTm90IEFsbG93ZWQifQ=="
+    },
+    {
+      "id": "R19-aggregated-slash-307--kyc-off",
+      "request": {
+        "method": "GET",
+        "path": "/api/orderbook/aggregated/",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 307,
+        "headers": {
+          "location": "{endpoint}/api/orderbook/aggregated",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": null,
+        "body_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "raw_body_base64": ""
+    },
+    {
+      "id": "R20-product-counts--kyc-off",
+      "request": {
+        "method": "GET",
+        "path": "/api/orderbook/product-counts",
+        "query": "side=BID",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "counts": {
+            "B30": 1,
+            "B100": 1,
+            "BIO_LNG": 0,
+            "UCOME_B100": 0,
+            "BIO_METHANOL": 10027,
+            "E_METHANOL": 0,
+            "BIO_ETHANOL": 0,
+            "SYNTHETIC_ETHANOL": 0
+          },
+          "total": 10029
+        },
+        "body_sha256": "feb04f6e73481fd43596ab5e50ff18e8691b2306df256b68058151983001eef3"
+      },
+      "raw_body_base64": "eyJjb3VudHMiOnsiQjMwIjoxLCJCMTAwIjoxLCJCSU9fTE5HIjowLCJVQ09NRV9CMTAwIjowLCJCSU9fTUVUSEFOT0wiOjEwMDI3LCJFX01FVEhBTk9MIjowLCJCSU9fRVRIQU5PTCI6MCwiU1lOVEhFVElDX0VUSEFOT0wiOjB9LCJ0b3RhbCI6MTAwMjl9"
+    },
+    {
+      "id": "R20-product-counts-head--kyc-off",
+      "request": {
+        "method": "HEAD",
+        "path": "/api/orderbook/product-counts",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 405,
+        "headers": {
+          "allow": "GET",
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": null,
+        "body_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "raw_body_base64": ""
+    },
+    {
+      "id": "R20-product-counts-post-405--kyc-off",
+      "request": {
+        "method": "POST",
+        "path": "/api/orderbook/product-counts",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 405,
+        "headers": {
+          "allow": "GET",
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "detail": "Method Not Allowed"
+        },
+        "body_sha256": "83c09ba9a8daedb136f90b17a294caa90ad471a016e430df6e229acb5a81e100"
+      },
+      "raw_body_base64": "eyJkZXRhaWwiOiJNZXRob2QgTm90IEFsbG93ZWQifQ=="
+    },
+    {
+      "id": "R20-product-counts-options-405--kyc-off",
+      "request": {
+        "method": "OPTIONS",
+        "path": "/api/orderbook/product-counts",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 405,
+        "headers": {
+          "allow": "GET",
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "detail": "Method Not Allowed"
+        },
+        "body_sha256": "83c09ba9a8daedb136f90b17a294caa90ad471a016e430df6e229acb5a81e100"
+      },
+      "raw_body_base64": "eyJkZXRhaWwiOiJNZXRob2QgTm90IEFsbG93ZWQifQ=="
+    },
+    {
+      "id": "R20-product-counts-slash-307--kyc-off",
+      "request": {
+        "method": "GET",
+        "path": "/api/orderbook/product-counts/",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 307,
+        "headers": {
+          "location": "{endpoint}/api/orderbook/product-counts",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": null,
+        "body_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "raw_body_base64": ""
+    },
+    {
+      "id": "R21-map-summary--kyc-off",
+      "request": {
+        "method": "GET",
+        "path": "/api/orderbook/map-summary",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "groups": [
+            {
+              "product_id": "74eb9cb5-f0e3-55f1-b82c-fe29b7c45bf5",
+              "product_name": "B100",
+              "market_product": "B100",
+              "fuel_type": "Biofuel",
+              "delivery_point_id": "73835e92-820e-584b-8280-bb61c63aa28e",
+              "delivery_point_name": "Singapore",
+              "availability_window": "SPOT",
+              "region": "Asia",
+              "side": "ASK",
+              "min_price": "600.00",
+              "max_price": "600.00",
+              "total_quantity": "100.00",
+              "order_count": 1,
+              "product_total_order_count": 2,
+              "evidence_class": "REAL",
+              "source_kind": "LIVE_ORDER",
+              "scope": "DELIVERY_POINT",
+              "demo_status": "REAL_ONLY",
+              "observed_at": "2026-10-15T12:00:00Z"
+            },
+            {
+              "product_id": "74eb9cb5-f0e3-55f1-b82c-fe29b7c45bf5",
+              "product_name": "B100",
+              "market_product": "B100",
+              "fuel_type": "Biofuel",
+              "delivery_point_id": "73835e92-820e-584b-8280-bb61c63aa28e",
+              "delivery_point_name": "Singapore",
+              "availability_window": "SPOT",
+              "region": "Asia",
+              "side": "BID",
+              "min_price": "600.00",
+              "max_price": "600.00",
+              "total_quantity": "100.00",
+              "order_count": 1,
+              "product_total_order_count": 2,
+              "evidence_class": "REAL",
+              "source_kind": "LIVE_ORDER",
+              "scope": "DELIVERY_POINT",
+              "demo_status": "REAL_ONLY",
+              "observed_at": "2026-10-15T12:00:00Z"
+            },
+            {
+              "product_id": "c4cecebc-3d2d-5840-8021-57a9a11bc673",
+              "product_name": "B30",
+              "market_product": "B30",
+              "fuel_type": "Biofuel",
+              "delivery_point_id": "73835e92-820e-584b-8280-bb61c63aa28e",
+              "delivery_point_name": "Singapore",
+              "availability_window": "SPOT",
+              "region": "Asia",
+              "side": "ASK",
+              "min_price": "600.00",
+              "max_price": "600.00",
+              "total_quantity": "100.00",
+              "order_count": 1,
+              "product_total_order_count": 2,
+              "evidence_class": "REAL",
+              "source_kind": "LIVE_ORDER",
+              "scope": "DELIVERY_POINT",
+              "demo_status": "REAL_ONLY",
+              "observed_at": "2026-10-15T12:00:00Z"
+            },
+            {
+              "product_id": "c4cecebc-3d2d-5840-8021-57a9a11bc673",
+              "product_name": "B30",
+              "market_product": "B30",
+              "fuel_type": "Biofuel",
+              "delivery_point_id": "73835e92-820e-584b-8280-bb61c63aa28e",
+              "delivery_point_name": "Singapore",
+              "availability_window": "SPOT",
+              "region": "Asia",
+              "side": "BID",
+              "min_price": "600.00",
+              "max_price": "600.00",
+              "total_quantity": "100.00",
+              "order_count": 1,
+              "product_total_order_count": 2,
+              "evidence_class": "REAL",
+              "source_kind": "LIVE_ORDER",
+              "scope": "DELIVERY_POINT",
+              "demo_status": "REAL_ONLY",
+              "observed_at": "2026-10-15T12:00:00Z"
+            },
+            {
+              "product_id": "8f6f34a5-2927-54a6-8564-cca40ae7cb8a",
+              "product_name": "Bio-LNG",
+              "market_product": "BIO_LNG",
+              "fuel_type": "LNG",
+              "delivery_point_id": "1379d36c-1ca9-55b7-9c0d-5235a0ba1f36",
+              "delivery_point_name": "Rotterdam",
+              "availability_window": "SPOT",
+              "region": "Europe",
+              "side": "ASK",
+              "min_price": "600.00",
+              "max_price": "600.00",
+              "total_quantity": "400.00",
+              "order_count": 4,
+              "product_total_order_count": 4,
+              "evidence_class": "REAL",
+              "source_kind": "LIVE_ORDER",
+              "scope": "DELIVERY_POINT",
+              "demo_status": "REAL_ONLY",
+              "observed_at": "2026-10-15T12:00:00Z"
+            },
+            {
+              "product_id": "9510c713-6e39-5080-add3-0a7c29657b79",
+              "product_name": "Bio Methanol",
+              "market_product": "BIO_METHANOL",
+              "fuel_type": "Methanol",
+              "delivery_point_id": "73835e92-820e-584b-8280-bb61c63aa28e",
+              "delivery_point_name": "Singapore",
+              "availability_window": "2031-02",
+              "region": "Asia",
+              "side": "ASK",
+              "min_price": "1101",
+              "max_price": "1112",
+              "total_quantity": "1200.00",
+              "order_count": 12,
+              "product_total_order_count": 10041,
+              "evidence_class": "REAL",
+              "source_kind": "LIVE_ORDER",
+              "scope": "DELIVERY_POINT",
+              "demo_status": "REAL_ONLY",
+              "observed_at": "2026-10-15T12:00:00Z"
+            },
+            {
+              "product_id": "9510c713-6e39-5080-add3-0a7c29657b79",
+              "product_name": "Bio Methanol",
+              "market_product": "BIO_METHANOL",
+              "fuel_type": "Methanol",
+              "delivery_point_id": "73835e92-820e-584b-8280-bb61c63aa28e",
+              "delivery_point_name": "Singapore",
+              "availability_window": "2031-02",
+              "region": "Asia",
+              "side": "BID",
+              "min_price": "1001",
+              "max_price": "1012",
+              "total_quantity": "1200.00",
+              "order_count": 12,
+              "product_total_order_count": 10041,
+              "evidence_class": "REAL",
+              "source_kind": "LIVE_ORDER",
+              "scope": "DELIVERY_POINT",
+              "demo_status": "REAL_ONLY",
+              "observed_at": "2026-10-15T12:00:00Z"
+            },
+            {
+              "product_id": "9510c713-6e39-5080-add3-0a7c29657b79",
+              "product_name": "Bio Methanol",
+              "market_product": "BIO_METHANOL",
+              "fuel_type": "Methanol",
+              "delivery_point_id": "73835e92-820e-584b-8280-bb61c63aa28e",
+              "delivery_point_name": "Singapore",
+              "availability_window": "2031-04",
+              "region": "Asia",
+              "side": "BID",
+              "min_price": "1000.000000000000000000000000000000",
+              "max_price": "1000.000000000000000000000000000000",
+              "total_quantity": "1000000.00",
+              "order_count": 10000,
+              "product_total_order_count": 10041,
+              "evidence_class": "REAL",
+              "source_kind": "LIVE_ORDER",
+              "scope": "DELIVERY_POINT",
+              "demo_status": "REAL_ONLY",
+              "observed_at": "2026-10-15T12:00:00Z"
+            },
+            {
+              "product_id": "9510c713-6e39-5080-add3-0a7c29657b79",
+              "product_name": "Bio Methanol",
+              "market_product": "BIO_METHANOL",
+              "fuel_type": "Methanol",
+              "delivery_point_id": "73835e92-820e-584b-8280-bb61c63aa28e",
+              "delivery_point_name": "Singapore",
+              "availability_window": "2031-05",
+              "region": "Asia",
+              "side": "ASK",
+              "min_price": "1100",
+              "max_price": "1100",
+              "total_quantity": "100.00",
+              "order_count": 1,
+              "product_total_order_count": 10041,
+              "evidence_class": "REAL",
+              "source_kind": "LIVE_ORDER",
+              "scope": "DELIVERY_POINT",
+              "demo_status": "REAL_ONLY",
+              "observed_at": "2026-10-15T11:00:00Z"
+            },
+            {
+              "product_id": "9510c713-6e39-5080-add3-0a7c29657b79",
+              "product_name": "Bio Methanol",
+              "market_product": "BIO_METHANOL",
+              "fuel_type": "Methanol",
+              "delivery_point_id": "73835e92-820e-584b-8280-bb61c63aa28e",
+              "delivery_point_name": "Singapore",
+              "availability_window": "2031-05",
+              "region": "Asia",
+              "side": "BID",
+              "min_price": "1000",
+              "max_price": "1000",
+              "total_quantity": "100.00",
+              "order_count": 1,
+              "product_total_order_count": 10041,
+              "evidence_class": "REAL",
+              "source_kind": "LIVE_ORDER",
+              "scope": "DELIVERY_POINT",
+              "demo_status": "REAL_ONLY",
+              "observed_at": "2026-10-15T11:00:00Z"
+            },
+            {
+              "product_id": "9510c713-6e39-5080-add3-0a7c29657b79",
+              "product_name": "Bio Methanol",
+              "market_product": "BIO_METHANOL",
+              "fuel_type": "Methanol",
+              "delivery_point_id": "73835e92-820e-584b-8280-bb61c63aa28e",
+              "delivery_point_name": "Singapore",
+              "availability_window": "2031-06",
+              "region": "Asia",
+              "side": "ASK",
+              "min_price": "1100",
+              "max_price": "1100",
+              "total_quantity": "100.00",
+              "order_count": 1,
+              "product_total_order_count": 10041,
+              "evidence_class": "REAL",
+              "source_kind": "LIVE_ORDER",
+              "scope": "DELIVERY_POINT",
+              "demo_status": "REAL_ONLY",
+              "observed_at": "2026-10-15T11:00:00.500000Z"
+            },
+            {
+              "product_id": "9510c713-6e39-5080-add3-0a7c29657b79",
+              "product_name": "Bio Methanol",
+              "market_product": "BIO_METHANOL",
+              "fuel_type": "Methanol",
+              "delivery_point_id": "73835e92-820e-584b-8280-bb61c63aa28e",
+              "delivery_point_name": "Singapore",
+              "availability_window": "2031-06",
+              "region": "Asia",
+              "side": "BID",
+              "min_price": "1000",
+              "max_price": "1000",
+              "total_quantity": "100.00",
+              "order_count": 1,
+              "product_total_order_count": 10041,
+              "evidence_class": "REAL",
+              "source_kind": "LIVE_ORDER",
+              "scope": "DELIVERY_POINT",
+              "demo_status": "REAL_ONLY",
+              "observed_at": "2026-10-15T11:00:00.500000Z"
+            },
+            {
+              "product_id": "9510c713-6e39-5080-add3-0a7c29657b79",
+              "product_name": "Bio Methanol",
+              "market_product": "BIO_METHANOL",
+              "fuel_type": "Methanol",
+              "delivery_point_id": "73835e92-820e-584b-8280-bb61c63aa28e",
+              "delivery_point_name": "Singapore",
+              "availability_window": "SPOT",
+              "region": "Asia",
+              "side": "ASK",
+              "min_price": "600.00",
+              "max_price": "600.00",
+              "total_quantity": "100.00",
+              "order_count": 1,
+              "product_total_order_count": 10041,
+              "evidence_class": "REAL",
+              "source_kind": "LIVE_ORDER",
+              "scope": "DELIVERY_POINT",
+              "demo_status": "REAL_ONLY",
+              "observed_at": "2026-10-15T12:00:00Z"
+            },
+            {
+              "product_id": "9510c713-6e39-5080-add3-0a7c29657b79",
+              "product_name": "Bio Methanol",
+              "market_product": "BIO_METHANOL",
+              "fuel_type": "Methanol",
+              "delivery_point_id": "73835e92-820e-584b-8280-bb61c63aa28e",
+              "delivery_point_name": "Singapore",
+              "availability_window": "SPOT",
+              "region": "Asia",
+              "side": "BID",
+              "min_price": "600.00",
+              "max_price": "600.00",
+              "total_quantity": "100.00",
+              "order_count": 1,
+              "product_total_order_count": 1,
+              "evidence_class": "DEMO",
+              "source_kind": "DEMO_SEED",
+              "scope": "DELIVERY_POINT",
+              "demo_status": "DEMO_ONLY",
+              "observed_at": "2026-10-15T12:00:00Z"
+            },
+            {
+              "product_id": "9510c713-6e39-5080-add3-0a7c29657b79",
+              "product_name": "Bio Methanol",
+              "market_product": "BIO_METHANOL",
+              "fuel_type": "Methanol",
+              "delivery_point_id": "73835e92-820e-584b-8280-bb61c63aa28e",
+              "delivery_point_name": "Singapore",
+              "availability_window": "SPOT",
+              "region": "Asia",
+              "side": "BID",
+              "min_price": "600.00",
+              "max_price": "600.00",
+              "total_quantity": "1140.00",
+              "order_count": 12,
+              "product_total_order_count": 10041,
+              "evidence_class": "REAL",
+              "source_kind": "LIVE_ORDER",
+              "scope": "DELIVERY_POINT",
+              "demo_status": "REAL_ONLY",
+              "observed_at": "2026-10-15T12:00:00Z"
+            },
+            {
+              "product_id": "e561e43f-d9b2-598e-981c-f1d28d515ddc",
+              "product_name": "UCOME B100",
+              "market_product": "UCOME_B100",
+              "fuel_type": "FAME",
+              "delivery_point_id": "73835e92-820e-584b-8280-bb61c63aa28e",
+              "delivery_point_name": "Singapore",
+              "availability_window": "SPOT",
+              "region": "Asia",
+              "side": "ASK",
+              "min_price": "600.00",
+              "max_price": "600.00",
+              "total_quantity": "300.00",
+              "order_count": 3,
+              "product_total_order_count": 3,
+              "evidence_class": "REAL",
+              "source_kind": "LIVE_ORDER",
+              "scope": "DELIVERY_POINT",
+              "demo_status": "REAL_ONLY",
+              "observed_at": "2026-10-15T12:00:00Z"
+            }
+          ],
+          "recent_asks": [
+            {
+              "product_id": "8f6f34a5-2927-54a6-8564-cca40ae7cb8a",
+              "product_name": "Bio-LNG",
+              "market_product": "BIO_LNG",
+              "fuel_type": "LNG",
+              "delivery_point_id": "1379d36c-1ca9-55b7-9c0d-5235a0ba1f36",
+              "delivery_point_name": "Rotterdam",
+              "region": "Europe",
+              "price_per_mt_usd": "600.00",
+              "remaining_quantity_mt": "100.00",
+              "created_at": "2026-10-15T12:00:00Z",
+              "evidence_class": "REAL",
+              "source_kind": "LIVE_ORDER",
+              "scope": "DELIVERY_POINT",
+              "demo_status": "REAL_ONLY"
+            },
+            {
+              "product_id": "9510c713-6e39-5080-add3-0a7c29657b79",
+              "product_name": "Bio Methanol",
+              "market_product": "BIO_METHANOL",
+              "fuel_type": "Methanol",
+              "delivery_point_id": "73835e92-820e-584b-8280-bb61c63aa28e",
+              "delivery_point_name": "Singapore",
+              "region": "Asia",
+              "price_per_mt_usd": "1109",
+              "remaining_quantity_mt": "100.00",
+              "created_at": "2026-10-15T12:00:00Z",
+              "evidence_class": "REAL",
+              "source_kind": "LIVE_ORDER",
+              "scope": "DELIVERY_POINT",
+              "demo_status": "REAL_ONLY"
+            }
+          ]
+        },
+        "body_sha256": "33cd48129816f0288b4c359df52eaf6eaca9e48ce09a75ec0277db9587d6e0d0"
+      },
+      "raw_body_base64": "eyJncm91cHMiOlt7InByb2R1Y3RfaWQiOiI3NGViOWNiNS1mMGUzLTU1ZjEtYjgyYy1mZTI5YjdjNDViZjUiLCJwcm9kdWN0X25hbWUiOiJCMTAwIiwibWFya2V0X3Byb2R1Y3QiOiJCMTAwIiwiZnVlbF90eXBlIjoiQmlvZnVlbCIsImRlbGl2ZXJ5X3BvaW50X2lkIjoiNzM4MzVlOTItODIwZS01ODRiLTgyODAtYmI2MWM2M2FhMjhlIiwiZGVsaXZlcnlfcG9pbnRfbmFtZSI6IlNpbmdhcG9yZSIsImF2YWlsYWJpbGl0eV93aW5kb3ciOiJTUE9UIiwicmVnaW9uIjoiQXNpYSIsInNpZGUiOiJBU0siLCJtaW5fcHJpY2UiOiI2MDAuMDAiLCJtYXhfcHJpY2UiOiI2MDAuMDAiLCJ0b3RhbF9xdWFudGl0eSI6IjEwMC4wMCIsIm9yZGVyX2NvdW50IjoxLCJwcm9kdWN0X3RvdGFsX29yZGVyX2NvdW50IjoyLCJldmlkZW5jZV9jbGFzcyI6IlJFQUwiLCJzb3VyY2Vfa2luZCI6IkxJVkVfT1JERVIiLCJzY29wZSI6IkRFTElWRVJZX1BPSU5UIiwiZGVtb19zdGF0dXMiOiJSRUFMX09OTFkiLCJvYnNlcnZlZF9hdCI6IjIwMjYtMTAtMTVUMTI6MDA6MDBaIn0seyJwcm9kdWN0X2lkIjoiNzRlYjljYjUtZjBlMy01NWYxLWI4MmMtZmUyOWI3YzQ1YmY1IiwicHJvZHVjdF9uYW1lIjoiQjEwMCIsIm1hcmtldF9wcm9kdWN0IjoiQjEwMCIsImZ1ZWxfdHlwZSI6IkJpb2Z1ZWwiLCJkZWxpdmVyeV9wb2ludF9pZCI6IjczODM1ZTkyLTgyMGUtNTg0Yi04MjgwLWJiNjFjNjNhYTI4ZSIsImRlbGl2ZXJ5X3BvaW50X25hbWUiOiJTaW5nYXBvcmUiLCJhdmFpbGFiaWxpdHlfd2luZG93IjoiU1BPVCIsInJlZ2lvbiI6IkFzaWEiLCJzaWRlIjoiQklEIiwibWluX3ByaWNlIjoiNjAwLjAwIiwibWF4X3ByaWNlIjoiNjAwLjAwIiwidG90YWxfcXVhbnRpdHkiOiIxMDAuMDAiLCJvcmRlcl9jb3VudCI6MSwicHJvZHVjdF90b3RhbF9vcmRlcl9jb3VudCI6MiwiZXZpZGVuY2VfY2xhc3MiOiJSRUFMIiwic291cmNlX2tpbmQiOiJMSVZFX09SREVSIiwic2NvcGUiOiJERUxJVkVSWV9QT0lOVCIsImRlbW9fc3RhdHVzIjoiUkVBTF9PTkxZIiwib2JzZXJ2ZWRfYXQiOiIyMDI2LTEwLTE1VDEyOjAwOjAwWiJ9LHsicHJvZHVjdF9pZCI6ImM0Y2VjZWJjLTNkMmQtNTg0MC04MDIxLTU3YTlhMTFiYzY3MyIsInByb2R1Y3RfbmFtZSI6IkIzMCIsIm1hcmtldF9wcm9kdWN0IjoiQjMwIiwiZnVlbF90eXBlIjoiQmlvZnVlbCIsImRlbGl2ZXJ5X3BvaW50X2lkIjoiNzM4MzVlOTItODIwZS01ODRiLTgyODAtYmI2MWM2M2FhMjhlIiwiZGVsaXZlcnlfcG9pbnRfbmFtZSI6IlNpbmdhcG9yZSIsImF2YWlsYWJpbGl0eV93aW5kb3ciOiJTUE9UIiwicmVnaW9uIjoiQXNpYSIsInNpZGUiOiJBU0siLCJtaW5fcHJpY2UiOiI2MDAuMDAiLCJtYXhfcHJpY2UiOiI2MDAuMDAiLCJ0b3RhbF9xdWFudGl0eSI6IjEwMC4wMCIsIm9yZGVyX2NvdW50IjoxLCJwcm9kdWN0X3RvdGFsX29yZGVyX2NvdW50IjoyLCJldmlkZW5jZV9jbGFzcyI6IlJFQUwiLCJzb3VyY2Vfa2luZCI6IkxJVkVfT1JERVIiLCJzY29wZSI6IkRFTElWRVJZX1BPSU5UIiwiZGVtb19zdGF0dXMiOiJSRUFMX09OTFkiLCJvYnNlcnZlZF9hdCI6IjIwMjYtMTAtMTVUMTI6MDA6MDBaIn0seyJwcm9kdWN0X2lkIjoiYzRjZWNlYmMtM2QyZC01ODQwLTgwMjEtNTdhOWExMWJjNjczIiwicHJvZHVjdF9uYW1lIjoiQjMwIiwibWFya2V0X3Byb2R1Y3QiOiJCMzAiLCJmdWVsX3R5cGUiOiJCaW9mdWVsIiwiZGVsaXZlcnlfcG9pbnRfaWQiOiI3MzgzNWU5Mi04MjBlLTU4NGItODI4MC1iYjYxYzYzYWEyOGUiLCJkZWxpdmVyeV9wb2ludF9uYW1lIjoiU2luZ2Fwb3JlIiwiYXZhaWxhYmlsaXR5X3dpbmRvdyI6IlNQT1QiLCJyZWdpb24iOiJBc2lhIiwic2lkZSI6IkJJRCIsIm1pbl9wcmljZSI6IjYwMC4wMCIsIm1heF9wcmljZSI6IjYwMC4wMCIsInRvdGFsX3F1YW50aXR5IjoiMTAwLjAwIiwib3JkZXJfY291bnQiOjEsInByb2R1Y3RfdG90YWxfb3JkZXJfY291bnQiOjIsImV2aWRlbmNlX2NsYXNzIjoiUkVBTCIsInNvdXJjZV9raW5kIjoiTElWRV9PUkRFUiIsInNjb3BlIjoiREVMSVZFUllfUE9JTlQiLCJkZW1vX3N0YXR1cyI6IlJFQUxfT05MWSIsIm9ic2VydmVkX2F0IjoiMjAyNi0xMC0xNVQxMjowMDowMFoifSx7InByb2R1Y3RfaWQiOiI4ZjZmMzRhNS0yOTI3LTU0YTYtODU2NC1jY2E0MGFlN2NiOGEiLCJwcm9kdWN0X25hbWUiOiJCaW8tTE5HIiwibWFya2V0X3Byb2R1Y3QiOiJCSU9fTE5HIiwiZnVlbF90eXBlIjoiTE5HIiwiZGVsaXZlcnlfcG9pbnRfaWQiOiIxMzc5ZDM2Yy0xY2E5LTU1YjctOWMwZC01MjM1YTBiYTFmMzYiLCJkZWxpdmVyeV9wb2ludF9uYW1lIjoiUm90dGVyZGFtIiwiYXZhaWxhYmlsaXR5X3dpbmRvdyI6IlNQT1QiLCJyZWdpb24iOiJFdXJvcGUiLCJzaWRlIjoiQVNLIiwibWluX3ByaWNlIjoiNjAwLjAwIiwibWF4X3ByaWNlIjoiNjAwLjAwIiwidG90YWxfcXVhbnRpdHkiOiI0MDAuMDAiLCJvcmRlcl9jb3VudCI6NCwicHJvZHVjdF90b3RhbF9vcmRlcl9jb3VudCI6NCwiZXZpZGVuY2VfY2xhc3MiOiJSRUFMIiwic291cmNlX2tpbmQiOiJMSVZFX09SREVSIiwic2NvcGUiOiJERUxJVkVSWV9QT0lOVCIsImRlbW9fc3RhdHVzIjoiUkVBTF9PTkxZIiwib2JzZXJ2ZWRfYXQiOiIyMDI2LTEwLTE1VDEyOjAwOjAwWiJ9LHsicHJvZHVjdF9pZCI6Ijk1MTBjNzEzLTZlMzktNTA4MC1hZGQzLTBhN2MyOTY1N2I3OSIsInByb2R1Y3RfbmFtZSI6IkJpbyBNZXRoYW5vbCIsIm1hcmtldF9wcm9kdWN0IjoiQklPX01FVEhBTk9MIiwiZnVlbF90eXBlIjoiTWV0aGFub2wiLCJkZWxpdmVyeV9wb2ludF9pZCI6IjczODM1ZTkyLTgyMGUtNTg0Yi04MjgwLWJiNjFjNjNhYTI4ZSIsImRlbGl2ZXJ5X3BvaW50X25hbWUiOiJTaW5nYXBvcmUiLCJhdmFpbGFiaWxpdHlfd2luZG93IjoiMjAzMS0wMiIsInJlZ2lvbiI6IkFzaWEiLCJzaWRlIjoiQVNLIiwibWluX3ByaWNlIjoiMTEwMSIsIm1heF9wcmljZSI6IjExMTIiLCJ0b3RhbF9xdWFudGl0eSI6IjEyMDAuMDAiLCJvcmRlcl9jb3VudCI6MTIsInByb2R1Y3RfdG90YWxfb3JkZXJfY291bnQiOjEwMDQxLCJldmlkZW5jZV9jbGFzcyI6IlJFQUwiLCJzb3VyY2Vfa2luZCI6IkxJVkVfT1JERVIiLCJzY29wZSI6IkRFTElWRVJZX1BPSU5UIiwiZGVtb19zdGF0dXMiOiJSRUFMX09OTFkiLCJvYnNlcnZlZF9hdCI6IjIwMjYtMTAtMTVUMTI6MDA6MDBaIn0seyJwcm9kdWN0X2lkIjoiOTUxMGM3MTMtNmUzOS01MDgwLWFkZDMtMGE3YzI5NjU3Yjc5IiwicHJvZHVjdF9uYW1lIjoiQmlvIE1ldGhhbm9sIiwibWFya2V0X3Byb2R1Y3QiOiJCSU9fTUVUSEFOT0wiLCJmdWVsX3R5cGUiOiJNZXRoYW5vbCIsImRlbGl2ZXJ5X3BvaW50X2lkIjoiNzM4MzVlOTItODIwZS01ODRiLTgyODAtYmI2MWM2M2FhMjhlIiwiZGVsaXZlcnlfcG9pbnRfbmFtZSI6IlNpbmdhcG9yZSIsImF2YWlsYWJpbGl0eV93aW5kb3ciOiIyMDMxLTAyIiwicmVnaW9uIjoiQXNpYSIsInNpZGUiOiJCSUQiLCJtaW5fcHJpY2UiOiIxMDAxIiwibWF4X3ByaWNlIjoiMTAxMiIsInRvdGFsX3F1YW50aXR5IjoiMTIwMC4wMCIsIm9yZGVyX2NvdW50IjoxMiwicHJvZHVjdF90b3RhbF9vcmRlcl9jb3VudCI6MTAwNDEsImV2aWRlbmNlX2NsYXNzIjoiUkVBTCIsInNvdXJjZV9raW5kIjoiTElWRV9PUkRFUiIsInNjb3BlIjoiREVMSVZFUllfUE9JTlQiLCJkZW1vX3N0YXR1cyI6IlJFQUxfT05MWSIsIm9ic2VydmVkX2F0IjoiMjAyNi0xMC0xNVQxMjowMDowMFoifSx7InByb2R1Y3RfaWQiOiI5NTEwYzcxMy02ZTM5LTUwODAtYWRkMy0wYTdjMjk2NTdiNzkiLCJwcm9kdWN0X25hbWUiOiJCaW8gTWV0aGFub2wiLCJtYXJrZXRfcHJvZHVjdCI6IkJJT19NRVRIQU5PTCIsImZ1ZWxfdHlwZSI6Ik1ldGhhbm9sIiwiZGVsaXZlcnlfcG9pbnRfaWQiOiI3MzgzNWU5Mi04MjBlLTU4NGItODI4MC1iYjYxYzYzYWEyOGUiLCJkZWxpdmVyeV9wb2ludF9uYW1lIjoiU2luZ2Fwb3JlIiwiYXZhaWxhYmlsaXR5X3dpbmRvdyI6IjIwMzEtMDQiLCJyZWdpb24iOiJBc2lhIiwic2lkZSI6IkJJRCIsIm1pbl9wcmljZSI6IjEwMDAuMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwIiwibWF4X3ByaWNlIjoiMTAwMC4wMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAiLCJ0b3RhbF9xdWFudGl0eSI6IjEwMDAwMDAuMDAiLCJvcmRlcl9jb3VudCI6MTAwMDAsInByb2R1Y3RfdG90YWxfb3JkZXJfY291bnQiOjEwMDQxLCJldmlkZW5jZV9jbGFzcyI6IlJFQUwiLCJzb3VyY2Vfa2luZCI6IkxJVkVfT1JERVIiLCJzY29wZSI6IkRFTElWRVJZX1BPSU5UIiwiZGVtb19zdGF0dXMiOiJSRUFMX09OTFkiLCJvYnNlcnZlZF9hdCI6IjIwMjYtMTAtMTVUMTI6MDA6MDBaIn0seyJwcm9kdWN0X2lkIjoiOTUxMGM3MTMtNmUzOS01MDgwLWFkZDMtMGE3YzI5NjU3Yjc5IiwicHJvZHVjdF9uYW1lIjoiQmlvIE1ldGhhbm9sIiwibWFya2V0X3Byb2R1Y3QiOiJCSU9fTUVUSEFOT0wiLCJmdWVsX3R5cGUiOiJNZXRoYW5vbCIsImRlbGl2ZXJ5X3BvaW50X2lkIjoiNzM4MzVlOTItODIwZS01ODRiLTgyODAtYmI2MWM2M2FhMjhlIiwiZGVsaXZlcnlfcG9pbnRfbmFtZSI6IlNpbmdhcG9yZSIsImF2YWlsYWJpbGl0eV93aW5kb3ciOiIyMDMxLTA1IiwicmVnaW9uIjoiQXNpYSIsInNpZGUiOiJBU0siLCJtaW5fcHJpY2UiOiIxMTAwIiwibWF4X3ByaWNlIjoiMTEwMCIsInRvdGFsX3F1YW50aXR5IjoiMTAwLjAwIiwib3JkZXJfY291bnQiOjEsInByb2R1Y3RfdG90YWxfb3JkZXJfY291bnQiOjEwMDQxLCJldmlkZW5jZV9jbGFzcyI6IlJFQUwiLCJzb3VyY2Vfa2luZCI6IkxJVkVfT1JERVIiLCJzY29wZSI6IkRFTElWRVJZX1BPSU5UIiwiZGVtb19zdGF0dXMiOiJSRUFMX09OTFkiLCJvYnNlcnZlZF9hdCI6IjIwMjYtMTAtMTVUMTE6MDA6MDBaIn0seyJwcm9kdWN0X2lkIjoiOTUxMGM3MTMtNmUzOS01MDgwLWFkZDMtMGE3YzI5NjU3Yjc5IiwicHJvZHVjdF9uYW1lIjoiQmlvIE1ldGhhbm9sIiwibWFya2V0X3Byb2R1Y3QiOiJCSU9fTUVUSEFOT0wiLCJmdWVsX3R5cGUiOiJNZXRoYW5vbCIsImRlbGl2ZXJ5X3BvaW50X2lkIjoiNzM4MzVlOTItODIwZS01ODRiLTgyODAtYmI2MWM2M2FhMjhlIiwiZGVsaXZlcnlfcG9pbnRfbmFtZSI6IlNpbmdhcG9yZSIsImF2YWlsYWJpbGl0eV93aW5kb3ciOiIyMDMxLTA1IiwicmVnaW9uIjoiQXNpYSIsInNpZGUiOiJCSUQiLCJtaW5fcHJpY2UiOiIxMDAwIiwibWF4X3ByaWNlIjoiMTAwMCIsInRvdGFsX3F1YW50aXR5IjoiMTAwLjAwIiwib3JkZXJfY291bnQiOjEsInByb2R1Y3RfdG90YWxfb3JkZXJfY291bnQiOjEwMDQxLCJldmlkZW5jZV9jbGFzcyI6IlJFQUwiLCJzb3VyY2Vfa2luZCI6IkxJVkVfT1JERVIiLCJzY29wZSI6IkRFTElWRVJZX1BPSU5UIiwiZGVtb19zdGF0dXMiOiJSRUFMX09OTFkiLCJvYnNlcnZlZF9hdCI6IjIwMjYtMTAtMTVUMTE6MDA6MDBaIn0seyJwcm9kdWN0X2lkIjoiOTUxMGM3MTMtNmUzOS01MDgwLWFkZDMtMGE3YzI5NjU3Yjc5IiwicHJvZHVjdF9uYW1lIjoiQmlvIE1ldGhhbm9sIiwibWFya2V0X3Byb2R1Y3QiOiJCSU9fTUVUSEFOT0wiLCJmdWVsX3R5cGUiOiJNZXRoYW5vbCIsImRlbGl2ZXJ5X3BvaW50X2lkIjoiNzM4MzVlOTItODIwZS01ODRiLTgyODAtYmI2MWM2M2FhMjhlIiwiZGVsaXZlcnlfcG9pbnRfbmFtZSI6IlNpbmdhcG9yZSIsImF2YWlsYWJpbGl0eV93aW5kb3ciOiIyMDMxLTA2IiwicmVnaW9uIjoiQXNpYSIsInNpZGUiOiJBU0siLCJtaW5fcHJpY2UiOiIxMTAwIiwibWF4X3ByaWNlIjoiMTEwMCIsInRvdGFsX3F1YW50aXR5IjoiMTAwLjAwIiwib3JkZXJfY291bnQiOjEsInByb2R1Y3RfdG90YWxfb3JkZXJfY291bnQiOjEwMDQxLCJldmlkZW5jZV9jbGFzcyI6IlJFQUwiLCJzb3VyY2Vfa2luZCI6IkxJVkVfT1JERVIiLCJzY29wZSI6IkRFTElWRVJZX1BPSU5UIiwiZGVtb19zdGF0dXMiOiJSRUFMX09OTFkiLCJvYnNlcnZlZF9hdCI6IjIwMjYtMTAtMTVUMTE6MDA6MDAuNTAwMDAwWiJ9LHsicHJvZHVjdF9pZCI6Ijk1MTBjNzEzLTZlMzktNTA4MC1hZGQzLTBhN2MyOTY1N2I3OSIsInByb2R1Y3RfbmFtZSI6IkJpbyBNZXRoYW5vbCIsIm1hcmtldF9wcm9kdWN0IjoiQklPX01FVEhBTk9MIiwiZnVlbF90eXBlIjoiTWV0aGFub2wiLCJkZWxpdmVyeV9wb2ludF9pZCI6IjczODM1ZTkyLTgyMGUtNTg0Yi04MjgwLWJiNjFjNjNhYTI4ZSIsImRlbGl2ZXJ5X3BvaW50X25hbWUiOiJTaW5nYXBvcmUiLCJhdmFpbGFiaWxpdHlfd2luZG93IjoiMjAzMS0wNiIsInJlZ2lvbiI6IkFzaWEiLCJzaWRlIjoiQklEIiwibWluX3ByaWNlIjoiMTAwMCIsIm1heF9wcmljZSI6IjEwMDAiLCJ0b3RhbF9xdWFudGl0eSI6IjEwMC4wMCIsIm9yZGVyX2NvdW50IjoxLCJwcm9kdWN0X3RvdGFsX29yZGVyX2NvdW50IjoxMDA0MSwiZXZpZGVuY2VfY2xhc3MiOiJSRUFMIiwic291cmNlX2tpbmQiOiJMSVZFX09SREVSIiwic2NvcGUiOiJERUxJVkVSWV9QT0lOVCIsImRlbW9fc3RhdHVzIjoiUkVBTF9PTkxZIiwib2JzZXJ2ZWRfYXQiOiIyMDI2LTEwLTE1VDExOjAwOjAwLjUwMDAwMFoifSx7InByb2R1Y3RfaWQiOiI5NTEwYzcxMy02ZTM5LTUwODAtYWRkMy0wYTdjMjk2NTdiNzkiLCJwcm9kdWN0X25hbWUiOiJCaW8gTWV0aGFub2wiLCJtYXJrZXRfcHJvZHVjdCI6IkJJT19NRVRIQU5PTCIsImZ1ZWxfdHlwZSI6Ik1ldGhhbm9sIiwiZGVsaXZlcnlfcG9pbnRfaWQiOiI3MzgzNWU5Mi04MjBlLTU4NGItODI4MC1iYjYxYzYzYWEyOGUiLCJkZWxpdmVyeV9wb2ludF9uYW1lIjoiU2luZ2Fwb3JlIiwiYXZhaWxhYmlsaXR5X3dpbmRvdyI6IlNQT1QiLCJyZWdpb24iOiJBc2lhIiwic2lkZSI6IkFTSyIsIm1pbl9wcmljZSI6IjYwMC4wMCIsIm1heF9wcmljZSI6IjYwMC4wMCIsInRvdGFsX3F1YW50aXR5IjoiMTAwLjAwIiwib3JkZXJfY291bnQiOjEsInByb2R1Y3RfdG90YWxfb3JkZXJfY291bnQiOjEwMDQxLCJldmlkZW5jZV9jbGFzcyI6IlJFQUwiLCJzb3VyY2Vfa2luZCI6IkxJVkVfT1JERVIiLCJzY29wZSI6IkRFTElWRVJZX1BPSU5UIiwiZGVtb19zdGF0dXMiOiJSRUFMX09OTFkiLCJvYnNlcnZlZF9hdCI6IjIwMjYtMTAtMTVUMTI6MDA6MDBaIn0seyJwcm9kdWN0X2lkIjoiOTUxMGM3MTMtNmUzOS01MDgwLWFkZDMtMGE3YzI5NjU3Yjc5IiwicHJvZHVjdF9uYW1lIjoiQmlvIE1ldGhhbm9sIiwibWFya2V0X3Byb2R1Y3QiOiJCSU9fTUVUSEFOT0wiLCJmdWVsX3R5cGUiOiJNZXRoYW5vbCIsImRlbGl2ZXJ5X3BvaW50X2lkIjoiNzM4MzVlOTItODIwZS01ODRiLTgyODAtYmI2MWM2M2FhMjhlIiwiZGVsaXZlcnlfcG9pbnRfbmFtZSI6IlNpbmdhcG9yZSIsImF2YWlsYWJpbGl0eV93aW5kb3ciOiJTUE9UIiwicmVnaW9uIjoiQXNpYSIsInNpZGUiOiJCSUQiLCJtaW5fcHJpY2UiOiI2MDAuMDAiLCJtYXhfcHJpY2UiOiI2MDAuMDAiLCJ0b3RhbF9xdWFudGl0eSI6IjEwMC4wMCIsIm9yZGVyX2NvdW50IjoxLCJwcm9kdWN0X3RvdGFsX29yZGVyX2NvdW50IjoxLCJldmlkZW5jZV9jbGFzcyI6IkRFTU8iLCJzb3VyY2Vfa2luZCI6IkRFTU9fU0VFRCIsInNjb3BlIjoiREVMSVZFUllfUE9JTlQiLCJkZW1vX3N0YXR1cyI6IkRFTU9fT05MWSIsIm9ic2VydmVkX2F0IjoiMjAyNi0xMC0xNVQxMjowMDowMFoifSx7InByb2R1Y3RfaWQiOiI5NTEwYzcxMy02ZTM5LTUwODAtYWRkMy0wYTdjMjk2NTdiNzkiLCJwcm9kdWN0X25hbWUiOiJCaW8gTWV0aGFub2wiLCJtYXJrZXRfcHJvZHVjdCI6IkJJT19NRVRIQU5PTCIsImZ1ZWxfdHlwZSI6Ik1ldGhhbm9sIiwiZGVsaXZlcnlfcG9pbnRfaWQiOiI3MzgzNWU5Mi04MjBlLTU4NGItODI4MC1iYjYxYzYzYWEyOGUiLCJkZWxpdmVyeV9wb2ludF9uYW1lIjoiU2luZ2Fwb3JlIiwiYXZhaWxhYmlsaXR5X3dpbmRvdyI6IlNQT1QiLCJyZWdpb24iOiJBc2lhIiwic2lkZSI6IkJJRCIsIm1pbl9wcmljZSI6IjYwMC4wMCIsIm1heF9wcmljZSI6IjYwMC4wMCIsInRvdGFsX3F1YW50aXR5IjoiMTE0MC4wMCIsIm9yZGVyX2NvdW50IjoxMiwicHJvZHVjdF90b3RhbF9vcmRlcl9jb3VudCI6MTAwNDEsImV2aWRlbmNlX2NsYXNzIjoiUkVBTCIsInNvdXJjZV9raW5kIjoiTElWRV9PUkRFUiIsInNjb3BlIjoiREVMSVZFUllfUE9JTlQiLCJkZW1vX3N0YXR1cyI6IlJFQUxfT05MWSIsIm9ic2VydmVkX2F0IjoiMjAyNi0xMC0xNVQxMjowMDowMFoifSx7InByb2R1Y3RfaWQiOiJlNTYxZTQzZi1kOWIyLTU5OGUtOTgxYy1mMWQyOGQ1MTVkZGMiLCJwcm9kdWN0X25hbWUiOiJVQ09NRSBCMTAwIiwibWFya2V0X3Byb2R1Y3QiOiJVQ09NRV9CMTAwIiwiZnVlbF90eXBlIjoiRkFNRSIsImRlbGl2ZXJ5X3BvaW50X2lkIjoiNzM4MzVlOTItODIwZS01ODRiLTgyODAtYmI2MWM2M2FhMjhlIiwiZGVsaXZlcnlfcG9pbnRfbmFtZSI6IlNpbmdhcG9yZSIsImF2YWlsYWJpbGl0eV93aW5kb3ciOiJTUE9UIiwicmVnaW9uIjoiQXNpYSIsInNpZGUiOiJBU0siLCJtaW5fcHJpY2UiOiI2MDAuMDAiLCJtYXhfcHJpY2UiOiI2MDAuMDAiLCJ0b3RhbF9xdWFudGl0eSI6IjMwMC4wMCIsIm9yZGVyX2NvdW50IjozLCJwcm9kdWN0X3RvdGFsX29yZGVyX2NvdW50IjozLCJldmlkZW5jZV9jbGFzcyI6IlJFQUwiLCJzb3VyY2Vfa2luZCI6IkxJVkVfT1JERVIiLCJzY29wZSI6IkRFTElWRVJZX1BPSU5UIiwiZGVtb19zdGF0dXMiOiJSRUFMX09OTFkiLCJvYnNlcnZlZF9hdCI6IjIwMjYtMTAtMTVUMTI6MDA6MDBaIn1dLCJyZWNlbnRfYXNrcyI6W3sicHJvZHVjdF9pZCI6IjhmNmYzNGE1LTI5MjctNTRhNi04NTY0LWNjYTQwYWU3Y2I4YSIsInByb2R1Y3RfbmFtZSI6IkJpby1MTkciLCJtYXJrZXRfcHJvZHVjdCI6IkJJT19MTkciLCJmdWVsX3R5cGUiOiJMTkciLCJkZWxpdmVyeV9wb2ludF9pZCI6IjEzNzlkMzZjLTFjYTktNTViNy05YzBkLTUyMzVhMGJhMWYzNiIsImRlbGl2ZXJ5X3BvaW50X25hbWUiOiJSb3R0ZXJkYW0iLCJyZWdpb24iOiJFdXJvcGUiLCJwcmljZV9wZXJfbXRfdXNkIjoiNjAwLjAwIiwicmVtYWluaW5nX3F1YW50aXR5X210IjoiMTAwLjAwIiwiY3JlYXRlZF9hdCI6IjIwMjYtMTAtMTVUMTI6MDA6MDBaIiwiZXZpZGVuY2VfY2xhc3MiOiJSRUFMIiwic291cmNlX2tpbmQiOiJMSVZFX09SREVSIiwic2NvcGUiOiJERUxJVkVSWV9QT0lOVCIsImRlbW9fc3RhdHVzIjoiUkVBTF9PTkxZIn0seyJwcm9kdWN0X2lkIjoiOTUxMGM3MTMtNmUzOS01MDgwLWFkZDMtMGE3YzI5NjU3Yjc5IiwicHJvZHVjdF9uYW1lIjoiQmlvIE1ldGhhbm9sIiwibWFya2V0X3Byb2R1Y3QiOiJCSU9fTUVUSEFOT0wiLCJmdWVsX3R5cGUiOiJNZXRoYW5vbCIsImRlbGl2ZXJ5X3BvaW50X2lkIjoiNzM4MzVlOTItODIwZS01ODRiLTgyODAtYmI2MWM2M2FhMjhlIiwiZGVsaXZlcnlfcG9pbnRfbmFtZSI6IlNpbmdhcG9yZSIsInJlZ2lvbiI6IkFzaWEiLCJwcmljZV9wZXJfbXRfdXNkIjoiMTEwOSIsInJlbWFpbmluZ19xdWFudGl0eV9tdCI6IjEwMC4wMCIsImNyZWF0ZWRfYXQiOiIyMDI2LTEwLTE1VDEyOjAwOjAwWiIsImV2aWRlbmNlX2NsYXNzIjoiUkVBTCIsInNvdXJjZV9raW5kIjoiTElWRV9PUkRFUiIsInNjb3BlIjoiREVMSVZFUllfUE9JTlQiLCJkZW1vX3N0YXR1cyI6IlJFQUxfT05MWSJ9XX0="
+    },
+    {
+      "id": "R21-map-summary-head--kyc-off",
+      "request": {
+        "method": "HEAD",
+        "path": "/api/orderbook/map-summary",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 405,
+        "headers": {
+          "allow": "GET",
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": null,
+        "body_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "raw_body_base64": ""
+    },
+    {
+      "id": "R21-map-summary-post-405--kyc-off",
+      "request": {
+        "method": "POST",
+        "path": "/api/orderbook/map-summary",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 405,
+        "headers": {
+          "allow": "GET",
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "detail": "Method Not Allowed"
+        },
+        "body_sha256": "83c09ba9a8daedb136f90b17a294caa90ad471a016e430df6e229acb5a81e100"
+      },
+      "raw_body_base64": "eyJkZXRhaWwiOiJNZXRob2QgTm90IEFsbG93ZWQifQ=="
+    },
+    {
+      "id": "R21-map-summary-options-405--kyc-off",
+      "request": {
+        "method": "OPTIONS",
+        "path": "/api/orderbook/map-summary",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 405,
+        "headers": {
+          "allow": "GET",
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "detail": "Method Not Allowed"
+        },
+        "body_sha256": "83c09ba9a8daedb136f90b17a294caa90ad471a016e430df6e229acb5a81e100"
+      },
+      "raw_body_base64": "eyJkZXRhaWwiOiJNZXRob2QgTm90IEFsbG93ZWQifQ=="
+    },
+    {
+      "id": "R21-map-summary-slash-307--kyc-off",
+      "request": {
+        "method": "GET",
+        "path": "/api/orderbook/map-summary/",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 307,
+        "headers": {
+          "location": "{endpoint}/api/orderbook/map-summary",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": null,
+        "body_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "raw_body_base64": ""
+    },
+    {
+      "id": "R22-map-compact--kyc-off",
+      "request": {
+        "method": "GET",
+        "path": "/api/orderbook/map-summary/compact",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "markets": [
+            {
+              "product_id": "74eb9cb5-f0e3-55f1-b82c-fe29b7c45bf5",
+              "product_name": "B100",
+              "market_product": "B100",
+              "fuel_type": "Biofuel",
+              "delivery_point_id": "73835e92-820e-584b-8280-bb61c63aa28e",
+              "delivery_point_name": "Singapore",
+              "region": "Asia",
+              "evidence_class": "REAL",
+              "source_kind": "LIVE_ORDER",
+              "scope": "DELIVERY_POINT",
+              "demo_status": "REAL_ONLY",
+              "bid_min_price": "600.00",
+              "bid_max_price": "600.00",
+              "bid_total_quantity": "100.00",
+              "bid_order_count": 1,
+              "ask_min_price": "600.00",
+              "ask_max_price": "600.00",
+              "ask_total_quantity": "100.00",
+              "ask_order_count": 1,
+              "spot_best_bid": "600.00",
+              "spot_best_ask": "600.00",
+              "observed_at": "2026-10-15T12:00:00Z"
+            },
+            {
+              "product_id": "c4cecebc-3d2d-5840-8021-57a9a11bc673",
+              "product_name": "B30",
+              "market_product": "B30",
+              "fuel_type": "Biofuel",
+              "delivery_point_id": "73835e92-820e-584b-8280-bb61c63aa28e",
+              "delivery_point_name": "Singapore",
+              "region": "Asia",
+              "evidence_class": "REAL",
+              "source_kind": "LIVE_ORDER",
+              "scope": "DELIVERY_POINT",
+              "demo_status": "REAL_ONLY",
+              "bid_min_price": "600.00",
+              "bid_max_price": "600.00",
+              "bid_total_quantity": "100.00",
+              "bid_order_count": 1,
+              "ask_min_price": "600.00",
+              "ask_max_price": "600.00",
+              "ask_total_quantity": "100.00",
+              "ask_order_count": 1,
+              "spot_best_bid": "600.00",
+              "spot_best_ask": "600.00",
+              "observed_at": "2026-10-15T12:00:00Z"
+            },
+            {
+              "product_id": "8f6f34a5-2927-54a6-8564-cca40ae7cb8a",
+              "product_name": "Bio-LNG",
+              "market_product": "BIO_LNG",
+              "fuel_type": "LNG",
+              "delivery_point_id": "1379d36c-1ca9-55b7-9c0d-5235a0ba1f36",
+              "delivery_point_name": "Rotterdam",
+              "region": "Europe",
+              "evidence_class": "REAL",
+              "source_kind": "LIVE_ORDER",
+              "scope": "DELIVERY_POINT",
+              "demo_status": "REAL_ONLY",
+              "bid_min_price": null,
+              "bid_max_price": null,
+              "bid_total_quantity": "0",
+              "bid_order_count": 0,
+              "ask_min_price": "600.00",
+              "ask_max_price": "600.00",
+              "ask_total_quantity": "400.00",
+              "ask_order_count": 4,
+              "spot_best_bid": null,
+              "spot_best_ask": "600.00",
+              "observed_at": "2026-10-15T12:00:00Z"
+            },
+            {
+              "product_id": "9510c713-6e39-5080-add3-0a7c29657b79",
+              "product_name": "Bio Methanol",
+              "market_product": "BIO_METHANOL",
+              "fuel_type": "Methanol",
+              "delivery_point_id": "73835e92-820e-584b-8280-bb61c63aa28e",
+              "delivery_point_name": "Singapore",
+              "region": "Asia",
+              "evidence_class": "DEMO",
+              "source_kind": "DEMO_SEED",
+              "scope": "DELIVERY_POINT",
+              "demo_status": "DEMO_ONLY",
+              "bid_min_price": "600.00",
+              "bid_max_price": "600.00",
+              "bid_total_quantity": "100.00",
+              "bid_order_count": 1,
+              "ask_min_price": null,
+              "ask_max_price": null,
+              "ask_total_quantity": "0",
+              "ask_order_count": 0,
+              "spot_best_bid": "600.00",
+              "spot_best_ask": null,
+              "observed_at": "2026-10-15T12:00:00Z"
+            },
+            {
+              "product_id": "9510c713-6e39-5080-add3-0a7c29657b79",
+              "product_name": "Bio Methanol",
+              "market_product": "BIO_METHANOL",
+              "fuel_type": "Methanol",
+              "delivery_point_id": "73835e92-820e-584b-8280-bb61c63aa28e",
+              "delivery_point_name": "Singapore",
+              "region": "Asia",
+              "evidence_class": "REAL",
+              "source_kind": "LIVE_ORDER",
+              "scope": "DELIVERY_POINT",
+              "demo_status": "REAL_ONLY",
+              "bid_min_price": "600.00",
+              "bid_max_price": "1012",
+              "bid_total_quantity": "1002540.00",
+              "bid_order_count": 10026,
+              "ask_min_price": "600.00",
+              "ask_max_price": "1112",
+              "ask_total_quantity": "1500.00",
+              "ask_order_count": 15,
+              "spot_best_bid": "600.00",
+              "spot_best_ask": "600.00",
+              "observed_at": "2026-10-15T12:00:00Z"
+            },
+            {
+              "product_id": "e561e43f-d9b2-598e-981c-f1d28d515ddc",
+              "product_name": "UCOME B100",
+              "market_product": "UCOME_B100",
+              "fuel_type": "FAME",
+              "delivery_point_id": "73835e92-820e-584b-8280-bb61c63aa28e",
+              "delivery_point_name": "Singapore",
+              "region": "Asia",
+              "evidence_class": "REAL",
+              "source_kind": "LIVE_ORDER",
+              "scope": "DELIVERY_POINT",
+              "demo_status": "REAL_ONLY",
+              "bid_min_price": null,
+              "bid_max_price": null,
+              "bid_total_quantity": "0",
+              "bid_order_count": 0,
+              "ask_min_price": "600.00",
+              "ask_max_price": "600.00",
+              "ask_total_quantity": "300.00",
+              "ask_order_count": 3,
+              "spot_best_bid": null,
+              "spot_best_ask": "600.00",
+              "observed_at": "2026-10-15T12:00:00Z"
+            }
+          ],
+          "demo_groups": [
+            {
+              "product_id": "9510c713-6e39-5080-add3-0a7c29657b79",
+              "product_name": "Bio Methanol",
+              "market_product": "BIO_METHANOL",
+              "fuel_type": "Methanol",
+              "delivery_point_id": "73835e92-820e-584b-8280-bb61c63aa28e",
+              "delivery_point_name": "Singapore",
+              "availability_window": "SPOT",
+              "region": "Asia",
+              "side": "BID",
+              "min_price": "600.00",
+              "max_price": "600.00",
+              "total_quantity": "100.00",
+              "order_count": 1,
+              "product_total_order_count": 1,
+              "evidence_class": "DEMO",
+              "source_kind": "DEMO_SEED",
+              "scope": "DELIVERY_POINT",
+              "demo_status": "DEMO_ONLY",
+              "observed_at": "2026-10-15T12:00:00Z"
+            }
+          ],
+          "recent_asks": [
+            {
+              "product_id": "8f6f34a5-2927-54a6-8564-cca40ae7cb8a",
+              "product_name": "Bio-LNG",
+              "market_product": "BIO_LNG",
+              "fuel_type": "LNG",
+              "delivery_point_id": "1379d36c-1ca9-55b7-9c0d-5235a0ba1f36",
+              "delivery_point_name": "Rotterdam",
+              "region": "Europe",
+              "price_per_mt_usd": "600.00",
+              "remaining_quantity_mt": "100.00",
+              "created_at": "2026-10-15T12:00:00Z",
+              "evidence_class": "REAL",
+              "source_kind": "LIVE_ORDER",
+              "scope": "DELIVERY_POINT",
+              "demo_status": "REAL_ONLY"
+            },
+            {
+              "product_id": "9510c713-6e39-5080-add3-0a7c29657b79",
+              "product_name": "Bio Methanol",
+              "market_product": "BIO_METHANOL",
+              "fuel_type": "Methanol",
+              "delivery_point_id": "73835e92-820e-584b-8280-bb61c63aa28e",
+              "delivery_point_name": "Singapore",
+              "region": "Asia",
+              "price_per_mt_usd": "1109",
+              "remaining_quantity_mt": "100.00",
+              "created_at": "2026-10-15T12:00:00Z",
+              "evidence_class": "REAL",
+              "source_kind": "LIVE_ORDER",
+              "scope": "DELIVERY_POINT",
+              "demo_status": "REAL_ONLY"
+            }
+          ]
+        },
+        "body_sha256": "0de83b904194c2f72b9a104a10a6cad1d3a9447d1ac26be44b1b7b741a32745e"
+      },
+      "raw_body_base64": "eyJtYXJrZXRzIjpbeyJwcm9kdWN0X2lkIjoiNzRlYjljYjUtZjBlMy01NWYxLWI4MmMtZmUyOWI3YzQ1YmY1IiwicHJvZHVjdF9uYW1lIjoiQjEwMCIsIm1hcmtldF9wcm9kdWN0IjoiQjEwMCIsImZ1ZWxfdHlwZSI6IkJpb2Z1ZWwiLCJkZWxpdmVyeV9wb2ludF9pZCI6IjczODM1ZTkyLTgyMGUtNTg0Yi04MjgwLWJiNjFjNjNhYTI4ZSIsImRlbGl2ZXJ5X3BvaW50X25hbWUiOiJTaW5nYXBvcmUiLCJyZWdpb24iOiJBc2lhIiwiZXZpZGVuY2VfY2xhc3MiOiJSRUFMIiwic291cmNlX2tpbmQiOiJMSVZFX09SREVSIiwic2NvcGUiOiJERUxJVkVSWV9QT0lOVCIsImRlbW9fc3RhdHVzIjoiUkVBTF9PTkxZIiwiYmlkX21pbl9wcmljZSI6IjYwMC4wMCIsImJpZF9tYXhfcHJpY2UiOiI2MDAuMDAiLCJiaWRfdG90YWxfcXVhbnRpdHkiOiIxMDAuMDAiLCJiaWRfb3JkZXJfY291bnQiOjEsImFza19taW5fcHJpY2UiOiI2MDAuMDAiLCJhc2tfbWF4X3ByaWNlIjoiNjAwLjAwIiwiYXNrX3RvdGFsX3F1YW50aXR5IjoiMTAwLjAwIiwiYXNrX29yZGVyX2NvdW50IjoxLCJzcG90X2Jlc3RfYmlkIjoiNjAwLjAwIiwic3BvdF9iZXN0X2FzayI6IjYwMC4wMCIsIm9ic2VydmVkX2F0IjoiMjAyNi0xMC0xNVQxMjowMDowMFoifSx7InByb2R1Y3RfaWQiOiJjNGNlY2ViYy0zZDJkLTU4NDAtODAyMS01N2E5YTExYmM2NzMiLCJwcm9kdWN0X25hbWUiOiJCMzAiLCJtYXJrZXRfcHJvZHVjdCI6IkIzMCIsImZ1ZWxfdHlwZSI6IkJpb2Z1ZWwiLCJkZWxpdmVyeV9wb2ludF9pZCI6IjczODM1ZTkyLTgyMGUtNTg0Yi04MjgwLWJiNjFjNjNhYTI4ZSIsImRlbGl2ZXJ5X3BvaW50X25hbWUiOiJTaW5nYXBvcmUiLCJyZWdpb24iOiJBc2lhIiwiZXZpZGVuY2VfY2xhc3MiOiJSRUFMIiwic291cmNlX2tpbmQiOiJMSVZFX09SREVSIiwic2NvcGUiOiJERUxJVkVSWV9QT0lOVCIsImRlbW9fc3RhdHVzIjoiUkVBTF9PTkxZIiwiYmlkX21pbl9wcmljZSI6IjYwMC4wMCIsImJpZF9tYXhfcHJpY2UiOiI2MDAuMDAiLCJiaWRfdG90YWxfcXVhbnRpdHkiOiIxMDAuMDAiLCJiaWRfb3JkZXJfY291bnQiOjEsImFza19taW5fcHJpY2UiOiI2MDAuMDAiLCJhc2tfbWF4X3ByaWNlIjoiNjAwLjAwIiwiYXNrX3RvdGFsX3F1YW50aXR5IjoiMTAwLjAwIiwiYXNrX29yZGVyX2NvdW50IjoxLCJzcG90X2Jlc3RfYmlkIjoiNjAwLjAwIiwic3BvdF9iZXN0X2FzayI6IjYwMC4wMCIsIm9ic2VydmVkX2F0IjoiMjAyNi0xMC0xNVQxMjowMDowMFoifSx7InByb2R1Y3RfaWQiOiI4ZjZmMzRhNS0yOTI3LTU0YTYtODU2NC1jY2E0MGFlN2NiOGEiLCJwcm9kdWN0X25hbWUiOiJCaW8tTE5HIiwibWFya2V0X3Byb2R1Y3QiOiJCSU9fTE5HIiwiZnVlbF90eXBlIjoiTE5HIiwiZGVsaXZlcnlfcG9pbnRfaWQiOiIxMzc5ZDM2Yy0xY2E5LTU1YjctOWMwZC01MjM1YTBiYTFmMzYiLCJkZWxpdmVyeV9wb2ludF9uYW1lIjoiUm90dGVyZGFtIiwicmVnaW9uIjoiRXVyb3BlIiwiZXZpZGVuY2VfY2xhc3MiOiJSRUFMIiwic291cmNlX2tpbmQiOiJMSVZFX09SREVSIiwic2NvcGUiOiJERUxJVkVSWV9QT0lOVCIsImRlbW9fc3RhdHVzIjoiUkVBTF9PTkxZIiwiYmlkX21pbl9wcmljZSI6bnVsbCwiYmlkX21heF9wcmljZSI6bnVsbCwiYmlkX3RvdGFsX3F1YW50aXR5IjoiMCIsImJpZF9vcmRlcl9jb3VudCI6MCwiYXNrX21pbl9wcmljZSI6IjYwMC4wMCIsImFza19tYXhfcHJpY2UiOiI2MDAuMDAiLCJhc2tfdG90YWxfcXVhbnRpdHkiOiI0MDAuMDAiLCJhc2tfb3JkZXJfY291bnQiOjQsInNwb3RfYmVzdF9iaWQiOm51bGwsInNwb3RfYmVzdF9hc2siOiI2MDAuMDAiLCJvYnNlcnZlZF9hdCI6IjIwMjYtMTAtMTVUMTI6MDA6MDBaIn0seyJwcm9kdWN0X2lkIjoiOTUxMGM3MTMtNmUzOS01MDgwLWFkZDMtMGE3YzI5NjU3Yjc5IiwicHJvZHVjdF9uYW1lIjoiQmlvIE1ldGhhbm9sIiwibWFya2V0X3Byb2R1Y3QiOiJCSU9fTUVUSEFOT0wiLCJmdWVsX3R5cGUiOiJNZXRoYW5vbCIsImRlbGl2ZXJ5X3BvaW50X2lkIjoiNzM4MzVlOTItODIwZS01ODRiLTgyODAtYmI2MWM2M2FhMjhlIiwiZGVsaXZlcnlfcG9pbnRfbmFtZSI6IlNpbmdhcG9yZSIsInJlZ2lvbiI6IkFzaWEiLCJldmlkZW5jZV9jbGFzcyI6IkRFTU8iLCJzb3VyY2Vfa2luZCI6IkRFTU9fU0VFRCIsInNjb3BlIjoiREVMSVZFUllfUE9JTlQiLCJkZW1vX3N0YXR1cyI6IkRFTU9fT05MWSIsImJpZF9taW5fcHJpY2UiOiI2MDAuMDAiLCJiaWRfbWF4X3ByaWNlIjoiNjAwLjAwIiwiYmlkX3RvdGFsX3F1YW50aXR5IjoiMTAwLjAwIiwiYmlkX29yZGVyX2NvdW50IjoxLCJhc2tfbWluX3ByaWNlIjpudWxsLCJhc2tfbWF4X3ByaWNlIjpudWxsLCJhc2tfdG90YWxfcXVhbnRpdHkiOiIwIiwiYXNrX29yZGVyX2NvdW50IjowLCJzcG90X2Jlc3RfYmlkIjoiNjAwLjAwIiwic3BvdF9iZXN0X2FzayI6bnVsbCwib2JzZXJ2ZWRfYXQiOiIyMDI2LTEwLTE1VDEyOjAwOjAwWiJ9LHsicHJvZHVjdF9pZCI6Ijk1MTBjNzEzLTZlMzktNTA4MC1hZGQzLTBhN2MyOTY1N2I3OSIsInByb2R1Y3RfbmFtZSI6IkJpbyBNZXRoYW5vbCIsIm1hcmtldF9wcm9kdWN0IjoiQklPX01FVEhBTk9MIiwiZnVlbF90eXBlIjoiTWV0aGFub2wiLCJkZWxpdmVyeV9wb2ludF9pZCI6IjczODM1ZTkyLTgyMGUtNTg0Yi04MjgwLWJiNjFjNjNhYTI4ZSIsImRlbGl2ZXJ5X3BvaW50X25hbWUiOiJTaW5nYXBvcmUiLCJyZWdpb24iOiJBc2lhIiwiZXZpZGVuY2VfY2xhc3MiOiJSRUFMIiwic291cmNlX2tpbmQiOiJMSVZFX09SREVSIiwic2NvcGUiOiJERUxJVkVSWV9QT0lOVCIsImRlbW9fc3RhdHVzIjoiUkVBTF9PTkxZIiwiYmlkX21pbl9wcmljZSI6IjYwMC4wMCIsImJpZF9tYXhfcHJpY2UiOiIxMDEyIiwiYmlkX3RvdGFsX3F1YW50aXR5IjoiMTAwMjU0MC4wMCIsImJpZF9vcmRlcl9jb3VudCI6MTAwMjYsImFza19taW5fcHJpY2UiOiI2MDAuMDAiLCJhc2tfbWF4X3ByaWNlIjoiMTExMiIsImFza190b3RhbF9xdWFudGl0eSI6IjE1MDAuMDAiLCJhc2tfb3JkZXJfY291bnQiOjE1LCJzcG90X2Jlc3RfYmlkIjoiNjAwLjAwIiwic3BvdF9iZXN0X2FzayI6IjYwMC4wMCIsIm9ic2VydmVkX2F0IjoiMjAyNi0xMC0xNVQxMjowMDowMFoifSx7InByb2R1Y3RfaWQiOiJlNTYxZTQzZi1kOWIyLTU5OGUtOTgxYy1mMWQyOGQ1MTVkZGMiLCJwcm9kdWN0X25hbWUiOiJVQ09NRSBCMTAwIiwibWFya2V0X3Byb2R1Y3QiOiJVQ09NRV9CMTAwIiwiZnVlbF90eXBlIjoiRkFNRSIsImRlbGl2ZXJ5X3BvaW50X2lkIjoiNzM4MzVlOTItODIwZS01ODRiLTgyODAtYmI2MWM2M2FhMjhlIiwiZGVsaXZlcnlfcG9pbnRfbmFtZSI6IlNpbmdhcG9yZSIsInJlZ2lvbiI6IkFzaWEiLCJldmlkZW5jZV9jbGFzcyI6IlJFQUwiLCJzb3VyY2Vfa2luZCI6IkxJVkVfT1JERVIiLCJzY29wZSI6IkRFTElWRVJZX1BPSU5UIiwiZGVtb19zdGF0dXMiOiJSRUFMX09OTFkiLCJiaWRfbWluX3ByaWNlIjpudWxsLCJiaWRfbWF4X3ByaWNlIjpudWxsLCJiaWRfdG90YWxfcXVhbnRpdHkiOiIwIiwiYmlkX29yZGVyX2NvdW50IjowLCJhc2tfbWluX3ByaWNlIjoiNjAwLjAwIiwiYXNrX21heF9wcmljZSI6IjYwMC4wMCIsImFza190b3RhbF9xdWFudGl0eSI6IjMwMC4wMCIsImFza19vcmRlcl9jb3VudCI6Mywic3BvdF9iZXN0X2JpZCI6bnVsbCwic3BvdF9iZXN0X2FzayI6IjYwMC4wMCIsIm9ic2VydmVkX2F0IjoiMjAyNi0xMC0xNVQxMjowMDowMFoifV0sImRlbW9fZ3JvdXBzIjpbeyJwcm9kdWN0X2lkIjoiOTUxMGM3MTMtNmUzOS01MDgwLWFkZDMtMGE3YzI5NjU3Yjc5IiwicHJvZHVjdF9uYW1lIjoiQmlvIE1ldGhhbm9sIiwibWFya2V0X3Byb2R1Y3QiOiJCSU9fTUVUSEFOT0wiLCJmdWVsX3R5cGUiOiJNZXRoYW5vbCIsImRlbGl2ZXJ5X3BvaW50X2lkIjoiNzM4MzVlOTItODIwZS01ODRiLTgyODAtYmI2MWM2M2FhMjhlIiwiZGVsaXZlcnlfcG9pbnRfbmFtZSI6IlNpbmdhcG9yZSIsImF2YWlsYWJpbGl0eV93aW5kb3ciOiJTUE9UIiwicmVnaW9uIjoiQXNpYSIsInNpZGUiOiJCSUQiLCJtaW5fcHJpY2UiOiI2MDAuMDAiLCJtYXhfcHJpY2UiOiI2MDAuMDAiLCJ0b3RhbF9xdWFudGl0eSI6IjEwMC4wMCIsIm9yZGVyX2NvdW50IjoxLCJwcm9kdWN0X3RvdGFsX29yZGVyX2NvdW50IjoxLCJldmlkZW5jZV9jbGFzcyI6IkRFTU8iLCJzb3VyY2Vfa2luZCI6IkRFTU9fU0VFRCIsInNjb3BlIjoiREVMSVZFUllfUE9JTlQiLCJkZW1vX3N0YXR1cyI6IkRFTU9fT05MWSIsIm9ic2VydmVkX2F0IjoiMjAyNi0xMC0xNVQxMjowMDowMFoifV0sInJlY2VudF9hc2tzIjpbeyJwcm9kdWN0X2lkIjoiOGY2ZjM0YTUtMjkyNy01NGE2LTg1NjQtY2NhNDBhZTdjYjhhIiwicHJvZHVjdF9uYW1lIjoiQmlvLUxORyIsIm1hcmtldF9wcm9kdWN0IjoiQklPX0xORyIsImZ1ZWxfdHlwZSI6IkxORyIsImRlbGl2ZXJ5X3BvaW50X2lkIjoiMTM3OWQzNmMtMWNhOS01NWI3LTljMGQtNTIzNWEwYmExZjM2IiwiZGVsaXZlcnlfcG9pbnRfbmFtZSI6IlJvdHRlcmRhbSIsInJlZ2lvbiI6IkV1cm9wZSIsInByaWNlX3Blcl9tdF91c2QiOiI2MDAuMDAiLCJyZW1haW5pbmdfcXVhbnRpdHlfbXQiOiIxMDAuMDAiLCJjcmVhdGVkX2F0IjoiMjAyNi0xMC0xNVQxMjowMDowMFoiLCJldmlkZW5jZV9jbGFzcyI6IlJFQUwiLCJzb3VyY2Vfa2luZCI6IkxJVkVfT1JERVIiLCJzY29wZSI6IkRFTElWRVJZX1BPSU5UIiwiZGVtb19zdGF0dXMiOiJSRUFMX09OTFkifSx7InByb2R1Y3RfaWQiOiI5NTEwYzcxMy02ZTM5LTUwODAtYWRkMy0wYTdjMjk2NTdiNzkiLCJwcm9kdWN0X25hbWUiOiJCaW8gTWV0aGFub2wiLCJtYXJrZXRfcHJvZHVjdCI6IkJJT19NRVRIQU5PTCIsImZ1ZWxfdHlwZSI6Ik1ldGhhbm9sIiwiZGVsaXZlcnlfcG9pbnRfaWQiOiI3MzgzNWU5Mi04MjBlLTU4NGItODI4MC1iYjYxYzYzYWEyOGUiLCJkZWxpdmVyeV9wb2ludF9uYW1lIjoiU2luZ2Fwb3JlIiwicmVnaW9uIjoiQXNpYSIsInByaWNlX3Blcl9tdF91c2QiOiIxMTA5IiwicmVtYWluaW5nX3F1YW50aXR5X210IjoiMTAwLjAwIiwiY3JlYXRlZF9hdCI6IjIwMjYtMTAtMTVUMTI6MDA6MDBaIiwiZXZpZGVuY2VfY2xhc3MiOiJSRUFMIiwic291cmNlX2tpbmQiOiJMSVZFX09SREVSIiwic2NvcGUiOiJERUxJVkVSWV9QT0lOVCIsImRlbW9fc3RhdHVzIjoiUkVBTF9PTkxZIn1dfQ=="
+    },
+    {
+      "id": "R22-map-compact-head--kyc-off",
+      "request": {
+        "method": "HEAD",
+        "path": "/api/orderbook/map-summary/compact",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 405,
+        "headers": {
+          "allow": "GET",
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": null,
+        "body_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "raw_body_base64": ""
+    },
+    {
+      "id": "R22-map-compact-post-405--kyc-off",
+      "request": {
+        "method": "POST",
+        "path": "/api/orderbook/map-summary/compact",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 405,
+        "headers": {
+          "allow": "GET",
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "detail": "Method Not Allowed"
+        },
+        "body_sha256": "83c09ba9a8daedb136f90b17a294caa90ad471a016e430df6e229acb5a81e100"
+      },
+      "raw_body_base64": "eyJkZXRhaWwiOiJNZXRob2QgTm90IEFsbG93ZWQifQ=="
+    },
+    {
+      "id": "R22-map-compact-options-405--kyc-off",
+      "request": {
+        "method": "OPTIONS",
+        "path": "/api/orderbook/map-summary/compact",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 405,
+        "headers": {
+          "allow": "GET",
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "detail": "Method Not Allowed"
+        },
+        "body_sha256": "83c09ba9a8daedb136f90b17a294caa90ad471a016e430df6e229acb5a81e100"
+      },
+      "raw_body_base64": "eyJkZXRhaWwiOiJNZXRob2QgTm90IEFsbG93ZWQifQ=="
+    },
+    {
+      "id": "R22-map-compact-slash-307--kyc-off",
+      "request": {
+        "method": "GET",
+        "path": "/api/orderbook/map-summary/compact/",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 307,
+        "headers": {
+          "location": "{endpoint}/api/orderbook/map-summary/compact",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": null,
+        "body_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "raw_body_base64": ""
+    },
+    {
+      "id": "R23-products--kyc-off",
+      "request": {
+        "method": "GET",
+        "path": "/api/orderbook/products",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": [
+          "B100",
+          "B30",
+          "Bio Methanol",
+          "Bio-LNG",
+          "UCOME B100"
+        ],
+        "body_sha256": "4d108453dcc9467d2ce26698d3b17ce020bea5d104dbaaac0052c5e31d70a4e0"
+      },
+      "raw_body_base64": "WyJCMTAwIiwiQjMwIiwiQmlvIE1ldGhhbm9sIiwiQmlvLUxORyIsIlVDT01FIEIxMDAiXQ=="
+    },
+    {
+      "id": "R23-products-head--kyc-off",
+      "request": {
+        "method": "HEAD",
+        "path": "/api/orderbook/products",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 405,
+        "headers": {
+          "allow": "GET",
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": null,
+        "body_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "raw_body_base64": ""
+    },
+    {
+      "id": "R23-products-post-405--kyc-off",
+      "request": {
+        "method": "POST",
+        "path": "/api/orderbook/products",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 405,
+        "headers": {
+          "allow": "GET",
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "detail": "Method Not Allowed"
+        },
+        "body_sha256": "83c09ba9a8daedb136f90b17a294caa90ad471a016e430df6e229acb5a81e100"
+      },
+      "raw_body_base64": "eyJkZXRhaWwiOiJNZXRob2QgTm90IEFsbG93ZWQifQ=="
+    },
+    {
+      "id": "R23-products-options-405--kyc-off",
+      "request": {
+        "method": "OPTIONS",
+        "path": "/api/orderbook/products",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 405,
+        "headers": {
+          "allow": "GET",
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "detail": "Method Not Allowed"
+        },
+        "body_sha256": "83c09ba9a8daedb136f90b17a294caa90ad471a016e430df6e229acb5a81e100"
+      },
+      "raw_body_base64": "eyJkZXRhaWwiOiJNZXRob2QgTm90IEFsbG93ZWQifQ=="
+    },
+    {
+      "id": "R23-products-slash-307--kyc-off",
+      "request": {
+        "method": "GET",
+        "path": "/api/orderbook/products/",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 307,
+        "headers": {
+          "location": "{endpoint}/api/orderbook/products",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": null,
+        "body_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "raw_body_base64": ""
+    },
+    {
+      "id": "R24-regions--kyc-off",
+      "request": {
+        "method": "GET",
+        "path": "/api/orderbook/regions",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": [
+          "Asia",
+          "Europe"
+        ],
+        "body_sha256": "c726c47ef6780cbe0250b1e18233c83372982123094862dc2d998d82dd19d4cc"
+      },
+      "raw_body_base64": "WyJBc2lhIiwiRXVyb3BlIl0="
+    },
+    {
+      "id": "R24-regions-head--kyc-off",
+      "request": {
+        "method": "HEAD",
+        "path": "/api/orderbook/regions",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 405,
+        "headers": {
+          "allow": "GET",
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": null,
+        "body_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "raw_body_base64": ""
+    },
+    {
+      "id": "R24-regions-post-405--kyc-off",
+      "request": {
+        "method": "POST",
+        "path": "/api/orderbook/regions",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 405,
+        "headers": {
+          "allow": "GET",
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "detail": "Method Not Allowed"
+        },
+        "body_sha256": "83c09ba9a8daedb136f90b17a294caa90ad471a016e430df6e229acb5a81e100"
+      },
+      "raw_body_base64": "eyJkZXRhaWwiOiJNZXRob2QgTm90IEFsbG93ZWQifQ=="
+    },
+    {
+      "id": "R24-regions-options-405--kyc-off",
+      "request": {
+        "method": "OPTIONS",
+        "path": "/api/orderbook/regions",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 405,
+        "headers": {
+          "allow": "GET",
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "detail": "Method Not Allowed"
+        },
+        "body_sha256": "83c09ba9a8daedb136f90b17a294caa90ad471a016e430df6e229acb5a81e100"
+      },
+      "raw_body_base64": "eyJkZXRhaWwiOiJNZXRob2QgTm90IEFsbG93ZWQifQ=="
+    },
+    {
+      "id": "R24-regions-slash-307--kyc-off",
+      "request": {
+        "method": "GET",
+        "path": "/api/orderbook/regions/",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 307,
+        "headers": {
+          "location": "{endpoint}/api/orderbook/regions",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": null,
+        "body_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "raw_body_base64": ""
+    },
+    {
+      "id": "R25-fuel-types--kyc-off",
+      "request": {
+        "method": "GET",
+        "path": "/api/orderbook/fuel-types",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": [
+          "Biofuel",
+          "FAME",
+          "LNG",
+          "Methanol"
+        ],
+        "body_sha256": "226af64bcd51b7990df7278f247a09cb29147c860449f4a910242de4dab0dcf0"
+      },
+      "raw_body_base64": "WyJCaW9mdWVsIiwiRkFNRSIsIkxORyIsIk1ldGhhbm9sIl0="
+    },
+    {
+      "id": "R25-fuel-types-head--kyc-off",
+      "request": {
+        "method": "HEAD",
+        "path": "/api/orderbook/fuel-types",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 405,
+        "headers": {
+          "allow": "GET",
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": null,
+        "body_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "raw_body_base64": ""
+    },
+    {
+      "id": "R25-fuel-types-post-405--kyc-off",
+      "request": {
+        "method": "POST",
+        "path": "/api/orderbook/fuel-types",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 405,
+        "headers": {
+          "allow": "GET",
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "detail": "Method Not Allowed"
+        },
+        "body_sha256": "83c09ba9a8daedb136f90b17a294caa90ad471a016e430df6e229acb5a81e100"
+      },
+      "raw_body_base64": "eyJkZXRhaWwiOiJNZXRob2QgTm90IEFsbG93ZWQifQ=="
+    },
+    {
+      "id": "R25-fuel-types-options-405--kyc-off",
+      "request": {
+        "method": "OPTIONS",
+        "path": "/api/orderbook/fuel-types",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 405,
+        "headers": {
+          "allow": "GET",
+          "content-type": "application/json",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": {
+          "detail": "Method Not Allowed"
+        },
+        "body_sha256": "83c09ba9a8daedb136f90b17a294caa90ad471a016e430df6e229acb5a81e100"
+      },
+      "raw_body_base64": "eyJkZXRhaWwiOiJNZXRob2QgTm90IEFsbG93ZWQifQ=="
+    },
+    {
+      "id": "R25-fuel-types-slash-307--kyc-off",
+      "request": {
+        "method": "GET",
+        "path": "/api/orderbook/fuel-types/",
+        "query": "",
+        "headers": {
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        }
+      },
+      "exchange": {
+        "status": 307,
+        "headers": {
+          "location": "{endpoint}/api/orderbook/fuel-types",
+          "x-request-id": "00000000-0000-4000-8000-000000000001"
+        },
+        "body": null,
+        "body_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "raw_body_base64": ""
+    }
+  ]
+}

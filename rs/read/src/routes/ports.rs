@@ -52,23 +52,39 @@ pub fn routes() -> Router<AppState> {
 }
 
 async fn list_ports(State(state): State<AppState>) -> Result<Response, ApiError> {
+    let key = crate::runtime::cache::ReferenceKey::Ports {
+        region: None,
+        search: None,
+    };
+    if let Some(payload) = crate::runtime::cache::cached_payload(&state, &key) {
+        return Ok(axum::Json(payload).into_response());
+    }
     let ports = run_admitted(&state, |connection| {
         Box::pin(async move { select_ports(connection).await })
     })
     .await?;
-    Ok(axum::Json(Json::Array(ports)).into_response())
+    let payload = Json::Array(ports);
+    crate::runtime::cache::store_payload(&state, key, &payload);
+    Ok(axum::Json(payload).into_response())
 }
 
 async fn get_port(
     State(state): State<AppState>,
     Path(port_id): Path<String>,
 ) -> Result<Response, ApiError> {
+    let key = crate::runtime::cache::ReferenceKey::Port(port_id.clone());
+    if let Some(payload) = crate::runtime::cache::cached_payload(&state, &key) {
+        return Ok(axum::Json(payload).into_response());
+    }
     let port = run_admitted(&state, |connection| {
         Box::pin(async move { select_port(connection, port_id).await })
     })
     .await?;
     match port {
-        Some(port) => Ok(axum::Json(port).into_response()),
+        Some(port) => {
+            crate::runtime::cache::store_payload(&state, key, &port);
+            Ok(axum::Json(port).into_response())
+        }
         None => Err(ApiError {
             status: StatusCode::NOT_FOUND,
             detail: json!("Port not found"),

@@ -64,6 +64,8 @@ def route_owner(request, tmp_path_factory):
     if not caddy:
         caddy = str(ROOT / "work/rust-phase1/bin/caddy")
     assert Path(caddy).is_file(), "Set CADDY_BIN to the local Caddy executable"
+    # The shared fixture and snippet retain live flush/keepalive policy for
+    # either owner, including the MCP POST path during all-Python preparation.
     with upstream("python") as python, upstream("rust") as rust:
         with socket.socket() as reservation:
             reservation.bind(("127.0.0.1", 0))
