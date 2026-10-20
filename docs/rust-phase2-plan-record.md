@@ -71,6 +71,43 @@ requires approved producer activation metadata and tests proving both feeds
 and counts use the same trusted-source rule. Keep historical rows and apply
 PD5 to the later trusted producer's per-environment activation boundary.
 
+## Approved difference PD8 — price-alert cap concurrency
+
+PD8 — Concurrent A01 calls by different users in one organization at four active
+alerts can both return 201 and leave six active rows in Python. Approved Rust
+behavior: after authenticated user admission and before active count, take a
+per-organization transaction advisory lock in a fixed price-alert-cap namespace;
+admit one create and return the existing cap-refusal 403 to the other, leaving
+five active alerts. Keep Python unchanged. Only this race response and its
+refused candidate row are an approved difference; all non-race contracts remain
+unchanged. Evidence/vectors: `tests/rust_contract/phase2/pd8-differences.json`
+and `docs/rust-phase2/task16-pd8-evidence.json`.
+
+The lock key is SHA-256 over `verdaxis:price-alert-cap:v1:` and the full
+organization UUID. It follows the authenticated user lock and is released by
+commit or rollback. The disposable application role already holds the privilege;
+no ACL grant or organization row lock is added. Because legacy Python does not
+take this lock, this is not a claim that a simultaneous Python writer obeys the
+repaired cap.
+
+## Task 23 runtime projection notes
+
+Task 23 owns the shared runtime projection. The route components above stay
+unmounted until it lands; feedback also stays on Python until Task 22 supplies
+the cross-process quota authority.
+
+- Pass the raw `FRONTEND_URL` value to `ReferralSettings::new` without trimming.
+  Referral link construction must use the configured string exactly.
+- Inject the existing verification settings, `EMAIL_FROM`, the production mail
+  client built from `RESEND_API_KEY`, and the shared quota authority into the
+  composed routers. Do not create a second settings or quota owner.
+- Merge the exported route factory (`routes::referral_routes(settings)`), and
+  compose the notification, preference, feedback and price-alert routers through
+  their exported seams. Keep the market write boundary unmounted: Task 21 stays
+  excluded, and no market write route may be activated.
+- Keep the marked registration blocks intact when composing; the shared runner
+  selects route groups through them.
+
 ## Ownership
 
 This integration lane owns Cargo manifests, runtime composition, comparator,
