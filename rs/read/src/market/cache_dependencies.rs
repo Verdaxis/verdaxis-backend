@@ -93,6 +93,16 @@ pub fn required_facts(family: &str) -> Option<&'static [TemporalFact]> {
     }
 }
 
+/// Every fact a route may report, in the order the boundary scans them.
+const ALL_FACTS: [TemporalFact; 6] = [
+    TemporalFact::OrderExpiry,
+    TemporalFact::KycGrace,
+    TemporalFact::DeclarationDate,
+    TemporalFact::RollingWindows,
+    TemporalFact::BenchmarkExpiry,
+    TemporalFact::CalendarWindow,
+];
+
 /// Captured once per read so every derived instant shares one clock.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct TradingClock {
@@ -159,7 +169,14 @@ pub struct TemporalFacts {
 impl TemporalFacts {
     /// A query over written rows only: counts, immutable trade snapshots and
     /// fixed request ranges. Only a write can change the answer.
-    pub fn written_only() -> Self {
+    ///
+    /// This asserts that *no* time predicate shaped the query. It is sound only
+    /// for the reviewed families whose query has no time predicate at all
+    /// (`prices`, `trade_tape`). A route that reads order expiry, KYC grace, a
+    /// certificate date, a rolling window or a calendar rule must build its
+    /// facts from the boundary helpers below, which report what the actual rows
+    /// proved. Reaching for this constructor there would silence the bypass.
+    pub fn proven_written_only() -> Self {
         Self {
             order_expiry: Deadline::None,
             kyc_grace: Deadline::None,
@@ -171,66 +188,119 @@ impl TemporalFacts {
     }
 
     /// The earliest instant the query result can change without a write.
+    ///
+    /// Considers every reported fact. A family uses [`Self::boundary_for`],
+    /// which ignores facts its query does not read.
     pub fn boundary(&self, clock: &TradingClock) -> Boundary {
+        self.earliest(&ALL_FACTS, clock)
+    }
+
+    /// The earliest change among the facts this family actually reads.
+    /// A required fact that is `Unknown` makes the whole boundary `Unknown`.
+    pub fn boundary_for(&self, family: &str, clock: &TradingClock) -> Boundary {
+        let Some(required) = required_facts(family) else {
+            return Boundary::Unknown;
+        };
+        self.earliest(required, clock)
+    }
+
+    fn earliest(&self, facts: &[TemporalFact], clock: &TradingClock) -> Boundary {
         let mut earliest: Option<Instant> = None;
-        for deadline in [
-            self.order_expiry,
-            self.kyc_grace,
-            self.declaration_date,
-            self.benchmark_expiry,
-            self.calendar_window,
-        ] {
-            match deadline {
-                Deadline::Unknown => return Boundary::Unknown,
-                Deadline::None => {}
-                Deadline::At(wall) => {
-                    // A deadline at or before the snapshot has already shaped
-                    // the result. Only future changes need a new boundary.
-                    if let Ok(ahead) = wall.duration_since(clock.wall)
-                        && !ahead.is_zero()
-                    {
-                        let at = clock.monotonic + ahead;
-                        earliest = Some(earliest.map_or(at, |current| current.min(at)));
+        for fact in facts {
+            match fact {
+                TemporalFact::OrderExpiry => {
+                    if !self.add_deadline(self.order_expiry, clock, &mut earliest) {
+                        return Boundary::Unknown;
                     }
                 }
-            }
-        }
-        match &self.rolling_windows {
-            RollingWindows::Unknown => return Boundary::Unknown,
-            RollingWindows::None => {}
-            RollingWindows::Derived(departures) => {
-                for wall in departures {
-                    if let Ok(ahead) = wall.duration_since(clock.wall)
-                        && !ahead.is_zero()
-                    {
-                        let at = clock.monotonic + ahead;
-                        earliest = Some(earliest.map_or(at, |current| current.min(at)));
+                TemporalFact::KycGrace => {
+                    if !self.add_deadline(self.kyc_grace, clock, &mut earliest) {
+                        return Boundary::Unknown;
                     }
                 }
+                TemporalFact::DeclarationDate => {
+                    if !self.add_deadline(self.declaration_date, clock, &mut earliest) {
+                        return Boundary::Unknown;
+                    }
+                }
+                TemporalFact::BenchmarkExpiry => {
+                    if !self.add_deadline(self.benchmark_expiry, clock, &mut earliest) {
+                        return Boundary::Unknown;
+                    }
+                }
+                TemporalFact::CalendarWindow => {
+                    if !self.add_deadline(self.calendar_window, clock, &mut earliest) {
+                        return Boundary::Unknown;
+                    }
+                }
+                TemporalFact::RollingWindows => match &self.rolling_windows {
+                    RollingWindows::Unknown => return Boundary::Unknown,
+                    RollingWindows::None => {}
+                    RollingWindows::Derived(departures) => {
+                        for wall in departures {
+                            if let Ok(ahead) = wall.duration_since(clock.wall)
+                                && !ahead.is_zero()
+                            {
+                                let at = clock.monotonic + ahead;
+                                earliest = Some(earliest.map_or(at, |current| current.min(at)));
+                            }
+                        }
+                    }
+                },
             }
         }
         earliest.map_or(Boundary::Never, Boundary::At)
     }
 
-    /// Whether this family may be cached at all: it is reviewed, and the route
-    /// derived every dependency it reports. A route that reports an unknown
-    /// fact it does not even need is still refused, because the report is
-    /// inconsistent with the query it describes.
+    /// Add one wall-clock deadline. `false` means the fact is `Unknown`.
+    fn add_deadline(
+        &self,
+        deadline: Deadline,
+        clock: &TradingClock,
+        earliest: &mut Option<Instant>,
+    ) -> bool {
+        match deadline {
+            Deadline::Unknown => false,
+            Deadline::None => true,
+            Deadline::At(wall) => {
+                // A deadline at or before the snapshot has already shaped the
+                // result. Only future changes need a new boundary.
+                if let Ok(ahead) = wall.duration_since(clock.wall)
+                    && !ahead.is_zero()
+                {
+                    let at = clock.monotonic + ahead;
+                    *earliest = Some(earliest.map_or(at, |current| current.min(at)));
+                }
+                true
+            }
+        }
+    }
+
+    /// Whether this family may be cached at all. `required_facts` is the
+    /// authority: a family that is not reviewed is refused outright, and every
+    /// fact that family reads must be derived. A fact the family does not read
+    /// is ignored, so a route is never asked to prove a dependency its query
+    /// does not have.
     pub fn complete_for(&self, family: &str) -> bool {
-        required_facts(family).is_some()
-            && self.order_expiry != Deadline::Unknown
-            && self.kyc_grace != Deadline::Unknown
-            && self.declaration_date != Deadline::Unknown
-            && self.rolling_windows != RollingWindows::Unknown
-            && self.benchmark_expiry != Deadline::Unknown
-            && self.calendar_window != Deadline::Unknown
+        let Some(required) = required_facts(family) else {
+            return false;
+        };
+        required.iter().all(|fact| match fact {
+            TemporalFact::OrderExpiry => self.order_expiry != Deadline::Unknown,
+            TemporalFact::KycGrace => self.kyc_grace != Deadline::Unknown,
+            TemporalFact::DeclarationDate => self.declaration_date != Deadline::Unknown,
+            TemporalFact::RollingWindows => self.rolling_windows != RollingWindows::Unknown,
+            TemporalFact::BenchmarkExpiry => self.benchmark_expiry != Deadline::Unknown,
+            TemporalFact::CalendarWindow => self.calendar_window != Deadline::Unknown,
+        })
     }
 }
 
-/// Whether a fill may be stored: the family is reviewed and every boundary is
-/// known. `Boundary::Never` is cacheable because time alone cannot change it.
+/// Whether a fill may be stored: the family is reviewed and every boundary it
+/// reads is known. `Boundary::Never` is cacheable because time alone cannot
+/// change it.
 pub fn cacheable(family: &str, facts: &TemporalFacts, clock: &TradingClock) -> bool {
-    facts.complete_for(family) && facts.boundary(clock) != Boundary::Unknown
+    facts.complete_for(family) && facts.boundary_for(family, clock) != Boundary::Unknown
 }
 
 /// The monotonic deadline stored beside a payload.
@@ -411,7 +481,7 @@ mod tests {
         let facts = TemporalFacts {
             order_expiry: order_expiry_boundary(Some(soon), &clock),
             kyc_grace: kyc_grace_boundary(Some(later), &clock),
-            ..TemporalFacts::written_only()
+            ..TemporalFacts::proven_written_only()
         };
         let Boundary::At(boundary) = facts.boundary(&clock) else {
             panic!("a future dependency must produce a boundary");
@@ -427,18 +497,39 @@ mod tests {
         let facts = TemporalFacts::default();
         assert_eq!(facts.boundary(&clock), Boundary::Unknown);
         assert!(!cacheable("orderbook", &facts, &clock));
-        let known = TemporalFacts::written_only();
-        assert!(cacheable("orderbook", &known, &clock));
-        assert!(!cacheable("not-a-reviewed-route", &known, &clock));
+        // The shortcut is sound only for a family whose query has no time
+        // predicate; an orderbook route must derive its own facts.
+        assert!(cacheable(
+            "prices",
+            &TemporalFacts::proven_written_only(),
+            &clock
+        ));
+        assert!(!cacheable(
+            "not-a-reviewed-route",
+            &TemporalFacts::proven_written_only(),
+            &clock
+        ));
+        // An empty orderbook genuinely proves every fact from its own rows.
+        let empty_orderbook = TemporalFacts {
+            order_expiry: order_expiry_boundary(None, &clock),
+            kyc_grace: kyc_grace_boundary(None, &clock),
+            declaration_date: certificate_boundary(None, &clock),
+            ..TemporalFacts::default()
+        };
+        assert!(cacheable("orderbook", &empty_orderbook, &clock));
+        // A route that could not derive a dependency its family reads is
+        // refused; curves read rolling windows, orderbook does not.
         let missing_window = TemporalFacts {
             rolling_windows: RollingWindows::Unknown,
-            ..TemporalFacts::written_only()
+            ..TemporalFacts::proven_written_only()
         };
         assert_eq!(missing_window.boundary(&clock), Boundary::Unknown);
-        assert!(!missing_window.complete_for("orderbook"));
+        assert!(!missing_window.complete_for("curves"));
+        assert!(missing_window.complete_for("orderbook"));
+        assert!(cacheable("orderbook", &missing_window, &clock));
         let window = TemporalFacts {
             rolling_windows: RollingWindows::Derived(vec![]),
-            ..TemporalFacts::written_only()
+            ..TemporalFacts::proven_written_only()
         };
         assert_eq!(window.boundary(&clock), Boundary::Never);
     }
@@ -449,7 +540,7 @@ mod tests {
         let cutoff = wall("2026-10-20T08:30:00Z");
         let facts = TemporalFacts {
             kyc_grace: kyc_grace_boundary(Some(cutoff), &clock),
-            ..TemporalFacts::written_only()
+            ..TemporalFacts::proven_written_only()
         };
         assert_eq!(
             facts.boundary(&clock),
@@ -470,7 +561,7 @@ mod tests {
                 wall("2026-10-21T08:00:00Z"),
                 wall("2026-12-01T08:00:00Z"),
             ]),
-            ..TemporalFacts::written_only()
+            ..TemporalFacts::proven_written_only()
         };
         assert_eq!(
             facts.boundary(&clock),
