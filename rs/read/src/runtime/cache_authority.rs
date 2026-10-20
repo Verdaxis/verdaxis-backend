@@ -72,9 +72,29 @@ pub struct FillTicket {
     generation: i64,
 }
 
+impl FenceToken {
+    /// The authority identity this token was issued under.
+    pub fn authority(&self) -> &Authority {
+        &self.authority
+    }
+
+    /// Process-local counter that changes on every authority or listener change.
+    pub fn fence(&self) -> u64 {
+        self.fence
+    }
+}
+
 impl FillTicket {
     pub fn new(token: FenceToken, generation: i64) -> Self {
         Self { token, generation }
+    }
+
+    pub fn token(&self) -> &FenceToken {
+        &self.token
+    }
+
+    pub fn generation(&self) -> i64 {
+        self.generation
     }
 }
 
@@ -267,6 +287,12 @@ impl CacheAuthority {
                 true
             }
         }
+    }
+
+    /// Highest generation this process has verified under the current fence.
+    /// `None` means no request has verified one yet since the last fence change.
+    pub fn highest_generation(&self) -> Option<i64> {
+        self.lock().and_then(|state| state.highest_generation)
     }
 
     /// A fill may be stored or answered only under the authority, listener and
