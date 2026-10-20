@@ -411,6 +411,48 @@ def test_rust_listener_uses_migrated_disposable_database(analytics_pg_url):
                    cwd=root, env=environment, check=True, timeout=900)
 
 
+def test_rust_trading_cache_needs_every_authority_and_generation(
+    analytics_pg_url, market_pg_url
+):
+    """Run the Rust trading-cache target against two disposable incarnations.
+
+    The two databases are separate migrated schemas on one disposable server,
+    not live hosts. `an_entry_from_the_prior_incarnation_is_never_a_hit` needs
+    both URLs, so this driver is what actually executes it in the suite.
+    """
+    environment = {
+        **os.environ,
+        "PUBLIC_CACHE_TEST_DATABASE_URL": analytics_pg_url.replace(
+            "postgresql+asyncpg://", "postgres://", 1
+        ),
+        "PUBLIC_CACHE_TEST_SECOND_DATABASE_URL": market_pg_url.replace(
+            "postgresql+asyncpg://", "postgres://", 1
+        ),
+        "RELEASE_SHA": subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True
+        ).strip(),
+        "SQLX_OFFLINE": "true",
+    }
+    subprocess.run(
+        [
+            "cargo",
+            "test",
+            "--manifest-path",
+            "rs/Cargo.toml",
+            "-p",
+            "verdaxis-read",
+            "--test",
+            "trading_cache_postgres",
+            "--",
+            "--test-threads=1",
+        ],
+        cwd=ROOT,
+        env=environment,
+        check=True,
+        timeout=1200,
+    )
+
+
 async def _wait_for_file(path: Path, timeout: float = 180.0) -> None:
     deadline = time.monotonic() + timeout
     while not path.exists():
@@ -421,31 +463,42 @@ async def _wait_for_file(path: Path, timeout: float = 180.0) -> None:
 
 @pytest.mark.asyncio
 async def test_two_rust_readers_never_serve_the_prior_generation(
-    route_market, market_pg_url, tmp_path
+    route_market, market_pg_url, analytics_pg_url, tmp_path
 ):
-    """Mixed Python-writer/Rust-reader schedule.
+    """Mixed Python-writer/Rust-reader schedule on two database incarnations.
 
-    Two independent Rust processes warm a trading entry at generation G. The
-    Python route writer commits a real order. Neither Rust process consumes the
-    invalidation wake before its next read, so each must derive G+1 from the
-    generation check in its own snapshot. Only then is the wake delivered and
-    the entry cleared. This is a correctness schedule; it measures nothing.
+    Two independent Rust processes, one per disposable incarnation, warm a
+    trading entry at generation G. Python then commits a real order through the
+    market API and a real write on the analytics database. Neither Rust process
+    consumes the invalidation wake before its next read, so each must derive
+    G+1 from the generation check in its own snapshot. Only then is the wake
+    delivered and the entry cleared. This is a correctness schedule; it
+    measures nothing.
     """
     client, seeded = route_market
-    url = market_pg_url.replace("postgresql+asyncpg://", "postgres://", 1)
+    analytics = analytics_pg_url.replace("postgresql+asyncpg://", "postgres://", 1)
     engine = seeded["engine"]
+    analytics_engine = create_async_engine(analytics_pg_url)
     epoch = secrets.token_hex(32)
     primary = secrets.token_hex(32)
+    readers = {
+        "a": analytics,
+        "b": market_pg_url.replace("postgresql+asyncpg://", "postgres://", 1),
+    }
+    # Each reader asserts its own database name, so the two incarnations are
+    # proved rather than assumed.
+    names = {reader: url.rsplit("/", 1)[-1].split("?", 1)[0] for reader, url in readers.items()}
 
-    async with engine.begin() as connection:
-        await connection.execute(
-            text(
-                "UPDATE public_read_cache_incarnation SET database_epoch = :epoch, "
-                "primary_identity = :primary, authority_revision = 1, active = true "
-                "WHERE singleton"
-            ),
-            {"epoch": epoch, "primary": primary},
-        )
+    for database in (engine, analytics_engine):
+        async with database.begin() as connection:
+            await connection.execute(
+                text(
+                    "UPDATE public_read_cache_incarnation SET database_epoch = :epoch, "
+                    "primary_identity = :primary, authority_revision = 1, active = true "
+                    "WHERE singleton"
+                ),
+                {"epoch": epoch, "primary": primary},
+            )
     record = tmp_path / "cache-authority.json"
     record.write_text(
         json.dumps(
@@ -465,7 +518,7 @@ async def test_two_rust_readers_never_serve_the_prior_generation(
     ).strip()
     environment = {
         **os.environ,
-        "PUBLIC_CACHE_TEST_DATABASE_URL": url,
+        "PUBLIC_CACHE_TEST_DATABASE_URL": readers["b"],
         "PUBLIC_CACHE_TEST_RECORD": str(record),
         "PUBLIC_CACHE_TEST_SCHEDULE": "mixed",
         "PUBLIC_CACHE_TEST_BARRIER_DIR": str(tmp_path),
@@ -511,7 +564,12 @@ async def test_two_rust_readers_never_serve_the_prior_generation(
                 "--nocapture",
                 "mixed_python_writer_schedule",
                 cwd=root,
-                env={**environment, "PUBLIC_CACHE_TEST_READER": reader},
+                env={
+                    **environment,
+                    "PUBLIC_CACHE_TEST_READER": reader,
+                    "PUBLIC_CACHE_TEST_READER_DATABASE_URL": readers[reader],
+                    "PUBLIC_CACHE_TEST_EXPECT_DATABASE": names[reader],
+                },
                 stdout=log,
                 stderr=asyncio.subprocess.STDOUT,
             )
@@ -531,6 +589,10 @@ async def test_two_rust_readers_never_serve_the_prior_generation(
             headers=_headers(seeded["buyer_id"], "cache-race-writer"),
         )
         assert created.status_code == 201, created.text
+        # The second incarnation needs its own committed change: reader a reads
+        # the analytics database, where no market order was posted.
+        async with analytics_engine.begin() as connection:
+            await connection.execute(text("UPDATE products SET is_active = is_active"))
         for reader in processes:
             (tmp_path / f"{reader}.warm.python").write_text("1")
 
@@ -552,10 +614,12 @@ async def test_two_rust_readers_never_serve_the_prior_generation(
                 await process.wait()
         for log in logs:
             log.close()
-        async with engine.begin() as connection:
-            await connection.execute(
-                text(
-                    "UPDATE public_read_cache_incarnation SET active = false, "
-                    "authority_revision = 0"
+        for database in (engine, analytics_engine):
+            async with database.begin() as connection:
+                await connection.execute(
+                    text(
+                        "UPDATE public_read_cache_incarnation SET active = false, "
+                        "authority_revision = 0"
+                    )
                 )
-            )
+        await analytics_engine.dispose()

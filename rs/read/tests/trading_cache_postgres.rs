@@ -268,6 +268,59 @@ fn barrier(directory: &Path, reader: &str, step: &str) -> PathBuf {
     directory.join(format!("{reader}.{step}"))
 }
 
+/// A fill that loses its authority while the query runs is neither stored nor
+/// answered. The revocation happens inside the loader, after the snapshot and
+/// generation were read but before the result is published.
+#[tokio::test]
+async fn a_fill_that_loses_its_authority_is_not_stored_or_answered() {
+    let _serial = SERIAL.lock().await;
+    let Some((url, mut writer)) = writer().await else {
+        return;
+    };
+    let record = Record::new();
+    let identity = authority(1);
+    bind(&mut writer, &identity, true).await;
+    record.activate(&identity);
+    let pools = connect(&state_config(&url)).await.unwrap();
+    let state = AppState::new(state_config(&url), pools, policy()).unwrap();
+    let runtime = state.trading_cache.as_ref().expect("explicitly enabled");
+    publish_record(runtime, &record);
+    runtime.tick(Instant::now()).await;
+    let cache = Arc::new(TradingCache::new(16, 1 << 20));
+    state.trading_caches.register(&cache);
+    let authority = runtime.authority().clone();
+
+    let result = run_trading_read(&state, &cache, "stale", "prices", move |connection| {
+        Box::pin(async move {
+            let value: i64 = sqlx::query_scalar(
+                "SELECT generation FROM public.public_read_cache_generations \
+                 WHERE domain = 'trading'",
+            )
+            .fetch_one(connection)
+            .await
+            .map_err(|_| ApiError::database())?;
+            // The owner revokes while this fill is in flight.
+            authority.revoke();
+            Ok(TradingFill {
+                value,
+                facts: TemporalFacts::proven_written_only(),
+            })
+        })
+    })
+    .await;
+
+    assert!(
+        result.is_err(),
+        "a fill from a revoked authority must not be answered"
+    );
+    assert!(
+        cache.is_empty(),
+        "a fill from a revoked authority must not be stored"
+    );
+    reset(&mut writer).await;
+    writer.close().await.unwrap();
+}
+
 fn signal(directory: &Path, reader: &str, step: &str) {
     std::fs::write(barrier(directory, reader, step), b"1").unwrap();
 }
@@ -294,17 +347,35 @@ async fn mixed_python_writer_schedule() {
     let Ok(url) = std::env::var("PUBLIC_CACHE_TEST_DATABASE_URL") else {
         return;
     };
+    // Each reader may be pointed at its own disposable incarnation, so the two
+    // processes prove the commit-safe check on two databases as well.
+    let database =
+        std::env::var("PUBLIC_CACHE_TEST_READER_DATABASE_URL").unwrap_or_else(|_| url.clone());
     let reader = std::env::var("PUBLIC_CACHE_TEST_READER").unwrap_or_else(|_| "a".into());
     let directory =
         PathBuf::from(std::env::var("PUBLIC_CACHE_TEST_BARRIER_DIR").expect("barrier directory"));
-    let pools = connect(&state_config(&url)).await.unwrap();
-    let state = AppState::new(state_config(&url), pools, policy()).unwrap();
+    let pools = connect(&state_config(&database)).await.unwrap();
+    let state = AppState::new(state_config(&database), pools, policy()).unwrap();
     let runtime = state.trading_cache.as_ref().expect("explicitly enabled");
     let cache = Arc::new(TradingCache::new(16, 1 << 20));
     state.trading_caches.register(&cache);
 
     // The Python owner wrote the record before starting this process.
-    let mut probe = PgConnection::connect_with(&options(&url)).await.unwrap();
+    let mut probe = PgConnection::connect_with(&options(&database))
+        .await
+        .unwrap();
+    // Prove each reader really serves its own incarnation, so "two processes on
+    // two databases" is not an assumption about the environment.
+    if let Ok(expected) = std::env::var("PUBLIC_CACHE_TEST_EXPECT_DATABASE") {
+        let actual: String = sqlx::query_scalar("SELECT current_database()")
+            .fetch_one(&mut probe)
+            .await
+            .unwrap();
+        assert_eq!(
+            actual, expected,
+            "reader {reader} is not on its named database"
+        );
+    }
     tokio::time::timeout(Duration::from_secs(30), async {
         loop {
             runtime.tick(Instant::now()).await;
